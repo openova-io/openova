@@ -129,7 +129,14 @@ vcluster:
     # this Secret via HelmRelease.spec.kubeConfig and got
     # `dial tcp [::1]:8443: connection refused` on every vc-dmz-targeted
     # HR (dmz/bp-coraza), holding the bootstrap-kit health gate forever.
-    # The host-side service DNS is the correct dial target.
-    server: https://dmz-vcluster.dmz.svc:443
+    # The host-side service DNS is the correct dial target. NB use the
+    # `<svc>.<ns>` short form, NOT `<svc>.<ns>.svc` — the vcluster
+    # apiserver serving cert's SANs include `dmz-vcluster.dmz` +
+    # `dmz-vcluster` but NOT `dmz-vcluster.dmz.svc` (hw92 2026-06-04: the
+    # `.svc` form #3038 first used gave helm-controller `x509:
+    # certificate is valid for ... dmz-vcluster.dmz, not
+    # dmz-vcluster.dmz.svc`). `dmz-vcluster.dmz` resolves from
+    # flux-system via the `svc.cluster.local` search domain.
+    server: https://dmz-vcluster.dmz:443
     secret:
       name: vc-dmz

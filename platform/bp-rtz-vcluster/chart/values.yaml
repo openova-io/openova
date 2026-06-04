@@ -5,9 +5,9 @@
 
 catalystBlueprint:
   upstream:
-    chart: vcluster
-    version: "0.20.0"
-    repo: "https://charts.loft.sh"
+ (rtz/bp-sandbox). Point at the host-side service DNS.chart: vcluster
+ (rtz/bp-sandbox). Point at the host-side service DNS.version: "0.20.0"
+ (rtz/bp-sandbox). Point at the host-side service DNS.repo: "https://charts.loft.sh"
 
 global:
   imageRegistry: ""
@@ -34,95 +34,95 @@ rtzVcluster:
   # The RTZ vCluster pod MUST run on the region's own CP node so
   # tenant traffic never silently lands in a foreign region.
   nodeSelector:
-    regionLabelKey: "openova.io/region"
-    regionLabelValue: ""
+ (rtz/bp-sandbox). Point at the host-side service DNS.regionLabelKey: "openova.io/region"
+ (rtz/bp-sandbox). Point at the host-side service DNS.regionLabelValue: ""
 
   image:
-    repository: "harbor.openova.io/proxy-ghcr/loft-sh/vcluster"
-    tag: "0.21.0"
-    pullPolicy: "IfNotPresent"
+ (rtz/bp-sandbox). Point at the host-side service DNS.repository: "harbor.openova.io/proxy-ghcr/loft-sh/vcluster"
+ (rtz/bp-sandbox). Point at the host-side service DNS.tag: "0.21.0"
+ (rtz/bp-sandbox). Point at the host-side service DNS.pullPolicy: "IfNotPresent"
 
   # ── NetworkPolicy isolation baseline ──────────────────────────────
   # RTZ default-deny: tenant workloads only reach DMZ for outbound
   # routes. NO direct mgmt access (mgmt only lives on the primary —
   # MGMT calls cross-region via DMZ WG).
   networkPolicy:
-    enabled: true
-    allowedIngressNamespaces:
-      - dmz     # always present on the same region
-    allowWorldIngress: false   # tenant pods never face world directly
+ (rtz/bp-sandbox). Point at the host-side service DNS.enabled: true
+ (rtz/bp-sandbox). Point at the host-side service DNS.allowedIngressNamespaces:
+ (rtz/bp-sandbox). Point at the host-side service DNS.  - dmz     # always present on the same region
+ (rtz/bp-sandbox). Point at the host-side service DNS.allowWorldIngress: false   # tenant pods never face world directly
 
 vcluster:
   controlPlane:
-    distro:
-      k8s:
-        enabled: true
-    backingStore:
-      database:
-        embedded:
-          enabled: true
-    statefulSet:
-      scheduling:
-        nodeSelector: {}
-      image:
-        registry: harbor.openova.io
-        repository: proxy-ghcr/loft-sh/vcluster
-        tag: "0.21.0"
-      resources:
-        requests:
-          cpu: "200m"
-          memory: "384Mi"
-        limits:
-          cpu: "2"
-          memory: "1Gi"
-      persistence:
-        volumeClaim:
-          enabled: true
-          size: "5Gi"
-          storageClass: "local-path"
-    service:
-      enabled: true
-      spec:
-        type: ClusterIP
+ (rtz/bp-sandbox). Point at the host-side service DNS.distro:
+ (rtz/bp-sandbox). Point at the host-side service DNS.  k8s:
+ (rtz/bp-sandbox). Point at the host-side service DNS.    enabled: true
+ (rtz/bp-sandbox). Point at the host-side service DNS.backingStore:
+ (rtz/bp-sandbox). Point at the host-side service DNS.  database:
+ (rtz/bp-sandbox). Point at the host-side service DNS.    embedded:
+ (rtz/bp-sandbox). Point at the host-side service DNS.      enabled: true
+ (rtz/bp-sandbox). Point at the host-side service DNS.statefulSet:
+ (rtz/bp-sandbox). Point at the host-side service DNS.  scheduling:
+ (rtz/bp-sandbox). Point at the host-side service DNS.    nodeSelector: {}
+ (rtz/bp-sandbox). Point at the host-side service DNS.  image:
+ (rtz/bp-sandbox). Point at the host-side service DNS.    registry: harbor.openova.io
+ (rtz/bp-sandbox). Point at the host-side service DNS.    repository: proxy-ghcr/loft-sh/vcluster
+ (rtz/bp-sandbox). Point at the host-side service DNS.    tag: "0.21.0"
+ (rtz/bp-sandbox). Point at the host-side service DNS.  resources:
+ (rtz/bp-sandbox). Point at the host-side service DNS.    requests:
+ (rtz/bp-sandbox). Point at the host-side service DNS.      cpu: "200m"
+ (rtz/bp-sandbox). Point at the host-side service DNS.      memory: "384Mi"
+ (rtz/bp-sandbox). Point at the host-side service DNS.    limits:
+ (rtz/bp-sandbox). Point at the host-side service DNS.      cpu: "2"
+ (rtz/bp-sandbox). Point at the host-side service DNS.      memory: "1Gi"
+ (rtz/bp-sandbox). Point at the host-side service DNS.  persistence:
+ (rtz/bp-sandbox). Point at the host-side service DNS.    volumeClaim:
+ (rtz/bp-sandbox). Point at the host-side service DNS.      enabled: true
+ (rtz/bp-sandbox). Point at the host-side service DNS.      size: "5Gi"
+ (rtz/bp-sandbox). Point at the host-side service DNS.      storageClass: "local-path"
+ (rtz/bp-sandbox). Point at the host-side service DNS.service:
+ (rtz/bp-sandbox). Point at the host-side service DNS.  enabled: true
+ (rtz/bp-sandbox). Point at the host-side service DNS.  spec:
+ (rtz/bp-sandbox). Point at the host-side service DNS.    type: ClusterIP
 
   sync:
-    toHost:
-      services:
-        enabled: true
-      ingresses:
-        enabled: false
-      persistentVolumeClaims:
-        enabled: true
-      configMaps:
-        enabled: true
-      secrets:
-        enabled: true
-      # G92.5 #2664 (2026-06-01) — CNPG `Cluster` CR sync vCluster → host.
-      # Mirrors the policy bp-mgmt-vcluster 0.2.1 ships (PR #2692). The
-      # RTZ vCluster hosts per-Org tenant Applications + Sandbox per
-      # docs/SOVEREIGN-MULTI-REGION-DOD.md §A4; both paths route
-      # PostgreSQL provisioning through the host cnpg-operator (G92.6
-      # substrate per #2665) via this sync policy:
-      #
-      #   - Tenant Applications: application-controller (G92.1 #2660,
-      #     PR #2674) renders the per-Application HR with
-      #     placementSchema.vcluster=rtz; the chart's CNPG Cluster CR
-      #     lands in vCluster's apiserver and reflects to host via
-      #     this policy.
-      #   - Sandbox: sandbox-controller's per-Sandbox CNPG Cluster CR
-      #     dispatch (slot 19a `sandbox.db.provision` block, D31
-      #     active-hot-standby aware) lands in vCluster, reflects to
-      #     host the same way.
-      customResources:
-        clusters.postgresql.cnpg.io:
-          enabled: true
-        poolers.postgresql.cnpg.io:
-          enabled: true
-        scheduledbackups.postgresql.cnpg.io:
-          enabled: true
-    fromHost:
-      ingressClasses:
-        enabled: true
+ (rtz/bp-sandbox). Point at the host-side service DNS.toHost:
+ (rtz/bp-sandbox). Point at the host-side service DNS.  services:
+ (rtz/bp-sandbox). Point at the host-side service DNS.    enabled: true
+ (rtz/bp-sandbox). Point at the host-side service DNS.  ingresses:
+ (rtz/bp-sandbox). Point at the host-side service DNS.    enabled: false
+ (rtz/bp-sandbox). Point at the host-side service DNS.  persistentVolumeClaims:
+ (rtz/bp-sandbox). Point at the host-side service DNS.    enabled: true
+ (rtz/bp-sandbox). Point at the host-side service DNS.  configMaps:
+ (rtz/bp-sandbox). Point at the host-side service DNS.    enabled: true
+ (rtz/bp-sandbox). Point at the host-side service DNS.  secrets:
+ (rtz/bp-sandbox). Point at the host-side service DNS.    enabled: true
+ (rtz/bp-sandbox). Point at the host-side service DNS.  # G92.5 #2664 (2026-06-01) — CNPG `Cluster` CR sync vCluster → host.
+ (rtz/bp-sandbox). Point at the host-side service DNS.  # Mirrors the policy bp-mgmt-vcluster 0.2.1 ships (PR #2692). The
+ (rtz/bp-sandbox). Point at the host-side service DNS.  # RTZ vCluster hosts per-Org tenant Applications + Sandbox per
+ (rtz/bp-sandbox). Point at the host-side service DNS.  # docs/SOVEREIGN-MULTI-REGION-DOD.md §A4; both paths route
+ (rtz/bp-sandbox). Point at the host-side service DNS.  # PostgreSQL provisioning through the host cnpg-operator (G92.6
+ (rtz/bp-sandbox). Point at the host-side service DNS.  # substrate per #2665) via this sync policy:
+ (rtz/bp-sandbox). Point at the host-side service DNS.  #
+ (rtz/bp-sandbox). Point at the host-side service DNS.  #   - Tenant Applications: application-controller (G92.1 #2660,
+ (rtz/bp-sandbox). Point at the host-side service DNS.  #     PR #2674) renders the per-Application HR with
+ (rtz/bp-sandbox). Point at the host-side service DNS.  #     placementSchema.vcluster=rtz; the chart's CNPG Cluster CR
+ (rtz/bp-sandbox). Point at the host-side service DNS.  #     lands in vCluster's apiserver and reflects to host via
+ (rtz/bp-sandbox). Point at the host-side service DNS.  #     this policy.
+ (rtz/bp-sandbox). Point at the host-side service DNS.  #   - Sandbox: sandbox-controller's per-Sandbox CNPG Cluster CR
+ (rtz/bp-sandbox). Point at the host-side service DNS.  #     dispatch (slot 19a `sandbox.db.provision` block, D31
+ (rtz/bp-sandbox). Point at the host-side service DNS.  #     active-hot-standby aware) lands in vCluster, reflects to
+ (rtz/bp-sandbox). Point at the host-side service DNS.  #     host the same way.
+ (rtz/bp-sandbox). Point at the host-side service DNS.  customResources:
+ (rtz/bp-sandbox). Point at the host-side service DNS.    clusters.postgresql.cnpg.io:
+ (rtz/bp-sandbox). Point at the host-side service DNS.      enabled: true
+ (rtz/bp-sandbox). Point at the host-side service DNS.    poolers.postgresql.cnpg.io:
+ (rtz/bp-sandbox). Point at the host-side service DNS.      enabled: true
+ (rtz/bp-sandbox). Point at the host-side service DNS.    scheduledbackups.postgresql.cnpg.io:
+ (rtz/bp-sandbox). Point at the host-side service DNS.      enabled: true
+ (rtz/bp-sandbox). Point at the host-side service DNS.fromHost:
+ (rtz/bp-sandbox). Point at the host-side service DNS.  ingressClasses:
+ (rtz/bp-sandbox). Point at the host-side service DNS.    enabled: true
 
   # Writes a host-namespace Secret named `vc-rtz` containing a kubeconfig
   # for the vCluster's apiserver. The Sovereign-side handler
@@ -131,11 +131,11 @@ vcluster:
   # `rtz-vcluster-kubeconfig` so per-Sovereign Flux Kustomization CRs
   # can reconcile RTZ-vCluster-targeted resources.
   exportKubeConfig:
-    context: vcluster
-    # hw91 2026-06-04: same defect as bp-dmz-vcluster — the default
-    # exported server is `https://localhost:8443`, unusable by the
-    # host-cluster helm-controller that reconciles vc-rtz-targeted HRs
-    # (rtz/bp-sandbox). Point at the host-side service DNS.
-    server: https://rtz-vcluster.rtz.svc:443
-    secret:
-      name: vc-rtz
+ (rtz/bp-sandbox). Point at the host-side service DNS.context: vcluster
+ (rtz/bp-sandbox). Point at the host-side service DNS.# hw91 2026-06-04: same defect as bp-dmz-vcluster — the default
+ (rtz/bp-sandbox). Point at the host-side service DNS.# exported server is `https://localhost:8443`, unusable by the
+ (rtz/bp-sandbox). Point at the host-side service DNS.# host-cluster helm-controller that reconciles vc-rtz-targeted HRs
+ (rtz/bp-sandbox). Point at the host-side service DNS.# (rtz/bp-sandbox). Point at the host-side service DNS.
+ (rtz/bp-sandbox). Point at the host-side service DNS.server: https://rtz-vcluster.rtz:443
+ (rtz/bp-sandbox). Point at the host-side service DNS.secret:
+ (rtz/bp-sandbox). Point at the host-side service DNS.  name: vc-rtz
