@@ -120,6 +120,18 @@ spec:
     # gateway.networking.k8s.io/v1 CRDs must be registered first.
     - name: bp-gateway-api
       namespace: flux-system
+    # #3052-followup (2026-06-04, hw95): the chart ships an
+    # externalsecret.external-secrets.io resource. Without this dependency
+    # Harbor installs BEFORE the external-secrets admission webhook is
+    # serving, so the ExternalSecret create fails ("failed calling webhook
+    # validate.externalsecret.external-secrets.io: connection refused"),
+    # the install retries 6× → Stalled, and Flux uninstall-remediates →
+    # the last ~8 HRs never all-ready so bootstrap-kit never holds stable
+    # Ready → sovereign-tls never binds → console 000. Gating on
+    # bp-external-secrets (the #2988 gold-standard pattern) makes Harbor
+    # wait for the webhook to be Ready before it creates the ExternalSecret.
+    - name: bp-external-secrets
+      namespace: flux-system
   chart:
     spec:
       chart: bp-harbor
