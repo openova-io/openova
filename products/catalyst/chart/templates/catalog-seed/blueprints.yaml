@@ -279,7 +279,7 @@ spec:
     perTopology:
       active-hot-standby:
         replication:
-          backend: cnpg-streaming-replication
+          backend: cnpg-pair
           mode: async
           lagSloSeconds: 30
         switchover:
@@ -287,11 +287,20 @@ spec:
           rtoSeconds: 60
           rpoSeconds: 30
         placement:
+          # 1.4.489 (hw91): the seed predated the Blueprint CRD's
+          # canonical placement vocabulary (pattern
+          # ^(mgmt|dmz|rtz)-[A-Z0-9]+$, enforced server-side since
+          # #2958/#3007) — 'primary-region'/'replica-region' failed
+          # admission and blocked the ENTIRE bp-catalyst-platform
+          # install ("Blueprint bp-cnpg-pair is invalid"). Canonical
+          # form per platform/bp-rtz-vcluster/blueprint.yaml: the CNPG
+          # pair lives in the runtime zone of each region, active in A,
+          # passive (replica) in B.
           tier: ""
-          clusters: [primary-region, replica-region]
+          clusters: [rtz-A, rtz-B]
           roles:
-            primary-region: active
-            replica-region: passive
+            rtz-A: active
+            rtz-B: passive
   endpoints: []
   configSchema:
     type: object
@@ -1128,7 +1137,7 @@ spec:
     perTopology:
       active-passive:
         replication:
-          backend: bp-cnpg-pair
+          backend: cnpg-pair
           mode: async
           lagSloSeconds: 30
         switchover:
