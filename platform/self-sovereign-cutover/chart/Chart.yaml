@@ -402,7 +402,7 @@ name: bp-self-sovereign-cutover
 # harbor.openova.io — so the cutover automation itself proves the
 # mothership-Harbor untether instead of leaving a manual post-hoc grep
 # as the only acceptance gate.
-version: 0.1.52
+version: 0.1.53
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

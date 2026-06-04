@@ -151,26 +151,45 @@ data:
               fi
             fi
 
-            # ── 2. Idempotent delete of any pre-existing token ────────────
-            # Gitea returns 422 "name has already been used" if the
-            # token name is already in use. On a re-run (chart upgrade,
-            # operator-triggered cutover replay) we MUST clear stale
-            # state before re-minting, otherwise the Pod exits non-zero
-            # and the cutover engine reports a failed step despite the
-            # steady-state being correct. DELETE is idempotent — Gitea
-            # returns 404 if the token doesn't exist, which we swallow.
+            # ── 2. Re-run no-op probe (#2938) ─────────────────────────────
+            # OLD behavior (idempotency VIOLATION, UAT Wave-2 ATTACK#7):
+            # delete-then-mint on every run. On a cutover replay the
+            # DELETE invalidated the token live workloads were using;
+            # between the Secret patch and the rollout-restart serving
+            # new Pods, every holder of the old token got hard 401s with
+            # NO recovery path (token gone server-side).
             #
-            # Gitea 1.22 API: DELETE /api/v1/users/{username}/tokens/{name}
-            # (NOT /admin/users/...) — the basic-auth'd caller must be
-            # the same user as {username}. gitea_admin authenticating as
-            # itself is the canonical path.
-            echo "[gitea-token-mint] purging any stale token named ${TOKEN_NAME}"
-            curl -fsS -u "${GITEA_USERNAME}:${GITEA_PASSWORD}" \
-              -X DELETE \
-              -H "Accept: application/json" \
-              "${api_url}/users/${GITEA_USERNAME}/tokens/${TOKEN_NAME}" \
-              >/dev/null 2>&1 || true
-            echo "[gitea-token-mint] stale-token purge complete (404 on first run is expected)"
+            # NEW contract: if the destination Secret already holds a
+            # token Gitea still accepts, steady-state is correct — exit 0
+            # WITHOUT touching anything (no delete, no mint, no rollout).
+            # Probe = GET /api/v1/user authenticated WITH that token
+            # (valid for any live token; 401 → revoked/invalid).
+            existing_token=$(kubectl -n "${DEST_SECRET_NAMESPACE}" get secret "${DEST_SECRET_NAME}" \
+              -o jsonpath="{.data.${DEST_SECRET_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
+            if [ -n "${existing_token}" ]; then
+              probe_code=$(curl -s -o /dev/null -w '%{http_code}' \
+                -H "Authorization: token ${existing_token}" \
+                -H "Accept: application/json" \
+                "${api_url}/user" 2>/dev/null || echo "000")
+              if [ "${probe_code}" = "200" ]; then
+                echo "[gitea-token-mint] existing token in ${DEST_SECRET_NAMESPACE}/${DEST_SECRET_NAME} is VALID — re-run is a no-op (#2938: re-runs must not break working state)"
+                exit 0
+              fi
+              echo "[gitea-token-mint] existing-token probe returned ${probe_code} — minting a replacement"
+            else
+              echo "[gitea-token-mint] no existing token in destination Secret — first run"
+            fi
+
+            # ── 2b. Unique per-run token name (#2938 Option 2) ───────────
+            # Mint under base-name + epoch nonce instead of delete-then-
+            # reuse: old tokens are NEVER invalidated by a re-run, so any
+            # Pod still holding one keeps working until its own rollout
+            # completes. Orphaned old tokens are inert (rotated out of
+            # the Secret, unused); the shared base-name prefix keeps the
+            # Gitea token list auditable. This also removes the 422
+            # name-collision the old DELETE existed to clear.
+            TOKEN_NAME="${TOKEN_NAME}-$(date +%s)"
+            echo "[gitea-token-mint] minting under unique name ${TOKEN_NAME}"
 
             # ── 3. Mint a fresh token ────────────────────────────────────
             # POST /api/v1/users/{username}/tokens body:
