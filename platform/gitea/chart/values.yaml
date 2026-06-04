@@ -90,16 +90,33 @@ gitea:
       enabled: false
       serviceMonitor:
         enabled: false
-    # Inject DB password from the reflector-managed gitea-database-secret.
-    # Reflector copies `gitea-pg-app` (CNPG-generated) into
-    # `gitea-database-secret`; the `password` key holds the postgres user
-    # password. GITEA__database__PASSWD overrides the empty value in
-    # gitea.config.database above.
+    # Inject DB password DIRECTLY from CNPG's own `gitea-pg-app` Secret
+    # (basic-auth type, carries the `password` key). CNPG owns BOTH the
+    # database role's password and this Secret, so they can never drift.
+    #
+    # hw91 root-cause (2026-06-03, 1.2.17): the previous indirection —
+    # secretKeyRef on the synced/kept `gitea-database-secret` — lost a
+    # DETERMINISTIC start race on every fresh install attempt: helm
+    # creates the sync Job and the gitea Deployment simultaneously; the
+    # pod's fast init chain (init-directories → init-app-ini) bakes
+    # app.ini from the env snapshot within seconds, while the sync Job
+    # needs an image pull + run to copy CNPG's fresh password into the
+    # kept (stale, `resource-policy: keep`) gitea-database-secret.
+    # Completed init containers never re-run, so the pod stayed poisoned
+    # with the previous attempt's password for its whole lifetime →
+    # configure-gitea `pq: password authentication failed` → install
+    # timeout → uninstall → CNPG regenerates → identical race on the
+    # next attempt. Observed identically on install attempts 4, 5 and 6
+    # on hw91 (the first prov ever to reach this slot's first-install
+    # path). Pointing at the CNPG-owned Secret removes the race class
+    # entirely; gitea-database-secret + its sync Job remain for the
+    # OTHER consumers documented in database-secret-sync-job.yaml
+    # (harbor's env binding shape).
     additionalConfigFromEnvs:
       - name: GITEA__database__PASSWD
         valueFrom:
           secretKeyRef:
-            name: gitea-database-secret
+            name: gitea-pg-app
             key: password
     # G91.gitea (#2653) — upstream chart's per-provider OAuth list.
     # Empty default; bp-gitea ships a Helm post-install hook Job
