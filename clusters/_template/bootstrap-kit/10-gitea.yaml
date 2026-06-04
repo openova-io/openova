@@ -96,12 +96,21 @@ spec:
     # install.
     createNamespace: true
     disableWait: true
-    timeout: 15m
+    # 30m (hw91 2026-06-04): with disableWait the budget binds the
+    # post-install sso-configure HOOK, which can only finish after the
+    # remediation-recreated CNPG cluster bootstraps (~5m: old pods
+    # terminate + initdb + replica join), gitea's init rides out up to
+    # a 5m CrashLoop backoff, migrations run, and the hook execs.
+    # ~12-14m worst case fit 15m only marginally — observed attempts
+    # burned out in the teardown+bootstrap phase. Same nesting
+    # rationale as the powerdns slot (#3019).
+    timeout: 30m
     remediation:
       retries: -1
   upgrade:
     disableWait: true
-    timeout: 15m
+    # 30m — same hook-window rationale as install.
+    timeout: 30m
     remediation:
       retries: 3
   values:
