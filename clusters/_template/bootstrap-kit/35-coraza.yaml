@@ -60,6 +60,16 @@ spec:
   releaseName: coraza
   # targetNamespace = inner namespace INSIDE the dmz vCluster.
   targetNamespace: coraza
+  # hw92 2026-06-04: storageNamespace MUST be set, else helm-controller
+  # defaults it to the HR's own namespace (`dmz`) and tries to store the
+  # release secret in a `dmz` namespace INSIDE the vCluster — which
+  # createNamespace does NOT create (it only creates the target
+  # `coraza`). Result: `Helm install failed ... namespaces "dmz" not
+  # found`. This was masked on every prior prov because the vCluster
+  # kubeconfig server was never reachable (localhost → SAN-mismatch,
+  # #3038/#3043), so bp-coraza never reached the release-store stage.
+  # Pin storage to the (created) target namespace = vanilla-helm behaviour.
+  storageNamespace: coraza
   # vCluster pivot — helm-controller installs the chart inside dmz
   # vCluster (Flux v2 HelmRelease v2 contract). G92.4 #2663.
   kubeConfig:

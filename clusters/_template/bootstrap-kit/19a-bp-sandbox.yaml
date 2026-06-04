@@ -68,6 +68,13 @@ spec:
   releaseName: sandbox
   # targetNamespace = inner namespace INSIDE the rtz vCluster.
   targetNamespace: catalyst-system
+  # hw92 2026-06-04: pin storageNamespace = targetNamespace, else
+  # helm-controller defaults it to the HR's own namespace (`rtz`) and
+  # fails `namespaces "rtz" not found` storing the release inside the
+  # vCluster (createNamespace only creates the target `catalyst-system`).
+  # Same latent defect as bp-coraza, masked until the #3038/#3043
+  # vCluster-kubeconfig SAN fix made the apiserver reachable.
+  storageNamespace: catalyst-system
   # vCluster pivot — helm-controller installs the chart inside rtz
   # vCluster (Flux v2 HelmRelease v2 contract). G92.5 #2664.
   kubeConfig:
