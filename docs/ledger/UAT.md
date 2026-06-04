@@ -1,4 +1,4 @@
-# UAT — OpenOva Catalyst — 2026-06-03 (rev 2, comprehensive)
+# UAT — OpenOva Catalyst (living document — date-agnostic, continuously updated)
 
 > **Standard User-Acceptance-Test walk** — the real OpenOva Catalyst end-user journeys filled into the UAT standard template ([`UAT-TEMPLATE.md`](UAT-TEMPLATE.md)).
 >
@@ -14,13 +14,13 @@
 
 | Field | Value |
 |---|---|
-| **Product / release** | OpenOva Catalyst — Sovereign `<sovereign-fqdn>` (active target: fresh prov **`hw92.omantel.biz`**, dep `f093724ef6899045`, single-region `me-east-215-a`, provisioning since 2026-06-04T~11:25Z, carrying #3037/#3038/#3039. Prior `hw91.omantel.biz` dep `38ae2b82dc325354` = failed env, preserved read-only) |
-| **Build under test** | catalog `main` with the complete fresh-prov hardening chain merged: #2982 / #2985 / #2989 / #2999 / #2988+#3006 / #3004 / #3007 / #3008+#2940, **plus the 2026-06-04 convergence layer**: #3000 (Flux `remediation.retries: -1`) / #3012 (cutover Phase-3 issuer + console-URL pivots) / #3016–#3036 (controller-pin freshness, phase1-watch ready-gate #3018, catalog-seed CRD vocab, the sso-bridge-reconciler 5-layer saga 0.2.9–0.2.14, the gitea-OIDC-hook 6-layer saga 1.2.17–1.2.22) / **#3037** (harbor digest-reset) / **#3038** (vcluster reachable-kubeconfig + bp-sandbox dependsOn ns) / **#3039** (cutover `consolePublicURL` overlay — the Step-07 FATAL) / #3040 (comment accuracy) |
+| **Product / release** | OpenOva Catalyst — Sovereign `<sovereign-fqdn>` (active target: fresh **2-region active-hot-standby** prov **`hw93.omantel.biz`**, dep `1d4baac3d99337cc`, regions `me-east-215-a` + `-b`, carrying #3037–#3044. Prior hw91 (cutover wedge) + hw92 (single-region, broke on gitea-pg) both **wiped** 2026-06-04 — autonomous per the no-approval-needed principle) |
+| **Build under test** | catalog `main` with the complete fresh-prov hardening chain merged: #2982 / #2985 / #2989 / #2999 / #2988+#3006 / #3004 / #3007 / #3008+#2940, **plus the 2026-06-04 convergence layer**: #3000 (Flux `remediation.retries: -1`) / #3012 (cutover Phase-3 issuer + console-URL pivots) / #3016–#3036 (controller-pin freshness, phase1-watch ready-gate #3018, catalog-seed CRD vocab, the sso-bridge-reconciler 5-layer saga 0.2.9–0.2.14, the gitea-OIDC-hook 6-layer saga 1.2.17–1.2.22) / **#3037** (harbor digest-reset) / **#3038** (vcluster reachable-kubeconfig + bp-sandbox dependsOn ns) / **#3039** (cutover `consolePublicURL` overlay — the Step-07 FATAL) / #3040 (comment accuracy) / **#3043** (vcluster kubeconfig cert-SAN — drop `.svc`) / **#3044** (vcluster-HR `storageNamespace`=target) |
 | **Environment** | `https://console.<sovereign-fqdn>` (operator console) · `https://marketplace.<sovereign-fqdn>` (customer marketplace) · `https://console.<orgslug>.<pool-tld>` (tenant console; pool = `omani.homes` / `omani.rest` / `omani.trade`) |
 | **Surface(s)** | Responsive web only. No native mobile app ships. |
 | **Tester** | founder walk (or read-only Playwright verification agent — never an agent that ships fixes) |
-| **Walk date** | **imminent** — fresh prov `hw92` provisioning since ~11:25Z; the walk begins the moment hw92 reconciles to a serving console (console-200) with **zero manual intervention** |
-| **Overall verdict** | ☐ **NOT WALKED (prov in flight)** — hw91 wedged unrecoverably (cutover Step-07 half-pivot; all blockers root-caused + fixed at catalog source #3037/#3038/#3039, fix stack independently reviewed SOUND). A fresh **single-region Huawei** prov `hw92` was then fired **autonomously, no wipe** (Hetzner cred-blocked; single-region fits HCS quota headroom so hw91 is preserved). hw92 is converging zero-touch toward console-200; the four-surface walk runs the moment it serves. See Status log. |
+| **Walk date** | **in flight** — 2-region prov `hw93` provisioning; walk begins on a serving console with **zero manual intervention**. Provisioning itself is now walked from the mothership console (Part 0). |
+| **Overall verdict** | ☐ **NOT WALKED (2-region prov in flight)** — hw91 (cutover wedge) + hw92 (single-region; surfaced #3043 vcluster-SAN + #3044 storageNamespace, both fixed, then broke on a gitea-pg storage glitch) both wiped. Fresh **2-region** `hw93` provisioning, carrying #3037–#3044. Provisioning watched from the mothership console (Part 0); walk runs on console-200. |
 
 **Result legend** (exactly one per Result cell): ✅ PASS *(evidence required)* · ❌ FAIL *(file defect, leave issue open)* · ⛔ BLOCKED *(couldn't attempt)* · ⏭️ N/A · ☐ NOT WALKED.
 
@@ -28,7 +28,7 @@
 
 ---
 
-## Status log — hw91 prov (the zero-touch exposure run)
+## Status log — fresh-prov exposure runs (hw91 → hw92 → hw93)
 
 > The walk has **not started** because no environment has yet reconciled to a serving console zero-touch. This log records what hw91 exposed, in order. Per founder doctrine each item is a catalog-source fix; hw91 was used read-only to expose, never hand-patched.
 
@@ -43,7 +43,9 @@
 | ~07:20–08:15 | **The terminal blocker.** Cutover auto-fired at bootstrap (`trigger.auto`, founder rule) and FATAL'd at Step 07 on a missing `sovereign.consolePublicURL` overlay (a #3012 regression) → engine halted → registry tether **half-pivoted** (ghcr.io creds stripped, URLs not rewritten) → every fresh chart pull 401'd → HR count regressed 51→44 | **#3039** — `consolePublicURL: https://console.${SOVEREIGN_FQDN}` overlay (the missing lockstep half of #3012); #3040 corrects the mechanism comment |
 | ~08:15 | hw91 is **unrecoverable**: the cutover that would heal the registry is gated on harbor → vcluster → the broken registry it would heal (chicken-and-egg). Confirmed failed env. | Fix stack independently reviewed **SOUND**; acceptance requires a **fresh prov**. |
 | ~11:25 | **Fresh prov fired autonomously — no wipe.** Hetzner path proven cred-blocked (mothership carries only omantel Huawei creds). Single-region Huawei fits the HCS quota *headroom* alongside hw91, so hw91 is preserved (not wiped) and no destructive action was needed. | `POST /sovereign/api/v1/deployments` → **HTTP 201**, dep `f093724ef6899045`, `hw92.omantel.biz`, single-region `me-east-215-a`, carrying #3037/#3038/#3039. |
-| ~11:25 → now | hw92 converging zero-touch: `provisioning` → `phase1-watching` (CP up) → LB bound (console refused→timeout). | Watching console-200 direct. On serve: grab kubeconfig, verify zero-touch convergence + cutover-complete, then walk TC-17/18/24–26. ETA ~30 min. |
+| ~11:25 → ~13:30 | hw92 (single-region) surfaced two more never-reached defects after the cutover layer: vcluster kubeconfig used the `.svc` cert-SAN form (TLS x509 mismatch on bp-coraza/bp-sandbox) and the vcluster HRs had no `storageNamespace` (release-store `namespaces "dmz"/"rtz" not found`). | **#3043** + **#3044** — both fixed at catalog source + validated live on hw92 (coraza→True). Then hw92's gitea-pg CNPG instance lost its initialized data dir (`pgdata: no such file or directory`) — a one-off storage glitch (4 sibling CNPG clusters healthy). |
+| ~13:35 | **Course-correct (founder).** Single-region can't walk Pillars 2/3 (multi-region). hw91 + hw92 both **wiped autonomously** (no approval needed for Huawei resources except the bastion — now hard-coded in CLAUDE.md). | `POST .../{id}/wipe` ×2 → `status=wiped`. |
+| ~13:40 | **Fresh 2-region prov fired.** `active-hot-standby`, regions `me-east-215-a` + `-b`, carrying #3037–#3044. | `POST /sovereign/api/v1/deployments` → **HTTP 201**, dep `1d4baac3d99337cc`, `hw93.omantel.biz`. Now watched from the mothership console (Part 0); doc refreshed ~every 10 min. |
 
 **UAT issue status (all four code-complete + reviewer VERIFIED-PASS, awaiting only the live walk):** #2742 (TC-18 endpoint→PR propagation), #2744 (TC-17 Tier-1 silent-SSO), #2940 (TC-26 post-cutover regression / 18-tether audit — re-verified code-complete 2026-06-04), #2951 (cutover Step-6 per-Blueprint defaults). All remain `status/uat`; none walked, because every surface returns HTTP `000` (gateway never bound — 5 Playwright timeouts + 4 curl probes logged). They close only after the founder's walk-with-screenshot, per [`../../CLAUDE.md`](../../CLAUDE.md) Rule 6.
 
@@ -83,6 +85,35 @@ Every committed end-user behavior for pillars 1, 2, 3, 5 maps to a TC row below.
 | **Post-cutover regression** (PIN, SSO, tenant, marketplace still work) | #2940 (the `iss`-tether attack) | TC-26 |
 
 Deliberate exclusions are listed in Appendix B with reasons. Anything user-facing and committed that is NOT in this table or Appendix B is a defect of this document — file it.
+
+---
+
+## Part 0 — Provisioning, watched from the mothership console *(founder directive 2026-06-04)*
+
+> **The end-user watches their own Sovereign being born.** Before handover (D0), the operator who ordered the Sovereign watches it provision **from the mothership web console** at `https://console.openova.io/sovereign`. This is a first-class UAT surface, walked **like the end-user** — no `kubectl`, no API: the operator sees exactly what the mothership shows them. While a prov is in flight, the executor refreshes this view and updates this document **every ~10 minutes**.
+
+### TC-00a — The deployment appears and shows the RIGHT topology *(web · operator · mothership console)*
+
+| # | Screen you're on | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | `https://console.openova.io/sovereign` | Sign in (operator PIN), open the deployments list | Your in-flight deployment listed with `status: provisioning` | ☐ | — |
+| 2 | The deployment row | Open it (`/sovereign/provision/<dep-id>`) | Header shows the Sovereign FQDN + **the BCP topology you ordered** (e.g. `active-hot-standby`) | ☐ | — |
+| 3 | The provision overview | Read the **regions** | **Exactly the regions ordered** — an active-hot-standby Sovereign MUST show **2 regions** (e.g. `me-east-215-a` + `-b`), NOT 1. *(A single-region prov here = wrong topology, ❌ — founder caught this 2026-06-04.)* | ☐ | — |
+
+### TC-00b — The provisioning jobs run and complete per-region *(web · operator · mothership console)*
+
+| # | Screen you're on | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | `/sovereign/provision/<dep-id>/jobs` | Read the jobs list | Jobs grouped/labelled **per region** — every install job present for **each** region (an `active-hot-standby` Sovereign shows each job for both regions) | ☐ | — |
+| 2 | A specific job (e.g. `jobs/install-velero-hcs`) | Open it | Job detail/log streams; **both regions** represented (not just one) | ☐ | — |
+| 3 | The jobs view over ~the prov window | Refresh every ~10 min | Jobs advance to success; no job stuck failed; the doc Status-log is updated each refresh | ☐ | — |
+
+### TC-00c — Convergence → handover hand-off *(web · operator · mothership console)*
+
+| # | Screen you're on | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | The provision view | Wait through convergence | `status` advances `provisioning → … → ready` only when the console is genuinely serving (no premature ready, #3018) | ☐ | — |
+| 2 | On `ready` | Follow the handover hand-off | Auto-redirect into the Sovereign console (continues at **TC-01**), zero FQDN typing | ☐ | — |
 
 ---
 
