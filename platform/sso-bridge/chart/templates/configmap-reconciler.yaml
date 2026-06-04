@@ -71,6 +71,31 @@ data:
     # See chart Chart.yaml description for the contract.
     set -uo pipefail
 
+    # 0.2.13 (hw91 ROOT CAUSE of every reconciler kubectl failure on this
+    # prov): kubectl fell back to http://localhost:8080 — in-cluster
+    # config was not engaging, so EVERY kubectl since the framework
+    # shipped returned empty/refused here ("couldn't get current server
+    # API group list ... localhost:8080"), masked as "CM missing" warns
+    # and discovered-0 ticks by 2>/dev/null. Stop depending on env
+    # injection entirely: synthesize an explicit kubeconfig from the
+    # mounted ServiceAccount (token + CA + namespace are always present
+    # — openbao_login already reads the same mount) and export it.
+    # Correct in all worlds; /tmp is the chart's writable emptyDir.
+    SA_DIR=/var/run/secrets/kubernetes.io/serviceaccount
+    export KUBECONFIG=/tmp/sso-bridge-kubeconfig
+    KAPI="https://${KUBERNETES_SERVICE_HOST:-kubernetes.default.svc}:${KUBERNETES_SERVICE_PORT:-443}"
+    kubectl config set-cluster in-cluster \
+      --server="${KAPI}" \
+      --certificate-authority="${SA_DIR}/ca.crt" >/dev/null
+    kubectl config set-credentials sa \
+      --token="$(cat "${SA_DIR}/token")" >/dev/null
+    kubectl config set-context in-cluster --cluster=in-cluster --user=sa \
+      --namespace="$(cat "${SA_DIR}/namespace")" >/dev/null
+    kubectl config use-context in-cluster >/dev/null
+    kubectl version --request-timeout=10s >/dev/null 2>&1 \
+      && echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) | kubeconfig bootstrap OK (server=${KAPI})" \
+      || echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) | WARN: kubeconfig bootstrap probe failed (server=${KAPI}) — ticks will retry" >&2
+
     : "${KC_REALM:?KC_REALM must be set}"
     : "${KC_ADDR:?KC_ADDR must be set}"
     : "${KC_SA_CLIENT_ID:?KC_SA_CLIENT_ID must be set}"
@@ -949,6 +974,10 @@ data:
       # no Sovereign FQDN ConfigMap) still touch the file because the
       # reconciler IS alive, just degraded upstream.
       touch /tmp/sso-bridge-last-tick
+
+      # 0.2.13: bound SA tokens rotate (~1h) — refresh the synthesized
+      # kubeconfig's credential each tick so long-lived pods keep working.
+      kubectl config set-credentials sa --token="$(cat "${SA_DIR}/token")" >/dev/null 2>&1 || true
 
       mint_kc_token || { warn "skipping tick (no KC token)"; sleep "${INTERVAL_SECONDS}"; continue; }
       openbao_login || { warn "skipping tick (no OpenBao token)"; sleep "${INTERVAL_SECONDS}"; continue; }
