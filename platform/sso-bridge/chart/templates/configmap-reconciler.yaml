@@ -1,7 +1,7 @@
 {{- /*
 Reconcile loop script.
 
-Single-binary bash that runs inside a bitnamilegacy/kubectl image. Loops
+Single-binary bash that runs inside a bitnamilegacy/kubectl --request-timeout=15s image. Loops
 every {reconcile.intervalSeconds}s. Each tick:
 
   1. Read OPERATOR_EMAIL from sovereign-fqdn ConfigMap (or
@@ -45,7 +45,7 @@ All HTTP calls retry once on transient 5xx. Hard-fail on 4xx other than
 Idempotency:
   - Client UPSERT: clientId is the natural key; PUT overwrites.
   - OpenBao PUT: KV v2 versions data, last write wins.
-  - ExternalSecret: kubectl apply -f.
+  - ExternalSecret: kubectl --request-timeout=15s apply -f.
   - Role mapping: POST is idempotent on (user, client, role) — 409
     means already mapped, swallow.
 
@@ -191,7 +191,7 @@ data:
         printf '%s' "${OPERATOR_EMAIL_OVERRIDE}"
         return 0
       fi
-      kubectl get cm "${SOVEREIGN_FQDN_CM_NAME}" -n "${SOVEREIGN_FQDN_CM_NS}" \
+      kubectl --request-timeout=15s get cm "${SOVEREIGN_FQDN_CM_NAME}" -n "${SOVEREIGN_FQDN_CM_NS}" \
         -o jsonpath="{.data.${SOVEREIGN_FQDN_ORG_EMAIL_KEY}}" 2>/dev/null || true
     }
 
@@ -205,7 +205,7 @@ data:
       # FQDN (slot 13b envsubsts ${SOVEREIGN_FQDN}) so Tier-1 writes run
       # pre-catalyst-platform; only the orgEmail grant stays deferred.
       local v
-      v="$(kubectl get cm "${SOVEREIGN_FQDN_CM_NAME}" -n "${SOVEREIGN_FQDN_CM_NS}" \
+      v="$(kubectl --request-timeout=15s get cm "${SOVEREIGN_FQDN_CM_NAME}" -n "${SOVEREIGN_FQDN_CM_NS}" \
         -o jsonpath="{.data.${SOVEREIGN_FQDN_SOVEREIGN_FQDN_KEY}}" 2>/dev/null || true)"
       if [ -n "${v}" ]; then printf '%s' "${v}"; else printf '%s' "${SOVEREIGN_FQDN_FALLBACK:-}"; fi
     }
@@ -439,7 +439,7 @@ data:
         "  dataFrom:" \
         "    - extract:" \
         "        key: sso/${cid}" \
-        | kubectl apply -f - >/dev/null
+        | kubectl --request-timeout=15s apply -f - >/dev/null
     }
 
     reconcile_one() {
@@ -691,14 +691,12 @@ data:
         || warn "per-org-realm[${slug}]: OpenBao PUT failed (non-fatal — KC has the secret already)"
     }
 
-    log "tick: phase per-org-realms"
-
     reconcile_per_org_realms() {
       # List every ConfigMap with label per-org-realm=true (any namespace).
       # bp-keycloak emits them in the keycloak namespace by default but the
       # selector is namespace-agnostic in case of overlay shifts.
       local cms
-      cms="$(kubectl get configmaps -A \
+      cms="$(kubectl --request-timeout=15s get configmaps -A \
         -l 'catalyst.openova.io/per-org-realm=true' \
         -o json 2>/dev/null | jq -c '.items[]?' || true)"
       [ -z "${cms}" ] && return 0
@@ -882,7 +880,7 @@ data:
       # List every ConfigMap with label sso.openova.io/app-registration
       # (any namespace, any value — value is the clientId).
       local cms
-      cms="$(kubectl get configmaps -A \
+      cms="$(kubectl --request-timeout=15s get configmaps -A \
         -l 'sso.openova.io/app-registration' \
         -o json 2>/dev/null | jq -c '.items[]?' || true)"
       [ -z "${cms}" ] && return 0
@@ -900,7 +898,7 @@ data:
       # $1 = space-separated list of currently-managed clientIds
       local current=" $1 "
       local managed
-      managed="$(kubectl get externalsecrets -A \
+      managed="$(kubectl --request-timeout=15s get externalsecrets -A \
         -l 'bp-sso-bridge.openova.io/managed=true' \
         -o json | jq -c '.items[] | {name:.metadata.name, ns:.metadata.namespace, cid:.metadata.labels["bp-sso-bridge.openova.io/client-id"]}')"
       while IFS= read -r row; do
@@ -913,7 +911,7 @@ data:
           *" ${cid} "*) ;;  # still managed
           *)
             log "cleanup orphan ExternalSecret ${ns}/${name} (clientId=${cid})"
-            kubectl delete externalsecret "${name}" -n "${ns}" --ignore-not-found >/dev/null || true
+            kubectl --request-timeout=15s delete externalsecret "${name}" -n "${ns}" --ignore-not-found >/dev/null || true
             ;;
         esac
       done <<< "${managed}"
@@ -954,7 +952,7 @@ data:
       # actually emit: explicit enabled==true OR a non-empty
       # sso.sovereignFqdn (the 6 Tier-1+ slots: openbao, gitea, harbor,
       # grafana, sandbox, powerdns-admin).
-      hrs_json="$(kubectl get hr -A -o json 2>/dev/null \
+      hrs_json="$(kubectl --request-timeout=15s get hr -A -o json 2>/dev/null \
         | jq -c '.items[] | select((.spec.values.sso // {}) | (.enabled == true) or ((.sovereignFqdn // "") != ""))')"
       discovered=$(printf '%s' "${hrs_json}" | grep -c . || true)
       log "tick: discovered ${discovered} sso-capable HR(s)"
@@ -986,6 +984,7 @@ data:
       # already imported; broker Clients are upserted by clientId.
       # This runs AFTER the HR-driven app-Client loop so the sovereign
       # KC admin token minted at tick start is still valid.
+      log "tick: phase per-org-realms"
       reconcile_per_org_realms || true
 
       # G117.5c #2801 — Tier-3 AppRegistration ConfigMap watcher.
