@@ -856,7 +856,8 @@ data:
               "query-users",
               "manage-realm",
               "view-realm",
-              "view-clients"
+              "view-clients",
+              "manage-clients"
             ]
           }
         }
@@ -946,7 +947,7 @@ stringData:
   {{- if $bitnamiAdmin -}}
     {{- $masterAdminPassword = index $bitnamiAdmin.data "admin-password" | b64dec -}}
   {{- end -}}
-{{- end -}}
+{{- end }}
 apiVersion: v1
 kind: Secret
 metadata:
