@@ -249,6 +249,20 @@ spec:
                   # failure. CTA still works via the operator session.
                   exit 0
                   ;;
+                425)
+                  # Handover-completion gate (catalyst-api
+                  # cutover_internal.go). On a FRESH prov this hook fires
+                  # at bootstrap — long before handover — and catalyst-api
+                  # correctly refuses to start the cutover engine until the
+                  # tofu-phase0-archive is sealed at handover. This is the
+                  # EXPECTED, BENIGN path on every fresh prov: it prevents
+                  # the registry half-pivot that used to wedge bootstrap-kit
+                  # (hw93 2026-06-04). The cutover auto-fires post-handover
+                  # when the same trigger is re-POSTed and the gate is open.
+                  echo "[auto-trigger] cutover deferred: this Sovereign has not been handed over yet (HTTP 425). EXPECTED pre-handover — no engine started; the cutover auto-fires once handover seals the tofu archive."
+                  cat /tmp/trigger.json 2>/dev/null || true
+                  exit 0
+                  ;;
                 *)
                   echo "[auto-trigger] unexpected status ${code}"
                   cat /tmp/trigger.json 2>/dev/null || true

@@ -402,7 +402,19 @@ name: bp-self-sovereign-cutover
 # harbor.openova.io — so the cutover automation itself proves the
 # mothership-Harbor untether instead of leaving a manual post-hoc grep
 # as the only acceptance gate.
-version: 0.1.53
+#
+# 0.1.54 (#3052): auto-trigger Job handles HTTP 425 from catalyst-api's
+# new handover-completion gate. On a FRESH prov the post-install hook
+# fires at bootstrap — long before handover — and without the gate the
+# cutover half-pivoted the registry (rewrote ghcr-pull → local Harbor)
+# while Flux still pulled the catalog from ghcr.io and the local Harbor
+# wasn't serving yet, breaking every fresh chart pull and wedging
+# bootstrap-kit (hw93 2026-06-04: bp-kyverno 1.3.4 SourceNotReady "no
+# auth config for ghcr.io", console 000). catalyst-api now returns 425
+# until the tofu-phase0-archive is sealed at handover; this Job treats
+# 425 as the EXPECTED benign pre-handover path (clear log, exit 0). The
+# cutover still auto-fires post-handover (founder rule #933 preserved).
+version: 0.1.54
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

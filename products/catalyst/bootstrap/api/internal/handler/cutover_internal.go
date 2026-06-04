@@ -20,7 +20,7 @@
 //
 // This file adds a SECOND endpoint:
 //
-//   POST /api/v1/internal/cutover/trigger
+//	POST /api/v1/internal/cutover/trigger
 //
 // …that lives OUTSIDE the RequireSession group and validates the
 // caller via a Kubernetes TokenReview against the bearer token
@@ -29,23 +29,23 @@
 // path (/var/run/secrets/kubernetes.io/serviceaccount/token) and
 // passes it on the request. The endpoint then:
 //
-//   1. Calls authentication.k8s.io/v1 TokenReview to validate the
-//      token bytes against the cluster's authentication chain. The
-//      apiserver returns the authenticated user (typically
-//      `system:serviceaccount:<ns>:<sa-name>`) plus a list of groups.
-//      This is the ONLY supported way to verify a bearer token came
-//      from a valid in-cluster ServiceAccount — manual JWT parsing
-//      would skip rotation, audience checking, and revocation.
+//  1. Calls authentication.k8s.io/v1 TokenReview to validate the
+//     token bytes against the cluster's authentication chain. The
+//     apiserver returns the authenticated user (typically
+//     `system:serviceaccount:<ns>:<sa-name>`) plus a list of groups.
+//     This is the ONLY supported way to verify a bearer token came
+//     from a valid in-cluster ServiceAccount — manual JWT parsing
+//     would skip rotation, audience checking, and revocation.
 //
-//   2. Checks the username matches the canonical cutover-runner SA:
-//      `system:serviceaccount:<ns>:bp-self-sovereign-cutover-runner`
-//      (override via CATALYST_INTERNAL_CUTOVER_SA_USERNAME for test
-//      and per-Sovereign re-naming).
+//  2. Checks the username matches the canonical cutover-runner SA:
+//     `system:serviceaccount:<ns>:bp-self-sovereign-cutover-runner`
+//     (override via CATALYST_INTERNAL_CUTOVER_SA_USERNAME for test
+//     and per-Sovereign re-naming).
 //
-//   3. Delegates to the same engine logic as HandleCutoverStart —
-//      idempotency, in-process running flag, and goroutine spawn are
-//      shared. The two endpoints are alternative entry points to the
-//      SAME state machine; the only difference is auth surface.
+//  3. Delegates to the same engine logic as HandleCutoverStart —
+//     idempotency, in-process running flag, and goroutine spawn are
+//     shared. The two endpoints are alternative entry points to the
+//     SAME state machine; the only difference is auth surface.
 //
 // Why not skip auth entirely for in-cluster callers
 // ─────────────────────────────────────────────────
@@ -73,20 +73,21 @@
 // ─────────────
 // Every value is runtime-overridable per docs/INVIOLABLE-PRINCIPLES.md #4:
 //
-//   CATALYST_INTERNAL_CUTOVER_SA_USERNAME
-//     Required SA username (e.g.
-//     "system:serviceaccount:catalyst:bp-self-sovereign-cutover-runner").
-//     Default = system:serviceaccount:<CATALYST_CUTOVER_NAMESPACE>:bp-self-sovereign-cutover-runner.
+//	CATALYST_INTERNAL_CUTOVER_SA_USERNAME
+//	  Required SA username (e.g.
+//	  "system:serviceaccount:catalyst:bp-self-sovereign-cutover-runner").
+//	  Default = system:serviceaccount:<CATALYST_CUTOVER_NAMESPACE>:bp-self-sovereign-cutover-runner.
 //
-//   CATALYST_INTERNAL_CUTOVER_SA_USERNAMES
-//     Optional comma-separated list of additional accepted SA usernames.
-//     Empty by default. Used for test fixtures and per-Sovereign
-//     re-naming. Both the singular and plural forms are honoured;
-//     either one matching is sufficient.
+//	CATALYST_INTERNAL_CUTOVER_SA_USERNAMES
+//	  Optional comma-separated list of additional accepted SA usernames.
+//	  Empty by default. Used for test fixtures and per-Sovereign
+//	  re-naming. Both the singular and plural forms are honoured;
+//	  either one matching is sufficient.
 package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -94,6 +95,8 @@ import (
 
 	authnv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 )
 
 // Default suffix appended to the cutover namespace to compute the
@@ -107,6 +110,43 @@ const (
 	envInternalCutoverSAUsername  = "CATALYST_INTERNAL_CUTOVER_SA_USERNAME"
 	envInternalCutoverSAUsernames = "CATALYST_INTERNAL_CUTOVER_SA_USERNAMES"
 )
+
+// envRequireHandoverForCutover gates the in-cluster auto-trigger on
+// handover completion. See requireHandoverForCutover.
+const envRequireHandoverForCutover = "CATALYST_CUTOVER_REQUIRE_HANDOVER"
+
+// requireHandoverForCutover reports whether the in-cluster auto-trigger
+// must verify this Sovereign has been handed over before it starts the
+// cutover engine. Default TRUE (founder principle: the cutover is a
+// post-handover operation). Set CATALYST_CUTOVER_REQUIRE_HANDOVER=false
+// only for test fixtures or a deliberate operator-forced demo cutover on
+// a converged-but-not-yet-handed-over prov. Runtime-overridable per
+// docs/PRINCIPLES.md #4.
+func requireHandoverForCutover() bool {
+	return !strings.EqualFold(strings.TrimSpace(os.Getenv(envRequireHandoverForCutover)), "false")
+}
+
+// sovereignHandoverComplete reports whether THIS Sovereign has received
+// the Phase-0 OpenTofu archive from the mothership — the durable,
+// Sovereign-side signal that ownership has transferred. handover.go's
+// ReceiveTofuArchive seals it at secret/catalyst/tofu-phase0-archive
+// (KV-v2) on a successful handover POST; its ABSENCE means the Sovereign
+// is still soft-tethered (pre-handover). A nil OpenBao client (e.g.
+// Catalyst-Zero, which is never itself a cutover subject) reads as
+// not-handed-over so the gate stays closed.
+func (h *Handler) sovereignHandoverComplete(ctx context.Context) (bool, error) {
+	if h.openbao == nil {
+		return false, nil
+	}
+	data, err := h.openbao.GetKVv2(ctx, "secret", "catalyst/tofu-phase0-archive")
+	if err != nil {
+		if errors.Is(err, openbao.ErrSecretNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return len(data) > 0, nil
+}
 
 // expectedInternalCutoverUsernames returns the set of acceptable SA
 // usernames a TokenReview may resolve to. Order is:
@@ -258,7 +298,9 @@ func (h *Handler) HandleCutoverInternalTrigger(w http.ResponseWriter, r *http.Re
 	}
 
 	// Reuse the operator-side engine path. The state machine is
-	// identical regardless of which endpoint kicked it off.
+	// identical regardless of which endpoint kicked it off. The
+	// handover-completion gate lives inside runCutoverFromTrigger so an
+	// already-complete cutover still returns its idempotent 200 first.
 	h.runCutoverFromTrigger(w, r, deps, "internal")
 }
 
@@ -286,6 +328,51 @@ func (h *Handler) runCutoverFromTrigger(w http.ResponseWriter, r *http.Request, 
 		resp := buildCutoverStatusResponseFromMap(status, listStepNamesFromStatus(status))
 		writeJSON(w, http.StatusOK, resp)
 		return
+	}
+
+	// Handover-completion gate (fresh-prov registry half-pivot).
+	// ──────────────────────────────────────────────────────────
+	// The in-cluster auto-trigger (source="internal") is a Helm
+	// post-install hook on bp-self-sovereign-cutover, so it fires at
+	// chart-INSTALL time — which on a fresh prov is bootstrap, long
+	// before handover. Without this gate the cutover half-pivots the
+	// registry (rewrites the ghcr-pull Secret to the local Harbor) while
+	// Flux still pulls the catalog from GitHub (ghcr.io URLs) and the
+	// local Harbor is not yet serving — breaking every FRESH chart pull
+	// and wedging bootstrap-kit. Verified live hw93 2026-06-04: bp-kyverno
+	// 1.3.4 stuck SourceNotReady "no auth config for 'ghcr.io' in
+	// docker-registry Secret 'ghcr-pull'", cutover-egress-block-test
+	// Failed, console 000.
+	//
+	// The cutover is a POST-handover operation. The durable Sovereign-side
+	// handover marker is the tofu-phase0-archive secret, sealed in OpenBao
+	// by ReceiveTofuArchive ONLY when the mothership POSTs the archive at
+	// handover. Until it exists, refuse with 425 Too Early — which the
+	// auto-trigger Job treats as benign (its case-* arm exits 0, so the
+	// chart install completes and the HR goes Ready with NO engine start).
+	// Placed AFTER the cutoverComplete short-circuit so an already-done
+	// cutover keeps its idempotent 200. The operator CTA path is NOT
+	// routed here, so a human clicking "Achieve True Sovereignty" behind
+	// RequireSession is never gated — a deliberate post-handover action.
+	if source == "internal" && requireHandoverForCutover() {
+		handedOver, herr := h.sovereignHandoverComplete(r.Context())
+		if herr != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{
+				"error":  "handover-check-failed",
+				"detail": herr.Error(),
+			})
+			return
+		}
+		if !handedOver {
+			h.log.Info("internal cutover trigger deferred: handover not complete",
+				"detail", "tofu-phase0-archive absent in OpenBao — Sovereign not yet handed over; auto-trigger is benign pre-handover",
+			)
+			writeJSON(w, http.StatusTooEarly, map[string]string{
+				"error":  "handover-incomplete",
+				"detail": "cutover deferred: this Sovereign has not been handed over yet (tofu-phase0-archive not present in OpenBao). The cutover auto-fires post-handover; deferring is expected and benign on a fresh prov.",
+			})
+			return
+		}
 	}
 
 	steps, err := listCutoverSteps(r.Context(), deps)
