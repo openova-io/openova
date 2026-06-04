@@ -132,7 +132,7 @@ echo "  PASS"
 echo "[g117-5c-app-registration-watcher] Case 6: idempotent PUT on existing client (clientId natural key)"
 assert_contains 'clientId=\$\{cid\}' \
   "must look up existing client by clientId (natural key)"
-assert_contains 'curl -fsS -X PUT' \
+assert_contains 'curl --max-time 20 --connect-timeout 7 -fsS -X PUT' \
   "must use PUT to update existing client"
 echo "  PASS"
 

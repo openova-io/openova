@@ -98,20 +98,20 @@ data:
       local method="$1" path="$2" body="${3:-}"
       local url="${KC_ADDR%/}/admin/realms/${KC_REALM}${path}"
       if [ -n "${body}" ]; then
-        curl -fsS -w '\n%{http_code}' -X "${method}" \
+        curl --max-time 20 --connect-timeout 7 -fsS -w '\n%{http_code}' -X "${method}" \
           -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
           -H "Content-Type: application/json" \
           --data-binary "@${body}" \
           "${url}" || true
       else
-        curl -fsS -w '\n%{http_code}' -X "${method}" \
+        curl --max-time 20 --connect-timeout 7 -fsS -w '\n%{http_code}' -X "${method}" \
           -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
           "${url}" || true
       fi
     }
 
     mint_kc_token() {
-      KC_ADMIN_TOKEN="$(curl -fsS \
+      KC_ADMIN_TOKEN="$(curl --max-time 20 --connect-timeout 7 -fsS \
         -X POST "${KC_ADDR%/}/realms/${KC_REALM}/protocol/openid-connect/token" \
         -H "Content-Type: application/x-www-form-urlencoded" \
         -d "grant_type=client_credentials" \
@@ -139,7 +139,7 @@ data:
         warn "KC master admin credentials unset (KC_MASTER_REALM/USER/PASSWORD) — reflector may not have mirrored bp-keycloak's catalyst-kc-master-admin-credentials yet"
         return 1
       fi
-      KC_MASTER_ADMIN_TOKEN="$(curl -fsS \
+      KC_MASTER_ADMIN_TOKEN="$(curl --max-time 20 --connect-timeout 7 -fsS \
         -X POST "${KC_ADDR%/}/realms/${KC_MASTER_REALM}/protocol/openid-connect/token" \
         -H "Content-Type: application/x-www-form-urlencoded" \
         -d "grant_type=password" \
@@ -156,7 +156,7 @@ data:
     openbao_login() {
       local sa_token
       sa_token="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
-      OPENBAO_TOKEN="$(curl -fsS \
+      OPENBAO_TOKEN="$(curl --max-time 20 --connect-timeout 7 -fsS \
         -X POST "${OPENBAO_ADDR%/}/v1/auth/${OPENBAO_K8S_AUTH_PATH}/login" \
         -H "Content-Type: application/json" \
         -d "$(jq -nc --arg role "${OPENBAO_K8S_AUTH_ROLE}" --arg jwt "${sa_token}" '{role:$role, jwt:$jwt}')" \
@@ -174,7 +174,7 @@ data:
       local body
       body="$(jq -nc --argjson d "${data}" '{data:$d}')"
       local resp
-      resp="$(curl -fsS -w '\n%{http_code}' -X POST "${url}" \
+      resp="$(curl --max-time 20 --connect-timeout 7 -fsS -w '\n%{http_code}' -X POST "${url}" \
         -H "X-Vault-Token: ${OPENBAO_TOKEN}" \
         -H "Content-Type: application/json" \
         -d "${body}")"
@@ -218,7 +218,7 @@ data:
 
       # Lookup existing.
       local existing
-      existing="$(curl -fsS \
+      existing="$(curl --max-time 20 --connect-timeout 7 -fsS \
         -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
         "${KC_ADDR%/}/admin/realms/${KC_REALM}/clients?clientId=${cid}" \
         | jq -r '.[0] // empty')"
@@ -266,7 +266,7 @@ data:
 
       if [ -n "${existing}" ]; then
         kc_id="$(printf '%s' "${existing}" | jq -r '.id')"
-        secret="$(curl -fsS \
+        secret="$(curl --max-time 20 --connect-timeout 7 -fsS \
           -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
           "${KC_ADDR%/}/admin/realms/${KC_REALM}/clients/${kc_id}/client-secret" \
           | jq -r '.value // empty')"
@@ -274,7 +274,7 @@ data:
         local updated
         updated="$(jq -s '.[0] * .[1]' "${template_path}" <(printf '%s' "${existing}") )"
         printf '%s' "${updated}" > "${template_path}.updated"
-        curl -fsS -X PUT \
+        curl --max-time 20 --connect-timeout 7 -fsS -X PUT \
           -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
           -H "Content-Type: application/json" \
           --data-binary "@${template_path}.updated" \
@@ -282,17 +282,17 @@ data:
           warn "PUT client ${cid} failed"; return 1; }
       else
         # POST new; KC will mint its own secret. We then retrieve it.
-        curl -fsS -X POST \
+        curl --max-time 20 --connect-timeout 7 -fsS -X POST \
           -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
           -H "Content-Type: application/json" \
           --data-binary "@${template_path}" \
           "${KC_ADDR%/}/admin/realms/${KC_REALM}/clients" >/dev/null || {
           warn "POST client ${cid} failed"; return 1; }
-        kc_id="$(curl -fsS \
+        kc_id="$(curl --max-time 20 --connect-timeout 7 -fsS \
           -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
           "${KC_ADDR%/}/admin/realms/${KC_REALM}/clients?clientId=${cid}" \
           | jq -r '.[0].id')"
-        secret="$(curl -fsS \
+        secret="$(curl --max-time 20 --connect-timeout 7 -fsS \
           -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
           "${KC_ADDR%/}/admin/realms/${KC_REALM}/clients/${kc_id}/client-secret" \
           | jq -r '.value // empty')"
@@ -310,7 +310,7 @@ data:
       [ -z "${email}" ] && { warn "no operator email; skipping admin grant for ${cid}"; return 0; }
 
       local user_id
-      user_id="$(curl -fsS \
+      user_id="$(curl --max-time 20 --connect-timeout 7 -fsS \
         -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
         "${KC_ADDR%/}/admin/realms/${KC_REALM}/users?email=${email}&exact=true" \
         | jq -r '.[0].id // empty')"
@@ -325,12 +325,12 @@ data:
 
       # Ensure client-role 'admin' exists on this Client.
       local has_admin
-      has_admin="$(curl -fsS \
+      has_admin="$(curl --max-time 20 --connect-timeout 7 -fsS \
         -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
         "${KC_ADDR%/}/admin/realms/${KC_REALM}/clients/${kc_id}/roles/admin" \
         -o /dev/null -w '%{http_code}')"
       if [ "${has_admin}" = "404" ]; then
-        curl -fsS -X POST \
+        curl --max-time 20 --connect-timeout 7 -fsS -X POST \
           -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
           -H "Content-Type: application/json" \
           -d '{"name":"admin","description":"Application admin (auto by bp-sso-bridge)"}' \
@@ -339,12 +339,12 @@ data:
 
       # Look up the role representation (id + name).
       local role_rep
-      role_rep="$(curl -fsS \
+      role_rep="$(curl --max-time 20 --connect-timeout 7 -fsS \
         -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
         "${KC_ADDR%/}/admin/realms/${KC_REALM}/clients/${kc_id}/roles/admin")"
 
       # POST role-mapping for the user. Idempotent — Keycloak swallows duplicates.
-      curl -fsS -X POST \
+      curl --max-time 20 --connect-timeout 7 -fsS -X POST \
         -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
         -H "Content-Type: application/json" \
         -d "[${role_rep}]" \
@@ -364,7 +364,7 @@ data:
       [ -z "${roles}" ] && return 0
 
       local user_id
-      user_id="$(curl -fsS \
+      user_id="$(curl --max-time 20 --connect-timeout 7 -fsS \
         -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
         "${KC_ADDR%/}/admin/realms/${KC_REALM}/users?email=${email}&exact=true" \
         | jq -r '.[0].id // empty')"
@@ -375,7 +375,7 @@ data:
 
       for role_name in ${roles}; do
         local role_rep
-        role_rep="$(curl -fsS \
+        role_rep="$(curl --max-time 20 --connect-timeout 7 -fsS \
           -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
           "${KC_ADDR%/}/admin/realms/${KC_REALM}/roles/${role_name}" 2>/dev/null)"
         if [ -z "${role_rep}" ] || ! printf '%s' "${role_rep}" | jq -e '.id' >/dev/null 2>&1; then
@@ -383,7 +383,7 @@ data:
           continue
         fi
         # POST role-mapping for the user (realm-level). Idempotent.
-        curl -fsS -X POST \
+        curl --max-time 20 --connect-timeout 7 -fsS -X POST \
           -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
           -H "Content-Type: application/json" \
           -d "[${role_rep}]" \
@@ -577,7 +577,7 @@ data:
         warn "per-org-realm[${slug}]: KC master admin token unavailable; skipping (will retry next tick)"
         return 1
       fi
-      realm_check="$(curl -sS -o /dev/null -w '%{http_code}' \
+      realm_check="$(curl --max-time 20 --connect-timeout 7 -sS -o /dev/null -w '%{http_code}' \
         -H "Authorization: Bearer ${KC_MASTER_ADMIN_TOKEN}" \
         "${KC_ADDR%/}/admin/realms/${slug}" || echo 000)"
       if [ "${realm_check}" = "200" ]; then
@@ -585,7 +585,7 @@ data:
       else
         local realm_post
         printf '%s' "${realm_json}" > "/tmp/${slug}-realm.json"
-        realm_post="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+        realm_post="$(curl --max-time 20 --connect-timeout 7 -sS -o /dev/null -w '%{http_code}' -X POST \
           -H "Authorization: Bearer ${KC_MASTER_ADMIN_TOKEN}" \
           -H "Content-Type: application/json" \
           --data-binary "@/tmp/${slug}-realm.json" \
@@ -612,7 +612,7 @@ data:
       local broker_redirect="https://auth.${fqdn}/realms/${slug}/broker/sovereign-broker/endpoint"
 
       local existing_broker
-      existing_broker="$(curl -sS \
+      existing_broker="$(curl --max-time 20 --connect-timeout 7 -sS \
         -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
         "${KC_ADDR%/}/admin/realms/${KC_REALM}/clients?clientId=${broker_client_id}" \
         | jq -r '.[0] // empty' || echo '')"
@@ -653,7 +653,7 @@ data:
         # Re-pin the secret so chart-side derivation wins (KC keeps the
         # secret in a separate /client-secret endpoint, but PUT'ing the
         # whole representation with `secret` set updates it server-side).
-        curl -sS -X PUT \
+        curl --max-time 20 --connect-timeout 7 -sS -X PUT \
           -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
           -H "Content-Type: application/json" \
           --data-binary "@${broker_client_json}.updated" \
@@ -662,7 +662,7 @@ data:
           || warn "per-org-realm[${slug}]: broker Client PUT failed"
       else
         local broker_post
-        broker_post="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+        broker_post="$(curl --max-time 20 --connect-timeout 7 -sS -o /dev/null -w '%{http_code}' -X POST \
           -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
           -H "Content-Type: application/json" \
           --data-binary "@${broker_client_json}" \
@@ -774,7 +774,7 @@ data:
       # job and it runs first. If the realm isn't there yet, skip this
       # tick and wait for the next one (eventual consistency).
       local realm_check
-      realm_check="$(curl -sS -o /dev/null -w '%{http_code}' \
+      realm_check="$(curl --max-time 20 --connect-timeout 7 -sS -o /dev/null -w '%{http_code}' \
         -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
         "${KC_ADDR%/}/admin/realms/${realm}" || echo 000)"
       if [ "${realm_check}" != "200" ]; then
@@ -784,7 +784,7 @@ data:
 
       # Look up existing Client by clientId (natural key).
       local existing kc_id secret
-      existing="$(curl -fsS \
+      existing="$(curl --max-time 20 --connect-timeout 7 -fsS \
         -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
         "${KC_ADDR%/}/admin/realms/${realm}/clients?clientId=${cid}" \
         | jq -r '.[0] // empty' || echo '')"
@@ -798,13 +798,13 @@ data:
         local updated
         updated="$(jq -s '.[1] * .[0]' "${template_path}" <(printf '%s' "${existing}"))"
         printf '%s' "${updated}" > "${template_path}.updated"
-        curl -fsS -X PUT \
+        curl --max-time 20 --connect-timeout 7 -fsS -X PUT \
           -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
           -H "Content-Type: application/json" \
           --data-binary "@${template_path}.updated" \
           "${KC_ADDR%/}/admin/realms/${realm}/clients/${kc_id}" >/dev/null || {
           warn "app-registration[${cid}]: PUT client in realm ${realm} failed"; return 1; }
-        secret="$(curl -fsS \
+        secret="$(curl --max-time 20 --connect-timeout 7 -fsS \
           -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
           "${KC_ADDR%/}/admin/realms/${realm}/clients/${kc_id}/client-secret" \
           | jq -r '.value // empty')"
@@ -812,7 +812,7 @@ data:
       else
         # POST new. Swallow 409 (raced with another pod or KC dedupe).
         local post_code
-        post_code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+        post_code="$(curl --max-time 20 --connect-timeout 7 -sS -o /dev/null -w '%{http_code}' -X POST \
           -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
           -H "Content-Type: application/json" \
           --data-binary "@${template_path}" \
@@ -825,7 +825,7 @@ data:
             return 1
             ;;
         esac
-        kc_id="$(curl -fsS \
+        kc_id="$(curl --max-time 20 --connect-timeout 7 -fsS \
           -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
           "${KC_ADDR%/}/admin/realms/${realm}/clients?clientId=${cid}" \
           | jq -r '.[0].id // empty')"
@@ -833,7 +833,7 @@ data:
           warn "app-registration[${cid}]: client lookup after POST returned empty; deferring secret persist"
           return 1
         fi
-        secret="$(curl -fsS \
+        secret="$(curl --max-time 20 --connect-timeout 7 -fsS \
           -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
           "${KC_ADDR%/}/admin/realms/${realm}/clients/${kc_id}/client-secret" \
           | jq -r '.value // empty')"
@@ -950,6 +950,13 @@ data:
           warn "tick budget exceeded; deferring remaining HRs to next tick"
           break
         fi
+        # 0.2.10 (hw91): refresh the liveness mtime per-HR. The probe
+        # killed the pod mid-FIRST-tick whenever the per-HR work ran
+        # past 10 min (timeout-less curls could freeze it silently) —
+        # the reconciler then NEVER completed a tick. With per-HR
+        # touches a healthy-but-slow tick survives; a genuinely hung
+        # curl is now bounded by --max-time so the loop always advances.
+        touch /tmp/sso-bridge-last-tick
         name="$(printf '%s' "${hr}" | jq -r '.metadata.name')"
         cid="${name#bp-}"
         current_cids="${current_cids} ${cid}"
