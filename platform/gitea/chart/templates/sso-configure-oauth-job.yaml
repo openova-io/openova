@@ -238,6 +238,31 @@ spec:
                 exit 1
               fi
 
+              # 1.2.19 (hw91): the configure sequence below runs against a
+              # pod that may flap right after first-Ready (web layer
+              # settling, init replay) — an unguarded `kubectl exec`
+              # failure exited the container, and each OnFailure restart
+              # instantly re-found the pod and fast-failed again,
+              # burning the Job's backoffLimit in minutes
+              # (BackoffLimitExceeded killed every install attempt even
+              # after the wait budgets were fixed). One patient retry
+              # loop owns the whole sequence: re-select the pod each
+              # round (it may have been replaced), tolerate exec
+              # failures, succeed once.
+              configure_ok=""
+              for round in $(seq 1 20); do
+                # Re-resolve the live pod each round.
+                GITEA_POD="$(kubectl get pod -n "${GITEA_NAMESPACE}" \
+                  -l "${POD_SELECTOR}" \
+                  -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.metadata.name}{"\t"}{range .status.conditions[?(@.type=="Ready")]}{.status}{end}{"\n"}{end}' \
+                  2>/dev/null \
+                  | awk -F '\t' '$2=="True" {print $1; exit}' || true)"
+                if [ -z "${GITEA_POD}" ]; then
+                  echo "  configure round ${round}/20: no Ready pod right now; sleeping 30s..."
+                  sleep 30
+                  continue
+                fi
+
               # Idempotency: check if an OAuth source with this name exists.
               echo "[$(date -u +%FT%TZ)] checking existing auth sources (via pod ${GITEA_POD})..."
               AUTH_LIST="$(kubectl exec -n "${GITEA_NAMESPACE}" "${GITEA_POD}" -- \
@@ -303,17 +328,34 @@ spec:
               fi
 
               if [ -z "${AUTH_ID}" ]; then
-                echo "[$(date -u +%FT%TZ)] adding new OAuth source '${AUTH_NAME}'..."
-                kubectl exec -n "${GITEA_NAMESPACE}" "${GITEA_POD}" -- \
-                  gitea admin auth add-oauth --name "${AUTH_NAME}" "${COMMON_ARGS[@]}"
+                echo "[$(date -u +%FT%TZ)] adding new OAuth source '${AUTH_NAME}' (round ${round}/20)..."
+                if ! kubectl exec -n "${GITEA_NAMESPACE}" "${GITEA_POD}" -- \
+                  gitea admin auth add-oauth --name "${AUTH_NAME}" "${COMMON_ARGS[@]}"; then
+                  echo "  configure round ${round}/20: add-oauth exec failed (pod settling?); sleeping 30s..."
+                  sleep 30
+                  continue
+                fi
               else
-                echo "[$(date -u +%FT%TZ)] updating OAuth source id=${AUTH_ID} ('${AUTH_NAME}')..."
-                kubectl exec -n "${GITEA_NAMESPACE}" "${GITEA_POD}" -- \
-                  gitea admin auth update-oauth --id "${AUTH_ID}" --name "${AUTH_NAME}" "${COMMON_ARGS[@]}"
+                echo "[$(date -u +%FT%TZ)] updating OAuth source id=${AUTH_ID} ('${AUTH_NAME}') (round ${round}/20)..."
+                if ! kubectl exec -n "${GITEA_NAMESPACE}" "${GITEA_POD}" -- \
+                  gitea admin auth update-oauth --id "${AUTH_ID}" --name "${AUTH_NAME}" "${COMMON_ARGS[@]}"; then
+                  echo "  configure round ${round}/20: update-oauth exec failed (pod settling?); sleeping 30s..."
+                  sleep 30
+                  continue
+                fi
+              fi
+
+              configure_ok="yes"
+              break
+              done
+
+              if [ -z "${configure_ok}" ]; then
+                echo "FATAL: OAuth configure did not succeed within 20 rounds (~10 min of retries)." >&2
+                exit 1
               fi
 
               echo "[$(date -u +%FT%TZ)] OAuth source configured. Final list:"
-              kubectl exec -n "${GITEA_NAMESPACE}" "${GITEA_POD}" -- gitea admin auth list
+              kubectl exec -n "${GITEA_NAMESPACE}" "${GITEA_POD}" -- gitea admin auth list || true
       volumes:
         - name: tmp
           emptyDir:
