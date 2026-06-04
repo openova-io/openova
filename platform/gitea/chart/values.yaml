@@ -230,6 +230,13 @@ sso:
   # Keycloak realm. Defaults to the shared-sovereign realm shipped by
   # platform/keycloak/chart/templates/configmap-sovereign-realm.yaml.
   realm: sovereign
+  # 1.2.22 (#2989/#2744): in-cluster Keycloak base URL, used ONLY for
+  # the sso-configure hook's discovery fetch — gitea VALIDATES the
+  # discovery URL by fetching it, and the public auth.<fqdn> URL is
+  # unreachable until the gateway binds at full convergence, which
+  # waits on this very hook (bootstrap circle, caught live on hw91).
+  # Browser-facing URLs stay public via --use-custom-urls.
+  keycloakInternalURL: "http://keycloak.keycloak.svc.cluster.local"
   # Sovereign FQDN — used to compute issuer / auto-discover URL.
   # Per-Sovereign cluster overlay sets this (e.g. `hw86.omani.works`).
   # Empty default leaves autoDiscoverUrl unrendered; the upstream chart's
