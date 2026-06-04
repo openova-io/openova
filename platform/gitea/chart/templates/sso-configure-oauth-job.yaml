@@ -96,9 +96,19 @@ metadata:
     "helm.sh/hook-weight": "10"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
+  # 1.2.18 (hw91 2026-06-04): budgets renested for the remediation-retry
+  # reality. Each helm attempt re-creates the CNPG cluster (~5-6m
+  # teardown+initdb) and gitea's init can ride a 5m CrashLoop backoff
+  # before its first post-DB retry — the gitea Pod is Ready ~8-12m into
+  # the attempt. The old 10m inner wait + 15m activeDeadline expired
+  # JUST short every time -> BackoffLimitExceeded -> install failed ->
+  # uninstall -> identical race next attempt, forever. One patient
+  # container run owns the wait (powerdns zone-bootstrap posture,
+  # #3019): inner wait 25m < job deadline 27m < helm timeout 30m
+  # (slot 10, PR #3030).
   backoffLimit: 3
   ttlSecondsAfterFinished: 600
-  activeDeadlineSeconds: 900
+  activeDeadlineSeconds: 1620
   template:
     metadata:
       labels:
@@ -203,11 +213,11 @@ spec:
               # never matches and the hook always times out.
               #
               # Wait for at least one Ready Pod matching the selector
-              # (up to 10 min — first install races bp-cnpg + ESO + the
+              # (up to 25 min — first install races bp-cnpg + ESO + the
               # upstream init container).
               GITEA_POD=""
               echo "[$(date -u +%FT%TZ)] waiting for a Ready gitea Pod (selector=${POD_SELECTOR})..."
-              for i in $(seq 1 60); do
+              for i in $(seq 1 150); do
                 GITEA_POD="$(kubectl get pod -n "${GITEA_NAMESPACE}" \
                   -l "${POD_SELECTOR}" \
                   -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.metadata.name}{"\t"}{range .status.conditions[?(@.type=="Ready")]}{.status}{end}{"\n"}{end}' \
@@ -217,12 +227,12 @@ spec:
                   echo "[$(date -u +%FT%TZ)] selected pod=${GITEA_POD} (Ready)."
                   break
                 fi
-                echo "  attempt $i/60: no Ready pod matching selector; sleeping 10s..."
+                echo "  attempt $i/150: no Ready pod matching selector; sleeping 10s..."
                 sleep 10
               done
 
               if [ -z "${GITEA_POD}" ]; then
-                echo "FATAL: no Ready gitea Pod matched selector '${POD_SELECTOR}' within 10 min." >&2
+                echo "FATAL: no Ready gitea Pod matched selector '${POD_SELECTOR}' within 25 min." >&2
                 echo "  current pods in namespace:" >&2
                 kubectl get pod -n "${GITEA_NAMESPACE}" -l "${POD_SELECTOR}" >&2 || true
                 exit 1
