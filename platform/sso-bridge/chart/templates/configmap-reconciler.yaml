@@ -110,6 +110,24 @@ data:
       fi
     }
 
+    # 0.2.12 (hw91): every kubectl from this pod intermittently stalls
+    # ~150s and large responses die mid-stream (node-local API-path
+    # degradation, hw90-family). With --request-timeout=15s those become
+    # fast failures; this wrapper retries 3x with a 2s pause so an
+    # intermittently-healthy path still completes the tick. Usage:
+    # k_retry <kubectl args...> — emits stdout of the first success.
+    k_retry() {
+      local attempt out
+      for attempt in 1 2 3; do
+        if out="$(kubectl --request-timeout=15s "$@" 2>/dev/null)" && [ -n "${out}" ]; then
+          printf '%s' "${out}"
+          return 0
+        fi
+        sleep 2
+      done
+      return 1
+    }
+
     mint_kc_token() {
       KC_ADMIN_TOKEN="$(curl --max-time 20 --connect-timeout 7 -fsS \
         -X POST "${KC_ADDR%/}/realms/${KC_REALM}/protocol/openid-connect/token" \
@@ -952,8 +970,8 @@ data:
       # actually emit: explicit enabled==true OR a non-empty
       # sso.sovereignFqdn (the 6 Tier-1+ slots: openbao, gitea, harbor,
       # grafana, sandbox, powerdns-admin).
-      hrs_json="$(kubectl --request-timeout=15s get hr -A -o json 2>/dev/null \
-        | jq -c '.items[] | select((.spec.values.sso // {}) | (.enabled == true) or ((.sovereignFqdn // "") != ""))')"
+      hrs_json="$(k_retry get hr -A -o json \
+        | jq -c '.items[] | select((.spec.values.sso // {}) | (.enabled == true) or ((.sovereignFqdn // "") != ""))' || true)"
       discovered=$(printf '%s' "${hrs_json}" | grep -c . || true)
       log "tick: discovered ${discovered} sso-capable HR(s)"
       current_cids=""
