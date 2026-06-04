@@ -20,7 +20,7 @@ name: bp-rtz-vcluster
 # RTZ vCluster hosts per-Org tenant Applications + Sandbox per DoD
 # §A4; both paths route CNPG provisioning through the host
 # cnpg-operator (G92.6 substrate per #2665) via this sync.
-version: 0.2.2
+version: 0.2.3
 appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign RTZ
