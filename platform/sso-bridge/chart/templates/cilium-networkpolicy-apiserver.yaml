@@ -1,0 +1,42 @@
+{{- /*
+0.2.14 (hw91 — the endpoint of the localhost:8080 saga): the K8s
+NetworkPolicy egress rule for the API server selects
+`default ns + podSelector component=apiserver` — but on k3s the
+apiserver is a HOST PROCESS, not a pod; Cilium classifies traffic to it
+as the special `kube-apiserver` ENTITY, which no K8s NetworkPolicy
+selector (podSelector / namespaceSelector / ipBlock — see the 0.2.7
+finding: ipBlock 0.0.0.0/0 also excludes it) can express. Result: ALL
+egress from this namespace to 10.96.0.1:443 was dropped — kubectl's
+in-cluster path never worked, surfacing first as the localhost:8080
+fallback and then, post-0.2.13, as the narrated bootstrap-probe
+failure against the correct server.
+
+CiliumNetworkPolicy toEntities is the canonical expression. Gated on
+the cilium.io/v2 Capabilities check (the #2988 idiom) so the chart
+still installs on CRD-less clusters (kind CI) where the K8s
+NetworkPolicy below is not enforced by an identity-aware agent anyway.
+*/ -}}
+{{- if and .Values.networkPolicy.enabled (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: sso-bridge-reconciler-apiserver
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: sso-bridge
+    app.kubernetes.io/component: reconciler
+    catalyst.openova.io/component: sso-bridge-netpol
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: sso-bridge-reconciler
+  egress:
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "6443"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+{{- end }}
