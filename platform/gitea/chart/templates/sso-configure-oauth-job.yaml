@@ -158,7 +158,7 @@ spec:
             - name: POD_SELECTOR
               value: {{ printf "app.kubernetes.io/name=gitea,app.kubernetes.io/instance=%s" .Release.Name | quote }}
             # G117.5 #2744 — IDP_HINT toggles whether we pass the
-            # hinted authorize_url via --auth-url + --use-custom-url-
+            # hinted authorize_url via --auth-url + --use-custom-urls
             # mapping. When non-empty the Job reads the
             # already-hinted `authorize_url` key out of
             # gitea-oauth-source-credentials and constructs the explicit
@@ -282,7 +282,7 @@ spec:
                 | head -n1 || true)"
 
               # G117.5: if the ESO-rendered Secret already carries the
-              # hinted authorize_url, use --use-custom-url-mapping +
+              # hinted authorize_url, use --use-custom-urls +
               # --auth-url so the IDP hint reaches KC. Otherwise fall
               # back to auto-discover.
               AUTH_URL_FILE="/etc/sso-bundle/authorize_url"
@@ -302,7 +302,7 @@ spec:
                   --provider openidConnect
                   --key "${OAUTH_KEY}"
                   --secret "${OAUTH_SECRET}"
-                  --use-custom-url-mapping
+                  --use-custom-urls
                   --custom-auth-url "${AUTH_URL}"
                   --custom-token-url "${TOKEN_URL}"
                   --custom-profile-url "${USERINFO_URL}"
