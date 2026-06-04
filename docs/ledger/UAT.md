@@ -104,17 +104,17 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | `https://console.openova.io/sovereign` | Sign in (operator PIN), open the deployments list | Your in-flight deployment listed with `status: provisioning` | ☐ | — |
-| 2 | The deployment row | Open it (`/sovereign/provision/<dep-id>`) | Header shows the Sovereign FQDN + **the BCP topology you ordered** (e.g. `active-hot-standby`) | ☐ | — |
+| 1 | `https://console.openova.io/sovereign` | Sign in (operator PIN), open the deployments list | Your in-flight deployment listed with `status: provisioning` | ✅ | signed in via operator PIN (OTP), deployment `1d4baac3d99337cc` shown provisioning |
+| 2 | The deployment row | Open it (`/sovereign/provision/<dep-id>`) | Header shows the Sovereign FQDN + **the BCP topology you ordered** (e.g. `active-hot-standby`) | ✅ | `hw93.omantel.biz`, active-hot-standby |
 | 3 | The provision overview | Read the **regions** | **Exactly the regions ordered** — an active-hot-standby Sovereign MUST show **2 regions** (e.g. `me-east-215-a` + `-b`), NOT 1. *(A single-region prov here = wrong topology, ❌ — founder caught this 2026-06-04.)* | ✅ (executor-observed) | [cloud-2regions](../sessions/2026-06-04/evidence/hw93-mothership-cloud-2regions.png) |
 
 ### TC-00b — The provisioning jobs run and complete per-region *(web · operator · mothership console)*
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | `/sovereign/provision/<dep-id>/jobs` | Read the jobs list | Jobs grouped/labelled **per region** — every install job present for **each** region (an `active-hot-standby` Sovereign shows each job for both regions) | ☐ | — |
-| 2 | A specific job (e.g. `jobs/install-velero-hcs`) | Open it | Job detail/log streams; **both regions** represented (not just one) | ☐ | — |
-| 3 | The jobs view over ~the prov window | Refresh every ~10 min | Jobs advance to success; no job stuck failed; the doc Status-log is updated each refresh | ☐ | — |
+| 1 | `/sovereign/provision/<dep-id>/jobs` | Read the jobs list | Jobs grouped/labelled **per region** — every install job present for **each** region (an `active-hot-standby` Sovereign shows each job for both regions) | ❌ **labeling defect** | [jobs](../sessions/2026-06-04/evidence/hw93-jobs-both-regions-117of119.png): 117/119 done, **both** regions' installs RUN — but the **primary** region's jobs are UNPREFIXED (`install-harbor`) while only the **secondary** is labelled (`install-me-east-215-b-1:harbor`). So the UI surfaces only one region name (`me-east-215-b`) → reads as single-region (**founder caught this 2026-06-04**). Functionally 2-region; the *labeling* fails the test. Primary jobs should carry an explicit `me-east-215-a-1:` prefix too. |
+| 2 | A specific job (e.g. `jobs/install-harbor`; note velero is suspended on Huawei so there is no install-velero) | Open it | Job detail/log streams; **both regions** represented (not just one) | ⚠️ both regions' jobs exist (primary unprefixed + `me-east-215-b-1:` secondary), see row 1 defect | per row-1 evidence |
+| 3 | The jobs view over ~the prov window | Refresh every ~10 min | Jobs advance to success; no job stuck failed; the doc Status-log is updated each refresh | ✅ | 117/119 Succeeded, none stuck-failed (remaining = cutover/coraza/sandbox Running); Status-log refreshed each tick |
 
 ### TC-00c — Convergence → handover hand-off *(web · operator · mothership console)*
 
