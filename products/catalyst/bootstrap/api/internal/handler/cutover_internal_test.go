@@ -35,7 +35,24 @@ import (
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	fakek8s "k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 )
+
+// withHandoverArchive points the Handler's OpenBao client at a fake
+// server that serves the tofu-phase0-archive secret — i.e. simulates a
+// Sovereign that HAS been handed over, so the cutover handover-gate
+// (sovereignHandoverComplete) opens. Torn down at test end.
+func withHandoverArchive(t *testing.T, h *Handler) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// KV-v2 read envelope: {"data":{"data":{...}}}.
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"data":{"archive":"dGVzdA==","sovereignFQDN":"hw-test.example.com"}}}`))
+	}))
+	t.Cleanup(srv.Close)
+	h.openbao = &openbao.Client{Addr: srv.URL, Token: "test-token", HTTP: srv.Client()}
+}
 
 // installTokenReviewReactor wires a reactor that approves any
 // TokenReview create call by returning Authenticated=true with the
@@ -80,6 +97,9 @@ func TestHandleCutoverInternalTrigger_HappyPath(t *testing.T) {
 	// — matches what TokenReview returns from the chart's mounted
 	// SA token in production.
 	installTokenReviewReactor(t, client, "system:serviceaccount:catalyst:bp-self-sovereign-cutover-runner")
+	// A handed-over Sovereign: the tofu-phase0-archive is sealed, so the
+	// handover-completion gate opens and the auto-trigger runs the engine.
+	withHandoverArchive(t, h)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/cutover/trigger", nil)
@@ -211,5 +231,74 @@ func TestHandleCutoverInternalTrigger_WrongMethodReturns405(t *testing.T) {
 	}
 	if got := rec.Header().Get("Allow"); got != "POST" {
 		t.Errorf("Allow header = %q, want POST", got)
+	}
+}
+
+// TestHandleCutoverInternalTrigger_DefersWhenNotHandedOver is the core
+// fresh-prov regression guard: a valid auto-trigger on a Sovereign that
+// has NOT been handed over (no tofu-phase0-archive in OpenBao) must
+// REFUSE to start the engine — 425 Too Early, zero Jobs created. Without
+// this gate the bootstrap auto-trigger half-pivots the registry and
+// wedges bootstrap-kit (hw93 2026-06-04).
+func TestHandleCutoverInternalTrigger_DefersWhenNotHandedOver(t *testing.T) {
+	objs := []k8sruntime.Object{
+		makeCutoverStepCM("cutover-step-01-gitea-mirror", "gitea-mirror", 1, cutoverModeJob, minimalPodSpecYAML, ""),
+		makeCutoverStepCM("cutover-step-02-harbor-projects", "harbor-projects", 2, cutoverModeJob, minimalPodSpecYAML, ""),
+	}
+	h, client := fakeHandlerWithCutover(t, objs...)
+	installTokenReviewReactor(t, client, "system:serviceaccount:catalyst:bp-self-sovereign-cutover-runner")
+	// h.openbao is nil → sovereignHandoverComplete returns false → gate closed.
+
+	jobCreates := 0
+	client.PrependReactor("create", "jobs", func(_ clienttesting.Action) (bool, k8sruntime.Object, error) {
+		jobCreates++
+		return false, nil, nil
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/cutover/trigger", nil)
+	req.Header.Set("Authorization", "Bearer fake-sa-token-bytes")
+	h.HandleCutoverInternalTrigger(rec, req)
+
+	if rec.Code != http.StatusTooEarly {
+		t.Fatalf("status = %d, want 425 (handover-incomplete); body=%s", rec.Code, rec.Body.String())
+	}
+	if jobCreates != 0 {
+		t.Errorf("created %d Jobs while handover incomplete, want 0 — that is the registry half-pivot", jobCreates)
+	}
+}
+
+// TestHandleCutoverInternalTrigger_EnvOverrideBypassesGate proves the
+// CATALYST_CUTOVER_REQUIRE_HANDOVER=false escape hatch lets a deliberate
+// forced-demo cutover run on a converged-but-not-handed-over prov.
+func TestHandleCutoverInternalTrigger_EnvOverrideBypassesGate(t *testing.T) {
+	t.Setenv(envRequireHandoverForCutover, "false")
+	objs := []k8sruntime.Object{
+		makeCutoverStepCM("cutover-step-01-gitea-mirror", "gitea-mirror", 1, cutoverModeJob, minimalPodSpecYAML, ""),
+	}
+	h, client := fakeHandlerWithCutover(t, objs...)
+	installJobReactor(t, client, batchv1.JobComplete)
+	installTokenReviewReactor(t, client, "system:serviceaccount:catalyst:bp-self-sovereign-cutover-runner")
+	// openbao nil + env override=false → gate skipped, engine runs.
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/cutover/trigger", nil)
+	req.Header.Set("Authorization", "Bearer fake-sa-token-bytes")
+	h.HandleCutoverInternalTrigger(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (gate bypassed by env); body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Drain the engine goroutine so it doesn't outlive the test.
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		bus := h.cutoverBusFor()
+		bus.mu.Lock()
+		running := bus.running
+		bus.mu.Unlock()
+		if !running {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
