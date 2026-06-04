@@ -145,13 +145,26 @@ the violation, regardless of how nicely framed by a UI tool call.
   / "pause" / "wait for me" / "I'll decide" / "checkpoint here"**. Until one
   of those lands in the pane, KEEP GOING.
 
+**🛑 HARD PRINCIPLE — Sovereign/Huawei resources need NO approval (founder, 2026-06-04, verbatim):**
+*"You never need my approval for any resources you created in Huawei other than
+the bastion node!!!"* — Wiping and re-provisioning Sovereigns/deployments you
+created (via the canonical `POST /sovereign/api/v1/deployments` create +
+`.../{id}/wipe`, or the Huawei AK/SK API directly) is FULLY AUTONOMOUS. Do NOT
+ask, do NOT produce a "which rows are wipeable" table, do NOT wait for a confirm.
+Inventing an approval dependency here is itself a violation of the autonomy
+mandate. The **ONLY** protected Huawei resource is the **bastion node**
+(`bastion-openova`, EIP `212.72.24.20`) — never wipe/scale/touch that without
+explicit founder say-so. Everything else in Huawei that the platform created is
+yours to destroy and recreate at will.
+
 **What is still allowed (do not weaken these):** the genuine destructive-action
-confirmations in this file's §Commit-conventions + §Pre-flight-checklist row
-"Wipe / scale / destroy any Sovereign or namespace" — Sovereign wipes,
-force-push to `main`, public-facing sends (Slack to founder, customer emails),
-shared-infra deletions. Those confirmations are **inline `please confirm
-before I run` text prompts** that name the exact destructive command — they
-are NOT `AskUserQuestion` four-option pickers. Mid-walk routing decisions,
+confirmations in this file's §Commit-conventions — force-push to `main`,
+public-facing sends (Slack to founder, customer emails), and touching the
+**bastion node** or other **shared infra you did NOT create**. Those
+confirmations are **inline `please confirm before I run` text prompts** that
+name the exact destructive command — they are NOT `AskUserQuestion` four-option
+pickers. **Sovereign/deployment wipes are NOT in this list** — they are
+autonomous per the HARD PRINCIPLE above. Mid-walk routing decisions,
 PR-body wording, branch names, ICE tradeoffs between two acceptable paths —
 none of those qualify; auto-pick and dispatch.
 
@@ -382,7 +395,7 @@ Secondary fallback: switch `ClusterIssuer/wildcard-issuer.acme.server` to `letse
 3. Ask the founder to confirm which dep-ID is real BEFORE deletion. The wipe is irreversible.
 4. Only after explicit founder confirmation, call the canonical wipe endpoint (per L2).
 
-**Pre-flight check**: BEFORE any Sovereign wipe (cache, registry, or full tofu-destroy), produce a per-dep-ID table: (id | live Hetzner servers count | org_name | created | parent_domain). Get founder confirmation on which rows are wipeable. Default = keep everything until told otherwise.
+**Pre-flight check**: BEFORE wiping, sanity-check you are NOT touching the **bastion node** (`bastion-openova` / EIP `212.72.24.20`) or shared infra the platform did not create. Sovereigns/deployments the platform created are wipeable **autonomously, no founder confirmation** (HARD PRINCIPLE, founder 2026-06-04). A per-dep table is useful for your own tracking, but do NOT gate the wipe on founder approval — that is the artificial-dependency violation. Default = if you created it in Huawei and it's not the bastion, you may wipe it.
 
 ### L5 — Substituted "test locally on bastion" when the production path exists
 
@@ -459,7 +472,7 @@ Before any of these operations, run the matching checklist explicitly in the cha
 
 | Operation | Checklist |
 |---|---|
-| **Wipe / scale / destroy any Sovereign or namespace** | (1) Read `tofu.auto.tfvars.json` of every candidate via PVC debug Pod. (2) Query Hetzner servers with the token from step 1. (3) Produce per-target table with org_name + live infra. (4) **Ask founder which rows are wipeable**. (5) Only on confirmation, use canonical wipe endpoint per L2. |
+| **Wipe / scale / destroy a Sovereign/deployment you created** | **AUTONOMOUS — no founder approval** (HARD PRINCIPLE, founder 2026-06-04: "you never need my approval for any resources you created in Huawei other than the bastion node"). Just use the canonical wipe endpoint (`POST /sovereign/api/v1/deployments/{id}/wipe`) or the Huawei AK/SK API. The ONLY guard: confirm the target is NOT the **bastion node** (`bastion-openova` / EIP `212.72.24.20`) or shared infra you didn't create. No table, no asking. |
 | **Claim a credential is missing** | (1) Enumerate `/deps/tofu/*/tofu.auto.tfvars.json` (PVC `catalyst-api-deployments`). (2) Enumerate `/deps/kubeconfigs/`. (3) Check Stalwart admin creds in user-global CLAUDE.md §13. (4) Only after all 3 return empty → claim missing. |
 | **Provision fresh Sovereign** | (1) `gh api /repos/openova-io/openova/packages/container/<bp-*>/versions` for active chart pins. (2) Pick `parent_domains_yaml` TLD per L3 rotation. (3) POST `/sovereign/api/v1/deployments` with auth (handover JWT from `/deps/handover-jwt-private.pem`). |
 | **Dispatch a sub-agent** | (1) Pre-dispatch briefing per user-global §5 (🤖 Dispatching / Problem / Remediation / Expected). (2) Pillar+step grounding test per user-global §0. (3) `isolation: worktree` if parallel + touching same files. (4) After return, re-query live state — agent report is a CLAIM. |
