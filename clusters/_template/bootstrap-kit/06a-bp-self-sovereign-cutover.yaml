@@ -475,12 +475,20 @@ spec:
       # FATALs ("Pillar 5 independence not met") if it is still the chart
       # default `https://console.example.local`. PR #3012 added that
       # assertion but never added the overlay line here — so the cutover
-      # engine FATAL'd at Step 07 on EVERY prov, halting the sequence with
-      # the registry tether half-pivoted (Step 04 strips ghcr.io from
-      # ghcr-pull, but Step 06's HelmRepository URL rewrite — which runs
-      # after 07 in engine order — never executes → all fresh chart pulls
-      # 401 with "no auth config for ghcr.io"). Caught live on hw91. This
-      # is the missing lockstep half of #3012; mirror of harbor/giteaPublicURL.
+      # engine FATAL'd at Step 07 on EVERY prov, and since the engine
+      # aborts at the first failed step (cutover.go), Steps 08-11 never
+      # ran and cutoverComplete stayed false. That leaves the registry
+      # tether half-pivoted: Step 06 (cutover-order 6, runs BEFORE 07)
+      # already stripped ghcr.io from the ghcr-pull Secret (Phase-0) and
+      # rewrote HelmRepository URLs → local Harbor + pushed to local
+      # Gitea (Phases 1/2) — but because cutoverComplete never flips
+      # true, the Step-01 finalize that SEVERS the gitea mirror (chart
+      # 0.1.48) never runs, so the */5 mirror-resync keeps pulling the
+      # upstream ghcr.io URLs back from GitHub and reverting Step 06's
+      # pivot. Net: ghcr.io creds gone + URLs reverted to ghcr.io → every
+      # fresh chart pull 401s "no auth config for ghcr.io". Caught live on
+      # hw91. This is the missing lockstep half of #3012; mirror of
+      # harbor/giteaPublicURL.
       consolePublicURL: https://console.${SOVEREIGN_FQDN}
     # Wave 5.110 (#2462): bastion mirror endpoint for harbor.openova.io,
     # substituted from cloudinit's flux-system/bastion-mirror Secret
