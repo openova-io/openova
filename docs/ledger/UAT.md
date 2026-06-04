@@ -91,6 +91,8 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 ## Part 0 — Provisioning, watched from the mothership console *(founder directive 2026-06-04)*
 
 > **The end-user watches their own Sovereign being born.** Before handover (D0), the operator who ordered the Sovereign watches it provision **from the mothership web console** at `https://console.openova.io/sovereign`. This is a first-class UAT surface, walked **like the end-user** — no `kubectl`, no API: the operator sees exactly what the mothership shows them. While a prov is in flight, the executor refreshes this view and updates this document **every ~10 minutes**.
+>
+> **Live executor watch — hw93 (dep `1d4baac3d99337cc`), 2026-06-04 ~14:20Z:** signed into `console.openova.io/sovereign` as the operator, watched the provisioning. **Cloud view confirms the full 2-region topology** — `Cloud: huawei`, `Region 2/2` (`me-east-215-a` + `-b`), `Cluster 2/2`, `WorkerNode 8/8` (4 per region), `LoadBalancer 2/2`, `Network 2/2` ([screenshot](../sessions/2026-06-04/evidence/hw93-mothership-cloud-2regions.png)). Jobs view: tofu init/plan/apply/output + cluster-bootstrap **Succeeded**, Apps/Cutover/Handover **Pending** ([screenshot](../sessions/2026-06-04/evidence/hw93-mothership-jobs-2region.png)). **DEFECT (cosmetic):** the Jobs parent group is labelled **"Provision Hetzner"** for a **Huawei** deployment — provider-label bug, infra is genuinely Huawei (Cloud chip = `huawei`).
 
 ### TC-00a — The deployment appears and shows the RIGHT topology *(web · operator · mothership console)*
 
@@ -98,7 +100,7 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 |---|---|---|---|---|---|
 | 1 | `https://console.openova.io/sovereign` | Sign in (operator PIN), open the deployments list | Your in-flight deployment listed with `status: provisioning` | ☐ | — |
 | 2 | The deployment row | Open it (`/sovereign/provision/<dep-id>`) | Header shows the Sovereign FQDN + **the BCP topology you ordered** (e.g. `active-hot-standby`) | ☐ | — |
-| 3 | The provision overview | Read the **regions** | **Exactly the regions ordered** — an active-hot-standby Sovereign MUST show **2 regions** (e.g. `me-east-215-a` + `-b`), NOT 1. *(A single-region prov here = wrong topology, ❌ — founder caught this 2026-06-04.)* | ☐ | — |
+| 3 | The provision overview | Read the **regions** | **Exactly the regions ordered** — an active-hot-standby Sovereign MUST show **2 regions** (e.g. `me-east-215-a` + `-b`), NOT 1. *(A single-region prov here = wrong topology, ❌ — founder caught this 2026-06-04.)* | ✅ (executor-observed) | [cloud-2regions](../sessions/2026-06-04/evidence/hw93-mothership-cloud-2regions.png) |
 
 ### TC-00b — The provisioning jobs run and complete per-region *(web · operator · mothership console)*
 
