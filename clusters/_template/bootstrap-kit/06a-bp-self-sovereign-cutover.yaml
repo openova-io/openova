@@ -469,6 +469,19 @@ spec:
       harborPublicURL: https://registry.${SOVEREIGN_FQDN}
       giteaInternalURL: http://gitea-http.gitea.svc.cluster.local:3000
       giteaPublicURL: https://gitea.${SOVEREIGN_FQDN}
+      # G... (#2989, 2026-06-04): Step 07 (catalyst-api-env-patch, Phase 3
+      # of PR #3012) pivots CATALYST_PIN_ISSUER + CATALYST_HANDOVER_JWT_
+      # ISSUER + the two runtime-config public-URL keys to this value and
+      # FATALs ("Pillar 5 independence not met") if it is still the chart
+      # default `https://console.example.local`. PR #3012 added that
+      # assertion but never added the overlay line here — so the cutover
+      # engine FATAL'd at Step 07 on EVERY prov, halting the sequence with
+      # the registry tether half-pivoted (Step 04 strips ghcr.io from
+      # ghcr-pull, but Step 06's HelmRepository URL rewrite — which runs
+      # after 07 in engine order — never executes → all fresh chart pulls
+      # 401 with "no auth config for ghcr.io"). Caught live on hw91. This
+      # is the missing lockstep half of #3012; mirror of harbor/giteaPublicURL.
+      consolePublicURL: https://console.${SOVEREIGN_FQDN}
     # Wave 5.110 (#2462): bastion mirror endpoint for harbor.openova.io,
     # substituted from cloudinit's flux-system/bastion-mirror Secret
     # (Huawei provider only; Hetzner leaves the var empty → chart skips
