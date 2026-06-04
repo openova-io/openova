@@ -81,7 +81,7 @@ spec:
       # bp-self-sovereign-cutover Step 1 gitea-mirror Job mounts it. K8s
       # forbids cross-namespace secretKeyRef; reflector is the canonical
       # platform-level mirror. Caught live on otech103 2026-05-04.
-      version: 1.2.18
+      version: 1.2.19
       sourceRef:
         kind: HelmRepository
         name: bp-gitea
