@@ -75,7 +75,12 @@ META-AUDIT 1 catalog.
 {{- $svcName := (($gate.service).name) | default "kyverno-svc" -}}
 {{- $svcNs := (($gate.service).namespace) | default "kyverno" -}}
 {{- $secretName := $gate.tlsSecretName | default "kyverno-svc.kyverno.svc.kyverno-tls-pair" -}}
-{{- $timeout := $gate.timeoutSeconds | default 300 -}}
+{{- /* hw93 2026-06-04: 300s was too short on a throttled-egress fresh prov —
+       kyverno's image + cert-manager Secret took ~15 min, the gate timed out,
+       backoffLimit:0 → hook failed → upgrade failed → MissingRollbackTarget →
+       HR Stalled → bootstrap-kit health failed → sovereign-tls → console 000.
+       Raised to 1200s (20 min) to tolerate slow image pulls on cold provs. */ -}}
+{{- $timeout := $gate.timeoutSeconds | default 1200 -}}
 {{- $interval := $gate.intervalSeconds | default 2 -}}
 {{- $image := $gate.image | default "bitnamilegacy/kubectl:1.30.7" -}}
 {{- $pullPolicy := $gate.imagePullPolicy | default "IfNotPresent" -}}
