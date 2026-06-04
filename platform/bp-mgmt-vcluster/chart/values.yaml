@@ -104,6 +104,14 @@ mgmtVcluster:
     # entries via per-Sovereign overlay.
     allowedIngressNamespaces:
       - dmz
+      # REQUIRED: the Flux helm-controller (ns flux-system) manages the
+      # in-vCluster HelmReleases targeted here (gitea/keycloak/harbor/openbao/
+      # nats-jetstream) through the vc-mgmt kubeconfig → vcluster API :443.
+      # This chart sets no allowWorldIngress (defaults false), so without this
+      # entry those HRs StateError ("could not determine release state: dial
+      # tcp …:443 i/o timeout") on their next reconcile — they only appear
+      # healthy until Cilium starts enforcing the netpol. #3055
+      - flux-system
 
 # ─── Upstream chart values (subchart key: vcluster) ────────────────
 # `helm dependency build` resolves the upstream loft-sh/vcluster

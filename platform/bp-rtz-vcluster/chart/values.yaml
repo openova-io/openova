@@ -50,6 +50,14 @@ rtzVcluster:
     enabled: true
     allowedIngressNamespaces:
       - dmz     # always present on the same region
+      # REQUIRED: the Flux helm-controller (ns flux-system) manages the
+      # in-vCluster HelmReleases targeted here (e.g. bp-sandbox) through the
+      # vc-rtz kubeconfig → vcluster API :443. With allowWorldIngress:false this
+      # is the ONLY path the controller has to the API; omitting it makes every
+      # such HR StateError ("could not determine release state: dial tcp
+      # …:443 i/o timeout") and never reconcile. flux-system is trusted
+      # control-plane, so tenant isolation (world/other-tenants out) is intact. #3055
+      - flux-system
     allowWorldIngress: false   # tenant pods never face world directly
 
 vcluster:

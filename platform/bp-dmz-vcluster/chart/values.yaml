@@ -60,6 +60,13 @@ dmzVcluster:
       - rtz     # secondary-only — primary won't have this NS
       - kube-system    # Gateway control-plane
       - gateway-system # Gateway data-plane
+      # Flux helm-controller (ns flux-system) manages the in-vCluster
+      # HelmReleases targeted here (bp-coraza) via the vc-dmz kubeconfig →
+      # vcluster API :443. Today allowWorldIngress:true masks this, but state
+      # the invariant explicitly so dmz stays correct if an operator flips
+      # allowWorldIngress to false. Every vcluster hosting Flux-managed HRs
+      # must allow flux-system ingress to its API. #3055
+      - flux-system
     # World ingress: allow Cilium Gateway pods to reach DMZ vCluster
     # via the in-cluster Service. Operators override per-Sovereign
     # to add WireGuard port (UDP 51871) allowance from world.
