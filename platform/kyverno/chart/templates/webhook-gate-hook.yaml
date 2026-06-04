@@ -79,8 +79,18 @@ META-AUDIT 1 catalog.
        kyverno's image + cert-manager Secret took ~15 min, the gate timed out,
        backoffLimit:0 → hook failed → upgrade failed → MissingRollbackTarget →
        HR Stalled → bootstrap-kit health failed → sovereign-tls → console 000.
-       Raised to 1200s (20 min) to tolerate slow image pulls on cold provs. */ -}}
-{{- $timeout := $gate.timeoutSeconds | default 1200 -}}
+       Raised to 1200s (20 min) to tolerate slow image pulls on cold provs.
+       hw95 2026-06-04: 1200s STILL too short under peak concurrent-pull egress
+       contention — the gate hit BackoffLimitExceeded, the POST-INSTALL hook
+       failed → Flux install-remediation UNINSTALLED → the uninstall got stuck
+       (kyverno's own admission webhook blocks deletion of its resources) → HR
+       stuck StateError 'uninstalling', unrecoverable, and the last-8-HRs never
+       all-Ready so bootstrap-kit never holds stable → console 000. Raised to
+       2400s (40 min). DEEPER FIX still owed (the real fragility is the
+       fatal-hook→stuck-uninstall path, not the timeout): make this gate
+       non-fatal OR scope kyverno's webhook selectors so a not-yet-serving
+       kyverno can't block its own uninstall. Tracked as a follow-up. */ -}}
+{{- $timeout := $gate.timeoutSeconds | default 2400 -}}
 {{- $interval := $gate.intervalSeconds | default 2 -}}
 {{- $image := $gate.image | default "bitnamilegacy/kubectl:1.30.7" -}}
 {{- $pullPolicy := $gate.imagePullPolicy | default "IfNotPresent" -}}

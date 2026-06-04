@@ -218,7 +218,12 @@ slots:
     # gateway.networking.k8s.io/v1 CRDs must be registered first.
     # G92.3 #2662 (2026-06-01): MGMT vCluster placement adds
     # bp-mgmt-vcluster as a new edge.
-    depends_on: [bp-mgmt-vcluster, bp-cnpg, bp-cert-manager, bp-gateway-api]
+    # #3052-followup (2026-06-04, hw95): the chart ships an
+    # externalsecret.external-secrets.io — Harbor must wait for the
+    # external-secrets admission webhook to be serving or its create
+    # fails ("failed calling webhook validate.externalsecret") → 6
+    # install failures → Stalled (#2988 pattern).
+    depends_on: [bp-mgmt-vcluster, bp-cnpg, bp-cert-manager, bp-gateway-api, bp-external-secrets]
     wave: W2.K1
   - slot: 6a
     name: bp-self-sovereign-cutover
