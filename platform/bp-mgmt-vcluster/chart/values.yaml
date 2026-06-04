@@ -225,5 +225,11 @@ vcluster:
   # can reconcile MGMT-vCluster-targeted resources.
   exportKubeConfig:
     context: vcluster
+    # hw91 2026-06-04: same defect as bp-dmz-vcluster — the default
+    # exported server is `https://localhost:8443`, unusable by the
+    # host-cluster helm-controller / per-Sovereign Kustomizations that
+    # consume the mirrored kubeconfig. Point at the host-side service
+    # DNS before the first vc-mgmt-targeted HR trips over it.
+    server: https://mgmt-vcluster.mgmt.svc:443
     secret:
       name: vc-mgmt

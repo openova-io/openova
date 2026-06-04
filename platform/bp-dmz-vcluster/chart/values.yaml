@@ -123,5 +123,13 @@ vcluster:
   # can reconcile DMZ-vCluster-targeted resources.
   exportKubeConfig:
     context: vcluster
+    # hw91 2026-06-04: without an explicit server, vcluster exports its
+    # default `https://localhost:8443` — only dialable from inside the
+    # vcluster pod. helm-controller (flux-system, host cluster) reads
+    # this Secret via HelmRelease.spec.kubeConfig and got
+    # `dial tcp [::1]:8443: connection refused` on every vc-dmz-targeted
+    # HR (dmz/bp-coraza), holding the bootstrap-kit health gate forever.
+    # The host-side service DNS is the correct dial target.
+    server: https://dmz-vcluster.dmz.svc:443
     secret:
       name: vc-dmz

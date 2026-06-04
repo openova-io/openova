@@ -95,7 +95,13 @@ spec:
     # rather than removal so the slot remains available for Wave 11
     # Sandbox MVP without manual Day-2 add-app re-introduction.
     # G92.3 #2662 (2026-06-01): bp-harbor HR moved to host ns `mgmt`.
+    # hw91 2026-06-04: Flux resolves a namespace-less dependsOn entry in
+    # the HR's OWN namespace (rtz here) — this entry resolved to
+    # rtz/bp-harbor, which does not exist (bp-harbor lives in
+    # flux-system), wedging bp-sandbox at "unable to get 'rtz/bp-harbor'
+    # dependency" and holding the bootstrap-kit health gate forever.
     - name: bp-harbor
+      namespace: flux-system
   chart:
     spec:
       chart: sandbox
