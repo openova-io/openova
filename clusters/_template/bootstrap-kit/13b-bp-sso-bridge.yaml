@@ -116,11 +116,20 @@ spec:
       # 0.1.1 (G91-fu, Refs #2659, edc55c08 PR #2676): adds realm-role
       # grant + skipClientUpsert opt-out for charts whose Keycloak Client
       # is realm-imported at bp-keycloak install time (catalyst-ui etc.).
-      version: 0.2.8
+      version: 0.2.9
       sourceRef:
         kind: HelmRepository
         name: bp-sso-bridge
         namespace: flux-system
+  # #2989 residual (0.2.9): the reconciler needs the Sovereign FQDN
+  # BEFORE bp-catalyst-platform ships the sovereign-fqdn ConfigMap —
+  # gitea's post-install SSO hook starves on the sso/gitea key the
+  # reconciler writes, and catalyst-platform dependsOn gitea. The
+  # chart-value fallback breaks that residual cycle; the CM (with
+  # orgEmail) still wins once it exists.
+  values:
+    sovereign:
+      fqdn: ${SOVEREIGN_FQDN}
   install:
     timeout: 5m
     disableWait: true

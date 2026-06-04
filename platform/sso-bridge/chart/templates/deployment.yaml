@@ -124,6 +124,10 @@ spec:
               value: {{ .Values.operator.sovereignFqdnConfigMap.sovereignFqdnKey | quote }}
             - name: OPERATOR_EMAIL_OVERRIDE
               value: {{ .Values.operator.emailOverride | quote }}
+            # #2989 residual (0.2.9): chart-value FQDN fallback so ticks
+            # run before catalyst-platform ships the sovereign-fqdn CM.
+            - name: SOVEREIGN_FQDN_FALLBACK
+              value: {{ .Values.sovereign.fqdn | quote }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:

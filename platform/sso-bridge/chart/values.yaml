@@ -211,3 +211,16 @@ networkPolicy:
   keycloakPort: 80
   openbaoNamespace: openbao
   openbaoPort: 8200
+
+# #2989 residual (0.2.9): the Sovereign's own FQDN as a chart value, used
+# by the reconciler as fallback when the sovereign-fqdn ConfigMap (shipped
+# by bp-catalyst-platform) does not exist yet. Without this fallback the
+# reconciler skipped EVERY tick pre-catalyst-platform — re-creating the
+# #2989 deadlock one layer down: gitea's post-install SSO hook starves on
+# the sso/gitea OpenBao key this reconciler writes, catalyst-platform
+# dependsOn gitea, and the CM ships with catalyst-platform. Slot 13b
+# supplies the real value via envsubst ${SOVEREIGN_FQDN}; empty default
+# keeps smoke renders clean (reconciler then degrades to the old
+# CM-only behavior).
+sovereign:
+  fqdn: ""

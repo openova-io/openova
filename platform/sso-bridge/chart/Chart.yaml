@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.8
+version: 0.2.9
 # 0.2.8 (G117.5-followup #2914, 2026-06-03): dual-token KC mint —
 # sovereign-realm SA token for in-realm operations + new master-realm
 # admin token for POST /admin/realms (per-Org realm provisioning).
