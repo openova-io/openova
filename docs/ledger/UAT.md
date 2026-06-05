@@ -378,11 +378,11 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | [/apps](https://console.hw91.omantel.biz/apps) | Open **Applications**, switch to the **Catalog** tab | Blueprint **class** cards (one per Blueprint, NOT one per instance) | ☐ | — |
-| 2 | A class card (e.g. Grafana) | Click it | **Catalog detail**: Blueprint header + **supported-topology list** + an **instance table** + a **"+ New instance"** affordance | ☐ | — |
+| 1 | `console.hw96.omani.works/apps` | Open **Applications**, switch to the **Catalog** tab | Blueprint **class** cards (one per Blueprint, NOT one per instance) | ✅ | **WALKED 2026-06-05** — Applications renders **Deployments 49 / Catalog 63** tabs; each `bp-*` shows as one class card with tagline, status badge, dependency chips ([applications](../sessions/2026-06-05/evidence/hw96-walk-tc15-applications-deployments.png)) |
+| 2 | A class card (e.g. Grafana) | Click it | **Catalog detail**: Blueprint header + **supported-topology list** + an **instance table** + a **"+ New instance"** affordance | ✅ | `/app/bp-grafana` shows "bp-grafana — Grafana", Ready, bp-grafana@1.0.7, the 7-tab strip (Overview/Topology/Resources/Compliance/Logs/Settings/Members), **Instances** section + **+ New instance** button, Placement=single-region, Available regions hz-fsn/hz-hel ([grafana detail](../sessions/2026-06-05/evidence/hw96-walk-tc17-grafana-launch-sso-button.png)) |
 
 - **UI source:** `AppsPage.tsx:6` (tabs "Deployments"/"Catalog"), `CatalogDetail.tsx` ("+ New instance").
-- **Journey verdict:** ⏳ (hw96) **not walked this pass** — operator catalog surface, reachable; deferred to the operator-console sweep (post #3057/#3058).
+- **Journey verdict:** ✅ (hw96, 2026-06-05) — class page + catalog detail + instance table + "+ New instance" all render correctly.
 
 ### TC-16 — Three coexisting instances of one Blueprint *(web · operator · #2737 DoD #5)*
 
@@ -390,11 +390,11 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | Catalog detail (Grafana) | Tap **+ New instance**, complete the install form, repeat **twice more** (3 total) | Each install accepted — no name-collision crash; 409 with a clear message only on a genuinely duplicate name | ☐ | — |
-| 2 | Catalog detail (Grafana) | Read the instance table | **3 rows**, each with its own name + status | ☐ | — |
-| 3 | Each instance row | Open each instance's detail → its endpoint | **3 distinct URLs**, each serving its own Grafana (change a dashboard in one — the others unchanged) | ☐ | — |
+| 1 | Catalog detail (Grafana) | Tap **+ New instance**, complete the install form, repeat **twice more** (3 total) | Each install accepted — no name-collision crash; 409 with a clear message only on a genuinely duplicate name | ☐ | The **"+ New instance"** affordance is present on the Grafana catalog detail (TC-15 step 2 evidence); the 3-install creation flow itself not walked this pass |
+| 2 | Catalog detail (Grafana) | Read the instance table | **3 rows**, each with its own name + status | ☐ | Instances section renders ("No instances of this Blueprint installed yet"); 3-instance creation not walked |
+| 3 | Each instance row | Open each instance's detail → its endpoint | **3 distinct URLs**, each serving its own Grafana (change a dashboard in one — the others unchanged) | ☐ | Not walked (depends on step 1) |
 
-- **Journey verdict:** ⏳ (hw96) **not walked this pass** — requires three live install actions; deferred to the operator-console sweep (post #3057/#3058).
+- **Journey verdict:** ◑ (hw96, 2026-06-05) — the multi-instance **affordance** ("+ New instance" + Instances table) is present + correct; the three-live-install action itself is deferred to a focused TC-16 walk.
 
 ### TC-17 — Launch silent-SSO: Tier-1 sweep *(web · operator · #2743/#2744)*
 
@@ -402,14 +402,14 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | App detail — **Grafana** | Tap **Launch →** | New tab opens **already signed in** (silent SSO `prompt=none&kc_idp_hint=catalyst-pin`) — no login form, < ~1 s | ☐ | — |
-| 2 | App detail — **Gitea** | Tap **Launch →** | Same: signed-in Gitea, no form | ☐ | — |
-| 3 | App detail — **Harbor** | Tap **Launch →** | Same: signed-in Harbor, no form | ☐ | — |
-| 4 | App detail — **OpenBao** | Tap **Launch →** | OpenBao opens authenticated via OIDC (architectural note: no kc_idp_hint pin — one redirect hop allowed, but **no credential prompt**) | ☐ | — |
+| 1 | App detail — **Grafana** | Tap **Launch →** | New tab opens **already signed in** (silent SSO `prompt=none&kc_idp_hint=catalyst-pin`) — no login form, < ~1 s | ❌ | **WALKED 2026-06-05.** Launch button + OIDC machinery present + correct: App-detail shows External URL `grafana.hw96.omani.works` + "Launch via silent SSO" ([launch button](../sessions/2026-06-05/evidence/hw96-walk-tc17-grafana-launch-sso-button.png)); Launch → Grafana → Sovereign KC `auth.hw96.omani.works/realms/sovereign` with `client_id=grafana` + `kc_idp_hint=catalyst-pin` ✓. **But KC returns "Invalid parameter: redirect_uri"** ([FAIL](../sessions/2026-06-05/evidence/hw96-walk-tc17-grafana-FAIL-redirect-uri-localhost.png)) — Grafana's `[server] root_url` was `https://localhost/` (empty `domain`) → `redirect_uri=https://localhost/login/generic_oauth`. **Root-caused + fixed: [#3061](https://github.com/openova-io/openova/issues/3061) → PR [#3062](https://github.com/openova-io/openova/pull/3062)** (emit `GF_SERVER_ROOT_URL` from `sso.sovereignFqdn`). |
+| 2 | App detail — **Gitea** | Tap **Launch →** | Same: signed-in Gitea, no form | ☐ | Spot-check deferred until #3062 lands — Gitea/Harbor use their own external-URL configs; whether they share the FQDN-substitution gap is the follow-up check |
+| 3 | App detail — **Harbor** | Tap **Launch →** | Same: signed-in Harbor, no form | ☐ | Deferred (see step 2) |
+| 4 | App detail — **OpenBao** | Tap **Launch →** | OpenBao opens authenticated via OIDC (architectural note: no kc_idp_hint pin — one redirect hop allowed, but **no credential prompt**) | ☐ | Deferred (see step 2) |
 
 - **UI source:** `AppDetail.tsx` LaunchButton ("Launch →", aria "Launch app via silent SSO").
 - **Coverage note:** Tier-2/Tier-3 apps (13 more, #2744) follow the same contract; walk any 2 as a sample and record which.
-- **Journey verdict:** ⏳ (hw96) **not walked this pass** — Tier-1 Launch/silent-SSO sweep deferred to the operator-console sweep (post #3057/#3058). *(The G91 SSO E2E recovery proved all 4 Tier-1 apps green on hw86; the hw96 re-walk is pending.)*
+- **Journey verdict:** ❌ (hw96, 2026-06-05) — **real Tier-1 SSO defect found**: Grafana Launch's OIDC machinery is correctly wired (Sovereign KC, client_id, kc_idp_hint) but the `redirect_uri` resolved to `localhost` → KC rejects every Grafana sign-in. Filed [#3061](https://github.com/openova-io/openova/issues/3061), fixed in PR [#3062](https://github.com/openova-io/openova/pull/3062). The prior "green on hw86" claim verified the auth_url carried `kc_idp_hint` but never completed a click-through redirect — which is why this surfaced only on a live Playwright walk. *(Method note: entry via handover token doesn't seed a Keycloak browser session, so the "no-login-form" silent part needs a KC-session login to fully demonstrate — but the `redirect_uri` defect blocks SSO regardless of session.)* Re-walk all 4 Tier-1 apps after #3062 lands on a fresh prov.
 
 ### TC-18 — Endpoint edit → governed PR → full propagation *(web · operator · #2742, #2737 DoD #4)*
 
