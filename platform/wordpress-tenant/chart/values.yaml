@@ -155,6 +155,13 @@ database:
     # shared `cnpg-tenants` namespace via overlay.
     namespace: ""
     instances: 1
+    # CNPG postgres image. Defaults to the mothership Harbor proxy cache
+    # (harbor.openova.io/proxy-ghcr) so fresh-prov bootstrap pulls the
+    # ~300MB image through Harbor instead of throttling on anonymous ghcr
+    # (#3058). PUBLIC image → proxy-ghcr serves it cred-free. Post-cutover
+    # Step-04's containerd mirror redirects harbor.openova.io → local Harbor.
+    # The tag is set separately via pgVersion.
+    imageName: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql
     pgVersion: "16"
     database: "wordpress"
     owner: "wordpress"

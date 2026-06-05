@@ -94,7 +94,7 @@ name: bp-wordpress-tenant
 #   - Operator-facing trade-off (documented in values.yaml + DESIGN
 #     of bp-cnpg-pair §7): primary BLOCKS new writes when replica is
 #     unreachable; every COMMIT pays the inter-region RTT.
-version: 0.4.0
+version: 0.4.1
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

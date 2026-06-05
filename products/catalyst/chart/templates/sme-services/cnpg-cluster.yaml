@@ -70,7 +70,7 @@ metadata:
     app.kubernetes.io/part-of: sme
 spec:
   instances: {{ .Values.smePostgres.cluster.instances | default 1 }}
-  imageName: ghcr.io/cloudnative-pg/postgresql:{{ .Values.smePostgres.cluster.pgVersion | default "16" }}
+  imageName: {{ .Values.smePostgres.cluster.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql" }}:{{ .Values.smePostgres.cluster.pgVersion | default "16" }}
 
   # Annotations CNPG propagates onto every Secret it generates
   # (sme-pg-app, sme-pg-superuser, sme-pg-replication, ...). Reflector

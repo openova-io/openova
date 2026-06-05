@@ -76,7 +76,7 @@ metadata:
   {{- end }}
 spec:
   instances: {{ .Values.database.cluster.instances }}
-  imageName: ghcr.io/cloudnative-pg/postgresql:{{ .Values.database.cluster.pgVersion }}
+  imageName: {{ .Values.database.cluster.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql" }}:{{ .Values.database.cluster.pgVersion }}
   {{- if $haEnabled }}
   primaryUpdateMethod: switchover
   {{- end }}
@@ -252,7 +252,7 @@ metadata:
     catalyst.openova.io/cnpg-pair-name: {{ .Values.database.cnpgClusterName | quote }}
 spec:
   instances: {{ .Values.database.cluster.instances }}
-  imageName: ghcr.io/cloudnative-pg/postgresql:{{ .Values.database.cluster.pgVersion }}
+  imageName: {{ .Values.database.cluster.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql" }}:{{ .Values.database.cluster.pgVersion }}
 
   storage:
     size: {{ .Values.database.cluster.storageSize }}

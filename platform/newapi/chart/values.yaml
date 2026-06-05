@@ -210,7 +210,13 @@ cnpg:
   sslMode: "require"
   cluster:
     instances: 1
-    imageName: "ghcr.io/cloudnative-pg/postgresql:16.4"
+    # CNPG postgres image (full ref incl tag). Defaults to the mothership
+    # Harbor proxy cache (harbor.openova.io/proxy-ghcr) so fresh-prov
+    # bootstrap pulls the ~300MB image through Harbor instead of throttling
+    # on anonymous ghcr (#3058). PUBLIC image → proxy-ghcr serves it
+    # cred-free. Post-cutover Step-04's containerd mirror redirects
+    # harbor.openova.io → local Harbor.
+    imageName: "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16.4"
     storage: "5Gi"
     storageClassName: "" # empty ⇒ default StorageClass
     owner: "newapi"

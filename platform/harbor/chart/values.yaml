@@ -514,6 +514,13 @@ postgres:
     instances: 1                  # bump to 3 alongside HA overlay once beyond Phase-0
     storageSize: 5Gi
     storageClass: local-path      # Contabo k3s default; Hetzner Sovereign overlays → hcloud-volumes
+    # CNPG postgres image. Defaults to the mothership Harbor proxy cache
+    # (harbor.openova.io/proxy-ghcr) so fresh-prov bootstrap pulls the
+    # ~300MB image through Harbor instead of throttling on anonymous ghcr
+    # (#3058). PUBLIC image → proxy-ghcr serves it cred-free. Post-cutover
+    # Step-04's containerd mirror redirects harbor.openova.io → local Harbor.
+    # The tag is set separately via pgVersion.
+    imageName: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql
     pgVersion: "16"
     # MUST match harbor.database.external.coreDatabase. Harbor upstream
     # defaults coreDatabase="registry" and connects to a DB named "registry".
