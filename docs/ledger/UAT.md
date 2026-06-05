@@ -50,7 +50,21 @@
 | **TC-13** | **Multi-region dashboard / cloud — Pillar 2/3** | ✅ **Region 2/2 · Cluster 2/2 · WorkerNode 12/12 · vCluster 6/6** | [cloud-2region](../sessions/2026-06-04/evidence/hw96-walk-tc13-cloud-2region-topology.png) |
 | TC-14 → TC-26 | Jobs filter, catalog, 3-instances, SSO sweep, endpoint→PR, RBAC, hostnames, cross-org, CNPG region-kill (Pillar 3), cutover (Pillar 5) | ☐ **NOT WALKED** — require [#3057](https://github.com/openova-io/openova/issues/3057) + [#3058](https://github.com/openova-io/openova/issues/3058) fixed → **one fresh prov** (hw96 is hand-patched for cnpg→harbor, which would trip the Pillar-5 cutover residual-tether assertion) |
 
-**Bottom line:** Pillars 1 (marketplace/voucher UI) & 2 (BCP-at-signup + 2-region) **PASS on a live Sovereign**; the org-creation tail + Pillars 3/5 are gated on **two real defects found in this walk** — [#3057](https://github.com/openova-io/openova/issues/3057) (no Sovereign SMTP) and [#3058](https://github.com/openova-io/openova/issues/3058) (cnpg image not harbor-cached). Per Rule 6 the issues close only after your sign-off.
+**Bottom line:** Pillars 1 (marketplace/voucher UI) & 2 (BCP-at-signup + 2-region) **PASS on a live Sovereign**; the org-creation tail + Pillars 3/5 are gated on **defects found in this walk** — [#3057](https://github.com/openova-io/openova/issues/3057) (SMTP), [#3058](https://github.com/openova-io/openova/issues/3058) (cnpg not harbor-cached), [#3061](https://github.com/openova-io/openova/issues/3061) (Grafana SSO redirect_uri).
+
+---
+
+## 🔁 Fresh-prov validation of the walk's fixes — hw97 (2026-06-05)
+
+The 3 defects found in the hw96 walk were fixed (#3059/#3060/#3062, all merged + published) and re-validated on a **fresh single-region prov `hw97.omani.works`** (dep `8fff068c9177d490`) carrying the published charts — **no hand-patch**:
+
+| Fix | Method | Result |
+|---|---|---|
+| **#3058** cnpg→harbor | kubectl on hw97 | ✅ **CLOSED** — all 4 cnpg Clusters pull `harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16`; converged **12→53/56 with no throttle plateau** (vs hw96's ~45/56 stall). Zero-touch proven. |
+| **#3061** Grafana SSO | kubectl on hw97 | ◑ runtime-confirmed — `GF_SERVER_ROOT_URL = https://grafana.hw97.omani.works/` (not `localhost`); browser Launch re-walk pending console-200 |
+| **#3057** voucher/SMTP | kubectl on hw97 | ◑ runtime-confirmed — `sovereign-smtp-credentials` seeded (the "no SMTP" was a seeding race); TC-05/10 mail-path walk pending console-200 |
+
+**hw97 status:** converged `ready` (53/56; the 3 not-ready are the expected Huawei-suspends), but **console-200 is blocked by a cert-manager wildcard-TLS stuck-secret** (`secret "…-flw5m" already exists` loop) — the end-to-end UI re-walks (Grafana Launch, voucher, org-creation) run once that clears. **Pillars 2/3/5** (multi-region region-kill + cutover) need a **2-region** prov, blocked on an HCS VPC-orphan quota issue — [#3065](https://github.com/openova-io/openova/issues/3065).
 
 ---
 

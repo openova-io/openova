@@ -273,7 +273,7 @@ When in doubt: defer to [`docs/GLOSSARY.md`](docs/GLOSSARY.md).
 - Sign every commit. Default identity for this repo: `hatiyildiz` (`269457768+hatiyildiz@users.noreply.github.com`). Switch to `alierenbaysal` (`269455083+alierenbaysal@users.noreply.github.com`) only when the user explicitly directs.
 - No git config global; pass `-c user.name=… -c user.email=…` per commit.
 - Reference issues/PRs by number where applicable.
-- Per `~/.claude/CLAUDE.md`: every issue lifecycles through `status/in-progress` → `status/uat` → `status/completed`. Open an issue before code changes; never close it (only the user does).
+- Per `~/.claude/CLAUDE.md`: every issue lifecycles through `status/in-progress` → `status/uat` → `status/completed`. Open an issue before code changes. **The agent owns the full cycle including `gh issue close` once the work is verified** (founder repealed the former "only the user closes" rule on 2026-06-05 — close verified items yourself rather than parking them at `status/completed`).
 
 ---
 
