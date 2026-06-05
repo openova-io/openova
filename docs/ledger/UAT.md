@@ -20,6 +20,9 @@
 | TC-07 Pick apps | [mkt/apps](https://marketplace.hw99.omantel.biz/apps) | Open the app-picker step | App catalog renders for selection | ✅ (hw99) | [img](../sessions/2026-06-05/evidence/hw99-tc07-apps.png) |
 | TC-09 BCP at signup | [mkt/bcp](https://marketplace.hw99.omantel.biz/bcp) | Open the BCP step | Business-continuity topology chosen at sign… | ✅ (hw99) | [img](../sessions/2026-06-05/evidence/hw99-tc09-bcp-topology.png) |
 | TC-10 Checkout / crea… | [mkt/checkout](https://marketplace.hw99.omantel.biz/checkout) | Reach checkout (subdomain + create-Or… | Checkout + org-creation form renders | ◑ (hw99, rea… | [img](../sessions/2026-06-05/evidence/hw99-tc10-checkout-org.png) |
+| TC-14 Jobs terminal | [jobs](https://console.hw99.omantel.biz/jobs) | Open Jobs | Jobs list terminal + region-filterable | ✅ (hw99) | [img](../sessions/2026-06-05/evidence/hw99-tc14-jobs.png) |
+| TC-19 RBAC/Complianc… | [compliance](https://console.hw99.omantel.biz/sre/compliance) | Open Compliance | Compliance/RBAC surface renders | ✅ (hw99) | [img](../sessions/2026-06-05/evidence/hw99-compliance.png) |
+| TC-24 Cutover trigger | [settings](https://console.hw99.omantel.biz/settings) | Open Settings → Sovereignty card | 'Achieve True Sovereignty' cutover card mounted (#3064) | ✅ (hw99) | [img](../sessions/2026-06-05/evidence/hw99-tc24-sovereignty-card.png) |
 | TC-00a The deployment … | [console/sover…](https://console.openova.io/sovereign) | Sign in (operator PIN), open the depl… | Your in-flight deployment listed with `stat… | ✅ | — |
 | TC-00a The deployment … | The deployment … | Open it (`/sovereign/provision/<dep-i… | Header shows the Sovereign FQDN + **the BCP… | ✅ | — |
 | TC-00a The deployment … | The provision o… | Read the **regions** | **Exactly the regions ordered** — an active… | ✅ (executor-… | [img](../sessions/2026-06-04/evidence/hw93-mothership-cloud-2regions.png) |
