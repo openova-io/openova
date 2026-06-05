@@ -59,6 +59,7 @@ import { useDeploymentEvents } from './useDeploymentEvents'
 import { useWizardStore } from '@/entities/deployment/store'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { MarketplaceSection } from './settings/MarketplaceSection'
+import { SovereigntyCard } from '@/widgets/sovereignty'
 
 /* ── Constants ──────────────────────────────────────────────────── */
 
@@ -101,6 +102,12 @@ const SECTIONS: readonly SectionDef[] = [
   { id: 'notifications', label: 'Notifications', description: 'Email + Slack hooks for provisioning events.' },
   { id: 'members', label: 'Members', description: 'Operators with admin / dev / viewer roles.' },
   { id: 'danger-zone', label: 'Danger zone', description: 'Wipe Sovereign, decommission, transfer ownership.' },
+  // #793 production mount: the cutover ("Achieve True Sovereignty") card
+  // previously existed ONLY on the layout-free /sovereignty/preview harness
+  // route, so the operator console had no production surface to start the
+  // sovereignty cutover (UAT TC-24 ❌). Appended last so existing SECTIONS[N]
+  // index references stay stable.
+  { id: 'sovereignty', label: 'Sovereignty', description: 'Achieve true sovereign independence — sever the mothership tethers via the cutover.' },
 ] as const
 
 const TOKEN_MASK = '••••••••••••••••'
@@ -408,6 +415,15 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
                 />
               </ul>
             </SectionCard>
+
+            {/* 11. Sovereignty — #793 production mount of the cutover card
+                (was only reachable at the /sovereignty/preview harness route).
+                Self-contained widget: renders its own header/badge/CTA and
+                self-fetches cutover status, so it is not wrapped in a
+                SectionCard. */}
+            <div id="sovereignty" className="scroll-mt-20" data-testid="settings-sovereignty">
+              <SovereigntyCard />
+            </div>
           </main>
         </div>
       </div>
