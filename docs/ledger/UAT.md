@@ -23,6 +23,8 @@
 | TC-14 Jobs terminal | [jobs](https://console.hw99.omantel.biz/jobs) | Open Jobs | Jobs list terminal + region-filterable | ✅ (hw99) | [img](../sessions/2026-06-05/evidence/hw99-tc14-jobs.png) |
 | TC-19 RBAC/Complianc… | [compliance](https://console.hw99.omantel.biz/sre/compliance) | Open Compliance | Compliance/RBAC surface renders | ✅ (hw99) | [img](../sessions/2026-06-05/evidence/hw99-compliance.png) |
 | TC-24 Cutover trigger | [settings](https://console.hw99.omantel.biz/settings) | Open Settings → Sovereignty card | 'Achieve True Sovereignty' cutover card mounted (#3064) | ✅ (hw99) | [img](../sessions/2026-06-05/evidence/hw99-tc24-sovereignty-card.png) |
+| TC-05 #3057 voucher mail | [checkout](https://marketplace.hw99.omantel.biz/checkout) | Trigger sign-in code email | PIN email DELIVERED by Sovereign SMTP (#3057 fixed) | ✅ (hw99) | [img](../sessions/2026-06-05/evidence/hw99-tc10-org-creation-form.png) |
+| TC-10 Org-creation form | [checkout](https://marketplace.hw99.omantel.biz/checkout) | Email→PIN→sign in→fill tenant name | Authenticated; org form (name/subdomain/order/pay) renders — #3057 gate gone | ✅ (hw99) | [img](../sessions/2026-06-05/evidence/hw99-tc10-org-creation-form.png) |
 | TC-00a The deployment … | [console/sover…](https://console.openova.io/sovereign) | Sign in (operator PIN), open the depl… | Your in-flight deployment listed with `stat… | ✅ | — |
 | TC-00a The deployment … | The deployment … | Open it (`/sovereign/provision/<dep-i… | Header shows the Sovereign FQDN + **the BCP… | ✅ | — |
 | TC-00a The deployment … | The provision o… | Read the **regions** | **Exactly the regions ordered** — an active… | ✅ (executor-… | [img](../sessions/2026-06-04/evidence/hw93-mothership-cloud-2regions.png) |
