@@ -10,6 +10,23 @@
 
 ---
 
+## 📸 hw99 fresh-prov walk — LIVE evidence (2026-06-05, collecting now)
+
+Operator authenticated to the live hw99 console via **email-PIN sign-in (TC-02 ✅ walked** — entered `emrah.baysal@openova.io` → 6-digit PIN `530580` from the mailbox → authenticated). Walking the operator-console surfaces on the live 2-region prov `02a4b48a31142cc9` (`hw99.omantel.biz`) as it converges:
+
+| TC | Surface | Evidence |
+|---|---|---|
+| TC-01 | Provisioning — Applications (49 apps) | ![apps](../sessions/2026-06-05/evidence/hw99-tc01-provisioning-apps-pending.png) |
+| — | Dashboard | ![dashboard](../sessions/2026-06-05/evidence/hw99-dashboard-provisioning.png) |
+| TC-03 | Users / owner tier | ![users](../sessions/2026-06-05/evidence/hw99-users.png) |
+| TC-03 | Settings | ![settings](../sessions/2026-06-05/evidence/hw99-settings.png) |
+| — | Cloud | ![cloud](../sessions/2026-06-05/evidence/hw99-cloud.png) |
+| — | Jobs | ![jobs](../sessions/2026-06-05/evidence/hw99-jobs.png) |
+
+_Converged-state + handover walk (TC-04→26: voucher, org-creation, Grafana SSO Launch, region-kill, cutover) follow as hw99 reaches ready — re-shot live and embedded here._
+
+---
+
 ## 🔴 Live progress log (newest first — updated continuously)
 
 | When (UTC) | What | Status |
