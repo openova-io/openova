@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-observability
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.0.7
+  version: 1.0.8
   card:
     title: Grafana
     family: insights
