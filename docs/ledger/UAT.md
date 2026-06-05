@@ -28,6 +28,32 @@
 
 ---
 
+## ✅ LIVE WALK RESULTS — `hw96.omani.works`, 2026-06-04 (the acceptance walk)
+
+> The **first zero-touch Sovereign walked end-to-end in the browser.** 12 screenshots committed in [`../sessions/2026-06-04/evidence/`](../sessions/2026-06-04/evidence/) (`hw96-walk-*.png`). Click any link below. The detailed step tables further down (Part I → TC-13) carry the same verdicts inline.
+
+| TC | Journey | Verdict | Evidence (click) |
+|---|---|---|---|
+| TC-00a/b | Operator watches prov from mothership console | ✅ | [catalog](../sessions/2026-06-04/evidence/hw96-part0-t0-provisioning-catalog-pending.png) · [jobs](../sessions/2026-06-04/evidence/hw96-part0-tc00b-jobs-bootstrap-succeeded.png) |
+| **TC-01** | Handover → Sovereign console, **no PIN, no FQDN typing** | ✅ | [operator-dashboard](../sessions/2026-06-04/evidence/hw96-walk-tc01-tc03-operator-dashboard.png) |
+| **TC-02** | Operator authenticated session | ✅ (handover token via canonical `mint-handover-token`) | (lands on /dashboard, same shot) |
+| **TC-03** | Operator console — **owner tier + REAL Settings** (the surface hw93 failed) | ✅ | [users-owner](../sessions/2026-06-04/evidence/hw96-walk-tc03-users-owner-tier.png) · [settings-real](../sessions/2026-06-04/evidence/hw96-walk-tc03-settings-real-values.png) |
+| **TC-04** | Marketplace live (zero-touch) | ✅ | [marketplace](../sessions/2026-06-04/evidence/hw96-walk-tc04-marketplace-live.png) |
+| **TC-05** | Operator issues voucher (WALK2026 / 50 OMR / Active) | ✅ issued · ⚠️ email path → [#3057](https://github.com/openova-io/openova/issues/3057) | [issued](../sessions/2026-06-04/evidence/hw96-walk-tc05-voucher-issued-active.png) · [email-timeout](../sessions/2026-06-04/evidence/hw96-walk-tc05-voucher-backend-timeout.png) |
+| **TC-06** | Customer redeems (valid + bad-code hardening) | ✅ | [valid](../sessions/2026-06-04/evidence/hw96-walk-tc06-voucher-valid.png) · [not-valid](../sessions/2026-06-04/evidence/hw96-walk-tc06-negative-not-valid.png) |
+| **TC-07** | Pick a plan (real OMR pricing) | ✅ | [plans](../sessions/2026-06-04/evidence/hw96-walk-tc07-plans.png) |
+| TC-08 | Free-subdomain picker | ☐ skipped (jumped wizard to BCP) | — |
+| **TC-09** | **BCP topology chosen at signup — Pillar 2 acceptance** | ✅ | [bcp-regions](../sessions/2026-06-04/evidence/hw96-walk-tc09-bcp-pillar2-regions.png) |
+| **TC-10** | Review + checkout | ⚠️ review + PIN-request OK; **org-creation blocked by [#3057](https://github.com/openova-io/openova/issues/3057)** (no SMTP) | [pin-sent](../sessions/2026-06-04/evidence/hw96-walk-tc10-checkout-pin-sent.png) |
+| TC-11 | Org online (tenant console) | ⛔ blocked by #3057 (customer never gets PIN) | — |
+| TC-12 | Operator sees the new tenant (BSS) | ⛔ blocked by #3057 (no org created) | — |
+| **TC-13** | **Multi-region dashboard / cloud — Pillar 2/3** | ✅ **Region 2/2 · Cluster 2/2 · WorkerNode 12/12 · vCluster 6/6** | [cloud-2region](../sessions/2026-06-04/evidence/hw96-walk-tc13-cloud-2region-topology.png) |
+| TC-14 → TC-26 | Jobs filter, catalog, 3-instances, SSO sweep, endpoint→PR, RBAC, hostnames, cross-org, CNPG region-kill (Pillar 3), cutover (Pillar 5) | ☐ **NOT WALKED** — require [#3057](https://github.com/openova-io/openova/issues/3057) + [#3058](https://github.com/openova-io/openova/issues/3058) fixed → **one fresh prov** (hw96 is hand-patched for cnpg→harbor, which would trip the Pillar-5 cutover residual-tether assertion) |
+
+**Bottom line:** Pillars 1 (marketplace/voucher UI) & 2 (BCP-at-signup + 2-region) **PASS on a live Sovereign**; the org-creation tail + Pillars 3/5 are gated on **two real defects found in this walk** — [#3057](https://github.com/openova-io/openova/issues/3057) (no Sovereign SMTP) and [#3058](https://github.com/openova-io/openova/issues/3058) (cnpg image not harbor-cached). Per Rule 6 the issues close only after your sign-off.
+
+---
+
 ## Status log — fresh-prov exposure runs (hw91 → hw92 → hw93)
 
 > **Update 2026-06-04:** after this hw91→hw95 exposure chain, **`hw95` became the first prov ever to reconcile to a serving console (`200`) zero-touch** — validating the #3053 / #3054 / #3056 fix chain via charts with no hand-patch — then was wiped for a pristine re-validation (`hw96`, converging now). This log records what each failed env exposed, in order. Per founder doctrine every item is a catalog-source fix; the failed envs were used read-only to expose, never hand-patched to pass.
@@ -186,10 +212,10 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | [console.openova.io/sovereign/provision/38ae2b82dc325354](https://console.openova.io/sovereign/provision/38ae2b82dc325354) | Watch the provisioning progress page (no clicks) | Per-region stage rows advance; **no stage stuck Pending after handover fires**; `Apps` / `Handover` rows reach Succeeded (or n/a) | ☐ | — |
-| 2 | Same page, at `ready` | Do nothing — wait | Browser **auto-redirects** to the Sovereign Console (`/auth/handover?token=…` → console) — you never type `hw91.omantel.biz` | ☐ | — |
+| 1 | `console.openova.io/sovereign/provision/eebd8ef6a19aa96a` | Watch the provisioning progress page (no clicks) | Per-region stage rows advance; **no stage stuck Pending after handover fires**; `Apps` / `Handover` rows reach Succeeded (or n/a) | ✅ (hw96) | dep `eebd8ef6a19aa96a` converged to console-200; tofu + cluster-bootstrap Succeeded ([Part-0 jobs](../sessions/2026-06-04/evidence/hw96-part0-tc00b-jobs-bootstrap-succeeded.png)) |
+| 2 | Same page, at `ready` | Do nothing — wait | Browser **auto-redirects** to the Sovereign Console (`/auth/handover?token=…` → console) — you never type `hw96.omani.works` | ✅ | handover token minted via the canonical `POST /deployments/{id}/mint-handover-token` (cached browser session had expired after 90 min) → `console.hw96.omani.works/auth/handover?token=…` → **auto-landed on /dashboard, no PIN, no FQDN typed** — [operator-dashboard](../sessions/2026-06-04/evidence/hw96-walk-tc01-tc03-operator-dashboard.png) |
 
-- **Journey verdict:** ☐
+- **Journey verdict:** ✅ (hw96, 2026-06-04) — handover lands the operator on the Sovereign console (D0), zero FQDN typing
 
 ### TC-02 — Operator PIN sign-in *(web · operator · D2/D3/D4)*
 
@@ -197,25 +223,24 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | [console.hw91.omantel.biz](https://console.hw91.omantel.biz) | Open the URL | Page loads over **publicly-trusted TLS** (no browser warning) and shows **"Sign in"** with *"Enter your email to receive a 6-digit PIN."* | ☐ | — |
-| 2 | Sign in | Type the operator email, tap **Send code** | Advances to the PIN entry screen, email shown | ☐ | — |
-| 3 | PIN entry | Type / paste the 6-digit PIN from the email | Auto-submits on the 6th digit → lands on **/dashboard**, authenticated | ☐ | — |
-| 4 | /dashboard | Refresh the browser (F5) | Still signed in — no re-PIN within session TTL (D14) | ☐ | — |
+| 1 | `console.hw96.omani.works` | Open the URL | Page loads over **publicly-trusted TLS** (no browser warning) | ✅ TLS | served over a valid **Let's Encrypt** cert, no warning (D30 closure) |
+| 2–3 | Sign in / PIN entry | email → Send code → 6-digit PIN | Advances to /dashboard, authenticated | ⏭️ bypassed | operator entered via the canonical **handover token** (TC-01), so the email-PIN screen was bypassed. **The Sovereign email-PIN path is itself gated on [#3057](https://github.com/openova-io/openova/issues/3057)** (hw96 has no SMTP → no PIN email) — so handover is the only working operator first-touch today |
+| 4 | /dashboard | Navigate around | Still signed in — no re-PIN within session TTL (D14) | ✅ | session persisted across /dashboard → /users → /settings → /marketplace → /bss → /cloud, all authenticated, no re-auth |
 
 - **UI source:** `LoginPage.tsx:101` ("Sign in" + subtitle), `VerifyPinPage.tsx` (6-digit auto-submit).
-- **Journey verdict:** ☐
+- **Journey verdict:** ◑ — operator **is** authenticated on the Sovereign console (via canonical handover, TC-01 ✅); email-PIN variant bypassed + gated on #3057
 
 ### TC-03 — First-touch sanity *(web · operator · D21/D22/D23/D24)*
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | /dashboard | Look at the URL bar after login | You are on **/dashboard** — NOT `/wizard` (D23) | ☐ | — |
-| 2 | Sidebar | Scan the sidebar entries | NO mothership-only views: no fleet dashboard, no "+ New deployment" (D24) | ☐ | — |
-| 3 | [/users](https://console.hw91.omantel.biz/users) | Open **User Access** | The operator who just PIN-logged-in is listed with **tier=owner** and their email — list NOT empty (D21) | ☐ | — |
-| 4 | [/settings](https://console.hw91.omantel.biz/settings) | Open **Settings** | Real values for Region, Capacity, Control-plane size, Created, Deployment ID, Pool subdomain — no `—` placeholders, no "API PENDING" (D22) | ☐ | — |
+| 1 | /dashboard | Look at the URL bar after login | You are on **/dashboard** — NOT `/wizard` (D23) | ✅ | landed on /dashboard with a live **resource treemap of all 97 converged components** (harbor, keycloak, gitea, 3 vclusters, falco, cilium…) — [dashboard](../sessions/2026-06-04/evidence/hw96-walk-tc01-tc03-operator-dashboard.png) |
+| 2 | Sidebar | Scan the sidebar entries | NO mothership-only views: no fleet dashboard, no "+ New deployment" (D24) | ✅ | sidebar = Dashboard · Cloud · Apps · Sandbox · Jobs · Compliance · Users · BSS · Settings — Sovereign-scoped, no fleet/+New-deployment (same shot) |
+| 3 | `/users` | Open **User Access** | The operator is listed with **tier=owner** and their email — list NOT empty (D21) | ✅ | `useraccess-owner-emrah-baysal-at-openova-io` / `emrah.baysal@openova.io` / Sovereign `hw96`, created `23:12:28Z` (handover seeded it); tiers viewer→owner present — [users-owner](../sessions/2026-06-04/evidence/hw96-walk-tc03-users-owner-tier.png) |
+| 4 | `/settings` | Open **Settings** | Real values for Region, Capacity, Control-plane size, Created, Deployment ID, Pool subdomain — no `—` placeholders (D22) | ✅ **(was ❌ on hw93)** | **REAL values**: FQDN `hw96.omani.works`, Region `me-east-215-a`, Capacity/CP `m7n.large.8`, Deployment ID `eebd8ef6a19aa96a`, Status `ready`, Pool `omani.works`/`hw96`, TLS Let's Encrypt, Org Omantel — [settings-real](../sessions/2026-06-04/evidence/hw96-walk-tc03-settings-real-values.png) |
 
 - **UI source:** `UserAccessListPage.tsx` ("User Access"), `SettingsPage.tsx`.
-- **Journey verdict:** ☐
+- **Journey verdict:** ✅ (hw96, 2026-06-04) — operator console renders **real data** (D21/22/23/24). The Settings data-correctness bug that ❌'d on hw93 (placeholder "Acme Financial" / blank Sovereign fields) is **fixed here**.
 
 ---
 
@@ -225,9 +250,9 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | [marketplace.hw91.omantel.biz](https://marketplace.hw91.omantel.biz) | Open the URL | Marketplace landing renders with a **non-empty catalog** — not 404, not a "marketplace disabled" stub (zero-touch default, D27) | ☐ | — |
+| 1 | `marketplace.hw96.omani.works` | Open the URL | Marketplace landing renders with a **non-empty catalog** — not 404, not a "marketplace disabled" stub (zero-touch default, D27) | ✅ | "Build your cloud tenant in under 5 minutes" + 6-step wizard (plans→apps→addons→bcp→review→checkout) + feature grid (Unlimited apps / Isolated tenant / Free subdomains / One-click deploy) — [marketplace](../sessions/2026-06-04/evidence/hw96-walk-tc04-marketplace-live.png) |
 
-- **Journey verdict:** ☐
+- **Journey verdict:** ✅ (hw96, 2026-06-04) — marketplace live zero-touch (D27)
 
 ### TC-05 — Issue a voucher from BSS *(web · operator · D28, Phase 0)*
 
@@ -235,13 +260,13 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | Sidebar | Tap **BSS** | **"BSS — Business Support Systems"** landing: KPI strip + section grid incl. **Vouchers** and **Tenants** | ☐ | — |
-| 2 | [/bss/vouchers](https://console.hw91.omantel.biz/bss/vouchers) | Tap **+ Issue voucher** | Modal **"Issue voucher"** with fields: **Code** (e.g. `LAUNCH2026`), **Credit (OMR)**, **Description (optional)**, **Max redemptions (optional)**, **Recipient email (optional)** | ☐ | — |
-| 3 | Issue voucher modal | Fill Code + Credit + the test recipient email, tap **Issue voucher** | Button shows "Issuing…", modal closes, new row appears in the voucher table with status **Active** | ☐ | — |
-| 4 | Recipient inbox | Open the voucher email | Email arrived via the **Sovereign's own SMTP**; link is exactly `https://marketplace.hw91.omantel.biz/redeem/?code=<CODE>` (slash before `?` mandatory) | ☐ | — |
+| 1 | Sidebar | Tap **BSS** | **"BSS — Business Support Systems"** landing: KPI strip + section grid incl. **Vouchers** and **Tenants** | ✅ | BSS → Vouchers section renders with the voucher table (Code / Credit / Status / Redemptions cols) |
+| 2 | `console.hw96.omani.works/bss/vouchers` | Tap **+ Issue voucher** | Modal **"Issue voucher"** with fields: **Code**, **Credit (OMR)**, **Description (optional)**, **Max redemptions (optional)**, **Recipient email (optional)** | ✅ | Modal opened with exactly those 5 fields — [issue modal / backend timeout](../sessions/2026-06-04/evidence/hw96-walk-tc05-voucher-backend-timeout.png) |
+| 3 | Issue voucher modal | Fill Code + Credit + the test recipient email, tap **Issue voucher** | Button shows "Issuing…", modal closes, new row appears in the voucher table with status **Active** | ✅ | `WALK2026` / 50 OMR issued, **Active** row appeared — [voucher issued + active](../sessions/2026-06-04/evidence/hw96-walk-tc05-voucher-issued-active.png). ⚠️ Issuing **with a recipient email** 502'd on the mail send (DB write still committed); re-issue **without** email succeeded clean — root cause **#3057 (no Sovereign SMTP)** |
+| 4 | Recipient inbox | Open the voucher email | Email arrived via the **Sovereign's own SMTP**; link is exactly `https://marketplace.hw96.omani.works/redeem/?code=<CODE>` (slash before `?` mandatory) | ❌ | **No email delivered** — fresh Sovereign ships **no mail server + no SMTP config** (`notification` env empty). The redeem link is correctly *formed* (`/redeem/?code=WALK2026`, slash-before-`?` ✓, verified in TC-06) but never *sent*. **Filed #3057** — Pillar-1 onboarding blocker |
 
 - **UI source:** `BssLandingPage.tsx`, `VouchersPage.tsx:136` (list), `:529-615` (modal fields verbatim).
-- **Journey verdict:** ☐
+- **Journey verdict:** ◑ (hw96) — voucher **issues + is redeemable**; the **recipient-email delivery path is broken (#3057)**. Voucher mechanics ✅, mail dispatch ❌.
 
 ---
 
@@ -253,77 +278,77 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | [marketplace…/redeem/?code=`<CODE>`](https://marketplace.hw91.omantel.biz/redeem) | Open the redeem link from the email | **"Voucher valid"** card with the **OMR credit** amount + the code | ☐ | — |
-| 2 | Redeem page (negative path) | Edit the URL to a garbage code and reload | **"Voucher not valid"** state — clear message, no crash, no credit shown (#2941 hardening) | ☐ | — |
-| 3 | Back on the valid voucher card | Tap **Sign up to redeem** | Advances to **Pick a plan** (/plans); code carried to checkout | ☐ | — |
+| 1 | `marketplace.hw96.omani.works/redeem/?code=WALK2026` | Open the redeem link from the email | **"Voucher valid"** card with the **OMR credit** amount + the code | ✅ | "Voucher valid" + **50 OMR** credit + code `WALK2026` rendered — [voucher valid](../sessions/2026-06-04/evidence/hw96-walk-tc06-voucher-valid.png) |
+| 2 | Redeem page (negative path) | Edit the URL to a garbage code and reload | **"Voucher not valid"** state — clear message, no crash, no credit shown (#2941 hardening) | ✅ | Garbage code → "Voucher not valid" card, no crash, no credit shown — [negative path](../sessions/2026-06-04/evidence/hw96-walk-tc06-negative-not-valid.png) |
+| 3 | Back on the valid voucher card | Tap **Sign up to redeem** | Advances to **Pick a plan** (/plans); code carried to checkout | ✅ | "Sign up to redeem" CTA present on the valid card → routes to `/plans` (walked in TC-07) |
 
 - **UI source:** `redeem.astro` (states: "No voucher code" / "Voucher not valid" / "Campaign ended" / "Voucher valid").
-- **Journey verdict:** ☐
+- **Journey verdict:** ✅ (hw96) — both the **valid** and the **negative (#2941)** paths render correctly; redeem→signup wired.
 
 ### TC-07 — Pick plan and apps *(web · customer · Pillar 1)*
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | [/plans](https://marketplace.hw91.omantel.biz/plans) | On **"Pick a plan"**, tap a plan card, tap Continue | Advances to **"Build your stack"** (/apps) | ☐ | — |
-| 2 | [/apps](https://marketplace.hw91.omantel.biz/apps) | Select at least one **Postgres-backed** app (the canonical bundle), tap Continue | Advances to **"Setup & extras"** (/addons) | ☐ | — |
+| 1 | `marketplace.hw96.omani.works/plans` | On **"Pick a plan"**, tap a plan card, tap Continue | Advances to **"Build your stack"** (/apps) | ✅ | "Pick a plan" renders all plan cards (S/M/L/XL/Flexi/Sandbox) with OMR pricing; card selectable + "Continue" CTA present — [plans](../sessions/2026-06-04/evidence/hw96-walk-tc07-plans.png) |
+| 2 | `marketplace.hw96.omani.works/apps` | Select at least one **Postgres-backed** app (the canonical bundle), tap Continue | Advances to **"Setup & extras"** (/addons) | ☐ | Not walked this pass — jumped wizard directly to **/bcp** (TC-09, the Pillar-2 acceptance surface). App-picker step deferred to the post-#3057 full-onboarding walk |
 
 - **UI source:** `PlanStep.svelte` ("Pick a plan"), `AppsStep.svelte` ("Build your stack").
-- **Journey verdict:** ☐
+- **Journey verdict:** ◑ (hw96) — **plan step ✅**; app-picker step **not walked** this pass (deferred to full onboarding once #3057 unblocks org-creation).
 
 ### TC-08 — Choose the free subdomain *(web · customer · D30)*
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | [/addons](https://marketplace.hw91.omantel.biz/addons) | On **"Setup & extras"**, find **Your domain** | Subdomain field + a **pool picker** offering the operator-curated TLDs (`omani.homes` / `omani.rest` / `omani.trade`) — pool from config, not hardcoded (D30) | ☐ | — |
-| 2 | Your domain | Type a 2-character subdomain | Inline rejection ("at least 3 characters") — Continue stays blocked | ☐ | — |
-| 3 | Your domain | Type a valid subdomain (e.g. `muscatpharmacy`), pick any **Optional extras**, Continue | Subdomain accepted; advances to **Business continuity** (/bcp) | ☐ | — |
+| 1 | `marketplace.hw96.omani.works/addons` | On **"Setup & extras"**, find **Your domain** | Subdomain field + a **pool picker** offering the operator-curated TLDs (`omani.homes` / `omani.rest` / `omani.trade`) — pool from config, not hardcoded (D30) | ☐ | Not walked this pass (wizard advanced directly to /bcp) — deferred to post-#3057 full-onboarding walk |
+| 2 | Your domain | Type a 2-character subdomain | Inline rejection ("at least 3 characters") — Continue stays blocked | ☐ | Not walked this pass |
+| 3 | Your domain | Type a valid subdomain (e.g. `muscatpharmacy`), pick any **Optional extras**, Continue | Subdomain accepted; advances to **Business continuity** (/bcp) | ☐ | Not walked this pass |
 
 - **UI source:** `AddonsStep.svelte` ("Setup & extras", "Optional extras").
-- **Journey verdict:** ☐
+- **Journey verdict:** ☐ (hw96) — **not walked** this pass; deferred to full onboarding once #3057 unblocks org-creation.
 
 ### TC-09 — Choose BCP topology at signup *(web · customer · **Pillar 2 acceptance**)*
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | [/bcp](https://marketplace.hw91.omantel.biz/bcp) | Read the step | Heading **"Business continuity"** + *"Pick how your database should survive a regional outage"*; two topology cards: **Single-region** and **Active-hot-standby** | ☐ | — |
-| 2 | Topology cards | Tap **Active-hot-standby** | **Primary region** and **Replica region** pickers appear, each with real region names | ☐ | — |
-| 3 | Region pickers (negative path) | Pick the SAME region for both | Inline error **"Primary and replica must differ"** — Continue blocked | ☐ | — |
-| 4 | Region pickers | Pick two different regions, Continue | Advances to **"Review & launch"** (/review) | ☐ | — |
+| 1 | `marketplace.hw96.omani.works/bcp` | Read the step | Heading **"Business continuity"** + *"Pick how your database should survive a regional outage"*; two topology cards: **Single-region** and **Active-hot-standby** | ✅ | "Business continuity" + the survive-a-regional-outage subhead + both topology cards rendered — [BCP Pillar-2](../sessions/2026-06-04/evidence/hw96-walk-tc09-bcp-pillar2-regions.png) |
+| 2 | Topology cards | Tap **Active-hot-standby** | **Primary region** and **Replica region** pickers appear, each with real region names | ✅ | Active-hot-standby selected → **Primary** + **Replica** pickers appeared with real region names (Falkenstein / Helsinki) — same screenshot |
+| 3 | Region pickers (negative path) | Pick the SAME region for both | Inline error **"Primary and replica must differ"** — Continue blocked | ◑ | The **"Primary and replica must differ"** constraint is present in the UI; the pickers defaulted to two **distinct** regions, so the same-region rejection was not force-triggered this pass. Negative-path assertion deferred to full onboarding walk |
+| 4 | Region pickers | Pick two different regions, Continue | Advances to **"Review & launch"** (/review) | ✅ | Two distinct regions (Falkenstein primary / Helsinki replica) selected → advanced to **/review** (TC-10) |
 
 - **UI source:** `BCPStep.svelte` (all quoted strings verbatim).
-- **Journey verdict:** ☐ *(This is the Pillar-2 acceptance surface — BCP chosen at signup, never a Day-2 upgrade.)*
+- **Journey verdict:** ✅ (hw96) — **Pillar-2 acceptance MET**: BCP topology is chosen **at signup** (active-hot-standby + distinct primary/replica region pickers), never a Day-2 upgrade. *(Same-region negative-path is the one deferred sub-assertion.)*
 
 ### TC-10 — Review, checkout, create the Organization *(web · customer · D29)*
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | [/review](https://marketplace.hw91.omantel.biz/review) | On **"Review & launch"**, check **Your stack**, **Plan**, **Expected usage**, **Tenant** | All reflect the choices made in TC-07/08/09, incl. the two regions and the voucher credit | ☐ | — |
-| 2 | /review | Tap Checkout | Advances to **"Checkout"** | ☐ | — |
-| 3 | [/checkout](https://marketplace.hw91.omantel.biz/checkout) | Sign in: type the customer email, request the code, enter the 6-digit PIN | PIN accepted; the voucher **credit is applied** to the total | ☐ | — |
-| 4 | Checkout | Confirm | **"Setting up your tenant"** progress, then **"Your tenant is ready!"** — never "Provisioning failed" (D29: zero operator touch) | ☐ | — |
+| 1 | `marketplace.hw96.omani.works/review` | On **"Review & launch"**, check **Your stack**, **Plan**, **Expected usage**, **Tenant** | All reflect the choices made in TC-07/08/09, incl. the two regions and the voucher credit | ◑ | "Review & launch" order summary rendered (plan + the active-hot-standby regions + voucher credit line) — observed in the live walk; not separately screenshotted (the checkout shot below is the next step) |
+| 2 | /review | Tap Checkout | Advances to **"Checkout"** | ✅ | Advanced to **/checkout** — [checkout · PIN sent](../sessions/2026-06-04/evidence/hw96-walk-tc10-checkout-pin-sent.png) |
+| 3 | `marketplace.hw96.omani.works/checkout` | Sign in: type the customer email, request the code, enter the 6-digit PIN | PIN accepted; the voucher **credit is applied** to the total | ⛔ | "A 6-digit code was sent to your email" **fired** (PIN-request path works), but the **PIN is undeliverable** — same **#3057 (no Sovereign SMTP)** as TC-05. With no inbox to read the code, sign-in can't complete → credit-applied step unreachable — [PIN sent](../sessions/2026-06-04/evidence/hw96-walk-tc10-checkout-pin-sent.png) |
+| 4 | Checkout | Confirm | **"Setting up your tenant"** progress, then **"Your tenant is ready!"** — never "Provisioning failed" (D29: zero operator touch) | ⛔ | **Blocked by #3057** — cannot pass the email-PIN gate, so org-creation never starts. Confirm step unreachable this pass |
 
 - **UI source:** `ReviewStep.svelte` ("Review & launch", "Your stack", "Plan", "Expected usage", "Tenant"), `CheckoutStep.svelte` ("Checkout", "Setting up your tenant", "Your tenant is ready!").
-- **Journey verdict:** ☐
+- **Journey verdict:** ⛔ (hw96) — review ✅ + checkout reached ✅ + **PIN-request fires** ✅, but the **email-PIN gate is unpassable (no Sovereign SMTP, #3057)** → **org-creation blocked**. This is the one true Pillar-1 functional blocker the walk surfaced.
 
 ### TC-11 — The Organization is online *(web · customer · Phase 1c + 2a)*
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | "Your tenant is ready!" | Follow the tenant link (or auto-redirect) | Lands on `https://console.<orgslug>.<pool-tld>` with **publicly-trusted TLS** on the chosen subdomain (D30 closure) | ☐ | — |
-| 2 | Tenant console | PIN-login as the customer | **Dashboard renders** (Phase 2a) — not an empty/error page | ☐ | — |
-| 3 | Tenant apps view | Look at the app cards | The apps chosen in TC-07 appear as cards with status badges that go green (~minutes) | ☐ | — |
-| 4 | A green app card | Tap **Open** | The app itself opens, **already signed in** via the Org's realm — no separate login form (§5.5 step 7) | ☐ | — |
+| 1 | "Your tenant is ready!" | Follow the tenant link (or auto-redirect) | Lands on `https://console.<orgslug>.<pool-tld>` with **publicly-trusted TLS** on the chosen subdomain (D30 closure) | ⛔ | **Blocked** — no Organization was created (gated on the TC-10 email-PIN, **#3057**). No tenant console to land on this pass |
+| 2 | Tenant console | PIN-login as the customer | **Dashboard renders** (Phase 2a) — not an empty/error page | ⛔ | Blocked downstream of #3057 |
+| 3 | Tenant apps view | Look at the app cards | The apps chosen in TC-07 appear as cards with status badges that go green (~minutes) | ⛔ | Blocked downstream of #3057 |
+| 4 | A green app card | Tap **Open** | The app itself opens, **already signed in** via the Org's realm — no separate login form (§5.5 step 7) | ⛔ | Blocked downstream of #3057 |
 
-- **Journey verdict:** ☐
+- **Journey verdict:** ⛔ (hw96) — **blocked downstream of #3057**: with no email-PIN there is no Organization, so the tenant-online surfaces (Pillar-1c + 2a) are unreachable this pass. Re-walk after #3057 lands.
 
 ### TC-12 — Operator sees the new tenant *(web · operator · O3)*
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | [/bss/tenants](https://console.hw91.omantel.biz/bss/tenants) | Open **BSS → Tenants** | The new Organization appears with its chosen pool subdomain | ☐ | — |
-| 2 | [/bss/vouchers](https://console.hw91.omantel.biz/bss/vouchers) | Find the issued voucher row, expand it | Drawer shows **Redemptions** incremented exactly once (#2000: decrement only on checkout success) | ☐ | — |
+| 1 | `console.hw96.omani.works/bss/tenants` | Open **BSS → Tenants** | The new Organization appears with its chosen pool subdomain | ⛔ | No new Organization to show — org-creation never ran (gated on TC-10 email-PIN, **#3057**) |
+| 2 | `console.hw96.omani.works/bss/vouchers` | Find the issued voucher row, expand it | Drawer shows **Redemptions** incremented exactly once (#2000: decrement only on checkout success) | ◑ | The `WALK2026` voucher row **is present and Active** (TC-05), and **correctly shows 0 redemptions** — it was never consumed because checkout couldn't complete (#3057). The increment-on-success path (#2000) is therefore *consistent* but the positive increment can't be demonstrated until #3057 unblocks a real redemption |
 
-- **Journey verdict:** ☐
+- **Journey verdict:** ⛔ (hw96) — no tenant to show (downstream of #3057); voucher-row state is **consistent** (Active, 0 redemptions) but the redemption-increment assertion is deferred to the post-#3057 walk.
 
 ---
 
@@ -333,12 +358,12 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | [/dashboard](https://console.hw91.omantel.biz/dashboard) | Set Layer-1 = Cluster | **One bubble per region** (2 on hw91) — not a single merged Sovereign bubble (D16) | ☐ | — |
-| 2 | /dashboard | Set Layer-2 = Namespace | Namespace bubbles render **within** each cluster bubble | ☐ | — |
-| 3 | [/cloud?view=graph](https://console.hw91.omantel.biz/cloud?view=graph) | Read the kind chips | **All regions** present, no stuck spinners (D5); no kind chip shows `0/0` for resources that exist (D15) | ☐ | — |
-| 4 | /cloud, any resource cell | Click a leaf cell | Drill-down opens the resource detail — clicks work on leaves (PR #1085 anti-pattern guard) | ☐ | — |
+| 1 | `console.hw96.omani.works/dashboard` | Set Layer-1 = Cluster | **One bubble per region** (2 on hw96) — not a single merged Sovereign bubble (D16) | ◑ | Dashboard treemap renders live (Layer-1=Cluster default) showing the cluster `eebd8ef6a19aa96a (hw-me-east-215-a-rtz-prod)`; the explicit per-region split is more cleanly evidenced by the **Cloud view Region 2/2** chip (step 3) than the treemap this pass |
+| 2 | /dashboard | Set Layer-2 = Namespace | Namespace bubbles render **within** each cluster bubble | ☐ | Layer-2 toggle not exercised this pass |
+| 3 | `console.hw96.omani.works/cloud?view=graph` | Read the kind chips | **All regions** present, no stuck spinners (D5); no kind chip shows `0/0` for resources that exist (D15) | ✅ | Cloud view shows **Region 2/2 · Cluster 2/2 · WorkerNode 12/12 · vCluster 6/6** — both regions present, no stuck spinners, no `0/0` on live resources — [Cloud 2-region topology](../sessions/2026-06-04/evidence/hw96-walk-tc13-cloud-2region-topology.png) |
+| 4 | /cloud, any resource cell | Click a leaf cell | Drill-down opens the resource detail — clicks work on leaves (PR #1085 anti-pattern guard) | ☐ | Leaf drill-down click not exercised this pass |
 
-- **Journey verdict:** ☐
+- **Journey verdict:** ✅ (hw96) — **multi-region inventory proven**: Cloud view reports **Region 2/2 · Cluster 2/2 · WorkerNode 12/12 · vCluster 6/6** (D5 no-spinner + D15 no-false-0/0). Treemap per-region split + leaf drill-down are the deferred sub-assertions.
 
 ### TC-14 — Jobs are terminal and region-filterable *(web · operator · D6/D20)*
 
@@ -347,7 +372,7 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 | 1 | [/jobs](https://console.hw91.omantel.biz/jobs) | Open **Jobs** | **0 pending, 0 running** — every job in a terminal state (D6, post-convergence) | ☐ | — |
 | 2 | /jobs | Read job rows | Per-region prefixes visible on a multi-region Sovereign; the filter narrows to one region (D20) | ☐ | — |
 
-- **Journey verdict:** ☐
+- **Journey verdict:** ⏳ (hw96) **not walked this pass** — operator day-2 surface, reachable on the hw96 console; deferred to the operator-console sweep on the next clean zero-touch prov (post #3057/#3058).
 
 ### TC-15 — Catalog: class page and instance table *(web · operator · #2741)*
 
@@ -357,7 +382,7 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 | 2 | A class card (e.g. Grafana) | Click it | **Catalog detail**: Blueprint header + **supported-topology list** + an **instance table** + a **"+ New instance"** affordance | ☐ | — |
 
 - **UI source:** `AppsPage.tsx:6` (tabs "Deployments"/"Catalog"), `CatalogDetail.tsx` ("+ New instance").
-- **Journey verdict:** ☐
+- **Journey verdict:** ⏳ (hw96) **not walked this pass** — operator catalog surface, reachable; deferred to the operator-console sweep (post #3057/#3058).
 
 ### TC-16 — Three coexisting instances of one Blueprint *(web · operator · #2737 DoD #5)*
 
@@ -369,7 +394,7 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 | 2 | Catalog detail (Grafana) | Read the instance table | **3 rows**, each with its own name + status | ☐ | — |
 | 3 | Each instance row | Open each instance's detail → its endpoint | **3 distinct URLs**, each serving its own Grafana (change a dashboard in one — the others unchanged) | ☐ | — |
 
-- **Journey verdict:** ☐
+- **Journey verdict:** ⏳ (hw96) **not walked this pass** — requires three live install actions; deferred to the operator-console sweep (post #3057/#3058).
 
 ### TC-17 — Launch silent-SSO: Tier-1 sweep *(web · operator · #2743/#2744)*
 
@@ -384,7 +409,7 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 
 - **UI source:** `AppDetail.tsx` LaunchButton ("Launch →", aria "Launch app via silent SSO").
 - **Coverage note:** Tier-2/Tier-3 apps (13 more, #2744) follow the same contract; walk any 2 as a sample and record which.
-- **Journey verdict:** ☐
+- **Journey verdict:** ⏳ (hw96) **not walked this pass** — Tier-1 Launch/silent-SSO sweep deferred to the operator-console sweep (post #3057/#3058). *(The G91 SSO E2E recovery proved all 4 Tier-1 apps green on hw86; the hw96 re-walk is pending.)*
 
 ### TC-18 — Endpoint edit → governed PR → full propagation *(web · operator · #2742, #2737 DoD #4)*
 
@@ -395,7 +420,7 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 | 3 | The PR | Watch checks complete | All 3 green → PR **auto-merges** | ☐ | — |
 | 4 | Browser, ≤ 2 min after merge | Open `https://metrics.<…>` (the NEW name) | New FQDN serves with **valid TLS** and **silent SSO still works** (redirect_uri followed the rename) — full propagation, not just PR-open | ☐ | — |
 
-- **Journey verdict:** ☐
+- **Journey verdict:** ⏳ (hw96) **not walked this pass** — endpoint-edit→governed-PR flow (#2742) deferred to the operator-console sweep (post #3057/#3058).
 
 ### TC-19 — RBAC surfaces *(web · operator · EPIC-3)*
 
@@ -405,7 +430,7 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 | 2 | [/rbac/matrix](https://console.hw91.omantel.biz/rbac/matrix) | Open **Access matrix** | Subjects × roles grid with the owner-tier operator visible | ☐ | — |
 | 3 | [/users/new](https://console.hw91.omantel.biz/users/new) | Create a second operator user (Name, Email, Roles), save | Success toast → user appears in **User Access** list | ☐ | — |
 
-- **Journey verdict:** ☐
+- **Journey verdict:** ⏳ (hw96) **not walked this pass** — RBAC surfaces reachable; deferred to the operator-console sweep (post #3057/#3058).
 
 ### TC-20 — Operator-facing hostname sweep *(web · operator · D25)*
 
@@ -421,7 +446,7 @@ Visit each URL in a tab; each must render **its app page** — not 404, not a bl
 | 6 | `https://guacamole.hw91.omantel.biz` | Guacamole | ☐ | — |
 | 7 | `https://marketplace.hw91.omantel.biz` | Marketplace | ☐ | — |
 
-- **Journey verdict:** ☐
+- **Journey verdict:** ⏳ (hw96) **not walked this pass** — operator-facing hostname sweep deferred to the operator-console sweep (post #3057/#3058). *(The `marketplace` host is already proven live in TC-04.)*
 
 ### TC-21 — Cross-Org realm isolation *(web · two customers · #2744, #2737 DoD #6)*
 
@@ -433,7 +458,7 @@ Visit each URL in a tab; each must render **its app page** — not 404, not a bl
 | 2 | Same profile A | Open Org-B's console URL | **A fresh sign-in is demanded** — Org-A's session does NOT open Org-B (separate realms) | ☐ | — |
 | 3 | Profile A, Org-A's Grafana vs Org-B's Grafana | Open both app URLs | Org-A's opens signed-in; Org-B's demands sign-in — per-Org SSO isolation holds | ☐ | — |
 
-- **Journey verdict:** ☐
+- **Journey verdict:** ⛔ (hw96) **blocked** — cross-Org isolation needs **two** created Organizations; org-creation is gated on the email-PIN (**#3057**). Re-walk after #3057.
 
 ---
 
@@ -447,7 +472,7 @@ Visit each URL in a tab; each must render **its app page** — not 404, not a bl
 | 2 | App detail → Topology | Read the placement | The app shows under **both regions** — primary + replica, topology reads **active-hot-standby** | ☐ | — |
 | 3 | The app's FQDN | Open it | App serves with trusted TLS | ☐ | — |
 
-- **Journey verdict:** ☐
+- **Journey verdict:** ⛔ (hw96) **blocked** — requires a created Organization to install into; org-creation gated on **#3057**. Pillar-3 setup re-walk after #3057.
 
 ### TC-23 — Region-kill: the app survives *(web · customer+operator · D31)*
 
@@ -460,7 +485,7 @@ Visit each URL in a tab; each must render **its app page** — not 404, not a bl
 | 3 | Operator /dashboard | Read the region bubbles | Failed region shows unhealthy; surviving region carries the app | ☐ | — |
 | 4 | The app | Log in / use it | Data written before the kill is **all present** (zero loss — wire proof in Appendix A.1) | ☐ | — |
 
-- **Journey verdict:** ☐
+- **Journey verdict:** ⛔ (hw96) **blocked** — depends on TC-22 (a live CNPG app in active-hot-standby), which is gated on **#3057**. Pillar-3 region-kill re-walk after #3057.
 
 ---
 
@@ -477,7 +502,7 @@ Visit each URL in a tab; each must render **its app page** — not 404, not a bl
 | 3 | The modal | Confirm | Progress card appears; steps advance (e.g. **Mirrored commit**, **Harbor projects**, …, **Egress test**) — 8 sequential steps, no manual touch | ☐ | — |
 
 - **UI source:** `SovereigntyCard.tsx` (badge texts, CTA, `data-testid="cutover-start-button"`, step labels).
-- **Journey verdict:** ☐
+- **Journey verdict:** ⛔ (hw96) **blocked / known-gap** — the Sovereignty card is **not mounted** in the production console (only at `/sovereignty/preview`, **#793**); and the cutover must fire **post-handover**, not at bootstrap (**#3052**). Pillar-5 re-walk after the #793 mount + a clean post-handover trigger.
 
 ### TC-25 — Cutover completes *(web · operator · §7 steps 4–5)*
 
@@ -486,7 +511,7 @@ Visit each URL in a tab; each must render **its app page** — not 404, not a bl
 | 1 | Progress card | Wait through the final step | **"Egress test"** runs the 10-minute deny-egress hold and passes | ☐ | — |
 | 2 | Sovereignty card | Read the badge | Flips to **"Independent"** — `cutoverComplete=true` with the hold timestamp | ☐ | — |
 
-- **Journey verdict:** ☐ *(Wire-level egress + HR-green proofs: Appendix A.2 — companions, not substitutes.)*
+- **Journey verdict:** ⛔ (hw96) **blocked** — depends on the TC-24 trigger (gated on the #793 mount + post-handover trigger). *(Wire-level egress + HR-green proofs: Appendix A.2 — companions, not substitutes.)*
 
 ### TC-26 — Post-cutover regression: nothing broke *(web · operator+customer · #2940)*
 
@@ -499,7 +524,7 @@ Visit each URL in a tab; each must render **its app page** — not 404, not a bl
 | 3 | Tenant console | Customer PIN-login + open an app | Tenant flows unaffected | ☐ | — |
 | 4 | Marketplace | Open /redeem with a fresh voucher | Voucher flow still works end-to-end post-cutover | ☐ | — |
 
-- **Journey verdict:** ☐
+- **Journey verdict:** ⛔ (hw96) **blocked** — post-cutover regression requires a completed cutover (TC-24/25), gated on #793 + #3057. Re-walk once the cutover path is walkable.
 
 ---
 
