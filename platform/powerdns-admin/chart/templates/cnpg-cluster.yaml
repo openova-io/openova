@@ -17,7 +17,7 @@ metadata:
     catalyst.openova.io/component: pda-pg-cluster
 spec:
   instances: {{ .Values.postgres.cluster.instances | default 1 }}
-  imageName: ghcr.io/cloudnative-pg/postgresql:{{ .Values.postgres.cluster.pgVersion | default "16" }}
+  imageName: {{ .Values.postgres.cluster.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql" }}:{{ .Values.postgres.cluster.pgVersion | default "16" }}
   bootstrap:
     initdb:
       database: {{ .Values.postgres.cluster.database | default "pda" }}

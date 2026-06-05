@@ -27,7 +27,7 @@ metadata:
     catalyst.openova.io/component: gitea
 spec:
   instances: {{ .Values.postgres.cluster.instances | default 1 }}
-  imageName: ghcr.io/cloudnative-pg/postgresql:{{ .Values.postgres.cluster.pgVersion | default "16" }}
+  imageName: {{ .Values.postgres.cluster.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql" }}:{{ .Values.postgres.cluster.pgVersion | default "16" }}
 
   {{- /*
   G93.3 (Refs #2668) — when instances >= 2, default the CNPG

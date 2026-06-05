@@ -27,7 +27,7 @@ metadata:
     catalyst.openova.io/component: openova-flow-server
 spec:
   instances: {{ .Values.postgres.cluster.instances | default 1 }}
-  imageName: ghcr.io/cloudnative-pg/postgresql:{{ .Values.postgres.cluster.pgVersion | default "16" }}
+  imageName: {{ .Values.postgres.cluster.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql" }}:{{ .Values.postgres.cluster.pgVersion | default "16" }}
 
   {{- /* G93.3 (Refs #2668) — see bp-gitea cnpg-cluster.yaml for full
   rationale. When instances>=2, default CNPG affinity.topologyKey to

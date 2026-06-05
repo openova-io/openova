@@ -76,7 +76,7 @@ spec:
       # to OIDC_OAUTH_AUTHORIZE_URL env so PDA's browser-flow auth redirect
       # carries the explicit IdP hint as defense-in-depth alongside the
       # sovereign realm IDR `defaultProvider`. Refs #2744.
-      version: 0.1.1
+      version: 0.1.2
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns-admin

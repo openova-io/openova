@@ -9,7 +9,7 @@ name: bp-powerdns-admin
 # audit docs/sessions/2026-06-02-G117-sso-fanout-audit/tier-2/bp-powerdns-admin.md
 # "Option A" — chart-local override, no bp-sso-bridge contract change.
 # Refs G113 `feedback_g113_sso_idr_defaultprovider_fix.md`.
-version: 0.1.1
+version: 0.1.2
 description: |
   PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI Blueprint for
   per-Sovereign PowerDNS zone + record management. Drives the

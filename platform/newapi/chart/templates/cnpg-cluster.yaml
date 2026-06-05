@@ -65,7 +65,7 @@ metadata:
     helm.sh/resource-policy: keep
 spec:
   instances: {{ .Values.cnpg.cluster.instances | default 1 }}
-  imageName: {{ .Values.cnpg.cluster.imageName | default "ghcr.io/cloudnative-pg/postgresql:16.4" | quote }}
+  imageName: {{ .Values.cnpg.cluster.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16.4" | quote }}
   {{- /* G93.3 (Refs #2668) — see bp-gitea cnpg-cluster.yaml for full
   rationale. When instances>=2, default CNPG affinity.topologyKey to
   topology.kubernetes.io/region for cross-region spread on Cilium
@@ -93,7 +93,6 @@ spec:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 {{- end }}
----
 {{- /*
 DSN placeholder Secret — populated by templates/database-secret-sync-
 job.yaml at runtime. Rendered as a regular chart-managed resource (NOT
@@ -112,6 +111,9 @@ once and CrashLoop until the post-install sync-job completes — about
 30-90s on a cold install — then come up Ready on the next kubelet
 restart.
 */ -}}
+{{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" }}
+---
+{{- end }}
 apiVersion: v1
 kind: Secret
 metadata:

@@ -1121,6 +1121,13 @@ smePostgres:
     name: sme-pg                    # produces sme-pg-rw / sme-pg-app / sme-pg-superuser
     namespace: sme                  # the SME services live here too
     instances: 1                    # single-node by default; HA is a per-overlay decision
+    # CNPG postgres image. Defaults to the mothership Harbor proxy cache
+    # (harbor.openova.io/proxy-ghcr) so fresh-prov bootstrap pulls the
+    # ~300MB image through Harbor instead of throttling on anonymous ghcr
+    # (#3058). PUBLIC image → proxy-ghcr serves it cred-free. Post-cutover
+    # Step-04's containerd mirror redirects harbor.openova.io → local Harbor.
+    # The tag is set separately via pgVersion.
+    imageName: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql
     pgVersion: "16"                 # tracks contabo data/postgresql.yaml + ADR-0003
     database: sme_auth              # primary DB owned by the `sme` user; secondary DBs below
     owner: sme                      # role name + secret username
