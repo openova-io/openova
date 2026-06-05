@@ -24,6 +24,7 @@ Operator signed in to the live hw99 console via **email-PIN (TC-02 ✅)** — `e
 | [console.hw99…/bss](https://console.hw99.omantel.biz/bss) | **TC-04** — BSS voucher operations (Pillar 1) | [view image](../sessions/2026-06-05/evidence/hw99-tc04-bss-voucher.png) |
 | [console.hw99…/cloud](https://console.hw99.omantel.biz/cloud) | **Pillar 2** — 2-region topology rendered | [view image](../sessions/2026-06-05/evidence/hw99-tc-pillar2-cloud-2region.png) |
 | [console.hw99…/apps](https://console.hw99.omantel.biz/apps) | All 49 apps INSTALLED (fully converged) | [view image](../sessions/2026-06-05/evidence/hw99-apps-converged.png) |
+| [marketplace.hw99…](https://marketplace.hw99.omantel.biz/) | **Pillar 1** — customer marketplace storefront ("Build Your Tenant") serves | [view image](../sessions/2026-06-05/evidence/hw99-pillar1-marketplace.png) |
 | [console.hw99…/app/bp-grafana](https://console.hw99.omantel.biz/app/bp-grafana) | **#3061** — Grafana app detail + Launch button | [view image](../sessions/2026-06-05/evidence/hw99-grafana-appdetail-launch.png) |
 | [grafana.hw99…/login](https://grafana.hw99.omantel.biz/login) | **#3061** — Grafana serves its login (not a localhost error) | [view image](../sessions/2026-06-05/evidence/hw99-3061-grafana-login.png) |
 | [grafana.hw99…/login/generic_oauth](https://grafana.hw99.omantel.biz/login/generic_oauth) | **#3061 ✅** — SSO redirect carries REAL host `redirect_uri=auth.hw99.omantel.biz` (NOT localhost); fix proven live | [view image](../sessions/2026-06-05/evidence/hw99-3061-sso-redirect-realhost.png) |
@@ -41,7 +42,7 @@ Operator signed in to the live hw99 console via **email-PIN (TC-02 ✅)** — `e
 
 **#3061 (Grafana SSO redirect_uri) — VERIFIED FIXED on hw99.** The `GF_SERVER_ROOT_URL` fix works on a clean prov: OIDC redirect_uri resolves to the real Sovereign host, no "Invalid parameter: redirect_uri".
 
-_Still empty / to walk: org-creation (Pillar 1 tail), marketplace storefront, region-kill failover (Pillar 3), sovereignty cutover (Pillar 5)._
+_Still empty / to walk: BSS voucher-issue (#3057), org-creation (Pillar 1 tail), region-kill failover (Pillar 3), sovereignty cutover (Pillar 5)._
 
 ---
 
