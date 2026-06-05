@@ -33,9 +33,13 @@ Operator authenticated to the live hw99 console via **email-PIN sign-in (TC-02 �
 | TC-04 | BSS — voucher operations (Pillar 1) | ![bss](../sessions/2026-06-05/evidence/hw99-tc04-bss-voucher.png) |
 | Pillar 2 | Cloud — 2-region topology | ![cloud](../sessions/2026-06-05/evidence/hw99-tc-pillar2-cloud-2region.png) |
 | — | Apps — all 49 INSTALLED (converged) | ![apps](../sessions/2026-06-05/evidence/hw99-apps-converged.png) |
-| #3061 | Grafana app detail (Launch/SSO test in progress) | ![grafana](../sessions/2026-06-05/evidence/hw99-grafana-appdetail-launch.png) |
+| #3061 | Grafana app detail + Launch button | ![grafana](../sessions/2026-06-05/evidence/hw99-grafana-appdetail-launch.png) |
+| #3061 ✅ | Grafana SSO login (serving, not localhost-error) | ![glogin](../sessions/2026-06-05/evidence/hw99-3061-grafana-login.png) |
+| #3061 ✅ | **SSO redirect carries REAL host** `redirect_uri=auth.hw99.omantel.biz` + `ru=grafana.hw99.omantel.biz` (NOT localhost) — the #3061 fix proven live | ![sso](../sessions/2026-06-05/evidence/hw99-3061-sso-redirect-realhost.png) |
 
-_Remaining: Grafana Launch SSO click-through (#3061), org-creation, marketplace, region-kill (Pillar 3), cutover (Pillar 5) — walking now._
+**#3061 (Grafana SSO redirect_uri) — VERIFIED FIXED on hw99**: the OIDC redirect_uri resolves to the real Sovereign host, no "Invalid parameter: redirect_uri". The `GF_SERVER_ROOT_URL` fix works on a clean prov.
+
+_Remaining: org-creation (Pillar 1 tail), marketplace, region-kill (Pillar 3), cutover (Pillar 5) — walking next._
 
 ---
 
