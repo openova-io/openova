@@ -23,7 +23,19 @@ Operator authenticated to the live hw99 console via **email-PIN sign-in (TC-02 �
 | — | Cloud | ![cloud](../sessions/2026-06-05/evidence/hw99-cloud.png) |
 | — | Jobs | ![jobs](../sessions/2026-06-05/evidence/hw99-jobs.png) |
 
-_Converged-state + handover walk (TC-04→26: voucher, org-creation, Grafana SSO Launch, region-kill, cutover) follow as hw99 reaches ready — re-shot live and embedded here._
+**hw99 CONVERGED + SERVING (console-200) — post-handover Sovereign-console walk:**
+
+| TC | What | Evidence |
+|---|---|---|
+| TC-01 | Handover → lands on Sovereign `/dashboard` (no login, no FQDN typed) | ![dash](../sessions/2026-06-05/evidence/hw99-tc01-handover-dashboard.png) |
+| TC-03 | Settings — real Sovereign values | ![settings](../sessions/2026-06-05/evidence/hw99-tc03-settings-real.png) |
+| TC-03 | Users — owner tier | ![users](../sessions/2026-06-05/evidence/hw99-tc03-users-owner.png) |
+| TC-04 | BSS — voucher operations (Pillar 1) | ![bss](../sessions/2026-06-05/evidence/hw99-tc04-bss-voucher.png) |
+| Pillar 2 | Cloud — 2-region topology | ![cloud](../sessions/2026-06-05/evidence/hw99-tc-pillar2-cloud-2region.png) |
+| — | Apps — all 49 INSTALLED (converged) | ![apps](../sessions/2026-06-05/evidence/hw99-apps-converged.png) |
+| #3061 | Grafana app detail (Launch/SSO test in progress) | ![grafana](../sessions/2026-06-05/evidence/hw99-grafana-appdetail-launch.png) |
+
+_Remaining: Grafana Launch SSO click-through (#3061), org-creation, marketplace, region-kill (Pillar 3), cutover (Pillar 5) — walking now._
 
 ---
 
