@@ -16,6 +16,7 @@
 |---|---|---|
 | 2026-06-05 ~09:40 | **#3065 VPC-orphan wall CLEARED autonomously** — found kom4dc reachable from `bastion-openova` (endpoint region was `me-east-215`, not the `-a` AZ); deleted 3 orphan NAT-gateways + subnets + VPCs (hw94/hw96 wiped-prov leaks). Quota 5/5 → 2/5. | ✅ done |
 | 2026-06-05 ~09:35 | **Mothership catalyst-api recovered** — an auto-deploy bumped it to an unpullable `:5ffc312` (ghcr stale-cred) → 502; rolled back to cached `:545e31e`. API back. | ✅ done |
+| 2026-06-05 ~10:52 | **Caught EIP-quota near-exhaustion (9/10)** before hw98 hit the wall — wiped the cert-wedged hw97 (autonomous; its #3058/#3061/#3057 validations already recorded). hw97 EIPs released → **9/10 → 6/10**, hw98 has headroom to finish. hw98 still provisioning. | ✅ averted |
 | 2026-06-05 ~10:45 | **hw98 1st attempt failed** (`324b…` — mothership catalyst-api re-rolled to a new image mid-prov, abandoning the apply; my rollback churn triggered it — lesson logged). **Re-fired `b8b095bf2bdd59f0`**, leaving catalyst-api untouched this time. No VPC orphans left (quota still 2/5). | ⏳ converging |
 | 2026-06-05 ~09:42 | **Fired hw98 — 2-region (`omantel.biz`, dep `324b989799c672af`)** for the full Pillars 1–5 walk. Converging (~1.5h). Watcher pings at console-200. | ⏳ converging |
 | 2026-06-05 ~08:50 | hw97 single-region: **#3058 cnpg→harbor validated zero-touch (closed)**; #3061/#3057 runtime-confirmed by kubectl. Console blocked by cert-manager loop **#3066** (one-off; will re-check on hw98). | ◑ partial |
