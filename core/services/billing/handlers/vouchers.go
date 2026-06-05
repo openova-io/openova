@@ -102,10 +102,22 @@ func (h *Handler) IssueVoucher(w http.ResponseWriter, r *http.Request) {
 	// the same code re-fires the email.
 	recipient := strings.TrimSpace(req.RecipientEmail)
 	if recipient != "" {
-		if err := h.sendVoucherIssuedEmail(r.Context(), recipient, p); err != nil {
-			slog.Error("voucher email dispatch failed",
-				"code", p.Code, "recipient", recipient, "err", err.Error())
-		}
+		// D28 fire-and-forget (#3057): dispatch on a DETACHED background
+		// context in a goroutine. The previous synchronous call bound the
+		// email send to the request context, so a slow mothership-relay
+		// handshake (mail.openova.io:587) held the handler open past the
+		// upstream gateway's ~3s proxy timeout → the operator saw a 502
+		// even though the voucher row had already persisted. Detaching
+		// guarantees an immediate 200; the send completes (or logs) in the
+		// background. Re-issuing the same code re-fires, per the D28 brief.
+		h.emailDispatchWG.Add(1)
+		go func(recipient string, p store.PromoCode) {
+			defer h.emailDispatchWG.Done()
+			if err := h.sendVoucherIssuedEmail(context.Background(), recipient, p); err != nil {
+				slog.Error("voucher email dispatch failed",
+					"code", p.Code, "recipient", recipient, "err", err.Error())
+			}
+		}(recipient, p)
 	}
 
 	respond.OK(w, p)
