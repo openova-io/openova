@@ -93,7 +93,6 @@ spec:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 {{- end }}
----
 {{- /*
 DSN placeholder Secret — populated by templates/database-secret-sync-
 job.yaml at runtime. Rendered as a regular chart-managed resource (NOT
@@ -112,6 +111,9 @@ once and CrashLoop until the post-install sync-job completes — about
 30-90s on a cold install — then come up Ready on the next kubelet
 restart.
 */ -}}
+{{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" }}
+---
+{{- end }}
 apiVersion: v1
 kind: Secret
 metadata:
