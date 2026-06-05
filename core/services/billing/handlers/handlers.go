@@ -135,6 +135,14 @@ type Handler struct {
 	// middleware already consumes; tests may leave it nil to assert the
 	// fallback path or supply test bytes to exercise the mint path.
 	JWTSecret []byte
+
+	// emailDispatchWG tracks in-flight fire-and-forget voucher-email
+	// goroutines (#3057). IssueVoucher detaches the notification dispatch
+	// onto a background context so a slow mothership-relay handshake can't
+	// 502 the API; tests Wait() on this to make the detached send
+	// deterministic before asserting. Production never Wait()s — the field
+	// is inert there.
+	emailDispatchWG sync.WaitGroup
 }
 
 // ---------------------------------------------------------------------------

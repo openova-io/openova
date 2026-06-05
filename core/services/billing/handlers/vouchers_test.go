@@ -268,6 +268,7 @@ func TestIssueVoucher_SendsEmail_WhenRecipientPresent(t *testing.T) {
 	r = withSuperadmin(r)
 	w := httptest.NewRecorder()
 	h.IssueVoucher(w, r)
+	h.emailDispatchWG.Wait() // #3057: await the detached voucher-email dispatch before asserting
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("issue voucher: expected 200, got %d (body=%s)", w.Code, w.Body.String())
@@ -353,6 +354,7 @@ func TestIssueVoucher_NoEmail_WhenRecipientAbsent(t *testing.T) {
 	r = withSuperadmin(r)
 	w := httptest.NewRecorder()
 	h.IssueVoucher(w, r)
+	h.emailDispatchWG.Wait() // #3057: await the detached voucher-email dispatch before asserting
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("issue voucher: expected 200, got %d (body=%s)", w.Code, w.Body.String())
@@ -412,6 +414,7 @@ func TestIssueVoucher_NotificationFailure_DoesNotFailUpsert(t *testing.T) {
 	r = withSuperadmin(r)
 	w := httptest.NewRecorder()
 	h.IssueVoucher(w, r)
+	h.emailDispatchWG.Wait() // #3057: await the detached voucher-email dispatch before asserting
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("upsert should still succeed despite mail failure: got %d (body=%s)", w.Code, w.Body.String())
@@ -439,6 +442,7 @@ func TestIssueVoucher_403WithoutVoucherIssuerRole(t *testing.T) {
 	// no claims context → role == ""
 	w := httptest.NewRecorder()
 	h.IssueVoucher(w, r)
+	h.emailDispatchWG.Wait() // #3057: await the detached voucher-email dispatch before asserting
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", w.Code)
 	}
@@ -507,6 +511,7 @@ func TestIssueVoucher_SendsAuthorizationHeader(t *testing.T) {
 	r = withSuperadmin(r)
 	w := httptest.NewRecorder()
 	h.IssueVoucher(w, r)
+	h.emailDispatchWG.Wait() // #3057: await the detached voucher-email dispatch before asserting
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("issue voucher: expected 200, got %d (body=%s)", w.Code, w.Body.String())
@@ -618,6 +623,7 @@ func TestIssueVoucher_NoAuthHeader_WhenJWTSecretUnset(t *testing.T) {
 	r = withSuperadmin(r)
 	w := httptest.NewRecorder()
 	h.IssueVoucher(w, r)
+	h.emailDispatchWG.Wait() // #3057: await the detached voucher-email dispatch before asserting
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("issue voucher: expected 200 even on legacy unauth path, got %d", w.Code)
@@ -628,4 +634,91 @@ func TestIssueVoucher_NoAuthHeader_WhenJWTSecretUnset(t *testing.T) {
 	if authz := rt.requests[0].Header.Get("Authorization"); authz != "" {
 		t.Errorf("expected no Authorization header on legacy path, got %q", authz)
 	}
+}
+
+// TestIssueVoucher_DetachesEmailDispatch_DoesNotBlockOnSlowRelay — #3057.
+// The voucher gifting email is fire-and-forget: a slow mothership-relay
+// handshake (mail.openova.io:587) must NOT hold the IssueVoucher response
+// open. Pre-fix the dispatch ran synchronously on the request context, so a
+// slow notification round-trip blocked the handler past the upstream
+// gateway's ~3s proxy timeout → the operator saw a 502 on a voucher whose
+// row had already persisted. This wires a notification round-tripper that
+// blocks until released: under the old synchronous code IssueVoucher would
+// hang here (the 2s guard fires); under the fix it returns 200 immediately
+// while the send is still in flight.
+func TestIssueVoucher_DetachesEmailDispatch_DoesNotBlockOnSlowRelay(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectExec(regexp.QuoteMeta(
+		`INSERT INTO promo_codes (code, credit_omr, description, active, max_redemptions)
+			 VALUES ($1, $2, $3, $4, $5)
+			 ON CONFLICT (code) DO UPDATE
+			 SET credit_omr = EXCLUDED.credit_omr,
+			     description = EXCLUDED.description,
+			     active = EXCLUDED.active,
+			     max_redemptions = EXCLUDED.max_redemptions,
+			     deleted_at = NULL`,
+	)).WithArgs("SLOW-50", 50, "slow", true, 0).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	rt := &blockingRoundTripper{started: make(chan struct{}), release: make(chan struct{})}
+	h := &Handler{
+		Store:              store.New(db),
+		NotificationURL:    "http://notification.sme.svc.cluster.local:8087/notification/send",
+		SovereignFQDN:      "omani.works",
+		NotificationClient: &http.Client{Transport: rt},
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"code":            "slow-50",
+		"credit_omr":      50,
+		"description":     "slow",
+		"active":          true,
+		"recipient_email": "carol@example.test",
+	})
+	r := withSuperadmin(httptest.NewRequest("POST", "/billing/vouchers/issue", bytes.NewReader(body)))
+	w := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() { h.IssueVoucher(w, r); close(done) }()
+
+	select {
+	case <-done:
+		// returned without waiting for the blocked send — the #3057 fix.
+	case <-time.After(2 * time.Second):
+		t.Fatal("IssueVoucher blocked on the email dispatch — the #3057 synchronous-send regression is back")
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body=%s)", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sqlmock unmet: %v", err)
+	}
+
+	<-rt.started      // the detached goroutine did begin the send…
+	close(rt.release) // …now let it finish so the goroutine doesn't leak.
+	h.emailDispatchWG.Wait()
+}
+
+// blockingRoundTripper holds every RoundTrip open until release is closed,
+// signalling started on the first call. Proves IssueVoucher's email dispatch
+// is detached from the request path (#3057).
+type blockingRoundTripper struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (b *blockingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	b.once.Do(func() { close(b.started) })
+	<-b.release
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewReader(nil)),
+		Header:     make(http.Header),
+	}, nil
 }
