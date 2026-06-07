@@ -677,6 +677,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
           <div role="tabpanel" data-testid="app-tab-endpoints-panel" className="app-tabpanel">
             <EndpointsTab
               applicationName={componentId}
+              appUID={appUID}
               externalURL={appExternalURL}
               sovereignFQDN={sovereignFQDN}
             />

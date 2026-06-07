@@ -844,3 +844,83 @@ export async function createApplicationInstance(
   }
   return res.json()
 }
+
+/* ─── #2742 Endpoints / Ingress (Git-IaC PR pipeline) ──────────────── */
+
+/** One exposed HTTPRoute for an Application. Mirrors the Go
+ *  `endpointSummary` (endpoint_handler.go). */
+export interface EndpointSummary {
+  name: string
+  hostnameTemplate?: string
+  hostname: string
+  protocol?: string
+  tls?: boolean
+  status: string
+}
+
+export interface ListEndpointsResponse {
+  items: EndpointSummary[]
+}
+
+/** Body of POST/PATCH /apps/{id}/endpoints — Go `endpointMutationRequest`. */
+export interface EndpointMutationRequest {
+  /** Only used by PATCH path-param; not serialized in the body. */
+  name?: string
+  hostname?: string
+  protocol?: string
+  tls?: boolean
+}
+
+/** Response of POST/PATCH — Go shape carries the raised governed PR URL. */
+export interface EndpointMutationResponse {
+  prURL: string
+  status: string
+  preCheckResults?: Record<string, unknown>
+}
+
+/**
+ * listEndpoints — GET /catalyst/v1/apps/{id}/endpoints.
+ * BASE (not API_BASE) per the /catalyst/v1 no-/api/-prefix rule
+ * (same fix as getApplicationInstances / getLaunchURL). 404 → empty.
+ */
+export async function listEndpoints(appId: string): Promise<ListEndpointsResponse> {
+  const url = `${BASE}catalyst/v1/apps/${encodeURIComponent(appId)}/endpoints`
+  const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
+  if (res.status === 404) return { items: [] }
+  if (!res.ok) throw new Error(`listEndpoints: HTTP ${res.status}`)
+  return res.json()
+}
+
+/**
+ * mutateEndpoint — POST (create) or PATCH (edit, by name) an endpoint.
+ * The backend raises a governed Git-IaC pull request and returns its
+ * URL + the precheck results; the caller renders `prURL` as a "View PR"
+ * link. On 4xx the typed `{code, message}` body surfaces verbatim.
+ */
+export async function mutateEndpoint(
+  appId: string,
+  body: EndpointMutationRequest,
+  opts: { name?: string } = {},
+): Promise<EndpointMutationResponse> {
+  const isEdit = !!opts.name
+  const base = `${BASE}catalyst/v1/apps/${encodeURIComponent(appId)}/endpoints`
+  const url = isEdit ? `${base}/${encodeURIComponent(opts.name!)}` : base
+  const res = await authedFetch(url, {
+    method: isEdit ? 'PATCH' : 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ hostname: body.hostname, protocol: body.protocol, tls: body.tls }),
+  })
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`
+    try {
+      const detail = (await res.json()) as { code?: string; message?: string }
+      if (detail?.message) message = detail.message
+    } catch {
+      /* fall through */
+    }
+    const err = new Error(message) as Error & { status?: number }
+    err.status = res.status
+    throw err
+  }
+  return res.json()
+}
