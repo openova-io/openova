@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { sendMagicLink, verifyMagicLink, getMe, createTenant, getMyOrgs, createCheckout, startProvisioning, getProvisionByTenant, checkSlug, getPlans, getAddons, getCreditBalance, setAuthTokens, setActiveOrg, setActiveOrgSlug, type User, type Provision, type Plan, type AddOn } from '../lib/api';
+  import { sendMagicLink, verifyMagicLink, getMe, createTenant, getMyOrgs, createCheckout, startProvisioning, getProvisionByTenant, checkSlug, getPlans, getAddons, getCreditBalance, redeemVoucherPreview, setAuthTokens, setActiveOrg, setActiveOrgSlug, type User, type Provision, type Plan, type AddOn } from '../lib/api';
   import { readCart, clearCart } from '../lib/cart';
   import { formatOMR } from '../lib/currency';
   import { consoleHref } from '../lib/config';
@@ -162,6 +162,7 @@
   let creditError = $state<string | null>(null);
   $effect(() => {
     if (!user) return;
+<<<<<<< Updated upstream
     creditError = null;
     getCreditBalance()
       .then(b => { creditBaisa = b.credit_baisa || 0; })
@@ -169,6 +170,18 @@
         creditError = e instanceof Error ? e.message : String(e);
         console.error('[checkout] getCreditBalance failed — voucher credit will not apply:', e);
       });
+=======
+    // Effective credit = committed ledger balance + the pending voucher's grant.
+    // The voucher (promoCode) only COMMITS at the /billing/checkout POST, so for a
+    // fresh 100%-voucher order the ledger balance alone is 0 — without folding in
+    // the voucher preview here, creditCovers stays false and the UI renders the
+    // card path even though the backend's CreditOnlyCheckout would cover it.
+    const code = promoCode.trim();
+    Promise.all([
+      getCreditBalance().then(b => b.credit_baisa || 0).catch(() => 0),
+      code ? redeemVoucherPreview(code).then(p => p?.credit_baisa ?? 0).catch(() => 0) : Promise.resolve(0),
+    ]).then(([ledger, voucher]) => { creditBaisa = ledger + voucher; });
+>>>>>>> Stashed changes
   });
 
   const creditCovers = $derived(creditBaisa >= totalCost && totalCost > 0);

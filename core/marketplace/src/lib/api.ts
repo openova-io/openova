@@ -273,6 +273,44 @@ export const getCreditBalance = async (): Promise<CreditBalance> => {
   return { credit_baisa, entries };
 };
 
+export type VoucherPreview = {
+  code: string;
+  credit_baisa: number;
+  description: string;
+  active: boolean;
+  accepting_redemptions: boolean;
+};
+
+// Preview the credit a voucher would grant WITHOUT redeeming it, so checkout can
+// reflect a pending voucher's credit in the cart BEFORE the /billing/checkout
+// commit (the redeem itself commits at checkout). Returns null on unknown/invalid
+// (404) or non-redeemable/capped (410) codes — only a live, redeemable voucher's
+// credit should pre-apply. credit_omr is whole OMR; normalised to baisa per #85.
+export const redeemVoucherPreview = async (code: string): Promise<VoucherPreview | null> => {
+  try {
+    const raw = await request<{
+      code: string;
+      credit_omr?: number;
+      credit_baisa?: number;
+      description?: string;
+      active?: boolean;
+      accepting_redemptions?: boolean;
+    }>('/billing/vouchers/redeem-preview', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+    return {
+      code: raw.code,
+      credit_baisa: typeof raw.credit_baisa === 'number' ? raw.credit_baisa : Math.round((raw.credit_omr ?? 0) * 1000),
+      description: raw.description ?? '',
+      active: raw.active ?? false,
+      accepting_redemptions: raw.accepting_redemptions ?? false,
+    };
+  } catch {
+    return null;
+  }
+};
+
 // Provisioning
 export const getProvisionStatus = (id: string) =>
   request<Provision>(`/provisioning/status/${id}`);
