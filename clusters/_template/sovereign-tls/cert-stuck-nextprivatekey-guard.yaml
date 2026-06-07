@@ -1,0 +1,189 @@
+# #3066 — self-healing guard for the cert-manager `nextPrivateKey`
+# "secret already exists" loop that wedges the Sovereign wildcard TLS
+# Certificate and leaves `console = 000`.
+#
+# The bug (verified live on hw97, dep 8fff068c)
+# ---------------------------------------------
+# cert-manager (v1.16.5) generates a `nextPrivateKey` temp Secret for the
+# `sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}` Certificate, then its
+# certificate controller re-enters the "ensure nextPrivateKey" path and
+# tries to CREATE the same secret name again instead of adopting it →
+# `re-queuing item due to error processing err="secrets \"…-<rnd>\"
+# already exists"` on an endless 30s loop. No CertificateRequest is ever
+# created → no Order → no DNS-01 → the wildcard cert never issues → the
+# Cilium Gateway has no TLS cert → every *.<fqdn> host (console, gitea,
+# harbor, …) fails the TLS handshake → console-200 never reached →
+# bootstrap-kit / sovereign-tls never settle. Duplicate temp secrets of
+# the same age were observed (the controller created N and looped on one).
+#
+# Why a guard and not a cert-spec change
+# --------------------------------------
+# The root is inside cert-manager's certificate controller (upstream;
+# we pin v1.16.5 via the harbor cache) — it cannot be fixed from the
+# Certificate spec (the loop is on initial issuance, before any
+# renewal/rotationPolicy logic runs). Until an upstream bump lands, this
+# guard breaks the loop deterministically: it is NOT a hypothetical
+# backstop (Principle #9) — the scenario happened live and blocked a DoD
+# console-200 walk for hours.
+#
+# What it does
+# ------------
+# Runs at apply-time and WATCHES the wildcard Certificate for up to ~14
+# minutes (DNS-01 issuance is normally <5m). On each tick:
+#   * If the Certificate is Ready=True → exit 0 (the happy path; the
+#     guard never touches a healthy cert).
+#   * After a grace period, if the stuck signature holds — a
+#     `cert-manager.io/next-private-key` temp Secret for this cert EXISTS
+#     but NO CertificateRequest for it is Ready=True — clear the stuck
+#     state: delete the temp nextPrivateKey Secret(s) + delete the
+#     non-Ready CertificateRequest(s), then annotate the Certificate to
+#     force a fresh reconcile. cert-manager then re-issues from a clean
+#     slate.
+# Idempotent + best-effort: exits 0 even on timeout (emitting diagnostics
+# to stderr) so it never blocks the sovereign-tls Kustomization.
+#
+# Removal plan: delete from kustomization.yaml once the cert-manager
+# version that fixes the upstream adopt-vs-create race is pinned.
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cert-nextkey-guard
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/component: cert-nextkey-guard
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cert-nextkey-guard
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/component: cert-nextkey-guard
+rules:
+  # Read the wildcard Certificate + annotate it to force a reconcile.
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["get", "list", "patch"]
+  # List + delete the stuck CertificateRequests so a clean one is created.
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificaterequests"]
+    verbs: ["get", "list", "delete"]
+  # List (by the cert-manager.io/next-private-key label) + delete the
+  # orphaned temp nextPrivateKey Secrets. Scoped to kube-system only.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cert-nextkey-guard
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/component: cert-nextkey-guard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cert-nextkey-guard
+subjects:
+  - kind: ServiceAccount
+    name: cert-nextkey-guard
+    namespace: kube-system
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cert-nextkey-guard
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/component: cert-nextkey-guard
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        catalyst.openova.io/component: cert-nextkey-guard
+    spec:
+      serviceAccountName: cert-nextkey-guard
+      restartPolicy: OnFailure
+      containers:
+        - name: guard
+          image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.1
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              CERT="sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}"
+              echo "[cert-nextkey-guard] watching kube-system/${CERT} for the #3066 nextPrivateKey loop"
+              cooldown=0
+              for round in $(seq 1 14); do
+                ready=$(kubectl -n kube-system get certificate "${CERT}" \
+                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+                if [ "${ready}" = "True" ]; then
+                  echo "[cert-nextkey-guard] ${CERT} Ready=True — healthy, exiting"
+                  exit 0
+                fi
+                # Post-break cooldown (reviewer note, PR #3069): immediately
+                # after we break a loop, a HEALTHY re-issuance momentarily
+                # has a fresh temp Secret + zero CRs (sub-second gap before
+                # cert-manager creates the new CR). Skip detection for one
+                # round so we never re-break a cert that is recovering.
+                if [ "${cooldown}" = "1" ]; then
+                  cooldown=0
+                  echo "[cert-nextkey-guard] post-break cooldown round — letting cert-manager re-issue before re-checking"
+                  sleep 60
+                  continue
+                fi
+                # Temp nextPrivateKey secret(s) for this cert (cert-manager
+                # owns them via the cert-manager.io/next-private-key label).
+                temps=$(kubectl -n kube-system get secret \
+                  -l cert-manager.io/next-private-key=true -o name 2>/dev/null \
+                  | grep "${CERT}" || true)
+                # CRITICAL: the #3066 loop never creates a CertificateRequest
+                # at all — cert-manager loops on the temp Secret BEFORE the
+                # CR step. So the stuck signature is ZERO CertificateRequests
+                # for this cert. We must NOT key on "no Ready CR": a normal
+                # slow DNS-01 issuance legitimately has a PENDING CR for
+                # minutes, and disturbing it would break a healthy cert.
+                cr_count=$(kubectl -n kube-system get certificaterequest -o name 2>/dev/null \
+                  | grep -c "${CERT}" || true)
+                # Grace: give a normal issuance ~3 min for its CR to appear.
+                if [ "${round}" -ge 3 ] && [ -n "${temps}" ] && [ "${cr_count:-0}" = "0" ]; then
+                  echo "[cert-nextkey-guard] STUCK signature (round ${round}): nextPrivateKey temp secret present, ZERO CertificateRequests (loop never reached the CR step). Breaking the loop."
+                  echo "${temps}" | while IFS= read -r s; do
+                    [ -n "${s}" ] && kubectl -n kube-system delete "${s}" --ignore-not-found=true || true
+                  done
+                  for cr in $(kubectl -n kube-system get certificaterequest -o name 2>/dev/null | grep "${CERT}" || true); do
+                    kubectl -n kube-system delete "${cr}" --ignore-not-found=true || true
+                  done
+                  kubectl -n kube-system annotate certificate "${CERT}" \
+                    "cert-nextkey-guard.openova.io/broke-loop-at=$(date +%s)" --overwrite 2>/dev/null || true
+                  echo "[cert-nextkey-guard] cleared temp secret(s) + stuck CR(s); cert-manager will re-issue from a clean slate"
+                  cooldown=1
+                fi
+                sleep 60
+              done
+              echo "[cert-nextkey-guard] ${CERT} still not Ready after ~14m — emitting diagnostics (best-effort, not failing the Kustomization)" >&2
+              kubectl -n kube-system get certificate "${CERT}" -o yaml 2>&1 | tail -40 >&2 || true
+              kubectl -n kube-system get certificaterequest,secret 2>&1 | grep "${CERT}" >&2 || true
+              exit 0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
