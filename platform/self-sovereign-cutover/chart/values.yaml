@@ -373,6 +373,16 @@ registryPivot:
 # overrides duration via overlay if 10 min isn't enough.
 egressTest:
   durationSeconds: 600
+  # #2940 — real egress-block enforcement. OFF by default: a mis-resolved
+  # upstream CIDR overlapping a live dependency would FAIL Step-08 → the
+  # cutover engine aborts → half-pivoted unrecoverable prov. So this stays
+  # opt-in until validated on a cutover walk, after which the default
+  # flips to true. When false, Step-08 keeps its current behavior (local-
+  # URL assertion + survival-window poll). When true, Step-08 also resolves
+  # blockedDomains → public IPs and applies a scoped CiliumNetworkPolicy
+  # egressDeny toCIDR for the survival window, catching hidden runtime
+  # tethers the declarative assertion can't see.
+  enforceCIDRBlock: false
   blockedDomains:
     - "github.com"
     - "ghcr.io"

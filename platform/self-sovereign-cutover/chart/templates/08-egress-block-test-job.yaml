@@ -55,6 +55,20 @@ data:
             value: {{ .Values.egressTest.durationSeconds | quote }}
           - name: NAMESPACE
             value: {{ .Release.Namespace | quote }}
+          # #2940 — real egress-block enforcement. OFF by default: a
+          # false-positive (a mis-resolved upstream CIDR that overlaps a
+          # dependency) would FAIL Step-08 → cutover engine aborts →
+          # half-pivoted unrecoverable prov. So this stays opt-in until
+          # validated on a cutover walk, after which the default flips.
+          # When ON, the script resolves UPSTREAM_HOSTS → IPs and applies
+          # a scoped CiliumNetworkPolicy egressDeny toCIDR for the
+          # survival window, so ANY hidden runtime tether (not just the
+          # declarative HelmRepository/GitRepository surfaces) fails the
+          # proof. eq-toString guards the Sprig-bool pitfall.
+          - name: ENFORCE_CIDR_BLOCK
+            value: {{ eq (toString .Values.egressTest.enforceCIDRBlock) "true" | quote }}
+          - name: UPSTREAM_HOSTS
+            value: {{ .Values.egressTest.blockedDomains | default (list "github.com" "ghcr.io" "harbor.openova.io") | join " " | quote }}
         volumeMounts:
           - name: cilium-policy
             mountPath: /work
@@ -102,6 +116,70 @@ data:
               *gitea-http*|*gitea.*) : ;;
               *) echo "  FAIL — catalyst-api env still upstream"; exit 1 ;;
             esac
+            # #2940 — real egress-block enforcement (opt-in). Resolve the
+            # upstream hosts to public IPs and deny egress to those /32s
+            # for the survival window so a HIDDEN runtime tether (a Go
+            # constant hitting harbor.openova.io, an image pull not via a
+            # HelmRepository) surfaces as NotReady — the declarative-only
+            # assertion above can't catch those. Private/loopback IPs are
+            # skipped so intra-cluster traffic is never blocked. Fail-safe:
+            # any resolve/apply error falls back to assertion-only and
+            # NEVER wedges the cutover on a tooling failure.
+            POLICY_APPLIED=""
+            if [ "${ENFORCE_CIDR_BLOCK}" = "true" ]; then
+              echo "[egress-block-test] enforce mode ON — resolving upstream hosts to CIDRs"
+              block_ips=""
+              for h in ${UPSTREAM_HOSTS}; do
+                for ip in $(getent ahostsv4 "${h}" 2>/dev/null | awk '{print $1}' | sort -u); do
+                  case "${ip}" in
+                    10.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|192.168.*|127.*|"")
+                      [ -n "${ip}" ] && echo "  skip ${h} -> ${ip} (private/loopback — never block intra-cluster)" ;;
+                    *)
+                      block_ips="${block_ips} ${ip}"
+                      echo "  block ${h} -> ${ip}/32" ;;
+                  esac
+                done
+              done
+              if [ -z "${block_ips}" ]; then
+                echo "  WARN — zero public upstream IPs resolved; assertion-only fallback (fail-safe)"
+              else
+                {
+                  # CiliumClusterwideNetworkPolicy (NOT namespaced) — a
+                  # namespaced CNP with endpointSelector:{} only covers the
+                  # cutover namespace, missing the cross-namespace tethers
+                  # this proof targets (flux-system source-controller →
+                  # ghcr.io, harbor → upstream). Cluster-wide has no
+                  # metadata.namespace. (reviewer PR #3072)
+                  echo "apiVersion: cilium.io/v2"
+                  echo "kind: CiliumClusterwideNetworkPolicy"
+                  echo "metadata:"
+                  echo "  name: cutover-egress-block"
+                  echo "spec:"
+                  echo "  endpointSelector: {}"
+                  echo "  egressDeny:"
+                  echo "    - toCIDRSet:"
+                  for ip in ${block_ips}; do
+                    echo "        - cidr: ${ip}/32"
+                  done
+                } >/tmp/egress-deny.yaml
+                if kubectl apply -f /tmp/egress-deny.yaml; then
+                  POLICY_APPLIED="yes"
+                  # Trap teardown so an abnormal exit (activeDeadline SIGTERM,
+                  # eviction) can't strand a cluster-wide egressDeny on the
+                  # Sovereign. Runs in addition to the inline delete below.
+                  # (reviewer PR #3072 — SIGKILL/OOM is the only uncovered
+                  # path; the policy only denies the 3 post-cutover upstreams
+                  # so a stray is the intended end-state, not a wedge.)
+                  trap 'kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true 2>/dev/null || true' TERM EXIT
+                  echo "[egress-block-test] egressDeny applied — hidden runtime tethers will now surface as NotReady"
+                else
+                  echo "  WARN — egressDeny apply failed; assertion-only fallback (fail-safe)"
+                fi
+              fi
+            else
+              echo "[egress-block-test] enforce mode OFF (default) — assertion + survival-poll only (#2940: flip egressTest.enforceCIDRBlock=true after a validated cutover walk)"
+            fi
+
             echo "[egress-block-test] capturing baseline NotReady set"
             baseline_hr=$(kubectl get helmreleases.helm.toolkit.fluxcd.io -A \
               -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' \
@@ -146,6 +224,13 @@ data:
             done
 
             echo "[egress-block-test] window complete; new-regression-cycles=${new_failures}"
+            # Remove the egress-block policy (if applied) BEFORE the verdict
+            # so it's torn down on both pass and fail paths — never leave a
+            # deny policy lingering on the sovereign cluster.
+            if [ -n "${POLICY_APPLIED}" ]; then
+              kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true || true
+              echo "[egress-block-test] egressDeny removed"
+            fi
             if [ "${new_failures}" -gt 0 ]; then
               echo "[egress-block-test] cluster developed NEW NotReady items during the window — sovereignty proof FAILED"
               exit 1

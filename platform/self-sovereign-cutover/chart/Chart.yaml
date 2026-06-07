@@ -414,7 +414,7 @@ name: bp-self-sovereign-cutover
 # until the tofu-phase0-archive is sealed at handover; this Job treats
 # 425 as the EXPECTED benign pre-handover path (clear log, exit 0). The
 # cutover still auto-fires post-handover (founder rule #933 preserved).
-version: 0.1.54
+version: 0.1.55
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
