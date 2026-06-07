@@ -26,7 +26,7 @@ spec:
           # (`./products/catalyst/chart/templates/sme-services`), so it must contain
           # concrete strings — Helm template syntax silently produces an
           # InvalidImageName when Kustomize-applied. Sovereigns skip via .helmignore.
-          image: ghcr.io/openova-io/openova/marketplace:25cdf14
+          image: ghcr.io/openova-io/openova/marketplace:f166b63
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
