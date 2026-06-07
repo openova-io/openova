@@ -257,3 +257,42 @@ func TestBucketNamePrefix(t *testing.T) {
 		t.Fatalf("BucketNamePrefixForSovereign = %q, want %q", got, want)
 	}
 }
+
+// TestDedupProviderPurge — #3065. The verify-and-re-purge retry can append a
+// resource name to ProviderPurge on more than one pass (delete-failed early,
+// deleted on a later pass); dedupProviderPurge must collapse each kind to
+// unique names while preserving first-seen order.
+func TestDedupProviderPurge(t *testing.T) {
+	out := &providers.WipeResult{
+		ProviderPurge: map[string][]string{
+			"networks":     {"vpc-a", "vpc-a", "vpc-b"},        // vpc-a deleted on a later pass → dup
+			"nat_gateways": {"nat-1"},                          // single, unchanged
+			"floating_ips": {"1.2.3.4", "5.6.7.8", "1.2.3.4"}, // dup, out of order
+			"empty":        {},
+		},
+	}
+	dedupProviderPurge(out)
+
+	want := map[string][]string{
+		"networks":     {"vpc-a", "vpc-b"},
+		"nat_gateways": {"nat-1"},
+		"floating_ips": {"1.2.3.4", "5.6.7.8"},
+		"empty":        {},
+	}
+	for k, w := range want {
+		g := out.ProviderPurge[k]
+		if len(g) != len(w) {
+			t.Fatalf("dedup[%s] = %v (len %d), want %v (len %d)", k, g, len(g), w, len(w))
+		}
+		for i := range w {
+			if g[i] != w[i] {
+				t.Errorf("dedup[%s][%d] = %q, want %q (first-seen order must be preserved)", k, i, g[i], w[i])
+			}
+		}
+	}
+}
+
+// TestDedupProviderPurge_NilSafe — the helper must no-op on a nil result.
+func TestDedupProviderPurge_NilSafe(t *testing.T) {
+	dedupProviderPurge(nil)
+}
