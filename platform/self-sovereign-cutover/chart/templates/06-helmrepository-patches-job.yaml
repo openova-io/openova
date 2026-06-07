@@ -673,6 +673,41 @@ data:
               echo "[helmrepository-patches] Phase-2.5 SKIP: ${catalyst_yaml} not present in local mirror"
             fi
 
+            # ---- Phase 2.6: rewrite harbor.openova.io registry tethers
+            # to the local Harbor (#2940 / #2951) ----
+            #
+            # Per-Blueprint HelmRelease values in the bootstrap-kit IaC
+            # carry `harbor.openova.io/proxy-ghcr/...` image-repo literals
+            # (the vcluster charts' image.repository + registry defaults,
+            # plus any chart pinning an explicit registry per the
+            # MIRROR-EVERYTHING rule). Step-04's containerd mirror redirects
+            # these at pull time, but Principle #11 forbids the post-cutover
+            # cluster from carrying ANY mothership-domain reference — a
+            # textual harbor.openova.io is a standing tether that would
+            # re-authenticate against upstream the moment the mirror config
+            # is lost. Rewrite every harbor.openova.io literal in the
+            # bootstrap-kit IaC to the local Harbor host so the post-cutover
+            # IaC is mothership-free.
+            #
+            # SURGICAL: only the `harbor.openova.io` registry hostname is
+            # rewritten. The catalyst.openova.io / access.openova.io /
+            # sandbox.openova.io / sso.openova.io CRD API groups + label
+            # keys (e.g. openova.io/region) are platform API identifiers
+            # (like k8s.io) and MUST be preserved verbatim — rewriting them
+            # would break every CR, label selector and admission policy.
+            # The trailing `.openova.io` boundary in the sed pattern ensures
+            # `harbor.openova.io` matches but `catalyst.openova.io` never
+            # does (different leading label). Idempotent: a re-run finds no
+            # harbor.openova.io left → no-op.
+            harbor_tether_edits=0
+            for f in $(grep -rlE "harbor\.openova\.io" "${target_dir}" 2>/dev/null || true); do
+              sed -i "s,harbor\.openova\.io,${harbor_host},g" "${f}"
+              harbor_tether_edits=$((harbor_tether_edits+1))
+              echo "[helmrepository-patches] Phase-2.6 rewrote harbor.openova.io -> ${harbor_host} in ${f}"
+            done
+            echo "[helmrepository-patches] Phase-2.6 harbor-tether edits=${harbor_tether_edits}"
+            edited=$((edited+harbor_tether_edits))
+
             if [ "${edited}" -eq 0 ]; then
               echo "[helmrepository-patches] no edits — already pivoted in Gitea or upstream prefix not present"
               # Don't fail; phase-1 already succeeded.
