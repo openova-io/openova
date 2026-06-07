@@ -156,16 +156,19 @@ export function DeploymentsList() {
   // Refs #2544 (founder bug 2026-05-27): operator session times out
   // (default 4h per auth/session.go ClearSessionCookie path) → stale
   // tab returns to "You must sign in" placeholder text + manual click.
-  // Auto-redirect to OIDC sign-in flow when session expires while page
-  // is mounted, preserving the deployments-list path as return target.
-  // The OIDC roundtrip is invisible to the operator (Keycloak still
-  // remembers them as a known user even though catalyst-api dropped
-  // its cookie).
+  // Auto-redirect to the sign-in flow when the session expires while the
+  // page is mounted, preserving the deployments-list path as the return
+  // target via ?next= — the canonical pattern used everywhere else
+  // (InstallPage etc.). Founder bug 2026-06-07: the prior
+  // `/oauth/initiate?return_to=` target 404'd — no backend route ever
+  // served it — so the operator hit a bare "404 page not found" instead
+  // of a login prompt. `/login?next=` is the real, routed sign-in entry
+  // that prompts login then returns the operator to where they were.
   useEffect(() => {
     if (session.loading) return
     if (!session.signedIn) {
-      const returnTo = encodeURIComponent(window.location.pathname + window.location.search)
-      window.location.replace(`/oauth/initiate?return_to=${returnTo}`)
+      const next = encodeURIComponent(window.location.pathname + window.location.search)
+      window.location.replace(`/login?next=${next}`)
     }
   }, [session.loading, session.signedIn])
 
