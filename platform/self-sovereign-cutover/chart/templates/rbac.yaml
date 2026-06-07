@@ -45,8 +45,8 @@ rules:
     resources: ["configmaps"]   # cutover-status ConfigMap is created+updated by every step
     verbs: ["create"]
   - apiGroups: ["cilium.io"]
-    resources: ["ciliumnetworkpolicies"]   # step 08 creates the egress-block NP
-    verbs: ["create"]
+    resources: ["ciliumnetworkpolicies", "ciliumclusterwidenetworkpolicies"]   # step 08 creates + tears down the cluster-wide egress-block policy (#2940)
+    verbs: ["create", "delete", "get"]
   - apiGroups: [""]
     resources: ["events"]   # informational events posted as steps complete
     verbs: ["create"]
