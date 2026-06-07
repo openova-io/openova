@@ -121,6 +121,7 @@ spec:
               set -eu
               CERT="sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}"
               echo "[cert-nextkey-guard] watching kube-system/${CERT} for the #3066 nextPrivateKey loop"
+              cooldown=0
               for round in $(seq 1 14); do
                 ready=$(kubectl -n kube-system get certificate "${CERT}" \
                   -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
@@ -128,18 +129,33 @@ spec:
                   echo "[cert-nextkey-guard] ${CERT} Ready=True — healthy, exiting"
                   exit 0
                 fi
+                # Post-break cooldown (reviewer note, PR #3069): immediately
+                # after we break a loop, a HEALTHY re-issuance momentarily
+                # has a fresh temp Secret + zero CRs (sub-second gap before
+                # cert-manager creates the new CR). Skip detection for one
+                # round so we never re-break a cert that is recovering.
+                if [ "${cooldown}" = "1" ]; then
+                  cooldown=0
+                  echo "[cert-nextkey-guard] post-break cooldown round — letting cert-manager re-issue before re-checking"
+                  sleep 60
+                  continue
+                fi
                 # Temp nextPrivateKey secret(s) for this cert (cert-manager
                 # owns them via the cert-manager.io/next-private-key label).
                 temps=$(kubectl -n kube-system get secret \
                   -l cert-manager.io/next-private-key=true -o name 2>/dev/null \
                   | grep "${CERT}" || true)
-                # Is ANY CertificateRequest for this cert Ready=True?
-                cr_ready=$(kubectl -n kube-system get certificaterequest \
-                  -o jsonpath='{range .items[*]}{.metadata.name}={.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' \
-                  2>/dev/null | grep "^${CERT}" | grep -c "=True" || true)
-                # Grace: give normal DNS-01 issuance ~3 min before acting.
-                if [ "${round}" -ge 3 ] && [ -n "${temps}" ] && [ "${cr_ready:-0}" = "0" ]; then
-                  echo "[cert-nextkey-guard] STUCK signature (round ${round}): nextPrivateKey temp secret present, no Ready CertificateRequest. Breaking the loop."
+                # CRITICAL: the #3066 loop never creates a CertificateRequest
+                # at all — cert-manager loops on the temp Secret BEFORE the
+                # CR step. So the stuck signature is ZERO CertificateRequests
+                # for this cert. We must NOT key on "no Ready CR": a normal
+                # slow DNS-01 issuance legitimately has a PENDING CR for
+                # minutes, and disturbing it would break a healthy cert.
+                cr_count=$(kubectl -n kube-system get certificaterequest -o name 2>/dev/null \
+                  | grep -c "${CERT}" || true)
+                # Grace: give a normal issuance ~3 min for its CR to appear.
+                if [ "${round}" -ge 3 ] && [ -n "${temps}" ] && [ "${cr_count:-0}" = "0" ]; then
+                  echo "[cert-nextkey-guard] STUCK signature (round ${round}): nextPrivateKey temp secret present, ZERO CertificateRequests (loop never reached the CR step). Breaking the loop."
                   echo "${temps}" | while IFS= read -r s; do
                     [ -n "${s}" ] && kubectl -n kube-system delete "${s}" --ignore-not-found=true || true
                   done
@@ -149,6 +165,7 @@ spec:
                   kubectl -n kube-system annotate certificate "${CERT}" \
                     "cert-nextkey-guard.openova.io/broke-loop-at=$(date +%s)" --overwrite 2>/dev/null || true
                   echo "[cert-nextkey-guard] cleared temp secret(s) + stuck CR(s); cert-manager will re-issue from a clean slate"
+                  cooldown=1
                 fi
                 sleep 60
               done
