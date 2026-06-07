@@ -1,6 +1,6 @@
-# UAT — OpenOva Catalyst — fresh acceptance page (hw100)
+# UAT — OpenOva Catalyst — fresh acceptance page (hw101)
 
-> **Tests-first.** Fresh **2-region** prov **hw100** replaces wiped hw99. Every row is `☐` **pending** until walked LIVE on the **production React tree** (`products/catalyst/bootstrap/ui/`) on the real Sovereign — never a mock, never the dead Svelte console (`products/catalyst/console/`), never a CLOSED/merged status. A row earns its evidence link ONLY when it is actually walked. Authored 2026-06-08 after hw99 (1 functional cluster + falsified 2-region evidence) was wiped on founder order. **Sandbox is OUT of scope.**
+> **Tests-first.** Fresh **2-region** prov **hw101** replaces wiped hw99. Every row is `☐` **pending** until walked LIVE on the **production React tree** (`products/catalyst/bootstrap/ui/`) on the real Sovereign — never a mock, never the dead Svelte console (`products/catalyst/console/`), never a CLOSED/merged status. A row earns its evidence link ONLY when it is actually walked. Authored 2026-06-08 after hw99 (1 functional cluster + falsified 2-region evidence) was wiped on founder order. **Sandbox is OUT of scope.**
 >
 > **This page is PER-APPLICATION.** Generic "works for grafana/gitea/harbor/openbao" rows are banned — every `ssoEnabled` app gets its **own** explicit single-click-SSO row (§2), and every app carrying a non-trivial topology gets its **own** explicit topology row (§3). The per-app data below is **extracted from `platform/*/blueprint.yaml`** (`spec.sso`, `spec.endpoints[].ssoEnabled`, `spec.topology.defaults.multi-region`, `spec.multiInstance.enabled`) and cross-checked against the topology audit + the #2744 SSO-fan-out tiers.
 >
@@ -13,10 +13,10 @@
 | # | Test group | Tested page | Test case (what you do) | What you must see | Result | Evidence |
 |---|---|---|---|---|---|---|
 | **Pillar 1 — Marketplace + voucher onboarding → Organization** |||||||
-| TC-01 | Marketplace storefront | `marketplace.hw100.<dom>/` | Open the storefront | "Build your tenant" renders, non-empty, branded | ☐ | — |
-| TC-02 | Operator issues voucher | `console.hw100.<dom>/bss/vouchers` | Operator: +Issue voucher → code+credit → submit | Voucher appears in the table, active | ☐ | — |
+| TC-01 | Marketplace storefront | `marketplace.hw101.<dom>/` | Open the storefront | "Build your tenant" renders, non-empty, branded | ☐ | — |
+| TC-02 | Operator issues voucher | `console.hw101.<dom>/bss/vouchers` | Operator: +Issue voucher → code+credit → submit | Voucher appears in the table, active | ☐ | — |
 | TC-03 | Voucher email | recipient inbox | Open the voucher email | Delivered via the **Sovereign's own SMTP** with the redeem link | ☐ | — |
-| TC-04 | Redeem voucher | `marketplace.hw100.<dom>/redeem?code=…` | Open the redeem link | "Voucher valid" + OMR credit; a garbage code → "not valid" | ☐ | — |
+| TC-04 | Redeem voucher | `marketplace.hw101.<dom>/redeem?code=…` | Open the redeem link | "Voucher valid" + OMR credit; a garbage code → "not valid" | ☐ | — |
 | TC-05 | Pick plan | `…/plans` | Pick a plan card | Advances to app picker | ☐ | — |
 | TC-06 | Pick apps | `…/apps` | Select a Postgres-backed app | Advances to setup/extras | ☐ | — |
 | TC-07 | Choose subdomain | `…/addons` | Type a valid subdomain | Pool picker offers a free domain; subdomain accepted | ☐ | — |
@@ -24,17 +24,17 @@
 | TC-09 | Organization created | "Your tenant is ready" | Follow the tenant link | Lands on `console.<orgslug>.<pool>` — real dashboard, not an error | ☐ | — |
 | TC-10 | Tenant first login | tenant console | Customer PIN-login | Dashboard renders (Phase 2a) | ☐ | — |
 | **Pillar 2 — Multi-region BCP topology chosen at signup** |||||||
-| TC-11 | BCP at signup | `marketplace.hw100.<dom>/bcp` | Choose **active-hot-standby**, pick **two different** regions | Same-region rejected; two distinct regions accepted; provisions BOTH in one pass | ☐ | — |
-| TC-12 | Cloud view = 2 REAL regions | `console.hw100.<dom>/cloud?view=graph` | Open the Cloud view | **2 regions, 2 clusters with REAL nodes in each** (not an empty 2nd-region VPC shell — the hw99 failure) | ☐ | — |
+| TC-11 | BCP at signup | `marketplace.hw101.<dom>/bcp` | Choose **active-hot-standby**, pick **two different** regions | Same-region rejected; two distinct regions accepted; provisions BOTH in one pass | ☐ | — |
+| TC-12 | Cloud view = 2 REAL regions | `console.hw101.<dom>/cloud?view=graph` | Open the Cloud view | **2 regions, 2 clusters with REAL nodes in each** (not an empty 2nd-region VPC shell — the hw99 failure) | ☐ | — |
 | **Pillar 3 — Two independent CNPG clusters + region-kill failover** |||||||
 | TC-13 | CNPG pair across regions | `/app/$id` → Topology | Install a CNPG-backed app; read placement | One CNPG cluster **per region**, synchronous `ReplicaCluster` over ClusterMesh; both regions shown | ☐ | — |
 | TC-14 | Region-kill failover | the app's FQDN | Dev kills the primary region; keep refreshing | Service resumes **≤30 s**, same FQDN; surviving region healthy; **0 transactions lost** | ☐ | — |
 | **Pillar 5 — Sovereign independence (`bp-self-sovereign-cutover`)** |||||||
-| TC-15 | Trigger cutover | `console.hw100.<dom>/settings` → Sovereignty | "Soft-tethered" → tap "Achieve True Sovereignty" → confirm | Progress card; 8 tether-pivot steps advance | ☐ | — |
+| TC-15 | Trigger cutover | `console.hw101.<dom>/settings` → Sovereignty | "Soft-tethered" → tap "Achieve True Sovereignty" → confirm | Progress card; 8 tether-pivot steps advance | ☐ | — |
 | TC-16 | Egress-block proof | progress card | Wait through the final step | **10-min deny-egress** hold vs github.com/ghcr.io/harbor.openova.io; stays green → badge **"Independent"**, `cutoverComplete=true` | ☐ | — |
 | TC-17 | Post-cutover resilience | tenant console + an app | PIN-login + tap **Open** | Both still work, now pulling exclusively from local Gitea/Harbor | ☐ | — |
 | **G117 — Application lifecycle (EPIC #2737) — class ≠ instance** |||||||
-| TC-G1a | Catalog class page | `console.hw100.<dom>/apps` → Catalog tab → click a class card | Click a class card | **CLASS page** `/catalog/$bp` — instances-list + New-instance only, no single-instance tabs | ☐ | — |
+| TC-G1a | Catalog class page | `console.hw101.<dom>/apps` → Catalog tab → click a class card | Click a class card | **CLASS page** `/catalog/$bp` — instances-list + New-instance only, no single-instance tabs | ☐ | — |
 | TC-G1b | Instance page ≠ class | `/apps` → Deployments tab → click an instance | Click an instance | **INSTANCE page** `/app/$id` — that one instance only; **NO "New instance"**; the two clicks NEVER open the same page | ☐ | — |
 | TC-G2 | Multi-instance children | `/catalog/$bp` | "+ New instance" ×3, distinct names | All accepted, no collision; class page lists all N, each → its own `/app/$id` | ☐ | — |
 | TC-G4 | Endpoints tab editable | `/app/$id` → Endpoints | Add alias / edit / delete | EDITABLE; each mutation → Git-IaC PR (3 checks) → auto-merge → new FQDN serves TLS+SSO ≤2 min | ☐ | — |
@@ -101,7 +101,7 @@
 
 > **The founder's #2 demand: an app-by-app topology view (openbao topology view named explicitly) — never a generic claim.**
 >
-> Extracted from `spec.topology.defaults.multi-region` in each `platform/<app>/blueprint.yaml`. Walked on a **2-region** Sovereign (hw100): install the app, open `/app/$id` → **Topology tab** (`products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx`), read the placement + `perCluster[]` and confirm it matches the declared `spec.topology`. Counts match the audit: **10 active-hot-standby / 14 active-active / 20 active-passive / 44 singleton.**
+> Extracted from `spec.topology.defaults.multi-region` in each `platform/<app>/blueprint.yaml`. Walked on a **2-region** Sovereign (hw101): install the app, open `/app/$id` → **Topology tab** (`products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx`), read the placement + `perCluster[]` and confirm it matches the declared `spec.topology`. Counts match the audit: **10 active-hot-standby / 14 active-active / 20 active-passive / 44 singleton.**
 >
 > Topology → expectation mapping:
 > - **active-active** → N active HRs, **one per region**, both serving live traffic (load-balanced).
