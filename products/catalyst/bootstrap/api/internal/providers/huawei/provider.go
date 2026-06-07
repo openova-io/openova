@@ -354,19 +354,9 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 	// Dedup ProviderPurge — across the retry passes a resource that took
 	// more than one pass to delete (listed-then-failed, then deleted on a
 	// later pass) gets appended more than once, so the success report would
-	// over-count it. Collapse each kind to unique names. (#3070 reviewer
-	// note, sharper now that maxPurgePasses=6.)
-	for k, names := range out.ProviderPurge {
-		seen := map[string]bool{}
-		uniq := names[:0]
-		for _, n := range names {
-			if !seen[n] {
-				seen[n] = true
-				uniq = append(uniq, n)
-			}
-		}
-		out.ProviderPurge[k] = uniq
-	}
+	// over-count it. Extracted to a tested helper (#3070 reviewer note,
+	// sharper now that maxPurgePasses=6).
+	dedupProviderPurge(out)
 
 	// Step 3 — OBS bucket purge (best effort).
 	endpoint := fmt.Sprintf("obs.%s.kom4dc.nationalcloud.om", region)
@@ -382,6 +372,29 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 	}
 
 	return out, nil
+}
+
+// dedupProviderPurge collapses each ProviderPurge kind to unique names.
+// The verify-and-re-purge retry (Wipe) can append the same resource name
+// on more than one pass — listed-then-delete-failed on an early pass, then
+// deleted on a later pass — which would over-count the success report
+// (sharper now that maxPurgePasses=6). In-place dedup preserves order and
+// reuses each slice's backing array. (#3070 reviewer note; #3065.)
+func dedupProviderPurge(out *providers.WipeResult) {
+	if out == nil {
+		return
+	}
+	for k, names := range out.ProviderPurge {
+		seen := make(map[string]bool, len(names))
+		uniq := names[:0]
+		for _, n := range names {
+			if !seen[n] {
+				seen[n] = true
+				uniq = append(uniq, n)
+			}
+		}
+		out.ProviderPurge[k] = uniq
+	}
 }
 
 // verifyZeroOrphans walks every cleanup-bearing resource kind and
