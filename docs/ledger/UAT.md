@@ -122,3 +122,45 @@
 | TC-26 Post-cutover re… | Marketplace | Open /redeem with a fresh voucher | Voucher flow still works end-to-end post-cu… | ☐ | — |
 
 
+
+---
+
+## G117 corrected acceptance contract (TDD — authored 2026-06-08, real scope EPIC #2737)
+
+> Written **tests-first**. Every row is `☐` pending until walked on the **production React tree** (`products/catalyst/bootstrap/ui/`) on a **2-region** Sovereign — never the dead Svelte `products/catalyst/console/`, never a merge/CLOSED status. These **supersede** the earlier TC-15/16/17/18 rows, several of which were walked ✅/❌ against the **broken conflated design** (catalog-click and deployment-click opening the SAME page). **Sandbox is OUT of scope.** Sources: #2737/#2740/#2741/#2742/#2743/#2744/#2745/#2674; topology matrix `../sessions/2026-06-02-per-blueprint-topology-audit.md`.
+
+| Test group | Tested page | Test case (what you do) | What you must see | Result | Screenshot |
+|---|---|---|---|---|---|
+| TC-G1 Catalog class ≠ instance | console.hw99/apps | Open Applications → **Catalog** tab → click a Blueprint class card (e.g. grafana) | Lands on the **CLASS page** `/catalog/bp-grafana` — a DISTINCT page (different menus + content from the instance page) | ☐ | — |
+| TC-G1 Catalog class ≠ instance | /catalog/bp-grafana (class page) | Read the page | Shows ONLY: Blueprint header + supported-topology list + the **list of installed instances** (children) + a **New instance** button. NO single-instance tabs | ☐ | — |
+| TC-G1 Catalog class ≠ instance | /catalog/bp-grafana | Locate the "New instance" button | "+ New instance" present — this class page is the **ONLY** place it appears | ☐ | — |
+| TC-G1 Catalog class ≠ instance | console.hw99/apps | Open Applications → **Deployments** tab → click a deployed instance (e.g. grafana) | Lands on the **INSTANCE page** `/app/<id>` — a DIFFERENT page from the class page | ☐ | — |
+| TC-G1 Catalog class ≠ instance | /app/<id> (instance page) | Read the page | Shows only THAT instance's detail tabs (Overview/Topology/Endpoints/Logs/…) | ☐ | — |
+| TC-G1 Catalog class ≠ instance | /app/<id> | Look for a "New instance" button | **MUST NOT be present** on the instance page (negative assertion — founder explicit) | ☐ | — |
+| TC-G1 Catalog class ≠ instance | catalog-click vs deployment-click | Compare the two destinations | **Different URLs / different pages** — must NEVER open the same page (the core bug) | ☐ | — |
+| TC-G2 Multi-instance children | /catalog/bp-<x> | Tap "+ New instance" 3× with distinct names | Each accepted, no name-collision; class page instance-list shows the new rows | ☐ | — |
+| TC-G2 Multi-instance children | /catalog/bp-<x> | Read the instances list | Lists **all** installed instances of this Blueprint (up to 10) as child rows, each linking to its own `/app/<id>` | ☐ | — |
+| TC-G3 Open = 1-click silent SSO | /app/<id> (external-facing app) | Find the action button | An **"Open"** button (label "Open", NOT "Launch") because the app has an external-facing URL | ☐ | — |
+| TC-G3 Open = 1-click silent SSO | /app/<id> | **One** click on Open | New tab opens **already signed in** (silent OIDC `prompt=none&kc_idp_hint=catalyst-pin`) — no login form, no second click | ☐ | — |
+| TC-G3 Open = 1-click silent SSO | /app/<id> for a non-external app | Look for the Open button | **No Open button** — only external-facing apps get it | ☐ | — |
+| TC-G3 Open = 1-click silent SSO | grafana / gitea / harbor / openbao | Tap Open on each | Each lands **signed-in** per its registered SSO method (gitea/harbor/openbao present in the catalog seed) | ☐ | — |
+| TC-G4 Endpoints tab editable (CRUD) | /app/<id> → **Endpoints** tab | Read the tab | The Endpoints tab is **EDITABLE** — Add / Edit / **Alias** / Delete controls (not read-only) | ☐ | — |
+| TC-G4 Endpoints tab editable (CRUD) | Endpoints tab | **Add an alias** (new hostname) | Submitted as a PR against `gitea.<sov>/<org>/iac` | ☐ | — |
+| TC-G4 Endpoints tab editable (CRUD) | Endpoints tab | **Edit** an endpoint (rename / port / visibility) | Submitted as a PR | ☐ | — |
+| TC-G4 Endpoints tab editable (CRUD) | Endpoints tab | **Delete** an endpoint | Submitted as a PR | ☐ | — |
+| TC-G4 Endpoints tab editable (CRUD) | The PR | Watch the 3 named checks | `kyverno-admission` + `cert-manager-precheck` + `dns-conflict-precheck` green → PR **auto-merges** | ☐ | — |
+| TC-G4 Endpoints tab editable (CRUD) | Browser, ≤2 min | Open the NEW alias FQDN | Serves with **valid TLS** + **silent SSO** | ☐ | — |
+| TC-G5 Per-app topology honored | /catalog/bp-<active-active> e.g. opensearch | Install on 2-region | **N active HRs, one per region** (symmetric) | ☐ | — |
+| TC-G5 Per-app topology honored | /catalog/bp-<active-hot-standby> e.g. grafana/keycloak | Install | **2 HRs: primary=active + secondary=passive**, sync replication | ☐ | — |
+| TC-G5 Per-app topology honored | /catalog/bp-<active-passive> e.g. openbao/loki | Install | Primary active + secondary **warm-standby** (async ok) | ☐ | — |
+| TC-G5 Per-app topology honored | /catalog/bp-<singleton> e.g. seaweedfs | Install | **1 HR on primary only**; UI warns "region-kill will lose this instance" | ☐ | — |
+| TC-G5 Per-app topology honored | A single-region Sovereign | Install any app | Resolves to `defaults.single-region` — no fan-out | ☐ | — |
+| TC-G5 Per-app topology honored | /app/<id> → **Topology** tab | Read the placement | The actual `perCluster[]` fan-out **matches the declared `spec.topology`** | ☐ | — |
+| TC-G5 Per-app topology honored | The full matrix | Sweep every Blueprint | Each installs per its row (**10 hot-standby / 14 active-active / 20 active-passive / 44 singleton**); 88-row matrix is the contract | ☐ | — |
+| TC-G6 vCluster containment | /app/<id> → placement | Read each app's vCluster | App runs **INSIDE** its assigned vCluster (mgmt/dmz/rtz), **not** the host | ☐ | — |
+| TC-G6 vCluster containment | dmz apps | cilium-gateway, coraza/WAF, stalwart, console/gitea/harbor UIs | Land in the **dmz** vCluster | ☐ | — |
+| TC-G6 vCluster containment | mgmt apps | catalyst-api/ui, keycloak, openbao, nats | Land in the **mgmt** vCluster | ☐ | — |
+| TC-G6 vCluster containment | rtz apps | tenant Applications + per-Org CNPG | Land in the **rtz** vCluster | ☐ | — |
+| TC-G6 vCluster containment | host exceptions | substrate prereqs | ONLY cilium, flux, kyverno, cert-manager, ESO, CNPG-operator, crossplane, vcluster-syncers on host | ☐ | — |
+| TC-G6 vCluster containment | negative | Confirm no app on host | **No application Blueprint** runs on the host cluster (today only 2/58 contained — the bug) | ☐ | — |
+| TC-G7 Region-kill failover | — | Ties TC-G5 hot-standby/active-passive | Covered by existing **TC-22/TC-23** (install CNPG app across 2 regions → kill a region → survives ≤30s, 0 tx lost) | ☐ | — |
