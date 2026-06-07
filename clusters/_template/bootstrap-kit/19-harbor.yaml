@@ -135,6 +135,14 @@ spec:
   chart:
     spec:
       chart: bp-harbor
+      # 1.2.26: #3098 — guard the SSO ExternalSecret template with the
+      # .Capabilities.APIVersions.Has "external-secrets.io/v1beta1" CRD-check
+      # (gold standard, mirrors bp-external-dns + bp-sandbox). The dependsOn:
+      # bp-external-secrets below gates HR-Ready but Helm renders the manifest
+      # at install time before the webhook is necessarily serving; the
+      # Capabilities guard omits the resource until the CRD exists, then
+      # re-renders on the next reconcile. Fixes the hw100 harbor→ESO-webhook
+      # wedge that held bootstrap-kit convergence (handover never fired).
       # 1.2.15: hot-fix for issue #949 — admin-secret.yaml duplicate
       # label keys (app.kubernetes.io/name, catalyst.openova.io/
       # component) made Helm's strict YAML post-render reject the
@@ -150,7 +158,7 @@ spec:
       # live on otech113 2026-05-05 (issue #935 Bug 1) — Step 02 was
       # in CreateContainerConfigError for 11+ retries, blocking
       # cutover indefinitely.
-      version: 1.2.25
+      version: 1.2.26
       sourceRef:
         kind: HelmRepository
         name: bp-harbor

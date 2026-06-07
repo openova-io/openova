@@ -237,3 +237,53 @@ func (randReaderForSmallKeyTest) Read(b []byte) (int, error) {
 	}
 	return len(b), nil
 }
+
+// TestDefaultIssuer_EnvOverride is the #2940 (Pillar 5) anti-tether assertion:
+// DefaultIssuer() must honour CATALYST_HANDOVER_JWT_ISSUER when set (a
+// franchised Sovereign overriding the mothership origin) and fall back to the
+// Catalyst-Zero origin only when the env is unset (keeping the mothership
+// byte-unchanged). A Signer constructed with an empty issuer must stamp the
+// resolved value as the `iss` claim.
+func TestDefaultIssuer_EnvOverride(t *testing.T) {
+	// Mothership default — env unset.
+	t.Setenv("CATALYST_HANDOVER_JWT_ISSUER", "")
+	if got := DefaultIssuer(); got != mothershipIssuer {
+		t.Errorf("env-unset: DefaultIssuer()=%q want %q", got, mothershipIssuer)
+	}
+
+	// Sovereign override — env set to a franchise console origin.
+	const sovIssuer = "https://console.t99.omani.works"
+	t.Setenv("CATALYST_HANDOVER_JWT_ISSUER", sovIssuer)
+	if got := DefaultIssuer(); got != sovIssuer {
+		t.Errorf("env-set: DefaultIssuer()=%q want %q", got, sovIssuer)
+	}
+
+	// Whitespace-only env is treated as unset (falls back to mothership).
+	t.Setenv("CATALYST_HANDOVER_JWT_ISSUER", "   ")
+	if got := DefaultIssuer(); got != mothershipIssuer {
+		t.Errorf("whitespace env: DefaultIssuer()=%q want %q", got, mothershipIssuer)
+	}
+
+	// End-to-end: New("",...) with the env set must stamp the override as iss.
+	t.Setenv("CATALYST_HANDOVER_JWT_ISSUER", sovIssuer)
+	priv, _, err := GenerateKeypair()
+	if err != nil {
+		t.Fatalf("GenerateKeypair: %v", err)
+	}
+	s, err := New(priv, "", DefaultTTL)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	tok, err := s.MintToken("t99.omani.works", "dep-99", "sub-1", "a@b.c")
+	if err != nil {
+		t.Fatalf("MintToken: %v", err)
+	}
+	parsed, _, err := jwt.NewParser().ParseUnverified(tok, jwt.MapClaims{})
+	if err != nil {
+		t.Fatalf("ParseUnverified: %v", err)
+	}
+	claims := parsed.Claims.(jwt.MapClaims)
+	if iss, _ := claims["iss"].(string); iss != sovIssuer {
+		t.Errorf("minted iss=%q want %q (mothership tether leaked into Sovereign token)", iss, sovIssuer)
+	}
+}

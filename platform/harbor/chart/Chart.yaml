@@ -52,7 +52,17 @@ type: application
 # The Postgres workload Pods reconcile into the same NS as the
 # CNPG Cluster CR, NOT into cnpg-system; the prior rule could
 # never match the actual DB Pods.
-version: 1.2.25
+# 1.2.26 (#3098, 2026-06-08): guard sso-oauth-source-externalsecret.yaml
+# with `.Capabilities.APIVersions.Has "external-secrets.io/v1beta1"` (the
+# #2988 gold-standard, mirrors bp-external-dns + bp-sandbox). The
+# ExternalSecret previously rendered unconditionally on sso.enabled (default
+# true), so on a fresh prov it raced bp-external-secrets' CRD/webhook readiness
+# ("validate.externalsecret.external-secrets.io: connection refused") → the
+# bp-harbor HR stalled Ready=False → bootstrap-kit never converged → handover
+# never fired. Observed live on hw100. The slot-19 dependsOn: bp-external-secrets
+# gates HR-Ready but not webhook-serving; this Capabilities guard is its
+# complementary half — omit until the CRD exists, re-render on next reconcile.
+version: 1.2.26
 appVersion: "2.14.3"
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
 # `oidc_extra_redirect_parms` config field. The configure-oauth Job now
