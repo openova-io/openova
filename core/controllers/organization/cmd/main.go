@@ -67,6 +67,13 @@ func main() {
 	giteaURL := mustEnv("CATALYST_GITEA_URL", log)
 	giteaToken := mustEnv("CATALYST_GITEA_TOKEN", log)
 
+	// #3084 Part 2 — per-Org Keycloak realm auto-wiring. Defaults to
+	// ENABLED (unset == true) so the realm provisions out of the box,
+	// consistent with the always-on Sovereign-realm group path. An
+	// operator can disable it during per-Org-realm rollout by setting
+	// CATALYST_PER_ORG_REALM_ENABLED=false.
+	perOrgRealmEnabled := envBoolDefaultTrue("CATALYST_PER_ORG_REALM_ENABLED")
+
 	hostCluster := mustEnv("CATALYST_HOST_CLUSTER", log)
 	chartVer := envOr("CATALYST_VCLUSTER_CHART_VERSION", "0.33.*")
 	helmRepoName := envOr("CATALYST_VCLUSTER_HELMREPO_NAME", "loft")
@@ -139,6 +146,7 @@ func main() {
 		Client:                    mgr.GetClient(),
 		Log:                       log.WithName("reconciler"),
 		Keycloak:                  controller.NewLiveKeycloak(kcAddr, kcRealm, kcSAID, kcSASecret),
+		PerOrgRealmEnabled:        perOrgRealmEnabled,
 		GiteaClient:               giteaClient,
 		HostCluster:               hostCluster,
 		VClusterChartVersion:      chartVer,
@@ -237,4 +245,19 @@ func envOr(key, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+// envBoolDefaultTrue reads a boolean env var that defaults to TRUE when
+// unset/empty. Only the explicit strings "false"/"0"/"no"/"off"
+// (case-insensitive) disable it — every other value (including unset)
+// is true. Modeled to avoid the Sprig-style false-is-empty trap
+// (memory feedback_sprig_default_bool_unsafe.md): we branch on the
+// disable-tokens, NOT on emptiness, so a missing var correctly stays on.
+func envBoolDefaultTrue(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "false", "0", "no", "off":
+		return false
+	default:
+		return true
+	}
 }

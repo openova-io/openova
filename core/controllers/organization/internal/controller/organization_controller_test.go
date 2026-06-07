@@ -52,12 +52,46 @@ type fakeKeycloak struct {
 	groupID   string
 	groupPath string
 
+	// Per-Org realm surface (#3084 Part 2).
+	realms           map[string]bool // realm name -> exists
+	realmEnsureCalls int
+	realmDeleteCalls int
+	realmEnsureErr   error // when set, EnsureRealm returns it
+	realmDeleteErr   error // when set, DeleteRealm returns it
+
 	// Federation surface (F2).
 	idps              map[string]KCIdentityProvider
 	mappers           map[string][]KCIdentityProviderMapper // key = alias
 	idpEnsureCalls    int
 	idpDeleteCalls    int
 	mapperEnsureCalls int
+}
+
+func (f *fakeKeycloak) EnsureRealm(ctx context.Context, slug string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.realmEnsureCalls++
+	if f.realmEnsureErr != nil {
+		return "", f.realmEnsureErr
+	}
+	if f.realms == nil {
+		f.realms = map[string]bool{}
+	}
+	f.realms[slug] = true
+	return slug, nil
+}
+
+func (f *fakeKeycloak) DeleteRealm(ctx context.Context, slug string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.realmDeleteCalls++
+	if f.realmDeleteErr != nil {
+		return f.realmDeleteErr
+	}
+	if f.realms != nil {
+		delete(f.realms, slug)
+	}
+	return nil
 }
 
 func (f *fakeKeycloak) EnsureGroup(ctx context.Context, path string, attrs map[string][]string) (string, string, string, error) {
@@ -470,8 +504,11 @@ func TestReconcile_HappyPath(t *testing.T) {
 	// G117.3 W2.C3 (#2742) added the IacRepoBootstrapped condition —
 	// rendered as Status=False / Reason=BootstrapDisabled in unit tests
 	// where the iac-bootstrap deps are not wired into the Reconciler.
-	if len(got.Status.Conditions) != 4 {
-		t.Fatalf("expected 4 conditions (Ready + 2 federation + IacRepoBootstrapped), got %d: %+v",
+	// #3084 Part 2 added the PerOrgRealmProvisioned condition — rendered
+	// as Status=False / Reason=RealmDisabled in unit tests where
+	// PerOrgRealmEnabled is not opted in on the base makeReconciler.
+	if len(got.Status.Conditions) != 5 {
+		t.Fatalf("expected 5 conditions (Ready + 2 federation + IacRepoBootstrapped + PerOrgRealmProvisioned), got %d: %+v",
 			len(got.Status.Conditions), got.Status.Conditions)
 	}
 	if got.Status.Conditions[0].Type != "Ready" || got.Status.Conditions[0].Status != "True" {
@@ -875,5 +912,203 @@ func TestReconcile_TenantPublic_DisabledByDefault(t *testing.T) {
 	}
 	if len(hrList.Items) != 0 {
 		t.Errorf("expected 0 HTTPRoutes when tenantPublic is unset, got %d", len(hrList.Items))
+	}
+}
+
+// ── Per-Org Keycloak realm (#3084 Part 2) ────────────────────────────
+//
+// These mirror the EnsureGroup test cases (create, idempotent-already-
+// exists, error path, status population, finalizer teardown) but for the
+// per-Org realm path. The base makeReconciler leaves PerOrgRealmEnabled
+// false (Disabled state, like iac-bootstrap deps being nil); these tests
+// opt in by flipping r.PerOrgRealmEnabled = true.
+
+// reconcileTwice drives the Reconcile loop twice so the finalizer-add
+// requeue (first pass) is followed by the real work (second pass). When
+// PerOrgRealmEnabled is true the first reconcile returns Requeue:true
+// after adding the per-org-realm finalizer; the actual realm + status
+// work happens on the second pass.
+func reconcileTwice(t *testing.T, r *Reconciler, name string) {
+	t.Helper()
+	for i := 0; i < 2; i++ {
+		if _, err := r.Reconcile(context.Background(), ctrl.Request{
+			NamespacedName: types.NamespacedName{Name: name},
+		}); err != nil {
+			t.Fatalf("reconcile pass %d: %v", i+1, err)
+		}
+	}
+}
+
+func TestReconcile_PerOrgRealm_CreatesAndPopulatesStatus(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg()
+	r, _, kc := makeReconciler(t, org)
+	r.PerOrgRealmEnabled = true
+
+	reconcileTwice(t, r, "acme")
+
+	// EnsureRealm called (find-or-create) + realm now exists in the fake.
+	if kc.realmEnsureCalls == 0 {
+		t.Errorf("expected EnsureRealm to be called, got %d", kc.realmEnsureCalls)
+	}
+	if !kc.realms["acme"] {
+		t.Errorf("expected realm 'acme' to exist in fake KC, got %v", kc.realms)
+	}
+
+	var got orgapi.Organization
+	if err := r.Get(context.Background(), client.ObjectKey{Name: "acme"}, &got); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Status.PerOrgRealm.State != "Ready" {
+		t.Errorf("status.perOrgRealm.state: got %q want Ready (lastError=%q)",
+			got.Status.PerOrgRealm.State, got.Status.PerOrgRealm.LastError)
+	}
+	if got.Status.PerOrgRealm.RealmName != "acme" {
+		t.Errorf("status.perOrgRealm.realmName: got %q want acme", got.Status.PerOrgRealm.RealmName)
+	}
+	// The finalizer must be present so a later delete tears the realm down.
+	if !containsFinalizer(got.Finalizers, PerOrgRealmFinalizer) {
+		t.Errorf("expected per-org-realm finalizer on the CR, got %v", got.Finalizers)
+	}
+	// PerOrgRealmProvisioned condition present + True.
+	found := false
+	for _, c := range got.Status.Conditions {
+		if c.Type == "PerOrgRealmProvisioned" {
+			found = true
+			if c.Status != "True" || c.Reason != "RealmReady" {
+				t.Errorf("PerOrgRealmProvisioned: got %+v want True/RealmReady", c)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("PerOrgRealmProvisioned condition missing from %+v", got.Status.Conditions)
+	}
+}
+
+func TestReconcile_PerOrgRealm_IdempotentAlreadyExists(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg()
+	r, _, kc := makeReconciler(t, org)
+	r.PerOrgRealmEnabled = true
+	// Pre-seed: pretend the realm already exists. The fake's EnsureRealm
+	// is a find-or-create that returns the slug regardless — assert it
+	// does NOT error and the status still lands Ready.
+	kc.realms = map[string]bool{"acme": true}
+
+	reconcileTwice(t, r, "acme")
+
+	var got orgapi.Organization
+	if err := r.Get(context.Background(), client.ObjectKey{Name: "acme"}, &got); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Status.PerOrgRealm.State != "Ready" {
+		t.Errorf("pre-existing realm: state got %q want Ready", got.Status.PerOrgRealm.State)
+	}
+	if !kc.realms["acme"] {
+		t.Errorf("realm should still exist, got %v", kc.realms)
+	}
+}
+
+func TestReconcile_PerOrgRealm_ErrorFailsReconcile(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg()
+	r, _, kc := makeReconciler(t, org)
+	r.PerOrgRealmEnabled = true
+	kc.realmEnsureErr = fmt.Errorf("keycloak unreachable")
+
+	// First pass adds the finalizer + requeues (no error).
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "acme"},
+	}); err != nil {
+		t.Fatalf("first reconcile (finalizer add) should not error: %v", err)
+	}
+	// Second pass hits EnsureRealm → error → r.fail → requeue (no Go error).
+	res, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "acme"},
+	})
+	if err != nil {
+		t.Fatalf("reconcile (realm error path should requeue, not error): %v", err)
+	}
+	if res.RequeueAfter == 0 {
+		t.Errorf("realm-failure path should requeue, got %v", res)
+	}
+
+	var got orgapi.Organization
+	if err := r.Get(context.Background(), client.ObjectKey{Name: "acme"}, &got); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	// The Ready condition is downgraded to False/PerOrgRealmFailed (realm
+	// is auth-critical — unlike iac-bootstrap which is non-fatal).
+	if len(got.Status.Conditions) != 1 ||
+		got.Status.Conditions[0].Type != "Ready" ||
+		got.Status.Conditions[0].Status != "False" ||
+		got.Status.Conditions[0].Reason != "PerOrgRealmFailed" {
+		t.Errorf("expected Ready=False/PerOrgRealmFailed, got %+v", got.Status.Conditions)
+	}
+}
+
+func TestReconcile_PerOrgRealm_DisabledWhenFlagOff(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg()
+	r, _, kc := makeReconciler(t, org)
+	// PerOrgRealmEnabled left false (default) — feature off.
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "acme"},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	// EnsureRealm must NOT be called when the flag is off.
+	if kc.realmEnsureCalls != 0 {
+		t.Errorf("expected 0 EnsureRealm calls when disabled, got %d", kc.realmEnsureCalls)
+	}
+
+	var got orgapi.Organization
+	if err := r.Get(context.Background(), client.ObjectKey{Name: "acme"}, &got); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Status.PerOrgRealm.State != "Disabled" {
+		t.Errorf("status.perOrgRealm.state: got %q want Disabled", got.Status.PerOrgRealm.State)
+	}
+	// No finalizer added when the feature is off.
+	if containsFinalizer(got.Finalizers, PerOrgRealmFinalizer) {
+		t.Errorf("per-org-realm finalizer should NOT be added when disabled, got %v", got.Finalizers)
+	}
+}
+
+func TestReconcile_PerOrgRealm_FinalizerTeardown(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg()
+	r, _, kc := makeReconciler(t, org)
+	r.PerOrgRealmEnabled = true
+
+	// Drive to steady state (finalizer added + realm created).
+	reconcileTwice(t, r, "acme")
+	if !kc.realms["acme"] {
+		t.Fatalf("precondition: realm should exist before delete, got %v", kc.realms)
+	}
+
+	// Mark the CR for deletion (set DeletionTimestamp via the client).
+	var got orgapi.Organization
+	if err := r.Get(context.Background(), client.ObjectKey{Name: "acme"}, &got); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if err := r.Delete(context.Background(), &got); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	// Reconcile the deletion: the finalizer flow must call DeleteRealm and
+	// then drop the finalizer so the CR can tombstone.
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "acme"},
+	}); err != nil {
+		t.Fatalf("delete reconcile: %v", err)
+	}
+
+	if kc.realmDeleteCalls == 0 {
+		t.Errorf("expected DeleteRealm to be called on teardown, got %d", kc.realmDeleteCalls)
+	}
+	if kc.realms["acme"] {
+		t.Errorf("realm should be deleted on teardown, got %v", kc.realms)
 	}
 }
