@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { sendMagicLink, verifyMagicLink, getMe, createTenant, getMyOrgs, createCheckout, startProvisioning, getProvisionByTenant, checkSlug, getPlans, getAddons, getCreditBalance, setAuthTokens, setActiveOrg, setActiveOrgSlug, type User, type Provision, type Plan, type AddOn } from '../lib/api';
+  import { sendMagicLink, verifyMagicLink, getMe, createTenant, getMyOrgs, createCheckout, startProvisioning, getProvisionByTenant, checkSlug, getPlans, getAddons, getCreditBalance, redeemVoucherPreview, setAuthTokens, setActiveOrg, setActiveOrgSlug, type User, type Provision, type Plan, type AddOn } from '../lib/api';
   import { readCart, clearCart } from '../lib/cart';
   import { formatOMR } from '../lib/currency';
   import { consoleHref } from '../lib/config';
@@ -163,12 +163,22 @@
   $effect(() => {
     if (!user) return;
     creditError = null;
-    getCreditBalance()
-      .then(b => { creditBaisa = b.credit_baisa || 0; })
-      .catch((e) => {
-        creditError = e instanceof Error ? e.message : String(e);
-        console.error('[checkout] getCreditBalance failed — voucher credit will not apply:', e);
-      });
+    // Effective credit = committed ledger balance + the pending voucher's grant.
+    // The voucher (promoCode) only COMMITS at the /billing/checkout POST, so for a
+    // fresh 100%-voucher order the ledger balance alone is 0 — without folding in
+    // the voucher preview here, creditCovers stays false and the UI shows the card
+    // path even though the backend's CreditOnlyCheckout would cover it (#3057).
+    const code = promoCode.trim();
+    Promise.all([
+      getCreditBalance()
+        .then(b => b.credit_baisa || 0)
+        .catch((e) => {
+          creditError = e instanceof Error ? e.message : String(e);
+          console.error('[checkout] getCreditBalance failed — voucher credit will not apply:', e);
+          return 0;
+        }),
+      code ? redeemVoucherPreview(code).then(p => p?.credit_baisa ?? 0).catch(() => 0) : Promise.resolve(0),
+    ]).then(([ledger, voucher]) => { creditBaisa = ledger + voucher; });
   });
 
   const creditCovers = $derived(creditBaisa >= totalCost && totalCost > 0);
