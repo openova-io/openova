@@ -1,6 +1,6 @@
 # UAT — OpenOva Catalyst (unified test-case table)
 
-> One flat table — one row per test step. **Test group · Tested page (click to open) · Test case (what you do) · What you must see · Result · Screenshot (click to view).** Newest fresh-prov walk (hw99, 2026-06-05, live 2-region) first, then the full matrix. Narrative, progress log + prior-prov detail: [`../sessions/2026-06-05/uat-status-log.md`](../sessions/2026-06-05/uat-status-log.md).
+> One flat table — one row per test step. **Test group · Tested page (click to open) · Test case (what you do) · What you must see · Result · Screenshot (click to view).** Newest fresh-prov walk (hw99, 2026-06-05 — SINGLE-REGION me-east-215-a; prior 2-region claim FALSIFIED 2026-06-07 per live infra, see TC-09) first, then the full matrix. Narrative, progress log + prior-prov detail: [`../sessions/2026-06-05/uat-status-log.md`](../sessions/2026-06-05/uat-status-log.md).
 > Legend: ✅ pass · ◑ partial · ❌ fail · ⛔ blocked · ⏳ not-walked · ☐ pending.
 
 | Test group | Tested page | Test case (what you do) | What you must see | Result | Screenshot |
@@ -11,7 +11,7 @@
 | TC-03 First-touch (Us… | [console.hw99/…](https://console.hw99.omantel.biz/users) | Open User Access | Operator listed at owner tier | ✅ (hw99) | [img](../sessions/2026-06-05/evidence/hw99-tc03-users-owner.png) |
 | TC-04 Marketplace is … | [marketplace.h…](https://marketplace.hw99.omantel.biz/) | Open the marketplace storefront | Storefront 'Build Your Tenant' renders (Pil… | ✅ (hw99) | [img](../sessions/2026-06-05/evidence/hw99-pillar1-marketplace.png) |
 | TC-05 Issue a voucher… | [console.hw99/…](https://console.hw99.omantel.biz/bss) | Open BSS → Vouchers | Voucher operations surface (Pillar 1) | ✅ (hw99) | [img](../sessions/2026-06-05/evidence/hw99-tc04-bss-voucher.png) |
-| TC-09 BCP topology (P… | [console.hw99/…](https://console.hw99.omantel.biz/cloud) | Open Cloud view | 2-region topology rendered (me-east-215-a +… | ✅ (hw99) | [img](../sessions/2026-06-05/evidence/hw99-tc-pillar2-cloud-2region.png) |
+| TC-09 BCP topology (P… | [console.hw99/…](https://console.hw99.omantel.biz/cloud) | Open Cloud view | 2-region topology rendered (me-east-215-a +… | ❌ FALSE — hw99 single-region (me-east-215-a only), verified 2026-06-07; this 2-region screenshot is bogus | [img](../sessions/2026-06-05/evidence/hw99-tc-pillar2-cloud-2region.png) |
 | TC-00d Apps converged | [console.hw99/…](https://console.hw99.omantel.biz/apps) | Open Apps | All 49 apps INSTALLED (fully converged) | ✅ (hw99) | [img](../sessions/2026-06-05/evidence/hw99-apps-converged.png) |
 | TC-17 Launch silent-S… | [console.hw99/…](https://console.hw99.omantel.biz/app/bp-grafana) | Open Grafana app detail | Launch button + endpoint present | ✅ (hw99) | [img](../sessions/2026-06-05/evidence/hw99-grafana-appdetail-launch.png) |
 | TC-17 Launch silent-S… | [grafana.hw99/…](https://grafana.hw99.omantel.biz/login) | Grafana login page | Grafana serves login (not a localhost error) | ✅ (hw99) | [img](../sessions/2026-06-05/evidence/hw99-3061-grafana-login.png) |
