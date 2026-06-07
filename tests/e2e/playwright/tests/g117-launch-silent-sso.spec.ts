@@ -104,6 +104,14 @@ test.describe('G117.4 #2743 AC4 — Launch silent-SSO', () => {
   // SKIPPED only if the console dev server isn't reachable.
   // ─────────────────────────────────────────────────────────────────────
   test.describe('MOCK mode', () => {
+    // #3090: this MOCK block drives the RETIRED Astro+Svelte console
+    // (products/catalyst/console) mock backend. That tree is never
+    // shipped. The production React instance page keeps the
+    // `btn-launch-app` testid + silent-SSO behaviour (relabelled
+    // "Launch →" → "Open"), covered by unit tests in bootstrap/ui; the
+    // real silent-SSO walk is the LIVE-mode block below (SOV_FQDN). Skip
+    // the dead-tree mock walk.
+    test.skip(true, '#3090 — retired Svelte console surface; LIVE-mode block below is the real walk')
     test.skip(!!SOV_FQDN, 'MOCK walk runs only when SOV_FQDN is unset')
     // page.goto uses the project baseURL (the shared Group L BASE_URL =
     // bootstrap/ui), but the mock backend lives in the console app. Override

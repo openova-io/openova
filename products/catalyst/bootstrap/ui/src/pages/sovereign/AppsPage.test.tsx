@@ -21,6 +21,7 @@ import {
   createMemoryHistory,
   Outlet,
 } from '@tanstack/react-router'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AppsPage } from './AppsPage'
 import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
@@ -44,6 +45,12 @@ function renderProvision(deploymentId: string) {
     path: '/provision/$deploymentId/app/$componentId',
     component: () => <div data-testid="app-detail-target" />,
   })
+  // #3090 — Catalog-tab cards must link to the CLASS page.
+  const catalogDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/provision/$deploymentId/catalog/$blueprintName',
+    component: () => <div data-testid="catalog-detail-target" />,
+  })
   const jobsRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/provision/$deploymentId/jobs',
@@ -54,12 +61,27 @@ function renderProvision(deploymentId: string) {
     path: '/wizard',
     component: () => <div data-testid="wizard-target" />,
   })
-  const tree = rootRoute.addChildren([provisionRoute, detailRoute, jobsRoute, wizardRoute])
+  const tree = rootRoute.addChildren([
+    provisionRoute,
+    detailRoute,
+    catalogDetailRoute,
+    jobsRoute,
+    wizardRoute,
+  ])
   const router = createRouter({
     routeTree: tree,
     history: createMemoryHistory({ initialEntries: [`/provision/${deploymentId}`] }),
   })
-  return render(<RouterProvider router={router} />)
+  // AppsPage's liveAppsQuery (useQuery, enabled on Sovereign mode) needs a
+  // QueryClient in context even when disabled — mirror AppsPage.handover.test.
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  })
+  return render(
+    <QueryClientProvider client={qc}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
 }
 
 beforeEach(() => {
@@ -173,5 +195,38 @@ describe('AppsPage — card grid', () => {
     expect(after.length).toBeLessThan(before.length)
     // Still see Cilium.
     expect(after.some((c) => c.getAttribute('data-testid') === 'sov-app-card-bp-cilium')).toBe(true)
+  })
+})
+
+describe('AppsPage — #3090 per-tab card link target (class vs instance)', () => {
+  it('Deployments-tab card links to the INSTANCE page /app/$id', async () => {
+    renderProvision('d-1')
+    // Deployments tab is active by default; bootstrap-kit apps (cilium)
+    // always count as deployed so the card is present.
+    const card = await screen.findByTestId('sov-app-card-bp-cilium')
+    expect(card.getAttribute('href')).toBe('/provision/d-1/app/bp-cilium')
+  })
+
+  it('Catalog-tab card links to the CLASS page /catalog/$blueprint', async () => {
+    renderProvision('d-1')
+    fireEvent.click(await screen.findByTestId('sov-tab-catalog'))
+    const card = await screen.findByTestId('sov-app-card-bp-cilium')
+    expect(card.getAttribute('href')).toBe('/provision/d-1/catalog/bp-cilium')
+  })
+
+  it('the SAME blueprint card resolves to DIFFERENT targets per tab', async () => {
+    renderProvision('d-1')
+    // Deployments first.
+    const onDeployments = (
+      await screen.findByTestId('sov-app-card-bp-cilium')
+    ).getAttribute('href')
+    // Flip to Catalog.
+    fireEvent.click(screen.getByTestId('sov-tab-catalog'))
+    const onCatalog = (
+      await screen.findByTestId('sov-app-card-bp-cilium')
+    ).getAttribute('href')
+    expect(onDeployments).not.toBe(onCatalog)
+    expect(onDeployments).toContain('/app/bp-cilium')
+    expect(onCatalog).toContain('/catalog/bp-cilium')
   })
 })

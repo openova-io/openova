@@ -1,30 +1,35 @@
-import { useParams, Link } from '@tanstack/react-router'
+import { useParams } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 
-import {
-  getCatalogItem,
-  listBlueprintInstancesByName,
-  type CatalogItem,
-  type ApplicationInstanceSummary,
-} from '@/lib/catalog.api'
+import { getCatalogItem, type CatalogItem } from '@/lib/catalog.api'
+import { InstancesSection } from './AppDetail/InstancesSection'
 
 /**
  * G117.2 #2741 — Catalog drill-down (class detail).
  *
- * Route: `/catalog/$blueprintName` (under consoleLayoutRoute).
+ * Route: `/catalog/$blueprintName` (under consoleLayoutRoute) + the
+ * `/provision/$deploymentId/catalog/$blueprintName` chroot/provision
+ * variant.
  *
- * Renders the per-Blueprint CLASS page — header with metadata, list of
- * instances, "+ New instance" action. NOT the per-instance view (that
- * is `/app/$componentId` → AppDetail).
+ * Renders the per-Blueprint CLASS page — header with metadata, supported
+ * topologies, the list of installed instances, and a "+ New instance"
+ * action. NOT the per-instance view (that is `/app/$componentId` →
+ * AppDetail).
  *
- * Ports the Astro+Svelte scaffold at
- * `products/catalyst/console/src/routes/catalog/[name]/+page.svelte`
- * to the production React UI. The scaffold never reached operators
- * because the catalyst-ui Containerfile copies only `bootstrap/ui/`.
+ * #3090: this page was registered but ORPHANED — every app card (Catalog
+ * AND Deployments tab) hard-linked to `/app/$id`, so the class page was
+ * never reached and the instance page wrongly rendered the class
+ * instances-list + "+ New instance" button. AppsPage now links Catalog
+ * cards here. The instances list + New-instance dialog are the shared
+ * `InstancesSection` (lifted out of AppDetail) so the class behaviour
+ * lives in exactly one place; the "+ New instance" button opens the
+ * topology-picker dialog INLINE (no navigation) — the previous
+ * `/catalog/$blueprintName/new` link had no route and 404'd.
  *
  * Backed by:
  *   GET /api/v1/catalog/{name}                        → CatalogItem
  *   GET /catalyst/v1/catalog/{blueprint}/instances    → BlueprintInstance[]
+ *        (fetched inside InstancesSection)
  */
 export function CatalogDetail() {
   const { blueprintName } = useParams({ strict: false }) as { blueprintName?: string }
@@ -35,15 +40,6 @@ export function CatalogDetail() {
     queryFn: () => getCatalogItem(name),
     enabled: !!name,
     staleTime: 30_000,
-    retry: 1,
-  })
-
-  const instancesQuery = useQuery<ApplicationInstanceSummary[]>({
-    queryKey: ['blueprint-instances', name],
-    queryFn: () => listBlueprintInstancesByName(name),
-    enabled: !!name,
-    staleTime: 15_000,
-    refetchInterval: 15_000,
     retry: 1,
   })
 
@@ -74,7 +70,6 @@ export function CatalogDetail() {
   }
 
   const cat = catalogQuery.data!
-  const instances = instancesQuery.data ?? []
   const multiInstance = readMultiInstance(cat)
   const topologies = readTopologies(cat)
   const defaultTopology = readDefaultTopology(cat)
@@ -118,81 +113,10 @@ export function CatalogDetail() {
         </section>
       ) : null}
 
-      <section className="instances">
-        <header className="instances-header">
-          <h3>Instances ({instances.length})</h3>
-          {multiInstance ? (
-            <Link
-              to={'/catalog/$blueprintName/new' as never}
-              params={{ blueprintName: name } as never}
-              className="btn-new"
-              data-testid="btn-new-instance"
-            >
-              + New instance
-            </Link>
-          ) : instances.length === 0 ? (
-            <Link
-              to={'/catalog/$blueprintName/new' as never}
-              params={{ blueprintName: name } as never}
-              className="btn-new"
-              data-testid="btn-install-singleton"
-            >
-              Install
-            </Link>
-          ) : (
-            <span className="hint">Singleton-per-Org — already installed.</span>
-          )}
-        </header>
-
-        {instances.length === 0 ? (
-          <p className="empty">No instances yet.</p>
-        ) : (
-          <table data-testid="instance-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Org</th>
-                <th>Topology</th>
-                <th>Status</th>
-                <th>Created</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {instances.map((inst) => (
-                <tr key={inst.id} data-testid={`instance-row-${inst.id}`}>
-                  <td>
-                    <Link
-                      to={'/app/$componentId' as never}
-                      params={{ componentId: `bp-${inst.blueprint}` } as never}
-                      data-testid={`instance-link-${inst.id}`}
-                    >
-                      {inst.name}
-                    </Link>
-                  </td>
-                  <td>{inst.org}</td>
-                  <td><code>{inst.topology}</code></td>
-                  <td>
-                    <span className={`status status-${inst.status.toLowerCase()}`}>
-                      {inst.status}
-                    </span>
-                  </td>
-                  <td>{inst.createdAt ?? ''}</td>
-                  <td>
-                    <Link
-                      to={'/app/$componentId' as never}
-                      params={{ componentId: `bp-${inst.blueprint}` } as never}
-                      search={{ tab: 'endpoints' } as never}
-                    >
-                      Endpoints
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      {/* #3090 — shared CLASS-page instances list + "+ New instance"
+          (inline topology-picker dialog). Instance rows link to the
+          INSTANCE page `/app/$componentId`. */}
+      <InstancesSection blueprint={`bp-${name}`} />
     </section>
   )
 }
