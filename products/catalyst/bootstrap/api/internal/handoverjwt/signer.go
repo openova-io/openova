@@ -19,8 +19,8 @@
 //
 //   - On first boot (key file absent), LoadOrGenerate() generates a fresh
 //     RSA-2048 keypair and writes:
-//     • private key PEM  → keyPath  (mode 0600)
-//     • public JWK JSON  → pubKeyPath (mode 0644)
+//   - private key PEM  → keyPath  (mode 0600)
+//   - public JWK JSON  → pubKeyPath (mode 0644)
 //   - Subsequent restarts load the existing files (idempotent).
 //
 // # JWT shape (canonical — Agent C must accept exactly this)
@@ -58,6 +58,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -71,10 +72,31 @@ const (
 	// DefaultTTL — 5-minute window per the JWT contract in the issue brief.
 	DefaultTTL = 5 * time.Minute
 
-	// DefaultIssuer — the Catalyst-Zero console origin.
-	// Overridable via CATALYST_HANDOVER_JWT_ISSUER.
-	DefaultIssuer = "https://console.openova.io"
+	// mothershipIssuer — the Catalyst-Zero (mothership) console origin. This
+	// is the LAST-RESORT fallback only: it keeps Catalyst-Zero byte-unchanged
+	// when neither the caller nor the env supplies an issuer. A franchised
+	// Sovereign post-bp-self-sovereign-cutover MUST NOT stamp this URL as the
+	// `iss` claim — see DefaultIssuer() + #2940 (Pillar 5 anti-tether).
+	mothershipIssuer = "https://console.openova.io"
 )
+
+// DefaultIssuer resolves the JWT issuer used when the caller passes an empty
+// issuer to New / LoadOrGenerate.
+//
+// #2940 (Pillar 5): previously a bare `const DefaultIssuer =
+// "https://console.openova.io"` — a mothership-tether hardcode. A franchised
+// Sovereign that constructed a Signer without an explicit issuer would stamp
+// the mothership origin as the `iss` claim, so downstream validation rejected
+// the token as foreign-issuer. Now it reads CATALYST_HANDOVER_JWT_ISSUER
+// first (the same env the chart api-deployment supplies from the per-Sovereign
+// runtime-config / cutover Step-07 pivot) and only falls back to the
+// mothership origin when that env is unset — keeping Catalyst-Zero unchanged.
+func DefaultIssuer() string {
+	if v := strings.TrimSpace(os.Getenv("CATALYST_HANDOVER_JWT_ISSUER")); v != "" {
+		return v
+	}
+	return mothershipIssuer
+}
 
 // Claims is the exact JWT claim shape Agent C must accept.
 // Custom fields use lowercase JSON keys per RFC 7519 §4 convention.
@@ -110,7 +132,7 @@ type Signer struct {
 // returns a Signer ready to mint tokens.
 func New(privPEM []byte, issuer string, ttl time.Duration) (*Signer, error) {
 	if issuer == "" {
-		issuer = DefaultIssuer
+		issuer = DefaultIssuer()
 	}
 	if ttl <= 0 {
 		ttl = DefaultTTL
