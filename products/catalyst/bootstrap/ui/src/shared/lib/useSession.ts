@@ -23,7 +23,7 @@
 
 import { useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { API_BASE } from '@/shared/config/urls'
+import { API_BASE, path as basePath } from '@/shared/config/urls'
 
 export interface SessionState {
   signedIn: boolean
@@ -121,7 +121,12 @@ export function useSession(): SessionState {
     if (keycloakLogoutURL) {
       window.location.href = keycloakLogoutURL
     } else {
-      window.location.href = '/login'
+      // Issue #3086: bare `/login` dropped the `/sovereign` basepath on
+      // Catalyst-Zero (nginx serves the SPA only under `/sovereign/*`) →
+      // 404 instead of the login screen. basePath('login') resolves to
+      // `/sovereign/login` on Catalyst-Zero and `/login` on Sovereign
+      // clusters — same basepath-aware target the route guard uses.
+      window.location.href = basePath('login')
     }
   }, [qc])
 

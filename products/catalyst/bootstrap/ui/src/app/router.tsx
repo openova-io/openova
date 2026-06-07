@@ -584,14 +584,23 @@ const successRoute = createRoute({ getParentRoute: () => rootRoute, path: '/succ
 // Deployments list (issue #747) — operator's history surface. Reachable
 // via /sovereign/deployments (Catalyst-Zero) or /deployments (Sovereign
 // build, though that build never exposes the wizard so this route is
-// effectively Catalyst-Zero only). The page itself reads useSession()
-// and renders an anonymous-only "Sign in" prompt when no cookie is
-// present, so we don't gate the route — keeps it consistent with the
-// wizard's guest-mode pattern.
+// effectively Catalyst-Zero only).
+//
+// Issue #3086: this route is NOT under appRoute, so the #3088 deep-link
+// guard never covered it. Accessed logged-out, the component-level
+// `window.location.replace('/login?next=...')` dropped the `/sovereign`
+// basepath and 404'd on nginx (which only serves the SPA under
+// `/sovereign/*`). Gate the route with provisionAuthGuard — the SAME
+// basepath-aware router redirect the sibling /provision routes use:
+// `throw redirect({ to: '/login', search: { next } })` resolves through
+// the configured basepath to `/sovereign/login?next=<post-basepath path>`
+// on Catalyst-Zero. The component's useSession() anonymous branch stays
+// as defense-in-depth for the session-expired-while-mounted case.
 const deploymentsListRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/deployments',
   component: DeploymentsList,
+  beforeLoad: provisionAuthGuard,
 })
 
 /**
