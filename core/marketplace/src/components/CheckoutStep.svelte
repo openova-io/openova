@@ -152,9 +152,23 @@
   // `totalCost` (also baisa) stays in the same unit — no more omr→baisa
   // conversion inline.
   let creditBaisa = $state<number>(0);
+  // Org-checkout (Pillar 1): a voucher-redeemed credit applies through
+  // `creditCovers` below, which depends on this fetch. The prior silent
+  // `.catch(() => {})` swallowed any failure, leaving creditBaisa=0 → the
+  // voucher never applies and the total never drops to 0 (the
+  // disabled-Purchase / "voucher not applying" symptom seen on the
+  // org-checkout walk). Surface the error so the real root (credit API
+  // failure vs voucher not crediting the balance) is visible, not masked.
+  let creditError = $state<string | null>(null);
   $effect(() => {
     if (!user) return;
-    getCreditBalance().then(b => { creditBaisa = b.credit_baisa || 0; }).catch(() => {});
+    creditError = null;
+    getCreditBalance()
+      .then(b => { creditBaisa = b.credit_baisa || 0; })
+      .catch((e) => {
+        creditError = e instanceof Error ? e.message : String(e);
+        console.error('[checkout] getCreditBalance failed — voucher credit will not apply:', e);
+      });
   });
 
   const creditCovers = $derived(creditBaisa >= totalCost && totalCost > 0);
@@ -663,6 +677,11 @@
               {:else if creditPartial}
                 <p class="text-xs text-[var(--color-text-dim)]">Credit is applied first; the remainder is charged to your card.</p>
               {/if}
+            {/if}
+            {#if creditError}
+              <p class="text-xs text-[var(--color-danger)]">
+                Couldn't load your voucher credit ({creditError}) — a redeemed voucher may not be reflected in the total above. Retry, or re-redeem the voucher if you expected free credit.
+              </p>
             {/if}
           </div>
         </div>
