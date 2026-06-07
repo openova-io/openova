@@ -890,7 +890,12 @@ meteringSidecar:
     # services-build CI publishes this image alongside the SME services
     # on every push to core/services/metering-sidecar/**.
     repository: ghcr.io/openova-io/openova/services-metering-sidecar
-    tag: "latest"
+    # Pinned SHA, not :latest — a mutable :latest tag forces a fresh manifest
+    # resolve on every reschedule, which ImagePullBackOff'd newapi on hw99
+    # (live 2026-06-07) when the :latest pull transiently failed. 41e02c8 is
+    # the most-recent services-build publish (= the content :latest pointed
+    # at); a fixed digest with IfNotPresent is deterministic + cache-friendly.
+    tag: "41e02c8"
     pullPolicy: IfNotPresent
   # The sidecar listens on this port; the Service routes traffic
   # (port 3000) → sidecar → newapi:3000-on-127.0.0.1. We expose the
