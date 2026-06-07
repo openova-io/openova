@@ -109,6 +109,22 @@ spec:
     # dependency" and holding the bootstrap-kit health gate forever.
     - name: bp-harbor
       namespace: flux-system
+    # #3098 (2026-06-08, hw100): the sandbox chart ships an
+    # externalsecret.external-secrets.io resource
+    # (platform/sandbox/chart/templates/sso-oauth-source-externalsecret.yaml,
+    # rendered whenever sso.enabled — default true). Without this dependency
+    # bp-sandbox can install BEFORE the external-secrets admission webhook is
+    # serving, so the ExternalSecret create fails ("failed calling webhook
+    # validate.externalsecret.external-secrets.io: connection refused") and the
+    # HR stalls Ready=False — exactly the wedge observed on hw100. Gating on
+    # bp-external-secrets (the #2988 gold-standard pattern, mirrors slot 19
+    # bp-harbor) makes the webhook Ready before the ExternalSecret is created.
+    # The chart ALSO carries the .Capabilities CRD-guard for the cold-CRD case,
+    # so this dependsOn closes the complementary webhook-serving timing gap.
+    # Namespace-pinned to flux-system (bp-external-secrets lives there, not in
+    # this HR's own `rtz` ns) per the same hw91 namespace-resolution lesson.
+    - name: bp-external-secrets
+      namespace: flux-system
   chart:
     spec:
       chart: sandbox
