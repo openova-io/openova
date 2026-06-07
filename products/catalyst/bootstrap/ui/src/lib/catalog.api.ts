@@ -845,38 +845,99 @@ export async function createApplicationInstance(
   return res.json()
 }
 
-/* ─── #2742 Endpoints / Ingress (Git-IaC PR pipeline) ──────────────── */
+/* ─── #2742 (G117.3) Endpoints / Ingress (Git-IaC PR pipeline) ─────────
+ *
+ * Full editable-endpoints surface ported from the dead Svelte console
+ * (`products/catalyst/console/src/components/EndpointsTab.svelte`) into
+ * the production React tree. Backed by catalyst-api's endpoint_handler.go:
+ *
+ *   GET    /catalyst/v1/apps/{id}/endpoints         → { items: ResolvedEndpoint[] }
+ *   POST   /catalyst/v1/apps/{id}/endpoints         → EndpointPR
+ *   PATCH  /catalyst/v1/apps/{id}/endpoints/{name}  → EndpointPR
+ *   DELETE /catalyst/v1/apps/{id}/endpoints/{name}  → EndpointPR
+ *
+ * Every mutation opens a GOVERNED PR against gitea.<sov>/<org>/iac;
+ * kyverno-admission / cert-manager-precheck / dns-conflict-precheck
+ * status checks gate auto-merge (locked decision #4).
+ *
+ * CRITICAL (per memory feedback_ts_field_casing_vs_go_json_tag): every
+ * field name below MUST match the Go `json:"..."` tag VERBATIM —
+ * `res.json()` returns wire keys exactly, so a casing mismatch yields a
+ * silently-undefined field. The Go shapes are `resolvedEndpoint`,
+ * `endpointMutationRequest`, `endpointPRResponse`, and
+ * `endpointPreCheckResults` in endpoint_handler.go:78-115.
+ */
 
-/** One exposed HTTPRoute for an Application. Mirrors the Go
- *  `endpointSummary` (endpoint_handler.go). */
-export interface EndpointSummary {
+export type EndpointProtocol = 'https' | 'http' | 'grpc' | 'tcp' | 'udp'
+export type EndpointVisibility = 'public' | 'private' | 'internal'
+
+/**
+ * ResolvedEndpoint mirrors the Go `resolvedEndpoint` (endpoint_handler.go:102)
+ * VERBATIM. `status`/`name`/`hostname` are always present; the rest are
+ * `omitempty` on the wire so they may be absent.
+ */
+export interface ResolvedEndpoint {
   name: string
-  hostnameTemplate?: string
+  hostnameTemplate: string
   hostname: string
-  protocol?: string
+  port?: number
+  protocol?: EndpointProtocol
   tls?: boolean
+  visibility?: EndpointVisibility
+  launchDefault?: boolean
+  ssoEnabled?: boolean
   status: string
+  certificateStatus?: string
+  launchURL?: string
 }
 
+/**
+ * EndpointSummary — retained as a back-compat alias of ResolvedEndpoint
+ * for any existing importer. New code should use ResolvedEndpoint.
+ */
+export type EndpointSummary = ResolvedEndpoint
+
+/** Mirrors Go `listEndpointsResponse` (endpoint_handler.go:157). */
 export interface ListEndpointsResponse {
-  items: EndpointSummary[]
+  items: ResolvedEndpoint[]
 }
 
-/** Body of POST/PATCH /apps/{id}/endpoints — Go `endpointMutationRequest`. */
+/**
+ * EndpointMutationRequest mirrors the Go `endpointMutationRequest`
+ * (endpoint_handler.go:78). `name` IS serialised in the POST body — the
+ * backend's precheck.ValidateMutation REQUIRES a non-empty, RFC-1123-ish
+ * endpoint name on create (`^[a-z][a-z0-9-]{0,30}[a-z0-9]$`). On PATCH the
+ * name is taken from the path param, so the body may omit it.
+ */
 export interface EndpointMutationRequest {
-  /** Only used by PATCH path-param; not serialized in the body. */
-  name?: string
+  name: string
   hostname?: string
-  protocol?: string
+  port?: number
+  protocol?: EndpointProtocol
   tls?: boolean
+  visibility?: EndpointVisibility
+  ssoEnabled?: boolean
 }
 
-/** Response of POST/PATCH — Go shape carries the raised governed PR URL. */
-export interface EndpointMutationResponse {
+/** Mirrors Go `endpointPreCheckResults` (endpoint_handler.go:95). */
+export interface EndpointPreCheckResults {
+  kyverno?: string
+  certManager?: string
+  dnsConflict?: string
+}
+
+/**
+ * EndpointPR mirrors the Go `endpointPRResponse` (endpoint_handler.go:89).
+ * `status` is one of `open` | `merged` | `closed` | `failed-precheck`.
+ */
+export interface EndpointPR {
   prURL: string
   status: string
-  preCheckResults?: Record<string, unknown>
+  preCheckResults?: EndpointPreCheckResults
 }
+
+/** Back-compat alias — older call-sites import `EndpointMutationResponse`. */
+export type EndpointMutationResponse = EndpointPR
 
 /**
  * listEndpoints — GET /catalyst/v1/apps/{id}/endpoints.
@@ -891,36 +952,90 @@ export async function listEndpoints(appId: string): Promise<ListEndpointsRespons
   return res.json()
 }
 
+/** Shared typed-error decode for the endpoint mutation calls. */
+async function endpointMutationError(res: Response): Promise<Error & { status?: number; code?: string }> {
+  let message = `HTTP ${res.status}`
+  let code = ''
+  try {
+    const detail = (await res.json()) as { code?: string; message?: string }
+    if (detail?.message) message = detail.message
+    if (detail?.code) code = detail.code
+  } catch {
+    /* non-JSON body — keep the HTTP-status message */
+  }
+  const err = new Error(message) as Error & { status?: number; code?: string }
+  err.status = res.status
+  err.code = code
+  return err
+}
+
 /**
- * mutateEndpoint — POST (create) or PATCH (edit, by name) an endpoint.
- * The backend raises a governed Git-IaC pull request and returns its
- * URL + the precheck results; the caller renders `prURL` as a "View PR"
- * link. On 4xx the typed `{code, message}` body surfaces verbatim.
+ * createAppEndpoint — POST /catalyst/v1/apps/{id}/endpoints.
+ * Opens a governed Git-IaC PR for a NEW endpoint. The full body is sent
+ * (name + hostname + port + protocol + tls + visibility + ssoEnabled);
+ * `name` is REQUIRED by the backend precheck.
+ */
+export async function createAppEndpoint(
+  appId: string,
+  body: EndpointMutationRequest,
+): Promise<EndpointPR> {
+  const url = `${BASE}catalyst/v1/apps/${encodeURIComponent(appId)}/endpoints`
+  const res = await authedFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw await endpointMutationError(res)
+  return res.json()
+}
+
+/**
+ * patchAppEndpoint — PATCH /catalyst/v1/apps/{id}/endpoints/{name}.
+ * Opens a governed Git-IaC PR editing an EXISTING endpoint. The endpoint
+ * name is the path param (immutable); the body carries the new values.
+ */
+export async function patchAppEndpoint(
+  appId: string,
+  name: string,
+  body: EndpointMutationRequest,
+): Promise<EndpointPR> {
+  const url = `${BASE}catalyst/v1/apps/${encodeURIComponent(appId)}/endpoints/${encodeURIComponent(name)}`
+  const res = await authedFetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw await endpointMutationError(res)
+  return res.json()
+}
+
+/**
+ * deleteAppEndpoint — DELETE /catalyst/v1/apps/{id}/endpoints/{name}.
+ * Opens a governed Git-IaC PR removing the endpoint manifest (the
+ * cert-manager Certificate + Gateway HTTPRoute are removed on merge).
+ */
+export async function deleteAppEndpoint(appId: string, name: string): Promise<EndpointPR> {
+  const url = `${BASE}catalyst/v1/apps/${encodeURIComponent(appId)}/endpoints/${encodeURIComponent(name)}`
+  const res = await authedFetch(url, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  })
+  if (!res.ok) throw await endpointMutationError(res)
+  return res.json()
+}
+
+/**
+ * mutateEndpoint — back-compat convenience wrapper kept for the prior
+ * call-site shape. POST (create) when `opts.name` is absent, PATCH (edit
+ * by name) when present. Prefer the explicit createAppEndpoint /
+ * patchAppEndpoint for new code.
  */
 export async function mutateEndpoint(
   appId: string,
   body: EndpointMutationRequest,
   opts: { name?: string } = {},
-): Promise<EndpointMutationResponse> {
-  const isEdit = !!opts.name
-  const base = `${BASE}catalyst/v1/apps/${encodeURIComponent(appId)}/endpoints`
-  const url = isEdit ? `${base}/${encodeURIComponent(opts.name!)}` : base
-  const res = await authedFetch(url, {
-    method: isEdit ? 'PATCH' : 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ hostname: body.hostname, protocol: body.protocol, tls: body.tls }),
-  })
-  if (!res.ok) {
-    let message = `HTTP ${res.status}`
-    try {
-      const detail = (await res.json()) as { code?: string; message?: string }
-      if (detail?.message) message = detail.message
-    } catch {
-      /* fall through */
-    }
-    const err = new Error(message) as Error & { status?: number }
-    err.status = res.status
-    throw err
-  }
-  return res.json()
+): Promise<EndpointPR> {
+  return opts.name
+    ? patchAppEndpoint(appId, opts.name, body)
+    : createAppEndpoint(appId, body)
 }
