@@ -424,7 +424,20 @@ const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/app',
   component: AppLayout,
-  beforeLoad: ({ location }) => {
+  beforeLoad: async ({ location }) => {
+    // #3086 — catalyst-zero (console.openova.io) short-circuits the
+    // central rootBeforeLoad gate (router.tsx:230 returns when
+    // DETECTED_MODE.mode !== 'sovereign'), so the `/app/*` fleet
+    // surfaces (dashboard / install / sre / sec compliance) rendered
+    // to anonymous deep-links instead of bouncing to /login?next=.
+    // Run the canonical provisionAuthGuard at the SHARED `/app` parent
+    // so every child inherits the gate. The guard is a no-op on
+    // Sovereign clusters (they manage their own OIDC auth), so the
+    // mode-aware canonicalisation redirects below still run unchanged.
+    // The already-guarded `/app/$deploymentId/*` children re-run the
+    // guard redundantly — harmless (a second 401 probe just re-throws
+    // the same redirect).
+    await provisionAuthGuard()
     if (DETECTED_MODE.mode === 'sovereign') {
       // D17/D17b walkthrough on t132 2026-05-17: the previous
       // strip-`/app`-prefix-and-redirect logic broke /app/<componentId>
@@ -705,6 +718,11 @@ const provisionDecommissionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/decommission/$deploymentId',
   component: DecommissionPage,
+  // #3086 — this surface renders a DESTRUCTIVE wipe form. It must never
+  // be reachable by an anonymous deep-link on catalyst-zero; gate it with
+  // the canonical provisionAuthGuard (401 → /login?next=, no-op on
+  // Sovereign clusters which run their own OIDC auth).
+  beforeLoad: provisionAuthGuard,
 })
 
 /* ── Cloud (issue #350) ─────────────────────────────────────────
@@ -1125,6 +1143,11 @@ const legacyProvisionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/legacy/$deploymentId',
   component: ProvisionPage,
+  // #3086 — the legacy DAG provision view is per-deployment operator
+  // state; gate it like every other /provision/* surface so an
+  // anonymous catalyst-zero deep-link bounces to /login?next= instead
+  // of rendering. No-op on Sovereign clusters.
+  beforeLoad: provisionAuthGuard,
 })
 
 // Design showcase
