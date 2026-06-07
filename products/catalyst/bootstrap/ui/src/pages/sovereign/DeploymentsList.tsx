@@ -34,6 +34,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
+import { path as basePath } from '@/shared/config/urls'
+import { currentPathRelativeToBasepath } from '@/shared/lib/basepathRelative'
 import { useSession } from '@/shared/lib/useSession'
 import { useInflightDeployment, INFLIGHT_STATUSES } from '@/shared/lib/useInflightDeployment'
 import type { DeploymentListEntry } from '@/shared/lib/useInflightDeployment'
@@ -164,11 +166,21 @@ export function DeploymentsList() {
   // served it — so the operator hit a bare "404 page not found" instead
   // of a login prompt. `/login?next=` is the real, routed sign-in entry
   // that prompts login then returns the operator to where they were.
+  //
+  // Issue #3086: the prior `window.location.replace('/login?next=...')`
+  // dropped the `/sovereign` basepath on Catalyst-Zero (nginx only serves
+  // the SPA under `/sovereign/*`) → bare `/login` 404'd, AND the `next`
+  // carried the full `/sovereign/...` path which double-prefixes once the
+  // router re-adds the basepath post-verify. Fix: target the basepath-
+  // aware login URL via `basePath('login')` (→ `/sovereign/login` on
+  // Catalyst-Zero, `/login` on Sovereign clusters — same as
+  // AuthCallbackPage's uiBase() pattern) and carry the POST-basepath
+  // `next` from currentPathRelativeToBasepath() (→ `/deployments`).
   useEffect(() => {
     if (session.loading) return
     if (!session.signedIn) {
-      const next = encodeURIComponent(window.location.pathname + window.location.search)
-      window.location.replace(`/login?next=${next}`)
+      const next = encodeURIComponent(currentPathRelativeToBasepath())
+      window.location.replace(`${basePath('login')}?next=${next}`)
     }
   }, [session.loading, session.signedIn])
 
