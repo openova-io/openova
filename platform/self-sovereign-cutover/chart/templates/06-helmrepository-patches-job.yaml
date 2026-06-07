@@ -22,6 +22,22 @@ Three phases run in this Job:
   Phase 2  Push the YAML edit to local Gitea so the bootstrap-kit
            Kustomization reconcile doesn't revert Phase 1 within ~1m.
 
+SCOPE — what this step does NOT touch (#2951 decision record):
+  This step rewrites HelmRepository spec.url (the chart SOURCE: ghcr.io
+  → local Harbor) ONLY. It deliberately does NOT rewrite per-Blueprint
+  chart-VALUES image tethers (e.g. bp-{rtz,mgmt,dmz}-vcluster values.yaml
+  `repository: harbor.openova.io/proxy-ghcr/loft-sh/vcluster`). Those are
+  left verbatim and handled by:
+    - Step 03 (harbor-prewarm): skopeo-pushes every running Pod's image,
+      incl. the vcluster image, into the local Harbor BEFORE egress is cut.
+    - Step 04 (registry-pivot): containerd registries.yaml v2 redirects
+      `harbor.openova.io` → local Harbor at image-pull time.
+  Adding a sed of those chart-values here would be a NO-OP that breaks the
+  intended cache pattern (the PR #3067 shape — it rewrites the Harbor
+  proxy-cache, not a real mothership tether). End-to-end correctness is
+  verified by Step 08's real egressDeny (#3072 / #2940), not a values sed.
+  See #2951.
+
 Image phase: post.
 */ -}}
 apiVersion: v1

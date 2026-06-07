@@ -438,7 +438,7 @@ spec:
       # 0.1.54 (#3052): auto-trigger Job handles catalyst-api's new HTTP
       # 425 handover-completion gate — the cutover no longer half-pivots
       # the registry at bootstrap on a fresh, un-handed-over prov.
-      version: 0.1.55
+      version: 0.1.56
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
