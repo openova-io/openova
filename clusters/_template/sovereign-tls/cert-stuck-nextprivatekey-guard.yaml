@@ -120,13 +120,13 @@ spec:
             - |
               set -eu
               CERT="sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}"
-              echo "[cert-nextkey-guard] watching kube-system/${CERT} for the #3066 nextPrivateKey loop"
+              echo "[cert-nextkey-guard] watching kube-system/$${CERT} for the #3066 nextPrivateKey loop"
               cooldown=0
               for round in $(seq 1 14); do
-                ready=$(kubectl -n kube-system get certificate "${CERT}" \
+                ready=$(kubectl -n kube-system get certificate "$${CERT}" \
                   -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
-                if [ "${ready}" = "True" ]; then
-                  echo "[cert-nextkey-guard] ${CERT} Ready=True — healthy, exiting"
+                if [ "$${ready}" = "True" ]; then
+                  echo "[cert-nextkey-guard] $${CERT} Ready=True — healthy, exiting"
                   exit 0
                 fi
                 # Post-break cooldown (reviewer note, PR #3069): immediately
@@ -134,7 +134,7 @@ spec:
                 # has a fresh temp Secret + zero CRs (sub-second gap before
                 # cert-manager creates the new CR). Skip detection for one
                 # round so we never re-break a cert that is recovering.
-                if [ "${cooldown}" = "1" ]; then
+                if [ "$${cooldown}" = "1" ]; then
                   cooldown=0
                   echo "[cert-nextkey-guard] post-break cooldown round — letting cert-manager re-issue before re-checking"
                   sleep 60
@@ -144,7 +144,7 @@ spec:
                 # owns them via the cert-manager.io/next-private-key label).
                 temps=$(kubectl -n kube-system get secret \
                   -l cert-manager.io/next-private-key=true -o name 2>/dev/null \
-                  | grep "${CERT}" || true)
+                  | grep "$${CERT}" || true)
                 # CRITICAL: the #3066 loop never creates a CertificateRequest
                 # at all — cert-manager loops on the temp Secret BEFORE the
                 # CR step. So the stuck signature is ZERO CertificateRequests
@@ -152,26 +152,26 @@ spec:
                 # slow DNS-01 issuance legitimately has a PENDING CR for
                 # minutes, and disturbing it would break a healthy cert.
                 cr_count=$(kubectl -n kube-system get certificaterequest -o name 2>/dev/null \
-                  | grep -c "${CERT}" || true)
+                  | grep -c "$${CERT}" || true)
                 # Grace: give a normal issuance ~3 min for its CR to appear.
-                if [ "${round}" -ge 3 ] && [ -n "${temps}" ] && [ "${cr_count:-0}" = "0" ]; then
-                  echo "[cert-nextkey-guard] STUCK signature (round ${round}): nextPrivateKey temp secret present, ZERO CertificateRequests (loop never reached the CR step). Breaking the loop."
-                  echo "${temps}" | while IFS= read -r s; do
-                    [ -n "${s}" ] && kubectl -n kube-system delete "${s}" --ignore-not-found=true || true
+                if [ "$${round}" -ge 3 ] && [ -n "$${temps}" ] && [ "$${cr_count:-0}" = "0" ]; then
+                  echo "[cert-nextkey-guard] STUCK signature (round $${round}): nextPrivateKey temp secret present, ZERO CertificateRequests (loop never reached the CR step). Breaking the loop."
+                  echo "$${temps}" | while IFS= read -r s; do
+                    [ -n "$${s}" ] && kubectl -n kube-system delete "$${s}" --ignore-not-found=true || true
                   done
-                  for cr in $(kubectl -n kube-system get certificaterequest -o name 2>/dev/null | grep "${CERT}" || true); do
-                    kubectl -n kube-system delete "${cr}" --ignore-not-found=true || true
+                  for cr in $(kubectl -n kube-system get certificaterequest -o name 2>/dev/null | grep "$${CERT}" || true); do
+                    kubectl -n kube-system delete "$${cr}" --ignore-not-found=true || true
                   done
-                  kubectl -n kube-system annotate certificate "${CERT}" \
+                  kubectl -n kube-system annotate certificate "$${CERT}" \
                     "cert-nextkey-guard.openova.io/broke-loop-at=$(date +%s)" --overwrite 2>/dev/null || true
                   echo "[cert-nextkey-guard] cleared temp secret(s) + stuck CR(s); cert-manager will re-issue from a clean slate"
                   cooldown=1
                 fi
                 sleep 60
               done
-              echo "[cert-nextkey-guard] ${CERT} still not Ready after ~14m — emitting diagnostics (best-effort, not failing the Kustomization)" >&2
-              kubectl -n kube-system get certificate "${CERT}" -o yaml 2>&1 | tail -40 >&2 || true
-              kubectl -n kube-system get certificaterequest,secret 2>&1 | grep "${CERT}" >&2 || true
+              echo "[cert-nextkey-guard] $${CERT} still not Ready after ~14m — emitting diagnostics (best-effort, not failing the Kustomization)" >&2
+              kubectl -n kube-system get certificate "$${CERT}" -o yaml 2>&1 | tail -40 >&2 || true
+              kubectl -n kube-system get certificaterequest,secret 2>&1 | grep "$${CERT}" >&2 || true
               exit 0
           securityContext:
             allowPrivilegeEscalation: false
