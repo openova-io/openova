@@ -68,6 +68,7 @@ import { TopologyTab } from './AppDetail/TopologyTab'
 import { ResourcesTab } from './AppDetail/ResourcesTab'
 import { LogsTab } from './AppDetail/LogsTab'
 import { SettingsTab } from './AppDetail/SettingsTab'
+import { EndpointsTab } from './AppDetail/EndpointsTab'
 
 /**
  * Tab ids — matrix-canonical seam.
@@ -83,6 +84,7 @@ const APP_TAB_IDS = [
   'logs',
   'settings',
   'members',
+  'endpoints',
   'jobs',
   'dependencies',
 ] as const
@@ -581,6 +583,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
           <TabButton id="logs" label="Logs" active={appTab} onClick={setAppTab} />
           <TabButton id="settings" label="Settings" active={appTab} onClick={setAppTab} />
           <TabButton id="members" label="Members" active={appTab} onClick={setAppTab} />
+          <TabButton id="endpoints" label="Endpoints" active={appTab} onClick={setAppTab} />
           <TabButton
             id="jobs"
             label="Jobs"
@@ -669,6 +672,14 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
         ) : appTab === 'members' ? (
           <div role="tabpanel" data-testid="app-tab-members-panel" className="app-tabpanel">
             <MembersTab sovereignId={deploymentId} applicationName={componentId} />
+          </div>
+        ) : appTab === 'endpoints' ? (
+          <div role="tabpanel" data-testid="app-tab-endpoints-panel" className="app-tabpanel">
+            <EndpointsTab
+              applicationName={componentId}
+              externalURL={appExternalURL}
+              sovereignFQDN={sovereignFQDN}
+            />
           </div>
         ) : appTab === 'jobs' ? (
           <div role="tabpanel" data-testid="app-tab-jobs-panel" className="app-tabpanel">
