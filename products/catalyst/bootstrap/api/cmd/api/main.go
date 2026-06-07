@@ -22,11 +22,11 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/giteapr"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/oidcprovider"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/keycloak"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/natspub"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/newapi"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/oidcprovider"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/precheck"
@@ -105,7 +105,15 @@ func main() {
 	}
 	if keyPath != "" {
 		pubKeyPath := env("CATALYST_HANDOVER_PUBKEY_PATH", keyPath+".pub.jwk")
-		issuer := env("CATALYST_HANDOVER_JWT_ISSUER", "https://console.openova.io")
+		// #2940 (Pillar 5): the mothership-default literal lives in exactly one
+		// place — handoverjwt.DefaultIssuer() — which reads
+		// CATALYST_HANDOVER_JWT_ISSUER and falls back to the Catalyst-Zero
+		// origin only when unset. Passing the resolved value (rather than a
+		// second hardcoded "https://console.openova.io" here) keeps the
+		// per-Sovereign override seam honoured and avoids a drift-prone
+		// duplicate tether literal. Empty env → DefaultIssuer() → mothership
+		// origin (Catalyst-Zero byte-unchanged).
+		issuer := handoverjwt.DefaultIssuer()
 		signer, err := handoverjwt.LoadOrGenerate(keyPath, pubKeyPath, issuer, 5*time.Minute)
 		if err != nil {
 			log.Warn("handoverjwt: keypair init failed; MintHandoverToken will return 503",
@@ -583,11 +591,11 @@ func main() {
 		clientSecret := os.Getenv("CATALYST_PIN_BROKER_CLIENT_SECRET")
 		if signer := h.GetHandoverSigner(); signer != nil && issuerURL != "" && clientSecret != "" {
 			oidcProv := &oidcprovider.Provider{
-				IssuerURL:                  issuerURL,
-				ExpectedClientID:           env("CATALYST_PIN_BROKER_CLIENT_ID", "catalyst-pin"),
-				ExpectedClientSecret:       clientSecret,
-				Signer:                     signer,
-				SessionSubjectFromCookie:   makeSessionValidator(signer, log),
+				IssuerURL:                issuerURL,
+				ExpectedClientID:         env("CATALYST_PIN_BROKER_CLIENT_ID", "catalyst-pin"),
+				ExpectedClientSecret:     clientSecret,
+				Signer:                   signer,
+				SessionSubjectFromCookie: makeSessionValidator(signer, log),
 			}
 			r.Get("/oidc/.well-known/openid-configuration", oidcProv.Discovery)
 			r.Get("/oidc/auth", oidcProv.Auth)
