@@ -85,8 +85,10 @@ afterEach(() => cleanup())
 describe('AppDetail — hero', () => {
   it('renders the hero with the Application title', async () => {
     renderDetail('d-1', 'bp-cilium')
-    expect(await screen.findByTestId('sov-hero')).toBeTruthy()
-    expect(screen.getByText('Cilium')).toBeTruthy()
+    const hero = await screen.findByTestId('sov-hero')
+    // The hero renders the title as "— Cilium" (em-dash subtitle), so an
+    // exact getByText('Cilium') misses; assert on the hero's text content.
+    expect(hero.textContent).toContain('Cilium')
   })
 
   it('back link points to the dashboard', async () => {
@@ -163,6 +165,10 @@ describe('AppDetail — matrix-canonical tab seam (TC-036 + TC-106)', () => {
       'app-tab-logs',
       'app-tab-settings',
       'app-tab-members',
+      // `endpoints` ships in the strip after Members (EndpointsTab) — the
+      // expected list had drifted from the rendered tablist. Kept in
+      // canonical position so the order assertion matches reality.
+      'app-tab-endpoints',
       'app-tab-jobs',
       'app-tab-dependencies',
     ])
@@ -222,5 +228,75 @@ describe('AppDetail — matrix-canonical tab seam (TC-036 + TC-106)', () => {
     expect(depTab.getAttribute('aria-selected')).toBe('true')
     expect(screen.queryByTestId('app-tab-overview-panel')).toBeNull()
     expect(screen.queryByTestId('app-tab-dependencies-panel')).toBeTruthy()
+  })
+})
+
+/**
+ * #3090 — AppDetail is the per-INSTANCE page. The class-level instances
+ * list + "+ New instance" button moved to the CLASS page (CatalogDetail).
+ * The instance page must NOT render them; it must still surface the
+ * "Open" button (silent-SSO Launch) when the Application has an external
+ * URL.
+ */
+describe('AppDetail — #3090 instance page (no class content; Open button)', () => {
+  // URL-aware fetch: the application GET returns a body carrying
+  // externalURL so the Open button renders; everything else (the SSE
+  // history replay) returns the empty envelope.
+  function installAppFetch(externalURL: string | undefined) {
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      if (url.includes('/applications/')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              name: 'cilium',
+              namespace: 'kube-system',
+              blueprint: 'bp-cilium',
+              phase: 'Ready',
+              conditions: [],
+              ...(externalURL ? { externalURL } : {}),
+            }),
+        } as unknown as Response)
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ events: [], state: undefined, done: false }),
+      } as unknown as Response)
+    }) as typeof fetch
+  }
+
+  it('does NOT render the class instances-list or "+ New instance" button', async () => {
+    installAppFetch(undefined)
+    renderDetail('d-1', 'bp-cilium')
+    await screen.findByTestId('sov-hero')
+    // The class-page widgets must be absent on the instance page.
+    expect(screen.queryByTestId('btn-new-instance')).toBeNull()
+    expect(screen.queryByTestId('sov-section-instances')).toBeNull()
+    expect(screen.queryByTestId('sov-instances-table')).toBeNull()
+    expect(screen.queryByTestId('dialog-new-instance')).toBeNull()
+  })
+
+  it('renders the "Open" button on the Overview tab when an external URL is present', async () => {
+    installAppFetch('https://gitea.t99.omani.works')
+    renderDetail('d-1', 'bp-cilium')
+    // Overview tab is the default landing tab.
+    await screen.findByTestId('app-tab-overview-panel')
+    const openBtn = await screen.findByTestId('btn-launch-app')
+    expect(openBtn).toBeTruthy()
+    // Founder relabel "Launch →" → "Open".
+    expect(openBtn.textContent).toContain('Open')
+    expect(openBtn.textContent).not.toContain('Launch')
+    // The external-URL row is the gate that surfaces the button.
+    expect(screen.getByTestId('app-detail-overview-external-url')).toBeTruthy()
+  })
+
+  it('hides the "Open" button when the Application has no external URL', async () => {
+    installAppFetch(undefined)
+    renderDetail('d-1', 'bp-cilium')
+    await screen.findByTestId('app-tab-overview-panel')
+    expect(screen.queryByTestId('btn-launch-app')).toBeNull()
   })
 })

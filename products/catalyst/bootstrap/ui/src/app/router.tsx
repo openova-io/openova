@@ -681,6 +681,18 @@ const provisionAppRoute = createRoute({
   beforeLoad: provisionAuthGuard,
 })
 
+// #3090 — CATALOG / class page in the mothership provision tree. Mirrors
+// provisionAppRoute but renders CatalogDetail (instances list + "+ New
+// instance"). AppsPage's Catalog-tab cards on the provision monitor
+// surface build `/provision/$deploymentId/catalog/$blueprintName`; the
+// chroot equivalent is consoleCatalogDetailRoute at `/catalog/$blueprintName`.
+const provisionCatalogDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/catalog/$blueprintName',
+  component: CatalogDetail,
+  beforeLoad: provisionAuthGuard,
+})
+
 // Global jobs list — table view (issue #204 founder spec). Each row is
 // a clickable link that navigates to the per-job detail page.
 const provisionJobsRoute = createRoute({
@@ -2077,6 +2089,7 @@ const routeTree = rootRoute.addChildren([
   deploymentsListRoute,
   provisionRoute,
   provisionAppRoute,
+  provisionCatalogDetailRoute,
   provisionInstallRoute,
   provisionInstallBlueprintRoute,
   provisionJobsRoute,

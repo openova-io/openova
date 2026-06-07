@@ -80,6 +80,17 @@ test.describe('G117.2 W2.C2 — multi-instance create flow', () => {
   })
 
   test.describe('MOCK mode (PR-time CI)', () => {
+    // #3090: this MOCK block drives the RETIRED Astro+Svelte console
+    // (products/catalyst/console) and asserts the old class-page model
+    // (btn-new-instance href='/catalog/grafana/new', a /catalog/.../new
+    // route, redirect to /apps/<id>). That tree is never shipped (no
+    // Containerfile copies it) — it's the bug that hid the broken
+    // class/instance split. The production React tree
+    // (products/catalyst/bootstrap/ui) replaces the /new route with an
+    // inline NewInstanceDialog; the equivalent coverage now lives in
+    // CatalogDetail.test.tsx + AppsPage.test.tsx. Skip the dead-tree walk
+    // (LIVE-mode API coverage below is unaffected).
+    test.skip(true, '#3090 — retired Svelte console surface; see CatalogDetail.test.tsx in bootstrap/ui')
     test.skip(!!SOV_FQDN, 'Mock walk runs only when SOV_FQDN is unset')
     // Drive the console mock app (CONSOLE_BASE_URL) rather than the shared
     // Group L baseURL — only the console installs window.__MOCK_API__.

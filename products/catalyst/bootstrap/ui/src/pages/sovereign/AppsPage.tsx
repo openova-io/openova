@@ -636,6 +636,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
               <AppCard
                 key={app.id}
                 app={app}
+                isCatalog={tab === 'catalog'}
                 environment={environment}
                 externalURL={externalURL}
                 status={(() => {
@@ -697,6 +698,16 @@ interface AppCardProps {
   app: ApplicationDescriptor
   status: ApplicationStatus
   /**
+   * #3090 — which tab this card is rendered under. On the Catalog tab a
+   * card is a Blueprint CLASS and must link to the class page
+   * `/catalog/$blueprint` (instances list + "New instance"). On the
+   * Deployments tab a card is a concrete INSTANCE and must link to the
+   * instance page `/app/$id` (Open button, no New-instance). Before this
+   * split BOTH tabs hard-linked to `/app/$id`, so the class page was
+   * unreachable and the instance page wrongly showed class content.
+   */
+  isCatalog: boolean
+  /**
    * Mirror of canonical `is-service`. The wizard catalog doesn't carry
    * an explicit service flag yet — keep the prop so adding one later
    * is a one-line change. For now, every card is treated as an
@@ -733,7 +744,7 @@ interface AppCardProps {
   externalURL?: string
 }
 
-function AppCard({ app, status, isService, environment, marketplacePublished, slug, onPublishedChange }: AppCardProps) {
+function AppCard({ app, status, isCatalog, isService, environment, marketplacePublished, slug, onPublishedChange }: AppCardProps) {
   const stateClass = `state-${status}`
   // Chroot-aware target: on the mother monitor surface
   // (console.openova.io/sovereign/provision/<id>/...) every link MUST stay
@@ -741,12 +752,18 @@ function AppCard({ app, status, isService, environment, marketplacePublished, sl
   // produces the broken /sovereign/app/<id> path the founder hit on
   // otech122. On the Sovereign's adult hostname the deploymentId is
   // implicit so /app/<id> is correct.
+  //
+  // #3090 — per-tab segment: a Catalog card opens the CLASS page
+  // (`/catalog/$blueprint`), a Deployments card opens the INSTANCE page
+  // (`/app/$id`). Same chroot/provision chroot-scoping logic, only the
+  // path segment differs.
   const params = useParams({ strict: false }) as { deploymentId?: string }
   const depId = params.deploymentId ?? ''
+  const seg = isCatalog ? 'catalog' : 'app'
   const target =
     DETECTED_MODE.mode === 'sovereign' || !depId
-      ? `/app/${app.id}`
-      : `/provision/${depId}/app/${app.id}`
+      ? `/${seg}/${app.id}`
+      : `/provision/${depId}/${seg}/${app.id}`
   return (
     <Link
       to={target as never}
