@@ -312,13 +312,20 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 	// the quota precheck ("project at 5/5 VPCs"). Verified live: hw94/hw96
 	// VPCs had to be deleted by hand from the bastion (NAT-snat-rules → NAT
 	// → subnet → VPC). Fix: re-run the purge up to maxPurgePasses, letting
-	// the async teardown settle between passes, until the verify finds zero
+	// the async teardown settle PROGRESSIVELY (20s·pass, so ~5min total
+	// across the gaps) between attempts, until the verify finds zero
 	// quota-relevant residuals (VPC/NAT/EIP — the resources that gate a
-	// re-prov). bastion-* stays hard-protected throughout (verifyZeroOrphans
-	// + every list*ByName helper exclude it).
+	// re-prov). The HCS NAT/VPC teardown can lag minutes after the delete
+	// call (memory reference_hcs_vpc_quota_wipe_then_prov_lag: ~10-20min in
+	// the extreme), so a flat 60s of retries could not outlast it; a growing
+	// settle covers the common multi-minute case, and any residual still
+	// present after the passes is recorded in out.ResidualOrphans for the
+	// G104 zero-touch gate (never silently leaked). bastion-* stays
+	// hard-protected throughout (verifyZeroOrphans + every list*ByName
+	// helper exclude it).
 	region := regionFromCreds(spec.Creds)
 	client := httpClientFor(spec.Creds)
-	const maxPurgePasses = 3
+	const maxPurgePasses = 6
 	for pass := 1; pass <= maxPurgePasses; pass++ {
 		if err := purgeHuaweiResources(ctx, client, hw, region, spec.SovereignFQDN, spec.DeploymentID, progress, out); err != nil {
 			out.Errors = append(out.Errors, "huawei orphan purge: "+err.Error())
@@ -335,12 +342,30 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 			break
 		}
 		if pass < maxPurgePasses {
-			progress(fmt.Sprintf("post-wipe verify found %d quota-relevant residual orphan(s) (VPC/NAT/EIP) — re-purging pass %d/%d after async-teardown settle (#3065)", quotaResidual, pass+1, maxPurgePasses))
+			settle := time.Duration(20*pass) * time.Second
+			progress(fmt.Sprintf("post-wipe verify found %d quota-relevant residual orphan(s) (VPC/NAT/EIP) — re-purging pass %d/%d after %s async-teardown settle (#3065)", quotaResidual, pass+1, maxPurgePasses, settle))
 			select {
 			case <-ctx.Done():
-			case <-time.After(20 * time.Second):
+			case <-time.After(settle):
 			}
 		}
+	}
+
+	// Dedup ProviderPurge — across the retry passes a resource that took
+	// more than one pass to delete (listed-then-failed, then deleted on a
+	// later pass) gets appended more than once, so the success report would
+	// over-count it. Collapse each kind to unique names. (#3070 reviewer
+	// note, sharper now that maxPurgePasses=6.)
+	for k, names := range out.ProviderPurge {
+		seen := map[string]bool{}
+		uniq := names[:0]
+		for _, n := range names {
+			if !seen[n] {
+				seen[n] = true
+				uniq = append(uniq, n)
+			}
+		}
+		out.ProviderPurge[k] = uniq
 	}
 
 	// Step 3 — OBS bucket purge (best effort).
