@@ -297,12 +297,50 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 	close(provEvents)
 	<-done
 
-	// Step 2 — Huawei orphan sweep. Best-effort: per-resource failures
-	// land in out.Errors but do not abort the remaining sweeps.
+	// Step 2 + 4 (#3065) — Huawei orphan sweep with verify-and-re-purge
+	// retry. Best-effort: per-resource failures land in out.Errors but do
+	// not abort the remaining sweeps.
+	//
+	// Why the retry: the async NAT/port/subnet teardown on HCS Kom4DC can
+	// lag the first purge pass. A NAT gateway whose delete is still
+	// settling keeps a router/dhcp port bound in its subnet, so the
+	// subnet→VPC delete 409s ("Router contains subnets" / "Subnet used by
+	// routes" / "Port device_owner not empty") and the VPC is left
+	// orphaned. The single-pass design only DETECTED that residual (it
+	// lands in out.ResidualOrphans via verifyZeroOrphans) — it never got
+	// cleaned, so HCS VPC + EIP quota leaked and the NEXT fresh prov hit
+	// the quota precheck ("project at 5/5 VPCs"). Verified live: hw94/hw96
+	// VPCs had to be deleted by hand from the bastion (NAT-snat-rules → NAT
+	// → subnet → VPC). Fix: re-run the purge up to maxPurgePasses, letting
+	// the async teardown settle between passes, until the verify finds zero
+	// quota-relevant residuals (VPC/NAT/EIP — the resources that gate a
+	// re-prov). bastion-* stays hard-protected throughout (verifyZeroOrphans
+	// + every list*ByName helper exclude it).
 	region := regionFromCreds(spec.Creds)
 	client := httpClientFor(spec.Creds)
-	if err := purgeHuaweiResources(ctx, client, hw, region, spec.SovereignFQDN, spec.DeploymentID, progress, out); err != nil {
-		out.Errors = append(out.Errors, "huawei orphan purge: "+err.Error())
+	const maxPurgePasses = 3
+	for pass := 1; pass <= maxPurgePasses; pass++ {
+		if err := purgeHuaweiResources(ctx, client, hw, region, spec.SovereignFQDN, spec.DeploymentID, progress, out); err != nil {
+			out.Errors = append(out.Errors, "huawei orphan purge: "+err.Error())
+		}
+		// Fresh verify each pass — reset the residual map + flag so a
+		// clean pass doesn't inherit stale entries from a prior one.
+		out.ResidualOrphans = map[string][]string{}
+		out.VerifiedZeroOrphans = false
+		verifyZeroOrphans(ctx, client, hw, region, spec.SovereignFQDN, progress, out)
+		quotaResidual := len(out.ResidualOrphans["networks"]) +
+			len(out.ResidualOrphans["nat_gateways"]) +
+			len(out.ResidualOrphans["floating_ips"])
+		if quotaResidual == 0 {
+			break
+		}
+		if pass < maxPurgePasses {
+			progress(fmt.Sprintf("post-wipe verify found %d quota-relevant residual orphan(s) (VPC/NAT/EIP) — re-purging pass %d/%d after async-teardown settle (#3065)", quotaResidual, pass+1, maxPurgePasses))
+			select {
+			case <-ctx.Done():
+			case <-time.After(20 * time.Second):
+			}
+		}
 	}
 
 	// Step 3 — OBS bucket purge (best effort).
@@ -317,19 +355,6 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 	for i := 0; i < removed; i++ {
 		out.S3Buckets = append(out.S3Buckets, prefix+"-*")
 	}
-
-	// G103 (Refs #2670) — Step 4: post-wipe orphan verification. Walk
-	// every cleanup-bearing resource kind ONE MORE TIME and surface
-	// anything that still carries the catalyst-<stem>- name prefix
-	// (bastion-* hard-excluded). Per the G103 issue contract:
-	//
-	//   - 0 VPCs / EIPs / NATs / ECSs / keypairs besides bastion-*
-	//
-	// Non-empty residual = the wipe contract was violated; downstream
-	// prov attempts on the same account WILL hit quota + name-collision
-	// failures. The CI zero-touch gate (G104 #2671) consumes this
-	// `VerifiedZeroOrphans` boolean to fail the contract loudly.
-	verifyZeroOrphans(ctx, client, hw, region, spec.SovereignFQDN, progress, out)
 
 	return out, nil
 }
