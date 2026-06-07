@@ -18,3 +18,11 @@ resources:
   # Sovereigns delete the orphan resources. Removable from the list
   # once every live prov has reconciled past it.
   - legacy-cert-cleanup-job.yaml
+  # #3066 — self-healing guard for cert-manager's nextPrivateKey "secret
+  # already exists" loop that wedges the wildcard TLS cert → console=000.
+  # Watches the cert for ~14m; on the stuck signature (temp nextPrivateKey
+  # secret present + no Ready CertificateRequest) it clears the temp
+  # secret + stuck CR so cert-manager re-issues clean. Best-effort, never
+  # touches a healthy cert. Removable once an upstream cert-manager bump
+  # fixes the adopt-vs-create race. See file header (verified live hw97).
+  - cert-stuck-nextprivatekey-guard.yaml
