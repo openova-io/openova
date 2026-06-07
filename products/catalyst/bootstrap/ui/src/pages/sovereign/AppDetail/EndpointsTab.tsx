@@ -140,15 +140,30 @@ export function EndpointsTab({
         ) : null}
       </section>
 
-      <EditEndpointForm
-        appUID={appUID}
-        defaultHostname={rows[0]?.hostname ?? fallbackHost}
-        defaultName={rows[0]?.name ?? applicationName}
-        defaultTls={rows[0]?.tls !== false}
-        isExisting={items.length > 0}
-        disabled={!appUID}
-        onMutated={() => qc.invalidateQueries({ queryKey: ['app-endpoints', appUID] })}
-      />
+      {appUID ? (
+        <EditEndpointForm
+          appUID={appUID}
+          defaultHostname={rows[0]?.hostname ?? fallbackHost}
+          defaultName={rows[0]?.name ?? applicationName}
+          defaultTls={rows[0]?.tls !== false}
+          isExisting={items.length > 0}
+          disabled={false}
+          onMutated={() => qc.invalidateQueries({ queryKey: ['app-endpoints', appUID] })}
+        />
+      ) : (
+        <section
+          className="section"
+          data-testid="sov-section-endpoint-edit-unavailable"
+          style={{ marginTop: '0.8rem' }}
+        >
+          <h3 style={{ fontSize: '0.9rem', margin: '0 0 0.3rem' }}>Edit endpoint</h3>
+          <p className="section-hint" style={{ margin: 0 }}>
+            Endpoint editing via a governed Git-IaC PR is available for catalog-installed
+            Applications. This is a bootstrap-kit component (no catalog instance), so its endpoints
+            are managed directly in the Sovereign&rsquo;s GitOps repo rather than from this tab.
+          </p>
+        </section>
+      )}
     </div>
   )
 }
