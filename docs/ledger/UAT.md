@@ -1,4 +1,4 @@
-# UAT — OpenOva Catalyst — fresh acceptance page (RESET 2026-06-09 — pending hw118)
+# UAT — OpenOva Catalyst — fresh acceptance page (RESET 2026-06-09 — pending hw119)
 
 > **Tests-first.** Fresh **2-region** prov **hw101** replaces wiped hw99. Every row is `☐` **pending** until walked LIVE on the **production React tree** (`products/catalyst/bootstrap/ui/`) on the real Sovereign — never a mock, never the dead Svelte console (`products/catalyst/console/`), never a CLOSED/merged status. A row earns its evidence link ONLY when it is actually walked. Authored 2026-06-08 after hw99 (1 functional cluster + falsified 2-region evidence) was wiped on founder order. **Sandbox is OUT of scope.**
 >
