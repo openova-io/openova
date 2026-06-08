@@ -533,6 +533,98 @@ resource "huaweicloud_nat_snat_rule" "region" {
 # fresh-prov against either cloud without per-provider trimming.
 
 locals {
+  # ── #3145 cloud-agnostic bootstrap: Huawei provider-injected strings ───
+  # The Kubernetes bootstrap lives in infra/providers/_shared/cloudinit-
+  # control-plane.tftpl (ONE template, every cloud). These locals carry the
+  # ONLY Huawei-specific pieces (the "hard dependency" exceptions, plan §5):
+  # bastion registry mirror (kom4dc NAT bypass), the iptables DNAT +
+  # console-less log self-upload prelude (#3132), huawei-ak/sk creds, and the
+  # HCS-specific k3s flags (watch-cache tuning + topology labels). The EIP is
+  # per-region so node_external_ip_cmd / kubeconfig_put_block are built inline
+  # in the cp_cloud_init_by_region loop below.
+
+  # registry mirror — Huawei routes pulls through the bastion-openova
+  # registry:2 caches on direct EIP 212.72.24.20 (kom4dc NAT blocklist bypass,
+  # Wave 5.106 #2462). ghcr/quay/kyverno pull DIRECT (bastion is anon-only, can't
+  # auth private ghcr); harbor + docker.io mirror via :5000 / :5002 (#2842).
+  registry_mirror_yaml_huawei = <<-EOT
+    mirrors:
+      "harbor.openova.io":
+        endpoint:
+          - "http://212.72.24.20:5000"
+      "docker.io":
+        endpoint:
+          - "http://212.72.24.20:5002"
+      "registry-1.docker.io":
+        endpoint:
+          - "http://212.72.24.20:5002"
+    configs:
+      "212.72.24.20:5000":
+        tls:
+          insecure_skip_verify: true
+      "212.72.24.20:5002":
+        tls:
+          insecure_skip_verify: true
+      "harbor.openova.io":
+        auth:
+          username: "robot$openova-bot"
+          password: "${var.harbor_robot_token}"
+  EOT
+
+  # cloud-credentials Secret — Huawei AK/SK (#425 vendor-agnostic name).
+  cloud_credentials_secret_yaml_huawei = <<-EOT
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: cloud-credentials
+      namespace: flux-system
+    type: Opaque
+    stringData:
+      huawei-ak: "${var.huawei_access_key}"
+      huawei-sk: "${var.huawei_secret_key}"
+      huawei-project-id: "${var.huawei_region}"
+      huawei-region: "${var.huawei_region}"
+  EOT
+
+  # provider prelude — Huawei. Runs BEFORE k3s (runcmd 0-indent items; the
+  # shared template re-indents via indent(2,…)). Two hard dependencies:
+  #  (1) iptables DNAT 443→30443 + 80→30080: Cilium Gateway on host-network
+  #      binds envoy to high NodePorts; the tofu HCS ELB targets those, so the
+  #      CP must REDIRECT privileged ports (Wave 5.96 #TBD-W5.96).
+  #  (2) #3132 console-less log self-upload: kom4dc CPs have NO ECS console-
+  #      output API + no reachable sshd, so /var/log/cloud-init-output.log can
+  #      only be PUSHED. Backgrounded EARLY so it keeps uploading even if a
+  #      later step aborts cloud-init — the founder's capture-before-wipe guard.
+  # Plain POSIX (`nohup sh -c`, not bash; dash -n clean — no $(( )) here).
+  provider_prelude_huawei = <<-EOT
+    - ["bash", "-c", "iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 30443 || true"]
+    - ["bash", "-c", "iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 30080 || true"]
+    - ["bash", "-c", "iptables -t nat -A OUTPUT -p tcp -d 127.0.0.0/8 -j RETURN || true"]
+    - ["bash", "-c", "mkdir -p /etc/iptables && iptables-save > /etc/iptables/rules.v4 2>/dev/null || true"]
+    - |
+      if [ -n "${var.deployment_id}" ] && [ -n "${var.kubeconfig_bearer_token}" ] && [ -n "${var.catalyst_api_url}" ]; then
+        nohup sh -c '
+          n=0
+          while [ "$${n}" -lt 40 ]; do
+            curl -sk -X PUT \
+              -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
+              -H "Content-Type: text/plain" \
+              --data-binary @/var/log/cloud-init-output.log \
+              --max-time 20 \
+              "${var.catalyst_api_url}/api/v1/deployments/${var.deployment_id}/cloudinit-log" >/dev/null 2>&1 || true
+            n=$$((n+1))
+            sleep 30
+          done
+        ' >/dev/null 2>&1 &
+      fi
+  EOT
+
+  # HCS-specific k3s flags. NO OIDC (HCS Sovereigns don't wire kubectl-SSO at
+  # bootstrap), but topology labels (CCM doesn't stamp them) + apiserver watch-
+  # cache tuning (Wave 5.125 #2472 — IP recycling floods the default 100-entry
+  # window → 410-Expired CNPG/cert-manager wedges) + etcd snapshot retention.
+  k3s_extra_args_huawei = "--node-label=topology.kubernetes.io/region=REGION_PLACEHOLDER --node-label=topology.kubernetes.io/zone=REGION_PLACEHOLDER --node-label=catalyst.openova.io/provider=huawei --kube-apiserver-arg=default-watch-cache-size=200 --kube-apiserver-arg=watch-cache-sizes=secrets#500,configmaps#500 --etcd-snapshot-retention=5"
+
   # Wave 5.13 (Refs #2140): per-region worker cloud-init render with the
   # ACTUAL CP private IP per region (not the wrong `cidrhost(subnet,2)`
   # assumption). HCS DHCP does not assign deterministic .2 addresses —
@@ -631,81 +723,45 @@ locals {
   # Hetzner convention.
   cp_cloud_init_by_region = {
     for idx, r in var.regions :
-    r.code => replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
+    r.code => replace(templatefile("${path.module}/../_shared/cloudinit-control-plane.tftpl", {
+      # ── #3145: render the ONE cloud-agnostic bootstrap. Huawei-specific
+      # pieces are injected as the *_huawei locals + per-region inline strings
+      # (the "hard dependency" exceptions). Common vars identical to every cloud.
+      provider = "huawei"
+
       sovereign_fqdn      = var.sovereign_fqdn
       sovereign_fqdn_slug = local.fqdn_slug
       deployment_id       = var.deployment_id
       org_name            = var.org_name
       org_email           = var.org_email
-      # #2940 (2026-06-03): per-Sovereign PDNS endpoint override.
-      pdns_api_host = var.pdns_api_host
-      # Refs #2533 — G1: per-CP region (was always var.regions[0].code,
-      # baking primary's region into EVERY CP's cloud-init).
-      region                = r.code
+      # Refs #2533 — G1: per-CP region (not always primary).
+      region = r.code
+      # SOVEREIGN_REGION_KEY — Huawei passes the canonical label (preserves the
+      # pre-#3145 Huawei template's `SOVEREIGN_REGION_KEY: ${region_canonical_label}`).
+      sovereign_region_key  = "hw-${r.code}-rtz-prod"
       sovereign_region_role = local.region_role_by_region[r.code]
-      # Refs #2535 — G4: emit CLUSTER_MESH_NAME + CLUSTER_MESH_ID for
-      # the bootstrap-kit Kustomization's `${CLUSTER_MESH_NAME:=}` +
-      # `${CLUSTER_MESH_ID:=0}` envsubst keys. Without these, Cilium
-      # ClusterMesh stays silently disabled (single-cluster no-op) and
-      # Pillar 3 region-kill failover is impossible.
-      cluster_mesh_name = local.cluster_mesh_name_by_region[r.code]
-      cluster_mesh_id   = tostring(local.cluster_mesh_id_by_region[r.code])
-      huawei_region     = var.huawei_region
-      huawei_az         = var.huawei_az
-      k3s_version       = var.k3s_version
-      k3s_token         = sha256("${var.huawei_project_id}/${var.sovereign_fqdn}/k3s-bootstrap")
-      # Per-CP region's own subnet first-IP (was hardcoded to primary's
-      # subnet, leaking primary's IP onto secondary CPs).
+      cluster_mesh_name     = local.cluster_mesh_name_by_region[r.code]
+      cluster_mesh_id       = tostring(local.cluster_mesh_id_by_region[r.code])
+      k3s_version           = var.k3s_version
+      k3s_token             = sha256("${var.huawei_project_id}/${var.sovereign_fqdn}/k3s-bootstrap")
+      # Per-CP region's own subnet first-IP.
       cp_private_ip = cidrhost(local.region_subnet_cidr[r.code], 2)
-      # Wave 5.56 (Refs #2296) — canonical region labels for the
-      # bootstrap-kit substitute map. Hetzner provider sets these; the
-      # Huawei port missed them, leaving bp-sandbox + downstream HRs
-      # stuck on empty hostCluster. Format mirrors Hetzner pattern:
-      # `<provider-prefix>-<region>-rtz-prod`.
-      # G1: now per-region (was always primary).
-      #
-      # G84 #2631 (2026-06-01): provider prefix was `hu-` (typo) but
-      # cloudinit stamps `openova.io/region=hw-<region>-rtz-prod`
-      # (correct — `hw` for Huawei per Catalyst naming, NOT `hu`).
-      # vCluster nodeSelector `openova.io/region: <SOVEREIGN_REGION_
-      # CANONICAL_LABEL>` got `hu-...` → no node matched → all 3
-      # vClusters (dmz/mgmt/rtz) Pending forever → dashboard
-      # vCluster grouping had nothing inside to show → Pillar 4
-      # (Sandbox + qwen-code lives in a vCluster) silently broken
-      # on every HCS Sovereign since multi-region HCS shipped.
+      cluster_cidr  = "10.42.0.0/16"
+      service_cidr  = "10.96.0.0/16"
+      # Canonical region labels (G84 #2631: `hw` prefix, NOT `hu`).
       region_canonical_label         = "hw-${r.code}-rtz-prod"
       primary_region_canonical_label = "hw-${var.regions[0].code}-rtz-prod"
       replica_region_canonical_label = length(var.regions) > 1 ? "hw-${var.regions[1].code}-rtz-prod" : ""
-      # #3110 — canonical regionsJson population (HCS port).
-      # sovereign_regions_json — full multi-region RegionSpec[] JSON
-      # literal threaded into bp-catalyst-platform's
-      # .Values.sovereign.regionsJson via the bootstrap-kit slot 13
-      # postBuild.substitute `SOVEREIGN_REGIONS_JSON`. catalyst-api on
-      # the Sovereign side reads it via the `sovereign-fqdn` ConfigMap
-      # env `SOVEREIGN_REGIONS_JSON` (jobs.go chrootRegionsFromEnv) to
-      # seed Request.Regions on the chroot Deployment, so
-      # /infrastructure/topology + /cloud?view=graph return the full
-      # multi-region tree (DoD D5) WITHOUT relying on #3109's discrete
-      # primary/replica fallback. The Hetzner port has had this since
-      # TBD-A15/#1844; the HCS port silently omitted it, so every HCS
-      # Sovereign landed `regionsJson=[]` (caught live on hw101
-      # e19b083c6db41bb0 2026-06-08) and fell to #3109's fallback.
-      #
-      # CRITICAL field-name remap: Hetzner's `var.regions` object uses
-      # the Go RegionSpec JSON field names verbatim (cloudRegion /
-      # controlPlaneSize / workerSize / workerCount) so Hetzner can
-      # `jsonencode(var.regions)` directly. The HCS `var.regions` object
-      # uses different field names (code / role / control_plane_size /
-      # worker_size / worker_count — see variables.tf), so a raw
-      # jsonencode would emit `code`-keyed objects the catalyst-api
-      # consumer (RegionSpec json.Unmarshal) can't read → CloudRegion=""
-      # for every entry. We therefore re-key each region into the
-      # canonical RegionSpec JSON shape here. `cloudRegion` is set to the
-      # 4-segment canonical label `hw-<code>-rtz-prod` (NOT the bare
-      # `code`) so it matches the format the discrete
-      # SOVEREIGN_PRIMARY_REGION / SOVEREIGN_REPLICA_REGION substitutes
-      # (and #3109's fallback) already emit — keeping both paths
-      # byte-consistent in the chroot region list. provider="huawei".
+      # #2940: per-Sovereign PDNS endpoint override (bootstrap-kit substitute).
+      pdns_api_host   = var.pdns_api_host
+      gitops_repo_url = var.gitops_repo_url
+      gitops_branch   = var.gitops_branch
+      parent_domains_yaml = coalesce(
+        var.parent_domains_yaml,
+        format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
+      )
+      # #3110 — canonical RegionSpec[] JSON (re-key HCS var.regions to the Go
+      # RegionSpec field names: cloudRegion=hw-<code>-rtz-prod, provider=huawei).
       sovereign_regions_json = jsonencode([
         for rr in var.regions : {
           provider         = "huawei"
@@ -715,158 +771,101 @@ locals {
           workerCount      = rr.worker_count
         }
       ])
-      # sovereign_configured_regions_yaml — JSON-flow inline-list literal
-      # of the canonical region labels this Sovereign was provisioned
-      # with (e.g. `["hw-me-east-215-a-rtz-prod","hw-me-east-215-b-rtz-prod"]`).
-      # Threaded into bootstrap-kit slot 13's
-      # `sovereign.configuredRegions: ${SOVEREIGN_CONFIGURED_REGIONS_YAML:-[]}`
-      # substitute. The chart's sovereign-fqdn ConfigMap joins this list
-      # into the comma-separated `configuredRegions` key for the
-      # catalyst-ui Dashboard SovereignCard + Networking → ClusterMesh
-      # chips. Empty `[]` on a back-compat single-region prov.
       sovereign_configured_regions_yaml = jsonencode([
         for rr in var.regions : "hw-${rr.code}-rtz-prod"
       ])
-      # G93.1 (Refs #2666) — BCP topology threading. The Huawei
-      # cloud-init template adds SOVEREIGN_ENABLE_HOT_STANDBY +
-      # SOVEREIGN_BCP_TOPOLOGY to the Kustomization
-      # postBuild.substitute map for the first time here. Pre-G93.1
-      # the Huawei port silently lacked these keys → every HCS
-      # multi-region Sovereign landed Pillar 3 broken (the
-      # bp-catalyst-platform chart's `${SOVEREIGN_ENABLE_HOT_STANDBY:-}`
-      # envsubst resolved to literal empty → chart-side default
-      # `false` always won). Same string vars + same target-state
-      # shape as the Hetzner port; catalyst-api computes them from
-      # Request.BcpTopology with auto-derivation for the empty/
-      # multi-region case.
-      bcp_topology       = var.bcp_topology
-      enable_hot_standby = var.enable_hot_standby
-      # G87 #2634: multi-region Sovereigns default CNPG instances=2
-      # so per-chart cnpg-cluster.yaml renders 2 replicas + spread-
-      # across-regions affinity. Single-region keeps the existing
-      # instances=1 default.
+      bcp_topology             = var.bcp_topology
+      enable_hot_standby       = var.enable_hot_standby
       sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
-      # #2922 (2026-06-03): auto-enable bp-continuum on multi-region.
-      # Single-region keeps "false". Mirrors Hetzner main.tf equivalent.
-      continuum_enabled = length(var.regions) > 1 ? "true" : "false"
-      # Primary CP's EIP — Wave 5.8 (Refs #2140). The kubeconfig PUT-back
-      # from cloud-init must use this EIP, not the private VPC IP, so the
-      # remote mothership (cross-cloud Contabo) can reach the new
-      # Sovereign's apiserver on 6443. The previous template fetched the
-      # EIP from the HCS OpenStack metadata service
-      # (169.254.169.254/openstack/latest/meta_data.json
-      # `.public_ipv4_address`), but HCS doesn't populate that field;
-      # the fallback heuristic (`ip route get 8.8.8.8`) returned the
-      # private subnet IP, baking it into the PUT'd kubeconfig.
-      # Catalyst-api's Phase-1 watch then tried `https://10.30.1.70:6443`
-      # from the mothership Pod (Contabo) and timed out: caught live on
-      # 4bb37cbbb1e23ba8 2026-05-22T21:42Z. By passing the EIP at template
-      # render time (tofu knows it; it just created the EIP), the
-      # template-rendered `sed` substitution uses the right address
-      # deterministically across all CPs and metadata-service shape
-      # divergences across cloud stacks.
-      primary_cp_eip = huaweicloud_vpc_eip.cp[local.region_keys[0]].publicip.0.ip_address
-      # Wave 5.98 (#2447) — Huawei ELB EIP. Sovereign FQDN points HERE,
-      # NOT at the CP EIP. ELB does 443→30443 + 80→30080 to cilium-envoy.
-      elb_eip = huaweicloud_vpc_eip.elb_primary.publicip.0.ip_address
-      # Primary CP's hostname — used by cloud-init to gate the kubeconfig
-      # PUT-back to ONLY the primary region's CP1 (Wave 5.10, Refs #2140).
-      # Wave 5.9 attempted private-IP match (cp_private_ip = subnet .2)
-      # but HCS DHCP doesn't assign .2 deterministically (workers got
-      # .230 + .50 on 747841cadcf90f7e 2026-05-22T22:53Z); no CP's local
-      # IP matched, no PUT-back happened, Phase-1 timed out. Hostname is
-      # deterministic since the ECS resource sets it via `name`.
-      #
-      # Wave 5.148 (hw30 #23 fix-forward 2026-05-27): MUST mirror the CP
-      # name salt that Wave 5.144 introduced — otherwise the hostname-match
-      # gate in cloudinit-control-plane.tftpl (line ~938
-      # `if [ "$HOSTNAME" = "${primary_cp_hostname}" ]`) never fires and
-      # the kubeconfig PUT-back never happens. hw30 #23 reached Phase 0
-      # complete but Phase 1 stalled here because primary_cp_hostname was
-      # still the un-salted form. Mirror formula = same sha256(deployment_id
-      # + region + 'cp' + index + retry_attempt) → first 6 hex chars.
-      primary_cp_hostname = "${local.name_prefix}-${local.region_keys[0]}-cp1-${substr(sha256("${var.deployment_id}-${local.region_keys[0]}-cp0-${var.retry_attempt}"), 0, 6)}"
-      # Wave 5.74 (#2399, founder ask 2026-05-24): per-region CP-1 hostname
-      # map so the cloud-init secondary-kubeconfig PUT-back block can
-      # match each CP to its own region key. JSON-encoded for shell-side
-      # awk/jq parsing. Format: {"<region-key>": "<cp1-hostname>"}.
-      # Wave 5.148: same salt mirroring.
-      region_cp_hostname_map_json = jsonencode({
-        for rk in local.region_keys :
-        rk => "${local.name_prefix}-${rk}-cp1-${substr(sha256("${var.deployment_id}-${rk}-cp0-${var.retry_attempt}"), 0, 6)}"
-      })
-      # Primary region key — for the SAME-region match: the primary CP
-      # PUTs to /api/v1/deployments/{id}/kubeconfig, secondary CPs PUT
-      # to /api/v1/sovereign/secondary-kubeconfig with regionKey body.
-      primary_region_key = local.region_keys[0]
-      # Per-region CP EIP map — secondary CPs rewrite their kubeconfig's
-      # server URL with their own region's EIP before PUT-back.
-      region_cp_eip_map_json = jsonencode({
-        for rk in local.region_keys :
-        rk => huaweicloud_vpc_eip.cp[rk].publicip.0.ip_address
-      })
-      # Refs #2545 — G7: per-CP region key + EIP, baked at render time.
-      # Replaces the broken awk JSON reverse-lookup that silently failed
-      # on hw38 because region names appeared as both keys + value-stems.
-      # Each CP cloud-init render uses its OWN region's values (no map
-      # lookup needed at boot).
-      #
-      # G76+G82 #2623/#2629 (2026-05-31): primary region keeps the bare
-      # `r.code` (matches mothership's `regionKeyFromSpec` returning ""
-      # for idx 0 so primary file lands at `<depID>.yaml`); secondaries
-      # adopt the Hetzner-canonical `<r.code>-<idx>` shape so mothership's
-      # d16-export waiter finds the kubeconfig file post-PUT-back +
-      # forwards to the chroot's k8sCache.
-      my_region_key   = idx == 0 ? r.code : "${r.code}-${idx}"
-      my_region_eip   = huaweicloud_vpc_eip.cp[r.code].publicip.0.ip_address
-      cluster_cidr    = "10.42.0.0/16"
-      service_cidr    = "10.96.0.0/16"
-      gitops_repo_url = var.gitops_repo_url
-      gitops_branch   = var.gitops_branch
-      parent_domains_yaml = coalesce(
-        var.parent_domains_yaml,
-        format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
-      )
-      ghcr_pull_username         = local.ghcr_pull_username
-      ghcr_pull_token            = var.ghcr_pull_token
-      ghcr_pull_auth_b64         = local.ghcr_pull_auth_b64
-      obs_endpoint               = "https://obs.${var.huawei_region}.kom4dc.nationalcloud.om"
-      obs_region                 = var.huawei_region
-      obs_bucket_name            = var.obs_bucket_name
-      obs_access_key             = var.huawei_access_key
-      obs_secret_key             = var.huawei_secret_key
+      continuum_enabled        = length(var.regions) > 1 ? "true" : "false"
+      marketplace_enabled      = var.marketplace_enabled
+      wildcard_cert_issuer     = var.wildcard_cert_use_staging == "true" ? "letsencrypt-dns01-staging-powerdns" : "letsencrypt-dns01-prod-powerdns"
+
+      ghcr_pull_username = local.ghcr_pull_username
+      ghcr_pull_token    = var.ghcr_pull_token
+      ghcr_pull_auth_b64 = local.ghcr_pull_auth_b64
+      # Object storage — Huawei OBS via S3-compatible endpoint. Shared template
+      # uses the vendor-agnostic object_storage_* contract.
+      object_storage_endpoint    = "https://obs.${var.huawei_region}.kom4dc.nationalcloud.om"
+      object_storage_region      = var.huawei_region
+      object_storage_bucket_name = var.obs_bucket_name
+      object_storage_access_key  = var.huawei_access_key
+      object_storage_secret_key  = var.huawei_secret_key
       handover_jwt_public_key    = var.handover_jwt_public_key
       kubeconfig_bearer_token    = var.kubeconfig_bearer_token
       catalyst_api_url           = var.catalyst_api_url
       enable_unattended_upgrades = var.enable_unattended_upgrades
       enable_fail2ban            = var.enable_fail2ban
-      # Wave 5.34 (Refs #2208): Sovereign-side Secret seeds (powerdns DNS-01
-      # cert challenge + PDM basic-auth Day-2 calls). Mirror Hetzner pattern.
-      powerdns_api_key    = var.powerdns_api_key
-      pdm_basic_auth_user = var.pdm_basic_auth_user
-      pdm_basic_auth_pass = var.pdm_basic_auth_pass
-      # Wave 5.118 (#2462): harbor-robot-token for catalyst-api REQUIRED
-      # secretKeyRef. Mirror Hetzner pattern (issue #557 followup).
-      harbor_robot_token = var.harbor_robot_token
-      # Wave 5.16 (Refs #2140): empty placeholder. The CP cloud-init bakes
-      # worker-cloud-init.b64 into /var/lib/catalyst/ for the bp-cluster-
-      # autoscaler-hcloud blueprint to consume on scale-out. On Huawei
-      # that blueprint is disabled (Hetzner-only), so the bake isn't
-      # load-bearing for the POC. Referencing local.worker_cloud_init_by_region
-      # here created a tofu DAG cycle:
-      #   control_plane_cloud_init → worker_cloud_init_by_region →
-      #   cp_primary_private_ip_by_region → huaweicloud_compute_instance.
-      #   control_plane → user_data (= control_plane_cloud_init).
-      # Wave 6+ may serve the worker template via a Huawei-AS hook that
-      # fetches it from a tofu-OBS object instead of pre-baking on the CP.
-      worker_cloud_init_b64 = ""
-      # Wave 5.88 (#2432): wildcard cert issuer selector + marketplace flag
-      # for the sovereign-tls Kustomization (Huawei port of the canonical
-      # Hetzner registration). When wildcard_cert_use_staging=true → LE
-      # staging issuer (no 5/168h rate-limit, useful for repeated reprov);
-      # default false → real-trusted production cert.
-      wildcard_cert_issuer = var.wildcard_cert_use_staging == "true" ? "letsencrypt-dns01-staging-powerdns" : "letsencrypt-dns01-prod-powerdns"
-      marketplace_enabled  = var.marketplace_enabled
+      powerdns_api_key           = var.powerdns_api_key
+      pdm_basic_auth_user        = var.pdm_basic_auth_user
+      pdm_basic_auth_pass        = var.pdm_basic_auth_pass
+      harbor_robot_token         = var.harbor_robot_token
+      # SOVEREIGN_LB_IP for the sovereign-tls Kustomization → the HCS ELB EIP
+      # (the FQDN A-record points HERE, not the CP EIP).
+      load_balancer_ipv4 = huaweicloud_vpc_eip.elb_primary.publicip.0.ip_address
+
+      # ── Provider-injected strings (the §5 hard-dependency exceptions) ──
+      registry_mirror_yaml          = local.registry_mirror_yaml_huawei
+      cloud_credentials_secret_yaml = local.cloud_credentials_secret_yaml_huawei
+      crossplane_provider_yaml      = "" # no Huawei Crossplane provider package yet
+      provider_id_cmd               = "" # HCS uses native node labels, no providerID patch
+      provider_prelude              = local.provider_prelude_huawei
+      # Per-region k3s topology labels (this region's code).
+      k3s_extra_args = "--node-label=topology.kubernetes.io/region=${r.code} --node-label=topology.kubernetes.io/zone=${r.code} --node-label=catalyst.openova.io/provider=huawei --kube-apiserver-arg=default-watch-cache-size=200 --kube-apiserver-arg=watch-cache-sizes=secrets#500,configmaps#500 --etcd-snapshot-retention=5"
+      # node external IP — HCS metadata doesn't populate it, so use this
+      # region's tofu-known CP EIP (printf, NOT curl). Hard dependency (plan §5).
+      node_external_ip_cmd   = "printf '%s' '${huaweicloud_vpc_eip.cp[r.code].publicip.0.ip_address}'"
+      node_external_ip_value = huaweicloud_vpc_eip.cp[r.code].publicip.0.ip_address
+      # node PRIVATE IP — HCS DHCP is non-deterministic (Wave 5.29 #2163:
+      # cidrhost(subnet,2) is wrong), so detect the real eth0 address at
+      # runtime. Used for k3s --node-ip + cilium k8sServiceHost substitution.
+      node_ip_cmd = "ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1"
+
+      # kubeconfig PUT-back — Huawei. Each CP decides at RUNTIME by hostname:
+      #   primary CP (hostname == primary_cp_hostname) → PUT to /kubeconfig.
+      #   secondary CP                                 → POST to /sovereign/secondary-kubeconfig.
+      # Server URL rewritten to this region's EIP (cross-cloud reachability).
+      # Both gated so only the right CP fires; runcmd 0-indent items.
+      kubeconfig_put_block = <<-PUT
+        - |
+          HOSTNAME=$(hostname)
+          PRIMARY_HOST='${local.name_prefix}-${local.region_keys[0]}-cp1-${substr(sha256("${var.deployment_id}-${local.region_keys[0]}-cp0-${var.retry_attempt}"), 0, 6)}'
+          if [ -n "${var.deployment_id}" ] && [ -n "${var.kubeconfig_bearer_token}" ] && [ "$${HOSTNAME}" = "$${PRIMARY_HOST}" ]; then
+            sed "s|server: https://127.0.0.1:6443|server: https://${huaweicloud_vpc_eip.cp[local.region_keys[0]].publicip.0.ip_address}:6443|" /etc/rancher/k3s/k3s.yaml > /tmp/kubeconfig-rewritten.yaml
+            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              HTTP_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X PUT \
+                -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
+                -H "Content-Type: application/x-yaml" \
+                --data-binary @/tmp/kubeconfig-rewritten.yaml \
+                --max-time 15 \
+                "${var.catalyst_api_url}/api/v1/deployments/${var.deployment_id}/kubeconfig" || echo "000")
+              echo "primary kubeconfig PUT-back attempt $${attempt} -> HTTP $${HTTP_CODE}"
+              if [ "$${HTTP_CODE}" = "204" ] || [ "$${HTTP_CODE}" = "200" ]; then break; fi
+              sleep 30
+            done
+          fi
+        - |
+          HOSTNAME=$(hostname)
+          PRIMARY_HOST='${local.name_prefix}-${local.region_keys[0]}-cp1-${substr(sha256("${var.deployment_id}-${local.region_keys[0]}-cp0-${var.retry_attempt}"), 0, 6)}'
+          MY_REGION='${idx == 0 ? r.code : "${r.code}-${idx}"}'
+          MY_EIP='${huaweicloud_vpc_eip.cp[r.code].publicip.0.ip_address}'
+          if [ -n "${var.deployment_id}" ] && [ -n "${var.kubeconfig_bearer_token}" ] && [ "$${HOSTNAME}" != "$${PRIMARY_HOST}" ] && [ -n "$${MY_REGION}" ] && [ -n "$${MY_EIP}" ]; then
+            sed "s|server: https://127.0.0.1:6443|server: https://$${MY_EIP}:6443|" /etc/rancher/k3s/k3s.yaml > /tmp/kubeconfig-secondary.yaml
+            python3 -c "import json; print(json.dumps({'deploymentId':'${var.deployment_id}','regionKey':'$${MY_REGION}','kubeconfigYaml':open('/tmp/kubeconfig-secondary.yaml').read()}))" > /tmp/secondary-kubeconfig-body.json
+            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              HTTP_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X POST \
+                -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
+                -H "Content-Type: application/json" \
+                --data-binary @/tmp/secondary-kubeconfig-body.json \
+                --max-time 15 \
+                "${var.catalyst_api_url}/api/v1/sovereign/secondary-kubeconfig" || echo "000")
+              echo "secondary kubeconfig PUT-back attempt $${attempt} -> HTTP $${HTTP_CODE}"
+              if [ "$${HTTP_CODE}" = "204" ] || [ "$${HTTP_CODE}" = "200" ]; then break; fi
+              sleep 30
+            done
+            rm -f /tmp/secondary-kubeconfig-body.json
+          fi
+      PUT
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }
 }

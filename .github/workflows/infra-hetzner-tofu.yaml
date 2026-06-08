@@ -15,10 +15,14 @@ on:
     branches: [main]
     paths:
       - 'infra/providers/hetzner/**'
+      # #3145 — the control-plane cloud-init is the shared cloud-agnostic
+      # template; a change to it must re-validate this provider's render.
+      - 'infra/providers/_shared/**'
       - '.github/workflows/infra-hetzner-tofu.yaml'
   pull_request:
     paths:
       - 'infra/providers/hetzner/**'
+      - 'infra/providers/_shared/**'
       - '.github/workflows/infra-hetzner-tofu.yaml'
   workflow_dispatch:
 

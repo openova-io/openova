@@ -1,0 +1,662 @@
+#cloud-config
+# Catalyst Sovereign control-plane bootstrap — CLOUD-AGNOSTIC (#3145).
+#
+# Sovereign: ${sovereign_fqdn}
+# Provider:  ${provider}
+# Region:    ${region}
+# Provisioned by: catalyst-provisioner (https://console.openova.io/sovereign)
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# THIS IS THE ONE Kubernetes-bootstrap template for EVERY cloud (#3145).
+#
+# Founder directive 2026-06-09: from k3s upward there is ONE implementation,
+# never differentiated per-provider. The Kubernetes layer (k3s install,
+# kubeconfig PUT, CNI, gateway-api CRDs, Flux bootstrap, bootstrap secrets) is
+# byte-for-byte identical on Hetzner / Huawei / AWS / Azure / GCP / Alibaba.
+#
+# The ONLY per-provider differences are injected as string vars / `provider`-
+# gated blocks (enumerated in docs/sessions/2026-06-09/cloud-agnostic-bootstrap-
+# plan.md §5 — the "hard dependency" exceptions):
+#   - node_external_ip_cmd       public-IP discovery (metadata curl vs tofu EIP)
+#   - provider_id_cmd            .spec.providerID patch (hcloud vs huawei vs "")
+#   - registry_mirror_yaml       /etc/rancher/k3s/registries.yaml body
+#   - k3s_extra_args             provider-specific k3s server flags
+#   - provider_prelude           runcmd block before k3s (NIC, log self-upload)
+#   - cloud_credentials_secret_yaml  flux-system/cloud-credentials Secret body
+#   - crossplane_provider_yaml   Crossplane Provider+ProviderConfig (or "")
+#   - kubeconfig_put_block       PUT-back runcmd (metadata-IP vs hostname-gated)
+#
+# CRITICAL STRUCTURAL INVARIANT (#3129 fix): the kubeconfig PUT-back runs
+# RIGHT AFTER the k3s apiserver is healthy and BEFORE gateway-api/cilium/flux
+# for ALL providers. Nothing downstream (CNI, CRDs, slow GitHub, Flux) can ever
+# again block the one time-critical step. Never PUT-late.
+# ─────────────────────────────────────────────────────────────────────────────
+
+package_update: true
+package_upgrade: false
+packages:
+  - curl
+  - iptables
+  - jq
+  - ca-certificates
+  - git
+%{ if enable_fail2ban ~}
+  - fail2ban
+%{ endif ~}
+%{ if enable_unattended_upgrades ~}
+  - unattended-upgrades
+  - apt-listchanges
+%{ endif ~}
+
+write_files:
+  - path: /var/lib/catalyst/sovereign.json
+    permissions: '0644'
+    content: |
+      {
+        "sovereignFQDN": "${sovereign_fqdn}",
+        "provider": "${provider}",
+        "orgName": ${jsonencode(org_name)},
+        "orgEmail": ${jsonencode(org_email)},
+        "region": "${region}",
+        "k3sVersion": "${k3s_version}",
+        "gitopsRepoUrl": "${gitops_repo_url}",
+        "gitopsBranch": "${gitops_branch}",
+        "deploymentId": "${deployment_id}"
+      }
+
+  # Kernel inotify limits — Flux + bao init churn watches; bump so future
+  # blueprints never hit "too many open files".
+  - path: /etc/sysctl.d/99-catalyst-inotify.conf
+    permissions: '0644'
+    content: |
+      fs.inotify.max_user_instances = 8192
+      fs.inotify.max_user_watches = 1048576
+      fs.inotify.max_queued_events = 16384
+
+  # ── OS hardening: SSH daemon ──────────────────────────────────────────
+  # The operator's only valid path in is the cloud-project SSH key injected
+  # via cloud-init authorized_keys. Password auth + root password login off.
+  - path: /etc/ssh/sshd_config.d/99-catalyst-hardening.conf
+    permissions: '0644'
+    content: |
+      # Managed by Catalyst Sovereign cloud-init — do not edit by hand.
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      ChallengeResponseAuthentication no
+      PermitRootLogin prohibit-password
+      PermitEmptyPasswords no
+      UsePAM yes
+      X11Forwarding no
+      AllowAgentForwarding no
+      AllowTcpForwarding no
+      ClientAliveInterval 300
+      ClientAliveCountMax 2
+      MaxAuthTries 3
+      LoginGraceTime 30
+
+%{ if enable_unattended_upgrades ~}
+  # ── Unattended security upgrades (security pocket only) ───────────────
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    permissions: '0644'
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+  - path: /etc/apt/apt.conf.d/52unattended-upgrades-catalyst
+    permissions: '0644'
+    content: |
+      Unattended-Upgrade::Allowed-Origins {
+        "$${distro_id}:$${distro_codename}-security";
+        "$${distro_id}ESMApps:$${distro_codename}-apps-security";
+        "$${distro_id}ESM:$${distro_codename}-infra-security";
+      };
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "02:30";
+      Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+      Unattended-Upgrade::Remove-Unused-Dependencies "true";
+%{ endif ~}
+
+%{ if enable_fail2ban ~}
+  # ── fail2ban: sshd jail (defence-in-depth) ────────────────────────────
+  - path: /etc/fail2ban/jail.d/catalyst-sshd.local
+    permissions: '0644'
+    content: |
+      [sshd]
+      enabled = true
+      port = ssh
+      filter = sshd
+      maxretry = 5
+      findtime = 10m
+      bantime = 1h
+      backend = systemd
+%{ endif ~}
+
+  # ── k3s containerd registry mirror — PROVIDER-INJECTED ────────────────
+  # Body composed per-provider in main.tf (registry_mirror_yaml local):
+  #   Hetzner → harbor.openova.io pull-through proxy projects.
+  #   Huawei  → bastion-openova registry:2 mirrors (kom4dc NAT bypass).
+  #   AWS/Azure/GCP → empty (no mirror) renders no `mirrors:` block.
+  # k3s reads this at start to configure containerd.
+  - path: /etc/rancher/k3s/registries.yaml
+    permissions: '0600'
+    content: |
+      ${indent(6, registry_mirror_yaml)}
+
+  # ── flux-system/ghcr-pull Secret ──────────────────────────────────────
+  # imagePullSecret for ghcr.io/openova-io/*. bp-reflector (slot 05a) mirrors
+  # it to every workload namespace so catalyst-* + bp-* pods pull cleanly.
+  - path: /var/lib/catalyst/ghcr-pull-secret.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: ghcr-pull
+        namespace: flux-system
+        annotations:
+          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "sme,catalyst,catalyst-system,gitea,harbor,cert-manager,kube-system,flux-system,reflector,reloader,kyverno,opentelemetry,openbao,seaweedfs,powerdns,grafana,loki,mimir,tempo,alloy,coraza,crossplane-system,sigstore-system,trivy-system,syft-grype,falco,vpa,valkey,vllm,dmz,mgmt,rtz,external-dns,external-secrets,cnpg-system,velero,nats-system,sealed-secrets,newapi"
+          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "sme,catalyst,catalyst-system,gitea,harbor,cert-manager,kube-system,reflector,reloader,kyverno,opentelemetry,openbao,seaweedfs,powerdns,grafana,loki,mimir,tempo,alloy,coraza,crossplane-system,sigstore-system,trivy-system,syft-grype,falco,vpa,valkey,vllm,dmz,mgmt,rtz,external-dns,external-secrets,cnpg-system,velero,nats-system,sealed-secrets,newapi"
+      type: kubernetes.io/dockerconfigjson
+      data:
+        .dockerconfigjson: ${base64encode(jsonencode({
+          auths = {
+            "ghcr.io" = {
+              username = ghcr_pull_username
+              password = ghcr_pull_token
+              auth     = ghcr_pull_auth_b64
+            }
+          }
+        }))}
+
+  # ── flux-system/harbor-robot-token Secret (issue #557) ────────────────
+  # catalyst-api references it via REQUIRED secretKeyRef. bp-reflector
+  # mirrors flux-system → catalyst-system on first reconcile.
+  - path: /var/lib/catalyst/harbor-robot-token-secret.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: harbor-robot-token
+        namespace: flux-system
+        annotations:
+          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: ""
+          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: ""
+      type: Opaque
+      data:
+        token: ${base64encode(harbor_robot_token)}
+
+  # ── cert-manager/powerdns-api-credentials Secret ──────────────────────
+  # bp-cert-manager-powerdns-webhook reads X-API-Key for DNS-01 challenges.
+  - path: /var/lib/catalyst/powerdns-api-credentials.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: powerdns-api-credentials
+        namespace: cert-manager
+      type: Opaque
+      data:
+        api-key: ${base64encode(powerdns_api_key)}
+
+  # ── flux-system/pdm-basicauth Secret (issue #879 Bug 2) ───────────────
+  # catalyst-api calls PDM (Pool Domain Manager) with Basic auth for the
+  # Day-2 "Add another parent domain" flow. Reflector mirrors it out.
+  - path: /var/lib/catalyst/pdm-basicauth-secret.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: pdm-basicauth
+        namespace: flux-system
+        annotations:
+          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "sme,catalyst,catalyst-system,gitea,harbor"
+          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "sme,catalyst,catalyst-system,gitea,harbor"
+      type: Opaque
+      data:
+        username: ${base64encode(pdm_basic_auth_user)}
+        password: ${base64encode(pdm_basic_auth_pass)}
+
+  # ── flux-system/object-storage Secret ─────────────────────────────────
+  # S3-compatible object storage (Hetzner Object Storage / Huawei OBS /
+  # AWS S3 / …). Harbor + Velero HelmReleases read these keys. Emit BOTH
+  # the canonical `s3-*` keys and the bare aliases so every chart variant
+  # resolves (Wave 5.101 #2447 — bp-harbor/bp-velero want `s3-bucket`).
+  - path: /var/lib/catalyst/object-storage-secret.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: object-storage
+        namespace: flux-system
+      type: Opaque
+      stringData:
+        endpoint: "${object_storage_endpoint}"
+        region: "${object_storage_region}"
+        bucket: "${object_storage_bucket_name}"
+        s3-endpoint: "${object_storage_endpoint}"
+        s3-region: "${object_storage_region}"
+        s3-bucket: "${object_storage_bucket_name}"
+        s3-access-key: "${object_storage_access_key}"
+        s3-secret-key: "${object_storage_secret_key}"
+        access-key: "${object_storage_access_key}"
+        secret-key: "${object_storage_secret_key}"
+
+  # ── flux-system/cloud-credentials Secret — PROVIDER-INJECTED ──────────
+  # Vendor-agnostic name (#425). Body composed per-provider in main.tf:
+  #   Hetzner → hcloud-token (+ autoscaler hcloud-* keys).
+  #   Huawei  → huawei-ak / huawei-sk / huawei-project-id / huawei-region.
+  # Crossplane Provider + any Day-2 controller reads these keys.
+  - path: /var/lib/catalyst/cloud-credentials-secret.yaml
+    permissions: '0600'
+    content: |
+      ${indent(6, cloud_credentials_secret_yaml)}
+
+%{ if crossplane_provider_yaml != "" ~}
+  # ── Crossplane Provider + ProviderConfig — PROVIDER-INJECTED ──────────
+  # Applied (best-effort) after Flux brings up bp-crossplane core CRDs.
+  # Empty string on providers without a Crossplane provider package yet.
+  - path: /var/lib/catalyst/crossplane-provider.yaml
+    permissions: '0644'
+    content: |
+      ${indent(6, crossplane_provider_yaml)}
+%{ endif ~}
+
+  # ── Handover-JWT public key (raw JWK + K8s Secret) ────────────────────
+  - path: /var/lib/catalyst/handover-jwt-public.jwk
+    permissions: '0600'
+    content: |
+      ${handover_jwt_public_key}
+
+  - path: /var/lib/catalyst/handover-jwt-public-secret.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: catalyst-handover-jwt-public
+        namespace: catalyst-system
+      type: Opaque
+      data:
+        public.jwk: ${base64encode(handover_jwt_public_key)}
+
+  # ── Cilium Helm values (one structured file; same on every cloud) ─────
+  # kubeProxyReplacement + gateway-api + envoy + wireguard node-encryption.
+  # k8sServiceHost = the CP's PRIVATE IP. We write the sentinel
+  # NODE_IP_PLACEHOLDER and sed-substitute the runtime-detected NODE_IP just
+  # before the helm install — because some clouds (Huawei HCS) assign the
+  # private IP via non-deterministic DHCP, so a tofu-baked guess is wrong.
+  # node_ip_cmd discovers it identically on every cloud (hard-dependency-free).
+  - path: /var/lib/catalyst/cilium-values.yaml
+    permissions: '0644'
+    content: |
+      cluster:
+        name: "${cluster_mesh_name}"
+        id: ${cluster_mesh_id}
+      kubeProxyReplacement: true
+      k8sServiceHost: NODE_IP_PLACEHOLDER
+      k8sServicePort: 6443
+      tunnelProtocol: vxlan
+      bpf:
+        masquerade: true
+      ipam:
+        mode: kubernetes
+      encryption:
+        enabled: true
+        type: wireguard
+      gatewayAPI:
+        enabled: true
+        gatewayClass:
+          # Force GatewayClass creation regardless of CRD presence at Helm
+          # render time (cilium-gateway-race #503). "auto" skips creation
+          # when the gateway.networking.k8s.io CRDs are not yet present.
+          create: "true"
+      envoy:
+        enabled: true
+      # envoyConfig.enabled (issue #491): without it the chart skips the
+      # CiliumEnvoyConfig CRD registrations and cilium-agent waits forever.
+      envoyConfig:
+        enabled: true
+      l7Proxy: true
+      hubble:
+        enabled: true
+        relay:
+          enabled: false
+        ui:
+          enabled: false
+        metrics:
+          enabled: null
+          serviceMonitor:
+            enabled: false
+      l2announcements:
+        enabled: false
+      operator:
+        replicas: 1
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 1Gi
+      prometheus:
+        enabled: false
+        serviceMonitor:
+          enabled: false
+
+  # ── Flux bootstrap: GitRepository + bootstrap-kit Kustomization ───────
+  # From here Flux owns the cluster. The postBuild.substitute map threads
+  # every Sovereign-shape value into clusters/_template/bootstrap-kit/*.
+  # Provider-conditional substitutes (HCLOUD_HR_SUSPEND vs HUAWEI_HR_SUSPEND,
+  # Gateway NodePort vs LB, registry-mirror endpoint, PDNS host) are gated
+  # by `provider` below — these are bootstrap-kit envsubst keys, NOT new
+  # bootstrap logic, so they stay declarative + lockstep across clouds.
+  - path: /var/lib/catalyst/flux-bootstrap.yaml
+    permissions: '0644'
+    content: |
+      apiVersion: source.toolkit.fluxcd.io/v1
+      kind: GitRepository
+      metadata:
+        name: openova
+        namespace: flux-system
+      spec:
+        interval: 1m
+        url: ${gitops_repo_url}
+        ref:
+          branch: ${gitops_branch}
+        ignore: |
+          /*
+          !/clusters/_template
+          !/platform
+          !/products
+      ---
+      apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: bootstrap-kit
+        namespace: flux-system
+      spec:
+        interval: 5m
+        path: ./clusters/_template/bootstrap-kit
+        prune: true
+        sourceRef:
+          kind: GitRepository
+          name: openova
+        # wait/timeout contract (issue #492): bootstrap-kit Ready iff every
+        # HR + Kustomization in it Ready=True; 5m timeout releases the
+        # revision lock fast so iterative fix-forwards apply on next poll.
+        wait: true
+        timeout: 5m
+        postBuild:
+          substitute:
+            SOVEREIGN_FQDN: ${sovereign_fqdn}
+            SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
+            PROVIDER: ${provider}
+            SOVEREIGN_DEPLOYMENT_ID: ${deployment_id}
+            # SOVEREIGN_REGION_KEY — the bp-openova-flow-emitter REGION_KEY env
+            # (slot 57). Provider-supplied: Hetzner passes the raw region key
+            # (var.region / secondary each.key); Huawei passes the canonical
+            # label (hw-<code>-rtz-prod). Both preserved from the pre-#3145
+            # per-provider templates.
+            SOVEREIGN_REGION_KEY: ${sovereign_region_key}
+            MARKETPLACE_ENABLED: "${marketplace_enabled}"
+            PARENT_DOMAINS_YAML: '${parent_domains_yaml}'
+            SOVEREIGN_CNPG_INSTANCES: "${sovereign_cnpg_instances}"
+            CONTINUUM_ENABLED: "${continuum_enabled}"
+            CLUSTER_MESH_NAME: "${cluster_mesh_name}"
+            CLUSTER_MESH_ID: "${cluster_mesh_id}"
+            # Runtime-substituted from NODE_IP_PLACEHOLDER (see cilium-values).
+            CILIUM_K8S_SERVICE_HOST: "NODE_IP_PLACEHOLDER"
+            SOVEREIGN_REGION_CANONICAL_LABEL: "${region_canonical_label}"
+            QA_PRIMARY_REGION: "${primary_region_canonical_label}"
+            SOVEREIGN_PRIMARY_REGION: "${primary_region_canonical_label}"
+            SOVEREIGN_REPLICA_REGION: "${replica_region_canonical_label}"
+            SOVEREIGN_ENABLE_HOT_STANDBY: "${enable_hot_standby}"
+            SOVEREIGN_BCP_TOPOLOGY: "${bcp_topology}"
+            SOVEREIGN_REGIONS_JSON: '${sovereign_regions_json}'
+            SOVEREIGN_CONFIGURED_REGIONS_YAML: '${sovereign_configured_regions_yaml}'
+%{ if provider == "hetzner" ~}
+            # Hetzner: hcloud-CCM allocates the clustermesh-apiserver LB +
+            # the Gateway binds host 443/80 directly (the tofu hcloud LB
+            # forwards 443→… to envoy). Suspend HCS-only HRs (bp-velero-hcs).
+            CLUSTERMESH_SERVICE_TYPE: "LoadBalancer"
+            HCLOUD_LB_LOCATION: "${region}"
+            SOVEREIGN_FQDN_SLUG: "${sovereign_fqdn_slug}"
+            HUAWEI_HR_SUSPEND: "true"
+            HCLOUD_HR_SUSPEND: "false"
+%{ endif ~}
+%{ if provider == "huawei" ~}
+            # Huawei: no cloud CCM. Cilium LB-IPAM assigns the clustermesh
+            # ExternalIP from this region's CP EIP/32. The tofu HCS ELB maps
+            # public 443→30443 + 80→30080 to cilium-envoy NodePorts, so the
+            # Gateway listener ports are overridden here. bastion mirror +
+            # PDNS-host overrides + per-region HR suspension also flow here.
+            HCLOUD_HR_SUSPEND: "true"
+            HUAWEI_HR_SUSPEND: "false"
+            SECONDARY_HR_SUSPEND: "${sovereign_region_role == "primary" ? "false" : "true"}"
+            CILIUM_LB_IPAM_ENABLED: "true"
+            CILIUM_LB_IPAM_CIDRS: "${node_external_ip_value}/32"
+            SOVEREIGN_GATEWAY_HTTPS_PORT: "30443"
+            SOVEREIGN_GATEWAY_HTTP_PORT: "30080"
+            HARBOR_PROXY_MIRROR_ENDPOINT: "http://212.72.24.20:5000"
+            PDNS_API_HOST: "${pdns_api_host}"
+            SOVEREIGN_REGION_ROLE: "${sovereign_region_role}"
+%{ endif ~}
+      ---
+      # sovereign-tls Kustomization — carries the cert-manager Certificate
+      # that backs Cilium Gateway's wildcard-TLS listener. Split out so its
+      # cert-manager.io CRD-dependent apply runs AFTER bp-cert-manager Ready.
+      apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: sovereign-tls
+        namespace: flux-system
+        annotations:
+          openova.io/wildcard-cert-issuer-tag: "${wildcard_cert_issuer}"
+      spec:
+        interval: 5m
+        path: ./clusters/_template/sovereign-tls
+        prune: true
+        sourceRef:
+          kind: GitRepository
+          name: openova
+        dependsOn:
+          - name: bootstrap-kit
+        wait: true
+        timeout: 5m
+        postBuild:
+          substitute:
+            SOVEREIGN_FQDN: ${sovereign_fqdn}
+            SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
+            SOVEREIGN_LB_IP: ${load_balancer_ipv4}
+            MARKETPLACE_ENABLED: "${marketplace_enabled}"
+            PARENT_DOMAINS_YAML: '${parent_domains_yaml}'
+            WILDCARD_CERT_ISSUER: "${wildcard_cert_issuer}"
+            SOVEREIGN_FQDN_SLUG: "${sovereign_fqdn_slug}"
+            SOVEREIGN_REGION_KEY: "${primary_region_canonical_label}"
+            HCLOUD_LB_LOCATION: "${region}"
+          substituteFrom:
+            - kind: ConfigMap
+              name: sovereign-tls-vars
+              optional: false
+%{ if provider == "hetzner" ~}
+      ---
+      # infrastructure-config Kustomization — installs the Crossplane Provider
+      # + ProviderConfig + Compositions from clusters/_template/infrastructure.
+      # That tree currently ships ONLY hcloud manifests (provider-hcloud +
+      # provider-config-hcloud), so it is gated to Hetzner (hard dependency).
+      # Other clouds adopt Crossplane via the direct cloud-init apply of
+      # crossplane_provider_yaml (or skip it until their tree lands).
+      apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: infrastructure-config
+        namespace: flux-system
+      spec:
+        interval: 5m
+        path: ./clusters/_template/infrastructure
+        prune: true
+        sourceRef:
+          kind: GitRepository
+          name: openova
+        dependsOn:
+          - name: bootstrap-kit
+          - name: sovereign-tls
+        wait: true
+        timeout: 5m
+        postBuild:
+          substitute:
+            SOVEREIGN_FQDN: ${sovereign_fqdn}
+            SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
+            SOVEREIGN_LB_IP: ${load_balancer_ipv4}
+            MARKETPLACE_ENABLED: "${marketplace_enabled}"
+%{ endif ~}
+
+runcmd:
+  - swapoff -a
+  - sed -i '/swap/d' /etc/fstab
+  - update-alternatives --set iptables /usr/sbin/iptables-legacy || true
+  - update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy || true
+
+  # Apply inotify-limit bumps + hardened sshd written by write_files.
+  - sysctl --system
+  - systemctl reload ssh || systemctl reload sshd || true
+%{ if enable_fail2ban ~}
+  - systemctl enable --now fail2ban || true
+%{ endif ~}
+%{ if enable_unattended_upgrades ~}
+  - systemctl enable --now unattended-upgrades || true
+%{ endif ~}
+
+  # ── PROVIDER PRELUDE (injected) ───────────────────────────────────────
+  # Runs BEFORE k3s. Only hard cloud-dependency setup that must precede the
+  # k3s install: private-NIC bring-up (Hetzner netplan), console-less log
+  # self-upload (Huawei #3132), iptables DNAT (Huawei host-bound envoy).
+  # Empty on clouds that need none. Each item is plain POSIX (dash -n clean).
+  ${indent(2, provider_prelude)}
+
+  # ── Install k3s server ────────────────────────────────────────────────
+  # NODE_EXTERNAL_IP comes from the provider-injected discovery command:
+  #   Hetzner → curl metadata 169.254.169.254/hetzner/v1/.../public-ipv4
+  #   Huawei  → printf the tofu-known EIP (HCS metadata doesn't populate it)
+  # k3s_extra_args carries provider-specific server flags (OIDC, taints,
+  # watch-cache tuning, topology labels). The CNI is disabled (Cilium owns
+  # the network from first pod); flannel/servicelb/traefik all off.
+  - |
+    NODE_EXTERNAL_IP=$(${node_external_ip_cmd})
+    [ -n "$${NODE_EXTERNAL_IP}" ] || { echo "[k3s] FATAL: could not determine node external IP" >&2; exit 87; }
+    NODE_IP=$(${node_ip_cmd})
+    [ -n "$${NODE_IP}" ] || { echo "[k3s] FATAL: could not determine node private IP" >&2; exit 86; }
+    # Substitute the runtime-detected private IP into the cilium values +
+    # bootstrap-kit substitute map (the NODE_IP_PLACEHOLDER sentinel) so Cilium
+    # reaches its OWN apiserver on a real address on every cloud.
+    sed -i "s|NODE_IP_PLACEHOLDER|$${NODE_IP}|g" /var/lib/catalyst/cilium-values.yaml /var/lib/catalyst/flux-bootstrap.yaml
+    curl -sfL https://get.k3s.io | \
+      INSTALL_K3S_VERSION=${k3s_version} \
+      K3S_TOKEN=${k3s_token} \
+      INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=$${NODE_IP} --node-external-ip=$${NODE_EXTERNAL_IP} --advertise-address=$${NODE_IP} --kubelet-arg=max-pods=220 --tls-san=${sovereign_fqdn} --tls-san=$${NODE_IP} --tls-san=$${NODE_EXTERNAL_IP} --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} ${k3s_extra_args} --write-kubeconfig-mode=0644" \
+      sh -
+
+  # Wait for the API server to be reachable (Cilium comes up later, so we
+  # wait specifically for the apiserver /healthz endpoint, not node-Ready).
+  - 'until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get --raw /healthz; do sleep 5; done'
+
+  # local-path StorageClass is shipped by k3s; assert it + mark default
+  # before anything that PVCs.
+  - 'until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get sc local-path >/dev/null 2>&1; do sleep 2; done'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml patch storageclass local-path -p ''{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'''
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get sc -o name | grep -q "^storageclass.storage.k8s.io/local-path$" || { echo "FATAL: local-path StorageClass missing after k3s install" >&2; exit 1; }'
+
+%{ if deployment_id != "" && kubeconfig_bearer_token != "" && catalyst_api_url != "" ~}
+  # ══════════════════════════════════════════════════════════════════════
+  # KUBECONFIG PUT-BACK — STRUCTURAL INVARIANT (#3129): runs HERE, right
+  # after apiserver /healthz and BEFORE gateway-api/cilium/flux. Nothing
+  # downstream can block it. The PUT block is provider-injected because the
+  # public-IP source + multi-region gating differ (hard dependency), but
+  # the ORDERING is identical and fixed for every cloud.
+  # ══════════════════════════════════════════════════════════════════════
+  ${indent(2, kubeconfig_put_block)}
+%{ endif ~}
+
+  # ── gateway-api CRDs: ONE official bundle apply (lean Hetzner pattern) ─
+  # Flux's bp-gateway-api re-applies post-bootstrap; this single apply just
+  # unblocks the Cilium operator's gateway-controller at its OWN boot.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml wait --for=condition=Established crd/tlsroutes.gateway.networking.k8s.io --timeout=60s'
+
+  # ── Cilium CNI: single helm install from the structured values file ───
+  - 'curl -sSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash'
+  - 'helm repo add cilium https://helm.cilium.io/'
+  - 'helm repo update'
+  - |
+    KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm install cilium cilium/cilium \
+      --version 1.16.5 \
+      --namespace kube-system \
+      -f /var/lib/catalyst/cilium-values.yaml
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n kube-system rollout status ds/cilium --timeout=240s'
+
+%{ if provider_id_cmd != "" ~}
+  # ── providerID patch — PROVIDER-INJECTED (best-effort, non-fatal) ─────
+  ${indent(2, provider_id_cmd)}
+%{ endif ~}
+
+  # ── Flux install + the apiserver-side bootstrap secrets ───────────────
+  - 'curl -fsSL https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
+  # flux install creates deny-world NetworkPolicies that block source-controller
+  # → github.com; delete them (bp-network-policies slot 30 provides the proper
+  # zero-trust posture via CCNPs with flux-system allowlisted).
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n flux-system delete networkpolicy allow-egress allow-scraping allow-webhooks --ignore-not-found || true'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n flux-system wait --for=condition=Available --timeout=300s deployment --all'
+
+  # Apply the bootstrap secrets BEFORE Flux reconciles bootstrap-kit (each
+  # is an idempotent `kubectl apply`; re-running cloud-init rewrites bytes).
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/ghcr-pull-secret.yaml'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/harbor-robot-token-secret.yaml'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/pdm-basicauth-secret.yaml'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace cert-manager --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/powerdns-api-credentials.yaml'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace catalyst-system --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/handover-jwt-public-secret.yaml'
+
+  # openbao-recovery-seed: one-shot 32-byte seed the bp-openbao init Job
+  # consumes + deletes on first success. Never in tfstate; node-local only.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace openbao --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
+  - |
+    OPENBAO_SEED=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
+    kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n openbao create secret generic openbao-recovery-seed \
+      --from-literal=recovery-seed="$OPENBAO_SEED" \
+      --dry-run=client -o yaml \
+      | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml annotate --local -f - \
+        openbao.openova.io/single-use=true -o yaml \
+      | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -
+    unset OPENBAO_SEED
+
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/object-storage-secret.yaml'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/cloud-credentials-secret.yaml'
+%{ if crossplane_provider_yaml != "" ~}
+  # Crossplane Provider CR — the Provider CRD lands later via bp-crossplane,
+  # so apply with || true now + a detached background retry once core CRDs
+  # register. Crossplane is platform plumbing, never on the bootstrap path.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/crossplane-provider.yaml || true'
+%{ endif ~}
+
+  # Hand the cluster to Flux. From here it pulls clusters/_template/ and
+  # installs bp-cilium, bp-cert-manager, …, bp-catalyst-platform.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/flux-bootstrap.yaml'
+%{ if crossplane_provider_yaml != "" ~}
+  - 'nohup bash -c "deadline=\$((SECONDS+1800)); while [ \$SECONDS -lt \$deadline ]; do kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/crossplane-provider.yaml >/dev/null 2>&1 && break; sleep 30; done" >/dev/null 2>&1 &'
+%{ endif ~}
+
+  # Marker for the catalyst-api provisioner to detect cloud-init is done.
+  - mkdir -p /var/lib/catalyst
+  - touch /var/lib/catalyst/cloud-init-complete
+
+final_message: "Catalyst control-plane bootstrap complete after $UPTIME seconds — Flux is now reconciling clusters/_template/ for ${sovereign_fqdn} (provider=${provider})"

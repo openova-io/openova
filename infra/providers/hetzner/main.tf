@@ -617,7 +617,171 @@ locals {
   # operator's region choice, never hardcoded in cloudinit-control-plane.tftpl.
   object_storage_endpoint = "https://${var.object_storage_region}.your-objectstorage.com"
 
-  # Worker cloud-init computed BEFORE the control-plane cloud-init so it
+  # ── #3145 cloud-agnostic bootstrap: Hetzner provider-injected strings ──
+  # The Kubernetes bootstrap lives in infra/providers/_shared/cloudinit-
+  # control-plane.tftpl (ONE template, every cloud). These locals carry the
+  # ONLY Hetzner-specific pieces (the "hard dependency" exceptions, plan §5),
+  # injected into the shared template as string vars. Everything else is
+  # identical across clouds. NEVER re-add bootstrap logic here.
+
+  # registry mirror — Hetzner routes upstream pulls through harbor.openova.io
+  # pull-through proxy projects (containerd reads /etc/rancher/k3s/registries.yaml).
+  registry_mirror_yaml_hetzner = <<-EOT
+    mirrors:
+      "docker.io":
+        endpoint:
+          - "https://harbor.openova.io"
+        rewrite:
+          "(.*)": "proxy-dockerhub/$1"
+      "quay.io":
+        endpoint:
+          - "https://harbor.openova.io"
+        rewrite:
+          "(.*)": "proxy-quay/$1"
+      "gcr.io":
+        endpoint:
+          - "https://harbor.openova.io"
+        rewrite:
+          "(.*)": "proxy-gcr/$1"
+      "registry.k8s.io":
+        endpoint:
+          - "https://harbor.openova.io"
+        rewrite:
+          "(.*)": "proxy-k8s/$1"
+      "ghcr.io":
+        endpoint:
+          - "https://harbor.openova.io"
+        rewrite:
+          "(.*)": "proxy-ghcr/$1"
+    configs:
+      "harbor.openova.io":
+        auth:
+          username: "robot$openova-bot"
+          password: "${var.harbor_robot_token}"
+  EOT
+
+  # node external-IP discovery — Hetzner metadata service (hard dependency:
+  # Hetzner populates 169.254.169.254/hetzner/v1/metadata/public-ipv4).
+  node_external_ip_cmd_hetzner = "curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4"
+
+  # node PRIVATE-IP discovery — Hetzner per-region /24 deterministically puts
+  # the CP at 10.0.1.2 (the prelude brings the private NIC up first). Echoed
+  # (no detection needed) — k3s --node-ip + cilium k8sServiceHost use it.
+  node_ip_cmd_hetzner = "echo 10.0.1.2"
+
+  # providerID patch — runcmd list-item. hcloud://<server-id> from metadata.
+  # Non-fatal: bp-hcloud-ccm may set it later. Plain POSIX (dash -n clean).
+  provider_id_cmd_hetzner = <<-EOT
+    - 'HCLOUD_SERVER_ID=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/instance-id) && NODE_NAME=$(hostname) && for i in $(seq 1 30); do kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get node "$NODE_NAME" >/dev/null 2>&1 && kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml patch node "$NODE_NAME" --type=merge -p "{\"spec\":{\"providerID\":\"hcloud://$HCLOUD_SERVER_ID\"}}" && break || sleep 5; done || echo "providerID patch failed after 30 retries (non-fatal — bp-hcloud-ccm may set it later)"'
+  EOT
+
+  # Crossplane Provider + ProviderConfig (hcloud). Reads cloud-credentials.
+  crossplane_provider_yaml_hetzner = <<-EOT
+    ---
+    apiVersion: pkg.crossplane.io/v1
+    kind: Provider
+    metadata:
+      name: provider-hcloud
+      labels:
+        catalyst.openova.io/sovereign: ${var.sovereign_fqdn}
+    spec:
+      package: xpkg.upbound.io/crossplane-contrib/provider-hcloud:v0.4.0
+      packagePullPolicy: IfNotPresent
+    ---
+    apiVersion: hcloud.crossplane.io/v1beta1
+    kind: ProviderConfig
+    metadata:
+      name: default
+    spec:
+      credentials:
+        source: Secret
+        secretRef:
+          namespace: flux-system
+          name: cloud-credentials
+          key: hcloud-token
+  EOT
+
+  # provider prelude — Hetzner private-NIC bring-up. The hcloud private
+  # network attaches a second interface post-boot; k3s --node-ip needs it up
+  # before install or the apiserver crashloops. Generates a netplan stanza
+  # for the extra NIC + waits for cp_private_ip to appear. runcmd block-scalar
+  # item (2-space indented `- |`). cp_private_ip is injected via the shared
+  # template's interpolation, so this prelude references it as a shell var
+  # baked at render time. Plain POSIX (dash -n clean).
+  provider_prelude_hetzner = <<-EOT
+    - |
+      EXPECTED_PRIVATE_IP="10.0.1.2"
+      PRIMARY_NIC=$(ip -br link | awk '$1 == "eth0" {print $1; exit}')
+      echo "[private-nic] waiting for $${EXPECTED_PRIVATE_IP} on any interface (primary=$${PRIMARY_NIC})..."
+      for i in $(seq 1 60); do
+        if ip -4 addr show | grep -qE "inet $${EXPECTED_PRIVATE_IP}/"; then
+          echo "[private-nic] $${EXPECTED_PRIVATE_IP} is up (iter $${i})"
+          break
+        fi
+        EXTRA=$(ip -br link | awk -v primary="$${PRIMARY_NIC}" '$1 != "lo" && $1 != primary && $1 !~ /^(docker|veth|tun|wg|cni|flannel|cilium)/ {print $1; exit}')
+        if [ -n "$${EXTRA}" ] && ! grep -q "$${EXTRA}:" /etc/netplan/*.yaml 2>/dev/null; then
+          echo "[private-nic] generating netplan stanza for $${EXTRA}"
+          cat >/etc/netplan/60-private-network.yaml <<NETPLAN
+      network:
+        version: 2
+        ethernets:
+          $${EXTRA}:
+            dhcp4: true
+            dhcp4-overrides:
+              use-dns: false
+              use-routes: true
+      NETPLAN
+          chmod 0600 /etc/netplan/60-private-network.yaml
+          netplan apply || true
+        fi
+        sleep 2
+      done
+      if ! ip -4 addr show | grep -qE "inet $${EXPECTED_PRIVATE_IP}/"; then
+        echo "[private-nic] FATAL: $${EXPECTED_PRIVATE_IP} never appeared after 120s; k3s would crashloop" >&2
+        ip -br addr >&2
+        exit 1
+      fi
+  EOT
+
+  # kubeconfig PUT-back — Hetzner. Rewrites k3s.yaml's 127.0.0.1 to the CP's
+  # PUBLIC IPv4 (from metadata) so the cross-cloud mothership can reach the
+  # apiserver on 6443, then PUTs with a Bearer header (issue #183 Option D).
+  # runcmd list-items (0-indent; the shared template re-indents via indent(2,…)).
+  # Primary region → no `?region=` suffix (stored at <id>.yaml). Plain POSIX.
+  # The `kubeconfig_put_region_suffix_*` differs primary("") vs secondary("?region=<k>").
+  kubeconfig_put_block_hetzner_primary = <<-EOT
+    - install -m 0600 /dev/null /etc/rancher/k3s/k3s.yaml.public
+    - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && sed "s|https://127.0.0.1:6443|https://$${CP_PUBLIC_IPV4}:6443|g" /etc/rancher/k3s/k3s.yaml > /etc/rancher/k3s/k3s.yaml.public'
+    - chmod 0600 /etc/rancher/k3s/k3s.yaml.public
+    - |
+      curl -fsSL --retry 60 --retry-delay 10 --retry-all-errors \
+        -X PUT \
+        -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
+        -H "Content-Type: application/x-yaml" \
+        --data-binary @/etc/rancher/k3s/k3s.yaml.public \
+        "${var.catalyst_api_url}/api/v1/deployments/${var.deployment_id}/kubeconfig"
+    - rm -f /etc/rancher/k3s/k3s.yaml.public
+  EOT
+
+  # cloud-credentials Secret — Hetzner. hcloud-token + the autoscaler keys
+  # (hcloud-cloud-init / network / firewall / ssh-key names) the bp-cluster-
+  # autoscaler-hcloud HelmRelease lifts via valuesFrom (#921 / #1778).
+  cloud_credentials_secret_yaml_hetzner_primary = <<-EOT
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: cloud-credentials
+      namespace: flux-system
+    type: Opaque
+    stringData:
+      hcloud-token: ${var.hcloud_token}
+      hcloud-cloud-init: ${base64encode(local.worker_cloud_init)}
+      hcloud-network-name: ${hcloud_network.region["primary"].name}
+      hcloud-firewall-name: ${hcloud_firewall.main.name}
+      hcloud-ssh-key-name: ${hcloud_ssh_key.main.name}
+  EOT
+
+  # ── Worker cloud-init computed BEFORE the control-plane cloud-init so it
   # can be threaded into the CP template as `worker_cloud_init_b64`
   # (issue #921). The CP cloud-init writes the base64-encoded value
   # under the `hcloud-cloud-init` key of the canonical
@@ -659,268 +823,90 @@ locals {
   # cloud-init at ~22 KB with ~10 KB of headroom for future additions.
   # Guardrail in this same module: see `validate_user_data_size` precondition
   # below — any future bloat that pushes user_data ≥ 30 KiB fails at plan-time.
-  control_plane_cloud_init = replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
-    # Primary CP's stable private IP — first allocatable host in the
-    # primary subnet (10.0.1.2 in the canonical 10.0.1.0/24). Used by
-    # the bp-cilium HelmRelease's CILIUM_K8S_SERVICE_HOST substitute
-    # so cilium-operator on the primary cluster reaches its OWN local
-    # CP (matching CA), not a different region's CP. Secondary CPs also
-    # render 10.0.1.2 since every region has its OWN /24 (see
-    # local.secondary_region_cp_ips above — the per-region network refactor
-    # made every CP uniform on 10.0.1.2 within its own subnet).
-    cp_private_ip = "10.0.1.2"
-    # Per-region k3s pod/service CIDRs (DoD gate D11 — no collision across
-    # ClusterMesh peers). Primary uses region_cluster_cidr["primary"]
-    # (= 10.42.0.0/16) and region_service_cidr["primary"] (= 10.96.0.0/16).
-    # Threaded into the k3s install line as --cluster-cidr= / --service-cidr=
-    # in cloudinit-control-plane.tftpl.
-    cluster_cidr   = local.region_cluster_cidr["primary"]
-    service_cidr   = local.region_service_cidr["primary"]
-    sovereign_fqdn = var.sovereign_fqdn
-    # Slug form of the FQDN (dots → dashes) used to name per-Sovereign
-    # Hetzner LBs (e.g. clustermesh-apiserver LB). Hetzner LB names are
-    # limited to 63 chars and exclude dots; the slug is safe.
-    sovereign_fqdn_slug = replace(var.sovereign_fqdn, ".", "-")
-    sovereign_subdomain = var.sovereign_subdomain
-    # OpenovaFlow integration (Agent #3, PR #1389/#1390 follow-up). The
-    # bp-openova-flow-emitter (bootstrap-kit slot 57) reads SOVEREIGN_
-    # DEPLOYMENT_ID + SOVEREIGN_REGION_KEY from the bootstrap-kit
-    # Kustomization's postBuild.substitute env. Primary CP renders
-    # var.region as the region key; secondary CPs render each.key from
-    # the for_each loop in local.secondary_region_cloud_init.
-    sovereign_deployment_id   = var.sovereign_deployment_id
-    sovereign_region_key      = var.region
-    marketplace_enabled       = var.marketplace_enabled
-    qa_fixtures_enabled       = var.qa_fixtures_enabled
-    qa_test_session_enabled   = var.qa_test_session_enabled
-    qa_fixtures_namespace     = var.qa_fixtures_namespace
-    qa_organization           = var.qa_organization
-    wildcard_cert_use_staging = var.wildcard_cert_use_staging
-    wildcard_cert_issuer      = local.wildcard_cert_issuer
-    cluster_mesh_name         = var.cluster_mesh_name
-    cluster_mesh_id           = var.cluster_mesh_id
-    # G93.1 (Refs #2666) — BCP topology threading into the cloud-init
-    # Kustomization postBuild.substitute map. Pre-G93.1 the template
-    # hardcoded `SOVEREIGN_ENABLE_HOT_STANDBY: ""`; the chart's
-    # `${SOVEREIGN_ENABLE_HOT_STANDBY:-}` envsubst then always
-    # evaluated to empty and every multi-region Sovereign landed
-    # Pillar 3 broken. The two vars below carry the operator's choice
-    # verbatim — catalyst-api computes them from Request.BcpTopology
-    # (with auto-derivation for the empty/multi-region case).
-    bcp_topology       = var.bcp_topology
-    enable_hot_standby = var.enable_hot_standby
+  control_plane_cloud_init = replace(templatefile("${path.module}/../_shared/cloudinit-control-plane.tftpl", {
+    # ── #3145: render the ONE cloud-agnostic bootstrap. Hetzner-specific
+    # pieces are injected as the *_hetzner locals (the "hard dependency"
+    # exceptions). Common vars are identical to every other cloud.
+    provider = "hetzner"
 
-    # #2840 (2026-06-03): per-CNPG-cluster instance count. Mirrors
-    # infra/providers/huawei/main.tf:695. Multi-region Sovereigns get
-    # 2 instances per CNPG cluster so the operator can spread across
-    # regions via podAntiAffinity. Single-region keeps 1. The
-    # bootstrap-kit substitute map references this via
-    # `SOVEREIGN_CNPG_INSTANCES: "$${sovereign_cnpg_instances}"` —
-    # see cloudinit-control-plane.tftpl PR-companion to this var.
+    # Every Hetzner CP sits at 10.0.1.2 (each region has its own /24 inside
+    # its own hcloud_network — see local.secondary_region_cp_ips).
+    cp_private_ip                  = "10.0.1.2"
+    cluster_cidr                   = local.region_cluster_cidr["primary"]
+    service_cidr                   = local.region_service_cidr["primary"]
+    sovereign_fqdn                 = var.sovereign_fqdn
+    sovereign_fqdn_slug            = replace(var.sovereign_fqdn, ".", "-")
+    deployment_id                  = var.deployment_id
+    org_name                       = var.org_name
+    org_email                      = var.org_email
+    region                         = var.region
+    sovereign_region_key           = var.region # raw region key (flow-emitter REGION_KEY)
+    region_canonical_label         = local.region_canonical_label["primary"]
+    primary_region_canonical_label = local.region_canonical_label["primary"]
+    replica_region_canonical_label = length(local.secondary_regions) > 0 ? (
+      local.region_canonical_label[keys(local.secondary_regions)[0]]
+    ) : ""
+    cluster_mesh_name        = var.cluster_mesh_name
+    cluster_mesh_id          = var.cluster_mesh_id
+    k3s_version              = var.k3s_version
+    k3s_token                = local.k3s_token
+    gitops_repo_url          = var.gitops_repo_url
+    gitops_branch            = var.gitops_branch
+    marketplace_enabled      = var.marketplace_enabled
+    wildcard_cert_issuer     = local.wildcard_cert_issuer
+    bcp_topology             = var.bcp_topology
+    enable_hot_standby       = var.enable_hot_standby
     sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
-    # #2922 (2026-06-03): auto-enable bp-continuum when multi-region.
-    # Single-region keeps "false" (admission gate already rejects
-    # bcpTopology=active-hot-standby + len(regions)<2 at the
-    # catalyst-api boundary). bp-continuum chart's prerequisite guard
-    # (PR-B of #2922, pending) protects against premature flip.
-    continuum_enabled = length(var.regions) > 1 ? "true" : "false"
-
-    # Multi-domain Sovereign (issue #827). When the wizard supplies an
-    # explicit parent-domain list, use it verbatim. Otherwise default to a
-    # single-zone array derived from sovereign_fqdn so legacy single-zone
-    # provisioning paths render an identical Helm values shape (one zone,
-    # one wildcard cert) — no special-casing in the chart templates.
+    continuum_enabled        = length(var.regions) > 1 ? "true" : "false"
     parent_domains_yaml = coalesce(
       var.parent_domains_yaml,
       format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
     )
-    # Cilium Gateway listener YAML is no longer threaded into cloud-init
-    # (Closes #2118). The bp-catalyst-platform chart's
-    # templates/sovereign-tls-vars-cm.yaml renders the listener block
-    # from .Values.parentZones into a flux-system/sovereign-tls-vars
-    # ConfigMap; the sovereign-tls Kustomization's
-    # postBuild.substituteFrom picks it up. Keeps cloud-init under
-    # Hetzner's 32 KiB user_data cap on multi-zone SME-pool Sovereigns.
-    # sovereign_regions_json — canonical multi-region RegionSpec[]
-    # JSON literal. Threaded into bp-catalyst-platform's
-    # .Values.sovereign.regionsJson via the bootstrap-kit slot 13
-    # postBuild.substitute `SOVEREIGN_REGIONS_JSON`. Catalyst-api on
-    # the Sovereign side reads via the `sovereign-fqdn` ConfigMap env
-    # `SOVEREIGN_REGIONS_JSON` and uses to seed Request.Regions on the
-    # chroot Deployment so /infrastructure/topology returns the
-    # full multi-region tree (DoD D5).
     sovereign_regions_json = jsonencode(var.regions)
-    # sovereign_configured_regions_yaml — YAML inline-list literal of the
-    # cloudRegions this Sovereign was provisioned with (e.g. `["fsn1","hel1"]`).
-    # Threaded into bootstrap-kit slot 13's
-    # `sovereign.configuredRegions: ${SOVEREIGN_CONFIGURED_REGIONS_YAML:-[]}`
-    # substitute (PR for issue #1844). The chart's sovereign-fqdn ConfigMap
-    # joins this list into a comma-separated `configuredRegions` key for the
-    # catalyst-ui Dashboard's SovereignCard + Networking → ClusterMesh tab.
-    # When var.regions is empty (back-compat singular-region path) the
-    # rendered YAML is `[]` so the chart's `default (list)` keeps the
-    # ConfigMap key empty (no regression).
     sovereign_configured_regions_yaml = jsonencode([
       for r in var.regions : r.cloudRegion
     ])
-    org_name  = var.org_name
-    org_email = var.org_email
-    region    = var.region
-    # Canonical 4-segment region label for k3s --node-label
-    # openova.io/region=<region_canonical_label>. Replaces the previously
-    # hardcoded `hz-fsn-rtz-prod` literal that broke every non-fsn1
-    # primary Sovereign. See locals.region_canonical_label above.
-    region_canonical_label = local.region_canonical_label["primary"]
-    # Primary region canonical label — same as region_canonical_label on
-    # the primary CP, but kept as a separate template var so the
-    # secondary CP template knows the SOVEREIGN's primary region
-    # (different from its own). Threaded into the bootstrap-kit
-    # Kustomization's QA_PRIMARY_REGION substitute so qa-fixtures
-    # primaryRegion follows the actual Sovereign primary, never the
-    # chart's hardcoded `hz-fsn-rtz-prod` default.
-    primary_region_canonical_label = local.region_canonical_label["primary"]
-    # First non-primary canonical region label (used as the D31
-    # active-hot-standby `replicaRegion` default). Threaded into the
-    # bootstrap-kit Kustomization's SOVEREIGN_REPLICA_REGION substitute
-    # so the chart's `sovereign.replicaRegion` is populated on every
-    # multi-region Sovereign without a per-overlay write. Empty when
-    # the Sovereign is single-region (var.regions length <= 1). TBD-A15
-    # (issue #1844, 2026-05-18).
-    replica_region_canonical_label = length(local.secondary_regions) > 0 ? (
-      local.region_canonical_label[keys(local.secondary_regions)[0]]
-    ) : ""
-    # Per-role vCluster enable flags (DoD A4 topology). Primary region
-    # renders MGMT+DMZ vClusters → mgmt_vcluster_enabled=true. RTZ stays
-    # off here — secondary regions flip RTZ on. The bp-dmz-vcluster slot
-    # 54 chart-side default already enables DMZ everywhere, so no flag
-    # for DMZ here. See clusters/_template/bootstrap-kit/54,58,59-*.yaml.
-    mgmt_vcluster_enabled      = "true"
-    rtz_vcluster_enabled       = "false"
-    ha_enabled                 = var.ha_enabled
-    worker_count               = var.worker_count
-    k3s_version                = var.k3s_version
-    k3s_token                  = local.k3s_token
-    gitops_repo_url            = var.gitops_repo_url
-    gitops_branch              = var.gitops_branch
     enable_unattended_upgrades = var.enable_unattended_upgrades
     enable_fail2ban            = var.enable_fail2ban
     ghcr_pull_username         = local.ghcr_pull_username
     ghcr_pull_token            = var.ghcr_pull_token
     ghcr_pull_auth_b64         = local.ghcr_pull_auth_b64
-
-    # Object Storage credentials — interpolated into the Sovereign's
-    # `object-storage` K8s Secret at cloud-init time so Harbor (#383)
-    # and Velero (#384) HelmReleases find the credentials in the cluster
-    # from Phase 1 onwards. Same pattern as ghcr_pull_token: never in
-    # git, only in the encrypted per-deployment OpenTofu workdir + the
-    # Sovereign's user_data, wiped on `tofu destroy`. Per #425 the K8s
-    # Secret name is vendor-agnostic (`flux-system/object-storage`) —
-    # no `hetzner-` prefix — so a future AWS / Azure / GCP / OCI
-    # Sovereign reuses every existing chart without rename.
     object_storage_endpoint    = local.object_storage_endpoint
     object_storage_region      = var.object_storage_region
     object_storage_bucket_name = var.object_storage_bucket_name
     object_storage_access_key  = var.object_storage_access_key
     object_storage_secret_key  = var.object_storage_secret_key
+    harbor_robot_token         = var.harbor_robot_token
+    powerdns_api_key           = var.powerdns_api_key
+    pdm_basic_auth_user        = var.pdm_basic_auth_user
+    pdm_basic_auth_pass        = var.pdm_basic_auth_pass
+    handover_jwt_public_key    = var.handover_jwt_public_key
+    kubeconfig_bearer_token    = var.kubeconfig_bearer_token
+    catalyst_api_url           = var.catalyst_api_url
+    load_balancer_ipv4         = hcloud_load_balancer.main.ipv4
 
-    # OpenTofu→Crossplane handover (issue #425). The Hetzner Cloud API
-    # token is interpolated into both the `flux-system/cloud-credentials`
-    # K8s Secret AND the cloud-init's runcmd that applies the matching
-    # Crossplane Provider+ProviderConfig. Once Crossplane core comes up
-    # (via bp-crossplane) the Provider transitions Healthy=True and the
-    # Sovereign is ready to accept Day-2 XRC writes — at which point
-    # the catalyst-api's bespoke Hetzner-API hatching is retired in
-    # favour of XRC writes per ADR-0001 §11.3 + INVIOLABLE-PRINCIPLES #3.
-    hcloud_token = var.hcloud_token
+    # Huawei-branch substitute vars — passed empty/placeholder on Hetzner so
+    # the shared template's `provider == "huawei"` block parses (tofu
+    # evaluates var refs even in non-taken directive branches). Inert here.
+    pdns_api_host          = ""
+    sovereign_region_role  = "primary"
+    node_external_ip_value = ""
 
-    # Dynadot credentials — injected into cert-manager/dynadot-api-credentials
-    # K8s Secret at cloud-init time so the bp-cert-manager-dynadot-webhook Pod
-    # can start without a manual secret-creation step (issue #550 root-cause fix).
-    # dynadot_managed_domains defaults to the parent zone of sovereign_fqdn when
-    # the caller leaves it blank — e.g. "omani.works" for "console.otech22.omani.works".
-    dynadot_key             = var.dynadot_key
-    dynadot_secret          = var.dynadot_secret
-    dynadot_managed_domains = coalesce(var.dynadot_managed_domains, join(".", slice(split(".", var.sovereign_fqdn), 1, length(split(".", var.sovereign_fqdn)))))
-
-    # Cloud-init kubeconfig postback (issue #183, Option D). When
-    # all three are non-empty, the template renders a runcmd that
-    # rewrites k3s.yaml's 127.0.0.1:6443 to the LB's public IPv4
-    # and PUTs the result to the catalyst-api with a Bearer header.
-    # When any is empty (legacy out-of-band fetch path), the runcmd
-    # is omitted entirely.
-    #
-    # load_balancer_ipv4 is interpolated from the hcloud_load_balancer
-    # resource at apply time. Referencing it here implicitly forces
-    # the LB to be created before the control-plane server boots —
-    # which is exactly the ordering we want, because the new
-    # Sovereign's curl PUT to catalyst-api needs to come from a
-    # source IP the firewall accepts (any 0.0.0.0/0 → 443 outbound)
-    # and arrive on a kubeconfig whose `server:` field is a
-    # public-routable address.
-    # Harbor pull-through mirror token (issue #557, Option A).
-    # Passed into registries.yaml written at cloud-init time so containerd
-    # authenticates against harbor.openova.io proxy-cache projects.
-    harbor_robot_token = var.harbor_robot_token
-
-    # Contabo PowerDNS API key (PR #686, F3 followup). Interpolated into
-    # the Sovereign's cert-manager/powerdns-api-credentials Secret so
-    # bp-cert-manager-powerdns-webhook can write DNS-01 challenge TXT
-    # records to contabo's authoritative omani.works zone.
-    powerdns_api_key = var.powerdns_api_key
-
-    # PDM (Pool Domain Manager) basic-auth credentials (issue #879 Bug 2).
-    # Interpolated into the Sovereign's `flux-system/pdm-basicauth` Secret
-    # at cloud-init time so catalyst-api in catalyst-system can call PDM
-    # at https://pool.openova.io with `Authorization: Basic …` for the
-    # Day-2 multi-domain "Add another parent domain" flow. Reflector
-    # auto-mirrors the Secret into `catalyst-system` (same canonical
-    # pattern flux-system/ghcr-pull and flux-system/harbor-robot-token
-    # already use). Sensitive — never logged, never committed.
-    pdm_basic_auth_user = var.pdm_basic_auth_user
-    pdm_basic_auth_pass = var.pdm_basic_auth_pass
-
-    deployment_id           = var.deployment_id
-    kubeconfig_bearer_token = var.kubeconfig_bearer_token
-    catalyst_api_url        = var.catalyst_api_url
-    handover_jwt_public_key = var.handover_jwt_public_key
-    load_balancer_ipv4      = hcloud_load_balancer.main.ipv4
-    # control_plane_ipv4 is NOT templated — it would create a dependency cycle
-    # (cloud-init → control_plane.ipv4_address → control_plane.user_data → cloud-init).
-    # The cloud-init runs ON the CP node, so it resolves its own public IP at boot
-    # via Hetzner metadata service (169.254.169.254) — see cloudinit-control-plane.tftpl.
-
-    # Issue #921 — base64-encoded worker cloud-init for the bp-cluster-
-    # autoscaler-hcloud HelmRelease's HCLOUD_CLOUD_INIT env var. Same
-    # bootstrap content the Phase-0 workers receive, so autoscaler-spawned
-    # workers join the cluster identically.
-    worker_cloud_init_b64 = base64encode(local.worker_cloud_init)
-
-    # Issue #1778 — Hetzner resource names threaded into
-    # flux-system/cloud-credentials so the cluster-autoscaler can map them
-    # onto HCLOUD_NETWORK / HCLOUD_FIREWALL / HCLOUD_SSH_KEY env vars.
-    # Without these the autoscaler-spawned VMs come up on public-only
-    # interfaces (no private 10.0.0.0/16 attachment), the worker cloud-
-    # init's `K3S_URL=https://10.0.1.2:6443` is unreachable, the k3s
-    # agent join silently fails, and the autoscaler times out the
-    # scale-up after 15m → backoff. Names are the Phase-0 resource names
-    # verbatim — the autoscaler resolves them via the Hetzner API at
-    # scale-up time. Primary CP points at the primary region's per-region
-    # network so autoscaler-spawned workers join the primary region's k3s
-    # (which is reachable on the local 10.0.1.2). Secondary CPs render
-    # their own region's network name (see local.secondary_region_cloud_init).
-    hcloud_network_name  = hcloud_network.region["primary"].name
-    hcloud_firewall_name = hcloud_firewall.main.name
-    hcloud_ssh_key_name  = hcloud_ssh_key.main.name
-
-    # Multi-region kubeconfig PUT-back (operator mandate, 2026-05-12).
-    # Empty string for the primary CP → catalyst-api stores the file
-    # at <kubeconfigsDir>/<id>.yaml (back-compat with single-region).
-    # Secondary regions pass their region key here (see the for_each
-    # call below) so catalyst-api stores them at
-    # <kubeconfigsDir>/<id>-<region>.yaml. catalyst-api's phase1Watch
-    # then spawns one helmwatch.Bridge per kubeconfig so the canvas
-    # surfaces install-* HRs from EVERY region, not just primary.
-    kubeconfig_postback_region = ""
+    # ── Provider-injected strings (the §5 hard-dependency exceptions) ──
+    registry_mirror_yaml          = local.registry_mirror_yaml_hetzner
+    cloud_credentials_secret_yaml = local.cloud_credentials_secret_yaml_hetzner_primary
+    crossplane_provider_yaml      = local.crossplane_provider_yaml_hetzner
+    node_external_ip_cmd          = local.node_external_ip_cmd_hetzner
+    node_ip_cmd                   = local.node_ip_cmd_hetzner
+    provider_id_cmd               = local.provider_id_cmd_hetzner
+    provider_prelude              = local.provider_prelude_hetzner
+    # Hetzner k3s flags: OIDC (kubectl SSO via auth.<fqdn>), disable cloud
+    # controller (no CCM at bootstrap), + control-plane taint when workers
+    # exist so user pods don't schedule on the CP.
+    k3s_extra_args = "--kube-apiserver-arg=oidc-issuer-url=https://auth.${var.sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --disable-cloud-controller ${var.worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule" : ""}"
+    # PUT-back: primary region → no ?region= suffix (catalyst-api stores at
+    # <id>.yaml). Public IP from Hetzner metadata (rewrite 127.0.0.1→public).
+    kubeconfig_put_block = local.kubeconfig_put_block_hetzner_primary
   }), "/(?m)^[ ]*#( |$).*\n/", "")
 }
 
@@ -1270,97 +1256,47 @@ resource "aws_s3_bucket_acl" "main" {
 locals {
   secondary_region_cloud_init = {
     for k, r in local.secondary_regions :
-    k => replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
-      # Per-region CP's stable private IP. After the per-region network
-      # refactor (2026-05-15 DoD A2) every region has its OWN /24 inside
-      # its OWN hcloud_network, so every secondary CP also sits at
-      # 10.0.1.2 — uniform with the primary. Used by the bp-cilium
-      # HelmRelease's CILIUM_K8S_SERVICE_HOST substitute so cilium-
-      # operator on each cluster reaches its OWN local CP (matching CA).
-      cp_private_ip = local.secondary_region_cp_ips[k]
-      # Per-region k3s pod/service CIDRs (DoD gate D11). Each region gets
-      # its own /16 off the 10.42+i.0/12 + 10.96+i.0/12 supernets so
-      # ClusterMesh peer pods/services don't collide in routing tables.
-      cluster_cidr        = local.region_cluster_cidr[k]
-      service_cidr        = local.region_service_cidr[k]
-      sovereign_fqdn      = var.sovereign_fqdn
-      sovereign_fqdn_slug = replace(var.sovereign_fqdn, ".", "-")
-      sovereign_subdomain = var.sovereign_subdomain
-      # OpenovaFlow integration (Agent #3). The secondary CP's region
-      # key is each.key from the secondary_regions for_each (e.g. "hel1"
-      # for a Helsinki secondary). Multi-region Sovereigns thus emit
-      # distinct region tags on FlowNodes, which the canvas groups into
-      # per-region super-bubbles via `contains` relationships.
-      sovereign_deployment_id   = var.sovereign_deployment_id
-      sovereign_region_key      = k
-      marketplace_enabled       = var.marketplace_enabled
-      qa_fixtures_enabled       = var.qa_fixtures_enabled
-      qa_test_session_enabled   = var.qa_test_session_enabled
-      qa_fixtures_namespace     = var.qa_fixtures_namespace
-      qa_organization           = var.qa_organization
-      wildcard_cert_use_staging = var.wildcard_cert_use_staging
-      wildcard_cert_issuer      = local.wildcard_cert_issuer
-      # G93.1 (Refs #2666) — same BCP topology values as the primary CP.
-      # Sovereign-wide invariant: every region's bootstrap-kit Kustomization
-      # substitute resolves to the same SOVEREIGN_ENABLE_HOT_STANDBY +
-      # SOVEREIGN_BCP_TOPOLOGY so sme_tenant_gitops's tenant render and
-      # the chart-side cnpg-pair gating agree across regions.
-      bcp_topology       = var.bcp_topology
-      enable_hot_standby = var.enable_hot_standby
-      # Per-secondary-region ClusterMesh anchors. id is incremented per
-      # peer index so each secondary region gets a unique slot in the
-      # mesh registry; primary region keeps var.cluster_mesh_id.
-      cluster_mesh_name = local.secondary_region_cluster_mesh_name[k]
-      cluster_mesh_id   = local.secondary_region_cluster_mesh_id[k]
+    k => replace(templatefile("${path.module}/../_shared/cloudinit-control-plane.tftpl", {
+      # ── #3145: secondary-region CP renders the SAME cloud-agnostic bootstrap
+      # as primary (infra/providers/_shared/cloudinit-control-plane.tftpl). Only
+      # the per-region values + the `?region=<k>` PUT suffix differ.
+      provider = "hetzner"
+
+      cp_private_ip                  = local.secondary_region_cp_ips[k]
+      cluster_cidr                   = local.region_cluster_cidr[k]
+      service_cidr                   = local.region_service_cidr[k]
+      sovereign_fqdn                 = var.sovereign_fqdn
+      sovereign_fqdn_slug            = replace(var.sovereign_fqdn, ".", "-")
+      deployment_id                  = var.deployment_id
+      org_name                       = var.org_name
+      org_email                      = var.org_email
+      region                         = r.cloudRegion
+      sovereign_region_key           = k # secondary each.key (raw region key)
+      region_canonical_label         = local.region_canonical_label[k]
+      primary_region_canonical_label = local.region_canonical_label["primary"]
+      replica_region_canonical_label = length(local.secondary_regions) > 0 ? (
+        local.region_canonical_label[keys(local.secondary_regions)[0]]
+      ) : ""
+      cluster_mesh_name        = local.secondary_region_cluster_mesh_name[k]
+      cluster_mesh_id          = local.secondary_region_cluster_mesh_id[k]
+      k3s_version              = var.k3s_version
+      k3s_token                = local.k3s_token
+      gitops_repo_url          = var.gitops_repo_url
+      gitops_branch            = var.gitops_branch
+      marketplace_enabled      = var.marketplace_enabled
+      wildcard_cert_issuer     = local.wildcard_cert_issuer
+      bcp_topology             = var.bcp_topology
+      enable_hot_standby       = var.enable_hot_standby
+      sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
+      continuum_enabled        = length(var.regions) > 1 ? "true" : "false"
       parent_domains_yaml = coalesce(
         var.parent_domains_yaml,
         format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
       )
-      # Cilium Gateway listener YAML is no longer threaded into cloud-init
-      # (Closes #2118). Same bp-catalyst-platform chart runs in every
-      # region — each peer's chart renders its own
-      # flux-system/sovereign-tls-vars ConfigMap and sovereign-tls reads
-      # it locally via postBuild.substituteFrom. See main.tf locals
-      # comment (~line 422) for full rationale.
-      # Same JSON-encoded RegionSpec[] as the primary CP — every region's
-      # bp-catalyst-platform renders the same sovereign.regionsJson value
-      # (the cluster topology is Sovereign-wide, not per-region).
       sovereign_regions_json = jsonencode(var.regions)
-      # Same SOVEREIGN_CONFIGURED_REGIONS_YAML as the primary — chart-wide
-      # configuredRegions list is Sovereign-wide invariant. TBD-A15.
       sovereign_configured_regions_yaml = jsonencode([
         for rr in var.regions : rr.cloudRegion
       ])
-      org_name  = var.org_name
-      org_email = var.org_email
-      region    = r.cloudRegion
-      # Per-region canonical 4-segment label — each secondary CP labels
-      # its k3s node with ITS OWN region tag (e.g. `hz-nbg-rtz-prod` for
-      # nbg1-1), not the primary's tag. See locals.region_canonical_label
-      # above.
-      region_canonical_label = local.region_canonical_label[k]
-      # Primary region's canonical label — threaded into THIS secondary's
-      # bootstrap-kit Kustomization substitute so the per-cluster
-      # qa-fixtures rendered on the secondary still targets the
-      # Sovereign-wide primary region (qaFixtures.primaryRegion is
-      # singular per the chart contract).
-      primary_region_canonical_label = local.region_canonical_label["primary"]
-      # Same as primary CP — Sovereign-wide D31 active-hot-standby
-      # replicaRegion default (first non-primary region's canonical label).
-      replica_region_canonical_label = length(local.secondary_regions) > 0 ? (
-        local.region_canonical_label[keys(local.secondary_regions)[0]]
-      ) : ""
-      # Per-role vCluster enable flags (DoD A4). Secondary region
-      # renders DMZ+RTZ vCluster → rtz_vcluster_enabled=true. MGMT
-      # stays off on secondaries (single MGMT vCluster on primary).
-      mgmt_vcluster_enabled      = "false"
-      rtz_vcluster_enabled       = "true"
-      ha_enabled                 = false # secondary regions land single-CP in slice G1; G3 introduces per-region HA
-      worker_count               = r.workerCount
-      k3s_version                = var.k3s_version
-      k3s_token                  = local.k3s_token
-      gitops_repo_url            = var.gitops_repo_url
-      gitops_branch              = var.gitops_branch
       enable_unattended_upgrades = var.enable_unattended_upgrades
       enable_fail2ban            = var.enable_fail2ban
       ghcr_pull_username         = local.ghcr_pull_username
@@ -1371,51 +1307,59 @@ locals {
       object_storage_bucket_name = var.object_storage_bucket_name
       object_storage_access_key  = var.object_storage_access_key
       object_storage_secret_key  = var.object_storage_secret_key
-      hcloud_token               = var.hcloud_token
-      dynadot_key                = var.dynadot_key
-      dynadot_secret             = var.dynadot_secret
-      dynadot_managed_domains    = coalesce(var.dynadot_managed_domains, join(".", slice(split(".", var.sovereign_fqdn), 1, length(split(".", var.sovereign_fqdn)))))
       harbor_robot_token         = var.harbor_robot_token
       powerdns_api_key           = var.powerdns_api_key
       pdm_basic_auth_user        = var.pdm_basic_auth_user
       pdm_basic_auth_pass        = var.pdm_basic_auth_pass
-      deployment_id              = var.deployment_id
+      handover_jwt_public_key    = var.handover_jwt_public_key
       kubeconfig_bearer_token    = var.kubeconfig_bearer_token
       catalyst_api_url           = var.catalyst_api_url
-      handover_jwt_public_key    = var.handover_jwt_public_key
       load_balancer_ipv4         = hcloud_load_balancer.secondary[k].ipv4
-      worker_cloud_init_b64      = base64encode(local.secondary_region_worker_cloud_init[k])
 
-      # Issue #1778 (F7 multi-region completion) — same hcloud_*_name
-      # threading as the primary CP templatefile call so the secondary
-      # regions' cluster-autoscaler also has the private-network
-      # attachment names. Each secondary references its OWN region's
-      # network (per the 2026-05-15 DoD A2 per-region-network refactor)
-      # so autoscaler-spawned workers land in the same isolated /16 as
-      # the region's CP and reach k3s at 10.0.1.2 locally.
-      hcloud_network_name  = hcloud_network.region[k].name
-      hcloud_firewall_name = hcloud_firewall.main.name
-      hcloud_ssh_key_name  = hcloud_ssh_key.main.name
+      # Huawei-branch substitute vars — inert on Hetzner (see primary call).
+      pdns_api_host          = ""
+      sovereign_region_role  = "secondary"
+      node_external_ip_value = ""
 
-      # Multi-region kubeconfig PUT-back — region key for this secondary
-      # CP. cloudinit-control-plane.tftpl appends `?region=<k>` to the
-      # PUT URL so catalyst-api stores it at
-      # <kubeconfigsDir>/<id>-<k>.yaml and phase1Watch can spawn a
-      # per-region helmwatch.Bridge.
-      kubeconfig_postback_region = k
-      # G117 #2896-followup (2026-06-03): match primary CP's
-      # sovereign_cnpg_instances threading so the secondary regions'
-      # bootstrap-kit also stamps the right CNPG instance count. Same
-      # rule as primary — `2` when var.regions has >1 entry (because we
-      # ARE multi-region by construction at this point), `1` for
-      # singleton (never reached on secondary path, defensive default).
-      sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
-      # #2922 (2026-06-03): auto-enable bp-continuum when multi-region.
-      # Single-region keeps "false" (admission gate already rejects
-      # bcpTopology=active-hot-standby + len(regions)<2 at the
-      # catalyst-api boundary). bp-continuum chart's prerequisite guard
-      # (PR-B of #2922, pending) protects against premature flip.
-      continuum_enabled = length(var.regions) > 1 ? "true" : "false"
+      # ── Provider-injected strings (the §5 hard-dependency exceptions) ──
+      registry_mirror_yaml     = local.registry_mirror_yaml_hetzner
+      crossplane_provider_yaml = local.crossplane_provider_yaml_hetzner
+      node_external_ip_cmd     = local.node_external_ip_cmd_hetzner
+      node_ip_cmd              = local.node_ip_cmd_hetzner
+      provider_id_cmd          = local.provider_id_cmd_hetzner
+      provider_prelude         = local.provider_prelude_hetzner
+      k3s_extra_args           = "--kube-apiserver-arg=oidc-issuer-url=https://auth.${var.sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --disable-cloud-controller ${r.workerCount > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule" : ""}"
+      # cloud-credentials Secret — secondary region's autoscaler keys.
+      cloud_credentials_secret_yaml = <<-CREDS
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: cloud-credentials
+          namespace: flux-system
+        type: Opaque
+        stringData:
+          hcloud-token: ${var.hcloud_token}
+          hcloud-cloud-init: ${base64encode(local.secondary_region_worker_cloud_init[k])}
+          hcloud-network-name: ${hcloud_network.region[k].name}
+          hcloud-firewall-name: ${hcloud_firewall.main.name}
+          hcloud-ssh-key-name: ${hcloud_ssh_key.main.name}
+      CREDS
+      # kubeconfig PUT-back — secondary region appends `?region=<k>` so
+      # catalyst-api stores at <id>-<k>.yaml + phase1Watch spawns a per-region
+      # helmwatch.Bridge. Public IP from Hetzner metadata. runcmd 0-indent items.
+      kubeconfig_put_block = <<-PUT
+        - install -m 0600 /dev/null /etc/rancher/k3s/k3s.yaml.public
+        - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && sed "s|https://127.0.0.1:6443|https://$${CP_PUBLIC_IPV4}:6443|g" /etc/rancher/k3s/k3s.yaml > /etc/rancher/k3s/k3s.yaml.public'
+        - chmod 0600 /etc/rancher/k3s/k3s.yaml.public
+        - |
+          curl -fsSL --retry 60 --retry-delay 10 --retry-all-errors \
+            -X PUT \
+            -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
+            -H "Content-Type: application/x-yaml" \
+            --data-binary @/etc/rancher/k3s/k3s.yaml.public \
+            "${var.catalyst_api_url}/api/v1/deployments/${var.deployment_id}/kubeconfig?region=${k}"
+        - rm -f /etc/rancher/k3s/k3s.yaml.public
+      PUT
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }
 

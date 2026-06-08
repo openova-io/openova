@@ -265,12 +265,15 @@ jobs:
       - name: Smoke test API — verify infra/providers/{hetzner,huawei}/ is bundled
         run: |
           set -euo pipefail
-          # Hetzner canonical path.
+          # Hetzner canonical path. #3145: the control-plane cloud-init is now
+          # the ONE cloud-agnostic template at /infra/providers/_shared/; each
+          # provider dir keeps only main.tf/variables.tf/outputs.tf/versions.tf
+          # + the still-per-provider cloudinit-worker.tftpl.
           LISTING=$(docker run --rm --entrypoint sh ${{ env.API_IMAGE }}:test \
             -c 'ls -la /infra/providers/hetzner/')
           echo "$LISTING"
           for f in main.tf variables.tf outputs.tf versions.tf \
-                   cloudinit-control-plane.tftpl cloudinit-worker.tftpl ; do
+                   cloudinit-worker.tftpl ; do
             if ! echo "$LISTING" | grep -q " ${f}\$"; then
               echo "Smoke test FAILED: /infra/providers/hetzner/${f} missing from image"
               exit 1
@@ -282,13 +285,24 @@ jobs:
             -c 'ls -la /infra/providers/huawei/')
           echo "$HUAWEI"
           for f in main.tf variables.tf outputs.tf versions.tf \
-                   cloudinit-control-plane.tftpl cloudinit-worker.tftpl ; do
+                   cloudinit-worker.tftpl ; do
             if ! echo "$HUAWEI" | grep -q " ${f}\$"; then
               echo "Smoke test FAILED: /infra/providers/huawei/${f} missing from image"
               exit 1
             fi
             echo "Smoke test OK: /infra/providers/huawei/${f} present"
           done
+          # #3145: the shared cloud-agnostic control-plane template MUST be
+          # bundled — every provider's main.tf renders ../_shared/cloudinit-
+          # control-plane.tftpl, so a missing _shared dir breaks `tofu apply`.
+          SHARED=$(docker run --rm --entrypoint sh ${{ env.API_IMAGE }}:test \
+            -c 'ls -la /infra/providers/_shared/')
+          echo "$SHARED"
+          if ! echo "$SHARED" | grep -q " cloudinit-control-plane.tftpl\$"; then
+            echo "Smoke test FAILED: /infra/providers/_shared/cloudinit-control-plane.tftpl missing from image"
+            exit 1
+          fi
+          echo "Smoke test OK: /infra/providers/_shared/cloudinit-control-plane.tftpl present"
           # Legacy-compat symlink — same files via /infra/hetzner.
           LEGACY=$(docker run --rm --entrypoint sh ${{ env.API_IMAGE }}:test \
             -c 'ls -la /infra/hetzner/main.tf')

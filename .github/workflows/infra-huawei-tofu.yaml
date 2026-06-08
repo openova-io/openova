@@ -16,10 +16,14 @@ on:
     branches: [main]
     paths:
       - 'infra/providers/huawei/**'
+      # #3145 — the control-plane cloud-init is the shared cloud-agnostic
+      # template; a change to it must re-validate this provider's render.
+      - 'infra/providers/_shared/**'
       - '.github/workflows/infra-huawei-tofu.yaml'
   pull_request:
     paths:
       - 'infra/providers/huawei/**'
+      - 'infra/providers/_shared/**'
       - '.github/workflows/infra-huawei-tofu.yaml'
   workflow_dispatch:
 
