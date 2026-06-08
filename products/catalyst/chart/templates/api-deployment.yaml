@@ -309,6 +309,28 @@ spec:
             # provide write access to /var/lib/catalyst (PVC mountPath).
             - name: CATALYST_TOFU_WORKDIR
               value: /var/lib/catalyst/tofu
+            # CATALYST_TF_PLUGIN_CACHE_DIR — OpenTofu provider plugin cache
+            # (#3126). Exported as TF_PLUGIN_CACHE_DIR on every `tofu` exec
+            # so provider binaries (huaweicloud, hetznercloud, dynadot, ...)
+            # are downloaded from github release-assets ONCE and reused by
+            # every later prov. The catalyst-api uses a FRESH per-deployment
+            # workdir, so WITHOUT a shared cache every prov cold-downloads
+            # every provider from github — and a transient
+            # release-assets.githubusercontent.com CDN 504 (OpenTofu retries
+            # only 2× internally then aborts) fails the whole 2-region prov
+            # at `tofu init`. Caught live: the CDN edge returned intermittent
+            # 504s to the mothership.
+            #
+            # Sub-directory of the SAME catalyst PVC mount (/var/lib/catalyst,
+            # claim catalyst-api-deployments) that already backs the tofu
+            # workdir above — persistent across Pod rolls, no extra
+            # volumeMount needed. The provisioner MkdirAll's it before init.
+            # LITERAL value (dual-mode Helm/Kustomize contract — no Helm
+            # template directives in this file's `value:` fields; see the
+            # SOVEREIGN_FQDN block below). Runtime-overridable per
+            # docs/PRINCIPLES.md #4.
+            - name: CATALYST_TF_PLUGIN_CACHE_DIR
+              value: /var/lib/catalyst/tofu-plugin-cache
             # CATALYST_DEPLOYMENTS_DIR — flat-file store for deployment
             # records (one JSON file per deployment id). Backed by the
             # PVC mount below so deployments persist across Pod

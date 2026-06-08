@@ -1345,6 +1345,32 @@ type Provisioner struct {
 	// posture as the harbor-robot-token Empty-Token path.
 	PDMBasicAuthUser string
 	PDMBasicAuthPass string
+
+	// TofuPluginCacheDir is the OpenTofu provider plugin cache directory
+	// (#3126). Set as TF_PLUGIN_CACHE_DIR on every `tofu` exec so the
+	// provider binaries (huaweicloud, hetznercloud, dynadot, ...) are
+	// downloaded from github release-assets ONCE and reused by every
+	// subsequent provision regardless of region/provider.
+	//
+	// Why this matters: OpenTofu providers are hosted as binaries on
+	// github release-assets (302 → release-assets.githubusercontent.com,
+	// a Fastly/Azure-Blob CDN). `tofu init` fetches the zip + SHA256SUMS
+	// + .sig from there. The catalyst-api uses a FRESH per-deployment
+	// workdir, so without a shared plugin cache EVERY prov re-downloads
+	// every provider from scratch — any transient github/CDN 504 then
+	// kills a full 2-region prov at init (caught live: the CDN edge
+	// returned intermittent 504s to the mothership; `tofu init` retries
+	// only 2× internally then aborts).
+	//
+	// Mounted on the PERSISTENT catalyst-api-deployments PVC (same volume
+	// the per-deployment workdir lives on) so the cache survives Pod
+	// rolls and is shared across deployments. Read once at New() from
+	// CATALYST_TF_PLUGIN_CACHE_DIR (default /var/lib/catalyst/tofu-plugin-cache);
+	// runtime-overridable per docs/PRINCIPLES.md #4. Empty disables the
+	// cache (falls back to per-workdir download — the pre-#3126
+	// behaviour) so air-gapped operators pinning a provider mirror are
+	// unaffected.
+	TofuPluginCacheDir string
 }
 
 // New returns a Provisioner with paths read from environment.
@@ -1369,13 +1395,18 @@ func New() *Provisioner {
 		// resolveModulePath() which swaps the trailing directory to match
 		// req.Provider. The env-mounted override remains authoritative when
 		// set (air-gap operators pinning a custom module location).
-		ModulePath:       env("CATALYST_TOFU_MODULE_PATH", "/infra/providers/hetzner"),
-		WorkDir:          env("CATALYST_TOFU_WORKDIR", "/var/lib/catalyst/tofu"),
-		GHCRPullToken:    os.Getenv("CATALYST_GHCR_PULL_TOKEN"),
-		HarborRobotToken: os.Getenv("CATALYST_HARBOR_ROBOT_TOKEN"),
-		PowerDNSAPIKey:   os.Getenv("CATALYST_POWERDNS_API_KEY"),
-		PDMBasicAuthUser: os.Getenv("CATALYST_PDM_BASIC_AUTH_USER"),
-		PDMBasicAuthPass: os.Getenv("CATALYST_PDM_BASIC_AUTH_PASS"),
+		ModulePath: env("CATALYST_TOFU_MODULE_PATH", "/infra/providers/hetzner"),
+		WorkDir:    env("CATALYST_TOFU_WORKDIR", "/var/lib/catalyst/tofu"),
+		// #3126 — provider plugin cache on the persistent deployments PVC
+		// (sibling of WorkDir's /var/lib/catalyst/tofu). First prov fills
+		// it; every later prov reuses the cached providers with zero
+		// github release-asset fetches. See the field doc on Provisioner.
+		TofuPluginCacheDir: env("CATALYST_TF_PLUGIN_CACHE_DIR", "/var/lib/catalyst/tofu-plugin-cache"),
+		GHCRPullToken:      os.Getenv("CATALYST_GHCR_PULL_TOKEN"),
+		HarborRobotToken:   os.Getenv("CATALYST_HARBOR_ROBOT_TOKEN"),
+		PowerDNSAPIKey:     os.Getenv("CATALYST_POWERDNS_API_KEY"),
+		PDMBasicAuthUser:   os.Getenv("CATALYST_PDM_BASIC_AUTH_USER"),
+		PDMBasicAuthPass:   os.Getenv("CATALYST_PDM_BASIC_AUTH_PASS"),
 	}
 }
 
@@ -1517,7 +1548,7 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	}
 
 	emit("tofu-init", "info", "Initialising OpenTofu working directory")
-	if err := p.runTofu(ctx, deployDir, []string{"init", "-input=false", "-no-color"}, emit); err != nil {
+	if err := p.runTofuInitWithRetry(ctx, deployDir, emit); err != nil {
 		return nil, fmt.Errorf("tofu init: %w", err)
 	}
 
@@ -1854,6 +1885,117 @@ func (p *Provisioner) Destroy(ctx context.Context, req Request, events chan<- Ev
 	return nil
 }
 
+// tofuInitMaxAttempts / tofuInitBaseBackoff control the bounded
+// retry-with-exponential-backoff applied to `tofu init` (#3126). 4
+// attempts at 5s/15s/45s (base 5s, ×3 growth) ride out a short github
+// release-asset CDN blip even on a COLD plugin cache; on a warm cache the
+// first attempt needs zero github fetches and never sleeps. Package-level
+// so the unit test can reference the same growth contract.
+const (
+	tofuInitMaxAttempts   = 4
+	tofuInitBaseBackoff   = 5 * time.Second
+	tofuInitBackoffGrowth = 3
+)
+
+// isTransientInitFailure reports whether a `tofu init` error string looks
+// like a provider-install / network-class failure that a retry could
+// clear (#3126), as opposed to a deterministic configuration error
+// (bad provider constraint, malformed backend block) where retrying is
+// pointless. The markers are the substrings OpenTofu emits when the
+// github release-asset CDN flakes or a registry/network hop times out:
+//
+//   - "Failed to install provider"      — the umbrella init error
+//   - "Failed to query available provider packages"
+//   - "could not query provider registry"
+//   - "504" / "Gateway Timeout"         — the actual CDN edge status
+//   - "502" / "Bad Gateway" / "503" / "Service Unavailable"
+//   - "failed to retrieve" / "error fetching" — checksum/zip fetch leg
+//   - "TLS handshake timeout" / "i/o timeout" / "connection reset"
+//   - "timeout" / "temporary failure" / "no such host" (DNS blip)
+//   - "EOF" / "unexpected EOF"          — truncated CDN response
+//
+// Matching is case-insensitive so "gateway timeout" and "Gateway Timeout"
+// both qualify. A real config error (e.g. "Invalid provider requirements"
+// without any network marker) does NOT match and is surfaced immediately.
+func isTransientInitFailure(errStr string) bool {
+	s := strings.ToLower(errStr)
+	markers := []string{
+		"failed to install provider",
+		"failed to query available provider",
+		"could not query provider registry",
+		"failed to retrieve",
+		"error fetching",
+		"504",
+		"gateway timeout",
+		"502",
+		"bad gateway",
+		"503",
+		"service unavailable",
+		"tls handshake timeout",
+		"i/o timeout",
+		"connection reset",
+		"connection refused",
+		"temporary failure",
+		"no such host",
+		"timeout",
+		"unexpected eof",
+		"eof",
+	}
+	for _, m := range markers {
+		if strings.Contains(s, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// retryTofuInit runs `runOnce` (a single `tofu init`) with bounded
+// retry-with-exponential-backoff, retrying ONLY on transient
+// provider-install/network failures per isTransientInitFailure (#3126).
+// `sleep` is injected so the unit test can pass a no-op instead of
+// actually waiting 5s+15s+45s. Returns nil on the first success; the
+// last error otherwise. A non-transient (config) error returns
+// immediately without consuming the remaining attempts.
+func retryTofuInit(ctx context.Context, runOnce func() error, sleep func(time.Duration), emit func(string, string, string)) error {
+	var lastErr error
+	for attempt := 1; attempt <= tofuInitMaxAttempts; attempt++ {
+		err := runOnce()
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if attempt >= tofuInitMaxAttempts || !isTransientInitFailure(err.Error()) {
+			break
+		}
+		// Stop early if the caller's context is already done — no point
+		// sleeping through a backoff we'll abort anyway.
+		if ctx.Err() != nil {
+			break
+		}
+		backoff := tofuInitBaseBackoff
+		for i := 1; i < attempt; i++ {
+			backoff *= tofuInitBackoffGrowth
+		}
+		emit("tofu-init", "warn", fmt.Sprintf(
+			"transient provider-install/network failure on tofu init (likely github release-asset CDN blip) — attempt %d/%d, retrying in %s: %v",
+			attempt, tofuInitMaxAttempts, backoff, err,
+		))
+		sleep(backoff)
+	}
+	return lastErr
+}
+
+// runTofuInitWithRetry wraps the real `tofu init` exec in retryTofuInit
+// so a short github/CDN outage at provider-download time no longer fails
+// the whole prov (#3126). Layer 2 of the #3126 fix; layer 1 is the
+// TF_PLUGIN_CACHE_DIR wired in runTofu (which means attempt 1 usually
+// needs ZERO github fetches once the cache is warm).
+func (p *Provisioner) runTofuInitWithRetry(ctx context.Context, deployDir string, emit func(string, string, string)) error {
+	return retryTofuInit(ctx, func() error {
+		return p.runTofu(ctx, deployDir, []string{"init", "-input=false", "-no-color"}, emit)
+	}, time.Sleep, emit)
+}
+
 // runTofu executes `tofu <args>` in deployDir, streaming stdout/stderr lines
 // as Events to the wizard.
 func (p *Provisioner) runTofu(ctx context.Context, deployDir string, args []string, emit func(string, string, string)) error {
@@ -1868,6 +2010,23 @@ func (p *Provisioner) runTofu(ctx context.Context, deployDir string, args []stri
 		"TF_INPUT=false",
 		"TF_IN_AUTOMATION=true",
 	)
+	// #3126 — point OpenTofu at the shared, persistent provider plugin
+	// cache so providers are fetched from github release-assets ONCE and
+	// reused on every subsequent prov (the per-deployment workdir is
+	// fresh each time, so without this every prov cold-downloads every
+	// provider and a transient github/CDN 504 fails the whole apply at
+	// init). MkdirAll is idempotent + cheap; OpenTofu refuses to use a
+	// non-existent TF_PLUGIN_CACHE_DIR (it errors rather than creating
+	// it), so we must create it ourselves. On MkdirAll failure we log +
+	// continue WITHOUT the cache var (degrade to per-workdir download —
+	// the pre-#3126 behaviour) rather than failing the prov outright.
+	if cacheDir := strings.TrimSpace(p.TofuPluginCacheDir); cacheDir != "" {
+		if err := os.MkdirAll(cacheDir, 0o700); err != nil {
+			emit("tofu-init", "warn", fmt.Sprintf("provider plugin cache dir %q unavailable (%v) — falling back to per-workdir provider download", cacheDir, err))
+		} else {
+			cmd.Env = append(cmd.Env, "TF_PLUGIN_CACHE_DIR="+cacheDir)
+		}
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
