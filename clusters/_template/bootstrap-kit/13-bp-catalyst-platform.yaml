@@ -969,7 +969,7 @@ spec:
       # and are reused on every later prov, surviving a transient CDN 504 at
       # tofu-init; paired with a Go-side bounded retry on `tofu init`.
       # Refs #3126.
-      version: 1.4.523
+      version: 1.4.524
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
