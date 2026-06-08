@@ -1191,32 +1191,22 @@ spec:
             # wiring; see its #3122 note.)
             - name: CATALYST_GITOPS_USER
               value: "gitea_admin"
-            {{- if .Values.global.sovereignFQDN }}
-            # Sovereign: push tenant gitops to the LOCAL Gitea using the
-            # working Gitea PAT (#3122). Repo + branch match the
-            # openova-sme-tenants Flux GitRepository this chart renders.
+            # #3122 — Sovereign pushes tenant gitops to the LOCAL Gitea (matching the
+            # openova-sme-tenants Flux GitRepository); mothership keeps the github default.
+            # Inline-templated + QUOTED (NOT a standalone if/else block directive) so the
+            # raw template stays kubectl-parseable for tests/integration/strategy-flip.sh,
+            # which applies this file UNRENDERED. Empty REPO_URL/BRANCH on the mothership
+            # → loadGitOpsConfig() falls back to github.com/openova-io/openova @ main.
             - name: CATALYST_GITOPS_REPO_URL
-              value: "http://gitea-http.gitea.svc.cluster.local:3000/openova/openova"
+              value: "{{ if .Values.global.sovereignFQDN }}http://gitea-http.gitea.svc.cluster.local:3000/openova/openova{{ end }}"
             - name: CATALYST_GITOPS_BRANCH
-              value: "sme-tenants"
+              value: "{{ if .Values.global.sovereignFQDN }}sme-tenants{{ end }}"
             - name: CATALYST_GITOPS_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: catalyst-gitea-token
-                  key: token
+                  name: "{{ if .Values.global.sovereignFQDN }}catalyst-gitea-token{{ else }}provisioning-github-token{{ end }}"
+                  key: "{{ if .Values.global.sovereignFQDN }}token{{ else }}GITHUB_TOKEN{{ end }}"
                   optional: true
-            {{- else }}
-            # Mothership / Catalyst-Zero (contabo): keep the legacy GitHub-PAT
-            # wiring. RepoURL + Branch unset → loadGitOpsConfig() defaults to
-            # github.com/openova-io/openova @ main; the hand-rolled
-            # provisioning-github-token SealedSecret carries the real PAT.
-            - name: CATALYST_GITOPS_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: provisioning-github-token
-                  key: GITHUB_TOKEN
-                  optional: true
-            {{- end }}
             # POOL_DOMAIN_MANAGER_URL — base URL of the central Pool Domain
             # Manager (PDM) ingress on Catalyst-Zero (contabo). Sovereign-
             # side catalyst-api calls PDM's /api/v1/registrar/{r}/set-ns
