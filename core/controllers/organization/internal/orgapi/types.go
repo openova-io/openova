@@ -223,12 +223,36 @@ type OrganizationClientSecretRefSpec struct {
 
 // OrganizationStatus is the controller-managed reconciliation summary.
 type OrganizationStatus struct {
-	VCluster           VClusterStatus       `json:"vcluster,omitempty"`
-	KeycloakGroup      KeycloakGroupStatus  `json:"keycloakGroup,omitempty"`
-	GiteaOrg           GiteaOrgStatus       `json:"giteaOrg,omitempty"`
-	IacBootstrap       IacBootstrapStatus   `json:"iacBootstrap,omitempty"`
-	Conditions         []Condition          `json:"conditions,omitempty"`
-	ObservedGeneration int64                `json:"observedGeneration,omitempty"`
+	VCluster           VClusterStatus      `json:"vcluster,omitempty"`
+	KeycloakGroup      KeycloakGroupStatus `json:"keycloakGroup,omitempty"`
+	PerOrgRealm        PerOrgRealmStatus   `json:"perOrgRealm,omitempty"`
+	GiteaOrg           GiteaOrgStatus      `json:"giteaOrg,omitempty"`
+	IacBootstrap       IacBootstrapStatus  `json:"iacBootstrap,omitempty"`
+	Conditions         []Condition         `json:"conditions,omitempty"`
+	ObservedGeneration int64               `json:"observedGeneration,omitempty"`
+}
+
+// PerOrgRealmStatus surfaces the per-Org Keycloak realm provisioning
+// state (#3084 Part 2). The organization-controller find-or-creates a
+// realm named after the Org slug so Tier-3 per-Org SSO has an isolation
+// boundary distinct from the Sovereign realm (where the Keycloak GROUP
+// lives — see KeycloakGroupStatus). The controller transitions Ready on
+// a successful EnsureRealm, Failed on a hard error (with `lastError`
+// populated + a controller-runtime requeue), or Disabled when the
+// per-Org-realm feature flag is off.
+//
+// The `realmName` equals the Org slug on success — surfaced so the
+// operator console can deep-link to `auth.<sov>/admin/<realmName>/console`.
+type PerOrgRealmStatus struct {
+	// RealmName is the provisioned realm name (== spec.slug on success).
+	RealmName string `json:"realmName,omitempty"`
+
+	// State is one of Ready | Failed | Disabled.
+	State string `json:"state,omitempty"`
+
+	// LastError carries the most recent failure message when State=Failed.
+	// Truncated to 1024 chars to keep the CR under the etcd cap.
+	LastError string `json:"lastError,omitempty"`
 }
 
 // IacBootstrapStatus surfaces the per-Org IaC repo bootstrap state

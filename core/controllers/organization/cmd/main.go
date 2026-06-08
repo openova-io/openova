@@ -67,6 +67,14 @@ func main() {
 	giteaURL := mustEnv("CATALYST_GITEA_URL", log)
 	giteaToken := mustEnv("CATALYST_GITEA_TOKEN", log)
 
+	// #3084 Part 2 — per-Org Keycloak realm auto-wiring. Defaults to
+	// DISABLED (opt-in) — this path is FATAL-on-failure on the Org-creation
+	// (Pillar-1 onboarding) path, so a KC-admin-API hiccup would break Org
+	// creation. It ships dormant; an operator enables it by setting
+	// CATALYST_PER_ORG_REALM_ENABLED=true AFTER validating on a live
+	// Sovereign (hw101 + a tenant Org). See PR #3101 merge-readiness review.
+	perOrgRealmEnabled := envBoolDefaultFalse("CATALYST_PER_ORG_REALM_ENABLED")
+
 	hostCluster := mustEnv("CATALYST_HOST_CLUSTER", log)
 	chartVer := envOr("CATALYST_VCLUSTER_CHART_VERSION", "0.33.*")
 	helmRepoName := envOr("CATALYST_VCLUSTER_HELMREPO_NAME", "loft")
@@ -139,6 +147,7 @@ func main() {
 		Client:                    mgr.GetClient(),
 		Log:                       log.WithName("reconciler"),
 		Keycloak:                  controller.NewLiveKeycloak(kcAddr, kcRealm, kcSAID, kcSASecret),
+		PerOrgRealmEnabled:        perOrgRealmEnabled,
 		GiteaClient:               giteaClient,
 		HostCluster:               hostCluster,
 		VClusterChartVersion:      chartVer,
@@ -237,4 +246,19 @@ func envOr(key, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+// envBoolDefaultFalse reads a boolean env var that defaults to FALSE when
+// unset/empty (opt-in). Only the explicit strings "true"/"1"/"yes"/"on"
+// (case-insensitive) enable it — every other value (including unset)
+// is false. Modeled to avoid the Sprig-style false-is-empty trap
+// (memory feedback_sprig_default_bool_unsafe.md): we branch on the
+// enable-tokens, NOT on emptiness, so a missing var correctly stays off.
+func envBoolDefaultFalse(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "true", "1", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }

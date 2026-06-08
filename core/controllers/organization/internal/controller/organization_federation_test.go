@@ -126,8 +126,10 @@ func TestReconcile_Federation_AzureSSO_HappyPath(t *testing.T) {
 	// G117.3 W2.C3 (#2742) added the IacRepoBootstrapped condition —
 	// rendered as Status=False / Reason=BootstrapDisabled in unit tests
 	// where the iac-bootstrap deps are not wired into the Reconciler.
-	if len(got.Status.Conditions) != 4 {
-		t.Fatalf("expected 4 conditions, got %d: %+v",
+	// #3084 Part 2 added the PerOrgRealmProvisioned condition (Disabled
+	// in unit tests where PerOrgRealmEnabled is not opted in).
+	if len(got.Status.Conditions) != 5 {
+		t.Fatalf("expected 5 conditions, got %d: %+v",
 			len(got.Status.Conditions), got.Status.Conditions)
 	}
 	if got.Status.Conditions[1].Type != "IdentityProviderConfigured" ||

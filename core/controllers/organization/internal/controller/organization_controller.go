@@ -83,6 +83,16 @@ type Reconciler struct {
 	// Keycloak is the Keycloak Admin client (interface for testability).
 	Keycloak KeycloakClient
 
+	// PerOrgRealmEnabled gates the per-Org Keycloak realm auto-wiring
+	// (#3084 Part 2). When true, Reconcile find-or-creates a realm named
+	// after the Org slug (alongside the always-on Sovereign-realm group)
+	// and the finalizer tears it down on Org delete. Defaults to true in
+	// production (cmd/main.go reads CATALYST_PER_ORG_REALM_ENABLED, which
+	// is unset == enabled, consistent with the always-on group path); the
+	// unit-test Reconciler leaves it false unless a test opts in. When
+	// false the controller surfaces status.perOrgRealm.state=Disabled.
+	PerOrgRealmEnabled bool
+
 	// GiteaClient is the Gitea Admin client.
 	GiteaClient *gitea.Client
 
@@ -179,6 +189,24 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 				if uerr := r.Update(ctx, &org); uerr != nil {
 					return ctrl.Result{}, fmt.Errorf("remove finalizer: %w", uerr)
 				}
+				// Update changed resourceVersion; requeue so the next
+				// reconcile operates on the latest copy before dropping
+				// the per-Org-realm finalizer.
+				return ctrl.Result{Requeue: true}, nil
+			}
+		}
+		// Per-Org realm teardown (#3084 Part 2): delete the realm AFTER
+		// the iac-bootstrap teardown so the auth boundary is the last
+		// artifact removed. DeleteRealm is absent-as-success.
+		if containsFinalizer(org.Finalizers, PerOrgRealmFinalizer) {
+			if err := r.teardownPerOrgRealm(ctx, &org); err != nil {
+				log.Error(err, "per-org-realm teardown")
+				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+			}
+			if removePerOrgRealmFinalizer(&org) {
+				if uerr := r.Update(ctx, &org); uerr != nil {
+					return ctrl.Result{}, fmt.Errorf("remove per-org-realm finalizer: %w", uerr)
+				}
 			}
 		}
 		return ctrl.Result{}, nil
@@ -209,7 +237,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 	}
 
-	// 1. Keycloak group.
+	// Add the per-Org-realm finalizer on first observation (when the
+	// feature is enabled) so a subsequent delete triggers DeleteRealm
+	// (#3084 Part 2). Same requeue-after-add pattern as iac-bootstrap.
+	if r.PerOrgRealmEnabled {
+		if ensurePerOrgRealmFinalizer(&org) {
+			if err := r.Update(ctx, &org); err != nil {
+				return ctrl.Result{}, fmt.Errorf("add per-org-realm finalizer: %w", err)
+			}
+			return ctrl.Result{Requeue: true}, nil
+		}
+	}
+
+	// 1. Keycloak group (in the Sovereign realm).
 	kcAttrs := map[string][]string{
 		"org":  {org.Spec.Slug},
 		"tier": {org.Spec.Tier},
@@ -217,6 +257,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	kcID, kcPath, kcRealm, err := r.Keycloak.EnsureGroup(ctx, "/"+org.Spec.Slug, kcAttrs)
 	if err != nil {
 		return r.fail(ctx, &org, "KeycloakGroupFailed", err.Error())
+	}
+
+	// 1b. Per-Org Keycloak realm (#3084 Part 2). Find-or-create a realm
+	// named after the Org slug so Tier-3 per-Org SSO has its own
+	// isolation boundary (distinct from the Sovereign-realm group above).
+	// The realm is auth-critical — a hard failure fails the whole
+	// reconcile so it requeues (unlike iac-bootstrap which is non-fatal).
+	// When the feature flag is off this returns State=Disabled / ok=true.
+	realmStatus, realmOK := r.reconcilePerOrgRealm(ctx, &org)
+	if !realmOK {
+		return r.fail(ctx, &org, "PerOrgRealmFailed", realmStatus.LastError)
 	}
 
 	// 2. Gitea Org.
@@ -328,6 +379,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			Path:  kcPath,
 			Realm: kcRealm,
 		},
+		PerOrgRealm: realmStatus,
 		GiteaOrg: orgapi.GiteaOrgStatus{
 			Name:  gOrg.Username,
 			Repos: []string{repoName},
@@ -344,6 +396,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			idpCond,
 			mappersCond,
 			iacBootstrapCondition(iacStatus),
+			perOrgRealmCondition(realmStatus),
 		},
 		ObservedGeneration: org.Generation,
 	}

@@ -53,6 +53,22 @@ type KeycloakClient interface {
 	// attributes. Returns (uuid, path, error).
 	EnsureGroup(ctx context.Context, path string, attrs map[string][]string) (uuid string, kcPath string, realm string, err error)
 
+	// EnsureRealm find-or-creates a per-Org realm named after the Org
+	// slug (#3084 Part 2). Returns the realm name (== slug on success).
+	// Idempotent: a pre-existing realm short-circuits the create. The
+	// realm is created `enabled: true` with displayName set to the Org
+	// slug; per-Org IdP federation + app clients land on later
+	// reconciles (the sso-bridge reconciler / EnsureIdentityProvider
+	// path), not here — this method only guarantees the realm EXISTS so
+	// downstream wiring has a target.
+	EnsureRealm(ctx context.Context, slug string) (realmName string, err error)
+
+	// DeleteRealm removes the per-Org realm by name (== slug). The
+	// reconciler calls this from the finalizer teardown when the
+	// Organization is being deleted. Absent-as-success is the contract
+	// (a 404 returns nil), mirroring DeleteIdentityProvider.
+	DeleteRealm(ctx context.Context, slug string) error
+
 	// EnsureIdentityProvider find-or-creates a realm IdP, replacing
 	// the representation when drift is detected. Idempotent on
 	// re-runs of equal desired state.
@@ -218,6 +234,150 @@ func (k *LiveKeycloak) EnsureGroup(ctx context.Context, path string, attrs map[s
 		return uuid, path, k.realm, nil
 	}
 	return created.ID, created.Path, k.realm, nil
+}
+
+// ── Per-Org realm CRUD (#3084 Part 2) ────────────────────────────────
+//
+// EnsureRealm mirrors EnsureGroup's idempotency exactly: GET the realm,
+// short-circuit if it exists, otherwise POST and treat a 409 as
+// already-exists (re-GET to confirm). The realm name IS the Org slug —
+// there is no separate UUID handle the way groups have, so the return is
+// just the slug on success.
+
+// errRealmAlreadyExists is the internal sentinel for the EnsureRealm
+// 409 race path (mirrors errGroupAlreadyExists).
+var errRealmAlreadyExists = errors.New("keycloak: realm already exists")
+
+// kcRealm is the slice of RealmRepresentation fields we set on create.
+// Keycloak ignores unknown keys on import, so this minimal shape is
+// sufficient to materialize the realm; per-Org IdP + clients are layered
+// on later by other reconcile paths.
+type kcRealm struct {
+	Realm       string `json:"realm"`
+	DisplayName string `json:"displayName,omitempty"`
+	Enabled     bool   `json:"enabled"`
+}
+
+// EnsureRealm find-or-creates the per-Org realm named after the slug.
+func (k *LiveKeycloak) EnsureRealm(ctx context.Context, slug string) (string, error) {
+	if slug == "" {
+		return "", errors.New("keycloak.EnsureRealm: empty slug")
+	}
+	tok, err := k.serviceAccountToken(ctx)
+	if err != nil {
+		return "", fmt.Errorf("keycloak.EnsureRealm: %w", err)
+	}
+
+	exists, err := k.findRealm(ctx, tok, slug)
+	if err != nil {
+		return "", fmt.Errorf("keycloak.EnsureRealm: find: %w", err)
+	}
+	if exists {
+		return slug, nil
+	}
+
+	cerr := k.createRealm(ctx, tok, kcRealm{Realm: slug, DisplayName: slug, Enabled: true})
+	if errors.Is(cerr, errRealmAlreadyExists) {
+		again, ferr := k.findRealm(ctx, tok, slug)
+		if ferr != nil {
+			return "", fmt.Errorf("keycloak.EnsureRealm: re-find after 409: %w", ferr)
+		}
+		if !again {
+			return "", errors.New("keycloak.EnsureRealm: 409 but realm-resolve empty")
+		}
+		return slug, nil
+	}
+	if cerr != nil {
+		return "", fmt.Errorf("keycloak.EnsureRealm: create: %w", cerr)
+	}
+	return slug, nil
+}
+
+// DeleteRealm removes the per-Org realm by name. Returns nil on 204, also
+// nil on 404 (absent-as-success — finalizer teardown contract, mirrors
+// DeleteIdentityProvider).
+func (k *LiveKeycloak) DeleteRealm(ctx context.Context, slug string) error {
+	if slug == "" {
+		return errors.New("keycloak.DeleteRealm: empty slug")
+	}
+	tok, err := k.serviceAccountToken(ctx)
+	if err != nil {
+		return fmt.Errorf("keycloak.DeleteRealm: %w", err)
+	}
+	u := fmt.Sprintf("%s/admin/realms/%s", k.addr, url.PathEscape(slug))
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := k.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("keycloak: DELETE realm: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	switch resp.StatusCode {
+	case http.StatusNoContent, http.StatusOK, http.StatusNotFound:
+		return nil
+	default:
+		return fmt.Errorf("keycloak: DELETE realm %d: %s", resp.StatusCode, respBody)
+	}
+}
+
+// findRealm reports whether the named realm exists. A 200 → true, a 404
+// → false; anything else is an error. The realm-info endpoint
+// (/admin/realms/{realm}) is the canonical existence probe.
+func (k *LiveKeycloak) findRealm(ctx context.Context, tok, slug string) (bool, error) {
+	u := fmt.Sprintf("%s/admin/realms/%s", k.addr, url.PathEscape(slug))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := k.http.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("keycloak: GET realm: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		return false, fmt.Errorf("keycloak: GET realm %d: %s", resp.StatusCode, body)
+	}
+}
+
+// createRealm POSTs a new realm. Returns errRealmAlreadyExists on 409 so
+// the EnsureRealm caller can re-resolve (mirrors createGroup).
+func (k *LiveKeycloak) createRealm(ctx context.Context, tok string, realm kcRealm) error {
+	body, err := json.Marshal(realm)
+	if err != nil {
+		return err
+	}
+	u := fmt.Sprintf("%s/admin/realms", k.addr)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := k.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("keycloak: POST realm: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	switch resp.StatusCode {
+	case http.StatusCreated, http.StatusNoContent, http.StatusOK:
+		return nil
+	case http.StatusConflict:
+		return errRealmAlreadyExists
+	default:
+		return fmt.Errorf("keycloak: POST realm %d: %s", resp.StatusCode, respBody)
+	}
 }
 
 func (k *LiveKeycloak) findGroupByPath(ctx context.Context, tok, path string) (kcGroup, error) {

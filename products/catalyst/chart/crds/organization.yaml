@@ -334,6 +334,37 @@ spec:
                     realm:
                       type: string
                   x-kubernetes-preserve-unknown-fields: true
+                perOrgRealm:
+                  type: object
+                  description: |
+                    Per-Organization Keycloak realm provisioning state
+                    (#3084 Part 2). Distinct from keycloakGroup above:
+                    keycloakGroup is a GROUP inside the shared Sovereign
+                    realm, whereas perOrgRealm is a dedicated realm NAMED
+                    after the Org slug, giving Tier-3 per-Org SSO its own
+                    isolation boundary (own broker IdP + app clients). The
+                    organization-controller find-or-creates the realm via
+                    the Keycloak admin API on Org provisioning and tears it
+                    down (DELETE /admin/realms/<slug>) on Org delete via the
+                    `orgs.openova.io/per-org-realm` finalizer.
+                  properties:
+                    realmName:
+                      type: string
+                      description: Provisioned realm name (== spec.slug on success).
+                    state:
+                      type: string
+                      enum:
+                        - Ready
+                        - Failed
+                        - Disabled
+                      description: |
+                        State machine. Disabled means the per-Org-realm
+                        feature flag (CATALYST_PER_ORG_REALM_ENABLED) is off
+                        for this controller deployment.
+                    lastError:
+                      type: string
+                      description: Most recent failure message when state=Failed.
+                  x-kubernetes-preserve-unknown-fields: true
                 giteaOrg:
                   type: object
                   description: |
