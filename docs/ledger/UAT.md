@@ -14,9 +14,9 @@
 |---|---|---|---|---|---|---|
 | **Pillar 1 — Marketplace + voucher onboarding → Organization** |||||||
 | TC-01 | Marketplace storefront | `marketplace.hw101.<dom>/` | Open the storefront | "Build your tenant" renders, non-empty, branded | ✅ | **WALKED 2026-06-08**: `marketplace.hw101.omantel.biz/` renders "Build your cloud tenant in under 5 minutes" — branded, Get Started CTA, plan->app->domain->launch flow. |
-| TC-02 | Operator issues voucher | `console.hw101.<dom>/bss/vouchers` | Operator: +Issue voucher → code+credit → submit | Voucher appears in the table, active | ☐ | — |
+| TC-02 | Operator issues voucher | `console.hw101.<dom>/bss/vouchers` | Operator: +Issue voucher → code+credit → submit | Voucher appears in the table, active | ✅ | **WALKED 2026-06-08**: `/bss/vouchers` → Issue-voucher modal (Code/Credit/Description/Max-redemptions/Recipient fields) → created `WALK101OMR` 50 OMR; appears Active in the table. |
 | TC-03 | Voucher email | recipient inbox | Open the voucher email | Delivered via the **Sovereign's own SMTP** with the redeem link | ☐ | — |
-| TC-04 | Redeem voucher | `marketplace.hw101.<dom>/redeem?code=…` | Open the redeem link | "Voucher valid" + OMR credit; a garbage code → "not valid" | ☐ | — |
+| TC-04 | Redeem voucher | `marketplace.hw101.<dom>/redeem?code=…` | Open the redeem link | "Voucher valid" + OMR credit; a garbage code → "not valid" | ✅ | **WALKED 2026-06-08**: `/redeem?code=WALK101OMR` → "VOUCHER VALID — 50 OMR credit — applied to your first Organization"; valid code resolves (garbage-code negative case still pending). |
 | TC-05 | Pick plan | `…/plans` | Pick a plan card | Advances to app picker | ✅ | **WALKED 2026-06-08**: `/plans/` renders plan cards — S (OMR 5/mo, 2vCPU/4GB), M (OMR 9/mo, 4vCPU/8GB, POPULAR/Selected), L (OMR 16/mo, 8vCPU/16GB) with SSO/SLA columns; selecting advances to the app picker. |
 | TC-06 | Pick apps | `…/apps` | Select a Postgres-backed app | Advances to setup/extras | ✅ | **WALKED 2026-06-08**: `/apps/` renders "Build your stack — every app is FREE"; industry templates (Restaurant/Retail/Legal/Healthcare/Finance...) + categories (analytics/cms/database/devtools/forms/invoicing/knowledge-base). |
 | TC-07 | Choose subdomain | `…/addons` | Type a valid subdomain | Pool picker offers a free domain; subdomain accepted | ☐ | — |
