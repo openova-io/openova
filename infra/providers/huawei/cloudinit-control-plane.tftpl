@@ -935,7 +935,7 @@ runcmd:
     # github, blowing the 15min kubeconfigArrivalTimeout so the kubeconfig PUT (~1348)
     # landed too late -> Phase-1 'did not PUT'. Cap the TOTAL seed at 120s + `timeout 20`
     # each apply; the kubeconfig PUT MUST win. Deferred CRDs are re-applied by Flux.
-    GW_CRD_DEADLINE=$$(( $$(date +%s) + 120 ))
+    _gwnow=$$(date +%s); GW_CRD_DEADLINE=$$(( _gwnow + 120 ))
     for crd in gatewayclasses gateways httproutes grpcroutes referencegrants; do
       for attempt in 1 2 3 4 5; do
         [ $$(date +%s) -ge $$GW_CRD_DEADLINE ] && { echo "G65: 120s gateway-CRD deadline hit; deferring to Flux (protects kubeconfig PUT, #3129)"; break 2; }
@@ -1140,7 +1140,7 @@ runcmd:
     # Standard channel CRDs (Wave 5.19 + retry hardening from Wave 5.28).
     # #3129 FIX: cap the TOTAL of this 2nd CRD section at 180s (deferred CRDs are
     # re-applied by Flux) so it cannot push the kubeconfig PUT past the 15min budget.
-    GW_CRD_DEADLINE2=$$(( $$(date +%s) + 180 ))
+    _gwnow2=$$(date +%s); GW_CRD_DEADLINE2=$$(( _gwnow2 + 180 ))
     for crd in gatewayclasses gateways httproutes grpcroutes referencegrants; do
       for attempt in 1 2 3 4 5; do
         [ $$(date +%s) -ge $$GW_CRD_DEADLINE2 ] && { echo "G65: 180s CRD-section deadline hit; deferring to Flux (#3129)"; break 2; }
