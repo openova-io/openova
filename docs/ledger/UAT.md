@@ -20,7 +20,7 @@
 | TC-05 | Pick plan | `…/plans` | Pick a plan card | Advances to app picker | ✅ | **WALKED 2026-06-08**: `/plans/` renders plan cards — S (OMR 5/mo, 2vCPU/4GB), M (OMR 9/mo, 4vCPU/8GB, POPULAR/Selected), L (OMR 16/mo, 8vCPU/16GB) with SSO/SLA columns; selecting advances to the app picker. |
 | TC-06 | Pick apps | `…/apps` | Select a Postgres-backed app | Advances to setup/extras | ✅ | **WALKED 2026-06-08**: `/apps/` renders "Build your stack — every app is FREE"; industry templates (Restaurant/Retail/Legal/Healthcare/Finance...) + categories (analytics/cms/database/devtools/forms/invoicing/knowledge-base). |
 | TC-07 | Choose subdomain | `…/addons` | Type a valid subdomain | Pool picker offers a free domain; subdomain accepted | ☐ | — |
-| TC-08 | Checkout (credit-only) | `…/checkout` | Sign in (email→PIN), confirm | Voucher **credit applied**, no card required; "Setting up your tenant" | ☐ | — |
+| TC-08 | Checkout (credit-only) | `…/checkout` | Sign in (email→PIN), confirm | Voucher **credit applied**, no card required; "Setting up your tenant" | ◑ | **PARTIAL 2026-06-08**: reached `/checkout/` — "Sign in to complete your order"; email entered → "A 6-digit code was sent to emrah.baysal@openova.io" (sme/auth `/auth/magic-link` 200). Code correctly NOT logged (security); sign-in → Org-creation needs the emailed PIN. Voucher credit applies post-Org. |
 | TC-09 | Organization created | "Your tenant is ready" | Follow the tenant link | Lands on `console.<orgslug>.<pool>` — real dashboard, not an error | ☐ | — |
 | TC-10 | Tenant first login | tenant console | Customer PIN-login | Dashboard renders (Phase 2a) | ☐ | — |
 | **Pillar 2 — Multi-region BCP topology chosen at signup** |||||||
