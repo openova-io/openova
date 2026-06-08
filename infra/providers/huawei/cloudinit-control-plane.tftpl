@@ -767,6 +767,32 @@ runcmd:
   - ["bash", "-c", "iptables -t nat -A OUTPUT -p tcp -d 127.0.0.0/8 -j RETURN || true"]
   - ["bash", "-c", "mkdir -p /etc/iptables && iptables-save > /etc/iptables/rules.v4 2>/dev/null || true"]
 
+  # #3132 — push /var/log/cloud-init-output.log to catalyst-api on a loop so a
+  # Phase-1 cloud-init failure is DIAGNOSABLE. kom4dc control-planes have no ECS
+  # console-output API and no reachable sshd (verified live hw106), so the log
+  # can only be PUSHED, never pulled. Backgrounded HERE (early — before the
+  # k3s/cilium/flux/github steps) so it keeps uploading even if a later step
+  # aborts cloud-init before the kubeconfig PUT. Reuses the kubeconfig PUT-back
+  # callback vars; /cloudinit-log is idempotent-overwrite (not single-use like
+  # the kubeconfig PUT) so the latest snapshot always wins. This is the founder's
+  # mechanical capture-before-wipe guard: the log survives the wipe.
+  - |
+    if [ -n "${deployment_id}" ] && [ -n "${kubeconfig_bearer_token}" ] && [ -n "${catalyst_api_url}" ]; then
+      nohup bash -c '
+        n=0
+        while [ $n -lt 40 ]; do
+          curl -sk -X PUT \
+            -H "Authorization: Bearer ${kubeconfig_bearer_token}" \
+            -H "Content-Type: text/plain" \
+            --data-binary @/var/log/cloud-init-output.log \
+            --max-time 20 \
+            "${catalyst_api_url}/api/v1/deployments/${deployment_id}/cloudinit-log" >/dev/null 2>&1 || true
+          n=$((n+1))
+          sleep 30
+        done
+      ' >/dev/null 2>&1 &
+    fi
+
 %{ if enable_fail2ban ~}
   - ["bash", "-c", "systemctl enable --now fail2ban || true"]
 %{ endif ~}
