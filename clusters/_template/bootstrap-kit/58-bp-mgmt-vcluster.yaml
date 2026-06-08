@@ -70,7 +70,9 @@ spec:
   chart:
     spec:
       chart: bp-mgmt-vcluster
-      version: 0.2.5
+      # 0.2.6 (#2940 Pillar 5): registry host driven by global.registryMirror
+      # + the ${REGISTRY_MIRROR:=harbor.openova.io} subchart substitution above.
+      version: 0.2.6
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster
@@ -100,6 +102,13 @@ spec:
   # `values.mgmtVcluster.enabled: true` only on the primary CP's
   # cloud-init).
   values:
+    # #2940 Pillar 5 anti-tether: single source of truth for the registry
+    # host the umbrella's image fail-fast guard composes. Default
+    # `harbor.openova.io` (mothership Harbor proxy-cache); a per-Sovereign
+    # overlay (or the bp-self-sovereign-cutover Step-04 registry pivot,
+    # ADR-0002) re-points to the Sovereign's OWN Harbor in one place.
+    global:
+      registryMirror: ${REGISTRY_MIRROR:=harbor.openova.io}
     mgmtVcluster:
       # Refs #2537 G9 (2026-05-28): drop the MGMT_VCLUSTER_ENABLED
       # substitute. The "follow-up PR to wire the substitute on primary
@@ -123,6 +132,14 @@ spec:
     vcluster:
       controlPlane:
         statefulSet:
+          # #2940 Pillar 5: the ACTUAL vCluster syncer image registry.
+          # The subchart values literal can't self-template off
+          # global.registryMirror, so the single overlay knob lives HERE —
+          # `${REGISTRY_MIRROR:=harbor.openova.io}` keeps the bootstrap pull
+          # on the mothership Harbor and lets a per-Sovereign overlay (or
+          # the cutover Step-04 pivot) flip it to harbor.<sovereign-fqdn>.
+          image:
+            registry: ${REGISTRY_MIRROR:=harbor.openova.io}
           scheduling:
             nodeSelector:
               openova.io/region: ${SOVEREIGN_REGION_CANONICAL_LABEL}

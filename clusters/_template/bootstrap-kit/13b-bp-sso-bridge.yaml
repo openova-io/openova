@@ -76,6 +76,10 @@ spec:
   chart:
     spec:
       chart: bp-sso-bridge
+      # 0.2.15 (#2940 Pillar 5 anti-tether, 2026-06-08): reconciler image
+      # registry host now driven by global.registryMirror (single source
+      # of truth) — see the values.global.registryMirror overlay below.
+      # Default render unchanged (harbor.openova.io). Refs #2940.
       # 0.2.8 (G117.5-followup #2914, 2026-06-03): dual-token KC mint —
       # adds master-realm token via grant_type=password against
       # /realms/master/...token using bitnami-generated admin user creds
@@ -116,7 +120,7 @@ spec:
       # 0.1.1 (G91-fu, Refs #2659, edc55c08 PR #2676): adds realm-role
       # grant + skipClientUpsert opt-out for charts whose Keycloak Client
       # is realm-imported at bp-keycloak install time (catalyst-ui etc.).
-      version: 0.2.14
+      version: 0.2.15
       sourceRef:
         kind: HelmRepository
         name: bp-sso-bridge
@@ -128,6 +132,15 @@ spec:
   # chart-value fallback breaks that residual cycle; the CM (with
   # orgEmail) still wins once it exists.
   values:
+    # #2940 Pillar 5 anti-tether: the reconciler image's registry host.
+    # Default `harbor.openova.io` (the mothership Harbor proxy-cache) keeps
+    # the bootstrap pull working out-of-the-box; the
+    # `${REGISTRY_MIRROR:=harbor.openova.io}` substitution lets a
+    # per-Sovereign overlay (or the bp-self-sovereign-cutover Step-04
+    # registry pivot, ADR-0002) re-point the host to the Sovereign's OWN
+    # Harbor in one place without editing the chart.
+    global:
+      registryMirror: ${REGISTRY_MIRROR:=harbor.openova.io}
     sovereign:
       fqdn: ${SOVEREIGN_FQDN}
   install:

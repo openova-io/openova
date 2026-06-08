@@ -42,7 +42,10 @@ spec:
         {{- toYaml .Values.securityContext | nindent 8 }}
       containers:
         - name: reconciler
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          # #2940 Pillar 5: registry host is composed from
+          # global.registryMirror (single source of truth) by the
+          # bp-sso-bridge.image helper — no hardcoded harbor.openova.io.
+          image: "{{ include "bp-sso-bridge.image" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           # G109 #2705: container-level securityContext is mandatory under
           # PodSecurity restricted (Pod-level alone doesn't satisfy

@@ -63,7 +63,9 @@ spec:
   chart:
     spec:
       chart: bp-dmz-vcluster
-      version: 0.2.4
+      # 0.2.5 (#2940 Pillar 5): registry host driven by global.registryMirror
+      # + the ${REGISTRY_MIRROR:=harbor.openova.io} subchart substitution below.
+      version: 0.2.5
       sourceRef:
         kind: HelmRepository
         name: bp-dmz-vcluster
@@ -83,6 +85,12 @@ spec:
   # dmzVcluster.enabled — DMZ runs on every region by design (DoD A4).
   # Default-ON to deliver the topology contract on day-one.
   values:
+    # #2940 Pillar 5 anti-tether — single source of truth for the registry
+    # host the umbrella image guard composes. `${REGISTRY_MIRROR:=harbor.openova.io}`
+    # keeps bootstrap on the mothership Harbor; a per-Sovereign overlay (or
+    # the bp-self-sovereign-cutover Step-04 pivot) flips it in one place.
+    global:
+      registryMirror: ${REGISTRY_MIRROR:=harbor.openova.io}
     dmzVcluster:
       enabled: true
       hostNamespace: dmz
@@ -102,6 +110,10 @@ spec:
     vcluster:
       controlPlane:
         statefulSet:
+          # #2940 Pillar 5: the ACTUAL syncer image registry — single
+          # overlay knob for the subchart literal (can't self-template).
+          image:
+            registry: ${REGISTRY_MIRROR:=harbor.openova.io}
           scheduling:
             nodeSelector:
               openova.io/region: ${SOVEREIGN_REGION_CANONICAL_LABEL}

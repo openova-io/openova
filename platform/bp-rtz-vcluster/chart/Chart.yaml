@@ -20,7 +20,14 @@ name: bp-rtz-vcluster
 # RTZ vCluster hosts per-Org tenant Applications + Sandbox per DoD
 # §A4; both paths route CNPG provisioning through the host
 # cnpg-operator (G92.6 substrate per #2665) via this sync.
-version: 0.2.5
+# 0.2.6 — Refs #2940 (Pillar 5 anti-tether, 2026-06-08): registry host no
+# longer hardcoded `harbor.openova.io` as the sole source of truth. New
+# `global.registryMirror` drives the umbrella image helper;
+# `rtzVcluster.image.repository` is registry-relative; the subchart syncer
+# image registry is driven by slot 59's `${REGISTRY_MIRROR:=harbor.openova.io}`
+# substitution. Renamed the dead `global.imageRegistry`. Default render
+# byte-identical. Sibling to bp-mgmt-vcluster 0.2.6 + bp-dmz-vcluster 0.2.5.
+version: 0.2.6
 appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign RTZ
