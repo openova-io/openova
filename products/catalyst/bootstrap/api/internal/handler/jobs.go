@@ -149,21 +149,71 @@ func (h *Handler) chrootEnsureDeployment(depID string) *Deployment {
 }
 
 // chrootRegionsFromEnv parses SOVEREIGN_REGIONS_JSON (the canonical
-// regions list threaded in by bp-catalyst-platform). Returns empty
-// slice when unset or malformed — the caller falls back to the live-
-// Nodes path. The JSON shape matches the wizard's request.regions
-// array: [{provider, cloudRegion, controlPlaneSize, workerSize,
-// workerCount}, ...].
+// regions list threaded in by bp-catalyst-platform). The JSON shape
+// matches the wizard's request.regions array: [{provider, cloudRegion,
+// controlPlaneSize, workerSize, workerCount}, ...].
+//
+// Fallback (#3106): when SOVEREIGN_REGIONS_JSON is unset, empty, or an
+// empty JSON array, reconstruct the region list from the discrete
+// SOVEREIGN_PRIMARY_REGION / SOVEREIGN_REPLICA_REGION /
+// SOVEREIGN_ENABLE_HOT_STANDBY env vars (also threaded in by
+// bp-catalyst-platform from the sovereign-fqdn ConfigMap). On a
+// 2-region hot-standby Sovereign the per-Sovereign overlay reliably
+// populates primaryRegion + replicaRegion + enableHotStandby even when
+// the richer regionsJson list was never wired (caught live on hw101
+// e19b083c6db41bb0 2026-06-08: regionsJson=[] but primaryRegion=
+// hw-me-east-215-a-rtz-prod, replicaRegion=hw-me-east-215-b-rtz-prod,
+// enableHotStandby=true). Without this fallback buildTopology drops
+// into the single-cluster live-Nodes path and `/cloud?view=graph`
+// renders "Region 1/1" — only the in-cluster primary — despite the
+// substrate genuinely having both clusters. The reconstructed specs
+// carry only the region code; node/SKU detail still flows from the
+// live K8s SSE snapshot the graph merges on the UI side, so this is a
+// pure view-completeness fix (NOT cross-region provisioner
+// materialization).
 func chrootRegionsFromEnv() []provisioner.RegionSpec {
 	raw := strings.TrimSpace(os.Getenv("SOVEREIGN_REGIONS_JSON"))
-	if raw == "" {
+	if raw != "" {
+		var out []provisioner.RegionSpec
+		if err := json.Unmarshal([]byte(raw), &out); err == nil && len(out) > 0 {
+			return out
+		}
+	}
+	return chrootRegionsFromPrimaryReplicaEnv()
+}
+
+// chrootRegionsFromPrimaryReplicaEnv reconstructs the region list from
+// the discrete primary/replica region env vars. The primary region is
+// always emitted when SOVEREIGN_PRIMARY_REGION is set; the replica is
+// appended only when SOVEREIGN_ENABLE_HOT_STANDBY is truthy AND
+// SOVEREIGN_REPLICA_REGION is set and distinct from the primary.
+// Returns nil when no primary is known so the caller falls back to the
+// single-cluster live-Nodes path (legacy behaviour preserved).
+func chrootRegionsFromPrimaryReplicaEnv() []provisioner.RegionSpec {
+	primary := strings.TrimSpace(os.Getenv("SOVEREIGN_PRIMARY_REGION"))
+	if primary == "" {
 		return nil
 	}
-	var out []provisioner.RegionSpec
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
-		return nil
+	out := []provisioner.RegionSpec{{CloudRegion: primary}}
+
+	replica := strings.TrimSpace(os.Getenv("SOVEREIGN_REPLICA_REGION"))
+	if replica != "" && replica != primary && envTruthy("SOVEREIGN_ENABLE_HOT_STANDBY") {
+		out = append(out, provisioner.RegionSpec{CloudRegion: replica})
 	}
 	return out
+}
+
+// envTruthy reports whether the named env var holds a truthy value.
+// Accepts the canonical "true"/"1"/"yes"/"on" set (case-insensitive)
+// the chart stamps for boolean ConfigMap keys; everything else
+// (including unset and "false") is false.
+func envTruthy(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "true", "1", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // chrootSeedJobsStoreIfEmpty — when the chroot Sovereign-side
