@@ -1641,7 +1641,15 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 			// just created but NAT API hasn't propagated it yet. The time_sleep
 			// resource in main.tf guards the canonical path; this catch handles
 			// any residual race (e.g. concurrent apply, slow HCS cell).
-			strings.Contains(errStr, "VPC.2030")
+			strings.Contains(errStr, "VPC.2030") ||
+			// #3142 (hw110 2026-06-08): HuaweiCloud provider read-after-create
+			// flake — "Provider produced inconsistent result after apply ... root
+			// object was present, but now absent" on compute_instance.worker. The
+			// instance IS created; the provider's post-apply read flaked. A re-plan
+			// reads it back and the re-apply reconciles (no-op or minor update);
+			// existing ACTIVE workers are name-protected by lifecycle.ignore_changes.
+			// hw110 died here with NO retry because this string wasn't matched.
+			strings.Contains(errStr, "Provider produced inconsistent result after apply")
 		if attempt < maxApplyRetries && isTransient {
 			// Wave 5.145 — early-abort detection. Extract resource
 			// addresses from the error string ("with huaweicloud_...
