@@ -13,7 +13,7 @@
 | # | Test group | Tested page | Test case (what you do) | What you must see | Result | Evidence |
 |---|---|---|---|---|---|---|
 | **Pillar 1 — Marketplace + voucher onboarding → Organization** |||||||
-| TC-01 | Marketplace storefront | `marketplace.hw101.<dom>/` | Open the storefront | "Build your tenant" renders, non-empty, branded | ☐ | — |
+| TC-01 | Marketplace storefront | `marketplace.hw101.<dom>/` | Open the storefront | "Build your tenant" renders, non-empty, branded | ✅ | **WALKED 2026-06-08**: `marketplace.hw101.omantel.biz/` renders "Build your cloud tenant in under 5 minutes" — branded, Get Started CTA, plan->app->domain->launch flow. |
 | TC-02 | Operator issues voucher | `console.hw101.<dom>/bss/vouchers` | Operator: +Issue voucher → code+credit → submit | Voucher appears in the table, active | ☐ | — |
 | TC-03 | Voucher email | recipient inbox | Open the voucher email | Delivered via the **Sovereign's own SMTP** with the redeem link | ☐ | — |
 | TC-04 | Redeem voucher | `marketplace.hw101.<dom>/redeem?code=…` | Open the redeem link | "Voucher valid" + OMR credit; a garbage code → "not valid" | ☐ | — |
@@ -24,7 +24,7 @@
 | TC-09 | Organization created | "Your tenant is ready" | Follow the tenant link | Lands on `console.<orgslug>.<pool>` — real dashboard, not an error | ☐ | — |
 | TC-10 | Tenant first login | tenant console | Customer PIN-login | Dashboard renders (Phase 2a) | ☐ | — |
 | **Pillar 2 — Multi-region BCP topology chosen at signup** |||||||
-| TC-11 | BCP at signup | `marketplace.hw101.<dom>/bcp` | Choose **active-hot-standby**, pick **two different** regions | Same-region rejected; two distinct regions accepted; provisions BOTH in one pass | ☐ | — |
+| TC-11 | BCP at signup | `marketplace.hw101.<dom>/bcp` | Choose **active-hot-standby**, pick **two different** regions | Same-region rejected; two distinct regions accepted; provisions BOTH in one pass | ✅ | **WALKED 2026-06-08**: `/bcp/` offers the BCP topology choice — Single-region (FREE) vs Active-hot-standby (+OMR 5/mo, primary + synchronous replica); Pillar-2 multi-region-at-signup renders. Public wizard walked end-to-end (storefront->plans->apps->BCP); checkout sign-in is the next gate. |
 | TC-12 | Cloud view = 2 REAL regions | `console.hw101.<dom>/cloud?view=graph` | Open the Cloud view | **2 regions, 2 clusters with REAL nodes in each** (not an empty 2nd-region VPC shell — the hw99 failure) | ✅ | **VERIFIED LIVE 2026-06-08**: cloud-graph shows **`Region 2/2`** (both me-east-215-a + -b, rtzB rendered) after catalyst-api rolled to `8b0bdaf` (#3109 chroot fix); substrate = 2 real clusters, 4+4 Ready nodes (#3105). Founder's "1 region 1 cluster" complaint RESOLVED end-to-end. #3106 closed-verified. [screenshot](../sessions/2026-06-08/evidence/hw101-tc12-cloud-2regions-verified.png) |
 | **Pillar 3 — Two independent CNPG clusters + region-kill failover** |||||||
 | TC-13 | CNPG pair across regions | `/app/$id` → Topology | Install a CNPG-backed app; read placement | One CNPG cluster **per region**, synchronous `ReplicaCluster` over ClusterMesh; both regions shown | ☐ | — |
