@@ -869,6 +869,13 @@ func main() {
 	// stuck Phase-1 in PENDING forever (caught live on otech23).
 	r.Put("/api/v1/deployments/{id}/kubeconfig", h.PutKubeconfig)
 
+	// #3132 — the control-plane cloud-init pushes /var/log/cloud-init-output.log
+	// here on a loop (same bearer router as the kubeconfig PUT; cloud-init has no
+	// session cookie). The log cannot be PULLED on kom4dc HCS — no ECS
+	// console-output API, no reachable sshd (verified hw106) — so the node pushes
+	// it; this is the only diagnosis path for a Phase-1 cloud-init failure (#3129).
+	r.Put("/api/v1/deployments/{id}/cloudinit-log", h.PutCloudInitLog)
+
 	// Sovereign-side handover receiver (issue #606). The operator's
 	// browser arrives at GET /auth/handover?token=<jwt> from the
 	// Catalyst-Zero wizard. The JWT IS the auth — there is NO
@@ -1077,6 +1084,10 @@ func main() {
 		// catalyst-api Pod cold-starts mid-Phase-1 and has to reattach
 		// to a deployment whose kubeconfig is on the PVC.
 		rg.Get("/api/v1/deployments/{id}/kubeconfig", h.GetKubeconfig)
+		// #3132 — GET the last-uploaded cloud-init log for post-mortem
+		// diagnosis of a Phase-1 failure (ownership-checked, like the
+		// kubeconfig GET). The PUT side is on the bearer router above.
+		rg.Get("/api/v1/deployments/{id}/cloudinit-log", h.GetCloudInitLog)
 		// (PUT /kubeconfig is registered ABOVE the session group — see
 		// the cloud-init postback comment near r.Delete /auth/session.)
 		// Registrar proxy — wizard's BYO Flow B (#169). /validate is OUTSIDE
