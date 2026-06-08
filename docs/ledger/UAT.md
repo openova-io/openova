@@ -25,7 +25,7 @@
 | TC-10 | Tenant first login | tenant console | Customer PIN-login | Dashboard renders (Phase 2a) | ☐ | — |
 | **Pillar 2 — Multi-region BCP topology chosen at signup** |||||||
 | TC-11 | BCP at signup | `marketplace.hw101.<dom>/bcp` | Choose **active-hot-standby**, pick **two different** regions | Same-region rejected; two distinct regions accepted; provisions BOTH in one pass | ☐ | — |
-| TC-12 | Cloud view = 2 REAL regions | `console.hw101.<dom>/cloud?view=graph` | Open the Cloud view | **2 regions, 2 clusters with REAL nodes in each** (not an empty 2nd-region VPC shell — the hw99 failure) | ☐ | — |
+| TC-12 | Cloud view = 2 REAL regions | `console.hw101.<dom>/cloud?view=graph` | Open the Cloud view | **2 regions, 2 clusters with REAL nodes in each** (not an empty 2nd-region VPC shell — the hw99 failure) | ❌ | substrate 2-region VERIFIED (kubectl: region-a + region-b, 4+4 Ready nodes, zones me-east-215-a/-b, #3105) BUT cloud-graph UI shows **`Region 1/1`** — region-b not aggregated (#3106); [screenshot](../sessions/2026-06-08/evidence/hw101-tc12-cloud-region-1of1.png) |
 | **Pillar 3 — Two independent CNPG clusters + region-kill failover** |||||||
 | TC-13 | CNPG pair across regions | `/app/$id` → Topology | Install a CNPG-backed app; read placement | One CNPG cluster **per region**, synchronous `ReplicaCluster` over ClusterMesh; both regions shown | ☐ | — |
 | TC-14 | Region-kill failover | the app's FQDN | Dev kills the primary region; keep refreshing | Service resumes **≤30 s**, same FQDN; surviving region healthy; **0 transactions lost** | ☐ | — |
