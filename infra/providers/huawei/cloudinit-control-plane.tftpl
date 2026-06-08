@@ -930,29 +930,31 @@ runcmd:
       fi
       sleep 5
     done
+    # #3129 FIX (supersedes #3130): the CRD seed is BEST-EFFORT — bp-gateway-api/Flux
+    # re-applies these post-bootstrap. #3130's 10x backoff burned ~20-50min on slow
+    # github, blowing the 15min kubeconfigArrivalTimeout so the kubeconfig PUT (~1348)
+    # landed too late -> Phase-1 'did not PUT'. Cap the TOTAL seed at 120s + `timeout 20`
+    # each apply; the kubeconfig PUT MUST win. Deferred CRDs are re-applied by Flux.
+    GW_CRD_DEADLINE=$$(( $$(date +%s) + 120 ))
     for crd in gatewayclasses gateways httproutes grpcroutes referencegrants; do
-      for attempt in 1 2 3 4 5 6 7 8 9 10; do
-        if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f \
+      for attempt in 1 2 3 4 5; do
+        [ $$(date +%s) -ge $$GW_CRD_DEADLINE ] && { echo "G65: 120s gateway-CRD deadline hit; deferring to Flux (protects kubeconfig PUT, #3129)"; break 2; }
+        if KUBECONFIG=/etc/rancher/k3s/k3s.yaml timeout 20 kubectl apply -f \
           "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.0/config/crd/standard/gateway.networking.k8s.io_$${crd}.yaml"; then
           break
         fi
-        # #3129: exponential backoff capped at 30s (~3.5min total over 10 tries)
-        # so a SUSTAINED raw.githubusercontent incident is survived instead of
-        # aborting cloud-init after ~25s (which fails Phase-1 / the kubeconfig PUT).
-        backoff=$$(( attempt * 5 )); [ $$backoff -gt 30 ] && backoff=30
-        echo "G65: gateway-api CRD $${crd} apply attempt $${attempt}/10 failed; retrying in $${backoff}s"
-        sleep $$backoff
+        echo "G65: gateway-api CRD $${crd} apply attempt $${attempt}/5 failed; retrying in 5s"
+        sleep 5
       done
     done
-    for attempt in 1 2 3 4 5 6 7 8 9 10; do
-      if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f \
+    for attempt in 1 2 3 4 5; do
+      [ $$(date +%s) -ge $$GW_CRD_DEADLINE ] && { echo "G65: 120s gateway-CRD deadline hit (tlsroutes); deferring to Flux (#3129)"; break; }
+      if KUBECONFIG=/etc/rancher/k3s/k3s.yaml timeout 20 kubectl apply -f \
         "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.0/config/crd/experimental/gateway.networking.k8s.io_tlsroutes.yaml"; then
         break
       fi
-      # #3129: exponential backoff capped at 30s, see the standard-CRD loop above.
-      backoff=$$(( attempt * 5 )); [ $$backoff -gt 30 ] && backoff=30
-      echo "G65: tlsroutes CRD apply attempt $${attempt}/10 failed; retrying in $${backoff}s"
-      sleep $$backoff
+      echo "G65: tlsroutes CRD apply attempt $${attempt}/5 failed; retrying in 5s"
+      sleep 5
     done
     # G24 (Refs #2575, 2026-05-29): bpf.masquerade=true (line 736) is the
     # critical missing flag that was silently absent from Huawei's --set-
@@ -1136,28 +1138,29 @@ runcmd:
       sleep 5
     done
     # Standard channel CRDs (Wave 5.19 + retry hardening from Wave 5.28).
+    # #3129 FIX: cap the TOTAL of this 2nd CRD section at 180s (deferred CRDs are
+    # re-applied by Flux) so it cannot push the kubeconfig PUT past the 15min budget.
+    GW_CRD_DEADLINE2=$$(( $$(date +%s) + 180 ))
     for crd in gatewayclasses gateways httproutes grpcroutes referencegrants; do
-      for attempt in 1 2 3 4 5 6 7 8 9 10; do
-        if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f \
+      for attempt in 1 2 3 4 5; do
+        [ $$(date +%s) -ge $$GW_CRD_DEADLINE2 ] && { echo "G65: 180s CRD-section deadline hit; deferring to Flux (#3129)"; break 2; }
+        if KUBECONFIG=/etc/rancher/k3s/k3s.yaml timeout 20 kubectl apply -f \
           "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.0/config/crd/standard/gateway.networking.k8s.io_$${crd}.yaml"; then
           break
         fi
-        # #3129: exponential backoff capped at 30s (see the pre-cilium seed block).
-        backoff=$$(( attempt * 5 )); [ $$backoff -gt 30 ] && backoff=30
-        echo "CRD $${crd} apply attempt $${attempt}/10 failed; retrying in $${backoff}s"
-        sleep $$backoff
+        echo "CRD $${crd} apply attempt $${attempt}/5 failed; retrying in 5s"
+        sleep 5
       done
     done
     # Experimental channel — tlsroutes (Wave 5.23 Refs #2163) with Wave 5.28 retry.
-    for attempt in 1 2 3 4 5 6 7 8 9 10; do
-      if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f \
+    for attempt in 1 2 3 4 5; do
+      [ $$(date +%s) -ge $$GW_CRD_DEADLINE2 ] && { echo "G65: 180s CRD-section deadline hit (tlsroutes); deferring to Flux (#3129)"; break; }
+      if KUBECONFIG=/etc/rancher/k3s/k3s.yaml timeout 20 kubectl apply -f \
         "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.0/config/crd/experimental/gateway.networking.k8s.io_tlsroutes.yaml"; then
         break
       fi
-      # #3129: exponential backoff capped at 30s (see the pre-cilium seed block).
-      backoff=$$(( attempt * 5 )); [ $$backoff -gt 30 ] && backoff=30
-      echo "tlsroutes CRD apply attempt $${attempt}/10 failed; retrying in $${backoff}s"
-      sleep $$backoff
+      echo "tlsroutes CRD apply attempt $${attempt}/5 failed; retrying in 5s"
+      sleep 5
     done
     # Wave 5.89 (Refs #2434) — Cilium Envoy CRDs. cilium-agent on startup
     # blocks indefinitely waiting for `ciliumenvoyconfigs.cilium.io` +
@@ -1173,15 +1176,14 @@ runcmd:
     # repo breaks the race the same way Wave 5.19 broke the Gateway API
     # CRD race for bp-cilium.
     for crd in ciliumenvoyconfigs ciliumclusterwideenvoyconfigs; do
-      for attempt in 1 2 3 4 5 6 7 8 9 10; do
-        if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f \
+      for attempt in 1 2 3 4 5; do
+        [ $$(date +%s) -ge $$GW_CRD_DEADLINE2 ] && { echo "G65: 180s CRD-section deadline hit (cilium CRDs); deferring to cilium-operator/Flux (#3129)"; break 2; }
+        if KUBECONFIG=/etc/rancher/k3s/k3s.yaml timeout 20 kubectl apply -f \
           "https://raw.githubusercontent.com/cilium/cilium/v1.16.5/pkg/k8s/apis/cilium.io/client/crds/v2/$${crd}.yaml"; then
           break
         fi
-        # #3129: exponential backoff capped at 30s (Cilium CRDs are also github-hosted).
-        backoff=$$(( attempt * 5 )); [ $$backoff -gt 30 ] && backoff=30
-        echo "Cilium CRD $${crd} apply attempt $${attempt}/10 failed; retrying in $${backoff}s"
-        sleep $$backoff
+        echo "Cilium CRD $${crd} apply attempt $${attempt}/5 failed; retrying in 5s"
+        sleep 5
       done
     done
 
