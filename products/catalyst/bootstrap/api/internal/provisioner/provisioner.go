@@ -1860,7 +1860,22 @@ func (p *Provisioner) Destroy(ctx context.Context, req Request, events chan<- Ev
 	if err := stageModule(modulePath, deployDir); err != nil {
 		return fmt.Errorf("stage tofu module: %w", err)
 	}
-	if err := writeTfvars(deployDir, req); err != nil {
+	// #3140: the wipe-time req is often reconstructed without the topology
+	// (regions/ssh_public_key/org_email/obs_bucket_name). Overwriting the
+	// complete provision-time tofu.auto.tfvars.json with it makes `tofu destroy`
+	// fail variable-validation, forcing the providerPurge fallback. For Huawei
+	// (creds are env-injected via CATALYST_HUAWEI_*, not the tfvars file), when
+	// req lacks the regions AND the complete file is already present, PRESERVE
+	// it instead of clobbering. Hetzner keeps the re-write (its token is
+	// re-prompted into req at wipe time). A partially-cleaned workdir (file
+	// removed) still falls through to writeTfvars.
+	tfvarsPath := filepath.Join(deployDir, "tofu.auto.tfvars.json")
+	_, tfvarsStatErr := os.Stat(tfvarsPath)
+	preserveExistingTfvars := strings.EqualFold(strings.TrimSpace(req.Provider), "huawei") &&
+		len(req.Regions) == 0 && tfvarsStatErr == nil
+	if preserveExistingTfvars {
+		emit("tofu-destroy", "info", "#3140: preserving complete provision-time tofu.auto.tfvars.json (wipe req lacks topology)")
+	} else if err := writeTfvars(deployDir, req); err != nil {
 		return fmt.Errorf("write tfvars: %w", err)
 	}
 
