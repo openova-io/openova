@@ -175,6 +175,136 @@ run "single_region" {
   }
 }
 
+# Scenario 4 (#3110) — the rendered primary-CP cloud-init carries the
+# canonical SOVEREIGN_REGIONS_JSON substitute populated from var.regions.
+# Pre-#3110 the HCS port omitted this key entirely, so the bootstrap-kit
+# Kustomization's `$${SOVEREIGN_REGIONS_JSON:-}` resolved empty → the
+# bp-catalyst-platform chart shipped `regionsJson=[]` in the sovereign-
+# fqdn ConfigMap on every HCS Sovereign (caught live on hw101), forcing
+# #3109's discrete primary/replica fallback. These asserts pin the
+# canonical fix: regionsJson is non-empty, re-keyed into the Go RegionSpec
+# JSON shape (cloudRegion, NOT the HCS-native `code`), and uses the
+# 4-segment canonical region label so it matches the discrete
+# SOVEREIGN_PRIMARY_REGION / SOVEREIGN_REPLICA_REGION format.
+run "regions_json_populated_3110" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      },
+      {
+        code               = "me-east-215-b"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 3
+      }
+    ]
+  }
+
+  # SOVEREIGN_REGIONS_JSON key is present and NON-empty (`[]` is the bug).
+  assert {
+    condition = strcontains(
+      local.cp_cloud_init_by_region["me-east-215-a"],
+      "SOVEREIGN_REGIONS_JSON:"
+    )
+    error_message = "Primary-CP cloud-init must emit the SOVEREIGN_REGIONS_JSON substitute key (#3110)."
+  }
+  # The empty-array regression must NOT appear (single-quoted JSON-flow).
+  assert {
+    condition = !strcontains(
+      local.cp_cloud_init_by_region["me-east-215-a"],
+      "SOVEREIGN_REGIONS_JSON: '[]'"
+    )
+    error_message = "SOVEREIGN_REGIONS_JSON must be populated, not the empty-array `[]` regression (#3110/#3106)."
+  }
+  # Both regions appear in the JSON, in the canonical 4-segment label form
+  # (cloudRegion=hw-<code>-rtz-prod), matching the discrete primary/replica
+  # substitutes — NOT the bare HCS `code`.
+  assert {
+    condition = strcontains(
+      local.cp_cloud_init_by_region["me-east-215-a"],
+      "hw-me-east-215-a-rtz-prod"
+    )
+    error_message = "regionsJson must carry the primary region's canonical label hw-me-east-215-a-rtz-prod (#3110)."
+  }
+  assert {
+    condition = strcontains(
+      local.cp_cloud_init_by_region["me-east-215-a"],
+      "hw-me-east-215-b-rtz-prod"
+    )
+    error_message = "regionsJson must carry the replica region's canonical label hw-me-east-215-b-rtz-prod (#3110)."
+  }
+  # The Go RegionSpec field name `cloudRegion` must be present — proves the
+  # HCS-native `code`/`control_plane_size` keys were re-mapped so
+  # catalyst-api's RegionSpec json.Unmarshal can read it.
+  assert {
+    condition = strcontains(
+      local.cp_cloud_init_by_region["me-east-215-a"],
+      "\"cloudRegion\""
+    )
+    error_message = "regionsJson must use the Go RegionSpec field name cloudRegion (re-keyed from HCS `code`) so catalyst-api can unmarshal it (#3110)."
+  }
+  # Per-region SKU detail (worker_count) is threaded through, so the full
+  # RegionSpec[] (not just region names) reaches the chroot.
+  assert {
+    condition = strcontains(
+      local.cp_cloud_init_by_region["me-east-215-a"],
+      "\"workerCount\":3"
+    )
+    error_message = "regionsJson must carry per-region SKU detail (replica workerCount=3) — full RegionSpec[], not just region names (#3110)."
+  }
+  # Companion key — configuredRegions list also populated with canonical
+  # labels for the Dashboard SovereignCard + ClusterMesh chips.
+  assert {
+    condition = strcontains(
+      local.cp_cloud_init_by_region["me-east-215-a"],
+      "SOVEREIGN_CONFIGURED_REGIONS_YAML:"
+    )
+    error_message = "Primary-CP cloud-init must emit SOVEREIGN_CONFIGURED_REGIONS_YAML (#3110)."
+  }
+}
+
+# Scenario 5 (#3110) — single-region Sovereign still emits a populated,
+# 1-entry regionsJson (NOT empty), so a 1-region HCS prov also surfaces
+# its region in /cloud without the discrete fallback.
+run "regions_json_single_region_3110" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition = !strcontains(
+      local.cp_cloud_init_by_region["me-east-215-a"],
+      "SOVEREIGN_REGIONS_JSON: '[]'"
+    )
+    error_message = "Single-region HCS prov must still emit a populated regionsJson, not `[]` (#3110)."
+  }
+  assert {
+    condition = strcontains(
+      local.cp_cloud_init_by_region["me-east-215-a"],
+      "hw-me-east-215-a-rtz-prod"
+    )
+    error_message = "Single-region regionsJson must carry the region's canonical label (#3110)."
+  }
+}
+
 # Scenario 3 — HA topology (huawei_control_plane_count=3) for tenancies
 # with adequate EIP headroom (public Huawei Cloud or HCS POD enterprise
 # tier). Verifies replica CPs (index > 0) do NOT consume EIPs.

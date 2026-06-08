@@ -612,6 +612,28 @@ write_files:
             # Continuity Plan row + the BSS-menu DR posture chip.
             SOVEREIGN_ENABLE_HOT_STANDBY: "${enable_hot_standby}"
             SOVEREIGN_BCP_TOPOLOGY: "${bcp_topology}"
+            # #3110 — canonical multi-region RegionSpec[] JSON. The HCS
+            # port silently omitted this key (and CONFIGURED_REGIONS_YAML
+            # below) pre-#3110, so the chart's `$${SOVEREIGN_REGIONS_JSON:-}`
+            # envsubst resolved to literal empty → `.Values.sovereign.
+            # regionsJson` defaulted to `[]` → the sovereign-fqdn ConfigMap
+            # shipped `regionsJson=[]` on EVERY HCS Sovereign (caught live
+            # on hw101). catalyst-api jobs.go chrootRegionsFromEnv reads
+            # this env to seed Request.Regions on the chroot Deployment so
+            # /cloud?view=graph renders the full multi-region tree (DoD
+            # D5) instead of falling to #3109's discrete primary/replica
+            # reconstruction. main.tf re-keys var.regions into the
+            # canonical RegionSpec JSON shape (cloudRegion=hw-<code>-rtz-
+            # prod) — see the templatefile() call's sovereign_regions_json
+            # arg. Single-quoted so YAML treats the JSON braces as a
+            # literal scalar — same pattern as PARENT_DOMAINS_YAML.
+            SOVEREIGN_REGIONS_JSON: '${sovereign_regions_json}'
+            # #3110 — YAML inline-list literal of the canonical region
+            # labels this Sovereign was provisioned with. Chart joins it
+            # into the comma-separated `configuredRegions` ConfigMap key
+            # for the Dashboard SovereignCard + ClusterMesh chips. `[]` on
+            # single-region. Single-quoted (JSON-flow is a YAML superset).
+            SOVEREIGN_CONFIGURED_REGIONS_YAML: '${sovereign_configured_regions_yaml}'
             # Refs #2533 — G1: per-CP region role. The shared
             # bootstrap-kit overlays (e.g. bp-cnpg-pair primary/replica
             # placement) gate on this; primary CP renders "primary",
