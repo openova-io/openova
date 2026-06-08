@@ -1206,7 +1206,7 @@ spec:
                 secretKeyRef:
                   # NOTE (#3122): the secret NAME/KEY can NOT be inline-templated here —
                   # strategy-flip-regression applies this file UNRENDERED and kubectl
-                  # rejects a literal {{ }} as an invalid RFC-1123 secret name. So the
+                  # rejects a literal templated string as an invalid RFC-1123 name. So the
                   # token fix lives in the provisioning-github-token secret POPULATION
                   # (it must hold the local gitea_admin token on a Sovereign pre-cutover),
                   # NOT in this secretKeyRef. The REPO_URL/BRANCH above (env VALUES, not
