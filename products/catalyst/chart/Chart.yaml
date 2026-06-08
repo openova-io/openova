@@ -1,5 +1,22 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.516 — #3122 (2026-06-08) — credential half: provisioning-github-token
+# now mirrors the REAL Gitea PAT (catalyst-gitea-token/token), not the gitea
+# admin PASSWORD. 1.4.514 fixed CATALYST_GITOPS_REPO_URL/BRANCH (env VALUES)
+# but the matching CATALYST_GITOPS_TOKEN secretKeyRef could NOT be inline-
+# templated (strategy-flip applies api-deployment.yaml UNRENDERED; kubectl
+# rejects a templated RFC-1123 name) — so the token fix lands in the Secret
+# POPULATION here. templates/sme-services/provisioning-github-token.yaml's
+# first-install bootstrap branch now sources catalyst-gitea-token/token (the
+# same PAT CATALYST_GITEA_TOKEN uses, minted by this chart's
+# catalyst-gitea-token-secret.yaml pre-install hook → populated before this
+# regular resource renders) instead of gitea-admin-secret/password. A gitea
+# admin password is not a Gitea API token (Gitea rejects password-auth for
+# git ops → `exit 128 — Invalid username or token` on the first tenant push,
+# proven on hw101 POST /sme/tenants). Cutover Step 09 ownership +
+# reflector-into-catalyst-system + resource-policy:keep + lookup-persistence
+# preserved. Mothership/contabo path unchanged (marketplace gate + lookup
+# miss → no Secret rendered). Refs #3122 #866 #2737.
 # 1.4.514 — #3122 (2026-06-08): tenant gitops pushes to the LOCAL Gitea,
 # not github. catalyst-api's CATALYST_GITOPS_TOKEN sourced
 # provisioning-github-token/GITHUB_TOKEN (a GitHub PAT / gitea admin
@@ -2556,7 +2573,7 @@ name: bp-catalyst-platform
 # CEL rule can never merge again. Bumping the pin so every Sovereign's
 # Flux helm-controller re-applies the corrected CRD (Flux reconciles
 # crds/ with CreateReplace, unlike raw `helm upgrade`). Refs #2936.
-version: 1.4.515
+version: 1.4.516
 appVersion: 1.4.494
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.

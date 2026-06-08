@@ -957,7 +957,13 @@ spec:
       # Gitea (CATALYST_GITOPS_REPO_URL + catalyst-gitea-token) on a
       # Sovereign instead of github with the wrong credential; fixes
       # `POST /sme/tenants` git-push exit-128 Org-creation blocker.
-      version: 1.4.515
+      # 1.4.516 — #3122 credential half: provisioning-github-token now
+      # mirrors the real Gitea PAT (catalyst-gitea-token/token), not the
+      # gitea admin password, so CATALYST_GITOPS_TOKEN authenticates
+      # against the local Gitea pre-cutover (the secretKeyRef couldn't be
+      # inline-templated in api-deployment.yaml — fix lives in the Secret
+      # population). Refs #3122 #866 #2737.
+      version: 1.4.516
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
