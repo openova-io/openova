@@ -1,6 +1,21 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.14
+version: 0.2.15
+# 0.2.15 (#2940 Pillar 5 anti-tether, 2026-06-08): the reconciler image's
+# registry host is no longer hardcoded `harbor.openova.io` in
+# `image.repository`. New `global.registryMirror` value (default
+# `harbor.openova.io`) is the SINGLE source of truth for the registry
+# host; `image.repository` is now the registry-relative path
+# (`proxy-dockerhub/alpine/k8s`); new `bp-sso-bridge.image` helper in
+# templates/_helpers.tpl composes `<mirror>/<repo>:<tag>`. Default render
+# is byte-identical to 0.2.14 (still harbor.openova.io). A per-Sovereign
+# overlay — or the bp-self-sovereign-cutover Step-04 registry pivot
+# (ADR-0002) — re-points EVERY pull by setting global.registryMirror to
+# the Sovereign's own Harbor. Backward-compat: a host-qualified
+# `image.repository` (pre-#2940 shape) is still honoured verbatim by the
+# helper. Slot 13b wires `${REGISTRY_MIRROR:=harbor.openova.io}`. Pure
+# additive value + template helper; no behaviour change at defaults.
+# Refs #2940.
 # 0.2.8 (G117.5-followup #2914, 2026-06-03): dual-token KC mint —
 # sovereign-realm SA token for in-realm operations + new master-realm
 # admin token for POST /admin/realms (per-Org realm provisioning).

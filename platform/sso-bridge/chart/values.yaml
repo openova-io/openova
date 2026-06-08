@@ -3,6 +3,22 @@
 # Per Inviolable Principle #4 (never hardcode): every operational knob
 # flows from this file or from the per-Sovereign sovereign-fqdn ConfigMap.
 
+# ── Registry mirror (MIRROR-EVERYTHING + Pillar 5 anti-tether #2940) ──
+# Single source of truth for the container-registry host the reconciler
+# image pulls through. Default `harbor.openova.io` preserves the
+# mothership/bootstrap behaviour (the central Harbor proxy-cache). The
+# image `repository` below is composed from THIS value by
+# templates/deployment.yaml (`bp-sso-bridge.image` helper) — the host is
+# no longer hardcoded inside the image ref. Post-bp-self-sovereign-cutover
+# (Step-04 registry pivot, ADR-0002) a per-Sovereign overlay sets this to
+# the Sovereign's OWN Harbor (e.g. `harbor.<sovereign-fqdn>`) and the pull
+# re-points in ONE place. Slot 13b wires
+# `global.registryMirror: ${REGISTRY_MIRROR:=harbor.openova.io}` so the
+# bootstrap default is the mothership Harbor and a per-Sovereign overlay
+# (or post-cutover envsubst) flips it.
+global:
+  registryMirror: "harbor.openova.io"
+
 # Enable/disable the entire framework. Operator overlays may flip to false
 # during incident response (e.g. Keycloak realm import in flux); shipping
 # default = true because the framework is mandatory infra per SECURITY.md
@@ -23,8 +39,17 @@ enabled: true
 # image (~50MB) and is the canonical chart-side bash tooling image for
 # the rest of the OpenOva catalog post-G109. MIRROR-EVERYTHING via the
 # Harbor proxy-cache.
+#
+# #2940 (Pillar 5 anti-tether): `repository` is now the registry-RELATIVE
+# path only (`proxy-dockerhub/alpine/k8s`). templates/deployment.yaml's
+# `bp-sso-bridge.image` helper prepends `global.registryMirror`
+# (default `harbor.openova.io`) so the registry host has exactly ONE
+# source of truth. A bare `repository` with a leading registry host (the
+# pre-#2940 shape) is still honoured by the helper for backward-compat
+# (it only prepends the mirror when repository has no `.`/`:` host
+# segment) — but the canonical shape going forward is host-less here.
 image:
-  repository: harbor.openova.io/proxy-dockerhub/alpine/k8s
+  repository: proxy-dockerhub/alpine/k8s
   tag: "1.30.0"
   pullPolicy: IfNotPresent
 

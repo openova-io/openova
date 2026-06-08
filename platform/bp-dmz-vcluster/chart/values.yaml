@@ -13,8 +13,18 @@ catalystBlueprint:
     version: "0.20.0"
     repo: "https://charts.loft.sh"
 
+# ── Registry mirror (MIRROR-EVERYTHING + Pillar 5 anti-tether #2940) ──
+# Single source of truth for the registry host every image in this chart
+# pulls through. Default `harbor.openova.io` preserves bootstrap behaviour.
+# Consumed by (1) the `bp-dmz-vcluster.image` fail-fast helper for the
+# umbrella image and (2) the loft-sh subchart syncer image registry, which
+# (being a subchart values literal Helm can't self-template) is driven by
+# slot 54's `${REGISTRY_MIRROR:=harbor.openova.io}` postBuild substitution.
+# Post-bp-self-sovereign-cutover (Step-04, ADR-0002) a per-Sovereign
+# overlay flips this to `harbor.<sovereign-fqdn>`. Renamed from the dead
+# `global.imageRegistry` (loft-sh never honoured that key). #2940.
 global:
-  imageRegistry: ""
+  registryMirror: "harbor.openova.io"
 
 dmzVcluster:
   # Top-level enable gate. False by default; bootstrap-kit slot 54
@@ -39,8 +49,13 @@ dmzVcluster:
     regionLabelValue: ""
 
   # ── Image (MIRROR-EVERYTHING) ─────────────────────────────────────
+  # #2940 Pillar 5: registry-RELATIVE repository; the host is composed
+  # from `global.registryMirror` by the `bp-dmz-vcluster.image` helper.
+  # Consumed only by the umbrella fail-fast guard — the real syncer image
+  # is the subchart value below; keep them in lockstep. Backward-compat: a
+  # host-qualified repository is honoured verbatim by the helper.
   image:
-    repository: "harbor.openova.io/proxy-ghcr/loft-sh/vcluster"
+    repository: "proxy-ghcr/loft-sh/vcluster"
     tag: "0.21.0"
     pullPolicy: "IfNotPresent"
 
@@ -86,6 +101,12 @@ vcluster:
       scheduling:
         nodeSelector: {}
       image:
+        # #2940 Pillar 5: the ACTUAL vCluster syncer image. This `registry`
+        # is a subchart values literal Helm can't derive from
+        # global.registryMirror here, so `harbor.openova.io` stays as the
+        # bootstrap fallback and the single overlay knob is slot 54's
+        # `registry: ${REGISTRY_MIRROR:=harbor.openova.io}` substitution.
+        # Keep in lockstep with the umbrella dmzVcluster.image above.
         registry: harbor.openova.io
         repository: proxy-ghcr/loft-sh/vcluster
         tag: "0.21.0"

@@ -39,8 +39,16 @@ catalyst.openova.io/topology-role: {{ .Values.mgmtVcluster.role | quote }}
 {{/*
 Image fail-fast helper. Per docs/INVIOLABLE-PRINCIPLES.md #4a empty
 :tag MUST fail the helm template render — we never want floating
-:latest shipping into production. Honours .Values.global.imageRegistry
-rewrite when set.
+:latest shipping into production.
+
+#2940 Pillar 5 anti-tether: composes the image registry host from
+`.Values.global.registryMirror` (default "harbor.openova.io", the single
+source of truth) + the registry-relative `.Values.mgmtVcluster.image.repository`.
+Backward-compat: if repository is ALREADY host-qualified (its first
+"/"-segment contains "." or ":", e.g. the pre-#2940 literal
+"harbor.openova.io/proxy-ghcr/loft-sh/vcluster"), it is used verbatim and
+the mirror is NOT prepended — so existing per-Sovereign overlays that set
+a full host-qualified repository keep working.
 */}}
 {{- define "bp-mgmt-vcluster.image" -}}
 {{- $tag := .Values.mgmtVcluster.image.tag -}}
@@ -49,15 +57,18 @@ rewrite when set.
 {{- end -}}
 {{- $repo := .Values.mgmtVcluster.image.repository -}}
 {{- if not $repo -}}
-{{- fail "bp-mgmt-vcluster: .Values.mgmtVcluster.image.repository is empty — must point at harbor.openova.io/proxy-ghcr/loft-sh/vcluster (or per-Sovereign Harbor) per CLAUDE.md MIRROR-EVERYTHING" -}}
+{{- fail "bp-mgmt-vcluster: .Values.mgmtVcluster.image.repository is empty — must point at proxy-ghcr/loft-sh/vcluster (registry-relative; global.registryMirror supplies the host) per CLAUDE.md MIRROR-EVERYTHING" -}}
 {{- end -}}
-{{- $globalRegistry := .Values.global.imageRegistry | default "" -}}
-{{- if ne $globalRegistry "" -}}
-{{- $parts := splitList "/" $repo -}}
-{{- $rest := slice $parts 1 -}}
-{{- printf "%s/%s:%s" $globalRegistry (join "/" $rest) $tag -}}
-{{- else -}}
+{{- $firstSeg := first (splitList "/" $repo) -}}
+{{- if or (contains "." $firstSeg) (contains ":" $firstSeg) -}}
+{{- /* repository is already host-qualified — honour it verbatim */ -}}
 {{- printf "%s:%s" $repo $tag -}}
+{{- else -}}
+{{- $mirror := .Values.global.registryMirror | default "harbor.openova.io" -}}
+{{- if not $mirror -}}
+{{- fail "bp-mgmt-vcluster: .Values.global.registryMirror is empty and .Values.mgmtVcluster.image.repository is host-less — set one or the other (#2940)" -}}
+{{- end -}}
+{{- printf "%s/%s:%s" $mirror $repo $tag -}}
 {{- end -}}
 {{- end }}
 

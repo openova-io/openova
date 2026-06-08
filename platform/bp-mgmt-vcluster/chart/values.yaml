@@ -24,13 +24,35 @@ catalystBlueprint:
     version: "0.20.0"
     repo: "https://charts.loft.sh"
 
-# ─── Global registry rewrite (matches other Catalyst umbrella charts) ───
-# When set, ALL image pulls in this chart route through this registry.
-# Used post-handover when the Sovereign's own Harbor takes over the
-# proxy_cache role from contabo's central Harbor. Empty = no rewrite
-# (upstream defaults via the subchart's image keys).
+# ─── Registry mirror (MIRROR-EVERYTHING + Pillar 5 anti-tether #2940) ───
+# Single source of truth for the container-registry host every image in
+# this chart pulls through. Default `harbor.openova.io` preserves the
+# mothership/bootstrap behaviour (the central Harbor proxy-cache).
+#
+# Two consumers:
+#   1. The umbrella's own `bp-mgmt-vcluster.image` fail-fast helper
+#      (_helpers.tpl) composes `<registryMirror>/<repository>:<tag>` so the
+#      umbrella `mgmtVcluster.image.repository` no longer hardcodes the
+#      host (it's now the registry-relative `proxy-ghcr/loft-sh/vcluster`).
+#   2. The loft-sh subchart's real syncer image
+#      (`vcluster.controlPlane.statefulSet.image.registry`) — a SUBCHART
+#      values literal that Helm cannot self-template from THIS file. Slot 58
+#      drives it via `${REGISTRY_MIRROR:=harbor.openova.io}` postBuild
+#      substitution (same canonical pattern as the region-label substitute
+#      already in that slot), so a per-Sovereign overlay sets the host in
+#      ONE place. The subchart literal below stays the bootstrap fallback
+#      so `helm template` with defaults renders identically.
+#
+# Post-bp-self-sovereign-cutover (Step-04 registry pivot, ADR-0002) the
+# overlay points registryMirror at the Sovereign's OWN Harbor
+# (`harbor.<sovereign-fqdn>`) and every pull re-points in one place.
+#
+# (Renamed from the prior `global.imageRegistry` knob, which the loft-sh
+# subchart never honoured — it has no `global.imageRegistry`, only the
+# per-image `controlPlane.statefulSet.image.registry` field — so that knob
+# was dead config that produced no render effect. #2940.)
 global:
-  imageRegistry: ""
+  registryMirror: "harbor.openova.io"
 
 mgmtVcluster:
   # Top-level enable gate.
@@ -81,11 +103,18 @@ mgmtVcluster:
     regionLabelValue: ""
 
   # ── Image (MIRROR-EVERYTHING) ─────────────────────────────────────
-  # Default routes through harbor.openova.io/proxy-ghcr/... per
-  # CLAUDE.md inviolable rule. Post-handover, the per-Sovereign
-  # overlay rewrites to `harbor.<sovereign-fqdn>/proxy-ghcr/...`.
+  # #2940 Pillar 5: `repository` is now the registry-RELATIVE path only.
+  # The `bp-mgmt-vcluster.image` helper prepends `global.registryMirror`
+  # (default `harbor.openova.io`) so the registry host has ONE source of
+  # truth. Post-handover the per-Sovereign overlay flips global.registryMirror
+  # to `harbor.<sovereign-fqdn>` and this image re-points with it.
+  # NB this image ref is consumed ONLY by the umbrella's fail-fast guard
+  # (templates/namespace.yaml) — the vCluster's ACTUAL syncer image is the
+  # subchart value `vcluster.controlPlane.statefulSet.image` below; both
+  # are kept in lockstep. Backward-compat: a host-qualified repository
+  # (pre-#2940 shape) is still honoured verbatim by the helper.
   image:
-    repository: "harbor.openova.io/proxy-ghcr/loft-sh/vcluster"
+    repository: "proxy-ghcr/loft-sh/vcluster"
     tag: "0.21.0"
     pullPolicy: "IfNotPresent"
 
@@ -140,7 +169,22 @@ vcluster:
         nodeSelector: {}
       image:
         # The upstream chart's controlPlane.statefulSet.image is the
-        # vCluster syncer image. MIRROR-EVERYTHING via Harbor proxy.
+        # vCluster syncer image — the ACTUAL image the vCluster runs.
+        # MIRROR-EVERYTHING via Harbor proxy.
+        #
+        # #2940 Pillar 5 anti-tether: this `registry` is a SUBCHART values
+        # literal, which Helm cannot derive from `global.registryMirror` in
+        # this same values.yaml (subchart values can't self-template). The
+        # `harbor.openova.io` default is therefore kept here as the
+        # bootstrap fallback (so `helm template` with defaults renders
+        # identically to pre-#2940), and the single overlay knob is wired
+        # in bootstrap-kit slot 58, which sets
+        # `registry: ${REGISTRY_MIRROR:=harbor.openova.io}` via Flux
+        # postBuild.substitute — exactly the canonical pattern the
+        # SOVEREIGN_REGION_CANONICAL_LABEL substitute already uses in that
+        # slot. A per-Sovereign overlay (or the bp-self-sovereign-cutover
+        # Step-04 registry pivot, ADR-0002) re-points the host in ONE place.
+        # Keep this in lockstep with the umbrella `mgmtVcluster.image` above.
         registry: harbor.openova.io
         repository: proxy-ghcr/loft-sh/vcluster
         tag: "0.21.0"
