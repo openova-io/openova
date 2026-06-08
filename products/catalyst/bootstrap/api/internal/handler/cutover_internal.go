@@ -126,6 +126,35 @@ func requireHandoverForCutover() bool {
 	return !strings.EqualFold(strings.TrimSpace(os.Getenv(envRequireHandoverForCutover)), "false")
 }
 
+// envFireCutoverOnHandover gates whether ReceiveTofuArchive fires the
+// cutover engine immediately after sealing the Phase-0 archive. See
+// fireCutoverOnHandover.
+const envFireCutoverOnHandover = "CATALYST_FIRE_CUTOVER_ON_HANDOVER"
+
+// fireCutoverOnHandover reports whether sealing the tofu-phase0-archive at
+// handover should auto-fire the cutover engine (issue #933 / #3052). Default
+// TRUE — the founder rule is "handover is not done until cutover has run; no
+// operator click required", and the in-cluster auto-trigger Helm hook only
+// fires once at bootstrap (where it correctly defers via the handover gate),
+// so WITHOUT this nothing re-fires the engine post-handover and the cutover
+// stays dormant forever. Set CATALYST_FIRE_CUTOVER_ON_HANDOVER=false to keep
+// the cutover a deliberate operator action (the BSS "Achieve True
+// Sovereignty" CTA still works). Runtime-overridable per docs/PRINCIPLES.md #4.
+func fireCutoverOnHandover() bool {
+	return !strings.EqualFold(strings.TrimSpace(os.Getenv(envFireCutoverOnHandover)), "false")
+}
+
+// fireCutoverEngine dispatches to the test seam (spawnCutoverEngineFn) when
+// one is wired, otherwise to the real h.spawnCutoverEngine. Every caller
+// goes through here so production behaviour and test assertions share one
+// entry point.
+func (h *Handler) fireCutoverEngine(ctx context.Context, deps *cutoverDeps, source string) (cutoverSpawnResult, error) {
+	if h.spawnCutoverEngineFn != nil {
+		return h.spawnCutoverEngineFn(ctx, deps, source)
+	}
+	return h.spawnCutoverEngine(ctx, deps, source)
+}
+
 // sovereignHandoverComplete reports whether THIS Sovereign has received
 // the Phase-0 OpenTofu archive from the mothership — the durable,
 // Sovereign-side signal that ownership has transferred. handover.go's
@@ -304,18 +333,64 @@ func (h *Handler) HandleCutoverInternalTrigger(w http.ResponseWriter, r *http.Re
 	h.runCutoverFromTrigger(w, r, deps, "internal")
 }
 
-// runCutoverFromTrigger is the shared engine-spawn path used by both
-// HandleCutoverStart (operator-session) and HandleCutoverInternalTrigger
-// (in-cluster SA token). The split keeps cutover.go's HTTP handler
-// readable while making the auth-edge swap a single-call site change.
-func (h *Handler) runCutoverFromTrigger(w http.ResponseWriter, r *http.Request, deps *cutoverDeps, source string) {
-	status, err := readCutoverStatus(r.Context(), deps)
+// cutoverSpawnOutcome enumerates the terminal decisions spawnCutoverEngine
+// can reach. The HTTP wrapper (runCutoverFromTrigger) maps each to the same
+// status code + body it emitted before the engine-spawn tail was extracted;
+// the async handover-seal path (ReceiveTofuArchive) only cares about
+// started vs not-started and logs the rest.
+type cutoverSpawnOutcome int
+
+const (
+	// cutoverSpawnStarted — a fresh engine goroutine was launched.
+	cutoverSpawnStarted cutoverSpawnOutcome = iota
+	// cutoverSpawnAlreadyComplete — cutoverComplete=true; idempotent no-op.
+	cutoverSpawnAlreadyComplete
+	// cutoverSpawnHandoverIncomplete — source="internal" + handover gate
+	// closed (no tofu-phase0-archive). Benign defer on a fresh prov.
+	cutoverSpawnHandoverIncomplete
+	// cutoverSpawnNoSteps — no cutover-step ConfigMaps found.
+	cutoverSpawnNoSteps
+	// cutoverSpawnAlreadyRunning — another goroutine holds the run flag.
+	cutoverSpawnAlreadyRunning
+)
+
+// cutoverSpawnResult carries the outcome of spawnCutoverEngine plus the
+// data the HTTP layer needs to reconstruct its byte-identical responses
+// (the status map for the already-complete / started snapshots, and the
+// resolved step names + count). A non-nil err means a hard failure
+// (status-read / handover-check / step-discovery) the caller surfaces as
+// a 502; outcome is then meaningless.
+type cutoverSpawnResult struct {
+	outcome cutoverSpawnOutcome
+	// status is the status ConfigMap snapshot read before the decision —
+	// used to build the already-complete 200 body. For the started case it
+	// is re-read post-spawn so cutoverStartedAt is reflected.
+	status map[string]string
+	// stepNames + totalSteps populate the started 200 snapshot.
+	stepNames  []string
+	totalSteps int
+}
+
+// spawnCutoverEngine is the w-less engine-spawn core shared by the
+// operator endpoint (HandleCutoverStart), the in-cluster auto-trigger
+// (HandleCutoverInternalTrigger, via runCutoverFromTrigger), AND the
+// post-handover archive-seal path (ReceiveTofuArchive). It performs the
+// SAME sequence the old runCutoverFromTrigger tail did — cutoverComplete
+// idempotency short-circuit, the source-gated handover-completion check,
+// step discovery, the in-process running-flag claim, and the detached
+// engine goroutine — but returns a typed result instead of writing HTTP.
+//
+// The behaviour is byte-identical to the pre-extraction tail; the only
+// new axis is `source`: the handover gate applies ONLY to
+// source="internal" (the bootstrap-time Helm post-install hook that can
+// fire before handover). source="operator" (human CTA behind
+// RequireSession) and source="handover" (ReceiveTofuArchive, where the
+// tofu-phase0-archive is sealed BY DEFINITION at the call site) are
+// deliberate post-handover actions and skip the gate.
+func (h *Handler) spawnCutoverEngine(ctx context.Context, deps *cutoverDeps, source string) (cutoverSpawnResult, error) {
+	status, err := readCutoverStatus(ctx, deps)
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]string{
-			"error":  "status-read-failed",
-			"detail": err.Error(),
-		})
-		return
+		return cutoverSpawnResult{}, fmt.Errorf("status-read-failed: %w", err)
 	}
 
 	if status["cutoverComplete"] == "true" {
@@ -325,9 +400,11 @@ func (h *Handler) runCutoverFromTrigger(w http.ResponseWriter, r *http.Request, 
 			Level:   "info",
 			Message: fmt.Sprintf("cutover already complete; %s trigger is a no-op", source),
 		})
-		resp := buildCutoverStatusResponseFromMap(status, listStepNamesFromStatus(status))
-		writeJSON(w, http.StatusOK, resp)
-		return
+		return cutoverSpawnResult{
+			outcome:   cutoverSpawnAlreadyComplete,
+			status:    status,
+			stepNames: listStepNamesFromStatus(status),
+		}, nil
 	}
 
 	// Handover-completion gate (fresh-prov registry half-pivot).
@@ -347,57 +424,45 @@ func (h *Handler) runCutoverFromTrigger(w http.ResponseWriter, r *http.Request, 
 	// The cutover is a POST-handover operation. The durable Sovereign-side
 	// handover marker is the tofu-phase0-archive secret, sealed in OpenBao
 	// by ReceiveTofuArchive ONLY when the mothership POSTs the archive at
-	// handover. Until it exists, refuse with 425 Too Early — which the
-	// auto-trigger Job treats as benign (its case-* arm exits 0, so the
-	// chart install completes and the HR goes Ready with NO engine start).
-	// Placed AFTER the cutoverComplete short-circuit so an already-done
-	// cutover keeps its idempotent 200. The operator CTA path is NOT
-	// routed here, so a human clicking "Achieve True Sovereignty" behind
-	// RequireSession is never gated — a deliberate post-handover action.
+	// handover. Until it exists, refuse — which the auto-trigger Job treats
+	// as benign (its case-* arm exits 0, so the chart install completes and
+	// the HR goes Ready with NO engine start). Placed AFTER the
+	// cutoverComplete short-circuit so an already-done cutover keeps its
+	// idempotent 200.
+	//
+	// Only source="internal" is gated. The operator CTA path
+	// (source="operator", behind RequireSession) and the handover-seal
+	// path (source="handover", inside ReceiveTofuArchive where the archive
+	// is sealed by definition) are deliberate post-handover actions — gating
+	// them would be wrong: handover seals the archive THEN fires the engine,
+	// so re-checking the gate it just satisfied is redundant, and a
+	// read-after-write race against OpenBao could falsely defer it (issue
+	// #933 / #3052 — the bug was that NOTHING fired the engine after the
+	// seal, leaving the cutover dormant forever).
 	if source == "internal" && requireHandoverForCutover() {
-		handedOver, herr := h.sovereignHandoverComplete(r.Context())
+		handedOver, herr := h.sovereignHandoverComplete(ctx)
 		if herr != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]string{
-				"error":  "handover-check-failed",
-				"detail": herr.Error(),
-			})
-			return
+			return cutoverSpawnResult{}, fmt.Errorf("handover-check-failed: %w", herr)
 		}
 		if !handedOver {
 			h.log.Info("internal cutover trigger deferred: handover not complete",
 				"detail", "tofu-phase0-archive absent in OpenBao — Sovereign not yet handed over; auto-trigger is benign pre-handover",
 			)
-			writeJSON(w, http.StatusTooEarly, map[string]string{
-				"error":  "handover-incomplete",
-				"detail": "cutover deferred: this Sovereign has not been handed over yet (tofu-phase0-archive not present in OpenBao). The cutover auto-fires post-handover; deferring is expected and benign on a fresh prov.",
-			})
-			return
+			return cutoverSpawnResult{outcome: cutoverSpawnHandoverIncomplete}, nil
 		}
 	}
 
-	steps, err := listCutoverSteps(r.Context(), deps)
+	steps, err := listCutoverSteps(ctx, deps)
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]string{
-			"error":  "step-discovery-failed",
-			"detail": err.Error(),
-		})
-		return
+		return cutoverSpawnResult{}, fmt.Errorf("step-discovery-failed: %w", err)
 	}
 	if len(steps) == 0 {
-		writeJSON(w, http.StatusFailedDependency, map[string]string{
-			"error":  "no-steps-found",
-			"detail": fmt.Sprintf("no cutover-step ConfigMaps found in namespace %q — bp-self-sovereign-cutover not installed?", deps.ns),
-		})
-		return
+		return cutoverSpawnResult{outcome: cutoverSpawnNoSteps}, nil
 	}
 
 	bus := h.cutoverBusFor()
 	if !bus.tryStartRun() {
-		writeJSON(w, http.StatusConflict, map[string]string{
-			"error":  "cutover-in-progress",
-			"detail": "a cutover is already running on this catalyst-api Pod",
-		})
-		return
+		return cutoverSpawnResult{outcome: cutoverSpawnAlreadyRunning}, nil
 	}
 
 	// Run the engine with a context independent of the request so a
@@ -405,12 +470,70 @@ func (h *Handler) runCutoverFromTrigger(w http.ResponseWriter, r *http.Request, 
 	// cutoverStepTimeout on each step bounds the overall runtime.
 	go h.runCutover(context.Background(), deps, steps)
 
-	freshStatus, _ := readCutoverStatus(r.Context(), deps)
+	freshStatus, _ := readCutoverStatus(ctx, deps)
 	stepNames := make([]string, 0, len(steps))
 	for _, s := range steps {
 		stepNames = append(stepNames, s.stepName)
 	}
-	resp := buildCutoverStatusResponseFromMap(freshStatus, stepNames)
-	resp.TotalSteps = len(steps)
-	writeJSON(w, http.StatusOK, resp)
+	return cutoverSpawnResult{
+		outcome:    cutoverSpawnStarted,
+		status:     freshStatus,
+		stepNames:  stepNames,
+		totalSteps: len(steps),
+	}, nil
+}
+
+// runCutoverFromTrigger is the shared engine-spawn path used by both
+// HandleCutoverStart (operator-session) and HandleCutoverInternalTrigger
+// (in-cluster SA token). The split keeps cutover.go's HTTP handler
+// readable while making the auth-edge swap a single-call site change.
+//
+// It is now a thin HTTP adapter over spawnCutoverEngine: it maps the typed
+// (cutoverSpawnResult, err) back to the EXACT status codes + bodies it
+// produced before the engine-spawn core was extracted. Behaviour through
+// HandleCutoverStart and HandleCutoverInternalTrigger is unchanged.
+func (h *Handler) runCutoverFromTrigger(w http.ResponseWriter, r *http.Request, deps *cutoverDeps, source string) {
+	res, err := h.fireCutoverEngine(r.Context(), deps, source)
+	if err != nil {
+		// Preserve the three distinct 502 error codes by inspecting the
+		// wrapped sentinel prefix spawnCutoverEngine attached.
+		msg := err.Error()
+		code := "status-read-failed"
+		switch {
+		case strings.HasPrefix(msg, "handover-check-failed:"):
+			code = "handover-check-failed"
+		case strings.HasPrefix(msg, "step-discovery-failed:"):
+			code = "step-discovery-failed"
+		}
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  code,
+			"detail": errors.Unwrap(err).Error(),
+		})
+		return
+	}
+
+	switch res.outcome {
+	case cutoverSpawnAlreadyComplete:
+		resp := buildCutoverStatusResponseFromMap(res.status, res.stepNames)
+		writeJSON(w, http.StatusOK, resp)
+	case cutoverSpawnHandoverIncomplete:
+		writeJSON(w, http.StatusTooEarly, map[string]string{
+			"error":  "handover-incomplete",
+			"detail": "cutover deferred: this Sovereign has not been handed over yet (tofu-phase0-archive not present in OpenBao). The cutover auto-fires post-handover; deferring is expected and benign on a fresh prov.",
+		})
+	case cutoverSpawnNoSteps:
+		writeJSON(w, http.StatusFailedDependency, map[string]string{
+			"error":  "no-steps-found",
+			"detail": fmt.Sprintf("no cutover-step ConfigMaps found in namespace %q — bp-self-sovereign-cutover not installed?", deps.ns),
+		})
+	case cutoverSpawnAlreadyRunning:
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error":  "cutover-in-progress",
+			"detail": "a cutover is already running on this catalyst-api Pod",
+		})
+	default: // cutoverSpawnStarted
+		resp := buildCutoverStatusResponseFromMap(res.status, res.stepNames)
+		resp.TotalSteps = res.totalSteps
+		writeJSON(w, http.StatusOK, resp)
+	}
 }

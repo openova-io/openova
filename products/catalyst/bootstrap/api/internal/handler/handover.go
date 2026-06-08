@@ -113,12 +113,12 @@ type finaliseResponse struct {
 // renders as a checklist. Step 4 (rotate / delete kubeconfig + record)
 // fans out into three sub-fields so partial success surfaces clearly.
 type finaliseStepsCompleted struct {
-	HandoverEventEmitted     bool `json:"handoverEventEmitted"`
-	HelmwatchCancelled       bool `json:"helmwatchCancelled"`
-	TofuArchiveSubmitted     bool `json:"tofuArchiveSubmitted"`
-	TofuWorkdirRemoved       bool `json:"tofuWorkdirRemoved"`
-	KubeconfigRemoved        bool `json:"kubeconfigRemoved"`
-	DeploymentRecordRemoved  bool `json:"deploymentRecordRemoved"`
+	HandoverEventEmitted    bool `json:"handoverEventEmitted"`
+	HelmwatchCancelled      bool `json:"helmwatchCancelled"`
+	TofuArchiveSubmitted    bool `json:"tofuArchiveSubmitted"`
+	TofuWorkdirRemoved      bool `json:"tofuWorkdirRemoved"`
+	KubeconfigRemoved       bool `json:"kubeconfigRemoved"`
+	DeploymentRecordRemoved bool `json:"deploymentRecordRemoved"`
 }
 
 // FinaliseHandover handles POST /api/v1/handover/finalise/{id}. It runs
@@ -273,8 +273,8 @@ func (h *Handler) FinaliseHandover(w http.ResponseWriter, r *http.Request) {
 // tofuArchiveRequest is the body the Catalyst-Zero side POSTs to the
 // new Sovereign's /api/v1/handover/tofu-archive endpoint.
 type tofuArchiveRequest struct {
-	DeploymentID  string            `json:"deploymentId"`
-	SovereignFQDN string            `json:"sovereignFqdn"`
+	DeploymentID  string `json:"deploymentId"`
+	SovereignFQDN string `json:"sovereignFqdn"`
 	// Files maps each path (relative to the original workdir) to a
 	// base64-encoded blob of the file contents.
 	Files map[string]string `json:"files"`
@@ -385,6 +385,54 @@ func (h *Handler) ReceiveTofuArchive(w http.ResponseWriter, r *http.Request) {
 		"sovereignFqdn", body.SovereignFQDN,
 		"secretPath", "secret/catalyst/tofu-phase0-archive",
 	)
+
+	// Fire the Self-Sovereignty Cutover engine now that the durable
+	// handover marker is sealed (issue #933 / #3052).
+	// ──────────────────────────────────────────────────────────────────
+	// The cutover's in-cluster auto-trigger (bp-self-sovereign-cutover's
+	// Helm post-install hook → HandleCutoverInternalTrigger, source=
+	// "internal") fires ONCE at chart-install (bootstrap). On a fresh prov
+	// that is long before handover, so it correctly defers at the
+	// handover-completion gate (425 Too Early) and the HR goes Ready with
+	// NO engine start. Nothing else re-fires the engine after the mothership
+	// POSTs the archive HERE — so without this hook the cutover stays
+	// dormant forever and TC-16 (the deny-egress proof, issue #2940) can
+	// never pass.
+	//
+	// We seal the archive THEN fire: the archive is present by definition at
+	// this point, so the engine runs with source="handover" (gate skipped —
+	// re-checking the marker we just wrote would be redundant and could race
+	// the OpenBao read). The spawn is async (background context) so a slow
+	// multi-step cutover never blocks the handover 200; the operator polls
+	// /cutover/status or /cutover/events for progress. A Sovereign WITHOUT
+	// the cutover chart installed (cutoverDepsFor errors, or no step
+	// ConfigMaps) still succeeds the handover — the fire is best-effort.
+	//
+	// Runtime-overridable per docs/PRINCIPLES.md #4: set
+	// CATALYST_FIRE_CUTOVER_ON_HANDOVER=false to keep the cutover a
+	// deliberate operator action (the BSS CTA still fires it).
+	if fireCutoverOnHandover() {
+		deps, derr := h.cutoverDepsFor()
+		if derr != nil {
+			h.log.Info("handover seal: cutover auto-fire skipped (cutover not configured on this Sovereign)",
+				"detail", derr.Error(),
+			)
+		} else {
+			go func() {
+				res, ferr := h.fireCutoverEngine(context.Background(), deps, "handover")
+				if ferr != nil {
+					h.log.Error("handover seal: cutover engine fire failed",
+						"err", ferr,
+					)
+					return
+				}
+				h.log.Info("handover seal: cutover engine fired",
+					"outcome", res.outcome,
+				)
+			}()
+		}
+	}
+
 	writeJSON(w, http.StatusOK, tofuArchiveResponse{
 		OK:         true,
 		StoredAt:   storedAt,
