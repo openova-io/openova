@@ -930,31 +930,26 @@ runcmd:
       fi
       sleep 5
     done
-    # #3129 FIX (supersedes #3130): the CRD seed is BEST-EFFORT — bp-gateway-api/Flux
-    # re-applies these post-bootstrap. #3130's 10x backoff burned ~20-50min on slow
-    # github, blowing the 15min kubeconfigArrivalTimeout so the kubeconfig PUT (~1348)
-    # landed too late -> Phase-1 'did not PUT'. Cap the TOTAL seed at 120s + `timeout 20`
-    # each apply; the kubeconfig PUT MUST win. Deferred CRDs are re-applied by Flux.
-    _gwnow=$$(date +%s); GW_CRD_DEADLINE=$$(expr $$_gwnow + 120)
+    # 3129: CRD seed is best-effort; bp-gateway-api/Flux re-applies post-bootstrap.
+    # Bounded by retry-count x timeout so slow github cannot push the kubeconfig PUT
+    # past the 15min budget. PLAIN POSIX only: the runcmd /bin/sh on the kom4dc image
+    # rejected the prior wall-clock-deadline form with Syntax error, so this uses only
+    # for/if/timeout/sleep -- the same constructs the readyz wait-loop above proved.
     for crd in gatewayclasses gateways httproutes grpcroutes referencegrants; do
-      for attempt in 1 2 3 4 5; do
-        [ $$(date +%s) -ge $$GW_CRD_DEADLINE ] && { echo "G65: 120s gateway-CRD deadline hit; deferring to Flux (protects kubeconfig PUT, #3129)"; break 2; }
-        if KUBECONFIG=/etc/rancher/k3s/k3s.yaml timeout 20 kubectl apply -f \
+      for attempt in 1 2 3; do
+        if KUBECONFIG=/etc/rancher/k3s/k3s.yaml timeout 12 kubectl apply -f \
           "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.0/config/crd/standard/gateway.networking.k8s.io_$${crd}.yaml"; then
           break
         fi
-        echo "G65: gateway-api CRD $${crd} apply attempt $${attempt}/5 failed; retrying in 5s"
-        sleep 5
+        sleep 4
       done
     done
-    for attempt in 1 2 3 4 5; do
-      [ $$(date +%s) -ge $$GW_CRD_DEADLINE ] && { echo "G65: 120s gateway-CRD deadline hit (tlsroutes); deferring to Flux (#3129)"; break; }
-      if KUBECONFIG=/etc/rancher/k3s/k3s.yaml timeout 20 kubectl apply -f \
+    for attempt in 1 2 3; do
+      if KUBECONFIG=/etc/rancher/k3s/k3s.yaml timeout 12 kubectl apply -f \
         "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.0/config/crd/experimental/gateway.networking.k8s.io_tlsroutes.yaml"; then
         break
       fi
-      echo "G65: tlsroutes CRD apply attempt $${attempt}/5 failed; retrying in 5s"
-      sleep 5
+      sleep 4
     done
     # G24 (Refs #2575, 2026-05-29): bpf.masquerade=true (line 736) is the
     # critical missing flag that was silently absent from Huawei's --set-
@@ -1138,29 +1133,24 @@ runcmd:
       sleep 5
     done
     # Standard channel CRDs (Wave 5.19 + retry hardening from Wave 5.28).
-    # #3129 FIX: cap the TOTAL of this 2nd CRD section at 180s (deferred CRDs are
-    # re-applied by Flux) so it cannot push the kubeconfig PUT past the 15min budget.
-    _gwnow2=$$(date +%s); GW_CRD_DEADLINE2=$$(expr $$_gwnow2 + 180)
+    # 3129: bounded by retry-count x timeout (PLAIN POSIX only, see block above) so
+    # deferred CRDs (re-applied by Flux) cannot push the kubeconfig PUT past budget.
     for crd in gatewayclasses gateways httproutes grpcroutes referencegrants; do
-      for attempt in 1 2 3 4 5; do
-        [ $$(date +%s) -ge $$GW_CRD_DEADLINE2 ] && { echo "G65: 180s CRD-section deadline hit; deferring to Flux (#3129)"; break 2; }
-        if KUBECONFIG=/etc/rancher/k3s/k3s.yaml timeout 20 kubectl apply -f \
+      for attempt in 1 2 3; do
+        if KUBECONFIG=/etc/rancher/k3s/k3s.yaml timeout 12 kubectl apply -f \
           "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.0/config/crd/standard/gateway.networking.k8s.io_$${crd}.yaml"; then
           break
         fi
-        echo "CRD $${crd} apply attempt $${attempt}/5 failed; retrying in 5s"
-        sleep 5
+        sleep 4
       done
     done
-    # Experimental channel — tlsroutes (Wave 5.23 Refs #2163) with Wave 5.28 retry.
-    for attempt in 1 2 3 4 5; do
-      [ $$(date +%s) -ge $$GW_CRD_DEADLINE2 ] && { echo "G65: 180s CRD-section deadline hit (tlsroutes); deferring to Flux (#3129)"; break; }
-      if KUBECONFIG=/etc/rancher/k3s/k3s.yaml timeout 20 kubectl apply -f \
+    # Experimental channel - tlsroutes (Wave 5.23 Refs #2163) with Wave 5.28 retry.
+    for attempt in 1 2 3; do
+      if KUBECONFIG=/etc/rancher/k3s/k3s.yaml timeout 12 kubectl apply -f \
         "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.0/config/crd/experimental/gateway.networking.k8s.io_tlsroutes.yaml"; then
         break
       fi
-      echo "tlsroutes CRD apply attempt $${attempt}/5 failed; retrying in 5s"
-      sleep 5
+      sleep 4
     done
     # Wave 5.89 (Refs #2434) — Cilium Envoy CRDs. cilium-agent on startup
     # blocks indefinitely waiting for `ciliumenvoyconfigs.cilium.io` +
@@ -1176,14 +1166,12 @@ runcmd:
     # repo breaks the race the same way Wave 5.19 broke the Gateway API
     # CRD race for bp-cilium.
     for crd in ciliumenvoyconfigs ciliumclusterwideenvoyconfigs; do
-      for attempt in 1 2 3 4 5; do
-        [ $$(date +%s) -ge $$GW_CRD_DEADLINE2 ] && { echo "G65: 180s CRD-section deadline hit (cilium CRDs); deferring to cilium-operator/Flux (#3129)"; break 2; }
-        if KUBECONFIG=/etc/rancher/k3s/k3s.yaml timeout 20 kubectl apply -f \
+      for attempt in 1 2 3; do
+        if KUBECONFIG=/etc/rancher/k3s/k3s.yaml timeout 12 kubectl apply -f \
           "https://raw.githubusercontent.com/cilium/cilium/v1.16.5/pkg/k8s/apis/cilium.io/client/crds/v2/$${crd}.yaml"; then
           break
         fi
-        echo "Cilium CRD $${crd} apply attempt $${attempt}/5 failed; retrying in 5s"
-        sleep 5
+        sleep 4
       done
     done
 
