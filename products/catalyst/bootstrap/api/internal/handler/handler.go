@@ -16,8 +16,8 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/flowemit"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
@@ -285,6 +285,12 @@ type Handler struct {
 	// kubernetes.Interface + namespace pair the cutover engine reads
 	// from. Production leaves this nil and cutoverDepsFromEnv runs.
 	cutoverDepsFactory CutoverDepsFactory
+	// spawnCutoverEngineFn — test-only seam over spawnCutoverEngine so the
+	// handover-archive-seal path (ReceiveTofuArchive, issue #933/#3052) can
+	// assert the engine is fired exactly once WITHOUT standing up the real
+	// engine + cluster. Production leaves this nil and fireCutoverEngine
+	// dispatches to the real h.spawnCutoverEngine.
+	spawnCutoverEngineFn func(ctx context.Context, deps *cutoverDeps, source string) (cutoverSpawnResult, error)
 
 	// ── Unified RBAC SME-tier (issue #802, ADR-0003) ────────────────────────
 	// tenantRegistry — host → tenant lookup table backing the public

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -413,6 +415,135 @@ func TestReceiveTofuArchive_ValidationErrors(t *testing.T) {
 				t.Errorf("expected 400; got %d (%s)", rec.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+// TestReceiveTofuArchive_FiresCutoverEngineOnSeal is the issue #933 / #3052
+// regression guard: a successful Phase-0 archive seal at handover must
+// auto-fire the cutover engine exactly once with source="handover", so the
+// post-handover cutover (and TC-16's deny-egress proof, #2940) is no longer
+// dormant. The engine itself is replaced by a seam (spawnCutoverEngineFn) so
+// the test asserts the fire WITHOUT standing up the real 8-step engine.
+//
+// The fire is async (a goroutine), so the seam closes a buffered channel /
+// records the call under a mutex; the test waits on a short deadline.
+func TestReceiveTofuArchive_FiresCutoverEngineOnSeal(t *testing.T) {
+	h := newTestHandler(t)
+
+	// Real OpenBao seam (httptest) so the seal succeeds and returns 200.
+	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer bao.Close()
+	c := openbao.New(bao.URL, "test-token")
+	c.HTTP = bao.Client()
+	h.SetOpenBao(c)
+
+	// A deps factory so cutoverDepsFor() succeeds (a Sovereign WITH the
+	// cutover chart installed). The fake clientset is unused by the seam.
+	h.SetCutoverDepsFactory(func() (*cutoverDeps, error) {
+		return &cutoverDeps{ns: "catalyst"}, nil
+	})
+
+	// Engine seam: record every call (source + count) under a mutex and
+	// signal completion via a channel so the async goroutine is observable.
+	var (
+		mu     sync.Mutex
+		calls  int
+		gotSrc string
+		fired  = make(chan struct{}, 1)
+	)
+	h.spawnCutoverEngineFn = func(_ context.Context, _ *cutoverDeps, source string) (cutoverSpawnResult, error) {
+		mu.Lock()
+		calls++
+		gotSrc = source
+		mu.Unlock()
+		select {
+		case fired <- struct{}{}:
+		default:
+		}
+		return cutoverSpawnResult{outcome: cutoverSpawnStarted}, nil
+	}
+
+	body, _ := json.Marshal(tofuArchiveRequest{
+		DeploymentID:  "dep-933",
+		SovereignFQDN: "t99.omani.works",
+		CapturedAt:    "2026-06-08T00:00:00Z",
+		Files: map[string]string{
+			"terraform.tfstate": base64.StdEncoding.EncodeToString([]byte(`{"v":1}`)),
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/handover/tofu-archive", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ReceiveTofuArchive(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("seal status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Wait for the async fire.
+	select {
+	case <-fired:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cutover engine was not fired within 5s of a successful archive seal")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != 1 {
+		t.Errorf("spawnCutoverEngine called %d times, want exactly 1", calls)
+	}
+	if gotSrc != "handover" {
+		t.Errorf("spawnCutoverEngine source = %q, want %q (gate must be skipped on the handover-seal path)", gotSrc, "handover")
+	}
+}
+
+// TestReceiveTofuArchive_SealSucceedsWhenCutoverNotConfigured proves the
+// best-effort contract: a Sovereign without the cutover chart (cutoverDepsFor
+// errors) STILL completes the handover with 200, and the engine is NOT fired.
+// A handover must never fail just because the cutover surface is absent.
+func TestReceiveTofuArchive_SealSucceedsWhenCutoverNotConfigured(t *testing.T) {
+	h := newTestHandler(t)
+
+	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer bao.Close()
+	c := openbao.New(bao.URL, "test-token")
+	c.HTTP = bao.Client()
+	h.SetOpenBao(c)
+
+	// Deps factory returns an error → cutover not configured on this
+	// Sovereign. The async fire branch must be skipped entirely.
+	h.SetCutoverDepsFactory(func() (*cutoverDeps, error) {
+		return nil, errors.New("cutover: in-cluster config unavailable")
+	})
+
+	var fired int32
+	h.spawnCutoverEngineFn = func(_ context.Context, _ *cutoverDeps, _ string) (cutoverSpawnResult, error) {
+		atomic.AddInt32(&fired, 1)
+		return cutoverSpawnResult{}, nil
+	}
+
+	body, _ := json.Marshal(tofuArchiveRequest{
+		DeploymentID:  "dep-933b",
+		SovereignFQDN: "t99.omani.works",
+		Files: map[string]string{
+			"terraform.tfstate": base64.StdEncoding.EncodeToString([]byte(`{"v":1}`)),
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/handover/tofu-archive", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ReceiveTofuArchive(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("seal status = %d, want 200 (handover must succeed without cutover chart); body=%s", rec.Code, rec.Body.String())
+	}
+	// Give any (erroneously-spawned) goroutine a moment to run, then assert
+	// the engine was never fired.
+	time.Sleep(100 * time.Millisecond)
+	if n := atomic.LoadInt32(&fired); n != 0 {
+		t.Errorf("cutover engine fired %d times when cutover not configured, want 0", n)
 	}
 }
 
