@@ -1,5 +1,13 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.517 — #3126 (2026-06-08) — provisioner resilience to transient github
+# failures at tofu-init: catalyst-api now sets CATALYST_TF_PLUGIN_CACHE_DIR
+# (=/var/lib/catalyst/tofu-plugin-cache, a sibling subdir of the existing
+# tofu workdir on the persistent catalyst-api-deployments PVC) so OpenTofu
+# providers are fetched from github release-assets ONCE and reused on every
+# subsequent prov. Pairs with a Go-side retry-with-backoff on `tofu init`
+# (4 attempts, 5s/15s/45s, transient-network-only). No new volumeMount —
+# the cache lives on the already-mounted /var/lib/catalyst volume. Refs #3126.
 # 1.4.516 — #3122 (2026-06-08) — credential half: provisioning-github-token
 # now mirrors the REAL Gitea PAT (catalyst-gitea-token/token), not the gitea
 # admin PASSWORD. 1.4.514 fixed CATALYST_GITOPS_REPO_URL/BRANCH (env VALUES)
@@ -2573,7 +2581,7 @@ name: bp-catalyst-platform
 # CEL rule can never merge again. Bumping the pin so every Sovereign's
 # Flux helm-controller re-applies the corrected CRD (Flux reconciles
 # crds/ with CreateReplace, unlike raw `helm upgrade`). Refs #2936.
-version: 1.4.516
+version: 1.4.517
 appVersion: 1.4.494
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
