@@ -62,6 +62,38 @@ func readCloudInit(t *testing.T) string {
 	return string(raw)
 }
 
+// TestStageModule_StagesSharedSibling is the structural guard for #3145/#3146.
+// The cloud-init template references ${path.module}/../_shared/..., so the
+// provisioner MUST stage infra/providers/_shared/ as a sibling of the
+// per-deployment workdir — otherwise `tofu plan` fails with
+// "no file exists at ./../_shared/cloudinit-control-plane.tftpl" (caught LIVE
+// on hw119 2026-06-09, AFTER tofu test + the render harness passed, because
+// both run in-repo where _shared is already a sibling). Only staging like the
+// provisioner does catches this gap — hence this test.
+func TestStageModule_StagesSharedSibling(t *testing.T) {
+	providersDir := filepath.Dir(modulePath(t)) // <repo>/infra/providers
+	huaweiSrc := filepath.Join(providersDir, "huawei")
+	if _, err := os.Stat(huaweiSrc); err != nil {
+		t.Skipf("huawei module not found: %v", err)
+	}
+	work := t.TempDir()
+	deployDir := filepath.Join(work, "dep-test")
+	if err := os.MkdirAll(deployDir, 0o700); err != nil {
+		t.Fatalf("mkdir deployDir: %v", err)
+	}
+	if err := stageModule(huaweiSrc, deployDir); err != nil {
+		t.Fatalf("stageModule: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(deployDir, "main.tf")); err != nil {
+		t.Errorf("provider main.tf not staged into workdir: %v", err)
+	}
+	// _shared must land as a sibling of deployDir so ${path.module}/../_shared/ resolves.
+	shared := filepath.Join(work, "_shared", "cloudinit-control-plane.tftpl")
+	if _, err := os.Stat(shared); err != nil {
+		t.Errorf("#3145 regression: _shared not staged as workdir sibling (%s): %v — tofu plan would fail 'no file exists at ./../_shared/...'", shared, err)
+	}
+}
+
 // TestCloudInit_GitRepositoryIgnoreSelectsTemplate proves the
 // GitRepository's `spec.ignore` selects the shared `clusters/_template`
 // tree, NOT a per-FQDN directory. Issue #218's failure mode was the
