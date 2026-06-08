@@ -56,7 +56,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TEMPLATE="${REPO_ROOT}/infra/hetzner/cloudinit-control-plane.tftpl"
+# #3145 — ONE cloud-agnostic control-plane template at infra/providers/_shared/.
+TEMPLATE="${REPO_ROOT}/infra/providers/_shared/cloudinit-control-plane.tftpl"
 
 log() {
   printf '[storageclass] %s\n' "$*" >&2
