@@ -1154,14 +1154,69 @@ spec:
             # on the mothership, marketplace_settings.go returns 503
             # there (intended behaviour, only Sovereigns persist
             # marketplace overlays back to git).
+            #
+            # ── #3122 — gitops push target/credential split ──────────────
+            # ROOT CAUSE (hw101, 2026-06-08): `POST /api/v1/sme/tenants`
+            # cloned `cfg.RepoURL` (UNSET → github default) with
+            # User=gitea_admin + Token=provisioning-github-token/GITHUB_TOKEN
+            # (a 32-char GitHub PAT pre-cutover) and got `exit 128 — Invalid
+            # username or token` because (a) the push target was upstream
+            # github.com, NOT the Sovereign's local Gitea, and (b) the
+            # GitHub PAT 401s against Gitea while `gitea_admin` 401s against
+            # github. PRE-cutover, provisioning-github-token holds the gitea
+            # ADMIN PASSWORD (or, on hw101, a stale GitHub PAT) — NEITHER is
+            # a valid Gitea API token. The catalyst-gitea-token Secret (key
+            # `token`, the SAME one CATALYST_GITEA_TOKEN sources above at the
+            # CATALYST_GITEA_URL block) IS a real Gitea PAT minted by the
+            # bp-gitea post-install Job and works pre-cutover (proven 200 vs
+            # Gitea /api/v1/user on hw101). So on a Sovereign we point the
+            # gitops push at the LOCAL Gitea + source the working token.
+            #
+            # The push target MATCHES the Flux GitRepository the chart
+            # renders for SME tenants — `openova-sme-tenants` (template
+            # sme-services/sme-tenants-gitrepository.yaml):
+            #   url    = http://gitea-http.gitea.svc.cluster.local:3000/openova/openova
+            #   branch = sme-tenants
+            # and the provisioning service's own GITHUB_* env (template
+            # sme-services/provisioning.yaml) uses the identical coordinates.
+            #
+            # Gated on .Values.global.sovereignFQDN (empty on the mothership,
+            # non-empty on a Sovereign — same discriminator the provisioning
+            # gitBasePath/branch already use). On the mothership the override
+            # is NOT rendered, so loadGitOpsConfig() falls back to the github
+            # default + the github-PAT-bearing provisioning-github-token, and
+            # mothership behaviour is unchanged. (The Kustomize-mode sibling
+            # api-deployment-kustomize.yaml — contabo-only, .helmignore'd, no
+            # Helm directives possible — deliberately keeps ONLY the github
+            # wiring; see its #3122 note.)
             - name: CATALYST_GITOPS_USER
               value: "gitea_admin"
+            {{- if .Values.global.sovereignFQDN }}
+            # Sovereign: push tenant gitops to the LOCAL Gitea using the
+            # working Gitea PAT (#3122). Repo + branch match the
+            # openova-sme-tenants Flux GitRepository this chart renders.
+            - name: CATALYST_GITOPS_REPO_URL
+              value: "http://gitea-http.gitea.svc.cluster.local:3000/openova/openova"
+            - name: CATALYST_GITOPS_BRANCH
+              value: "sme-tenants"
+            - name: CATALYST_GITOPS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-gitea-token
+                  key: token
+                  optional: true
+            {{- else }}
+            # Mothership / Catalyst-Zero (contabo): keep the legacy GitHub-PAT
+            # wiring. RepoURL + Branch unset → loadGitOpsConfig() defaults to
+            # github.com/openova-io/openova @ main; the hand-rolled
+            # provisioning-github-token SealedSecret carries the real PAT.
             - name: CATALYST_GITOPS_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: provisioning-github-token
                   key: GITHUB_TOKEN
                   optional: true
+            {{- end }}
             # POOL_DOMAIN_MANAGER_URL — base URL of the central Pool Domain
             # Manager (PDM) ingress on Catalyst-Zero (contabo). Sovereign-
             # side catalyst-api calls PDM's /api/v1/registrar/{r}/set-ns

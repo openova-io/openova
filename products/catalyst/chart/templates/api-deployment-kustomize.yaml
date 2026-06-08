@@ -1106,6 +1106,24 @@ spec:
             # on the mothership, marketplace_settings.go returns 503
             # there (intended behaviour, only Sovereigns persist
             # marketplace overlays back to git).
+            #
+            # ── #3122 — Kustomize-mode (contabo-only) keeps github wiring ──
+            # The Sovereign-side fix for #3122 (point tenant gitops at the
+            # LOCAL Gitea via CATALYST_GITOPS_REPO_URL/BRANCH + source the
+            # working catalyst-gitea-token PAT) lives in the Helm sibling
+            # api-deployment.yaml ONLY, gated on .Values.global.sovereignFQDN.
+            # This file is the Kustomize-mode counterpart applied by contabo's
+            # kustomize-controller, which does NOT render Helm templates (it
+            # is .helmignore'd) — so an `{{ if .Values.global.sovereignFQDN }}`
+            # gate is impossible here and would be emitted literally. Contabo
+            # IS the mothership: it WANTS the github default (RepoURL/Branch
+            # unset → github.com/openova-io/openova @ main) and the hand-rolled
+            # provisioning-github-token SealedSecret IS a real GitHub PAT here,
+            # so this wiring stays unchanged. Repointing it at the (nonexistent
+            # on contabo) catalyst-gitea-token Secret would empty the token and
+            # break the mothership's working gitops — exactly the regression
+            # #3122 says NOT to introduce. Same Helm-vs-Kustomize split as the
+            # CATALYST_NATS_URL literal above.
             - name: CATALYST_GITOPS_USER
               value: "gitea_admin"
             - name: CATALYST_GITOPS_TOKEN
