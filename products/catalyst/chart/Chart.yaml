@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.514 — #3122 (2026-06-08): tenant gitops pushes to the LOCAL Gitea,
+# not github. catalyst-api's CATALYST_GITOPS_TOKEN sourced
+# provisioning-github-token/GITHUB_TOKEN (a GitHub PAT / gitea admin
+# PASSWORD pre-cutover — both 401 vs Gitea) and CATALYST_GITOPS_REPO_URL
+# was unset (→ github default), so `POST /sme/tenants` git-push hit
+# `exit 128 — Invalid username or token` (Pillar-1 Org-creation blocker +
+# Pillar-5 mothership tether). api-deployment.yaml now, when
+# .Values.global.sovereignFQDN is set, points CATALYST_GITOPS_REPO_URL at
+# http://gitea-http.gitea.svc.cluster.local:3000/openova/openova @
+# branch sme-tenants (matching the openova-sme-tenants Flux GitRepository)
+# and sources CATALYST_GITOPS_TOKEN from catalyst-gitea-token/token (the
+# working Gitea PAT, same Secret CATALYST_GITEA_TOKEN uses). Mothership/
+# contabo path unchanged (github default + provisioning-github-token PAT).
+# Refs #3122 #2940 #2737.
 # 1.4.446 — #2745 (2026-06-03) merged onto #2830 (2026-06-03):
 # Both: (a) catalyst-migrator:0.1.0 image now published to GHCR +
 # imagePullSecrets:[ghcr-pull] on the migration Job; (b) bump 5
@@ -2542,7 +2556,7 @@ name: bp-catalyst-platform
 # CEL rule can never merge again. Bumping the pin so every Sovereign's
 # Flux helm-controller re-applies the corrected CRD (Flux reconciles
 # crds/ with CreateReplace, unlike raw `helm upgrade`). Refs #2936.
-version: 1.4.513
+version: 1.4.514
 appVersion: 1.4.494
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.

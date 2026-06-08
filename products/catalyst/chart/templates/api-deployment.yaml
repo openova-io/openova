@@ -1154,11 +1154,63 @@ spec:
             # on the mothership, marketplace_settings.go returns 503
             # there (intended behaviour, only Sovereigns persist
             # marketplace overlays back to git).
+            #
+            # ── #3122 — gitops push target/credential split ──────────────
+            # ROOT CAUSE (hw101, 2026-06-08): `POST /api/v1/sme/tenants`
+            # cloned `cfg.RepoURL` (UNSET → github default) with
+            # User=gitea_admin + Token=provisioning-github-token/GITHUB_TOKEN
+            # (a 32-char GitHub PAT pre-cutover) and got `exit 128 — Invalid
+            # username or token` because (a) the push target was upstream
+            # github.com, NOT the Sovereign's local Gitea, and (b) the
+            # GitHub PAT 401s against Gitea while `gitea_admin` 401s against
+            # github. PRE-cutover, provisioning-github-token holds the gitea
+            # ADMIN PASSWORD (or, on hw101, a stale GitHub PAT) — NEITHER is
+            # a valid Gitea API token. The catalyst-gitea-token Secret (key
+            # `token`, the SAME one CATALYST_GITEA_TOKEN sources above at the
+            # CATALYST_GITEA_URL block) IS a real Gitea PAT minted by the
+            # bp-gitea post-install Job and works pre-cutover (proven 200 vs
+            # Gitea /api/v1/user on hw101). So on a Sovereign we point the
+            # gitops push at the LOCAL Gitea + source the working token.
+            #
+            # The push target MATCHES the Flux GitRepository the chart
+            # renders for SME tenants — `openova-sme-tenants` (template
+            # sme-services/sme-tenants-gitrepository.yaml):
+            #   url    = http://gitea-http.gitea.svc.cluster.local:3000/openova/openova
+            #   branch = sme-tenants
+            # and the provisioning service's own GITHUB_* env (template
+            # sme-services/provisioning.yaml) uses the identical coordinates.
+            #
+            # Gated on .Values.global.sovereignFQDN (empty on the mothership,
+            # non-empty on a Sovereign — same discriminator the provisioning
+            # gitBasePath/branch already use). On the mothership the override
+            # is NOT rendered, so loadGitOpsConfig() falls back to the github
+            # default + the github-PAT-bearing provisioning-github-token, and
+            # mothership behaviour is unchanged. (The Kustomize-mode sibling
+            # api-deployment-kustomize.yaml — contabo-only, .helmignore'd, no
+            # Helm directives possible — deliberately keeps ONLY the github
+            # wiring; see its #3122 note.)
             - name: CATALYST_GITOPS_USER
               value: "gitea_admin"
+            # #3122 — Sovereign pushes tenant gitops to the LOCAL Gitea (matching the
+            # openova-sme-tenants Flux GitRepository); mothership keeps the github default.
+            # Inline-templated + QUOTED (NOT a standalone if/else block directive) so the
+            # raw template stays kubectl-parseable for tests/integration/strategy-flip.sh,
+            # which applies this file UNRENDERED. Empty REPO_URL/BRANCH on the mothership
+            # → loadGitOpsConfig() falls back to github.com/openova-io/openova @ main.
+            - name: CATALYST_GITOPS_REPO_URL
+              value: "{{ if .Values.global.sovereignFQDN }}http://gitea-http.gitea.svc.cluster.local:3000/openova/openova{{ end }}"
+            - name: CATALYST_GITOPS_BRANCH
+              value: "{{ if .Values.global.sovereignFQDN }}sme-tenants{{ end }}"
             - name: CATALYST_GITOPS_TOKEN
               valueFrom:
                 secretKeyRef:
+                  # NOTE (#3122): the secret NAME/KEY can NOT be inline-templated here —
+                  # strategy-flip-regression applies this file UNRENDERED and kubectl
+                  # rejects a literal templated string as an invalid RFC-1123 name. So the
+                  # token fix lives in the provisioning-github-token secret POPULATION
+                  # (it must hold the local gitea_admin token on a Sovereign pre-cutover),
+                  # NOT in this secretKeyRef. The REPO_URL/BRANCH above (env VALUES, not
+                  # resource names) are safely inline-templated to the local Gitea.
                   name: provisioning-github-token
                   key: GITHUB_TOKEN
                   optional: true

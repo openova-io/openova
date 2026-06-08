@@ -953,7 +953,11 @@ spec:
       # preflight-blueprint-crd-cel.yaml. Flux re-applies crds/ with
       # CreateReplace on reconcile so existing Sovereigns pick it up.
       # Refs #2936.
-      version: 1.4.513
+      # 1.4.514 — #3122 (2026-06-08): tenant gitops pushes to the local
+      # Gitea (CATALYST_GITOPS_REPO_URL + catalyst-gitea-token) on a
+      # Sovereign instead of github with the wrong credential; fixes
+      # `POST /sme/tenants` git-push exit-128 Org-creation blocker.
+      version: 1.4.514
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
