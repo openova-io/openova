@@ -2581,7 +2581,7 @@ name: bp-catalyst-platform
 # CEL rule can never merge again. Bumping the pin so every Sovereign's
 # Flux helm-controller re-applies the corrected CRD (Flux reconciles
 # crds/ with CreateReplace, unlike raw `helm upgrade`). Refs #2936.
-version: 1.4.524
+version: 1.4.525
 appVersion: 1.4.494
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
