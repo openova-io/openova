@@ -2693,6 +2693,34 @@ func bumpRetryAttempt(deployDir string, newAttempt int) error {
 // .terraform/ + state, and so OpenTofu's working-directory model works as
 // expected.
 func stageModule(src, dst string) error {
+	if err := copyTfFiles(src, dst); err != nil {
+		return err
+	}
+	// #3145: the cloud-agnostic cloud-init lives in infra/providers/_shared/
+	// and each provider module references it via
+	// templatefile("${path.module}/../_shared/cloudinit-control-plane.tftpl").
+	// In-repo that resolves (sibling dir), but the per-deployment tofu workdir
+	// stages ONLY the provider module, so `../_shared/` would be missing at
+	// apply time (caught live on hw119: "no file exists at ./../_shared/..."").
+	// Stage _shared as a sibling of the workdir so the cross-module reference
+	// resolves identically in-repo and at prov time.
+	sharedSrc := filepath.Join(filepath.Dir(src), "_shared")
+	if fi, err := os.Stat(sharedSrc); err == nil && fi.IsDir() {
+		sharedDst := filepath.Join(filepath.Dir(dst), "_shared")
+		if err := os.MkdirAll(sharedDst, 0o700); err != nil {
+			return err
+		}
+		if err := copyTfFiles(sharedSrc, sharedDst); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// copyTfFiles copies the .tf/.tftpl files from src into dst (non-recursive),
+// skipping unchanged files. Shared by the provider-module + _shared staging
+// (#3145) so both go through one code path.
+func copyTfFiles(src, dst string) error {
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return err
