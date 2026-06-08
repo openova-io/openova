@@ -1204,8 +1204,15 @@ spec:
             - name: CATALYST_GITOPS_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: "{{ if .Values.global.sovereignFQDN }}catalyst-gitea-token{{ else }}provisioning-github-token{{ end }}"
-                  key: "{{ if .Values.global.sovereignFQDN }}token{{ else }}GITHUB_TOKEN{{ end }}"
+                  # NOTE (#3122): the secret NAME/KEY can NOT be inline-templated here —
+                  # strategy-flip-regression applies this file UNRENDERED and kubectl
+                  # rejects a literal {{ }} as an invalid RFC-1123 secret name. So the
+                  # token fix lives in the provisioning-github-token secret POPULATION
+                  # (it must hold the local gitea_admin token on a Sovereign pre-cutover),
+                  # NOT in this secretKeyRef. The REPO_URL/BRANCH above (env VALUES, not
+                  # resource names) are safely inline-templated to the local Gitea.
+                  name: provisioning-github-token
+                  key: GITHUB_TOKEN
                   optional: true
             # POOL_DOMAIN_MANAGER_URL — base URL of the central Pool Domain
             # Manager (PDM) ingress on Catalyst-Zero (contabo). Sovereign-
