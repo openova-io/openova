@@ -676,6 +676,57 @@ locals {
       region_canonical_label         = "hw-${r.code}-rtz-prod"
       primary_region_canonical_label = "hw-${var.regions[0].code}-rtz-prod"
       replica_region_canonical_label = length(var.regions) > 1 ? "hw-${var.regions[1].code}-rtz-prod" : ""
+      # #3110 — canonical regionsJson population (HCS port).
+      # sovereign_regions_json — full multi-region RegionSpec[] JSON
+      # literal threaded into bp-catalyst-platform's
+      # .Values.sovereign.regionsJson via the bootstrap-kit slot 13
+      # postBuild.substitute `SOVEREIGN_REGIONS_JSON`. catalyst-api on
+      # the Sovereign side reads it via the `sovereign-fqdn` ConfigMap
+      # env `SOVEREIGN_REGIONS_JSON` (jobs.go chrootRegionsFromEnv) to
+      # seed Request.Regions on the chroot Deployment, so
+      # /infrastructure/topology + /cloud?view=graph return the full
+      # multi-region tree (DoD D5) WITHOUT relying on #3109's discrete
+      # primary/replica fallback. The Hetzner port has had this since
+      # TBD-A15/#1844; the HCS port silently omitted it, so every HCS
+      # Sovereign landed `regionsJson=[]` (caught live on hw101
+      # e19b083c6db41bb0 2026-06-08) and fell to #3109's fallback.
+      #
+      # CRITICAL field-name remap: Hetzner's `var.regions` object uses
+      # the Go RegionSpec JSON field names verbatim (cloudRegion /
+      # controlPlaneSize / workerSize / workerCount) so Hetzner can
+      # `jsonencode(var.regions)` directly. The HCS `var.regions` object
+      # uses different field names (code / role / control_plane_size /
+      # worker_size / worker_count — see variables.tf), so a raw
+      # jsonencode would emit `code`-keyed objects the catalyst-api
+      # consumer (RegionSpec json.Unmarshal) can't read → CloudRegion=""
+      # for every entry. We therefore re-key each region into the
+      # canonical RegionSpec JSON shape here. `cloudRegion` is set to the
+      # 4-segment canonical label `hw-<code>-rtz-prod` (NOT the bare
+      # `code`) so it matches the format the discrete
+      # SOVEREIGN_PRIMARY_REGION / SOVEREIGN_REPLICA_REGION substitutes
+      # (and #3109's fallback) already emit — keeping both paths
+      # byte-consistent in the chroot region list. provider="huawei".
+      sovereign_regions_json = jsonencode([
+        for rr in var.regions : {
+          provider         = "huawei"
+          cloudRegion      = "hw-${rr.code}-rtz-prod"
+          controlPlaneSize = rr.control_plane_size
+          workerSize       = rr.worker_size
+          workerCount      = rr.worker_count
+        }
+      ])
+      # sovereign_configured_regions_yaml — JSON-flow inline-list literal
+      # of the canonical region labels this Sovereign was provisioned
+      # with (e.g. `["hw-me-east-215-a-rtz-prod","hw-me-east-215-b-rtz-prod"]`).
+      # Threaded into bootstrap-kit slot 13's
+      # `sovereign.configuredRegions: ${SOVEREIGN_CONFIGURED_REGIONS_YAML:-[]}`
+      # substitute. The chart's sovereign-fqdn ConfigMap joins this list
+      # into the comma-separated `configuredRegions` key for the
+      # catalyst-ui Dashboard SovereignCard + Networking → ClusterMesh
+      # chips. Empty `[]` on a back-compat single-region prov.
+      sovereign_configured_regions_yaml = jsonencode([
+        for rr in var.regions : "hw-${rr.code}-rtz-prod"
+      ])
       # G93.1 (Refs #2666) — BCP topology threading. The Huawei
       # cloud-init template adds SOVEREIGN_ENABLE_HOT_STANDBY +
       # SOVEREIGN_BCP_TOPOLOGY to the Kustomization
