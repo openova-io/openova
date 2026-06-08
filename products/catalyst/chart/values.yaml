@@ -1335,13 +1335,31 @@ smeServices:
   # source-side ref without forking the chart.
   provisioning:
     gitToken:
-      # Source: bp-gitea's auto-generated admin Secret. Slot 10
-      # reaches Ready before slot 13 (Flux dependsOn in
-      # clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml),
-      # so the lookup has data by the time this template renders.
-      sourceNamespace: gitea
-      sourceSecretName: gitea-admin-secret
-      sourcePasswordKey: password
+      # Source (issue #3122): the REAL Gitea PAT minted by THIS chart's
+      # own templates/catalyst-gitea-token-secret.yaml pre-install hook
+      # (Secret `catalyst-gitea-token`, key `token`, in the release
+      # namespace). That hook runs at helm.sh/hook-weight 5/10 — i.e.
+      # BEFORE this regular (non-hook) resource is applied — so the PAT
+      # is already populated by the time this template's lookup runs.
+      #
+      # Why NOT gitea-admin-secret.password (the pre-#3122 source): a
+      # Gitea ADMIN PASSWORD is not a Gitea API token. Gitea rejects
+      # password-auth for git operations ("Password authentication is
+      # not supported for Git operations"), so the prior mirror produced
+      # a GITHUB_TOKEN that 401'd on the very first tenant gitops push.
+      # Proven live on hw101 (operator POST /sme/tenants, deployment
+      # e19b083c): 32-char password -> 401 vs Gitea; the 40-char
+      # catalyst-gitea-token PAT -> 200 as gitea_admin.
+      #
+      # patSourceNamespace empty => resolves to the release namespace
+      # (.Release.Namespace, i.e. catalyst-system) where the minter
+      # writes catalyst-gitea-token. Operators pointing provisioning at
+      # a non-Gitea Git host (e.g. a per-Sovereign GitHub PAT delivered
+      # via OpenBao + ExternalSecret) override these three keys without
+      # forking the chart (Inviolable Principle #4).
+      patSourceNamespace: ""
+      patSourceSecretName: catalyst-gitea-token
+      patSourceKey: token
       # Destination: the Secret + key shape that the provisioning
       # Deployment's secretKeyRef in
       # templates/sme-services/provisioning.yaml reads.
