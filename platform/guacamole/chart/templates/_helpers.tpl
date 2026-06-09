@@ -124,13 +124,31 @@ HTTPRoute hostname fail-fast — Cilium Gateway needs a concrete host.
 
 {{/*
 Default redirectURI — when operator left it blank we derive
-https://<httproute.hostname>/ since that is the canonical landing
-page Guacamole serves.
+https://<httproute.hostname>/guacamole/.
+
+#3150 (2026-06-10): the redirect_uri MUST carry the `/guacamole/`
+context path, NOT the bare host root. The Apache Guacamole WAR is
+`guacamole.war`, so Tomcat serves the webapp under the `/guacamole/`
+context path — the container root `/` returns a Tomcat 404 ROOT-context
+page. The guacamole-auth-sso-openid extension implements the OIDC
+*implicit* flow: it sends `redirect_uri` to Keycloak, Keycloak issues the
+id_token and redirects the browser back to that exact URI with the token
+in the URL fragment (`#id_token=…`). With the prior bare-`/` default the
+browser landed on `https://guacamole.<fqdn>/#id_token=…` → Tomcat 404
+ROOT page → the SSO completed at Keycloak but the token never reached the
+webapp (the extension never ran), so the operator never landed logged-in.
+Appending `/guacamole/` lands the fragment on the actual webapp root so
+the extension consumes the token and the operator lands authenticated.
+The KC `guacamole` client's `redirectUris` is a wildcard
+(`https://guacamole.<fqdn>/*`, configmap-sovereign-realm.yaml) so it
+already accepts the `/guacamole/` path — only this chart-side default was
+wrong. Operators can still override via `oidc.redirectURI` for a
+non-default context path.
 */}}
 {{- define "bp-guacamole.oidcRedirectURI" -}}
 {{- if .Values.guacamole.oidc.redirectURI -}}
 {{- .Values.guacamole.oidc.redirectURI -}}
 {{- else -}}
-{{- printf "https://%s/" (include "bp-guacamole.host" .) -}}
+{{- printf "https://%s/guacamole/" (include "bp-guacamole.host" .) -}}
 {{- end -}}
 {{- end }}

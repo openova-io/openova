@@ -79,7 +79,21 @@ name: bp-guacamole
 # realm-import. Same 4-hop curl probe in the audit doc verifies the
 # new path.
 # Refs #2744.
-version: 0.2.1
+# 0.2.2 (#3150, 2026-06-10): fix the default OIDC redirect_uri. The
+# `bp-guacamole.oidcRedirectURI` helper derived `https://<host>/` (bare
+# Tomcat ROOT) when the operator left `oidc.redirectURI` blank — which
+# every Sovereign does. The guacamole-auth-sso-openid extension runs the
+# OIDC *implicit* flow: Keycloak issues the id_token and redirects the
+# browser back to that exact redirect_uri with the token in the URL
+# fragment. Landing on the bare root meant the fragment hit Tomcat's 404
+# ROOT page and the extension never consumed the token, so silent-SSO
+# completed at Keycloak but the operator never landed logged-in. The
+# helper default now appends the `/guacamole/` context path (the WAR is
+# served there); the KC `guacamole` client's `redirectUris` wildcard
+# `https://guacamole.<fqdn>/*` already accepts it. New g117-w3d1-sso-
+# secret.sh Case 1b asserts the rendered OPENID_REDIRECT_URI ends with
+# `/guacamole/`.
+version: 0.2.2
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless

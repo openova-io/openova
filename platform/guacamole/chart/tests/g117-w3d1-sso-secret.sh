@@ -3,6 +3,9 @@
 #
 # Verifies:
 #   1. `?kc_idp_hint=catalyst-pin` is appended to OPENID_AUTHORIZATION_ENDPOINT.
+#   1b. OPENID_REDIRECT_URI carries the `/guacamole/` context path (#3150) —
+#       the bare host root `/` lands the implicit-flow id_token fragment on a
+#       Tomcat 404 ROOT page so the operator never lands logged-in.
 #   2. The divergent `bp-guacamole-realm-patch` ConfigMap is GONE (deleted
 #      template `keycloak-realm-config.yaml`).
 #   3. chartManagedSecret default (ON):
@@ -34,6 +37,21 @@ out_default=$("$helm" template smoke "$chart_dir" "${base_args[@]}" 2>/dev/null)
 if ! echo "$out_default" | grep -qE 'value:.*openid-connect/auth\?kc_idp_hint=catalyst-pin'; then
   echo "FAIL: OPENID_AUTHORIZATION_ENDPOINT does NOT contain ?kc_idp_hint=catalyst-pin" >&2
   echo "$out_default" | grep -A1 OPENID_AUTHORIZATION_ENDPOINT | head -5 >&2
+  exit 1
+fi
+echo "  PASS"
+
+# ── Case 1b: OPENID_REDIRECT_URI carries the /guacamole/ context path ──────
+# #3150: the Apache Guacamole WAR is served under Tomcat's /guacamole/ context
+# path. With a bare-`/` redirect_uri the implicit-flow id_token fragment lands
+# on the Tomcat 404 ROOT page and the OpenID extension never consumes it, so
+# the operator never lands logged-in. The default redirect_uri MUST end with
+# `/guacamole/`.
+echo "[g117-w3d1-sso-secret] Case 1b: OPENID_REDIRECT_URI carries the /guacamole/ context path"
+redirect_val=$(echo "$out_default" | grep -A1 'name: OPENID_REDIRECT_URI' | grep 'value:' | head -1 | sed -E 's/.*value:[[:space:]]*//; s/^"//; s/"$//')
+if [ "$redirect_val" != "https://guacamole.smoke.omani.works/guacamole/" ]; then
+  echo "FAIL: OPENID_REDIRECT_URI is '$redirect_val', want 'https://guacamole.smoke.omani.works/guacamole/'" >&2
+  echo "$out_default" | grep -A1 OPENID_REDIRECT_URI | head -5 >&2
   exit 1
 fi
 echo "  PASS"

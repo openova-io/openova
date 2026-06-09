@@ -1398,16 +1398,32 @@ func (h *Handler) synthesiseAppFromHelmRelease(ctx context.Context, depID, name 
 //     operators, internal components with no UI surface)
 //   - Gateway API isn't installed on this Sovereign
 //
-// Match rule: the HTTPRoute's name OR any backendRefs[].name in any rule
-// equals releaseName. The chart-helpers convention names HTTPRoutes after
-// the release (gitea, harbor, grafana, keycloak, openbao, marketplace,
-// guacamole on hw86), and even when the route is named differently the
-// backend Service that fronts the app is named after the release. This
-// covers both the canonical pattern AND charts that ship multiple routes
-// (e.g. harbor's registry endpoint vs notary).
+// Match rule (in priority order, first hit wins):
 //
-// The SPA renders the returned URL as an "External URL" row on AppDetail
-// Overview and an "Open" button on the AppsPage card.
+//	(1) the HTTPRoute's name equals releaseName, OR
+//	(2) any backendRefs[].name in any rule equals releaseName, OR
+//	(3) the route's first hostname's LEFTMOST DNS label equals releaseName
+//	    — i.e. the canonical `<release>.<sovereign-fqdn>` front-door host.
+//
+// The chart-helpers convention names HTTPRoutes after the release (gitea,
+// harbor, grafana, keycloak, openbao, marketplace), and even when the route
+// is named differently the backend Service that fronts the app is usually
+// named after the release. This covers both the canonical pattern AND charts
+// that ship multiple routes (e.g. harbor's registry endpoint vs notary).
+//
+// #3150 (2026-06-10): rule (3) was added because bp-guacamole's HTTPRoute
+// AND backend Service are both named `guacamole-server` (the chart's
+// `webapp.name`), while the bootstrap-kit HelmRelease's releaseName is
+// `guacamole`. Neither (1) nor (2) matched → externalURL came back empty →
+// the AppDetail "Open" button never rendered for guacamole even though its
+// front door `https://guacamole.<fqdn>/` was live. The route's hostname
+// leftmost label IS the release's canonical subdomain (every Catalyst app
+// exposes itself at `<release>.<sovereign-fqdn>`), so matching on it is both
+// correct and general — it cannot false-positive across apps because each
+// app owns a distinct subdomain.
+//
+// The SPA renders the returned URL as an "External URL" row + "Open" button
+// on AppDetail Overview and an "Open" button on the AppsPage card.
 func (h *Handler) lookupExternalURL(ctx context.Context, depID, targetNamespace, releaseName string) string {
 	if h.k8sCache == nil || releaseName == "" {
 		return ""
@@ -1429,6 +1445,14 @@ func (h *Handler) lookupExternalURL(ctx context.Context, depID, targetNamespace,
 			continue
 		}
 		if rt.GetName() == releaseName {
+			return "https://" + hosts[0]
+		}
+		// (3) hostname leftmost-label match — the route's front-door host
+		// is `<release>.<sovereign-fqdn>`. Strip to the first DNS label and
+		// compare. Catches guacamole (route `guacamole-server`, host
+		// `guacamole.<fqdn>`) and any other release whose route/Service name
+		// diverges from the release but whose subdomain is the release name.
+		if before, _, found := strings.Cut(hosts[0], "."); found && before == releaseName {
 			return "https://" + hosts[0]
 		}
 		rules, _, _ := unstructured.NestedSlice(rt.Object, "spec", "rules")
