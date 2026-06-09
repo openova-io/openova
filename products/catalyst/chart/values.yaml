@@ -294,9 +294,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "26d676a"
+    tag: "a7fb482"
   catalystUi:
-    tag: "26d676a"
+    tag: "a7fb482"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -311,7 +311,15 @@ images:
   admin:
     tag: "3c2f7e4"
   # All 10 SME microservices share one SHA tag (built from the same mono-repo commit).
-  smeTag: "41e02c8"
+  # 2026-06-09: 41e02c8 → c96f998 (#3157 merge SHA). 41e02c8 (built 2026-06-05)
+  # predates the #3157 marketplace-plans fix, so services-catalog:41e02c8 lacks
+  # filterPlansByProduct → the generic Org-provisioning picker rendered all 8
+  # plans (5 generic + 3 Sandbox dupes) instead of 5. A later catalyst-platform
+  # roll had re-pinned the stale 41e02c8, reverting the live filter. c96f998
+  # carries the server-side filter and is published for every services-* image
+  # (verified: services-auth, unchanged by #3157, also has c96f998 → the SME
+  # build is all-services, not path-filtered). Refs #3156.
+  smeTag: "c96f998"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────
