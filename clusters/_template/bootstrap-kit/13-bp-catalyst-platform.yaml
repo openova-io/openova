@@ -979,7 +979,10 @@ spec:
       # gains in-cluster bp-harbor + bp-openbao Blueprint CRs (ssoInitPath
       # /c/oidc/login, /ui/vault/auth?with=oidc%2F on the live registry.<sov> /
       # bao.<sov> hosts) + fixes bp-guacamole seed host guac.<sov> → guacamole.<sov>.
-      version: 1.4.539
+      # 1.4.540 — #3156 (2026-06-09): re-pin services-catalog smeTag 41e02c8 →
+      # c96f998 so the generic Org-provisioning plan picker shows the 5 generic
+      # tiers (filterPlansByProduct from #3157), not all 8 with the Sandbox dupes.
+      version: 1.4.540
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
