@@ -14,10 +14,11 @@ Founder's streamlined acceptance (in lieu of all 121 canonical rows below). Walk
 
 | # | Check | What to do | Expected | Result |
 |---|---|---|---|---|
-| **A1** | Silent SSO — page 1 | console → Apps → an `ssoEnabled` app (e.g. grafana) → click **Open** | New tab lands **ALREADY signed in** — no login form, no 2nd click | ☐ — ⚠️ pre-flagged ◑ (#3150): currently lands on the app's own login page |
-| **A2** | Silent SSO — page 2 | console → Apps → a 2nd `ssoEnabled` app (e.g. gitea) → click **Open** | New tab lands **ALREADY signed in** | ☐ — ⚠️ pre-flagged ◑ (#3150) |
-| **B** | Committed topologies met | console → Cloud + per-app **Topology** tab | Each app's region placement matches its committed topology (active-hot-standby / active-active / singleton) | ☐ |
-| **C** | New catalog pages in place | console → Apps → **Catalog** tab (+ class page `/catalog/$bp`) | New catalog pages render (63 catalog entries seen) | ☐ |
+| **A1** | Silent SSO — page 1 | console → Apps → an `ssoEnabled` app (e.g. grafana) → click **Open** | New tab lands **ALREADY signed in** — no login form, no 2nd click | ❌ (operator, 2026-06-09) — no silent link; lands on the app's default login page. **Violation of committed single-click SSO.** #3150 |
+| **A2** | Silent SSO — page 2 | console → Apps → a 2nd `ssoEnabled` app (e.g. gitea) → click **Open** | New tab lands **ALREADY signed in** | ❌ (operator) — same: default login page. #3150 |
+| **B** | Committed topologies met | console → Cloud + per-app **Topology** tab | Each app's region placement matches its committed topology (active-hot-standby / active-active / singleton) | ❌ (operator) — bp-openbao still **single-region**; verified: every app's pods in region -a only, `-b` is a separate independent cluster. **Multi-region app topology NOT wired.** |
+| **C** | New catalog pages in place | console → Apps → **Catalog** tab (+ class page `/catalog/$bp`) | New catalog pages render | ❌ (operator) — `/catalog/$bp` **catalog data GET 404s** (page shell loads, data empty). |
+| **BONUS** | vcluster containment | non-foundational namespaces should live in rtz/dmz/mgmt vclusters | only foundational ns in host; everything else in a vcluster | ❌ (operator) — verified **172 pods in the HOST**, vclusters rtz/dmz/mgmt ~empty. Isolation architecture not working. |
 
 > The full 121-row per-app canonical table is **preserved below** (it is mandated by this doc's "one row per ssoEnabled app" rule) — these 3 are the operator's fast acceptance pass, not a replacement.
 
@@ -73,7 +74,7 @@ Remaining (need a converged 2-region env / clean re-prov): TC-02/03/04 voucher, 
 | TC-10 | Tenant first login | tenant console | Customer PIN-login | Dashboard renders (Phase 2a) | ☐ | — |
 | **Pillar 2 — Multi-region BCP topology chosen at signup** |||||||
 | TC-11 | BCP at signup | `marketplace.hw101.<dom>/bcp` | Choose **active-hot-standby**, pick **two different** regions | Same-region rejected; two distinct regions accepted; provisions BOTH in one pass | ☐ | — |
-| TC-12 | Cloud view = 2 REAL regions | `console.hw124.omani.works/cloud?view=graph` | Open the Cloud view | **2 regions, 2 clusters with REAL nodes in each** (not an empty 2nd-region VPC shell — the hw99 failure) | ✅ | hw124 2026-06-09 — **Region 2/2, Cluster 2/2, 12 WorkerNodes** across me-east-215-a + -b; kubectl-confirmed both regions Ready + cilium up (`docs/sessions/2026-06-09/evidence/hw124-cloud-2region-TC12.png`) |
+| TC-12 | Cloud view = 2 REAL regions | `console.hw124.omani.works/cloud?view=graph` | Open the Cloud view | **2 regions, 2 clusters with REAL nodes in each** (not an empty 2nd-region VPC shell — the hw99 failure) | ◑ | hw124 — 2 clusters with real nodes exist (Region 2/2, 12 nodes), BUT they are **2 independent single-region clusters**, NOT a spanned multi-region topology: every app's pods run in region -a only (harbor/keycloak on -a nodes; HRs carry no regions/placement). **Pillar-2/3 (multi-region app topology + CNPG cross-region failover) NOT met.** Prior ✅ was an over-claim (checked "2 clusters exist", not "apps span regions"). |
 | **Pillar 3 — Two independent CNPG clusters + region-kill failover** |||||||
 | TC-13 | CNPG pair across regions | `/app/$id` → Topology | Install a CNPG-backed app; read placement | One CNPG cluster **per region**, synchronous `ReplicaCluster` over ClusterMesh; both regions shown | ☐ | — |
 | TC-14 | Region-kill failover | the app's FQDN | Dev kills the primary region; keep refreshing | Service resumes **≤30 s**, same FQDN; surviving region healthy; **0 transactions lost** | ☐ | — |
