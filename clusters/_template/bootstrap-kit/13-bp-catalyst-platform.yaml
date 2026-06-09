@@ -983,7 +983,7 @@ spec:
       # bp-powerdns-admin Blueprint CR (was the lone catalog-404 on fresh prov).
       # 1.4.547 — #3150 (2026-06-10): catalog-seed bp-powerdns-admin endpoint
       # gains ssoEnabled+ssoInitPath for silent-SSO logged-in.
-      version: 1.4.549
+      version: 1.4.550
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
