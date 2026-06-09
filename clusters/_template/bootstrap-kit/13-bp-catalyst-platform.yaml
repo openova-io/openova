@@ -981,7 +981,7 @@ spec:
       # bao.<sov> hosts) + fixes bp-guacamole seed host guac.<sov> → guacamole.<sov>.
       # 1.4.542 — #3150 (2026-06-10): catalog-seed gains the missing
       # bp-powerdns-admin Blueprint CR (was the lone catalog-404 on fresh prov).
-      version: 1.4.542
+      version: 1.4.543
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
