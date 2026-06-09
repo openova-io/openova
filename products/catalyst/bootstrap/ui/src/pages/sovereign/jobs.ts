@@ -79,12 +79,15 @@ export interface Job {
   noAppLink: boolean
 }
 
+// #3152: provider-agnostic labels — the same OpenTofu jobs run for every
+// cloud (Hetzner, Huawei, AWS, …) under the cloud-agnostic model, so the UI
+// must NOT hardcode "Hetzner" (it mislabelled live Huawei provs as Hetzner).
 const TOFU_PHASE_LABELS: Record<string, string> = {
-  'tofu-init':   'Provision Hetzner — terraform init',
-  'tofu-plan':   'Provision Hetzner — terraform plan',
-  'tofu-apply':  'Provision Hetzner — terraform apply',
-  'tofu-output': 'Provision Hetzner — terraform output',
-  'tofu':        'Provision Hetzner — runtime events',
+  'tofu-init':   'Provision infrastructure — terraform init',
+  'tofu-plan':   'Provision infrastructure — terraform plan',
+  'tofu-apply':  'Provision infrastructure — terraform apply',
+  'tofu-output': 'Provision infrastructure — terraform output',
+  'tofu':        'Provision infrastructure — runtime events',
 }
 
 /** Derive Job UI status from an Application status enum. */
