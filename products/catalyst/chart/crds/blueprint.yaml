@@ -568,6 +568,16 @@ spec:
                         type: boolean
                       ssoEnabled:
                         type: boolean
+                      ssoInitPath:
+                        type: string
+                        maxLength: 512
+                        description: |
+                          App-local OIDC-init route the console "Open"
+                          launch lands the browser on (e.g. Grafana
+                          `/login/generic_oauth`, Harbor `/c/oidc/login`),
+                          which 302s to Keycloak with the app's pre-baked
+                          kc_idp_hint for silent SSO. Empty/absent →
+                          legacy app-root launch. (#3150)
                 sso:
                   type: object
                   description: |
