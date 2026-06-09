@@ -3277,4 +3277,2111 @@ spec:
     rolesFromGroup:
       sovereign-admins: admin
     silentLogin: true
+{{/*
+─────────────────────────────────────────────────────────────────────────
+#3159 catalog-completeness (2026-06-09, part 2): EVERY installed bp-* app
+must resolve at GET /api/v1/catalog/{name} so its operator-console catalog
+page (/catalog/bp-<app>) renders — not just the curated user-facing subset.
+Founder: "The catalog page is selectively created only for grafana. harbor
+etc. Each and every single app must have their catalog page by default."
+
+Before this block the seed carried ~37 CRs but a fresh Sovereign installs
+~54 bp-* HelmReleases; the ~38 installed-but-unseeded apps (platform/
+control-plane + bootstrap-kit plumbing) 404'd at their catalog page because
+the in-cluster CR fallback (catalog_client_cluster_fallback.go) found no CR.
+These are seeded `visibility: unlisted` so each app's DETAIL page resolves
+(getFromCluster matches by metadata.name regardless of visibility) while
+staying OUT of the user-facing apps grid (which filters on listed/public).
+
+Every entry references a REAL published OCI chart version (probed via
+`gh api /orgs/openova-io/packages/container/<pkg>/versions` AND cross-checked
+against the LIVE hw124 HelmRelease chart versions). topology.supported[] +
+endpoints[].name/launchDefault + sso.realm/silentLogin are copied VERBATIM
+from each platform/<x>/blueprint.yaml so the catalog-seed-lockstep guard
+(scripts/check-catalog-seed-lockstep.sh) stays green; runtime
+{{ "{{" }}.X{{ "}}" }} tokens are Helm-escaped.
+
+vcluster apps (bp-dmz/mgmt/rtz-vcluster, bp-vcluster-helmrepo) live at
+platform/bp-<name>/ (already bp-prefixed), so `bp_short=<name>` maps to a
+non-existent platform/<name>/ and the lockstep guard SKIPS them (no source)
+— minimal singleton blocks are authored here for them, same as bp-continuum
+and the bp-openova-flow-* pair which have no platform/<short>/blueprint.yaml.
+─────────────────────────────────────────────────────────────────────────
+*/}}
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-catalyst-platform
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.4.539"
+  visibility: unlisted
+  card:
+    title: "Catalyst Platform"
+    category: platform
+    summary: "Umbrella Blueprint for the Catalyst control plane — console, marketplace, admin, catalog-svc, projector, provisioning, environment/blueprint controllers, billing. Once Ready the Sovereign is self-sufficient."
+    description: "Umbrella Blueprint for the Catalyst control plane. Brings up the console, marketplace, admin, catalog-svc, projector, provisioning, environment-controller, blueprint-controller, and billing services. See docs/ARCHITECTURE.md §11 (Catalyst-on-Catalyst) and bootstrap-kit slot 13."
+    icon: catalyst.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-catalyst-platform
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-catalyst-platform
+    version: "1.4.539"
+  topology:
+    supported:
+      - active-hot-standby
+      - singleton
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      active-hot-standby:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints:
+    - name: console
+      hostnameTemplate: "console.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+    - name: api
+      hostnameTemplate: "api.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: false
+      ssoEnabled: true
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+    silentLogin: true
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-cert-manager
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.2.5"
+  visibility: unlisted
+  card:
+    title: "cert-manager"
+    category: platform
+    summary: "X.509 certificate automation for Kubernetes — Let's Encrypt ACME issuance, renewal, and the wildcard ClusterIssuer every Sovereign HTTPRoute terminates against."
+    icon: cert-manager.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-cert-manager
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-cert-manager
+    version: "1.2.5"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-cert-manager-powerdns-webhook
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.1.0"
+  visibility: unlisted
+  card:
+    title: "cert-manager PowerDNS Webhook"
+    category: platform
+    summary: "ACME DNS-01 solver webhook that lets cert-manager satisfy Let's Encrypt DNS-01 challenges against the Sovereign's own PowerDNS authoritative zones."
+    icon: cert-manager.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-cert-manager-powerdns-webhook
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-cert-manager-powerdns-webhook
+    version: "1.1.0"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-cilium
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: infrastructure
+    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.4.0"
+  visibility: unlisted
+  card:
+    title: "Cilium"
+    category: infrastructure
+    summary: "Unified CNI + Service Mesh (eBPF). mTLS via WireGuard, Hubble observability, Gateway API."
+    icon: cilium.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-cilium
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-cilium
+    version: "1.4.0"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints:
+    - name: hubble
+      hostnameTemplate: "hubble.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: private
+      launchDefault: false
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-cluster-autoscaler-hcloud
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: infrastructure
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.3.0"
+  visibility: unlisted
+  card:
+    title: "Cluster Autoscaler (Hetzner)"
+    category: infrastructure
+    summary: "Kubernetes Cluster Autoscaler with the Hetzner Cloud provider — scales worker node pools up/down to match scheduled-Pod demand on hcloud-backed Sovereigns."
+    icon: cluster-autoscaler.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-cluster-autoscaler-hcloud
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-cluster-autoscaler-hcloud
+    version: "1.3.0"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-coraza
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: security
+    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: unlisted
+  card:
+    title: "Coraza WAF (SPOA)"
+    category: security
+    summary: "OWASP Coraza Web Application Firewall as an SPOA sidecar — ModSecurity-compatible rules (CRS) enforced at the Sovereign edge gateway."
+    icon: coraza.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-coraza
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-coraza
+    version: "1.0.0"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: dmz
+          clusters: [dmz-A]
+          roles:
+            dmz-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-crossplane
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.1.4"
+  visibility: unlisted
+  card:
+    title: "Crossplane"
+    category: platform
+    summary: "Control-plane day-2 infrastructure provisioning. Renders Composite Resources (XRs) into cloud + in-cluster resources the Sovereign never surfaces to Users directly."
+    icon: crossplane.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-crossplane
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-crossplane
+    version: "1.1.4"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-crossplane-claims
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.1.5"
+  visibility: unlisted
+  card:
+    title: "Crossplane Claims"
+    category: platform
+    summary: "Sovereign-scoped Crossplane Composite Resource claims (XRDs + Compositions) — the in-cluster contract the control plane uses to request infrastructure from bp-crossplane."
+    icon: crossplane.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-crossplane-claims
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-crossplane-claims
+    version: "1.1.5"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-external-dns
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: infrastructure
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.1.8"
+  visibility: unlisted
+  card:
+    title: "ExternalDNS"
+    category: infrastructure
+    summary: "Synchronises Kubernetes Ingress/HTTPRoute/Service hostnames into the Sovereign's PowerDNS authoritative zones automatically."
+    icon: external-dns.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-external-dns
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-external-dns
+    version: "1.1.8"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-external-secrets
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: security
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.1.1"
+  visibility: unlisted
+  card:
+    title: "External Secrets Operator"
+    category: security
+    summary: "Syncs secrets from OpenBao into Kubernetes Secrets via ExternalSecret CRs. The materialisation layer every app's SSO/DB credential flows through."
+    icon: external-secrets.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-external-secrets
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-external-secrets
+    version: "1.1.1"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-external-secrets-stores
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: security
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.6"
+  visibility: unlisted
+  card:
+    title: "External Secrets — Stores"
+    category: security
+    summary: "ClusterSecretStore + SecretStore CRs binding the External Secrets Operator to the Sovereign's OpenBao backend. The store-configuration companion to bp-external-secrets."
+    icon: external-secrets.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-external-secrets-stores
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-external-secrets-stores
+    version: "1.0.6"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-falco
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: security
+    catalyst.openova.io/section: pts-3-observability
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.1"
+  visibility: unlisted
+  card:
+    title: "Falco"
+    category: security
+    summary: "Runtime security — eBPF syscall + Kubernetes-audit threat detection. Streams security events to the Sovereign observability stack."
+    icon: falco.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-falco
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-falco
+    version: "1.0.1"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-flux
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.2.6"
+  visibility: unlisted
+  card:
+    title: "Flux"
+    category: platform
+    summary: "GitOps engine — reconciles every Sovereign Blueprint HelmRelease from the local Gitea source. The continuous-reconciliation backbone of the platform."
+    icon: flux.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-flux
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-flux
+    version: "1.2.6"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-gateway-api
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: infrastructure
+    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.1.0"
+  visibility: unlisted
+  card:
+    title: "Gateway API"
+    category: infrastructure
+    summary: "Kubernetes Gateway API CRDs (GatewayClass/Gateway/HTTPRoute) — the north-south traffic contract every Sovereign endpoint is exposed through via Cilium."
+    icon: gateway-api.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-gateway-api
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-gateway-api
+    version: "1.1.0"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-gitea
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.2.23"
+  visibility: unlisted
+  card:
+    title: "Gitea"
+    category: platform
+    summary: "Gitea — per-Sovereign Git server. Hosts catalog (public Blueprint mirror), catalog-sovereign (curated private Blueprints), one Gitea Org per Catalyst Organization, and system scope."
+    icon: gitea.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-gitea
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-gitea
+    version: "1.2.23"
+  topology:
+    supported:
+      - active-hot-standby
+      - singleton
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      active-hot-standby:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints:
+    - name: ui
+      hostnameTemplate: "gitea.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+      gitea-admins: admin
+    silentLogin: true
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-hcloud-ccm
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: infrastructure
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: unlisted
+  card:
+    title: "Hetzner Cloud Controller Manager"
+    category: infrastructure
+    summary: "Hetzner Cloud provider integration — node lifecycle, LoadBalancer Services, and route reconciliation on hcloud-backed Sovereign clusters."
+    icon: hetzner.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-hcloud-ccm
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-hcloud-ccm
+    version: "1.0.0"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-k8s-ws-proxy
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "0.1.14"
+  visibility: unlisted
+  card:
+    title: "k8s-ws-proxy"
+    category: platform
+    summary: "Per-node WebSocket exec proxy bridging HMAC-signed callers (catalyst-api, Guacamole) onto the local kube-apiserver pods/exec stream. DaemonSet with node-local internalTrafficPolicy."
+    icon: k8s-ws-proxy.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-k8s-ws-proxy
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-k8s-ws-proxy
+    version: "0.1.14"
+  topology:
+    supported:
+      - active-passive
+      - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton
+    perTopology:
+      active-passive:
+        replication:
+          backend: none
+          mode: none
+        switchover:
+          mechanism: none
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: ""
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    silentLogin: false
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-kyverno
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: security
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.3.6"
+  visibility: unlisted
+  card:
+    title: "Kyverno"
+    category: security
+    summary: "Kubernetes-native policy engine — validates, mutates, and generates resources via admission control. Enforces the Sovereign's guardrail policy set."
+    icon: kyverno.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-kyverno
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-kyverno
+    version: "1.3.6"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-kyverno-policies
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: security
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.28"
+  visibility: unlisted
+  card:
+    title: "Kyverno Policy Library"
+    category: security
+    summary: "The Sovereign's curated Kyverno ClusterPolicy set — image-signature enforcement, namespace guardrails, and resource-hygiene rules applied at admission time."
+    icon: kyverno.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-kyverno-policies
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-kyverno-policies
+    version: "1.0.28"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-nats-jetstream
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.3.3"
+  visibility: unlisted
+  card:
+    title: "NATS JetStream"
+    category: platform
+    summary: "Event spine for the Catalyst control plane — JetStream Streams + KV + Object Store via the bundled nack JetStream Controller. Per-Organization Accounts."
+    icon: nats.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-nats-jetstream
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-nats-jetstream
+    version: "1.3.3"
+  topology:
+    supported:
+      - active-passive
+      - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton
+    perTopology:
+      active-passive:
+        replication:
+          backend: none
+          mode: async
+          lagSloSeconds: 30
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 60
+          rpoSeconds: 30
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    silentLogin: false
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-opentelemetry-operator
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: observability
+    catalyst.openova.io/section: pts-3-observability
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.4"
+  visibility: unlisted
+  card:
+    title: "OpenTelemetry Operator"
+    category: observability
+    summary: "Manages OpenTelemetry Collector + auto-instrumentation CRs across the Sovereign — the operator layer behind the LGTM telemetry pipeline."
+    icon: opentelemetry.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-opentelemetry-operator
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-opentelemetry-operator
+    version: "1.0.4"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-powerdns
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: infrastructure
+    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.2.9"
+  visibility: unlisted
+  card:
+    title: "PowerDNS"
+    category: infrastructure
+    summary: "Authoritative DNS for every Sovereign zone — per-zone DNSSEC, lua-records for geo + health-checked failover, dnsdist rate-limiting. See docs/MULTI-REGION-DNS.md."
+    icon: powerdns.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-powerdns
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-powerdns
+    version: "1.2.9"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints:
+    - name: ns1
+      hostnameTemplate: "ns1.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      port: 53
+      protocol: udp
+      tls: false
+      visibility: public
+      launchDefault: false
+    - name: ns2
+      hostnameTemplate: "ns2.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      port: 53
+      protocol: udp
+      tls: false
+      visibility: public
+      launchDefault: false
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-reflector
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: unlisted
+  card:
+    title: "Reflector"
+    category: platform
+    summary: "Reflects Secrets + ConfigMaps across namespaces via annotations — propagates wildcard TLS + shared config to every namespace that needs them."
+    icon: reflector.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-reflector
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-reflector
+    version: "1.0.0"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-reloader
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: unlisted
+  card:
+    title: "Reloader"
+    category: platform
+    summary: "Watches ConfigMap/Secret changes and triggers rolling restarts of the Deployments/StatefulSets that consume them — keeps workloads in sync with rotated credentials."
+    icon: reloader.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-reloader
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-reloader
+    version: "1.0.0"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-sealed-secrets
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: security
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.1.2"
+  visibility: unlisted
+  card:
+    title: "Sealed Secrets"
+    category: security
+    summary: "Bitnami Sealed Secrets controller — decrypts SealedSecret CRs committed to Git into in-cluster Secrets. The GitOps-safe secret bootstrap path before OpenBao takes over."
+    icon: sealed-secrets.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-sealed-secrets
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-sealed-secrets
+    version: "1.1.2"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-self-sovereign-cutover
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "0.1.56"
+  visibility: unlisted
+  card:
+    title: "Self-Sovereignty Cutover"
+    category: platform
+    summary: "Post-handover cutover Blueprint — pivots every upstream tether (GitOps source, OCI HelmRepositories, registry mirrors, catalyst-api repo env) to the local Sovereign. See ADR-0002 + issue #790."
+    icon: cutover.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-self-sovereign-cutover
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-self-sovereign-cutover
+    version: "0.1.56"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    silentLogin: false
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-sigstore
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: security
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: unlisted
+  card:
+    title: "Sigstore Policy Controller"
+    category: security
+    family: guardian
+    description: "Admission controller for signed-image enforcement (Sigstore/Cosign). Verifies signatures + attestations on container images before admission. Pairs with bp-harbor for the supply-chain trust path."
+    icon: sigstore.svg
+    docs: "https://docs.sigstore.dev/policy-controller/overview/"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-sigstore
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-sigstore
+    version: "1.0.0"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints:
+    - name: cosign
+      hostnameTemplate: "cosign.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: private
+      launchDefault: false
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-sso-bridge
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: security
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "0.2.15"
+  visibility: unlisted
+  card:
+    title: "SSO Bridge"
+    category: security
+    summary: "Catalyst SSO framework — watches every HelmRelease and auto-provisions Keycloak Clients + OpenBao client_secrets + ExternalSecrets for apps that declare sso.enabled. Mandatory infra. See SECURITY.md §6.3."
+    icon: sso-bridge.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-sso-bridge
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-sso-bridge
+    version: "0.2.15"
+  topology:
+    supported:
+      - active-passive
+      - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton
+    perTopology:
+      active-passive:
+        replication:
+          backend: none
+          mode: none
+        switchover:
+          mechanism: none
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    silentLogin: false
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-syft-grype
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: security
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: unlisted
+  card:
+    title: "Syft + Grype"
+    category: security
+    summary: "SBOM generation (Syft) + vulnerability scanning (Grype) for the Sovereign supply chain — produces and scans image bills-of-materials in the CI/admission path."
+    icon: grype.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-syft-grype
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-syft-grype
+    version: "1.0.0"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-trivy
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: security
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.3"
+  visibility: unlisted
+  card:
+    title: "Trivy"
+    category: security
+    summary: "Trivy Operator — continuous in-cluster vulnerability, misconfiguration, and secret scanning. Surfaces VulnerabilityReport CRs for every workload."
+    icon: trivy.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-trivy
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-trivy
+    version: "1.0.3"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-vpa
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: infrastructure
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.1"
+  visibility: unlisted
+  card:
+    title: "Vertical Pod Autoscaler"
+    category: infrastructure
+    summary: "VPA recommender + updater — right-sizes Pod CPU/memory requests from observed usage so the Sovereign's workloads stay efficiently packed."
+    icon: vpa.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-vpa
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-vpa
+    version: "1.0.1"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-continuum
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-9-disaster-recovery
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "0.1.3"
+  visibility: unlisted
+  card:
+    title: "Continuum"
+    category: platform
+    summary: "Cross-region failover orchestrator — promotes CNPG replicas, flips DNS lua-records, and drives switchover for active-hot-standby Blueprints on operator-triggered region-kill."
+    icon: continuum.svg
+  placementSchema:
+    modes: [active-hotstandby]
+    default: active-hotstandby
+    minRegions: 2
+    maxRegions: 2
+  manifests:
+    chart: bp-continuum
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-continuum
+    version: "0.1.3"
+  topology:
+    supported:
+      - active-hot-standby
+      - singleton
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      active-hot-standby:
+        replication:
+          backend: none
+          mode: none
+        switchover:
+          mechanism: leader-election
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-openova-flow-server
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-3-observability
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "0.2.3"
+  visibility: unlisted
+  card:
+    title: "OpenOva Flow Server"
+    category: platform
+    summary: "Wire-capture aggregation server for the OpenOva Flow diagnostics pipeline — collects emitter events into a queryable provenance stream for operator forensics."
+    icon: flow.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-openova-flow-server
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-openova-flow-server
+    version: "0.2.3"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-openova-flow-emitter
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-3-observability
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "0.1.1"
+  visibility: unlisted
+  card:
+    title: "OpenOva Flow Emitter"
+    category: platform
+    summary: "Per-node provenance emitter for the OpenOva Flow diagnostics pipeline — taps control-plane events and ships them to bp-openova-flow-server."
+    icon: flow.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-openova-flow-emitter
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-openova-flow-emitter
+    version: "0.1.1"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-mgmt-vcluster
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "0.2.6"
+  visibility: unlisted
+  card:
+    title: "Management vCluster"
+    category: platform
+    summary: "The mgmt-tier vCluster — virtual control-plane isolation for the Sovereign's management-zone workloads (Keycloak, Gitea, Grafana, catalyst control plane)."
+    icon: vcluster.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-mgmt-vcluster
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-mgmt-vcluster
+    version: "0.2.6"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-dmz-vcluster
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "0.2.5"
+  visibility: unlisted
+  card:
+    title: "DMZ vCluster"
+    category: platform
+    summary: "The dmz-tier vCluster — virtual control-plane isolation for the Sovereign's edge/DMZ-zone workloads (edge gateway, WAF, north-south ingress)."
+    icon: vcluster.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-dmz-vcluster
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-dmz-vcluster
+    version: "0.2.5"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: dmz
+          clusters: [dmz-A]
+          roles:
+            dmz-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-rtz-vcluster
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "0.2.6"
+  visibility: unlisted
+  card:
+    title: "RTZ vCluster"
+    category: platform
+    summary: "The rtz-tier vCluster — virtual control-plane isolation for the Sovereign's runtime-zone workloads (per-Org tenant Applications, Sandbox sessions)."
+    icon: vcluster.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-rtz-vcluster
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-rtz-vcluster
+    version: "0.2.6"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: rtz
+          clusters: [rtz-A]
+          roles:
+            rtz-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-vcluster-helmrepo
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "0.2.0"
+  visibility: unlisted
+  card:
+    title: "vCluster HelmRepository"
+    category: platform
+    summary: "Seeds the in-vCluster HelmRepository CR so per-Org Applications resolve their Blueprint charts against the Sovereign's local OCI registry post-cutover."
+    icon: vcluster.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-vcluster-helmrepo
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-vcluster-helmrepo
+    version: "0.2.0"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: rtz
+          clusters: [rtz-A]
+          roles:
+            rtz-A: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-sandbox
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: devtools
+    catalyst.openova.io/section: pts-4-sandbox
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "0.3.9"
+  visibility: unlisted
+  card:
+    title: "Sandbox"
+    category: devtools
+    summary: "Per-User in-browser coding sandbox — pty-server + agent CLI (claude-code / qwen-code / aider / sovereign-shell) + openova-sandbox-mcp pre-wired into the User's Organization. Reconciles Sandbox CRs into per-User sessions."
+    icon: sandbox.svg
+    tags: [sandbox, ide, devtools, mcp, claude-code, qwen-code, agents, openova]
+    license: "AGPL-3.0-or-later"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: sandbox
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: sandbox
+    version: "0.3.9"
+  topology:
+    supported:
+      - active-hot-standby
+      - singleton
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      active-hot-standby:
+        replication:
+          backend: none
+          mode: async
+          lagSloSeconds: 0
+        switchover:
+          mechanism: leader-election
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: rtz
+          clusters: [rtz-A, rtz-B]
+          roles:
+            rtz-A: active
+            rtz-B: passive
+      singleton:
+        placement:
+          tier: rtz
+          clusters: [rtz-A]
+          roles:
+            rtz-A: singleton
+  endpoints:
+    - name: ui
+      hostnameTemplate: "sandbox-{{ "{{" }}.InstanceID{{ "}}" }}.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+    - name: metrics
+      hostnameTemplate: ""
+      port: 8080
+      protocol: http
+      tls: false
+      visibility: internal
+      launchDefault: false
+      ssoEnabled: false
+  multiInstance:
+    enabled: true
+    maxPerOrg: 50
+    namingTemplate: "{{ "{{" }}.AppName{{ "}}" }}-{{ "{{" }}.InstanceID{{ "}}" }}"
+  sso:
+    realm: "{{ "{{" }}.OrgSlug{{ "}}" }}"
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+    silentLogin: true
 {{- end }}
