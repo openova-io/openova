@@ -145,6 +145,22 @@ gitea:
   persistence:
     enabled: true
     size: 20Gi
+  # Deployment rollout strategy — override the upstream default of
+  # RollingUpdate{maxUnavailable:0,maxSurge:100%} to Recreate (#3188).
+  # Gitea's `/data` is a ReadWriteOnce PVC (persistence.accessModes default
+  # [ReadWriteOnce] upstream). With maxUnavailable:0 the rollout MUST bring
+  # a NEW (surge) Pod to Ready BEFORE terminating the old one — but the new
+  # Pod can never mount the RWO volume the old Pod still holds, and even if
+  # it could, gitea's embedded LevelDB queue takes an exclusive file lock on
+  # /data, so the surge Pod CrashLoops on "resource temporarily unavailable"
+  # and the rollout WEDGES (old ReplicaSet never scales down → chart upgrade
+  # never reaches Ready → bp-gitea Stalled → bp-catalyst-platform blocked).
+  # Recreate tears the old Pod down FIRST, releasing the PVC + the LevelDB
+  # lock, then starts the new one — the correct strategy for any single-
+  # replica RWO-backed stateful Deployment. Single-replica gitea already has
+  # no HA during a roll, so Recreate costs nothing it didn't already lack.
+  strategy:
+    type: Recreate
   # Upstream chart Ingress — DISABLED. Catalyst routes via Cilium Gateway
   # API (see top-level `gateway:` block below). Issue #387.
   ingress:

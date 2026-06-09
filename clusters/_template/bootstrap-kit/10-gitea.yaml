@@ -73,13 +73,25 @@ spec:
     # values.yaml).
     - name: bp-cnpg
       namespace: flux-system
-    # ADR-0010 reuse proof: when gitea SHARES the bp-postgres `shared-pg`
-    # instance (SOVEREIGN_GITEA_PG_OWN_CLUSTER=false), gate on the shared
-    # data-instance HR so its `gitea` Database + role + reflected
-    # gitea-database-secret exist before gitea's pod starts. Harmless when
-    # gitea owns its cluster (the HR exists either way; the dependency just
-    # waits for shared-pg to be Ready). bp-postgres-shared itself dependsOn
-    # bp-cnpg, so the operator/CRDs are still ordered first.
+    # ADR-0010 reuse proof: gitea dependsOn bp-postgres-shared (slot 16a)
+    # UNCONDITIONALLY. This edge is ALWAYS safe because slot 16a installs
+    # an EMPTY (but Ready) release by default (SOVEREIGN_ENABLE_SHARED_PG=
+    # false) — so the dependency just waits for that empty HR to be Ready
+    # whether or not gitea is actually sharing. (#3191 regression: slot
+    # 16a was authored but never registered in kustomization.yaml → the HR
+    # was never created → THIS edge dangled forever → bp-gitea Ready=False
+    # → bp-catalyst-platform wedged. Fixed by registering 16a; this guard
+    # comment documents WHY the edge is unconditional + how the empty-Ready
+    # default keeps it safe.)
+    #
+    # TWO-FLAG CONTRACT to actually SHARE: flip BOTH
+    # SOVEREIGN_GITEA_PG_OWN_CLUSTER=false (gitea skips its OWN gitea-pg
+    # Cluster + points its DB host at shared-pg's -rw Service) AND
+    # SOVEREIGN_ENABLE_SHARED_PG=true (slot 16a renders the shared engine +
+    # provisions gitea's Database + role + reflected gitea-database-secret).
+    # Flipping only ONE is a misconfig: own-cluster=false + shared-pg=false
+    # leaves gitea with no DB at all. The defaults (own-cluster=true,
+    # shared-pg=false) are the byte-identical 1:1 legacy path.
     - name: bp-postgres-shared
       namespace: flux-system
   chart:
@@ -98,7 +110,11 @@ spec:
       # SHARING gate (SOVEREIGN_GITEA_PG_OWN_CLUSTER) so gitea can SHARE
       # the bp-postgres `shared-pg` data-instance instead of owning its
       # gitea-pg Cluster. Default true → byte-identical 1:1 legacy path.
-      version: 1.2.25
+      # 1.2.26 (#3188): Deployment strategy Recreate (was upstream default
+      # RollingUpdate{maxUnavailable:0,maxSurge:100%}). RWO /data + LevelDB
+      # lock wedge the surge-pod roll; Recreate releases the PVC + lock
+      # before the new Pod starts so the 1.2.x roll completes clean.
+      version: 1.2.26
       sourceRef:
         kind: HelmRepository
         name: bp-gitea

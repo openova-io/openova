@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-4-1-data-services
     catalyst.openova.io/companion: bp-cnpg
 spec:
-  version: 0.1.0
+  version: 0.1.1
   card:
     title: PostgreSQL
     summary: |
@@ -29,6 +29,15 @@ spec:
   configSchema:
     type: object
     properties:
+      enabled:
+        type: boolean
+        default: true
+        description: |
+          Master gate. false → the install renders ZERO resources (an
+          empty Ready release). The bootstrap-kit slot 16a wires this to
+          ${SOVEREIGN_ENABLE_SHARED_PG:=false} so a non-sharing Sovereign
+          gets a Ready bp-postgres-shared HR without deploying an unused
+          shared-pg Cluster.
       instance:
         type: object
         description: |

@@ -89,7 +89,15 @@ name: bp-gitea
 # skipped and the shared instance (slot 16a) owns the `gitea` Database +
 # role + reflected gitea-database-secret. gitea's DB HOST then points at
 # the shared cluster's -rw Service via SOVEREIGN_GITEA_PG_HOST.
-version: 1.2.25
+# 1.2.26 (#3188, 2026-06-10): Deployment rollout strategy override
+# `gitea.strategy.type: Recreate` (was the upstream default RollingUpdate
+# {maxUnavailable:0,maxSurge:100%}). Gitea's /data is a ReadWriteOnce PVC
+# with an exclusive LevelDB file lock — under maxUnavailable:0 the surge
+# Pod can never mount the RWO volume the old Pod holds, so the roll wedges
+# (old RS never scales down → HR Stalled → bp-catalyst-platform blocked).
+# Recreate terminates the old Pod first (releasing the PVC + lock) then
+# starts the new one. Single-replica gitea has no roll-time HA to lose.
+version: 1.2.26
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so

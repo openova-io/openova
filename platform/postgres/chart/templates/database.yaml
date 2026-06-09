@@ -15,8 +15,11 @@ declarative primitive (Inviolable Principle #2).
 Capabilities gate: skip until the Database CRD is registered (it ships
 with the CNPG operator). The instance HR's dependsOn bp-cnpg makes this
 a no-op in practice.
+
+Master gate (.Values.enabled, default true): OFF → render ZERO resources
+so the slot 16a HR is an empty Ready release when sharing is disabled.
 */ -}}
-{{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" }}
+{{- if and (ne (toString .Values.enabled) "false") (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
 {{- $ctx := . }}
 {{- range .Values.databases }}
 ---

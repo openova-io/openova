@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-postgres
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.1.1
+appVersion: "0.1.1"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
   PostgreSQL engine. Each install of bp-postgres = ONE
@@ -30,6 +30,15 @@ description: |
 
   Changelog
   ─────────
+  0.1.1 (2026-06-10, Refs #3188)
+    - Master gate `.Values.enabled` (default true). OFF → the chart
+      renders ZERO Kubernetes resources (empty Ready release). The
+      bootstrap-kit slot 16a wires it to ${SOVEREIGN_ENABLE_SHARED_PG:=
+      false} so a non-sharing Sovereign still gets a Ready bp-postgres-
+      shared HR (satisfying the unconditional bp-gitea / bp-harbor
+      dependsOn) WITHOUT deploying an unused shared-pg Cluster. Sprig-safe
+      `ne (toString .Values.enabled) "false"` idiom. No change to the
+      default reuse-proof render shape.
   0.1.0 (2026-06-10, ADR-0010, Refs #3188)
     - Initial chart: one CNPG Cluster + per-consumer Database CRs +
       managed.roles + reflected connection Secrets, all driven by
