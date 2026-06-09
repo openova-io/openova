@@ -248,10 +248,13 @@ func (c *Client) createUser(ctx context.Context, saToken, email string) (string,
 		"username":      email,
 		"emailVerified": true,
 		"enabled":       true,
-		"requiredActions": []string{
-			"UPDATE_PASSWORD",
-			"CONFIGURE_PASSKEY",
-		},
+		// NO requiredActions. PIN/IDP operators never set a local
+		// password or passkey — they authenticate via the PIN flow and
+		// the catalyst-pin IDP. Stamping UPDATE_PASSWORD / CONFIGURE_PASSKEY
+		// here forced Keycloak to interrupt EVERY silent-SSO launch with
+		// an "activate your account / change your password" required-action
+		// page (#3150), so the console "Open" never landed in the app.
+		"requiredActions": []string{},
 	}
 
 	body, err := json.Marshal(payload)

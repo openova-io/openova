@@ -450,6 +450,17 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               <span data-testid="app-detail-name">{componentId}</span>{' '}
               <span className="hero-subtitle">— {app.title}</span>
             </h1>
+            {appExternalURL ? (
+              <div
+                className="hero-launch"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', margin: '0.5rem 0 0.6rem' }}
+              >
+                <LaunchButton appUID={launchKey} fallbackURL={appExternalURL} />
+                <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>
+                  single-click sign-in — lands you in {app.title} already logged in
+                </span>
+              </div>
+            ) : null}
             <p className="hero-tagline">{app.description || app.familyName}</p>
             <div className="hero-meta">
               <span className="chip chip-cat">{app.familyName}</span>
