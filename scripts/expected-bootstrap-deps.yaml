@@ -107,9 +107,13 @@ slots:
     # bp-gateway-api dep (issue #503): chart ships an HTTPRoute template.
     # bp-cnpg dep (issue #584): chart ships a CNPG Cluster CR; postgresql.cnpg.io/v1
     # CRD must be registered before bp-gitea applies so Capabilities gate fires.
+    # bp-postgres-shared dep (ADR-0010 #3188): when gitea SHARES the shared-pg
+    # data-instance (SOVEREIGN_GITEA_PG_OWN_CLUSTER=false), gate on the shared
+    # instance so its gitea Database + role + reflected secret exist first.
+    # Harmless in the default 1:1 path (dependency just waits for shared-pg Ready).
     # G92.3 #2662 (2026-06-01): MGMT vCluster placement added
     # bp-mgmt-vcluster — REVERTED by G105-followup (see slot 8 note).
-    depends_on: [bp-keycloak, bp-gateway-api, bp-cnpg]
+    depends_on: [bp-keycloak, bp-gateway-api, bp-cnpg, bp-postgres-shared]
     wave: present
   - slot: 11
     name: bp-powerdns
@@ -200,6 +204,15 @@ slots:
     name: bp-cnpg
     depends_on: [bp-flux]
     wave: W2.K1
+  - slot: 16a
+    name: bp-postgres-shared
+    # ADR-0010 (#3188): the SHARED bp-postgres data-instance (shared-pg).
+    # ONE CNPG Cluster that bp-harbor + bp-gitea run off via two isolated
+    # Database CRs + two roles. Pure declarative YAML — no controller, no
+    # Crossplane. dependsOn bp-cnpg (the operator + CRDs) + bp-reflector
+    # (mirrors the role Secrets into the harbor + gitea namespaces).
+    depends_on: [bp-cnpg, bp-reflector]
+    wave: W2.K1
   - slot: 17
     name: bp-valkey
     depends_on: [bp-flux]
@@ -223,7 +236,11 @@ slots:
     # external-secrets admission webhook to be serving or its create
     # fails ("failed calling webhook validate.externalsecret") → 6
     # install failures → Stalled (#2988 pattern).
-    depends_on: [bp-mgmt-vcluster, bp-cnpg, bp-cert-manager, bp-gateway-api, bp-external-secrets]
+    # bp-postgres-shared dep (ADR-0010 #3188): when harbor SHARES the
+    # shared-pg data-instance (SOVEREIGN_HARBOR_PG_OWN_CLUSTER=false), gate
+    # on the shared instance so its registry Database + role + reflected
+    # secret exist first. Harmless in the default 1:1 path.
+    depends_on: [bp-mgmt-vcluster, bp-cnpg, bp-cert-manager, bp-gateway-api, bp-external-secrets, bp-postgres-shared]
     wave: W2.K1
   - slot: 6a
     name: bp-self-sovereign-cutover

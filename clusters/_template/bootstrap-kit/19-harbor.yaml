@@ -132,6 +132,15 @@ spec:
     # wait for the webhook to be Ready before it creates the ExternalSecret.
     - name: bp-external-secrets
       namespace: flux-system
+    # ADR-0010 reuse proof: when harbor SHARES the bp-postgres `shared-pg`
+    # instance (SOVEREIGN_HARBOR_PG_OWN_CLUSTER=false), gate on the shared
+    # data-instance HR so its `registry` Database + role + reflected
+    # harbor-database-secret exist before harbor's core pod starts.
+    # Harmless when harbor owns its cluster (the dependency just waits for
+    # shared-pg Ready). bp-postgres-shared dependsOn bp-cnpg, so the
+    # operator/CRDs are still ordered first.
+    - name: bp-postgres-shared
+      namespace: flux-system
   chart:
     spec:
       chart: bp-harbor
@@ -158,7 +167,7 @@ spec:
       # live on otech113 2026-05-05 (issue #935 Bug 1) — Step 02 was
       # in CreateContainerConfigError for 11+ retries, blocking
       # cutover indefinitely.
-      version: 1.2.26
+      version: 1.2.27
       sourceRef:
         kind: HelmRepository
         name: bp-harbor
@@ -244,6 +253,16 @@ spec:
     postgres:
       cluster:
         instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
+        # ADR-0010 SHARING gate. Default true → harbor ships its own
+        # harbor-pg Cluster (the 1:1 legacy shape; every existing prov is
+        # byte-identical). Set SOVEREIGN_HARBOR_PG_OWN_CLUSTER=false on a
+        # Sovereign (e.g. hw124) to make harbor SHARE the bp-postgres
+        # `shared-pg` instance — its own embedded Cluster is then skipped
+        # and its external DB host points at the shared cluster's -rw
+        # Service. The `registry` Database + role + reflected
+        # harbor-database-secret are provisioned by the shared bp-postgres
+        # instance (slot 16a).
+        enabled: ${SOVEREIGN_HARBOR_PG_OWN_CLUSTER:=true}
     objectStorage:
       enabled: true
       useExistingSecret: false
@@ -258,6 +277,14 @@ spec:
       # than "registry.<sov-fqdn>" → silent-SSO callback 400s on every
       # operator login. Caught live by H12 Playwright walk on hw86 2026-06-03.
       externalURL: "https://registry.${SOVEREIGN_FQDN}"
+      # ADR-0010: when harbor SHARES the bp-postgres `shared-pg` instance,
+      # its external DB host points at the shared cluster's -rw Service
+      # (in the shared-data namespace). Default points at harbor's OWN
+      # cluster (harbor-pg-rw.harbor) so the 1:1 path is byte-identical.
+      # harbor consumes the reflected harbor-database-secret either way.
+      database:
+        external:
+          host: ${SOVEREIGN_HARBOR_PG_HOST:=harbor-pg-rw.harbor.svc.cluster.local}
       persistence:
         imageChartStorage:
           type: s3

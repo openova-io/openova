@@ -78,7 +78,18 @@ name: bp-gitea
 #       fallback for the install-time bootstrap circle) so the 307 targets
 #       `https://auth.<fqdn>/...` and the realm IDR silently delegates to
 #       catalyst-pin with no login form.
-version: 1.2.24
+#
+# 1.2.25 (#3188, ADR-0010, 2026-06-10): reusable backing-services reuse
+# proof. New `postgres.cluster.enabled` SHARING gate (ne-toString idiom)
+# on templates/cnpg-cluster.yaml + templates/database-secret.yaml. Default
+# true → gitea ships its own gitea-pg Cluster + gitea-database-secret
+# (byte-identical to the 1:1 legacy path every existing prov runs). When
+# false (SOVEREIGN_GITEA_PG_OWN_CLUSTER=false), gitea SHARES the bp-postgres
+# `shared-pg` data-instance: the embedded Cluster + database-secret are
+# skipped and the shared instance (slot 16a) owns the `gitea` Database +
+# role + reflected gitea-database-secret. gitea's DB HOST then points at
+# the shared cluster's -rw Service via SOVEREIGN_GITEA_PG_HOST.
+version: 1.2.25
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so

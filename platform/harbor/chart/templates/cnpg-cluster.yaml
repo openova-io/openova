@@ -25,8 +25,15 @@ the CRD is registered, at which point the gate becomes a no-op. The
 Sovereign's bootstrap order MUST land bp-cnpg before bp-harbor; the gate
 exists so a misordered cluster overlay surfaces as `no Cluster created yet`
 rather than a hard install failure of the entire bp-harbor release.
+
+ADR-0010 SHARING gate: `postgres.cluster.enabled` (default true → 1:1
+behavior unchanged) can be set false by an overlay so bp-harbor consumes
+a SHARED bp-postgres data-instance instead of shipping its own Cluster.
+When disabled, the Database CR + role + reflected `harbor-database-secret`
+are provisioned by the shared bp-postgres instance, and harbor's external
+DB host points at the shared cluster's `-rw` Service.
 */}}
-{{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" }}
+{{- if and (ne (toString .Values.postgres.cluster.enabled) "false") (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:

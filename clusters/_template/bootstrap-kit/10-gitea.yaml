@@ -73,6 +73,15 @@ spec:
     # values.yaml).
     - name: bp-cnpg
       namespace: flux-system
+    # ADR-0010 reuse proof: when gitea SHARES the bp-postgres `shared-pg`
+    # instance (SOVEREIGN_GITEA_PG_OWN_CLUSTER=false), gate on the shared
+    # data-instance HR so its `gitea` Database + role + reflected
+    # gitea-database-secret exist before gitea's pod starts. Harmless when
+    # gitea owns its cluster (the HR exists either way; the dependency just
+    # waits for shared-pg to be Ready). bp-postgres-shared itself dependsOn
+    # bp-cnpg, so the operator/CRDs are still ordered first.
+    - name: bp-postgres-shared
+      namespace: flux-system
   chart:
     spec:
       chart: bp-gitea
@@ -85,7 +94,11 @@ spec:
       # discovery URL persisted by the sso-configure Job so gitea 307s the
       # browser to the public KC authorize endpoint (was the unresolvable
       # in-cluster service URL).
-      version: 1.2.24
+      # 1.2.25 (#3188): ADR-0010 reuse proof — postgres.cluster.enabled
+      # SHARING gate (SOVEREIGN_GITEA_PG_OWN_CLUSTER) so gitea can SHARE
+      # the bp-postgres `shared-pg` data-instance instead of owning its
+      # gitea-pg Cluster. Default true → byte-identical 1:1 legacy path.
+      version: 1.2.25
       sourceRef:
         kind: HelmRepository
         name: bp-gitea
@@ -134,6 +147,15 @@ spec:
     postgres:
       cluster:
         instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
+        # ADR-0010 SHARING gate. Default true → gitea ships its own
+        # gitea-pg Cluster (the 1:1 legacy shape; every existing prov is
+        # byte-identical). Set SOVEREIGN_GITEA_PG_OWN_CLUSTER=false on a
+        # Sovereign (e.g. hw124) to make gitea SHARE the bp-postgres
+        # `shared-pg` instance — its own embedded Cluster is then skipped
+        # and its DB host points at the shared cluster's -rw Service. The
+        # `gitea` Database + role + reflected gitea-database-secret are
+        # provisioned by the shared bp-postgres instance (slot 16a).
+        enabled: ${SOVEREIGN_GITEA_PG_OWN_CLUSTER:=true}
     # Per-Sovereign overrides — issue #387:
     # Cilium Gateway HTTPRoute exposes Gitea at gitea.${SOVEREIGN_FQDN}.
     # Upstream chart's own Ingress is disabled (gitea.ingress.enabled=false
@@ -154,3 +176,12 @@ spec:
           server:
             DOMAIN: gitea.${SOVEREIGN_FQDN}
             ROOT_URL: https://gitea.${SOVEREIGN_FQDN}
+          # ADR-0010: when gitea SHARES the bp-postgres `shared-pg`
+          # instance, its DB host points at the shared cluster's -rw
+          # Service (in the shared-data namespace). Default points at
+          # gitea's OWN cluster (gitea-pg-rw.gitea) so the 1:1 path is
+          # byte-identical. gitea consumes the reflected
+          # gitea-database-secret (provisioned by the shared instance when
+          # sharing, by gitea's own cluster otherwise) either way.
+          database:
+            HOST: ${SOVEREIGN_GITEA_PG_HOST:=gitea-pg-rw.gitea.svc.cluster.local}:5432
