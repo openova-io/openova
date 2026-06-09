@@ -1032,6 +1032,25 @@ interface OverviewPanelProps {
  * data-testid="btn-launch-app" matches PR #2836 's Playwright spec
  * (g117-launch-silent-sso.spec.ts) resilient selector.
  */
+// launchAppViaSSO — the ONE silent-SSO launch path, shared by the
+// prominent Open button AND the hostname link so neither dumps the
+// operator on the app's own login form. Resolves the launch-url (which
+// the BE builds as the app's OIDC-init route → 302 to Keycloak with the
+// operator's session) and opens it. Falls back to the raw URL only on a
+// genuine error — the DEFAULT is silent SSO, never the login page.
+async function launchAppViaSSO(launchKey: string, fallbackURL: string): Promise<void> {
+  if (!launchKey) {
+    window.open(fallbackURL, '_blank', 'noopener,noreferrer')
+    return
+  }
+  try {
+    const resp = await getLaunchURL(launchKey)
+    window.open(resp?.url ?? fallbackURL, '_blank', 'noopener,noreferrer')
+  } catch {
+    window.open(fallbackURL, '_blank', 'noopener,noreferrer')
+  }
+}
+
 function LaunchButton({
   appUID,
   fallbackURL,
@@ -1043,19 +1062,9 @@ function LaunchButton({
   const onClick = async (e: React.MouseEvent) => {
     e.preventDefault()
     if (pending) return
-    if (!appUID) {
-      window.open(fallbackURL, '_blank', 'noopener,noreferrer')
-      return
-    }
     setPending(true)
     try {
-      const resp = await getLaunchURL(appUID)
-      const target = resp?.url ?? fallbackURL
-      window.open(target, '_blank', 'noopener,noreferrer')
-    } catch {
-      // Network / 5xx other than 503 — fall back to direct URL so the
-      // operator still lands in the app instead of staring at a toast.
-      window.open(fallbackURL, '_blank', 'noopener,noreferrer')
+      await launchAppViaSSO(appUID, fallbackURL)
     } finally {
       setPending(false)
     }
@@ -1068,13 +1077,13 @@ function LaunchButton({
       disabled={pending}
       className="btn btn-primary launch-button"
       style={{
-        marginLeft: '0.5rem',
-        padding: '0.15rem 0.55rem',
-        fontSize: '0.85rem',
+        padding: '0.4rem 0.95rem',
+        fontSize: '0.95rem',
+        fontWeight: 600,
       }}
-      aria-label="Open app via silent SSO"
+      aria-label="Open app via single-click silent SSO"
     >
-      {pending ? 'Opening…' : 'Open'}
+      {pending ? 'Opening…' : '↗ Open'}
     </button>
   )
 }
@@ -1201,6 +1210,13 @@ function OverviewPanel({
               <dd data-testid="app-detail-overview-external-url">
                 <a
                   href={appExternalURL}
+                  onClick={(e) => {
+                    // Clicking the hostname launches via silent SSO too —
+                    // NOT a raw navigation to the app root (which renders
+                    // the app's own login form). #3150 trap fix.
+                    e.preventDefault()
+                    void launchAppViaSSO(launchKey, appExternalURL)
+                  }}
                   target="_blank"
                   rel="noopener noreferrer"
                   data-testid="app-detail-external-url-link"
@@ -1242,7 +1258,8 @@ function OverviewPanel({
                   className="external-url-hint"
                   style={{ display: 'block', marginTop: '0.25rem' }}
                 >
-                  Opens in a new tab. Signs in via your Sovereign's Keycloak SSO session.
+                  Single-click sign-in — opens in a new tab <strong>already logged
+                  in</strong> via your Sovereign's Keycloak SSO. No second login.
                 </span>
               </dd>
             </div>
