@@ -86,6 +86,15 @@ spec:
       visibility: public
       launchDefault: true
       ssoEnabled: true
+      # #3150 — silent-SSO OIDC-init path. The NetBird dashboard is a React SPA
+      # (oidc-client PKCE) that auto-starts the OIDC redirect on load when no
+      # session is present, so the init path is the SPA root "/" — the dashboard
+      # bounces straight to Keycloak (kc_idp_hint=catalyst-pin via the realm-config
+      # IDR default-provider binding) → silent PIN re-use. NetBird is default-OFF
+      # (configSchema.enabled=false) and NOT installed on hw124 — a witnessed
+      # Playwright landing is required when it is first enabled to confirm the
+      # SPA auto-starts (vs needing a deep-link query param).
+      ssoInitPath: "/"
   sso:
     realm: sovereign
     protocolMapper: oidc
