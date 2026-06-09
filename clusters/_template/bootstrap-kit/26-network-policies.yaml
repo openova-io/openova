@@ -70,11 +70,26 @@ spec:
       # mandatory-on; allowSystemNamespaces expanded to 45 control-
       # plane namespaces covering every bootstrap-kit targetNamespace
       # plus the 3 vCluster syncer namespaces.
-      version: 1.0.3
+      # 1.0.4 (Refs #3188, 2026-06-10): allow-system-namespaces now uses
+      # the reserved entity `all` (was a bare `{}` rule that didn't cover
+      # kube-apiserver/host/world) — fixes control-plane Pods losing the
+      # apiserver under default-deny. See the `enabled: false` gate below.
+      version: 1.0.4
       sourceRef:
         kind: HelmRepository
         name: bp-network-policies
         namespace: flux-system
+  # enabled: false — install the chart (so the HR/HelmChart resolves and
+  # the bootstrap-kit Kustomization reaches Ready) but render ZERO Cilium
+  # policies. Validated on live hw124 (2026-06-10): the 1.0.4 `all`-entity
+  # fix restores kyverno→apiserver under default-deny, BUT the default-deny
+  # still 403s the console ingress path — so the zero-trust posture is not
+  # yet safe to enforce cluster-wide. Re-enabling (enabled: true) is gated
+  # on a dedicated validation prov proving EVERY ingress/egress path
+  # (console, marketplace, SSO, tenant Orgs) survives default-deny. Until
+  # then this stays off so no fresh prov is severed. Refs #3188.
+  values:
+    enabled: false
   install:
     timeout: 5m
     disableWait: true
