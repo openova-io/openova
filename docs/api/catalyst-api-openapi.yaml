@@ -299,8 +299,20 @@ paths:
       summary: Mint a silent-SSO Launch URL for an endpoint
       description: |
         Returns the URL the console's Launch button navigates to in a
-        new tab. URL carries silent OIDC params per locked decision #3:
-        `prompt=none&kc_idp_hint=catalyst-pin`. Target SSO budget <500ms.
+        new tab. Target silent-SSO budget <500ms.
+
+        The `{id}` resolves two ways (#3150):
+          - an Application CR's `metadata.uid` (Org-scoped apps); OR
+          - a bootstrap-kit blueprint/release name ("grafana" or
+            "bp-grafana") when the app installs as a bare HelmRelease with
+            no Application CR — every §2 bootstrap-kit app is this shape.
+
+        When the resolved endpoint declares `ssoInitPath`, the URL targets
+        the app's own OIDC-init route (`https://<host><ssoInitPath>`, no
+        query) so the app 302s straight to Keycloak and the browser lands
+        already logged in. Otherwise the legacy app-root shape with
+        `prompt=none&kc_idp_hint=catalyst-pin` is returned (locked
+        decision #3).
       parameters:
         - name: endpoint
           in: query
@@ -452,6 +464,16 @@ components:
         visibility:       { type: string, enum: [public, private, internal] }
         launchDefault:    { type: boolean }
         ssoEnabled:       { type: boolean }
+        ssoInitPath:
+          type: string
+          description: >-
+            #3150 — app-local path that initiates the OIDC login dance
+            (e.g. Grafana `/login/generic_oauth`, Harbor `/c/oidc/login`).
+            When set, the silent-SSO launch URL targets
+            `https://<host><ssoInitPath>` (no query string) so the browser
+            lands on the app's own OIDC-init route and the silent Keycloak
+            bounce completes without the app showing its login form. Empty
+            → legacy app-root launch (`/?prompt=none&kc_idp_hint=catalyst-pin`).
     ResolvedEndpoint:
       allOf:
         - $ref: '#/components/schemas/EndpointDeclaration'

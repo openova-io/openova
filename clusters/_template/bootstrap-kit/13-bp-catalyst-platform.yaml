@@ -972,7 +972,10 @@ spec:
       # 1.4.530 — #3159 (2026-06-09): catalog-seed expanded 14→35 CRs so every
       # catalog-eligible Blueprint (incl. bp-alloy) resolves at
       # GET /api/v1/catalog/{name} instead of 404'ing the console catalog page.
-      version: 1.4.530
+      # 1.4.532 — #3150 (2026-06-09): silent-SSO — launch-url resolves HR-backed
+      # bootstrap apps (no Application CR) + per-endpoint ssoInitPath lands the
+      # console "Open" on the app's OIDC-init route (grafana /login/generic_oauth).
+      version: 1.4.532
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

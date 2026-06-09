@@ -580,6 +580,15 @@ spec:
       visibility: public
       launchDefault: true
       ssoEnabled: true
+      # #3150 — silent-SSO OIDC-init path. The console Open launch lands
+      # the browser on Grafana's own `/login/generic_oauth` OIDC route,
+      # which 302s to Keycloak with the pre-baked kc_idp_hint=catalyst-pin
+      # (in Grafana's synced auth_url) → silent PIN re-use → operator lands
+      # inside Grafana with no login form. Empty/absent → legacy app-root
+      # launch (Grafana shows its login form). This value seeds the
+      # in-cluster bp-grafana Blueprint CR that the launch-url handler
+      # reads via fetchBlueprint at request time.
+      ssoInitPath: "/login/generic_oauth"
   sso:
     realm: sovereign
     protocolMapper: oidc
