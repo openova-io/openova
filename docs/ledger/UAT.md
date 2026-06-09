@@ -8,6 +8,19 @@
 >
 > Legend: ✅ pass · ◑ partial · ❌ fail · ⛔ blocked · ☐ pending (default).
 
+## ✅ Operator acceptance walk — 3 spot-checks (2026-06-09, hw124 `90a98a78f35846a3`)
+
+Founder's streamlined acceptance (in lieu of all 121 canonical rows below). Walk on the **child**: `console.hw124.omani.works` / `marketplace.hw124.omani.works`. Results recorded by the operator.
+
+| # | Check | What to do | Expected | Result |
+|---|---|---|---|---|
+| **A1** | Silent SSO — page 1 | console → Apps → an `ssoEnabled` app (e.g. grafana) → click **Open** | New tab lands **ALREADY signed in** — no login form, no 2nd click | ☐ — ⚠️ pre-flagged ◑ (#3150): currently lands on the app's own login page |
+| **A2** | Silent SSO — page 2 | console → Apps → a 2nd `ssoEnabled` app (e.g. gitea) → click **Open** | New tab lands **ALREADY signed in** | ☐ — ⚠️ pre-flagged ◑ (#3150) |
+| **B** | Committed topologies met | console → Cloud + per-app **Topology** tab | Each app's region placement matches its committed topology (active-hot-standby / active-active / singleton) | ☐ |
+| **C** | New catalog pages in place | console → Apps → **Catalog** tab (+ class page `/catalog/$bp`) | New catalog pages render (63 catalog entries seen) | ☐ |
+
+> The full 121-row per-app canonical table is **preserved below** (it is mandated by this doc's "one row per ssoEnabled app" rule) — these 3 are the operator's fast acceptance pass, not a replacement.
+
 ## 0. Session results — hw124 (`90a98a78f35846a3`), walked 2026-06-09 — CLEAN ZERO-TOUCH 2-REGION
 
 **Env state:** hw124 is the clean re-prov on the fully-fixed stack (cloud-agnostic `_shared` + **etcd** + **#3149** non-fatal kyverno gate). It **converged zero-touch past the #2989 wedge** (first prov to clear it), **both regions healthy** (region-b: 4 nodes Ready, 9 cilium pods, 49/56 HRs — the hw123 -b gap is GONE), and **serves HTTPS** (marketplace 200, console 200, valid Let's Encrypt wildcard cert). One operational nudge: force-reconciled bp-harbor past a transient external-secrets-webhook image-pull race (#3155 — Flux should self-heal that; needs a webhook-gate like kyverno's).
