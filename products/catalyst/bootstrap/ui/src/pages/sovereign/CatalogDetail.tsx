@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { getCatalogItem, getApplication, type CatalogItem } from '@/lib/catalog.api'
 import { findComponent } from '@/pages/wizard/steps/componentGroups'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { InstancesSection } from './AppDetail/InstancesSection'
 
 /**
@@ -49,9 +50,23 @@ import { InstancesSection } from './AppDetail/InstancesSection'
  *        (fetched inside InstancesSection)
  */
 export function CatalogDetail() {
-  const { blueprintName } = useParams({ strict: false }) as { blueprintName?: string }
-  const name = (blueprintName ?? '').replace(/^bp-/, '')
+  const params = useParams({ strict: false }) as {
+    blueprintName?: string
+    deploymentId?: string
+  }
+  const name = (params.blueprintName ?? '').replace(/^bp-/, '')
   const { deploymentId } = useResolvedDeploymentId()
+
+  // Chroot-aware "back to Catalog" target. On the mothership provision
+  // monitor (`/provision/$deploymentId/...`) the apps grid is at
+  // `/provision/$deploymentId`; on the Sovereign's own console it is the
+  // clean `/apps`. Mirrors AppCard's per-tab chroot scoping so the
+  // breadcrumb never escapes to a non-existent route.
+  const depParam = params.deploymentId ?? ''
+  const catalogHomeTarget =
+    DETECTED_MODE.mode === 'sovereign' || !depParam
+      ? '/apps'
+      : `/provision/${depParam}`
 
   const catalogQuery = useQuery<CatalogItem>({
     queryKey: ['catalog-item', name],
@@ -149,7 +164,7 @@ export function CatalogDetail() {
 
       {/* Breadcrumb */}
       <nav className="catalog-breadcrumb" aria-label="Breadcrumb" data-testid="catalog-breadcrumb">
-        <Link to={'/apps' as never} className="crumb-link">
+        <Link to={catalogHomeTarget as never} className="crumb-link">
           ‹ Catalog
         </Link>
         <span className="crumb-sep">›</span>
