@@ -299,4 +299,81 @@ describe('AppDetail — #3090 instance page (no class content; Open button)', ()
     await screen.findByTestId('app-tab-overview-panel')
     expect(screen.queryByTestId('btn-launch-app')).toBeNull()
   })
+
+  // #3150 — a bootstrap-kit app (HelmRelease, no Application CR → no uid,
+  // bootstrap:true) must still drive silent SSO: clicking Open calls the
+  // launch-url endpoint keyed on the blueprint/release NAME (componentId)
+  // and opens the returned OIDC-init URL — NOT the plain externalURL.
+  it('bootstrap app with no uid keys the launch-url on the blueprint name (#3150)', async () => {
+    const launchURLCalls: string[] = []
+    const opened: string[] = []
+    const origOpen = window.open
+    window.open = ((u?: string | URL) => {
+      opened.push(typeof u === 'string' ? u : String(u))
+      return null
+    }) as typeof window.open
+
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      if (url.includes('/launch-url')) {
+        launchURLCalls.push(url)
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              url: 'https://grafana.t99.omani.works/login/generic_oauth',
+              expiresAt: '2030-01-01T00:00:00Z',
+              endpoint: 'ui',
+            }),
+        } as unknown as Response)
+      }
+      if (url.includes('/applications/')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              name: 'grafana',
+              namespace: 'grafana',
+              blueprint: 'bp-grafana',
+              phase: 'Ready',
+              conditions: [],
+              bootstrap: true, // HR-backed → no Application CR uid
+              externalURL: 'https://grafana.t99.omani.works',
+            }),
+        } as unknown as Response)
+      }
+      // /catalog/{bp}/instances fallback → empty (no CR instances).
+      if (url.includes('/instances')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ items: [] }),
+        } as unknown as Response)
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ events: [], state: undefined, done: false }),
+      } as unknown as Response)
+    }) as typeof fetch
+
+    try {
+      renderDetail('d-1', 'bp-grafana')
+      await screen.findByTestId('app-tab-overview-panel')
+      const openBtn = await screen.findByTestId('btn-launch-app')
+      fireEvent.click(openBtn)
+      // Allow the async getLaunchURL + window.open microtasks to settle.
+      await new Promise((r) => setTimeout(r, 0))
+      // The launch-url was called keyed on the blueprint name (bp-grafana),
+      // NOT skipped — proving the bootstrap app now drives silent SSO.
+      expect(launchURLCalls.length).toBe(1)
+      expect(launchURLCalls[0]).toContain('/apps/bp-grafana/launch-url')
+      // The opened tab is the OIDC-init URL, not the plain externalURL.
+      expect(opened).toContain('https://grafana.t99.omani.works/login/generic_oauth')
+    } finally {
+      window.open = origOpen
+    }
+  })
 })

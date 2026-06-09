@@ -2591,7 +2591,14 @@ name: bp-catalyst-platform
 # of 404'ing. Every added entry references a REAL published OCI chart version;
 # topology/endpoints/sso copied verbatim from platform/<x>/blueprint.yaml so
 # the catalog-seed-lockstep guard stays green. Refs #3159.
-version: 1.4.531
+# 1.4.532 — #3150 (2026-06-09) — silent-SSO PATHFINDER (grafana). catalyst-api
+# launch-url now resolves bootstrap-kit HelmRelease apps that have NO
+# Application CR (resolve {id} as a blueprint/release name), and a new
+# per-endpoint `ssoInitPath` makes the launch URL land on the app's OWN
+# OIDC-init route (grafana /login/generic_oauth) so the console "Open" button
+# lands the operator already-logged-in with no app login form. bp-grafana
+# catalog-seed CR gains ssoInitPath. Refs #3150.
+version: 1.4.532
 appVersion: 1.4.494
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.

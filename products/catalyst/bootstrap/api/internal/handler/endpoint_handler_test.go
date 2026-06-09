@@ -491,6 +491,80 @@ func TestGetLaunchURL_NoSSOEnabledIs409(t *testing.T) {
 	}
 }
 
+// #3150 — bootstrap-kit apps (grafana, harbor, …) install as HelmReleases
+// with NO Application CR. The launch-url must resolve them by blueprint /
+// release name and emit the app's OIDC-init path so the console Open
+// button lands the operator already-logged-in. Here we seed ZERO
+// Applications and address the launch-url by the blueprint name "grafana".
+func TestGetLaunchURL_HRBacked_NoApplicationCR(t *testing.T) {
+	// No Application CR seeded — only the catalog blueprint exists.
+	h, _, _ := newTestHandlerWithEndpoint(t)
+	h.SetCatalogClient(fakeBlueprintInCatalog("grafana",
+		[]map[string]interface{}{
+			{"name": "ui", "hostnameTemplate": "grafana.{SovereignFQDN}", "tls": true, "ssoEnabled": true, "launchDefault": true, "ssoInitPath": "/login/generic_oauth"},
+		}, false, []string{"singleton"}))
+	r := newTestRouter(h)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/catalyst/v1/apps/grafana/launch-url", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for HR-backed launch-url, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	var resp launchURLResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.URL != "https://grafana.t01.omani.works/login/generic_oauth" {
+		t.Fatalf("expected OIDC-init URL, got %q", resp.URL)
+	}
+	if strings.Contains(resp.URL, "?") {
+		t.Fatalf("ssoInitPath URL must carry no query string: %s", resp.URL)
+	}
+	if resp.Endpoint != "ui" {
+		t.Fatalf("expected endpoint=ui, got %s", resp.Endpoint)
+	}
+}
+
+// #3150 — the `bp-` prefixed form must resolve identically (the FE may
+// pass either "grafana" or "bp-grafana").
+func TestGetLaunchURL_HRBacked_BpPrefixedID(t *testing.T) {
+	h, _, _ := newTestHandlerWithEndpoint(t)
+	h.SetCatalogClient(fakeBlueprintInCatalog("grafana",
+		[]map[string]interface{}{
+			{"name": "ui", "hostnameTemplate": "grafana.{SovereignFQDN}", "tls": true, "ssoEnabled": true, "launchDefault": true, "ssoInitPath": "/login/generic_oauth"},
+		}, false, []string{"singleton"}))
+	r := newTestRouter(h)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/catalyst/v1/apps/bp-grafana/launch-url", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for bp-prefixed launch-url, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	var resp launchURLResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.URL != "https://grafana.t01.omani.works/login/generic_oauth" {
+		t.Fatalf("expected OIDC-init URL, got %q", resp.URL)
+	}
+}
+
+// #3150 back-compat — an HR-backed app whose blueprint declares NO
+// ssoInitPath still works, falling back to the legacy app-root+query
+// silent-SSO shape.
+func TestGetLaunchURL_HRBacked_NoInitPathFallsBackLegacy(t *testing.T) {
+	h, _, _ := newTestHandlerWithEndpoint(t)
+	h.SetCatalogClient(fakeBlueprintInCatalog("someapp",
+		[]map[string]interface{}{
+			{"name": "ui", "hostnameTemplate": "someapp.{SovereignFQDN}", "tls": true, "ssoEnabled": true, "launchDefault": true},
+		}, false, []string{"singleton"}))
+	r := newTestRouter(h)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/catalyst/v1/apps/someapp/launch-url", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	var resp launchURLResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if !strings.Contains(resp.URL, "prompt=none") || !strings.Contains(resp.URL, "kc_idp_hint=catalyst-pin") {
+		t.Fatalf("no-initPath HR app must use legacy silent-SSO shape: %s", resp.URL)
+	}
+}
+
 func TestCreateInstance_HappyPath(t *testing.T) {
 	h, _, dyn := newTestHandlerWithEndpoint(t)
 	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress",
@@ -601,7 +675,7 @@ func TestListBlueprintInstances_FilterByOrg(t *testing.T) {
 }
 
 func TestBuildLaunchURL_Format(t *testing.T) {
-	u := buildLaunchURL("ui.acme.example.com", true)
+	u := buildLaunchURL("ui.acme.example.com", true, "")
 	if !strings.HasPrefix(u, "https://ui.acme.example.com/?") {
 		t.Fatalf("unexpected URL: %s", u)
 	}
@@ -609,6 +683,32 @@ func TestBuildLaunchURL_Format(t *testing.T) {
 		if !strings.Contains(u, want) {
 			t.Fatalf("URL missing %q: %s", want, u)
 		}
+	}
+}
+
+// #3150 — when an endpoint declares an ssoInitPath, the launch URL must
+// target the app's OWN OIDC-init route (e.g. Grafana
+// `/login/generic_oauth`) with NO query string, so the app immediately
+// 302s to Keycloak (kc_idp_hint pre-baked into the app's auth_url) and
+// the browser lands inside the app already logged in — no app login form.
+func TestBuildLaunchURL_SSOInitPath(t *testing.T) {
+	u := buildLaunchURL("grafana.t01.example.com", true, "/login/generic_oauth")
+	if u != "https://grafana.t01.example.com/login/generic_oauth" {
+		t.Fatalf("ssoInitPath URL wrong: %s", u)
+	}
+	if strings.Contains(u, "?") || strings.Contains(u, "prompt=none") || strings.Contains(u, "kc_idp_hint") {
+		t.Fatalf("ssoInitPath URL must carry no query string: %s", u)
+	}
+	// Leading-slash normalisation: a path without a leading slash still
+	// renders a valid absolute path.
+	u2 := buildLaunchURL("harbor.t01.example.com", true, "c/oidc/login")
+	if u2 != "https://harbor.t01.example.com/c/oidc/login" {
+		t.Fatalf("ssoInitPath normalisation wrong: %s", u2)
+	}
+	// Empty ssoInitPath falls back to the legacy app-root + query shape.
+	u3 := buildLaunchURL("app.t01.example.com", true, "")
+	if !strings.HasPrefix(u3, "https://app.t01.example.com/?") {
+		t.Fatalf("empty ssoInitPath must fall back to legacy shape: %s", u3)
 	}
 }
 

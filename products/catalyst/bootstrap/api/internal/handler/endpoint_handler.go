@@ -109,6 +109,7 @@ type resolvedEndpoint struct {
 	Visibility        string `json:"visibility,omitempty"`
 	LaunchDefault     bool   `json:"launchDefault,omitempty"`
 	SSOEnabled        bool   `json:"ssoEnabled,omitempty"`
+	SSOInitPath       string `json:"ssoInitPath,omitempty"`
 	Status            string `json:"status"`
 	CertificateStatus string `json:"certificateStatus,omitempty"`
 	LaunchURL         string `json:"launchURL,omitempty"`
@@ -539,12 +540,37 @@ func (h *Handler) HandleGetLaunchURL(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	app, err := findApplicationByUID(r.Context(), client, uid)
-	if err != nil {
-		writeAppNotFound(w, uid, err)
-		return
+	// #3150 — the `{id}` is normally an Application CR's metadata.uid.
+	// But every bootstrap-kit app (grafana, harbor, openbao, gitea,
+	// keycloak, guacamole, powerdns-admin, …) ships as a HelmRelease with
+	// NO companion Application CR — so findApplicationByUID misses and the
+	// silent-SSO launch URL 404s, forcing the console's Open button to
+	// fall back to the plain externalURL where the app shows its own login
+	// form. To close that gap we resolve the blueprint two ways:
+	//
+	//   (1) Application CR by uid (the original path, Org-scoped apps); or
+	//   (2) HR-backed: treat `{id}` as the blueprint/release name
+	//       ("grafana" or "bp-grafana") and resolve the Blueprint metadata
+	//       directly (fetchBlueprint already chains to the in-cluster
+	//       Blueprint CR seeded by the chart). The hostname template for
+	//       these Sovereign-singleton apps does not reference an Org
+	//       slug, so an empty org is correct.
+	app, appErr := findApplicationByUID(r.Context(), client, uid)
+	var (
+		bp      string
+		org     string
+		appName string
+	)
+	if appErr == nil {
+		bp = extractBlueprintFromApp(app)
+		org = extractOrgFromApp(app)
+		appName = app.GetName()
+	} else {
+		// HR-backed fallback: the id is the blueprint/release name.
+		bp = strings.TrimPrefix(strings.TrimSpace(uid), "bp-")
+		appName = bp
 	}
-	bp := extractBlueprintFromApp(app)
+
 	bpDoc, bpErr := h.fetchBlueprint(r.Context(), r, bp)
 	if bpErr != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -556,6 +582,14 @@ func (h *Handler) HandleGetLaunchURL(w http.ResponseWriter, r *http.Request) {
 
 	ep := pickEndpoint(bpDoc, epName)
 	if ep == nil {
+		// No Application CR AND no resolvable Blueprint endpoint → the id
+		// names neither an app nor a known bootstrap blueprint. Surface
+		// the original app-not-found when the CR lookup is what failed so
+		// the error stays debuggable.
+		if appErr != nil && bp == "" {
+			writeAppNotFound(w, uid, appErr)
+			return
+		}
 		writeJSON(w, http.StatusNotFound, map[string]string{
 			"code":    "endpoint-not-found",
 			"message": fmt.Sprintf("Blueprint %s has no endpoint %q", bp, epName),
@@ -570,12 +604,12 @@ func (h *Handler) HandleGetLaunchURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hostname := evaluateHostnameTemplate(ep.HostnameTemplate, h.endpointSovereignFQDN(), extractOrgFromApp(app), app.GetName())
+	hostname := evaluateHostnameTemplate(ep.HostnameTemplate, h.endpointSovereignFQDN(), org, appName)
 	tls := true
 	if ep.TLS != nil {
 		tls = *ep.TLS
 	}
-	urlStr := buildLaunchURL(hostname, tls)
+	urlStr := buildLaunchURL(hostname, tls, ep.SSOInitPath)
 	expiresAt := time.Now().Add(60 * time.Second).UTC().Format(time.RFC3339)
 
 	writeJSON(w, http.StatusOK, launchURLResponse{
@@ -926,6 +960,17 @@ type endpointDecl struct {
 	Visibility       string `yaml:"visibility,omitempty" json:"visibility,omitempty"`
 	LaunchDefault    bool   `yaml:"launchDefault,omitempty" json:"launchDefault,omitempty"`
 	SSOEnabled       bool   `yaml:"ssoEnabled,omitempty" json:"ssoEnabled,omitempty"`
+	// SSOInitPath — #3150. The app-local path that *initiates* the OIDC
+	// login dance (e.g. Grafana `/login/generic_oauth`, Harbor
+	// `/c/oidc/login`). When non-empty, buildLaunchURL targets
+	// `https://<host><ssoInitPath>` instead of the app root, so the
+	// launch lands the browser straight on the app's OIDC-init route and
+	// the silent KC bounce completes without the app showing its own
+	// login form. The `kc_idp_hint=catalyst-pin` PIN hint is NOT appended
+	// here — it already lives baked into the app's OIDC `auth_url`
+	// (synced via the app's *-sso-oidc-credentials ExternalSecret). Empty
+	// → legacy behaviour (app root + prompt=none&kc_idp_hint query).
+	SSOInitPath string `yaml:"ssoInitPath,omitempty" json:"ssoInitPath,omitempty"`
 }
 
 type ssoDecl struct {
@@ -1016,10 +1061,11 @@ func (h *Handler) resolveEndpoints(app *unstructured.Unstructured, bp *blueprint
 			Visibility:       ep.Visibility,
 			LaunchDefault:    ep.LaunchDefault,
 			SSOEnabled:       ep.SSOEnabled,
+			SSOInitPath:      ep.SSOInitPath,
 			Status:           "Ready",
 		}
 		if ep.SSOEnabled {
-			re.LaunchURL = buildLaunchURL(hostname, tls)
+			re.LaunchURL = buildLaunchURL(hostname, tls, ep.SSOInitPath)
 		}
 		out = append(out, re)
 	}
@@ -1084,15 +1130,41 @@ func evaluateHostnameTemplate(tmpl, fqdn, org, appName string) string {
 	return strings.ToLower(rep.Replace(tmpl))
 }
 
-// buildLaunchURL constructs the silent-SSO launch URL per locked
-// decision #3. Query: prompt=none&kc_idp_hint=catalyst-pin.
-func buildLaunchURL(hostname string, tls bool) string {
+// buildLaunchURL constructs the silent-SSO launch URL.
+//
+// Two shapes, selected by ssoInitPath (#3150):
+//
+//   - ssoInitPath != "" (OIDC-init path, e.g. Grafana
+//     `/login/generic_oauth`): the URL targets the app's OWN OIDC-login
+//     route — `https://<host><ssoInitPath>`. Hitting that route makes the
+//     app immediately 302 to Keycloak's authorize endpoint with its
+//     pre-baked `kc_idp_hint=catalyst-pin` (the hint lives in the app's
+//     synced OIDC auth_url, not here), Keycloak silently re-uses the
+//     browser's PIN session, and the browser lands inside the app already
+//     logged in — no app login form, no "Sign in with OpenOva" button.
+//     No query string is appended: bare-root Keycloak params
+//     (`prompt=none`) are meaningless on an app-local route and some apps
+//     reject unknown query params on their login endpoint.
+//
+//   - ssoInitPath == "" (legacy / locked decision #3): the URL targets
+//     the app root with `prompt=none&kc_idp_hint=catalyst-pin`. This
+//     works only for apps that themselves treat root-visit + those query
+//     params as an OIDC trigger; most OSS apps (Grafana, Harbor) ignore
+//     them and show their login form, which is exactly the gap #3150
+//     closes via ssoInitPath.
+func buildLaunchURL(hostname string, tls bool, ssoInitPath string) string {
 	scheme := "https"
 	if !tls {
 		scheme = "http"
 	}
 	if hostname == "" {
 		return ""
+	}
+	if p := strings.TrimSpace(ssoInitPath); p != "" {
+		if !strings.HasPrefix(p, "/") {
+			p = "/" + p
+		}
+		return fmt.Sprintf("%s://%s%s", scheme, hostname, p)
 	}
 	q := url.Values{}
 	q.Set("prompt", "none")

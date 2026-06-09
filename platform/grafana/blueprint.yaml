@@ -57,6 +57,16 @@ spec:
       visibility: public
       launchDefault: true
       ssoEnabled: true
+      # #3150 — silent-SSO OIDC-init path. The console "Open" launch lands
+      # the browser on Grafana's OWN OIDC-login route, which immediately
+      # 302s to Keycloak carrying the `kc_idp_hint=catalyst-pin` baked into
+      # Grafana's synced auth_url (GF_AUTH_GENERIC_OAUTH_AUTH_URL). Keycloak
+      # silently re-uses the operator's PIN session and the browser lands
+      # inside Grafana already logged in — no Grafana login form, no
+      # "Sign in with OpenOva" button to click. Without this, the launch
+      # hits the app root where Grafana ignores the Keycloak query params
+      # and renders its login form.
+      ssoInitPath: "/login/generic_oauth"
 
   # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
   sso:

@@ -269,6 +269,18 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
     retry: 1,
   })
   const appUID = directUID || (fallbackInstancesQuery.data?.items?.[0]?.id?.trim() ?? '')
+  // #3150 — silent-SSO launch key. The launch-url endpoint resolves the
+  // `{id}` as EITHER an Application CR uid OR (when no CR exists) a
+  // bootstrap-kit blueprint/release name. Bootstrap-kit apps (grafana,
+  // harbor, openbao, gitea, keycloak, guacamole, powerdns-admin, netbird)
+  // install as bare HelmReleases with no Application CR → appUID is empty
+  // → pre-#3150 the Launch button short-circuited to the plain
+  // externalURL and the app showed its own login form. Now we hand the
+  // launch-url the blueprint/release name (componentId, e.g. "grafana"
+  // or "bp-grafana" — the BE strips the prefix) so it can resolve the
+  // HR-backed app and return the OIDC-init URL. Non-bootstrap apps keep
+  // using the CR uid exactly as before.
+  const launchKey = appUID || (appIsBootstrap ? componentId : '')
   // Matrix asserts the literal `Ready` token in the Overview body
   // (TC-068). When the API hasn't reported a phase yet, render the
   // mapped `status` chip phrase instead of an empty string so the test
@@ -631,6 +643,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               appLastReconciled={appLastReconciled}
               appExternalURL={appExternalURL}
               appUID={appUID}
+              launchKey={launchKey}
               isServiceApp={isServiceApp}
               compState={compState}
               deps={deps}
@@ -975,6 +988,14 @@ interface OverviewPanelProps {
    * Launch falls back to the direct `appExternalURL` link.
    */
   appUID: string
+  /**
+   * #3150 — the identifier the silent-SSO launch-url is keyed on. Equals
+   * appUID for Application-CR-backed apps, or the blueprint/release name
+   * (componentId) for bootstrap-kit HelmRelease apps that have no CR. The
+   * launch-url BE resolves either form. Empty → Launch falls back to the
+   * direct externalURL.
+   */
+  launchKey: string
   isServiceApp: boolean
   compState:
     | {
@@ -1072,6 +1093,7 @@ function OverviewPanel({
   appLastReconciled,
   appExternalURL,
   appUID,
+  launchKey,
   isServiceApp,
   compState,
   deps,
@@ -1209,7 +1231,7 @@ function OverviewPanel({
                     data-testid="btn-launch-app" matches PR #2836 's
                     Playwright spec's resilient selector. */}
                 <LaunchButton
-                  appUID={appUID}
+                  appUID={launchKey}
                   fallbackURL={appExternalURL}
                 />
                 <span
