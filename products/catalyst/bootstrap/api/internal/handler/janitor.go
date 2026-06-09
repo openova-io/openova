@@ -598,6 +598,15 @@ func (h *Handler) cleanOrphanTofuWorkdirs(tofuWorkDir string, activeIDs map[stri
 			continue
 		}
 		id := e.Name()
+		// #3147/#3151: `_shared` is the cloud-agnostic cloud-init staging dir
+		// (a sibling of every per-deployment workdir, staged by stageModule so
+		// the `${path.module}/../_shared/` templatefile reference resolves at
+		// apply time), NOT an orphaned deployment. Deployment IDs are hex;
+		// reserved dirs are underscore-prefixed. Reaping `_shared` races the
+		// next prov's tofu plan into a "no file at ./../_shared/..." failure.
+		if strings.HasPrefix(id, "_") {
+			continue
+		}
 		if _, ok := activeIDs[id]; ok {
 			continue
 		}
