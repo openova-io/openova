@@ -1551,7 +1551,7 @@ const APP_DETAIL_CSS = `
 /*
  * #3150 — pinned to the RIGHT edge of the hero's top line (margin-left:
  * auto pushes it past the flex-1 .hero-body so the title + chips fill the
- * middle). Vertically centered via the .hero `align-items: center`. The
+ * middle). Vertically centered via the .hero 'align-items: center'. The
  * button + compact hint stack so the hint sits directly under the CTA
  * without stealing horizontal room from the title row. On narrow widths
  * the .hero flex-wrap drops this whole block to its own line below.
