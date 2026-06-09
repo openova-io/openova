@@ -975,7 +975,7 @@ spec:
       # 1.4.532 — #3150 (2026-06-09): silent-SSO — launch-url resolves HR-backed
       # bootstrap apps (no Application CR) + per-endpoint ssoInitPath lands the
       # console "Open" on the app's OIDC-init route (grafana /login/generic_oauth).
-      version: 1.4.532
+      version: 1.4.533
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
