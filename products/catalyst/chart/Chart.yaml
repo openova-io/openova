@@ -2612,7 +2612,7 @@ name: bp-catalyst-platform
 # OIDC-init route (grafana /login/generic_oauth) so the console "Open" button
 # lands the operator already-logged-in with no app login form. bp-grafana
 # catalog-seed CR gains ssoInitPath. Refs #3150.
-version: 1.4.545
+version: 1.4.546
 appVersion: 1.4.494
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
