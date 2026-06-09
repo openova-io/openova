@@ -119,6 +119,55 @@ tenant emit; tenant takes precedence here.
        still holds: the URL is computed from .Release.Name + .Release.Namespace,
        both runtime-configurable via the bp-keycloak HelmRelease. */ -}}
 {{- $kcAddr := printf "http://%s.%s.svc.cluster.local" .Release.Name .Release.Namespace -}}
+{{- /* ── Declarative user-profile config (#3150) ───────────────────────────
+     Keycloak 24+ has the declarative user profile ALWAYS ON. Its default
+     config marks `firstName` and `lastName` as required for the `user`
+     role. The catalyst-pin OIDC id_token carries only email (+ groups) —
+     NO given/family name — so when the broker creates a brand-new
+     federated user, Keycloak's first-broker-login evaluates the user
+     profile, finds firstName/lastName missing, and injects a TRANSIENT
+     VERIFY_PROFILE interrupt (this is NOT a stored required action and is
+     NOT suppressed by updateProfileFirstLoginMode — it is a profile-
+     completeness gate). Live-proven on hw124 2026-06-09: after fixing
+     UPDATE_PASSWORD the chain still terminated at
+     /login-actions/required-action?execution=VERIFY_PROFILE.
+
+     Fix: ship a declarative-user-profile component in the realm import
+     that drops `required` from firstName + lastName (email stays
+     required). With the names optional the profile is "complete" for a
+     name-less federated user, so no VERIFY_PROFILE fires — the broker
+     returns the authorization code with zero prompts. keycloak-config-cli
+     imports realm `components` reliably; the `kc.user.profile.config`
+     value MUST be a single-element array whose element is a JSON STRING
+     (Keycloak stores the profile as serialized JSON), so we build the
+     map with Go templating then `toJson`-encode it twice: once for the
+     inner profile document, once (implicitly, via the realm being valid
+     JSON) for the surrounding string. */ -}}
+{{- $userProfileDoc := dict
+    "attributes" (list
+      (dict "name" "username" "displayName" "${username}"
+        "validations" (dict "length" (dict "min" 3 "max" 255) "username-prohibited-characters" (dict) "up-username-not-idn-homograph" (dict))
+        "permissions" (dict "view" (list "admin" "user") "edit" (list "admin" "user"))
+        "multivalued" false)
+      (dict "name" "email" "displayName" "${email}"
+        "validations" (dict "email" (dict) "length" (dict "max" 255))
+        "required" (dict "roles" (list "user"))
+        "permissions" (dict "view" (list "admin" "user") "edit" (list "admin" "user"))
+        "multivalued" false)
+      (dict "name" "firstName" "displayName" "${firstName}"
+        "validations" (dict "length" (dict "max" 255) "person-name-prohibited-characters" (dict))
+        "permissions" (dict "view" (list "admin" "user") "edit" (list "admin" "user"))
+        "multivalued" false)
+      (dict "name" "lastName" "displayName" "${lastName}"
+        "validations" (dict "length" (dict "max" 255) "person-name-prohibited-characters" (dict))
+        "permissions" (dict "view" (list "admin" "user") "edit" (list "admin" "user"))
+        "multivalued" false)
+    )
+    "groups" (list
+      (dict "name" "user-metadata" "displayHeader" "User metadata" "displayDescription" "Attributes, which refer to user metadata")
+    )
+-}}
+{{- $userProfileConfigJSON := toJson $userProfileDoc -}}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -172,13 +221,77 @@ data:
         { "name": "sovereign-ops" },
         { "name": "sovereign-viewers" }
       ],
+      {{- /*
+      #3150 (2026-06-09): declarative user-profile with firstName/lastName
+      OPTIONAL. The catalyst-pin id_token has no name claims; with the KC
+      default profile (names required for role `user`) a fresh federated
+      user is bounced to VERIFY_PROFILE. Dropping `required` from firstName
+      + lastName makes the name-less federated profile "complete" so no
+      profile prompt fires. See the $userProfileDoc builder near the top of
+      this template for the rationale. The value is a single-element array
+      whose element is the serialized profile JSON string.
+      */ -}}
+      "components": {
+        "org.keycloak.userprofile.UserProfileProvider": [
+          {
+            "providerId": "declarative-user-profile",
+            "config": {
+              "kc.user.profile.config": [
+                {{ $userProfileConfigJSON | toJson }}
+              ]
+            }
+          }
+        ]
+      },
+      {{- /*
+      #3150 (2026-06-09): UPDATE_PASSWORD `defaultAction` MUST be false.
+
+      Every user on this realm authenticates EXCLUSIVELY through the
+      catalyst-pin OIDC broker (PIN -> catalyst-api session -> federated
+      identity) — there are NO local passwords. When the broker creates
+      a brand-new federated user via the `first broker login auto link`
+      flow's `idp-create-user-if-unique` step, Keycloak stamps the realm's
+      DEFAULT required actions onto that fresh user. With
+      `UPDATE_PASSWORD.defaultAction=true` the new operator was immediately
+      bounced to /login-actions/required-action?execution=UPDATE_PASSWORD —
+      a password-set prompt that makes no sense for a passwordless
+      broker-only realm and directly violates the founder requirement
+      "user will NEVER be asked by Keycloak for auth."
+
+      Live-proof on hw124 (2026-06-09): a fresh catalyst-pin federation
+      created user newop-...@hw124.omani.works with
+      requiredActions=["UPDATE_PASSWORD"], and the OIDC chain terminated
+      on the UPDATE_PASSWORD required-action interrupt instead of
+      returning the authorization `code`. Flipping defaultAction->false
+      removes UPDATE_PASSWORD from the default set so federated users are
+      created with an EMPTY requiredActions list and the chain returns
+      302+code with no profile/password prompt on every path — including
+      a first-time-via-SSO operator who never PIN-logged-in before.
+
+      The action stays `enabled:true` (still available for the rare
+      self-service password-set case) but is no longer auto-applied to
+      every new user. This is ONE of three coupled #3150 fixes that
+      together yield an empty requiredActions list on every path:
+        1. UPDATE_PASSWORD.defaultAction=false (here) — no password prompt.
+        2. declarative user-profile with firstName/lastName OPTIONAL (the
+           `components` block above) — no VERIFY_PROFILE prompt. (The
+           catalyst-pin id_token carries no name claims; KC's DEFAULT
+           profile requires names for role `user`, which injects a
+           transient VERIFY_PROFILE interrupt that updateProfileFirstLogin
+           Mode does NOT suppress — only making the names optional does.)
+        3. trustEmail=true on the catalyst-pin IdP — no VERIFY_EMAIL.
+      updateProfileFirstLoginMode:off (set on the IdP below) is a fourth,
+      belt-and-suspenders guard against the legacy review-profile path.
+      Live-proven on hw124 2026-06-09: with all of these a fresh
+      federation returns 302+code with ZERO prompts.
+      */ -}}
       "requiredActions": [
         {
           "alias": "UPDATE_PASSWORD",
           "name": "Update Password",
           "providerId": "UPDATE_PASSWORD",
           "enabled": true,
-          "defaultAction": true,
+          "defaultAction": false,
           "priority": 30,
           "config": {}
         },
@@ -826,6 +939,18 @@ data:
 
         trustEmail=true skips KC's email-verify required-action since
         we already verified email via the PIN delivery.
+
+        updateProfileFirstLoginMode=off (#3150): Keycloak's per-IdP
+        default for this knob is "on", which arms the review-profile /
+        VERIFY_PROFILE prompt on first broker login. The custom
+        `first broker login auto link` flow above has no review-profile
+        execution so this is already bypassed today, but pinning it to
+        "off" here is the explicit, durable guard so a future declarative
+        user-profile change or a flow edit can never re-surface a profile
+        prompt. Combined with trustEmail=true (no VERIFY_EMAIL) and
+        UPDATE_PASSWORD.defaultAction=false (no password prompt — see the
+        requiredActions block above) the federated user is created with an
+        EMPTY requiredActions list on EVERY path.
         */ -}}
         {
           "alias": "catalyst-pin",
@@ -833,6 +958,7 @@ data:
           "providerId": "oidc",
           "enabled": true,
           "trustEmail": true,
+          "updateProfileFirstLoginMode": "off",
           "storeToken": false,
           "addReadTokenRoleOnCreate": false,
           "authenticateByDefault": false,

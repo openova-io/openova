@@ -136,7 +136,11 @@ spec:
       # so bp-sso-bridge ns mirrors it) so the new bp-sso-bridge 0.2.8
       # can mint a master-realm token for POST /admin/realms. Closes
       # 403-on-realm-create gap caught live during #2744 walk.
-      version: 1.4.20
+      # 1.4.21 (#3150, 2026-06-09): federated user inherits ZERO Keycloak
+      # required actions — UPDATE_PASSWORD.defaultAction false +
+      # catalyst-pin IdP updateProfileFirstLoginMode off. Live-proven on
+      # hw124 (fresh federation -> requiredActions=[]). Refs #3150.
+      version: 1.4.21
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak

@@ -1,5 +1,31 @@
 apiVersion: v2
 name: bp-keycloak
+# 1.4.21 (#3150, 2026-06-09): federated user must inherit ZERO Keycloak
+# required actions on EVERY path. The sovereign realm is passwordless (every
+# user authenticates only through the catalyst-pin OIDC broker) but a fresh
+# catalyst-pin federation was hitting two stacked prompts. Three coupled
+# realm-import fixes (all live-proven on hw124 2026-06-09):
+#   1. UPDATE_PASSWORD.defaultAction true -> false. Being a realm DEFAULT
+#      action, KC stamped it onto every brand-new federated user created by
+#      the `first broker login auto link` flow's idp-create-user-if-unique
+#      step, bouncing first-time-via-SSO operators to
+#      /login-actions/required-action?execution=UPDATE_PASSWORD.
+#   2. Declarative user-profile `components` block marking firstName +
+#      lastName OPTIONAL (email stays required). The catalyst-pin id_token
+#      carries no name claims; KC's DEFAULT profile requires names for role
+#      `user`, injecting a transient VERIFY_PROFILE interrupt that
+#      updateProfileFirstLoginMode does NOT suppress — only making the names
+#      optional does. (After fix 1, the live chain still terminated at
+#      VERIFY_PROFILE until this landed.)
+#   3. catalyst-pin IdP updateProfileFirstLoginMode pinned "off" — belt-and-
+#      suspenders against the legacy review-profile path.
+# trustEmail=true already suppresses VERIFY_EMAIL. Live-proof: pre-fix a
+# fresh federation created requiredActions=["UPDATE_PASSWORD"] then bounced
+# to VERIFY_PROFILE; post-fix the same federation yields requiredActions=[]
+# and the chain returns 302+authorization-code to the console callback with
+# ZERO profile/password prompts. New chart test
+# tests/sovereign-realm-federated-no-required-actions.sh locks all of it.
+# Refs #3150.
 # 1.4.20 (#3150, 2026-06-09): enable `implicitFlowEnabled: true` on the
 # sovereign-realm `guacamole` Tier-2 client. Apache Guacamole's
 # guacamole-auth-sso-openid extension (1.5.5) implements ONLY the OIDC
@@ -174,7 +200,7 @@ name: bp-keycloak
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.4.20
+version: 1.4.21
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
