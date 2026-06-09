@@ -4,7 +4,10 @@ name: bp-powerdns
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.2.9
+# 1.2.10 (#3150, 2026-06-10): permit reflection of powerdns-api-credentials
+# into the powerdns-admin ns so bp-powerdns-admin's PDNS_API_KEY resolves
+# (slot 11a first exercised by #3173 — see api-credentials-secret.yaml).
+version: 1.2.10
 description: |
   Catalyst-curated Blueprint wrapper for PowerDNS Authoritative.
   Carries Catalyst-specific values.yaml + templates (CNPG cluster, dnsdist

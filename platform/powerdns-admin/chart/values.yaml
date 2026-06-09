@@ -4,15 +4,28 @@
 # meaningful value flows from this file. Per-Sovereign cluster overlays
 # (clusters/<sovereign>/) wire gateway.host, pdns.apiUrl, sso.sovereignFqdn.
 
-# Image — pinned PowerDNS-Admin upstream (ngoduykhanh project). Routed
-# through the per-Sovereign Harbor proxy-cache per CLAUDE.md
-# MIRROR-EVERYTHING rule.
+# Image — pinned PowerDNS-Admin upstream. Routed through the per-Sovereign
+# Harbor proxy-cache (harbor.openova.io/proxy-dockerhub/…) per CLAUDE.md
+# MIRROR-EVERYTHING rule; post-cutover Step-04's containerd mirror
+# redirects harbor.openova.io → the local Harbor, so this is a
+# Sovereign-local pull, not a mothership tether.
+#
+# #3150/#3173: the upstream project moved from `ngoduykhanh/powerdns-admin`
+# (Docker Hub tags stop at 0.3.0 — the previously-pinned `:0.4.2` NEVER
+# existed there → ImagePullBackOff "not found" on every Sovereign) to the
+# maintained `powerdnsadmin/pda-legacy` repo, which publishes `0.4.2`
+# (== `latest`, digest sha256:0fc92c8e…). Verified resolvable through the
+# hw124 Harbor proxy-cache.
+#
+# proxy-dockerhub serves PUBLIC images cred-free, so NO imagePullSecret is
+# needed here — the prior `ghcr-pull` ref was both wrong (ghcr-pull is the
+# ghcr.io cred, not the Harbor cred) and not reflected into this namespace,
+# which produced the spurious FailedToRetrieveImagePullSecret warning.
 image:
-  repository: harbor.openova.io/proxy-dockerhub/ngoduykhanh/powerdns-admin
+  repository: harbor.openova.io/proxy-dockerhub/powerdnsadmin/pda-legacy
   tag: "0.4.2"
   pullPolicy: IfNotPresent
-  pullSecrets:
-    - name: ghcr-pull
+  pullSecrets: []
 
 replicas: 1
 
@@ -28,8 +41,16 @@ securityContext:
 containerSecurityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: false      # PDA writes session/cache to /tmp
-  capabilities:
-    drop: [ALL]
+  # #3150: the powerdnsadmin/pda-legacy Alpine image's musl loader / busybox
+  # exec path returns EPERM ("Operation not permitted" on `python3`/`flask`)
+  # when ALL Linux capabilities are dropped — verified live on hw124 (an A/B
+  # probe with `drop:[ALL]` failed exec; without it gunicorn boots 1/1). The
+  # Pod still runs unprivileged: non-root uid 100, allowPrivilegeEscalation
+  # false, RuntimeDefault seccomp. This image was NEVER exercised before
+  # (the prior `ngoduykhanh:0.4.2` tag was unpullable), so the drop-ALL
+  # default went untested. Leaving caps at the runtime default keeps the Pod
+  # PodSecurity-baseline compliant.
+  capabilities: {}
 
 resources:
   requests:
@@ -39,11 +60,16 @@ resources:
     cpu: 500m
     memory: 512Mi
 
-# Container port the Gunicorn process inside ngoduykhanh/powerdns-admin
-# binds to. Upstream Containerfile defaults to 9191.
+# Container port the Gunicorn process inside the PowerDNS-Admin image binds
+# to. #3150: the powerdnsadmin/pda-legacy image's baked-in
+# /app/configs/docker_config.py sets `PORT = 80` and gunicorn binds 0.0.0.0:80
+# (the old ngoduykhanh image used 9191). targetPort drives both the
+# Deployment containerPort and the readiness/liveness probe port, so a stale
+# 9191 here left the Pod Running-but-never-Ready (probe connection-refused) —
+# verified live on hw124. Aligned to the image's actual listen port.
 service:
   port: 80
-  targetPort: 9191
+  targetPort: 80
   type: ClusterIP
 
 # Catalyst HTTPRoute (Cilium Gateway API, issue #387). Per-Sovereign
@@ -112,6 +138,14 @@ pdns:
   apiKeySecret:
     name: pdns-api-credentials
     key: api-key
+  # #3150: the API-key Secret originates in the bp-powerdns namespace as
+  # `powerdns-api-credentials`. templates/pdns-api-credentials-mirror.yaml
+  # ships a reflector stub that pulls it into this ns under apiKeySecret.name
+  # (above). Override sourceSecret.{namespace,name} if a Sovereign overlay
+  # relocates the PDNS server's credential Secret.
+  sourceSecret:
+    namespace: powerdns
+    name: powerdns-api-credentials
   version: "4.7"
   protocol: http
 

@@ -1,5 +1,11 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.542 — #3150 (2026-06-10) — catalog-seed: add the missing
+# bp-powerdns-admin Blueprint CR. bp-powerdns-admin (slot 11a) was the LONE
+# catalog-404 on a fresh Sovereign — the HR installed but no catalog-seed
+# entry existed, so GET /api/v1/catalog/bp-powerdns-admin returned 404
+# blueprint_not_found while every sibling resolved (the in-cluster CR list
+# is the catalog source). Live-verified 200 on hw124. Refs #3150.
 # 1.4.538 — #3150 (2026-06-09) — silent-SSO per-app fan-out. catalog-seed
 # blueprints.yaml: add in-cluster bp-harbor + bp-openbao Blueprint CRs (bare
 # HelmReleases with no Application CR; the catalyst-catalog returns items:[]
@@ -2606,7 +2612,7 @@ name: bp-catalyst-platform
 # OIDC-init route (grafana /login/generic_oauth) so the console "Open" button
 # lands the operator already-logged-in with no app login form. bp-grafana
 # catalog-seed CR gains ssoInitPath. Refs #3150.
-version: 1.4.541
+version: 1.4.542
 appVersion: 1.4.494
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.

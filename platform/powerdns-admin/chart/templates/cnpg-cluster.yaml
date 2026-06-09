@@ -27,3 +27,24 @@ spec:
     storageClass: {{ .Values.postgres.cluster.storageClass | default "local-path" }}
   resources:
     {{- toYaml .Values.postgres.cluster.resources | nindent 4 }}
+
+  # inheritedMetadata.annotations: CNPG propagates these onto every Secret
+  # it generates (pda-pg-app, pda-pg-superuser, …). The k8s-reflector
+  # (bp-reflector) requires the SOURCE Secret to carry
+  # `reflection-allowed: "true"` before it will copy data into the
+  # DESTINATION Secret (`pda-database-secret`, templates/database-secret.yaml).
+  # Setting these annotations on the Cluster CR's own metadata does NOT work
+  # — CNPG does not copy `metadata.annotations` onto generated Secrets; the
+  # `inheritedMetadata` stanza is the correct CNPG v1.24+ mechanism.
+  #
+  # #3150: bp-powerdns-admin only first installed once #3173 listed slot 11a,
+  # which exposed that this block was MISSING — reflector logged
+  # "Source powerdns-admin/pda-pg-app does not permit it" so pda-database-secret
+  # stayed empty → the PDA Pod wedged in CreateContainerConfigError (no
+  # SQLA_DB_USER/PASSWORD). Mirrors the gitea/harbor gold-standard pattern.
+  inheritedMetadata:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: {{ .Values.postgres.cluster.namespace | default .Release.Namespace | quote }}
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: {{ .Values.postgres.cluster.namespace | default .Release.Namespace | quote }}
