@@ -9,7 +9,15 @@ name: bp-powerdns-admin
 # audit docs/sessions/2026-06-02-G117-sso-fanout-audit/tier-2/bp-powerdns-admin.md
 # "Option A" — chart-local override, no bp-sso-bridge contract change.
 # Refs G113 `feedback_g113_sso_idr_defaultprovider_fix.md`.
-version: 0.1.2
+#
+# 0.1.3 (#3150/#3173, 2026-06-10): repoint the container image from the
+# dead `ngoduykhanh/powerdns-admin:0.4.2` (that tag never existed on the
+# ngoduykhanh repo — Docker Hub stops at 0.3.0 → ImagePullBackOff "not
+# found" on hw124, lone catalog-404, wedged the bootstrap-kit Kustomization)
+# to the maintained `powerdnsadmin/pda-legacy:0.4.2`. Drop the spurious
+# `ghcr-pull` imagePullSecret (proxy-dockerhub is anonymous; ghcr-pull is
+# the wrong cred and isn't reflected into this namespace). See values.yaml.
+version: 0.1.3
 description: |
   PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI Blueprint for
   per-Sovereign PowerDNS zone + record management. Drives the

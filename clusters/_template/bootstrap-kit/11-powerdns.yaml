@@ -127,7 +127,9 @@ spec:
       # message read "Helm install failed for release powerdns/powerdns
       # with chart bp-powerdns@1.2.2: failed post-install: 1 error
       # occurred: * job powerdns-zone-bootstrap failed: BackoffLimitExceeded".
-      version: 1.2.9
+      # 1.2.10 (#3150): allow reflection of powerdns-api-credentials into the
+      # powerdns-admin ns (slot 11a PDNS_API_KEY).
+      version: 1.2.10
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns

@@ -4496,6 +4496,73 @@ spec:
       visibility: public
       launchDefault: false
 ---
+# bp-powerdns-admin (#3150): the PowerDNS-Admin web UI was the LONE
+# catalog-404 on a fresh Sovereign — slot 11a installs the HR but this
+# seed entry was missing, so /api/v1/catalog/bp-powerdns-admin returned
+# 404 blueprint_not_found while every sibling resolved. Shape mirrors the
+# bp-powerdns entry above + platform/powerdns-admin/blueprint.yaml.
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-powerdns-admin
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: infrastructure
+    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "0.1.3"
+  visibility: unlisted
+  card:
+    title: "PowerDNS-Admin"
+    category: infrastructure
+    summary: "Web UI for per-Sovereign PowerDNS zone + record management. CNPG-backed metadata, Catalyst SSO via Keycloak, drives the authoritative server via the bp-powerdns REST API."
+    icon: powerdns.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-powerdns-admin
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-powerdns-admin
+    version: "0.1.3"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints:
+    - name: ui
+      hostnameTemplate: "pdns-admin.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: private
+      launchDefault: true
+  # SSO block kept lockstep with platform/powerdns-admin/blueprint.yaml
+  # (catalog-seed-lockstep CI compares sso.realm + sso.silentLogin).
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+    silentLogin: true
+---
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
