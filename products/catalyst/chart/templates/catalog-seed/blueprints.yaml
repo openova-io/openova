@@ -4996,7 +4996,17 @@ spec:
           backend: none
           mode: none
         switchover:
-          mechanism: leader-election
+          # CRD enum for switchover.mechanism does NOT include
+          # `leader-election` (valid: bp-continuum/manual/bp-velero-restore/
+          # lua-record/mm2-symmetric/ccr-promote/raft-transition/
+          # sentinel-failover/none). The stateless controller's leader-flip
+          # is driven by bp-continuum on region-kill, same as every other
+          # active-hot-standby seed entry — the platform/<x> source's
+          # informational `leader-election` value is v1alpha1-lax and fails
+          # the v1 CRD admission used by the in-cluster seed (caught live on
+          # hw124: the whole bp-catalyst-platform@1.4.540 upgrade aborted
+          # atomically on this one invalid CR). Refs #3159.
+          mechanism: bp-continuum
           rtoSeconds: 30
           rpoSeconds: 0
         placement:
@@ -5341,7 +5351,17 @@ spec:
           mode: async
           lagSloSeconds: 0
         switchover:
-          mechanism: leader-election
+          # CRD enum for switchover.mechanism does NOT include
+          # `leader-election` (valid: bp-continuum/manual/bp-velero-restore/
+          # lua-record/mm2-symmetric/ccr-promote/raft-transition/
+          # sentinel-failover/none). The stateless controller's leader-flip
+          # is driven by bp-continuum on region-kill, same as every other
+          # active-hot-standby seed entry — the platform/<x> source's
+          # informational `leader-election` value is v1alpha1-lax and fails
+          # the v1 CRD admission used by the in-cluster seed (caught live on
+          # hw124: the whole bp-catalyst-platform@1.4.540 upgrade aborted
+          # atomically on this one invalid CR). Refs #3159.
+          mechanism: bp-continuum
           rtoSeconds: 30
           rpoSeconds: 0
         placement:
@@ -5366,7 +5386,14 @@ spec:
       launchDefault: true
       ssoEnabled: true
     - name: metrics
-      hostnameTemplate: ""
+      # ClusterIP-only controller-runtime metrics — never publicly resolved.
+      # The platform/sandbox v1alpha1 source uses "" here, but the v1 CRD
+      # the in-cluster seed admits against enforces hostnameTemplate
+      # minLength:1, so a non-routable cluster-internal name is used instead
+      # of the empty string (caught by hw124 server-dry-run). The lockstep
+      # guard compares endpoints[].name/launchDefault, not hostnameTemplate,
+      # so this stays green. Refs #3159.
+      hostnameTemplate: "sandbox-metrics.sandbox.svc.cluster.local"
       port: 8080
       protocol: http
       tls: false
