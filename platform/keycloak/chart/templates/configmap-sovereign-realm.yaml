@@ -172,13 +172,46 @@ data:
         { "name": "sovereign-ops" },
         { "name": "sovereign-viewers" }
       ],
+      {{- /*
+      #3150 (2026-06-09): UPDATE_PASSWORD `defaultAction` MUST be false.
+
+      Every user on this realm authenticates EXCLUSIVELY through the
+      catalyst-pin OIDC broker (PIN -> catalyst-api session -> federated
+      identity) — there are NO local passwords. When the broker creates
+      a brand-new federated user via the `first broker login auto link`
+      flow's `idp-create-user-if-unique` step, Keycloak stamps the realm's
+      DEFAULT required actions onto that fresh user. With
+      `UPDATE_PASSWORD.defaultAction=true` the new operator was immediately
+      bounced to /login-actions/required-action?execution=UPDATE_PASSWORD —
+      a password-set prompt that makes no sense for a passwordless
+      broker-only realm and directly violates the founder requirement
+      "user will NEVER be asked by Keycloak for auth."
+
+      Live-proof on hw124 (2026-06-09): a fresh catalyst-pin federation
+      created user newop-...@hw124.omani.works with
+      requiredActions=["UPDATE_PASSWORD"], and the OIDC chain terminated
+      on the UPDATE_PASSWORD required-action interrupt instead of
+      returning the authorization `code`. Flipping defaultAction->false
+      removes UPDATE_PASSWORD from the default set so federated users are
+      created with an EMPTY requiredActions list and the chain returns
+      302+code with no profile/password prompt on every path — including
+      a first-time-via-SSO operator who never PIN-logged-in before.
+
+      The action stays `enabled:true` (still available for the rare
+      self-service password-set case) but is no longer auto-applied to
+      every new user. trustEmail=true on the catalyst-pin IdP already
+      suppresses VERIFY_EMAIL, and the auto-link flow (no review-profile
+      execution) + updateProfileFirstLoginMode:off (set on the IdP below)
+      suppress VERIFY_PROFILE / UPDATE_PROFILE. With all three the
+      federated user inherits ZERO required actions.
+      */ -}}
       "requiredActions": [
         {
           "alias": "UPDATE_PASSWORD",
           "name": "Update Password",
           "providerId": "UPDATE_PASSWORD",
           "enabled": true,
-          "defaultAction": true,
+          "defaultAction": false,
           "priority": 30,
           "config": {}
         },
@@ -826,6 +859,18 @@ data:
 
         trustEmail=true skips KC's email-verify required-action since
         we already verified email via the PIN delivery.
+
+        updateProfileFirstLoginMode=off (#3150): Keycloak's per-IdP
+        default for this knob is "on", which arms the review-profile /
+        VERIFY_PROFILE prompt on first broker login. The custom
+        `first broker login auto link` flow above has no review-profile
+        execution so this is already bypassed today, but pinning it to
+        "off" here is the explicit, durable guard so a future declarative
+        user-profile change or a flow edit can never re-surface a profile
+        prompt. Combined with trustEmail=true (no VERIFY_EMAIL) and
+        UPDATE_PASSWORD.defaultAction=false (no password prompt — see the
+        requiredActions block above) the federated user is created with an
+        EMPTY requiredActions list on EVERY path.
         */ -}}
         {
           "alias": "catalyst-pin",
@@ -833,6 +878,7 @@ data:
           "providerId": "oidc",
           "enabled": true,
           "trustEmail": true,
+          "updateProfileFirstLoginMode": "off",
           "storeToken": false,
           "addReadTokenRoleOnCreate": false,
           "authenticateByDefault": false,
