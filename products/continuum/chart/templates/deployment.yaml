@@ -36,8 +36,21 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       {{- if .Values.continuum.prerequisiteCheck.enabled }}
-      # #2922 PR-B prerequisite-guard initContainer — see values.yaml
-      # comment block on continuum.prerequisiteCheck for full rationale.
+      # #3189 prerequisite-check initContainer — see values.yaml comment
+      # block on continuum.prerequisiteCheck for full rationale.
+      #
+      # The probe detects whether a bp-cnpg-pair installation exists
+      # cluster-wide. On a single-region Sovereign there is no cnpg-pair,
+      # so bp-continuum has nothing to reconcile — it is a CORRECT idle
+      # state, not a failure (the controller-runtime Manager simply has
+      # 0 Continuum CRs to act on and reports Ready). The probe therefore
+      # exits 0 in that case and lets the main controller start idle.
+      #
+      # Earlier revisions did `sleep 300; exit 1` here, which forced the
+      # init container — and therefore the whole Pod — into
+      # Init:CrashLoopBackOff on every single-region prov (#3189). That
+      # presented a healthy single-region controller as perpetually
+      # broken. We keep the loud diagnostic log line but no longer crash.
       initContainers:
         - name: prerequisite-check
           image: {{ .Values.continuum.prerequisiteCheck.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.30.0" | quote }}
@@ -50,14 +63,13 @@ spec:
               echo "[prerequisite-check] probing for bp-cnpg-pair audit ConfigMap cluster-wide..."
               pair_count="$(kubectl get cm -A -l catalyst.openova.io/audit-config=true --no-headers 2>/dev/null | wc -l)"
               if [ "$pair_count" -eq 0 ]; then
-                echo "[prerequisite-check] FAIL: no bp-cnpg-pair installation detected."
-                echo "[prerequisite-check] bp-continuum reconcile loop requires bp-cnpg-pair (Pillar-3 #2840 AC#1)."
-                echo "[prerequisite-check] Either install bp-cnpg-pair OR set continuum.enabled=false."
-                echo "[prerequisite-check] Sleeping 5 min before retry (operator can scale Deployment to 0 to silence)."
-                sleep 300
-                exit 1
+                echo "[prerequisite-check] no bp-cnpg-pair installation detected — single-region Sovereign."
+                echo "[prerequisite-check] bp-continuum has no CNPG cluster-pair to switch over (Pillar-3 multi-region only, #2840)."
+                echo "[prerequisite-check] Starting controller in IDLE mode: it will report Ready and reconcile nothing until a"
+                echo "[prerequisite-check] bp-cnpg-pair (2nd region) appears. This is a correct single-region no-op, NOT a failure."
+                exit 0
               fi
-              echo "[prerequisite-check] PASS: found $pair_count bp-cnpg-pair installation(s); main container will start."
+              echo "[prerequisite-check] PASS: found $pair_count bp-cnpg-pair installation(s); main container will start active."
           resources:
             {{- toYaml (.Values.continuum.prerequisiteCheck.resources | default (dict "requests" (dict "cpu" "10m" "memory" "32Mi") "limits" (dict "cpu" "100m" "memory" "64Mi"))) | nindent 12 }}
           securityContext:

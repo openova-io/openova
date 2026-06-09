@@ -45,15 +45,21 @@ continuum:
   leaderElection:
     enabled: true
 
-  # G117.pillar-3-followup #2922 PR-B (2026-06-03): init container
-  # probe that asserts bp-cnpg-pair is installed BEFORE the main
-  # controller starts. Without bp-cnpg-pair the reconcile loop has no
-  # CNPG cluster pair to switch over → controller crash-loops on
-  # missing CRs. The probe sleeps + exits non-zero with a clear log
-  # line when prerequisites are missing, so `kubectl logs` surfaces
-  # the gap instead of a confusing controller stack trace. Operators
-  # CAN disable this guard via prerequisiteCheck.enabled=false (e.g.
-  # for chart unit tests or air-gapped offline reconcile evaluation).
+  # #3189 (2026-06-09): init container probe that DETECTS whether a
+  # bp-cnpg-pair installation exists cluster-wide before the main
+  # controller starts. On a single-region Sovereign there is no
+  # cnpg-pair, so bp-continuum has no CNPG cluster-pair to switch over —
+  # this is a CORRECT idle state (the controller-runtime Manager simply
+  # has 0 Continuum CRs to act on and reports Ready), NOT a failure.
+  #
+  # The probe logs a clear "single-region idle" diagnostic and exits 0,
+  # letting the main controller start and sit idle-Ready. Earlier
+  # revisions (#2922 PR-B) did `sleep 300; exit 1` here, which forced
+  # Init:CrashLoopBackOff on every single-region prov and presented a
+  # healthy controller as perpetually broken. We keep the loud log line
+  # but no longer crash. Operators CAN disable this guard entirely via
+  # prerequisiteCheck.enabled=false (e.g. for chart unit tests or
+  # air-gapped offline reconcile evaluation).
   prerequisiteCheck:
     enabled: true
     # Default image carries kubectl + sh — overridable for air-gapped

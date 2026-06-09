@@ -7,7 +7,7 @@ metadata:
     catalyst.openova.io/section: pts-4-sandbox
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 0.3.9
+  version: 0.3.10
   card:
     title: Sandbox
     summary: |
@@ -63,12 +63,13 @@ spec:
   # durable state is the per-Sandbox manifests it writes to the per-Org
   # `catalyst-tenant` Gitea repo (which is the Gitea-replicated state,
   # not the controller's). active-hot-standby runs two controller
-  # replicas (one per RTZ region) sharing leader-election lease via the
-  # rtz-A CNPG-replicated leases CRD; switchover is leader-flip only
-  # (no data replication required on the controller plane). Each
-  # per-Sandbox session (D31 pair when SOVEREIGN_ENABLE_HOT_STANDBY=true)
-  # is replicated via the chart's own sandbox.cnpg.activeHotStandby
-  # block, not at the bp-sandbox-controller layer.
+  # replicas (one per RTZ region) sharing a leader-election lease via
+  # the rtz-A CNPG-replicated leases CRD; on region-kill the leader-flip
+  # is driven by bp-continuum (no data replication required on the
+  # controller plane). Each per-Sandbox session (D31 pair when
+  # SOVEREIGN_ENABLE_HOT_STANDBY=true) is replicated via the chart's own
+  # sandbox.cnpg.activeHotStandby block, not at the
+  # bp-sandbox-controller layer.
   topology:
     supported:
       - active-hot-standby
@@ -83,7 +84,17 @@ spec:
           mode: async
           lagSloSeconds: 0
         switchover:
-          mechanism: leader-election
+          # The CRD enum for switchover.mechanism does NOT include
+          # `leader-election` (valid: bp-continuum / manual /
+          # bp-velero-restore / lua-record / mm2-symmetric / ccr-promote /
+          # raft-transition / sentinel-failover / none — see
+          # core/pkg/apis/blueprint/v1alpha1/topology_types.go +
+          # products/catalyst/chart/crds/blueprint.yaml). The stateless
+          # controller's leader-flip is driven by bp-continuum on
+          # region-kill, same as every other active-hot-standby seed
+          # entry; this source value must match the catalog-seed copy
+          # (#3178/#3159) or the v1 CRD admission rejects the seeded CR.
+          mechanism: bp-continuum
           rtoSeconds: 30
           rpoSeconds: 0
         placement:
@@ -115,7 +126,13 @@ spec:
       launchDefault: true
       ssoEnabled: true
     - name: metrics
-      hostnameTemplate: ""        # ClusterIP only — controller-runtime metrics
+      # ClusterIP-only controller-runtime metrics — never publicly
+      # resolved. The v1 Blueprint CRD enforces hostnameTemplate
+      # minLength:1, so a non-routable cluster-internal name is used
+      # instead of "" (an empty value fails server-side admission —
+      # caught on hw124, same drift class as the switchover.mechanism
+      # fix above). Must match the catalog-seed copy. Refs #3159.
+      hostnameTemplate: "sandbox-metrics.sandbox.svc.cluster.local"
       port: 8080
       protocol: http
       tls: false
