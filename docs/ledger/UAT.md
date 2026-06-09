@@ -19,7 +19,12 @@
 | Operator dashboard | ✅ | live cluster treemap, 94 items (seaweedfs/kyverno/harbor/keycloak/cnpg/openbao/powerdns/cilium/…) |
 | **TC-12 Cloud view = 2 REAL regions** | ✅ | `/cloud?view=graph` — **Region 2/2, Cluster 2/2, 12 WorkerNodes** across `me-east-215-a` AND `-b`; kubectl-confirmed both regions Ready + cilium up (`hw124-cloud-2region-TC12.png`). NOT the empty-2nd-region shell that failed hw99/hw123. |
 
-Remaining (continuing the live walk): TC-02/03/04 voucher, TC-05–09 checkout→Org, per-app SSO (§2 — #3150 3-layer gap), TC-15–17 cutover.
+| TC-G1b Instance page ≠ class | ✅ | `/app/bp-grafana` — single-instance AppDetail, 7-tab strip, Ready, External URL, no "New instance" |
+| TC-02 Operator issues voucher | ✅ | `/bss/vouchers` → +Issue voucher → code `UATHW124` + 50 OMR → submit → table row "UATHW124 · 50 OMR · **Active** · 6/9/2026" |
+| TC-04 Redeem voucher | ✅ | `marketplace.hw124…/redeem?code=UATHW124` → "**Voucher valid** · 50 OMR credit · applied to your first Organization" |
+| SSO-grafana (silent SSO) | ◑ | "Open" launches `grafana.hw124…` but lands on Grafana's **login form** ("Welcome to Grafana" + "Sign in with OpenOva SSO"), NOT auto-signed-in. #3150 (3-layer gap), confirmed live on the clean env. |
+
+Remaining (continuing the live walk): **TC-05–09 checkout→Org** (heaviest — tenant sub-provision), TC-03 voucher email, the remaining per-app SSO rows (§2), TC-13/14 CNPG failover, TC-15–17 cutover.
 
 ## 0b. Session results — hw123 (`179551d5ce8039cf`) — SUPERSEDED (wiped for the hw124 clean re-prov)
 
