@@ -488,7 +488,7 @@ controllers:
       # — adds EnsureBranch before PutFile so Gitea's branch-missing
       # 404 (mapped to ErrRepoNotFound by the client) no longer dead-
       # loops the env-controller.
-      tag: "32050f0"
+      tag: "82fd636"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -618,7 +618,7 @@ controllers:
       # (#2745, 2026-06-03) — bumped from 8d01e2f (2026-05-31) to the
       # latest useraccess-controller main-HEAD push (2026-06-02).
       # #2851 closed the drift gap (auto-bump + sweep + freshness guard).
-      tag: "82fd636"
+      tag: "dcd2bb3"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
