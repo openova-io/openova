@@ -81,23 +81,41 @@ spec:
 
       `synchronous_commit = remote_apply` blocks the primary's COMMIT
       until the replica has REPLAYED the WAL (strongest durability;
-      replica-side SELECTs see the row before COMMIT returns).
+      replica-side SELECTs see the row before COMMIT returns). This is a
+      SETTABLE GUC, so it stays a raw parameter here.
 
-      `synchronous_standby_names = FIRST 1 (<replica-cluster-name>)`
-      tells PostgreSQL to require an ACK from one standby connection
-      whose application_name matches the replica Cluster CR's name.
-      CNPG's externalCluster streaming connection from the replica
-      defaults application_name to the replica Cluster CR's name, so
-      this Just Works for the bp-cnpg-pair shape.
+      `synchronous_standby_names` is NOT settable as a raw parameter —
+      CNPG marks it a FIXED configuration parameter (the operator owns
+      it) and the admission webhook REJECTS any explicit set in
+      `parameters` with "Can't set fixed configuration parameter".
+      Verified live against CNPG 1.29.0 (hw124, 2026-06-10, #3195). We
+      therefore declare synchronous replication via CNPG's NATIVE
+      `spec.postgresql.synchronous` block (CNPG ≥1.24) below — the
+      operator derives `synchronous_standby_names` from it
+      (`FIRST <number> (<replica application_name>)`). The replica's
+      externalCluster streaming connection defaults application_name to
+      the replica Cluster CR's name, which CNPG matches automatically.
 
       Mode "async" exists for forensic / lab use only; the rendered
-      manifest then omits both parameters and falls back to the
-      PostgreSQL default (synchronous_commit=on, no standbys forced).
+      manifest then omits both the parameter AND the synchronous block,
+      falling back to the PostgreSQL default (synchronous_commit=on,
+      no standbys forced).
       */ -}}
       {{- if eq (default "sync" .Values.cnpgPair.replication.mode) "sync" }}
       synchronous_commit: {{ default "remote_apply" .Values.cnpgPair.replication.sync.commit | quote }}
-      synchronous_standby_names: {{ printf "FIRST %d (%s)" (int (default 1 .Values.cnpgPair.replication.sync.numSync)) (include "cnpg-pair.replicaName" .) | quote }}
       {{- end }}
+    {{- if eq (default "sync" .Values.cnpgPair.replication.mode) "sync" }}
+    # ── Synchronous replication — CNPG-native (NOT a raw parameter) ────
+    # method=first + number=N renders `synchronous_standby_names =
+    # FIRST N (...)`; CNPG fills the standby application_name(s) from the
+    # connected replicas. dataDurability=required strictly enforces the
+    # zero-tx-loss bar: COMMIT blocks when fewer than `number` healthy
+    # synchronous standbys are connected (the Pillar-3 durability claim).
+    synchronous:
+      method: first
+      number: {{ int (default 1 .Values.cnpgPair.replication.sync.numSync) }}
+      dataDurability: required
+    {{- end }}
 
   # ── Replication-source Service (managed by CNPG, annotated for ──────
   #   Cilium ClusterMesh global routing) ──────────────────────────────

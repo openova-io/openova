@@ -1,0 +1,164 @@
+# bp-cnpg-pair — Catalyst bootstrap-kit Blueprint slot 16b.
+# (Pillar-3 cross-region DR primitive — EPIC-6 slice C-DB-1 #1101.)
+#
+# Active-hot-standby CNPG cluster-pair across two Sovereign regions:
+#   - Primary postgresql.cnpg.io/v1.Cluster CR pinned to region A
+#   - Replica Cluster CR pinned to region B (replica.enabled: true +
+#     bootstrap.pg_basebackup + externalClusters[] streaming the
+#     primary's WAL over Cilium ClusterMesh)
+#   - `<name>-primary-mesh` Service annotated
+#     `service.cilium.io/global: "true"` so ClusterMesh publishes the
+#     primary's read-replica endpoint across every connected peer
+#   - failover-readiness probe + audit-config ConfigMap (label
+#     `catalyst.openova.io/audit-config: "true"`) that bp-continuum's
+#     prerequisite-check probes to switch from idle to active.
+#
+# ─── Why this slot exists (Pillar-3 gap closure, #3195 / Refs #3189) ──
+# The DESIGN.md gap analysis (docs/sessions/2026-06-10/pillar3-multi
+# region-design/DESIGN.md) found a live 2-region Sovereign is TWO fully-
+# independent region stacks with NO cross-region replication link. The
+# bootstrap-kit shipped `62-bp-continuum.yaml` but no cnpg-pair slot, so
+# a fresh prov never installed the primary/replica pair, the ReplicaCluster,
+# or the `*-primary-mesh` global Service — bp-continuum had nothing to
+# reconcile (idle forever). This slot closes G1/G2/G4/G5: it deploys the
+# bp-cnpg-pair primitive so the cross-region DR layer materialises on a
+# multi-region prov. ClusterMesh peering itself (G3) is already auto-
+# established by catalyst-api (handler/clustermesh.go AutoEstablishCluster
+# Mesh, fired from phase1_watch.go on multi-region) — this slot consumes
+# the mesh, it does not set it up.
+#
+# ─── SAFE-BY-DEFAULT gate — single-region renders ZERO resources ──────
+# `cnpgPair.enabled` is wired to ${SOVEREIGN_ENABLE_HOT_STANDBY:-false}.
+# The cloud-init substitute SOVEREIGN_ENABLE_HOT_STANDBY is "false" for
+# every single-region prov (tofu derives it from var.bcp_topology;
+# single-region => "false"). The chart renders ZERO Kubernetes resources
+# when cnpgPair.enabled=false (verified: `helm template` of the default
+# values emits no manifests) — so a single-region Sovereign is byte-
+# identical to today (the HR object exists but installs an empty release).
+# This is the same default-OFF knob shape as CONTINUUM_ENABLED (slot 62)
+# and MARKETPLACE_ENABLED / SANDBOX_ENABLED. Operators NEVER flip this by
+# hand — it auto-flips true only when the Sovereign was provisioned multi-
+# region (bcp_topology=active-hotstandby).
+#
+# ─── Region pinning ──────────────────────────────────────────────────
+# primary.region / replica.region are stamped from the cloud-init
+# substitutes SOVEREIGN_PRIMARY_REGION / SOVEREIGN_REPLICA_REGION
+# (canonical `hw-<code>-rtz-prod` / `hz-<code>-rtz-prod` labels matching
+# the openova.io/region node label the Cluster CR node-affinity pins on).
+# On single-region SOVEREIGN_REPLICA_REGION is empty — but the chart is
+# disabled there anyway, so the empty replica region never reaches a
+# render that would trip the chart's `validateRegions` distinct-region
+# fail-fast.
+#
+# ─── Image — harbor-proxy-pull compliance (kyverno Enforce) ───────────
+# The CNPG postgres binary image MUST flow through the Sovereign Harbor
+# proxy (kyverno `harbor-proxy-pull` ClusterPolicy, Enforce). The cnpg-
+# pair namespace (`cnpg`) is NOT in the kyverno complianceDefaultExcludes
+# list, so the default chart repo `ghcr.io/cloudnative-pg/postgresql`
+# would be DENIED at admission. We override to
+# `harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql` — the exact
+# prefix bp-harbor + bp-gitea use for their CNPG Clusters (public image,
+# proxy-ghcr serves it cred-free pre-cutover; cutover Step-04's containerd
+# mirror redirects harbor.openova.io → local Harbor post-handover).
+#
+# ─── dependsOn ───────────────────────────────────────────────────────
+#   - bp-cnpg (slot 16) — owns the postgresql.cnpg.io/v1.Cluster CRD +
+#     the mutating webhook the Cluster CR apply gates on. Without this
+#     edge the Cluster CR apply fails ("no endpoints available for
+#     service cnpg-webhook-service").
+#   - bp-cilium (implicit via bootstrap-kit ordering) — provides the
+#     ClusterMesh transport the replica's WAL stream rides. Not listed in
+#     dependsOn because Cilium is slot 01 (always Ready before this slot).
+#
+# Wrapper chart: platform/cnpg-pair/chart/
+# Catalyst-curated values: platform/cnpg-pair/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-cnpg-pair
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-cnpg-pair
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "16b"
+    catalyst.openova.io/component: cnpg-pair
+    openova.io/category: customer-facing-capability
+    openova.io/epic: "6"
+spec:
+  # Primary-only HR — the cluster-pair is DECLARED once, on the primary
+  # region's control plane (the primary Cluster CR + the replica
+  # ReplicaCluster both live in the same manifest; CNPG schedules each
+  # side to its region via node-affinity). SECONDARY_HR_SUSPEND="true"
+  # on secondary CPs suspends this HR so it is not double-applied.
+  suspend: ${SECONDARY_HR_SUSPEND:=false}
+  interval: 15m
+  releaseName: cnpg-pair
+  # targetNamespace = cnpg — same namespace bp-harbor/bp-gitea place their
+  # CNPG Cluster CRs in, where the CNPG operator (cluster-wide watch)
+  # reconciles them. The chart uses .Release.Namespace for every resource.
+  targetNamespace: cnpg
+  dependsOn:
+    - name: bp-cnpg
+  chart:
+    spec:
+      chart: bp-cnpg-pair
+      # 0.1.2 — synchronous replication default (remote_apply +
+      # synchronous_standby_names FIRST 1) for Pillar-3 zero-tx-loss.
+      # 0.1.3 (#3195) — optional production Continuum CR seed (gated
+      # continuum.enabled, default-OFF; not flipped by this slot until
+      # the canonical 4-segment region labels are validated on a fresh
+      # 2-region prov — Phase-2 acceptance). The primary/replica/audit/
+      # probe path is unchanged from 0.1.2.
+      version: 0.1.3
+      sourceRef:
+        kind: HelmRepository
+        name: bp-cnpg-pair
+        namespace: flux-system
+  install:
+    timeout: 15m
+    # disableWait: the replica ReplicaCluster only reaches Ready once it
+    # has streamed a basebackup from the primary over ClusterMesh, which
+    # depends on the mesh being established (catalyst-api auto-establishes
+    # it AFTER Phase-1 converges). Blocking the HR on full pair readiness
+    # would deadlock the bootstrap. Flux re-reconciles to Ready out-of-band.
+    disableWait: true
+    remediation:
+      retries: -1
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  # ── Per-Sovereign overlay surface ──────────────────────────────────
+  values:
+    cnpgPair:
+      # SAFE-BY-DEFAULT: false on single-region → chart renders zero
+      # resources → byte-identical to a Sovereign without this slot.
+      # Auto-true only on a multi-region (active-hotstandby) prov.
+      enabled: ${SOVEREIGN_ENABLE_HOT_STANDBY:-false}
+      primary:
+        # Canonical region label (matches openova.io/region node label).
+        region: '${SOVEREIGN_PRIMARY_REGION:-}'
+      replica:
+        region: '${SOVEREIGN_REPLICA_REGION:-}'
+      image:
+        # harbor-proxy-pull compliant prefix (see header). Public CNPG
+        # image; proxy-ghcr serves it cred-free pre-cutover.
+        repository: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql
+        # Concrete pin satisfies the chart's required-tag fail-fast
+        # (Inviolable Principle #4a — no :latest). Day-2 digest pivots
+        # available via per-Sovereign overlay at .image.tag.
+        tag: "16.4-1"

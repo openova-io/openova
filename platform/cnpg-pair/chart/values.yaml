@@ -176,3 +176,63 @@ cnpgPair:
   # NetworkPolicy stack.
   networkPolicy:
     enabled: true
+
+  # ── Continuum DR contract seed (#3195, Refs #3189) ────────────────
+  # When `continuum.enabled: true` AND `cnpgPair.enabled: true`, the
+  # chart also renders a `Continuum.dr.openova.io/v1` CR that points at
+  # THIS cluster-pair, so the continuum-controller (bp-continuum slot
+  # 62) has a production DR contract to reconcile instead of sitting
+  # idle. This is the production analogue of the QA-fixtures Continuum
+  # CR (which is qaFixtures-gated, QA-only). Default-OFF so a cnpg-pair
+  # installed without a running continuum-controller does not emit an
+  # orphan CR; the bootstrap-kit slot flips it true in lockstep with
+  # the cnpg-pair enable gate (both ride ${SOVEREIGN_ENABLE_HOT_STANDBY}).
+  #
+  # The CRD (dr.openova.io/v1.Continuum) ships with bp-catalyst-platform
+  # (slot 13) — render only succeeds once that CRD is installed; the
+  # bootstrap-kit sequences slot 13 well before slot 16b.
+  continuum:
+    enabled: false
+    # Logical Application this DR contract protects. For the platform-
+    # level cluster-pair this is the platform control plane itself.
+    applicationRef: catalyst-platform
+    # ── Continuum CR region labels — DISTINCT seam from the cnpg-pair
+    # node-region labels above ──────────────────────────────────────
+    # The Continuum CRD validates primaryRegion / hotStandbyRegions
+    # against the strict 4-segment pattern `^[a-z]+-[a-z]+-[a-z]+-[a-z]+$`
+    # (e.g. `hz-fsn-rtz-prod`). The cnpg-pair `cnpgPair.primary.region`
+    # values are the `openova.io/region` NODE label, which on Huawei is a
+    # multi-segment code (`hw-me-east-215-a-rtz-prod`) that does NOT match
+    # the Continuum pattern. So the Continuum CR carries its OWN canonical
+    # 4-segment region labels — exactly the QA-fixtures split
+    # (cnpgPairPrimaryRegion=fsn1 vs primaryRegion=hz-fsn-rtz-prod). These
+    # MUST be set (canonical 4-segment) before continuum.enabled=true;
+    # leaving them empty trips the chart's continuum-region fail-fast.
+    primaryRegion: ""
+    hotStandbyRegion: ""
+    # rto / rpo SLO targets. Pillar-3 canonical: RTO 30s, RPO 0 (sync
+    # WAL). rpoSeconds=0 asserts zero-tx-loss; the controller gates the
+    # promote step on WAL-lag below this before flipping primary.
+    rto: "30s"
+    rpo: "0s"
+    rtoSeconds: 30
+    rpoSeconds: 0
+    # autoFailover stays FALSE by default — a region-kill promote is an
+    # operator-confirmed action until the lease-witness + multi-vantage
+    # DNS probe are validated on a fresh 2-region prov (Phase-2 walk).
+    autoFailover: false
+    # Lease witness — dns-quorum is the in-cluster fallback (no external
+    # Cloudflare-KV dependency). The CRD requires 3-5 resolvers (2-of-3
+    # voting quorum); these default to a 3-entry placeholder set that
+    # overlays repoint at the Sovereign's real resolver IPs.
+    leaseClient:
+      kind: dns-quorum
+      ttlSeconds: 30
+      renewSeconds: 10
+      resolvers:
+        - "10.43.0.10"
+        - "10.43.0.11"
+        - "10.43.0.12"
+    # PDM zone for the lua-record flip target. Empty => the controller
+    # falls back to the in-cluster pool-domain-manager Service default.
+    pdmZone: ""

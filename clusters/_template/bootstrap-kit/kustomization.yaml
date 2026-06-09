@@ -45,6 +45,19 @@ resources:
   - 15-external-secrets.yaml
   - 15a-external-secrets-stores.yaml
   - 16-cnpg.yaml
+  # bp-cnpg-pair (slot 16b) — Pillar-3 cross-region DR primitive (#3195,
+  # Refs #3189). Primary + replica CNPG Cluster pair across two regions,
+  # WAL streaming over Cilium ClusterMesh + `*-primary-mesh` global
+  # Service + failover-readiness probe + audit-config ConfigMap (which
+  # bp-continuum slot 62 prerequisite-checks to switch from idle to
+  # active). SAFE-BY-DEFAULT: gated ${SOVEREIGN_ENABLE_HOT_STANDBY:-false}
+  # → renders ZERO resources on a single-region prov (byte-identical to
+  # today). Auto-true only on a multi-region (active-hotstandby) prov.
+  # Sequenced right after bp-cnpg (slot 16) which provides the CNPG
+  # operator + postgresql.cnpg.io Cluster CRD + mutating webhook this
+  # slot's Cluster CRs gate on. See 16b-bp-cnpg-pair.yaml header for the
+  # full Pillar-3 dependency analysis + the harbor-proxy-pull image note.
+  - 16b-bp-cnpg-pair.yaml
   - 17-valkey.yaml
   # bp-hcloud-csi (formerly slot 17a) REMOVED 2026-05-17 (Wave 7):
   # the Flux source-controller chart pull went through harbor.t11.* OCI

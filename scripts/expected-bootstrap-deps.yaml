@@ -213,6 +213,17 @@ slots:
     # (mirrors the role Secrets into the harbor + gitea namespaces).
     depends_on: [bp-cnpg, bp-reflector]
     wave: W2.K1
+  # bp-cnpg-pair (slot 16b) — Pillar-3 cross-region DR primitive (#3195,
+  # Refs #3189). Depends on bp-cnpg (slot 16) which provides the
+  # postgresql.cnpg.io Cluster CRD + mutating webhook the pair's Cluster
+  # CRs gate on. SAFE-BY-DEFAULT: gated ${SOVEREIGN_ENABLE_HOT_STANDBY}
+  # so single-region renders zero resources (HR installs an empty
+  # release). The check-bootstrap-deps audit keys on the HR's static
+  # dependsOn (the gate is a values-substitute, orthogonal to the DAG).
+  - slot: 16b
+    name: bp-cnpg-pair
+    depends_on: [bp-cnpg]
+    wave: present
   - slot: 17
     name: bp-valkey
     depends_on: [bp-flux]

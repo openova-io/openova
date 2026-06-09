@@ -1,0 +1,69 @@
+{{- /*
+Production Continuum DR contract (#3195, Refs #3189).
+
+When `continuum.enabled: true` AND `cnpgPair.enabled: true`, render a
+`Continuum.dr.openova.io/v1` CR that references THIS cluster-pair so the
+continuum-controller (bp-continuum slot 62) has a real DR contract to
+reconcile — closing G6 of the Pillar-3 gap analysis (no Continuum CR
+seeded). Without it the controller's prerequisite-check finds the cnpg-
+pair audit-config (so it activates) but has 0 Continuum CRs and stays
+idle. This is the PRODUCTION analogue of the QA-fixtures Continuum CR
+(products/catalyst/chart/templates/qa-fixtures/continuum-qa.yaml, which
+is qaFixtures-gated, QA-only).
+
+The CR points at:
+  - cnpgPair: this chart's primary/replica pair (name = fullname,
+    namespace = .Release.Namespace) — the controller reads the pair's
+    Cluster CRs + audit-config to drive switchover.
+  - primaryRegion / hotStandbyRegions: the pair's region pinning.
+
+The Continuum CRD ships with bp-catalyst-platform (slot 13); the
+bootstrap-kit sequences slot 13 before slot 16b so the CRD is present
+at apply time. Default-OFF (continuum.enabled=false) so a cnpg-pair
+installed without a continuum-controller never emits an orphan CR.
+
+Status fields are NOT seeded here — the running continuum-controller
+owns status (ADR-0001 §2.7). The QA fixtures seed status because a test
+Sovereign may have no controller running; production always does.
+*/ -}}
+{{- if and .Values.cnpgPair.enabled .Values.cnpgPair.continuum.enabled }}
+{{- include "cnpg-pair.validateRegions" . }}
+{{- $cprim := required "continuum.primaryRegion is REQUIRED when continuum.enabled=true — set the canonical 4-segment label (e.g. hz-fsn-rtz-prod) matching the Continuum CRD pattern ^[a-z]+-[a-z]+-[a-z]+-[a-z]+$" .Values.cnpgPair.continuum.primaryRegion -}}
+{{- $cstby := required "continuum.hotStandbyRegion is REQUIRED when continuum.enabled=true — set the canonical 4-segment label (e.g. hz-hel-rtz-prod)" .Values.cnpgPair.continuum.hotStandbyRegion -}}
+apiVersion: dr.openova.io/v1
+kind: Continuum
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-continuum
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+    openova.io/scope: platform
+spec:
+  applicationRef: {{ .Values.cnpgPair.continuum.applicationRef | quote }}
+  primaryRegion: {{ $cprim | quote }}
+  hotStandbyRegions:
+    - {{ $cstby | quote }}
+  rto: {{ .Values.cnpgPair.continuum.rto | quote }}
+  rpo: {{ .Values.cnpgPair.continuum.rpo | quote }}
+  rtoSeconds: {{ .Values.cnpgPair.continuum.rtoSeconds }}
+  rpoSeconds: {{ .Values.cnpgPair.continuum.rpoSeconds }}
+  autoFailover: {{ .Values.cnpgPair.continuum.autoFailover }}
+  cnpgPair:
+    name: {{ include "cnpg-pair.fullname" . | quote }}
+    namespace: {{ .Release.Namespace | quote }}
+  {{- with .Values.cnpgPair.continuum.pdmZone }}
+  pdmZone: {{ . | quote }}
+  {{- end }}
+  leaseClient:
+    kind: {{ .Values.cnpgPair.continuum.leaseClient.kind | quote }}
+    config:
+      ttlSeconds: {{ .Values.cnpgPair.continuum.leaseClient.ttlSeconds }}
+      renewSeconds: {{ .Values.cnpgPair.continuum.leaseClient.renewSeconds }}
+      {{- with .Values.cnpgPair.continuum.leaseClient.resolvers }}
+      resolvers:
+        {{- range . }}
+        - {{ . | quote }}
+        {{- end }}
+      {{- end }}
+{{- end }}

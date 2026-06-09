@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-cnpg-pair
-version: 0.1.2
-appVersion: "0.1.2"
+version: 0.1.3
+appVersion: "0.1.3"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
   across two Hetzner regions. Companions the existing `bp-cnpg`
@@ -32,6 +32,26 @@ description: |
 
   Changelog
   ─────────
+  0.1.3 (2026-06-10, Pillar-3 bootstrap-kit enablement, Refs #3195 / #3189)
+    - New `templates/continuum.yaml`: optional production
+      `Continuum.dr.openova.io/v1` CR seed pointing at THIS cluster-
+      pair, gated `continuum.enabled` (default false) AND
+      `cnpgPair.enabled`. Closes G6 of the Pillar-3 gap analysis (no
+      Continuum CR seeded → continuum-controller idle). Distinct from
+      the qaFixtures Continuum CR (QA-only). The Continuum CRD's strict
+      4-segment region pattern forces a SEPARATE region seam
+      (`continuum.primaryRegion` / `continuum.hotStandbyRegion`,
+      canonical `hz-fsn-rtz-prod` form) from the cnpg-pair node-region
+      labels (Huawei multi-segment `hw-me-east-215-a-rtz-prod`) — same
+      split as the QA-fixtures cnpgPairPrimaryRegion vs primaryRegion.
+      Fail-fast on empty continuum regions when continuum.enabled=true.
+    - Default-OFF on BOTH new gates — a single-region or continuum-less
+      install renders ZERO additional resources (byte-identical).
+    - Shipped via the new bootstrap-kit slot 16b-bp-cnpg-pair.yaml,
+      gated ${SOVEREIGN_ENABLE_HOT_STANDBY:-false} so single-region
+      provs are unchanged. (chart templates themselves unchanged for
+      the primary/replica/audit/probe path.)
+
   0.1.2 (2026-05-20, Pillar 3 zero-tx-loss fix, Refs #2064)
     - Default replication MODE is now SYNCHRONOUS
       (`replication.mode: sync` + `synchronous_commit: remote_apply`
