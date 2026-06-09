@@ -33,6 +33,20 @@ Why a Deployment instead of a Helm post-install hook:
   letting the OpenBao auth surface re-converge on chart upgrade.
 */ -}}
 {{- if .Values.sso.enabled }}
+{{- /*
+BAO_ADDR must resolve to the live OpenBao Service. With
+spec.releaseName=openbao the upstream openbao subchart's `fullname`
+template returns just `openbao` (Release.Name already CONTAINS the chart
+name), so the Service is `openbao`, NOT `openbao-openbao`. Consume the
+SAME `autoUnseal.baoAddress` override the auth-bootstrap Job uses (the
+per-Sovereign overlay sets it to http://openbao.openbao.svc.cluster.local:8200);
+fall back to the `<release>-openbao` default only when unset. The prior
+hardcoded `{{ "{{" }} .Release.Name {{ "}}" }}-openbao` rendered
+`openbao-openbao.<ns>.svc...` → NXDOMAIN → the reconciler never reached
+the server → the oidc auth method was never configured → silent SSO never
+worked. (#3150)
+*/}}
+{{- $baoAddrSSO := (.Values.autoUnseal | default dict).baoAddress | default (printf "http://%s-openbao.%s.svc.cluster.local:8200" .Release.Name .Release.Namespace) -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -244,7 +258,7 @@ spec:
           args: ["/etc/openbao-sso/reconcile.sh"]
           env:
             - name: BAO_ADDR
-              value: "http://{{ .Release.Name }}-openbao.{{ .Release.Namespace }}.svc.cluster.local:8200"
+              value: {{ $baoAddrSSO | quote }}
             - name: BAO_K8S_AUTH_PATH
               value: {{ .Values.autoUnseal.kubernetesAuth.mountPath | default "kubernetes" | quote }}
             - name: BAO_K8S_AUTH_ROLE

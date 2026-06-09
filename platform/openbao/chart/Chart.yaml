@@ -1,11 +1,17 @@
 apiVersion: v2
 name: bp-openbao
-# 1.2.26 (#3150, 2026-06-09): fix the OIDC role allowed_redirect_uris host
-# in templates/sso-configure-deployment.yaml — it hardcoded `openbao.<fqdn>`
-# but OpenBao is served at `bao.<fqdn>` (08-openbao.yaml gateway.host). The
-# wrong host had no HTTPRoute (404) and never matched the Keycloak `openbao`
-# client's redirectUri, so the OIDC callback's redirect_uri failed the
-# allowed_redirect_uris check → silent SSO never landed. Now `bao.<fqdn>`.
+# 1.2.26 (#3150, 2026-06-09): two sso-configure-deployment.yaml fixes that
+# together defeated openbao silent SSO.
+#   (a) BAO_ADDR hardcoded `<release>-openbao` → with spec.releaseName=openbao
+#       the upstream fullname is just `openbao`, so `openbao-openbao.<ns>.svc`
+#       was NXDOMAIN and the reconciler never reached the server → the oidc
+#       auth method was never configured. Now consumes the same
+#       `autoUnseal.baoAddress` override the auth-bootstrap Job uses.
+#   (b) OIDC role allowed_redirect_uris hardcoded `openbao.<fqdn>` but OpenBao
+#       is served at `bao.<fqdn>` (08-openbao.yaml gateway.host); the wrong
+#       host had no HTTPRoute (404) and never matched the Keycloak `openbao`
+#       client's redirectUri, so the OIDC callback's redirect_uri failed the
+#       allowed_redirect_uris check. Now `bao.<fqdn>`.
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO Tier-1 codification companion
 # bump. Adds `sso.idpHint` value documenting that OpenBao's OIDC backend
 # does NOT expose an `auth_url` query-param knob (per upstream
