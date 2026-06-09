@@ -635,6 +635,23 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ]
   },
   {
+    "id": "bp-postgres",
+    "slug": "postgres",
+    "title": "PostgreSQL",
+    "summary": "|",
+    "icon": "postgres.svg",
+    "category": "data",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "0.1.0",
+    "section": "pts-4-1-data-services",
+    "depends": [
+      "bp-cnpg",
+      "bp-reflector"
+    ]
+  },
+  {
     "id": "bp-powerdns",
     "slug": "powerdns",
     "title": "PowerDNS",

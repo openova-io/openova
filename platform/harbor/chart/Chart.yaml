@@ -62,7 +62,7 @@ type: application
 # never fired. Observed live on hw100. The slot-19 dependsOn: bp-external-secrets
 # gates HR-Ready but not webhook-serving; this Capabilities guard is its
 # complementary half — omit until the CRD exists, re-render on next reconcile.
-version: 1.2.26
+version: 1.2.27
 appVersion: "2.14.3"
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
 # `oidc_extra_redirect_parms` config field. The configure-oauth Job now

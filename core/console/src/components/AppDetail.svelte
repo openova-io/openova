@@ -11,6 +11,12 @@
 
   const ACTIVE_ORG_KEY = 'sme-active-org';
 
+  // ADR-0010: the consumer "Backing services" row names the app's
+  // data-instance (replacing the coarse "depends on bp-cnpg"). An app
+  // that declares a postgres dependency binds to a bp-postgres instance;
+  // shareable apps share `shared-pg`, others get a dedicated `<app>-pg`.
+  const POSTGRES_DEP = (d: string) => /^(postgres|bp-postgres|cnpg|bp-cnpg)$/i.test(d);
+
   let slug = $state('');
   let app = $state<CatalogApp | null>(null);
   let catalog = $state<CatalogApp[]>([]);
@@ -90,6 +96,19 @@
   const installedIds = $derived<string[]>(activeOrg?.apps ?? provision?.apps ?? []);
   const isInstalled = $derived(app ? installedIds.includes(app.id) && !isUninstalling && !isFailed : false);
   const deps = $derived.by(() => (app?.dependencies ?? []).map((d) => catalog.find((c) => c.slug === d) ?? { name: d, slug: d }));
+
+  // The app's PostgreSQL data-instance binding (ADR-0010), or null when
+  // the app has no postgres dependency.
+  const pgInstance = $derived.by<{ instance: string; database: string; mode: 'private' | 'shared' } | null>(() => {
+    if (!app) return null;
+    if (!(app.dependencies ?? []).some(POSTGRES_DEP)) return null;
+    const shared = !!app.shareable;
+    return {
+      instance: shared ? 'shared-pg' : `${app.slug}-pg`,
+      database: app.slug,
+      mode: shared ? 'shared' : 'private',
+    };
+  });
 
   const configSchema = $derived<ConfigField[]>(app?.config_schema ?? []);
   const basicFields = $derived(configSchema.filter((f) => !f.advanced));
@@ -351,6 +370,20 @@
             {:else}
               <p class="desc">Not yet deployed on this tenant — it will come up automatically when an app that needs it is installed.</p>
             {/if}
+          </section>
+        {/if}
+
+        {#if pgInstance}
+          <section class="section">
+            <h2>Backing services</h2>
+            <p class="section-hint">{app.name} runs off this PostgreSQL data instance:</p>
+            <ul class="dep-list">
+              <li>
+                <code>{pgInstance.instance}</code>
+                <span class="bs-mode bs-mode-{pgInstance.mode}">{pgInstance.mode}</span>
+                · database <code>{pgInstance.database}</code>
+              </li>
+            </ul>
           </section>
         {/if}
 
@@ -626,6 +659,22 @@
     padding: 0.25rem 0.7rem;
     font-size: 0.8rem;
     color: var(--color-text);
+  }
+  .dep-list code {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.76rem;
+  }
+  .bs-mode {
+    padding: 0.02rem 0.35rem; border-radius: 4px; font-size: 0.6rem;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .bs-mode-shared {
+    background: color-mix(in srgb, var(--color-success) 16%, transparent);
+    color: var(--color-success);
+  }
+  .bs-mode-private {
+    background: color-mix(in srgb, var(--color-text-dim) 14%, transparent);
+    color: var(--color-text-dim);
   }
 
   .btn {

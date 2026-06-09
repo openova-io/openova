@@ -15,8 +15,15 @@ Capabilities gate: bp-cnpg ships the `postgresql.cnpg.io/v1` CRD. On a cold
 install before bp-cnpg is reconciling, the apiserver rejects this Cluster.
 The Capabilities check skips this template until the CRD is registered.
 The Sovereign's bootstrap order MUST land bp-cnpg before bp-gitea.
+
+ADR-0010 SHARING gate: `postgres.cluster.enabled` (default true → 1:1
+behavior unchanged) can be set false by an overlay so bp-gitea consumes
+a SHARED bp-postgres data-instance instead of shipping its own Cluster.
+When disabled, the Database CR + role + reflected `gitea-database-secret`
+are provisioned by the shared bp-postgres instance, and gitea's DB host
+points at the shared cluster's `-rw` Service.
 */}}
-{{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" }}
+{{- if and (ne (toString .Values.postgres.cluster.enabled) "false") (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:

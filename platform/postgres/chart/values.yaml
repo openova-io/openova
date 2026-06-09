@@ -1,0 +1,102 @@
+# bp-postgres — data-instance values.
+#
+# An install of this chart renders ONE CNPG Cluster (the shareable
+# Postgres engine = one App card) plus, per entry in `databases[]`, the
+# declarative binding objects that let a consumer share the engine:
+#   - a `Database` CR (isolated DB on this Cluster)
+#   - a `Cluster.spec.managed.roles[]` entry (per-consumer login role)
+#   - a reflected connection Secret into the consumer's namespace
+#
+# Everything below flows from values per Inviolable Principle #4 (never
+# hardcode). The catalyst-layer generator (ADR-0010) writes these values
+# into the instance HR when a consumer declares `spec.backingServices`.
+
+# ── The data instance (one CNPG Cluster) ────────────────────────────────
+instance:
+  # Cluster name = the data-instance identity. Surfaces as the App-card
+  # title and as the `dependsOn` target consumers reference. e.g.
+  # `gitea-pg`, `harbor-pg`, or a shared `shared-pg`.
+  name: postgres
+  # Namespace the Cluster (and its CNPG-generated Secrets) live in.
+  # Empty → .Release.Namespace.
+  namespace: ""
+
+  # CNPG postgres image. Defaults to the mothership Harbor proxy cache so
+  # fresh-prov bootstrap pulls through Harbor instead of throttling on
+  # anonymous ghcr (#3058). Post-cutover Step-04's containerd mirror
+  # redirects harbor.openova.io → local Harbor.
+  imageName: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql
+  pgVersion: "16"
+
+  # Storage for the engine's PVCs.
+  storageSize: 5Gi
+  storageClass: local-path
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Postgres GUCs applied to the Cluster. active-hot-standby mode appends
+  # the synchronous-replication parameters (ADR-0004) on top of these.
+  parameters:
+    max_connections: "100"
+    shared_buffers: "64MB"
+    effective_cache_size: "192MB"
+    work_mem: "4MB"
+    maintenance_work_mem: "64MB"
+    log_statement: "ddl"
+    log_min_duration_statement: "1000"
+
+  # enableSuperuserAccess keeps a -superuser Secret for incident-response
+  # introspection (consistent with the legacy per-consumer Clusters).
+  enableSuperuserAccess: true
+
+  monitoring:
+    enablePodMonitor: false
+
+# ── Topology (multi-region BCP) ─────────────────────────────────────────
+# singleton          → one single-instance Cluster (no cross-region HA).
+# active-hot-standby → multi-instance Cluster with synchronous replication
+#                      across regions (ADR-0004 Pillar-3 zero-tx-loss). The
+#                      operator spreads instances via topology.kubernetes.io/
+#                      region antiAffinity when instances >= 2.
+topology:
+  mode: singleton
+  # Instance count. singleton ignores >1; active-hot-standby uses it to
+  # spread Pods across regions (canonical 2 for a single-replica pair).
+  instances: 1
+  # Synchronous replication knobs (only consulted in active-hot-standby).
+  replication:
+    mode: sync           # sync (Pillar-3 default) | async (forensic/lab)
+    sync:
+      commit: remote_apply  # on | remote_write | remote_apply
+      numSync: 1
+
+# ── Bindings (the shareable part) ───────────────────────────────────────
+# Each entry binds ONE consumer to this instance. The chart renders a
+# Database CR + a managed role + (optionally) a reflected connection
+# Secret. Two entries = two consumers SHARING this one Cluster (two
+# isolated databases + two roles).
+#
+# databases:
+#   - name: registry        # the isolated database name
+#     owner: harbor         # the per-consumer login role (CNPG manages it)
+#     # The consumer app Secret CNPG reconciles the role password FROM.
+#     # Convention: CNPG auto-generates `<instance>-<owner>` when CNPG
+#     # bootstraps the role, OR point at an existing Secret with a
+#     # `password` key. When empty, the chart names it `<instance>-<owner>`.
+#     passwordSecret: ""
+#     consumer:
+#       blueprint: bp-harbor   # for the Consumers (bindings) table
+#       mode: shared           # private | shared (provenance, display only)
+#     # Reflect a connection Secret into the consumer namespace so its
+#     # chart runs in externalDatabase mode. Omit `reflect` to skip
+#     # (consumer reads the CNPG Secret in-namespace).
+#     reflect:
+#       secretName: harbor-database-secret  # name in the consumer ns
+#       namespaces: [harbor]                # target namespace(s)
+databases: []

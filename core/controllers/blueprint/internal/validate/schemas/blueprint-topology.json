@@ -17,10 +17,11 @@
     "spec": {
       "type": "object",
       "properties": {
-        "topology":      { "$ref": "#/definitions/Topology" },
-        "endpoints":     { "type": "array", "items": { "$ref": "#/definitions/EndpointSpec" }, "minItems": 0 },
-        "sso":           { "$ref": "#/definitions/SSOSpec" },
-        "multiInstance": { "$ref": "#/definitions/MultiInstanceSpec" }
+        "topology":        { "$ref": "#/definitions/Topology" },
+        "endpoints":       { "type": "array", "items": { "$ref": "#/definitions/EndpointSpec" }, "minItems": 0 },
+        "sso":             { "$ref": "#/definitions/SSOSpec" },
+        "multiInstance":   { "$ref": "#/definitions/MultiInstanceSpec" },
+        "backingServices": { "type": "array", "items": { "$ref": "#/definitions/BackingServiceSpec" }, "minItems": 0 }
       }
     }
   },
@@ -199,6 +200,20 @@
         "maxPerOrg": { "type": "integer", "minimum": 0, "maximum": 1000 },
         "namingTemplate": { "type": "string" },
         "isolationLevel": { "type": "string", "enum": ["namespace", "vcluster"] }
+      },
+      "additionalProperties": false
+    },
+    "BackingServiceSpec": {
+      "type": "object",
+      "description": "A consumer Blueprint's declared need for a backing service (ADR-0010). The catalyst-layer generator translates each entry into the declarative binding YAML: a CNPG Database CR + a managed.roles entry + a reflected connection Secret + a Flux dependsOn edge. NO controller, NO Crossplane.",
+      "required": ["type"],
+      "properties": {
+        "type":        { "type": "string", "enum": ["postgres"] },
+        "mode":        { "type": "string", "enum": ["private", "shared"] },
+        "instanceRef": { "type": "string" },
+        "database":    { "type": "string" },
+        "role":        { "type": "string" },
+        "secretName":  { "type": "string" }
       },
       "additionalProperties": false
     }

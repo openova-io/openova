@@ -1,0 +1,61 @@
+apiVersion: v2
+name: bp-postgres
+version: 0.1.0
+appVersion: "0.1.0"
+description: |
+  Catalyst-authored data-instance Blueprint for a shareable, reusable
+  PostgreSQL engine. Each install of bp-postgres = ONE
+  postgresql.cnpg.io/v1.Cluster (the data instance, a first-class App
+  card) reconciled by the CNPG operator that bp-cnpg installs. Per
+  ADR-0010 the binding model is pure declarative YAML:
+
+    - one CNPG Cluster CR (the engine; multiInstance + topology aware)
+    - N declarative `Database` CRs (databases.postgresql.cnpg.io) — one
+      isolated database per consumer on the shared Cluster
+    - N `Cluster.spec.managed.roles[]` entries — one per-consumer login
+      role, password reconciled from the consumer's app Secret
+    - N reflected connection Secrets (bp-reflector) into consumer
+      namespaces so each consumer chart runs in externalDatabase mode
+
+  Sharing = N Databases + N roles on ONE Cluster. Ref-count = the Flux
+  dependency graph (a consumer HR dependsOn the bp-postgres instance,
+  NOT the bp-cnpg operator). NO custom controller and NO Crossplane are
+  involved — CNPG's own `Cluster`/`Database`/`managed.roles` CRDs are the
+  off-the-shelf primitives (Inviolable Principle #2), reconciled by Flux.
+
+  This chart ships ZERO upstream Helm subchart bytes — every byte is
+  Catalyst-authored, on top of the CNPG CRDs bp-cnpg installs. The
+  blueprint-release hollow-chart guard (#181) is satisfied via the
+  `catalyst.openova.io/no-upstream` annotation.
+
+  Changelog
+  ─────────
+  0.1.0 (2026-06-10, ADR-0010, Refs #3188)
+    - Initial chart: one CNPG Cluster + per-consumer Database CRs +
+      managed.roles + reflected connection Secrets, all driven by
+      values.yaml (`databases[]` list). topology.mode active-hot-standby
+      renders the synchronous-replication shape per ADR-0004; singleton
+      renders a single-instance Cluster.
+type: application
+keywords:
+  - openova
+  - catalyst
+  - blueprint
+  - postgres
+  - postgresql
+  - cnpg
+  - data
+  - backing-service
+  - shareable
+maintainers:
+  - name: OpenOva Catalyst
+    email: hati.yildiz@openova.io
+
+# No upstream Helm chart — every byte is Catalyst-authored on top of the
+# CNPG CRDs that bp-cnpg installs (bp-cnpg is a hard dependency declared
+# in blueprint.yaml + the Flux dependsOn edge, NOT a Helm subchart). The
+# blueprint-release hollow-chart guard (#181) accepts the annotation.
+annotations:
+  catalyst.openova.io/no-upstream: "true"
+  catalyst.openova.io/depends-on: "bp-cnpg,bp-reflector"
+  catalyst.openova.io/issue: "3188"

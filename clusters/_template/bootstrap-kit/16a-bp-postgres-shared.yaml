@@ -1,0 +1,121 @@
+# bp-postgres (shared instance) — Catalyst bootstrap-kit Blueprint, slot 16a.
+#
+# ADR-0010 reuse proof: ONE shared CNPG Cluster (`shared-pg`) that BOTH
+# bp-harbor and bp-gitea run off, via two ISOLATED databases + two
+# per-consumer roles. This is the reusable, shareable backing-services
+# model proven live: 2 consumers, 1 engine.
+#
+# The binding is pure declarative YAML — this HR's values.databases[]
+# renders (in platform/postgres/chart):
+#   - one CNPG Cluster `shared-pg`
+#   - two Database CRs (registry → harbor, gitea → gitea) on it
+#   - two managed.roles (harbor, gitea) on it
+#   - two reflected connection Secrets (harbor-database-secret into ns
+#     harbor; gitea-database-secret into ns gitea) so each consumer chart
+#     runs in externalDatabase mode off its own Secret.
+#
+# NO custom controller, NO Crossplane. The CNPG operator (bp-cnpg, slot
+# 16) + Flux reconcile everything. bp-harbor (19) and bp-gitea (10) set
+# postgres.cluster.enabled=false (their own embedded Cluster is skipped)
+# and dependsOn bp-postgres-shared.
+#
+# Slot ordering: after bp-cnpg (16, the operator + CRDs), before
+# bp-harbor (19). bp-gitea (10) gates on this via Flux dependsOn
+# regardless of file order.
+#
+# Wrapper chart: platform/postgres/chart/
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shared-data
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-postgres
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  # bp-postgres-shared is the data-instance HR. Consumers dependsOn THIS
+  # (not bp-cnpg) per ADR-0010. The release name `shared-pg` matches the
+  # instance.name so the Cluster + Secrets are named consistently.
+  name: bp-postgres-shared
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "16a"
+    catalyst.openova.io/data-instance: shared-pg
+spec:
+  interval: 15m
+  releaseName: shared-pg
+  targetNamespace: shared-data
+  # The CNPG operator + CRDs (Cluster + Database + managed.roles) must be
+  # reconciling before the shared instance applies its Cluster/Database CRs.
+  dependsOn:
+    - name: bp-cnpg
+      namespace: flux-system
+    # bp-reflector mirrors the CNPG role Secrets into the consumer
+    # namespaces (harbor, gitea).
+    - name: bp-reflector
+      namespace: flux-system
+  chart:
+    spec:
+      chart: bp-postgres
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-postgres
+        namespace: flux-system
+  # CNPG: KEEP Helm wait so the Cluster's webhook + the two Database CRs
+  # reconcile before the consumers (which dependsOn this HR) proceed.
+  install:
+    timeout: 15m
+    remediation:
+      retries: -1
+  upgrade:
+    timeout: 15m
+    remediation:
+      retries: 3
+  values:
+    instance:
+      name: shared-pg
+      namespace: shared-data
+      # Multi-region Sovereigns spread CNPG across regions; single-region
+      # falls back to 1. (Same envsubst seam as bp-gitea/bp-harbor.)
+      # Topology is singleton here for the Phase-2 reuse proof; flip to
+      # active-hot-standby for the Pillar-3 shape.
+      storageSize: 10Gi
+    topology:
+      mode: singleton
+      instances: 1
+    # The two bindings — the reuse proof. Two isolated databases + two
+    # roles on ONE Cluster; each reflected into its consumer's namespace.
+    databases:
+      - name: registry          # harbor's coreDatabase
+        owner: harbor
+        consumer:
+          blueprint: bp-harbor
+          mode: shared
+        reflect:
+          secretName: harbor-database-secret
+          namespaces: [harbor]
+      - name: gitea             # gitea's database
+        owner: gitea
+        consumer:
+          blueprint: bp-gitea
+          mode: shared
+        reflect:
+          secretName: gitea-database-secret
+          namespaces: [gitea]

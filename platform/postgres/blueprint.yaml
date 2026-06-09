@@ -1,0 +1,168 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-postgres
+  labels:
+    catalyst.openova.io/section: pts-4-1-data-services
+    catalyst.openova.io/companion: bp-cnpg
+spec:
+  version: 0.1.0
+  card:
+    title: PostgreSQL
+    summary: |
+      A reusable, shareable PostgreSQL data-instance. Each install is ONE
+      CNPG Cluster — the engine — and a first-class App card. Consumers
+      SHARE it via isolated databases + per-consumer roles (ADR-0010):
+      the binding is pure declarative YAML (a CNPG `Database` CR + a
+      `managed.roles` entry + a reflected connection Secret + a Flux
+      `dependsOn` edge) reconciled by Flux + the CNPG operator. NO custom
+      controller and NO Crossplane. topology: active-hot-standby renders
+      the Pillar-3 synchronous-replication shape (ADR-0004).
+    icon: postgres.svg
+    category: data
+  # listed — this IS the operator-facing data-instance card (unlike
+  # bp-cnpg, the engine OPERATOR, which stays unlisted). The PostgreSQL
+  # ENGINE CLASS is shown once via bp-cnpg under Platform/engines; the N
+  # data-instances (gitea-pg, harbor-pg, shared-pg, …) are bp-postgres
+  # App cards.
+  visibility: listed
+  configSchema:
+    type: object
+    properties:
+      instance:
+        type: object
+        description: |
+          The data instance (one CNPG Cluster). name surfaces as the
+          App-card title and the dependsOn target consumers reference.
+        properties:
+          name:
+            type: string
+            default: postgres
+            description: Cluster name = the data-instance identity.
+          storageSize:
+            type: string
+            default: "5Gi"
+            description: Per-instance PVC size (k8s resource quantity).
+          pgVersion:
+            type: string
+            default: "16"
+            description: PostgreSQL major version (CNPG image tag).
+      topology:
+        type: object
+        properties:
+          mode:
+            type: string
+            enum: [singleton, active-hot-standby]
+            default: singleton
+            description: |
+              singleton = single-instance Cluster (no cross-region HA).
+              active-hot-standby = multi-instance Cluster with synchronous
+              replication across regions (ADR-0004 Pillar-3 zero-tx-loss).
+          instances:
+            type: integer
+            minimum: 1
+            maximum: 5
+            default: 1
+      databases:
+        type: array
+        description: |
+          The bindings. Each entry = one consumer SHARING this engine:
+          renders a `Database` CR (isolated DB) + a managed role + an
+          optional reflected connection Secret. N entries = N consumers
+          on one Cluster. The catalyst-layer generator writes these from
+          a consumer's spec.backingServices declaration (ADR-0010).
+        items:
+          type: object
+          required: [name, owner]
+          properties:
+            name:
+              type: string
+              description: The isolated database name on the shared Cluster.
+            owner:
+              type: string
+              description: The per-consumer login role (CNPG-managed).
+            passwordSecret:
+              type: string
+              description: |
+                Secret CNPG reconciles the role password FROM. Empty →
+                `<instance>-<owner>`.
+            consumer:
+              type: object
+              properties:
+                blueprint:
+                  type: string
+                  description: Consumer Blueprint id (for the Consumers table).
+                mode:
+                  type: string
+                  enum: [private, shared]
+                  description: Binding provenance (display only).
+            reflect:
+              type: object
+              properties:
+                secretName:
+                  type: string
+                namespaces:
+                  type: array
+                  items: { type: string }
+  placementSchema:
+    modes: [single-region, active-active]
+    default: single-region
+  manifests:
+    chart: ./chart
+  # Runtime dependencies — Flux gates Apply until each is reconciled.
+  depends:
+    # CNPG operator + CRDs (Cluster + Database + managed.roles). bp-cnpg
+    # is the ENGINE; bp-postgres is the INSTANCE. The Flux dependsOn edge
+    # for a bp-postgres instance HR is bp-cnpg.
+    - blueprint: bp-cnpg
+      version: ^1
+      alias: cnpg
+    # bp-reflector mirrors the CNPG-generated role Secret into consumer
+    # namespaces (externalDatabase mode).
+    - blueprint: bp-reflector
+      version: ^1
+      alias: reflector
+  upgrades:
+    from: ["0.x"]
+  # ── Topology — multi-region BCP ─────────────────────────────────────
+  topology:
+    supported:
+      - singleton
+      - active-hot-standby
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: rtz
+          clusters:
+            - rtz-A
+          roles:
+            rtz-A: singleton
+      active-hot-standby:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 10
+          rpoSeconds: 0
+        placement:
+          tier: rtz
+          clusters:
+            - rtz-A
+            - rtz-B
+          roles:
+            rtz-A: active
+            rtz-B: passive
+  # ── multiInstance — N data-instances per Org ────────────────────────
+  # Each install of bp-postgres is a distinct data instance (gitea-pg,
+  # harbor-pg, a shared shared-pg, …). Catalog cards show the instance
+  # count + "+ New instance".
+  multiInstance:
+    enabled: true
+    maxPerOrg: 0           # 0 = unlimited
+    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
+    isolationLevel: namespace

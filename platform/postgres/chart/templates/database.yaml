@@ -1,0 +1,51 @@
+{{- /*
+Per-consumer isolated databases on the shared Cluster.
+
+Per ADR-0010 the binding is pure declarative YAML: one
+databases.postgresql.cnpg.io/v1 `Database` CR per consumer. The CNPG
+operator (bp-cnpg, CNPG >= 1.29 on hw124) reconciles each into an
+ISOLATED database on the target Cluster, owned by the per-consumer role
+declared in cluster.yaml's managed.roles. Two bindings = two databases =
+two consumers SHARING one engine with strong logical isolation (separate
+DB, separate owner, no cross-DB visibility).
+
+NO custom controller is involved — `Database` is CNPG's own off-the-shelf
+declarative primitive (Inviolable Principle #2).
+
+Capabilities gate: skip until the Database CRD is registered (it ships
+with the CNPG operator). The instance HR's dependsOn bp-cnpg makes this
+a no-op in practice.
+*/ -}}
+{{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" }}
+{{- $ctx := . }}
+{{- range .Values.databases }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: {{ printf "%s-%s" (include "bp-postgres.instanceName" $ctx) .name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "bp-postgres.namespace" $ctx }}
+  labels:
+    {{- include "bp-postgres.labels" $ctx | nindent 4 }}
+    catalyst.openova.io/binding-database: {{ .name | quote }}
+    {{- with .consumer }}
+    {{- if .blueprint }}
+    catalyst.openova.io/binding-consumer: {{ .blueprint | quote }}
+    {{- end }}
+    {{- if .mode }}
+    catalyst.openova.io/binding-mode: {{ .mode | quote }}
+    {{- end }}
+    {{- end }}
+spec:
+  # The shared engine this database lives on.
+  cluster:
+    name: {{ include "bp-postgres.instanceName" $ctx }}
+  # The isolated database name + its owner role (managed in cluster.yaml).
+  name: {{ .name | quote }}
+  owner: {{ .owner | quote }}
+  # `delete` would DROP the database when the CR is removed. We keep the
+  # default reclaim of `retain` so pruning a binding never destroys data;
+  # destructive teardown is an explicit operator action.
+  databaseReclaimPolicy: retain
+{{- end }}
+{{- end }}
