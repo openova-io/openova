@@ -175,9 +175,16 @@ spec:
         # bootstrap-kit Kustomization renders.
         hostname: guacamole.${SOVEREIGN_FQDN}
       oidc:
-        # Same SOVEREIGN_FQDN substitution. The realm name (`catalyst`)
-        # matches bp-keycloak's realm-config-cli default.
-        issuer: https://keycloak.${SOVEREIGN_FQDN}/realms/catalyst
+        # Same SOVEREIGN_FQDN substitution. Canonical issuer is the
+        # EXTERNALLY-reachable Keycloak host `auth.<fqdn>` + the `sovereign`
+        # realm (where the catalyst-pin IdP lives). The prior
+        # `keycloak.<fqdn>/realms/catalyst` was stale drift — the `catalyst`
+        # realm was consolidated into `sovereign` (#2744), and `keycloak.`
+        # is the in-cluster host the browser cannot reach (404 at the edge)
+        # → guacamole silent SSO never completed (the OpenID extension built
+        # a redirect to a dead host + dead realm; POST /api/tokens returned
+        # 500). Matches grafana's auth_url. (#3150)
+        issuer: https://auth.${SOVEREIGN_FQDN}/realms/sovereign
       recordings:
         # SeaweedFS-CSI is the canonical RWX storageClass for
         # multi-pod session-recording workloads on Sovereigns; see
