@@ -969,7 +969,10 @@ spec:
       # and are reused on every later prov, surviving a transient CDN 504 at
       # tofu-init; paired with a Go-side bounded retry on `tofu init`.
       # Refs #3126.
-      version: 1.4.529
+      # 1.4.530 — #3159 (2026-06-09): catalog-seed expanded 14→35 CRs so every
+      # catalog-eligible Blueprint (incl. bp-alloy) resolves at
+      # GET /api/v1/catalog/{name} instead of 404'ing the console catalog page.
+      version: 1.4.530
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
