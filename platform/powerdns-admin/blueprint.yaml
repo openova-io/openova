@@ -57,6 +57,15 @@ spec:
       visibility: private
       launchDefault: true
       ssoEnabled: true
+      # #3150 — silent-SSO OIDC-init path. PowerDNS-Admin (ngoduykhanh) is a
+      # Flask/authlib app; the generic-OIDC provider registers its login view
+      # at /oidc/login, which redirects the browser to OIDC_OAUTH_AUTHORIZE_URL
+      # (already carries ?kc_idp_hint=catalyst-pin — see chart
+      # sso-oauth-source-externalsecret.yaml) → silent PIN re-use → operator
+      # lands inside PDA with no login form. NOT installed on hw124 (only the
+      # bp-powerdns DNS server is) — confirm the exact route against the running
+      # url_map when PDA is first provisioned.
+      ssoInitPath: "/oidc/login"
   sso:
     realm: sovereign
     protocolMapper: oidc

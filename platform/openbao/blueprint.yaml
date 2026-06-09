@@ -58,13 +58,27 @@ spec:
   # no Coraza WAF); operator may publish via per-Sovereign overlay.
   endpoints:
     - name: api
-      hostnameTemplate: "vault.{{.SovereignFQDN}}"
+      # OpenBao is served at bao.<sov>: clusters/_template/bootstrap-kit/
+      # 08-openbao.yaml sets gateway.host to bao.${SOVEREIGN_FQDN}. The earlier
+      # vault.<sov> value pointed at a host with NO HTTPRoute → the console
+      # launch-url would 404. Keep this aligned with the live gateway.host.
+      hostnameTemplate: "bao.{{.SovereignFQDN}}"
       port: 8200
       protocol: https
       tls: true
       visibility: private
       launchDefault: true
       ssoEnabled: true
+      # #3150 — silent-SSO OIDC-init path. OpenBao's UI is a SPA (Vault-UI
+      # fork): OIDC is started client-side, so there is no server GET route to
+      # land on. The deep-link pre-selects the `oidc` auth method in the UI so
+      # the operator's one click triggers the OIDC flow, which — with the
+      # realm-config IDR defaultProvider=catalyst-pin binding (bp-keycloak
+      # 1.4.9+, NOT an auth_url query param; see chart values.yaml comment) —
+      # re-uses the PIN silently. NOTE: requires the `oidc` auth method to be
+      # mounted by the sso-configure Deployment; when that job is unhealthy the
+      # UI falls back to ?with=token and silent SSO can't fire.
+      ssoInitPath: "/ui/vault/auth?with=oidc%2F"
 
   # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
   # OpenBao OIDC auth method federated to sovereign realm (G91 manual

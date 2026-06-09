@@ -1,5 +1,13 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.538 — #3150 (2026-06-09) — silent-SSO per-app fan-out. catalog-seed
+# blueprints.yaml: add in-cluster bp-harbor + bp-openbao Blueprint CRs (bare
+# HelmReleases with no Application CR; the catalyst-catalog returns items:[]
+# on a fresh Sovereign so the in-cluster CR is the ONLY launch-url resolution
+# path) with ssoInitPath (/c/oidc/login, /ui/vault/auth?with=oidc%2F) on the
+# correct live hosts (registry.<sov>, bao.<sov>); fix bp-guacamole seed host
+# guac.<sov> → guacamole.<sov> (the live HTTPRoute). No BE change — #3150's
+# handler resolves all of these generically. Refs #3150.
 # 1.4.517 — #3126 (2026-06-08) — provisioner resilience to transient github
 # failures at tofu-init: catalyst-api now sets CATALYST_TF_PLUGIN_CACHE_DIR
 # (=/var/lib/catalyst/tofu-plugin-cache, a sibling subdir of the existing
@@ -2598,7 +2606,7 @@ name: bp-catalyst-platform
 # OIDC-init route (grafana /login/generic_oauth) so the console "Open" button
 # lands the operator already-logged-in with no app login form. bp-grafana
 # catalog-seed CR gains ssoInitPath. Refs #3150.
-version: 1.4.537
+version: 1.4.538
 appVersion: 1.4.494
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.

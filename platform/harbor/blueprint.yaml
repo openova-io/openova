@@ -110,13 +110,25 @@ spec:
   # Audit row: harbor.<sov> (UI/API) + registry.<sov> (OCI pull/push).
   endpoints:
     - name: ui
-      hostnameTemplate: "harbor.{{.SovereignFQDN}}"
+      # Harbor's UI + API are served on the SAME host as the registry
+      # (registry.<sov>): clusters/_template/bootstrap-kit/19-harbor.yaml sets
+      # BOTH gateway.host AND externalURL to registry.${SOVEREIGN_FQDN}, and
+      # the Keycloak OIDC client redirect_uri is registry.<sov>/c/oidc/callback.
+      # The earlier harbor.<sov> value pointed at a host with NO HTTPRoute → the
+      # console launch-url would 404. Keep this aligned with the live externalURL.
+      hostnameTemplate: "registry.{{.SovereignFQDN}}"
       port: 443
       protocol: https
       tls: true
       visibility: public
       launchDefault: true
       ssoEnabled: true
+      # #3150 — silent-SSO OIDC-init path. Harbor core's OIDC onboarding route:
+      # a GET to /c/oidc/login with no code 302s straight to Keycloak
+      # (auth.<sov>/realms/sovereign/...?kc_idp_hint=catalyst-pin) → silent PIN
+      # re-use → operator lands inside Harbor with no login form. Verified live
+      # on hw124: GET /c/oidc/login → 302 auth.hw124.omani.works/realms/sovereign.
+      ssoInitPath: "/c/oidc/login"
     - name: registry
       hostnameTemplate: "registry.{{.SovereignFQDN}}"
       port: 443

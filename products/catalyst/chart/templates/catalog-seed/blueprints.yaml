@@ -1586,7 +1586,20 @@ spec:
             mgmt-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: guac.{{ "{{" }}.SovereignFQDN{{ "}}" }}
+    # #3150 — Guacamole is served at guacamole.<sov>:
+    # clusters/_template/bootstrap-kit/52-bp-guacamole.yaml sets the HTTPRoute
+    # hostname to guacamole.${SOVEREIGN_FQDN}. The earlier guac.<sov> value
+    # pointed at a host with NO HTTPRoute → the console launch-url landed on a
+    # dead host. Keep this aligned with the live HTTPRoute.
+    #
+    # ssoInitPath is intentionally OMITTED: Guacamole's UI is an Angular SPA
+    # and OIDC is driven by the OpenID extension, which auto-starts the redirect
+    # from the app root (POST /api/tokens) — there is no clean server GET route
+    # to land on. The legacy app-root launch is correct for it. (On hw124 the
+    # guacamole backend currently 404s /api/tokens and its OIDC env points at
+    # the stale realm `catalyst`/host `keycloak.*` rather than `sovereign`/
+    # `auth.*` — a separate config-drift defect, not a launch-url gap.)
+    hostnameTemplate: guacamole.{{ "{{" }}.SovereignFQDN{{ "}}" }}
     port: 443
     protocol: https
     tls: true
@@ -3062,6 +3075,203 @@ spec:
     ssoEnabled: true
   sso:
     realm: '{{ "{{" }}.OrgSlug{{ "}}" }}'
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+    silentLogin: true
+---
+# #3150 — Harbor in-cluster Blueprint CR seed. Harbor installs as a bare
+# HelmRelease with NO companion Application CR, and on a fresh Sovereign the
+# catalyst-catalog returns items:[] (Gitea catalog Org not yet mirrored), so
+# the ONLY blueprint-resolution path the launch-url handler has is this
+# in-cluster CR (via catalog_client_cluster_fallback.go). Without this entry,
+# GET /apps/bp-harbor/launch-url 404s "Blueprint harbor has no endpoint".
+# Mirrors platform/harbor/blueprint.yaml.
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-harbor
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.2.26"
+  visibility: unlisted
+  card:
+    title: "Harbor"
+    category: platform
+    summary: "Per-Sovereign OCI registry. Keycloak SSO via OIDC. One Harbor per Catalyst control plane."
+    description: "Per-Sovereign OCI registry mirroring Catalyst Blueprint OCI artefacts + container images. Keycloak OIDC SSO; blobs in Object Storage, metadata in CNPG."
+    icon: "harbor.svg"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-harbor
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-harbor
+    version: "1.2.26"
+  topology:
+    supported:
+    - active-hot-standby
+    - singleton
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      active-hot-standby:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters:
+          - mgmt-A
+          - mgmt-B
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters:
+          - mgmt-A
+          roles:
+            mgmt-A: singleton
+  endpoints:
+  - name: ui
+    # Harbor UI + API + OIDC are served on the registry.<sov> host (the overlay
+    # sets BOTH gateway.host AND externalURL to registry.${SOVEREIGN_FQDN}); the
+    # KC OIDC redirect_uri is registry.<sov>/c/oidc/callback. The runtime token
+    # `{{ "{{" }}.SovereignFQDN{{ "}}" }}` is Helm-escaped so the rendered CR
+    # carries it verbatim for endpoint_handler.go to evaluate at request time.
+    hostnameTemplate: registry.{{ "{{" }}.SovereignFQDN{{ "}}" }}
+    port: 443
+    protocol: https
+    tls: true
+    visibility: public
+    launchDefault: true
+    ssoEnabled: true
+    # #3150 — silent-SSO OIDC-init path. GET /c/oidc/login (no code) 302s to
+    # Keycloak (auth.<sov>/realms/sovereign/...?kc_idp_hint=catalyst-pin) →
+    # silent PIN re-use → operator lands inside Harbor with no login form.
+    # Verified live on hw124: GET /c/oidc/login → 302 auth.hw124.omani.works.
+    ssoInitPath: "/c/oidc/login"
+  - name: registry
+    hostnameTemplate: registry.{{ "{{" }}.SovereignFQDN{{ "}}" }}
+    port: 443
+    protocol: https
+    tls: true
+    visibility: public
+    launchDefault: false
+    ssoEnabled: false
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+    silentLogin: true
+---
+# #3150 — OpenBao in-cluster Blueprint CR seed (same rationale as bp-harbor
+# above: bare HelmRelease, no Application CR, empty catalyst-catalog on a fresh
+# Sovereign). Mirrors platform/openbao/blueprint.yaml.
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-openbao
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: platform
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.2.25"
+  visibility: unlisted
+  card:
+    title: "OpenBao"
+    category: platform
+    summary: "Per-Sovereign secret backend. 3-node Raft per region. Keycloak OIDC SSO. MPL-2.0 Vault replacement."
+    description: "OpenBao secret backend (Raft per region, async perf-replication across regions). UI + CLI login via the Keycloak OIDC auth method."
+    icon: "openbao.svg"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-openbao
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-openbao
+    version: "1.2.25"
+  topology:
+    supported:
+    - active-passive
+    - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton
+    perTopology:
+      active-passive:
+        replication:
+          backend: openbao-perf-replication
+          mode: async
+          lagSloSeconds: 30
+        switchover:
+          mechanism: raft-transition
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters:
+          - mgmt-A
+          - mgmt-B
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters:
+          - mgmt-A
+          roles:
+            mgmt-A: singleton
+  endpoints:
+  - name: api
+    # OpenBao is served at bao.<sov> (overlay sets gateway.host to
+    # bao.${SOVEREIGN_FQDN}). Helm-escaped runtime token below.
+    hostnameTemplate: bao.{{ "{{" }}.SovereignFQDN{{ "}}" }}
+    port: 8200
+    protocol: https
+    tls: true
+    visibility: private
+    launchDefault: true
+    ssoEnabled: true
+    # #3150 — silent-SSO OIDC-init path. OpenBao's UI is a SPA; this deep-link
+    # pre-selects the `oidc` auth method so one click triggers the OIDC flow,
+    # which re-uses the PIN silently via the realm-config IDR
+    # defaultProvider=catalyst-pin binding (NOT an auth_url query param).
+    # Requires the `oidc` auth method to be mounted by the sso-configure
+    # Deployment.
+    ssoInitPath: "/ui/vault/auth?with=oidc%2F"
+  sso:
+    realm: sovereign
     protocolMapper: oidc
     groupsClaim: groups
     rolesFromGroup:
