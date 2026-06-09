@@ -1592,13 +1592,16 @@ spec:
     # pointed at a host with NO HTTPRoute → the console launch-url landed on a
     # dead host. Keep this aligned with the live HTTPRoute.
     #
-    # ssoInitPath is intentionally OMITTED: Guacamole's UI is an Angular SPA
-    # and OIDC is driven by the OpenID extension, which auto-starts the redirect
-    # from the app root (POST /api/tokens) — there is no clean server GET route
-    # to land on. The legacy app-root launch is correct for it. (On hw124 the
-    # guacamole backend currently 404s /api/tokens and its OIDC env points at
-    # the stale realm `catalyst`/host `keycloak.*` rather than `sovereign`/
-    # `auth.*` — a separate config-drift defect, not a launch-url gap.)
+    # ssoInitPath = the Guacamole webapp context path. The app is served at
+    # `/guacamole/` (the legacy app-root `/` 404s on hw124), so the console
+    # launch must land there; the Angular SPA + OpenID extension then drive
+    # the silent redirect. (#3150)
+    #
+    # ⚠️ SEPARATE BLOCKER (config drift, NOT a launch-url gap): on hw124 the
+    # guacamole OIDC env points at the stale realm `catalyst` / host
+    # `keycloak.*` instead of `sovereign` / `auth.*`, so silent SSO will not
+    # complete until the guacamole chart's OIDC env is realigned to the
+    # sovereign realm + auth.<fqdn>. Tracked separately.
     hostnameTemplate: guacamole.{{ "{{" }}.SovereignFQDN{{ "}}" }}
     port: 443
     protocol: https
@@ -1606,6 +1609,7 @@ spec:
     visibility: public
     launchDefault: true
     ssoEnabled: true
+    ssoInitPath: "/guacamole/"
   sso:
     realm: sovereign
     protocolMapper: oidc

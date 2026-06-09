@@ -89,13 +89,20 @@ spec:
   # ── G117.3: Endpoints ──────────────────────────────────────────────────
   endpoints:
     - name: ui
-      hostnameTemplate: "guac.{{.SovereignFQDN}}"
+      # Canonical host is guacamole.<fqdn> — verified against the live
+      # HTTPRoute (guacamole-server) AND the Keycloak client redirectUris
+      # (https://guacamole.<fqdn>/*). The prior `guac.` 404'd and broke
+      # the console launch (#3150).
+      hostnameTemplate: "guacamole.{{.SovereignFQDN}}"
       port: 443
       protocol: https
       tls: true
       visibility: public
       launchDefault: true
       ssoEnabled: true
+      # Guacamole webapp context path; the openid extension initiates the
+      # silent-SSO bounce from here. (#3150)
+      ssoInitPath: "/guacamole/"
 
   # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
   sso:
