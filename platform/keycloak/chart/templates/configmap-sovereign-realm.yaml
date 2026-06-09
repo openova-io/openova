@@ -593,7 +593,26 @@ data:
           "publicClient": false,
           "standardFlowEnabled": true,
           "directAccessGrantsEnabled": false,
-          "implicitFlowEnabled": false,
+          {{- /*
+            #3150 — Apache Guacamole's `guacamole-auth-sso-openid` extension
+            (all versions through 1.5.x, shipped here as
+            guacamole-auth-sso-openid-1.5.5.jar) implements ONLY the OpenID
+            Connect *implicit* flow: it issues `response_type=id_token token`
+            and validates the returned id_token directly against the JWKS
+            endpoint — there is no token-endpoint code exchange and no
+            `openid-response-type` knob to switch it to authorization-code.
+            With `implicitFlowEnabled: false` Keycloak rejects guacamole's
+            auth request with `error=unauthorized_client … Implicit flow is
+            disabled for the client`, which surfaces as the silent-SSO 404 on
+            guacamole.<sovereign-fqdn>. This client is therefore the ONE
+            Tier-2 client that legitimately needs implicit flow enabled —
+            every other client in this realm-import stays
+            `implicitFlowEnabled: false`. The implicit-flow id_token still
+            routes through the catalyst-pin broker (`kc_idp_hint=catalyst-pin`
+            on the Guacamole auth-endpoint), so the PIN-delegation security
+            posture is preserved.
+          */ -}}
+          "implicitFlowEnabled": true,
           "serviceAccountsEnabled": false,
           "authorizationServicesEnabled": false,
           "secret": {{ include "bp-keycloak.tier2ClientSecret" (dict "ctx" . "clientId" "guacamole") | quote }},

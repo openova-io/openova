@@ -1,5 +1,16 @@
 apiVersion: v2
 name: bp-keycloak
+# 1.4.20 (#3150, 2026-06-09): enable `implicitFlowEnabled: true` on the
+# sovereign-realm `guacamole` Tier-2 client. Apache Guacamole's
+# guacamole-auth-sso-openid extension (1.5.5) implements ONLY the OIDC
+# implicit flow (response_type=id_token token) — with implicit flow
+# disabled, KC returned `error=unauthorized_client … Implicit flow is
+# disabled for the client` and guacamole.<fqdn> silent-SSO 404'd at the
+# OIDC bounce. Verified live on hw124: post-fix the same auth request 303s
+# to the catalyst-pin broker login (no unauthorized_client). Only the
+# guacamole client gets implicit flow; all other Tier-1/Tier-2 clients
+# stay implicitFlowEnabled:false. tests/g117-5-tier2-sso-clients.sh Case 7
+# locks the invariant. Refs #3150.
 # 1.4.18 (G117.5-followup #2914, 2026-06-03): emit
 # catalyst-kc-master-admin-credentials Secret carrying the bitnami-
 # generated master-realm `admin` user creds (looked up from the
@@ -163,7 +174,7 @@ name: bp-keycloak
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.4.19
+version: 1.4.20
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so

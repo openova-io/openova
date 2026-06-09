@@ -159,4 +159,34 @@ diff <(echo "${realm_json}" | python3 -c "import json,sys; d=json.load(sys.stdin
      >/dev/null || { echo "FAIL: Tier-2 client secrets DRIFTED between two renders" >&2; exit 1; }
 echo "  PASS"
 
+# Case 7: Flow-type invariant (#3150). Apache Guacamole's
+# guacamole-auth-sso-openid extension supports ONLY the OIDC implicit
+# flow (response_type=id_token token); with implicitFlowEnabled:false KC
+# rejects its auth request with `unauthorized_client … Implicit flow is
+# disabled` and guacamole.<fqdn> silent-SSO 404s. So the `guacamole`
+# client MUST have implicitFlowEnabled:true. Every OTHER client in the
+# realm-import (Tier-1 + the other Tier-2 clients, which use standard
+# authorization-code flow) MUST stay implicitFlowEnabled:false — implicit
+# flow is a weaker posture and must not leak to clients that don't need it.
+echo "[g117-5-tier2-sso-clients] Case 7: guacamole implicit flow ON, all others OFF (#3150)"
+flow_violations=$(echo "${realm_json}" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+bad = []
+for c in d.get('clients', []):
+    cid = c['clientId']
+    impl = c.get('implicitFlowEnabled', False)
+    if cid == 'guacamole' and impl is not True:
+        bad.append(f'guacamole expected implicitFlowEnabled=true got {impl}')
+    if cid != 'guacamole' and impl is True:
+        bad.append(f'{cid} unexpectedly has implicitFlowEnabled=true')
+print('\n'.join(bad))
+")
+if [ -n "$flow_violations" ]; then
+  echo "FAIL: implicit-flow invariant broken:" >&2
+  echo "$flow_violations" >&2
+  exit 1
+fi
+echo "  PASS"
+
 echo "[bp-keycloak G117.5 W3.D1 Tier-2 SSO clients] All cases PASS"
