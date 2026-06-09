@@ -450,20 +450,6 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               <span data-testid="app-detail-name">{componentId}</span>{' '}
               <span className="hero-subtitle">— {app.title}</span>
             </h1>
-            {appExternalURL ? (
-              <div className="hero-launch" data-testid="hero-launch">
-                <LaunchButton
-                  appUID={launchKey}
-                  fallbackURL={appExternalURL}
-                  appLabel={app.title}
-                  variant="hero"
-                />
-                <span className="hero-launch-hint">
-                  Single-click sign-in — lands you in {app.title} <strong>already
-                  logged in</strong>. No second login.
-                </span>
-              </div>
-            ) : null}
             <p className="hero-tagline">{app.description || app.familyName}</p>
             <div className="hero-meta">
               <span className="chip chip-cat">{app.familyName}</span>
@@ -567,6 +553,31 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               </span>
             </div>
           </div>
+          {/*
+            #3150 — the silent-SSO "Open <App>" CTA lives on the hero's
+            TOP LINE, right-aligned on the same row as the logo/title
+            (founder: "Logo left, Open right, the rest in between"). It is
+            the LAST child of the `.hero` flex row with `margin-left: auto`
+            so the title + chips fill the middle and the button pins to the
+            right edge, vertically centered. On narrow widths it wraps to
+            its own line below (see `.hero` flex-wrap + `.hero-launch` rules
+            in APP_DETAIL_CSS). Only rendered when the app has a front door
+            (`appExternalURL` set). The `launchKey`/`launchAppViaSSO` wiring
+            is the working silent-SSO launch — unchanged.
+          */}
+          {appExternalURL ? (
+            <div className="hero-launch" data-testid="hero-launch">
+              <LaunchButton
+                appUID={launchKey}
+                fallbackURL={appExternalURL}
+                appLabel={app.title}
+                variant="hero"
+              />
+              <span className="hero-launch-hint">
+                Single sign-in — no second login.
+              </span>
+            </div>
+          ) : null}
         </div>
 
         {/*
@@ -1514,7 +1525,7 @@ const APP_DETAIL_CSS = `
 .not-found h1 { color: var(--color-text-strong); font-size: 1.4rem; margin-bottom: 1rem; }
 
 .hero {
-  display: flex; align-items: flex-start; gap: 1.1rem;
+  display: flex; align-items: center; gap: 1.1rem; flex-wrap: wrap;
   padding: 1.4rem 0; border-bottom: 1px solid var(--color-border);
 }
 .hero-logo { width: 80px; height: 80px; border-radius: 18px; object-fit: cover; flex-shrink: 0; }
@@ -1537,9 +1548,20 @@ const APP_DETAIL_CSS = `
  * page-scoped <style> and never reaches this page — that was the root
  * cause of the prior unstyled/subtle render.
  */
+/*
+ * #3150 — pinned to the RIGHT edge of the hero's top line (margin-left:
+ * auto pushes it past the flex-1 .hero-body so the title + chips fill the
+ * middle). Vertically centered via the .hero `align-items: center`. The
+ * button + compact hint stack so the hint sits directly under the CTA
+ * without stealing horizontal room from the title row. On narrow widths
+ * the .hero flex-wrap drops this whole block to its own line below.
+ */
 .hero-launch {
-  display: flex; align-items: center; gap: 0.7rem;
-  flex-wrap: wrap; margin: 0.55rem 0 0.7rem;
+  display: flex; flex-direction: column; align-items: flex-end;
+  gap: 0.2rem; margin-left: auto; flex-shrink: 0; text-align: right;
+}
+@media (max-width: 560px) {
+  .hero-launch { margin-left: 0; align-items: flex-start; text-align: left; }
 }
 .hero-launch-btn {
   display: inline-flex; align-items: center; gap: 0.4rem;
