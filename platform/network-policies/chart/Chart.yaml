@@ -10,7 +10,7 @@ name: bp-network-policies
 # from boot. Per-Blueprint CNPs progressively tighten beyond this
 # coarse safety net.
 # 1.0.2 (initial — operator-opt-in).
-version: 1.0.3
+version: 1.0.4
 description: |
   Catalyst zero-trust default-deny CiliumClusterwideNetworkPolicy +
   allow-templates for control-plane namespaces, intra-namespace traffic,

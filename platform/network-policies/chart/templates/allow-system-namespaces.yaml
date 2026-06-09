@@ -30,8 +30,23 @@ spec:
           {{- range .Values.allowSystemNamespaces }}
           - {{ . | quote }}
           {{- end }}
+  # 1.0.4 (Refs #3188, 2026-06-10): full reachability for control-plane
+  # namespaces must use the reserved entity `all`, NOT a bare `{}` rule.
+  # In Cilium a `{}` ingress/egress rule matches only Pod ENDPOINTS — it
+  # does NOT cover the reserved entities (`kube-apiserver`, `host`,
+  # `remote-node`, `world`). Under `00-default-deny`, that left every
+  # control-plane Pod (kyverno, flux, cert-manager, …) unable to reach the
+  # kube-apiserver ClusterIP (10.96.0.1 → identity `kube-apiserver`),
+  # the host, or external endpoints — kyverno's admission webhook lost its
+  # endpoints and its failurePolicy=Fail then blocked every Pod mutation
+  # cluster-wide. `all` = every endpoint + every reserved entity + world,
+  # which is the documented "full ingress/egress" intent for this coarse
+  # control-plane safety net. (The working bp-external-dns-apiserver CNP
+  # uses the same `toEntities` idiom for apiserver egress.)
   ingress:
-    - {}
+    - fromEntities:
+        - all
   egress:
-    - {}
+    - toEntities:
+        - all
 {{- end -}}
