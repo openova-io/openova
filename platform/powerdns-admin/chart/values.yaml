@@ -73,7 +73,7 @@ service:
   type: ClusterIP
 
 # Catalyst HTTPRoute (Cilium Gateway API, issue #387). Per-Sovereign
-# overlay supplies gateway.host (e.g. admin.dns.<sovereign-fqdn>).
+# overlay supplies gateway.host (e.g. pdns-admin.<sovereign-fqdn>).
 gateway:
   enabled: true
   host: ""

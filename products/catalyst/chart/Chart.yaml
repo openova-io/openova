@@ -2612,7 +2612,14 @@ name: bp-catalyst-platform
 # OIDC-init route (grafana /login/generic_oauth) so the console "Open" button
 # lands the operator already-logged-in with no app login form. bp-grafana
 # catalog-seed CR gains ssoInitPath. Refs #3150.
-version: 1.4.546
+# 1.4.547 — #3150 (2026-06-10) — powerdns-admin silent-SSO. catalog-seed
+# bp-powerdns-admin endpoint gains ssoEnabled:true + ssoInitPath:/oidc/login
+# (was missing → launch-url emitted no LaunchURL → console Open fell back to
+# the app root → PDA login form). Paired with the bootstrap-kit slot-11a host
+# flip admin.dns.<sov> → pdns-admin.<sov> (single-level, wildcard-cert-covered,
+# matches the KC client redirectUris) + bp-powerdns-admin 0.1.5 OIDC env-var
+# name fixes. Refs #3150.
+version: 1.4.547
 appVersion: 1.4.494
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.

@@ -9,7 +9,22 @@
 # G91.powerdns-admin (#2656): chart constructed from scratch (no upstream
 # Helm chart for ngoduykhanh/powerdns-admin), opts into bp-sso-bridge via
 # the standard `sso:` block. Per-Sovereign overlay sets gateway.host
-# (admin.dns.<sovereign-fqdn>) + sso.sovereignFqdn.
+# (pdns-admin.<sovereign-fqdn>) + sso.sovereignFqdn.
+#
+# #3150 — gateway.host MUST be the single-level `pdns-admin.<sov>` host, NOT
+# the former 2-level `admin.dns.<sov>`. Three reasons:
+#   1. TLS — the Sovereign wildcard cert is `*.<sov>` (single label). A
+#      2-level host `admin.dns.<sov>` is NOT covered → the browser hits a
+#      cert-name-mismatch and silent-SSO never even starts (caught live on
+#      hw124: `curl admin.dns.hw124.omani.works` → SSL alt-name mismatch).
+#   2. OIDC redirect_uri — bp-sso-bridge registers the Keycloak client's
+#      redirectUris from the Blueprint endpoint `hostnameTemplate`
+#      (`pdns-admin.<sov>`). PowerDNS-Admin (authlib) builds redirect_uri
+#      from the live request host, so the served host MUST equal the
+#      registered one or Keycloak rejects the callback (invalid_redirect_uri).
+#   3. launch-url — the catalog-seed + platform blueprint endpoint emit the
+#      launch URL from `pdns-admin.<sov>` + ssoInitPath `/oidc/login`; the
+#      served host must match or the console Open lands on a 404.
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
@@ -81,7 +96,10 @@ spec:
       # powerdnsadmin/pda-legacy:0.4.2 + drop spurious ghcr-pull pullSecret.
       # 0.1.4 (#3189): wire SQLALCHEMY_DATABASE_URI from the CNPG `uri`
       # secret key so pda-legacy uses pda-pg postgres, not baked-in SQLite.
-      version: 0.1.4
+      # 0.1.5 (#3150, 2026-06-10): silent-SSO logged-in — correct OIDC env-var
+      # names (OIDC_OAUTH_USERNAME/_FIRSTNAME/_LAST_NAME/_EMAIL) + name claims
+      # point at preferred_username (catalyst-pin carries no given_name).
+      version: 0.1.5
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns-admin
@@ -89,10 +107,12 @@ spec:
       interval: 15m
   values:
     # Per-Sovereign overlays supply:
-    #   gateway.host           — e.g. admin.dns.${SOVEREIGN_FQDN}
+    #   gateway.host           — e.g. pdns-admin.${SOVEREIGN_FQDN}
     #   sso.sovereignFqdn      — e.g. ${SOVEREIGN_FQDN}
     # All other defaults inherit from platform/powerdns-admin/chart/values.yaml.
     gateway:
-      host: "admin.dns.${SOVEREIGN_FQDN}"
+      # #3150 — single-level host (wildcard-cert-covered + matches the KC
+      # client redirectUris + the catalog-seed/blueprint hostnameTemplate).
+      host: "pdns-admin.${SOVEREIGN_FQDN}"
     sso:
       sovereignFqdn: "${SOVEREIGN_FQDN}"
