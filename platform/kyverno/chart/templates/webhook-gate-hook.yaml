@@ -179,7 +179,8 @@ spec:
                 echo "Attempt ${attempt}: endpoints=${ep_count} tls_crt_len=${tls_len}; sleeping ${INTERVAL_SECONDS}s."
                 sleep "${INTERVAL_SECONDS}"
               done
-              echo "FATAL: kyverno self-referential gate did not clear within ${TIMEOUT_SECONDS}s." >&2
+              echo "WARNING: kyverno self-referential gate did not clear within ${TIMEOUT_SECONDS}s — proceeding NON-FATALLY (#3149)." >&2
+              echo "Rationale (the DEEPER FIX the G54 header called for): a fatal exit here makes Helm mark the post-install/upgrade FAILED → Flux install-remediation UNINSTALLS → kyverno's own admission webhook (failurePolicy: Fail) blocks deletion of its resources → HR stuck StateError 'uninstalling', unrecoverable → the last HRs never all-Ready so bootstrap-kit never holds stable → sovereign-tls blocked → Gateway never Programmed → console 000 (hw07/hw08/hw62/hw93/hw95/hw123). That cascade is STRICTLY WORSE than letting bp-kyverno go Ready while kyverno finishes warming: downstream admission-needing HRs (bp-cnpg + dependents) gate on their OWN cert-wait + G50 retries, so a not-yet-serving kyverno is absorbed by retry, NOT by failing this hook. The gate stays a slow-warm DETECTOR (it still waits up to the full budget and logs loudly), but never a cluster-wedging fatal." >&2
               echo "Diagnose with:" >&2
               echo "  kubectl -n ${WEBHOOK_NS} get pods -l app.kubernetes.io/component=admission-controller" >&2
               echo "  kubectl -n ${WEBHOOK_NS} get endpoints ${WEBHOOK_SVC}" >&2
@@ -188,5 +189,5 @@ spec:
               echo "  kubectl get certificaterequest -n ${WEBHOOK_NS}" >&2
               echo "" >&2
               echo "Self-referential bootstrap deadlock hint: if Pods CrashLoopBackOff on missing Secret, cert-manager may be unable to CREATE the Secret because the Kyverno admission webhook itself is blocking Secret admissions (failurePolicy: Fail). Check whether cert-manager queue is jammed with CertificateRequests Ready=True but Secret never written cluster-wide." >&2
-              exit 1
+              exit 0
 {{- end }}
