@@ -103,6 +103,8 @@ data:
     : "${BAO_K8S_AUTH_ROLE:?BAO_K8S_AUTH_ROLE must be set}"
     : "${OIDC_NAME:?OIDC_NAME must be set}"
     : "${OIDC_ADMIN_GROUP:?OIDC_ADMIN_GROUP must be set}"
+    : "${OIDC_OPS_GROUP:?OIDC_OPS_GROUP must be set}"
+    : "${OIDC_VIEWER_GROUP:?OIDC_VIEWER_GROUP must be set}"
     : "${OIDC_ALLOWED_REDIRECT_URIS:?OIDC_ALLOWED_REDIRECT_URIS must be set}"
     : "${INTERVAL_SECONDS:?INTERVAL_SECONDS must be set}"
 
@@ -184,13 +186,21 @@ data:
         continue
       fi
 
-      # Write the operator-admin policy that OIDC users will inherit.
-      POLICY='path "*" { capabilities = ["read","create","update","delete","list","sudo"] }'
-      POLICY_PAYLOAD="$(printf '{"policy":%s}' "$(printf '%s' "${POLICY}" | awk 'BEGIN{ORS="";} {gsub(/"/, "\\\""); print "\""$0"\\n\""} END{print}')")"
-      # Simpler: use jq if available, else hand-quote.
-      POLICY_PAYLOAD='{"policy":"path \"*\" { capabilities = [\"read\",\"create\",\"update\",\"delete\",\"list\",\"sudo\"] }"}'
-      if bao_write sys/policies/acl/sso-operator-admin "${POLICY_PAYLOAD}"; then
+      # ── Policies (#3150) ──────────────────────────────────────────────
+      # Two policies, mapped from the operator's realm group:
+      #   sso-operator-admin  → full read/write/sudo (sovereign-admins / -ops)
+      #   sso-operator-read   → read+list everywhere  (sovereign-viewers)
+      # The role grants NO policy by token_policies; the effective policy is
+      # attached via external identity groups keyed on the `groups` claim, so
+      # a viewer never silently inherits admin (and an admin is not gated to
+      # read). See the identity-group block below.
+      ADMIN_POLICY_PAYLOAD='{"policy":"path \"*\" { capabilities = [\"read\",\"create\",\"update\",\"delete\",\"list\",\"sudo\"] }"}'
+      if bao_write sys/policies/acl/sso-operator-admin "${ADMIN_POLICY_PAYLOAD}"; then
         log "sso-operator-admin policy written"
+      fi
+      READ_POLICY_PAYLOAD='{"policy":"path \"*\" { capabilities = [\"read\",\"list\"] }"}'
+      if bao_write sys/policies/acl/sso-operator-read "${READ_POLICY_PAYLOAD}"; then
+        log "sso-operator-read policy written"
       fi
 
       # Build allowed_redirect_uris as a JSON list of comma-separated env var entries.
@@ -206,14 +216,67 @@ data:
       done
       AURIS_JSON="${AURIS_JSON}]"
 
-      BOUND_CLAIMS="$(printf '{"groups":["%s"]}' "${OIDC_ADMIN_GROUP}")"
-      ROLE_PAYLOAD="$(printf '{"user_claim":"preferred_username","groups_claim":"groups","bound_audiences":["%s"],"bound_claims":%s,"allowed_redirect_uris":%s,"token_policies":["sso-operator-admin"],"role_type":"oidc"}' \
+      # ── Role (#3150) ──────────────────────────────────────────────────
+      # bound_claims.groups MUST list EVERY realm group a real operator can
+      # carry, or OpenBao rejects login with
+      #   "claim \"groups\" does not match any associated bound claim values".
+      # The catalyst-pin / sovereign realm stamps `defaultGroups:
+      # /sovereign-viewers` on EVERY federated user (platform/keycloak/chart/
+      # templates/configmap-sovereign-realm.yaml), and the handover flow adds
+      # the org operator to `sovereign-admins`; `sovereign-ops` is the third
+      # privileged realm group. Binding to ONLY the admin group (the prior
+      # behaviour) rejected the common case (a viewer) at the callback.
+      # token_policies is the SAFE baseline (read-only); the admin uplift is
+      # delivered by the external identity-group alias on sovereign-admins /
+      # sovereign-ops below — so the bound_claim widening does NOT over-grant.
+      BOUND_CLAIMS="$(printf '{"groups":["%s","%s","%s"]}' "${OIDC_ADMIN_GROUP}" "${OIDC_OPS_GROUP}" "${OIDC_VIEWER_GROUP}")"
+      ROLE_PAYLOAD="$(printf '{"user_claim":"preferred_username","groups_claim":"groups","bound_audiences":["%s"],"bound_claims":%s,"allowed_redirect_uris":%s,"token_policies":["sso-operator-read"],"role_type":"oidc"}' \
         "${CLIENT_ID}" "${BOUND_CLAIMS}" "${AURIS_JSON}")"
       if bao_write auth/oidc/role/operator "${ROLE_PAYLOAD}"; then
-        log "auth/oidc/role/operator written (admin group=${OIDC_ADMIN_GROUP})"
+        log "auth/oidc/role/operator written (groups=${OIDC_ADMIN_GROUP},${OIDC_OPS_GROUP},${OIDC_VIEWER_GROUP})"
       else
         log "WARN: auth/oidc/role/operator write failed; retrying next tick"
         continue
+      fi
+
+      # ── External identity groups: realm-group → policy (#3150) ─────────
+      # OpenBao attaches policies from the `groups` claim only via external
+      # identity groups whose alias name == the claim value AND whose alias
+      # mount_accessor == the oidc auth mount accessor. Map:
+      #   sovereign-admins → sso-operator-admin
+      #   sovereign-ops    → sso-operator-admin
+      #   sovereign-viewers→ (none extra; role baseline already read-only)
+      OIDC_ACCESSOR="$(bao_get sys/auth | sed -n 's/.*"oidc\/":{[^}]*"accessor":"\([^"]*\)".*/\1/p')"
+      if [ -z "${OIDC_ACCESSOR}" ]; then
+        # Fallback: tolerant scan across the whole sys/auth body.
+        OIDC_ACCESSOR="$(bao_get sys/auth | tr ',' '\n' | grep -A20 '"oidc/"' | sed -n 's/.*"accessor":"\(auth_oidc_[^"]*\)".*/\1/p' | head -1)"
+      fi
+      if [ -z "${OIDC_ACCESSOR}" ]; then
+        log "WARN: could not resolve oidc auth mount accessor; admin-group mapping deferred to next tick"
+      else
+        map_admin_group() {
+          # $1 = realm group name (claim value)
+          _grp="$1"
+          # Idempotent create/update of the external group with the admin policy.
+          _gjson="$(bao_get "identity/group/name/${_grp}")"
+          _gid="$(printf '%s' "${_gjson}" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+          if [ -z "${_gid}" ]; then
+            bao_write "identity/group" "$(printf '{"name":"%s","type":"external","policies":["sso-operator-admin"]}' "${_grp}")" || return 1
+            _gid="$(bao_get "identity/group/name/${_grp}" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+          else
+            bao_write "identity/group/name/${_grp}" '{"type":"external","policies":["sso-operator-admin"]}' || return 1
+          fi
+          [ -z "${_gid}" ] && return 1
+          # Idempotent alias: name == claim value, bound to this oidc mount.
+          bao_write "identity/group-alias" "$(printf '{"name":"%s","mount_accessor":"%s","canonical_id":"%s"}' "${_grp}" "${OIDC_ACCESSOR}" "${_gid}")"
+        }
+        for g in "${OIDC_ADMIN_GROUP}" "${OIDC_OPS_GROUP}"; do
+          if map_admin_group "${g}"; then
+            log "external group ${g} → sso-operator-admin mapped"
+          else
+            log "WARN: mapping external group ${g} failed; retrying next tick"
+          fi
+        done
       fi
 
       log "tick complete — OIDC bootstrap converged"
@@ -241,7 +304,7 @@ spec:
         catalyst.openova.io/blueprint: bp-openbao
       annotations:
         # Force re-roll when sso.sovereignFqdn or admin group change.
-        checksum/sso-config: {{ printf "%s:%s:%s" (.Values.sso.sovereignFqdn | default "") (.Values.sso.adminGroup | default "") (.Values.sso.clientId | default "openbao") | sha256sum }}
+        checksum/sso-config: {{ printf "%s:%s:%s:%s:%s" (.Values.sso.sovereignFqdn | default "") (.Values.sso.adminGroup | default "") (.Values.sso.opsGroup | default "") (.Values.sso.viewerGroup | default "") (.Values.sso.clientId | default "openbao") | sha256sum }}
     spec:
       serviceAccountName: openbao-sso-configure
       securityContext:
@@ -267,6 +330,17 @@ spec:
               value: "openova-sso"
             - name: OIDC_ADMIN_GROUP
               value: {{ .Values.sso.adminGroup | default "sovereign-admins" | quote }}
+            # #3150 — every realm group a federated operator can carry must
+            # be in the role's bound_claims or OpenBao rejects the callback
+            # with "claim groups does not match any associated bound claim
+            # values". sovereign-viewers is the realm `defaultGroups` value
+            # stamped on EVERY PIN-federated user; sovereign-ops is the third
+            # privileged group. admins/ops get the admin policy via external
+            # identity-group mapping; viewers keep the read-only baseline.
+            - name: OIDC_OPS_GROUP
+              value: {{ .Values.sso.opsGroup | default "sovereign-ops" | quote }}
+            - name: OIDC_VIEWER_GROUP
+              value: {{ .Values.sso.viewerGroup | default "sovereign-viewers" | quote }}
             # OpenBao is served at `bao.<fqdn>` (clusters/_template/
             # bootstrap-kit/08-openbao.yaml sets gateway.host=bao.${SOVEREIGN_FQDN}).
             # `sso.sovereignFqdn` is the bare Sovereign FQDN, so the host prefix

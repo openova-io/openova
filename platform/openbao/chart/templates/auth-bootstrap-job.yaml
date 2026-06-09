@@ -246,6 +246,19 @@ spec:
               path "sys/auth/oidc/*" { capabilities = ["create", "read", "update", "delete", "list", "sudo"] }
               path "auth/oidc/*" { capabilities = ["create", "read", "update", "delete", "list"] }
               path "sys/policies/acl/sso-operator-admin" { capabilities = ["create", "read", "update", "delete"] }
+              # #3150 — the sso-configure reconciler now ALSO writes the
+              # read-only operator policy AND the external identity groups
+              # that map realm groups → policy (sovereign-admins/-ops →
+              # sso-operator-admin, sovereign-viewers → sso-operator-read).
+              # Without these grants the reconciler 403s on those paths and
+              # the OIDC callback rejects every non-admin operator. The
+              # identity/* grants are scoped to group + group-alias only
+              # (NOT entity/* — the reconciler never touches entities).
+              path "sys/policies/acl/sso-operator-read" { capabilities = ["create", "read", "update", "delete"] }
+              path "identity/group" { capabilities = ["create", "update"] }
+              path "identity/group/name/*" { capabilities = ["create", "read", "update"] }
+              path "identity/group-alias" { capabilities = ["create", "update"] }
+              path "identity/group-alias/id/*" { capabilities = ["create", "read", "update"] }
               EOF
               bao write auth/$AUTH_MOUNT_PATH/role/sso-configure \
                 bound_service_account_names=openbao-sso-configure \
