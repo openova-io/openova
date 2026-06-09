@@ -81,7 +81,11 @@ spec:
       # bp-self-sovereign-cutover Step 1 gitea-mirror Job mounts it. K8s
       # forbids cross-namespace secretKeyRef; reflector is the canonical
       # platform-level mirror. Caught live on otech103 2026-05-04.
-      version: 1.2.23
+      # 1.2.24 (#3150): silent-SSO lands the operator logged-in — public
+      # discovery URL persisted by the sso-configure Job so gitea 307s the
+      # browser to the public KC authorize endpoint (was the unresolvable
+      # in-cluster service URL).
+      version: 1.2.24
       sourceRef:
         kind: HelmRepository
         name: bp-gitea

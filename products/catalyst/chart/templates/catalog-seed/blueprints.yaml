@@ -4060,7 +4060,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.23"
+  version: "1.2.24"
   visibility: unlisted
   card:
     title: "Gitea"
@@ -4077,7 +4077,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-gitea
-    version: "1.2.23"
+    version: "1.2.24"
   topology:
     supported:
       - active-hot-standby
@@ -4116,6 +4116,16 @@ spec:
       visibility: public
       launchDefault: true
       ssoEnabled: true
+      # #3150 (2026-06-10) — gitea's OAuth-initiate route. The launch-url
+      # must land here, not the gitea ROOT: root renders the login page
+      # with a manual "Sign in with OpenOva SSO" button (operator UAT
+      # 2026-06-09 FAIL — no auto-redirect), whereas this provider-login
+      # path (auth source name "openova-sso") makes gitea 307 to KC's
+      # authorize endpoint, which the sovereign-realm IDR
+      # (defaultProvider=catalyst-pin) silently delegates → operator lands
+      # inside Gitea authenticated, no login form. Mirrors harbor
+      # /c/oidc/login and openbao /ui/vault/auth?with=oidc.
+      ssoInitPath: "/user/oauth2/openova-sso"
   sso:
     realm: sovereign
     protocolMapper: oidc

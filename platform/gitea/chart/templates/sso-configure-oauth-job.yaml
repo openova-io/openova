@@ -136,22 +136,42 @@ spec:
           env:
             - name: AUTH_NAME
               value: "openova-sso"
-            # AUTO_DISCOVER_URL still used as fallback when authorize_url
-            # is not yet populated in the ESO Secret (early in install).
-            # 1.2.22 (hw91 — the SSO bootstrap circle, caught verbatim by
-            # round-logging): gitea VALIDATES the discovery URL by
-            # FETCHING it at add-oauth time. The public
-            # auth.<sov-fqdn> URL resolves to the ELB, whose gateway
-            # envoy binds only after FULL bootstrap-kit convergence —
-            # which waits on this very hook ("dial tcp <ELB>:443: i/o
-            # timeout" forever). Break the circle the standard OIDC way:
-            # fetch discovery over the IN-CLUSTER KC service
-            # (backchannel — works pre-gateway), while the
-            # browser-facing URLs stay public via --use-custom-urls.
-            # KC emits public endpoint URLs in the discovery doc
-            # regardless of how it is fetched (frontendUrl).
+            # ── Discovery URL: PUBLIC-first, in-cluster fallback (#3150) ──
+            #
+            # gitea's `openidConnect` provider builds the browser-facing
+            # `authorization_endpoint` it 307-redirects to STRICTLY from
+            # the discovery doc fetched at the persisted AUTO_DISCOVER_URL.
+            # `--custom-auth-url` / `--use-custom-urls` are IGNORED for the
+            # openidConnect provider (CustomURLMapping stays `{}` — verified
+            # live on hw124), so whichever discovery URL the source PERSISTS
+            # decides the redirect target at every login.
+            #
+            # KC here runs hostname-DYNAMIC (no KC_HOSTNAME/frontendUrl): it
+            # reflects the request Host into the discovery doc's endpoint
+            # URLs. The 1.2.22 assumption that "KC emits public URLs
+            # regardless of how discovery is fetched (frontendUrl)" is FALSE
+            # on these Sovereigns — fetching over the in-cluster service
+            # yields `authorization_endpoint:
+            # http://keycloak.keycloak.svc.cluster.local/...`, which the
+            # operator's BROWSER cannot resolve, so silent-SSO never fires
+            # (operator UAT 2026-06-09: gitea Open lands on its login page).
+            # The fix: PERSIST the PUBLIC discovery URL so the 307 targets
+            # `https://auth.<fqdn>/...` — browser-reachable, and the
+            # sovereign-realm IDR (`defaultProvider=catalyst-pin`) silently
+            # delegates with no login form.
+            #
+            # The 1.2.22 bootstrap circle is real but only at INSTALL time
+            # (gitea VALIDATES the discovery URL by FETCHING it at
+            # add/update-oauth, and `auth.<fqdn>` is unreachable until the
+            # cilium gateway envoy binds). So the configure loop tries
+            # PUBLIC_DISCOVER_URL first and falls back to the in-cluster
+            # AUTO_DISCOVER_URL only when the public add/update fails; the
+            # post-upgrade hook re-runs every reconcile and converges the
+            # source to the public URL once the gateway is up.
             - name: AUTO_DISCOVER_URL
               value: "{{ .Values.sso.keycloakInternalURL | default "http://keycloak.keycloak.svc.cluster.local" }}/realms/{{ .Values.sso.realm | default "sovereign" }}/.well-known/openid-configuration"
+            - name: PUBLIC_DISCOVER_URL
+              value: "https://auth.{{ .Values.sso.sovereignFqdn }}/realms/{{ .Values.sso.realm | default "sovereign" }}/.well-known/openid-configuration"
             - name: OIDC_SCOPES
               value: "openid profile email {{ .Values.sso.groupClaimName | default "groups" }}"
             - name: GROUP_CLAIM_NAME
@@ -169,14 +189,16 @@ spec:
             # The Job now resolves the live Pod by these labels.
             - name: POD_SELECTOR
               value: {{ printf "app.kubernetes.io/name=gitea,app.kubernetes.io/instance=%s" .Release.Name | quote }}
-            # G117.5 #2744 — IDP_HINT toggles whether we pass the
-            # hinted authorize_url via --auth-url + --use-custom-urls
-            # mapping. When non-empty the Job reads the
-            # already-hinted `authorize_url` key out of
-            # gitea-oauth-source-credentials and constructs the explicit
-            # URL set. When empty we fall back to --auto-discover-url
-            # only (pre-G117.5 behaviour) so non-Catalyst installs still
-            # work.
+            # IDP_HINT (G117.5 #2744) — informational only since #3150.
+            # The `kc_idp_hint=catalyst-pin` defense-in-depth lives baked
+            # into the ESO-synced `authorize_url` key (consumed by the
+            # bp-grafana-style apps), but gitea's openidConnect provider
+            # ignores `--custom-auth-url`, so the Job no longer threads the
+            # hint through `--use-custom-urls`. Silent delegation is carried
+            # entirely by the sovereign-realm IDR (defaultProvider=
+            # catalyst-pin), which fires with OR without the hint (verified
+            # live: both 303 to /broker/catalyst-pin/login). Kept for log
+            # provenance + future non-Catalyst opt-out semantics.
             - name: IDP_HINT
               value: {{ .Values.sso.idpHint | quote }}
             - name: OAUTH_KEY
@@ -293,76 +315,71 @@ spec:
                   '$2 ~ name && $3 ~ /OAuth2/ {gsub(/[[:space:]]+/,"",$1); print $1}' \
                 | head -n1 || true)"
 
-              # G117.5: if the ESO-rendered Secret already carries the
-              # hinted authorize_url, use --use-custom-urls +
-              # --auth-url so the IDP hint reaches KC. Otherwise fall
-              # back to auto-discover.
-              AUTH_URL_FILE="/etc/sso-bundle/authorize_url"
-              TOKEN_URL_FILE="/etc/sso-bundle/token_url"
-              USERINFO_URL_FILE="/etc/sso-bundle/userinfo_url"
-
-              if [ -n "${IDP_HINT}" ] \
-                 && [ -s "${AUTH_URL_FILE}" ] \
-                 && [ -s "${TOKEN_URL_FILE}" ] \
-                 && [ -s "${USERINFO_URL_FILE}" ]; then
-                AUTH_URL="$(cat "${AUTH_URL_FILE}")"
-                TOKEN_URL="$(cat "${TOKEN_URL_FILE}")"
-                USERINFO_URL="$(cat "${USERINFO_URL_FILE}")"
-                echo "[$(date -u +%FT%TZ)] using custom URL mapping (IDP_HINT=${IDP_HINT})"
-                echo "  AUTH_URL=${AUTH_URL}"
+              # ── PUBLIC-first discovery URL (#3150) ──────────────────
+              # The persisted --auto-discover-url decides the BROWSER
+              # redirect target (openidConnect ignores --custom-*-url —
+              # see the AUTO_DISCOVER_URL env comment). Prefer the public
+              # URL so the 307 lands on `https://auth.<fqdn>/...` (reachable
+              # + silently delegated by the realm IDR). gitea VALIDATES the
+              # URL by fetching it, so a public URL that is unreachable
+              # (install-time, gateway not yet bound) makes add/update-oauth
+              # fail — we catch that and retry the SAME round with the
+              # in-cluster URL so install still converges; the post-upgrade
+              # re-run swaps to public once the gateway is up.
+              build_common_args() {
+                # $1 = discovery URL to use
                 COMMON_ARGS=(
                   --provider openidConnect
                   --key "${OAUTH_KEY}"
                   --secret "${OAUTH_SECRET}"
-                  # 1.2.21 (hw91, caught by the round-logging on the
-                  # path's second-ever execution): gitea's add-oauth
-                  # VALIDATES --auto-discover-url for openidConnect
-                  # regardless of --use-custom-urls ("invalid Auto
-                  # Discovery URL:" with an empty value when omitted).
-                  # The custom mapping supplements discovery, it does
-                  # not replace it.
-                  --auto-discover-url "${AUTO_DISCOVER_URL}"
-                  --use-custom-urls
-                  --custom-auth-url "${AUTH_URL}"
-                  --custom-token-url "${TOKEN_URL}"
-                  --custom-profile-url "${USERINFO_URL}"
+                  --auto-discover-url "$1"
                   --scopes "${OIDC_SCOPES}"
                   --group-claim-name "${GROUP_CLAIM_NAME}"
                   --admin-group "${ADMIN_GROUP}"
                 )
-              else
-                echo "[$(date -u +%FT%TZ)] using auto-discover (no IDP_HINT or ESO Secret not yet populated)"
-                COMMON_ARGS=(
-                  --provider openidConnect
-                  --key "${OAUTH_KEY}"
-                  --secret "${OAUTH_SECRET}"
-                  --auto-discover-url "${AUTO_DISCOVER_URL}"
-                  --scopes "${OIDC_SCOPES}"
-                  --group-claim-name "${GROUP_CLAIM_NAME}"
-                  --admin-group "${ADMIN_GROUP}"
-                )
-              fi
-
-              if [ -n "${RESTRICTED_GROUP}" ]; then
-                COMMON_ARGS+=( --restricted-group "${RESTRICTED_GROUP}" )
-              fi
-
-              if [ -z "${AUTH_ID}" ]; then
-                echo "[$(date -u +%FT%TZ)] adding new OAuth source '${AUTH_NAME}' (round ${round}/20)..."
-                if ! kubectl exec -n "${GITEA_NAMESPACE}" "${GITEA_POD}" -- \
-                  gitea admin auth add-oauth --name "${AUTH_NAME}" "${COMMON_ARGS[@]}"; then
-                  echo "  configure round ${round}/20: add-oauth exec failed (pod settling?); sleeping 30s..."
-                  sleep 30
-                  continue
+                if [ -n "${RESTRICTED_GROUP}" ]; then
+                  COMMON_ARGS+=( --restricted-group "${RESTRICTED_GROUP}" )
                 fi
-              else
-                echo "[$(date -u +%FT%TZ)] updating OAuth source id=${AUTH_ID} ('${AUTH_NAME}') (round ${round}/20)..."
-                if ! kubectl exec -n "${GITEA_NAMESPACE}" "${GITEA_POD}" -- \
-                  gitea admin auth update-oauth --id "${AUTH_ID}" --name "${AUTH_NAME}" "${COMMON_ARGS[@]}"; then
-                  echo "  configure round ${round}/20: update-oauth exec failed (pod settling?); sleeping 30s..."
-                  sleep 30
-                  continue
+              }
+
+              # Ordered discovery-URL candidates: public first (browser-
+              # reachable), in-cluster fallback (always reachable, but
+              # persists internal endpoint URLs the browser can't resolve).
+              # Skip the public candidate when sovereignFqdn is empty — the
+              # template renders the host as `auth./` (empty), which would
+              # never validate. Non-Catalyst installs (no sovereignFqdn)
+              # then use the in-cluster URL exactly as pre-#3150.
+              DISCOVER_CANDIDATES=()
+              case "${PUBLIC_DISCOVER_URL}" in
+                "https://auth./"*) : ;;  # empty sovereignFqdn — skip public
+                "") : ;;
+                *) DISCOVER_CANDIDATES+=( "${PUBLIC_DISCOVER_URL}" ) ;;
+              esac
+              DISCOVER_CANDIDATES+=( "${AUTO_DISCOVER_URL}" )
+
+              applied=""
+              for DISCOVER_URL in "${DISCOVER_CANDIDATES[@]}"; do
+                build_common_args "${DISCOVER_URL}"
+                if [ -z "${AUTH_ID}" ]; then
+                  echo "[$(date -u +%FT%TZ)] adding OAuth source '${AUTH_NAME}' via ${DISCOVER_URL} (round ${round}/20)..."
+                  if kubectl exec -n "${GITEA_NAMESPACE}" "${GITEA_POD}" -- \
+                    gitea admin auth add-oauth --name "${AUTH_NAME}" "${COMMON_ARGS[@]}"; then
+                    applied="yes"; break
+                  fi
+                else
+                  echo "[$(date -u +%FT%TZ)] updating OAuth source id=${AUTH_ID} ('${AUTH_NAME}') via ${DISCOVER_URL} (round ${round}/20)..."
+                  if kubectl exec -n "${GITEA_NAMESPACE}" "${GITEA_POD}" -- \
+                    gitea admin auth update-oauth --id "${AUTH_ID}" --name "${AUTH_NAME}" "${COMMON_ARGS[@]}"; then
+                    applied="yes"; break
+                  fi
                 fi
+                echo "  configure round ${round}/20: discovery URL ${DISCOVER_URL} not yet usable (gateway settling?); trying next candidate..."
+              done
+
+              if [ -z "${applied}" ]; then
+                echo "  configure round ${round}/20: no discovery URL usable yet; sleeping 30s..."
+                sleep 30
+                continue
               fi
 
               configure_ok="yes"

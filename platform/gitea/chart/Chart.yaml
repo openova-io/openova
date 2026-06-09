@@ -60,7 +60,25 @@ name: bp-gitea
 # directly in Gitea as a site admin via OIDC. Local `gitea_admin` user
 # remains the break-glass account for bp-self-sovereign-cutover Step 1.
 # Per SECURITY.md §6.3 (App-level SSO).
-version: 1.2.23
+#
+# 1.2.24 (#3150, 2026-06-10): silent-SSO now lands the operator logged-in
+# from the console Open button — two stacked defects fixed.
+#   (A) Launch-url targeted the gitea ROOT (renders the login page with a
+#       manual "Sign in with OpenOva SSO" button) instead of the
+#       OAuth-initiate path. The catalog-seed + blueprint.yaml `ui`
+#       endpoint now declares `ssoInitPath: /user/oauth2/openova-sso`, so
+#       Open hits gitea's provider-login route → gitea 307s to KC.
+#   (B) The sso-configure Job persisted the IN-CLUSTER discovery URL, so
+#       gitea's openidConnect provider 307'd the browser to
+#       `http://keycloak.keycloak.svc.cluster.local/...` (unresolvable) —
+#       KC runs hostname-dynamic, so in-cluster discovery returns internal
+#       endpoint URLs (the 1.2.22 "frontendUrl makes them public" premise
+#       is false here), and openidConnect ignores --custom-*-url. The Job
+#       now persists the PUBLIC discovery URL (public-first, in-cluster
+#       fallback for the install-time bootstrap circle) so the 307 targets
+#       `https://auth.<fqdn>/...` and the realm IDR silently delegates to
+#       catalyst-pin with no login form.
+version: 1.2.24
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so
