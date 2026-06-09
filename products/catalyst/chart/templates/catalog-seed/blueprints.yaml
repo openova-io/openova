@@ -1533,7 +1533,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.2"
+  version: "0.2.3"
   visibility: listed
   card:
     title: "Apache Guacamole"
@@ -4526,7 +4526,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.3"
+  version: "0.1.4"
   visibility: unlisted
   card:
     title: "PowerDNS-Admin"
@@ -5042,7 +5042,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.3"
+  version: "0.1.4"
   visibility: unlisted
   card:
     title: "Continuum"
@@ -5396,7 +5396,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.3.9"
+  version: "0.3.10"
   visibility: unlisted
   card:
     title: "Sandbox"

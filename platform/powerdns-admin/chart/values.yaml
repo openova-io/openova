@@ -123,6 +123,11 @@ databaseSecret:
   cnpgSecretName: pda-pg-app
   passwordKey: password
   usernameKey: username
+  # CNPG stamps a ready-to-use `uri` key (postgresql://user:pass@host:port/db)
+  # into its generated `<cluster>-app` Secret. pda-legacy's create_app()
+  # reads SQLALCHEMY_DATABASE_URI verbatim, so the deployment wires this
+  # key straight through — see deployment.yaml DB-wiring comment. Refs #3189.
+  uriKey: uri
 
 # ─── PowerDNS backend endpoint ───────────────────────────────────────────
 # Where the running PDA container reaches the authoritative server.

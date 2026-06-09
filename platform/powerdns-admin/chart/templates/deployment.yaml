@@ -40,6 +40,29 @@ spec:
               protocol: TCP
           env:
             # ─── Database wiring ───────────────────────────────────────
+            # The `powerdnsadmin/pda-legacy` image (current upstream) does
+            # NOT honor the SQLA_DB_* split env vars — those were the old
+            # `ngoduykhanh/powerdns-admin` entrypoint convention, which
+            # assembled the SQLAlchemy URI from them at container start.
+            # pda-legacy's `create_app()` instead loads its baked-in
+            # `powerdnsadmin/docker_config.py` (which HARDCODES
+            # `SQLALCHEMY_DATABASE_URI = 'sqlite:////data/powerdns-admin.db'`)
+            # and then runs `AppSettings.load_environment()` LAST, which
+            # only overrides config keys whose UPPERCASED env var name
+            # matches a known setting — i.e. it reads `SQLALCHEMY_DATABASE_URI`
+            # verbatim, never the SQLA_DB_* parts. So to actually land on
+            # the provisioned CNPG `pda-pg` cluster (instead of silently
+            # falling back to on-disk SQLite) we MUST set the full
+            # `SQLALCHEMY_DATABASE_URI` from the CNPG-generated `uri` key.
+            # Refs #3189.
+            - name: SQLALCHEMY_DATABASE_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.databaseSecret.name | default "pda-database-secret" }}
+                  key: {{ .Values.databaseSecret.uriKey | default "uri" }}
+            # The SQLA_DB_* vars below are retained for documentation +
+            # forward/backward compatibility with the older ngoduykhanh
+            # image; pda-legacy ignores them but they are harmless.
             - name: SQLA_DB_TYPE
               value: "postgres"
             - name: SQLA_DB_HOST

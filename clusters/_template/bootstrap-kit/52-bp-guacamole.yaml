@@ -147,7 +147,10 @@ spec:
       # implicit-flow id_token fragment landed on a Tomcat 404 ROOT page
       # and silent-SSO never reached the webapp). KC `guacamole` client's
       # `/*` redirectUris wildcard already accepts it.
-      version: 0.2.2
+      # 0.2.3: lockstep with chart bump d232af3f (upstream 1.5.5) — the
+      # deploy commit bumped Chart.yaml but the auto-bump pin hook didn't
+      # fire, leaving this pin drifted (broke the full lockstep sweep).
+      version: 0.2.3
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
