@@ -57,6 +57,22 @@ Two files, BOTH required:
 
 > 🔑 **Replication gotcha #1:** the in-cluster Blueprint CR is what the launch-url reads. For apps seeded by `catalog-seed/blueprints.yaml` (grafana, keycloak, guacamole, …) you MUST edit that file (coordinate with the catalog agent). For apps whose CR comes from elsewhere (harbor, openbao, powerdns-admin, netbird are NOT in catalog-seed today — see §5), find where their Blueprint CR is sourced first (`kubectl get blueprints.catalyst.openova.io <name> -o yaml` shows `metadata.annotations` / `managedFields` pointing at the owner).
 
+### 2c-bis. ⚠️ CRD schema — `ssoInitPath` MUST be in the Blueprint CRD (else it's pruned)
+
+**The pathfinder MISSED this and it broke the live walk.** `Blueprint`'s endpoint schema in `products/catalyst/chart/crds/blueprint.yaml` is structural with NO `x-kubernetes-preserve-unknown-fields`. If `ssoInitPath` is not declared in the CRD, the API server **prunes** it on every apply — the seed ships it, Helm applies it, the **live CR silently loses it**, and `buildLaunchURL` falls back to the legacy app-root URL. The launch-url returns the OLD shape and the app shows its login form, with NO error anywhere.
+
+**FIXED in #3163:** `ssoInitPath` added beside `ssoEnabled` in the shared (anchored) endpoint schema → covers BOTH `v1` and `v1alpha1`. **The 6 follow-on agents do NOT touch the CRD again — it's done once for all apps.**
+
+**BUT — existing Sovereigns need a direct CRD apply.** Helm `crds/` are **install-only**; a chart upgrade does NOT update the CRD. So on hw124 (and any existing Sovereign) you MUST run, once:
+```bash
+kubectl --kubeconfig /tmp/hw124.kubeconfig apply -f products/catalyst/chart/crds/blueprint.yaml
+```
+Then the seed CR's `ssoInitPath` stops being pruned. **Verify it persisted** before trusting the launch-url:
+```bash
+kubectl get blueprints.catalyst.openova.io bp-<app> -o json | python3 -c "import sys,json;print([e.get('ssoInitPath') for e in json.load(sys.stdin)['spec']['endpoints'] if e.get('name')=='ui'])"
+# must print your path, not [None]
+```
+
 ### 2d. Contract — `docs/api/catalyst-api-openapi.yaml`
 
 Added `ssoInitPath` to `EndpointDeclaration` and documented the launch-url's dual-id resolution (uid OR blueprint name) + the two URL shapes.
