@@ -155,4 +155,37 @@ if [ "$flow_check" != "OK" ]; then
 fi
 echo "  PASS"
 
+# Case 6: declarative user-profile makes firstName + lastName OPTIONAL
+# (email stays required). KC's default profile requires names for the
+# `user` role; the catalyst-pin id_token carries no name claims, so the
+# default would inject a transient VERIFY_PROFILE prompt on first broker
+# login. The realm import MUST ship a declarative-user-profile component
+# that drops `required` from firstName + lastName.
+echo "[sovereign-realm-federated-no-required-actions] Case 6: user-profile firstName/lastName optional, email required (#3150)"
+profile_check=$(echo "${realm_json}" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+comps = d.get('components', {}).get('org.keycloak.userprofile.UserProfileProvider', [])
+if not comps:
+    print('NO-USERPROFILE-COMPONENT'); sys.exit(0)
+cfg = comps[0].get('config', {}).get('kc.user.profile.config', [])
+if not cfg:
+    print('NO-PROFILE-CONFIG'); sys.exit(0)
+prof = json.loads(cfg[0])
+req = {a['name']: a.get('required') for a in prof.get('attributes', [])}
+if req.get('firstName') is not None:
+    print(f\"firstName-still-required:{req.get('firstName')}\"); sys.exit(0)
+if req.get('lastName') is not None:
+    print(f\"lastName-still-required:{req.get('lastName')}\"); sys.exit(0)
+if req.get('email') is None:
+    print('email-not-required (should stay required)'); sys.exit(0)
+print('OK')
+")
+if [ "$profile_check" != "OK" ]; then
+  echo "FAIL: user-profile invariant broken: $profile_check" >&2
+  echo "      A name-less catalyst-pin federated user would hit VERIFY_PROFILE." >&2
+  exit 1
+fi
+echo "  PASS"
+
 echo "[bp-keycloak #3150 federated-no-required-actions] All cases PASS"
