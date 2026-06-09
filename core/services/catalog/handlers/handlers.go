@@ -234,15 +234,49 @@ func (h *Handler) GetBundle(w http.ResponseWriter, r *http.Request) {
 // Public — Plans
 // ---------------------------------------------------------------------------
 
-// ListPlans returns all plans.
+// ListPlans returns plans, optionally scoped by product via ?product=.
+//
+//	GET /catalog/plans                  — every plan (back-compat: the
+//	                                      tenant service's GetPlan walks
+//	                                      this list to resolve a plan by
+//	                                      slug, including the sandbox-*
+//	                                      tiers — see core/services/tenant/
+//	                                      catalog/client.go). Changing the
+//	                                      default would break sandbox
+//	                                      checkout with "plan_id not found".
+//	GET /catalog/plans?product=generic  — only unscoped compute tiers
+//	                                      (ProductSlug==""); the marketplace
+//	                                      Org-provisioning picker uses this
+//	                                      so product-scoped tiers (e.g.
+//	                                      Sandbox Free/Pro/Ent) do not
+//	                                      duplicate alongside S/M/L/XL/Flexi.
+//	GET /catalog/plans?product=sandbox  — only the Sandbox product tiers.
 func (h *Handler) ListPlans(w http.ResponseWriter, r *http.Request) {
 	plans, err := h.Store.ListPlans(r.Context())
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, "failed to list plans")
 		return
 	}
+	plans = filterPlansByProduct(plans, r.URL.Query().Get("product"))
 	w.Header().Set("Cache-Control", "public, max-age=300")
 	respond.OK(w, plans)
+}
+
+// filterPlansByProduct scopes a plan list by the ?product= query value.
+// An empty product returns the list unchanged (back-compat). The reserved
+// keyword "generic" selects the unscoped compute tiers (ProductSlug=="");
+// any other value matches Plan.ProductSlug verbatim.
+func filterPlansByProduct(plans []store.Plan, product string) []store.Plan {
+	if product == "" {
+		return plans
+	}
+	filtered := make([]store.Plan, 0, len(plans))
+	for _, p := range plans {
+		if (product == "generic" && p.ProductSlug == "") || p.ProductSlug == product {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered
 }
 
 // ---------------------------------------------------------------------------
