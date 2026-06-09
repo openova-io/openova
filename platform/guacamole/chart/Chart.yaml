@@ -93,7 +93,7 @@ name: bp-guacamole
 # `https://guacamole.<fqdn>/*` already accepts it. New g117-w3d1-sso-
 # secret.sh Case 1b asserts the rendered OPENID_REDIRECT_URI ends with
 # `/guacamole/`.
-version: 0.2.3
+version: 0.2.4
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
