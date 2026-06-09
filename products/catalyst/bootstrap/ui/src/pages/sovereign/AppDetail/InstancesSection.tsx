@@ -110,17 +110,49 @@ export function InstancesSection({
           Loading instances…
         </p>
       ) : items.length === 0 ? (
-        <p
-          className="section-hint"
+        // #3165 — first-class empty state. Not a broken/blank table: a
+        // clear "no instances yet" message with the "+ New instance" CTA
+        // already rendered in the header above.
+        <div
+          className="instances-empty"
           data-testid="sov-instances-empty"
-          style={{ margin: 0 }}
+          style={{
+            border: '1px dashed var(--color-border)',
+            borderRadius: '10px',
+            padding: '1.4rem 1rem',
+            textAlign: 'center',
+          }}
         >
-          No instances of this Blueprint installed yet. Click "+ New
-          instance" to create the first one.
-        </p>
+          <p
+            className="section-hint"
+            style={{ margin: '0 0 0.7rem', fontSize: '0.88rem' }}
+          >
+            No instances of this Blueprint in this Organization yet.
+          </p>
+          <button
+            type="button"
+            data-testid="btn-new-instance-empty"
+            onClick={() => setDialogOpen(true)}
+            className="btn btn-primary"
+            style={{
+              padding: '0.4rem 0.9rem',
+              fontSize: '0.85rem',
+              background: 'var(--color-accent)',
+              color: 'white',
+              border: '0',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontWeight: 600,
+            }}
+            aria-label="Create the first instance of this Blueprint"
+          >
+            + New instance
+          </button>
+        </div>
       ) : (
         <table
           data-testid="sov-instances-table"
+          className="instances-table"
           style={{
             width: '100%',
             borderCollapse: 'collapse',
@@ -128,12 +160,23 @@ export function InstancesSection({
           }}
         >
           <thead>
-            <tr style={{ textAlign: 'left', color: 'var(--color-text-dim)' }}>
-              <th style={{ padding: '0.3rem 0.4rem' }}>Name</th>
-              <th style={{ padding: '0.3rem 0.4rem' }}>Instance ID</th>
-              <th style={{ padding: '0.3rem 0.4rem' }}>Org</th>
-              <th style={{ padding: '0.3rem 0.4rem' }}>Topology</th>
-              <th style={{ padding: '0.3rem 0.4rem' }}>Status</th>
+            <tr
+              style={{
+                textAlign: 'left',
+                color: 'var(--color-text-dim)',
+                borderBottom: '1px solid var(--color-border)',
+              }}
+            >
+              <th style={{ padding: '0.4rem 0.5rem', fontWeight: 600 }}>Name</th>
+              <th style={{ padding: '0.4rem 0.5rem', fontWeight: 600 }}>Org</th>
+              <th style={{ padding: '0.4rem 0.5rem', fontWeight: 600 }}>Topology</th>
+              <th style={{ padding: '0.4rem 0.5rem', fontWeight: 600 }}>Status</th>
+              <th style={{ padding: '0.4rem 0.5rem', fontWeight: 600 }}>Version</th>
+              <th
+                style={{ padding: '0.4rem 0.5rem', fontWeight: 600, textAlign: 'right' }}
+              >
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -141,8 +184,9 @@ export function InstancesSection({
               <tr
                 key={inst.id || inst.name}
                 data-testid={`sov-instance-row-${inst.name}`}
+                style={{ borderBottom: '1px solid var(--color-border)' }}
               >
-                <td style={{ padding: '0.3rem 0.4rem' }}>
+                <td style={{ padding: '0.45rem 0.5rem' }}>
                   {/* #3090 — instance rows drill into the INSTANCE page
                       `/app/$componentId`. The Application instance is
                       addressed by its Blueprint-scoped component id
@@ -151,19 +195,34 @@ export function InstancesSection({
                     to={'/app/$componentId' as never}
                     params={{ componentId: `bp-${inst.blueprint}` } as never}
                     data-testid={`sov-instance-link-${inst.name}`}
+                    style={{ color: 'var(--color-accent)', fontWeight: 600 }}
                   >
                     <code>{inst.name}</code>
                   </Link>
                 </td>
-                <td
-                  style={{ padding: '0.3rem 0.4rem', color: 'var(--color-text-dim)' }}
-                >
-                  <code>{inst.id ? inst.id.slice(0, 8) : '—'}</code>
+                <td style={{ padding: '0.45rem 0.5rem' }}>{inst.org}</td>
+                <td style={{ padding: '0.45rem 0.5rem' }}>
+                  <span className="chip chip-bp">{inst.topology}</span>
                 </td>
-                <td style={{ padding: '0.3rem 0.4rem' }}>{inst.org}</td>
-                <td style={{ padding: '0.3rem 0.4rem' }}>{inst.topology}</td>
-                <td style={{ padding: '0.3rem 0.4rem' }}>
-                  <span className="chip chip-cat">{inst.status}</span>
+                <td style={{ padding: '0.45rem 0.5rem' }}>
+                  <span className={`chip ${statusChipClass(inst.status)}`}>
+                    {inst.status}
+                  </span>
+                </td>
+                <td
+                  style={{ padding: '0.45rem 0.5rem', color: 'var(--color-text-dim)' }}
+                >
+                  {versionOf(inst) || '—'}
+                </td>
+                <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right' }}>
+                  <Link
+                    to={'/app/$componentId' as never}
+                    params={{ componentId: `bp-${inst.blueprint}` } as never}
+                    data-testid={`sov-instance-open-${inst.name}`}
+                    className="external-url-link"
+                  >
+                    Open →
+                  </Link>
                 </td>
               </tr>
             ))}
@@ -223,6 +282,41 @@ export function InstancesSection({
       ) : null}
     </section>
   )
+}
+
+/**
+ * statusChipClass — map an instance status string to the shared chip
+ * colour classes (same palette as AppDetail's phase chip) so the
+ * instances table reads at-a-glance. Unknown/empty statuses fall back to
+ * the neutral category chip.
+ */
+function statusChipClass(status: string | undefined): string {
+  const s = (status ?? '').toLowerCase()
+  if (s === 'ready' || s === 'installed' || s === 'active') return 'chip-installed'
+  if (s === 'failed' || s === 'degraded' || s === 'error') return 'chip-failed'
+  if (
+    s === 'provisioning' ||
+    s === 'installing' ||
+    s === 'pending' ||
+    s === 'reconciling'
+  )
+    return 'chip-pending'
+  return 'chip-cat'
+}
+
+/**
+ * versionOf — surface the instance's blueprint/chart version when the
+ * wire envelope carries one. `ApplicationInstanceSummary` doesn't declare
+ * a version field today, so read it tolerantly from the loosely-typed
+ * row; renders "—" when absent (the table cell handles the fallback).
+ */
+function versionOf(inst: ApplicationInstanceSummary): string {
+  const row = inst as ApplicationInstanceSummary & {
+    version?: string
+    blueprintVersion?: string
+    chartVersion?: string
+  }
+  return row.version ?? row.blueprintVersion ?? row.chartVersion ?? ''
 }
 
 /**

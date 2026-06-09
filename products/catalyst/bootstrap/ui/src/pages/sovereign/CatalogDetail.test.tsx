@@ -31,16 +31,35 @@ import { CatalogDetail } from './CatalogDetail'
 const GRAFANA_CATALOG = {
   name: 'grafana',
   version: '1.0.5',
-  card: { title: 'Grafana', description: 'Dashboards', family: 'observability' },
+  card: {
+    title: 'Grafana',
+    summary: 'Visualization and dashboarding',
+    description: 'Dashboards',
+    family: 'observability',
+    category: 'insights',
+    docs: 'https://grafana.com/docs/',
+    license: 'AGPL-3.0',
+    tags: ['observability', 'dashboards'],
+  },
   origin: 'upstream',
   source: 'gitea',
   raw: {
     spec: {
       multiInstance: { enabled: true },
+      dependencies: ['cnpg', 'loki'],
       topology: {
         supported: ['singleton', 'active-hot-standby'],
         default: 'singleton',
         defaults: { 'single-region': 'singleton' },
+        perTopology: {
+          'active-hot-standby': {
+            placement: {
+              tier: 'mgmt',
+              clusters: ['mgmt-A', 'mgmt-B'],
+              roles: { 'mgmt-A': 'active', 'mgmt-B': 'passive' },
+            },
+          },
+        },
       },
     },
   },
@@ -169,5 +188,98 @@ describe('CatalogDetail — #3090 class page', () => {
     expect(screen.queryByTestId('app-detail-target')).toBeNull()
     // The class page itself is still mounted under the dialog.
     expect(screen.getByTestId('catalog-drilldown')).toBeTruthy()
+  })
+
+  // ── #3165 rebuild — instances-centered, AppDetail-matching surface ──
+
+  it('renders the breadcrumb ‹ Catalog › <Title>', async () => {
+    renderCatalog('grafana')
+    const crumb = await screen.findByTestId('catalog-breadcrumb')
+    expect(crumb.textContent).toContain('Catalog')
+    expect(crumb.textContent).toContain('Grafana')
+  })
+
+  it('renders the hero with version, category/family, and tag chips', async () => {
+    renderCatalog('grafana')
+    await screen.findByTestId('catalog-hero')
+    expect(screen.getByTestId('catalog-category').textContent).toContain('insights')
+    expect(screen.getByTestId('catalog-family').textContent).toContain('observability')
+    expect(screen.getByTestId('catalog-license').textContent).toContain('AGPL-3.0')
+    expect(screen.getByTestId('catalog-tag-dashboards')).toBeTruthy()
+    expect(screen.getByTestId('catalog-docs-link').getAttribute('href')).toBe(
+      'https://grafana.com/docs/',
+    )
+  })
+
+  it('renders the About section from card.description', async () => {
+    renderCatalog('grafana')
+    expect((await screen.findByTestId('catalog-description')).textContent).toContain(
+      'Dashboards',
+    )
+  })
+
+  it('renders the per-topology placement summary', async () => {
+    renderCatalog('grafana')
+    await screen.findByTestId('catalog-section-topologies')
+    expect(
+      screen.getByTestId('catalog-topology-placement-active-hot-standby').textContent,
+    ).toContain('mgmt-A (active)')
+    // The default topology is flagged.
+    expect(screen.getByTestId('catalog-topology-default-singleton')).toBeTruthy()
+  })
+
+  it('renders the bundled dependencies section', async () => {
+    renderCatalog('grafana')
+    await screen.findByTestId('catalog-section-deps')
+    expect(screen.getByTestId('catalog-dep-cnpg')).toBeTruthy()
+    expect(screen.getByTestId('catalog-dep-loki')).toBeTruthy()
+  })
+
+  it('instances table exposes Version + Actions columns and an Open link', async () => {
+    renderCatalog('grafana')
+    await screen.findByTestId('sov-instances-table')
+    // Action "Open →" links drill into the INSTANCE page.
+    const open = screen.getByTestId('sov-instance-open-obs-1')
+    expect(open.getAttribute('href')).toBe('/app/bp-grafana')
+  })
+
+  it('bootstrap/singleton apps surface the running install, not an empty table', async () => {
+    // Wire a self-discovery deploymentId + a getApplication response
+    // flagged bootstrap:true so CatalogDetail takes the platform-singleton
+    // branch instead of the multi-instance table.
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      if (url.includes('/sovereign/self')) {
+        return jsonRes({ deploymentId: 'dep-123', sovereignFQDN: 't1.omani.works' })
+      }
+      if (url.includes('/applications/bp-grafana')) {
+        return jsonRes({
+          name: 'bp-grafana',
+          namespace: 'grafana',
+          blueprint: 'bp-grafana',
+          bootstrap: true,
+          phase: 'Ready',
+          conditions: [],
+        })
+      }
+      if (url.includes('/instances')) {
+        return jsonRes({ items: [] })
+      }
+      if (url.includes('/catalog/')) {
+        return jsonRes(GRAFANA_CATALOG)
+      }
+      return jsonRes({})
+    }) as typeof fetch
+
+    renderCatalog('grafana')
+    // Platform-singleton card — link to the running install, labelled
+    // "platform component", NOT an empty instances table.
+    expect(await screen.findByTestId('catalog-section-platform-singleton')).toBeTruthy()
+    expect(screen.getByTestId('badge-platform-component')).toBeTruthy()
+    expect(screen.getByTestId('catalog-singleton-link').getAttribute('href')).toBe(
+      '/app/bp-grafana',
+    )
+    expect(screen.queryByTestId('sov-instances-table')).toBeNull()
+    expect(screen.queryByTestId('btn-new-instance')).toBeNull()
   })
 })
