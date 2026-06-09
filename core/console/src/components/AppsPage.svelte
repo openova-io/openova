@@ -6,6 +6,8 @@
   } from '../lib/api';
   import { path } from '../lib/config';
   import { getAppStateStore } from '../lib/stores/appState.svelte';
+  import DataInstances from './DataInstances.svelte';
+  import { type DataInstance } from '../lib/dataInstances';
 
   const ACTIVE_ORG_KEY = 'sme-active-org';
 
@@ -159,6 +161,41 @@
   const catalogApps = $derived(catalog); // all apps, business + service
   const installedApps = $derived(catalogApps.filter(a => installedIds.includes(a.id)));
   const installedServices = $derived(catalog.filter(a => isServiceApp(a) && installedIds.includes(a.id)));
+
+  // Data-instance bindings (ADR-0010). Each installed app that declares a
+  // postgres backing dependency surfaces as a binding on a data-instance.
+  // Today the default is one dedicated (private) instance per app (the
+  // legacy 1:1 shape: <app> → <app>-pg); a shared instance collapses
+  // multiple apps onto one CNPG cluster. This panel renders the actual
+  // declarative dependency, replacing the coarse "depends on bp-cnpg".
+  const POSTGRES_DEP = (d: string) => /^(postgres|bp-postgres|cnpg|bp-cnpg)$/i.test(d);
+  const dataInstances = $derived.by<DataInstance[]>(() => {
+    const byInstance = new Map<string, DataInstance>();
+    for (const a of installedApps) {
+      if (isServiceApp(a)) continue;
+      const needsPg = (a.dependencies ?? []).some(POSTGRES_DEP);
+      if (!needsPg) continue;
+      // Shareable apps reuse a single shared instance; others get a
+      // dedicated private instance named after the app.
+      const shared = a.shareable;
+      const instanceName = shared ? 'shared-pg' : `${a.slug}-pg`;
+      const inst = byInstance.get(instanceName) ?? {
+        name: instanceName,
+        blueprint: 'bp-postgres',
+        topology: 'singleton' as const,
+        bindings: [],
+      };
+      inst.bindings.push({
+        consumer: `bp-${a.slug}`,
+        database: a.slug,
+        role: a.slug,
+        mode: shared ? 'shared' : 'private',
+        secret: `${a.slug}-database-secret`,
+      });
+      byInstance.set(instanceName, inst);
+    }
+    return [...byInstance.values()].sort((x, y) => x.name.localeCompare(y.name));
+  });
 
   const visibleApps = $derived.by(() => {
     let list = tab === 'installed' ? installedApps : catalogApps;
@@ -397,6 +434,14 @@
         {/each}
       </div>
 
+      {/if}
+
+      <!-- Data instances (ADR-0010): the reusable, shareable backing-services
+           model. Renders the PostgreSQL engine-class card + each data-instance
+           App card with its Consumers (bindings) table. Only on the
+           Deployments tab where the installed apps (the consumers) live. -->
+      {#if tab === 'installed' && dataInstances.length > 0}
+        <DataInstances instances={dataInstances} />
       {/if}
     {/if}
 
