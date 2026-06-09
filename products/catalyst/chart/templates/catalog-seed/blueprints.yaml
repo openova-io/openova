@@ -1533,7 +1533,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.2"
+  version: "0.2.3"
   visibility: listed
   card:
     title: "Apache Guacamole"
