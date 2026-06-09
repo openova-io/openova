@@ -975,7 +975,11 @@ spec:
       # 1.4.532 — #3150 (2026-06-09): silent-SSO — launch-url resolves HR-backed
       # bootstrap apps (no Application CR) + per-endpoint ssoInitPath lands the
       # console "Open" on the app's OIDC-init route (grafana /login/generic_oauth).
-      version: 1.4.537
+      # 1.4.538 — #3150 (2026-06-09): silent-SSO per-app fan-out — catalog-seed
+      # gains in-cluster bp-harbor + bp-openbao Blueprint CRs (ssoInitPath
+      # /c/oidc/login, /ui/vault/auth?with=oidc%2F on the live registry.<sov> /
+      # bao.<sov> hosts) + fixes bp-guacamole seed host guac.<sov> → guacamole.<sov>.
+      version: 1.4.538
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
