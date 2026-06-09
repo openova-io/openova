@@ -228,6 +228,13 @@ spec:
   values:
     gateway:
       host: registry.${SOVEREIGN_FQDN}
+      # #3150 (2026-06-09): the chart's HTTPRoute backend defaults to
+      # `harbor-core`, but harbor-core is the API backend — it returns 404 for
+      # the portal SPA paths (`/`, `/account/sign-in`). registry.<sov>/ thus
+      # 404'd for every operator. The umbrella `harbor` Service (harbor-nginx
+      # front door) fans `/`→portal, `/api`,`/c`,`/service`→core, `/v2`→registry.
+      # Repoint the route at it. Verified live on hw124: `/`→200, `/v2/`→401.
+      backendService: harbor
     # G91.harbor (#2654) — wire bp-sso-bridge framework. The chart-side
     # post-install Job PUTs /api/v2.0/configurations with
     # auth_mode=oidc_auth + oidc_endpoint computed from sovereignFqdn.
