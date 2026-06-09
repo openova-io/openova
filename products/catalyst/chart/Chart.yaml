@@ -2591,7 +2591,7 @@ name: bp-catalyst-platform
 # of 404'ing. Every added entry references a REAL published OCI chart version;
 # topology/endpoints/sso copied verbatim from platform/<x>/blueprint.yaml so
 # the catalog-seed-lockstep guard stays green. Refs #3159.
-version: 1.4.530
+version: 1.4.531
 appVersion: 1.4.494
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
