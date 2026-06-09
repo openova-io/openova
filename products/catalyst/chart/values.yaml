@@ -294,9 +294,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "a101ab5"
+    tag: "c96f998"
   catalystUi:
-    tag: "a101ab5"
+    tag: "c96f998"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -311,7 +311,7 @@ images:
   admin:
     tag: "3c2f7e4"
   # All 10 SME microservices share one SHA tag (built from the same mono-repo commit).
-  smeTag: "c96f998"
+  smeTag: "41e02c8"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────
