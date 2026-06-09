@@ -8,7 +8,20 @@
 >
 > Legend: ✅ pass · ◑ partial · ❌ fail · ⛔ blocked · ☐ pending (default).
 
-## 0. Session results — hw123 (`179551d5ce8039cf`), walked 2026-06-09
+## 0. Session results — hw124 (`90a98a78f35846a3`), walked 2026-06-09 — CLEAN ZERO-TOUCH 2-REGION
+
+**Env state:** hw124 is the clean re-prov on the fully-fixed stack (cloud-agnostic `_shared` + **etcd** + **#3149** non-fatal kyverno gate). It **converged zero-touch past the #2989 wedge** (first prov to clear it), **both regions healthy** (region-b: 4 nodes Ready, 9 cilium pods, 49/56 HRs — the hw123 -b gap is GONE), and **serves HTTPS** (marketplace 200, console 200, valid Let's Encrypt wildcard cert). One operational nudge: force-reconciled bp-harbor past a transient external-secrets-webhook image-pull race (#3155 — Flux should self-heal that; needs a webhook-gate like kyverno's).
+
+| Row | Result | Evidence |
+|---|---|---|
+| TC-01 Marketplace storefront | ✅ | `marketplace.hw124.omani.works/` — "Build Your Tenant" storefront, HTTPS valid cert (`docs/sessions/2026-06-09/evidence/hw124-marketplace-storefront.png`) |
+| Operator console login (PIN) | ✅ | `console.hw124…/login` email→6-digit PIN (IMAP-retrieved) → dashboard |
+| Operator dashboard | ✅ | live cluster treemap, 94 items (seaweedfs/kyverno/harbor/keycloak/cnpg/openbao/powerdns/cilium/…) |
+| **TC-12 Cloud view = 2 REAL regions** | ✅ | `/cloud?view=graph` — **Region 2/2, Cluster 2/2, 12 WorkerNodes** across `me-east-215-a` AND `-b`; kubectl-confirmed both regions Ready + cilium up (`hw124-cloud-2region-TC12.png`). NOT the empty-2nd-region shell that failed hw99/hw123. |
+
+Remaining (continuing the live walk): TC-02/03/04 voucher, TC-05–09 checkout→Org, per-app SSO (§2 — #3150 3-layer gap), TC-15–17 cutover.
+
+## 0b. Session results — hw123 (`179551d5ce8039cf`) — SUPERSEDED (wiped for the hw124 clean re-prov)
 
 **Env state (honest):** hw123 converged past the #2989 wedge (51/56) on the cloud-agnostic `_shared` bootstrap with **etcd** (`--cluster-init`) — first prov ever to clear it. Phase-1 watch then "failed" on the **recoverable** kyverno-hook timeout; the cluster stayed alive. Serving was unblocked by force-reconciling bp-kyverno (the real root cause, now permanently fixed in **#3149** — webhook-gate made non-fatal); `sovereign-tls` then applied the wildcard cert + LB-IPAM pool + gateway nodePort pin + coredns DNS-01 override **natively**. hw123 now serves HTTPS (marketplace + console 200, valid Let's Encrypt wildcard cert). **The pristine zero-touch proof is a fresh re-prov with #3149 merged (no nudges needed).**
 
