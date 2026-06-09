@@ -1,5 +1,14 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.552 — #3188 (2026-06-10) — catalog-seed: add the missing bp-postgres
+# Blueprint CR. bp-postgres (the operator-facing, SHAREABLE PostgreSQL
+# data-instance card, ADR-0010) was the lone catalog-404 for the data-instance
+# App card on a fresh Sovereign — #3191 added it to blueprints.json but not the
+# in-cluster catalog-seed, which is the source GET /api/v1/catalog actually
+# serves, so GET /api/v1/catalog/bp-postgres returned 404 while bp-cnpg/
+# bp-cnpg-pair resolved. Seeded verbatim from platform/postgres/blueprint.yaml
+# (version 0.1.1, visibility listed, topology singleton+active-hot-standby, no
+# endpoints/no sso → lockstep-green). Refs #3188.
 # 1.4.542 — #3150 (2026-06-10) — catalog-seed: add the missing
 # bp-powerdns-admin Blueprint CR. bp-powerdns-admin (slot 11a) was the LONE
 # catalog-404 on a fresh Sovereign — the HR installed but no catalog-seed
@@ -2619,7 +2628,7 @@ name: bp-catalyst-platform
 # flip admin.dns.<sov> → pdns-admin.<sov> (single-level, wildcard-cert-covered,
 # matches the KC client redirectUris) + bp-powerdns-admin 0.1.5 OIDC env-var
 # name fixes. Refs #3150.
-version: 1.4.551
+version: 1.4.552
 appVersion: 1.4.494
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.

@@ -983,7 +983,10 @@ spec:
       # bp-powerdns-admin Blueprint CR (was the lone catalog-404 on fresh prov).
       # 1.4.547 — #3150 (2026-06-10): catalog-seed bp-powerdns-admin endpoint
       # gains ssoEnabled+ssoInitPath for silent-SSO logged-in.
-      version: 1.4.551
+      # 1.4.552 — #3188 (2026-06-10): catalog-seed gains the missing bp-postgres
+      # Blueprint CR (the shareable PostgreSQL data-instance App card, ADR-0010)
+      # — was the lone catalog-404 for the data-instance card on a fresh prov.
+      version: 1.4.552
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

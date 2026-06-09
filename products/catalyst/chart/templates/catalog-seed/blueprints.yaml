@@ -5512,4 +5512,107 @@ spec:
     rolesFromGroup:
       sovereign-admins: admin
     silentLogin: true
+---
+# bp-postgres — the operator-facing, SHAREABLE PostgreSQL data-instance
+# App card (ADR-0010). Each install is ONE CNPG Cluster (the engine,
+# operated by bp-cnpg) exposed as a first-class App. Consumers SHARE it
+# via isolated databases + per-consumer roles, all pure declarative YAML
+# (a CNPG Database CR + a managed.roles entry + a reflected connection
+# Secret + a Flux dependsOn edge) — NO custom controller, NO Crossplane.
+#
+# Seeded verbatim from platform/postgres/blueprint.yaml (#3191/#3196).
+# Was the lone catalog-404 for the data-instance card on a fresh Sovereign
+# (GET /api/v1/catalog/bp-postgres returned 404 while bp-cnpg/bp-cnpg-pair
+# resolved) — #3191 added it to blueprints.json but not this in-cluster
+# seed, which is the source the catalog API actually serves. The engine
+# OPERATOR (bp-cnpg) stays unlisted; the N data-instances (gitea-pg,
+# harbor-pg, shared-pg, …) are bp-postgres App cards → visibility: listed.
+# No user-facing endpoint + no SSO on the source (connection is intra-
+# cluster via the reflected role Secret), so endpoints[] is empty and no
+# sso block — matching platform/postgres/blueprint.yaml keeps the lockstep
+# guard green. Refs #3188.
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-postgres
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: data
+    catalyst.openova.io/section: pts-4-1-data-services
+    catalyst.openova.io/companion: bp-cnpg
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "0.1.1"
+  visibility: listed
+  card:
+    title: "PostgreSQL"
+    category: data
+    family: postgres
+    summary: "A reusable, shareable PostgreSQL data-instance. Each install is ONE CNPG Cluster — the engine — and a first-class App card. Consumers SHARE it via isolated databases + per-consumer roles (ADR-0010)."
+    description: "The binding is pure declarative YAML (a CNPG Database CR + a managed.roles entry + a reflected connection Secret + a Flux dependsOn edge) reconciled by Flux + the CNPG operator. NO custom controller and NO Crossplane. topology: active-hot-standby renders the Pillar-3 synchronous-replication shape (ADR-0004)."
+    icon: postgres.svg
+    license: "Apache-2.0"
+    tags: [database, postgres, sql, data, shareable, cnpg, adr-0010]
+    docs: "https://cloudnative-pg.io/documentation/"
+  placementSchema:
+    modes: [single-region, active-active]
+    default: single-region
+  manifests:
+    chart: bp-postgres
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-postgres
+    version: 0.1.1
+  # Seeded verbatim from platform/postgres/blueprint.yaml spec.topology.
+  # singleton = single-instance Cluster; active-hot-standby = sync
+  # replication across regions (ADR-0004 Pillar-3 zero-tx-loss) via the
+  # cnpg-pair backend, switchover by bp-continuum.
+  topology:
+    supported:
+      - singleton
+      - active-hot-standby
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: rtz
+          clusters:
+            - rtz-A
+          roles:
+            rtz-A: singleton
+      active-hot-standby:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 10
+          rpoSeconds: 0
+        placement:
+          tier: rtz
+          clusters:
+            - rtz-A
+            - rtz-B
+          roles:
+            rtz-A: active
+            rtz-B: passive
+  # No public endpoint — consumers connect intra-cluster via the
+  # CNPG-reflected role Secret. Empty endpoints[] + no sso block matches
+  # the platform/ source (keeps the lockstep guard green).
+  endpoints: []
+  # multiInstance — N distinct data-instances per Org (gitea-pg, harbor-pg,
+  # shared-pg, …). maxPerOrg 0 = unlimited. Mirrors the platform/ source.
+  multiInstance:
+    enabled: true
+    maxPerOrg: 0
+    namingTemplate: "{{ "{{" }}.AppName{{ "}}" }}-{{ "{{" }}.InstanceID{{ "}}" }}"
+    isolationLevel: namespace
 {{- end }}
