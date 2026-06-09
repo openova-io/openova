@@ -1092,7 +1092,11 @@ function OverviewPanel({
   appPrimaryRegion,
   appLastReconciled,
   appExternalURL,
-  appUID,
+  // appUID stays in OverviewPanelProps (passed by the parent for type
+  // symmetry) but is intentionally NOT destructured here: the Launch
+  // button now keys on `launchKey` (#3150), which equals appUID for
+  // CR-backed apps and the blueprint/release name for bootstrap-kit HR
+  // apps. Binding appUID without using it trips the build's noUnusedLocals.
   launchKey,
   isServiceApp,
   compState,
