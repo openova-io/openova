@@ -17,7 +17,26 @@ name: bp-powerdns-admin
 # to the maintained `powerdnsadmin/pda-legacy:0.4.2`. Drop the spurious
 # `ghcr-pull` imagePullSecret (proxy-dockerhub is anonymous; ghcr-pull is
 # the wrong cred and isn't reflected into this namespace). See values.yaml.
-version: 0.1.4
+#
+# 0.1.4 (#3189): wire SQLALCHEMY_DATABASE_URI from the CNPG `uri` secret key
+# so pda-legacy uses the provisioned pda-pg postgres, not baked-in SQLite.
+#
+# 0.1.5 (#3150, 2026-06-10): land silent-SSO LOGGED-IN on hw124. Two fixes:
+# (1) the OIDC env-var NAMES were wrong — PDA reads `oidc_oauth_<x>` from env
+#     `OIDC_OAUTH_<X>` (settings.py load_environment; Setting().get reads
+#     app.config[KEY] before the DB). The `_CLAIM`/`_PROPERTY`-suffixed names
+#     (USERNAME_CLAIM / FIRST_NAME_PROPERTY / LAST_NAME_PROPERTY / EMAIL_PROPERTY)
+#     are NOT what PDA reads → they were ignored → Setting().get fell through to
+#     the DB default `given_name` → the login view's unguarded
+#     `user_data['given_name']` raised `KeyError` → HTTP 500 on the OIDC
+#     callback. Renamed to the exact keys OIDC_OAUTH_USERNAME / _FIRSTNAME /
+#     _LAST_NAME / _EMAIL.
+# (2) catalyst-pin federated users carry NO name claims, so firstname +
+#     last_name both point at `preferred_username` (always present). Verified
+#     live on hw124: console Open → pdns-admin.<fqdn>/oidc/login → KC silent →
+#     lands on the PDA Dashboard logged-in, no login form
+#     (docs/sessions/2026-06-10/evidence/hw124-powerdns-admin-loggedin.png).
+version: 0.1.5
 description: |
   PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI Blueprint for
   per-Sovereign PowerDNS zone + record management. Drives the
@@ -35,7 +54,7 @@ description: |
 
   Per ADR-0001 / docs/PLATFORM-TECH-STACK.md §3.5 the chart is
   vendor-agnostic — per-Sovereign overlays set the gateway hostname
-  (admin.dns.<sovereign-fqdn>) and the PDNS endpoint reachable from
+  (pdns-admin.<sovereign-fqdn>) and the PDNS endpoint reachable from
   Pods inside the Sovereign cluster.
 type: application
 keywords: [catalyst, blueprint, powerdns-admin, dns, ui, sso]

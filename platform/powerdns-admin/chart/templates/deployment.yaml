@@ -116,13 +116,31 @@ spec:
               value: "True"
             - name: OIDC_OAUTH_SCOPE
               value: "openid profile email groups"
-            - name: OIDC_OAUTH_USERNAME_CLAIM
+            # #3150 — the env-var NAMES MUST be PDA's exact setting keys
+            # upper-cased (powerdnsadmin/lib/settings.py load_environment maps
+            # `oidc_oauth_<x>` ⇄ env `OIDC_OAUTH_<X>`; Setting().get reads
+            # app.config[KEY] BEFORE the DB). The earlier `_CLAIM` / `_PROPERTY`
+            # suffixes were WRONG names → PDA ignored them → Setting().get fell
+            # through to the seeded DB defaults. Caught live on hw124: with the
+            # wrong `OIDC_OAUTH_FIRST_NAME_PROPERTY`, the login view's
+            # `user_data[Setting().get('oidc_oauth_firstname')]` resolved to the
+            # DB default `given_name` → `KeyError: 'given_name'` → HTTP 500 on
+            # the OIDC callback.
+            - name: OIDC_OAUTH_USERNAME
               value: "preferred_username"
-            - name: OIDC_OAUTH_FIRST_NAME_PROPERTY
-              value: "given_name"
-            - name: OIDC_OAUTH_LAST_NAME_PROPERTY
-              value: "family_name"
-            - name: OIDC_OAUTH_EMAIL_PROPERTY
+            # catalyst-pin federated users carry ONLY email + groups +
+            # preferred_username — NO `given_name` / `family_name` name claims
+            # (catalyst-pin's id_token has no name claims; see
+            # platform/keycloak/chart/templates/configmap-sovereign-realm.yaml).
+            # PDA's login view does an UNGUARDED `user_data[<firstname>]` lookup,
+            # so point firstname + last_name at `preferred_username` (always
+            # present) — otherwise the callback 500s and the operator never
+            # lands inside PDA.
+            - name: OIDC_OAUTH_FIRSTNAME
+              value: "preferred_username"
+            - name: OIDC_OAUTH_LAST_NAME
+              value: "preferred_username"
+            - name: OIDC_OAUTH_EMAIL
               value: "email"
             - name: OIDC_OAUTH_ACCOUNT_NAME_PROPERTY
               value: "groups"
