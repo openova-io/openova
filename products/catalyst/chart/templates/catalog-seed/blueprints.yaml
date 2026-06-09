@@ -1533,7 +1533,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.1"
+  version: "0.2.2"
   visibility: listed
   card:
     title: "Apache Guacamole"
@@ -1551,7 +1551,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-guacamole
-    version: "0.2.1"
+    version: "0.2.2"
   topology:
     supported:
     - active-hot-standby
@@ -1592,13 +1592,17 @@ spec:
     # pointed at a host with NO HTTPRoute → the console launch-url landed on a
     # dead host. Keep this aligned with the live HTTPRoute.
     #
-    # ssoInitPath is intentionally OMITTED: Guacamole's UI is an Angular SPA
-    # and OIDC is driven by the OpenID extension, which auto-starts the redirect
-    # from the app root (POST /api/tokens) — there is no clean server GET route
-    # to land on. The legacy app-root launch is correct for it. (On hw124 the
-    # guacamole backend currently 404s /api/tokens and its OIDC env points at
-    # the stale realm `catalyst`/host `keycloak.*` rather than `sovereign`/
-    # `auth.*` — a separate config-drift defect, not a launch-url gap.)
+    # ssoInitPath: /guacamole/ (#3150, 2026-06-10) — the Apache Guacamole WAR
+    # is served under Tomcat's `/guacamole/` context path; the bare host root
+    # `/` returns a Tomcat 404 ROOT page. Without ssoInitPath the launch-url
+    # builder (buildLaunchURL, endpoint_handler.go) returns
+    # `https://guacamole.<sov>/?prompt=none&kc_idp_hint=catalyst-pin` → the
+    # operator lands on the Tomcat 404 root, NOT the webapp, so the OpenID
+    # extension never auto-initiates and silent-SSO never fires. Pointing
+    # ssoInitPath at `/guacamole/` lands the operator on the webapp root where
+    # the guacamole-auth-sso-openid extension auto-starts the OIDC implicit
+    # redirect to Keycloak. The prior "intentionally OMITTED" note was wrong —
+    # the app-root launch lands on Tomcat's 404, not the app.
     hostnameTemplate: guacamole.{{ "{{" }}.SovereignFQDN{{ "}}" }}
     port: 443
     protocol: https
@@ -1606,6 +1610,7 @@ spec:
     visibility: public
     launchDefault: true
     ssoEnabled: true
+    ssoInitPath: "/guacamole/"
   sso:
     realm: sovereign
     protocolMapper: oidc

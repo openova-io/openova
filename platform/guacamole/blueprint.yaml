@@ -7,7 +7,7 @@ metadata:
     catalyst.openova.io/category: platform
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 0.2.1
+  version: 0.2.2
   card:
     title: Apache Guacamole
     summary: Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO and full session recording to SeaweedFS. One Guacamole per Sovereign per ADR-0001 §11.
@@ -89,13 +89,22 @@ spec:
   # ── G117.3: Endpoints ──────────────────────────────────────────────────
   endpoints:
     - name: ui
-      hostnameTemplate: "guac.{{.SovereignFQDN}}"
+      # #3150 (2026-06-10): host is `guacamole.<sov>` (the live HTTPRoute set
+      # by clusters/_template/bootstrap-kit/52-bp-guacamole.yaml), NOT the
+      # stale `guac.<sov>` which had no HTTPRoute → launch-url 404'd. Keep in
+      # lockstep with the catalog-seed entry in
+      # products/catalyst/chart/templates/catalog-seed/blueprints.yaml.
+      hostnameTemplate: "guacamole.{{.SovereignFQDN}}"
       port: 443
       protocol: https
       tls: true
       visibility: public
       launchDefault: true
       ssoEnabled: true
+      # #3150: the Guacamole WAR is served under Tomcat's `/guacamole/`
+      # context path; bare `/` is a Tomcat 404 ROOT page. Land the launch on
+      # the webapp root so the OpenID extension auto-initiates silent-SSO.
+      ssoInitPath: "/guacamole/"
 
   # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
   sso:

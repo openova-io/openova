@@ -142,7 +142,12 @@ spec:
       # empty-placeholder path with a chart-managed lookup-or-generate
       # Secret + helm.sh/resource-policy: keep (default ON; opt-out via
       # `guacamole.oidc.chartManagedSecret: false`). Refs #2744.
-      version: 0.2.1
+      # 0.2.2 (#3150, 2026-06-10): default OIDC redirect_uri now carries
+      # the `/guacamole/` Tomcat context path (was bare `/` → the
+      # implicit-flow id_token fragment landed on a Tomcat 404 ROOT page
+      # and silent-SSO never reached the webapp). KC `guacamole` client's
+      # `/*` redirectUris wildcard already accepts it.
+      version: 0.2.2
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
