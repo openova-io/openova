@@ -66,5 +66,18 @@ maintainers:
 # blueprint-release hollow-chart guard (#181) accepts the annotation.
 annotations:
   catalyst.openova.io/no-upstream: "true"
+  # Default-values render is intentionally short. Every template (the CNPG
+  # Cluster, the Database CRs, the reflected connection Secrets) is gated on
+  # `.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1"` — the CNPG CRD is
+  # NOT registered during the blueprint-release offline `helm template` smoke
+  # render, so the Cluster/Database never render there. The default
+  # `databases: []` also renders zero binding Secrets. The result is an empty
+  # render, which the smoke-render guard flags as "suspiciously short" unless
+  # this annotation declares the short render expected — the same pattern the
+  # directly-analogous bp-cnpg-pair (slot 16b) and 30+ sibling charts use. The
+  # enabled-render path (1 Cluster + N Databases + N roles + N Secrets, with
+  # `--api-versions postgresql.cnpg.io/v1`) is fully covered by the unit test
+  # chart/tests/postgres-render.sh, which CI runs via the `tests/*.sh` gate.
+  catalyst.openova.io/smoke-render-mode: "default-off"
   catalyst.openova.io/depends-on: "bp-cnpg,bp-reflector"
   catalyst.openova.io/issue: "3188"
