@@ -108,7 +108,13 @@ async function tryRefresh(): Promise<void> {
 // and must NOT duplicate into this Org-provisioning picker (#3156).
 export const getPlans = async (): Promise<Plan[]> => {
   const raw = await request<any[]>('/catalog/plans?product=generic');
-  return raw.map(p => ({
+  return raw
+    // Safety net: drop any product-scoped row client-side too, so the
+    // picker stays generic-only even against an older catalog-service
+    // that doesn't yet honour ?product= (#3156). product_slug is omitted
+    // (omitempty) for generic tiers, so falsy === keep.
+    .filter(p => !p.product_slug)
+    .map(p => ({
     id: p.id,
     slug: p.slug || p.name?.toLowerCase() || '',
     name: p.name,
