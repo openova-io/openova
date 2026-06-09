@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.26
+  version: 1.2.27
   card:
     title: openbao
     summary: OpenBao secret backend. 3-node Raft per region (independent quorum, async perf-replication across regions). MPL 2.0 — drop-in Vault replacement.
@@ -78,7 +78,12 @@ spec:
       # re-uses the PIN silently. NOTE: requires the `oidc` auth method to be
       # mounted by the sso-configure Deployment; when that job is unhealthy the
       # UI falls back to ?with=token and silent SSO can't fire.
-      ssoInitPath: "/ui/vault/auth?with=oidc%2F"
+      #
+      # The `?with=` value is the auth-method PATH with NO trailing slash.
+      # `oidc%2F` (encoded trailing slash) made the Ember UI fail to match the
+      # `oidc` mount → it reverted to `?with=token` (manual Token form) and the
+      # malformed mount path broke the callback round-trip. Emit `?with=oidc`.
+      ssoInitPath: "/ui/vault/auth?with=oidc"
 
   # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
   # OpenBao OIDC auth method federated to sovereign realm (G91 manual

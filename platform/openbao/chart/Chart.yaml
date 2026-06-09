@@ -26,7 +26,15 @@ name: bp-openbao
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.2.26
+version: 1.2.27
+# 1.2.27 (#3150, 2026-06-10): OIDC callback now LANDS the operator logged-in.
+# sso-configure reconciler: (1) bound_claims.groups widened to sovereign-admins
+# + sovereign-ops + sovereign-viewers (the realm stamps defaultGroups
+# /sovereign-viewers on EVERY federated operator → the prior admin-only
+# bound_claim rejected the callback with "claim groups does not match any
+# associated bound claim values"); (2) external identity-group aliases map
+# admins/ops → sso-operator-admin and viewers → sso-operator-read (read-only
+# baseline) so widening bound_claims does NOT over-grant.
 # 1.2.20 (G91.openbao #2655, 2026-05-31): opt in to the bp-sso-bridge
 # (G91.1 #2652) SSO framework. Top-level `sso:` block (defaults
 # enabled=true). Adds: templates/sso-oauth-source-externalsecret.yaml

@@ -173,11 +173,18 @@ sso:
   clientId: openbao
   externalSecretStoreName: vault-region1
   refreshInterval: 1h
-  # Realm group → OpenBao operator-admin policy mapping. The Sovereign
-  # operator (deployment.OrgEmail) is auto-added to `sovereign-admins` by
-  # the realm import; users in this group land with the sso-operator-admin
-  # policy (full read/write/sudo on every path).
+  # Realm group → OpenBao policy mapping (#3150). The sovereign realm stamps
+  # `defaultGroups: /sovereign-viewers` on EVERY PIN-federated operator, and
+  # the handover flow additionally adds the org operator to `sovereign-admins`
+  # (sovereign-ops is the third privileged group). ALL THREE must be in the
+  # OIDC role's bound_claims or OpenBao rejects the callback with "claim
+  # groups does not match any associated bound claim values". Policy uplift:
+  #   adminGroup / opsGroup → sso-operator-admin (read/write/sudo everywhere)
+  #   viewerGroup           → sso-operator-read  (read+list, role baseline)
+  # delivered via external identity-group aliases on the oidc mount.
   adminGroup: sovereign-admins
+  opsGroup: sovereign-ops
+  viewerGroup: sovereign-viewers
   # G117.5 #2744 — Identity Provider hint. NOTE: OpenBao's OIDC
   # (jwt) backend builds the auth_url server-side via the hashicorp/cap
   # library and does NOT expose a knob to inject arbitrary query params

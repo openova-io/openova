@@ -3269,7 +3269,14 @@ spec:
     # defaultProvider=catalyst-pin binding (NOT an auth_url query param).
     # Requires the `oidc` auth method to be mounted by the sso-configure
     # Deployment.
-    ssoInitPath: "/ui/vault/auth?with=oidc%2F"
+    #
+    # The `?with=` value is the auth-method PATH with NO trailing slash. The
+    # prior `oidc%2F` (encoded trailing slash) made OpenBao's Ember UI fail to
+    # match the `oidc` mount → it normalised `?with=` back to `token` and
+    # showed the manual Token form (and the malformed mount path produced a
+    # callback whose state/redirect_uri did not round-trip → 400). Emit plain
+    # `?with=oidc`.
+    ssoInitPath: "/ui/vault/auth?with=oidc"
   sso:
     realm: sovereign
     protocolMapper: oidc
