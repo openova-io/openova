@@ -45,7 +45,7 @@ import {
 const LEAVES: Job[] = [
   {
     id: 'job-tofu-init',
-    jobName: 'Provision Hetzner — terraform init',
+    jobName: 'Provision infrastructure — terraform init',
     type: 'install',
     appId: 'infrastructure',
     parentId: GROUP_PHASE_0,
@@ -58,7 +58,7 @@ const LEAVES: Job[] = [
   },
   {
     id: 'job-tofu-plan',
-    jobName: 'Provision Hetzner — terraform plan',
+    jobName: 'Provision infrastructure — terraform plan',
     type: 'install',
     appId: 'infrastructure',
     parentId: GROUP_PHASE_0,
@@ -71,7 +71,7 @@ const LEAVES: Job[] = [
   },
   {
     id: 'job-tofu-apply',
-    jobName: 'Provision Hetzner — terraform apply',
+    jobName: 'Provision infrastructure — terraform apply',
     type: 'install',
     appId: 'infrastructure',
     parentId: GROUP_PHASE_0,
@@ -84,7 +84,7 @@ const LEAVES: Job[] = [
   },
   {
     id: 'job-tofu-output',
-    jobName: 'Provision Hetzner — terraform output',
+    jobName: 'Provision infrastructure — terraform output',
     type: 'install',
     appId: 'infrastructure',
     parentId: GROUP_PHASE_0,

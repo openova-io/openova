@@ -46,7 +46,7 @@ describe('LogPane — Bug #481 fallbackLines path', () => {
       <LogPane
         executionId={null}
         fallbackLines={SAMPLE_LINES}
-        jobTitle="Provision Hetzner — terraform init"
+        jobTitle="Provision infrastructure — terraform init"
         statusLabel="Succeeded"
         statusTone="succeeded"
         onClose={() => {}}
