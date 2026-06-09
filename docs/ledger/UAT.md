@@ -8,6 +8,23 @@
 >
 > Legend: ✅ pass · ◑ partial · ❌ fail · ⛔ blocked · ☐ pending (default).
 
+## 0. Session results — hw123 (`179551d5ce8039cf`), walked 2026-06-09
+
+**Env state (honest):** hw123 converged past the #2989 wedge (51/56) on the cloud-agnostic `_shared` bootstrap with **etcd** (`--cluster-init`) — first prov ever to clear it. Phase-1 watch then "failed" on the **recoverable** kyverno-hook timeout; the cluster stayed alive. Serving was unblocked by force-reconciling bp-kyverno (the real root cause, now permanently fixed in **#3149** — webhook-gate made non-fatal); `sovereign-tls` then applied the wildcard cert + LB-IPAM pool + gateway nodePort pin + coredns DNS-01 override **natively**. hw123 now serves HTTPS (marketplace + console 200, valid Let's Encrypt wildcard cert). **The pristine zero-touch proof is a fresh re-prov with #3149 merged (no nudges needed).**
+
+| Row | Result | Evidence |
+|---|---|---|
+| TC-01 Marketplace storefront | ✅ | `marketplace.hw123.omani.works/` — "Build Your Tenant" storefront, HTTPS valid cert (`hw123-marketplace-https.png`) |
+| TC-05 Pick plan | ✅ | `/plans` — S/M/L/XL/Flexi + 3 Sandbox tiers; M pre-selected; "Continue to Stack" |
+| TC-06 Pick apps | ✅ | `/apps` — 14 apps, search, industry templates, category filters |
+| Operator console login (PIN) | ✅ | `console.hw123…/login` email→6-digit PIN (retrieved via IMAP) → dashboard (`hw123-operator-console-dashboard.png`) |
+| Operator dashboard + Apps | ✅ | live cluster treemap (95 items); Apps tab shows **49 INSTALLED** (full stack: grafana/gitea/harbor/keycloak/openbao/cnpg/powerdns/…) |
+| TC-G1b Instance page ≠ class | ✅ | `/app/bp-grafana` — single-instance AppDetail, 7-tab strip, Ready, External URL, no "New instance" |
+| TC-12 Cloud view = 2 REAL regions | ◑ | Region 2/2, Cluster 2/2, 12 WorkerNodes; region `-b` has **4 real nodes** (not an empty shell) but **NotReady** — secondary region didn't converge |
+| SSO-grafana (silent SSO) | ◑ | "Open" launches `grafana.hw123…` in a new tab but lands on Grafana's **login form** — NOT auto-signed-in. Console catalyst-api PIN session ≠ the Keycloak browser session the apps' `prompt=none` SSO needs. |
+
+Remaining (need a converged 2-region env / clean re-prov): TC-02/03/04 voucher, TC-07/08/09 checkout→Org, TC-10 tenant login, TC-11/13/14 multi-region+CNPG-failover (gated on region-b), TC-15/16/17 cutover, the remaining per-app SSO rows.
+
 ## 1. Pillars (marketplace → Org → multi-region → CNPG failover → cutover)
 
 | # | Test group | Tested page | Test case (what you do) | What you must see | Result | Evidence |
