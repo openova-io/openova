@@ -283,14 +283,23 @@ describe('AppDetail — #3090 instance page (no class content; Open button)', ()
     installAppFetch('https://gitea.t99.omani.works')
     renderDetail('d-1', 'bp-cilium')
     // Overview tab is the default landing tab.
-    await screen.findByTestId('app-tab-overview-panel')
-    const openBtn = await screen.findByTestId('btn-launch-app')
+    const overviewPanel = await screen.findByTestId('app-tab-overview-panel')
+    // #3150 — the launch button now renders TWICE (the prominent hero CTA
+    // in the header AND the inline button next to the Overview external-URL
+    // row), both carrying data-testid="btn-launch-app". Scope to the
+    // Overview panel so this Overview-tab assertion targets exactly one.
+    const openBtn = await within(overviewPanel).findByTestId('btn-launch-app')
     expect(openBtn).toBeTruthy()
     // Founder relabel "Launch →" → "Open".
     expect(openBtn.textContent).toContain('Open')
     expect(openBtn.textContent).not.toContain('Launch')
     // The external-URL row is the gate that surfaces the button.
     expect(screen.getByTestId('app-detail-overview-external-url')).toBeTruthy()
+    // The prominent hero CTA also renders, reading "Open <App>" (#3150
+    // — founder demanded an unmistakable, app-named header button).
+    const heroLaunch = await screen.findByTestId('hero-launch')
+    const heroBtn = within(heroLaunch).getByTestId('btn-launch-app')
+    expect(heroBtn.textContent).toContain('Open')
   })
 
   it('hides the "Open" button when the Application has no external URL', async () => {
@@ -361,8 +370,11 @@ describe('AppDetail — #3090 instance page (no class content; Open button)', ()
 
     try {
       renderDetail('d-1', 'bp-grafana')
-      await screen.findByTestId('app-tab-overview-panel')
-      const openBtn = await screen.findByTestId('btn-launch-app')
+      const overviewPanel = await screen.findByTestId('app-tab-overview-panel')
+      // #3150 — two launch buttons now render (hero CTA + inline). Either
+      // drives the same silent-SSO path; scope to the Overview-tab inline
+      // one so this assertion targets exactly one button.
+      const openBtn = await within(overviewPanel).findByTestId('btn-launch-app')
       fireEvent.click(openBtn)
       // Allow the async getLaunchURL + window.open microtasks to settle.
       await new Promise((r) => setTimeout(r, 0))
