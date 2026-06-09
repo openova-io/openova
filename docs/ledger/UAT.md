@@ -48,10 +48,10 @@ Remaining (need a converged 2-region env / clean re-prov): TC-02/03/04 voucher, 
 | # | Test group | Tested page | Test case (what you do) | What you must see | Result | Evidence |
 |---|---|---|---|---|---|---|
 | **Pillar 1 — Marketplace + voucher onboarding → Organization** |||||||
-| TC-01 | Marketplace storefront | `marketplace.hw101.<dom>/` | Open the storefront | "Build your tenant" renders, non-empty, branded | ☐ | — |
-| TC-02 | Operator issues voucher | `console.hw101.<dom>/bss/vouchers` | Operator: +Issue voucher → code+credit → submit | Voucher appears in the table, active | ☐ | — |
+| TC-01 | Marketplace storefront | `marketplace.hw124.omani.works/` | Open the storefront | "Build your tenant" renders, non-empty, branded | ✅ | hw124 2026-06-09 — "Build Your Tenant" storefront, HTTPS valid cert (`docs/sessions/2026-06-09/evidence/hw124-marketplace-storefront.png`) |
+| TC-02 | Operator issues voucher | `console.hw124.omani.works/bss/vouchers` | Operator: +Issue voucher → code+credit → submit | Voucher appears in the table, active | ✅ | hw124 2026-06-09 — `UATHW124` + 50 OMR → row "UATHW124 · 50 OMR · Active · 6/9/2026" |
 | TC-03 | Voucher email | recipient inbox | Open the voucher email | Delivered via the **Sovereign's own SMTP** with the redeem link | ☐ | — |
-| TC-04 | Redeem voucher | `marketplace.hw101.<dom>/redeem?code=…` | Open the redeem link | "Voucher valid" + OMR credit; a garbage code → "not valid" | ☐ | — |
+| TC-04 | Redeem voucher | `marketplace.hw124.omani.works/redeem?code=UATHW124` | Open the redeem link | "Voucher valid" + OMR credit; a garbage code → "not valid" | ✅ | hw124 2026-06-09 — "Voucher valid · 50 OMR credit · applied to your first Organization" |
 | TC-05 | Pick plan | `…/plans` | Pick a plan card | Advances to app picker | ☐ | — |
 | TC-06 | Pick apps | `…/apps` | Select a Postgres-backed app | Advances to setup/extras | ☐ | — |
 | TC-07 | Choose subdomain | `…/addons` | Type a valid subdomain | Pool picker offers a free domain; subdomain accepted | ☐ | — |
@@ -60,7 +60,7 @@ Remaining (need a converged 2-region env / clean re-prov): TC-02/03/04 voucher, 
 | TC-10 | Tenant first login | tenant console | Customer PIN-login | Dashboard renders (Phase 2a) | ☐ | — |
 | **Pillar 2 — Multi-region BCP topology chosen at signup** |||||||
 | TC-11 | BCP at signup | `marketplace.hw101.<dom>/bcp` | Choose **active-hot-standby**, pick **two different** regions | Same-region rejected; two distinct regions accepted; provisions BOTH in one pass | ☐ | — |
-| TC-12 | Cloud view = 2 REAL regions | `console.hw101.<dom>/cloud?view=graph` | Open the Cloud view | **2 regions, 2 clusters with REAL nodes in each** (not an empty 2nd-region VPC shell — the hw99 failure) | ☐ | — |
+| TC-12 | Cloud view = 2 REAL regions | `console.hw124.omani.works/cloud?view=graph` | Open the Cloud view | **2 regions, 2 clusters with REAL nodes in each** (not an empty 2nd-region VPC shell — the hw99 failure) | ✅ | hw124 2026-06-09 — **Region 2/2, Cluster 2/2, 12 WorkerNodes** across me-east-215-a + -b; kubectl-confirmed both regions Ready + cilium up (`docs/sessions/2026-06-09/evidence/hw124-cloud-2region-TC12.png`) |
 | **Pillar 3 — Two independent CNPG clusters + region-kill failover** |||||||
 | TC-13 | CNPG pair across regions | `/app/$id` → Topology | Install a CNPG-backed app; read placement | One CNPG cluster **per region**, synchronous `ReplicaCluster` over ClusterMesh; both regions shown | ☐ | — |
 | TC-14 | Region-kill failover | the app's FQDN | Dev kills the primary region; keep refreshing | Service resumes **≤30 s**, same FQDN; surviving region healthy; **0 transactions lost** | ☐ | — |
@@ -70,7 +70,7 @@ Remaining (need a converged 2-region env / clean re-prov): TC-02/03/04 voucher, 
 | TC-17 | Post-cutover resilience | tenant console + an app | PIN-login + tap **Open** | Both still work, now pulling exclusively from local Gitea/Harbor | ☐ | — |
 | **G117 — Application lifecycle (EPIC #2737) — class ≠ instance** |||||||
 | TC-G1a | Catalog class page | `console.hw101.<dom>/apps` → Catalog tab → click a class card | Click a class card | **CLASS page** `/catalog/$bp` — instances-list + New-instance only, no single-instance tabs | ☐ | — |
-| TC-G1b | Instance page ≠ class | `/apps` → Deployments tab → click an instance | Click an instance | **INSTANCE page** `/app/$id` — that one instance only; **NO "New instance"**; the two clicks NEVER open the same page | ☐ | — |
+| TC-G1b | Instance page ≠ class | `/apps` → Deployments tab → click an instance | Click an instance | **INSTANCE page** `/app/$id` — that one instance only; **NO "New instance"**; the two clicks NEVER open the same page | ✅ | hw124 2026-06-09 — `/app/bp-grafana` single-instance AppDetail, 7-tab strip, Ready, External URL, no "New instance" |
 | TC-G2 | Multi-instance children | `/catalog/$bp` | "+ New instance" ×3, distinct names | All accepted, no collision; class page lists all N, each → its own `/app/$id` | ◑ | ☐ | — |
 | TC-G4 | Endpoints tab editable | `/app/$id` → Endpoints | Add alias / edit / delete | EDITABLE; each mutation → Git-IaC PR (3 checks) → auto-merge → new FQDN serves TLS+SSO ≤2 min | ☐ | — |
 
