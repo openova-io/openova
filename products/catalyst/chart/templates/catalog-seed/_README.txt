@@ -78,3 +78,31 @@ and the in-cluster seeded CR is shadowed for catalog list/get calls.
 The in-cluster CR remains in place as a fallback should the curated
 entry be removed; the operator can delete it explicitly via
 `kubectl delete blueprint bp-<name>` once their curated set is stable.
+
+#3159 catalog-completeness expansion (2026-06-09)
+─────────────────────────────────────────────────
+The single-file seed (blueprints.yaml) was expanded from the 14-CR
+baseline to 35 CRs. Symptom that drove it: every operator-console
+catalog page for an un-seeded Blueprint (e.g. bp-alloy) 404'd at
+`GET /api/v1/catalog/{name}` — catalyst-api's chainedCatalogClient.Get()
+falls back to in-cluster Blueprint CRs (catalog_client_cluster_fallback.go),
+but the CR simply wasn't seeded, so the page never rendered.
+
+Scope rule for the added entries:
+  - INCLUDED: every blueprint with a REAL published OCI chart
+    (probed via `gh api /orgs/openova-io/packages/container/bp-<name>/versions`)
+    that is a user-installable / user-observable Application
+    (observability, data, comms, AI, workflow, identity, DR …).
+  - EXCLUDED: pure control-plane / bootstrap-kit plumbing (cilium, flux,
+    crossplane, vclusters, cert-manager, kyverno, gateway-api, the
+    catalyst control plane itself, …) — not catalog Applications.
+  - SKIPPED (no published chart, NOT seeded): bp-anthropic-adapter,
+    bp-clickhouse*, bp-debezium, bp-ferretdb, bp-flink, bp-iceberg,
+    bp-knative, bp-librechat, bp-milvus, bp-neo4j, bp-netbird,
+    bp-opensearch*, bp-sandbox, bp-strimzi. (*bp-clickhouse/bp-opensearch
+    remain in the 14-CR baseline from the original seed; their charts are
+    not currently in the published-package index but the entries predate
+    this expansion and are kept intact.)
+
+topology / endpoints / sso are copied verbatim from each
+platform/<x>/blueprint.yaml so check-catalog-seed-lockstep.sh stays green.
