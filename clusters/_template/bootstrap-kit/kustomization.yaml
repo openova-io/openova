@@ -22,6 +22,10 @@ resources:
   - 09-keycloak.yaml
   - 10-gitea.yaml
   - 11-powerdns.yaml
+  # 11a was authored but never added to this list → Flux never created the
+  # bp-powerdns-admin HR (the exact forgotten-slot bug documented above for
+  # bp-sso-bridge on hw86). powerdns-admin is a G91 SSO opt-in. (#3150)
+  - 11a-bp-powerdns-admin.yaml
   - 12-external-dns.yaml
   - 13-bp-catalyst-platform.yaml
   # G91.1 #2652 — bp-sso-bridge framework. Reconciler that watches
