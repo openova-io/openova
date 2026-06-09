@@ -1,0 +1,109 @@
+{{- /*
+The data-instance: ONE CNPG Cluster — the shareable Postgres engine.
+
+Per ADR-0010 each install of bp-postgres renders exactly one Cluster CR.
+Consumers SHARE it via the per-binding Database CRs (database.yaml) +
+the per-binding managed.roles entries assembled below from databases[].
+
+Capabilities gate (#190 pattern, mirrors bp-gitea/bp-harbor): bp-cnpg
+ships the postgresql.cnpg.io/v1 CRD. On a cold install before bp-cnpg is
+reconciling, the apiserver rejects this Cluster. The gate skips the
+template until the CRD is registered. The Flux dependsOn edge
+(bp-postgres-<name> dependsOn bp-cnpg) makes this a no-op in practice.
+*/ -}}
+{{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.topology.instances | default 1 }}
+  imageName: {{ include "bp-postgres.imageRef" . | quote }}
+
+  {{- /*
+  active-hot-standby with instances >= 2: default affinity.topologyKey
+  to topology.kubernetes.io/region so the CNPG operator spreads replicas
+  across regions on Cilium ClusterMesh peers (Pillar 3 zero-tx-loss),
+  mirroring the G93.3 #2668 rationale in the legacy consumer charts.
+  */ -}}
+  {{- if and (eq .Values.topology.mode "active-hot-standby") (ge (int (.Values.topology.instances | default 1)) 2) }}
+  affinity:
+    topologyKey: topology.kubernetes.io/region
+    podAntiAffinityType: preferred
+  {{- end }}
+
+  bootstrap:
+    initdb:
+      {{- /*
+      Bootstrap the instance with the FIRST binding's database+owner so
+      the Cluster is never database-less. Additional bindings are
+      provisioned declaratively via Database CRs (database.yaml). When no
+      bindings are declared, fall back to a neutral `app` database.
+      */ -}}
+      {{- $first := first .Values.databases }}
+      database: {{ (default (dict) $first).name | default "app" | quote }}
+      owner: {{ (default (dict) $first).owner | default "app" | quote }}
+
+  {{- /*
+  managed.roles — one declarative per-consumer login role per binding.
+  CNPG reconciles CREATE/ALTER ROLE + password from the named Secret on
+  every reconcile, so a Secret rotation or initdb-vs-Secret drift is
+  ALTER USER'd away (the bp-gitea Wave-5.35 #2211 lesson, generalised).
+  */ -}}
+  {{- if .Values.databases }}
+  managed:
+    roles:
+      {{- range .Values.databases }}
+      - name: {{ .owner | quote }}
+        ensure: present
+        login: true
+        passwordSecret:
+          name: {{ include "bp-postgres.roleSecretName" (dict "ctx" $ "db" .) | quote }}
+      {{- end }}
+  {{- end }}
+  # inheritedMetadata: CNPG propagates these onto every Secret it generates
+  # (<instance>-app, <instance>-<role>, <instance>-superuser). bp-reflector
+  # requires the SOURCE Secret to carry reflection-allowed before it copies
+  # data into a DESTINATION Secret in a consumer namespace. This is the
+  # CNPG v1.24+ mechanism (#584); setting annotations on the Cluster
+  # metadata directly does NOT propagate to generated Secrets.
+  inheritedMetadata:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+
+  postgresql:
+    parameters:
+      {{- range $k, $v := .Values.instance.parameters }}
+      {{ $k }}: {{ $v | quote }}
+      {{- end }}
+      {{- /*
+      active-hot-standby + sync: append the synchronous-replication GUCs
+      (ADR-0004). remote_apply blocks COMMIT until the replica replays the
+      WAL — the Pillar-3 zero-tx-loss bar. async mode omits them.
+      */ -}}
+      {{- if eq .Values.topology.mode "active-hot-standby" }}
+      max_wal_senders: "10"
+      max_replication_slots: "10"
+      wal_level: "logical"
+      {{- if eq (default "sync" .Values.topology.replication.mode) "sync" }}
+      synchronous_commit: {{ default "remote_apply" .Values.topology.replication.sync.commit | quote }}
+      synchronous_standby_names: {{ printf "FIRST %d (%s-r)" (int (default 1 .Values.topology.replication.sync.numSync)) (include "bp-postgres.instanceName" .) | quote }}
+      {{- end }}
+      {{- end }}
+
+  resources:
+    {{- toYaml .Values.instance.resources | nindent 4 }}
+
+  storage:
+    size: {{ .Values.instance.storageSize | default "5Gi" }}
+    storageClass: {{ .Values.instance.storageClass | default "local-path" | quote }}
+
+  enableSuperuserAccess: {{ .Values.instance.enableSuperuserAccess | default false }}
+
+  monitoring:
+    enablePodMonitor: {{ (default (dict) .Values.instance.monitoring).enablePodMonitor | default false }}
+{{- end }}

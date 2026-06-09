@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# bp-postgres render gate (ADR-0010, #3188; chart 0.1.0).
+#
+# Asserts the chart's load-bearing rules:
+#   1. Default render WITHOUT the CNPG CRD registered → ZERO resources
+#      (the Capabilities gate skips the Cluster + Database CRs on a cold
+#      install before bp-cnpg reconciles).
+#   2. Shared render (two bindings, CRD present) → ONE Cluster + TWO
+#      Database CRs + TWO reflected Secrets, with TWO managed.roles on the
+#      single Cluster. This is the reuse proof: 2 consumers, 1 engine.
+#   3. The Database CRs each carry the binding owner + the shared cluster
+#      name, proving logical isolation on one engine.
+#   4. active-hot-standby + sync → the Cluster carries
+#      synchronous_commit + synchronous_standby_names (ADR-0004 Pillar-3).
+#   5. singleton → the Cluster carries NEITHER sync GUC.
+#
+# Usage: bash tests/postgres-render.sh [CHART_DIR]
+# CI consumes this via blueprint-release.yaml's `tests/*.sh` gate.
+
+set -euo pipefail
+
+CHART_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+cd "$CHART_DIR"
+
+fail() { echo "FAIL: $1" >&2; exit 1; }
+
+# ── Case 1: cold install (no CRD) → zero resources ───────────────
+echo "[render] Case 1: no CNPG CRD → ZERO resources (Capabilities gate)"
+helm template smoke . > "$TMP/cold.yaml" 2> "$TMP/cold.err" || {
+  cat "$TMP/cold.err" >&2; fail "cold render errored"; }
+if grep -qE '^(kind: Cluster|kind: Database)$' "$TMP/cold.yaml"; then
+  fail "cold render emitted a Cluster/Database without the CRD registered"
+fi
+
+# ── Case 2: shared render — 1 Cluster, 2 Databases, 2 Secrets ────
+echo "[render] Case 2: shared render → 1 Cluster + 2 Databases + 2 Secrets + 2 roles"
+cat > "$TMP/shared.values.yaml" <<'YAML'
+instance:
+  name: shared-pg
+  namespace: shared-data
+topology:
+  mode: singleton
+  instances: 1
+databases:
+  - name: registry
+    owner: harbor
+    consumer: { blueprint: bp-harbor, mode: shared }
+    reflect: { secretName: harbor-database-secret, namespaces: [harbor] }
+  - name: gitea
+    owner: gitea
+    consumer: { blueprint: bp-gitea, mode: shared }
+    reflect: { secretName: gitea-database-secret, namespaces: [gitea] }
+YAML
+helm template shared-pg . -f "$TMP/shared.values.yaml" \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/shared.yaml" 2> "$TMP/shared.err" || {
+  cat "$TMP/shared.err" >&2; fail "shared render errored"; }
+
+cluster_count=$(grep -cE '^kind: Cluster$' "$TMP/shared.yaml" || true)
+db_count=$(grep -cE '^kind: Database$' "$TMP/shared.yaml" || true)
+secret_count=$(grep -cE '^kind: Secret$' "$TMP/shared.yaml" || true)
+role_count=$(grep -cE '^      - name: "(harbor|gitea)"$' "$TMP/shared.yaml" || true)
+
+[ "$cluster_count" -eq 1 ] || fail "expected 1 Cluster, got $cluster_count"
+[ "$db_count" -eq 2 ]      || fail "expected 2 Databases, got $db_count"
+[ "$secret_count" -eq 2 ]  || fail "expected 2 reflected Secrets, got $secret_count"
+[ "$role_count" -eq 2 ]    || fail "expected 2 managed roles, got $role_count"
+
+# ── Case 3: both Databases reference the SAME shared cluster ──────
+echo "[render] Case 3: both Database CRs reference the shared cluster"
+shared_refs=$(grep -cE '^    name: shared-pg$' "$TMP/shared.yaml" || true)
+# 1 in cluster.metadata path is name: shared-pg at root indent; the
+# Database spec.cluster.name lives at 4-space indent. Count those.
+[ "$shared_refs" -ge 2 ] || fail "expected both Database CRs to point at shared-pg (got $shared_refs)"
+grep -q 'owner: "harbor"' "$TMP/shared.yaml" || fail "harbor owner missing"
+grep -q 'owner: "gitea"'  "$TMP/shared.yaml" || fail "gitea owner missing"
+
+# ── Case 4: active-hot-standby + sync → sync GUCs present ─────────
+echo "[render] Case 4: active-hot-standby + sync → synchronous-replication GUCs"
+cat > "$TMP/ahs.values.yaml" <<'YAML'
+instance: { name: harbor-pg }
+topology:
+  mode: active-hot-standby
+  instances: 2
+  replication: { mode: sync, sync: { commit: remote_apply, numSync: 1 } }
+databases:
+  - { name: registry, owner: harbor }
+YAML
+helm template harbor-pg . -f "$TMP/ahs.values.yaml" \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/ahs.yaml" 2>&1 || fail "ahs render errored"
+grep -q 'synchronous_commit: "remote_apply"' "$TMP/ahs.yaml" \
+  || fail "active-hot-standby missing synchronous_commit"
+grep -q 'synchronous_standby_names: "FIRST 1 (harbor-pg-r)"' "$TMP/ahs.yaml" \
+  || fail "active-hot-standby missing synchronous_standby_names"
+
+# ── Case 5: singleton → NO sync GUCs ─────────────────────────────
+echo "[render] Case 5: singleton → no synchronous-replication GUCs"
+if grep -q 'synchronous_commit' "$TMP/shared.yaml"; then
+  fail "singleton render leaked synchronous_commit"
+fi
+
+echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets)"
