@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.23
+  version: 1.2.24
   card:
     title: gitea
     summary: Gitea — per-Sovereign Git server. Catalyst control plane. Hosts catalog (public Blueprint mirror), catalog-sovereign (Sovereign-curated private Blueprints), one Gitea Org per Catalyst Organization, and system (sovereign-admin scope).
@@ -61,6 +61,13 @@ spec:
       visibility: public
       launchDefault: true
       ssoEnabled: true
+      # #3150 — land the silent-SSO launch on gitea's OAuth-initiate route
+      # (provider name "openova-sso" → gitea 307s to KC's authorize
+      # endpoint, which the sovereign-realm IDR silently delegates to
+      # catalyst-pin). Without this the launch-url falls back to the gitea
+      # ROOT, which renders the login page with a manual "Sign in with
+      # OpenOva SSO" button — the operator never auto-signs-in.
+      ssoInitPath: "/user/oauth2/openova-sso"
 
   # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
   sso:
