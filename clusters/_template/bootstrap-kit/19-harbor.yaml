@@ -132,13 +132,21 @@ spec:
     # wait for the webhook to be Ready before it creates the ExternalSecret.
     - name: bp-external-secrets
       namespace: flux-system
-    # ADR-0010 reuse proof: when harbor SHARES the bp-postgres `shared-pg`
-    # instance (SOVEREIGN_HARBOR_PG_OWN_CLUSTER=false), gate on the shared
-    # data-instance HR so its `registry` Database + role + reflected
-    # harbor-database-secret exist before harbor's core pod starts.
-    # Harmless when harbor owns its cluster (the dependency just waits for
-    # shared-pg Ready). bp-postgres-shared dependsOn bp-cnpg, so the
-    # operator/CRDs are still ordered first.
+    # ADR-0010 reuse proof: harbor dependsOn bp-postgres-shared (slot 16a)
+    # UNCONDITIONALLY. Always safe because slot 16a installs an EMPTY (but
+    # Ready) release by default (SOVEREIGN_ENABLE_SHARED_PG=false) — the
+    # edge just waits for that empty HR to be Ready whether or not harbor
+    # is sharing. (#3191 regression: slot 16a authored but never registered
+    # in kustomization.yaml → HR never created → this edge dangled → harbor
+    # Ready=False. Fixed by registering 16a.)
+    #
+    # TWO-FLAG CONTRACT to actually SHARE: flip BOTH
+    # SOVEREIGN_HARBOR_PG_OWN_CLUSTER=false (harbor skips its OWN harbor-pg
+    # Cluster + points its DB host at shared-pg's -rw Service) AND
+    # SOVEREIGN_ENABLE_SHARED_PG=true (slot 16a renders the shared engine +
+    # provisions harbor's `registry` Database + role + reflected
+    # harbor-database-secret). The defaults (own-cluster=true, shared-pg=
+    # false) are the byte-identical 1:1 legacy path.
     - name: bp-postgres-shared
       namespace: flux-system
   chart:

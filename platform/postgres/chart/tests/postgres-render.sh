@@ -101,4 +101,33 @@ if grep -q 'synchronous_commit' "$TMP/shared.yaml"; then
   fail "singleton render leaked synchronous_commit"
 fi
 
-echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets)"
+# ── Case 6: master gate OFF → ZERO resources (#3188 safe-by-default) ──
+# `enabled=false` must render an EMPTY release even with the CNPG CRD
+# present and bindings declared — so the bootstrap-kit slot 16a HR is a
+# Ready (but empty) release that satisfies the bp-gitea / bp-harbor
+# dependsOn WITHOUT deploying an unused shared-pg Cluster. This is the
+# regression-lock for the #3191 / hw124 wedge fix.
+echo "[render] Case 6: enabled=false → ZERO resources (master gate, even with CRD + bindings)"
+helm template shared-pg . -f "$TMP/shared.values.yaml" --set enabled=false \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/off.yaml" 2> "$TMP/off.err" || {
+  cat "$TMP/off.err" >&2; fail "gated-off render errored"; }
+if grep -qE '^kind:' "$TMP/off.yaml"; then
+  fail "enabled=false render emitted resources (expected an empty release)"
+fi
+
+# ── Case 7: enabled=true explicit → identical to the default render ──
+# Guards against a `toString` regression where the gate misfires on the
+# truthy path (Sprig default-bool trap, memory feedback_sprig_default_
+# bool_unsafe).
+echo "[render] Case 7: enabled=true explicit → full reuse-proof render (1 Cluster + 2 Databases + 2 Secrets)"
+helm template shared-pg . -f "$TMP/shared.values.yaml" --set enabled=true \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/on.yaml" 2> "$TMP/on.err" || {
+  cat "$TMP/on.err" >&2; fail "gated-on render errored"; }
+on_cluster=$(grep -cE '^kind: Cluster$' "$TMP/on.yaml" || true)
+on_db=$(grep -cE '^kind: Database$' "$TMP/on.yaml" || true)
+on_secret=$(grep -cE '^kind: Secret$' "$TMP/on.yaml" || true)
+[ "$on_cluster" -eq 1 ] || fail "enabled=true expected 1 Cluster, got $on_cluster"
+[ "$on_db" -eq 2 ]      || fail "enabled=true expected 2 Databases, got $on_db"
+[ "$on_secret" -eq 2 ]  || fail "enabled=true expected 2 Secrets, got $on_secret"
+
+echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty)"

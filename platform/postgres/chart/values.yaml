@@ -11,6 +11,21 @@
 # hardcode). The catalyst-layer generator (ADR-0010) writes these values
 # into the instance HR when a consumer declares `spec.backingServices`.
 
+# ── Master gate (safe-by-default) ───────────────────────────────────────
+# When false the chart renders ZERO Kubernetes resources — the install is
+# an empty (but Ready) release. The bootstrap-kit slot 16a wires this to
+# ${SOVEREIGN_ENABLE_SHARED_PG:=false} so a Sovereign that is NOT sharing a
+# Postgres engine still gets a Ready bp-postgres-shared HR (satisfying the
+# unconditional bp-gitea / bp-harbor dependsOn edge) WITHOUT deploying an
+# unused shared-pg Cluster. Default is `true` here so a DIRECT chart
+# consumer (and the render gate) keeps the full reuse-proof render shape —
+# the OFF state is opt-in via the slot's envsubst seam, the same pattern as
+# slot 16b's cnpgPair.enabled / slot 62's CONTINUUM_ENABLED. The `toString`
+# comparison is the Sprig-safe boolean idiom (a literal `false` is not
+# "empty", so a plain `if .Values.enabled` would misfire — see memory
+# feedback_sprig_default_bool_unsafe).
+enabled: true
+
 # ── The data instance (one CNPG Cluster) ────────────────────────────────
 instance:
   # Cluster name = the data-instance identity. Surfaces as the App-card

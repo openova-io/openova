@@ -45,6 +45,33 @@ resources:
   - 15-external-secrets.yaml
   - 15a-external-secrets-stores.yaml
   - 16-cnpg.yaml
+  # bp-postgres-shared (slot 16a) — ADR-0010 reusable/shareable backing-
+  # services model (#3191, Refs #3188). ONE shared CNPG Cluster that BOTH
+  # bp-gitea (slot 10) and bp-harbor (slot 19) can run off, via two
+  # ISOLATED databases + two per-consumer roles + two reflected Secrets.
+  # Both consumers dependsOn bp-postgres-shared UNCONDITIONALLY, so this
+  # slot MUST be registered or the whole gitea→catalyst-platform chain
+  # wedges (the #3191 regression: slot file authored but never listed
+  # here → HR never created → dangling dependsOn — caught live on hw124).
+  #
+  # SAFE-BY-DEFAULT: the chart's master gate `enabled` is wired to
+  # ${SOVEREIGN_ENABLE_SHARED_PG:=false} below. OFF → the chart renders
+  # ZERO resources → the HR is an EMPTY Ready release that satisfies the
+  # consumers' dependsOn WITHOUT deploying an unused shared-pg Cluster.
+  # This is the SAME default-OFF knob shape as slot 16b's
+  # SOVEREIGN_ENABLE_HOT_STANDBY and slot 62's CONTINUUM_ENABLED. A
+  # single-region prov that is NOT sharing Postgres is byte-identical to
+  # today (gitea + harbor still own their own embedded Clusters via
+  # SOVEREIGN_{GITEA,HARBOR}_PG_OWN_CLUSTER:=true).
+  #
+  # Two-flag contract to actually SHARE a real shared instance: the
+  # operator flips BOTH SOVEREIGN_{GITEA,HARBOR}_PG_OWN_CLUSTER=false (so
+  # the consumer skips its own Cluster + points at shared-pg) AND
+  # SOVEREIGN_ENABLE_SHARED_PG=true (so this slot renders the engine).
+  #
+  # Slot ordering: after bp-cnpg (16, operator + CRDs), before bp-cnpg-
+  # pair (16b). Flux dependsOn pins the real install order regardless.
+  - 16a-bp-postgres-shared.yaml
   # bp-cnpg-pair (slot 16b) — Pillar-3 cross-region DR primitive (#3195,
   # Refs #3189). Primary + replica CNPG Cluster pair across two regions,
   # WAL streaming over Cilium ClusterMesh + `*-primary-mesh` global
@@ -119,6 +146,16 @@ resources:
   - 23-mimir.yaml
   - 24-tempo.yaml
   - 25-grafana.yaml
+  # bp-network-policies (slot 26) — G101 zero-trust default-deny baseline
+  # (Refs #2650). The chart + slot file were authored to fix the hw86
+  # finding (ZERO zero-trust enforcement on every fresh prov) but the slot
+  # was NEVER listed here → the HR was never created → the G101 fix has
+  # been INERT on every prov since (the SAME unregistered-slot class as the
+  # #3191 / hw124 wedge — surfaced by the new check-bootstrap-deps.sh
+  # Phase-2.5 slot-registration guard). Registering it installs the
+  # CiliumClusterwideNetworkPolicy default-deny + DNS-egress + system-ns
+  # allow set on boot. dependsOn bp-cilium (slot 01) for the cilium.io CRDs.
+  - 26-network-policies.yaml
   - 27-kyverno.yaml
   - 27a-kyverno-policies.yaml
   - 28-reloader.yaml

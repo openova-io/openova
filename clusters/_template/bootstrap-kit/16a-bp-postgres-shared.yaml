@@ -73,7 +73,10 @@ spec:
   chart:
     spec:
       chart: bp-postgres
-      version: 0.1.0
+      # 0.1.1 (#3188): master gate `enabled` (default true) → OFF renders
+      # ZERO resources so this HR is an empty Ready release when sharing is
+      # disabled (SOVEREIGN_ENABLE_SHARED_PG=false, the safe default).
+      version: 0.1.1
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -89,6 +92,20 @@ spec:
     remediation:
       retries: 3
   values:
+    # ── SAFE-BY-DEFAULT master gate ─────────────────────────────────────
+    # OFF → the chart renders ZERO resources → this HR installs an EMPTY
+    # (but Ready) release. bp-gitea (slot 10) + bp-harbor (slot 19)
+    # dependsOn bp-postgres-shared UNCONDITIONALLY, so this empty-Ready
+    # release satisfies the edge WITHOUT deploying an unused shared-pg
+    # Cluster. Single-region / non-sharing provs are byte-identical to
+    # today (the same default-OFF shape as slot 16b SOVEREIGN_ENABLE_HOT_
+    # STANDBY / slot 62 CONTINUUM_ENABLED).
+    #
+    # TWO-FLAG CONTRACT to actually share a real shared instance: flip
+    # BOTH SOVEREIGN_{GITEA,HARBOR}_PG_OWN_CLUSTER=false (consumer skips
+    # its own Cluster + points DB host at shared-pg) AND
+    # SOVEREIGN_ENABLE_SHARED_PG=true (this slot renders the engine).
+    enabled: ${SOVEREIGN_ENABLE_SHARED_PG:=false}
     instance:
       name: shared-pg
       namespace: shared-data

@@ -24,13 +24,14 @@
 # Wrapper chart: platform/network-policies/chart/ (pure overlay; no
 # upstream subchart — CRDs come from bp-cilium's upstream Cilium chart).
 
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: catalyst-system
-  labels:
-    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+# NOTE: the `catalyst-system` Namespace is declared ONCE by slot 13
+# (13-bp-catalyst-platform.yaml) — NOT re-declared here. When this slot was
+# first registered in kustomization.yaml (#3188), a duplicate Namespace doc
+# here failed the kustomize build ("may not add resource with an already
+# registered id: Namespace/catalyst-system"). Slot 13 runs before slot 26,
+# so the namespace already exists by the time this HR's targetNamespace is
+# resolved. Removing the duplicate is the canonical de-dup (kustomize owns
+# resource-id uniqueness across the merged set).
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository

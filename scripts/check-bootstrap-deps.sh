@@ -238,6 +238,89 @@ fi
 echo "  Parsed ${#ACTUAL_NAMES[@]} HelmRelease(s) across ${#HR_FILES[@]} file(s)"
 
 # ---------------------------------------------------------------------------
+# Phase 2.5 — Slot-registration audit (kustomization.yaml completeness)
+# ---------------------------------------------------------------------------
+#
+# Every NN-*.yaml slot file that carries a HelmRelease MUST be listed in
+# kustomization.yaml's resources[]. An unregistered slot file is INERT:
+# `kubectl apply -k` (the production reconcile path) only applies resources
+# named in resources[], so the slot's HR is NEVER created on the cluster —
+# any consumer that dependsOn that HR dangles forever. This is the #3191
+# regression class (slot 16a-bp-postgres-shared.yaml authored but never
+# registered → bp-gitea's dependsOn dangled → bp-catalyst-platform wedged
+# on hw124). The same shape previously bit bp-sso-bridge (hw86) and
+# bp-powerdns-admin (#3150) — a forgotten-slot bug CI never caught.
+#
+# This guard fails the audit when a slot file with an HR is missing from
+# resources[]. (Files with no HelmRelease — e.g. 00-vcluster-host-
+# namespaces.yaml — are exempt: they still SHOULD be listed, but their
+# absence does not dangle a dependsOn edge, so we only hard-fail on HR-
+# bearing files. The drift workflow surfaces the rest.)
+
+_banner "Phase 2.5: slot-registration audit (kustomization.yaml)"
+
+KUSTOMIZATION_FILE="${KIT_DIR}/kustomization.yaml"
+if [[ ! -f "${KUSTOMIZATION_FILE}" ]]; then
+  _err "kustomization.yaml not found in ${KIT_DIR#"${REPO_ROOT}/"} — cannot audit slot registration."
+  exit 3
+fi
+
+# The set of basenames listed in resources[]. yq extracts them directly so
+# commented-out lines (the documented-but-disabled case) are NOT counted as
+# registered — exactly the bug we are guarding against.
+declare -A REGISTERED=()
+while IFS= read -r res; do
+  [[ -z "${res}" ]] && continue
+  REGISTERED["${res}"]=1
+done < <(yq -r '.resources[]' "${KUSTOMIZATION_FILE}" 2>/dev/null || true)
+
+UNREGISTERED_COUNT=0
+for f in "${HR_FILES[@]}"; do
+  base="$(basename "$f")"
+  # Only HR-bearing files dangle a dependsOn edge when unregistered.
+  has_hr="$(yq -r 'select(.kind == "HelmRelease") | .metadata.name' "$f" 2>/dev/null | head -n1 || true)"
+  [[ -z "${has_hr}" ]] && continue
+  if [[ -z "${REGISTERED[${base}]+x}" ]]; then
+    _err "slot file '${base}' carries a HelmRelease ('${has_hr}') but is NOT listed in ${KUSTOMIZATION_FILE#"${REPO_ROOT}/"} resources[]. An unregistered slot is inert (kubectl apply -k skips it) → any consumer dependsOn '${has_hr}' dangles forever (the #3191 / hw124 wedge). Add '- ${base}' to resources[]."
+    UNREGISTERED_COUNT=$((UNREGISTERED_COUNT + 1))
+  fi
+done
+
+if [[ ${UNREGISTERED_COUNT} -gt 0 ]]; then
+  echo "" >&2
+  _err "${UNREGISTERED_COUNT} HR-bearing slot file(s) missing from kustomization.yaml resources[]. Register each and re-run."
+  exit 1
+fi
+
+_ok "every HR-bearing slot file is registered in kustomization.yaml resources[]"
+
+# Phase 2.5b — kustomize build sanity. Registration alone is necessary but
+# not sufficient: a newly-registered slot can still break the merged set
+# (e.g. a duplicate resource id — two slots declaring the same Namespace,
+# which is how 26-network-policies.yaml + 13-bp-catalyst-platform.yaml
+# collided on catalyst-system when 26 was first registered in #3188). A
+# `kustomize build` of the kit catches that whole class. Best-effort: if no
+# kustomize binary is available we warn-skip rather than fail the audit, so
+# the guard never blocks an environment lacking kustomize/kubectl.
+_KUSTOMIZE=""
+if command -v kustomize >/dev/null 2>&1; then
+  _KUSTOMIZE="kustomize build"
+elif command -v kubectl >/dev/null 2>&1; then
+  _KUSTOMIZE="kubectl kustomize"
+fi
+if [[ -n "${_KUSTOMIZE}" ]]; then
+  if _kustomize_err="$(${_KUSTOMIZE} "${KIT_DIR}" 2>&1 >/dev/null)"; then
+    _ok "kustomize build of ${KIT_DIR#"${REPO_ROOT}/"} succeeds (no duplicate/merge errors)"
+  else
+    _err "kustomize build of ${KIT_DIR#"${REPO_ROOT}/"} FAILED — the registered resource set does not merge cleanly:"
+    echo "${_kustomize_err}" | sed 's/^/         /' >&2
+    exit 1
+  fi
+else
+  _warn "kustomize/kubectl not found — skipping the kustomize-build sanity check (registration check still ran)"
+fi
+
+# ---------------------------------------------------------------------------
 # Phase 3 — Compare actual vs expected (drift detection)
 # ---------------------------------------------------------------------------
 
