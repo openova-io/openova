@@ -291,6 +291,58 @@ type MultiInstanceSpec struct {
 	IsolationLevel string `json:"isolationLevel,omitempty"`
 }
 
+// BackingServiceMode is the binding mode a consumer requests for a
+// backing service: a dedicated private instance, or a share of a named
+// existing instance. See ADR-0010.
+type BackingServiceMode string
+
+const (
+	// BackingServiceModePrivate — the consumer gets its OWN dedicated
+	// data-instance (one CNPG Cluster per consumer). This is the legacy
+	// 1:1 shape and the default when `mode` is omitted.
+	BackingServiceModePrivate BackingServiceMode = "private"
+
+	// BackingServiceModeShared — the consumer SHARES a named existing
+	// data-instance (referenced via InstanceRef). The generator adds an
+	// isolated Database + a per-consumer role + a reflected Secret to
+	// that instance, and points the consumer's dependsOn at it.
+	BackingServiceModeShared BackingServiceMode = "shared"
+)
+
+// BackingServiceSpec — a consumer Blueprint's declared need for a
+// backing service (ADR-0010). The catalyst-layer generator
+// (core/controllers/pkg/backingservice) translates each entry into the
+// declarative binding YAML: a CNPG `Database` CR + a
+// `Cluster.spec.managed.roles[]` entry + a reflected connection Secret +
+// a Flux `dependsOn` edge from the consumer HR to the data-instance HR.
+//
+// NO controller and NO Crossplane are involved — the generated objects
+// are CNPG's own declarative CRDs, applied by Flux.
+type BackingServiceSpec struct {
+	// Type — the backing-service engine. Postgres first; the model
+	// generalises (redis, clickhouse) via the same field later.
+	Type string `json:"type"`
+
+	// Mode — private (dedicated instance, default) | shared (share a
+	// named instance via InstanceRef).
+	Mode BackingServiceMode `json:"mode,omitempty"`
+
+	// InstanceRef — the data-instance (bp-postgres install) name to
+	// share. REQUIRED when Mode is shared; ignored when private.
+	InstanceRef string `json:"instanceRef,omitempty"`
+
+	// Database — the isolated database name to provision for this
+	// consumer on the instance. Defaults to the consumer's app name.
+	Database string `json:"database,omitempty"`
+
+	// Role — the per-consumer login role. Defaults to the database name.
+	Role string `json:"role,omitempty"`
+
+	// SecretName — the connection Secret name reflected into the
+	// consumer's namespace. Defaults to `<database>-database-secret`.
+	SecretName string `json:"secretName,omitempty"`
+}
+
 // BlueprintSpecExtension — the new fields G117 grafts onto the existing
 // Blueprint CR's spec. Production code merges these into the existing
 // dynamic-client-driven blueprint-controller by reading them out of
@@ -304,8 +356,9 @@ type MultiInstanceSpec struct {
 // typed kubebuilder types, BlueprintSpecExtension's fields fold into
 // the parent struct verbatim (same JSON keys).
 type BlueprintSpecExtension struct {
-	Topology      *Topology          `json:"topology,omitempty"`
-	Endpoints     []EndpointSpec     `json:"endpoints,omitempty"`
-	SSO           *SSOSpec           `json:"sso,omitempty"`
-	MultiInstance *MultiInstanceSpec `json:"multiInstance,omitempty"`
+	Topology        *Topology            `json:"topology,omitempty"`
+	Endpoints       []EndpointSpec       `json:"endpoints,omitempty"`
+	SSO             *SSOSpec             `json:"sso,omitempty"`
+	MultiInstance   *MultiInstanceSpec   `json:"multiInstance,omitempty"`
+	BackingServices []BackingServiceSpec `json:"backingServices,omitempty"`
 }
