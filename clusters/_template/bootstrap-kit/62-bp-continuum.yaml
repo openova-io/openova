@@ -172,3 +172,38 @@ spec:
   values:
     continuum:
       enabled: ${CONTINUUM_ENABLED:-false}
+      # ── harbor-proxy-pull compliance (#3195) ──────────────────────────
+      # continuum-controller runs in targetNamespace catalyst-system,
+      # which is NOT in the kyverno complianceDefaultExcludes list, so the
+      # `harbor-proxy-pull` ClusterPolicy (Enforce) gates every container
+      # AND initContainer in the Pod. Kyverno's anyPattern requires ALL
+      # containers to match ONE single glob; the allowed globs are
+      # `*/proxy-*/*` (proxy-cache) and `*/openova-io/*` (native private).
+      #
+      # The controller image is `ghcr.io/openova-io/openova/continuum-
+      # controller` — a PRIVATE openova-io image that matches the
+      # `*/openova-io/*` glob and pulls via the `ghcr-pull` Secret (the
+      # IDENTICAL pattern every sibling catalyst-system controller —
+      # catalyst-api, application-controller, etc. — uses; they are all
+      # Running on hw124). It MUST NOT be rewritten through proxy-ghcr:
+      # the mothership Harbor proxy-ghcr serves only PUBLIC anonymous ghcr
+      # images, so a private openova-io image 404s there (verified live on
+      # hw124: rewriting to harbor.openova.io/proxy-ghcr/... → ErrImagePull
+      # "not found").
+      #
+      # The chart's prerequisiteCheck initContainer uses a DIFFERENT-source
+      # image (harbor.openova.io/proxy-dockerhub/alpine/k8s, matches
+      # `*/proxy-*/*`). A Pod with one `*/openova-io/*` container and one
+      # `*/proxy-*/*` initContainer matches NEITHER single glob → kyverno
+      # DENIES it (root cause of the hw124 continuum ImagePullBackOff +
+      # PolicyViolation on /spec/initContainers/0/image/). We therefore
+      # DISABLE the prerequisiteCheck initContainer here so the Pod is
+      # single-source (`*/openova-io/*`) and passes admission. The probe is
+      # only a diagnostic ("single-region idle" log line); the controller
+      # already idles gracefully without it (#3189 A2 — the prerequisite-
+      # check no longer crashloops; it exits 0 + idle-Ready). On a multi-
+      # region Sovereign that wires bp-cnpg-pair, the controller's own
+      # reconcile loop discovers the Continuum CR — no initContainer probe
+      # needed for correctness.
+      prerequisiteCheck:
+        enabled: false

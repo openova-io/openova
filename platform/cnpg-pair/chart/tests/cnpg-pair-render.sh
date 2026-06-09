@@ -19,6 +19,14 @@
 #      parameters (PG16 hard-pins it; CNPG rejects explicit set).
 #   7. Replica Cluster carries `bootstrap.pg_basebackup` referencing
 #      the primary externalCluster (replica cannot bootstrap without).
+#   8. (chart 0.1.3 #3195) Synchronous replication is declared via the
+#      CNPG-native `spec.postgresql.synchronous` block (method=first +
+#      dataDurability=required), NOT a raw `synchronous_standby_names`
+#      parameter — the latter is a FIXED parameter CNPG ≥1.24 rejects
+#      at admission (verified live CNPG 1.29.0 / hw124).
+#   9. (chart 0.1.3 #3195) continuum.enabled seeds exactly one Continuum
+#      CR with the canonical 4-segment region labels, gated on BOTH
+#      cnpgPair.enabled AND continuum.enabled, fail-fast on empty regions.
 #
 # Usage: bash tests/cnpg-pair-render.sh [CHART_DIR]
 #
@@ -150,16 +158,35 @@ grep -qE 'host: .*-mesh$' "$TMP/enabled.yaml" || {
 # Pillar 3 (chart 0.1.2): synchronous replication MUST be the default.
 # The primary's postgresql.parameters block carries:
 #   synchronous_commit: "remote_apply"
-#   synchronous_standby_names: "FIRST 1 (<replica-name>)"
+# and (chart 0.1.3, #3195) declares the standby quorum via CNPG's NATIVE
+# `spec.postgresql.synchronous` block (method=first/number=N/data
+# Durability=required) instead of a raw `synchronous_standby_names`
+# parameter — the latter is a FIXED config parameter CNPG ≥1.24 REJECTS
+# at admission ("Can't set fixed configuration parameter", verified live
+# on CNPG 1.29.0 / hw124). CNPG derives synchronous_standby_names from
+# the block.
 grep -q 'synchronous_commit: "remote_apply"' "$TMP/enabled.yaml" || {
   echo "FAIL: primary Cluster CR missing synchronous_commit=remote_apply (Pillar 3 zero-tx-loss default)." >&2
   exit 1
 }
-grep -qE 'synchronous_standby_names: "FIRST 1 \(.+-replica\)"' "$TMP/enabled.yaml" || {
-  echo "FAIL: primary Cluster CR missing synchronous_standby_names referencing the replica Cluster name." >&2
-  grep -nE 'synchronous_standby_names' "$TMP/enabled.yaml" >&2
+# Native synchronous block — method=first + number + dataDurability=required.
+grep -qE '^\s+method: first' "$TMP/enabled.yaml" || {
+  echo "FAIL: primary Cluster CR missing spec.postgresql.synchronous.method=first (CNPG-native sync quorum)." >&2
+  grep -nE 'synchronous|method:' "$TMP/enabled.yaml" >&2
   exit 1
 }
+grep -qE '^\s+dataDurability: required' "$TMP/enabled.yaml" || {
+  echo "FAIL: primary Cluster CR missing spec.postgresql.synchronous.dataDurability=required (zero-tx-loss enforcement)." >&2
+  exit 1
+}
+# The raw fixed-parameter form MUST be ABSENT (CNPG rejects it). Match
+# the YAML key with a value (`synchronous_standby_names: ...`), not the
+# explanatory comments that mention the parameter name.
+if grep -qE '^\s*synchronous_standby_names:\s' "$TMP/enabled.yaml"; then
+  echo "FAIL: primary Cluster CR sets synchronous_standby_names as a raw parameter — CNPG rejects this fixed parameter at admission. Use spec.postgresql.synchronous instead." >&2
+  grep -nE '^\s*synchronous_standby_names:\s' "$TMP/enabled.yaml" >&2
+  exit 1
+fi
 echo "  PASS ($GOT resources)"
 
 # ── Case 3: missing image.tag fails fast ─────────────────────────
@@ -252,9 +279,100 @@ helm template smoke-cnpg-pair . \
   cat "$TMP/async.err" >&2
   exit 1
 }
-if grep -q "synchronous_commit\|synchronous_standby_names" "$TMP/async.yaml"; then
-  echo "FAIL: replication.mode=async leaked synchronous_* parameters into the manifest." >&2
-  grep -nE "synchronous_(commit|standby_names)" "$TMP/async.yaml" >&2
+# Match actual YAML keys (key: value), not the explanatory comments that
+# reference the parameter names. Async MUST omit synchronous_commit, the
+# native `synchronous:` block, and any raw synchronous_standby_names.
+if grep -qE '^\s*synchronous_commit:\s' "$TMP/async.yaml" \
+   || grep -qE '^\s*synchronous_standby_names:\s' "$TMP/async.yaml" \
+   || grep -qE '^\s*synchronous:\s*$' "$TMP/async.yaml"; then
+  echo "FAIL: replication.mode=async leaked synchronous replication config into the manifest." >&2
+  grep -nE '^\s*synchronous(_commit|_standby_names)?:\s' "$TMP/async.yaml" >&2
+  exit 1
+fi
+echo "  PASS"
+
+# ── Case 7: continuum.enabled seeds a Continuum CR (chart 0.1.3 #3195) ─
+# When continuum.enabled=true AND cnpgPair.enabled=true the chart renders
+# exactly ONE dr.openova.io/v1 Continuum CR pointing at this pair, using
+# the DISTINCT canonical 4-segment continuum.primaryRegion /
+# continuum.hotStandbyRegion (Continuum CRD pattern), not the cnpg-pair
+# node-region labels.
+echo "[render] Case 7: continuum.enabled renders the Continuum CR"
+helm template smoke-cnpg-pair . \
+  --set cnpgPair.enabled=true \
+  --set cnpgPair.primary.region=hw-me-east-215-a-rtz-prod \
+  --set cnpgPair.replica.region=hw-me-east-215-b-rtz-prod \
+  --set cnpgPair.image.tag=16.3-23 \
+  --set cnpgPair.continuum.enabled=true \
+  --set cnpgPair.continuum.primaryRegion=hz-fsn-rtz-prod \
+  --set cnpgPair.continuum.hotStandbyRegion=hz-hel-rtz-prod \
+  > "$TMP/continuum.yaml" 2> "$TMP/continuum.err" || {
+  echo "FAIL: continuum-enabled render errored:" >&2
+  cat "$TMP/continuum.err" >&2
+  exit 1
+}
+CONT=$(grep -cE '^kind: Continuum$' "$TMP/continuum.yaml" || true)
+if [ "$CONT" -ne 1 ]; then
+  echo "FAIL: expected exactly 1 Continuum CR, got $CONT." >&2
+  exit 1
+fi
+# Isolate the Continuum doc for region-specific assertions (the multi-doc
+# render also contains the Cluster CRs whose openova.io/region label is
+# legitimately the node-region form — only the Continuum CR must use the
+# canonical 4-segment label).
+helm template smoke-cnpg-pair . \
+  --set cnpgPair.enabled=true \
+  --set cnpgPair.primary.region=hw-me-east-215-a-rtz-prod \
+  --set cnpgPair.replica.region=hw-me-east-215-b-rtz-prod \
+  --set cnpgPair.image.tag=16.3-23 \
+  --set cnpgPair.continuum.enabled=true \
+  --set cnpgPair.continuum.primaryRegion=hz-fsn-rtz-prod \
+  --set cnpgPair.continuum.hotStandbyRegion=hz-hel-rtz-prod \
+  --show-only templates/continuum.yaml > "$TMP/continuum-only.yaml" 2>/dev/null
+# The CR carries the canonical 4-segment region (NOT the node-region label).
+grep -qE '^\s+primaryRegion: "hz-fsn-rtz-prod"' "$TMP/continuum-only.yaml" || {
+  echo "FAIL: Continuum CR primaryRegion is not the canonical 4-segment label." >&2
+  grep -nE 'primaryRegion:' "$TMP/continuum-only.yaml" >&2
+  exit 1
+}
+# The Continuum CR must NOT carry the multi-segment node-region label in
+# its region fields (would fail the CRD 4-segment pattern at admission).
+if grep -qE '^\s+(primaryRegion|hotStandbyRegions|- ).*hw-me-east-215' "$TMP/continuum-only.yaml"; then
+  echo "FAIL: Continuum CR leaked the cnpg-pair node-region label into a region field (fails the CRD 4-segment pattern)." >&2
+  grep -nE 'hw-me-east-215' "$TMP/continuum-only.yaml" >&2
+  exit 1
+fi
+echo "  PASS (1 Continuum CR)"
+
+# ── Case 8: continuum.enabled without regions fails fast ──────────────
+echo "[render] Case 8: continuum.enabled with empty regions triggers fail-fast"
+if helm template smoke-cnpg-pair . \
+  --set cnpgPair.enabled=true \
+  --set cnpgPair.primary.region=hz-fsn-rtz-prod \
+  --set cnpgPair.replica.region=hz-hel-rtz-prod \
+  --set cnpgPair.image.tag=16.3-23 \
+  --set cnpgPair.continuum.enabled=true \
+  > "$TMP/cont-noregion.yaml" 2> "$TMP/cont-noregion.err"; then
+  echo "FAIL: continuum.enabled with empty continuum.primaryRegion should have failed render." >&2
+  exit 1
+fi
+grep -q "continuum.primaryRegion is REQUIRED" "$TMP/cont-noregion.err" || {
+  echo "FAIL: continuum empty-region fail-fast message not found." >&2
+  cat "$TMP/cont-noregion.err" >&2
+  exit 1
+}
+echo "  PASS"
+
+# ── Case 9: cnpgPair.enabled=false suppresses the Continuum CR even
+#            when continuum.enabled=true (gated on BOTH) ──────────────
+echo "[render] Case 9: continuum CR gated on cnpgPair.enabled too"
+helm template smoke-cnpg-pair . \
+  --set cnpgPair.enabled=false \
+  --set cnpgPair.continuum.enabled=true \
+  > "$TMP/cont-pairoff.yaml" 2>/dev/null || true
+PAIROFF=$(grep -cE '^kind: ' "$TMP/cont-pairoff.yaml" || true)
+if [ "$PAIROFF" -ne 0 ]; then
+  echo "FAIL: cnpgPair.enabled=false must render ZERO resources even with continuum.enabled=true, got $PAIROFF." >&2
   exit 1
 fi
 echo "  PASS"
