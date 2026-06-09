@@ -253,8 +253,16 @@ spec:
               value: "openova-sso"
             - name: OIDC_ADMIN_GROUP
               value: {{ .Values.sso.adminGroup | default "sovereign-admins" | quote }}
+            # OpenBao is served at `bao.<fqdn>` (clusters/_template/
+            # bootstrap-kit/08-openbao.yaml sets gateway.host=bao.${SOVEREIGN_FQDN}).
+            # `sso.sovereignFqdn` is the bare Sovereign FQDN, so the host prefix
+            # MUST be `bao.`, NOT `openbao.` — the latter has no HTTPRoute (404)
+            # and never matches the Keycloak `openbao` client's redirectUri
+            # (https://bao.<fqdn>/ui/vault/auth/oidc/oidc/callback). With the
+            # wrong host the OIDC callback's redirect_uri failed openbao's
+            # allowed_redirect_uris check → silent SSO never completed. (#3150)
             - name: OIDC_ALLOWED_REDIRECT_URIS
-              value: {{ printf "https://openbao.%s/ui/vault/auth/oidc/oidc/callback http://localhost:8250/oidc/callback" (.Values.sso.sovereignFqdn | default "openbao.local") | quote }}
+              value: {{ printf "https://bao.%s/ui/vault/auth/oidc/oidc/callback http://localhost:8250/oidc/callback" (.Values.sso.sovereignFqdn | default "openbao.local") | quote }}
             - name: INTERVAL_SECONDS
               value: "60"
           resources:

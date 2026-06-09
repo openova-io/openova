@@ -1,5 +1,11 @@
 apiVersion: v2
 name: bp-openbao
+# 1.2.26 (#3150, 2026-06-09): fix the OIDC role allowed_redirect_uris host
+# in templates/sso-configure-deployment.yaml — it hardcoded `openbao.<fqdn>`
+# but OpenBao is served at `bao.<fqdn>` (08-openbao.yaml gateway.host). The
+# wrong host had no HTTPRoute (404) and never matched the Keycloak `openbao`
+# client's redirectUri, so the OIDC callback's redirect_uri failed the
+# allowed_redirect_uris check → silent SSO never landed. Now `bao.<fqdn>`.
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO Tier-1 codification companion
 # bump. Adds `sso.idpHint` value documenting that OpenBao's OIDC backend
 # does NOT expose an `auth_url` query-param knob (per upstream
@@ -14,7 +20,7 @@ name: bp-openbao
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.2.25
+version: 1.2.26
 # 1.2.20 (G91.openbao #2655, 2026-05-31): opt in to the bp-sso-bridge
 # (G91.1 #2652) SSO framework. Top-level `sso:` block (defaults
 # enabled=true). Adds: templates/sso-oauth-source-externalsecret.yaml
