@@ -42,6 +42,13 @@ spec:
   type: oci
   interval: 15m
   url: oci://ghcr.io/openova-io
+  # ghcr-pull authenticates the OCI pull — bp-network-policies is a PRIVATE
+  # ghcr package (like every other bp-* chart). Without this secretRef Flux
+  # falls back to anonymous auth → 401 Unauthorized → the chart never pulls →
+  # the bootstrap-kit Kustomization wedges its health-wait on this one HR and
+  # never advances to newer revisions. Mirrors slots 13/16b. Refs #3188.
+  secretRef:
+    name: ghcr-pull
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
