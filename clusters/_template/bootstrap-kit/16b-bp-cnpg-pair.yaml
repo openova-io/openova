@@ -70,10 +70,31 @@
 #     ClusterMesh transport the replica's WAL stream rides. Not listed in
 #     dependsOn because Cilium is slot 01 (always Ready before this slot).
 #
+# ─── targetNamespace `cnpg` MUST be pre-created by this slot ───────────
+# The HR's targetNamespace is `cnpg` (below). Flux/Helm writes the release
+# storage Secret into that namespace on EVERY install — including a gated-
+# OFF, zero-resource (empty) release. If the namespace does not exist the
+# install fails with `namespaces "cnpg" not found` (caught live on hw124:
+# the slot installed but `cnpg` was never created — slot 16/bp-cnpg makes
+# `cnpg-system` for the OPERATOR, and every CNPG consumer (gitea/harbor/
+# powerdns/sme/newapi) places its Cluster CR in its OWN namespace, so
+# nothing ever created `cnpg`). Every sibling slot that targets a fresh
+# namespace (16-cnpg → cnpg-system, 16a → shared-data, 17-valkey → valkey)
+# declares it here. So this slot must create `cnpg` UNCONDITIONALLY —
+# independent of the cnpgPair.enabled gate, because even the empty release
+# needs the namespace to land its Helm release Secret.
+#
 # Wrapper chart: platform/cnpg-pair/chart/
 # Catalyst-curated values: platform/cnpg-pair/chart/values.yaml
 # Reconciled by: Flux on the new Sovereign's k3s control plane.
 
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cnpg
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
@@ -145,10 +166,35 @@ spec:
   # ── Per-Sovereign overlay surface ──────────────────────────────────
   values:
     cnpgPair:
-      # SAFE-BY-DEFAULT: false on single-region → chart renders zero
-      # resources → byte-identical to a Sovereign without this slot.
-      # Auto-true only on a multi-region (active-hotstandby) prov.
-      enabled: ${SOVEREIGN_ENABLE_HOT_STANDBY:-false}
+      # ── ClusterMesh-gated enable (NOT raw 2-region) ─────────────────
+      # SAFE-BY-DEFAULT: false → chart renders ZERO resources → byte-
+      # identical to a Sovereign without this slot.
+      #
+      # 🛑 This gate is DELIBERATELY DECOUPLED from ${SOVEREIGN_ENABLE_HOT_
+      # STANDBY}. A 2-region prov flips HOT_STANDBY=true purely because
+      # len(req.Regions) >= 2 (provisioner.go bcpTopologyEnableHotStandby),
+      # but the cross-region replica only reaches Ready once Cilium
+      # ClusterMesh is ACTUALLY established between the regions AND the
+      # `*-primary-mesh` global Service is published. On hw124 — a real
+      # 2-region prov where ClusterMesh was NOT wired — gating on raw
+      # HOT_STANDBY rendered the primary+replica pair, whose replica then
+      # could never stream a basebackup (no mesh) → the pair never
+      # converged. Worse, the pair tried to install into a `cnpg`
+      # namespace nothing created → `namespaces "cnpg" not found` ×7.
+      #
+      # So this slot gates on its OWN substitute SOVEREIGN_ENABLE_CNPG_
+      # PAIR, default-OFF. Unregistered in the provisioner substitute map
+      # (same as SOVEREIGN_ENABLE_SHARED_PG / CONTINUUM_ENABLED /
+      # NETBIRD_ENABLED) → Flux postBuild applies the inline `:-false`
+      # default → every prov (single OR multi-region) renders an empty,
+      # Ready release UNTIL an operator confirms ClusterMesh is up and
+      # flips SOVEREIGN_ENABLE_CNPG_PAIR=true on the per-Sovereign overlay
+      # (alongside SOVEREIGN_PRIMARY_REGION / SOVEREIGN_REPLICA_REGION,
+      # which the chart `required`s when enabled=true). This is the
+      # canonical "default-OFF until the dependency is truly wired" knob
+      # shape — the cnpg-pair is a wire-it-when-the-mesh-is-confirmed
+      # primitive, not an auto-fire-on-2-region one.
+      enabled: ${SOVEREIGN_ENABLE_CNPG_PAIR:-false}
       primary:
         # Canonical region label (matches openova.io/region node label).
         region: '${SOVEREIGN_PRIMARY_REGION:-}'
