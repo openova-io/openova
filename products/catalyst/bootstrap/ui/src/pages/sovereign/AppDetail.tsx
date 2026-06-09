@@ -451,13 +451,16 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               <span className="hero-subtitle">— {app.title}</span>
             </h1>
             {appExternalURL ? (
-              <div
-                className="hero-launch"
-                style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', margin: '0.5rem 0 0.6rem' }}
-              >
-                <LaunchButton appUID={launchKey} fallbackURL={appExternalURL} />
-                <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>
-                  single-click sign-in — lands you in {app.title} already logged in
+              <div className="hero-launch" data-testid="hero-launch">
+                <LaunchButton
+                  appUID={launchKey}
+                  fallbackURL={appExternalURL}
+                  appLabel={app.title}
+                  variant="hero"
+                />
+                <span className="hero-launch-hint">
+                  Single-click sign-in — lands you in {app.title} <strong>already
+                  logged in</strong>. No second login.
                 </span>
               </div>
             ) : null}
@@ -1065,9 +1068,29 @@ async function launchAppViaSSO(launchKey: string, fallbackURL: string): Promise<
 function LaunchButton({
   appUID,
   fallbackURL,
+  /**
+   * #3150 — the concrete app name (e.g. "Grafana") so the hero CTA reads
+   * "↗ Open Grafana" instead of a bare "Open". The founder flagged the
+   * plain label twice as too-subtle; an app-relevant label + the `hero`
+   * variant styling below make it the unmistakable header CTA. Falls back
+   * to a plain "Open" when no label is supplied (the Overview-tab inline
+   * instance next to the External-URL row).
+   */
+  appLabel,
+  /**
+   * `hero` renders the large, accent-filled primary CTA used in the
+   * AppDetail header (self-styled via the `.hero-launch-btn` class in
+   * APP_DETAIL_CSS). The shared `.btn-primary` rule lives in AppsPage's
+   * page-scoped <style> and does NOT reach this page — which is exactly
+   * why the prior `btn btn-primary` button rendered unstyled and subtle.
+   * `inline` keeps the compact Overview-tab button.
+   */
+  variant = 'inline',
 }: {
   appUID: string
   fallbackURL: string
+  appLabel?: string
+  variant?: 'hero' | 'inline'
 }) {
   const [pending, setPending] = useState(false)
   const onClick = async (e: React.MouseEvent) => {
@@ -1080,21 +1103,26 @@ function LaunchButton({
       setPending(false)
     }
   }
+  const openLabel = appLabel ? `Open ${appLabel}` : 'Open'
+  const isHero = variant === 'hero'
   return (
     <button
       type="button"
       data-testid="btn-launch-app"
       onClick={onClick}
       disabled={pending}
-      className="btn btn-primary launch-button"
-      style={{
-        padding: '0.4rem 0.95rem',
-        fontSize: '0.95rem',
-        fontWeight: 600,
-      }}
-      aria-label="Open app via single-click silent SSO"
+      className={isHero ? 'hero-launch-btn' : 'btn btn-primary launch-button'}
+      style={
+        isHero
+          ? undefined
+          : { padding: '0.4rem 0.95rem', fontSize: '0.95rem', fontWeight: 600 }
+      }
+      aria-label={`${openLabel} — single-click silent sign-in, no second login`}
     >
-      {pending ? 'Opening…' : '↗ Open'}
+      <span aria-hidden="true" className={isHero ? 'hero-launch-icon' : undefined}>
+        ↗
+      </span>{' '}
+      {pending ? 'Opening…' : openLabel}
     </button>
   )
 }
@@ -1500,6 +1528,42 @@ const APP_DETAIL_CSS = `
 .hero-subtitle { color: var(--color-text-dim); font-weight: 500; font-size: 0.95rem; }
 .hero-tagline { margin: 0.25rem 0 0.6rem; color: var(--color-text-dim); font-size: 0.9rem; }
 .hero-meta { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+/*
+ * #3150 — the unmistakable header "Open <App>" CTA. The founder flagged
+ * the launch button as missing/too-subtle TWICE, so this is a real,
+ * accent-filled primary button (NOT a chip, NOT a text link). Self-styled
+ * here because the shared .btn-primary rule lives in AppsPage's
+ * page-scoped <style> and never reaches this page — that was the root
+ * cause of the prior unstyled/subtle render.
+ */
+.hero-launch {
+  display: flex; align-items: center; gap: 0.7rem;
+  flex-wrap: wrap; margin: 0.55rem 0 0.7rem;
+}
+.hero-launch-btn {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.6rem 1.25rem;
+  font-size: 1.02rem; font-weight: 700; line-height: 1;
+  color: #fff;
+  background: var(--color-accent);
+  border: none; border-radius: 10px;
+  cursor: pointer;
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--color-accent) 40%, transparent);
+  transition: filter 0.12s ease, transform 0.06s ease, box-shadow 0.12s ease;
+}
+.hero-launch-btn:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--color-accent) 52%, transparent);
+}
+.hero-launch-btn:active { transform: translateY(1px); }
+.hero-launch-btn:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+  outline-offset: 2px;
+}
+.hero-launch-btn:disabled { opacity: 0.7; cursor: progress; }
+.hero-launch-icon { font-size: 1.1em; line-height: 0; }
+.hero-launch-hint { font-size: 0.82rem; color: var(--color-text-dim); }
 
 .chip { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.18rem 0.55rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; }
 .chip-cat { background: color-mix(in srgb, var(--color-border) 50%, transparent); color: var(--color-text-dim); text-transform: capitalize; }
