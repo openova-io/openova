@@ -311,7 +311,14 @@ images:
   admin:
     tag: "3c2f7e4"
   # All 10 SME microservices share one SHA tag (built from the same mono-repo commit).
-  smeTag: "41e02c8"
+  # 2026-06-09: bumped 41e02c8 → c96f998 (merge SHA of #3157). 41e02c8 (built
+  # 2026-06-05) PREDATES the #3157 marketplace-plans fix (merged 2026-06-09),
+  # so services-catalog:41e02c8 lacks filterPlansByProduct → the generic
+  # Org-provisioning picker rendered all 8 plans (5 generic + 3 Sandbox) on
+  # hw124 instead of 5. A later catalyst-platform roll re-pinned the stale
+  # 41e02c8, reverting the live filter. c96f998 carries the server-side filter
+  # and is published for all 8 services-* images (latest-tagged). Refs #3156.
+  smeTag: "c96f998"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────

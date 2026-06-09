@@ -2606,7 +2606,10 @@ name: bp-catalyst-platform
 # OIDC-init route (grafana /login/generic_oauth) so the console "Open" button
 # lands the operator already-logged-in with no app login form. bp-grafana
 # catalog-seed CR gains ssoInitPath. Refs #3150.
-version: 1.4.539
+# 1.4.540 — fix(marketplace): re-pin services-catalog (smeTag) 41e02c8 → c96f998.
+# 41e02c8 predates the #3157 plans filter, so the generic Org-provisioning
+# picker showed all 8 plans (Sandbox dupes) instead of 5 on hw124. Refs #3156.
+version: 1.4.540
 appVersion: 1.4.494
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
