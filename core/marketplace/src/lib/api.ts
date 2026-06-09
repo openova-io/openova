@@ -103,8 +103,11 @@ async function tryRefresh(): Promise<void> {
 }
 
 // Catalog
+// Scope to generic compute tiers (S/M/L/XL/Flexi). Product-scoped plans
+// (e.g. Sandbox Free/Pro/Ent, ProductSlug="sandbox") have their own flow
+// and must NOT duplicate into this Org-provisioning picker (#3156).
 export const getPlans = async (): Promise<Plan[]> => {
-  const raw = await request<any[]>('/catalog/plans');
+  const raw = await request<any[]>('/catalog/plans?product=generic');
   return raw.map(p => ({
     id: p.id,
     slug: p.slug || p.name?.toLowerCase() || '',
