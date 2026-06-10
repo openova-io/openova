@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -686,10 +687,7 @@ func (h *Handler) releaseOrphanedReservation(deploymentID, poolDomain, subdomain
 // resume is the safer-default action because the helmwatch is
 // idempotent (it just observes HelmRelease.status).
 func (h *Handler) shouldResumePhase1(dep *Deployment, rec store.Record) bool {
-	if dep.Result == nil || dep.Result.KubeconfigPath == "" {
-		return false
-	}
-	if dep.Result.Phase1FinishedAt != nil {
+	if dep.Result != nil && dep.Result.Phase1FinishedAt != nil {
 		return false
 	}
 	// Phase-0 in-flight statuses are rewritten to "failed" by
@@ -701,9 +699,32 @@ func (h *Handler) shouldResumePhase1(dep *Deployment, rec store.Record) bool {
 	if isPhase0InFlightStatus(rec.Status) {
 		return false
 	}
-	if _, err := os.Stat(dep.Result.KubeconfigPath); err != nil {
+	// #3153: resolve the kubeconfig path with a CONVENTIONAL fallback.
+	// Result.KubeconfigPath carries json `omitempty` and can be lost on a
+	// rehydrated record when a mothership roll persists the deployment
+	// before PutKubeconfig stamped the path — but the kubeconfig FILE itself
+	// survives on the PVC at <kubeconfigsDir>/<id>.yaml. Without this
+	// fallback the resume is skipped and the operator goes permanently blind
+	// to convergence after ANY catalyst-api roll (image bump, OOM, node
+	// maintenance). Resuming read-only is harmless; skipping it is the bug.
+	kubeconfigPath := ""
+	if dep.Result != nil {
+		kubeconfigPath = dep.Result.KubeconfigPath
+	}
+	if kubeconfigPath == "" && h.kubeconfigsDir != "" {
+		kubeconfigPath = filepath.Join(h.kubeconfigsDir, dep.ID+".yaml")
+	}
+	if kubeconfigPath == "" {
 		return false
 	}
+	if _, err := os.Stat(kubeconfigPath); err != nil {
+		return false
+	}
+	// Make sure the resumed watch + StreamLogs see the resolved path.
+	if dep.Result == nil {
+		dep.Result = &provisioner.Result{}
+	}
+	dep.Result.KubeconfigPath = kubeconfigPath
 	return true
 }
 
