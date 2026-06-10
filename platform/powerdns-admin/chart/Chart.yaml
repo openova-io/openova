@@ -36,7 +36,7 @@ name: bp-powerdns-admin
 #     live on hw124: console Open → pdns-admin.<fqdn>/oidc/login → KC silent →
 #     lands on the PDA Dashboard logged-in, no login form
 #     (docs/sessions/2026-06-10/evidence/hw124-powerdns-admin-loggedin.png).
-version: 0.1.5
+version: 0.1.6
 description: |
   PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI Blueprint for
   per-Sovereign PowerDNS zone + record management. Drives the

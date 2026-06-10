@@ -131,11 +131,15 @@ databaseSecret:
 
 # ─── PowerDNS backend endpoint ───────────────────────────────────────────
 # Where the running PDA container reaches the authoritative server.
-# Per-Sovereign overlay sets these or accepts the in-cluster default
-# (matches platform/powerdns/chart/templates/dnsdist.yaml api Service
-# name + port).
+# Per-Sovereign overlay sets these or accepts the in-cluster default.
+# 0.1.6 (#3189, 2026-06-10): the API/webserver (port 8081) is exposed by
+# the bp-powerdns chart's `powerdns` Service (live: `powerdns` svc port
+# `webserver:8081`; the chart's own zone-bootstrap-job curls
+# `http://powerdns:8081`). The previous `bp-powerdns-api` host does NOT
+# exist as a Service → NXDOMAIN → PowerDNS-Admin could not reach the API
+# → empty Zones table (its core function dead). Point at the real svc.
 pdns:
-  apiUrl: "http://bp-powerdns-api.powerdns.svc.cluster.local:8081"
+  apiUrl: "http://powerdns.powerdns.svc.cluster.local:8081"
   # The API key the PDA container POSTs via X-API-Key. bp-powerdns chart
   # ships templates/api-credentials-secret.yaml; the same Secret is
   # reflected into this namespace via the reflector chain so we read
