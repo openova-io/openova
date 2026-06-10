@@ -56,13 +56,32 @@ spec:
           Every container in
           {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} must
           declare both livenessProbe and readinessProbe.
-        pattern:
-          spec:
-            template:
-              spec:
-                containers:
-                  - livenessProbe:
-                      "?{}": "?*"
-                    readinessProbe:
-                      "?{}": "?*"
+        # The prior `validate.pattern` form `livenessProbe: {"?{}": "?*"}`
+        # required a probe SUB-KEY literally matching the glob `?{}` — no real
+        # probe field (httpGet / exec / tcpSocket / initialDelaySeconds …) can
+        # ever match that, so the pattern denied EVERY workload (it never
+        # admitted one — undetected because no gated chart reached admission).
+        #
+        # `livenessProbe: "?*"` does NOT work either: the `?*` wildcard only
+        # matches NON-EMPTY SCALAR values, while `livenessProbe` is an OBJECT
+        # (httpGet / exec / …) — empirically verified in the kind+kyverno
+        # v1.18 harness that `"?*"` against an object field denies even a
+        # compliant container.
+        #
+        # The robust, probe-handler-agnostic check is `validate.deny` with a
+        # JMESPath count: "the number of containers that DECLARE the probe must
+        # equal the total container count" (i.e. ALL containers carry it).
+        # `containers[?livenessProbe]` filters to containers where the field is
+        # present/truthy. This works for any handler type and autogen-expands
+        # cleanly to `spec.template.spec.containers` for the matched workload
+        # kinds. Empirically green across both directions in the harness.
+        deny:
+          conditions:
+            any:
+              - key: "{{ `{{ request.object.spec.template.spec.containers[?livenessProbe] | length(@) }}` }}"
+                operator: NotEquals
+                value: "{{ `{{ request.object.spec.template.spec.containers | length(@) }}` }}"
+              - key: "{{ `{{ request.object.spec.template.spec.containers[?readinessProbe] | length(@) }}` }}"
+                operator: NotEquals
+                value: "{{ `{{ request.object.spec.template.spec.containers | length(@) }}` }}"
 {{- end -}}
