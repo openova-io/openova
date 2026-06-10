@@ -1554,15 +1554,26 @@ func TestAutoEstablishClusterMesh_ReplicaCopyFailureRefusesFlip(t *testing.T) {
 	}
 }
 
-// TestAutoEstablishClusterMesh_ReRunAfterSecretsAppearConverges — first
-// run with the source Secret absent refuses the flip; after the primary
-// produces it, a second run (the #3241 level-trigger shape) copies both
-// Secrets and flips both gates. Proves the refusal is recoverable, not
-// terminal, and that the copy is idempotent across runs.
+// TestAutoEstablishClusterMesh_ReRunAfterSecretsAppearConverges — the
+// hw126 22:38 state (#3241/#3236): the mesh is fully established on the
+// FIRST attempt (both LBs present) but the slot-16b flip REFUSES because
+// the primary postgres hasn't minted its replica-auth Secrets yet. The
+// prior loop treated "mesh meshed" as converged and STOPPED, so the flip
+// stayed unapplied until a manual catalyst-api restart.
+//
+// With the flip-convergence signal threaded out of
+// enableCNPGPairAfterFullMesh, the reconcile loop must now treat
+// "meshed but flip refused" as NOT-converged and keep retrying on its own
+// backoff. This test drives the LOOP (runAutoEstablishClusterMesh) ONCE
+// — no fresh kick — and proves it converges across two attempts: attempt
+// 1 meshes + refuses the flip; a goroutine then mints the source Secret
+// (the primary finishing initdb); attempt 2 copies both Secrets and flips
+// both gates; the loop stops with the final success event.
 func TestAutoEstablishClusterMesh_ReRunAfterSecretsAppearConverges(t *testing.T) {
 	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
 	primaryCS := fx.clients[fx.primaryKubeconfigPath]
-	// Run 1: one source Secret missing → flip refused.
+	// Source Secret missing at the start → attempt 1's flip refuses even
+	// though the mesh fully establishes (both LBs present from the start).
 	if err := primaryCS.CoreV1().Secrets(cnpgPairNamespace).Delete(context.Background(), cnpgPairReplicationCert, metav1.DeleteOptions{}); err != nil {
 		t.Fatalf("delete source Secret: %v", err)
 	}
@@ -1571,33 +1582,66 @@ func TestAutoEstablishClusterMesh_ReRunAfterSecretsAppearConverges(t *testing.T)
 	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
 	defer restoreDyn()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if _, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep); err != nil {
-		t.Fatalf("run 1: AutoEstablishClusterMesh error: %v", err)
-	}
-	assertGateNotFlipped(t, fx.dynClients[fx.primaryKubeconfigPath], "primary (run 1)")
-	assertGateNotFlipped(t, fx.dynClients[fx.secondaryKubeconfigPath], "secondary (run 1)")
+	// Fast retry knobs so the loop's two attempts complete in milliseconds.
+	fx.handler.clusterMeshRetryInitialBackoff = 20 * time.Millisecond
+	fx.handler.clusterMeshRetryMaxBackoff = 60 * time.Millisecond
+	fx.handler.clusterMeshRetryBudget = 20 * time.Second
+	fx.handler.clusterMeshAttemptTimeout = 5 * time.Second
 
-	// The primary postgres finishes initdb → CNPG mints the Secret.
-	if _, err := primaryCS.CoreV1().Secrets(cnpgPairNamespace).Create(context.Background(), &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: cnpgPairReplicationCert, Namespace: cnpgPairNamespace},
-		Type:       corev1.SecretTypeTLS,
-		Data:       map[string][]byte{"tls.crt": []byte("REPL-CERT-2"), "tls.key": []byte("REPL-KEY-2")},
-	}, metav1.CreateOptions{}); err != nil {
-		t.Fatalf("re-create source Secret: %v", err)
+	// Once attempt 1 reports "meshed but the cnpg-pair flip has not landed"
+	// (the new retry shape), the primary postgres finishes initdb → CNPG
+	// mints the Secret. The level-trigger's whole point: a later-appearing
+	// Secret still converges with NO external re-kick.
+	secretDone := make(chan error, 1)
+	go func() {
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			if hasClusterMeshEvent(fx.dep, "warn", "cnpg-pair flip has not landed", "retrying in") {
+				_, err := primaryCS.CoreV1().Secrets(cnpgPairNamespace).Create(context.Background(), &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: cnpgPairReplicationCert, Namespace: cnpgPairNamespace},
+					Type:       corev1.SecretTypeTLS,
+					Data:       map[string][]byte{"tls.crt": []byte("REPL-CERT-2"), "tls.key": []byte("REPL-KEY-2")},
+				}, metav1.CreateOptions{})
+				secretDone <- err
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		secretDone <- fmt.Errorf("never observed the meshed-but-flip-pending retry event")
+	}()
+
+	loopDone := make(chan struct{})
+	go func() {
+		fx.handler.runAutoEstablishClusterMesh(fx.dep)
+		close(loopDone)
+	}()
+	select {
+	case <-loopDone:
+	case <-time.After(25 * time.Second):
+		t.Fatalf("reconcile loop did not terminate; events:\n%s", dumpClusterMeshEvents(fx.dep))
+	}
+	if err := <-secretDone; err != nil {
+		t.Fatalf("source-Secret mint goroutine: %v", err)
 	}
 
-	// Run 2: now converges — both Secrets copied, both gates flipped.
-	if _, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep); err != nil {
-		t.Fatalf("run 2: AutoEstablishClusterMesh error: %v", err)
+	// Attempt 1 emitted the meshed-but-flip-pending retry event (proves the
+	// loop did NOT stop on mesh-only readiness — the hw126 regression).
+	if !hasClusterMeshEvent(fx.dep, "warn", "cnpg-pair flip has not landed", "retrying in") {
+		t.Errorf("expected a meshed-but-flip-pending retry event; events:\n%s", dumpClusterMeshEvents(fx.dep))
 	}
+	// Final success event — the loop stops cleanly only once the flip lands.
+	if !hasClusterMeshEvent(fx.dep, "info", "fully meshed (2/2 regions)", "cnpg-pair flip landed", "reconcile loop complete") {
+		t.Errorf("expected final success event after flip converged; events:\n%s", dumpClusterMeshEvents(fx.dep))
+	}
+
+	// The convergence happened: both replica-auth Secrets copied + both
+	// gates flipped — within ONE loop invocation, no fresh kick.
 	replicaCS := fx.clients[fx.secondaryKubeconfigPath]
 	for _, name := range cnpgPairReplicaAuthSecrets {
 		if _, ok := getCNPGSecret(t, replicaCS, name); !ok {
-			t.Errorf("run 2: replica still missing Secret %s after source appeared", name)
+			t.Errorf("replica still missing Secret %s after source appeared", name)
 		}
 	}
-	assertGateFlipped(t, fx.dynClients[fx.primaryKubeconfigPath], "primary (run 2)")
-	assertGateFlipped(t, fx.dynClients[fx.secondaryKubeconfigPath], "secondary (run 2)")
+	assertGateFlipped(t, fx.dynClients[fx.primaryKubeconfigPath], "primary")
+	assertGateFlipped(t, fx.dynClients[fx.secondaryKubeconfigPath], "secondary")
 }

@@ -958,13 +958,24 @@ func (h *Handler) runAutoEstablishClusterMesh(dep *Deployment) {
 	backoff := initialBackoff
 	for attempt := 1; ; attempt++ {
 		attemptCtx, cancelAttempt := context.WithTimeout(ctx, attemptTimeout)
-		statuses, err := h.AutoEstablishClusterMesh(attemptCtx, dep)
+		statuses, cnpgPairConverged, err := h.autoEstablishClusterMesh(attemptCtx, dep)
 		cancelAttempt()
 
 		fullyMeshed := countFullyMeshedRegions(statuses)
-		if err == nil && len(statuses) >= 2 && fullyMeshed == len(statuses) {
+		meshConverged := len(statuses) >= 2 && fullyMeshed == len(statuses)
+		// Convergence for a multi-region deployment requires BOTH the mesh
+		// fully established AND the #3236 cnpg-pair flip landed. hw126 at
+		// 22:38 was mesh-fully-established (2/2) yet the flip correctly
+		// REFUSED because the primary's replica-auth Secrets weren't minted
+		// for another 10 minutes — the prior `fullyMeshed == regions` exit
+		// declared victory anyway and STOPPED, so nothing ever re-ran the
+		// copy+flip and a manual catalyst-api restart was needed. Treating
+		// "meshed but flip not landed" as NOT-converged keeps the loop
+		// retrying on the existing backoff until the flip lands (or the
+		// budget exhausts).
+		if err == nil && meshConverged && cnpgPairConverged {
 			h.emitClusterMeshProgress(dep, "info",
-				fmt.Sprintf("ClusterMesh reconcile: fully meshed (%d/%d regions) on attempt %d — reconcile loop complete", fullyMeshed, len(statuses), attempt))
+				fmt.Sprintf("ClusterMesh reconcile: fully meshed (%d/%d regions) + cnpg-pair flip landed on attempt %d — reconcile loop complete", fullyMeshed, len(statuses), attempt))
 			h.log.Info("clustermesh: reconcile loop converged",
 				"id", dep.ID,
 				"attempt", attempt,
@@ -1002,15 +1013,23 @@ func (h *Handler) runAutoEstablishClusterMesh(dep *Deployment) {
 			// operator-facing X/Y stays meaningful.
 			total = regionCount
 		}
+		// Distinguish the two not-yet-converged shapes so the operator
+		// watches the right thing: a partial mesh vs a fully-meshed
+		// cluster still waiting on the cnpg-pair flip (the hw126 state).
+		progress := fmt.Sprintf("%d/%d regions fully meshed", fullyMeshed, total)
+		if meshConverged && !cnpgPairConverged {
+			progress = fmt.Sprintf("%d/%d regions fully meshed but the cnpg-pair flip has not landed (primary replica-auth Secrets likely still pending)", fullyMeshed, total)
+		}
 		h.emitClusterMeshProgress(dep, "warn",
-			fmt.Sprintf("ClusterMesh reconcile: attempt %d ended with %d/%d regions fully meshed — retrying in %s", attempt, fullyMeshed, total, backoff))
+			fmt.Sprintf("ClusterMesh reconcile: attempt %d ended with %s — retrying in %s", attempt, progress, backoff))
 		if sleepErr := sleepCtx(ctx, backoff); sleepErr != nil {
 			h.emitClusterMeshProgress(dep, "warn",
-				fmt.Sprintf("ClusterMesh reconcile: retry budget exhausted after %d attempt(s) with %d/%d regions fully meshed — next trigger is a catalyst-api restart or the post-handover finalisation", attempt, fullyMeshed, total))
+				fmt.Sprintf("ClusterMesh reconcile: retry budget exhausted after %d attempt(s) with %s — next trigger is a catalyst-api restart or the post-handover finalisation", attempt, progress))
 			h.log.Warn("clustermesh: reconcile loop retry budget exhausted",
 				"id", dep.ID,
 				"attempts", attempt,
 				"fullyMeshed", fullyMeshed,
+				"cnpgPairConverged", cnpgPairConverged,
 				"err", sleepErr,
 			)
 			return
