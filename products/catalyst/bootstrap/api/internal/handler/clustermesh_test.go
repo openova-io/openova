@@ -853,6 +853,123 @@ func TestShouldStartupClusterMeshReconcile_Guards(t *testing.T) {
 	}
 }
 
+// TestShouldStartupClusterMeshReconcile_ConventionalFallback — the hw126
+// (#3241) regression: a deployment record restored from the PVC loses the
+// `omitempty` Result.KubeconfigPath FIELD, but the kubeconfig FILE always
+// survives at the conventional `<kubeconfigsDir>/<id>.yaml`. The reconcile
+// must derive that path (mirroring #3153's resume fallback) instead of
+// emitting "primary kubeconfig path empty" and skipping forever. It must
+// also stamp the resolved path back onto dep.Result so the downstream
+// AutoEstablishClusterMesh fan-out (which re-reads dep.Result.KubeconfigPath)
+// can reach the primary region.
+func TestShouldStartupClusterMeshReconcile_ConventionalFallback(t *testing.T) {
+	dir := t.TempDir()
+	h := &Handler{log: silentLogger(), kubeconfigsDir: dir}
+	twoRegions := []provisioner.RegionSpec{
+		{Provider: "huawei", CloudRegion: "me-east-215-a"},
+		{Provider: "huawei", CloudRegion: "me-east-215-b"},
+	}
+	const depID = "c986326a77d391d4"
+	// Conventional primary file present on the PVC; record field empty.
+	convPath := filepath.Join(dir, depID+".yaml")
+	if err := os.WriteFile(convPath, []byte("apiVersion: v1\nkind: Config\n"), 0o600); err != nil {
+		t.Fatalf("write conventional kubeconfig: %v", err)
+	}
+
+	t.Run("empty-field-result-present", func(t *testing.T) {
+		dep := &Deployment{ID: depID, Status: "ready",
+			Request: provisioner.Request{Regions: twoRegions},
+			Result:  &provisioner.Result{}} // KubeconfigPath == ""
+		if !h.shouldStartupClusterMeshReconcile(dep) {
+			t.Fatalf("reconcile skipped despite conventional kubeconfig present at %s", convPath)
+		}
+		if dep.Result.KubeconfigPath != convPath {
+			t.Errorf("resolved path not stamped back: got %q want %q", dep.Result.KubeconfigPath, convPath)
+		}
+	})
+
+	t.Run("nil-result-conventional-present", func(t *testing.T) {
+		dep := &Deployment{ID: depID, Status: "ready",
+			Request: provisioner.Request{Regions: twoRegions}} // Result == nil
+		if !h.shouldStartupClusterMeshReconcile(dep) {
+			t.Fatalf("reconcile skipped on nil-Result despite conventional kubeconfig present")
+		}
+		if dep.Result == nil || dep.Result.KubeconfigPath != convPath {
+			t.Errorf("nil Result not populated with conventional path: %+v", dep.Result)
+		}
+	})
+
+	t.Run("empty-field-no-file-still-skips", func(t *testing.T) {
+		// A different id whose conventional file does NOT exist must still
+		// warn-and-skip (no spinning the retry budget against a phantom).
+		dep := &Deployment{ID: "no-such-id", Status: "ready",
+			Request: provisioner.Request{Regions: twoRegions},
+			Result:  &provisioner.Result{}}
+		if h.shouldStartupClusterMeshReconcile(dep) {
+			t.Fatalf("reconcile should skip when neither field nor conventional file resolves")
+		}
+	})
+
+	t.Run("empty-kubeconfigsDir-skips", func(t *testing.T) {
+		// Without a configured kubeconfigsDir the conventional path can't
+		// be derived — the original warn-and-skip must still hold.
+		hNoDir := &Handler{log: silentLogger()}
+		dep := &Deployment{ID: depID, Status: "ready",
+			Request: provisioner.Request{Regions: twoRegions},
+			Result:  &provisioner.Result{}}
+		if hNoDir.shouldStartupClusterMeshReconcile(dep) {
+			t.Fatalf("reconcile should skip when kubeconfigsDir is empty")
+		}
+	})
+}
+
+// TestBuildRegionSlots_SecondaryConventionalFallback documents + locks in
+// the part-2 finding: secondary region kubeconfigs are resolved from the
+// conventional `<kubeconfigsDir>/<id>-<region>-<idx>.yaml` filesystem path
+// INDEPENDENTLY of the in-memory dep.secondaryKubeconfigPaths map (which is
+// also emptied on a PVC restore). No code change is needed for secondaries —
+// this test proves the existing pickPath fallback already derives them with
+// the same naming the PUT path (?region=<k>) writes.
+func TestBuildRegionSlots_SecondaryConventionalFallback(t *testing.T) {
+	dir := t.TempDir()
+	h := &Handler{log: silentLogger(), kubeconfigsDir: dir}
+	const depID = "c986326a77d391d4"
+	regions := []provisioner.RegionSpec{
+		{Provider: "huawei", CloudRegion: "me-east-215-a"},
+		{Provider: "huawei", CloudRegion: "me-east-215-b"},
+	}
+	primaryPath := filepath.Join(dir, depID+".yaml")
+	// Secondary key per regionKeyFromSpec: "<cloudRegion>-<idx>" = "me-east-215-b-1".
+	secondaryPath := filepath.Join(dir, depID+"-me-east-215-b-1.yaml")
+	for _, p := range []string{primaryPath, secondaryPath} {
+		if err := os.WriteFile(p, []byte("apiVersion: v1\nkind: Config\n"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
+	}
+	// Route both resolved paths through fake clientsets so the slot build
+	// exercises path resolution without parsing a real kubeconfig.
+	restore := installClusterMeshClientFactory(map[string]kubernetes.Interface{
+		primaryPath:   kfake.NewSimpleClientset(),
+		secondaryPath: kfake.NewSimpleClientset(),
+	})
+	defer restore()
+	dep := &Deployment{ID: depID, Status: "ready",
+		Request: provisioner.Request{Regions: regions}}
+
+	// Empty secondaryPaths map mimics the post-restore state.
+	slots := h.buildRegionSlots(dep, regions, primaryPath, map[string]string{})
+	if len(slots) != 2 {
+		t.Fatalf("expected 2 slots, got %d", len(slots))
+	}
+	if slots[1].kubeconfigPath != secondaryPath {
+		t.Errorf("secondary slot did not resolve conventional path: got %q want %q",
+			slots[1].kubeconfigPath, secondaryPath)
+	}
+	if slots[1].err != nil {
+		t.Errorf("secondary slot unexpectedly failed: %v", slots[1].err)
+	}
+}
+
 // TestAutoEstablishClusterMesh_Idempotent — second invocation produces
 // identical Secret keys (same number of entries, same names) and the
 // returned statuses match.
