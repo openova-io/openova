@@ -36,7 +36,15 @@ name: bp-powerdns-admin
 #     live on hw124: console Open → pdns-admin.<fqdn>/oidc/login → KC silent →
 #     lands on the PDA Dashboard logged-in, no login form
 #     (docs/sessions/2026-06-10/evidence/hw124-powerdns-admin-loggedin.png).
-version: 0.1.6
+# 0.1.7 (Refs #2737, 2026-06-11): pass the kyverno Enforce admission on a
+# fresh Sovereign. bp-powerdns-admin reached kyverno admission for the FIRST
+# time on the hw126 fresh prov (prior provs wedged upstream) and was DENIED
+# by the baseline cilium-l7-mtls / cilium-enforced-label rule — the Pod
+# template was missing `policy.cilium.io/enforced: "true"`. Add the label to
+# spec.template.metadata.labels, mirroring the bp-sso-bridge + catalyst chart
+# idiom. The container image already pulls through the Harbor proxy
+# (harbor.openova.io/proxy-dockerhub/…, #3150) so it satisfies harbor-proxy-pull.
+version: 0.1.7
 description: |
   PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI Blueprint for
   per-Sovereign PowerDNS zone + record management. Drives the

@@ -99,7 +99,10 @@ spec:
       # 0.1.5 (#3150, 2026-06-10): silent-SSO logged-in — correct OIDC env-var
       # names (OIDC_OAUTH_USERNAME/_FIRSTNAME/_LAST_NAME/_EMAIL) + name claims
       # point at preferred_username (catalyst-pin carries no given_name).
-      version: 0.1.6
+      # 0.1.7 (#2737, 2026-06-11): add `policy.cilium.io/enforced: "true"` to
+      # the Pod template — kyverno cilium-l7-mtls Enforce denied the Deployment
+      # on the hw126 fresh prov (first time it reached admission).
+      version: 0.1.7
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns-admin
