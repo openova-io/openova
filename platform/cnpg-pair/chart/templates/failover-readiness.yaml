@@ -40,6 +40,12 @@ spec:
         {{- include "cnpg-pair.selectorLabels" . | nindent 8 }}
         catalyst.openova.io/role: failover-readiness-probe
         catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+        # kyverno cilium-l7-mtls (Enforce): the catalyst-network
+        # controller routes this Pod under the zero-trust mesh via this
+        # label. Required on spec.template.metadata.labels — without it
+        # the Deployment is DENIED at admission (first reached when the
+        # cnpgPair gate flipped true on hw126, #3238).
+        policy.cilium.io/enforced: "true"
     spec:
       # Probe runs in the replica region — when the replica region
       # is the one promoting, Continuum reads this Pod's Ready
@@ -78,6 +84,12 @@ spec:
               REPLICA_HOST="{{ include "cnpg-pair.replicaName" . }}-r"
               THRESHOLD={{ .Values.cnpgPair.walStreaming.targetLagSeconds }}
               while true; do
+                # Heartbeat first — the livenessProbe reads /tmp/alive's
+                # mtime to detect a WEDGED loop (a hung psql or a stalled
+                # shell never refreshes it). The readinessProbe's /tmp/ready
+                # is a SEPARATE signal (promotability), so the two probes
+                # answer different questions: alive vs promotable.
+                : > /tmp/alive
                 LAG=$(psql "host=${REPLICA_HOST} port=5432 user=postgres dbname=postgres sslmode=require" \
                        -tAXc "SELECT EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::int" 2>/dev/null \
                        || echo "999999")
@@ -92,6 +104,24 @@ spec:
           env:
             - name: PGCONNECT_TIMEOUT
               value: "5"
+          # livenessProbe — DISTINCT from readiness. Readiness ("/tmp/ready
+          # exists") flips with replica promotability and is EXPECTED to be
+          # false whenever WAL lag exceeds the threshold; gating liveness on
+          # it would kill a perfectly-healthy probe that is simply reporting a
+          # lagging replica. Liveness instead asserts the poll LOOP itself is
+          # making progress: every pass touches /tmp/alive, so a heartbeat
+          # younger than 60s proves the shell loop is not wedged. kyverno
+          # probes-present (Enforce) requires BOTH probes on every container.
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "test -f /tmp/alive && test -z \"$(find /tmp/alive -mmin +1)\""
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
           readinessProbe:
             exec:
               command: ["test", "-f", "/tmp/ready"]

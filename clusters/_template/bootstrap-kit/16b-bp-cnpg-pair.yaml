@@ -143,7 +143,15 @@ spec:
       # the canonical 4-segment region labels are validated on a fresh
       # 2-region prov — Phase-2 acceptance). The primary/replica/audit/
       # probe path is unchanged from 0.1.2.
-      version: 0.1.3
+      # 0.1.4 (Refs #3236 / #2737) — kyverno-Enforce compliance re-cut.
+      # The cnpgPair gate flipped TRUE on hw126 (#3238), so the failover-
+      # readiness Deployment hit kyverno Enforce admission for the first
+      # time and was DENIED on cilium-l7-mtls / probes-present / harbor-
+      # proxy-pull / image-tag-pinned. 0.1.4 adds the enforced label, a
+      # livenessProbe, and Harbor-proxies the default image. The default
+      # image.repository now equals this slot's override, so the inline
+      # override below is redundant but kept explicit for clarity.
+      version: 0.1.4
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair

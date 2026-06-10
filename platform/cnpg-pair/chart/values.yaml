@@ -162,7 +162,16 @@ cnpgPair:
   # SHA digest (not a floating tag); a versioned tag is acceptable
   # in pre-prod but cluster overlays should pin to digest.
   image:
-    repository: ghcr.io/cloudnative-pg/postgresql
+    # harbor-proxy-pull compliant default (kyverno harbor-proxy-pull
+    # ClusterPolicy, Enforce). The failover-readiness Deployment reaches
+    # kyverno admission and is DENIED unless its image matches the
+    # Sovereign-Harbor proxy glob `*/proxy-*/*`. This is the exact prefix
+    # bp-gitea / bp-harbor / bp-powerdns / bp-postgres use for their CNPG
+    # Clusters — a public image proxy-ghcr serves cred-free pre-cutover,
+    # redirected to the local Harbor by cutover Step-04 post-handover.
+    # The bootstrap-kit slot 16b already pins this same repository; the
+    # default now matches so the standalone chart renders compliant too.
+    repository: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql
     # REQUIRED — empty fails the render. Example pin:
     #   tag: "16.3-23"
     tag: ""
