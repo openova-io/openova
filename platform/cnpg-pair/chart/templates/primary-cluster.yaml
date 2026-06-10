@@ -39,7 +39,9 @@ spec:
 
   storage:
     size: {{ .Values.cnpgPair.primary.storage.size | quote }}
-    storageClass: {{ .Values.cnpgPair.primary.storage.storageClass | quote }}
+    {{- with .Values.cnpgPair.primary.storage.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
 
   resources:
     {{- toYaml .Values.cnpgPair.primary.resources | nindent 4 }}

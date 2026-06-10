@@ -54,7 +54,9 @@ spec:
 
   storage:
     size: {{ .Values.cnpgPair.replica.storage.size | quote }}
-    storageClass: {{ .Values.cnpgPair.replica.storage.storageClass | quote }}
+    {{- with .Values.cnpgPair.replica.storage.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
 
   resources:
     {{- toYaml .Values.cnpgPair.replica.resources | nindent 4 }}

@@ -81,7 +81,7 @@ spec:
                   quantities (e.g. "100Gi", "1Ti").
               storageClass:
                 type: string
-                default: hcloud-volumes
+                default: ""
                 description: |
                   StorageClass for the primary's PVCs. H6's
                   bp-hcloud-csi provides `hcloud-volumes` on every
@@ -115,7 +115,7 @@ spec:
                 default: "100Gi"
               storageClass:
                 type: string
-                default: hcloud-volumes
+                default: ""
       walStreaming:
         type: object
         properties:
