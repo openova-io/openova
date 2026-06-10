@@ -63,7 +63,13 @@ spec:
       # CA written to MutatingWebhookConfiguration caBundle → x509
       # verify failed → all Cluster CR admissions denied. G53
       # webhook-gate remains as readiness signal.
-      version: 1.0.8
+      #
+      # 1.0.9 (Refs #3236 #2737): operator image pinned to the Harbor
+      # proxy-cache (proxy-ghcr/cloudnative-pg/cloudnative-pg:1.29.0) so the
+      # operator pod AND the bootstrap-controller initContainer it injects
+      # into every instance pod both pull harbor-proxied — bare ghcr.io ref
+      # flaky-DNS ImagePullBackOff'd the cnpg-pair replica on hw126 region-B.
+      version: 1.0.9
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg

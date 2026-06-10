@@ -8,7 +8,17 @@ name: bp-cnpg
 # kind of certificate") → bp-catalyst-platform + bp-newapi Helm
 # install denied. Trust upstream operator's self-managed cert flow;
 # G53 webhook-gate Job remains as the readiness signal.
-version: 1.0.8
+#
+# 1.0.9 (Refs #3236 #2737): pin the cloudnative-pg operator image to the
+# Harbor proxy-cache (harbor.openova.io/proxy-ghcr/cloudnative-pg/
+# cloudnative-pg:1.29.0). The subchart renders both the operator pod's
+# image AND the OPERATOR_IMAGE_NAME env (which the operator injects as the
+# bootstrap-controller initContainer into every instance pod) from the same
+# image.repository:image.tag — so the override proxies both in lockstep. Bare
+# upstream ghcr.io ref violated the harbor-proxy baseline + flaky-ghcr-DNS
+# ImagePullBackOff killed the cnpg-pair replica basebackup on hw126 region-B.
+# webhookGate Job image proxied to proxy-dockerhub in the same pass.
+version: 1.0.9
 description: |
   Catalyst-curated Blueprint umbrella chart for CloudNativePG. Depends on
   the upstream `cloudnative-pg` chart as a Helm subchart so
