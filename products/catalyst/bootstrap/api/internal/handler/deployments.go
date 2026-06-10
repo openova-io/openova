@@ -526,6 +526,7 @@ func (h *Handler) restoreFromStore() {
 	}
 
 	resumed := 0
+	meshReconciles := 0
 	for _, rec := range records {
 		dep := fromRecord(rec)
 		h.deployments.Store(dep.ID, dep)
@@ -583,6 +584,20 @@ func (h *Handler) restoreFromStore() {
 		if h.shouldResumePhase1(dep, rec) {
 			resumed++
 			h.resumePhase1Watch(dep)
+		} else if h.shouldStartupClusterMeshReconcile(dep) {
+			// #3241 — level-triggered ClusterMesh reconcile on startup.
+			// A ready multi-region deployment whose Phase-1 terminated
+			// on a previous Pod gets the same retry loop markPhase1Done
+			// fires, so a partially-meshed Sovereign (hw126 shape: the
+			// one-shot fan-out raced LB-IPAM and gave up forever) heals
+			// zero-touch on the next catalyst-api roll. Every establish
+			// step is idempotent, and the loop's first attempt on an
+			// already-fully-meshed Sovereign confirms + exits. Resumed
+			// Phase-1 watches are excluded — their markPhase1Done fires
+			// the loop itself on termination. Deployments with missing
+			// kubeconfigs are warn-and-skipped inside the should-helper.
+			meshReconciles++
+			go h.runAutoEstablishClusterMesh(dep)
 		}
 
 		// #1907 — bake-time top-up of the canonical .omani.X sme-pool.
@@ -598,6 +613,7 @@ func (h *Handler) restoreFromStore() {
 	h.log.Info("restored deployments from PVC",
 		"count", len(records),
 		"resumed", resumed,
+		"clusterMeshReconciles", meshReconciles,
 		"dir", h.store.Dir(),
 	)
 }

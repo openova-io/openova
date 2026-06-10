@@ -161,6 +161,28 @@ const (
 	clusterMeshPeerCertValidity = 365 * 24 * time.Hour
 )
 
+// Level-triggered ClusterMesh reconcile defaults (#3241). hw126
+// (c986326a77d391d4) proved the one-shot fan-out loses the race
+// against LB-IPAM: the primary's clustermesh-apiserver LB IP landed
+// seconds AFTER the single 3-second fan-out gave up, and nothing ever
+// re-ran the establish (next trigger = handover), so a healthy cluster
+// stayed partially meshed forever — and the #3236 cnpg-pair flip
+// correctly refused forever with it. The runAutoEstablishClusterMesh
+// wrapper therefore loops until fully meshed: exponential backoff from
+// the initial value, capped at the max, bounded by the total budget.
+// The Handler fields clusterMeshRetry* override these for tests; zero
+// falls back to the defaults below.
+const (
+	clusterMeshRetryInitialBackoffDefault = 1 * time.Minute
+	clusterMeshRetryMaxBackoffDefault     = 5 * time.Minute
+	clusterMeshRetryBudgetDefault         = 6 * time.Hour
+	// Per-attempt bound: the orchestrator's per-region LB lookup is
+	// the longest internal wait (5 min). Three regions x 5 min worst
+	// case is ~15 min; pad to 20 min for the per-peer cert mint +
+	// Patch stack.
+	clusterMeshAttemptTimeoutDefault = 20 * time.Minute
+)
+
 // ClusterMesh-gated cnpg-pair enable (#3236) — names of the Flux
 // objects/keys the post-mesh gate flip touches. The bootstrap-kit
 // Kustomization is the one cloud-init applies on every control plane
@@ -275,6 +297,32 @@ func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 	h.emitClusterMeshProgress(dep, "info",
 		fmt.Sprintf("ClusterMesh auto-establish: starting fan-out across %d regions", len(slots)))
 
+	// Surface slots that failed during buildRegionSlots (kubeconfig
+	// path empty / unreadable / client-build failure) BEFORE the
+	// fan-out. These slots enter Steps 1-3 with err pre-set and every
+	// step `continue`s past them before its first emit — on hw126
+	// (#3241) region-A failed exactly here and produced ZERO events
+	// (no "LB ready", no failure) while region-B reported "wired 0/1
+	// peers"; the operator had no way to tell the region's failure-
+	// source from the stream. G91 lesson: a call whose failure has
+	// domain meaning must never vanish into a server-side log only —
+	// every per-region failure emits a clustermesh-progress warn event
+	// carrying the region key + error string.
+	for i := range slots {
+		s := &slots[i]
+		if s.err == nil {
+			continue
+		}
+		h.log.Warn("clustermesh: region slot failed before fan-out",
+			"id", dep.ID,
+			"region", s.key,
+			"cluster", s.clusterName,
+			"err", s.err,
+		)
+		h.emitClusterMeshProgress(dep, "warn",
+			fmt.Sprintf("ClusterMesh: region %q (cluster %q) unreachable before fan-out (%v) — peers will be marked disconnected", s.key, s.clusterName, s.err))
+	}
+
 	// Step 1: per-region LB IP discovery (poll up to 5 min each).
 	for i := range slots {
 		s := &slots[i]
@@ -352,6 +400,12 @@ func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 				})
 			}
 			statuses = append(statuses, st)
+			// Terminal per-region event for the failed slot — the
+			// healthy regions get "wired N/M peers" below; without
+			// this emit a failed region ends the attempt with no
+			// terminal line at all (the hw126/#3241 silence shape).
+			h.emitClusterMeshProgress(dep, "warn",
+				fmt.Sprintf("ClusterMesh: region %q skipped — region unreachable (%v); wired 0/%d peers", a.key, a.err, len(slots)-1))
 			continue
 		}
 
@@ -543,12 +597,7 @@ func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 		return statuses[i].RegionKey < statuses[j].RegionKey
 	})
 
-	totalReady := 0
-	for _, st := range statuses {
-		if !st.ReadyAt.IsZero() {
-			totalReady++
-		}
-	}
+	totalReady := countFullyMeshedRegions(statuses)
 	h.emitClusterMeshProgress(dep, "info",
 		fmt.Sprintf("ClusterMesh auto-establish: completed (%d/%d regions fully meshed)", totalReady, len(statuses)))
 
@@ -1260,6 +1309,67 @@ func (h *Handler) rolloutRestartClusterMeshTargets(ctx context.Context, dep *Dep
 			)
 		}
 	}
+}
+
+// countFullyMeshedRegions returns how many regions in the status
+// summary reached the fully-meshed state (every peer Connected —
+// AutoEstablishClusterMesh stamps ReadyAt exactly then). The
+// runAutoEstablishClusterMesh reconcile loop uses this as its
+// level-trigger condition (#3241): retry until the count equals the
+// region total.
+func countFullyMeshedRegions(statuses []ClusterMeshStatus) int {
+	n := 0
+	for _, st := range statuses {
+		if !st.ReadyAt.IsZero() {
+			n++
+		}
+	}
+	return n
+}
+
+// shouldStartupClusterMeshReconcile reports whether a rehydrated
+// deployment needs the level-triggered ClusterMesh reconcile loop
+// kicked at catalyst-api startup (#3241): status=ready AND >1 region
+// AND the primary kubeconfig file still readable on the PVC. This is
+// what heals an hw126-shaped Sovereign zero-touch on the next
+// mothership roll — Phase 1 terminated long ago, so nothing else ever
+// re-fires the establish, and a partially-meshed cluster would
+// otherwise stay partial until handover.
+//
+// The kubeconfig guard is warn-and-skip, not fail: a ready record
+// whose kubeconfig file was lost across the restart (PVC unmount /
+// wipe race) would otherwise spin the whole retry budget against
+// "kubeconfig path empty". Fully-meshed deployments pass this check
+// too — the loop's first attempt is a cheap idempotent re-run that
+// confirms full mesh and exits.
+func (h *Handler) shouldStartupClusterMeshReconcile(dep *Deployment) bool {
+	dep.mu.Lock()
+	status := dep.Status
+	regionCount := len(dep.Request.Regions)
+	kubeconfigPath := ""
+	if dep.Result != nil {
+		kubeconfigPath = dep.Result.KubeconfigPath
+	}
+	dep.mu.Unlock()
+	if status != "ready" || regionCount < 2 {
+		return false
+	}
+	if kubeconfigPath == "" {
+		h.log.Warn("clustermesh: startup reconcile skipped — primary kubeconfig path empty on ready multi-region deployment",
+			"id", dep.ID,
+			"regions", regionCount,
+		)
+		return false
+	}
+	if _, err := os.Stat(kubeconfigPath); err != nil {
+		h.log.Warn("clustermesh: startup reconcile skipped — primary kubeconfig unreadable",
+			"id", dep.ID,
+			"path", kubeconfigPath,
+			"err", err,
+		)
+		return false
+	}
+	return true
 }
 
 // emitClusterMeshProgress pushes a typed SSE event onto the deployment
