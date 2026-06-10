@@ -163,6 +163,20 @@ type Handler struct {
 	kubeconfigArrivalTimeout      time.Duration
 	kubeconfigArrivalPollInterval time.Duration
 
+	// ClusterMesh level-triggered reconcile knobs (#3241). The
+	// runAutoEstablishClusterMesh wrapper re-runs the idempotent
+	// AutoEstablishClusterMesh until every region is fully meshed:
+	// exponential backoff from InitialBackoff doubling to MaxBackoff,
+	// one attempt bounded by AttemptTimeout, the whole loop bounded by
+	// RetryBudget. Zero falls back to the clusterMeshRetry*Default
+	// constants in clustermesh.go. Tests inject sub-second values so
+	// the retry loop converges in milliseconds; production leaves all
+	// four at zero.
+	clusterMeshRetryInitialBackoff time.Duration
+	clusterMeshRetryMaxBackoff     time.Duration
+	clusterMeshRetryBudget         time.Duration
+	clusterMeshAttemptTimeout      time.Duration
+
 	// handoverCertWaitTimeout / handoverCertPollInterval — runtime knobs
 	// for the loop that waits for the sovereign-wildcard-tls Certificate
 	// Ready=True before the handover auto-fire mints the JWT. Zero falls

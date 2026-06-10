@@ -881,8 +881,31 @@ func (h *Handler) runSecondaryBridgeBackfill(dep *Deployment) {
 
 // runAutoEstablishClusterMesh is the goroutine wrapper around
 // AutoEstablishClusterMesh — used by markPhase1Done so the terminate
-// path returns immediately. Centralising the recover() + ctx bound +
-// log path here keeps markPhase1Done's hot path one line.
+// path returns immediately, and by restoreFromStore so a catalyst-api
+// roll re-converges a partially-meshed ready Sovereign zero-touch
+// (#3241). Centralising the recover() + ctx bound + retry loop here
+// keeps both call sites one line.
+//
+// Level-triggered, not edge-triggered. hw126 (c986326a77d391d4)
+// proved the prior one-shot shape loses the race against LB-IPAM: the
+// primary's clustermesh-apiserver LB IP landed seconds AFTER the
+// single 3-second fan-out gave up, nothing ever re-ran the establish
+// (next trigger = handover), so a healthy cluster stayed partially
+// meshed forever and the #3236 cnpg-pair flip correctly refused
+// forever with it. Every step inside AutoEstablishClusterMesh is
+// idempotent (Secret writes are get-then-merge, enable/connect
+// re-runs are no-ops, the #3236 flip is a same-value merge patch), so
+// re-running until fully meshed converges instead of thrashing.
+//
+// Loop shape: run the establish; when every region reports ReadyAt
+// (fully meshed) stop with a final success event. Otherwise sleep an
+// exponential backoff (clusterMeshRetryInitialBackoff doubling to
+// clusterMeshRetryMaxBackoff) and re-run, bounded by the
+// clusterMeshRetryBudget total and by the deployment staying
+// status=ready (a wipe mid-loop stops the retries — the kubeconfigs
+// are gone or going). Each retry emits a clustermesh-progress event
+// (attempt N, fullyMeshed X/Y) so the operator watches convergence,
+// not silence.
 func (h *Handler) runAutoEstablishClusterMesh(dep *Deployment) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -892,17 +915,110 @@ func (h *Handler) runAutoEstablishClusterMesh(dep *Deployment) {
 			)
 		}
 	}()
-	// Bounded budget: the orchestrator's per-region LB lookup is the
-	// longest internal wait (5 min). Three regions x 5 min worst case
-	// is ~15 min; pad to 20 min for the per-peer cert mint + Patch
-	// stack.
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+
+	attemptTimeout := h.clusterMeshAttemptTimeout
+	if attemptTimeout <= 0 {
+		attemptTimeout = clusterMeshAttemptTimeoutDefault
+	}
+
+	dep.mu.Lock()
+	regionCount := len(dep.Request.Regions)
+	dep.mu.Unlock()
+	if regionCount < 2 {
+		// Single-region: nothing to mesh with — preserve the one-shot
+		// shape (AutoEstablishClusterMesh logs the skip) and never
+		// retry.
+		ctx, cancel := context.WithTimeout(context.Background(), attemptTimeout)
+		defer cancel()
+		if _, err := h.AutoEstablishClusterMesh(ctx, dep); err != nil {
+			h.log.Warn("clustermesh: orchestrator returned error",
+				"id", dep.ID,
+				"err", err,
+			)
+		}
+		return
+	}
+
+	initialBackoff := h.clusterMeshRetryInitialBackoff
+	if initialBackoff <= 0 {
+		initialBackoff = clusterMeshRetryInitialBackoffDefault
+	}
+	maxBackoff := h.clusterMeshRetryMaxBackoff
+	if maxBackoff <= 0 {
+		maxBackoff = clusterMeshRetryMaxBackoffDefault
+	}
+	budget := h.clusterMeshRetryBudget
+	if budget <= 0 {
+		budget = clusterMeshRetryBudgetDefault
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()
-	if _, err := h.AutoEstablishClusterMesh(ctx, dep); err != nil {
-		h.log.Warn("clustermesh: orchestrator returned error",
-			"id", dep.ID,
-			"err", err,
-		)
+
+	backoff := initialBackoff
+	for attempt := 1; ; attempt++ {
+		attemptCtx, cancelAttempt := context.WithTimeout(ctx, attemptTimeout)
+		statuses, err := h.AutoEstablishClusterMesh(attemptCtx, dep)
+		cancelAttempt()
+
+		fullyMeshed := countFullyMeshedRegions(statuses)
+		if err == nil && len(statuses) >= 2 && fullyMeshed == len(statuses) {
+			h.emitClusterMeshProgress(dep, "info",
+				fmt.Sprintf("ClusterMesh reconcile: fully meshed (%d/%d regions) on attempt %d — reconcile loop complete", fullyMeshed, len(statuses), attempt))
+			h.log.Info("clustermesh: reconcile loop converged",
+				"id", dep.ID,
+				"attempt", attempt,
+				"regions", len(statuses),
+			)
+			return
+		}
+		if err != nil {
+			h.log.Warn("clustermesh: orchestrator returned error",
+				"id", dep.ID,
+				"attempt", attempt,
+				"err", err,
+			)
+		}
+
+		// A deployment that left status=ready mid-loop (wipe, failure
+		// rewrite) must not keep getting establish attempts hurled at
+		// it for the rest of the budget.
+		dep.mu.Lock()
+		status := dep.Status
+		dep.mu.Unlock()
+		if status != "ready" {
+			h.log.Info("clustermesh: reconcile loop stopped — deployment no longer ready",
+				"id", dep.ID,
+				"status", status,
+				"attempt", attempt,
+			)
+			return
+		}
+
+		total := len(statuses)
+		if total == 0 {
+			// nil statuses (orchestrator error or no reachable
+			// regions) — report against the region count so the
+			// operator-facing X/Y stays meaningful.
+			total = regionCount
+		}
+		h.emitClusterMeshProgress(dep, "warn",
+			fmt.Sprintf("ClusterMesh reconcile: attempt %d ended with %d/%d regions fully meshed — retrying in %s", attempt, fullyMeshed, total, backoff))
+		if sleepErr := sleepCtx(ctx, backoff); sleepErr != nil {
+			h.emitClusterMeshProgress(dep, "warn",
+				fmt.Sprintf("ClusterMesh reconcile: retry budget exhausted after %d attempt(s) with %d/%d regions fully meshed — next trigger is a catalyst-api restart or the post-handover finalisation", attempt, fullyMeshed, total))
+			h.log.Warn("clustermesh: reconcile loop retry budget exhausted",
+				"id", dep.ID,
+				"attempts", attempt,
+				"fullyMeshed", fullyMeshed,
+				"err", sleepErr,
+			)
+			return
+		}
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
 	}
 }
 

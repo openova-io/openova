@@ -25,6 +25,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"log/slog"
 	"math/big"
 	"os"
@@ -45,6 +46,7 @@ import (
 	kfake "k8s.io/client-go/kubernetes/fake"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
 // ── test helpers ────────────────────────────────────────────────────
@@ -474,6 +476,380 @@ func TestAutoEstablishClusterMesh_LBAbsentInOneRegion(t *testing.T) {
 	}
 	if connectedFalse == 0 {
 		t.Errorf("expected at least one Connected=false peer when one region has no LB IP; got none")
+	}
+
+	// #3241 — the LB-never-appeared failure must be visible in the
+	// clustermesh-progress event stream WITH the failing region's key,
+	// not only in server-side logs (G91 lesson).
+	regionKey := regionKeyFromSpec(fx.dep.Request.Regions[1], 1)
+	if !hasClusterMeshEvent(fx.dep, "warn", regionKey, "LB lookup failed") {
+		t.Errorf("expected a warn clustermesh-progress event carrying region key %q + %q; events:\n%s",
+			regionKey, "LB lookup failed", dumpClusterMeshEvents(fx.dep))
+	}
+}
+
+// ── Level-triggered reconcile + silent-path kill (#3241) ────────────
+
+// hasClusterMeshEvent reports whether the deployment's durable event
+// buffer carries a clustermesh-progress event at the given level whose
+// message contains EVERY substring.
+func hasClusterMeshEvent(dep *Deployment, level string, substrs ...string) bool {
+	for _, ev := range dep.snapshotEvents() {
+		if ev.Phase != clusterMeshPhase {
+			continue
+		}
+		if level != "" && ev.Level != level {
+			continue
+		}
+		all := true
+		for _, s := range substrs {
+			if !strings.Contains(ev.Message, s) {
+				all = false
+				break
+			}
+		}
+		if all {
+			return true
+		}
+	}
+	return false
+}
+
+// dumpClusterMeshEvents renders the clustermesh-progress events for
+// failure messages.
+func dumpClusterMeshEvents(dep *Deployment) string {
+	var sb strings.Builder
+	for _, ev := range dep.snapshotEvents() {
+		if ev.Phase != clusterMeshPhase {
+			continue
+		}
+		sb.WriteString(ev.Level)
+		sb.WriteString(": ")
+		sb.WriteString(ev.Message)
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+// waitForClusterMeshEvent polls the durable event buffer until an event
+// matching level+substrings appears or the timeout elapses.
+func waitForClusterMeshEvent(t *testing.T, dep *Deployment, timeout time.Duration, level string, substrs ...string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if hasClusterMeshEvent(dep, level, substrs...) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("no %s clustermesh-progress event containing %v within %s; events:\n%s",
+		level, substrs, timeout, dumpClusterMeshEvents(dep))
+}
+
+// TestAutoEstablishClusterMesh_RegionSlotFailureEmitsEventWithRegionKey
+// — the hw126 silence shape (#3241): a region whose slot fails during
+// buildRegionSlots (kubeconfig path empty / unreadable) used to enter
+// the fan-out with err pre-set and produce ZERO events — Steps 1-3 all
+// `continue` past failed slots before their first emit, so the region
+// simply vanished from the operator's stream while its peer reported
+// "wired 0/1 peers". Every per-region failure MUST emit a
+// clustermesh-progress warn event carrying the region key + the error
+// string.
+func TestAutoEstablishClusterMesh_RegionSlotFailureEmitsEventWithRegionKey(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
+	// Break region B's kubeconfig resolution entirely: drop the
+	// explicit map entry AND the on-disk file so buildRegionSlots's
+	// filesystem fallback misses too — the slot enters the fan-out
+	// with err pre-set ("kubeconfig path empty ...").
+	regionKey := regionKeyFromSpec(fx.dep.Request.Regions[1], 1)
+	brokenPath := fx.dep.secondaryKubeconfigPaths[regionKey]
+	delete(fx.dep.secondaryKubeconfigPaths, regionKey)
+	if err := os.Remove(brokenPath); err != nil {
+		t.Fatalf("remove secondary kubeconfig: %v", err)
+	}
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	statuses, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep)
+	if err != nil {
+		t.Fatalf("AutoEstablishClusterMesh returned error: %v", err)
+	}
+	if got := countFullyMeshedRegions(statuses); got != 0 {
+		t.Errorf("fully meshed regions = %d, want 0 when one slot is broken", got)
+	}
+
+	// The pre-fan-out slot failure must surface with the region key +
+	// error string.
+	if !hasClusterMeshEvent(fx.dep, "warn", regionKey, "kubeconfig") {
+		t.Errorf("expected a warn clustermesh-progress event carrying region key %q + the kubeconfig error; events:\n%s",
+			regionKey, dumpClusterMeshEvents(fx.dep))
+	}
+	// And the failed region must get a terminal per-region line too —
+	// the healthy region gets "wired N/M peers"; the broken one must
+	// not end the attempt silently.
+	if !hasClusterMeshEvent(fx.dep, "warn", regionKey, "skipped") {
+		t.Errorf("expected a terminal warn event for skipped region %q; events:\n%s",
+			regionKey, dumpClusterMeshEvents(fx.dep))
+	}
+}
+
+// TestRunAutoEstablishClusterMesh_RetryConvergesAfterLBAppears — the
+// level-triggered reconcile (#3241). Attempt 1 sees region-A (primary)
+// WITHOUT a LoadBalancer IP (the hw126 LB-IPAM race) and ends
+// partially meshed; the test then stamps the LB IP onto the fake
+// Service (LB-IPAM "catching up") and the retry loop must converge to
+// fully meshed, land the #3236 cnpg-pair flip, emit per-attempt
+// progress events, and stop cleanly with a final success event.
+func TestRunAutoEstablishClusterMesh_RetryConvergesAfterLBAppears(t *testing.T) {
+	fx := newTestFixture(t, []string{"", "203.0.113.20"})
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+
+	// Fast knobs: sub-second LB poll + retry backoff so the loop
+	// converges in milliseconds.
+	prev := clusterMeshTestOverrideLBTimeout
+	clusterMeshTestOverrideLBTimeout = 150 * time.Millisecond
+	defer func() { clusterMeshTestOverrideLBTimeout = prev }()
+	prevInt := clusterMeshTestOverrideLBInterval
+	clusterMeshTestOverrideLBInterval = 25 * time.Millisecond
+	defer func() { clusterMeshTestOverrideLBInterval = prevInt }()
+	fx.handler.clusterMeshRetryInitialBackoff = 20 * time.Millisecond
+	fx.handler.clusterMeshRetryMaxBackoff = 60 * time.Millisecond
+	fx.handler.clusterMeshRetryBudget = 20 * time.Second
+	fx.handler.clusterMeshAttemptTimeout = 5 * time.Second
+
+	// Once attempt 1 reports partial mesh, stamp the missing LB IP —
+	// the level-trigger's whole point is that a later-arriving IP
+	// still converges without any external re-trigger.
+	flipDone := make(chan error, 1)
+	go func() {
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			if hasClusterMeshEvent(fx.dep, "warn", "retrying in") {
+				cs := fx.clients[fx.primaryKubeconfigPath]
+				svc, err := cs.CoreV1().Services(clusterMeshNamespace).Get(context.Background(), clusterMeshApiserverService, metav1.GetOptions{})
+				if err != nil {
+					flipDone <- err
+					return
+				}
+				svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "203.0.113.10"}}
+				_, err = cs.CoreV1().Services(clusterMeshNamespace).Update(context.Background(), svc, metav1.UpdateOptions{})
+				flipDone <- err
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		flipDone <- fmt.Errorf("never observed a retry progress event")
+	}()
+
+	loopDone := make(chan struct{})
+	go func() {
+		fx.handler.runAutoEstablishClusterMesh(fx.dep)
+		close(loopDone)
+	}()
+	select {
+	case <-loopDone:
+	case <-time.After(25 * time.Second):
+		t.Fatalf("reconcile loop did not terminate; events:\n%s", dumpClusterMeshEvents(fx.dep))
+	}
+	if err := <-flipDone; err != nil {
+		t.Fatalf("LB flip goroutine: %v", err)
+	}
+
+	// Per-attempt progress event (attempt N, fullyMeshed X/Y).
+	if !hasClusterMeshEvent(fx.dep, "warn", "attempt 1 ended with", "regions fully meshed", "retrying in") {
+		t.Errorf("expected per-attempt retry progress event; events:\n%s", dumpClusterMeshEvents(fx.dep))
+	}
+	// Final success event — the loop stops cleanly once fully meshed.
+	if !hasClusterMeshEvent(fx.dep, "info", "fully meshed (2/2 regions)", "reconcile loop complete") {
+		t.Errorf("expected final success event after convergence; events:\n%s", dumpClusterMeshEvents(fx.dep))
+	}
+
+	// The mesh actually converged: both regions carry the 4 peer
+	// Secret entries.
+	for kcPath, client := range fx.clients {
+		secret, err := client.CoreV1().Secrets(clusterMeshNamespace).Get(context.Background(), clusterMeshSecretName, metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("Get cilium-clustermesh in %q: %v", kcPath, err)
+		}
+		if len(secret.Data) != 4 {
+			t.Errorf("Secret in %q has %d entries, want 4 (keys %v)", kcPath, len(secret.Data), secretKeys(secret))
+		}
+	}
+
+	// And the #3236 cnpg-pair flip landed on the converged attempt.
+	ks := getBootstrapKitKustomization(t, fx.dynClients[fx.primaryKubeconfigPath])
+	substitute, found, err := unstructured.NestedStringMap(ks.Object, "spec", "postBuild", "substitute")
+	if err != nil || !found {
+		t.Fatalf("read spec.postBuild.substitute: found=%v err=%v", found, err)
+	}
+	if got := substitute[clusterMeshCNPGPairSubstituteKey]; got != "true" {
+		t.Errorf("substitute[%s] = %q, want \"true\" after retry convergence",
+			clusterMeshCNPGPairSubstituteKey, got)
+	}
+}
+
+// TestRestoreFromStore_StartupKicksClusterMeshReconcile — #3241 part 2:
+// a stored status=ready multi-region deployment whose Phase-1 already
+// terminated gets the level-triggered reconcile loop kicked at
+// catalyst-api startup (this is what heals an hw126-shaped Sovereign
+// zero-touch on the next mothership roll — nothing else ever re-fires
+// the establish before handover).
+func TestRestoreFromStore_StartupKicksClusterMeshReconcile(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "") // mothership mode for chrootEnsureSMEPoolSeed
+	dir := t.TempDir()
+	caCert, caKey := genCAForTest(t, "test-mesh-ca")
+
+	depID := "depstartupmesh"
+	regions := []provisioner.RegionSpec{
+		{Provider: "hetzner", CloudRegion: "fsn1"},
+		{Provider: "hetzner", CloudRegion: "hel1"},
+	}
+	lbIPs := []string{"203.0.113.30", "203.0.113.40"}
+	clients := map[string]kubernetes.Interface{}
+	for i := range regions {
+		key := regionKeyFromSpec(regions[i], i)
+		kcPath := writeFakeKubeconfig(t, dir, depID, key)
+		clients[kcPath] = buildFakeClusterMeshCluster(t, lbIPs[i], caCert, caKey)
+	}
+	primaryKubeconfigPath := filepath.Join(dir, depID+".yaml")
+	dynClients := map[string]dynamic.Interface{
+		primaryKubeconfigPath: newFakeKustomizationDynClient(t,
+			buildBootstrapKitKustomization(defaultBootstrapKitSubstitute())),
+	}
+	restore := installClusterMeshClientFactory(clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(dynClients)
+	defer restoreDyn()
+
+	st, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	phase1Done := time.Now().Add(-1 * time.Hour).UTC()
+	rec := store.Record{
+		ID:     depID,
+		Status: "ready",
+		Request: store.Redact(provisioner.Request{
+			SovereignFQDN: "tsm.example.io",
+			Regions:       regions,
+		}),
+		Result: &provisioner.Result{
+			SovereignFQDN:    "tsm.example.io",
+			KubeconfigPath:   primaryKubeconfigPath,
+			Phase1FinishedAt: &phase1Done, // Phase-1 terminated → no watch resume; startup kick owns the re-establish
+		},
+		StartedAt:  time.Now().Add(-2 * time.Hour),
+		FinishedAt: time.Now().Add(-90 * time.Minute),
+	}
+	if err := st.Save(rec); err != nil {
+		t.Fatalf("store.Save: %v", err)
+	}
+
+	h := &Handler{log: silentLogger(), kubeconfigsDir: dir, store: st}
+	h.clusterMeshRetryInitialBackoff = 20 * time.Millisecond
+	h.clusterMeshRetryMaxBackoff = 60 * time.Millisecond
+	h.clusterMeshRetryBudget = 20 * time.Second
+	h.clusterMeshAttemptTimeout = 5 * time.Second
+
+	h.restoreFromStore()
+
+	val, ok := h.deployments.Load(depID)
+	if !ok {
+		t.Fatalf("deployment %q not restored", depID)
+	}
+	dep := val.(*Deployment)
+
+	// The startup-kicked loop must run the establish and converge —
+	// success event lands on the rehydrated record's durable buffer.
+	waitForClusterMeshEvent(t, dep, 10*time.Second, "info", "fully meshed (2/2 regions)", "reconcile loop complete")
+
+	// Establish was genuinely invoked: peer Secrets written in both
+	// fake regions + the #3236 flip landed.
+	for kcPath, client := range clients {
+		secret, err := client.CoreV1().Secrets(clusterMeshNamespace).Get(context.Background(), clusterMeshSecretName, metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("Get cilium-clustermesh in %q: %v", kcPath, err)
+		}
+		if len(secret.Data) != 4 {
+			t.Errorf("Secret in %q has %d entries, want 4 (keys %v)", kcPath, len(secret.Data), secretKeys(secret))
+		}
+	}
+	ks := getBootstrapKitKustomization(t, dynClients[primaryKubeconfigPath])
+	substitute, _, _ := unstructured.NestedStringMap(ks.Object, "spec", "postBuild", "substitute")
+	if got := substitute[clusterMeshCNPGPairSubstituteKey]; got != "true" {
+		t.Errorf("substitute[%s] = %q, want \"true\" after startup reconcile",
+			clusterMeshCNPGPairSubstituteKey, got)
+	}
+}
+
+// TestShouldStartupClusterMeshReconcile_Guards — warn-and-skip
+// per-deployment guards: single-region, non-ready, and
+// missing-kubeconfig deployments never get the loop kicked.
+func TestShouldStartupClusterMeshReconcile_Guards(t *testing.T) {
+	dir := t.TempDir()
+	h := &Handler{log: silentLogger(), kubeconfigsDir: dir}
+	kcPath := filepath.Join(dir, "depguard.yaml")
+	if err := os.WriteFile(kcPath, []byte("apiVersion: v1\nkind: Config\n"), 0o600); err != nil {
+		t.Fatalf("write kubeconfig: %v", err)
+	}
+	twoRegions := []provisioner.RegionSpec{
+		{Provider: "hetzner", CloudRegion: "fsn1"},
+		{Provider: "hetzner", CloudRegion: "hel1"},
+	}
+	cases := []struct {
+		name string
+		dep  *Deployment
+		want bool
+	}{
+		{
+			name: "ready-two-region-kubeconfig-present",
+			dep: &Deployment{ID: "g1", Status: "ready",
+				Request: provisioner.Request{Regions: twoRegions},
+				Result:  &provisioner.Result{KubeconfigPath: kcPath}},
+			want: true,
+		},
+		{
+			name: "single-region-skipped",
+			dep: &Deployment{ID: "g2", Status: "ready",
+				Request: provisioner.Request{Regions: twoRegions[:1]},
+				Result:  &provisioner.Result{KubeconfigPath: kcPath}},
+			want: false,
+		},
+		{
+			name: "failed-status-skipped",
+			dep: &Deployment{ID: "g3", Status: "failed",
+				Request: provisioner.Request{Regions: twoRegions},
+				Result:  &provisioner.Result{KubeconfigPath: kcPath}},
+			want: false,
+		},
+		{
+			name: "kubeconfig-missing-warn-and-skip",
+			dep: &Deployment{ID: "g4", Status: "ready",
+				Request: provisioner.Request{Regions: twoRegions},
+				Result:  &provisioner.Result{KubeconfigPath: filepath.Join(dir, "absent.yaml")}},
+			want: false,
+		},
+		{
+			name: "result-nil-warn-and-skip",
+			dep: &Deployment{ID: "g5", Status: "ready",
+				Request: provisioner.Request{Regions: twoRegions}},
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := h.shouldStartupClusterMeshReconcile(tc.dep); got != tc.want {
+				t.Errorf("shouldStartupClusterMeshReconcile = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
