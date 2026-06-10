@@ -1,5 +1,26 @@
 apiVersion: v2
 name: bp-kyverno-policies
+# 1.0.29 (Refs #2737 #3236, 2026-06-11): FIX three baseline Enforce policies
+# that had ALWAYS-FAIL validate patterns and had never admitted a single
+# workload (undetected until a gated chart first reached admission on hw126):
+#   - 04-probes: `{"?{}": "?*"}` required a probe SUB-KEY matching `?{}` (no
+#     real probe field can) — and `"?*"` matches scalars only, not the probe
+#     OBJECT. Switched to `validate.deny` with a JMESPath count (all
+#     containers must declare both probes; handler-type agnostic).
+#   - 11-harbor-proxy: the single `validate.anyPattern` rule wrote the Pod
+#     path `spec.containers`; Kyverno autogen does NOT path-expand anyPattern
+#     for workload controllers, so every Deployment was denied at the
+#     non-existent `/spec/containers/`. Split into per-PATH-SHAPE rules
+#     (Pod / template-bearing / CronJob) with `autogen-controllers: none`.
+#     The `*/proxy-*/*` glob itself was always correct (`*` spans `/`).
+#   - 12-image-tag-pinned: `(image): "!*:latest"` used a parenthesized
+#     CONDITIONAL anchor (not a validation) → denied compliant `:0.4.2`;
+#     also missed TAGLESS images. Switched to per-kind `validate.foreach`
+#     + regex `deny` requiring a `@sha256` digest OR a real `:tag` in the
+#     final path segment AND forbidding `:latest`.
+# All three verified two-directionally on a local kind + kyverno v1.18
+# harness (matches the bp-kyverno engine pin); 09-cilium-l7-mtls and
+# 10-flux-managed left untouched and re-verified for no regression.
 # 1.0.27 (G92.6 #2665, 2026-06-01): new K22 substrate-stays-on-host
 # ClusterPolicy. Per docs/DOD.md §A4 the substrate components (Cilium,
 # Flux, Kyverno, cert-manager, ESO, CNPG-operator, vCluster-syncers)
@@ -81,7 +102,7 @@ type: application
 # while keeping proxy-cache for anonymous public registries.
 # Lockstep with bp-self-sovereign-cutover 0.1.43 (Step 03 Phase A
 # skopeo native-push + Step 07 REGISTRY drops /proxy-ghcr/ suffix).
-version: 1.0.28
+version: 1.0.29
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:

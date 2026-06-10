@@ -31,6 +31,10 @@ metadata:
     catalyst.openova.io/policy-tier: compliance
     catalyst.openova.io/policy-domain: governance
   annotations:
+    # Autogen OFF: this policy uses `validate.foreach` + `deny.conditions`
+    # with explicit JMESPath container paths, which Kyverno autogen does not
+    # path-expand for workload controllers. Each PATH-SHAPE has its own rule.
+    pod-policies.kyverno.io/autogen-controllers: none
     policies.kyverno.io/title: Container images must be tag-pinned (no :latest)
     policies.kyverno.io/category: catalyst-compliance
     policies.kyverno.io/severity: high
@@ -39,37 +43,146 @@ metadata:
       a @sha256: digest). Floating tags break SHA-pinned audit trails
       and reproducibility.
 spec:
+  # Empirically-determined root cause (kind + kyverno v1.18 harness,
+  # 2026-06-11): the prior `pattern` used a PARENTHESIZED key
+  # `(image): "!*:latest"`. In Kyverno, `(field)` is a CONDITIONAL anchor
+  # ("evaluate the sibling map only IF field matches"), NOT a value
+  # validation — with no sibling map it never denies, and when the engine
+  # treats the anchored value-glob it mis-evaluates, denying a provably
+  # compliant `...:0.4.2` image at `path /spec/containers/`. Two further
+  # bugs: (a) the Pod-path `spec.containers` was never autogen-expanded to
+  # the workload template path (same class as 11-harbor-proxy), and
+  # (b) `!*:latest` does not catch a TAGLESS image (`nginx`) which K8s
+  # silently resolves to `:latest`.
+  #
+  # Fix: `validate.foreach` over the container list at each explicit path,
+  # with a regex `deny` that requires a real pin — a `@sha256:<64-hex>`
+  # digest OR a `:<tag>` in the FINAL path segment (so a bare registry-port
+  # colon like `host:5000/img` does NOT count as a tag) — AND forbids
+  # `:latest`. Verified green both directions in the harness, including the
+  # registry-port edge cases the glob `*:*` got wrong.
   validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.imageTagPinned.action) }}
   background: true
   rules:
-    - name: image-must-not-be-latest
+    {{- $excludeNs := .Values.compliancePolicies.imageTagPinned.excludeNamespaces }}
+    {{- $msg := "One or more containers reference an unpinned image (`:latest`, or no tag/digest which K8s resolves to `:latest`). Pin to an explicit non-`:latest` tag or a @sha256 digest." }}
+    {{/*
+      $pinned: image carries a valid pin — a @sha256 digest, OR a :tag in
+      the final path segment (after the last `/`), OR a :tag on a
+      single-segment image. $islatest: image ends in `:latest`.
+      An image is UNPINNED (deny) when NOT $pinned OR $islatest.
+    */}}
+    {{- $pinnedExpr := "regex_match('^.*@sha256:[a-fA-F0-9]{64}$', element.image) || regex_match('^[^@]*/[^/:]+:[^/:]+$', element.image) || regex_match('^[^@/]+:[^/:]+$', element.image)" }}
+    {{- $latestExpr := "regex_match('^.*:latest$', element.image)" }}
+    - name: image-pinned-pod
       match:
         any:
           - resources:
               kinds:
                 - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := $excludeNs }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: {{ $msg | quote }}
+        foreach:
+          - list: "request.object.spec.containers"
+            deny:
+              conditions:
+                any:
+                  - key: {{ printf "{{ %s }}" $pinnedExpr | quote }}
+                    operator: Equals
+                    value: false
+                  - key: {{ printf "{{ %s }}" $latestExpr | quote }}
+                    operator: Equals
+                    value: true
+          - list: "request.object.spec.initContainers || `[]`"
+            deny:
+              conditions:
+                any:
+                  - key: {{ printf "{{ %s }}" $pinnedExpr | quote }}
+                    operator: Equals
+                    value: false
+                  - key: {{ printf "{{ %s }}" $latestExpr | quote }}
+                    operator: Equals
+                    value: true
+    - name: image-pinned-workload
+      match:
+        any:
+          - resources:
+              kinds:
                 - Deployment
                 - StatefulSet
                 - DaemonSet
                 - Job
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := $excludeNs }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: {{ $msg | quote }}
+        foreach:
+          - list: "request.object.spec.template.spec.containers"
+            deny:
+              conditions:
+                any:
+                  - key: {{ printf "{{ %s }}" $pinnedExpr | quote }}
+                    operator: Equals
+                    value: false
+                  - key: {{ printf "{{ %s }}" $latestExpr | quote }}
+                    operator: Equals
+                    value: true
+          - list: "request.object.spec.template.spec.initContainers || `[]`"
+            deny:
+              conditions:
+                any:
+                  - key: {{ printf "{{ %s }}" $pinnedExpr | quote }}
+                    operator: Equals
+                    value: false
+                  - key: {{ printf "{{ %s }}" $latestExpr | quote }}
+                    operator: Equals
+                    value: true
+    - name: image-pinned-cronjob
+      match:
+        any:
+          - resources:
+              kinds:
                 - CronJob
       exclude:
         any:
           - resources:
               namespaces:
-                {{- range $ns := .Values.compliancePolicies.imageTagPinned.excludeNamespaces }}
+                {{- range $ns := $excludeNs }}
                 - {{ $ns }}
                 {{- end }}
       validate:
-        message: >-
-          One or more containers reference an unpinned image (`:latest`
-          or no tag/digest). Pin to an explicit tag or @sha256 digest.
-        pattern:
-          spec:
-            # X(<key>): "<glob>" enforces the value to match. Use
-            # negative wildcard "!*:latest" to deny :latest images.
-            =(initContainers):
-              - (image): "!*:latest"
-            containers:
-              - (image): "!*:latest"
+        message: {{ $msg | quote }}
+        foreach:
+          - list: "request.object.spec.jobTemplate.spec.template.spec.containers"
+            deny:
+              conditions:
+                any:
+                  - key: {{ printf "{{ %s }}" $pinnedExpr | quote }}
+                    operator: Equals
+                    value: false
+                  - key: {{ printf "{{ %s }}" $latestExpr | quote }}
+                    operator: Equals
+                    value: true
+          - list: "request.object.spec.jobTemplate.spec.template.spec.initContainers || `[]`"
+            deny:
+              conditions:
+                any:
+                  - key: {{ printf "{{ %s }}" $pinnedExpr | quote }}
+                    operator: Equals
+                    value: false
+                  - key: {{ printf "{{ %s }}" $latestExpr | quote }}
+                    operator: Equals
+                    value: true
 {{- end -}}

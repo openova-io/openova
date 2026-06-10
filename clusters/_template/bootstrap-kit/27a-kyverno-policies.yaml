@@ -63,7 +63,16 @@ spec:
       # Pending forever post-Phase-2b bootstrapMode flip → dashboard
       # vCluster grouping shows only "host" → Pillar 4 (Sandbox) silent
       # broken.
-      version: 1.0.28
+      # 1.0.29 (Refs #2737 #3236, 2026-06-11): FIX the three baseline Enforce
+      # policies (probes-present / harbor-proxy-pull / image-tag-pinned) whose
+      # validate patterns ALWAYS failed — they had never admitted a workload,
+      # so they gated the entire hw126 pipeline once a chart first reached
+      # admission. Empirically re-cut + two-directionally verified on a local
+      # kind + kyverno v1.18 harness. NOTE the G60 "validate.pattern + glob"
+      # claim above was the bug: autogen does NOT path-expand anyPattern, and
+      # `(image)`/`{"?{}":...}` anchors never validate; the fix uses explicit
+      # per-PATH-SHAPE rules + deny/foreach. See Chart.yaml for the full RCA.
+      version: 1.0.29
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno

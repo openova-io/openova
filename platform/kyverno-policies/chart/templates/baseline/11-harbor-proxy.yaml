@@ -31,6 +31,12 @@ metadata:
     catalyst.openova.io/policy-tier: compliance
     catalyst.openova.io/policy-domain: governance
   annotations:
+    # Autogen is OFF because this policy uses validate.anyPattern, which
+    # Kyverno autogen does NOT path-expand for workload controllers (it
+    # would silently leave the rule at the non-existent Pod path on a
+    # Deployment → deny-everything). Each workload PATH-SHAPE is covered
+    # by its own explicit rule below instead.
+    pod-policies.kyverno.io/autogen-controllers: none
     policies.kyverno.io/title: Container images must pull through the Sovereign Harbor proxy
     policies.kyverno.io/category: catalyst-compliance
     policies.kyverno.io/severity: high
@@ -39,48 +45,108 @@ metadata:
       registry. Operator configures the allowed glob via
       .Values.compliancePolicies.harborProxyPull.allowedImagePattern.
 spec:
+  # Empirically-determined root cause (kind + kyverno v1.18 harness,
+  # 2026-06-11): the prior SINGLE rule wrote the container path as
+  # `spec.containers` (the Pod path) and relied on Kyverno's autogen to
+  # rewrite it to `spec.template.spec.containers` for Deployment /
+  # StatefulSet / DaemonSet. Kyverno autogen does NOT expand
+  # `validate.anyPattern` rules (only `validate.pattern` and a few other
+  # forms) — verified live: the autogen status produced ZERO template-path
+  # rules, so the policy was evaluated against `/spec/containers/` on a
+  # Deployment, that path does not exist, and EVERY workload was denied at
+  # `path /spec/containers/`. The glob `*/proxy-*/*` itself is correct (it
+  # matches a compliant Pod and a deep path like
+  # `harbor.x/proxy-ghcr/cloudnative-pg/postgresql:16.4-1` — `*` spans `/`).
+  #
+  # Fix: pin `autogen-controllers: none` and write one rule per workload
+  # PATH-SHAPE with the explicit container path (Pod / template-bearing /
+  # CronJob). Each rule's anyPattern lets an image pass if it matches ANY
+  # allowed glob (proxy-cache `*/proxy-*/*` OR native-push `*/openova-io/*`).
   validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.harborProxyPull.action) }}
   background: true
   rules:
-    - name: image-must-be-from-harbor-proxy
+    {{- $excludeNs := .Values.compliancePolicies.harborProxyPull.excludeNamespaces }}
+    {{- $pats := .Values.compliancePolicies.harborProxyPull.allowedImagePatterns }}
+    {{- $msg := "Container image does not match any allowed Harbor-source glob (proxy-cache `*/proxy-*/*` or native-push `*/openova-io/*`). Re-tag the image to pull through the Sovereign's local Harbor (e.g. registry.<sov-fqdn>/proxy-ghcr/... or registry.<sov-fqdn>/openova-io/openova/<svc>:<tag>)." }}
+    - name: image-from-harbor-proxy-pod
       match:
         any:
           - resources:
               kinds:
                 - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := $excludeNs }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: {{ $msg | quote }}
+        anyPattern:
+          {{- range $pat := $pats }}
+          # =(initContainers) is a conditional anchor — when the Pod has no
+          # initContainers the clause is a no-op; when present, every init
+          # image must match too.
+          - spec:
+              =(initContainers):
+                - image: {{ $pat | quote }}
+              containers:
+                - image: {{ $pat | quote }}
+          {{- end }}
+    - name: image-from-harbor-proxy-workload
+      match:
+        any:
+          - resources:
+              kinds:
                 - Deployment
                 - StatefulSet
                 - DaemonSet
                 - Job
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := $excludeNs }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: {{ $msg | quote }}
+        anyPattern:
+          {{- range $pat := $pats }}
+          - spec:
+              template:
+                spec:
+                  =(initContainers):
+                    - image: {{ $pat | quote }}
+                  containers:
+                    - image: {{ $pat | quote }}
+          {{- end }}
+    - name: image-from-harbor-proxy-cronjob
+      match:
+        any:
+          - resources:
+              kinds:
                 - CronJob
       exclude:
         any:
           - resources:
               namespaces:
-                {{- range $ns := .Values.compliancePolicies.harborProxyPull.excludeNamespaces }}
+                {{- range $ns := $excludeNs }}
                 - {{ $ns }}
                 {{- end }}
       validate:
-        message: >-
-          Container image does not match any allowed Harbor-source glob
-          (proxy-cache `*/proxy-*/*` or native-push `*/openova-io/*`).
-          Re-tag the image to pull through the Sovereign's local Harbor
-          (e.g. registry.<sov-fqdn>/proxy-ghcr/... or
-          registry.<sov-fqdn>/openova-io/openova/<svc>:<tag>).
-        # G66 (Refs #2615, 2026-05-31): anyPattern lets multiple globs
-        # validate independently — image passes if it matches ANY one.
-        # Required because openova-io application images are NATIVE-
-        # pushed (no /proxy-*/ segment) while upstream public images
-        # come via proxy-cache (have /proxy-*/ segment).
+        message: {{ $msg | quote }}
         anyPattern:
-          {{- range $pat := .Values.compliancePolicies.harborProxyPull.allowedImagePatterns }}
+          {{- range $pat := $pats }}
           - spec:
-              # =(initContainers): match-if-exists; if Pod has no
-              # initContainers, this clause is a no-op (Kyverno pattern
-              # anchor semantics — `=(<key>)` is "conditional-on-presence").
-              =(initContainers):
-                - image: {{ $pat | quote }}
-              containers:
-                - image: {{ $pat | quote }}
+              jobTemplate:
+                spec:
+                  template:
+                    spec:
+                      =(initContainers):
+                        - image: {{ $pat | quote }}
+                      containers:
+                        - image: {{ $pat | quote }}
           {{- end }}
 {{- end -}}
