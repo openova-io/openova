@@ -1,5 +1,26 @@
 apiVersion: v2
 name: bp-kyverno-policies
+# 1.0.30 (Refs #2737 #3236 #3248, 2026-06-11): EXCLUDE the operator-managed
+# data-plane namespaces (`cnpg`, `shared-data`, `powerdns-admin`) from the
+# `flux-managed` (10) Enforce policy. The CNPG operator creates Services
+# (`<cluster>-r`/`-ro`/`-rw`) and utility Jobs with NO flux labels or
+# ownerReferences — operator-owned objects definitionally cannot be
+# Flux-managed, so flux-managed (the ONLY Enforce policy whose match-kinds
+# include Service) denied "Unable to create required cluster objects" the
+# moment a gated CNPG Cluster first reached admission on hw126. Those three
+# namespaces predate the data plane and were never in the shared
+# `complianceDefaultExcludes` anchor because no workload ran there until the
+# first gate-flips. Scoped via a new per-policy `extraExcludeNamespaces` key
+# (NOT the shared anchor): powerdns-admin also hosts a real `powerdns-admin`
+# Deployment that MUST stay subject to every other policy, and CNPG instance
+# Pods carry the harbor-proxied + pinned cluster image so they still PASS
+# 04/05/11/12 — only the flux-unmanageable operator Service/Job needs the
+# carve-out. Verified two-directionally on the same kind + kyverno v1.18
+# harness as #3250 (CNPG Service in cnpg/shared-data/powerdns-admin →
+# ADMITTED; identical no-flux Service in a non-excluded app namespace →
+# DENIED; CNPG-shaped Pod with the pinned proxied image in cnpg → ADMITTED;
+# CNPG-shaped Pod with a `:latest` image in cnpg → still DENIED, proving the
+# Pod-path supply-chain policy stays enforced there).
 # 1.0.29 (Refs #2737 #3236, 2026-06-11): FIX three baseline Enforce policies
 # that had ALWAYS-FAIL validate patterns and had never admitted a single
 # workload (undetected until a gated chart first reached admission on hw126):
@@ -102,7 +123,7 @@ type: application
 # while keeping proxy-cache for anonymous public registries.
 # Lockstep with bp-self-sovereign-cutover 0.1.43 (Step 03 Phase A
 # skopeo native-push + Step 07 REGISTRY drops /proxy-ghcr/ suffix).
-version: 1.0.29
+version: 1.0.30
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:
