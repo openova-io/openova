@@ -44,7 +44,7 @@
 ## Remaining work to 100% — structured, executable by a regular-effort agent
 
 1. **Merge** #3233 + #3234 (convergence fixes; no catalyst-api roll) and #3229 + #3231 (catalyst-api; sequential, expect a mothership roll).
-2. **Ship #764** — cnpg-pair wiring: have catalyst-api `AutoEstablishClusterMesh` flip `SOVEREIGN_ENABLE_CNPG_PAIR=true` **after** it confirms the mesh (zero-touch, correctly gated — never enable-before-mesh, the #3196 anti-pattern).
+2. **Ship #3236** — cnpg-pair wiring: have catalyst-api `AutoEstablishClusterMesh` flip `SOVEREIGN_ENABLE_CNPG_PAIR=true` **after** it confirms the mesh (zero-touch, correctly gated — never enable-before-mesh, the #3196 anti-pattern).
 3. **Clean re-prov** (founder-gated wipe): `bash scripts/sovereign-lifecycle.sh wipe <id>` → poll 404 → ~15m VPC-free → `fire hw126 omantel.biz`.
 4. **Monitor + verify**: convergence to all `bp-* Ready`; ClusterMesh auto-establishes with both regions healthy.
 5. **Walk** Pillars 1/2/3/4/5 + vCluster containment, recording each row in `docs/ledger/UAT.md` with a screenshot.
