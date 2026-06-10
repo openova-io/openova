@@ -383,6 +383,18 @@ api:
   host: pdns.openova.io
   path: /api
   pathType: Prefix
+  # #3225: redirect a bare GET / on the API host to the human UI.
+  # The PowerDNS REST API host (api.host) serves no UI — pdns.<fqdn>/ falls
+  # through unmatched and 404s in a browser. When set (the bootstrap-kit
+  # slot-11 overlay sets it to `pdns-admin.${SOVEREIGN_FQDN}`), the
+  # HTTPRoute gains a catch-all PathPrefix / rule with a 302
+  # RequestRedirect to this host. The /api forward rule wins by
+  # longest-prefix, so API routing (and in-cluster cert-manager DNS-01 /
+  # external-dns, which use the Service DNS not this host) is untouched.
+  # Empty default = no redirect rule rendered → zero behaviour change.
+  # Gateway API mode only (api.gateway.enabled=true); the legacy Ingress
+  # path ignores this key.
+  uiRedirectHost: ""
   ingressClassName: traefik
   tls:
     enabled: true

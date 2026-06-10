@@ -7,7 +7,13 @@ name: bp-powerdns
 # 1.2.10 (#3150, 2026-06-10): permit reflection of powerdns-api-credentials
 # into the powerdns-admin ns so bp-powerdns-admin's PDNS_API_KEY resolves
 # (slot 11a first exercised by #3173 — see api-credentials-secret.yaml).
-version: 1.2.10
+# 1.2.11 (#3225, 2026-06-10): api-httproute.yaml gains a catch-all root
+# rule (gated on new api.uiRedirectHost) that 302-redirects a bare GET /
+# on pdns.<fqdn> to the powerdns-admin UI at pdns-admin.<fqdn>, so the
+# founder's browser lands on the UI instead of a 404. The /api forward
+# rule is preserved (Gateway-API longest-prefix). Default empty = no
+# redirect rule rendered (zero regression).
+version: 1.2.11
 description: |
   Catalyst-curated Blueprint wrapper for PowerDNS Authoritative.
   Carries Catalyst-specific values.yaml + templates (CNPG cluster, dnsdist

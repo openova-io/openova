@@ -129,7 +129,11 @@ spec:
       # occurred: * job powerdns-zone-bootstrap failed: BackoffLimitExceeded".
       # 1.2.10 (#3150): allow reflection of powerdns-api-credentials into the
       # powerdns-admin ns (slot 11a PDNS_API_KEY).
-      version: 1.2.10
+      # 1.2.11 (#3225): root catch-all on the API HTTPRoute 302-redirects a
+      # bare GET / on pdns.<fqdn> to the UI at pdns-admin.<fqdn> (set via
+      # values.api.uiRedirectHost below) so the browser lands on the UI
+      # instead of a 404; the /api forward rule is preserved.
+      version: 1.2.11
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns
@@ -174,6 +178,14 @@ spec:
         instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
     api:
       host: pdns.${SOVEREIGN_FQDN}
+      # #3225: a bare GET / on the API host (pdns.<fqdn>) matches no rule and
+      # 404s in the founder's browser — the API host serves no UI. Redirect
+      # the catch-all root to the human PowerDNS-Admin UI at
+      # pdns-admin.<fqdn> (bp-powerdns-admin, slot 11a). The /api forward
+      # rule still wins by longest-prefix, so the REST API and in-cluster
+      # cert-manager DNS-01 / external-dns consumers (Service DNS, not this
+      # host) are untouched.
+      uiRedirectHost: pdns-admin.${SOVEREIGN_FQDN}
       gateway:
         enabled: true
     # DNS-01 wildcard cert: expose PowerDNS on NodePort 30053 so the
