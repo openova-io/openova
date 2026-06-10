@@ -1327,6 +1327,45 @@ func countFullyMeshedRegions(statuses []ClusterMeshStatus) int {
 	return n
 }
 
+// resolvePrimaryKubeconfigPath resolves a deployment's primary kubeconfig
+// path with the same CONVENTIONAL fallback #3153 added for the Phase-1
+// resume (shouldResumePhase1 in deployments.go): Result.KubeconfigPath
+// carries json `omitempty` and is lost when a mothership roll persists a
+// rehydrated record before PutKubeconfig stamped it — but the kubeconfig
+// FILE itself always survives on the PVC at `<kubeconfigsDir>/<id>.yaml`.
+//
+// Returns the resolved, stat-readable path and true. On success the
+// resolved path is stamped back onto dep.Result.KubeconfigPath (allocating
+// Result if nil) so downstream readers — AutoEstablishClusterMesh re-reads
+// dep.Result.KubeconfigPath under the lock — see the conventional path. The
+// stat guard matches #3153 exactly: a record whose file was genuinely lost
+// across the restart (PVC unmount / wipe race) or whose kubeconfigsDir is
+// unset returns ("", false) so the caller can warn-and-skip rather than
+// spin a retry budget against a phantom path. Takes dep.mu so concurrent
+// callers (startup restore + the establish goroutine) stay consistent.
+func (h *Handler) resolvePrimaryKubeconfigPath(dep *Deployment) (string, bool) {
+	dep.mu.Lock()
+	defer dep.mu.Unlock()
+	kubeconfigPath := ""
+	if dep.Result != nil {
+		kubeconfigPath = dep.Result.KubeconfigPath
+	}
+	if kubeconfigPath == "" && h.kubeconfigsDir != "" {
+		kubeconfigPath = filepath.Join(h.kubeconfigsDir, dep.ID+".yaml")
+	}
+	if kubeconfigPath == "" {
+		return "", false
+	}
+	if _, err := os.Stat(kubeconfigPath); err != nil {
+		return "", false
+	}
+	if dep.Result == nil {
+		dep.Result = &provisioner.Result{}
+	}
+	dep.Result.KubeconfigPath = kubeconfigPath
+	return kubeconfigPath, true
+}
+
 // shouldStartupClusterMeshReconcile reports whether a rehydrated
 // deployment needs the level-triggered ClusterMesh reconcile loop
 // kicked at catalyst-api startup (#3241): status=ready AND >1 region
@@ -1336,36 +1375,29 @@ func countFullyMeshedRegions(statuses []ClusterMeshStatus) int {
 // re-fires the establish, and a partially-meshed cluster would
 // otherwise stay partial until handover.
 //
-// The kubeconfig guard is warn-and-skip, not fail: a ready record
-// whose kubeconfig file was lost across the restart (PVC unmount /
-// wipe race) would otherwise spin the whole retry budget against
-// "kubeconfig path empty". Fully-meshed deployments pass this check
-// too — the loop's first attempt is a cheap idempotent re-run that
-// confirms full mesh and exits.
+// The kubeconfig path is resolved with the #3153 conventional fallback
+// (resolvePrimaryKubeconfigPath): a record restored from the PVC loses
+// the `omitempty` Result.KubeconfigPath FIELD, but the kubeconfig FILE
+// survives at `<kubeconfigsDir>/<id>.yaml` — without this fallback an
+// hw126-shaped Sovereign would warn "primary kubeconfig path empty" and
+// skip the mesh reconcile forever. The guard stays warn-and-skip, not
+// fail: a record whose file was genuinely lost across the restart (PVC
+// unmount / wipe race) returns false rather than spinning the whole
+// retry budget. Fully-meshed deployments pass this check too — the
+// loop's first attempt is a cheap idempotent re-run that confirms full
+// mesh and exits.
 func (h *Handler) shouldStartupClusterMeshReconcile(dep *Deployment) bool {
 	dep.mu.Lock()
 	status := dep.Status
 	regionCount := len(dep.Request.Regions)
-	kubeconfigPath := ""
-	if dep.Result != nil {
-		kubeconfigPath = dep.Result.KubeconfigPath
-	}
 	dep.mu.Unlock()
 	if status != "ready" || regionCount < 2 {
 		return false
 	}
-	if kubeconfigPath == "" {
-		h.log.Warn("clustermesh: startup reconcile skipped — primary kubeconfig path empty on ready multi-region deployment",
+	if _, ok := h.resolvePrimaryKubeconfigPath(dep); !ok {
+		h.log.Warn("clustermesh: startup reconcile skipped — primary kubeconfig unresolved on ready multi-region deployment",
 			"id", dep.ID,
 			"regions", regionCount,
-		)
-		return false
-	}
-	if _, err := os.Stat(kubeconfigPath); err != nil {
-		h.log.Warn("clustermesh: startup reconcile skipped — primary kubeconfig unreadable",
-			"id", dep.ID,
-			"path", kubeconfigPath,
-			"err", err,
 		)
 		return false
 	}

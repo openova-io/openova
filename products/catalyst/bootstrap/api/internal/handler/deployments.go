@@ -28,7 +28,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -707,25 +706,13 @@ func (h *Handler) shouldResumePhase1(dep *Deployment, rec store.Record) bool {
 	// fallback the resume is skipped and the operator goes permanently blind
 	// to convergence after ANY catalyst-api roll (image bump, OOM, node
 	// maintenance). Resuming read-only is harmless; skipping it is the bug.
-	kubeconfigPath := ""
-	if dep.Result != nil {
-		kubeconfigPath = dep.Result.KubeconfigPath
-	}
-	if kubeconfigPath == "" && h.kubeconfigsDir != "" {
-		kubeconfigPath = filepath.Join(h.kubeconfigsDir, dep.ID+".yaml")
-	}
-	if kubeconfigPath == "" {
-		return false
-	}
-	if _, err := os.Stat(kubeconfigPath); err != nil {
-		return false
-	}
-	// Make sure the resumed watch + StreamLogs see the resolved path.
-	if dep.Result == nil {
-		dep.Result = &provisioner.Result{}
-	}
-	dep.Result.KubeconfigPath = kubeconfigPath
-	return true
+	//
+	// resolvePrimaryKubeconfigPath also stamps the resolved path back onto
+	// dep.Result.KubeconfigPath so the resumed watch + StreamLogs see it.
+	// #3241 lifted this into the shared helper so the startup ClusterMesh
+	// reconcile path resolves the primary kubeconfig identically.
+	_, ok := h.resolvePrimaryKubeconfigPath(dep)
+	return ok
 }
 
 // resumePhase1Watch re-attaches a Phase-1 helmwatch goroutine to a
