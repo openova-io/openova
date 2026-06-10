@@ -105,3 +105,19 @@ external-secrets:
 # resolve a CRD-ordering deadlock. Set
 # `platform/external-secrets-stores/chart/values.yaml::clusterSecretStore.*`
 # instead — the same key path; only the chart owning the CR changed.
+
+# #3155 (2026-06-10): post-install webhook-readiness gate. Holds the bp-external-
+# secrets HR Ready until the ESO admission webhook is actually SERVING (endpoints
+# ready + tls.crt present), so dependsOn consumers (bp-harbor, any ExternalSecret)
+# don't install into a not-yet-serving webhook and fail. Same producer-side gate
+# as kyverno #2605. NON-FATAL on timeout (#3149). Set enabled:false to skip.
+webhookGate:
+  enabled: true
+  service:
+    name: external-secrets-webhook
+    namespace: external-secrets-system
+  tlsSecretName: external-secrets-webhook
+  timeoutSeconds: 1200
+  intervalSeconds: 2
+  image: bitnamilegacy/kubectl:1.30.7
+  imagePullPolicy: IfNotPresent
