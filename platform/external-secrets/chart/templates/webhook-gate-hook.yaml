@@ -43,7 +43,7 @@ DETECTOR, never a cluster-wedging fatal.
 {{- $svcName := (($gate.service).name) | default "external-secrets-webhook" -}}
 {{- $svcNs := (($gate.service).namespace) | default "external-secrets-system" -}}
 {{- $secretName := $gate.tlsSecretName | default "external-secrets-webhook" -}}
-{{- $timeout := $gate.timeoutSeconds | default 1200 -}}
+{{- $timeout := $gate.timeoutSeconds | default 600 -}}
 {{- $interval := $gate.intervalSeconds | default 2 -}}
 {{- $image := $gate.image | default "bitnamilegacy/kubectl:1.30.7" -}}
 {{- $pullPolicy := $gate.imagePullPolicy | default "IfNotPresent" -}}
