@@ -219,6 +219,24 @@ cnpgPair:
   # NetworkPolicy stack.
   networkPolicy:
     enabled: true
+    # The CNPG operator (cloudnative-pg) runs in this namespace and
+    # polls EACH instance Pod's status web server to extract instance
+    # status. A k8s NetworkPolicy selecting the instance Pods
+    # default-denies all other ingress to them, so without an explicit
+    # carve-out the operator's status probe is blocked and the Cluster
+    # phase stalls at "Instance Status Extraction Error" (caught live on
+    # hw126: primary 1/1 Running, phase = extraction error). These knobs
+    # open the operator → instance status/metrics paths.
+    operatorNamespace: cnpg-system
+    # Instance manager status web server — the port the operator polls
+    # for instance status/health (cloudnative-pg 1.29.0). NOT the
+    # postgres 5432 port and NOT the metrics port.
+    operatorStatusPort: 8000
+    # Prometheus metrics exporter on each instance Pod. Opened from the
+    # operator namespace too so a PodMonitor/serviceMonitor scraping from
+    # cnpg-system (or the operator's own metrics collection) is not
+    # default-denied once the gate flips ON.
+    operatorMetricsPort: 9187
 
   # ── Continuum DR contract seed (#3195, Refs #3189) ────────────────
   # When `continuum.enabled: true` AND `cnpgPair.enabled: true`, the

@@ -182,7 +182,13 @@ spec:
       # applies on BOTH control planes (suspend removed) and each
       # cluster renders only its own half of the pair. See the slot
       # header + the chart changelog for the full design note.
-      version: 0.2.0
+      # 0.2.1 (Refs #3236 / #3195 / #2737) — both per-side ingress
+      # NetworkPolicies now allow the CNPG operator (cnpg-system) to the
+      # instance status (8000) + metrics (9187) ports. Without it the
+      # Ingress-only policies default-denied the operator's status probe
+      # and the Cluster phase stalled at "Instance Status Extraction
+      # Error" on hw126 despite the instance being 1/1 Running.
+      version: 0.2.1
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair

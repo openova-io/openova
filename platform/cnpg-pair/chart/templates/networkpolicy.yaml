@@ -9,6 +9,17 @@ the minimum required paths:
      cluster's `-r` Service on 5432 (cross-cluster via ClusterMesh).
   2. Probe: the failover-readiness probe Pod MAY reach the replica
      cluster's `-r` Service on 5432 (intra-cluster, in replica region).
+  3. Operator status: the CNPG operator (cloudnative-pg, in
+     `cnpgPair.networkPolicy.operatorNamespace` = cnpg-system) MAY reach
+     EACH instance Pod's status web server (operatorStatusPort = 8000)
+     and metrics exporter (operatorMetricsPort = 9187). A k8s
+     NetworkPolicy selecting the instance Pods default-denies all OTHER
+     ingress to them — including the operator's status probe — so without
+     this carve-out the Cluster phase stalls at "Instance Status
+     Extraction Error" (the hw126 symptom: primary 1/1 Running yet phase
+     = extraction error). Both the primary-side and the replica-side
+     ingress policies need it because each side selects its own instance
+     CR Pods.
 
 Everything else stays denied — no Egress to the public Internet, no
 Ingress except from the explicit selectors below.
@@ -51,6 +62,18 @@ spec:
       ports:
         - port: 5432
           protocol: TCP
+    # CNPG operator status + metrics probe — without this the operator
+    # cannot extract the primary instance's status and the Cluster phase
+    # stalls at "Instance Status Extraction Error".
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.cnpgPair.networkPolicy.operatorNamespace }}
+      ports:
+        - port: {{ .Values.cnpgPair.networkPolicy.operatorStatusPort }}
+          protocol: TCP
+        - port: {{ .Values.cnpgPair.networkPolicy.operatorMetricsPort }}
+          protocol: TCP
 {{- end }}
 {{- if (include "cnpg-pair.isReplicaSide" .) }}
 ---
@@ -77,6 +100,19 @@ spec:
               catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
       ports:
         - port: 5432
+          protocol: TCP
+    # CNPG operator status + metrics probe — the replica side selects its
+    # own instance CR Pods, so it needs the same operator carve-out as the
+    # primary or the replica Cluster phase stalls at "Instance Status
+    # Extraction Error" too.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.cnpgPair.networkPolicy.operatorNamespace }}
+      ports:
+        - port: {{ .Values.cnpgPair.networkPolicy.operatorStatusPort }}
+          protocol: TCP
+        - port: {{ .Values.cnpgPair.networkPolicy.operatorMetricsPort }}
           protocol: TCP
 ---
 # Egress carve-out for the probe Pod — must resolve DNS and reach
