@@ -18,21 +18,29 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"log/slog"
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes"
 	kfake "k8s.io/client-go/kubernetes/fake"
 
@@ -168,10 +176,12 @@ users:
 // the package-private helper installClusterMeshClientFactory so we
 // don't have to plumb a real kubeconfig parser.
 type testFixture struct {
-	dir      string
-	clients  map[string]kubernetes.Interface // keyed by kubeconfig path
-	dep      *Deployment
-	handler  *Handler
+	dir                   string
+	clients               map[string]kubernetes.Interface // keyed by kubeconfig path
+	dynClients            map[string]dynamic.Interface    // keyed by kubeconfig path (primary only today)
+	primaryKubeconfigPath string
+	dep                   *Deployment
+	handler               *Handler
 }
 
 // installClusterMeshClientFactory replaces helmwatch's kubeconfig
@@ -257,8 +267,113 @@ func newTestFixture(t *testing.T, lbIPs []string) *testFixture {
 		dep.secondaryKubeconfigPaths[k] = filepath.Join(dir, depID+"-"+k+".yaml")
 	}
 
+	// Primary region's fake DYNAMIC client — carries the bootstrap-kit
+	// Flux Kustomization the cnpg-pair gate flip (#3236) patches. Seeded
+	// with the canonical 2-region substitute map cloud-init stamps
+	// (distinct non-empty SOVEREIGN_PRIMARY_REGION / SOVEREIGN_REPLICA_
+	// REGION). Tests that exercise the precondition guard replace this
+	// entry before installing the factories.
+	primaryKubeconfigPath := filepath.Join(dir, depID+".yaml")
+	dynClients := map[string]dynamic.Interface{
+		primaryKubeconfigPath: newFakeKustomizationDynClient(t,
+			buildBootstrapKitKustomization(defaultBootstrapKitSubstitute())),
+	}
+
 	h := &Handler{log: silentLogger(), kubeconfigsDir: dir}
-	return &testFixture{dir: dir, clients: clients, dep: dep, handler: h}
+	return &testFixture{
+		dir:                   dir,
+		clients:               clients,
+		dynClients:            dynClients,
+		primaryKubeconfigPath: primaryKubeconfigPath,
+		dep:                   dep,
+		handler:               h,
+	}
+}
+
+// ── ClusterMesh-gated cnpg-pair enable (#3236) — test helpers ───────
+
+// Canonical region labels matching the shape cloud-init stamps into the
+// bootstrap-kit substitute map on a 2-region prov (tftpl
+// primary_region_canonical_label / replica_region_canonical_label).
+const (
+	testPrimaryRegionLabel = "hw-mea-rtz-prod"
+	testReplicaRegionLabel = "hw-meb-rtz-prod"
+)
+
+// buildBootstrapKitKustomization returns the flux-system/bootstrap-kit
+// Kustomization (kustomize.toolkit.fluxcd.io/v1) shaped like the one
+// cloud-init applies (infra/providers/_shared/cloudinit-control-plane
+// .tftpl flux-bootstrap.yaml), carrying the given postBuild.substitute
+// map.
+func buildBootstrapKitKustomization(substitute map[string]any) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+		"kind":       "Kustomization",
+		"metadata": map[string]any{
+			"name":      bootstrapKitKustomizationName,
+			"namespace": fluxSystemNamespace,
+		},
+		"spec": map[string]any{
+			"interval": "5m",
+			"path":     "./clusters/_template/bootstrap-kit",
+			"postBuild": map[string]any{
+				"substitute": substitute,
+			},
+		},
+	}}
+}
+
+// defaultBootstrapKitSubstitute mirrors the substitute keys a 2-region
+// prov carries: distinct, non-empty primary/replica regions. The cnpg-
+// pair gate key is ABSENT (the provisioner never registers it — Flux's
+// inline `:-false` default keeps slot 16b off until the flip).
+func defaultBootstrapKitSubstitute() map[string]any {
+	return map[string]any{
+		"SOVEREIGN_FQDN":                      "tcm.example.io",
+		"SOVEREIGN_ENABLE_HOT_STANDBY":        "true",
+		clusterMeshPrimaryRegionSubstituteKey: testPrimaryRegionLabel,
+		clusterMeshReplicaRegionSubstituteKey: testReplicaRegionLabel,
+	}
+}
+
+// newFakeKustomizationDynClient builds a fake dynamic client that knows
+// the Flux Kustomization GVR, seeded with the given objects.
+func newFakeKustomizationDynClient(t *testing.T, objs ...runtime.Object) dynamic.Interface {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
+		Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Kind: "Kustomization",
+	}, &unstructured.Unstructured{})
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
+		Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Kind: "KustomizationList",
+	}, &unstructured.UnstructuredList{})
+	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{fluxKustomizationGVR: "KustomizationList"},
+		objs...)
+}
+
+// installClusterMeshDynamicClientFactory mirrors
+// installClusterMeshClientFactory for the dynamic-client path used by
+// the cnpg-pair gate flip. Returns a restore func.
+func installClusterMeshDynamicClientFactory(clients map[string]dynamic.Interface) func() {
+	prev := clusterMeshTestDynamicClientFactory
+	clusterMeshTestDynamicClientFactory = func(kcPath string) (dynamic.Interface, bool) {
+		c, ok := clients[kcPath]
+		return c, ok
+	}
+	return func() { clusterMeshTestDynamicClientFactory = prev }
+}
+
+// getBootstrapKitKustomization re-reads the Kustomization from the fake
+// dynamic client so assertions observe post-patch state.
+func getBootstrapKitKustomization(t *testing.T, dyn dynamic.Interface) *unstructured.Unstructured {
+	t.Helper()
+	ks, err := dyn.Resource(fluxKustomizationGVR).Namespace(fluxSystemNamespace).
+		Get(context.Background(), bootstrapKitKustomizationName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get bootstrap-kit Kustomization: %v", err)
+	}
+	return ks
 }
 
 // ── tests ───────────────────────────────────────────────────────────
@@ -270,6 +385,8 @@ func TestAutoEstablishClusterMesh_HappyPath_TwoRegions(t *testing.T) {
 	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
 	restore := installClusterMeshClientFactory(fx.clients)
 	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -322,6 +439,8 @@ func TestAutoEstablishClusterMesh_LBAbsentInOneRegion(t *testing.T) {
 	fx := newTestFixture(t, []string{"203.0.113.10", ""})
 	restore := installClusterMeshClientFactory(fx.clients)
 	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
 	// Shrink the LB lookup timeout so the test isn't slow.
 	// (We reach into the package-level const indirectly via a test
 	// hook below.)
@@ -365,6 +484,8 @@ func TestAutoEstablishClusterMesh_Idempotent(t *testing.T) {
 	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
 	restore := installClusterMeshClientFactory(fx.clients)
 	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -433,5 +554,176 @@ func TestAutoEstablishClusterMesh_SingleRegionSkips(t *testing.T) {
 	}
 	if statuses != nil {
 		t.Errorf("statuses = %+v, want nil for single-region deployment", statuses)
+	}
+}
+
+// ── ClusterMesh-gated cnpg-pair enable (#3236) ──────────────────────
+
+// requireFullyMeshed asserts every region's ReadyAt is stamped — the
+// precondition the cnpg-pair flip tests rely on so a mesh regression
+// doesn't masquerade as a gate-flip regression.
+func requireFullyMeshed(t *testing.T, statuses []ClusterMeshStatus) {
+	t.Helper()
+	for _, st := range statuses {
+		if st.ReadyAt.IsZero() {
+			t.Fatalf("precondition: region %q not fully meshed (peers: %+v)", st.RegionKey, st.Peers)
+		}
+	}
+}
+
+// TestAutoEstablishClusterMesh_FullMeshFlipsCNPGPairGate — after a
+// CONFIRMED full-mesh establishment across both regions, the primary
+// region's flux-system/bootstrap-kit Kustomization must carry
+// postBuild.substitute.SOVEREIGN_ENABLE_CNPG_PAIR="true" plus the
+// reconcile.fluxcd.io/requestedAt annotation so slot 16b (bp-cnpg-pair)
+// deploys zero-touch on the next Flux reconcile. (#3236; the gate
+// itself exists because of hw124/#3196 — see the slot header in
+// clusters/_template/bootstrap-kit/16b-bp-cnpg-pair.yaml.)
+func TestAutoEstablishClusterMesh_FullMeshFlipsCNPGPairGate(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	statuses, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep)
+	if err != nil {
+		t.Fatalf("AutoEstablishClusterMesh returned error: %v", err)
+	}
+	requireFullyMeshed(t, statuses)
+
+	ks := getBootstrapKitKustomization(t, fx.dynClients[fx.primaryKubeconfigPath])
+	substitute, found, err := unstructured.NestedStringMap(ks.Object, "spec", "postBuild", "substitute")
+	if err != nil || !found {
+		t.Fatalf("read spec.postBuild.substitute: found=%v err=%v", found, err)
+	}
+	if got := substitute[clusterMeshCNPGPairSubstituteKey]; got != "true" {
+		t.Errorf("substitute[%s] = %q, want \"true\" after full mesh establishment",
+			clusterMeshCNPGPairSubstituteKey, got)
+	}
+	// The JSON merge patch must MERGE into the substitute map, never
+	// replace it — clobbering SOVEREIGN_PRIMARY_REGION/… would fail the
+	// chart's required-fail-fast and wedge the whole atomic apply.
+	if got := substitute[clusterMeshPrimaryRegionSubstituteKey]; got != testPrimaryRegionLabel {
+		t.Errorf("substitute[%s] = %q, want %q (patch clobbered sibling substitute keys)",
+			clusterMeshPrimaryRegionSubstituteKey, got, testPrimaryRegionLabel)
+	}
+	if got := substitute[clusterMeshReplicaRegionSubstituteKey]; got != testReplicaRegionLabel {
+		t.Errorf("substitute[%s] = %q, want %q (patch clobbered sibling substitute keys)",
+			clusterMeshReplicaRegionSubstituteKey, got, testReplicaRegionLabel)
+	}
+	stamp := ks.GetAnnotations()[fluxReconcileRequestedAtAnnotation]
+	if stamp == "" {
+		t.Fatalf("annotation %q absent — Flux reconcile never requested", fluxReconcileRequestedAtAnnotation)
+	}
+	if _, perr := time.Parse(time.RFC3339Nano, stamp); perr != nil {
+		t.Errorf("annotation %q = %q is not RFC3339Nano: %v", fluxReconcileRequestedAtAnnotation, stamp, perr)
+	}
+}
+
+// TestAutoEstablishClusterMesh_PartialMeshDoesNotFlipCNPGPairGate —
+// region B never gets a LoadBalancer IP, so the mesh is NOT fully
+// established. The gate flip must NOT happen (🛑 hw124/#3196 anti-
+// pattern guard: flipping on raw 2-region-ness — or on partial mesh —
+// renders a replica that can never stream its basebackup).
+func TestAutoEstablishClusterMesh_PartialMeshDoesNotFlipCNPGPairGate(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", ""})
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+	prev := clusterMeshTestOverrideLBTimeout
+	clusterMeshTestOverrideLBTimeout = 200 * time.Millisecond
+	defer func() { clusterMeshTestOverrideLBTimeout = prev }()
+	prevInt := clusterMeshTestOverrideLBInterval
+	clusterMeshTestOverrideLBInterval = 25 * time.Millisecond
+	defer func() { clusterMeshTestOverrideLBInterval = prevInt }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if _, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep); err != nil {
+		t.Fatalf("AutoEstablishClusterMesh returned error: %v", err)
+	}
+
+	ks := getBootstrapKitKustomization(t, fx.dynClients[fx.primaryKubeconfigPath])
+	substitute, _, _ := unstructured.NestedStringMap(ks.Object, "spec", "postBuild", "substitute")
+	if got, ok := substitute[clusterMeshCNPGPairSubstituteKey]; ok {
+		t.Errorf("substitute[%s] = %q — gate flipped on PARTIAL mesh (hw124/#3196 anti-pattern)",
+			clusterMeshCNPGPairSubstituteKey, got)
+	}
+	if stamp := ks.GetAnnotations()[fluxReconcileRequestedAtAnnotation]; stamp != "" {
+		t.Errorf("annotation %q = %q set despite partial mesh — reconcile must not be requested",
+			fluxReconcileRequestedAtAnnotation, stamp)
+	}
+}
+
+// TestAutoEstablishClusterMesh_SubstitutePreconditionBlocksCNPGPairFlip
+// — even on a fully-established mesh, the flip is refused when the
+// substitute map's SOVEREIGN_PRIMARY_REGION / SOVEREIGN_REPLICA_REGION
+// are absent, empty, or equal: the bp-cnpg-pair chart `required`s
+// distinct non-empty regions when enabled=true, and a render failure
+// inside the bootstrap-kit Kustomization fails the WHOLE atomic apply
+// (0 HRs). A loud warning must be logged so the gap is debuggable.
+func TestAutoEstablishClusterMesh_SubstitutePreconditionBlocksCNPGPairFlip(t *testing.T) {
+	cases := []struct {
+		name       string
+		substitute map[string]any
+	}{
+		{
+			name: "replica-region-missing",
+			substitute: map[string]any{
+				"SOVEREIGN_FQDN":                      "tcm.example.io",
+				clusterMeshPrimaryRegionSubstituteKey: testPrimaryRegionLabel,
+			},
+		},
+		{
+			name: "regions-equal",
+			substitute: map[string]any{
+				"SOVEREIGN_FQDN":                      "tcm.example.io",
+				clusterMeshPrimaryRegionSubstituteKey: testPrimaryRegionLabel,
+				clusterMeshReplicaRegionSubstituteKey: testPrimaryRegionLabel,
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
+			fx.dynClients[fx.primaryKubeconfigPath] = newFakeKustomizationDynClient(t,
+				buildBootstrapKitKustomization(tc.substitute))
+			var logBuf bytes.Buffer
+			fx.handler.log = slog.New(slog.NewTextHandler(&logBuf, nil))
+			restore := installClusterMeshClientFactory(fx.clients)
+			defer restore()
+			restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+			defer restoreDyn()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			statuses, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep)
+			if err != nil {
+				t.Fatalf("AutoEstablishClusterMesh returned error: %v", err)
+			}
+			requireFullyMeshed(t, statuses)
+
+			ks := getBootstrapKitKustomization(t, fx.dynClients[fx.primaryKubeconfigPath])
+			substitute, _, _ := unstructured.NestedStringMap(ks.Object, "spec", "postBuild", "substitute")
+			if got, ok := substitute[clusterMeshCNPGPairSubstituteKey]; ok {
+				t.Errorf("substitute[%s] = %q — gate flipped despite failed region precondition",
+					clusterMeshCNPGPairSubstituteKey, got)
+			}
+			if stamp := ks.GetAnnotations()[fluxReconcileRequestedAtAnnotation]; stamp != "" {
+				t.Errorf("annotation %q = %q set despite failed region precondition",
+					fluxReconcileRequestedAtAnnotation, stamp)
+			}
+			if !strings.Contains(logBuf.String(), "refusing to flip SOVEREIGN_ENABLE_CNPG_PAIR") {
+				t.Errorf("expected loud warning containing %q in log output, got:\n%s",
+					"refusing to flip SOVEREIGN_ENABLE_CNPG_PAIR", logBuf.String())
+			}
+		})
 	}
 }

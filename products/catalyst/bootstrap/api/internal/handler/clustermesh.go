@@ -96,7 +96,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
@@ -158,6 +161,31 @@ const (
 	clusterMeshPeerCertValidity = 365 * 24 * time.Hour
 )
 
+// ClusterMesh-gated cnpg-pair enable (#3236) — names of the Flux
+// objects/keys the post-mesh gate flip touches. The bootstrap-kit
+// Kustomization is the one cloud-init applies on every control plane
+// (infra/providers/_shared/cloudinit-control-plane.tftpl,
+// flux-bootstrap.yaml writeup); its postBuild.substitute map threads
+// every Sovereign-shape value into clusters/_template/bootstrap-kit/*,
+// including slot 16b's `cnpgPair.enabled:
+// ${SOVEREIGN_ENABLE_CNPG_PAIR:-false}` gate.
+const (
+	bootstrapKitKustomizationName         = "bootstrap-kit"
+	fluxSystemNamespace                   = "flux-system"
+	clusterMeshCNPGPairSubstituteKey      = "SOVEREIGN_ENABLE_CNPG_PAIR"
+	clusterMeshPrimaryRegionSubstituteKey = "SOVEREIGN_PRIMARY_REGION"
+	clusterMeshReplicaRegionSubstituteKey = "SOVEREIGN_REPLICA_REGION"
+	fluxReconcileRequestedAtAnnotation    = "reconcile.fluxcd.io/requestedAt"
+)
+
+// fluxKustomizationGVR — kustomize.toolkit.fluxcd.io/v1 Kustomizations,
+// addressed via the dynamic client (no Flux Go types vendored here).
+var fluxKustomizationGVR = schema.GroupVersionResource{
+	Group:    "kustomize.toolkit.fluxcd.io",
+	Version:  "v1",
+	Resource: "kustomizations",
+}
+
 // clusterMeshDeploymentLabels — the upstream Cilium chart's
 // DaemonSet/Deployment names. Used by rollout-restart hints.
 var clusterMeshRolloutTargets = []struct {
@@ -177,6 +205,13 @@ var clusterMeshRolloutTargets = []struct {
 // Returning (nil, false) means "no override for this path, fall
 // through to production". Returning (client, true) injects the fake.
 var clusterMeshTestClientFactory func(kubeconfigPath string) (kubernetes.Interface, bool)
+
+// clusterMeshTestDynamicClientFactory — test-only hook mirroring
+// clusterMeshTestClientFactory for the DYNAMIC client the cnpg-pair
+// gate flip (#3236) uses to patch the bootstrap-kit Flux Kustomization.
+// Same contract: (nil, false) falls through to production; production
+// leaves this nil.
+var clusterMeshTestDynamicClientFactory func(kubeconfigPath string) (dynamic.Interface, bool)
 
 // clusterMeshTestOverrideLBTimeout / clusterMeshTestOverrideLBInterval
 // — test-only override knobs for the LB-discovery poll loop. Zero
@@ -523,7 +558,172 @@ func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 		"fullyMeshed", totalReady,
 	)
 
+	// ── ClusterMesh-gated cnpg-pair enable (#3236) ──────────────────
+	// 🛑 ANTI-PATTERN GUARD (hw124/#3196): slot 16b (bp-cnpg-pair)
+	// gates on its OWN substitute SOVEREIGN_ENABLE_CNPG_PAIR precisely
+	// because flipping on raw 2-region-ness (SOVEREIGN_ENABLE_HOT_
+	// STANDBY) rendered a replica that could never stream its
+	// basebackup when the mesh wasn't actually wired. The flip below
+	// therefore fires ONLY on the FULL-success path — every region's
+	// ReadyAt stamped, i.e. every peer pair Connected — never on
+	// partial success, never at bootstrap. Idempotent: re-running
+	// patches the same key to the same value and merely re-requests a
+	// reconcile.
+	if totalReady == len(statuses) && len(statuses) >= 2 {
+		h.enableCNPGPairAfterFullMesh(ctx, dep, primaryKubeconfigPath)
+	} else {
+		h.log.Info("clustermesh: mesh not fully established — SOVEREIGN_ENABLE_CNPG_PAIR left untouched (slot 16b stays gated OFF)",
+			"id", dep.ID,
+			"fullyMeshed", totalReady,
+			"regions", len(statuses),
+		)
+	}
+
 	return statuses, nil
+}
+
+// enableCNPGPairAfterFullMesh flips the slot-16b gate on the PRIMARY
+// region's bootstrap-kit Flux Kustomization (the one cloud-init applies
+// — infra/providers/_shared/cloudinit-control-plane.tftpl) by merging
+// `spec.postBuild.substitute.SOVEREIGN_ENABLE_CNPG_PAIR: "true"` and
+// stamping `reconcile.fluxcd.io/requestedAt` so Flux reconciles
+// immediately instead of waiting out the 5m interval. The cross-region
+// CNPG pair (clusters/_template/bootstrap-kit/16b-bp-cnpg-pair.yaml)
+// then deploys zero-touch, correctly gated on CONFIRMED mesh readiness.
+//
+// Defense (non-negotiable, per the chart's required-fail-fast): the
+// flip is REFUSED unless the substitute map already carries non-empty,
+// DISTINCT SOVEREIGN_PRIMARY_REGION / SOVEREIGN_REPLICA_REGION —
+// cloud-init stamps both on 2-region provs. With enabled=true and a
+// missing/equal region the bp-cnpg-pair chart render fails, and a
+// render failure inside the bootstrap-kit Kustomization fails the WHOLE
+// atomic apply → 0 HRs (the #2981/#2982 fresh-prov wedge shape). A
+// refused flip logs loudly and leaves the gate OFF (empty Ready
+// release — safe).
+//
+// Scope: ONLY SOVEREIGN_ENABLE_CNPG_PAIR. The shared-pg flags
+// (SOVEREIGN_ENABLE_SHARED_PG / *_PG_OWN_CLUSTER) are #3188 scope and
+// are deliberately not touched here. Only the PRIMARY's Kustomization
+// is patched — slot 16b is a primary-only HR (SECONDARY_HR_SUSPEND
+// suspends it on secondary control planes).
+//
+// Failure modes follow this file's convention: every failure is logged
+// + surfaced as a clustermesh-progress warn event, never an error —
+// the post-handover finalisation re-runs AutoEstablishClusterMesh and
+// the flip converges then.
+func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployment, primaryKubeconfigPath string) {
+	if primaryKubeconfigPath == "" {
+		// Unreachable from the full-success path (an empty path fails
+		// the primary slot, which blocks full success) — but this
+		// method must stay safe if ever called from another site.
+		h.log.Warn("clustermesh: cnpg-pair gate: primary kubeconfig path empty — cannot reach bootstrap-kit Kustomization",
+			"id", dep.ID)
+		return
+	}
+	dyn, err := h.clusterMeshDynamicClient(primaryKubeconfigPath)
+	if err != nil {
+		h.log.Warn("clustermesh: cnpg-pair gate: dynamic client build failed",
+			"id", dep.ID, "err", err)
+		h.emitClusterMeshProgress(dep, "warn",
+			fmt.Sprintf("ClusterMesh: cnpg-pair enable skipped — dynamic client build failed (%v); re-run converges", err))
+		return
+	}
+
+	getCtx, cancelGet := context.WithTimeout(ctx, clusterMeshCallTimeout)
+	ks, err := dyn.Resource(fluxKustomizationGVR).Namespace(fluxSystemNamespace).
+		Get(getCtx, bootstrapKitKustomizationName, metav1.GetOptions{})
+	cancelGet()
+	if err != nil {
+		h.log.Warn("clustermesh: cnpg-pair gate: Get bootstrap-kit Kustomization failed",
+			"id", dep.ID, "err", err)
+		h.emitClusterMeshProgress(dep, "warn",
+			fmt.Sprintf("ClusterMesh: cnpg-pair enable skipped — Get Kustomization %s/%s failed (%v); re-run converges",
+				fluxSystemNamespace, bootstrapKitKustomizationName, err))
+		return
+	}
+
+	substitute, found, err := unstructured.NestedStringMap(ks.Object, "spec", "postBuild", "substitute")
+	if err != nil || !found {
+		h.log.Warn("clustermesh: refusing to flip SOVEREIGN_ENABLE_CNPG_PAIR — bootstrap-kit Kustomization has no readable spec.postBuild.substitute map",
+			"id", dep.ID, "found", found, "err", err)
+		h.emitClusterMeshProgress(dep, "warn",
+			"ClusterMesh: cnpg-pair enable refused — bootstrap-kit Kustomization carries no postBuild.substitute map")
+		return
+	}
+	primaryRegion := strings.TrimSpace(substitute[clusterMeshPrimaryRegionSubstituteKey])
+	replicaRegion := strings.TrimSpace(substitute[clusterMeshReplicaRegionSubstituteKey])
+	if primaryRegion == "" || replicaRegion == "" || primaryRegion == replicaRegion {
+		h.log.Warn("clustermesh: refusing to flip SOVEREIGN_ENABLE_CNPG_PAIR — substitute region precondition failed (bp-cnpg-pair `required`s distinct non-empty regions; a render failure would fail the whole atomic bootstrap-kit apply → 0 HRs)",
+			"id", dep.ID,
+			"primaryRegion", primaryRegion,
+			"replicaRegion", replicaRegion,
+		)
+		h.emitClusterMeshProgress(dep, "warn",
+			fmt.Sprintf("ClusterMesh: cnpg-pair enable REFUSED — SOVEREIGN_PRIMARY_REGION=%q / SOVEREIGN_REPLICA_REGION=%q must be non-empty and distinct in the bootstrap-kit substitute map",
+				primaryRegion, replicaRegion))
+		return
+	}
+
+	// JSON merge patch (RFC 7386) merges nested objects key-by-key, so
+	// sibling substitute keys + existing annotations are preserved —
+	// only the gate key and the reconcile-request stamp change.
+	stamp := time.Now().UTC().Format(time.RFC3339Nano)
+	patch := map[string]any{
+		"metadata": map[string]any{
+			"annotations": map[string]any{
+				fluxReconcileRequestedAtAnnotation: stamp,
+			},
+		},
+		"spec": map[string]any{
+			"postBuild": map[string]any{
+				"substitute": map[string]any{
+					clusterMeshCNPGPairSubstituteKey: "true",
+				},
+			},
+		},
+	}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		h.log.Warn("clustermesh: cnpg-pair gate: marshal merge patch failed",
+			"id", dep.ID, "err", err)
+		return
+	}
+	patchCtx, cancelPatch := context.WithTimeout(ctx, clusterMeshCallTimeout)
+	defer cancelPatch()
+	if _, err := dyn.Resource(fluxKustomizationGVR).Namespace(fluxSystemNamespace).
+		Patch(patchCtx, bootstrapKitKustomizationName, types.MergePatchType, patchBytes, metav1.PatchOptions{}); err != nil {
+		h.log.Warn("clustermesh: cnpg-pair gate: Patch bootstrap-kit Kustomization failed",
+			"id", dep.ID, "err", err)
+		h.emitClusterMeshProgress(dep, "warn",
+			fmt.Sprintf("ClusterMesh: cnpg-pair enable failed — Patch Kustomization %s/%s (%v); re-run converges",
+				fluxSystemNamespace, bootstrapKitKustomizationName, err))
+		return
+	}
+
+	h.log.Info("clustermesh: SOVEREIGN_ENABLE_CNPG_PAIR=true merged onto primary bootstrap-kit Kustomization + Flux reconcile requested",
+		"id", dep.ID,
+		"primaryRegion", primaryRegion,
+		"replicaRegion", replicaRegion,
+		"requestedAt", stamp,
+	)
+	h.emitClusterMeshProgress(dep, "info",
+		"ClusterMesh confirmed across all regions — enabled bp-cnpg-pair (slot 16b) via SOVEREIGN_ENABLE_CNPG_PAIR=true and requested Flux reconcile")
+}
+
+// clusterMeshDynamicClient builds a dynamic.Interface for the cluster
+// behind the given kubeconfig path, honouring the test-only factory
+// override the same way buildRegionSlots does for typed clients.
+func (h *Handler) clusterMeshDynamicClient(kubeconfigPath string) (dynamic.Interface, error) {
+	if clusterMeshTestDynamicClientFactory != nil {
+		if d, ok := clusterMeshTestDynamicClientFactory(kubeconfigPath); ok {
+			return d, nil
+		}
+	}
+	raw, err := os.ReadFile(kubeconfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("read kubeconfig %q: %w", kubeconfigPath, err)
+	}
+	return helmwatch.NewDynamicClientFromKubeconfig(string(raw))
 }
 
 // buildRegionSlots gathers per-region clients + identity. The primary
