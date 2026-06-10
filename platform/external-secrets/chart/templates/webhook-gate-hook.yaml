@@ -1,0 +1,140 @@
+{{- /*
+#3155 (2026-06-10): bp-external-secrets post-install webhook readiness gate.
+
+The race
+========
+bp-external-secrets ships the ESO controller + the validating/mutating
+admission webhooks (`validate.externalsecret.external-secrets.io`,
+failurePolicy: Fail). On a cold/throttled prov the upstream webhook image
+(`oci.external-secrets.io/.../external-secrets`) can take ~2 min to pull, and
+the webhook Pod fails its readiness probe until TLS is mounted — so the
+`external-secrets-webhook` Service has NO ready endpoints for a window.
+
+But the bp-external-secrets HR reports `Ready=True / InstallSucceeded` as soon
+as Helm finishes (webhook-Pod readiness is NOT part of Helm's release health).
+So `dependsOn: bp-external-secrets` is satisfied PREMATURELY: a consumer like
+bp-harbor installs an ExternalSecret, the apiserver calls the not-yet-serving
+webhook → `no endpoints available for service "external-secrets-webhook"` →
+harbor Helm install FAILS, and Flux did NOT self-heal (hw124 #3155: harbor
+False ~50 min, bootstrap-kit HealthCheckFailed, sovereign-tls DependencyNotReady,
+serves 000).
+
+The fix — same producer-side gate as kyverno (#2605) / cert-manager
+========================================================================
+This post-install Job holds the Helm hook phase (and therefore HR Ready) until
+the webhook is actually SERVING:
+  (a) Endpoints `external-secrets-webhook` has ≥1 ready address, AND
+  (b) Secret `external-secrets-webhook` carries a non-empty `tls.crt`.
+Then `dependsOn` consumers wait for a serving webhook, not just a finished Helm
+release.
+
+NON-FATAL on timeout (#3149): a fatal hook → Flux install-remediation →
+uninstall, which the admission webhook (failurePolicy: Fail) can then block →
+HR stuck StateError, a cascade strictly WORSE than letting ESO finish warming
+while consumers' own retries absorb the gap. The gate stays a loud slow-warm
+DETECTOR, never a cluster-wedging fatal.
+*/}}
+{{- $gate := .Values.webhookGate | default dict -}}
+{{- $enabled := true -}}
+{{- if hasKey $gate "enabled" -}}
+{{-   $enabled = $gate.enabled -}}
+{{- end -}}
+{{- if $enabled }}
+{{- $svcName := (($gate.service).name) | default "external-secrets-webhook" -}}
+{{- $svcNs := (($gate.service).namespace) | default "external-secrets-system" -}}
+{{- $secretName := $gate.tlsSecretName | default "external-secrets-webhook" -}}
+{{- $timeout := $gate.timeoutSeconds | default 1200 -}}
+{{- $interval := $gate.intervalSeconds | default 2 -}}
+{{- $image := $gate.image | default "bitnamilegacy/kubectl:1.30.7" -}}
+{{- $pullPolicy := $gate.imagePullPolicy | default "IfNotPresent" -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-webhook-gate
+  namespace: {{ $svcNs | quote }}
+  labels:
+    app.kubernetes.io/name: bp-external-secrets
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: webhook-gate
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-external-secrets
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        catalyst.openova.io/component: webhook-gate
+    spec:
+      serviceAccountName: {{ .Release.Name }}-webhook-gate
+      restartPolicy: Never
+      containers:
+        - name: gate
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ $pullPolicy | quote }}
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: WEBHOOK_SVC
+              value: {{ $svcName | quote }}
+            - name: WEBHOOK_NS
+              value: {{ $svcNs | quote }}
+            - name: TLS_SECRET
+              value: {{ $secretName | quote }}
+            - name: TIMEOUT_SECONDS
+              value: {{ $timeout | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $interval | quote }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "external-secrets webhook gate: poll (a) endpoints/${WEBHOOK_NS}/${WEBHOOK_SVC} >=1 ready, (b) secret/${WEBHOOK_NS}/${TLS_SECRET} has non-empty tls.crt (budget=${TIMEOUT_SECONDS}s, interval=${INTERVAL_SECONDS}s)"
+              deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+              attempt=0
+              while [ "$(date +%s)" -lt "${deadline}" ]; do
+                attempt=$(( attempt + 1 ))
+                ep_count="$(kubectl get endpoints "${WEBHOOK_SVC}" \
+                  -n "${WEBHOOK_NS}" \
+                  --ignore-not-found \
+                  -o jsonpath='{range .subsets[*]}{.addresses[*].ip}{"\n"}{end}' 2>/dev/null \
+                  | tr ' ' '\n' | grep -c . || true)"
+                tls_len="$(kubectl get secret "${TLS_SECRET}" \
+                  -n "${WEBHOOK_NS}" \
+                  --ignore-not-found \
+                  -o jsonpath='{.data.tls\.crt}' 2>/dev/null \
+                  | wc -c | tr -d ' ')"
+                if [ "${ep_count}" -ge 1 ] && [ "${tls_len}" -gt 100 ]; then
+                  echo "Both conditions cleared after ${attempt} attempt(s); endpoints=${ep_count} tls_crt_len=${tls_len}."
+                  exit 0
+                fi
+                echo "Attempt ${attempt}: endpoints=${ep_count} tls_crt_len=${tls_len}; sleeping ${INTERVAL_SECONDS}s."
+                sleep "${INTERVAL_SECONDS}"
+              done
+              echo "WARNING: external-secrets webhook gate did not clear within ${TIMEOUT_SECONDS}s — proceeding NON-FATALLY (#3149/#3155)." >&2
+              echo "Rationale: a fatal exit makes Helm mark post-install/upgrade FAILED -> Flux install-remediation uninstalls -> the ESO admission webhook (failurePolicy: Fail) can then block deletion of ExternalSecret-related resources -> HR stuck StateError, a cascade strictly WORSE than letting ESO finish warming while dependsOn consumers' own retries absorb the gap." >&2
+              echo "Diagnose with:" >&2
+              echo "  kubectl -n ${WEBHOOK_NS} get pods -l app.kubernetes.io/name=external-secrets-webhook" >&2
+              echo "  kubectl -n ${WEBHOOK_NS} get endpoints ${WEBHOOK_SVC}" >&2
+              echo "  kubectl -n ${WEBHOOK_NS} get secret ${TLS_SECRET}" >&2
+              exit 0
+{{- end }}
