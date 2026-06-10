@@ -159,6 +159,26 @@ compliancePolicies:
     # the audit trail. Enforce by default.
     action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
+    # #3248 follow-up (Refs #2737 #3236, first proven hw126): operator-managed
+    # data-plane namespaces. The CNPG operator creates Services
+    # (`<cluster>-r`/`-ro`/`-rw`) and utility Jobs with NO flux labels or
+    # ownerReferences — operator-owned objects definitionally cannot be
+    # Flux-managed, so flux-managed (the ONLY Enforce policy whose match-kinds
+    # include Service) denies "Unable to create required cluster objects" the
+    # moment a gated CNPG Cluster first reaches admission. These namespaces
+    # predate the data plane and were never in complianceDefaultExcludes
+    # because no workload ran there until the hw126 gate-flips.
+    #
+    # Scoped to THIS policy only (not the shared anchor): powerdns-admin also
+    # hosts a real `powerdns-admin` Deployment that MUST stay subject to every
+    # other policy (probes / requests / image-pin). CNPG instance Pods carry
+    # the cluster's harbor-proxied + pinned image and inherited resource
+    # requests, so they still PASS 04/05/11/12 — only the operator-created
+    # Service/Job (flux-unmanageable) needs this carve-out.
+    extraExcludeNamespaces:
+      - cnpg            # bp-cnpg-pair primary/replica Clusters → operator Services + Jobs
+      - shared-data     # bp-postgres-shared (shared-pg) Cluster → operator Services + Jobs
+      - powerdns-admin  # bp-powerdns-admin CNPG Cluster → operator Services + Jobs
 
   harborProxyPull:
     enabled: true

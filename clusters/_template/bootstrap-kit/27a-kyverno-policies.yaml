@@ -72,7 +72,17 @@ spec:
       # claim above was the bug: autogen does NOT path-expand anyPattern, and
       # `(image)`/`{"?{}":...}` anchors never validate; the fix uses explicit
       # per-PATH-SHAPE rules + deny/foreach. See Chart.yaml for the full RCA.
-      version: 1.0.29
+      # 1.0.30 (Refs #2737 #3236 #3248, 2026-06-11): EXCLUDE operator-managed
+      # data-plane namespaces (`cnpg`, `shared-data`, `powerdns-admin`) from the
+      # `flux-managed` (10) Enforce policy. The CNPG operator creates Services
+      # (`<cluster>-r`/`-ro`/`-rw`) + utility Jobs with no flux labels/ownerRefs
+      # — definitionally un-Flux-manageable — so flux-managed (the one Enforce
+      # policy matching Service) denied "Unable to create required cluster
+      # objects" the moment a gated CNPG Cluster reached admission on hw126.
+      # Per-policy `extraExcludeNamespaces` (NOT the shared anchor): every other
+      # policy stays enforced in those namespaces. Verified two-directionally on
+      # the same kind + kyverno v1.18 harness. See Chart.yaml for the full RCA.
+      version: 1.0.30
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno

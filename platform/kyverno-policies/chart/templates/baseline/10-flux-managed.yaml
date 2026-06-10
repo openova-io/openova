@@ -60,6 +60,19 @@ spec:
                 {{- range $ns := .Values.compliancePolicies.fluxManaged.excludeNamespaces }}
                 - {{ $ns }}
                 {{- end }}
+                {{- /*
+                  #3248 follow-up (Refs #2737 #3236, first proven hw126): the
+                  CNPG operator creates Services (`<cluster>-r/-ro/-rw`) and
+                  utility Jobs with NO flux labels / ownerRefs — by design,
+                  operator-owned objects can NEVER be Flux-managed. flux-managed
+                  is the ONE Enforce policy whose denial is definitionally
+                  impossible for these. Namespace-scoped per-policy extra
+                  excludes (NOT the shared anchor — powerdns-admin also hosts a
+                  real Deployment that must stay subject to every other policy).
+                */}}
+                {{- range $ns := .Values.compliancePolicies.fluxManaged.extraExcludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
       validate:
         message: >-
           {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} is
