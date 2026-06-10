@@ -54,7 +54,7 @@
 - **Fire/wipe (mechanically safe)**: `scripts/sovereign-lifecycle.sh` (auto reset-uat-on-fire + capture-before-wipe). Auth: mothership JWT at `/tmp/hw-priv.pem`.
 - **kubectl on a Sovereign**: `kubectl -n catalyst exec <catalyst-api-pod> -- cat /var/lib/catalyst/kubeconfigs/<deployment-id>.yaml` (primary) + `<id>-me-east-215-b-1.yaml` (region-b). The Sovereign API EIP (`:6443`) is reachable from the bastion; SSH (`:22`) is NOT.
 - **Secondary-region host forensic (no SSH)**: host-network + `tolerations:[{operator: Exists}]` + privileged hostPath `/` pod → `cat /host/var/log/cloud-init-output.log`.
-- **Convergence check**: `kubectl get hr -A` — non-`True` `bp-*` are the wedges; read `.status.conditions[].message`.
+- **Convergence check**: `bash scripts/verify-sovereign-convergence.sh <deployment-id>` — one-command battery (HRs, region-B CNI, ClusterMesh ids, the #3238 cnpg flip, pair CRs). Raw fallback: `kubectl get hr -A` + `.status.conditions[].message`.
 - **Salvage a CNI-dead region (last resort, contaminates zero-touch)**: `helm install cilium cilium/cilium --version <match region-a> -f <region-b cilium-values> --kubeconfig <region-b>` from the bastion (IPv4).
 
 ## Can a regular-effort Opus 4.8 agent take over from here? **YES — for the structured execution.**
