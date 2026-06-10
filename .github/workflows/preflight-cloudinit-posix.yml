@@ -1,0 +1,124 @@
+name: preflight — cloud-init POSIX (dash) lint
+
+# REQUIRED pre-merge guard against the #3129-class regression: a cloud-init
+# `runcmd:` shell-syntax bug that ONLY the target VM's ancient `/bin/sh` (the
+# kom4dc image's dash) rejects. Such a bug aborts runcmd mid-stream, the
+# kubeconfig PUT-back never fires, and Phase-1 times out — costing a ~1-hour
+# live provision to discover. Refs #3145 (cloud-agnostic bootstrap EPIC);
+# motivating regression class #3129.
+#
+# This job renders the ONE shared cloud-agnostic control-plane cloud-init
+# template (infra/providers/_shared/cloudinit-control-plane.tftpl) per provider
+# via `scripts/lint-cloudinit.sh`, which:
+#   1. renders the template with a complete per-provider fixture (tofu
+#      templatefile() — no providers/network needed), then
+#   2. runs `dash -n` (POSIX parse-only) over every extracted runcmd item AND
+#      the concatenated script, and
+#   3. FAILS on any bash-ONLY construct in an item cloud-init runs under
+#      /bin/sh — `(( … ))` arithmetic-command, `[[ … ]]` test, `&>` redirect,
+#      `function` keyword — which `dash -n` parse-only does NOT catch and which
+#      the kom4dc /bin/sh REJECTS at runtime (that is the exact #3129 trap).
+#
+# It does NOT provision anything, touch the network, or modify the templates.
+#
+# Per CLAUDE.md "every workflow MUST be event-driven, NEVER scheduled": this is
+# push-on-merge + pull-request-on-touch; ad-hoc reruns go through
+# workflow_dispatch. There is no `schedule:` trigger.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/providers/_shared/**'
+      - 'infra/providers/hetzner/**'
+      - 'infra/providers/huawei/**'
+      - 'scripts/lint-cloudinit.sh'
+      - '.github/workflows/preflight-cloudinit-posix.yml'
+  pull_request:
+    paths:
+      - 'infra/providers/_shared/**'
+      - 'infra/providers/hetzner/**'
+      - 'infra/providers/huawei/**'
+      - 'scripts/lint-cloudinit.sh'
+      - '.github/workflows/preflight-cloudinit-posix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  posix-lint:
+    name: dash -n cloud-init render (hetzner + huawei)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          # Lockstep with infra-hetzner-tofu.yaml / infra-huawei-tofu.yaml.
+          tofu_version: 1.8.5
+
+      - name: Pin runner deps (dash + busybox + python3 pyyaml)
+        run: |
+          set -eu
+          # dash IS the parse engine the script shells out to (DASH_BIN). It is
+          # preinstalled on ubuntu-latest, but pin it explicitly so a runner
+          # image change can never silently drop the gate's core dependency.
+          # busybox provides an additional ancient-/bin/sh reference if needed.
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends dash busybox
+          # PyYAML powers the script's runcmd extractor (it has a vendored
+          # fallback, but the real loader gives the accurate item split).
+          python3 -m pip install --quiet pyyaml || sudo apt-get install -y python3-yaml
+          echo "dash:    $(command -v dash)  ($(dash -c 'echo ok'))"
+          echo "busybox: $(command -v busybox)"
+          echo "python3: $(python3 --version)"
+          echo "tofu:    $(tofu version | head -1)"
+
+      - name: POSIX-lint rendered cloud-init (both providers)
+        run: |
+          set -eu
+          chmod +x scripts/lint-cloudinit.sh
+          # `both` lints hetzner + huawei and aggregates the exit status. A
+          # bash-ism that the kom4dc /bin/sh rejects exits NON-ZERO here and
+          # fails the required check — the merge is blocked before a ~1-hour
+          # live provision would have discovered it.
+          ./scripts/lint-cloudinit.sh both
+
+      - name: Self-test the gate (inject a bash-ism, prove it FAILS, then restore)
+        if: always()
+        run: |
+          set -eu
+          TPL=infra/providers/_shared/cloudinit-control-plane.tftpl
+          cp "$TPL" "${TPL}.orig"
+          # Inject a sh-run bash-ism the kom4dc /bin/sh rejects but `dash -n`
+          # parse-only passes — the exact #3129 trap — as a new runcmd item.
+          # `sed` is keyed on the first runcmd item (`- swapoff -a`).
+          grep -q "^  - swapoff -a$" "$TPL" || { echo "self-test anchor not found"; mv "${TPL}.orig" "$TPL"; exit 1; }
+          sed -i "0,/^  - swapoff -a$/s//  - 'if [[ -f \/tmp\/x ]]; then echo bashism; fi'\n  - swapoff -a/" "$TPL"
+          set +e
+          ./scripts/lint-cloudinit.sh hetzner >/tmp/selftest.log 2>&1
+          rc=$?
+          set -e
+          mv "${TPL}.orig" "$TPL"
+          echo "--- self-test lint output (bash-ism injected) ---"
+          cat /tmp/selftest.log
+          if [ "$rc" -eq 0 ]; then
+            echo "SELF-TEST FAILED: gate did NOT catch the injected bash-ism (exit 0)"
+            exit 1
+          fi
+          echo "SELF-TEST PASSED: gate caught the injected bash-ism (exit ${rc}); template restored"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo '## cloud-init POSIX (dash) lint'
+            echo ''
+            echo 'Rendered the shared control-plane cloud-init per provider and ran'
+            echo '`dash -n` + a bash-only-construct scan over every runcmd item.'
+            echo 'A bash-ism that the kom4dc `/bin/sh` rejects fails this required check.'
+          } >> "$GITHUB_STEP_SUMMARY" 2>&1 || true

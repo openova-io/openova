@@ -18,10 +18,15 @@
 #   scripts/lint-cloudinit.sh huawei
 #   scripts/lint-cloudinit.sh both      # lint both, aggregate exit status
 #
-# EXIT: 0 = all runcmd items parse under dash -n; non-zero = a syntax error was
-#       found (or the template failed to render). Non-POSIX constructs that the
-#       kom4dc /bin/sh chokes on (arithmetic `$((`, `[[`, `function`, `&>`) are
-#       reported as WARNINGS and do not by themselves fail the run.
+# EXIT: 0 = all runcmd items parse under dash -n AND no sh-run item uses a
+#       bash-only construct; non-zero = a `dash -n` syntax error OR a bash-only
+#       construct in an sh-run item (or the template failed to render).
+#       Bash-ONLY constructs that the kom4dc /bin/sh REJECTS at runtime — and
+#       which `dash -n` parse-only does NOT catch (the #3129 trap) — are a HARD
+#       FAIL when the item is run by /bin/sh: `(( … ))` arithmetic-command,
+#       `[[ … ]]` test, `&>` redirect, `function` keyword. (`$(( … ))`
+#       arithmetic EXPANSION is POSIX and is NOT flagged.) The same construct
+#       inside an explicit `bash -c "…"` body is a WARNING only (bash's domain).
 #
 # REQUIREMENTS: tofu (templatefile rendering — no providers needed), dash,
 #               python3 (+ pyyaml or a vendored fallback parser).
@@ -423,29 +428,36 @@ if not isinstance(runcmd, list):
     sys.stderr.write(f"[extract] runcmd is not a list (got {type(runcmd).__name__})\n")
     sys.exit(3)
 
-def body_from_item(item):
-    """Return the shell-script body to lint for a runcmd item.
-    - str               -> the string itself (cloud-init runs it via sh -c)
-    - [..., '-c', body] -> the -c body (argv form, e.g. ['bash','-c', body])
-    - other list        -> join argv with spaces (best-effort; still a command
-                           line the shell must parse)
+def body_and_mode_from_item(item):
+    """Return (body, mode) for a runcmd item.
+    body = the shell-script body to lint.
+    mode = the interpreter cloud-init runs THE ITEM under:
+      - "sh"   -> cloud-init runs the string via /bin/sh (= dash on kom4dc).
+                  A non-POSIX construct here is a HARD bug (#3129 class).
+      - "bash" -> the item is an explicit ['bash','-c',...] argv form, so the
+                  body is bash's own concern; non-POSIX constructs are fine.
+    Forms:
+    - str               -> the string itself, run via /bin/sh         -> mode sh
+    - [iface,'-c',body] -> the -c body; mode = iface basename (bash|sh|...)
+    - other list        -> argv joined; run via /bin/sh by cloud-init  -> mode sh
     """
     if isinstance(item, str):
-        return item
+        return item, "sh"
     if isinstance(item, list):
-        # find a '-c' followed by a body
         for k in range(len(item) - 1):
             if item[k] == "-c":
-                return str(item[k + 1])
-        # no -c: join the argv tokens as a single command line
-        return " ".join(str(x) for x in item)
-    return str(item)
+                iface = os.path.basename(str(item[0])) if item else "sh"
+                mode = "bash" if iface.endswith("bash") else "sh"
+                return str(item[k + 1]), mode
+        # no -c: join the argv tokens as a single command line (run via sh)
+        return " ".join(str(x) for x in item), "sh"
+    return str(item), "sh"
 
 items_tsv = io.StringIO()
 all_bodies = []
 count = 0
 for idx, item in enumerate(runcmd):
-    body = body_from_item(item)
+    body, mode = body_and_mode_from_item(item)
     count += 1
     fn = os.path.join(out_dir, f"item-{idx:03d}.sh")
     with open(fn, "w") as f:
@@ -453,10 +465,14 @@ for idx, item in enumerate(runcmd):
         f.write(body)
         if not body.endswith("\n"):
             f.write("\n")
+    # Record the interpreter mode alongside the item, so the construct scan
+    # can FAIL sh-run items but spare explicit `bash -c` bodies.
+    with open(os.path.join(out_dir, f"item-{idx:03d}.mode"), "w") as mf:
+        mf.write(mode)
     preview = body.strip().splitlines()[0] if body.strip() else "(empty)"
     if len(preview) > 100:
         preview = preview[:97] + "..."
-    items_tsv.write(f"{idx:03d}\t{preview}\n")
+    items_tsv.write(f"{idx:03d}\t{mode}\t{preview}\n")
     all_bodies.append(body)
 
 with open(os.path.join(out_dir, "all.sh"), "w") as f:
@@ -487,7 +503,7 @@ posix_lint() {
   for f in "${items_dir}"/item-*.sh; do
     [ -e "${f}" ] || continue
     idx="$(basename "${f}" .sh | sed 's/^item-//')"
-    preview="$(grep -E "^${idx}	" "${items_dir}/items.tsv" 2>/dev/null | cut -f2-)"
+    preview="$(grep -E "^${idx}	" "${items_dir}/items.tsv" 2>/dev/null | cut -f3-)"
     derr="$("${DASH_BIN}" -n "${f}" 2>&1)"
     if [ -n "${derr}" ]; then
       LINT_FAILS=$((LINT_FAILS + 1))
@@ -504,25 +520,40 @@ posix_lint() {
     printf '%s\n' "${derr_all}" | sed 's/^/        /' >&2
   fi
 
-  # Non-POSIX construct warnings (kom4dc /bin/sh = dash; these break it).
-  #   $((   arithmetic expansion
-  #   [[    bash test keyword
-  #   &>    bash redirect-both
+  # Non-POSIX construct scan (kom4dc /bin/sh = dash; these break it AT RUNTIME,
+  # which `dash -n` parse-only does NOT catch — that is the exact #3129 trap).
+  # Genuinely bash-ONLY constructs (dash rejects them at runtime, NOT parse):
+  #   (( … ))   arithmetic COMMAND (note: `$(( … ))` arithmetic EXPANSION is
+  #             POSIX and dash supports it — do NOT flag it)
+  #   [[ … ]]   bash test keyword
+  #   &>        bash redirect-both
   #   function  bash function keyword
+  # For items cloud-init runs under /bin/sh (mode=sh) any of these is a HARD
+  # FAIL — the rendered runcmd would abort mid-stream on the target's dash.
+  # For explicit `bash -c "..."` items (mode=bash) the body is bash's own
+  # concern, so the same construct is informational only (WARN).
   for f in "${items_dir}"/item-*.sh; do
     [ -e "${f}" ] || continue
     idx="$(basename "${f}" .sh | sed 's/^item-//')"
-    preview="$(grep -E "^${idx}	" "${items_dir}/items.tsv" 2>/dev/null | cut -f2-)"
-    # Strip the shebang line before scanning.
-    body="$(sed '1d' "${f}")"
+    preview="$(grep -E "^${idx}	" "${items_dir}/items.tsv" 2>/dev/null | cut -f3-)"
+    mode="$(cat "${items_dir}/item-${idx}.mode" 2>/dev/null || echo sh)"
+    # Strip the shebang line before scanning. Mask any `bash -c "…"`/`bash -c
+    # '…'` quoted sub-body: arithmetic-commands etc. inside an explicit bash
+    # invocation are bash's domain even when the OUTER item is sh-run.
+    body="$(sed '1d' "${f}" | sed -E "s/bash -c \"[^\"]*\"//g; s/bash -c '[^']*'//g")"
     hits=""
-    printf '%s' "${body}" | grep -q '\$((' && hits="${hits} \$(( arithmetic-expansion"
+    printf '%s' "${body}" | grep -Eq '(^|[^$])\(\([[:space:]]*[A-Za-z_]' && hits="${hits} (( arithmetic-command"
     printf '%s' "${body}" | grep -Eq '\[\[' && hits="${hits} [[ bash-test"
     printf '%s' "${body}" | grep -Eq '(^|[^0-9>])&>' && hits="${hits} &> bash-redirect"
     printf '%s' "${body}" | grep -Eq '(^|[[:space:]])function[[:space:]]+[A-Za-z_]' && hits="${hits} function-keyword"
     if [ -n "${hits}" ]; then
-      LINT_WARNS=$((LINT_WARNS + 1))
-      warn "runcmd[${idx}] non-POSIX construct(s):${hits}  — item: ${preview}"
+      if [ "${mode}" = "sh" ]; then
+        LINT_FAILS=$((LINT_FAILS + 1))
+        err "runcmd[${idx}] (sh-run) non-POSIX construct(s) — kom4dc /bin/sh REJECTS:${hits}  — item: ${preview}"
+      else
+        LINT_WARNS=$((LINT_WARNS + 1))
+        warn "runcmd[${idx}] (bash -c) non-POSIX construct(s) [bash body, informational]:${hits}  — item: ${preview}"
+      fi
     fi
   done
 }
