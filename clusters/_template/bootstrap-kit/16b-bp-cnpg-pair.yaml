@@ -151,7 +151,7 @@ spec:
       # livenessProbe, and Harbor-proxies the default image. The default
       # image.repository now equals this slot's override, so the inline
       # override below is redundant but kept explicit for clarity.
-      version: 0.1.4
+      version: 0.1.5
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair
