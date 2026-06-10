@@ -39,7 +39,7 @@ type: application
 # 0.1.0 sat in-tree without a bootstrap-kit slot to pin it, so the
 # blueprint-release workflow's `detect changed paths` step never had
 # reason to re-run and the chart was never pushed to GHCR.
-version: 0.1.4
+version: 0.1.5
 appVersion: "0.1.0"
 home: https://openova.io
 sources:
