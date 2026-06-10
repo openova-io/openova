@@ -25,8 +25,13 @@ installed without a continuum-controller never emits an orphan CR.
 Status fields are NOT seeded here — the running continuum-controller
 owns status (ADR-0001 §2.7). The QA fixtures seed status because a test
 Sovereign may have no controller running; production always does.
+
+Side-gating (chart 0.2.0): renders ONLY on side=primary — the
+continuum-controller (slot 62) runs on the primary cluster (its HR is
+suspended on secondary control planes), so the CR it reconciles must
+live there too.
 */ -}}
-{{- if and .Values.cnpgPair.enabled .Values.cnpgPair.continuum.enabled }}
+{{- if and .Values.cnpgPair.enabled .Values.cnpgPair.continuum.enabled (include "cnpg-pair.isPrimarySide" .) }}
 {{- include "cnpg-pair.validateRegions" . }}
 {{- $cprim := required "continuum.primaryRegion is REQUIRED when continuum.enabled=true — set the canonical 4-segment label (e.g. hz-fsn-rtz-prod) matching the Continuum CRD pattern ^[a-z]+-[a-z]+-[a-z]+-[a-z]+$" .Values.cnpgPair.continuum.primaryRegion -}}
 {{- $cstby := required "continuum.hotStandbyRegion is REQUIRED when continuum.enabled=true — set the canonical 4-segment label (e.g. hz-hel-rtz-prod)" .Values.cnpgPair.continuum.hotStandbyRegion -}}

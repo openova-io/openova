@@ -887,7 +887,10 @@ locals {
 
     # Huawei-branch substitute vars — passed empty/placeholder on Hetzner so
     # the shared template's `provider == "huawei"` block parses (tofu
-    # evaluates var refs even in non-taken directive branches). Inert here.
+    # evaluates var refs even in non-taken directive branches). Inert here,
+    # EXCEPT sovereign_region_role: it now feeds the SHARED
+    # SOVEREIGN_REGION_ROLE substitute (bp-cnpg-pair split-side, slot 16b
+    # `cnpgPair.side`), so the per-CP value is live on Hetzner too.
     pdns_api_host          = ""
     sovereign_region_role  = "primary"
     node_external_ip_value = ""
@@ -1316,7 +1319,9 @@ locals {
       catalyst_api_url           = var.catalyst_api_url
       load_balancer_ipv4         = hcloud_load_balancer.secondary[k].ipv4
 
-      # Huawei-branch substitute vars — inert on Hetzner (see primary call).
+      # Huawei-branch substitute vars — inert on Hetzner (see primary call),
+      # EXCEPT sovereign_region_role: live via the shared
+      # SOVEREIGN_REGION_ROLE substitute (bp-cnpg-pair split-side).
       pdns_api_host          = ""
       sovereign_region_role  = "secondary"
       node_external_ip_value = ""

@@ -17,8 +17,15 @@ This is a NamespacePolicy (NetworkPolicy in apps/v1 sense), NOT a
 CiliumClusterwideNetworkPolicy — the chart targets a single
 namespace, and the H8 platform CCNP already covers the cluster-
 scoped default-deny.
+
+Side-gating (chart 0.2.0): a NetworkPolicy must be applied on the
+cluster whose Pods it selects (podSelector is evaluated against LOCAL
+endpoints) — so the replication-ingress policy (selects primary CR
+Pods) renders on side=primary, and the probe policies (select replica
+CR Pods + the probe Pod) render on side=replica.
 */ -}}
 {{- if and .Values.cnpgPair.enabled .Values.cnpgPair.networkPolicy.enabled }}
+{{- if (include "cnpg-pair.isPrimarySide" .) }}
 ---
 # Allow primary CR Pods to accept replication connections from any
 # Pod with `cnpg.io/cluster=<replica>` label. ClusterMesh delivers
@@ -44,6 +51,8 @@ spec:
       ports:
         - port: 5432
           protocol: TCP
+{{- end }}
+{{- if (include "cnpg-pair.isReplicaSide" .) }}
 ---
 # Allow failover-readiness probe Pod to reach the replica's `-r`
 # Service on 5432 (Egress) AND allow the replica cluster's Pods to
@@ -107,4 +116,5 @@ spec:
       ports:
         - port: 5432
           protocol: TCP
+{{- end }}
 {{- end }}

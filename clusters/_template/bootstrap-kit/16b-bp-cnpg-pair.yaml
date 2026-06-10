@@ -1,17 +1,42 @@
 # bp-cnpg-pair — Catalyst bootstrap-kit Blueprint slot 16b.
 # (Pillar-3 cross-region DR primitive — EPIC-6 slice C-DB-1 #1101.)
 #
-# Active-hot-standby CNPG cluster-pair across two Sovereign regions:
+# Active-hot-standby CNPG cluster-pair across two Sovereign regions.
+#
+# ─── SPLIT-SIDE MODEL (chart 0.2.0) — each cluster renders ITS half ──
+# A 2-region Sovereign is TWO SEPARATE k3s clusters joined by Cilium
+# ClusterMesh (kom4dc mimics the regions with 2 VPCs) — NOT one
+# stretched cluster. So this HR is applied on BOTH control planes and
+# `cnpgPair.side` (stamped from the per-region SOVEREIGN_REGION_ROLE
+# substitute below) selects which half each cluster renders:
+#   side=primary (region-A cluster):
 #   - Primary postgresql.cnpg.io/v1.Cluster CR pinned to region A
-#   - Replica Cluster CR pinned to region B (replica.enabled: true +
-#     bootstrap.pg_basebackup + externalClusters[] streaming the
-#     primary's WAL over Cilium ClusterMesh)
 #   - `<name>-primary-mesh` Service annotated
 #     `service.cilium.io/global: "true"` so ClusterMesh publishes the
 #     primary's read-replica endpoint across every connected peer
-#   - failover-readiness probe + audit-config ConfigMap (label
+#   - audit-config ConfigMap (label
 #     `catalyst.openova.io/audit-config: "true"`) that bp-continuum's
-#     prerequisite-check probes to switch from idle to active.
+#     prerequisite-check probes to switch from idle to active
+#     (bp-continuum slot 62 runs on the primary cluster).
+#   side=replica (region-B cluster, SOVEREIGN_REGION_ROLE=secondary —
+#   the chart normalizes "secondary" → replica):
+#   - Replica Cluster CR pinned to region B (replica.enabled: true +
+#     bootstrap.pg_basebackup + externalClusters[] streaming the
+#     primary's WAL over Cilium ClusterMesh)
+#   - local `-primary-mesh` Service stub (Cilium merges global
+#     services by name+namespace across clusters; zero local backends
+#     → traffic crosses the mesh to the primary)
+#   - failover-readiness probe (its region-B node-affinity now matches
+#     the cluster it runs on).
+#
+# Chart ≤0.1.x declared the whole pair ONCE on the primary cluster
+# (this slot suspended on secondaries via SECONDARY_HR_SUSPEND) and
+# relied on node-affinity to "schedule each side to its region" — that
+# only works on a single stretched cluster. On hw126 the replica-side
+# workloads could NEVER schedule: FailedScheduling 0/4 nodes, affinity
+# requires openova.io/region=hw-me-east-215-b-rtz-prod while every
+# cluster-A node is ...-a-rtz-prod. 0.2.0 removes the suspend and
+# splits the render per side.
 #
 # ─── Why this slot exists (Pillar-3 gap closure, #3195 / Refs #3189) ──
 # The DESIGN.md gap analysis (docs/sessions/2026-06-10/pillar3-multi
@@ -119,12 +144,13 @@ metadata:
     openova.io/category: customer-facing-capability
     openova.io/epic: "6"
 spec:
-  # Primary-only HR — the cluster-pair is DECLARED once, on the primary
-  # region's control plane (the primary Cluster CR + the replica
-  # ReplicaCluster both live in the same manifest; CNPG schedules each
-  # side to its region via node-affinity). SECONDARY_HR_SUSPEND="true"
-  # on secondary CPs suspends this HR so it is not double-applied.
-  suspend: ${SECONDARY_HR_SUSPEND:=false}
+  # BOTH-clusters HR (chart 0.2.0 split-side) — every region's control
+  # plane applies this HR; `cnpgPair.side` (below) makes each cluster
+  # render exactly its own half of the pair. The former
+  # SECONDARY_HR_SUSPEND suspend is REMOVED: suspending on secondaries
+  # was the ≤0.1.x single-manifest model, under which the replica-side
+  # workloads (pinned to region-B node labels) could never schedule on
+  # the primary cluster (hw126 FailedScheduling — see header).
   interval: 15m
   releaseName: cnpg-pair
   # targetNamespace = cnpg — same namespace bp-harbor/bp-gitea place their
@@ -151,7 +177,12 @@ spec:
       # livenessProbe, and Harbor-proxies the default image. The default
       # image.repository now equals this slot's override, so the inline
       # override below is redundant but kept explicit for clarity.
-      version: 0.1.5
+      # 0.2.0 (Refs #3236 / #3195 / #2737) — split-side topology. New
+      # `cnpgPair.side` keyed off SOVEREIGN_REGION_ROLE; this HR now
+      # applies on BOTH control planes (suspend removed) and each
+      # cluster renders only its own half of the pair. See the slot
+      # header + the chart changelog for the full design note.
+      version: 0.2.0
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair
@@ -202,7 +233,24 @@ spec:
       # canonical "default-OFF until the dependency is truly wired" knob
       # shape — the cnpg-pair is a wire-it-when-the-mesh-is-confirmed
       # primitive, not an auto-fire-on-2-region one.
+      #
+      # 🛑 NOTE (split-side): because slot 16b now applies on EVERY
+      # region's control plane, the post-mesh flip (catalyst-api
+      # handler/clustermesh.go enableCNPGPairAfterFullMesh, #3236/#3238)
+      # patches SOVEREIGN_ENABLE_CNPG_PAIR=true onto the bootstrap-kit
+      # Kustomization of ALL regions — flipping only the primary would
+      # activate side=primary while cluster-B keeps rendering an empty
+      # release (no replica, no WAL stream).
       enabled: ${SOVEREIGN_ENABLE_CNPG_PAIR:-false}
+      # ── Side — WHICH HALF this cluster renders (chart 0.2.0) ───────
+      # SOVEREIGN_REGION_ROLE is the per-region cloud-init substitute
+      # (infra/providers/_shared/cloudinit-control-plane.tftpl; value
+      # domain primary|secondary from each provider's
+      # sovereign_region_role — hetzner main.tf stamps the literal,
+      # huawei derives it from the region index). The chart normalizes
+      # "secondary" → replica. Default "primary" keeps a single-region
+      # prov (where the gate is OFF anyway) byte-identical.
+      side: ${SOVEREIGN_REGION_ROLE:-primary}
       primary:
         # Canonical region label (matches openova.io/region node label).
         region: '${SOVEREIGN_PRIMARY_REGION:-}'

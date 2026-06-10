@@ -24,8 +24,17 @@ template that pre-created the Service; CNPG refused to reconcile
 ("not owned by the cluster") and the primary Cluster phase stuck at
 "Unable to create required cluster objects". Phase-2 multi-region
 incident #3 (qa-loop-state/incidents.md, 2026-05-09).
+
+Side-gating (chart 0.2.0): this CR renders ONLY on side=replica — it
+must be APPLIED ON cluster-B (the replica region's own cluster), where
+its region-B node-affinity matches the local nodes. Chart ≤0.1.x
+rendered it on the primary cluster and the CR could never schedule
+(hw126: FailedScheduling 0/4 nodes). The pg_basebackup +
+externalClusters design below is precisely CNPG's separate-cluster
+replica pattern; only the apply TARGET was wrong.
 */ -}}
-{{- if .Values.cnpgPair.enabled }}
+{{- if and .Values.cnpgPair.enabled (include "cnpg-pair.isReplicaSide" .) }}
+{{- include "cnpg-pair.validateRegions" . }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -45,7 +54,9 @@ spec:
 
   storage:
     size: {{ .Values.cnpgPair.replica.storage.size | quote }}
-    storageClass: {{ .Values.cnpgPair.replica.storage.storageClass | quote }}
+    {{- with .Values.cnpgPair.replica.storage.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
 
   resources:
     {{- toYaml .Values.cnpgPair.replica.resources | nindent 4 }}

@@ -16,8 +16,13 @@ assertion is run by the qa-loop test executor on the replica cluster
 Per BLUEPRINT-AUTHORING.md §11, helm-test Pods carry the
 `helm.sh/hook: test` annotation so `helm test` discovers them; they are
 NOT installed by default reconciliation.
+
+Side-gating (chart 0.2.0): renders ONLY on side=primary — every
+assertion below (primary Cluster Ready, `-mesh` Service, pg_isready
+against `-rw`) targets primary-side objects, which on the split-side
+topology exist only on cluster-A.
 */ -}}
-{{- if .Values.cnpgPair.enabled }}
+{{- if and .Values.cnpgPair.enabled (include "cnpg-pair.isPrimarySide" .) }}
 apiVersion: v1
 kind: Pod
 metadata:

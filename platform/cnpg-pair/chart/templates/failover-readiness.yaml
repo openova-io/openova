@@ -16,8 +16,16 @@ applies here too.
 This Pod is the BLUEPRINT's contribution to promotability — it does
 NOT promote the replica itself (Continuum does), it just publishes
 the readiness signal Continuum reads.
+
+Side-gating (chart 0.2.0): renders ONLY on side=replica. The probe
+queries the REPLICA Cluster's local `-r` Service and its node-affinity
+pins the replica region — on the split-side topology it runs ON
+cluster-B, where both exist. Chart ≤0.1.x deployed it on the primary
+cluster where the region-B affinity could never schedule (hw126:
+FailedScheduling 0/4 nodes, affinity requires
+openova.io/region=hw-me-east-215-b-rtz-prod).
 */ -}}
-{{- if .Values.cnpgPair.enabled }}
+{{- if and .Values.cnpgPair.enabled (include "cnpg-pair.isReplicaSide" .) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
