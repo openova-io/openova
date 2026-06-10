@@ -309,9 +309,29 @@ var (
 //
 // Single-region provs (len(dep.Request.Regions) < 2) skip the whole
 // orchestrator — there is no peer to mesh with.
+//
+// This public wrapper preserves the (statuses, error) contract every
+// call site + test relies on. The reconcile loop calls the internal
+// autoEstablishClusterMesh directly so it can also observe whether the
+// #3236 cnpg-pair flip landed (the missing convergence signal that left
+// hw126 partially flipped — see runAutoEstablishClusterMesh).
 func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment) ([]ClusterMeshStatus, error) {
+	statuses, _, err := h.autoEstablishClusterMesh(ctx, dep)
+	return statuses, err
+}
+
+// autoEstablishClusterMesh is the worker behind AutoEstablishClusterMesh.
+// It returns the per-region statuses, an error, AND cnpgPairConverged —
+// true when the deployment is fully converged from the cnpg-pair flip's
+// point of view: single-region (no flip applicable), OR multi-region with
+// the mesh fully established AND the slot-16b flip fully landed. It is
+// false when the mesh is fully meshed but the flip refused/failed (e.g.
+// the primary postgres hasn't minted its replica-auth Secrets yet — the
+// exact hw126 state), so the reconcile loop keeps retrying instead of
+// declaring victory on mesh-only readiness.
+func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment) ([]ClusterMeshStatus, bool, error) {
 	if dep == nil {
-		return nil, fmt.Errorf("autoEstablishClusterMesh: dep is nil")
+		return nil, false, fmt.Errorf("autoEstablishClusterMesh: dep is nil")
 	}
 
 	dep.mu.Lock()
@@ -331,7 +351,9 @@ func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 			"id", dep.ID,
 			"regionCount", len(regions),
 		)
-		return nil, nil
+		// Single-region: no peer mesh, no cnpg-pair flip — vacuously
+		// converged so the loop's single-region branch never blocks.
+		return nil, true, nil
 	}
 
 	slots := h.buildRegionSlots(dep, regions, primaryKubeconfigPath, secondaryPaths)
@@ -340,7 +362,11 @@ func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 			"id", dep.ID,
 			"reachableRegions", len(slots),
 		)
-		return nil, nil
+		// Multi-region request but <2 reachable regions — the mesh cannot
+		// be established, so this is NOT a converged state; the loop's
+		// len(statuses)>=2 guard also rejects it, but report false so the
+		// flip-convergence signal is never misread as success.
+		return nil, false, nil
 	}
 
 	h.emitClusterMeshProgress(dep, "info",
@@ -667,8 +693,15 @@ func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 	// partial success, never at bootstrap. Idempotent: re-running
 	// patches the same key to the same value and merely re-requests a
 	// reconcile.
+	// cnpgPairConverged is true only when the mesh is fully established
+	// AND the slot-16b flip lands on every region. When the mesh is meshed
+	// but the flip refuses (e.g. the primary postgres hasn't minted its
+	// replica-auth Secrets yet — the hw126 22:38 state), this stays false
+	// so the reconcile loop keeps retrying instead of stopping on
+	// mesh-only readiness.
+	cnpgPairConverged := false
 	if totalReady == len(statuses) && len(statuses) >= 2 {
-		h.enableCNPGPairAfterFullMesh(ctx, dep, slots)
+		cnpgPairConverged = h.enableCNPGPairAfterFullMesh(ctx, dep, slots)
 	} else {
 		h.log.Info("clustermesh: mesh not fully established — SOVEREIGN_ENABLE_CNPG_PAIR left untouched (slot 16b stays gated OFF)",
 			"id", dep.ID,
@@ -677,7 +710,7 @@ func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 		)
 	}
 
-	return statuses, nil
+	return statuses, cnpgPairConverged, nil
 }
 
 // enableCNPGPairAfterFullMesh flips the slot-16b gate on EVERY
@@ -726,11 +759,21 @@ func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 // the flip converges then. A patch failure AFTER the gather phase is
 // per-region (warn + continue): the merge patch is idempotent and the
 // re-run converges the missed region.
-func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployment, slots []regionSlot) {
+//
+// Returns true ONLY when the flip fully landed (every region's
+// bootstrap-kit Kustomization patched ON). Any refusal/failure returns
+// false so the #3241 level-trigger keeps retrying: on hw126 the mesh was
+// fully established at 22:38 but the replica-auth Secrets had not been
+// minted yet, so this function correctly refused — yet the reconcile
+// loop treated "mesh meshed" as converged and STOPPED, leaving the flip
+// permanently unapplied until a manual catalyst-api restart. Threading
+// the outcome out lets runAutoEstablishClusterMesh keep the deployment
+// NOT-converged until the flip lands.
+func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployment, slots []regionSlot) bool {
 	if len(slots) == 0 {
 		h.log.Warn("clustermesh: cnpg-pair gate: no region slots — cannot reach any bootstrap-kit Kustomization",
 			"id", dep.ID)
-		return
+		return false
 	}
 
 	// ── Gather phase (all-or-nothing) ───────────────────────────────
@@ -754,7 +797,7 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 				"id", dep.ID, "region", regionLabel)
 			h.emitClusterMeshProgress(dep, "warn",
 				fmt.Sprintf("ClusterMesh: cnpg-pair enable skipped — region %q kubeconfig path empty; re-run converges", regionLabel))
-			return
+			return false
 		}
 		dyn, err := h.clusterMeshDynamicClient(s.kubeconfigPath)
 		if err != nil {
@@ -762,7 +805,7 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 				"id", dep.ID, "region", regionLabel, "err", err)
 			h.emitClusterMeshProgress(dep, "warn",
 				fmt.Sprintf("ClusterMesh: cnpg-pair enable skipped — region %q dynamic client build failed (%v); re-run converges", regionLabel, err))
-			return
+			return false
 		}
 
 		getCtx, cancelGet := context.WithTimeout(ctx, clusterMeshCallTimeout)
@@ -775,7 +818,7 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 			h.emitClusterMeshProgress(dep, "warn",
 				fmt.Sprintf("ClusterMesh: cnpg-pair enable skipped — region %q Get Kustomization %s/%s failed (%v); re-run converges",
 					regionLabel, fluxSystemNamespace, bootstrapKitKustomizationName, err))
-			return
+			return false
 		}
 
 		substitute, found, err := unstructured.NestedStringMap(ks.Object, "spec", "postBuild", "substitute")
@@ -784,7 +827,7 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 				"id", dep.ID, "region", regionLabel, "found", found, "err", err)
 			h.emitClusterMeshProgress(dep, "warn",
 				fmt.Sprintf("ClusterMesh: cnpg-pair enable refused — region %q bootstrap-kit Kustomization carries no postBuild.substitute map", regionLabel))
-			return
+			return false
 		}
 		primaryRegion := strings.TrimSpace(substitute[clusterMeshPrimaryRegionSubstituteKey])
 		replicaRegion := strings.TrimSpace(substitute[clusterMeshReplicaRegionSubstituteKey])
@@ -798,7 +841,7 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 			h.emitClusterMeshProgress(dep, "warn",
 				fmt.Sprintf("ClusterMesh: cnpg-pair enable REFUSED — region %q SOVEREIGN_PRIMARY_REGION=%q / SOVEREIGN_REPLICA_REGION=%q must be non-empty and distinct in the bootstrap-kit substitute map",
 					regionLabel, primaryRegion, replicaRegion))
-			return
+			return false
 		}
 		targets = append(targets, flipTarget{regionKey: regionLabel, dyn: dyn})
 	}
@@ -817,7 +860,7 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 	// secret it cannot find. The #3241 level-trigger + post-handover
 	// re-runs converge once the primary's Secrets appear.
 	if !h.syncCNPGPairReplicaAuthSecrets(ctx, dep, slots) {
-		return
+		return false
 	}
 
 	// ── Patch phase ─────────────────────────────────────────────────
@@ -843,7 +886,7 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 	if err != nil {
 		h.log.Warn("clustermesh: cnpg-pair gate: marshal merge patch failed",
 			"id", dep.ID, "err", err)
-		return
+		return false
 	}
 	patched := 0
 	for _, t := range targets {
@@ -862,7 +905,7 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 		patched++
 	}
 	if patched == 0 {
-		return
+		return false
 	}
 
 	h.log.Info("clustermesh: SOVEREIGN_ENABLE_CNPG_PAIR=true merged onto bootstrap-kit Kustomizations + Flux reconcile requested (split-side: every region renders its own half of the pair)",
@@ -873,6 +916,13 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 	)
 	h.emitClusterMeshProgress(dep, "info",
 		fmt.Sprintf("ClusterMesh confirmed across all regions — enabled bp-cnpg-pair (slot 16b) via SOVEREIGN_ENABLE_CNPG_PAIR=true on %d/%d region Kustomizations and requested Flux reconcile", patched, len(targets)))
+
+	// Fully landed ONLY when EVERY region's Kustomization patched ON. A
+	// partial patch (some regions failed mid-loop) is a half-flipped
+	// split-side pair — exactly the broken topology the gather phase
+	// guards against — so report NOT-converged and let the level-trigger
+	// re-run finish the remaining regions (the merge patch is idempotent).
+	return patched == len(targets)
 }
 
 // syncCNPGPairReplicaAuthSecrets copies the primary cluster's CNPG
