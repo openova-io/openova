@@ -187,6 +187,12 @@ spec:
         kind: HelmRepository
         name: bp-cnpg-pair
         namespace: flux-system
+  # Drift detection (hw126 lesson): helm does not re-apply deleted/mutated
+  # resources on reconcile, so a removed Cluster CR stays gone until the next
+  # chart bump. With drift correction the HR self-heals its rendered set —
+  # the zero-touch contract for the DR-critical pair.
+  driftDetection:
+    mode: enabled
   install:
     timeout: 15m
     # disableWait: the replica ReplicaCluster only reaches Ready once it
