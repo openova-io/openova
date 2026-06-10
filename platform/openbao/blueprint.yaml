@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.27
+  version: 1.2.28
   card:
     title: openbao
     summary: OpenBao secret backend. 3-node Raft per region (independent quorum, async perf-replication across regions). MPL 2.0 — drop-in Vault replacement.
@@ -84,6 +84,16 @@ spec:
       # `oidc` mount → it reverted to `?with=token` (manual Token form) and the
       # malformed mount path broke the callback round-trip. Emit `?with=oidc`.
       ssoInitPath: "/ui/vault/auth?with=oidc"
+      # #3226 — zero-click silent-SSO parity with grafana/harbor. OpenBao's
+      # UI is a client-side SPA, so the ssoInitPath deep-link above can only
+      # PRE-SELECT the OIDC method — the operator still has to click "Sign in
+      # with OIDC". ssoShim:true makes catalyst-api's launch-url return its
+      # server-side shim (`api.<fqdn>/catalyst/v1/apps/openbao/openbao-sso-init`)
+      # instead. The shim asks Vault for the OIDC auth_url server-side and
+      # 302s the browser to Keycloak (silent PIN) → Vault callback → landed
+      # signed-in. If the auth_url POST fails, the shim falls back to the
+      # ssoInitPath deep-link above (the Open button never 500s).
+      ssoShim: true
 
   # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
   # OpenBao OIDC auth method federated to sovereign realm (G91 manual

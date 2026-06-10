@@ -223,3 +223,133 @@ func TestGetKVv2_RequiredFields(t *testing.T) {
 		})
 	}
 }
+
+// ── OIDCAuthURL coverage (#3226 — server-side zero-click SSO shim) ────
+
+// TestOIDCAuthURL_OK — happy path: POST /v1/auth/{mount}/oidc/auth_url
+// with {role, redirect_uri} returns the inner data.auth_url verbatim.
+func TestOIDCAuthURL_OK(t *testing.T) {
+	const wantAuthURL = "https://auth.t01.omani.works/realms/sovereign/protocol/openid-connect/auth?client_id=openbao&redirect_uri=https%3A%2F%2Fbao.t01.omani.works%2Fui%2Fvault%2Fauth%2Foidc%2Foidc%2Fcallback&response_type=code&scope=openid&state=st&nonce=nc"
+	var (
+		gotPath string
+		gotTok  string
+		gotBody map[string]any
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %q, want POST", r.Method)
+		}
+		gotPath = r.URL.Path
+		gotTok = r.Header.Get("X-Vault-Token")
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{"auth_url": wantAuthURL},
+		})
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "test-token")
+	got, err := c.OIDCAuthURL(context.Background(), "oidc", "default",
+		"https://bao.t01.omani.works/ui/vault/auth/oidc/oidc/callback")
+	if err != nil {
+		t.Fatalf("OIDCAuthURL returned error: %v", err)
+	}
+	if got != wantAuthURL {
+		t.Fatalf("auth_url mismatch:\n got %q\nwant %q", got, wantAuthURL)
+	}
+	if gotPath != "/v1/auth/oidc/oidc/auth_url" {
+		t.Errorf("wrong path; got %q want /v1/auth/oidc/oidc/auth_url", gotPath)
+	}
+	if gotTok != "test-token" {
+		t.Errorf("wrong token header; got %q", gotTok)
+	}
+	if gotBody["role"] != "default" {
+		t.Errorf("role not forwarded; got %v", gotBody["role"])
+	}
+	if gotBody["redirect_uri"] != "https://bao.t01.omani.works/ui/vault/auth/oidc/oidc/callback" {
+		t.Errorf("redirect_uri not forwarded; got %v", gotBody["redirect_uri"])
+	}
+}
+
+// TestOIDCAuthURL_DefaultMount — empty mount falls back to "oidc".
+func TestOIDCAuthURL_DefaultMount(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{"auth_url": "https://x/auth"},
+		})
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "tk")
+	if _, err := c.OIDCAuthURL(context.Background(), "", "default", "https://h/cb"); err != nil {
+		t.Fatalf("OIDCAuthURL: %v", err)
+	}
+	if gotPath != "/v1/auth/oidc/oidc/auth_url" {
+		t.Errorf("empty mount must default to 'oidc'; got %q", gotPath)
+	}
+}
+
+// TestOIDCAuthURL_EmptyAuthURLErrors — a 200 with no auth_url is a
+// failure (the shim must fall back to the deep-link, not 302 to "").
+func TestOIDCAuthURL_EmptyAuthURLErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{}})
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "tk")
+	_, err := c.OIDCAuthURL(context.Background(), "oidc", "default", "https://h/cb")
+	if err == nil {
+		t.Fatal("expected error on empty auth_url; got nil")
+	}
+}
+
+// TestOIDCAuthURL_StatusErrorWraps — non-200 surfaces the status code.
+func TestOIDCAuthURL_StatusErrorWraps(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"errors":["role default not found"]}`)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "tk")
+	_, err := c.OIDCAuthURL(context.Background(), "oidc", "default", "https://h/cb")
+	if err == nil {
+		t.Fatal("expected error on 400; got nil")
+	}
+	if !strings.Contains(err.Error(), "400") {
+		t.Errorf("error should include status; got %v", err)
+	}
+}
+
+// TestOIDCAuthURL_RequiredFields — pre-flight validation mirrors the
+// other client methods.
+func TestOIDCAuthURL_RequiredFields(t *testing.T) {
+	cases := []struct {
+		name  string
+		c     *Client
+		role  string
+		rdr   string
+		match string
+	}{
+		{"nil-client", (*Client)(nil), "default", "https://h/cb", "client is nil"},
+		{"missing-addr", &Client{Token: "tk"}, "default", "https://h/cb", "address is required"},
+		{"missing-token", &Client{Addr: "http://x"}, "default", "https://h/cb", "token is required"},
+		{"missing-role", &Client{Addr: "http://x", Token: "tk"}, "", "https://h/cb", "role is required"},
+		{"missing-redirect", &Client{Addr: "http://x", Token: "tk"}, "default", "", "redirect_uri is required"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tc.c.OIDCAuthURL(context.Background(), "oidc", tc.role, tc.rdr)
+			if err == nil {
+				t.Fatal("expected error; got nil")
+			}
+			if !strings.Contains(err.Error(), tc.match) {
+				t.Errorf("error message mismatch; got %v", err)
+			}
+		})
+	}
+}

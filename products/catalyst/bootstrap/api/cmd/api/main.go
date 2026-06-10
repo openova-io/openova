@@ -1427,6 +1427,13 @@ func main() {
 		rg.Patch("/catalyst/v1/apps/{id}/endpoints/{name}", h.HandlePatchAppEndpoint)
 		rg.Delete("/catalyst/v1/apps/{id}/endpoints/{name}", h.HandleDeleteAppEndpoint)
 		rg.Get("/catalyst/v1/apps/{id}/launch-url", h.HandleGetLaunchURL)
+		// #3226 — server-side zero-click silent-SSO shim for OpenBao.
+		// OpenBao's UI is a client-side SPA, so a static ssoInitPath can
+		// only pre-select the OIDC method (still one click). This shim
+		// asks Vault for the OIDC auth_url server-side and 302s the
+		// browser to Keycloak, giving grafana/harbor parity. The openbao
+		// blueprint's ssoInitPath points the Open button at this route.
+		rg.Get("/catalyst/v1/apps/{id}/openbao-sso-init", h.HandleOpenBaoSSOInit)
 		rg.Post("/catalyst/v1/apps/instances", h.HandleCreateInstance)
 		rg.Get("/catalyst/v1/catalog/{blueprint}/instances", h.HandleListBlueprintInstances)
 
