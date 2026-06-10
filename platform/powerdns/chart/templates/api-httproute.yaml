@@ -51,4 +51,32 @@ spec:
       backendRefs:
         - name: {{ .Values.api.gateway.backendService | default "powerdns" | quote }}
           port: {{ .Values.api.gateway.backendPort | default (.Values.powerdns.powerdns.webserver.bindPort | default 8081) }}
+    {{- /*
+      Root catch-all → UI redirect (#3225).
+
+      The PowerDNS REST API host serves no human UI: a bare GET / on
+      pdns.<fqdn> matches neither the /api forward rule above nor anything
+      else, so Cilium/Gateway-API returns a 404 in the founder's browser.
+      When api.uiRedirectHost is set, this SECOND rule matches the catch-all
+      PathPrefix / and 302-redirects to the powerdns-admin UI host
+      (pdns-admin.<fqdn>). Gateway API resolves overlapping PathPrefix
+      matches by longest-prefix, so /api keeps hitting the backend above
+      while everything else falls through to this redirect — the API
+      contract for cert-manager DNS-01 / external-dns (which hit the
+      in-cluster Service, not this host) is untouched.
+
+      Default empty → this rule is not rendered → zero behaviour change for
+      clusters that don't opt in.
+    */ -}}
+    {{- with .Values.api.uiRedirectHost }}
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/"
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            hostname: {{ . | quote }}
+            statusCode: 302
+    {{- end }}
 {{- end }}
