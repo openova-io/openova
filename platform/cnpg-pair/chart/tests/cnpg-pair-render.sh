@@ -171,6 +171,22 @@ if grep -qE '^\s*synchronous_standby_names:\s' "$TMP/primary.yaml"; then
   echo "FAIL: primary Cluster CR sets synchronous_standby_names as a raw parameter — CNPG rejects this fixed parameter at admission." >&2
   exit 1
 fi
+# 0.2.1 (#3236): the Ingress-only allow-replication-to-primary policy must
+# also admit the CNPG operator (cnpg-system) to the instance status (8000)
+# + metrics (9187) ports, or the operator's status probe is default-denied
+# and the Cluster phase stalls at "Instance Status Extraction Error" (hw126).
+grep -q 'kubernetes.io/metadata.name: cnpg-system' "$TMP/primary.yaml" || {
+  echo "FAIL: primary-side NetworkPolicy missing the cnpg-system operator carve-out — operator status probe will be default-denied." >&2
+  exit 1
+}
+grep -qE '^\s+- port: 8000' "$TMP/primary.yaml" || {
+  echo "FAIL: primary-side NetworkPolicy missing the operator status port (8000)." >&2
+  exit 1
+}
+grep -qE '^\s+- port: 9187' "$TMP/primary.yaml" || {
+  echo "FAIL: primary-side NetworkPolicy missing the operator metrics port (9187)." >&2
+  exit 1
+}
 echo "  PASS (3 non-test + 4 test resources)"
 
 # ── Case 3: side=replica enabled render ──────────────────────────
@@ -248,6 +264,22 @@ if grep -q 'hot_standby:' "$TMP/replica.yaml"; then
   echo "FAIL: hot_standby parameter present in side=replica manifest — PG16 fixed-param, CNPG rejects." >&2
   exit 1
 fi
+# 0.2.1 (#3236): the replica side selects its own instance CR Pods in its
+# Ingress-only allow-probe-to-replica policy, so it needs the same operator
+# (cnpg-system) status (8000) + metrics (9187) carve-out or the replica
+# Cluster phase stalls at "Instance Status Extraction Error" too.
+grep -q 'kubernetes.io/metadata.name: cnpg-system' "$TMP/replica.yaml" || {
+  echo "FAIL: replica-side NetworkPolicy missing the cnpg-system operator carve-out — operator status probe will be default-denied." >&2
+  exit 1
+}
+grep -qE '^\s+- port: 8000' "$TMP/replica.yaml" || {
+  echo "FAIL: replica-side NetworkPolicy missing the operator status port (8000)." >&2
+  exit 1
+}
+grep -qE '^\s+- port: 9187' "$TMP/replica.yaml" || {
+  echo "FAIL: replica-side NetworkPolicy missing the operator metrics port (9187)." >&2
+  exit 1
+}
 echo "  PASS (5 non-test resources)"
 
 # ── Case 4: side normalization + invalid side fail-fast ──────────

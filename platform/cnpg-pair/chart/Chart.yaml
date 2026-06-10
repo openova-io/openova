@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-cnpg-pair
-version: 0.2.0
-appVersion: "0.2.0"
+version: 0.2.1
+appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
   across two Sovereign regions. Companions the existing `bp-cnpg`
@@ -40,6 +40,25 @@ description: |
 
   Changelog
   ─────────
+  0.2.1 (2026-06-11, operator status-probe carve-out, Refs #3236 / #3195 / #2737)
+    - FIX: the per-side ingress NetworkPolicies (allow-replication-to-
+      primary on side=primary, allow-probe-to-replica on side=replica)
+      each select their cluster's CNPG instance Pods and declare
+      `policyTypes: [Ingress]` — which default-denies ALL other ingress
+      to those Pods, including the CNPG operator's status probe. On hw126
+      the primary instance was 1/1 Running yet the Cluster phase stalled
+      at "Instance Status Extraction Error" because the operator (in
+      cnpg-system) could not reach the instance status web server.
+      Both ingress policies now also allow namespaceSelector
+      kubernetes.io/metadata.name=<operatorNamespace> (default
+      cnpg-system) to the instance status port (default 8000) and the
+      Prometheus metrics port (default 9187). The replication 5432 rules
+      are untouched. New values knobs: networkPolicy.operatorNamespace /
+      operatorStatusPort / operatorMetricsPort.
+    - Default-OFF contract UNCHANGED: cnpgPair.enabled=false renders ZERO
+      resources on BOTH sides. Resource COUNTS are unchanged (rules added
+      to existing policies, no new objects).
+
   0.2.0 (2026-06-11, split-side topology, Refs #3236 / #3195 / #2737)
     - TOPOLOGY-DESIGN CHANGE: new `cnpgPair.side: primary|replica`
       knob (default `primary`; `secondary` accepted as an alias for
