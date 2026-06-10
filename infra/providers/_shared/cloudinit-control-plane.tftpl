@@ -586,6 +586,22 @@ runcmd:
   ${indent(2, kubeconfig_put_block)}
 %{ endif ~}
 
+  # ── IPv4-pin dual-stack bootstrap hosts (#3232 — the intermittent multi-
+  # region CNI killer, root-caused on hw125). Huawei VPCs are IPv4-only;
+  # helm/kubectl (Go) can resolve these GitHub-Pages/GitHub hosts to AAAA
+  # and try IPv6 FIRST → "network is unreachable" with NO fallback →
+  # `helm repo add cilium` fails → no CNI → the region's nodes stay
+  # NotReady forever. region-A happened to get the A record, region-b got
+  # AAAA (hw125: region-b CNI-dead, ClusterMesh impossible, Pillar-3
+  # blocked). Pinning the resolved IPv4 in /etc/hosts BEFORE any pull is
+  # targeted + cloud-agnostic (every host below is IPv4-reachable from
+  # every cloud; on a dual-stack cloud the A record is still valid).
+  - |
+    for h in helm.cilium.io get.helm.sh raw.githubusercontent.com github.com objects.githubusercontent.com codeload.github.com; do
+      ip="$(getent ahostsv4 "$h" 2>/dev/null | awk 'NR==1{print $1}')"
+      [ -n "$ip" ] && printf '%s %s\n' "$ip" "$h" >> /etc/hosts || true
+    done
+
   # ── gateway-api CRDs: ONE official bundle apply (lean Hetzner pattern) ─
   # Flux's bp-gateway-api re-applies post-bootstrap; this single apply just
   # unblocks the Cilium operator's gateway-controller at its OWN boot.
