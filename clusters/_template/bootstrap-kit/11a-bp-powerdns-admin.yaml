@@ -99,7 +99,7 @@ spec:
       # 0.1.5 (#3150, 2026-06-10): silent-SSO logged-in — correct OIDC env-var
       # names (OIDC_OAUTH_USERNAME/_FIRSTNAME/_LAST_NAME/_EMAIL) + name claims
       # point at preferred_username (catalyst-pin carries no given_name).
-      version: 0.1.5
+      version: 0.1.6
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns-admin
