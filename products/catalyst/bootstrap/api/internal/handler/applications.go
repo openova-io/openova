@@ -1213,7 +1213,12 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 	// joining the (targetNamespace, releaseName) against HTTPRoutes in
 	// the chroot k8sCache. Drives the "External URL" row on AppDetail
 	// Overview + the per-card "Open" button on the AppsPage list.
-	resp.ExternalURL = h.lookupExternalURL(r.Context(), depID, resp.TargetNamespace, resp.ReleaseName)
+	//
+	// #3224: gate the URL on the Blueprint declaring a user-UI endpoint so
+	// API/protocol-only apps (newapi, flow-server, keycloak, registry) do
+	// NOT get a dead "Open" button. resp.Blueprint here is the
+	// spec.blueprintRef.name (e.g. `bp-newapi` or `newapi`).
+	resp.ExternalURL = h.externalURLIfUserUI(r.Context(), depID, resp.Blueprint, resp.TargetNamespace, resp.ReleaseName)
 
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -1380,7 +1385,10 @@ func (h *Handler) synthesiseAppFromHelmRelease(ctx context.Context, depID, name 
 			}
 		}
 		resp.Phase = phase
-		resp.ExternalURL = h.lookupExternalURL(ctx, depID, resp.TargetNamespace, resp.ReleaseName)
+		// #3224: gate the URL on a user-UI endpoint. For HR-synth apps the
+		// blueprint name comes from spec.chart.spec.chart (e.g. `bp-grafana`,
+		// `bp-newapi`) — externalURLIfUserUI strips the `bp-` prefix.
+		resp.ExternalURL = h.externalURLIfUserUI(ctx, depID, resp.Blueprint, resp.TargetNamespace, resp.ReleaseName)
 		return resp, true
 	}
 	return applicationDetailResponse{}, false
@@ -1475,6 +1483,55 @@ func (h *Handler) lookupExternalURL(ctx context.Context, depID, targetNamespace,
 		}
 	}
 	return ""
+}
+
+// externalURLIfUserUI resolves the front-door URL for an installed
+// Application (via lookupExternalURL) and SUPPRESSES it when the app's
+// Blueprint declares no user-facing UI endpoint (#3224).
+//
+// The AppDetail "Open" button + "External URL" row render whenever the
+// returned URL is non-empty. lookupExternalURL alone matches an HTTPRoute
+// for ANY app that owns a front-door host — including API/protocol-only
+// apps (bp-newapi backend, bp-openova-flow-server, an OCI registry, the
+// keycloak admin realm). Those produced a DEAD "Open" button that lands the
+// operator on a bare login form or a 404.
+//
+// We gate on the SAME signal the silent-SSO launch-url endpoint uses
+// (blueprintHasUserUIEndpoint over the Blueprint's endpoints[]), so there is
+// ONE source of truth for "is this app launchable by a user".
+//
+// Fail-open policy: when the Blueprint can't be resolved at all (catalog
+// unwired on a chroot/CI, or a transient catalog error), keep the URL — we
+// must not regress grafana/harbor/openbao/guacamole/pdns-admin when the
+// blueprint metadata is merely unavailable. We suppress ONLY when the
+// Blueprint resolved successfully AND declares no user-UI endpoint.
+func (h *Handler) externalURLIfUserUI(ctx context.Context, depID, blueprint, targetNamespace, releaseName string) string {
+	u := h.lookupExternalURL(ctx, depID, targetNamespace, releaseName)
+	if u == "" {
+		return ""
+	}
+	bpName := strings.TrimPrefix(strings.TrimSpace(blueprint), "bp-")
+	if bpName == "" {
+		// No blueprint name to resolve — fail open (legacy behaviour).
+		return u
+	}
+	bp, err := h.resolveBlueprintMeta(ctx, bpName, "")
+	if err != nil || bp == nil {
+		// Could not resolve the Blueprint (catalog error / unwired) —
+		// fail open so a transient lookup failure never hides a real UI.
+		return u
+	}
+	if len(bp.Endpoints) == 0 {
+		// Catalog unwired or the Blueprint declares no endpoints at all —
+		// no UI signal available, fail open to preserve prior behaviour.
+		return u
+	}
+	if !blueprintHasUserUIEndpoint(bp) {
+		// Resolved, endpoints present, but none is a user UI (API/protocol
+		// only) → suppress the dead Open button.
+		return ""
+	}
+	return u
 }
 
 // ── HTTP handler — list (GET /sovereigns/{id}/applications) ──────────
