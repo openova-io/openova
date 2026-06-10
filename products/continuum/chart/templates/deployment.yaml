@@ -29,6 +29,15 @@ spec:
     spec:
       serviceAccountName: {{ include "continuum.fullname" . }}
       automountServiceAccountToken: true
+      # GHCR image (ghcr.io/openova-io/openova/continuum-controller) is a
+      # PRIVATE package — same pattern as catalyst-api / application-controller.
+      # Without this, the deploy-bot's controller-image sweep rolls the Pod onto
+      # a new tag it can't pull → ImagePullBackOff (anonymous 401), which left
+      # continuum-controller down on hw124 and blocked the #3189 single-region
+      # idle-Ready verification. The ghcr-pull Secret lives in the same
+      # targetNamespace (catalyst-system) as the other control-plane controllers.
+      imagePullSecrets:
+        - name: ghcr-pull
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534
