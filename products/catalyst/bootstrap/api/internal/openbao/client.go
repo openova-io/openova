@@ -224,3 +224,99 @@ func (c *Client) GetKVv2(ctx context.Context, mountPath, secretPath string) (map
 // so callers can distinguish "no per-Org token yet" from transport
 // errors. errors.Is(err, ErrSecretNotFound) is the canonical check.
 var ErrSecretNotFound = fmt.Errorf("openbao: secret not found")
+
+// OIDCAuthURL drives the Vault OIDC login start handshake server-side and
+// returns the Keycloak authorize URL the browser must be sent to. It POSTs:
+//
+//	POST <addr>/v1/auth/<mount>/oidc/auth_url
+//	body: {"role": <role>, "redirect_uri": <vault-ui-callback>}
+//
+// and reads `data.auth_url` from the response:
+//
+//	{"data": {"auth_url": "https://auth.<fqdn>/realms/<realm>/.../auth?..."}}
+//
+// The returned auth_url already carries `kc_idp_hint=catalyst-pin` because
+// the sovereign realm's OIDC client / IDP defaultProvider binding bakes the
+// hint into the issuer's authorize redirect — catalyst-api does NOT append
+// it here (Inviolable Principle #4: env-driven, no hardcoded query rewrite).
+//
+// This is the server-side replication of what Grafana's
+// `/login/generic_oauth` and Harbor's `/c/oidc/login` GET routes do
+// natively — but OpenBao's SPA cannot, which is why #3226 needs this shim.
+//
+// `mount` defaults to "oidc" (the standard Vault OIDC auth-method mount).
+// Returns a wrapped error on any non-200 / empty auth_url so the caller's
+// fallback path (the deep-link) can fire — the Open button must never 500.
+func (c *Client) OIDCAuthURL(ctx context.Context, mount, role, redirectURI string) (string, error) {
+	if c == nil {
+		return "", fmt.Errorf("openbao: client is nil")
+	}
+	if strings.TrimSpace(c.Addr) == "" {
+		return "", fmt.Errorf("openbao: address is required")
+	}
+	if strings.TrimSpace(c.Token) == "" {
+		return "", fmt.Errorf("openbao: token is required")
+	}
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return "", fmt.Errorf("openbao: role is required")
+	}
+	redirectURI = strings.TrimSpace(redirectURI)
+	if redirectURI == "" {
+		return "", fmt.Errorf("openbao: redirect_uri is required")
+	}
+	mount = strings.Trim(strings.TrimSpace(mount), "/")
+	if mount == "" {
+		mount = "oidc"
+	}
+
+	reqBody, err := json.Marshal(map[string]any{
+		"role":         role,
+		"redirect_uri": redirectURI,
+	})
+	if err != nil {
+		return "", fmt.Errorf("openbao: marshal auth_url body: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/v1/auth/%s/oidc/auth_url",
+		strings.TrimRight(c.Addr, "/"),
+		mount,
+	)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBody))
+	if err != nil {
+		return "", fmt.Errorf("openbao: build auth_url request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Vault-Token", c.Token)
+
+	httpc := c.HTTP
+	if httpc == nil {
+		httpc = http.DefaultClient
+	}
+	resp, err := httpc.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("openbao: auth_url request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<14))
+		return "", fmt.Errorf("openbao: auth_url %s/oidc/auth_url: status %d: %s",
+			mount, resp.StatusCode, strings.TrimSpace(string(respBody)),
+		)
+	}
+
+	var envelope struct {
+		Data struct {
+			AuthURL string `json:"auth_url"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&envelope); err != nil {
+		return "", fmt.Errorf("openbao: decode auth_url body: %w", err)
+	}
+	if strings.TrimSpace(envelope.Data.AuthURL) == "" {
+		return "", fmt.Errorf("openbao: auth_url response carried no data.auth_url")
+	}
+	return envelope.Data.AuthURL, nil
+}

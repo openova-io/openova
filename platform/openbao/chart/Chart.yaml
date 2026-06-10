@@ -26,7 +26,14 @@ name: bp-openbao
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.2.27
+version: 1.2.28
+# 1.2.28 (#3226, 2026-06-10): zero-click silent-SSO parity with grafana/harbor.
+# blueprint.yaml endpoint declares ssoShim:true so catalyst-api's launch-url
+# returns the server-side OpenBao SSO-init shim URL instead of the SPA
+# deep-link. The shim asks Vault for the OIDC auth_url server-side and 302s the
+# browser to Keycloak (silent PIN) → Vault callback → landed signed-in. No
+# chart-template change; version bumped in lockstep with blueprint.yaml + the
+# bootstrap-kit slot pin so the new blueprint OCI artifact publishes.
 # 1.2.27 (#3150, 2026-06-10): OIDC callback now LANDS the operator logged-in.
 # sso-configure reconciler: (1) bound_claims.groups widened to sovereign-admins
 # + sovereign-ops + sovereign-viewers (the realm stamps defaultGroups

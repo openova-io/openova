@@ -91,8 +91,8 @@ func fakeBlueprintInCatalogWithCap(name string, endpoints []map[string]interface
 		Version: "1.0.0",
 		Raw: map[string]interface{}{
 			"spec": map[string]interface{}{
-				"version":       "1.0.0",
-				"endpoints":     endpoints,
+				"version":   "1.0.0",
+				"endpoints": endpoints,
 				"sso": map[string]interface{}{
 					"realm":       "sovereign",
 					"silentLogin": true,
@@ -114,12 +114,12 @@ func fakeBlueprintInCatalogWithCap(name string, endpoints []map[string]interface
 // fakeIaCAndStatus builds a fake gitea client + status checker that
 // scripts all-pass — sufficient for happy-path tests.
 type fakeIaCWriter struct {
-	mu        sync.Mutex
-	branches  map[string]bool
-	files     map[string][]byte
-	prs       map[string]gitea.PullRequest
-	prSeq     int64
-	merged    map[int64]bool
+	mu       sync.Mutex
+	branches map[string]bool
+	files    map[string][]byte
+	prs      map[string]gitea.PullRequest
+	prSeq    int64
+	merged   map[int64]bool
 }
 
 func newFakeIaCWriter() *fakeIaCWriter {
@@ -562,6 +562,33 @@ func TestGetLaunchURL_HRBacked_NoInitPathFallsBackLegacy(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	if !strings.Contains(resp.URL, "prompt=none") || !strings.Contains(resp.URL, "kc_idp_hint=catalyst-pin") {
 		t.Fatalf("no-initPath HR app must use legacy silent-SSO shape: %s", resp.URL)
+	}
+}
+
+// #3226 — when an endpoint declares ssoShim:true (OpenBao's SPA can't
+// auto-redirect via a static ssoInitPath), the launch-url returns the
+// server-side shim URL on the catalyst-api origin instead of the deep-link.
+// window.open() on that URL follows the shim's 302 to Keycloak, giving
+// grafana/harbor zero-click parity.
+func TestGetLaunchURL_SSOShimReturnsShimURL(t *testing.T) {
+	h, _, _ := newTestHandlerWithEndpoint(t)
+	h.SetCatalogClient(fakeBlueprintInCatalog("openbao",
+		[]map[string]interface{}{
+			{"name": "api", "hostnameTemplate": "bao.{SovereignFQDN}", "tls": true,
+				"ssoEnabled": true, "launchDefault": true,
+				"ssoInitPath": "/ui/vault/auth?with=oidc", "ssoShim": true},
+		}, false, []string{"singleton"}))
+	r := newTestRouter(h)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/catalyst/v1/apps/openbao/launch-url", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	var resp launchURLResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	want := "https://api.t01.omani.works/catalyst/v1/apps/openbao/openbao-sso-init"
+	if resp.URL != want {
+		t.Fatalf("ssoShim launch URL mismatch:\n got %q\nwant %q", resp.URL, want)
 	}
 }
 
@@ -1103,9 +1130,9 @@ func TestCreateAppEndpoint_DenyCrossOrgWhenCallerNotMember(t *testing.T) {
 	req := httptest.NewRequest("POST", "/catalyst/v1/apps/uid-201/endpoints", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req = withTestClaims(req, &testClaimsSpec{
-		Tier:        "admin",
-		Org:         "beta", // ← different Org
-		RealmRoles:  []string{"catalyst-admin-beta"},
+		Tier:       "admin",
+		Org:        "beta", // ← different Org
+		RealmRoles: []string{"catalyst-admin-beta"},
 	})
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -1236,4 +1263,3 @@ func TestCallerInOrg_AcceptsOrgMembershipCallback(t *testing.T) {
 		t.Fatal("expected callback to reject non-member")
 	}
 }
-

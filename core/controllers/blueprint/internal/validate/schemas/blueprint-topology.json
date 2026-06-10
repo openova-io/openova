@@ -173,7 +173,9 @@
         "tls":        { "type": "boolean" },
         "visibility": { "type": "string", "enum": ["public", "private", "internal"] },
         "launchDefault": { "type": "boolean" },
-        "ssoEnabled":    { "type": "boolean" }
+        "ssoEnabled":    { "type": "boolean" },
+        "ssoInitPath":   { "type": "string", "maxLength": 512, "description": "#3150 — app-local OIDC-init path (e.g. Grafana /login/generic_oauth, Harbor /c/oidc/login). When set, the silent-SSO launch URL targets https://<host><ssoInitPath> instead of the app root." },
+        "ssoShim":       { "type": "boolean", "description": "#3226 — when true, the silent-SSO launch URL is the catalyst-api server-side shim (api.<fqdn>/catalyst/v1/apps/<id>/openbao-sso-init) rather than the app deep-link. For client-side-SPA apps (OpenBao) whose static ssoInitPath cannot auto-redirect; the shim asks Vault for the OIDC auth_url and 302s to Keycloak." }
       },
       "additionalProperties": false
     },

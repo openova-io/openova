@@ -87,9 +87,9 @@ type endpointMutationRequest struct {
 
 // endpointPRResponse mirrors `schema/EndpointPR`.
 type endpointPRResponse struct {
-	PRURL           string                   `json:"prURL"`
-	Status          string                   `json:"status"`
-	PreCheckResults endpointPreCheckResults  `json:"preCheckResults"`
+	PRURL           string                  `json:"prURL"`
+	Status          string                  `json:"status"`
+	PreCheckResults endpointPreCheckResults `json:"preCheckResults"`
 }
 
 type endpointPreCheckResults struct {
@@ -110,6 +110,7 @@ type resolvedEndpoint struct {
 	LaunchDefault     bool   `json:"launchDefault,omitempty"`
 	SSOEnabled        bool   `json:"ssoEnabled,omitempty"`
 	SSOInitPath       string `json:"ssoInitPath,omitempty"`
+	SSOShim           bool   `json:"ssoShim,omitempty"`
 	Status            string `json:"status"`
 	CertificateStatus string `json:"certificateStatus,omitempty"`
 	LaunchURL         string `json:"launchURL,omitempty"`
@@ -609,7 +610,18 @@ func (h *Handler) HandleGetLaunchURL(w http.ResponseWriter, r *http.Request) {
 	if ep.TLS != nil {
 		tls = *ep.TLS
 	}
-	urlStr := buildLaunchURL(hostname, tls, ep.SSOInitPath)
+	var urlStr string
+	if shim := buildSSOShimURL(h.endpointSovereignFQDN(), uid); ep.SSOShim && shim != "" {
+		// #3226 — return the server-side shim URL (catalyst-api origin)
+		// instead of the app deep-link. window.open() follows the shim's
+		// 302 to Keycloak for zero-click parity. The {id} we echo is the
+		// same one the FE addressed us with so the shim resolves the same
+		// blueprint. When the fqdn is unknown (shim=="") we fall through to
+		// the app deep-link so the URL is never host-less.
+		urlStr = shim
+	} else {
+		urlStr = buildLaunchURL(hostname, tls, ep.SSOInitPath)
+	}
 	expiresAt := time.Now().Add(60 * time.Second).UTC().Format(time.RFC3339)
 
 	writeJSON(w, http.StatusOK, launchURLResponse{
@@ -890,10 +902,10 @@ func (h *Handler) buildEndpointManifest(m precheck.Mutation) []byte {
 			"name":      m.Name,
 			"namespace": m.Org,
 			"labels": map[string]interface{}{
-				"app.kubernetes.io/instance":             m.App,
-				"app.kubernetes.io/managed-by":           "catalyst-api",
-				"catalyst.openova.io/organization":       m.Org,
-				"catalyst.openova.io/endpoint-name":      m.Name,
+				"app.kubernetes.io/instance":        m.App,
+				"app.kubernetes.io/managed-by":      "catalyst-api",
+				"catalyst.openova.io/organization":  m.Org,
+				"catalyst.openova.io/endpoint-name": m.Name,
 			},
 		},
 		"spec": map[string]interface{}{
@@ -971,11 +983,22 @@ type endpointDecl struct {
 	// (synced via the app's *-sso-oidc-credentials ExternalSecret). Empty
 	// → legacy behaviour (app root + prompt=none&kc_idp_hint query).
 	SSOInitPath string `yaml:"ssoInitPath,omitempty" json:"ssoInitPath,omitempty"`
+
+	// SSOShim — #3226. When true, the silent-SSO launch URL is NOT the
+	// app's own host/ssoInitPath but the catalyst-api server-side shim
+	// (`https://api.<fqdn>/catalyst/v1/apps/<id>/openbao-sso-init`). The
+	// shim asks Vault for the OIDC auth_url and 302s the browser to
+	// Keycloak — the zero-click parity OpenBao's client-side SPA can't
+	// achieve via a static ssoInitPath alone. ssoInitPath stays declared
+	// because the shim uses it as its own deep-link fallback when the
+	// auth_url POST fails (Vault sealed / oidc not mounted). Empty/false
+	// → the ssoInitPath behaviour above applies unchanged.
+	SSOShim bool `yaml:"ssoShim,omitempty" json:"ssoShim,omitempty"`
 }
 
 type ssoDecl struct {
-	Realm        string `yaml:"realm,omitempty" json:"realm,omitempty"`
-	SilentLogin  *bool  `yaml:"silentLogin,omitempty" json:"silentLogin,omitempty"`
+	Realm       string `yaml:"realm,omitempty" json:"realm,omitempty"`
+	SilentLogin *bool  `yaml:"silentLogin,omitempty" json:"silentLogin,omitempty"`
 }
 
 type multiInstanceDecl struct {
@@ -984,8 +1007,8 @@ type multiInstanceDecl struct {
 }
 
 type topologyDecl struct {
-	Supported []string                 `yaml:"supported" json:"supported"`
-	Defaults  topologyDefaults         `yaml:"defaults" json:"defaults"`
+	Supported []string         `yaml:"supported" json:"supported"`
+	Defaults  topologyDefaults `yaml:"defaults" json:"defaults"`
 }
 
 type topologyDefaults struct {
@@ -1062,10 +1085,18 @@ func (h *Handler) resolveEndpoints(app *unstructured.Unstructured, bp *blueprint
 			LaunchDefault:    ep.LaunchDefault,
 			SSOEnabled:       ep.SSOEnabled,
 			SSOInitPath:      ep.SSOInitPath,
+			SSOShim:          ep.SSOShim,
 			Status:           "Ready",
 		}
 		if ep.SSOEnabled {
-			re.LaunchURL = buildLaunchURL(hostname, tls, ep.SSOInitPath)
+			// #3226 — prefer the server-side shim URL when the endpoint
+			// declares ssoShim (zero-click parity for SPA apps); else the
+			// app deep-link / legacy silent-SSO shape.
+			if shim := buildSSOShimURL(fqdn, appName); ep.SSOShim && shim != "" {
+				re.LaunchURL = shim
+			} else {
+				re.LaunchURL = buildLaunchURL(hostname, tls, ep.SSOInitPath)
+			}
 		}
 		out = append(out, re)
 	}
@@ -1170,6 +1201,22 @@ func buildLaunchURL(hostname string, tls bool, ssoInitPath string) string {
 	q.Set("prompt", "none")
 	q.Set("kc_idp_hint", "catalyst-pin")
 	return fmt.Sprintf("%s://%s/?%s", scheme, hostname, q.Encode())
+}
+
+// buildSSOShimURL constructs the absolute URL of the catalyst-api
+// server-side silent-SSO shim (#3226) for the given app id. The shim lives
+// on the API origin (`api.<fqdn>`, the same canonical pattern used by the
+// handover export + tofu-archive POST targets) at
+// `/catalyst/v1/apps/<id>/openbao-sso-init`. Returns "" when fqdn is empty
+// so the caller falls back to the deep-link rather than emitting a
+// host-less URL.
+func buildSSOShimURL(fqdn, id string) string {
+	fqdn = strings.TrimSpace(fqdn)
+	id = strings.TrimSpace(id)
+	if fqdn == "" || id == "" {
+		return ""
+	}
+	return fmt.Sprintf("https://api.%s/catalyst/v1/apps/%s/openbao-sso-init", fqdn, url.PathEscape(id))
 }
 
 // chooseTopology selects the active topology for a createInstance call.
@@ -1434,12 +1481,12 @@ func readTopology(u *unstructured.Unstructured) string {
 //     Org-B's IaC repo (per the W3.D4 #2765 integration test).
 //
 //  2. Fallback to the global `CATALYST_GITEA_TOKEN` env var when:
-//       (a) the Handler has no openbao client wired (test mode /
-//           single-Org bootstrap Sovereign before openbao is up); OR
-//       (b) the per-Org secret returns ErrSecretNotFound (the Org's
-//           token hasn't been seeded yet — typical for the FIRST
-//           reconcile after bootstrap-org-iac-repo.sh provisions the
-//           Gitea side but before the OpenBao seed lands).
+//     (a) the Handler has no openbao client wired (test mode /
+//     single-Org bootstrap Sovereign before openbao is up); OR
+//     (b) the per-Org secret returns ErrSecretNotFound (the Org's
+//     token hasn't been seeded yet — typical for the FIRST
+//     reconcile after bootstrap-org-iac-repo.sh provisions the
+//     Gitea side but before the OpenBao seed lands).
 //
 //  3. Transport errors from OpenBao (NOT not-found) are surfaced as
 //     errors — we do NOT silently fall back through a transient
