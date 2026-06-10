@@ -65,3 +65,18 @@ The high-effort part (multi-angle diagnosis, creative forensics, root-causing th
 
 - **`docs/ledger/UAT.md`** = ground-truth acceptance. Each row is one UI click; flips ☐→✅ only when walked live with a screenshot. This is the *real* progress bar.
 - **This file** = the strategic view (what's shipped, what's left, the runbook). Update it at the end of each block.
+
+## Execution model for the remaining work (decided 2026-06-10, founder-confirmed)
+
+**Spine = ONE orchestrator agent holding live state** (deployment IDs, kubeconfigs, wedge history), routing each piece of work to the cheapest model that does it reliably. Per-spawn `model` is set explicitly on every dispatch — never default-blind.
+
+| Work type | Route to | Example |
+|---|---|---|
+| Judgment / design / novel-wedge forensics | orchestrator itself (or a strong-model subagent for trap-laden implementation) | #3238 cnpg gate (briefed with the design decided + the #3196 anti-pattern guard) |
+| Mechanical multi-step | `model: opus` subagent | re-prov watch, UAT evidence capture, merges |
+| Bulk reads / inventories | `model: haiku` / Explore | repo sweeps |
+| Trivial one-liners | inline, no agent | CI re-runs, label flips |
+
+**Workflows** (script-managed agents): only for known-in-advance, parallel, stateless breadth — the one remaining fit is the **5-pillar UAT walk fan-out after the prov converges** (5 Opus agents, one per pillar). **Agent team**: not justified until post-100% standing tracks.
+
+**The anti-theater invariant that makes any mechanism safe: no step counts as done without a clickable artifact** (merged PR, HR Ready output, UAT row + screenshot). Trust no agent report without re-querying live state (CLAUDE.md L7).
