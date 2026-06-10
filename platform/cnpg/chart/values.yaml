@@ -71,6 +71,33 @@ catalystBlueprint:
 # `helm dependency build` resolves the upstream as a subchart; values here
 # under the `cloudnative-pg:` key flow into that subchart unchanged.
 cloudnative-pg:
+  # 1.0.9 (Refs #3236 #2737): pin the operator image to the in-Sovereign
+  # Harbor proxy-cache instead of the bare upstream ref.
+  #
+  # The upstream subchart's deployment.yaml renders BOTH the operator pod's
+  # own `image:` AND the `OPERATOR_IMAGE_NAME` env var from this single
+  # `{{ .Values.image.repository }}:{{ .Values.image.tag | default
+  # .Chart.AppVersion }}` expression. CNPG's operator reads OPERATOR_IMAGE_NAME
+  # to decide which image to inject as the `bootstrap-controller`
+  # initContainer into EVERY instance pod it creates — so overriding
+  # repository+tag here proxies the operator pod AND every injected
+  # instance-bootstrap initContainer in lockstep. No separate knob exists.
+  #
+  # The bare upstream default (`ghcr.io/cloudnative-pg/cloudnative-pg` +
+  # subchart appVersion 1.29.0) violated the harbor-proxy-pull baseline and
+  # failed to pull on kom4dc nodes with flaky ghcr DNS
+  # ("dial tcp: lookup ghcr.io: Try again" → Init:ImagePullBackOff →
+  # cnpg-pair replica basebackup dead). Live on hw126 region-B.
+  #
+  # Tag pinned explicitly: upstream floats it to .Chart.AppVersion (1.29.0
+  # for subchart 0.28.0); pin so a subchart bump can't silently move the
+  # operator + every injected initContainer onto a different tag. Bump this
+  # tag in lockstep with the cloudnative-pg subchart version in Chart.yaml.
+  image:
+    repository: harbor.openova.io/proxy-ghcr/cloudnative-pg/cloudnative-pg
+    tag: "1.29.0"
+    pullPolicy: IfNotPresent
+
   # Install postgresql.cnpg.io CRDs as part of this chart. Required so
   # consumers of `postgresql.cnpg.io/v1.Cluster` (bp-powerdns,
   # bp-keycloak, bp-gitea, bp-langfuse, …) can gate themselves on bp-cnpg
@@ -163,5 +190,11 @@ webhookGate:
   validatingWebhookName: cnpg-validating-webhook-configuration
   timeoutSeconds: 300
   intervalSeconds: 2
-  image: "bitnamilegacy/kubectl:1.30.7"
+  # 1.0.9 (Refs #3236 #2737): pin to the in-Sovereign Harbor proxy-cache,
+  # matching webhookCertBootstrap.kubectlImage above and the bp-flux /
+  # bp-cert-manager / bp-guacamole convention. The bare `bitnamilegacy/
+  # kubectl` ref pulled straight from dockerhub — same harbor-proxy-pull
+  # baseline violation + ghcr/dockerhub DNS-flake exposure as the operator
+  # image, and the gate Job runs on every install (enabled: true).
+  image: "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7"
   imagePullPolicy: IfNotPresent
