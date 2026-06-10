@@ -1020,7 +1020,24 @@ type topologyDefaults struct {
 // client. Returns nil + nil-error when the catalog is unwired AND the
 // blueprint has no on-cluster CR (so handlers don't 500 on a chroot
 // without catalog-svc).
+//
+// The caller-identity session token is lifted from the request so the
+// proxy hop to catalyst-catalog carries the same identity; the actual
+// resolution is shared with resolveBlueprintMeta (no-request callers
+// pass an empty token).
 func (h *Handler) fetchBlueprint(ctx context.Context, r *http.Request, name string) (*blueprintMeta, error) {
+	return h.resolveBlueprintMeta(ctx, name, applicationSessionToken(r))
+}
+
+// resolveBlueprintMeta is the request-free core of fetchBlueprint. It
+// resolves Blueprint.spec metadata for `name` via the wired catalog
+// client, carrying `sessionToken` for caller-identity passthrough (may be
+// empty for internal/no-request lookups such as the AppDetail Open-button
+// gate). Returns (&blueprintMeta{}, nil) — an empty, non-nil projection —
+// whenever the catalog is unwired or the blueprint is absent, so callers
+// can distinguish "resolved, no UI endpoint" from "could not resolve" by
+// checking the returned error.
+func (h *Handler) resolveBlueprintMeta(ctx context.Context, name, sessionToken string) (*blueprintMeta, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("blueprint name empty")
 	}
@@ -1031,8 +1048,7 @@ func (h *Handler) fetchBlueprint(ctx context.Context, r *http.Request, name stri
 		// caller still sees an empty result.
 		return &blueprintMeta{}, nil
 	}
-	token := applicationSessionToken(r)
-	bp, err := h.catalogClient.Get(ctx, name, token)
+	bp, err := h.catalogClient.Get(ctx, name, sessionToken)
 	if err != nil {
 		if errors.Is(err, ErrBlueprintNotFound) {
 			return &blueprintMeta{}, nil
@@ -1053,6 +1069,37 @@ func (h *Handler) fetchBlueprint(ctx context.Context, r *http.Request, name stri
 	}
 	_ = json.Unmarshal(jsonBytes, &out)
 	return &out, nil
+}
+
+// blueprintHasUserUIEndpoint reports whether a Blueprint declares a
+// user-facing UI endpoint — the SAME signal the silent-SSO launch-url
+// endpoint (HandleGetLaunchURL) reads to decide an app is launchable.
+//
+// An endpoint qualifies as a user UI when ANY of:
+//
+//   - SSOEnabled == true   (the app fronts an OIDC login the operator uses), OR
+//   - LaunchDefault == true (the chart-tagged "open me" front door), OR
+//   - Name == "ui"          (the conventional UI-endpoint name).
+//
+// API/protocol-only endpoints — bp-newapi's backend, bp-openova-flow-server's
+// proxy target, an OCI registry endpoint, keycloak's admin-only realm — set
+// none of these and therefore do NOT qualify. The AppDetail "Open" button +
+// "External URL" row are gated on this so they never render for an app with
+// no user UI (#3224).
+//
+// Returns false for nil metadata or an empty endpoint list — the caller owns
+// the fail-open policy for the "could not resolve the blueprint" case.
+func blueprintHasUserUIEndpoint(bp *blueprintMeta) bool {
+	if bp == nil {
+		return false
+	}
+	for i := range bp.Endpoints {
+		ep := &bp.Endpoints[i]
+		if ep.SSOEnabled || ep.LaunchDefault || strings.EqualFold(ep.Name, "ui") {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveEndpoints joins Blueprint.spec.endpoints with per-instance
