@@ -44,6 +44,7 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes"
 	kfake "k8s.io/client-go/kubernetes/fake"
+	ktesting "k8s.io/client-go/testing"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
@@ -132,6 +133,57 @@ func buildFakeClusterMeshCluster(t *testing.T, lbIP string, caCert, caKey []byte
 		t.Fatalf("create clustermesh-apiserver Service: %v", err)
 	}
 	return cs
+}
+
+// seedCNPGPairSourceSecrets pre-creates the namespace `cnpg` and the two
+// primary-side CNPG replication-auth Secrets the slot-16b flip copies to
+// every replica (#3254). Called on the PRIMARY fake clientset so the
+// happy-path flip succeeds; tests that exercise the missing-source guard
+// delete one before invoking the orchestrator.
+func seedCNPGPairSourceSecrets(t *testing.T, cs kubernetes.Interface) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := cs.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: cnpgPairNamespace},
+	}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatalf("create cnpg namespace: %v", err)
+	}
+	secrets := map[string]map[string][]byte{
+		cnpgPairReplicationCert: {"tls.crt": []byte("REPL-CERT"), "tls.key": []byte("REPL-KEY")},
+		cnpgPairReplicationCA:   {"ca.crt": []byte("REPL-CA")},
+	}
+	for name, data := range secrets {
+		typ := corev1.SecretTypeTLS
+		if name == cnpgPairReplicationCA {
+			typ = corev1.SecretTypeOpaque
+		}
+		if _, err := cs.CoreV1().Secrets(cnpgPairNamespace).Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: cnpgPairNamespace,
+				Labels:    map[string]string{"cnpg.io/cluster": cnpgPairReleaseFullname + "-primary"},
+			},
+			Type: typ,
+			Data: data,
+		}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+			t.Fatalf("create source Secret %s: %v", name, err)
+		}
+	}
+}
+
+// seedCNPGPairReplicaNamespace pre-creates the `cnpg` namespace on a
+// replica fake clientset, matching production where slot 16b ships the
+// Namespace unconditionally on every region. Without it the copy's
+// Create would fail "namespaces \"cnpg\" not found" — but in the
+// fake clientset Create into a missing namespace succeeds, so this is
+// here for parity/clarity rather than strict necessity.
+func seedCNPGPairReplicaNamespace(t *testing.T, cs kubernetes.Interface) {
+	t.Helper()
+	if _, err := cs.CoreV1().Namespaces().Create(context.Background(), &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: cnpgPairNamespace},
+	}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatalf("create cnpg namespace on replica: %v", err)
+	}
 }
 
 // writeFakeKubeconfig drops a stub kubeconfig YAML into the directory
@@ -240,7 +292,18 @@ func newTestFixture(t *testing.T, lbIPs []string) *testFixture {
 		key := regionKeyFromSpec(regions[i], i)
 		_ = regionKey
 		kcPath := writeFakeKubeconfig(t, dir, depID, key)
-		clients[kcPath] = buildFakeClusterMeshCluster(t, lbIP, caCert, caKey)
+		cs := buildFakeClusterMeshCluster(t, lbIP, caCert, caKey)
+		// #3254: seed the cnpg-pair replica-auth Secrets on the PRIMARY
+		// (idx 0) so the slot-16b flip's cross-cluster copy succeeds; seed
+		// the `cnpg` namespace on each replica (matches slot 16b shipping
+		// the Namespace unconditionally on every region). Tests exercising
+		// the missing-source guard delete a source Secret afterwards.
+		if i == 0 {
+			seedCNPGPairSourceSecrets(t, cs)
+		} else {
+			seedCNPGPairReplicaNamespace(t, cs)
+		}
+		clients[kcPath] = cs
 	}
 
 	dep := &Deployment{
@@ -736,7 +799,16 @@ func TestRestoreFromStore_StartupKicksClusterMeshReconcile(t *testing.T) {
 	for i := range regions {
 		key := regionKeyFromSpec(regions[i], i)
 		kcPath := writeFakeKubeconfig(t, dir, depID, key)
-		clients[kcPath] = buildFakeClusterMeshCluster(t, lbIPs[i], caCert, caKey)
+		cs := buildFakeClusterMeshCluster(t, lbIPs[i], caCert, caKey)
+		// #3254: seed the cnpg-pair replica-auth source Secrets on the
+		// primary (idx 0) + the cnpg namespace on the replica, so the
+		// slot-16b flip's cross-cluster copy succeeds and the gate flips.
+		if i == 0 {
+			seedCNPGPairSourceSecrets(t, cs)
+		} else {
+			seedCNPGPairReplicaNamespace(t, cs)
+		}
+		clients[kcPath] = cs
 	}
 	primaryKubeconfigPath := filepath.Join(dir, depID+".yaml")
 	// EVERY region's Kustomization gets the split-side flip, so each
@@ -1297,4 +1369,235 @@ func TestAutoEstablishClusterMesh_SubstitutePreconditionBlocksCNPGPairFlip(t *te
 			}
 		})
 	}
+}
+
+// ── #3254: cross-cluster CNPG replica-auth Secret sync ──────────────
+
+// getCNPGSecret reads a Secret from the cnpg namespace of a fake
+// clientset, returning (nil, false) when absent.
+func getCNPGSecret(t *testing.T, cs kubernetes.Interface, name string) (*corev1.Secret, bool) {
+	t.Helper()
+	s, err := cs.CoreV1().Secrets(cnpgPairNamespace).Get(context.Background(), name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil, false
+	}
+	if err != nil {
+		t.Fatalf("get Secret %s/%s: %v", cnpgPairNamespace, name, err)
+	}
+	return s, true
+}
+
+// assertGateFlipped/assertGateNotFlipped assert the SOVEREIGN_ENABLE_
+// CNPG_PAIR substitute + reconcile annotation state on a region's
+// bootstrap-kit Kustomization.
+func assertGateFlipped(t *testing.T, dyn dynamic.Interface, region string) {
+	t.Helper()
+	ks := getBootstrapKitKustomization(t, dyn)
+	substitute, _, _ := unstructured.NestedStringMap(ks.Object, "spec", "postBuild", "substitute")
+	if got := substitute[clusterMeshCNPGPairSubstituteKey]; got != "true" {
+		t.Errorf("region %q: substitute[%s] = %q, want \"true\"", region, clusterMeshCNPGPairSubstituteKey, got)
+	}
+	if stamp := ks.GetAnnotations()[fluxReconcileRequestedAtAnnotation]; stamp == "" {
+		t.Errorf("region %q: reconcile annotation absent — Flux reconcile never requested", region)
+	}
+}
+
+func assertGateNotFlipped(t *testing.T, dyn dynamic.Interface, region string) {
+	t.Helper()
+	ks := getBootstrapKitKustomization(t, dyn)
+	substitute, _, _ := unstructured.NestedStringMap(ks.Object, "spec", "postBuild", "substitute")
+	if got, ok := substitute[clusterMeshCNPGPairSubstituteKey]; ok {
+		t.Errorf("region %q: substitute[%s] = %q — gate flipped when it must stay OFF", region, clusterMeshCNPGPairSubstituteKey, got)
+	}
+	if stamp := ks.GetAnnotations()[fluxReconcileRequestedAtAnnotation]; stamp != "" {
+		t.Errorf("region %q: reconcile annotation = %q set when the flip must be refused", region, stamp)
+	}
+}
+
+// TestAutoEstablishClusterMesh_FullMeshSyncsReplicaAuthSecretsThenFlips
+// — happy path: a fully-meshed 2-region prov copies BOTH primary CNPG
+// replica-auth Secrets (the `-replication` client cert + the `-ca`) onto
+// the replica cluster's `cnpg` namespace AND THEN flips both regions'
+// SOVEREIGN_ENABLE_CNPG_PAIR gates. Without the copy the replica Cluster
+// CR's externalClusters sslKey/sslCert/sslRootCert refs would dangle and
+// the WAL stream could never authenticate (#3254).
+func TestAutoEstablishClusterMesh_FullMeshSyncsReplicaAuthSecretsThenFlips(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+
+	// Sanity: the replica starts WITHOUT the source Secrets.
+	replicaCS := fx.clients[fx.secondaryKubeconfigPath]
+	for _, name := range cnpgPairReplicaAuthSecrets {
+		if _, ok := getCNPGSecret(t, replicaCS, name); ok {
+			t.Fatalf("precondition: replica unexpectedly already has Secret %s", name)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	statuses, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep)
+	if err != nil {
+		t.Fatalf("AutoEstablishClusterMesh returned error: %v", err)
+	}
+	requireFullyMeshed(t, statuses)
+
+	// Both source Secrets must now exist on the replica, byte-identical.
+	primaryCS := fx.clients[fx.primaryKubeconfigPath]
+	for _, name := range cnpgPairReplicaAuthSecrets {
+		got, ok := getCNPGSecret(t, replicaCS, name)
+		if !ok {
+			t.Fatalf("replica missing copied Secret %s — replica WAL-stream auth would dangle", name)
+		}
+		src, _ := getCNPGSecret(t, primaryCS, name)
+		for k, v := range src.Data {
+			if string(got.Data[k]) != string(v) {
+				t.Errorf("Secret %s key %q: replica=%q want %q (copy not byte-identical)", name, k, got.Data[k], v)
+			}
+		}
+		if got.Type != src.Type {
+			t.Errorf("Secret %s: replica Type=%q want %q", name, got.Type, src.Type)
+		}
+		// Server-side metadata must be stripped (no inherited UID).
+		if got.UID == src.UID && src.UID != "" {
+			t.Errorf("Secret %s: replica inherited the primary's UID %q — server-side metadata not stripped", name, got.UID)
+		}
+	}
+
+	// AND the gate flipped on BOTH regions.
+	assertGateFlipped(t, fx.dynClients[fx.primaryKubeconfigPath], "primary")
+	assertGateFlipped(t, fx.dynClients[fx.secondaryKubeconfigPath], "secondary")
+}
+
+// TestAutoEstablishClusterMesh_MissingSourceSecretRefusesFlip — when the
+// primary has NOT yet produced one of the CNPG replica-auth Secrets (its
+// postgres is still bootstrapping — CNPG mints `-replication`/`-ca` only
+// after initdb), the flip is REFUSED ENTIRELY: neither region's gate
+// flips and no Secret lands on the replica. The level-trigger re-run
+// converges once the primary's Secret appears.
+func TestAutoEstablishClusterMesh_MissingSourceSecretRefusesFlip(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
+	// Remove ONE source Secret from the primary (simulates postgres
+	// mid-bootstrap).
+	primaryCS := fx.clients[fx.primaryKubeconfigPath]
+	if err := primaryCS.CoreV1().Secrets(cnpgPairNamespace).Delete(context.Background(), cnpgPairReplicationCert, metav1.DeleteOptions{}); err != nil {
+		t.Fatalf("delete source Secret: %v", err)
+	}
+	var logBuf bytes.Buffer
+	fx.handler.log = slog.New(slog.NewTextHandler(&logBuf, nil))
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	statuses, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep)
+	if err != nil {
+		t.Fatalf("AutoEstablishClusterMesh returned error: %v", err)
+	}
+	requireFullyMeshed(t, statuses)
+
+	// All-or-nothing: NEITHER region's gate flips.
+	assertGateNotFlipped(t, fx.dynClients[fx.primaryKubeconfigPath], "primary")
+	assertGateNotFlipped(t, fx.dynClients[fx.secondaryKubeconfigPath], "secondary")
+	// The OTHER source Secret (the -ca) must NOT have been partially
+	// copied — the source read is all-or-nothing before any copy.
+	replicaCS := fx.clients[fx.secondaryKubeconfigPath]
+	if _, ok := getCNPGSecret(t, replicaCS, cnpgPairReplicationCA); ok {
+		t.Errorf("replica got %s despite missing sibling source Secret — copy must be all-or-nothing", cnpgPairReplicationCA)
+	}
+	if !strings.Contains(logBuf.String(), "source Secret unavailable on primary") {
+		t.Errorf("expected a loud warning about the missing source Secret, got:\n%s", logBuf.String())
+	}
+}
+
+// TestAutoEstablishClusterMesh_ReplicaCopyFailureRefusesFlip — when the
+// copy to the replica cluster fails (here: a reactor rejects the Secret
+// write), the flip is REFUSED: neither region's gate flips. A
+// half-flipped pair (gate ON, replica auth Secret absent) is exactly the
+// broken topology this guard prevents.
+func TestAutoEstablishClusterMesh_ReplicaCopyFailureRefusesFlip(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
+	// Make every Secret write into the replica's cnpg namespace fail.
+	replicaCS := fx.clients[fx.secondaryKubeconfigPath].(*kfake.Clientset)
+	failWrite := func(action ktesting.Action) (bool, runtime.Object, error) {
+		if action.GetNamespace() == cnpgPairNamespace {
+			return true, nil, fmt.Errorf("injected replica Secret write failure")
+		}
+		return false, nil, nil
+	}
+	replicaCS.PrependReactor("create", "secrets", failWrite)
+	replicaCS.PrependReactor("update", "secrets", failWrite)
+
+	var logBuf bytes.Buffer
+	fx.handler.log = slog.New(slog.NewTextHandler(&logBuf, nil))
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	statuses, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep)
+	if err != nil {
+		t.Fatalf("AutoEstablishClusterMesh returned error: %v", err)
+	}
+	requireFullyMeshed(t, statuses)
+
+	assertGateNotFlipped(t, fx.dynClients[fx.primaryKubeconfigPath], "primary")
+	assertGateNotFlipped(t, fx.dynClients[fx.secondaryKubeconfigPath], "secondary")
+	if !strings.Contains(logBuf.String(), "copy to replica failed") {
+		t.Errorf("expected a loud warning about the failed replica copy, got:\n%s", logBuf.String())
+	}
+}
+
+// TestAutoEstablishClusterMesh_ReRunAfterSecretsAppearConverges — first
+// run with the source Secret absent refuses the flip; after the primary
+// produces it, a second run (the #3241 level-trigger shape) copies both
+// Secrets and flips both gates. Proves the refusal is recoverable, not
+// terminal, and that the copy is idempotent across runs.
+func TestAutoEstablishClusterMesh_ReRunAfterSecretsAppearConverges(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
+	primaryCS := fx.clients[fx.primaryKubeconfigPath]
+	// Run 1: one source Secret missing → flip refused.
+	if err := primaryCS.CoreV1().Secrets(cnpgPairNamespace).Delete(context.Background(), cnpgPairReplicationCert, metav1.DeleteOptions{}); err != nil {
+		t.Fatalf("delete source Secret: %v", err)
+	}
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep); err != nil {
+		t.Fatalf("run 1: AutoEstablishClusterMesh error: %v", err)
+	}
+	assertGateNotFlipped(t, fx.dynClients[fx.primaryKubeconfigPath], "primary (run 1)")
+	assertGateNotFlipped(t, fx.dynClients[fx.secondaryKubeconfigPath], "secondary (run 1)")
+
+	// The primary postgres finishes initdb → CNPG mints the Secret.
+	if _, err := primaryCS.CoreV1().Secrets(cnpgPairNamespace).Create(context.Background(), &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: cnpgPairReplicationCert, Namespace: cnpgPairNamespace},
+		Type:       corev1.SecretTypeTLS,
+		Data:       map[string][]byte{"tls.crt": []byte("REPL-CERT-2"), "tls.key": []byte("REPL-KEY-2")},
+	}, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("re-create source Secret: %v", err)
+	}
+
+	// Run 2: now converges — both Secrets copied, both gates flipped.
+	if _, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep); err != nil {
+		t.Fatalf("run 2: AutoEstablishClusterMesh error: %v", err)
+	}
+	replicaCS := fx.clients[fx.secondaryKubeconfigPath]
+	for _, name := range cnpgPairReplicaAuthSecrets {
+		if _, ok := getCNPGSecret(t, replicaCS, name); !ok {
+			t.Errorf("run 2: replica still missing Secret %s after source appeared", name)
+		}
+	}
+	assertGateFlipped(t, fx.dynClients[fx.primaryKubeconfigPath], "primary (run 2)")
+	assertGateFlipped(t, fx.dynClients[fx.secondaryKubeconfigPath], "secondary (run 2)")
 }

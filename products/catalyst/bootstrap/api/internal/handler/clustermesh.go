@@ -200,6 +200,55 @@ const (
 	fluxReconcileRequestedAtAnnotation    = "reconcile.fluxcd.io/requestedAt"
 )
 
+// Cross-cluster CNPG replica-auth Secret sync (#3254, the prerequisite
+// #3253's PR body flagged as unsolved). The bp-cnpg-pair replica Cluster
+// CR — rendered on the SECONDARY region's cluster since chart 0.2.0's
+// split-side topology (#3253) — streams its pg_basebackup/WAL from the
+// primary over Cilium ClusterMesh and authenticates as the
+// `streaming_replica` role with the PRIMARY cluster's CNPG-generated TLS
+// material. Those Secrets are created by CNPG ONLY on the primary
+// region's cluster (namespace `cnpg`); the replica chart's
+// `externalClusters[].sslKey`/`sslCert`/`sslRootCert`
+// (platform/cnpg-pair/chart/templates/replica-cluster.yaml ~L127-135)
+// reference them BY NAME, so the same-named Secrets must also exist on
+// the replica cluster. The chart comment claimed "ESO syncs this across
+// clusters in production" but nothing did — so the slot-16b flip copies
+// them here, primary → every replica, BEFORE enabling the gate.
+//
+// Names are DERIVED THE SAME WAY THE CHART DOES: the chart's
+// `cnpg-pair.fullname` helper resolves to <releaseName>-<chartName>
+// (releaseName `cnpg-pair` + chartName `bp-cnpg-pair`; the release name
+// does not contain the chart name, so they concatenate →
+// `cnpg-pair-bp-cnpg-pair`), and the externalClusters refs are
+// `<fullname>-primary-replication` / `<fullname>-primary-ca`. The HR
+// (clusters/_template/bootstrap-kit/16b-bp-cnpg-pair.yaml) pins
+// releaseName=cnpg-pair + targetNamespace=cnpg, both stable; if either
+// ever changes, these constants move in lockstep.
+//
+// 🛑 Cert ROTATION is NOT handled here: the copy is a point-in-time
+// snapshot. The #3241 level-trigger re-runs AutoEstablishClusterMesh
+// (and post-handover finalisation re-fires the flip), each of which
+// re-copies the then-current bytes, so a rotation eventually propagates
+// on a later establish run — but there is no dedicated watch/refresh. A
+// long-lived rotation story (an ESO ClusterExternalSecret / reflector
+// annotation that keeps the replica copy live) is follow-up
+// (#3249-class).
+const (
+	cnpgPairNamespace       = "cnpg"
+	cnpgPairReleaseFullname = "cnpg-pair-bp-cnpg-pair"
+	cnpgPairReplicationCert = cnpgPairReleaseFullname + "-primary-replication"
+	cnpgPairReplicationCA   = cnpgPairReleaseFullname + "-primary-ca"
+)
+
+// cnpgPairReplicaAuthSecrets — the exact Secret names the replica-side
+// chart's externalClusters block references (sslKey/sslCert →
+// `-primary-replication`, sslRootCert → `-primary-ca`). Copied primary →
+// every replica region before the flip.
+var cnpgPairReplicaAuthSecrets = []string{
+	cnpgPairReplicationCert,
+	cnpgPairReplicationCA,
+}
+
 // fluxKustomizationGVR — kustomize.toolkit.fluxcd.io/v1 Kustomizations,
 // addressed via the dynamic client (no Flux Go types vendored here).
 var fluxKustomizationGVR = schema.GroupVersionResource{
@@ -754,6 +803,23 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 		targets = append(targets, flipTarget{regionKey: regionLabel, dyn: dyn})
 	}
 
+	// ── Cross-cluster replica-auth Secret sync (#3254) ──────────────
+	// Before flipping the gate ON, the replica-side Cluster CR's
+	// streaming auth (the primary's `-replication` client cert + `-ca`,
+	// both in namespace `cnpg`) must be present on EVERY replica
+	// cluster — those Secrets are created by CNPG only on the primary.
+	// Same all-or-nothing semantics as the gather phase above: if the
+	// source Secrets are absent (the primary postgres is still
+	// bootstrapping — CNPG mints these only after initdb) or any copy
+	// fails, REFUSE the whole flip and leave the gate OFF everywhere.
+	// A half state (gate flipped but the replica missing its auth
+	// Secrets) would render a replica Cluster that waits forever on a
+	// secret it cannot find. The #3241 level-trigger + post-handover
+	// re-runs converge once the primary's Secrets appear.
+	if !h.syncCNPGPairReplicaAuthSecrets(ctx, dep, slots) {
+		return
+	}
+
 	// ── Patch phase ─────────────────────────────────────────────────
 	// JSON merge patch (RFC 7386) merges nested objects key-by-key, so
 	// sibling substitute keys + existing annotations are preserved —
@@ -807,6 +873,173 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 	)
 	h.emitClusterMeshProgress(dep, "info",
 		fmt.Sprintf("ClusterMesh confirmed across all regions — enabled bp-cnpg-pair (slot 16b) via SOVEREIGN_ENABLE_CNPG_PAIR=true on %d/%d region Kustomizations and requested Flux reconcile", patched, len(targets)))
+}
+
+// syncCNPGPairReplicaAuthSecrets copies the primary cluster's CNPG
+// replication-auth Secrets (cnpgPairReplicaAuthSecrets, namespace
+// cnpgPairNamespace) onto EVERY replica region's cluster, so the
+// replica-side bp-cnpg-pair Cluster CR can authenticate its
+// pg_basebackup/WAL stream against the primary (the chart references
+// these Secrets by name from `externalClusters[].sslKey`/`sslCert`/
+// `sslRootCert` — see #3254). Returns true when the whole pair-side is
+// satisfied (single-region — nothing to sync, vacuously true; OR every
+// replica got every Secret), false to REFUSE the flip.
+//
+// All-or-nothing, matching the gather phase: a missing SOURCE Secret on
+// the primary (the primary postgres is still bootstrapping — CNPG mints
+// `-replication`/`-ca` only after initdb) or ANY per-replica copy
+// failure refuses the entire flip and leaves the gate OFF everywhere
+// (safe: empty Ready releases). The #3241 level-trigger + post-handover
+// finalisation re-run AutoEstablishClusterMesh and converge once the
+// primary's Secrets exist. Every refusal logs loudly AND emits a
+// clustermesh-progress warn event, per this file's failure convention.
+//
+// slots[0] is the primary (regionKeyFromSpec returns "" for idx 0);
+// slots[1:] are the replica regions. Each slot's typed clientset was
+// built in buildRegionSlots; on the full-success path that gates this
+// flip, every slot is reachable.
+func (h *Handler) syncCNPGPairReplicaAuthSecrets(ctx context.Context, dep *Deployment, slots []regionSlot) bool {
+	if len(slots) < 2 {
+		// No replica region — nothing to sync. (AutoEstablishClusterMesh
+		// only calls the flip on len(statuses) >= 2, so this is a guard,
+		// not the live path.)
+		return true
+	}
+	primary := &slots[0]
+	if primary.clientset == nil {
+		h.log.Warn("clustermesh: cnpg-pair replica-auth sync: primary clientset nil — refusing flip",
+			"id", dep.ID)
+		h.emitClusterMeshProgress(dep, "warn",
+			"ClusterMesh: cnpg-pair enable refused — primary cluster client unavailable for replica-auth Secret sync; re-run converges")
+		return false
+	}
+
+	// Read the source Secrets from the primary ONCE. A missing source =
+	// the primary postgres has not initialised yet → refuse + converge
+	// on a later run.
+	sources := make([]*corev1.Secret, 0, len(cnpgPairReplicaAuthSecrets))
+	for _, name := range cnpgPairReplicaAuthSecrets {
+		getCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+		src, err := primary.clientset.CoreV1().Secrets(cnpgPairNamespace).Get(getCtx, name, metav1.GetOptions{})
+		cancel()
+		if err != nil {
+			h.log.Warn("clustermesh: cnpg-pair replica-auth sync: source Secret unavailable on primary — refusing flip (primary postgres likely still bootstrapping)",
+				"id", dep.ID, "namespace", cnpgPairNamespace, "secret", name, "err", err)
+			h.emitClusterMeshProgress(dep, "warn",
+				fmt.Sprintf("ClusterMesh: cnpg-pair enable refused — primary Secret %s/%s not ready (%v); the replica needs it for WAL-stream auth — re-run converges once the primary postgres initialises",
+					cnpgPairNamespace, name, err))
+			return false
+		}
+		sources = append(sources, src)
+	}
+
+	// Copy every source Secret onto every replica region. Any failure
+	// refuses the whole flip (no partial state).
+	for i := 1; i < len(slots); i++ {
+		replica := &slots[i]
+		regionLabel := replica.key
+		if regionLabel == "" {
+			regionLabel = "secondary"
+		}
+		if replica.clientset == nil {
+			h.log.Warn("clustermesh: cnpg-pair replica-auth sync: replica clientset nil — refusing flip",
+				"id", dep.ID, "region", regionLabel)
+			h.emitClusterMeshProgress(dep, "warn",
+				fmt.Sprintf("ClusterMesh: cnpg-pair enable refused — replica region %q cluster client unavailable for replica-auth Secret sync; re-run converges", regionLabel))
+			return false
+		}
+		for _, src := range sources {
+			if err := h.copySecretAcrossClusters(ctx, src, replica.clientset, cnpgPairNamespace); err != nil {
+				h.log.Warn("clustermesh: cnpg-pair replica-auth sync: copy to replica failed — refusing flip",
+					"id", dep.ID, "region", regionLabel, "namespace", cnpgPairNamespace, "secret", src.Name, "err", err)
+				h.emitClusterMeshProgress(dep, "warn",
+					fmt.Sprintf("ClusterMesh: cnpg-pair enable refused — copying Secret %s/%s to replica region %q failed (%v); re-run converges",
+						cnpgPairNamespace, src.Name, regionLabel, err))
+				return false
+			}
+		}
+		h.log.Info("clustermesh: cnpg-pair replica-auth Secrets synced to replica region",
+			"id", dep.ID, "region", regionLabel, "namespace", cnpgPairNamespace, "secrets", cnpgPairReplicaAuthSecrets)
+	}
+
+	h.emitClusterMeshProgress(dep, "info",
+		fmt.Sprintf("ClusterMesh: synced cnpg-pair replica-auth Secrets (%s) primary → %d replica region(s) for WAL-stream auth",
+			strings.Join(cnpgPairReplicaAuthSecrets, ", "), len(slots)-1))
+	return true
+}
+
+// copySecretAcrossClusters create-or-updates a copy of src into the dst
+// cluster under the given namespace, keeping src's name. Server-side and
+// owner-scoped metadata (resourceVersion / UID / ownerReferences /
+// managedFields / creationTimestamp / generation / selfLink) are
+// stripped so the object is admissible on the destination; Data, Type,
+// Labels, and (non-Kustomize) Annotations carry over. Idempotent: a
+// re-run overwrites the destination's Data/Type with the current source
+// bytes (which is what makes the #3241 level-trigger re-run refresh the
+// copy). The destination namespace is assumed to exist (slot 16b ships
+// the `cnpg` Namespace unconditionally on every region).
+func (h *Handler) copySecretAcrossClusters(ctx context.Context, src *corev1.Secret, dst kubernetes.Interface, namespace string) error {
+	if src == nil {
+		return fmt.Errorf("source Secret is nil")
+	}
+	desired := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        src.Name,
+			Namespace:   namespace,
+			Labels:      src.Labels,
+			Annotations: src.Annotations,
+		},
+		Type:       src.Type,
+		Data:       src.Data,
+		StringData: src.StringData,
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+	defer cancel()
+	existing, err := dst.CoreV1().Secrets(namespace).Get(callCtx, src.Name, metav1.GetOptions{})
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("Get Secret %s/%s on replica: %w", namespace, src.Name, err)
+		}
+		if _, createErr := dst.CoreV1().Secrets(namespace).Create(callCtx, desired, metav1.CreateOptions{}); createErr != nil {
+			if apierrors.IsAlreadyExists(createErr) {
+				// Lost a race with another writer — fall through to update.
+				return h.updateCopiedSecret(callCtx, desired, dst, namespace)
+			}
+			return fmt.Errorf("Create Secret %s/%s on replica: %w", namespace, src.Name, createErr)
+		}
+		return nil
+	}
+	// Update in place — preserve the destination's resourceVersion so the
+	// Update is accepted, overwrite Data/Type/Labels/Annotations.
+	existing.Data = desired.Data
+	existing.StringData = desired.StringData
+	existing.Type = desired.Type
+	existing.Labels = desired.Labels
+	existing.Annotations = desired.Annotations
+	if _, updErr := dst.CoreV1().Secrets(namespace).Update(callCtx, existing, metav1.UpdateOptions{}); updErr != nil {
+		return fmt.Errorf("Update Secret %s/%s on replica: %w", namespace, src.Name, updErr)
+	}
+	return nil
+}
+
+// updateCopiedSecret is the create-raced-update fallback for
+// copySecretAcrossClusters: re-Get to pick up the live resourceVersion,
+// then Update with the desired Data/Type/Labels/Annotations.
+func (h *Handler) updateCopiedSecret(ctx context.Context, desired *corev1.Secret, dst kubernetes.Interface, namespace string) error {
+	existing, err := dst.CoreV1().Secrets(namespace).Get(ctx, desired.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("Get Secret %s/%s on replica (race fallback): %w", namespace, desired.Name, err)
+	}
+	existing.Data = desired.Data
+	existing.StringData = desired.StringData
+	existing.Type = desired.Type
+	existing.Labels = desired.Labels
+	existing.Annotations = desired.Annotations
+	if _, updErr := dst.CoreV1().Secrets(namespace).Update(ctx, existing, metav1.UpdateOptions{}); updErr != nil {
+		return fmt.Errorf("Update Secret %s/%s on replica (race fallback): %w", namespace, desired.Name, updErr)
+	}
+	return nil
 }
 
 // clusterMeshDynamicClient builds a dynamic.Interface for the cluster
