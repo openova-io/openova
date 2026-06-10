@@ -37,3 +37,16 @@ Screenshot: `hw124-appdetail-topology-tab-LIVE-2026-06-10.png`
 The 7-tab AppDetail strip (Overview/Topology/Resources/Compliance/Logs/Settings/
 Members + Endpoints/Jobs/Dependencies) + the full operator nav
 (Dashboard/Cloud/Apps/Sandbox/Jobs/Compliance/Users/BSS/Settings) all render.
+
+## Operator Apps grid + per-app AppDetail (operator-console SSO view) ✅
+`/apps` — **Deployments 49 / Catalog 63** tabs; the grid renders **49 installed
+apps** (Alloy…VPA) with category badges (INSIGHTS/GUARDIAN/SPINE/PILOT/FABRIC/
+SILO/CORTEX/SURGE), status (INSTALLED/AVAILABLE), bundled-deps — incl. all SSO
+apps (Grafana, Gitea, Harbor, OpenBao, guacamole, PowerDNS, Keycloak). Each → its
+`/app/bp-<name>` AppDetail.
+`/app/bp-harbor` Overview → External URL `registry.hw124.omani.works` + **`↗ Open`**
+("single-click silent sign-in, no second login … already logged in via Keycloak
+SSO") — the operator-console view of harbor's silent SSO (matches the direct
+logged-in walk #3214).
+Screenshots: `hw124-console-apps-grid-49-installed-2026-06-10.png`,
+`hw124-appdetail-harbor-open-button-LIVE-2026-06-10.png`
