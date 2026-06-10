@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-cnpg-pair
-version: 0.1.3
-appVersion: "0.1.3"
+version: 0.1.4
+appVersion: "0.1.4"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
   across two Hetzner regions. Companions the existing `bp-cnpg`
@@ -32,6 +32,34 @@ description: |
 
   Changelog
   ─────────
+  0.1.4 (2026-06-11, kyverno-Enforce compliance re-cut, Refs #3236 / #2737)
+    - The cnpgPair gate flipped TRUE for the first time on hw126 (#3238),
+      so the chart's auxiliary workloads reached kyverno Enforce admission
+      for the first time in history. The `failover-readiness` Deployment
+      was DENIED on four baseline policies; this re-cut makes every
+      rendered container compliant:
+        • cilium-l7-mtls: added `policy.cilium.io/enforced: "true"` to the
+          failover-readiness Pod template labels.
+        • probes-present: the probe container now declares BOTH a
+          livenessProbe (heartbeat /tmp/alive freshness — proves the poll
+          loop is not wedged) AND the existing readinessProbe (/tmp/ready
+          — promotability). The two probes answer different questions, so
+          a lagging-but-healthy replica no longer kills the probe Pod.
+        • harbor-proxy-pull + image-tag-pinned: the default
+          `cnpgPair.image.repository` is now
+          `harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql`
+          (matching the slot-16b override and every sibling CNPG chart);
+          the required-tag fail-fast already bars `:latest`.
+      Also re-tagged the helm-test `test-replication` Pod image to the same
+      Harbor proxy prefix (helm-test Pods are NOT Flux-reconciled, but the
+      prefix is fixed for consistency + manual-`helm test` admission).
+    - The CNPG primary/replica `Cluster` CRs are NOT kyverno-matched (the
+      `Cluster` kind is absent from every baseline policy `kinds:` list),
+      so their `imageName` is left to the shared `cnpgPair.imageRef` helper
+      — which now resolves to the Harbor proxy prefix anyway.
+    - Default-OFF contract UNCHANGED: a disabled (single-region) install
+      still renders ZERO resources, byte-identical to 0.1.3.
+
   0.1.3 (2026-06-10, Pillar-3 bootstrap-kit enablement, Refs #3195 / #3189)
     - New `templates/continuum.yaml`: optional production
       `Continuum.dr.openova.io/v1` CR seed pointing at THIS cluster-

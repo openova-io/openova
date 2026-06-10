@@ -33,7 +33,13 @@ spec:
   serviceAccountName: {{ include "cnpg-pair.fullname" . }}-test
   containers:
     - name: probe
-      image: ghcr.io/cloudnative-pg/postgresql:16.4-1
+      # harbor-proxy-pull compliant prefix (kyverno harbor-proxy-pull glob
+      # `*/proxy-*/*`). helm-test Pods carry `helm.sh/hook: test` so Flux
+      # never reconciles them (they run only under `helm test`), but the
+      # image is pinned to the Sovereign Harbor proxy for consistency with
+      # the rest of the chart and so a manual `helm test` run on a hardened
+      # cluster is not denied at admission.
+      image: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16.4-1
       command: [/bin/bash, -c]
       args:
         - |
