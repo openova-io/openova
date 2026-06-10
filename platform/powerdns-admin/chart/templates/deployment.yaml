@@ -21,6 +21,13 @@ spec:
         app.kubernetes.io/name: bp-powerdns-admin
         app.kubernetes.io/instance: {{ .Release.Name }}
         catalyst.openova.io/blueprint: bp-powerdns-admin
+        # kyverno cilium-l7-mtls / cilium-enforced-label (baseline policy
+        # 09-cilium-l7-mtls): every Deployment/StatefulSet/DaemonSet Pod
+        # template must carry this label so the catalyst-network controller
+        # attaches the Pod to the L7 mTLS mesh. Without it the Enforce
+        # admission DENIES the Deployment — caught on the hw126 fresh prov,
+        # the first time bp-powerdns-admin ever reached kyverno admission.
+        policy.cilium.io/enforced: "true"
     spec:
       securityContext:
         {{- toYaml .Values.securityContext | nindent 8 }}
