@@ -44,7 +44,35 @@ name: bp-powerdns-admin
 # spec.template.metadata.labels, mirroring the bp-sso-bridge + catalyst chart
 # idiom. The container image already pulls through the Harbor proxy
 # (harbor.openova.io/proxy-dockerhub/…, #3150) so it satisfies harbor-proxy-pull.
-version: 0.1.7
+#
+# 0.1.8 (Refs #2737, 2026-06-11): full kyverno-Enforce compliance re-cut +
+# cold-install guard. Audited the WHOLE rendered chart against the live
+# baseline policies (platform/kyverno-policies/.../baseline/{04-probes,
+# 09-cilium-l7-mtls,11-harbor-proxy,12-image-tag-pinned}.yaml). Result:
+# every container the chart ships is already compliant —
+#   • Deployment/powerdns-admin container `powerdns-admin`:
+#       image harbor.openova.io/proxy-dockerhub/powerdnsadmin/pda-legacy:0.4.2
+#       → matches harbor-proxy glob `*/proxy-*/*`, tag `0.4.2` is pinned
+#       (not :latest), BOTH livenessProbe + readinessProbe (httpGet :http)
+#       present, Pod template carries `policy.cilium.io/enforced: "true"`
+#       (added 0.1.7/#3242).
+#   • CNPG Cluster `pda-pg`: imageName
+#       harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16 → proxy
+#       glob + pinned. (The `Cluster` CRD itself is not in any baseline
+#       policy `kinds:` match; the postgres Pod CNPG later creates inherits
+#       the pinned proxy image.)
+# The 0.1.6→0.1.7 denial the operator captured on hw126 traced to a
+# pre-0.1.7 OCI artifact still being served when admission was first
+# reached (0.1.2 shipped the dead non-Harbor `ngoduykhanh/powerdns-admin`
+# image → harbor-proxy-pull + image-tag-pinned DENY; the enforced label
+# arrived only at 0.1.7). This 0.1.8 re-cut publishes the already-correct
+# chart so the FIX actually lands.
+# ALSO add the bp-gitea/bp-harbor gold-standard `.Capabilities.APIVersions.
+# Has "postgresql.cnpg.io/v1"` guard to templates/cnpg-cluster.yaml so a
+# cold install can't half-render (apiserver rejecting the Cluster CR before
+# bp-cnpg registers the CRD) and wedge the chart BEFORE it reaches kyverno
+# admission at all.
+version: 0.1.8
 description: |
   PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI Blueprint for
   per-Sovereign PowerDNS zone + record management. Drives the

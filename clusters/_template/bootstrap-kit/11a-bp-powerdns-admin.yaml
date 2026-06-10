@@ -102,7 +102,16 @@ spec:
       # 0.1.7 (#2737, 2026-06-11): add `policy.cilium.io/enforced: "true"` to
       # the Pod template — kyverno cilium-l7-mtls Enforce denied the Deployment
       # on the hw126 fresh prov (first time it reached admission).
-      version: 0.1.7
+      # 0.1.8 (#2737, 2026-06-11): full kyverno-Enforce compliance re-cut.
+      # Whole-chart audit vs the live baseline policies confirms every
+      # container the chart ships already passes harbor-proxy-pull (proxy
+      # glob), image-tag-pinned (0.4.2 / postgresql:16), probes-present
+      # (both probes on the app container) and cilium-l7-mtls (enforced
+      # label, 0.1.7). Re-cut publishes the corrected chart so the FIX
+      # propagates past the stale pre-0.1.7 artifact hw126 first admitted.
+      # Adds the bp-gitea/bp-harbor Capabilities guard to the CNPG Cluster
+      # template so a cold install can't half-render before bp-cnpg's CRD.
+      version: 0.1.8
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns-admin
