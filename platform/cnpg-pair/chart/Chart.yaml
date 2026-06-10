@@ -1,23 +1,31 @@
 apiVersion: v2
 name: bp-cnpg-pair
-version: 0.1.5
-appVersion: "0.1.4"
+version: 0.2.0
+appVersion: "0.2.0"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
-  across two Hetzner regions. Companions the existing `bp-cnpg`
-  (operator) Blueprint by shipping the per-Application data-plane:
+  across two Sovereign regions. Companions the existing `bp-cnpg`
+  (operator) Blueprint by shipping the per-Application data-plane.
+  SPLIT-SIDE TOPOLOGY (0.2.0): a 2-region Sovereign is two SEPARATE
+  clusters joined by Cilium ClusterMesh, so each cluster installs the
+  same chart with `cnpgPair.side` selecting WHICH HALF it renders:
+    side=primary (cluster-A):
     - Primary postgresql.cnpg.io/v1.Cluster CR pinned to region A
+    - Cilium ClusterMesh-global `-primary-mesh` Service so the replica
+      region streams WAL bytes over the private mesh, never public TLS
+    - audit-config ConfigMap declaring the NATS audit subjects this
+      Blueprint emits (consumed by Continuum K-Cont-2, which runs on
+      the primary cluster)
+    - replication-ingress NetworkPolicy (default-deny compatible —
+      see platform/network-policies)
+    side=replica (cluster-B):
     - Replica postgresql.cnpg.io/v1.Cluster CR pinned to region B,
       configured as a CNPG replica via `replica.enabled: true` +
       `externalCluster` referencing the primary's replication endpoint
-    - Cilium ClusterMesh-shared Service so the replica region streams
-      WAL bytes over the private mesh, never public TLS
+      (CNPG's canonical separate-cluster replica pattern)
     - Failover-readiness probe Pod that flips Ready when WAL lag falls
       below the configured threshold (replica becomes promotable)
-    - NetworkPolicy carve-out for the replication path (default-deny
-      compatible — see platform/network-policies)
-    - audit-config ConfigMap declaring the NATS audit subjects this
-      Blueprint emits (consumed by Continuum K-Cont-2)
+    - probe NetworkPolicies (ingress-to-replica + probe egress)
 
   This chart ships ZERO upstream Helm subchart bytes — every byte is
   Catalyst-authored, all on top of the CNPG CRDs that bp-cnpg installs.
@@ -32,6 +40,46 @@ description: |
 
   Changelog
   ─────────
+  0.2.0 (2026-06-11, split-side topology, Refs #3236 / #3195 / #2737)
+    - TOPOLOGY-DESIGN CHANGE: new `cnpgPair.side: primary|replica`
+      knob (default `primary`; `secondary` accepted as an alias for
+      `replica` so the bootstrap-kit can substitute the per-region
+      SOVEREIGN_REGION_ROLE verbatim). Chart ≤0.1.x rendered the
+      whole pair in ONE release on the primary cluster and claimed
+      "CNPG schedules each side to its region via node-affinity" —
+      that only holds on a single stretched cluster. A real 2-region
+      Sovereign is two SEPARATE k3s clusters joined by ClusterMesh,
+      so the replica Cluster CR + failover-readiness Deployment
+      pinned to region-B node labels could NEVER schedule on
+      cluster-A (hw126: FailedScheduling 0/4 nodes, affinity requires
+      openova.io/region=hw-me-east-215-b-rtz-prod — every cluster-A
+      node is ...-a-rtz-prod). 0.2.0 splits the render per side:
+        side=primary → primary Cluster CR + `-primary-mesh` global
+        Service + audit-config ConfigMap (bp-continuum's prerequisite
+        probe reads it on the primary cluster) + replication-ingress
+        NetworkPolicy + Continuum CR (when continuum.enabled) +
+        helm-test resources.
+        side=replica → replica Cluster CR (pg_basebackup +
+        externalClusters over the ClusterMesh-global Service — the
+        canonical CNPG separate-cluster replica pattern, unchanged) +
+        a local `-primary-mesh` Service stub (Cilium merges global
+        services BY NAME+NAMESPACE across clusters; without a local
+        Service object the host would be NXDOMAIN on cluster-B — its
+        selector matches zero local Pods so traffic crosses the mesh)
+        + failover-readiness Deployment + probe NetworkPolicies.
+      Slot 16b now applies the HR on BOTH control planes (the
+      SECONDARY_HR_SUSPEND suspend is removed) with
+      `side: ${SOVEREIGN_REGION_ROLE:-primary}`.
+    - Region validation now also runs on the replica-side render
+      (previously only the primary template called validateRegions).
+    - Default-OFF contract UNCHANGED: cnpgPair.enabled=false renders
+      ZERO resources on BOTH sides (byte-identical empty render).
+    - The replica side still mounts the primary's `-replication` /
+      `-ca` Secrets for streaming auth; on separate clusters those
+      Secrets must be synced cluster-A → cluster-B (ESO/reflector per
+      the per-Sovereign overlay) — contract unchanged from 0.1.x,
+      now explicit because the sides live on different clusters.
+
   0.1.4 (2026-06-11, kyverno-Enforce compliance re-cut, Refs #3236 / #2737)
     - The cnpgPair gate flipped TRUE for the first time on hw126 (#3238),
       so the chart's auxiliary workloads reached kyverno Enforce admission

@@ -619,7 +619,7 @@ func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 	// patches the same key to the same value and merely re-requests a
 	// reconcile.
 	if totalReady == len(statuses) && len(statuses) >= 2 {
-		h.enableCNPGPairAfterFullMesh(ctx, dep, primaryKubeconfigPath)
+		h.enableCNPGPairAfterFullMesh(ctx, dep, slots)
 	} else {
 		h.log.Info("clustermesh: mesh not fully established — SOVEREIGN_ENABLE_CNPG_PAIR left untouched (slot 16b stays gated OFF)",
 			"id", dep.ID,
@@ -631,7 +631,7 @@ func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 	return statuses, nil
 }
 
-// enableCNPGPairAfterFullMesh flips the slot-16b gate on the PRIMARY
+// enableCNPGPairAfterFullMesh flips the slot-16b gate on EVERY
 // region's bootstrap-kit Flux Kustomization (the one cloud-init applies
 // — infra/providers/_shared/cloudinit-control-plane.tftpl) by merging
 // `spec.postBuild.substitute.SOVEREIGN_ENABLE_CNPG_PAIR: "true"` and
@@ -640,79 +640,121 @@ func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 // CNPG pair (clusters/_template/bootstrap-kit/16b-bp-cnpg-pair.yaml)
 // then deploys zero-touch, correctly gated on CONFIRMED mesh readiness.
 //
+// ALL-REGIONS scope (chart 0.2.0 split-side topology): slot 16b is no
+// longer a primary-only HR — it applies on every control plane with
+// `cnpgPair.side: ${SOVEREIGN_REGION_ROLE:-primary}`, so side=primary
+// renders the primary Cluster + mesh Service on cluster-A and
+// side=replica renders the replica Cluster + failover-readiness probe
+// on cluster-B. Flipping only the primary's Kustomization (the pre-
+// split behaviour) would activate the primary half while the secondary
+// keeps rendering an empty release — no replica, no WAL stream. The
+// regionSlots passed in carry each region's kubeconfig path (on the
+// full-success path that triggers this flip, every slot is reachable).
+//
 // Defense (non-negotiable, per the chart's required-fail-fast): the
-// flip is REFUSED unless the substitute map already carries non-empty,
-// DISTINCT SOVEREIGN_PRIMARY_REGION / SOVEREIGN_REPLICA_REGION —
-// cloud-init stamps both on 2-region provs. With enabled=true and a
-// missing/equal region the bp-cnpg-pair chart render fails, and a
-// render failure inside the bootstrap-kit Kustomization fails the WHOLE
-// atomic apply → 0 HRs (the #2981/#2982 fresh-prov wedge shape). A
-// refused flip logs loudly and leaves the gate OFF (empty Ready
-// release — safe).
+// flip is REFUSED — for ALL regions, atomically — unless every
+// region's substitute map carries non-empty, DISTINCT
+// SOVEREIGN_PRIMARY_REGION / SOVEREIGN_REPLICA_REGION (cloud-init
+// stamps both on every control plane of a 2-region prov). With
+// enabled=true and a missing/equal region the bp-cnpg-pair chart
+// render fails, and a render failure inside the bootstrap-kit
+// Kustomization fails the WHOLE atomic apply → 0 HRs (the #2981/#2982
+// fresh-prov wedge shape). Likewise, if ANY region's Kustomization is
+// unreadable the whole flip is refused: a half-flipped pair (primary
+// active, replica gated OFF) is exactly the broken topology this
+// function exists to prevent. A refused flip logs loudly and leaves
+// the gate OFF everywhere (empty Ready releases — safe); the
+// level-triggered reconcile / post-handover finalisation re-runs and
+// converges.
 //
 // Scope: ONLY SOVEREIGN_ENABLE_CNPG_PAIR. The shared-pg flags
 // (SOVEREIGN_ENABLE_SHARED_PG / *_PG_OWN_CLUSTER) are #3188 scope and
-// are deliberately not touched here. Only the PRIMARY's Kustomization
-// is patched — slot 16b is a primary-only HR (SECONDARY_HR_SUSPEND
-// suspends it on secondary control planes).
+// are deliberately not touched here.
 //
 // Failure modes follow this file's convention: every failure is logged
 // + surfaced as a clustermesh-progress warn event, never an error —
 // the post-handover finalisation re-runs AutoEstablishClusterMesh and
-// the flip converges then.
-func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployment, primaryKubeconfigPath string) {
-	if primaryKubeconfigPath == "" {
-		// Unreachable from the full-success path (an empty path fails
-		// the primary slot, which blocks full success) — but this
-		// method must stay safe if ever called from another site.
-		h.log.Warn("clustermesh: cnpg-pair gate: primary kubeconfig path empty — cannot reach bootstrap-kit Kustomization",
+// the flip converges then. A patch failure AFTER the gather phase is
+// per-region (warn + continue): the merge patch is idempotent and the
+// re-run converges the missed region.
+func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployment, slots []regionSlot) {
+	if len(slots) == 0 {
+		h.log.Warn("clustermesh: cnpg-pair gate: no region slots — cannot reach any bootstrap-kit Kustomization",
 			"id", dep.ID)
 		return
 	}
-	dyn, err := h.clusterMeshDynamicClient(primaryKubeconfigPath)
-	if err != nil {
-		h.log.Warn("clustermesh: cnpg-pair gate: dynamic client build failed",
-			"id", dep.ID, "err", err)
-		h.emitClusterMeshProgress(dep, "warn",
-			fmt.Sprintf("ClusterMesh: cnpg-pair enable skipped — dynamic client build failed (%v); re-run converges", err))
-		return
+
+	// ── Gather phase (all-or-nothing) ───────────────────────────────
+	// Build a dynamic client + read the bootstrap-kit Kustomization in
+	// EVERY region and verify the region-substitute precondition before
+	// patching anything. Any gap refuses the whole flip — a half-
+	// flipped split-side pair is the hw126 broken topology.
+	type flipTarget struct {
+		regionKey string
+		dyn       dynamic.Interface
+	}
+	targets := make([]flipTarget, 0, len(slots))
+	for i := range slots {
+		s := &slots[i]
+		regionLabel := s.key
+		if regionLabel == "" {
+			regionLabel = "primary"
+		}
+		if s.kubeconfigPath == "" {
+			h.log.Warn("clustermesh: cnpg-pair gate: region kubeconfig path empty — cannot reach its bootstrap-kit Kustomization",
+				"id", dep.ID, "region", regionLabel)
+			h.emitClusterMeshProgress(dep, "warn",
+				fmt.Sprintf("ClusterMesh: cnpg-pair enable skipped — region %q kubeconfig path empty; re-run converges", regionLabel))
+			return
+		}
+		dyn, err := h.clusterMeshDynamicClient(s.kubeconfigPath)
+		if err != nil {
+			h.log.Warn("clustermesh: cnpg-pair gate: dynamic client build failed",
+				"id", dep.ID, "region", regionLabel, "err", err)
+			h.emitClusterMeshProgress(dep, "warn",
+				fmt.Sprintf("ClusterMesh: cnpg-pair enable skipped — region %q dynamic client build failed (%v); re-run converges", regionLabel, err))
+			return
+		}
+
+		getCtx, cancelGet := context.WithTimeout(ctx, clusterMeshCallTimeout)
+		ks, err := dyn.Resource(fluxKustomizationGVR).Namespace(fluxSystemNamespace).
+			Get(getCtx, bootstrapKitKustomizationName, metav1.GetOptions{})
+		cancelGet()
+		if err != nil {
+			h.log.Warn("clustermesh: cnpg-pair gate: Get bootstrap-kit Kustomization failed",
+				"id", dep.ID, "region", regionLabel, "err", err)
+			h.emitClusterMeshProgress(dep, "warn",
+				fmt.Sprintf("ClusterMesh: cnpg-pair enable skipped — region %q Get Kustomization %s/%s failed (%v); re-run converges",
+					regionLabel, fluxSystemNamespace, bootstrapKitKustomizationName, err))
+			return
+		}
+
+		substitute, found, err := unstructured.NestedStringMap(ks.Object, "spec", "postBuild", "substitute")
+		if err != nil || !found {
+			h.log.Warn("clustermesh: refusing to flip SOVEREIGN_ENABLE_CNPG_PAIR — bootstrap-kit Kustomization has no readable spec.postBuild.substitute map",
+				"id", dep.ID, "region", regionLabel, "found", found, "err", err)
+			h.emitClusterMeshProgress(dep, "warn",
+				fmt.Sprintf("ClusterMesh: cnpg-pair enable refused — region %q bootstrap-kit Kustomization carries no postBuild.substitute map", regionLabel))
+			return
+		}
+		primaryRegion := strings.TrimSpace(substitute[clusterMeshPrimaryRegionSubstituteKey])
+		replicaRegion := strings.TrimSpace(substitute[clusterMeshReplicaRegionSubstituteKey])
+		if primaryRegion == "" || replicaRegion == "" || primaryRegion == replicaRegion {
+			h.log.Warn("clustermesh: refusing to flip SOVEREIGN_ENABLE_CNPG_PAIR — substitute region precondition failed (bp-cnpg-pair `required`s distinct non-empty regions; a render failure would fail the whole atomic bootstrap-kit apply → 0 HRs)",
+				"id", dep.ID,
+				"region", regionLabel,
+				"primaryRegion", primaryRegion,
+				"replicaRegion", replicaRegion,
+			)
+			h.emitClusterMeshProgress(dep, "warn",
+				fmt.Sprintf("ClusterMesh: cnpg-pair enable REFUSED — region %q SOVEREIGN_PRIMARY_REGION=%q / SOVEREIGN_REPLICA_REGION=%q must be non-empty and distinct in the bootstrap-kit substitute map",
+					regionLabel, primaryRegion, replicaRegion))
+			return
+		}
+		targets = append(targets, flipTarget{regionKey: regionLabel, dyn: dyn})
 	}
 
-	getCtx, cancelGet := context.WithTimeout(ctx, clusterMeshCallTimeout)
-	ks, err := dyn.Resource(fluxKustomizationGVR).Namespace(fluxSystemNamespace).
-		Get(getCtx, bootstrapKitKustomizationName, metav1.GetOptions{})
-	cancelGet()
-	if err != nil {
-		h.log.Warn("clustermesh: cnpg-pair gate: Get bootstrap-kit Kustomization failed",
-			"id", dep.ID, "err", err)
-		h.emitClusterMeshProgress(dep, "warn",
-			fmt.Sprintf("ClusterMesh: cnpg-pair enable skipped — Get Kustomization %s/%s failed (%v); re-run converges",
-				fluxSystemNamespace, bootstrapKitKustomizationName, err))
-		return
-	}
-
-	substitute, found, err := unstructured.NestedStringMap(ks.Object, "spec", "postBuild", "substitute")
-	if err != nil || !found {
-		h.log.Warn("clustermesh: refusing to flip SOVEREIGN_ENABLE_CNPG_PAIR — bootstrap-kit Kustomization has no readable spec.postBuild.substitute map",
-			"id", dep.ID, "found", found, "err", err)
-		h.emitClusterMeshProgress(dep, "warn",
-			"ClusterMesh: cnpg-pair enable refused — bootstrap-kit Kustomization carries no postBuild.substitute map")
-		return
-	}
-	primaryRegion := strings.TrimSpace(substitute[clusterMeshPrimaryRegionSubstituteKey])
-	replicaRegion := strings.TrimSpace(substitute[clusterMeshReplicaRegionSubstituteKey])
-	if primaryRegion == "" || replicaRegion == "" || primaryRegion == replicaRegion {
-		h.log.Warn("clustermesh: refusing to flip SOVEREIGN_ENABLE_CNPG_PAIR — substitute region precondition failed (bp-cnpg-pair `required`s distinct non-empty regions; a render failure would fail the whole atomic bootstrap-kit apply → 0 HRs)",
-			"id", dep.ID,
-			"primaryRegion", primaryRegion,
-			"replicaRegion", replicaRegion,
-		)
-		h.emitClusterMeshProgress(dep, "warn",
-			fmt.Sprintf("ClusterMesh: cnpg-pair enable REFUSED — SOVEREIGN_PRIMARY_REGION=%q / SOVEREIGN_REPLICA_REGION=%q must be non-empty and distinct in the bootstrap-kit substitute map",
-				primaryRegion, replicaRegion))
-		return
-	}
-
+	// ── Patch phase ─────────────────────────────────────────────────
 	// JSON merge patch (RFC 7386) merges nested objects key-by-key, so
 	// sibling substitute keys + existing annotations are preserved —
 	// only the gate key and the reconcile-request stamp change.
@@ -737,26 +779,34 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 			"id", dep.ID, "err", err)
 		return
 	}
-	patchCtx, cancelPatch := context.WithTimeout(ctx, clusterMeshCallTimeout)
-	defer cancelPatch()
-	if _, err := dyn.Resource(fluxKustomizationGVR).Namespace(fluxSystemNamespace).
-		Patch(patchCtx, bootstrapKitKustomizationName, types.MergePatchType, patchBytes, metav1.PatchOptions{}); err != nil {
-		h.log.Warn("clustermesh: cnpg-pair gate: Patch bootstrap-kit Kustomization failed",
-			"id", dep.ID, "err", err)
-		h.emitClusterMeshProgress(dep, "warn",
-			fmt.Sprintf("ClusterMesh: cnpg-pair enable failed — Patch Kustomization %s/%s (%v); re-run converges",
-				fluxSystemNamespace, bootstrapKitKustomizationName, err))
+	patched := 0
+	for _, t := range targets {
+		patchCtx, cancelPatch := context.WithTimeout(ctx, clusterMeshCallTimeout)
+		_, patchErr := t.dyn.Resource(fluxKustomizationGVR).Namespace(fluxSystemNamespace).
+			Patch(patchCtx, bootstrapKitKustomizationName, types.MergePatchType, patchBytes, metav1.PatchOptions{})
+		cancelPatch()
+		if patchErr != nil {
+			h.log.Warn("clustermesh: cnpg-pair gate: Patch bootstrap-kit Kustomization failed",
+				"id", dep.ID, "region", t.regionKey, "err", patchErr)
+			h.emitClusterMeshProgress(dep, "warn",
+				fmt.Sprintf("ClusterMesh: cnpg-pair enable incomplete — region %q Patch Kustomization %s/%s (%v); re-run converges",
+					t.regionKey, fluxSystemNamespace, bootstrapKitKustomizationName, patchErr))
+			continue
+		}
+		patched++
+	}
+	if patched == 0 {
 		return
 	}
 
-	h.log.Info("clustermesh: SOVEREIGN_ENABLE_CNPG_PAIR=true merged onto primary bootstrap-kit Kustomization + Flux reconcile requested",
+	h.log.Info("clustermesh: SOVEREIGN_ENABLE_CNPG_PAIR=true merged onto bootstrap-kit Kustomizations + Flux reconcile requested (split-side: every region renders its own half of the pair)",
 		"id", dep.ID,
-		"primaryRegion", primaryRegion,
-		"replicaRegion", replicaRegion,
+		"regionsPatched", patched,
+		"regionsTotal", len(targets),
 		"requestedAt", stamp,
 	)
 	h.emitClusterMeshProgress(dep, "info",
-		"ClusterMesh confirmed across all regions — enabled bp-cnpg-pair (slot 16b) via SOVEREIGN_ENABLE_CNPG_PAIR=true and requested Flux reconcile")
+		fmt.Sprintf("ClusterMesh confirmed across all regions — enabled bp-cnpg-pair (slot 16b) via SOVEREIGN_ENABLE_CNPG_PAIR=true on %d/%d region Kustomizations and requested Flux reconcile", patched, len(targets)))
 }
 
 // clusterMeshDynamicClient builds a dynamic.Interface for the cluster

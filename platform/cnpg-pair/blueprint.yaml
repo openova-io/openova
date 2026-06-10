@@ -6,18 +6,22 @@ metadata:
     catalyst.openova.io/section: pts-9-disaster-recovery
     catalyst.openova.io/companion: bp-cnpg
 spec:
-  version: 0.1.5
+  version: 0.2.0
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |
-      Active-hotstandby CNPG cluster-pair across two Hetzner regions.
-      Primary postgresql.cnpg.io/v1.Cluster CR in region A; replica
-      Cluster CR in region B configured as a CNPG replica cluster
-      (replica.enabled=true + externalCluster) streaming WAL over a
-      Cilium ClusterMesh-shared Service. Failover-readiness probe Pod
-      flips Ready when WAL lag < threshold so Continuum K-Cont-2 can
-      promote on operator-triggered switchover. Per ADR-0001 §9 the
-      replication transport is ClusterMesh — never public TLS.
+      Active-hotstandby CNPG cluster-pair across two Sovereign regions
+      (two separate clusters joined by Cilium ClusterMesh). Each
+      cluster installs the chart with `side` selecting its half:
+      side=primary renders the primary postgresql.cnpg.io/v1.Cluster
+      CR + the ClusterMesh-global replication Service in region A;
+      side=replica renders the replica Cluster CR in region B
+      (replica.enabled=true + externalCluster, CNPG's separate-cluster
+      replica pattern) streaming WAL over the mesh Service, plus the
+      failover-readiness probe Pod that flips Ready when WAL lag <
+      threshold so Continuum K-Cont-2 can promote on operator-
+      triggered switchover. Per ADR-0001 §9 the replication transport
+      is ClusterMesh — never public TLS.
     icon: cnpg-pair.svg
     category: data
   visibility: listed
@@ -29,6 +33,20 @@ spec:
       - replica
       - image
     properties:
+      side:
+        type: string
+        enum: [primary, replica, secondary]
+        default: primary
+        description: |
+          WHICH HALF of the pair this install renders (chart 0.2.0
+          split-side topology). A 2-region Sovereign is two SEPARATE
+          clusters joined by Cilium ClusterMesh, so each cluster
+          applies the same chart and renders exactly its own half:
+          `primary` → primary Cluster CR + mesh Service + audit-config
+          (region A); `replica` → replica Cluster CR + failover-
+          readiness probe (region B). `secondary` is accepted as an
+          alias for `replica` so the bootstrap-kit slot can substitute
+          the per-region SOVEREIGN_REGION_ROLE value verbatim.
       primary:
         type: object
         required: [region]

@@ -77,9 +77,16 @@ resources:
   # WAL streaming over Cilium ClusterMesh + `*-primary-mesh` global
   # Service + failover-readiness probe + audit-config ConfigMap (which
   # bp-continuum slot 62 prerequisite-checks to switch from idle to
-  # active). SAFE-BY-DEFAULT: gated ${SOVEREIGN_ENABLE_HOT_STANDBY:-false}
-  # → renders ZERO resources on a single-region prov (byte-identical to
-  # today). Auto-true only on a multi-region (active-hotstandby) prov.
+  # active). SPLIT-SIDE (chart 0.2.0): the HR applies on EVERY region's
+  # control plane and `cnpgPair.side` (from SOVEREIGN_REGION_ROLE) makes
+  # each cluster render only its own half — primary Cluster + mesh
+  # Service + audit-config on cluster-A; replica Cluster + failover-
+  # readiness probe on cluster-B (the regions are separate ClusterMesh-
+  # joined clusters, so region-pinned workloads must be APPLIED on
+  # their own cluster). SAFE-BY-DEFAULT: gated
+  # ${SOVEREIGN_ENABLE_CNPG_PAIR:-false} → renders ZERO resources until
+  # catalyst-api confirms full mesh and flips the substitute on ALL
+  # region Kustomizations (#3236/#3238).
   # Sequenced right after bp-cnpg (slot 16) which provides the CNPG
   # operator + postgresql.cnpg.io Cluster CRD + mutating webhook this
   # slot's Cluster CRs gate on. See 16b-bp-cnpg-pair.yaml header for the

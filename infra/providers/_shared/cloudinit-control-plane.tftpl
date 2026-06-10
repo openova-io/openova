@@ -421,6 +421,15 @@ write_files:
             SOVEREIGN_REPLICA_REGION: "${replica_region_canonical_label}"
             SOVEREIGN_ENABLE_HOT_STANDBY: "${enable_hot_standby}"
             SOVEREIGN_BCP_TOPOLOGY: "${bcp_topology}"
+            # SOVEREIGN_REGION_ROLE — this control plane's role in the
+            # multi-region topology (primary|secondary). Both providers
+            # pass sovereign_region_role (hetzner stamps the literal per
+            # CP, huawei derives it from the region index). Promoted out
+            # of the huawei-only block for the bp-cnpg-pair split-side
+            # model: slot 16b stamps `cnpgPair.side` from this so each
+            # cluster renders its own half of the CNPG pair (the chart
+            # normalizes "secondary" → replica).
+            SOVEREIGN_REGION_ROLE: "${sovereign_region_role}"
             SOVEREIGN_REGIONS_JSON: '${sovereign_regions_json}'
             SOVEREIGN_CONFIGURED_REGIONS_YAML: '${sovereign_configured_regions_yaml}'
 %{ if provider == "hetzner" ~}
@@ -448,7 +457,6 @@ write_files:
             SOVEREIGN_GATEWAY_HTTP_PORT: "30080"
             HARBOR_PROXY_MIRROR_ENDPOINT: "http://212.72.24.20:5000"
             PDNS_API_HOST: "${pdns_api_host}"
-            SOVEREIGN_REGION_ROLE: "${sovereign_region_role}"
 %{ endif ~}
       ---
       # sovereign-tls Kustomization — carries the cert-manager Certificate

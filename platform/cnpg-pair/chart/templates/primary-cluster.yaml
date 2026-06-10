@@ -11,8 +11,13 @@ to drive switchover.
 Region-pinning: the `openova.io/region` node-affinity term (paired
 with the matching label on this CR) ensures the operator schedules
 all instances inside the configured Hetzner region.
+
+Side-gating (chart 0.2.0): this CR renders ONLY on side=primary —
+the primary and replica halves of the pair live on SEPARATE clusters
+(ClusterMesh-joined), so cluster-B must never receive the primary
+Cluster CR (its region-A node-affinity could never schedule there).
 */ -}}
-{{- if .Values.cnpgPair.enabled }}
+{{- if and .Values.cnpgPair.enabled (include "cnpg-pair.isPrimarySide" .) }}
 {{- include "cnpg-pair.validateRegions" . }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster

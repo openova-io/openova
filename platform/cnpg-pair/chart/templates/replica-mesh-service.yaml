@@ -1,0 +1,59 @@
+{{- /*
+Replica-side ClusterMesh global Service stub (chart 0.2.0).
+
+Cilium ClusterMesh global services are merged BY NAME+NAMESPACE: a
+Service participates in the mesh only if a Service object with the
+same name + namespace exists in EVERY consuming cluster, each
+annotated `service.cilium.io/global: "true"` (upstream Cilium
+ClusterMesh contract). On the split-side topology the primary side's
+`-primary-mesh` Service is CNPG-managed on cluster-A (via the primary
+Cluster CR's `spec.managed.services.additional[]`) — but cluster-B
+has no primary Cluster CR, so nothing creates the local Service the
+replica's `externalClusters.connectionParameters.host` resolves:
+without this stub, DNS for `<fullname>-primary-mesh` is NXDOMAIN on
+cluster-B and the replica can never open its streaming connection.
+
+This stub:
+  - carries the SAME name (`<fullname>-primary-mesh`), port (5432),
+    and global/affinity annotations as the primary side's managed
+    Service, so Cilium merges the two into one global service;
+  - uses the primary Cluster's `-r`-equivalent selector
+    (`cnpg.io/cluster: <fullname>-primary`), which matches ZERO Pods
+    on cluster-B — so every connection routes across the mesh to the
+    primary region's backends (the `affinity: local` hint falls
+    through to remote when no local backend exists);
+  - does NOT collide with CNPG ownership: the local CNPG operator on
+    cluster-B manages only the replica Cluster's Services
+    (`<fullname>-replica-r/-ro/-rw`), never this name. (The 0.1.0
+    "refusing to reconcile service" incident was a SAME-cluster
+    collision with the primary CR's auto-created `-r` — not possible
+    here, the primary CR lives on the other cluster.)
+*/ -}}
+{{- if and .Values.cnpgPair.enabled .Values.cnpgPair.clusterMesh.enabled (include "cnpg-pair.isReplicaSide" .) }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cnpg-pair.replicationServiceName" . }}
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+    catalyst.openova.io/role: replication-source
+  annotations:
+    # Cilium ClusterMesh — same annotations as the primary side's
+    # CNPG-managed Service so the mesh merges both into one global
+    # service. Zero local backends here → traffic crosses the mesh.
+    service.cilium.io/global: "true"
+    service.cilium.io/affinity: {{ .Values.cnpgPair.clusterMesh.affinity | quote }}
+    catalyst.openova.io/blueprint: bp-cnpg-pair
+spec:
+  type: ClusterIP
+  selector:
+    # CNPG `-r` selector shape for the PRIMARY Cluster — matches zero
+    # Pods on the replica cluster by construction.
+    cnpg.io/cluster: {{ include "cnpg-pair.primaryName" . }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP
+{{- end }}

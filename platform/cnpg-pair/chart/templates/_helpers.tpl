@@ -71,6 +71,39 @@ replica.region is degenerate). Triggered only when enabled=true.
 {{- end }}
 
 {{/*
+Side resolution — WHICH HALF of the pair this install renders
+(chart 0.2.0 split-side topology).
+
+A 2-region Sovereign is two SEPARATE clusters joined by Cilium
+ClusterMesh, so the pair's objects must be applied per-cluster:
+primary-side objects on cluster-A, replica-side objects on cluster-B.
+The bootstrap-kit slot 16b stamps `cnpgPair.side` from the per-region
+SOVEREIGN_REGION_ROLE cloud-init substitute, whose value domain is
+primary|secondary — normalize "secondary" to "replica" here so the
+slot substitutes the role verbatim. Empty/unset defaults to "primary"
+(standalone single-manifest installs keep the historical behaviour of
+rendering the primary half). Any other value fails the render.
+*/}}
+{{- define "cnpg-pair.side" -}}
+{{- $side := default "primary" .Values.cnpgPair.side -}}
+{{- if eq $side "secondary" -}}
+{{- $side = "replica" -}}
+{{- end -}}
+{{- if and (ne $side "primary") (ne $side "replica") -}}
+{{- fail (printf "cnpgPair.side must be one of primary|replica|secondary — got %q" .Values.cnpgPair.side) -}}
+{{- end -}}
+{{- $side -}}
+{{- end }}
+
+{{- define "cnpg-pair.isPrimarySide" -}}
+{{- if eq (include "cnpg-pair.side" .) "primary" -}}true{{- end -}}
+{{- end }}
+
+{{- define "cnpg-pair.isReplicaSide" -}}
+{{- if eq (include "cnpg-pair.side" .) "replica" -}}true{{- end -}}
+{{- end }}
+
+{{/*
 Canonical CR names — derived from fullname so Continuum + the
 ClusterMesh global Service can compute them deterministically.
 */}}

@@ -21,8 +21,16 @@ audit-types, and let consumers discover them via label.
 This is a NEW seam — first time we co-locate a NATS audit-config
 with the Blueprint that emits the events. Logged in 01-canonical-
 seams.md "Platform" table.
+
+Side-gating (chart 0.2.0): renders ONLY on side=primary. bp-continuum
+(slot 62) runs on the PRIMARY cluster (its HR is suspended on
+secondary control planes) and its prerequisite-check initContainer
+probes `kubectl get cm -A -l catalyst.openova.io/audit-config=true`
+against ITS OWN cluster — so this ConfigMap must land on the primary
+side for the controller to flip from idle to active. That contract is
+unchanged by the side split.
 */ -}}
-{{- if .Values.cnpgPair.enabled }}
+{{- if and .Values.cnpgPair.enabled (include "cnpg-pair.isPrimarySide" .) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

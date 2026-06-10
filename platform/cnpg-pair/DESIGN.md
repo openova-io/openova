@@ -213,6 +213,47 @@ the strongest mode.
   promoted replica" (zero-tx-loss), no longer "within the
   configured async-lag tolerance."
 
+### 8. Split-side rendering — each cluster applies ITS half (chart 0.2.0)
+
+A 2-region Sovereign is two SEPARATE k3s clusters joined by Cilium
+ClusterMesh (kom4dc mimics the second region with a second VPC) —
+**not** one stretched cluster. Chart ≤0.1.x rendered both Cluster CRs
+in a single release on the primary cluster and relied on
+`openova.io/region` node-affinity to "schedule each side to its
+region". That only works on a stretched cluster: on separate clusters
+the replica Cluster CR + failover-readiness Deployment pinned to
+region-B labels can NEVER schedule on cluster-A (hw126:
+`FailedScheduling 0/4 nodes — affinity requires
+openova.io/region=hw-me-east-215-b-rtz-prod`).
+
+Chart 0.2.0 keys the render off `cnpgPair.side`
+(primary|replica; `secondary` aliases replica so the bootstrap-kit
+can substitute the per-region SOVEREIGN_REGION_ROLE verbatim):
+
+- `side=primary` (cluster-A): primary Cluster CR + the CNPG-managed
+  `-primary-mesh` global Service + audit-config ConfigMap (the
+  bp-continuum prerequisite probe reads it on the primary cluster) +
+  replication-ingress NetworkPolicy + the optional Continuum CR +
+  helm-test resources.
+- `side=replica` (cluster-B): replica Cluster CR (pg_basebackup +
+  externalClusters — the canonical CNPG separate-cluster replica
+  pattern, unchanged) + a local `-primary-mesh` Service stub (Cilium
+  merges global services BY NAME+NAMESPACE across clusters; without a
+  local Service object the externalCluster host is NXDOMAIN on
+  cluster-B; its selector matches zero local Pods so traffic crosses
+  the mesh) + failover-readiness Deployment + probe NetworkPolicies.
+
+Slot 16b applies the HR on BOTH control planes (the former
+SECONDARY_HR_SUSPEND suspend is removed) and the post-mesh #3238 flip
+patches SOVEREIGN_ENABLE_CNPG_PAIR onto ALL region Kustomizations —
+a primary-only flip would leave cluster-B rendering an empty release
+(no replica, no WAL stream).
+
+Cross-cluster prerequisite unchanged from 0.1.x but now explicit: the
+replica's streaming auth mounts the primary's `-replication` / `-ca`
+Secrets, which must be synced cluster-A → cluster-B (ESO/reflector
+per the per-Sovereign overlay).
+
 ---
 
 ## C-DB-3 acceptance test — implementer brief (HARNESS SHIPPED, awaits operator walk)

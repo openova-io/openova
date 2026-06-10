@@ -15,6 +15,37 @@ cnpgPair:
   # disabled so platform overlays can include it without side effects.
   enabled: false
 
+  # ── Side — WHICH HALF of the pair this install renders (chart 0.2.0) ──
+  # A 2-region Sovereign is TWO SEPARATE k8s clusters linked by Cilium
+  # ClusterMesh (kom4dc mimics this with 2 VPCs) — NOT one stretched
+  # cluster. Chart ≤0.1.x rendered BOTH Cluster CRs in one release and
+  # relied on node-affinity to "schedule each side to its region", which
+  # only works on a stretched cluster: on separate clusters the replica
+  # Cluster + failover-readiness probe pinned to region-B labels can
+  # NEVER schedule on cluster-A (hw126: FailedScheduling 0/4 nodes,
+  # affinity requires openova.io/region=hw-me-east-215-b-rtz-prod).
+  #
+  # side=primary renders the region-A half ONLY:
+  #   primary Cluster CR + `*-primary-mesh` global Service (via
+  #   managed.services.additional) + audit-config ConfigMap (bp-continuum
+  #   slot 62 runs on the primary cluster and prerequisite-probes this
+  #   ConfigMap) + the replication-ingress NetworkPolicy + the optional
+  #   Continuum CR + the helm-test resources.
+  # side=replica renders the region-B half ONLY:
+  #   replica Cluster CR (pg_basebackup + externalClusters streaming the
+  #   primary's WAL over the ClusterMesh-global `-mesh` Service) +
+  #   failover-readiness probe Deployment (its region-B affinity now
+  #   matches the nodes it runs on) + the probe NetworkPolicies.
+  #
+  # The bootstrap-kit slot 16b stamps this from the per-region
+  # SOVEREIGN_REGION_ROLE substitute (cloud-init), whose value domain is
+  # primary|secondary (infra/providers/*/main.tf sovereign_region_role)
+  # — the chart normalizes "secondary" to the replica side so the slot
+  # can substitute the role verbatim. Accepted values:
+  # primary | replica | secondary (≡ replica); anything else fails the
+  # render.
+  side: primary
+
   # ── Primary region ────────────────────────────────────────────────
   primary:
     # Hetzner region key (matches openova.io/region label on nodes per
