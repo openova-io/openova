@@ -137,6 +137,17 @@ export function VerifyPinPage() {
         const sovereignDefault =
           DETECTED_MODE.mode === 'sovereign' ? '/dashboard' : '/wizard'
         let target = sanitizeNextParam(next) ?? sovereignDefault
+        // #3271: an absolute same-Sovereign continuation (e.g.
+        // `https://api.<fqdn>/oidc/auth?...` from KC's identity-broker
+        // bounce) must be navigated to verbatim. The basepath-rewrite
+        // below is for relative `/...` paths on Catalyst-Zero only — it
+        // would corrupt an absolute URL. sanitizeNextParam has already
+        // proven the host is in the trusted {console,auth,api}.<fqdn>
+        // family, so this hard-navigation can never go off-Sovereign.
+        if (typeof window !== 'undefined' && /^https?:\/\//i.test(target)) {
+          window.location.replace(target)
+          return
+        }
         if (typeof window !== 'undefined') {
           // window.location.replace is a HARD navigation — it bypasses
           // the TanStack Router's basepath config. On contabo the SPA

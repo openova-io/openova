@@ -5,6 +5,8 @@ import {
   hasCatalystSession,
   probeWhoamiAndCacheMarker,
   sanitizeNextParam,
+  sameSovereignHostFamily,
+  CANONICAL_SOVEREIGN_SUBDOMAINS,
   PUBLIC_PATH_PREFIXES,
 } from './auth-gate'
 
@@ -242,6 +244,139 @@ describe('sanitizeNextParam — open-redirect defense (CWE-601)', () => {
     expect(sanitizeNextParam('/dashboard ')).toBeUndefined()
     expect(sanitizeNextParam(' /dashboard')).toBeUndefined()
     expect(sanitizeNextParam('/dash\x00board')).toBeUndefined()
+  })
+})
+
+describe('sameSovereignHostFamily', () => {
+  it('derives {console,auth,api}.<fqdn> by stripping the first label', () => {
+    expect(sameSovereignHostFamily('console.t42.omani.works')).toEqual([
+      'console.t42.omani.works',
+      'auth.t42.omani.works',
+      'api.t42.omani.works',
+    ])
+    expect(sameSovereignHostFamily('api.t42.omani.works')).toEqual([
+      'console.t42.omani.works',
+      'auth.t42.omani.works',
+      'api.t42.omani.works',
+    ])
+  })
+
+  it('preserves a :port suffix on every family member', () => {
+    expect(sameSovereignHostFamily('console.t42.omani.works:8443')).toEqual([
+      'console.t42.omani.works:8443',
+      'auth.t42.omani.works:8443',
+      'api.t42.omani.works:8443',
+    ])
+  })
+
+  it('trusts nothing for bare hosts / single-label parents / localhost', () => {
+    expect(sameSovereignHostFamily('')).toEqual([])
+    expect(sameSovereignHostFamily('localhost')).toEqual([])
+    expect(sameSovereignHostFamily('localhost:5173')).toEqual([])
+    // A single-label parent like `console.local` → parent `local` is refused.
+    expect(sameSovereignHostFamily('console.local')).toEqual([])
+    expect(sameSovereignHostFamily('console.')).toEqual([])
+  })
+
+  it('CANONICAL_SOVEREIGN_SUBDOMAINS is the expected control-plane set', () => {
+    expect(CANONICAL_SOVEREIGN_SUBDOMAINS).toEqual(['console', 'auth', 'api'])
+  })
+})
+
+describe('sanitizeNextParam — same-Sovereign cross-host allowlist (#3271)', () => {
+  // After PIN-verify the OAuth `next` continuation is a legitimate
+  // cross-host URL on the SAME Sovereign:
+  //   https://api.<fqdn>/oidc/auth?...&redirect_uri=https://auth.<fqdn>/...
+  // sanitizeNextParam must ACCEPT it (so the app SSO lands the user in
+  // the target app, not the console /dashboard) while still rejecting
+  // every host outside the trusted {console,auth,api}.<fqdn> family.
+  const HOST = 'console.t42.omani.works'
+
+  it('accepts an absolute api.<fqdn> OAuth continuation (the #3271 walk)', () => {
+    const next =
+      'https://api.t42.omani.works/oidc/auth?client_id=catalyst-pin' +
+      '&redirect_uri=https://auth.t42.omani.works/realms/sovereign/broker/catalyst-pin/endpoint' +
+      '&state=abc&response_type=code'
+    expect(sanitizeNextParam(next, HOST)).toBe(next)
+  })
+
+  it('accepts absolute auth.<fqdn> and console.<fqdn> same-Sovereign URLs', () => {
+    expect(sanitizeNextParam('https://auth.t42.omani.works/realms/sovereign', HOST)).toBe(
+      'https://auth.t42.omani.works/realms/sovereign',
+    )
+    expect(sanitizeNextParam('https://console.t42.omani.works/dashboard', HOST)).toBe(
+      'https://console.t42.omani.works/dashboard',
+    )
+  })
+
+  it('still accepts same-origin relative paths', () => {
+    expect(sanitizeNextParam('/dashboard', HOST)).toBe('/dashboard')
+    expect(sanitizeNextParam('/provision/d-1/users', HOST)).toBe('/provision/d-1/users')
+  })
+
+  it('REJECTS an unrelated absolute host (open-redirect)', () => {
+    expect(sanitizeNextParam('https://evil.com/path', HOST)).toBeUndefined()
+    expect(sanitizeNextParam('http://evil.com', HOST)).toBeUndefined()
+  })
+
+  it('REJECTS protocol-relative //evil.com', () => {
+    expect(sanitizeNextParam('//evil.com', HOST)).toBeUndefined()
+    expect(sanitizeNextParam('//api.t42.omani.works/oidc/auth', HOST)).toBeUndefined()
+  })
+
+  it('REJECTS the look-alike suffix attack api.<fqdn>.evil.com (CWE-601)', () => {
+    // The registrable host is evil.com — NOT the Sovereign FQDN. A naive
+    // `next.includes("api.<fqdn>")` check would be fooled; the URL-parse +
+    // exact host membership test must reject this.
+    expect(
+      sanitizeNextParam('https://api.t42.omani.works.evil.com/oidc/auth', HOST),
+    ).toBeUndefined()
+    expect(
+      sanitizeNextParam('https://api.t42.omani.works@evil.com/oidc/auth', HOST),
+    ).toBeUndefined()
+    expect(
+      sanitizeNextParam('https://evil.com/api.t42.omani.works/oidc/auth', HOST),
+    ).toBeUndefined()
+  })
+
+  it('REJECTS a different Sovereign FQDN (cross-Sovereign redirect)', () => {
+    expect(
+      sanitizeNextParam('https://api.t99.omantel.biz/oidc/auth', HOST),
+    ).toBeUndefined()
+  })
+
+  it('REJECTS a same-host but wrong-subdomain (e.g. grafana.<fqdn>) absolute URL', () => {
+    // Only the control-plane family is trusted for a bare redirect target.
+    expect(
+      sanitizeNextParam('https://grafana.t42.omani.works/login', HOST),
+    ).toBeUndefined()
+  })
+
+  it('REJECTS javascript:/data: schemes regardless of host', () => {
+    expect(sanitizeNextParam('javascript:alert(1)', HOST)).toBeUndefined()
+    expect(sanitizeNextParam('data:text/html,<script>1</script>', HOST)).toBeUndefined()
+  })
+
+  it('falls back to paths-only when no trusted family can be derived', () => {
+    // On localhost (dev) there is no multi-label parent → absolute URLs
+    // are all rejected, relative paths still work.
+    expect(sanitizeNextParam('https://api.t42.omani.works/oidc/auth', 'localhost')).toBeUndefined()
+    expect(sanitizeNextParam('/dashboard', 'localhost')).toBe('/dashboard')
+  })
+
+  it('is port-exact: a mismatched port is rejected', () => {
+    // Current host has no port; an absolute next carrying :8443 is a
+    // different origin and must not be trusted.
+    expect(
+      sanitizeNextParam('https://api.t42.omani.works:8443/oidc/auth', HOST),
+    ).toBeUndefined()
+    // …but matches when the current host carries the same port.
+    expect(
+      sanitizeNextParam(
+        'https://api.t42.omani.works:8443/oidc/auth',
+        'console.t42.omani.works:8443',
+      ),
+    ).toBe('https://api.t42.omani.works:8443/oidc/auth')
   })
 })
 
