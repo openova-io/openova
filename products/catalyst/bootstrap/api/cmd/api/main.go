@@ -1105,6 +1105,16 @@ func main() {
 		// PurgeReport summary. The wizard's failed-state banner renders the
 		// operator confirmation modal that POSTs here.
 		rg.Post("/api/v1/deployments/{id}/wipe", h.WipeDeployment)
+		// DNS re-publish endpoint (Refs #3265 #3263) — idempotent re-trigger
+		// that writes the CURRENT CanonicalSovereignSubdomains list into the
+		// parent PowerDNS zone for an EXISTING deployment.  Used when the
+		// canonical subdomain list grows after a Sovereign was provisioned (e.g.
+		// hw126 was provisioned before #3265 added "newapi" + "pdns-admin"), so
+		// operators can pick up the new A records WITHOUT a full re-provision.
+		// Inputs (FQDN, LB IP, parent zones) are reconstructed entirely from
+		// the persisted Deployment record — no external API calls.  The
+		// PowerDNS PATCH is REPLACE-idempotent; re-running is always safe.
+		rg.Post("/api/v1/deployments/{id}/republish-dns", h.HandleRepublishDNS)
 		// Handover JWT — issue #605 (minting) + issue #606 (consumption).
 		// MintHandoverToken: Catalyst-Zero operator finalises a deployment;
 		// wizard StepSuccess POSTs here to get a one-time RS256 JWT, then
