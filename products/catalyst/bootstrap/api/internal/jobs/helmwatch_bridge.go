@@ -898,6 +898,115 @@ func (b *Bridge) MarkProvisionerFailed(message string, t time.Time) error {
 	return nil
 }
 
+// SweepHandoverInstallJobs stamps every still-reconciling bp-* install
+// Job row terminal at a SUCCESSFUL Phase-1 handover (issue #3277).
+//
+// Why this exists: the mother's Phase-1 helmwatch derives one Job row
+// per HelmRelease from live HR state, but at watch-end nothing swept
+// the rows whose last-observed state was non-terminal. When the watch
+// terminates by OutcomeReady, an individual install-* row can still be
+// frozen at "running"/"pending" in the snapshot — informer-dedup loss
+// (the seed observed the HR already at its terminal state, so no
+// distinct transition event fired), a Pod restart that wiped the
+// in-memory cursor before the terminal edge, or a secondary-region
+// watcher whose stream stalled. The mother stops watching after
+// handover, so that row's "running" never resolves and the operator's
+// bootstrap view reads "stuck running forever".
+//
+// At a successful handover the Sovereign is now self-managing every
+// component, so the mother's bootstrap view should read complete — not
+// stuck running. This sweep walks every leaf install Job (Type ==
+// JobTypeInstall named "install-<chart>") and stamps each NON-TERMINAL
+// row Succeeded, finishing any open Execution and appending an honest
+// hand-over LogLine so the record never claims silent install-success
+// without explaining that the mother has handed the component off.
+//
+// Correctness guards:
+//   - ONLY call this on a SUCCESSFUL handover (the caller gates on
+//     helmwatch.OutcomeReady). A FAILED Phase-1 must keep its failed
+//     rows visible — never call this for a failure.
+//   - Rows already Failed are LEFT UNTOUCHED — a real per-component
+//     failure is never masked as handed-over, even at OutcomeReady
+//     (OutcomeReady is all-installed by definition, but the guard makes
+//     the invariant explicit and defends a future caller).
+//   - Rows already Succeeded are a no-op (IsTerminal short-circuit).
+//   - Group rows derive their status from descendants at read time, so
+//     they're skipped — sweeping the leaves is sufficient.
+//
+// The Job model exposes only pending|running|succeeded|failed; there is
+// no distinct "handed-over" terminal value, and the FE JobStatus union
+// is the same four buckets — so the truth about hand-over lives in the
+// final LogLine, not a fabricated fifth status. Mirrors
+// markLifecyclePhaseTerminalLocked's locking + FinishExecution pattern.
+func (b *Bridge) SweepHandoverInstallJobs(t time.Time) (swept int, err error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	all, listErr := b.store.ListJobs(b.deploymentID)
+	if listErr != nil {
+		return 0, listErr
+	}
+	t = t.UTC()
+	const handoverNote = "[handed-over] Phase-1 handover complete — the Sovereign is now self-managing this component. The mother is no longer tracking its state; see the Sovereign console for live status."
+	for _, j := range all {
+		// Leaf install rows only. Group rows derive status from
+		// descendants at read time; lifecycle (Phase-0) rows are already
+		// stamped terminal by MarkProvisionerComplete before Phase-1.
+		if j.Type != JobTypeInstall {
+			continue
+		}
+		if !strings.HasPrefix(j.JobName, JobNamePrefix) {
+			continue
+		}
+		// Never touch a terminal row: an already-Succeeded row is done,
+		// and an already-Failed row must keep surfacing its failure — a
+		// real per-component failure is never masked as handed-over.
+		if IsTerminal(j.Status) {
+			continue
+		}
+
+		// Finish any open Execution on this Job so the GitLab-CI viewer
+		// shows the row terminal too. Reuse the persisted
+		// LatestExecutionID; allocate one retroactively if the row never
+		// started an Execution (a row stuck "pending" with no attempt),
+		// matching markLifecyclePhaseTerminalLocked so the JobsTable
+		// never renders an em-dash duration cell.
+		execID := j.LatestExecutionID
+		if execID == "" {
+			exec, startErr := b.store.StartExecution(b.deploymentID, j.JobName, t)
+			if startErr != nil {
+				return swept, startErr
+			}
+			execID = exec.ID
+		}
+		if appendErr := b.store.AppendLogLines(b.deploymentID, execID, []LogLine{{
+			Timestamp: t,
+			Level:     LevelInfo,
+			Message:   handoverNote,
+		}}); appendErr != nil {
+			return swept, appendErr
+		}
+		// FinishExecution is idempotent on an already-terminal Execution's
+		// status and is the canonical terminal transition — it stamps the
+		// Execution AND the Job (Status + FinishedAt + DurationMs) in one
+		// call, converging a Job row left non-terminal even when its
+		// Execution already finished.
+		if finishErr := b.store.FinishExecution(b.deploymentID, execID, StatusSucceeded, t); finishErr != nil {
+			return swept, finishErr
+		}
+		// Clear any live cursor so a late raw-log line doesn't re-open
+		// the Execution. comp is the AppID (bare chart) the cursor keys
+		// off; fall back to stripping the install- prefix.
+		comp := j.AppID
+		if comp == "" {
+			comp = strings.TrimPrefix(j.JobName, JobNamePrefix)
+		}
+		delete(b.activeExecID, comp)
+		swept++
+	}
+	return swept, nil
+}
+
 // ensureLifecycleJobLocked idempotently materialises the durable Job
 // row for a single Phase-0 lifecycle phase. Used by paths that may
 // run before SeedProvisionerJobs (e.g. a fast emit, a test that
