@@ -796,6 +796,25 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// adds ≤100ms before markPhase1Done's caller resumes.
 		h.runSecondaryBridgeBackfill(dep)
 
+		// Issue #3277 — sweep any still-reconciling bp-* install Job row
+		// terminal now that handover has succeeded. The helmwatch derives
+		// one Job row per HR from live state, but a row whose last-seen
+		// state was non-terminal (informer-dedup loss, a Pod restart that
+		// lost the in-memory cursor before the terminal edge, or a
+		// secondary watcher whose stream stalled) freezes at
+		// "running"/"pending" forever — the mother stops watching after
+		// handover, so nothing ever resolves it and the operator's
+		// bootstrap view reads "stuck running". The Sovereign is now
+		// self-managing every component, so the mother's view should read
+		// complete. This runs ONLY on OutcomeReady (a SUCCESSFUL handover)
+		// so a failed Phase-1 keeps its failure visible; the sweep itself
+		// leaves any already-Failed row untouched (never masks a real
+		// per-component failure as handed-over). Run INLINE for the same
+		// reason as runSecondaryBridgeBackfill above — in-memory store
+		// work, no network I/O, and `defer stopSecondaries()` tears down
+		// the watchers as soon as markPhase1Done returns.
+		h.runHandoverJobSweep(dep)
+
 		// Wave 5.90 phase 2b (#2441): post-handover flip of bp-kyverno-
 		// policies bootstrapMode from true (fresh-prov default — every
 		// ClusterPolicy renders Audit) → false (canonical per-policy
@@ -875,6 +894,57 @@ func (h *Handler) runSecondaryBridgeBackfill(dep *Deployment) {
 			"snapshotCount", len(snap),
 			"jobsWritten", jobsCount,
 			"executionsSeeded", execsSeeded,
+		)
+	}
+}
+
+// runHandoverJobSweep stamps every still-reconciling bp-* install Job
+// row terminal at a successful Phase-1 handover (issue #3277). Delegates
+// to Bridge.SweepHandoverInstallJobs, which leaves already-Failed rows
+// untouched (a real per-component failure is never masked) and stamps
+// each non-terminal install row Succeeded with an honest hand-over
+// LogLine.
+//
+// Called ONLY from markPhase1Done's OutcomeReady branch, so it can only
+// ever run on a SUCCESSFUL handover — a failed Phase-1 keeps its failure
+// visible. Best-effort: a store error is logged at warn but never
+// derails the handover (the row staying "running" is a cosmetic
+// regression on a healthy cluster, not a correctness failure).
+//
+// Resolves the per-deployment Bridge the same way the rest of the
+// handler does (bridgeFor get-or-create) so the sweep runs against the
+// same jobs.Store the helmwatch feed already wrote to. A nil h.jobs
+// (CI without persistence) makes bridgeFor hand back a no-op in-memory
+// bridge whose ListJobs is empty — the sweep is a harmless zero-row
+// walk there.
+func (h *Handler) runHandoverJobSweep(dep *Deployment) {
+	defer func() {
+		if r := recover(); r != nil {
+			h.log.Error("handover job sweep: panic recovered",
+				"id", dep.ID,
+				"panic", r,
+			)
+		}
+	}()
+	if h.jobs == nil {
+		return
+	}
+	bridge := h.bridgeFor(dep)
+	if bridge == nil {
+		return
+	}
+	swept, err := bridge.SweepHandoverInstallJobs(time.Now().UTC())
+	if err != nil {
+		h.log.Warn("handover job sweep: failed",
+			"id", dep.ID,
+			"err", err,
+		)
+		return
+	}
+	if swept > 0 {
+		h.log.Info("handover job sweep: stamped still-reconciling install rows terminal",
+			"id", dep.ID,
+			"sweptRows", swept,
 		)
 	}
 }
