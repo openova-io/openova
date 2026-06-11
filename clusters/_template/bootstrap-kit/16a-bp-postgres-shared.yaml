@@ -90,7 +90,12 @@ spec:
       # (kubernetes.io/basic-auth, stable via lookup-keep) — CNPG never
       # auto-creates managed-role secrets, so the hub reflects: pull had no
       # source and consumers starved on hw130 (CreateContainerConfigError).
-      version: 0.1.3
+      # 0.1.4 (#3285): hub connection Secrets render their data DIRECTLY
+      # (same scope + same minted password as the role Secret) — the
+      # reflects: pull was dead on two reflector limitations (no retry
+      # for late sources; mirrors can't be push sources), proven live
+      # hw130. Hub stays the #3283 push source for consumer namespaces.
+      version: 0.1.4
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
