@@ -152,6 +152,11 @@ spec:
   chart:
     spec:
       chart: bp-harbor
+      # 1.2.28: #3285 — SHARED-PG consumer wiring. database-secret-sync-job
+      # gated on postgres.cluster.enabled (skipped in SHARED mode, where no
+      # harbor-pg-app exists to poll). harbor's externalDatabase already
+      # reads harbor-database-secret (key password); the host flips via the
+      # SOVEREIGN_HARBOR_PG_HOST seam below. own-cluster render byte-identical.
       # 1.2.26: #3098 — guard the SSO ExternalSecret template with the
       # .Capabilities.APIVersions.Has "external-secrets.io/v1beta1" CRD-check
       # (gold standard, mirrors bp-external-dns + bp-sandbox). The dependsOn:
@@ -175,7 +180,7 @@ spec:
       # live on otech113 2026-05-05 (issue #935 Bug 1) — Step 02 was
       # in CreateContainerConfigError for 11+ retries, blocking
       # cutover indefinitely.
-      version: 1.2.27
+      version: 1.2.28
       sourceRef:
         kind: HelmRepository
         name: bp-harbor

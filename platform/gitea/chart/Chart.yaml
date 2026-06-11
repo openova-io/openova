@@ -97,7 +97,18 @@ name: bp-gitea
 # (old RS never scales down → HR Stalled → bp-catalyst-platform blocked).
 # Recreate terminates the old Pod first (releasing the PVC + lock) then
 # starts the new one. Single-replica gitea has no roll-time HA to lose.
-version: 1.2.26
+# 1.2.27 (#3285, 2026-06-11): SHARED-PG consumer wiring. The
+# database-secret-sync-job (which polls `gitea-pg-app` to mirror the
+# CNPG password into gitea-database-secret) is now gated on
+# `postgres.cluster.enabled != false` — the same gate cnpg-cluster.yaml +
+# database-secret.yaml already carry. In SHARED mode there is no
+# gitea-pg-app to poll; the populated gitea-database-secret is reflected
+# in by bp-postgres-shared (#3284), so the un-gated Job would time out
+# and FAIL the post-install hook. The DB password secret NAME flips via
+# the bootstrap-kit slot 10 `SOVEREIGN_GITEA_PG_SECRET` seam (own-cluster
+# default gitea-pg-app → SHARED gitea-database-secret). own-cluster render
+# byte-identical to 1.2.26.
+version: 1.2.27
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so
