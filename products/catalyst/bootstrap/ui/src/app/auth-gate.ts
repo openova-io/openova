@@ -40,39 +40,120 @@ export function canonicalisePath(pathname: string): string {
 }
 
 /**
- * Sanitize a `next=` redirect target so it can NEVER point to an
- * external host (open-redirect class CWE-601).
+ * Derive the set of trusted same-Sovereign hostnames from a host that
+ * the UI is currently served on (e.g. `window.location.host`).
  *
- * Rules (strictly reject anything ambiguous — paths only):
+ * A Sovereign exposes three first-party control-plane hosts that all
+ * share the same parent FQDN: `console.<fqdn>` (this UI), `auth.<fqdn>`
+ * (Keycloak), and `api.<fqdn>` (catalyst-api). They are derived by
+ * stripping the first DNS label off the current host and re-prefixing
+ * each canonical label. So from `console.t42.omani.works` we derive
+ * `{console,auth,api}.t42.omani.works`.
+ *
+ * The host may carry a `:port` suffix (dev / non-default-port
+ * deployments). We split it off, derive the family from the bare
+ * hostname, and re-append the same port to every family member so a
+ * `https://api.<fqdn>:8443/...` next survives on a non-default port.
+ *
+ * Returns an empty array when the current host has no parent label to
+ * strip (bare hostname / IP / `localhost`) — in that degenerate case
+ * NO absolute host is trusted and `sanitizeNextParam` falls back to
+ * paths-only, which is the safe default.
+ */
+export const CANONICAL_SOVEREIGN_SUBDOMAINS = ['console', 'auth', 'api'] as const
+
+export function sameSovereignHostFamily(currentHost: string): string[] {
+  if (!currentHost) return []
+  const colon = currentHost.indexOf(':')
+  const hostname = colon === -1 ? currentHost : currentHost.slice(0, colon)
+  const port = colon === -1 ? '' : currentHost.slice(colon)
+  const firstDot = hostname.indexOf('.')
+  // No parent label to strip (bare host / IP / localhost) → trust nothing.
+  if (firstDot <= 0 || firstDot === hostname.length - 1) return []
+  const parentFqdn = hostname.slice(firstDot + 1)
+  // Guard against a parent that is itself a bare label with no dot
+  // (e.g. host `console.local` → parent `local`). A real Sovereign FQDN
+  // is multi-label; refuse to trust a single-label parent.
+  if (!parentFqdn.includes('.')) return []
+  return CANONICAL_SOVEREIGN_SUBDOMAINS.map((label) => `${label}.${parentFqdn}${port}`)
+}
+
+/**
+ * Sanitize a `next=` redirect target so it can NEVER point to an
+ * UNTRUSTED external host (open-redirect class CWE-601).
+ *
+ * Rules:
  *   - If the input is empty / non-string → return undefined.
  *   - Reject embedded NUL / control / whitespace characters.
- *   - Reject explicit URL schemes (`http:`, `https:`, `javascript:`,
- *     `data:`, `file:`, `vbscript:`, `mailto:`, etc).
  *   - Reject backslashes anywhere (some browsers normalize `\` to
  *     `/`, which would smuggle `\\evil.com` past a leading-slash
  *     check).
- *   - Reject anything that doesn't start with a single forward
- *     slash. In particular `//evil.com/foo` is rejected — the
- *     browser parses leading `//` as a protocol-relative authority
- *     reference (host = evil.com).
+ *   - Same-origin relative paths (`/dashboard`, `/provision/...`) pass
+ *     through unchanged, exactly as before. Leading `//` (protocol-
+ *     relative authority) is still rejected.
+ *   - Absolute `http(s)://` URLs are accepted ONLY when their host is
+ *     in the same-Sovereign trusted family (`console.<fqdn>` /
+ *     `auth.<fqdn>` / `api.<fqdn>`) derived from the current origin.
+ *     This is required for the cross-host OAuth `next` continuation
+ *     after PIN-verify: KC's identity broker bounces the operator to
+ *     `/login?next=https://api.<fqdn>/oidc/auth?...` (#3271). Without
+ *     this allowlist, that legitimate same-Sovereign continuation was
+ *     dropped and every app SSO landed the user on the console
+ *     `/dashboard` instead of the target app.
+ *   - Every OTHER absolute host is rejected — `https://evil.com`,
+ *     scheme-relative `//evil.com`, and crucially look-alike suffix
+ *     attacks like `https://api.<fqdn>.evil.com/` (the registrable
+ *     host is `evil.com`, NOT the Sovereign FQDN).
+ *   - Non-`http(s)` schemes (`javascript:`, `data:`, `file:`,
+ *     `vbscript:`, `mailto:`) are rejected outright.
  *
- * Returns the sanitized path, or `undefined` if the input is unsafe
- * — callers should fall back to the default landing page (e.g.
- * `/dashboard` or `/wizard`).
+ * Returns the sanitized target (relative path or trusted absolute
+ * URL), or `undefined` if the input is unsafe — callers fall back to
+ * the default landing page (e.g. `/dashboard` or `/wizard`).
+ *
+ * The current host is read from `window.location.host` by default but
+ * may be passed explicitly so the function stays pure + unit-testable
+ * without a DOM.
  *
  * qa-loop iter-4 cluster `users-page-null-map-and-open-redirect`
- * (TC-009 / 2026-05-09 routing matrix). The contract: post-login
- * navigation MUST land on the same origin under all circumstances.
+ * (TC-009 / 2026-05-09 routing matrix) + #3271 cross-host SSO
+ * continuation. The contract: post-login navigation MUST land on the
+ * same Sovereign under all circumstances — never off it.
  */
-export function sanitizeNextParam(raw: unknown): string | undefined {
+export function sanitizeNextParam(
+  raw: unknown,
+  currentHost: string | undefined = typeof window !== 'undefined'
+    ? window.location.host
+    : undefined,
+): string | undefined {
   if (typeof raw !== 'string' || raw.length === 0) return undefined
-  // Reject embedded NULs / control chars / any whitespace.
+  // Reject embedded NULs / control chars / any whitespace. The control
+  // range is intentional (we are screening for exactly those bytes).
+  // eslint-disable-next-line no-control-regex
   if (/[\x00-\x1f\s]/.test(raw)) return undefined
   // Reject backslashes anywhere — some browsers normalize `\` to `/`
   // before parsing, so `/\evil.com` and `\\evil.com` end up host
   // references at runtime.
   if (raw.indexOf('\\') !== -1) return undefined
-  // Reject schemes (http:, https:, javascript:, data:, file:, mailto:,
+
+  // Absolute http(s) URL → allow ONLY if the host is in the trusted
+  // same-Sovereign family. Any other absolute host is an open-redirect.
+  if (/^https?:\/\//i.test(raw)) {
+    let parsed: URL
+    try {
+      parsed = new URL(raw)
+    } catch {
+      return undefined
+    }
+    const family = sameSovereignHostFamily(currentHost ?? '')
+    // `parsed.host` includes the port if present — `family` members
+    // carry the same port suffix, so this comparison is port-exact and
+    // rejects look-alike suffix hosts (api.<fqdn>.evil.com → host is
+    // api.<fqdn>.evil.com which is not a family member).
+    if (family.includes(parsed.host)) return raw
+    return undefined
+  }
+  // Reject any other scheme (javascript:, data:, file:, mailto:,
   // vbscript:, etc.). A scheme is `<alpha>[<alpha>|<digit>|+|.|-]*:`.
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw)) return undefined
   // Require single-leading-slash absolute path. Reject leading `//`

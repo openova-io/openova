@@ -77,6 +77,8 @@ beforeEach(() => {
     writable: true,
     value: {
       ...window.location,
+      host: 'console.t42.omani.works',
+      hostname: 'console.t42.omani.works',
       pathname: '/',
       href: 'http://test/login/verify',
       replace: replaceSpy,
@@ -147,5 +149,62 @@ describe('VerifyPinPage — post-PIN-verify default landing (BUG-015 / D23)', ()
       expect(replaceSpy).toHaveBeenCalledTimes(1)
     })
     expect(replaceSpy).toHaveBeenCalledWith('/apps')
+  })
+
+  it('navigates verbatim to a same-Sovereign absolute OAuth next (#3271 walk)', async () => {
+    // KC's identity-broker bounce after PIN-verify carries the OAuth
+    // continuation as an absolute cross-host URL on api.<fqdn>. The page
+    // must hard-navigate there verbatim — NOT drop the user on
+    // /dashboard (the original #3271 bug) and NOT mangle the URL with
+    // the relative-path basepath rewrite.
+    mockMode = 'sovereign'
+    const oauthNext =
+      'https://api.t42.omani.works/oidc/auth?client_id=catalyst-pin' +
+      '&redirect_uri=https://auth.t42.omani.works/realms/sovereign/broker/catalyst-pin/endpoint' +
+      '&state=xyz&response_type=code'
+    searchState.current = {
+      email: 'emrah.baysal@openova.io',
+      requestId: 'req-1',
+      next: oauthNext,
+    }
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true }),
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const { getByTestId } = render(<VerifyPinPage />)
+    fireEvent.click(getByTestId('pin-complete-stub'))
+
+    await waitFor(() => {
+      expect(replaceSpy).toHaveBeenCalledTimes(1)
+    })
+    expect(replaceSpy).toHaveBeenCalledWith(oauthNext)
+  })
+
+  it('rejects an off-Sovereign absolute next and falls back to /dashboard', async () => {
+    // Open-redirect defense: an attacker-supplied https://evil.com next
+    // must be dropped — the operator lands on the Sovereign default.
+    mockMode = 'sovereign'
+    searchState.current = {
+      email: 'emrah.baysal@openova.io',
+      requestId: 'req-1',
+      next: 'https://evil.com/phish',
+    }
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true }),
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const { getByTestId } = render(<VerifyPinPage />)
+    fireEvent.click(getByTestId('pin-complete-stub'))
+
+    await waitFor(() => {
+      expect(replaceSpy).toHaveBeenCalledTimes(1)
+    })
+    expect(replaceSpy).toHaveBeenCalledWith('/dashboard')
   })
 })
