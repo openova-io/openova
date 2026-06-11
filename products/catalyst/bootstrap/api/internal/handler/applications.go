@@ -1512,19 +1512,28 @@ func (h *Handler) externalURLIfUserUI(ctx context.Context, depID, blueprint, tar
 	}
 	bpName := strings.TrimPrefix(strings.TrimSpace(blueprint), "bp-")
 	if bpName == "" {
-		// No blueprint name to resolve — fail open (legacy behaviour).
+		// No blueprint name — no UI signal can ever exist for this app.
+		// FAIL CLOSED (#3224 round-1 fix).
+		return ""
+	}
+	if h.catalogClient == nil {
+		// Catalog client not configured AT ALL (chroot config gap, CI) —
+		// the gate cannot distinguish any app from any other, so
+		// suppressing here would kill every WORKING Launch button
+		// fleet-wide. This is the single deliberate fail-OPEN branch.
 		return u
 	}
 	bp, err := h.resolveBlueprintMeta(ctx, bpName, "")
-	if err != nil || bp == nil {
-		// Could not resolve the Blueprint (catalog error / unwired) —
-		// fail open so a transient lookup failure never hides a real UI.
-		return u
-	}
-	if len(bp.Endpoints) == 0 {
-		// Catalog unwired or the Blueprint declares no endpoints at all —
-		// no UI signal available, fail open to preserve prior behaviour.
-		return u
+	if err != nil || bp == nil || len(bp.Endpoints) == 0 {
+		// FAIL CLOSED (#3224 round-1): transport error, blueprint
+		// NotFound in the catalog, malformed spec, or a genuine
+		// `endpoints: []` declaration (bp-newapi's shape) — in every
+		// case there is NO evidence of a user UI. The old fail-open
+		// here is exactly what rendered dead Open buttons on live
+		// hw130 (the catalog 404'd bp-newapi → button showed anyway).
+		// A suppressed button self-corrects on the next render if the
+		// catalog recovers; a dead button never does.
+		return ""
 	}
 	if !blueprintHasUserUIEndpoint(bp) {
 		// Resolved, endpoints present, but none is a user UI (API/protocol
