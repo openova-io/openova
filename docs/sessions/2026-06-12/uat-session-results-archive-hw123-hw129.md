@@ -4,7 +4,7 @@
 > carries ONLY the canonical click-by-click contract + the current round's ticks.
 > Walk evidence remains in docs/sessions/<date>/evidence/ and the issue trail.
 
-# UAT — OpenOva Catalyst — fresh acceptance page (RESET 2026-06-11 — pending hw128)
+# UAT — OpenOva Catalyst — fresh acceptance page (RESET 2026-06-11 — pending hw129)
 
 > **Tests-first.** Fresh **2-region** prov **hw101** replaces wiped hw99. Every row is `☐` **pending** until walked LIVE on the **production React tree** (`products/catalyst/bootstrap/ui/`) on the real Sovereign — never a mock, never the dead Svelte console (`products/catalyst/console/`), never a CLOSED/merged status. A row earns its evidence link ONLY when it is actually walked. Authored 2026-06-08 after hw99 (1 functional cluster + falsified 2-region evidence) was wiped on founder order. **Sandbox is OUT of scope.**
 >
@@ -59,6 +59,25 @@ Remaining (continuing the live walk): **TC-05–09 checkout→Org** (heaviest �
 
 **hw126 honest verdict:** OpenBao zero-click = **FAIL** (login form, no silent SSO); pdns = **FAIL** (302 → NXDOMAIN pdns-admin host). The remaining SSO-matrix + dead-button checks are **blocked by a live catalyst-api 503 outage** (serves both the console + the OIDC bridge) — not asserted as pass/fail. catalyst-api recovery + re-walk is the follow-up.
 
+## 0e. Session results — hw129 (`537bd50c8e9c3eb0`, hw129.omantel.biz, SHARED_PG=true), walked 2026-06-12 — CURRENT LIVE ENV
+
+> The FIRST shared-Postgres prov + the first prov with the #3307 VPC peering and the full
+> 6-layer #3241 mesh chain baked in. Real-PIN console login; live Playwright walk.
+
+| TC | Surface | Result | Evidence |
+|---|---|---|---|
+| **zero-touch validations** | peering/mesh/pair | ✅ **ALL ZERO-TOUCH** | tofu created the VPC peering (`…-peer-d33a1d18 ACTIVE`); mesh `1/1 remote clusters ready` on the FIRST reconcile with the CORRECT peer name (`hw129-me-east--b`, #3304); two-stage flip self-assembled the cnpg pair. No human touch anywhere. |
+| **shared-PG engine (#3285)** | shared-data | ✅ engine VERIFIED | `shared-pg` Cluster healthy; Database CRs `shared-pg-gitea`+`shared-pg-registry` APPLIED; hub Secrets reflector-annotated. |
+| **shared-PG consumers (#3285)** | gitea+harbor | ❌ → fix MERGED | Consumers still rendered bundled clusters — the per-consumer flips were a manual second step. #3309 (one flag = full model) MERGED; hw130 validates. |
+| **#3274 panel** | /catalog/bp-cnpg | 🟡 renders, count honest-0 | Panel + engine card render; instance count reads the Application-CR endpoint which doesn't represent bootstrap-HR engines — the second wire for the full card (noted #3188). |
+| **Launch button (#3150/#2743)** | AppDetail grafana | ✅ **PASS — both CLOSED** | "Open Grafana — single-click silent sign-in" → silent chain → **landed authenticated on Home-Dashboards**. `evidence/hw129-grafana-sso-launch-PASS.png`. First attempt hit the #3301 flake; retry clean. |
+| **console PIN login** | /login | ✅ PASS | real Stalwart PIN (710157) → dashboard, 100 items. |
+| **pdns redirect (#3225)** | pdns.hw129 | 🟡 fires, port bug → fix MERGED | 302 → `pdns-admin:30443` (listener-port leak, dead externally). #3310 (explicit 443) MERGED; next env verifies → close. |
+| **jobs both regions** | API + /jobs | ✅ data verified | 67 primary + 60 secondary jobs; UI region column per hw128 precedent. |
+| **gateway reliability (#3301 BROADENED)** | auth./api. | 🔴 ~1-in-3 upstream flake | KC discovery flaps 503 with per-node datapath 12/12 OK and envoy bounce NOT fixing it (unlike hw128). Top reliability defect; forensics on #3301. |
+
+**hw129 honest verdict:** the entire 2026-06-11 fix chain validated ZERO-TOUCH on first contact; Launch/silent-SSO closed two long-standing issues; shared-PG is one merged fix (#3309) away from the full founder card — hw130 walks it. The ~33% gateway flake is the new top defect.
+
 ## 0d. Session results — hw128 (`5cc5f21df5f64ea7`), walked 2026-06-11 — CURRENT LIVE ENV, real email+PIN, FULL Playwright walk
 
 > Supersedes the wiped hw124/hw126 rows. hw128 = first clean zero-touch 2-region Sovereign that produced **founder-visible PASSES** this session. 57/60 HRs Ready (3 N/A hetzner-only charts). Walked on the production React tree via real Stalwart-mailbox PIN — no bypass, no mock.
@@ -74,7 +93,8 @@ Remaining (continuing the live walk): **TC-05–09 checkout→Org** (heaviest �
 | **SSO-into-app** | harbor | ✅ **PASS** (zero-click) | `…/c/oidc/login` → bridge → KC session → **lands on /harbor/projects logged in as `emrah.baysal@openova.io`**. Walked on the RECOVERED 1.2.29 chart. `evidence/hw128-harbor-sso-PASS-landed-in-app.png`. |
 | **api. flap after catalyst-api roll (#3301)** | catalyst-pin bridge | 🟡 found + remediated | After the 1.4.571 Recreate roll (7-min image pull = empty endpoints), a SUBSET of cilium-envoy instances never re-learned the backend → `api.<fqdn>` flapped 400/503 ~50% for 10+ min (ALL openova-sso logins affected). Only-`api.`-flaps isolation + per-node probes pinned it; `rollout restart ds/cilium-envoy` fixed it instantly (8/8 stable). Filed #3301 — hits EVERY catalyst-api roll on EVERY Sovereign; this is also the hw126 §0c-bis "no healthy upstream" shape. |
 | **bp-gitea/bp-harbor roll (#3296)** | gitea+harbor | ✅ RECOVERED zero-touch | The #3286 chart roll tripped 2 pre-enforcement kyverno landmines (hook Job not flux-labeled; unproxied `gitea/gitea` + `goharbor/*` images) → both HRs Failed, gitea 503. Source fix #3297 merged → pin-bump pipeline → BOTH `UpgradeSucceeded` live, gitea 200 + harbor UI 200, no manual unwedge. #3296 CLOSED with proof. |
-| **region-kill (T2/T3, north-star row 1)** | cnpg-pair | ⛔ pending #3290 | Mesh orchestrator failed: primary kubeconfig empty-path (#3241 root-caused live) → cnpg-pair flip OFF. Fix #3290 merging → self-establishes the mesh on hw128 via mothership `restoreFromStore` (no re-prov). Then walkable. |
+| **region-kill (T2/T3, north-star row 1)** | cnpg-pair | ✅ **PASS** | Live walk 14:03–14:15Z: pre-kill row replicated cross-VPC → ALL 4 region-a ECS HARD-stopped → row served from region-b through the kill → documented promote patch → **writable in 3s** (≤60s target) → post-kill write accepted → region-a restarted. Six #3241 layers fixed to get here (#3290 #3299 #3303 #3304 + VPC peering + stale-peer cleanup). Honest gaps recorded (promotion operator-driven, probe lag sentinel, rejoin Day-2, IaC peering fix pending): `sessions/2026-06-11/hw128-region-kill-walk-PASS.md`. |
+| **region-kill (legacy row)** | cnpg-pair | superseded ↑ | Mesh orchestrator failed: primary kubeconfig empty-path (#3241 root-caused live) → cnpg-pair flip OFF. Fix #3290 merging → self-establishes the mesh on hw128 via mothership `restoreFromStore` (no re-prov). Then walkable. |
 | **#3188 shared-PG card** | catalog data-instances | ⛔ pending dedicated prov | hw128 is own-cluster (SHARED_PG off). Full chain coded (#3274/#3284 merged, #3286 ready) → needs one `SHARED_PG=true` prov. |
 
 **hw128 honest verdict:** SSO-into-app + jobs-both-regions = **PASS** (real-PIN, screenshotted, issues closed). region-kill + #3188-card = code-ready, pending #3290 mesh + a dedicated SHARED_PG prov respectively. This is the first env this session to produce founder-visible, clickable deltas vs the prior "converged-but-nothing-walks" state.
