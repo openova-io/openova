@@ -63,6 +63,9 @@ func fakeEndpointDynamic(seed ...runtime.Object) (func() (dynamic.Interface, err
 	scheme := runtime.NewScheme()
 	listKinds := map[schema.GroupVersionResource]string{
 		ApplicationGVR(): "ApplicationList",
+		// #3188: HandleListBlueprintInstances also projects bootstrap
+		// HelmReleases (no-org path) — the fake must know the list kind.
+		helmReleaseGVR: "HelmReleaseList",
 	}
 	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, seed...)
 	return func() (dynamic.Interface, error) {

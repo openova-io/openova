@@ -830,7 +830,77 @@ func (h *Handler) HandleListBlueprintInstances(w http.ResponseWriter, r *http.Re
 			CreatedAt: item.GetCreationTimestamp().UTC().Format(time.RFC3339),
 		})
 	}
+
+	// #3188 (hw129/hw130 round-1): bootstrap-kit installs of this
+	// blueprint ship as Flux HelmReleases with NO companion Application
+	// CR — the platform shared-PG engine (HR bp-postgres-shared, chart
+	// bp-postgres, release in shared-data) being the founder-headline
+	// case. Counting only Application CRs rendered the Data-instances
+	// card as "0 instances" on an env whose engine was live with two
+	// consumers (gitea 110 tables + registry 49). Project those HRs as
+	// instance rows too — same fallback philosophy as the silent-SSO
+	// launch-url HR path above. Org-scoped filtering: bootstrap HRs are
+	// platform-owned, so any explicit ?org= filter excludes them.
+	if orgFilter == "" {
+		out = append(out, h.bootstrapHRInstances(r.Context(), client, bp, out)...)
+	}
 	writeJSON(w, http.StatusOK, listInstancesResponse{Items: out})
+}
+
+// bootstrapHRInstances projects Flux HelmReleases whose chart is
+// bp-<blueprint> into applicationSummary rows — the bootstrap-kit
+// (platform-owned) installs that have no Application CR. `existing`
+// suppresses duplicates when a future Application CR adopts a release
+// (matched by release/instance name).
+func (h *Handler) bootstrapHRInstances(ctx context.Context, client dynamic.Interface, bp string, existing []applicationSummary) []applicationSummary {
+	hrs, err := client.Resource(helmReleaseGVR).Namespace("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		// Best-effort projection: the Application-CR rows already in
+		// `existing` stay authoritative; an HR list failure must not
+		// fail the endpoint.
+		return nil
+	}
+	seen := map[string]struct{}{}
+	for _, e := range existing {
+		seen[strings.ToLower(e.Name)] = struct{}{}
+	}
+	rows := []applicationSummary{}
+	for i := range hrs.Items {
+		hr := &hrs.Items[i]
+		chart, _, _ := unstructured.NestedString(hr.Object, "spec", "chart", "spec", "chart")
+		if chart != "bp-"+bp {
+			continue
+		}
+		// Instance display name: the release name (HR name with the
+		// bp- prefix stripped reads naturally — bp-postgres-shared →
+		// postgres-shared), targetNamespace as the locality hint.
+		name := strings.TrimPrefix(hr.GetName(), "bp-")
+		if _, dup := seen[strings.ToLower(name)]; dup {
+			continue
+		}
+		status := "NotReady"
+		conds, _, _ := unstructured.NestedSlice(hr.Object, "status", "conditions")
+		for _, c := range conds {
+			cm, ok := c.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if cm["type"] == "Ready" && cm["status"] == "True" {
+				status = "Ready"
+				break
+			}
+		}
+		rows = append(rows, applicationSummary{
+			ID:        string(hr.GetUID()),
+			Name:      name,
+			Blueprint: bp,
+			Org:       "platform",
+			Topology:  "singleton",
+			Status:    status,
+			CreatedAt: hr.GetCreationTimestamp().UTC().Format(time.RFC3339),
+		})
+	}
+	return rows
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
