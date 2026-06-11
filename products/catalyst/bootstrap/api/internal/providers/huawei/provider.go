@@ -647,11 +647,11 @@ func listECSByTag(ctx context.Context, client *http.Client, hw hwCreds, region, 
 			ResourceID     string `json:"resource_id"`
 			ResourceName   string `json:"resource_name"`
 			ResourceDetail struct {
-				Status  string `json:"status"`
-				Flavor  json.RawMessage `json:"flavor"`
+				Status    string          `json:"status"`
+				Flavor    json.RawMessage `json:"flavor"`
 				Addresses map[string][]struct {
-					Addr   string `json:"addr"`
-					Type   string `json:"OS-EXT-IPS:type"`
+					Addr string `json:"addr"`
+					Type string `json:"OS-EXT-IPS:type"`
 				} `json:"addresses"`
 			} `json:"resource_detail"`
 		} `json:"resources"`
@@ -674,7 +674,9 @@ func listECSByTag(ctx context.Context, client *http.Client, hw hwCreds, region, 
 			if err := json.Unmarshal(r.ResourceDetail.Flavor, &asStr); err == nil {
 				s.Flavor = asStr
 			} else {
-				var asObj struct{ ID string `json:"id"` }
+				var asObj struct {
+					ID string `json:"id"`
+				}
 				if err := json.Unmarshal(r.ResourceDetail.Flavor, &asObj); err == nil {
 					s.Flavor = asObj.ID
 				}
@@ -916,6 +918,20 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 	if err != nil {
 		out.Errors = append(out.Errors, "list VPC: "+err.Error())
 	}
+
+	// 5b. VPC PEERINGS (#3140, 2026-06-12) — delete BEFORE the VPC
+	// cascade. Huawei refuses `DELETE /vpcs/{id}` while a peering
+	// references the VPC, and #3307 creates a mesh peering on EVERY
+	// multi-VPC prov — so without this step every wipe leaks its full
+	// VPC pair (witnessed live: hw128 + hw129 both left their pairs +
+	// ACTIVE peerings, wedging the project at 5/5 quota until a manual
+	// API cleanup). Matched by EITHER endpoint VPC belonging to this
+	// deployment OR the catalyst-<stem>- name prefix (union, same
+	// philosophy as the ECS tag+name listing). bastion's VPC never
+	// appears here: it owns no catalyst-* peerings and the VPC-set
+	// filter only carries this Sovereign's VPC IDs.
+	purgeVPCPeerings(ctx, client, hw, region, sovereignFQDN, vpcs, progress, out)
+
 	for _, v := range vpcs {
 		if err := cascadeDeleteVPC(ctx, client, hw, region, v.ID); err != nil {
 			out.Errors = append(out.Errors, fmt.Sprintf("delete VPC %s: %s", v.Name, err))
@@ -1374,8 +1390,8 @@ func cascadeDeleteVPC(ctx context.Context, client *http.Client, hw hwCreds, regi
 			eResp, _, _ := doSignedRequest(client, hw, http.MethodGet, detailURL, nil)
 			var srv struct {
 				Server struct {
-					Name     string                 `json:"name"`
-					Metadata map[string]string      `json:"metadata"`
+					Name     string                      `json:"name"`
+					Metadata map[string]string           `json:"metadata"`
 					Addrs    map[string][]map[string]any `json:"addresses"`
 				} `json:"server"`
 			}
@@ -1920,6 +1936,65 @@ func deleteVPC(ctx context.Context, client *http.Client, hw hwCreds, region, id 
 		return fmt.Errorf("status %d", status)
 	}
 	return nil
+}
+
+// purgeVPCPeerings deletes every VPC peering connection that references
+// any of the deployment's VPCs (or carries the per-Sovereign name
+// prefix). Failures are recorded per-peering in out.Errors — the VPC
+// cascade then proceeds and its own 409s surface any residual.
+func purgeVPCPeerings(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN string, vpcs []hwVPC, progress func(msg string), out *providers.WipeResult) {
+	vpcSet := map[string]struct{}{}
+	for _, v := range vpcs {
+		vpcSet[v.ID] = struct{}{}
+	}
+	prefix := "catalyst-" + strings.ReplaceAll(sovereignFQDN, ".", "-")
+	url := fmt.Sprintf("%s/v2.0/vpc/peerings", endpointFor("vpc", region))
+	resp, status, err := doSignedRequest(client, hw, http.MethodGet, url, nil)
+	if err != nil {
+		out.Errors = append(out.Errors, "list VPC peerings: "+err.Error())
+		return
+	}
+	if status >= 400 {
+		if status != http.StatusNotFound {
+			out.Errors = append(out.Errors, fmt.Sprintf("list VPC peerings: status %d: %s", status, snippet(resp, 240)))
+		}
+		return
+	}
+	var decoded struct {
+		Peerings []struct {
+			ID         string `json:"id"`
+			Name       string `json:"name"`
+			RequestVPC struct {
+				VPCID string `json:"vpc_id"`
+			} `json:"request_vpc_info"`
+			AcceptVPC struct {
+				VPCID string `json:"vpc_id"`
+			} `json:"accept_vpc_info"`
+		} `json:"peerings"`
+	}
+	if err := json.Unmarshal(resp, &decoded); err != nil {
+		out.Errors = append(out.Errors, "decode VPC peering list: "+err.Error())
+		return
+	}
+	for _, pr := range decoded.Peerings {
+		_, reqMatch := vpcSet[pr.RequestVPC.VPCID]
+		_, accMatch := vpcSet[pr.AcceptVPC.VPCID]
+		if !reqMatch && !accMatch && !strings.HasPrefix(pr.Name, prefix) {
+			continue
+		}
+		delURL := fmt.Sprintf("%s/v2.0/vpc/peerings/%s", endpointFor("vpc", region), pr.ID)
+		_, dStatus, dErr := doSignedRequest(client, hw, http.MethodDelete, delURL, nil)
+		if dErr != nil {
+			out.Errors = append(out.Errors, fmt.Sprintf("delete VPC peering %s: %s", pr.Name, dErr))
+			continue
+		}
+		if dStatus >= 400 && dStatus != http.StatusNotFound {
+			out.Errors = append(out.Errors, fmt.Sprintf("delete VPC peering %s: status %d", pr.Name, dStatus))
+			continue
+		}
+		out.ProviderPurge["vpc_peerings"] = append(out.ProviderPurge["vpc_peerings"], pr.Name)
+		progress("deleted VPC peering " + pr.Name)
+	}
 }
 
 // purgeOBSBuckets empties + deletes every OBS bucket whose name
