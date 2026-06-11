@@ -1,5 +1,36 @@
 apiVersion: v2
 name: bp-kyverno-policies
+# 1.0.31 (Refs #3268 #3263, 2026-06-11): SYSTEMIC inoculation — NEW MUTATE policy
+# `stamp-cilium-enforced-label` (templates/mutate/00-...) auto-stamps
+# `policy.cilium.io/enforced: "true"` on the Pod template of every always-on
+# bootstrap-kit workload that lacks it, BEFORE the 09-cilium-l7-mtls VALIDATE
+# baseline evaluates the same admission request. The kube-apiserver runs MUTATING
+# webhooks before VALIDATING webhooks within one request, so the stamp lands and
+# 09 admits — fixing 30 of the 34 charts inventoried in #3268 at the owning layer
+# instead of 30 per-chart label PRs (and future Blueprints for free). VERIFIED on
+# a kind + kyverno v1.18 harness (matches the bp-kyverno engine pin): a Deployment
+# missing the label was DENIED by 09 with the mutate absent, and ADMITTED with the
+# label stamped on `spec.template.metadata.labels` once the mutate was present;
+# an already-compliant Deployment was admitted UNCHANGED (idempotent via the
+# `+(label)` add-when-missing anchor + a request.object precondition — the
+# precondition is also what makes kyverno v1.18 register the resource mutating
+# webhook at all). SAFETY: `policy.cilium.io/enforced` is a Catalyst-internal
+# marker for the not-yet-shipped catalyst-network-controller (EPIC-5 #1100);
+# Cilium upstream ignores it, WireGuard provides east-west mTLS unconditionally,
+# and SPIFFE mutual-auth is OFF (bp-spire deferred) — so the label is INERT on the
+# dataplane and safe to add broadly. A companion "Mutate B" (rewrite upstream
+# images to the Harbor proxy, to fix the 11-harbor-proxy-pull violations on 26
+# charts) was DESIGNED + proven idempotent on the SAME harness but DELIBERATELY
+# NOT shipped: a static cluster-wide mutate cannot know the per-Sovereign Harbor
+# host (`registry.<sov-fqdn>` post-cutover), and the only host it could hardcode
+# is the mothership `harbor.openova.io` — which would re-tether sovereign clusters
+# to the mothership and violate Pillar 5 / Principle #11 (the whole point of
+# bp-self-sovereign-cutover). The docker proxy-project name is also drifted
+# (`proxy-dockerhub` in 111 chart refs vs `proxy-docker`/`proxy-xpkg`/`proxy-ecr`
+# in the cutover config — live mothership Harbor only has proxy-dockerhub/ghcr/
+# gcr/k8s/quay), so a hardcoded rewrite would ImagePullBackOff some Sovereigns —
+# strictly worse than a visible kyverno deny. The 26 charts with non-proxy images
+# stay on the per-chart fix path; they are listed in the PR body.
 # 1.0.30 (Refs #2737 #3236 #3248, 2026-06-11): EXCLUDE the operator-managed
 # data-plane namespaces (`cnpg`, `shared-data`, `powerdns-admin`) from the
 # `flux-managed` (10) Enforce policy. The CNPG operator creates Services
@@ -123,7 +154,7 @@ type: application
 # while keeping proxy-cache for anonymous public registries.
 # Lockstep with bp-self-sovereign-cutover 0.1.43 (Step 03 Phase A
 # skopeo native-push + Step 07 REGISTRY drops /proxy-ghcr/ suffix).
-version: 1.0.30
+version: 1.0.31
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:
