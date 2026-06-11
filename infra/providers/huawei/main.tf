@@ -157,7 +157,10 @@ locals {
 resource "huaweicloud_vpc_peering_connection" "mesh" {
   for_each = local.vpc_peering_pairs
 
-  name        = "${local.name_prefix}-${each.key}-peering"
+  # Name capped at 64 chars (HCS limit): the raw region-pair key
+  # overflows on long region codes (me-east-215-a--me-east-215-b), so
+  # use a stable 8-hex digest of the pair key instead.
+  name        = "${local.name_prefix}-peer-${substr(sha256(each.key), 0, 8)}"
   vpc_id      = huaweicloud_vpc.region[each.value.a].id
   peer_vpc_id = huaweicloud_vpc.region[each.value.b].id
 }
