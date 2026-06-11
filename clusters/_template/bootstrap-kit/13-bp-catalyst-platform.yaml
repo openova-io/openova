@@ -986,7 +986,7 @@ spec:
       # 1.4.552 — #3188 (2026-06-10): catalog-seed gains the missing bp-postgres
       # Blueprint CR (the shareable PostgreSQL data-instance App card, ADR-0010)
       # — was the lone catalog-404 for the data-instance card on a fresh prov.
-      version: 1.4.566
+      version: 1.4.567
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
