@@ -1,0 +1,34 @@
+# hw126 pre-wipe convergence snapshot — 2026-06-11T07:07:15Z
+## HR readiness tally
+      3 
+     11 False
+     46 True
+## non-Ready bp-* HRs (the wedge chain)
+flux-system/bp-catalyst-platform: False
+flux-system/bp-cluster-autoscaler-hcloud: 
+flux-system/bp-continuum: False
+flux-system/bp-gitea: False
+flux-system/bp-grafana: False
+flux-system/bp-guacamole: False
+flux-system/bp-hcloud-ccm: 
+flux-system/bp-keycloak: False
+flux-system/bp-newapi: False
+flux-system/bp-powerdns-admin: False
+flux-system/bp-self-sovereign-cutover: False
+flux-system/bp-sso-bridge: False
+flux-system/bp-velero: 
+rtz/bp-sandbox: False
+## keycloak wedge (the root blocker)
+Helm rollback to previous release keycloak/keycloak.v19 with chart bp-keycloak@1.4.23 failed: warning: Hook post-rollback bp-keycloak/charts/keycloak/templates/keycloak-config-cli-job.yaml failed: 1 error occurred:
+	* admission webhook "validate.kyverno.svc-fail" denied the request: 
+
+resource Job/keycloak/keycloak-keycloak-config-cli was blocked due to the following policies 
+
+flux-managed:
+  workload-must-be-flux-managed: 'Job/keycloak-keycloak-config-cli is not Flux-managed.
+    Add label `app.kubernetes.io/managed-by: flux` on metadata.labels OR attach an
+    ownerReference to a HelmRelease / Kustomization.'
+## external reachability
+console.hw126.omantel.biz: 200
+grafana.hw126.omantel.biz: 302
+auth.hw126.omantel.biz: 302
