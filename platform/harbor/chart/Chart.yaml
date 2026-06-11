@@ -73,7 +73,7 @@ type: application
 # `harbor-database-secret` (key `password`) + its host flips via the
 # SOVEREIGN_HARBOR_PG_HOST slot seam, so no other consumer change is
 # needed. own-cluster render byte-identical to 1.2.27.
-version: 1.2.28
+version: 1.2.29
 appVersion: "2.14.3"
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
 # `oidc_extra_redirect_parms` config field. The configure-oauth Job now
