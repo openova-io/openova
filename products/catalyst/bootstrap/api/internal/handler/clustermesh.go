@@ -334,12 +334,25 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 		return nil, false, fmt.Errorf("autoEstablishClusterMesh: dep is nil")
 	}
 
+	// Resolve the primary kubeconfig path via the CONVENTIONAL fallback
+	// (#3241): dep.Result.KubeconfigPath carries json `omitempty` and is
+	// lost when a mothership roll / catalyst-api restart persists a
+	// rehydrated record before PutKubeconfig stamped it — the exact hw128
+	// failure where the primary mesh slot got an empty path → "kubeconfig
+	// path empty" → the secondary never peered → fullyMeshed=0 →
+	// SOVEREIGN_ENABLE_CNPG_PAIR stayed OFF. resolvePrimaryKubeconfigPath
+	// recovers the path from the PVC at `<kubeconfigsDir>/<id>.yaml` (guarded
+	// by os.Stat) AND stamps it back onto dep.Result so downstream readers
+	// see it too. Called OUTSIDE the lock below — it takes dep.mu itself
+	// (sync.Mutex is not reentrant). The returned bool is intentionally
+	// ignored here: a genuinely-lost file leaves primaryKubeconfigPath ""
+	// and buildRegionSlots' own primary fallback + the existing
+	// kubeconfig-path-empty error slot handle it (the startup-reconcile gate
+	// shouldStartupClusterMeshReconcile already warn-and-skips that case).
+	primaryKubeconfigPath, _ := h.resolvePrimaryKubeconfigPath(dep)
+
 	dep.mu.Lock()
 	regions := append([]provisioner.RegionSpec(nil), dep.Request.Regions...)
-	primaryKubeconfigPath := ""
-	if dep.Result != nil {
-		primaryKubeconfigPath = dep.Result.KubeconfigPath
-	}
 	secondaryPaths := make(map[string]string, len(dep.secondaryKubeconfigPaths))
 	for k, v := range dep.secondaryKubeconfigPaths {
 		secondaryPaths[k] = v
@@ -1164,12 +1177,41 @@ func (h *Handler) buildRegionSlots(
 		primaryMeshName = provisioner.DeriveClusterMeshName(dep.Request)
 	}
 
+	// pickPrimaryPath mirrors pickPath's filesystem fallback for the
+	// PRIMARY slot. dep.Result.KubeconfigPath (the passed-in
+	// primaryKubeconfigPath) is empty when catalyst-api restarted /
+	// deploy-bot rolled and dep.Result wasn't re-hydrated — the exact
+	// hw128 (#3241) failure: the primary mesh slot (cluster=primaryMeshName)
+	// got an empty path → "kubeconfig path empty" → the secondary never
+	// peered with the primary → fullyMeshed=0 → SOVEREIGN_ENABLE_CNPG_PAIR
+	// stayed OFF (blocks north-star row 1 region-kill). The secondaries
+	// already survive this via pickPath's filesystem fallback; the primary
+	// had none. The primary kubeconfig IS on the PVC at the deterministic
+	// `<kubeconfigsDir>/<id>.yaml` (the jobs informer +
+	// verify-sovereign-convergence.sh both read it there), so fall back to
+	// it — guarded by h.kubeconfigsDir != "" + os.Stat, identical to the
+	// secondary candidate's guard — even if dep.Result is nil/empty.
+	pickPrimaryPath := func() string {
+		if primaryKubeconfigPath != "" {
+			return primaryKubeconfigPath
+		}
+		if h.kubeconfigsDir == "" {
+			return ""
+		}
+		// Best-effort filesystem fallback: <dir>/<id>.yaml.
+		candidate := filepath.Join(h.kubeconfigsDir, dep.ID+".yaml")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		return ""
+	}
+
 	for idx, rs := range regions {
 		key := regionKeyFromSpec(rs, idx)
 		isPrimary := idx == 0
 		kc := ""
 		if isPrimary {
-			kc = primaryKubeconfigPath
+			kc = pickPrimaryPath()
 		} else {
 			kc = pickPath(key, rs.CloudRegion)
 		}
