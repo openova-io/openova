@@ -62,6 +62,21 @@ spec:
       ports:
         - port: 5432
           protocol: TCP
+    # OWN-cluster pods (0.2.2, hw130 live find): this policy selects ALL
+    # primary-CR Pods, default-denying the cluster's OWN internal 5432 —
+    # instance-2's pg_basebackup join, instance-to-instance streaming,
+    # and any switchover rejoin. hw130 sat "Creating a new replica" >1h,
+    # the join pod's SYNs dropped (cilium monitor: "Policy denied …
+    # 5432 tcp SYN"). hw128's region-kill walk never caught it: those
+    # writes ran via kubectl exec (unix socket — never crossed the
+    # wire). Only a live multi-instance join exercises this path.
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ include "cnpg-pair.primaryName" . }}
+      ports:
+        - port: 5432
+          protocol: TCP
     # CNPG operator status + metrics probe — without this the operator
     # cannot extract the primary instance's status and the Cluster phase
     # stalls at "Instance Status Extraction Error".
