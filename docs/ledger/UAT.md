@@ -53,6 +53,25 @@ Remaining (continuing the live walk): **TC-05–09 checkout→Org** (heaviest �
 
 **hw126 honest verdict:** OpenBao zero-click = **FAIL** (login form, no silent SSO); pdns = **FAIL** (302 → NXDOMAIN pdns-admin host). The remaining SSO-matrix + dead-button checks are **blocked by a live catalyst-api 503 outage** (serves both the console + the OIDC bridge) — not asserted as pass/fail. catalyst-api recovery + re-walk is the follow-up.
 
+## 0e. Session results — hw129 (`537bd50c8e9c3eb0`, hw129.omantel.biz, SHARED_PG=true), walked 2026-06-12 — CURRENT LIVE ENV
+
+> The FIRST shared-Postgres prov + the first prov with the #3307 VPC peering and the full
+> 6-layer #3241 mesh chain baked in. Real-PIN console login; live Playwright walk.
+
+| TC | Surface | Result | Evidence |
+|---|---|---|---|
+| **zero-touch validations** | peering/mesh/pair | ✅ **ALL ZERO-TOUCH** | tofu created the VPC peering (`…-peer-d33a1d18 ACTIVE`); mesh `1/1 remote clusters ready` on the FIRST reconcile with the CORRECT peer name (`hw129-me-east--b`, #3304); two-stage flip self-assembled the cnpg pair. No human touch anywhere. |
+| **shared-PG engine (#3285)** | shared-data | ✅ engine VERIFIED | `shared-pg` Cluster healthy; Database CRs `shared-pg-gitea`+`shared-pg-registry` APPLIED; hub Secrets reflector-annotated. |
+| **shared-PG consumers (#3285)** | gitea+harbor | ❌ → fix MERGED | Consumers still rendered bundled clusters — the per-consumer flips were a manual second step. #3309 (one flag = full model) MERGED; hw130 validates. |
+| **#3274 panel** | /catalog/bp-cnpg | 🟡 renders, count honest-0 | Panel + engine card render; instance count reads the Application-CR endpoint which doesn't represent bootstrap-HR engines — the second wire for the full card (noted #3188). |
+| **Launch button (#3150/#2743)** | AppDetail grafana | ✅ **PASS — both CLOSED** | "Open Grafana — single-click silent sign-in" → silent chain → **landed authenticated on Home-Dashboards**. `evidence/hw129-grafana-sso-launch-PASS.png`. First attempt hit the #3301 flake; retry clean. |
+| **console PIN login** | /login | ✅ PASS | real Stalwart PIN (710157) → dashboard, 100 items. |
+| **pdns redirect (#3225)** | pdns.hw129 | 🟡 fires, port bug → fix MERGED | 302 → `pdns-admin:30443` (listener-port leak, dead externally). #3310 (explicit 443) MERGED; next env verifies → close. |
+| **jobs both regions** | API + /jobs | ✅ data verified | 67 primary + 60 secondary jobs; UI region column per hw128 precedent. |
+| **gateway reliability (#3301 BROADENED)** | auth./api. | 🔴 ~1-in-3 upstream flake | KC discovery flaps 503 with per-node datapath 12/12 OK and envoy bounce NOT fixing it (unlike hw128). Top reliability defect; forensics on #3301. |
+
+**hw129 honest verdict:** the entire 2026-06-11 fix chain validated ZERO-TOUCH on first contact; Launch/silent-SSO closed two long-standing issues; shared-PG is one merged fix (#3309) away from the full founder card — hw130 walks it. The ~33% gateway flake is the new top defect.
+
 ## 0d. Session results — hw128 (`5cc5f21df5f64ea7`), walked 2026-06-11 — CURRENT LIVE ENV, real email+PIN, FULL Playwright walk
 
 > Supersedes the wiped hw124/hw126 rows. hw128 = first clean zero-touch 2-region Sovereign that produced **founder-visible PASSES** this session. 57/60 HRs Ready (3 N/A hetzner-only charts). Walked on the production React tree via real Stalwart-mailbox PIN — no bypass, no mock.
