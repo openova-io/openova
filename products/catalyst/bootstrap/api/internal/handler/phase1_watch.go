@@ -764,6 +764,21 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// per-region LB IP wait loops (each up to 5 min).
 		// docs/SOVEREIGN-MULTI-REGION-DOD.md gates D9-D12.
 		go h.runAutoEstablishClusterMesh(dep)
+	} else if outcome == helmwatch.OutcomeTimeout && len(dep.Request.Regions) >= 2 {
+		// #3285/hw130 (2026-06-12): a Phase-1 TIMEOUT is the
+		// recoverable classification ("components observed, none
+		// hard-failed, not all converged") — Flux keeps reconciling
+		// the cluster long after the watch budget expires, and the
+		// doctrine forbids wiping such envs. But the mesh orchestrator
+		// previously fired ONLY on OutcomeReady, so a timeout record
+		// was permanently abandoned: no mesh, no cnpg-pair flip, no
+		// Pillar-3 — witnessed live on hw130, fully converged at the
+		// cluster level with 0/0 mesh forever. Kick the level-trigger
+		// for timeouts too: its first attempts may fail while the
+		// cluster catches up (warn-and-retry is the loop's design) and
+		// it converges exactly when the env does. Handover stays
+		// ready-only — this rescues the TOPOLOGY, not the lifecycle.
+		go h.runAutoEstablishClusterMesh(dep)
 		// C10-003 (2026-05-17 t143): when Phase-1 reaches
 		// OutcomeReady, the PRIMARY's terminate path persists the
 		// final per-Job status from its own helmwatch state map.

@@ -47,6 +47,7 @@ import (
 	kfake "k8s.io/client-go/kubernetes/fake"
 	ktesting "k8s.io/client-go/testing"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
@@ -1926,5 +1927,42 @@ func TestAutoEstablishClusterMesh_IdempotentRerunSkipsRolloutRestart(t *testing.
 	}
 	if second := stampOf(); second != first {
 		t.Errorf("idempotent re-run bumped restartedAt %q -> %q — the #3241 layer-4 thrash", first, second)
+	}
+}
+
+// TestShouldStartupClusterMeshReconcile_RescuesTimeoutRecords locks in
+// the #3285/hw130 doctrine gap: a Phase-1 TIMEOUT record ("components
+// observed, none hard-failed") keeps converging under Flux and must
+// NOT be abandoned by the mesh orchestrator — previously the gate's
+// status=="ready" check excluded it forever (hw130 sat fully converged
+// with 0/0 mesh). failed-by-TIMEOUT is rescuable; hard failures stay
+// excluded.
+func TestShouldStartupClusterMeshReconcile_RescuesTimeoutRecords(t *testing.T) {
+	dir := t.TempDir()
+	h := &Handler{log: silentLogger(), kubeconfigsDir: dir}
+	const depID = "hw130timeoutrescue"
+	if err := os.WriteFile(filepath.Join(dir, depID+".yaml"), []byte("apiVersion: v1\nkind: Config\n"), 0o600); err != nil {
+		t.Fatalf("write kubeconfig: %v", err)
+	}
+	regions := []provisioner.RegionSpec{
+		{Provider: "huawei", CloudRegion: "me-east-215-a"},
+		{Provider: "huawei", CloudRegion: "me-east-215-b"},
+	}
+	mk := func(status, outcome string) *Deployment {
+		return &Deployment{ID: depID, Status: status,
+			Request: provisioner.Request{Regions: regions},
+			Result:  &provisioner.Result{Phase1Outcome: outcome}}
+	}
+	if !h.shouldStartupClusterMeshReconcile(mk("failed", helmwatch.OutcomeTimeout)) {
+		t.Errorf("failed+timeout record must be rescued (the hw130 abandonment)")
+	}
+	if h.shouldStartupClusterMeshReconcile(mk("failed", helmwatch.OutcomeFailed)) {
+		t.Errorf("failed+hard-failure record must stay excluded")
+	}
+	if h.shouldStartupClusterMeshReconcile(mk("failed", "flux-not-reconciling")) {
+		t.Errorf("flux-not-reconciling record must stay excluded")
+	}
+	if !h.shouldStartupClusterMeshReconcile(mk("ready", helmwatch.OutcomeReady)) {
+		t.Errorf("ready record must still pass")
 	}
 }
