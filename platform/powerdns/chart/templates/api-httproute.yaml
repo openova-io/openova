@@ -77,6 +77,13 @@ spec:
         - type: RequestRedirect
           requestRedirect:
             hostname: {{ . | quote }}
+            # Explicit 443: without it Gateway API copies the LISTENER
+            # port into the Location header — on Sovereigns the cilium
+            # gateway listens on 30443 behind the ELB, so the browser got
+            # `https://pdns-admin.<fqdn>:30443/` which nothing serves
+            # externally (proven live on hw129, 2026-06-12: redirect fired
+            # with :30443 → 000; same target on :443 → 302 /login).
+            port: 443
             statusCode: 302
     {{- end }}
 {{- end }}
