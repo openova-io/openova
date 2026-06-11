@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-postgres
-version: 0.1.1
-appVersion: "0.1.1"
+version: 0.1.2
+appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
   PostgreSQL engine. Each install of bp-postgres = ONE
@@ -30,6 +30,19 @@ description: |
 
   Changelog
   ─────────
+  0.1.2 (2026-06-11, Refs #3283)
+    - FATAL deadlock fix: connection-secret.yaml now creates each reflected
+      connection Secret in the RELEASE namespace (shared-data, which always
+      exists) instead of the consumer namespace (gitea/harbor, which is
+      created by the consumer Blueprints that dependsOn THIS HR). The hub
+      Secret PULLS from the CNPG role Secret (reflects) AND is a reflection
+      SOURCE (reflection-allowed + reflection-auto-enabled + reflection-
+      auto-namespaces) so bp-reflector push-copies a same-named copy into
+      each consumer namespace once it appears. Breaks the bp-postgres-shared
+      ⟲ bp-gitea/bp-harbor circular deadlock (`namespaces "gitea" not
+      found`) that wedged any SHARED_PG=true prov (confirmed live hw127).
+      The four annotation keys mirror bp-gitea/bp-harbor cnpg-cluster.yaml
+      inheritedMetadata. No dependsOn edge change.
   0.1.1 (2026-06-10, Refs #3188)
     - Master gate `.Values.enabled` (default true). OFF → the chart
       renders ZERO Kubernetes resources (empty Ready release). The

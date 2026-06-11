@@ -10,9 +10,14 @@
 #   - one CNPG Cluster `shared-pg`
 #   - two Database CRs (registry → harbor, gitea → gitea) on it
 #   - two managed.roles (harbor, gitea) on it
-#   - two reflected connection Secrets (harbor-database-secret into ns
-#     harbor; gitea-database-secret into ns gitea) so each consumer chart
-#     runs in externalDatabase mode off its own Secret.
+#   - two hub connection Secrets (harbor-database-secret, gitea-database-
+#     secret) in THIS release's namespace (shared-data) carrying reflector
+#     auto-push annotations (#3283) so bp-reflector copies a same-named
+#     Secret into ns harbor / ns gitea once those namespaces appear — each
+#     consumer chart then runs in externalDatabase mode off its own Secret.
+#     (The hub Secret lives in shared-data, NOT the consumer namespace,
+#     because those namespaces don't exist when this HR installs — creating
+#     the Secret there directly was the FATAL deadlock fixed in 0.1.2.)
 #
 # NO custom controller, NO Crossplane. The CNPG operator (bp-cnpg, slot
 # 16) + Flux reconcile everything. bp-harbor (19) and bp-gitea (10) set
@@ -76,7 +81,12 @@ spec:
       # 0.1.1 (#3188): master gate `enabled` (default true) → OFF renders
       # ZERO resources so this HR is an empty Ready release when sharing is
       # disabled (SOVEREIGN_ENABLE_SHARED_PG=false, the safe default).
-      version: 0.1.1
+      # 0.1.2 (#3283): the reflected connection Secrets are now created in
+      # shared-data (this HR's own targetNamespace) with reflector auto-push
+      # annotations — NOT in the consumer namespaces (gitea/harbor), which
+      # don't exist when this HR installs. Breaks the bp-postgres-shared ⟲
+      # bp-gitea/bp-harbor circular deadlock (live hw127).
+      version: 0.1.2
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
