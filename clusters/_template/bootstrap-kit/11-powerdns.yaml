@@ -133,7 +133,11 @@ spec:
       # bare GET / on pdns.<fqdn> to the UI at pdns-admin.<fqdn> (set via
       # values.api.uiRedirectHost below) so the browser lands on the UI
       # instead of a 404; the /api forward rule is preserved.
-      version: 1.2.11
+      # 1.2.12 (#3225): RequestRedirect carries explicit port 443 — the
+      # Gateway-API default copied the cilium listener port (30443) into
+      # the Location header, landing browsers on a port nothing serves
+      # externally (proven live hw129).
+      version: 1.2.12
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns
