@@ -169,6 +169,6 @@ on_db=$(grep -cE '^kind: Database$' "$TMP/on.yaml" || true)
 on_secret=$(grep -cE '^kind: Secret$' "$TMP/on.yaml" || true)
 [ "$on_cluster" -eq 1 ] || fail "enabled=true expected 1 Cluster, got $on_cluster"
 [ "$on_db" -eq 2 ]      || fail "enabled=true expected 2 Databases, got $on_db"
-[ "$on_secret" -eq 2 ]  || fail "enabled=true expected 2 Secrets, got $on_secret"
+[ "$on_secret" -eq 4 ]  || fail "enabled=true expected 4 Secrets (2 hub + 2 role), got $on_secret"
 
 echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty)"
