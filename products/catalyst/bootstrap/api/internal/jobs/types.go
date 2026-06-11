@@ -50,7 +50,10 @@
 // public-cluster-state by definition.
 package jobs
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Status enums — kept in lockstep with helmwatch.State* via the
 // translation in helmwatch_bridge.go. The wire contract uses these
@@ -85,24 +88,24 @@ const (
 // Group slugs — used as the JobName for synthesised parent group
 // Jobs. The full Job ID is JobID(deploymentID, slug).
 const (
-	GroupBootstrapKit   = "bootstrap-kit"
-	GroupDay2Mutations  = "day-2-mutations"
-	GroupProvisioner    = "provisioner"
-	GroupCutover        = "cutover"
-	GroupHandover       = "handover"
-	GroupApps           = "apps"
+	GroupBootstrapKit  = "bootstrap-kit"
+	GroupDay2Mutations = "day-2-mutations"
+	GroupProvisioner   = "provisioner"
+	GroupCutover       = "cutover"
+	GroupHandover      = "handover"
+	GroupApps          = "apps"
 )
 
 // Group display names — user-visible labels for the synthesised
 // parent groups. The wire shape carries `displayName`; the UI falls
 // back to `jobName` when `displayName` is empty (leaf jobs).
 const (
-	GroupBootstrapKitDisplay   = "Bootstrap"
-	GroupDay2MutationsDisplay  = "Day-2 Mutations"
-	GroupProvisionerDisplay    = "Provision Hetzner"
-	GroupCutoverDisplay        = "Cutover"
-	GroupHandoverDisplay       = "Handover"
-	GroupAppsDisplay           = "Apps"
+	GroupBootstrapKitDisplay  = "Bootstrap"
+	GroupDay2MutationsDisplay = "Day-2 Mutations"
+	GroupProvisionerDisplay   = "Provision Hetzner"
+	GroupCutoverDisplay       = "Cutover"
+	GroupHandoverDisplay      = "Handover"
+	GroupAppsDisplay          = "Apps"
 )
 
 // Phase-0 lifecycle phase slugs — durable Job rows the bridge writes
@@ -169,7 +172,29 @@ type Job struct {
 	// AppID — the Sovereign component id (e.g. "cilium") for leaf
 	// install jobs. Empty for group jobs and Day-2 mutation jobs that
 	// are not 1:1 with a component.
+	//
+	// On a multi-region Sovereign the secondary regions' install jobs
+	// carry the region in a "<region>:<chart>" prefix (e.g.
+	// "me-east-215-b-1:cilium") so the AppID stays globally-unique
+	// across clusters. The first-class Region field below is the
+	// unambiguous source of truth for which region the job ran in;
+	// AppID's prefix is kept for URL-routing compatibility.
 	AppID string `json:"appId,omitempty"`
+
+	// Region — the Hetzner/cloud region key the job's HelmRelease was
+	// observed in (e.g. "me-east-215-b-1"). Empty for primary-region
+	// rows and group jobs, so a single-region Sovereign never surfaces
+	// a Region column (the UI's region filter hides itself when fewer
+	// than two distinct regions appear). Populated by the multi-region
+	// chroot seed fan-out (chrootSeedSecondaryRegions) and the
+	// mothership's secondary helmwatch.Watcher bridge from the
+	// "<region>:" component prefix.
+	//
+	// Wire tag is lowercase camelCase "region" — kept verbatim in
+	// lockstep with the TS Job interface (a casing mismatch silently
+	// drops the field on the JSON round-trip; see the documented
+	// LaunchURLResponse.URL outage).
+	Region string `json:"region,omitempty"`
 
 	// ParentID — full ID of the parent Job, or "" for top-level
 	// jobs. Replaces the old BatchID denormalisation: instead of a
@@ -306,4 +331,23 @@ type Index struct {
 // the helmwatch bridge AND the API handler agree on the format.
 func JobID(deploymentID, jobName string) string {
 	return deploymentID + ":" + jobName
+}
+
+// RegionFromComponent extracts the region key from a multi-region
+// component id. Secondary regions' components arrive as
+// "<region>:<chart>" (e.g. "me-east-215-b-1:cilium" — the region key
+// itself may contain hyphens but never a colon, while chart names are
+// bare bp-* slugs without a colon). The region is everything before the
+// FIRST colon; a component with no colon is a primary-region row and
+// returns "".
+//
+// Kept in lockstep with the UI's regionFromJob() (JobsTable.tsx) and
+// the chroot fan-out's snapshotsToSeedsForRegion() prefix convention so
+// the Go-stamped Region field and the FE-derived region agree exactly.
+func RegionFromComponent(component string) string {
+	i := strings.IndexByte(component, ':')
+	if i <= 0 {
+		return ""
+	}
+	return component[:i]
 }

@@ -259,7 +259,7 @@ type InformerSeed struct {
 	// on, sourced from the HelmRelease's spec.dependsOn[].name.
 	// Translated to JobName form (install-<comp>) before being written
 	// to the Job record so the Flow view's edge graph renders.
-	DependsOn  []string
+	DependsOn []string
 }
 
 // SeedJobsFromInformerList takes a snapshot of the helmwatch informer's
@@ -314,6 +314,14 @@ func (b *Bridge) SeedJobsFromInformerList(seeds []InformerSeed) (jobsWritten, ex
 		// Status=succeeded Job, exactly as if a transition had been
 		// emitted.
 		nextStatus := jobStatusFromHelmState(s.State)
+		// Multi-region: a secondary region's component arrives as
+		// "<region>:<chart>" (e.g. "me-east-215-b-1:cilium") so the
+		// AppID stays globally-unique across clusters. Stamp the
+		// extracted region into the first-class Region field — empty
+		// for primary-region rows (no ":" prefix), which keeps the
+		// single-region wire shape byte-identical and the UI's Region
+		// filter hidden.
+		region := RegionFromComponent(comp)
 		// Translate sibling AppIDs into the JobName form the Flow
 		// view's edge graph keys off ("cilium" → "install-cilium").
 		// This is the load-bearing line for issue #204's pipeline
@@ -330,6 +338,7 @@ func (b *Bridge) SeedJobsFromInformerList(seeds []InformerSeed) (jobsWritten, ex
 			DeploymentID: b.deploymentID,
 			JobName:      jobName,
 			AppID:        comp,
+			Region:       region,
 			Type:         JobTypeInstall,
 			ParentID:     JobID(b.deploymentID, GroupBootstrapKit),
 			DependsOn:    deps,
@@ -627,10 +636,15 @@ func (b *Bridge) OnHelmReleaseEvent(componentID, state, level, message string, t
 		DeploymentID: b.deploymentID,
 		JobName:      jobName,
 		AppID:        componentID,
-		Type:         JobTypeInstall,
-		ParentID:     JobID(b.deploymentID, GroupBootstrapKit),
-		DependsOn:    resolvedDeps,
-		Status:       nextStatus,
+		// Region derived from the "<region>:<chart>" component prefix
+		// secondary watchers emit; empty for primary (no prefix). This
+		// makes the live event path region-correct on its own rather
+		// than leaning on mergeJob's Region preservation.
+		Region:    RegionFromComponent(componentID),
+		Type:      JobTypeInstall,
+		ParentID:  JobID(b.deploymentID, GroupBootstrapKit),
+		DependsOn: resolvedDeps,
+		Status:    nextStatus,
 	}); err != nil {
 		return err
 	}
@@ -977,16 +991,16 @@ func (b *Bridge) markLifecyclePhaseTerminalLocked(phase, status string, t time.T
 // Resolution policy when no active Execution is recorded for the
 // component:
 //
-//   1. If the persisted Job has a non-empty LatestExecutionID AND that
-//      Execution is still running, the line lands there. Covers the
-//      "Pod restart wiped the in-memory cursor" path.
-//   2. If the persisted Job is non-terminal but has no Execution yet
-//      (e.g. seed wrote a Job-only pending row), allocate a fresh
-//      Execution on the fly so no helm-controller line is dropped.
-//   3. If the Job is in a terminal state OR doesn't exist, the line
-//      is dropped — helm-controller emits maintenance lines after the
-//      install completes (drift checks, observed-generation patches)
-//      that should not extend a closed Execution.
+//  1. If the persisted Job has a non-empty LatestExecutionID AND that
+//     Execution is still running, the line lands there. Covers the
+//     "Pod restart wiped the in-memory cursor" path.
+//  2. If the persisted Job is non-terminal but has no Execution yet
+//     (e.g. seed wrote a Job-only pending row), allocate a fresh
+//     Execution on the fly so no helm-controller line is dropped.
+//  3. If the Job is in a terminal state OR doesn't exist, the line
+//     is dropped — helm-controller emits maintenance lines after the
+//     install completes (drift checks, observed-generation patches)
+//     that should not extend a closed Execution.
 //
 // The bridge tolerates store errors (returns them) but does not abort
 // the helmwatch event loop — the handler's emit path treats this as
@@ -1025,7 +1039,7 @@ func (b *Bridge) OnRawComponentLog(componentID, level, message string, t time.Ti
 				JobName:      jobName,
 				AppID:        componentID,
 				Type:         JobTypeInstall,
-			ParentID:     JobID(b.deploymentID, GroupBootstrapKit),
+				ParentID:     JobID(b.deploymentID, GroupBootstrapKit),
 				DependsOn:    []string{},
 				Status:       StatusRunning,
 			}); err != nil {
@@ -1059,7 +1073,7 @@ func (b *Bridge) OnRawComponentLog(componentID, level, message string, t time.Ti
 				JobName:      jobName,
 				AppID:        componentID,
 				Type:         JobTypeInstall,
-			ParentID:     JobID(b.deploymentID, GroupBootstrapKit),
+				ParentID:     JobID(b.deploymentID, GroupBootstrapKit),
 				DependsOn:    job.DependsOn,
 				Status:       StatusRunning,
 			}); err != nil {

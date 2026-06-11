@@ -349,6 +349,20 @@ describe('regionFromJob (C8-005)', () => {
   it('returns empty for group/day-2 rows with no parseable region', () => {
     expect(regionFromJob({ jobName: 'applications', appId: '' })).toBe('')
   })
+
+  it('prefers the first-class region field over the appId prefix (#3276)', () => {
+    // region wins even when the appId prefix would parse to something
+    // else — the backend-stamped field is the source of truth.
+    expect(
+      regionFromJob({ jobName: 'install-cilium', appId: 'bp-cilium', region: 'me-east-215-b-1' }),
+    ).toBe('me-east-215-b-1')
+  })
+
+  it('falls back to the appId prefix when region is absent (#3276)', () => {
+    expect(
+      regionFromJob({ jobName: 'install-fsn1:bp-cilium', appId: 'fsn1:bp-cilium', region: undefined }),
+    ).toBe('fsn1')
+  })
 })
 
 describe('JobsTable region filter (C8-005)', () => {
@@ -401,5 +415,38 @@ describe('JobsTable region filter (C8-005)', () => {
     expect(rows.length).toBe(1)
     expect(screen.queryByTestId('jobs-table-row-bp-cilium')).toBeNull()
     expect(screen.queryByTestId('jobs-table-row-hel1-2:bp-cilium')).toBeNull()
+  })
+
+  // #3276 — the per-row Region column appears only on a multi-region
+  // Sovereign and labels each row with its region (primary rows read
+  // "primary"). Uses the first-class region field the backend now stamps.
+  it('hides the Region column on a single-region Sovereign', async () => {
+    const singleRegion: Job[] = [
+      { ...baseLeaf, id: 'bp-cilium', jobName: 'Install Cilium', appId: 'bp-cilium' },
+      { ...baseLeaf, id: 'bp-flux', jobName: 'Install Flux', appId: 'bp-flux' },
+    ]
+    renderTable({ jobs: singleRegion })
+    await screen.findByTestId('jobs-table')
+    expect(screen.queryByTestId('jobs-cell-region-bp-cilium')).toBeNull()
+    expect(screen.queryByTestId('jobs-cell-region-primary-bp-cilium')).toBeNull()
+  })
+
+  it('renders a region-labeled Region column on a multi-region Sovereign (#3276)', async () => {
+    const multiRegion: Job[] = [
+      { ...baseLeaf, id: 'bp-cilium', jobName: 'Install Cilium', appId: 'bp-cilium' },
+      {
+        ...baseLeaf,
+        id: 'me-east-215-b-1:bp-cilium',
+        jobName: 'install-me-east-215-b-1:bp-cilium',
+        appId: 'me-east-215-b-1:bp-cilium',
+        region: 'me-east-215-b-1',
+      },
+    ]
+    renderTable({ jobs: multiRegion })
+    await screen.findByTestId('jobs-table')
+    // Primary row → "primary" label; secondary row → region chip.
+    expect(screen.getByTestId('jobs-cell-region-primary-bp-cilium')).toBeTruthy()
+    const regionCell = screen.getByTestId('jobs-cell-region-me-east-215-b-1:bp-cilium')
+    expect(regionCell.textContent).toContain('me-east-215-b-1')
   })
 })

@@ -309,6 +309,16 @@ func mergeJob(prev, next Job) Job {
 	if len(next.DependsOn) == 0 && len(prev.DependsOn) > 0 {
 		out.DependsOn = prev.DependsOn
 	}
+	// Carry forward Region — the seed fan-out stamps it once, but a
+	// later OnHelmReleaseEvent transition merge passes a Job with
+	// Region="" (the event path doesn't recompute the region). Without
+	// this preservation the multi-region Region column would blank out
+	// on the first state transition after the seed, regressing the
+	// per-region job picture this field exists to surface. Same shape
+	// as the DependsOn preservation directly above.
+	if next.Region == "" && prev.Region != "" {
+		out.Region = prev.Region
+	}
 	if out.StartedAt != nil && out.FinishedAt != nil {
 		out.DurationMs = out.FinishedAt.Sub(*out.StartedAt).Milliseconds()
 	}

@@ -77,23 +77,36 @@ export function compareJobs(a: Job, b: Job): number {
 }
 
 /**
- * regionFromJob — extract the Hetzner region key from a Job's
- * `jobName` / `appId`. Multi-region deployments use a
- * `<region>:<chart>` prefix in the AppID, and an `install-<region>:<chart>`
- * jobName. The canonical region encoding is documented in
- * products/catalyst/bootstrap/api/internal/jobs/helmwatch_bridge.go:503
- * (three input shapes: bare chart, region-prefixed, install-region-prefixed).
+ * regionFromJob — extract the cloud region key from a Job.
  *
- * Returns the empty string for primary-region rows (no `:` separator)
- * so the region filter dropdown's "All" option naturally matches them.
- * Day-2 mutation rows and groups have empty appId and return ''.
+ * Preference order:
+ *   1. The first-class `region` field the backend now stamps on every
+ *      install row (jobs.Region, Go json:"region"). Unambiguous source
+ *      of truth — set only for secondary-region rows, empty for primary.
+ *   2. Fallback to the `<region>:<chart>` prefix encoded in `appId`
+ *      (the backend's canonical componentID for secondaries), then the
+ *      `install-<region>:<chart>` `jobName`. The fallback keeps older
+ *      payloads (and group rows) rendering correctly while the wire
+ *      shape rolls forward.
+ *
+ * The encoding is documented in
+ * products/catalyst/bootstrap/api/internal/jobs/helmwatch_bridge.go
+ * (RegionFromComponent + the three input shapes: bare chart,
+ * region-prefixed, install-region-prefixed).
+ *
+ * Returns the empty string for primary-region rows so the region filter
+ * dropdown's "All" option naturally matches them. Day-2 mutation rows
+ * and groups have empty appId/region and return ''.
  *
  * Exported so the unit test in JobsTable.test.tsx can lock in the
  * contract.
  */
-export function regionFromJob(job: Pick<Job, 'jobName' | 'appId'>): string {
-  // Prefer the AppID encoding because it's the canonical key the
-  // backend uses (helmwatch_bridge.go's `componentID` is
+export function regionFromJob(job: Pick<Job, 'jobName' | 'appId' | 'region'>): string {
+  // Prefer the explicit first-class region field — it's the
+  // unambiguous backend-stamped source of truth and avoids any
+  // string-prefix parsing ambiguity.
+  if (job.region) return job.region
+  // Fallback: the AppID encoding (backend `componentID` is
   // `<region>:<chart>` for secondaries, bare for primary).
   if (job.appId) {
     const sep = job.appId.indexOf(':')
@@ -240,8 +253,9 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
 
   // D20 (2026-05-17 t143): unique non-empty region keys present in the
   // current job set. Sorted lexically so operators see a stable order
-  // (fsn1, hel1-2, nbg1-1, sin-2). Hidden when only one region (or
-  // zero) appears — the filter would be a one-option no-op.
+  // (fsn1, hel1-2, nbg1-1, sin-2). These are the secondary-region
+  // dropdown options; the primary region (empty key) is always matched
+  // by the "All" option.
   const regionOptions = useMemo<string[]>(() => {
     const set = new Set<string>()
     for (const j of jobs) {
@@ -249,6 +263,27 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
       if (r) set.add(r)
     }
     return [...set].sort((a, b) => a.localeCompare(b))
+  }, [jobs])
+
+  // showRegion gates BOTH the Region filter dropdown and the per-row
+  // Region column. The gate must count the PRIMARY region (empty key)
+  // as its own bucket — otherwise a 2-region Sovereign (one primary +
+  // one secondary) would have only a single non-empty key in
+  // regionOptions and the region UI would stay hidden, which is exactly
+  // the #3276 symptom (jobs from both regions present but no way to tell
+  // them apart). Show the region UI whenever the job set spans more than
+  // one distinct region INCLUDING primary. A single-region Sovereign
+  // (every row primary) yields one bucket → hidden, so its table renders
+  // exactly as before (no extra column, no dropdown).
+  const showRegion = useMemo<boolean>(() => {
+    const buckets = new Set<string>()
+    for (const j of jobs) {
+      if (j.type === 'group') continue
+      // "" (primary) is a legitimate bucket key alongside secondaries.
+      buckets.add(regionFromJob(j))
+      if (buckets.size > 1) return true
+    }
+    return false
   }, [jobs])
 
   const visibleJobs = useMemo<Job[]>(() => {
@@ -358,7 +393,7 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
             scope the table to fsn1 / hel1-2 / nbg1-1 / sin-2 without
             typing the region key into the free-text search.
           */}
-          {regionOptions.length > 1 ? (
+          {showRegion ? (
             <label className="jobs-filter-label">
               <span className="jobs-filter-caption">Region</span>
               <select
@@ -394,6 +429,11 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
             <tr>
               <th data-col="name">Name</th>
               <th data-col="app">App</th>
+              {/* Region column — shown only on a multi-region Sovereign
+                  (2+ distinct regions in the job set), matching the
+                  region-filter visibility gate so a single-region
+                  Sovereign's table stays unchanged. */}
+              {showRegion ? <th data-col="region">Region</th> : null}
               <th data-col="deps">Deps</th>
               <th data-col="parent">Parent</th>
               <th data-col="status">Status</th>
@@ -404,7 +444,7 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
           <tbody>
             {visibleJobs.length === 0 ? (
               <tr>
-                <td colSpan={7} className="jobs-empty" data-testid="jobs-table-empty">
+                <td colSpan={showRegion ? 8 : 7} className="jobs-empty" data-testid="jobs-table-empty">
                   No jobs match the current filters.
                 </td>
               </tr>
@@ -414,6 +454,7 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
                   key={j.id}
                   job={j}
                   parentLabel={parentLabelById.get(j.parentId) ?? j.parentId}
+                  showRegion={showRegion}
                 />
               ))
             )}
@@ -427,6 +468,9 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
 interface JobRowProps {
   job: Job
   parentLabel: string
+  /** Render the Region cell — true only on a multi-region Sovereign so
+      a single-region table keeps its original column set. */
+  showRegion: boolean
 }
 
 /**
@@ -477,9 +521,10 @@ function useJobLinkBuilder(): (jobId: string) => string {
   }
 }
 
-function JobRow({ job, parentLabel }: JobRowProps) {
+function JobRow({ job, parentLabel, showRegion }: JobRowProps) {
   const started = formatRelative(job.startedAt)
   const jobLink = useJobLinkBuilder()
+  const region = regionFromJob(job)
   return (
     <tr
       className="jobs-row"
@@ -502,6 +547,20 @@ function JobRow({ job, parentLabel }: JobRowProps) {
           <span className="jobs-empty-cell">—</span>
         )}
       </td>
+      {showRegion ? (
+        <td className="jobs-cell jobs-cell-region">
+          {region ? (
+            <Chip text={region} testid={`jobs-cell-region-${job.id}`} kind="app" />
+          ) : (
+            // Primary-region rows have no region key — label them
+            // explicitly so the operator can tell "primary" apart from
+            // "unknown" on a multi-region Sovereign.
+            <span className="jobs-region-primary" data-testid={`jobs-cell-region-primary-${job.id}`}>
+              primary
+            </span>
+          )}
+        </td>
+      ) : null}
       <td className="jobs-cell jobs-cell-deps">
         {job.dependsOn.length === 0 ? (
           <span className="jobs-empty-cell" data-testid={`jobs-cell-deps-empty-${job.id}`}>—</span>

@@ -26,10 +26,239 @@ import (
 	"testing"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
+
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
+
+// fakeHRDynamicClient builds a dynamic.Interface backed by the in-memory
+// fake that serves the given bp-* HelmReleases (each in StateInstalled
+// via a Ready=True condition) from flux-system. Mirrors the helmwatch
+// package's own test fixture so chrootSeedSecondaryRegions —which lists
+// HelmReleases via helmwatch.ListAndSnapshotHelmReleases— sees a
+// realistic cluster snapshot.
+func fakeHRDynamicClient(t *testing.T, names ...string) *dynamicfake.FakeDynamicClient {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
+		Group:   "helm.toolkit.fluxcd.io",
+		Version: "v2",
+		Kind:    "HelmReleaseList",
+	}, &unstructured.UnstructuredList{})
+	objs := make([]runtime.Object, 0, len(names))
+	for _, name := range names {
+		u := &unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": "helm.toolkit.fluxcd.io/v2",
+				"kind":       "HelmRelease",
+				"metadata": map[string]any{
+					"name":      name,
+					"namespace": helmwatch.FluxNamespace,
+				},
+				"status": map[string]any{
+					"conditions": []any{
+						map[string]any{
+							"type":               "Ready",
+							"status":             string(metav1.ConditionTrue),
+							"reason":             "ReconciliationSucceeded",
+							"message":            "Helm install succeeded",
+							"lastTransitionTime": time.Now().UTC().Format(time.RFC3339),
+						},
+					},
+				},
+			},
+		}
+		u.SetGroupVersionKind(schema.GroupVersionKind{
+			Group:   "helm.toolkit.fluxcd.io",
+			Version: "v2",
+			Kind:    "HelmRelease",
+		})
+		objs = append(objs, u)
+	}
+	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{helmwatch.HelmReleaseGVR: "HelmReleaseList"},
+		objs...,
+	)
+}
+
+// newK8sCacheWithClusters builds a real *k8scache.Factory pre-registered
+// with the supplied pre-built dynamic clients (the test path AddCluster
+// supports via ClusterRef.DynamicClient). No Start() needed — the
+// chroot fan-out reads DynamicClientFor(id) + lists HelmReleases
+// directly, never the informer cache.
+func newK8sCacheWithClusters(t *testing.T, clients map[string]*dynamicfake.FakeDynamicClient) *k8scache.Factory {
+	t.Helper()
+	refs := make([]k8scache.ClusterRef, 0, len(clients))
+	for id, dyn := range clients {
+		refs = append(refs, k8scache.ClusterRef{ID: id, DynamicClient: dyn})
+	}
+	f, err := k8scache.NewFactory(k8scache.Config{
+		Logger:   slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Clusters: refs,
+	})
+	if err != nil {
+		t.Fatalf("NewFactory: %v", err)
+	}
+	return f
+}
+
+// TestChrootSeed_FanOut_BothRegionsLabeledAndDeduped is the end-to-end
+// proof for #3276: post-handover, a Sovereign whose k8sCache holds the
+// primary in-cluster cluster + a registered secondary-region kubeconfig
+// must surface BOTH regions' install jobs in jobs.Store — each row
+// region-labeled — and a repeat /jobs read must NOT duplicate them.
+//
+// Before this test the multi-region fan-out (chrootSeedSecondaryRegions)
+// was only exercised with k8sCache==nil, so no test proved the secondary
+// region's rows actually land region-labeled in the store. Here we wire
+// a real Factory with two fake clusters and assert the store contents.
+func TestChrootSeed_FanOut_BothRegionsLabeledAndDeduped(t *testing.T) {
+	const (
+		depID         = "dep3276"
+		region        = "me-east-215-b-1"
+		sovereignFQDN = "t99.omani.works"
+	)
+	t.Setenv("SOVEREIGN_FQDN", sovereignFQDN)
+
+	st, err := jobs.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	// Primary in-cluster cluster id == depID (matches buildChrootClusterRef
+	// when CATALYST_SELF_DEPLOYMENT_ID resolves to depID); secondary
+	// cluster id == "<depID>-<region>" (HandleSovereignSecondaryKubeconfig
+	// convention). Both serve the same two bp-* HelmReleases so we can
+	// prove the region labeling, not just row counts.
+	primaryDyn := fakeHRDynamicClient(t, "bp-cilium", "bp-flux")
+	secondaryDyn := fakeHRDynamicClient(t, "bp-cilium", "bp-flux")
+	cache := newK8sCacheWithClusters(t, map[string]*dynamicfake.FakeDynamicClient{
+		depID:                primaryDyn,
+		depID + "-" + region: secondaryDyn,
+	})
+
+	h := &Handler{
+		jobs:     st,
+		log:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		k8sCache: cache,
+	}
+	dep := &Deployment{
+		ID: depID,
+		Request: provisioner.Request{
+			SovereignFQDN: sovereignFQDN,
+		},
+	}
+
+	// First read seeds primary + fans out to the secondary region.
+	h.chrootSeedJobsStoreIfEmpty(context.Background(), dep)
+
+	got, err := st.ListJobs(depID)
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+
+	// The PRIMARY in-region seed runs against the chroot's own apiserver
+	// via rest.InClusterConfig() (sovereignDynamicClient), which is
+	// unavailable in a unit test — so this test asserts the SECONDARY
+	// fan-out specifically, which is the #3276 defect: the secondary
+	// region's install rows never reached jobs.Store. Bucket the install
+	// rows the fan-out wrote (Region=region, "<region>:" AppID prefix).
+	secondaryInstalls := map[string]jobs.Job{}
+	for _, j := range got {
+		if j.Type != jobs.JobTypeInstall {
+			continue
+		}
+		if j.Region == region {
+			secondaryInstalls[j.AppID] = j
+		} else if j.Region != "" {
+			t.Fatalf("unexpected region %q on job %q", j.Region, j.ID)
+		}
+	}
+
+	// Secondary region — region-prefixed AppID rows, Region label set.
+	for _, want := range []string{region + ":cilium", region + ":flux"} {
+		j, ok := secondaryInstalls[want]
+		if !ok {
+			t.Fatalf("secondary install row %q missing; have %v", want, secondaryInstalls)
+		}
+		if j.Region != region {
+			t.Fatalf("secondary row %q has Region=%q; want %q", want, j.Region, region)
+		}
+		// The region-prefixed AppID and the explicit Region field must
+		// agree (the UI prefers Region but falls back to the prefix).
+		if got := jobs.RegionFromComponent(j.AppID); got != region {
+			t.Fatalf("AppID %q yields region %q; want %q", j.AppID, got, region)
+		}
+	}
+
+	// Idempotency / de-dup: a SECOND read (the common case — every /jobs
+	// XHR re-runs the lazy seed) must NOT duplicate rows.
+	beforeLen := len(got)
+	h.chrootSeedJobsStoreIfEmpty(context.Background(), dep)
+	after, err := st.ListJobs(depID)
+	if err != nil {
+		t.Fatalf("ListJobs (2nd): %v", err)
+	}
+	if len(after) != beforeLen {
+		t.Fatalf("second seed changed row count: before=%d after=%d (rows must be de-duplicated)", beforeLen, len(after))
+	}
+}
+
+// TestChrootSeed_SingleRegion_NoSecondaryRowsNoRegionLabel proves the
+// single-region path is preserved: with only the primary cluster
+// registered, every install row stays Region="" and the store carries
+// no region-prefixed rows (so the UI's Region filter/column stay hidden).
+func TestChrootSeed_SingleRegion_NoSecondaryRowsNoRegionLabel(t *testing.T) {
+	const (
+		depID         = "dep3276single"
+		sovereignFQDN = "t98.omani.works"
+	)
+	t.Setenv("SOVEREIGN_FQDN", sovereignFQDN)
+
+	st, err := jobs.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	primaryDyn := fakeHRDynamicClient(t, "bp-cilium", "bp-flux")
+	cache := newK8sCacheWithClusters(t, map[string]*dynamicfake.FakeDynamicClient{
+		depID: primaryDyn,
+	})
+
+	h := &Handler{
+		jobs:     st,
+		log:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		k8sCache: cache,
+	}
+	dep := &Deployment{
+		ID:      depID,
+		Request: provisioner.Request{SovereignFQDN: sovereignFQDN},
+	}
+	h.chrootSeedJobsStoreIfEmpty(context.Background(), dep)
+
+	got, err := st.ListJobs(depID)
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	// With ONLY the primary cluster registered, the secondary fan-out
+	// must write nothing — so NO row may carry a region label. (The
+	// primary HelmRelease seed goes via rest.InClusterConfig() which is
+	// unavailable in-unit; the provisioner-lifecycle rows that ARE
+	// present must all stay region-less.) This is the regression guard
+	// that a single-region Sovereign never surfaces the Region
+	// column/filter.
+	for _, j := range got {
+		if j.Region != "" {
+			t.Fatalf("single-region run produced a region-labeled row: %q region=%q", j.ID, j.Region)
+		}
+	}
+}
 
 // TestRegionFromSecondaryClusterID_Contract locks in the rules the
 // chroot fan-out relies on:
