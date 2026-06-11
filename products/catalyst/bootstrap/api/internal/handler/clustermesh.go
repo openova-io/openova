@@ -208,6 +208,12 @@ const (
 	clusterMeshCNPGPairSubstituteKey      = "SOVEREIGN_ENABLE_CNPG_PAIR"
 	clusterMeshPrimaryRegionSubstituteKey = "SOVEREIGN_PRIMARY_REGION"
 	clusterMeshReplicaRegionSubstituteKey = "SOVEREIGN_REPLICA_REGION"
+	// clusterMeshRegionRoleSubstituteKey is each region's OWN role in the
+	// pair ("primary" / "secondary"), stamped by cloud-init onto the
+	// region's bootstrap-kit Kustomization. bp-cnpg-pair keys
+	// `cnpgPair.side` off it; the two-stage flip (#3241 first-flip
+	// deadlock) keys the patch ordering off it.
+	clusterMeshRegionRoleSubstituteKey = "SOVEREIGN_REGION_ROLE"
 	fluxReconcileRequestedAtAnnotation    = "reconcile.fluxcd.io/requestedAt"
 )
 
@@ -769,10 +775,17 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 // render fails, and a render failure inside the bootstrap-kit
 // Kustomization fails the WHOLE atomic apply → 0 HRs (the #2981/#2982
 // fresh-prov wedge shape). Likewise, if ANY region's Kustomization is
-// unreadable the whole flip is refused: a half-flipped pair (primary
-// active, replica gated OFF) is exactly the broken topology this
-// function exists to prevent. A refused flip logs loudly and leaves
-// the gate OFF everywhere (empty Ready releases — safe); the
+// unreadable the whole flip is refused — atomically, before ANY patch.
+//
+// Patch ordering is TWO-STAGE (#3241 first-flip deadlock): the primary
+// side flips unconditionally; the replica side flips only after the
+// primary's replica-auth Secrets exist + sync (#3254). primary-ON /
+// replica-pending is the INTENDED intermediate of a first flip — the
+// primary postgres must initdb before CNPG can mint the Secrets the
+// replica streams with. The pre-#3241 shape (sync gates ALL patches)
+// deadlocked the first flip on a fresh env: the Secrets could never
+// appear while the gate stayed OFF everywhere (hw128 live). A refusal
+// at either stage logs loudly and returns NOT-converged; the
 // level-triggered reconcile / post-handover finalisation re-runs and
 // converges.
 //
@@ -809,8 +822,9 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 	// patching anything. Any gap refuses the whole flip — a half-
 	// flipped split-side pair is the hw126 broken topology.
 	type flipTarget struct {
-		regionKey string
-		dyn       dynamic.Interface
+		regionKey   string
+		dyn         dynamic.Interface
+		primarySide bool
 	}
 	targets := make([]flipTarget, 0, len(slots))
 	for i := range slots {
@@ -870,27 +884,40 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 					regionLabel, primaryRegion, replicaRegion))
 			return false
 		}
-		targets = append(targets, flipTarget{regionKey: regionLabel, dyn: dyn})
+		// Classify the region's SIDE for the two-stage patch below. The
+		// region's own role substitute is authoritative (cloud-init stamps
+		// it; the chart's `cnpgPair.side` keys off the same value); when
+		// absent fall back to the deployment model invariant — slot 0 IS
+		// the primary region (mirrors the chart's `:-primary` default).
+		role := strings.TrimSpace(substitute[clusterMeshRegionRoleSubstituteKey])
+		if role == "" {
+			if i == 0 {
+				role = "primary"
+			} else {
+				role = "secondary"
+			}
+		}
+		targets = append(targets, flipTarget{regionKey: regionLabel, dyn: dyn, primarySide: role == "primary"})
 	}
 
-	// ── Cross-cluster replica-auth Secret sync (#3254) ──────────────
-	// Before flipping the gate ON, the replica-side Cluster CR's
-	// streaming auth (the primary's `-replication` client cert + `-ca`,
-	// both in namespace `cnpg`) must be present on EVERY replica
-	// cluster — those Secrets are created by CNPG only on the primary.
-	// Same all-or-nothing semantics as the gather phase above: if the
-	// source Secrets are absent (the primary postgres is still
-	// bootstrapping — CNPG mints these only after initdb) or any copy
-	// fails, REFUSE the whole flip and leave the gate OFF everywhere.
-	// A half state (gate flipped but the replica missing its auth
-	// Secrets) would render a replica Cluster that waits forever on a
-	// secret it cannot find. The #3241 level-trigger + post-handover
-	// re-runs converge once the primary's Secrets appear.
-	if !h.syncCNPGPairReplicaAuthSecrets(ctx, dep, slots) {
-		return false
-	}
-
-	// ── Patch phase ─────────────────────────────────────────────────
+	// ── Patch phase: TWO-STAGE (#3241 first-flip deadlock) ──────────
+	// The primary-side Cluster CR has NO dependency on the replica-auth
+	// Secrets — but the Secrets are minted by CNPG only AFTER the
+	// primary postgres initdb's, and the primary postgres only renders
+	// once its region's gate flips ON. Gating ALL patches on the Secret
+	// sync (the pre-#3241 shape) therefore DEADLOCKED the FIRST flip on
+	// a fresh env: hw128 sat with the level-trigger refusing forever
+	// ("source Secret unavailable on primary — refusing flip") while
+	// cnpg stayed empty in both regions. hw126 never hit this because
+	// its gate was already ON before the sync landed (#3254).
+	//
+	// Stage 1 flips every PRIMARY-side region unconditionally. Stage 2
+	// (replica-side regions) stays gated on the replica-auth sync — a
+	// half state there (gate flipped, auth Secrets missing) would
+	// render a replica Cluster waiting forever on a secret it cannot
+	// find. A Stage-2 refusal returns false so the level-trigger
+	// re-runs: the primary initdb proceeds meanwhile, the Secrets
+	// appear, the idempotent re-run syncs + flips the replicas.
 	// JSON merge patch (RFC 7386) merges nested objects key-by-key, so
 	// sibling substitute keys + existing annotations are preserved —
 	// only the gate key and the reconcile-request stamp change.
@@ -915,8 +942,7 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 			"id", dep.ID, "err", err)
 		return false
 	}
-	patched := 0
-	for _, t := range targets {
+	patchOne := func(t flipTarget) bool {
 		patchCtx, cancelPatch := context.WithTimeout(ctx, clusterMeshCallTimeout)
 		_, patchErr := t.dyn.Resource(fluxKustomizationGVR).Namespace(fluxSystemNamespace).
 			Patch(patchCtx, bootstrapKitKustomizationName, types.MergePatchType, patchBytes, metav1.PatchOptions{})
@@ -927,9 +953,49 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 			h.emitClusterMeshProgress(dep, "warn",
 				fmt.Sprintf("ClusterMesh: cnpg-pair enable incomplete — region %q Patch Kustomization %s/%s (%v); re-run converges",
 					t.regionKey, fluxSystemNamespace, bootstrapKitKustomizationName, patchErr))
-			continue
+			return false
 		}
-		patched++
+		return true
+	}
+
+	primaryTotal, replicaTotal := 0, 0
+	for _, t := range targets {
+		if t.primarySide {
+			primaryTotal++
+		} else {
+			replicaTotal++
+		}
+	}
+
+	// Stage 1 — primary-side regions, unconditional.
+	patched := 0
+	for _, t := range targets {
+		if t.primarySide && patchOne(t) {
+			patched++
+		}
+	}
+	if patched < primaryTotal {
+		return false
+	}
+
+	// Stage 2 — replica-side regions, gated on the replica-auth sync
+	// (#3254). No replica-side regions → nothing to gate.
+	if replicaTotal > 0 {
+		if !h.syncCNPGPairReplicaAuthSecrets(ctx, dep, slots) {
+			h.log.Info("clustermesh: cnpg-pair two-stage flip — primary side ON, replica side awaiting the primary's replica-auth Secrets (initdb in progress); level-trigger re-run converges",
+				"id", dep.ID,
+				"primaryRegions", primaryTotal,
+				"replicaRegions", replicaTotal,
+			)
+			h.emitClusterMeshProgress(dep, "info",
+				fmt.Sprintf("ClusterMesh: cnpg-pair primary side enabled (%d region(s)); replica side waits for the primary postgres to mint its replication Secrets — re-run converges", primaryTotal))
+			return false
+		}
+		for _, t := range targets {
+			if !t.primarySide && patchOne(t) {
+				patched++
+			}
+		}
 	}
 	if patched == 0 {
 		return false
