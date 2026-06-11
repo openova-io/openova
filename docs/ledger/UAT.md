@@ -1,5 +1,7 @@
 # UAT — OpenOva Catalyst — canonical acceptance contract (ROUND 1 IN PROGRESS on hw130 `SHARED_PG=true`, 2026-06-12)
 
+> **Round-2 re-walk (2026-06-12 ~08:20, console rolled to f2689f3):** 4/4 PASS — #3224's dead Open buttons GONE on bp-newapi + bp-openova-flow-server (grafana Launch intact; #3224 CLOSED) and the #3188 headline card flipped to **"1 instance · postgres-shared · Ready"** (#3326; bindings still honestly API-unsurfaced). Evidence: `docs/sessions/2026-06-12/evidence/hw130-r2-*.png`.
+>
 > **Round-1 state:** waves 1-4 executed by verifier sub-agents (topology / shared-PG / endpoints / console / SSO×5 / funnel). Verdicts below; full verdict tables + screenshots in `docs/sessions/2026-06-12/`. hw130 carries a Phase-1-watch TIMEOUT record (recoverable; #3317 merged) — rows depending on the handover-only steps (treemap/jobs region-b fan-out) are environment-scarred on this prov and noted as such.
 
 > **THE round contract (founder direction 2026-06-12):** this file is complete only when
