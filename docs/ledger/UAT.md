@@ -53,6 +53,27 @@ Remaining (continuing the live walk): **TC-05–09 checkout→Org** (heaviest �
 
 **hw126 honest verdict:** OpenBao zero-click = **FAIL** (login form, no silent SSO); pdns = **FAIL** (302 → NXDOMAIN pdns-admin host). The remaining SSO-matrix + dead-button checks are **blocked by a live catalyst-api 503 outage** (serves both the console + the OIDC bridge) — not asserted as pass/fail. catalyst-api recovery + re-walk is the follow-up.
 
+### 0c-bis. S2 + S4 re-walk attempt — 2026-06-11 (LIVE BROWSER, READ-ONLY) — catalyst-api STILL 503 from the gateway
+
+**Env state (honest, re-probed live this session):** The S2/S4 re-walk was attempted on the premise that catalyst-api had recovered (Pod reported `1/1 Running`). **The live wire says otherwise.** The console's **static UI shell** serves 200 (`/`, `/login`, `/dashboard` all render the React app — email→PIN "Sign in" form), but **every catalyst-api-backed route returns `503 "no healthy upstream"`** — meaning the gateway has **no healthy backend endpoint** to route to (a Pod being `Running` ≠ passing its readiness probe / registered as a healthy upstream). Re-probed via `curl` over a sustained ~40s+ window (no transient roll window):
+
+| Route (catalyst-api-backed) | HTTP | Note |
+|---|---|---|
+| `console.hw126…/auth/handover?token=<JWT>` | **503** | handover-JWT bypass cannot establish a session — page body literally `no healthy upstream` |
+| `console.hw126…/catalyst/v1/apps` | **503** | the catalog/AppDetail data API S2 needs |
+| `console.hw126…/api/catalyst/v1/apps` | **503** | same, alternate path prefix |
+| `api.hw126…/oidc/auth?client_id=catalyst-pin&prompt=none` | **503** | the catalyst-pin OIDC bridge every Open routes through (S4) |
+| `console.hw126…/login` · `/dashboard` · `/` | 200 | static UI shell only — renders, but `/dashboard` 302→`/login?next=/dashboard` (no session, since handover 503'd) |
+
+Both auth paths into the console are gated on catalyst-api: (a) the **handover-JWT bypass** route 503s; (b) the **email→PIN** path needs catalyst-api to mint/verify the PIN (also 503). **No authenticated console session is reachable → the AppDetail pages (S2) and the console Open → OIDC-bridge silent-SSO chain (S4) cannot be exercised.** READ-ONLY mandate: not repaired; recorded honestly.
+
+| Walk | App | Result | Evidence | Note |
+|---|---|---|---|---|
+| **S2** dead Open buttons (#3224) | bp-newapi, bp-openova-flow-server, grafana, harbor | ☐ not-walked (catalyst-api 503) | `../sessions/2026-06-11/evidence/hw126-console-login-catalyst-api-503.png`, `hw126-oidc-bridge-503.png` | The negative-assertion (NO Open button on newapi/openova-flow-server; Open present+works on grafana/harbor) requires the console AppDetail pages, which are served by catalyst-api (`/catalyst/v1/apps` → **503**). Console UI shell loads but `/dashboard` 302→`/login`; neither handover-JWT (503) nor PIN-login (needs catalyst-api) can establish a session. Not walked — recorded honestly, not asserted. |
+| **S4** SSO matrix (#3150/#2743) | grafana, harbor, gitea, guacamole, pdns-admin | ☐ not-walked (console-Open + OIDC bridge both 503) | `../sessions/2026-06-11/evidence/hw126-oidc-bridge-503.png`, `hw126-console-login-catalyst-api-503.png` | The console **Open** click routes every app's silent-SSO through `api.hw126…/oidc/auth` (the catalyst-pin OIDC bridge) — confirmed live this session still **503 "no healthy upstream"** (screenshot). The whole SSO matrix is gated on catalyst-api health, which is down. Cannot reach an authenticated console to even click Open. Not walked — recorded honestly. (openbao S1 already walked **FAIL** in §0c above; not re-walked per scope.) |
+
+**hw126 re-walk verdict (2026-06-11):** S2 + S4 **remain blocked** by the **same** catalyst-api `503 "no healthy upstream"` outage recorded in §0c / PR #3260 — the Pod reporting `1/1 Running` has **not** become a healthy gateway upstream (readiness-probe / endpoint-registration gap is the likely cause; READ-ONLY so not diagnosed in-cluster). The catalyst-api serves BOTH the console AppDetail data API AND the OIDC bridge, so its outage gates the entire S-track console-driven walk. Genuine catalyst-api recovery (a healthy registered upstream, not just a Running Pod) + re-walk is the follow-up — no PASS/FAIL asserted on any app surface that could not be reached.
+
 ## 0b. Session results — hw123 (`179551d5ce8039cf`) — SUPERSEDED (wiped for the hw124 clean re-prov)
 
 **Env state (honest):** hw123 converged past the #2989 wedge (51/56) on the cloud-agnostic `_shared` bootstrap with **etcd** (`--cluster-init`) — first prov ever to clear it. Phase-1 watch then "failed" on the **recoverable** kyverno-hook timeout; the cluster stayed alive. Serving was unblocked by force-reconciling bp-kyverno (the real root cause, now permanently fixed in **#3149** — webhook-gate made non-fatal); `sovereign-tls` then applied the wildcard cert + LB-IPAM pool + gateway nodePort pin + coredns DNS-01 override **natively**. hw123 now serves HTTPS (marketplace + console 200, valid Let's Encrypt wildcard cert). **The pristine zero-touch proof is a fresh re-prov with #3149 merged (no nudges needed).**
