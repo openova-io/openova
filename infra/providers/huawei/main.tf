@@ -123,6 +123,63 @@ resource "huaweicloud_vpc" "region" {
   }
 }
 
+# ── Cross-VPC peering for the multi-region mesh datapath ─────────────────
+#
+# kom4dc is ONE physical region; "multi-region" is mimicked via one VPC
+# per RegionSpec. ClusterMesh CONTROL traffic dials public
+# nodeEIP:NodePort (works without peering), but the POD DATAPATH —
+# global-service backends, cnpg-pair WAL streaming — routes to peer NODE
+# INTERNAL IPs, which are unroutable across unpeered VPCs. Verified live
+# on hw128 (#3241 layer 6, 2026-06-11): with both regions 1/1 meshed the
+# replica's pg_basebackup timed out against the primary-mesh global
+# service for an hour; creating this exact peering + the two routes via
+# the Huawei API unblocked it within one retry (and the region-kill walk
+# then PASSED with a 3s promote). Intra-region VPC peering is free and
+# consumes no EIP quota.
+#
+# Pairwise full mesh over the region list (kom4dc reality is 2 VPCs =
+# one pair). Peering requester/accepter live in the same tenant, so the
+# connection auto-activates — no accepter resource needed.
+locals {
+  vpc_peering_pairs = {
+    for pair in flatten([
+      for i, a in var.regions : [
+        for j, b in var.regions : {
+          key = "${a.code}--${b.code}"
+          a   = a.code
+          b   = b.code
+        } if j > i
+      ]
+    ]) : pair.key => pair
+  }
+}
+
+resource "huaweicloud_vpc_peering_connection" "mesh" {
+  for_each = local.vpc_peering_pairs
+
+  name        = "${local.name_prefix}-${each.key}-peering"
+  vpc_id      = huaweicloud_vpc.region[each.value.a].id
+  peer_vpc_id = huaweicloud_vpc.region[each.value.b].id
+}
+
+resource "huaweicloud_vpc_route" "mesh_a_to_b" {
+  for_each = local.vpc_peering_pairs
+
+  vpc_id      = huaweicloud_vpc.region[each.value.a].id
+  destination = local.region_vpc_cidr[each.value.b]
+  type        = "peering"
+  nexthop     = huaweicloud_vpc_peering_connection.mesh[each.key].id
+}
+
+resource "huaweicloud_vpc_route" "mesh_b_to_a" {
+  for_each = local.vpc_peering_pairs
+
+  vpc_id      = huaweicloud_vpc.region[each.value.b].id
+  destination = local.region_vpc_cidr[each.value.a]
+  type        = "peering"
+  nexthop     = huaweicloud_vpc_peering_connection.mesh[each.key].id
+}
+
 resource "huaweicloud_vpc_subnet" "region" {
   for_each = { for r in var.regions : r.code => r }
 
