@@ -120,7 +120,13 @@ spec:
       # the SOVEREIGN_GITEA_PG_SECRET seam below (own-cluster gitea-pg-app →
       # SHARED gitea-database-secret, the reflected Secret). own-cluster
       # render byte-identical.
-      version: 1.2.27
+      # 1.2.28 (#3296): kyverno-Enforce roll landmines — sync-job hook Job
+      # self-labels app.kubernetes.io/managed-by:flux (hooks bypass
+      # helm-controller's OriginLabels → flux-managed policy denied the
+      # hook); gitea image pulled via harbor.openova.io/proxy-dockerhub
+      # (bare gitea/gitea ref denied by harbor-proxy-pull on any roll —
+      # wedged live hw128 on the 1.2.27 upgrade).
+      version: 1.2.28
       sourceRef:
         kind: HelmRepository
         name: bp-gitea
