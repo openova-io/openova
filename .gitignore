@@ -64,3 +64,4 @@ test-results/
 
 # Chepherd scheduler lock — runtime-local, never committed.
 .claude/scheduled_tasks.lock
+.claude/worktrees/
