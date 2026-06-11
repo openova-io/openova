@@ -62,7 +62,18 @@ type: application
 # never fired. Observed live on hw100. The slot-19 dependsOn: bp-external-secrets
 # gates HR-Ready but not webhook-serving; this Capabilities guard is its
 # complementary half — omit until the CRD exists, re-render on next reconcile.
-version: 1.2.27
+# 1.2.28 (#3285, 2026-06-11): SHARED-PG consumer wiring. The
+# database-secret-sync-job (which polls `harbor-pg-app` to mirror the CNPG
+# password into harbor-database-secret) is now gated on
+# `postgres.cluster.enabled != false` — the same gate cnpg-cluster.yaml +
+# database-secret.yaml already carry. In SHARED mode there is no
+# harbor-pg-app to poll; the populated harbor-database-secret is reflected
+# in by bp-postgres-shared (#3284), so the un-gated Job would time out and
+# FAIL the post-install hook. harbor's externalDatabase already reads
+# `harbor-database-secret` (key `password`) + its host flips via the
+# SOVEREIGN_HARBOR_PG_HOST slot seam, so no other consumer change is
+# needed. own-cluster render byte-identical to 1.2.27.
+version: 1.2.28
 appVersion: "2.14.3"
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
 # `oidc_extra_redirect_parms` config field. The configure-oauth Job now

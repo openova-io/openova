@@ -114,7 +114,13 @@ spec:
       # RollingUpdate{maxUnavailable:0,maxSurge:100%}). RWO /data + LevelDB
       # lock wedge the surge-pod roll; Recreate releases the PVC + lock
       # before the new Pod starts so the 1.2.x roll completes clean.
-      version: 1.2.26
+      # 1.2.27 (#3285): SHARED-PG consumer wiring — database-secret-sync-job
+      # gated on postgres.cluster.enabled (skipped in SHARED mode, where no
+      # gitea-pg-app exists to poll). The DB password secret NAME flips via
+      # the SOVEREIGN_GITEA_PG_SECRET seam below (own-cluster gitea-pg-app →
+      # SHARED gitea-database-secret, the reflected Secret). own-cluster
+      # render byte-identical.
+      version: 1.2.27
       sourceRef:
         kind: HelmRepository
         name: bp-gitea
@@ -201,3 +207,25 @@ spec:
           # sharing, by gitea's own cluster otherwise) either way.
           database:
             HOST: ${SOVEREIGN_GITEA_PG_HOST:=gitea-pg-rw.gitea.svc.cluster.local}:5432
+        # ADR-0010 SHARED-PG consumer wiring (#3285). The upstream subchart
+        # reads GITEA__database__PASSWD from a single secretKeyRef whose
+        # NAME flips between modes (the `password` key is identical in both
+        # sources). Default `gitea-pg-app` = CNPG's own basic-auth Secret on
+        # gitea's OWN gitea-pg Cluster (byte-identical 1:1 path). Set
+        # SOVEREIGN_GITEA_PG_SECRET=gitea-database-secret in SHARED mode so
+        # gitea reads the reflected Secret bp-postgres-shared pushes into the
+        # gitea namespace from the shared engine's `shared-pg-gitea` role
+        # Secret (#3284 source-side reflector). This overrides the whole
+        # single-element list in platform/gitea/chart/values.yaml — the
+        # umbrella chart can NOT template a subchart value (upstream uses
+        # `toYaml`, not `tpl`), so the seam lives here. TWO-FLAG CONTRACT:
+        # to actually SHARE, pair this with SOVEREIGN_GITEA_PG_OWN_CLUSTER=
+        # false (skips gitea's own Cluster) + SOVEREIGN_GITEA_PG_HOST=
+        # shared-pg-rw.shared-data.svc.cluster.local (points DB host at the
+        # shared engine) + SOVEREIGN_ENABLE_SHARED_PG=true (slot 16a).
+        additionalConfigFromEnvs:
+          - name: GITEA__database__PASSWD
+            valueFrom:
+              secretKeyRef:
+                name: ${SOVEREIGN_GITEA_PG_SECRET:=gitea-pg-app}
+                key: password

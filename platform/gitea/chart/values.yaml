@@ -112,6 +112,23 @@ gitea:
     # entirely; gitea-database-secret + its sync Job remain for the
     # OTHER consumers documented in database-secret-sync-job.yaml
     # (harbor's env binding shape).
+    #
+    # ADR-0010 SHARING gate (#3285): the secretKeyRef NAME below is the
+    # ONLY thing that flips between modes (the `password` key is identical
+    # in both source Secrets):
+    #   - own-cluster (default): `gitea-pg-app` — CNPG's bundled basic-auth
+    #     Secret on gitea's OWN gitea-pg Cluster. Byte-identical hw91 path.
+    #   - SHARED (SOVEREIGN_GITEA_PG_OWN_CLUSTER=false): the reflected
+    #     `gitea-database-secret`, which bp-reflector pushes into the gitea
+    #     namespace from the shared engine's `shared-pg-gitea` role Secret
+    #     (CNPG synthesises it with a `password` key — same key, same
+    #     secretKeyRef shape, so only the Secret NAME changes).
+    # The upstream subchart consumes `additionalConfigFromEnvs` with a plain
+    # `toYaml` (not `tpl`), so the umbrella chart can NOT template this name.
+    # The bootstrap-kit slot 10 overlay overrides the whole single-element
+    # list via the `SOVEREIGN_GITEA_PG_SECRET` envsubst seam (default
+    # gitea-pg-app). This committed default keeps a standalone
+    # `helm template` (and every own-cluster prov) byte-identical.
     additionalConfigFromEnvs:
       - name: GITEA__database__PASSWD
         valueFrom:
