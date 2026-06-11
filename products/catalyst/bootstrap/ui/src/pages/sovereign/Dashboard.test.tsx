@@ -179,6 +179,38 @@ describe('Dashboard — toolbar + empty state', () => {
   })
 })
 
+describe('Dashboard — null-items provisioning guard (issue #3281)', () => {
+  /**
+   * Regression tests for the null-deref crash introduced by the backend
+   * emitting `{"items": null}` (not `[]`) while a Sovereign is still
+   * provisioning. Both shapes must render the empty state without
+   * throwing «Cannot read properties of null (reading 'length')».
+   *
+   * The fix path: isEmpty = !query.isLoading && !treemapData?.items?.length
+   * and visibleItems useMemo guards: if (!treemapData?.items) return []
+   */
+  it('renders empty state without crashing when items is null', async () => {
+    // Cast needed: the TypeScript type says items: TreemapItem[] (non-null)
+    // but the live API returns items: null during provisioning — that is
+    // the exact lie that caused the crash in #3281.
+    renderDashboard('d-1', { items: null as unknown as never[], total_count: 0 })
+    expect(await screen.findByTestId('dashboard-empty')).toBeTruthy()
+    expect(screen.queryByTestId('dashboard-error')).toBeNull()
+  })
+
+  it('renders empty state without crashing when items is []', async () => {
+    renderDashboard('d-1', { items: [], total_count: 0 })
+    expect(await screen.findByTestId('dashboard-empty')).toBeTruthy()
+    expect(screen.queryByTestId('dashboard-error')).toBeNull()
+  })
+
+  it('does NOT render the treemap surface when items is null', async () => {
+    renderDashboard('d-1', { items: null as unknown as never[], total_count: 0 })
+    await screen.findByTestId('dashboard-empty')
+    expect(screen.queryByTestId('dashboard-treemap-surface')).toBeNull()
+  })
+})
+
 describe('Dashboard — 12-cell flat fixture', () => {
   it('renders the treemap container surface', async () => {
     const { container } = renderDashboard('d-1', TWELVE_CELL_FIXTURE)

@@ -223,9 +223,13 @@ export function Dashboard({
   const treemapData: TreemapData | undefined = initialDataOverride ?? query.data
   const totalCount = treemapData?.total_count ?? 0
 
-  /* Visible items at the current drill depth. */
+  /* Visible items at the current drill depth.
+   * treemapData.items may be null (not just undefined) when the cluster
+   * has not yet reported back — the backend emits `"items": null` during
+   * provisioning. Guard with ?. so the null-items path falls through to
+   * the empty-state render instead of throwing. */
   const visibleItems = useMemo<TreemapItem[]>(() => {
-    if (!treemapData) return []
+    if (!treemapData?.items) return []
     return walkDrillPath(treemapData.items, drillPath)
   }, [treemapData, drillPath])
 
@@ -332,7 +336,7 @@ export function Dashboard({
     }
   }, [])
 
-  const isEmpty = !query.isLoading && (!treemapData || treemapData.items.length === 0)
+  const isEmpty = !query.isLoading && !treemapData?.items?.length
   const isNested = layers.length > 1 && drillPath.length === 0
 
   function popDrillTo(idx: number) {
