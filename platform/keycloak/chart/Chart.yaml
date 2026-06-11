@@ -210,7 +210,30 @@ name: bp-keycloak
 # fetch host → fixes EVERY autodiscovery consumer at the owning layer.
 # New templates/keycloak-frontend-env.yaml ConfigMap wired via
 # keycloak.extraEnvVarsCM.
-version: 1.4.22
+# 1.4.23 (#3263 #2737, 2026-06-11): kyverno-baseline-Enforce compliance for
+# the keycloak + keycloak-postgresql StatefulSets AND the keycloak-config-cli
+# Job — the IdP for ALL SSO. After the baseline policies began enforcing on
+# hw126, the #3264 roll recreated keycloak-0 and kyverno DENIED it (every SSO
+# surface fell back to a bare login page). Two Enforce drivers, now satisfied:
+#   - harbor-proxy-pull (Enforce): repoint EVERY Bitnami image off bare
+#     `docker.io/bitnamilegacy/…` to the Sovereign-local Harbor proxy-cache
+#     `harbor.openova.io/proxy-dockerhub/bitnamilegacy/…` (keycloak,
+#     keycloak-config-cli, postgresql, postgres-exporter, os-shell) so each
+#     image matches the allowed glob `*/proxy-*/*`. Requires
+#     global.security.allowInsecureImages=true (the umbrella chart hard-fails
+#     the render on a non-bitnami registry path; bytes are identical).
+#   - cilium-l7-mtls (Enforce): add pod-template label
+#     `policy.cilium.io/enforced: "true"` via keycloak.podLabels +
+#     keycloak.postgresql.primary.podLabels (selector-safe — bitnami
+#     common.labels.matchLabels picks only name/instance into the immutable
+#     selector). The config-cli Job is NOT matched by cilium-l7-mtls (Job is
+#     not in its match-kinds).
+# Also added a cpu limit on the keycloak container so the (Audit-mode)
+# resource-limits policy row stays clean. resource-requests (Enforce),
+# probes-present (Enforce), image-tag-pinned (Enforce), flux-managed (Enforce)
+# were already satisfied. Render-proven per-container, helm lint clean.
+# Refs #3263 #2737.
+version: 1.4.23
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so

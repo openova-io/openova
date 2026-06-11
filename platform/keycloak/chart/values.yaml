@@ -17,6 +17,16 @@ global:
   # `keycloak.postgresql.image.registry`, etc. for fine-grained override.
   # Per-Sovereign overlays wire those alongside this value. Tracked under #560.
   imageRegistry: ""
+  # #3263 (hw126 UAT 2026-06-11): the Bitnami umbrella chart hard-fails the
+  # render ("Original containers have been substituted for unrecognized ones")
+  # the moment any image is repointed off the `bitnami`/`bitnamilegacy` paths
+  # to the Sovereign-local Harbor proxy (`harbor.openova.io/proxy-dockerhub/
+  # bitnamilegacy/…`, required for the harbor-proxy-pull Enforce policy). The
+  # bytes are IDENTICAL — proxy-dockerhub is a read-through cache of the same
+  # bitnamilegacy archive — so skipping the registry-path verification is safe.
+  # Per Inviolable Principle #4 this stays operator-overridable.
+  security:
+    allowInsecureImages: true
 
 catalystBlueprint:
   upstream: { chart: keycloak, version: "25.2.0", repo: "https://charts.bitnami.com/bitnami" }
@@ -285,12 +295,39 @@ keycloak:
   # manifests. Verified existence with registry HEAD calls before pinning.
   # Tag stays the chart 25.2.0 default (`26.3.3-debian-12-r0`) — re-pin
   # when the chart bumps and we re-verify the new tag.
+  # ─── Harbor proxy-cache pull (#3263 #2737, hw126 UAT 2026-06-11) ─────────
+  # Pull every Bitnami image THROUGH the Sovereign-local Harbor proxy-cache
+  # (`harbor.openova.io/proxy-dockerhub/…`) per CLAUDE.md inviolable + kyverno
+  # baseline policy `harbor-proxy-pull` (Enforce). A bare
+  # `docker.io/bitnamilegacy/…` ref matches NEITHER allowed glob
+  # (`*/proxy-*/*` proxy-cache, `*/openova-io/*` native-push), so on hw126 the
+  # #3264 roll recreated keycloak-0, harbor-proxy-pull DENIED admission, and
+  # keycloak + keycloak-postgresql went 0/1 → every SSO surface (the IdP for
+  # ALL clients) fell back to a bare login page. The bitnamilegacy/* path is
+  # the read-only historic archive (issue #191); proxy-dockerhub serves PUBLIC
+  # images cred-free pre-cutover and the local Harbor takes over post-cutover.
+  # registry+repository split keeps the subchart's per-image override seam.
   image:
-    registry: docker.io
-    repository: bitnamilegacy/keycloak
+    registry: harbor.openova.io
+    repository: proxy-dockerhub/bitnamilegacy/keycloak
     tag: 26.3.3-debian-12-r0
+  # Pod-template label so the keycloak StatefulSet satisfies kyverno baseline
+  # `cilium-l7-mtls` (Enforce) — the catalyst-network controller attaches the
+  # Pod to the L7 mTLS mesh via this label. `common.labels.matchLabels` PICKS
+  # only app.kubernetes.io/{name,instance} into the immutable STS selector, so
+  # this custom label lands ONLY on spec.template.metadata.labels (where the
+  # policy checks) and never pollutes the selector → upgrade-safe.
+  podLabels:
+    policy.cilium.io/enforced: "true"
   postgresql:
     enabled: true
+    # Pod-template label for the keycloak-postgresql StatefulSet — same
+    # cilium-l7-mtls (Enforce) requirement as the keycloak Pod above. Lands on
+    # spec.template.metadata.labels via the postgresql subchart's primary
+    # pod-label merge; selector-safe (matchLabels picks name/instance only).
+    primary:
+      podLabels:
+        policy.cilium.io/enforced: "true"
     auth:
       username: keycloak
       database: keycloak
@@ -306,25 +343,32 @@ keycloak:
       # Caught live on hw86 2026-06-01 blocking the entire bp-* cascade
       # (memory feedback_sso_manual_recovery_procedure.md).
       existingSecret: "keycloak-postgresql"
+    # All postgresql-subchart images via Harbor proxy-cache (#3263) — same
+    # harbor-proxy-pull (Enforce) requirement as the keycloak image above.
     image:
-      registry: docker.io
-      repository: bitnamilegacy/postgresql
+      registry: harbor.openova.io
+      repository: proxy-dockerhub/bitnamilegacy/postgresql
       tag: 17.6.0-debian-12-r0
     metrics:
       image:
-        registry: docker.io
-        repository: bitnamilegacy/postgres-exporter
+        registry: harbor.openova.io
+        repository: proxy-dockerhub/bitnamilegacy/postgres-exporter
         tag: 0.17.1-debian-12-r15
     volumePermissions:
       image:
-        registry: docker.io
-        repository: bitnamilegacy/os-shell
+        registry: harbor.openova.io
+        repository: proxy-dockerhub/bitnamilegacy/os-shell
         tag: 12-debian-12-r50
   ingress:
     enabled: false  # Catalyst uses Cilium Gateway API (see `gateway:` block below), not the upstream chart ingress
   resources:
     requests: { cpu: 250m, memory: 512Mi }
-    limits: { memory: 2Gi }
+    # cpu limit added #3263 so the keycloak container also satisfies the
+    # resource-limits baseline policy (Audit, not the outage cause but kept
+    # clean). Set generously (2 cores) — Keycloak's JVM + Liquibase migrations
+    # are CPU-bursty at startup and an over-tight cpu limit throttles them,
+    # so this is a ceiling well above steady-state, not a steady-state cap.
+    limits: { cpu: "2", memory: 2Gi }
   # ─── Probes — issue #146 (decouple slow Liquibase from livenessProbe) ─────
   #
   # Diagnostic finding (prov #21 + #22): the Keycloak StatefulSet's Service
@@ -399,9 +443,15 @@ keycloak:
     # post-upgrade,post-rollback with weight 5). The realm is provisioned
     # exactly once per fresh release; re-run on upgrade is idempotent
     # (config-cli reconciles the realm to spec).
+    # keycloak-config-cli image via Harbor proxy-cache (#3263) — the realm-
+    # import Job's Pod is subject to harbor-proxy-pull (Enforce) + resource-
+    # requests (Enforce) like every other gated workload. A bare
+    # docker.io/bitnamilegacy ref would be DENIED on Job-pod create, so the
+    # realm-import would never run and downstream bp-gitea / catalyst-api
+    # (which depend on the realm existing) would wedge.
     image:
-      registry: docker.io
-      repository: bitnamilegacy/keycloak-config-cli
+      registry: harbor.openova.io
+      repository: proxy-dockerhub/bitnamilegacy/keycloak-config-cli
       tag: 6.4.0-debian-12-r11
     # ─── Hook timing — issue #129 (install) + #140 (post-upgrade) ───────────
     #
