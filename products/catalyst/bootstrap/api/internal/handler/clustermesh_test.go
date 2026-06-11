@@ -34,6 +34,7 @@ import (
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1546,9 +1547,11 @@ func TestAutoEstablishClusterMesh_FullMeshSyncsReplicaAuthSecretsThenFlips(t *te
 // TestAutoEstablishClusterMesh_MissingSourceSecretRefusesFlip — when the
 // primary has NOT yet produced one of the CNPG replica-auth Secrets (its
 // postgres is still bootstrapping — CNPG mints `-replication`/`-ca` only
-// after initdb), the flip is REFUSED ENTIRELY: neither region's gate
-// flips and no Secret lands on the replica. The level-trigger re-run
-// converges once the primary's Secret appears.
+// after initdb), the TWO-STAGE flip (#3241 first-flip deadlock) flips
+// the PRIMARY side anyway (its Cluster has no dependency on those
+// Secrets — it is what MINTS them) but REFUSES the replica side: its
+// gate stays OFF and no Secret lands on the replica. The level-trigger
+// re-run converges once the primary's Secret appears.
 func TestAutoEstablishClusterMesh_MissingSourceSecretRefusesFlip(t *testing.T) {
 	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
 	// Remove ONE source Secret from the primary (simulates postgres
@@ -1572,8 +1575,9 @@ func TestAutoEstablishClusterMesh_MissingSourceSecretRefusesFlip(t *testing.T) {
 	}
 	requireFullyMeshed(t, statuses)
 
-	// All-or-nothing: NEITHER region's gate flips.
-	assertGateNotFlipped(t, fx.dynClients[fx.primaryKubeconfigPath], "primary")
+	// Two-stage: the primary side flips (stage 1, unconditional); the
+	// replica side is refused until its auth Secrets can be synced.
+	assertGateFlipped(t, fx.dynClients[fx.primaryKubeconfigPath], "primary")
 	assertGateNotFlipped(t, fx.dynClients[fx.secondaryKubeconfigPath], "secondary")
 	// The OTHER source Secret (the -ca) must NOT have been partially
 	// copied — the source read is all-or-nothing before any copy.
@@ -1588,9 +1592,10 @@ func TestAutoEstablishClusterMesh_MissingSourceSecretRefusesFlip(t *testing.T) {
 
 // TestAutoEstablishClusterMesh_ReplicaCopyFailureRefusesFlip — when the
 // copy to the replica cluster fails (here: a reactor rejects the Secret
-// write), the flip is REFUSED: neither region's gate flips. A
-// half-flipped pair (gate ON, replica auth Secret absent) is exactly the
-// broken topology this guard prevents.
+// write), the REPLICA side is refused: its gate stays OFF (a replica
+// gate ON without its auth Secrets is the broken topology this guard
+// prevents). The PRIMARY side flips regardless (stage 1 of the #3241
+// two-stage flip — it has no dependency on the replica copy).
 func TestAutoEstablishClusterMesh_ReplicaCopyFailureRefusesFlip(t *testing.T) {
 	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
 	// Make every Secret write into the replica's cnpg namespace fail.
@@ -1619,7 +1624,7 @@ func TestAutoEstablishClusterMesh_ReplicaCopyFailureRefusesFlip(t *testing.T) {
 	}
 	requireFullyMeshed(t, statuses)
 
-	assertGateNotFlipped(t, fx.dynClients[fx.primaryKubeconfigPath], "primary")
+	assertGateFlipped(t, fx.dynClients[fx.primaryKubeconfigPath], "primary")
 	assertGateNotFlipped(t, fx.dynClients[fx.secondaryKubeconfigPath], "secondary")
 	if !strings.Contains(logBuf.String(), "copy to replica failed") {
 		t.Errorf("expected a loud warning about the failed replica copy, got:\n%s", logBuf.String())
@@ -1798,5 +1803,128 @@ func TestBuildPeerConfigBlob_DialPort(t *testing.T) {
 	}
 	if strings.Contains(blob, ":2379") {
 		t.Errorf("blob still hardcodes 2379:\n%s", blob)
+	}
+}
+
+// TestEnableCNPGPair_TwoStageFirstFlip locks in the #3241 first-flip
+// fix: on a FRESH env the primary's replica-auth Secrets cannot exist
+// yet (CNPG mints them only after the primary postgres initdb's, and
+// that postgres only renders once the gate flips ON). Run 1 with the
+// Secrets ABSENT must flip the PRIMARY region's Kustomization, leave
+// the replica's OFF, and report NOT-converged. Run 2 with the Secrets
+// present (initdb finished) must flip the replica too and converge.
+// The pre-fix behaviour — sync gating ALL patches — left both regions
+// OFF forever (the hw128 live deadlock).
+func TestEnableCNPGPair_TwoStageFirstFlip(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+
+	// Delete the fixture-seeded primary replica-auth Secrets — the
+	// fresh-env state where the primary postgres has not initdb'd.
+	primaryCS := fx.clients[fx.primaryKubeconfigPath]
+	for _, name := range cnpgPairReplicaAuthSecrets {
+		if err := primaryCS.CoreV1().Secrets(cnpgPairNamespace).Delete(
+			context.Background(), name, metav1.DeleteOptions{}); err != nil {
+			t.Fatalf("delete seeded secret %s: %v", name, err)
+		}
+	}
+
+	gateOf := func(kcPath string) string {
+		t.Helper()
+		ks, err := fx.dynClients[kcPath].Resource(fluxKustomizationGVR).
+			Namespace(fluxSystemNamespace).Get(context.Background(), bootstrapKitKustomizationName, metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get Kustomization (%s): %v", kcPath, err)
+		}
+		sub, _, _ := unstructured.NestedStringMap(ks.Object, "spec", "postBuild", "substitute")
+		return sub[clusterMeshCNPGPairSubstituteKey]
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Run 1 — Secrets absent: primary flips ON, replica stays OFF,
+	// flip reports not-converged so the level-trigger re-runs.
+	_, converged, err := fx.handler.autoEstablishClusterMesh(ctx, fx.dep)
+	if err != nil {
+		t.Fatalf("run 1: %v", err)
+	}
+	if converged {
+		t.Fatalf("run 1 reported converged despite missing replica-auth Secrets")
+	}
+	if g := gateOf(fx.primaryKubeconfigPath); g != "true" {
+		t.Errorf("run 1: PRIMARY region gate = %q, want \"true\" (stage-1 unconditional)", g)
+	}
+	if g := gateOf(fx.secondaryKubeconfigPath); g == "true" {
+		t.Errorf("run 1: REPLICA region gate flipped ON before its auth Secrets exist")
+	}
+
+	// Primary postgres "finishes initdb": re-seed the Secrets.
+	seedCNPGPairSourceSecrets(t, primaryCS)
+
+	// Run 2 — idempotent re-run converges: replica flips too.
+	_, converged, err = fx.handler.autoEstablishClusterMesh(ctx, fx.dep)
+	if err != nil {
+		t.Fatalf("run 2: %v", err)
+	}
+	if !converged {
+		t.Fatalf("run 2 not converged despite Secrets present")
+	}
+	if g := gateOf(fx.secondaryKubeconfigPath); g != "true" {
+		t.Errorf("run 2: REPLICA region gate = %q, want \"true\"", g)
+	}
+}
+
+// TestAutoEstablishClusterMesh_IdempotentRerunSkipsRolloutRestart locks
+// in the #3241 layer-4 fix: the level-triggered reconcile re-runs the
+// orchestrator every ~2 min, and an UNCONDITIONAL rollout-restart per
+// pass crash-cycled the mesh components (clustermesh-apiserver
+// Deployment reached generation 35 live on hw128) — the agents never
+// got a stable window to finish the remote-config sync. Run 1 (Secret
+// created) must stamp restartedAt; run 2 (byte-identical peer config)
+// must NOT bump it.
+func TestAutoEstablishClusterMesh_IdempotentRerunSkipsRolloutRestart(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
+	// Seed a minimal cilium DaemonSet on the primary so the
+	// rollout-restart patch has a real object to stamp (the fake
+	// otherwise swallows it as IsNotFound).
+	primaryCS := fx.clients[fx.primaryKubeconfigPath]
+	if _, err := primaryCS.AppsV1().DaemonSets(clusterMeshNamespace).Create(context.Background(),
+		&appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "cilium", Namespace: clusterMeshNamespace}},
+		metav1.CreateOptions{}); err != nil {
+		t.Fatalf("seed cilium DaemonSet: %v", err)
+	}
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+
+	stampOf := func() string {
+		t.Helper()
+		ds, err := primaryCS.AppsV1().DaemonSets(clusterMeshNamespace).Get(context.Background(), "cilium", metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get cilium DaemonSet: %v", err)
+		}
+		return ds.Spec.Template.Annotations["catalyst.openova.io/restartedAt"]
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep); err != nil {
+		t.Fatalf("run 1: %v", err)
+	}
+	first := stampOf()
+	if first == "" {
+		t.Fatalf("run 1 did not stamp restartedAt despite creating the peer Secret")
+	}
+
+	if _, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep); err != nil {
+		t.Fatalf("run 2: %v", err)
+	}
+	if second := stampOf(); second != first {
+		t.Errorf("idempotent re-run bumped restartedAt %q -> %q — the #3241 layer-4 thrash", first, second)
 	}
 }

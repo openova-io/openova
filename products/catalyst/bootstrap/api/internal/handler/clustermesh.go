@@ -87,6 +87,7 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -99,6 +100,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -208,7 +210,13 @@ const (
 	clusterMeshCNPGPairSubstituteKey      = "SOVEREIGN_ENABLE_CNPG_PAIR"
 	clusterMeshPrimaryRegionSubstituteKey = "SOVEREIGN_PRIMARY_REGION"
 	clusterMeshReplicaRegionSubstituteKey = "SOVEREIGN_REPLICA_REGION"
-	fluxReconcileRequestedAtAnnotation    = "reconcile.fluxcd.io/requestedAt"
+	// clusterMeshRegionRoleSubstituteKey is each region's OWN role in the
+	// pair ("primary" / "secondary"), stamped by cloud-init onto the
+	// region's bootstrap-kit Kustomization. bp-cnpg-pair keys
+	// `cnpgPair.side` off it; the two-stage flip (#3241 first-flip
+	// deadlock) keys the patch ordering off it.
+	clusterMeshRegionRoleSubstituteKey = "SOVEREIGN_REGION_ROLE"
+	fluxReconcileRequestedAtAnnotation = "reconcile.fluxcd.io/requestedAt"
 )
 
 // Cross-cluster CNPG replica-auth Secret sync (#3254, the prerequisite
@@ -623,7 +631,8 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 		// Stable order for the Secret update (so an idempotent re-run
 		// produces byte-identical Secret data and no rollout-restart
 		// thrash).
-		if err := h.applyClusterMeshSecret(ctx, a.clientset, peerEntries); err != nil {
+		secretChanged, err := h.applyClusterMeshSecret(ctx, a.clientset, peerEntries)
+		if err != nil {
 			h.log.Warn("clustermesh: Secret apply failed",
 				"id", dep.ID,
 				"region", a.key,
@@ -658,19 +667,33 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 				peers = append(peers, hostAliasPeer{PeerName: b.clusterName, LBIP: b.lbIP})
 			}
 		}
-		if err := h.patchCiliumHostAliases(ctx, a.clientset, peers); err != nil {
+		aliasesChanged, aliasErr := h.patchCiliumHostAliases(ctx, a.clientset, peers)
+		if aliasErr != nil {
 			h.log.Warn("clustermesh: hostAliases patch failed (continuing)",
 				"id", dep.ID,
 				"region", a.key,
-				"err", err,
+				"err", aliasErr,
 			)
 		}
 
 		// Trigger rollout-restart on cilium + cilium-operator +
 		// clustermesh-apiserver in this region so they pick up the
-		// new peer entries + hostAliases deterministically. Best-effort:
-		// errors are logged, not fatal.
-		h.rolloutRestartClusterMeshTargets(ctx, dep, a)
+		// new peer entries + hostAliases deterministically — but ONLY
+		// when something actually changed (#3241 layer 4). The
+		// level-triggered reconcile re-runs this every ~2 min; an
+		// unconditional restart per pass crash-cycled the mesh
+		// components (apiserver Deployment generation 35 on hw128) and
+		// the agents never got a stable window to finish the
+		// remote-config sync — the loop kept resetting the very state
+		// it was waiting on. Best-effort: errors are logged, not fatal.
+		if secretChanged || aliasesChanged {
+			h.rolloutRestartClusterMeshTargets(ctx, dep, a)
+		} else {
+			h.log.Info("clustermesh: peer config unchanged — skipping rollout-restart (idempotent re-run)",
+				"id", dep.ID,
+				"region", a.key,
+			)
+		}
 
 		readyCount := 0
 		for _, p := range st.Peers {
@@ -769,10 +792,17 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 // render fails, and a render failure inside the bootstrap-kit
 // Kustomization fails the WHOLE atomic apply → 0 HRs (the #2981/#2982
 // fresh-prov wedge shape). Likewise, if ANY region's Kustomization is
-// unreadable the whole flip is refused: a half-flipped pair (primary
-// active, replica gated OFF) is exactly the broken topology this
-// function exists to prevent. A refused flip logs loudly and leaves
-// the gate OFF everywhere (empty Ready releases — safe); the
+// unreadable the whole flip is refused — atomically, before ANY patch.
+//
+// Patch ordering is TWO-STAGE (#3241 first-flip deadlock): the primary
+// side flips unconditionally; the replica side flips only after the
+// primary's replica-auth Secrets exist + sync (#3254). primary-ON /
+// replica-pending is the INTENDED intermediate of a first flip — the
+// primary postgres must initdb before CNPG can mint the Secrets the
+// replica streams with. The pre-#3241 shape (sync gates ALL patches)
+// deadlocked the first flip on a fresh env: the Secrets could never
+// appear while the gate stayed OFF everywhere (hw128 live). A refusal
+// at either stage logs loudly and returns NOT-converged; the
 // level-triggered reconcile / post-handover finalisation re-runs and
 // converges.
 //
@@ -809,8 +839,9 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 	// patching anything. Any gap refuses the whole flip — a half-
 	// flipped split-side pair is the hw126 broken topology.
 	type flipTarget struct {
-		regionKey string
-		dyn       dynamic.Interface
+		regionKey   string
+		dyn         dynamic.Interface
+		primarySide bool
 	}
 	targets := make([]flipTarget, 0, len(slots))
 	for i := range slots {
@@ -870,27 +901,40 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 					regionLabel, primaryRegion, replicaRegion))
 			return false
 		}
-		targets = append(targets, flipTarget{regionKey: regionLabel, dyn: dyn})
+		// Classify the region's SIDE for the two-stage patch below. The
+		// region's own role substitute is authoritative (cloud-init stamps
+		// it; the chart's `cnpgPair.side` keys off the same value); when
+		// absent fall back to the deployment model invariant — slot 0 IS
+		// the primary region (mirrors the chart's `:-primary` default).
+		role := strings.TrimSpace(substitute[clusterMeshRegionRoleSubstituteKey])
+		if role == "" {
+			if i == 0 {
+				role = "primary"
+			} else {
+				role = "secondary"
+			}
+		}
+		targets = append(targets, flipTarget{regionKey: regionLabel, dyn: dyn, primarySide: role == "primary"})
 	}
 
-	// ── Cross-cluster replica-auth Secret sync (#3254) ──────────────
-	// Before flipping the gate ON, the replica-side Cluster CR's
-	// streaming auth (the primary's `-replication` client cert + `-ca`,
-	// both in namespace `cnpg`) must be present on EVERY replica
-	// cluster — those Secrets are created by CNPG only on the primary.
-	// Same all-or-nothing semantics as the gather phase above: if the
-	// source Secrets are absent (the primary postgres is still
-	// bootstrapping — CNPG mints these only after initdb) or any copy
-	// fails, REFUSE the whole flip and leave the gate OFF everywhere.
-	// A half state (gate flipped but the replica missing its auth
-	// Secrets) would render a replica Cluster that waits forever on a
-	// secret it cannot find. The #3241 level-trigger + post-handover
-	// re-runs converge once the primary's Secrets appear.
-	if !h.syncCNPGPairReplicaAuthSecrets(ctx, dep, slots) {
-		return false
-	}
-
-	// ── Patch phase ─────────────────────────────────────────────────
+	// ── Patch phase: TWO-STAGE (#3241 first-flip deadlock) ──────────
+	// The primary-side Cluster CR has NO dependency on the replica-auth
+	// Secrets — but the Secrets are minted by CNPG only AFTER the
+	// primary postgres initdb's, and the primary postgres only renders
+	// once its region's gate flips ON. Gating ALL patches on the Secret
+	// sync (the pre-#3241 shape) therefore DEADLOCKED the FIRST flip on
+	// a fresh env: hw128 sat with the level-trigger refusing forever
+	// ("source Secret unavailable on primary — refusing flip") while
+	// cnpg stayed empty in both regions. hw126 never hit this because
+	// its gate was already ON before the sync landed (#3254).
+	//
+	// Stage 1 flips every PRIMARY-side region unconditionally. Stage 2
+	// (replica-side regions) stays gated on the replica-auth sync — a
+	// half state there (gate flipped, auth Secrets missing) would
+	// render a replica Cluster waiting forever on a secret it cannot
+	// find. A Stage-2 refusal returns false so the level-trigger
+	// re-runs: the primary initdb proceeds meanwhile, the Secrets
+	// appear, the idempotent re-run syncs + flips the replicas.
 	// JSON merge patch (RFC 7386) merges nested objects key-by-key, so
 	// sibling substitute keys + existing annotations are preserved —
 	// only the gate key and the reconcile-request stamp change.
@@ -915,8 +959,7 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 			"id", dep.ID, "err", err)
 		return false
 	}
-	patched := 0
-	for _, t := range targets {
+	patchOne := func(t flipTarget) bool {
 		patchCtx, cancelPatch := context.WithTimeout(ctx, clusterMeshCallTimeout)
 		_, patchErr := t.dyn.Resource(fluxKustomizationGVR).Namespace(fluxSystemNamespace).
 			Patch(patchCtx, bootstrapKitKustomizationName, types.MergePatchType, patchBytes, metav1.PatchOptions{})
@@ -927,9 +970,49 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 			h.emitClusterMeshProgress(dep, "warn",
 				fmt.Sprintf("ClusterMesh: cnpg-pair enable incomplete — region %q Patch Kustomization %s/%s (%v); re-run converges",
 					t.regionKey, fluxSystemNamespace, bootstrapKitKustomizationName, patchErr))
-			continue
+			return false
 		}
-		patched++
+		return true
+	}
+
+	primaryTotal, replicaTotal := 0, 0
+	for _, t := range targets {
+		if t.primarySide {
+			primaryTotal++
+		} else {
+			replicaTotal++
+		}
+	}
+
+	// Stage 1 — primary-side regions, unconditional.
+	patched := 0
+	for _, t := range targets {
+		if t.primarySide && patchOne(t) {
+			patched++
+		}
+	}
+	if patched < primaryTotal {
+		return false
+	}
+
+	// Stage 2 — replica-side regions, gated on the replica-auth sync
+	// (#3254). No replica-side regions → nothing to gate.
+	if replicaTotal > 0 {
+		if !h.syncCNPGPairReplicaAuthSecrets(ctx, dep, slots) {
+			h.log.Info("clustermesh: cnpg-pair two-stage flip — primary side ON, replica side awaiting the primary's replica-auth Secrets (initdb in progress); level-trigger re-run converges",
+				"id", dep.ID,
+				"primaryRegions", primaryTotal,
+				"replicaRegions", replicaTotal,
+			)
+			h.emitClusterMeshProgress(dep, "info",
+				fmt.Sprintf("ClusterMesh: cnpg-pair primary side enabled (%d region(s)); replica side waits for the primary postgres to mint its replication Secrets — re-run converges", primaryTotal))
+			return false
+		}
+		for _, t := range targets {
+			if !t.primarySide && patchOne(t) {
+				patched++
+			}
+		}
 	}
 	if patched == 0 {
 		return false
@@ -1598,15 +1681,22 @@ func peerMeshHostname(peerClusterName string) string {
 // `entries` are overwritten with the freshly minted bytes (idempotent
 // re-runs converge byte-identically because mintPeerClientCert is the
 // only non-deterministic step and the new bytes always supersede).
-func (h *Handler) applyClusterMeshSecret(ctx context.Context, client kubernetes.Interface, entries map[string][]byte) error {
+// The returned bool reports whether the Secret actually CHANGED (created
+// or content updated) — the caller keys the rollout-restart on it
+// (#3241 layer 4): the level-triggered reconcile re-runs this every
+// ~2 min, and an unconditional restart per pass turned the loop into a
+// mesh-component crash-cycle (clustermesh-apiserver Deployment hit
+// generation 35 on hw128) that never left the agents a stable window to
+// finish the remote-config sync.
+func (h *Handler) applyClusterMeshSecret(ctx context.Context, client kubernetes.Interface, entries map[string][]byte) (bool, error) {
 	if len(entries) == 0 {
-		return nil
+		return false, nil
 	}
 	callCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
 	defer cancel()
 	existing, err := client.CoreV1().Secrets(clusterMeshNamespace).Get(callCtx, clusterMeshSecretName, metav1.GetOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("Get Secret %s/%s: %w",
+		return false, fmt.Errorf("Get Secret %s/%s: %w",
 			clusterMeshNamespace, clusterMeshSecretName, err)
 	}
 	if apierrors.IsNotFound(err) {
@@ -1625,13 +1715,14 @@ func (h *Handler) applyClusterMeshSecret(ctx context.Context, client kubernetes.
 		}
 		if _, createErr := client.CoreV1().Secrets(clusterMeshNamespace).Create(callCtx, s, metav1.CreateOptions{}); createErr != nil {
 			if apierrors.IsAlreadyExists(createErr) {
-				// Race window — fall through to Update.
-				return h.updateClusterMeshSecret(ctx, client, entries)
+				// Race window — fall through to Update. Treat as changed:
+				// the racer's content is unknown.
+				return true, h.updateClusterMeshSecret(ctx, client, entries)
 			}
-			return fmt.Errorf("Create Secret %s/%s: %w",
+			return false, fmt.Errorf("Create Secret %s/%s: %w",
 				clusterMeshNamespace, clusterMeshSecretName, createErr)
 		}
-		return nil
+		return true, nil
 	}
 	// Merge: keep entries we don't manage, overwrite ones we do.
 	merged := make(map[string][]byte, len(existing.Data)+len(entries))
@@ -1641,12 +1732,25 @@ func (h *Handler) applyClusterMeshSecret(ctx context.Context, client kubernetes.
 	for k, v := range entries {
 		merged[k] = v
 	}
+	// Byte-identical content → no write, no restart (idempotent re-run).
+	if len(merged) == len(existing.Data) {
+		identical := true
+		for k, v := range merged {
+			if ev, ok := existing.Data[k]; !ok || !bytes.Equal(ev, v) {
+				identical = false
+				break
+			}
+		}
+		if identical {
+			return false, nil
+		}
+	}
 	patch := []byte(fmt.Sprintf(`{"data":%s}`, encodeSecretDataJSON(merged)))
 	if _, patchErr := client.CoreV1().Secrets(clusterMeshNamespace).Patch(callCtx, clusterMeshSecretName, types.MergePatchType, patch, metav1.PatchOptions{}); patchErr != nil {
-		return fmt.Errorf("Patch Secret %s/%s: %w",
+		return false, fmt.Errorf("Patch Secret %s/%s: %w",
 			clusterMeshNamespace, clusterMeshSecretName, patchErr)
 	}
-	return nil
+	return true, nil
 }
 
 // updateClusterMeshSecret is the race-window fallback when Create
@@ -1685,11 +1789,14 @@ func (h *Handler) updateClusterMeshSecret(ctx context.Context, client kubernetes
 // Caught on t128 (9680edbdce8fefe8, 2026-05-16): clustermesh agents
 // stayed `0/2 remote clusters ready` despite full peer entries
 // because TLS hostname verification failed at handshake time.
-func (h *Handler) patchCiliumHostAliases(ctx context.Context, client kubernetes.Interface, peers []hostAliasPeer) error {
+// The returned bool reports whether the DaemonSet pod template actually
+// changed — same restart-thrash rationale as applyClusterMeshSecret.
+func (h *Handler) patchCiliumHostAliases(ctx context.Context, client kubernetes.Interface, peers []hostAliasPeer) (bool, error) {
 	if len(peers) == 0 {
-		return nil
+		return false, nil
 	}
 	aliases := make([]map[string]any, 0, len(peers))
+	desired := make([]corev1.HostAlias, 0, len(peers))
 	for _, p := range peers {
 		if p.LBIP == "" || p.PeerName == "" {
 			continue
@@ -1698,9 +1805,19 @@ func (h *Handler) patchCiliumHostAliases(ctx context.Context, client kubernetes.
 			"ip":        p.LBIP,
 			"hostnames": []string{peerMeshHostname(p.PeerName)},
 		})
+		desired = append(desired, corev1.HostAlias{IP: p.LBIP, Hostnames: []string{peerMeshHostname(p.PeerName)}})
 	}
 	if len(aliases) == 0 {
-		return nil
+		return false, nil
+	}
+	// No-op guard: identical hostAliases already on the pod template →
+	// skip the patch (a strategic-merge write with identical content
+	// still bumps nothing, but skipping keeps intent explicit + cheap).
+	getCtx, cancelGet := context.WithTimeout(ctx, clusterMeshCallTimeout)
+	ds, getErr := client.AppsV1().DaemonSets(clusterMeshNamespace).Get(getCtx, "cilium", metav1.GetOptions{})
+	cancelGet()
+	if getErr == nil && reflect.DeepEqual(ds.Spec.Template.Spec.HostAliases, desired) {
+		return false, nil
 	}
 	patch := map[string]any{
 		"spec": map[string]any{
@@ -1713,14 +1830,14 @@ func (h *Handler) patchCiliumHostAliases(ctx context.Context, client kubernetes.
 	}
 	patchBytes, err := json.Marshal(patch)
 	if err != nil {
-		return fmt.Errorf("marshal hostAliases patch: %w", err)
+		return false, fmt.Errorf("marshal hostAliases patch: %w", err)
 	}
 	callCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
 	defer cancel()
 	if _, err := client.AppsV1().DaemonSets(clusterMeshNamespace).Patch(callCtx, "cilium", types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}); err != nil {
-		return fmt.Errorf("patch cilium DaemonSet hostAliases: %w", err)
+		return false, fmt.Errorf("patch cilium DaemonSet hostAliases: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 // hostAliasPeer is a minimal projection used by patchCiliumHostAliases.
