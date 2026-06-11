@@ -146,7 +146,15 @@ spec:
       # the PUBLIC authorize endpoint — gitea (and every autodiscovery
       # consumer) no longer 307s the browser to the in-cluster
       # keycloak.keycloak.svc.cluster.local issuer (hw126 UAT FAIL).
-      version: 1.4.22
+      # 1.4.23 (#3263 #2737, 2026-06-11): kyverno-baseline-Enforce compliance
+      # for the keycloak + keycloak-postgresql StatefulSets and the config-cli
+      # Job (the IdP for ALL SSO). The #3264 roll recreated keycloak-0 after
+      # the baseline began enforcing → kyverno DENIED it (harbor-proxy-pull on
+      # bare docker.io/bitnamilegacy images + missing cilium-l7-mtls label) →
+      # keycloak 0/1 → every SSO surface a bare login page. Repointed all
+      # Bitnami images through the local Harbor proxy-cache + added the
+      # policy.cilium.io/enforced label on both StatefulSets.
+      version: 1.4.23
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
