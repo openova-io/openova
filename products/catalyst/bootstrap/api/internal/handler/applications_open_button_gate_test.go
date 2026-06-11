@@ -201,3 +201,26 @@ func TestExternalURLIfUserUI_GatesOnBlueprint(t *testing.T) {
 		}
 	})
 }
+
+// TestExternalURLIfUserUI_NotFoundFailsClosed locks in the hw130
+// round-1 regression fix: the catalog is WIRED but 404s the blueprint
+// (NotFound → resolveBlueprintMeta returns empty meta). The old gate
+// failed OPEN here and rendered dead Open buttons for bp-newapi /
+// bp-openova-flow-server on live hw130 (evidence:
+// docs/sessions/2026-06-12/evidence/hw130-appdetail-*-open-regression.png).
+// With no evidence of a user UI the URL must be suppressed; only a
+// fully-unconfigured catalog client (the chroot config-gap case, the
+// test above) stays fail-open.
+func TestExternalURLIfUserUI_NotFoundFailsClosed(t *testing.T) {
+	route := newHTTPRoute("catalyst-system", "newapi", "newapi.hw130.omantel.biz", "newapi")
+	f := newFactoryWithHTTPRoutes(t, route)
+	h := &Handler{log: quietLog()}
+	h.SetK8sCache(f, k8scache.NewSARCache(), "X-Forwarded-User")
+	// Catalog wired but EMPTY — Get returns ErrBlueprintNotFound for
+	// every name, the exact hw130 shape (catalog 404 on bp-newapi).
+	h.SetCatalogClient(newFakeCatalog())
+	got := h.externalURLIfUserUI(context.Background(), "alpha", "bp-newapi", "catalyst-system", "newapi")
+	if got != "" {
+		t.Fatalf("NotFound blueprint: got %q, want empty — the gate must FAIL CLOSED (#3224)", got)
+	}
+}
