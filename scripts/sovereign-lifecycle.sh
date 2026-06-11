@@ -50,7 +50,9 @@ fire() {
   local sub="$1" pool="${2:-omani.works}" pub body
   echo "== reset-UAT-on-fire (founder rule 2026-06-08) =="; reset_uat "$sub"
   pub=$(cat /home/openova/.ssh/*.pub 2>/dev/null | grep -E "^ssh-" | head -1)
-  body=$(SUB="$sub" POOL="$pool" PUB="$pub" python3 -c 'import json,os;s=os.environ["SUB"];p=os.environ["POOL"];print(json.dumps({"orgName":"Omantel","orgEmail":"emrah.baysal@openova.io","provider":"huawei","sovereignDomainMode":"pool","sovereignPoolDomain":p,"sovereignSubdomain":s,"sovereignFQDN":s+"."+p,"sshPublicKey":os.environ["PUB"],"regions":[{"provider":"huawei","cloudRegion":"me-east-215-a","controlPlaneSize":"m7n.large.8","workerSize":"m7n.xlarge.8","workerCount":3},{"provider":"huawei","cloudRegion":"me-east-215-b","controlPlaneSize":"m7n.large.8","workerSize":"m7n.xlarge.8","workerCount":3}]}))')
+  # SHARED_PG=true opts the prov into the ADR-0010 reusable shared-Postgres
+  # model (#3188 -> SOVEREIGN_ENABLE_SHARED_PG, fire-body wired in #3275). Off by default.
+  body=$(SUB="$sub" POOL="$pool" PUB="$pub" SHARED_PG="${SHARED_PG:-false}" python3 -c 'import json,os;s=os.environ["SUB"];p=os.environ["POOL"];print(json.dumps({"orgName":"Omantel","orgEmail":"emrah.baysal@openova.io","provider":"huawei","sovereignDomainMode":"pool","sovereignPoolDomain":p,"sovereignSubdomain":s,"sovereignFQDN":s+"."+p,"sshPublicKey":os.environ["PUB"],"enableSharedPostgres":os.environ.get("SHARED_PG")=="true","regions":[{"provider":"huawei","cloudRegion":"me-east-215-a","controlPlaneSize":"m7n.large.8","workerSize":"m7n.xlarge.8","workerCount":3},{"provider":"huawei","cloudRegion":"me-east-215-b","controlPlaneSize":"m7n.large.8","workerSize":"m7n.xlarge.8","workerCount":3}]}))')
   echo "== firing ${sub}.${pool} =="
   curl -sk -X POST -H "Authorization: Bearer $(_tok)" -H "Content-Type: application/json" -d "$body" "${API}"; echo
 }
