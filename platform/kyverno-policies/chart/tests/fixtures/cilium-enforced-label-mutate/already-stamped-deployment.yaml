@@ -1,0 +1,39 @@
+# IDEMPOTENCY fixture (Refs #3268) — a Deployment that ALREADY carries
+# `policy.cilium.io/enforced: "true"` on its Pod template. Under the
+# `stamp-cilium-enforced-label` mutate policy this resource is left UNCHANGED:
+# the rule precondition short-circuits (label already present) and the
+# `+(label)` add-when-missing anchor would not override it anyway. Charts that
+# already stamp the label (bp-catalyst-platform, bp-cnpg-pair, bp-powerdns-admin,
+# bp-sso-bridge) match this shape and must not be touched.
+#
+#   kyverno apply /tmp/mutate.yaml \
+#     --resource tests/fixtures/cilium-enforced-label-mutate/already-stamped-deployment.yaml
+#
+# Expect: no mutation (resource unchanged).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: already-stamped
+  namespace: harbor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: already-stamped
+  template:
+    metadata:
+      labels:
+        app: already-stamped
+        policy.cilium.io/enforced: "true"   # already present — must stay exactly this
+    spec:
+      containers:
+        - name: app
+          image: harbor.openova.io/proxy-ghcr/openova-io/openova/example:1.2.3
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+          readinessProbe:
+            httpGet: { path: /ready, port: 8080 }
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi

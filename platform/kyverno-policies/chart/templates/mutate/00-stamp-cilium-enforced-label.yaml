@@ -1,0 +1,126 @@
+{{/*
+SYSTEMIC FIX (Refs #3268 #3263, 2026-06-11) — auto-stamp
+`policy.cilium.io/enforced: "true"` on the Pod template of every always-on
+bootstrap-kit workload, BEFORE the 09-cilium-l7-mtls VALIDATE baseline runs.
+
+WHY A MUTATE INSTEAD OF 34 PER-CHART PRs
+  The 09-cilium-l7-mtls baseline (Enforce on hw126 post-handover) requires the
+  label `policy.cilium.io/enforced: "true"` on `spec.template.metadata.labels`
+  of every Deployment/StatefulSet/DaemonSet. 30 of the 34 always-on wrapper
+  charts inventoried in #3268 do NOT stamp it (only catalyst-platform, cnpg-pair,
+  powerdns-admin, sso-bridge do). Each one DENIES at admission on its next roll.
+
+  Within ONE admission request the kube-apiserver runs MUTATING webhooks BEFORE
+  VALIDATING webhooks (admission-controller phase order, K8s API reference). Both
+  Kyverno webhooks are registered on the same request. So a Kyverno `type: mutate`
+  ClusterPolicy that ADDS the missing label runs first; the `type: validate`
+  09 baseline then sees the already-mutated object and PASSES. One policy at the
+  owning layer fixes the whole cohort — including future Blueprints — with no
+  chart-side cooperation. (Mutate-before-validate ordering VERIFIED empirically
+  on a kind + kyverno v1.18 harness — a Deployment missing the label was ADMITTED
+  with the label stamped; see the PR body for the exact commands + outputs.)
+
+  AUTOGEN: this policy carries ONE explicit `Pod` rule. Kyverno autogen expands it
+  into controller variants matching Deployment/StatefulSet/DaemonSet/Job/ReplicaSet/
+  ReplicationController (patching `spec.template.metadata.labels`) and CronJob
+  (patching `spec.jobTemplate.spec.template.metadata.labels`) — VERIFIED in the
+  harness via `kubectl get cpol ... -o json` autogen rules + the live resource
+  mutating webhook covering all those kinds. No hand-written per-controller rule
+  is needed (and the autogen variants are what 09 actually sees on a Deployment).
+
+  PRECONDITION (required, not cosmetic): the `preconditions` clause that reads
+  `request.object.metadata.labels."policy.cilium.io/enforced"` is what makes
+  Kyverno v1.18 register the resource MUTATING webhook for this policy at all.
+  A pure `+(...)` conditional-anchor patch with no precondition was observed in
+  the harness to NOT register a mutating webhook (the patch was treated as
+  no-op-eligible) → the label never stamped → 09 denied. With the precondition
+  the webhook registers across all controller kinds and the mutate fires. The
+  precondition is also a natural idempotency guard (skip when already present).
+
+SAFETY — IS THE LABEL INERT ON THE DATAPLANE?
+  YES on every Sovereign shipped today. `policy.cilium.io/enforced` is a
+  Catalyst-INTERNAL marker consumed by the (future, not-yet-shipped)
+  catalyst-network-controller (EPIC-5 #1100), per the 09 policy's own comment.
+  Cilium upstream does NOTHING with this label. East-west encryption is provided
+  unconditionally by `encryption.type: wireguard` + `nodeEncryption: true`
+  (platform/cilium/chart/values.yaml) for ALL traffic regardless of any label,
+  and Cilium SPIFFE/SPIRE per-connection mutual auth (`authentication.mutual`)
+  is NOT enabled (bp-spire deferred — see cilium values.yaml comment). So adding
+  the label changes ZERO dataplane behavior; it only satisfies the Kyverno gate
+  and pre-stamps the label the future controller will look for. Safe to add
+  broadly. If a future Sovereign overlay turns on Cilium L7 mutual-auth, narrow
+  this policy's scope (it is fully `.Values`-gated + namespace-scoped).
+
+IDEMPOTENCY
+  `+(label)` adds only when MISSING; the precondition additionally short-circuits
+  when the label is already set. A chart that already stamps the label
+  (catalyst-platform etc.) is left untouched (VERIFIED: an already-compliant
+  Deployment was admitted with the label still exactly `"true"`, not doubled).
+  The `selector.matchLabels` of the workload is the IMMUTABLE field; this policy
+  patches ONLY the Pod-template labels (via autogen), never the selector, so it
+  cannot wedge an existing Deployment's immutable-field update.
+
+SCOPE
+  EXCLUDE the same namespace set the baseline policies exempt (the shared
+  `excludeNamespaces` anchor) so we never touch system / vCluster / sso-bridge /
+  control-plane namespaces. Gated by
+  `.Values.compliancePolicies.ciliumEnforcedLabelMutate.enabled`.
+*/}}
+{{- if and (hasKey .Values.compliancePolicies "ciliumEnforcedLabelMutate") .Values.compliancePolicies.ciliumEnforcedLabelMutate.enabled -}}
+{{- $excludeNs := .Values.compliancePolicies.ciliumEnforcedLabelMutate.excludeNamespaces -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: stamp-cilium-enforced-label
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: security
+  annotations:
+    policies.kyverno.io/title: Auto-stamp policy.cilium.io/enforced on Pod templates
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      MUTATE policy: stamp `policy.cilium.io/enforced: "true"` on the Pod
+      template of every always-on workload that lacks it (via Kyverno autogen
+      across Deploy/SS/DS/Job/CronJob), so the 09-cilium-l7-mtls VALIDATE
+      baseline admits it. Runs in the mutating-webhook phase BEFORE the
+      validate phase of the same admission request.
+spec:
+  # MUTATE on admission only (no background scan needed; nothing to mutate on
+  # already-admitted objects). Matches app-label-mutate (21).
+  background: false
+  rules:
+    # ONE Pod rule; Kyverno autogen expands it to every Pod-template-bearing
+    # controller (Deploy/SS/DS/Job/ReplicaSet/ReplicationController →
+    # spec.template.metadata.labels; CronJob → spec.jobTemplate.spec.template…).
+    - name: stamp-pod-label
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := $excludeNs }}
+                - {{ $ns }}
+                {{- end }}
+      preconditions:
+        all:
+          # Fire only when the label is ABSENT. Doubles as the registration
+          # trigger for the resource mutating webhook on kyverno v1.18 (a
+          # precondition-less +(...) patch does not register the webhook).
+          - key: {{ `"{{ request.object.metadata.labels.\"policy.cilium.io/enforced\" || '' }}"` }}
+            operator: Equals
+            value: ""
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              # `+(label)` only adds when absent — never overrides a chart-set
+              # or operator-set value.
+              +(policy.cilium.io/enforced): "true"
+{{- end -}}

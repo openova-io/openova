@@ -38,3 +38,31 @@ exactly one (per workload).
 
 The remaining 15 policies' fixtures are deferred — slice S1 ships the
 authoritative matrix.
+
+## MUTATE policy fixtures (Refs #3268)
+
+`stamp-cilium-enforced-label` is a MUTATE policy, so its fixtures are
+"needs-mutate" (the label is added) vs "already-stamped" (no-op / idempotent),
+rather than pass/fail validate cases.
+
+| Policy | Needs-mutate fixture | Idempotent fixture |
+|---|---|---|
+| stamp-cilium-enforced-label | `cilium-enforced-label-mutate/needs-mutate-deployment.yaml` | `cilium-enforced-label-mutate/already-stamped-deployment.yaml` |
+
+```bash
+helm template . --set compliancePolicies.bootstrapMode=false \
+  --set compliancePolicies.ciliumEnforcedLabelMutate.enabled=true \
+  --show-only templates/mutate/00-stamp-cilium-enforced-label.yaml > /tmp/mutate.yaml
+
+# needs-mutate → emits a patched resource with policy.cilium.io/enforced: "true"
+kyverno apply /tmp/mutate.yaml \
+  --resource tests/fixtures/cilium-enforced-label-mutate/needs-mutate-deployment.yaml
+# already-stamped → no mutation (resource unchanged)
+kyverno apply /tmp/mutate.yaml \
+  --resource tests/fixtures/cilium-enforced-label-mutate/already-stamped-deployment.yaml
+```
+
+The end-to-end mutate-before-validate proof (admission-time ordering against
+the REAL 09/11 Enforce baselines on a kind + kyverno v1.18 cluster) is captured
+in the PR body — `kyverno apply` exercises only the policy logic offline, not
+the apiserver's webhook phase ordering.
