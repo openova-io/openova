@@ -34,6 +34,7 @@ import (
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1874,5 +1875,56 @@ func TestEnableCNPGPair_TwoStageFirstFlip(t *testing.T) {
 	}
 	if g := gateOf(fx.secondaryKubeconfigPath); g != "true" {
 		t.Errorf("run 2: REPLICA region gate = %q, want \"true\"", g)
+	}
+}
+
+// TestAutoEstablishClusterMesh_IdempotentRerunSkipsRolloutRestart locks
+// in the #3241 layer-4 fix: the level-triggered reconcile re-runs the
+// orchestrator every ~2 min, and an UNCONDITIONAL rollout-restart per
+// pass crash-cycled the mesh components (clustermesh-apiserver
+// Deployment reached generation 35 live on hw128) — the agents never
+// got a stable window to finish the remote-config sync. Run 1 (Secret
+// created) must stamp restartedAt; run 2 (byte-identical peer config)
+// must NOT bump it.
+func TestAutoEstablishClusterMesh_IdempotentRerunSkipsRolloutRestart(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
+	// Seed a minimal cilium DaemonSet on the primary so the
+	// rollout-restart patch has a real object to stamp (the fake
+	// otherwise swallows it as IsNotFound).
+	primaryCS := fx.clients[fx.primaryKubeconfigPath]
+	if _, err := primaryCS.AppsV1().DaemonSets(clusterMeshNamespace).Create(context.Background(),
+		&appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "cilium", Namespace: clusterMeshNamespace}},
+		metav1.CreateOptions{}); err != nil {
+		t.Fatalf("seed cilium DaemonSet: %v", err)
+	}
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+
+	stampOf := func() string {
+		t.Helper()
+		ds, err := primaryCS.AppsV1().DaemonSets(clusterMeshNamespace).Get(context.Background(), "cilium", metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get cilium DaemonSet: %v", err)
+		}
+		return ds.Spec.Template.Annotations["catalyst.openova.io/restartedAt"]
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep); err != nil {
+		t.Fatalf("run 1: %v", err)
+	}
+	first := stampOf()
+	if first == "" {
+		t.Fatalf("run 1 did not stamp restartedAt despite creating the peer Secret")
+	}
+
+	if _, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep); err != nil {
+		t.Fatalf("run 2: %v", err)
+	}
+	if second := stampOf(); second != first {
+		t.Errorf("idempotent re-run bumped restartedAt %q -> %q — the #3241 layer-4 thrash", first, second)
 	}
 }

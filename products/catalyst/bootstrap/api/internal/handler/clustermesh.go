@@ -87,6 +87,7 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -99,6 +100,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -214,7 +216,7 @@ const (
 	// `cnpgPair.side` off it; the two-stage flip (#3241 first-flip
 	// deadlock) keys the patch ordering off it.
 	clusterMeshRegionRoleSubstituteKey = "SOVEREIGN_REGION_ROLE"
-	fluxReconcileRequestedAtAnnotation    = "reconcile.fluxcd.io/requestedAt"
+	fluxReconcileRequestedAtAnnotation = "reconcile.fluxcd.io/requestedAt"
 )
 
 // Cross-cluster CNPG replica-auth Secret sync (#3254, the prerequisite
@@ -629,7 +631,8 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 		// Stable order for the Secret update (so an idempotent re-run
 		// produces byte-identical Secret data and no rollout-restart
 		// thrash).
-		if err := h.applyClusterMeshSecret(ctx, a.clientset, peerEntries); err != nil {
+		secretChanged, err := h.applyClusterMeshSecret(ctx, a.clientset, peerEntries)
+		if err != nil {
 			h.log.Warn("clustermesh: Secret apply failed",
 				"id", dep.ID,
 				"region", a.key,
@@ -664,19 +667,33 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 				peers = append(peers, hostAliasPeer{PeerName: b.clusterName, LBIP: b.lbIP})
 			}
 		}
-		if err := h.patchCiliumHostAliases(ctx, a.clientset, peers); err != nil {
+		aliasesChanged, aliasErr := h.patchCiliumHostAliases(ctx, a.clientset, peers)
+		if aliasErr != nil {
 			h.log.Warn("clustermesh: hostAliases patch failed (continuing)",
 				"id", dep.ID,
 				"region", a.key,
-				"err", err,
+				"err", aliasErr,
 			)
 		}
 
 		// Trigger rollout-restart on cilium + cilium-operator +
 		// clustermesh-apiserver in this region so they pick up the
-		// new peer entries + hostAliases deterministically. Best-effort:
-		// errors are logged, not fatal.
-		h.rolloutRestartClusterMeshTargets(ctx, dep, a)
+		// new peer entries + hostAliases deterministically — but ONLY
+		// when something actually changed (#3241 layer 4). The
+		// level-triggered reconcile re-runs this every ~2 min; an
+		// unconditional restart per pass crash-cycled the mesh
+		// components (apiserver Deployment generation 35 on hw128) and
+		// the agents never got a stable window to finish the
+		// remote-config sync — the loop kept resetting the very state
+		// it was waiting on. Best-effort: errors are logged, not fatal.
+		if secretChanged || aliasesChanged {
+			h.rolloutRestartClusterMeshTargets(ctx, dep, a)
+		} else {
+			h.log.Info("clustermesh: peer config unchanged — skipping rollout-restart (idempotent re-run)",
+				"id", dep.ID,
+				"region", a.key,
+			)
+		}
 
 		readyCount := 0
 		for _, p := range st.Peers {
@@ -1664,15 +1681,22 @@ func peerMeshHostname(peerClusterName string) string {
 // `entries` are overwritten with the freshly minted bytes (idempotent
 // re-runs converge byte-identically because mintPeerClientCert is the
 // only non-deterministic step and the new bytes always supersede).
-func (h *Handler) applyClusterMeshSecret(ctx context.Context, client kubernetes.Interface, entries map[string][]byte) error {
+// The returned bool reports whether the Secret actually CHANGED (created
+// or content updated) — the caller keys the rollout-restart on it
+// (#3241 layer 4): the level-triggered reconcile re-runs this every
+// ~2 min, and an unconditional restart per pass turned the loop into a
+// mesh-component crash-cycle (clustermesh-apiserver Deployment hit
+// generation 35 on hw128) that never left the agents a stable window to
+// finish the remote-config sync.
+func (h *Handler) applyClusterMeshSecret(ctx context.Context, client kubernetes.Interface, entries map[string][]byte) (bool, error) {
 	if len(entries) == 0 {
-		return nil
+		return false, nil
 	}
 	callCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
 	defer cancel()
 	existing, err := client.CoreV1().Secrets(clusterMeshNamespace).Get(callCtx, clusterMeshSecretName, metav1.GetOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("Get Secret %s/%s: %w",
+		return false, fmt.Errorf("Get Secret %s/%s: %w",
 			clusterMeshNamespace, clusterMeshSecretName, err)
 	}
 	if apierrors.IsNotFound(err) {
@@ -1691,13 +1715,14 @@ func (h *Handler) applyClusterMeshSecret(ctx context.Context, client kubernetes.
 		}
 		if _, createErr := client.CoreV1().Secrets(clusterMeshNamespace).Create(callCtx, s, metav1.CreateOptions{}); createErr != nil {
 			if apierrors.IsAlreadyExists(createErr) {
-				// Race window — fall through to Update.
-				return h.updateClusterMeshSecret(ctx, client, entries)
+				// Race window — fall through to Update. Treat as changed:
+				// the racer's content is unknown.
+				return true, h.updateClusterMeshSecret(ctx, client, entries)
 			}
-			return fmt.Errorf("Create Secret %s/%s: %w",
+			return false, fmt.Errorf("Create Secret %s/%s: %w",
 				clusterMeshNamespace, clusterMeshSecretName, createErr)
 		}
-		return nil
+		return true, nil
 	}
 	// Merge: keep entries we don't manage, overwrite ones we do.
 	merged := make(map[string][]byte, len(existing.Data)+len(entries))
@@ -1707,12 +1732,25 @@ func (h *Handler) applyClusterMeshSecret(ctx context.Context, client kubernetes.
 	for k, v := range entries {
 		merged[k] = v
 	}
+	// Byte-identical content → no write, no restart (idempotent re-run).
+	if len(merged) == len(existing.Data) {
+		identical := true
+		for k, v := range merged {
+			if ev, ok := existing.Data[k]; !ok || !bytes.Equal(ev, v) {
+				identical = false
+				break
+			}
+		}
+		if identical {
+			return false, nil
+		}
+	}
 	patch := []byte(fmt.Sprintf(`{"data":%s}`, encodeSecretDataJSON(merged)))
 	if _, patchErr := client.CoreV1().Secrets(clusterMeshNamespace).Patch(callCtx, clusterMeshSecretName, types.MergePatchType, patch, metav1.PatchOptions{}); patchErr != nil {
-		return fmt.Errorf("Patch Secret %s/%s: %w",
+		return false, fmt.Errorf("Patch Secret %s/%s: %w",
 			clusterMeshNamespace, clusterMeshSecretName, patchErr)
 	}
-	return nil
+	return true, nil
 }
 
 // updateClusterMeshSecret is the race-window fallback when Create
@@ -1751,11 +1789,14 @@ func (h *Handler) updateClusterMeshSecret(ctx context.Context, client kubernetes
 // Caught on t128 (9680edbdce8fefe8, 2026-05-16): clustermesh agents
 // stayed `0/2 remote clusters ready` despite full peer entries
 // because TLS hostname verification failed at handshake time.
-func (h *Handler) patchCiliumHostAliases(ctx context.Context, client kubernetes.Interface, peers []hostAliasPeer) error {
+// The returned bool reports whether the DaemonSet pod template actually
+// changed — same restart-thrash rationale as applyClusterMeshSecret.
+func (h *Handler) patchCiliumHostAliases(ctx context.Context, client kubernetes.Interface, peers []hostAliasPeer) (bool, error) {
 	if len(peers) == 0 {
-		return nil
+		return false, nil
 	}
 	aliases := make([]map[string]any, 0, len(peers))
+	desired := make([]corev1.HostAlias, 0, len(peers))
 	for _, p := range peers {
 		if p.LBIP == "" || p.PeerName == "" {
 			continue
@@ -1764,9 +1805,19 @@ func (h *Handler) patchCiliumHostAliases(ctx context.Context, client kubernetes.
 			"ip":        p.LBIP,
 			"hostnames": []string{peerMeshHostname(p.PeerName)},
 		})
+		desired = append(desired, corev1.HostAlias{IP: p.LBIP, Hostnames: []string{peerMeshHostname(p.PeerName)}})
 	}
 	if len(aliases) == 0 {
-		return nil
+		return false, nil
+	}
+	// No-op guard: identical hostAliases already on the pod template →
+	// skip the patch (a strategic-merge write with identical content
+	// still bumps nothing, but skipping keeps intent explicit + cheap).
+	getCtx, cancelGet := context.WithTimeout(ctx, clusterMeshCallTimeout)
+	ds, getErr := client.AppsV1().DaemonSets(clusterMeshNamespace).Get(getCtx, "cilium", metav1.GetOptions{})
+	cancelGet()
+	if getErr == nil && reflect.DeepEqual(ds.Spec.Template.Spec.HostAliases, desired) {
+		return false, nil
 	}
 	patch := map[string]any{
 		"spec": map[string]any{
@@ -1779,14 +1830,14 @@ func (h *Handler) patchCiliumHostAliases(ctx context.Context, client kubernetes.
 	}
 	patchBytes, err := json.Marshal(patch)
 	if err != nil {
-		return fmt.Errorf("marshal hostAliases patch: %w", err)
+		return false, fmt.Errorf("marshal hostAliases patch: %w", err)
 	}
 	callCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
 	defer cancel()
 	if _, err := client.AppsV1().DaemonSets(clusterMeshNamespace).Patch(callCtx, "cilium", types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}); err != nil {
-		return fmt.Errorf("patch cilium DaemonSet hostAliases: %w", err)
+		return false, fmt.Errorf("patch cilium DaemonSet hostAliases: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 // hostAliasPeer is a minimal projection used by patchCiliumHostAliases.
