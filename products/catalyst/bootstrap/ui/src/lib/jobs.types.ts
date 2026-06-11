@@ -55,7 +55,16 @@ export type JobType = 'install' | 'group'
  *                   empty and the UI falls back to jobName.
  *   • type        — see {@link JobType}.
  *   • appId       — the bp-* Application this job is attributed to.
- *                   Empty for groups and Day-2 mutations.
+ *                   Empty for groups and Day-2 mutations. On a
+ *                   multi-region Sovereign a secondary region's appId
+ *                   carries a "<region>:<chart>" prefix.
+ *   • region      — the cloud region the job's HelmRelease was observed
+ *                   in ("me-east-215-b-1"). Empty for primary-region
+ *                   rows and groups; the backend stamps it from the
+ *                   "<region>:" appId prefix. First-class source of
+ *                   truth for the Region column/filter — preferred over
+ *                   parsing the appId prefix. omitempty on the wire, so
+ *                   optional here.
  *   • parentId    — full id of the parent Job, or "" for top-level.
  *                   Replaces the old `batchId` denormalisation.
  *   • dependsOn   — ids of upstream jobs in the same DAG. Surfaced
@@ -77,6 +86,7 @@ export interface Job {
   displayName?: string
   type: JobType
   appId: string
+  region?: string
   parentId: string
   dependsOn: string[]
   childIds: string[]
