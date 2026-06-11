@@ -984,8 +984,13 @@ func TestShouldStartupClusterMeshReconcile_ConventionalFallback(t *testing.T) {
 		if !h.shouldStartupClusterMeshReconcile(dep) {
 			t.Fatalf("reconcile skipped despite conventional kubeconfig present at %s", convPath)
 		}
-		if dep.Result.KubeconfigPath != convPath {
-			t.Errorf("resolved path not stamped back: got %q want %q", dep.Result.KubeconfigPath, convPath)
+		// READ-ONLY contract: resolvePrimaryKubeconfigPath must NOT stamp
+		// the resolved path onto dep.Result — State() leaks the *Result
+		// pointer to lock-free JSON marshals, and the mesh-reconcile
+		// goroutine calling this would race them (#3241 -race regression).
+		// The reconcile loop re-resolves the path on every attempt instead.
+		if dep.Result.KubeconfigPath != "" {
+			t.Errorf("read-only gate mutated dep.Result.KubeconfigPath: got %q", dep.Result.KubeconfigPath)
 		}
 	})
 
@@ -995,8 +1000,8 @@ func TestShouldStartupClusterMeshReconcile_ConventionalFallback(t *testing.T) {
 		if !h.shouldStartupClusterMeshReconcile(dep) {
 			t.Fatalf("reconcile skipped on nil-Result despite conventional kubeconfig present")
 		}
-		if dep.Result == nil || dep.Result.KubeconfigPath != convPath {
-			t.Errorf("nil Result not populated with conventional path: %+v", dep.Result)
+		if dep.Result != nil {
+			t.Errorf("read-only gate allocated dep.Result: %+v", dep.Result)
 		}
 	})
 
@@ -1069,6 +1074,73 @@ func TestBuildRegionSlots_SecondaryConventionalFallback(t *testing.T) {
 	if slots[1].err != nil {
 		t.Errorf("secondary slot unexpectedly failed: %v", slots[1].err)
 	}
+}
+
+// TestBuildRegionSlots_PrimaryConventionalFallback locks in the #3241 fix:
+// after a catalyst-api restart / deploy-bot roll, dep.Result is not
+// re-hydrated, so the passed-in primaryKubeconfigPath is "". Before the fix
+// the PRIMARY slot (cluster=primaryMeshName) entered with an empty path →
+// "kubeconfig path empty" → the secondary never peered with the primary →
+// fullyMeshed=0 → SOVEREIGN_ENABLE_CNPG_PAIR stayed OFF (the live hw128
+// failure). The primary kubeconfig survives at the conventional
+// `<kubeconfigsDir>/<id>.yaml`, identical to how secondaries are recovered.
+func TestBuildRegionSlots_PrimaryConventionalFallback(t *testing.T) {
+	dir := t.TempDir()
+	h := &Handler{log: silentLogger(), kubeconfigsDir: dir}
+	const depID = "5cc5f21df5f64ea7"
+	regions := []provisioner.RegionSpec{
+		{Provider: "huawei", CloudRegion: "me-east-215-a"},
+		{Provider: "huawei", CloudRegion: "me-east-215-b"},
+	}
+	primaryPath := filepath.Join(dir, depID+".yaml")
+	// Secondary key per regionKeyFromSpec: "<cloudRegion>-<idx>" = "me-east-215-b-1".
+	secondaryPath := filepath.Join(dir, depID+"-me-east-215-b-1.yaml")
+	for _, p := range []string{primaryPath, secondaryPath} {
+		if err := os.WriteFile(p, []byte("apiVersion: v1\nkind: Config\n"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
+	}
+	restore := installClusterMeshClientFactory(map[string]kubernetes.Interface{
+		primaryPath:   kfake.NewSimpleClientset(),
+		secondaryPath: kfake.NewSimpleClientset(),
+	})
+	defer restore()
+
+	t.Run("empty-primary-path-resolves-conventional", func(t *testing.T) {
+		dep := &Deployment{ID: depID, Status: "ready",
+			Request: provisioner.Request{Regions: regions}}
+		// Empty primaryKubeconfigPath mimics dep.Result==nil after a restart.
+		slots := h.buildRegionSlots(dep, regions, "", map[string]string{})
+		if len(slots) != 2 {
+			t.Fatalf("expected 2 slots, got %d", len(slots))
+		}
+		if slots[0].kubeconfigPath != primaryPath {
+			t.Errorf("primary slot did not resolve conventional path: got %q want %q",
+				slots[0].kubeconfigPath, primaryPath)
+		}
+		if slots[0].err != nil {
+			t.Errorf("primary slot unexpectedly failed: %v", slots[0].err)
+		}
+	})
+
+	t.Run("primary-file-absent-stays-empty", func(t *testing.T) {
+		// A deployment id with no kubeconfig file on disk: the fallback
+		// must NOT invent a path — behaviour is unchanged (empty → the
+		// existing "kubeconfig path empty" error slot).
+		dep := &Deployment{ID: "ghostdepnofile", Status: "ready",
+			Request: provisioner.Request{Regions: regions}}
+		slots := h.buildRegionSlots(dep, regions, "", map[string]string{})
+		if len(slots) != 2 {
+			t.Fatalf("expected 2 slots, got %d", len(slots))
+		}
+		if slots[0].kubeconfigPath != "" {
+			t.Errorf("primary slot should stay empty when no file present: got %q",
+				slots[0].kubeconfigPath)
+		}
+		if slots[0].err == nil {
+			t.Errorf("primary slot should carry the kubeconfig-path-empty error when no file present")
+		}
+	})
 }
 
 // TestAutoEstablishClusterMesh_Idempotent — second invocation produces
