@@ -25,7 +25,7 @@ spec:
           # Auto-bumped by .github/workflows/catalyst-build.yaml's deploy
           # step on every push to main, so Sovereigns AND contabo both
           # roll to the latest catalyst-ui SHA.
-          image: "ghcr.io/openova-io/openova/catalyst-ui:395b6ce"
+          image: "ghcr.io/openova-io/openova/catalyst-ui:3ce5028"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
