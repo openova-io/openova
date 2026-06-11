@@ -10,6 +10,11 @@
 #      single Cluster. This is the reuse proof: 2 consumers, 1 engine.
 #   3. The Database CRs each carry the binding owner + the shared cluster
 #      name, proving logical isolation on one engine.
+#   3b. (#3283 deadlock fix) Every reflected connection Secret lands in the
+#      RELEASE namespace (shared-data) — NONE targets gitea/harbor directly
+#      (those namespaces don't exist when bp-postgres-shared installs). Each
+#      hub Secret carries reflection-auto-namespaces naming the consumer ns
+#      so bp-reflector push-copies it in once the namespace appears.
 #   4. active-hot-standby + sync → the Cluster carries
 #      synchronous_commit + synchronous_standby_names (ADR-0004 Pillar-3).
 #   5. singleton → the Cluster carries NEITHER sync GUC.
@@ -76,6 +81,38 @@ shared_refs=$(grep -cE '^    name: shared-pg$' "$TMP/shared.yaml" || true)
 [ "$shared_refs" -ge 2 ] || fail "expected both Database CRs to point at shared-pg (got $shared_refs)"
 grep -q 'owner: "harbor"' "$TMP/shared.yaml" || fail "harbor owner missing"
 grep -q 'owner: "gitea"'  "$TMP/shared.yaml" || fail "gitea owner missing"
+
+# ── Case 3b: #3283 — connection Secrets land in shared-data, NOT the ──
+# consumer namespaces (which don't exist when bp-postgres-shared installs).
+# This is the deadlock regression-lock: the SOURCE-side reflector pattern.
+echo "[render] Case 3b: #3283 — every reflected Secret in shared-data (push-source), none in gitea/harbor"
+# Extract the namespace of every Secret. The shared.values namespace is
+# shared-data; assert all reflected connection Secrets carry it.
+secret_ns_in_shared=$(awk '/^kind: Secret$/{s=1} s&&/^  namespace: shared-data$/{c++} /^---$/{s=0} END{print c+0}' "$TMP/shared.yaml")
+[ "$secret_ns_in_shared" -eq 2 ] || fail "#3283: expected 2 connection Secrets in shared-data, got $secret_ns_in_shared"
+# NO Secret may target the consumer namespaces directly — that is the bug.
+if grep -E '^  namespace: (gitea|harbor)$' "$TMP/shared.yaml" | grep -q .; then
+  fail "#3283 REGRESSION: a Secret targets a consumer namespace (gitea/harbor) directly — re-introduces the deadlock"
+fi
+# Each hub Secret must carry the push-source annotations naming its
+# consumer namespace so reflector auto-copies it once the ns appears.
+grep -q 'reflector.v1.k8s.emberstack.com/reflection-allowed: "true"' "$TMP/shared.yaml" \
+  || fail "#3283: hub Secret missing reflection-allowed"
+grep -q 'reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"' "$TMP/shared.yaml" \
+  || fail "#3283: hub Secret missing reflection-auto-enabled"
+grep -q 'reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "harbor"' "$TMP/shared.yaml" \
+  || fail "#3283: harbor hub Secret missing reflection-auto-namespaces: harbor"
+grep -q 'reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "gitea"' "$TMP/shared.yaml" \
+  || fail "#3283: gitea hub Secret missing reflection-auto-namespaces: gitea"
+grep -q 'reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "harbor"' "$TMP/shared.yaml" \
+  || fail "#3283: harbor hub Secret missing reflection-allowed-namespaces: harbor"
+grep -q 'reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "gitea"' "$TMP/shared.yaml" \
+  || fail "#3283: gitea hub Secret missing reflection-allowed-namespaces: gitea"
+# And each still PULLS from the CNPG role Secret in shared-data (hop 1).
+grep -q 'reflector.v1.k8s.emberstack.com/reflects: "shared-data/shared-pg-harbor"' "$TMP/shared.yaml" \
+  || fail "#3283: harbor hub Secret missing reflects from shared-data/shared-pg-harbor"
+grep -q 'reflector.v1.k8s.emberstack.com/reflects: "shared-data/shared-pg-gitea"' "$TMP/shared.yaml" \
+  || fail "#3283: gitea hub Secret missing reflects from shared-data/shared-pg-gitea"
 
 # ── Case 4: active-hot-standby + sync → sync GUCs present ─────────
 echo "[render] Case 4: active-hot-standby + sync → synchronous-replication GUCs"
