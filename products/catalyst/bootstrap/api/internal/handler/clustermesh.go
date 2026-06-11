@@ -47,10 +47,20 @@
 //   A2 — Inter-region link = Cilium WireGuard over PUBLIC IPs ALWAYS.
 //        We read the LoadBalancer IP of each region's
 //        clustermesh-apiserver Service. The Service type must be
-//        LoadBalancer (per the chart overlay); we never look up
-//        NodePort.
-//   A3 — clustermesh-apiserver Service = LoadBalancer always. The word
-//        `NodePort` does not appear in this file.
+//        LoadBalancer (per the chart overlay).
+//   A3 — clustermesh-apiserver Service = LoadBalancer always. The DIAL
+//        PORT however depends on what implements the LB (#3241 hw128):
+//        a real cloud LB (Hetzner hcloud-ccm) listens on 2379 itself,
+//        but Cilium nodeIPAM (kom4dc/Huawei — no CCM) "implements" the
+//        Service by stamping a NODE-owned EIP as the ingress IP. That
+//        EIP is DNAT'd to the node's private IP, so cilium's BPF VIP
+//        frontend (keyed on the public EIP) never matches inbound
+//        packets and EIP:2379 is connection-refused from outside; the
+//        only externally-reachable path is the Service NodePort.
+//        resolveClusterMeshEndpoint therefore dials NodePort exactly
+//        when the ingress IP equals a node ExternalIP, and 2379
+//        otherwise. Verified live on hw128: 212.72.24.52:2379 refused,
+//        :31744 (NodePort) open.
 //   A6 — Provider-agnostic. We pull region kubeconfigs from disk and
 //        talk to whatever API server they describe. No Hetzner-specific
 //        API calls.
@@ -139,6 +149,7 @@ type regionSlot struct {
 	clusterID      int                  // Cilium cluster.id (1..255)
 	clientset      kubernetes.Interface // typed client built from kubeconfig
 	lbIP           string               // public LB IP of clustermesh-apiserver Service
+	apiPort        int                  // port peers DIAL on lbIP — 2379 on a real cloud LB; the Service NodePort when lbIP is a node-owned EIP (Cilium nodeIPAM, kom4dc shape)
 	caCert         []byte               // cilium-ca tls.crt bytes
 	caKey          []byte               // cilium-ca tls.key bytes
 	err            error                // non-nil if LB lookup / CA snapshot failed
@@ -419,7 +430,7 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 		if s.err != nil {
 			continue
 		}
-		lbIP, err := h.waitForClusterMeshLB(ctx, s.clientset)
+		lbIP, apiPort, err := h.waitForClusterMeshLB(ctx, s.clientset)
 		if err != nil {
 			s.err = fmt.Errorf("lb-discovery: %w", err)
 			h.log.Warn("clustermesh: LB lookup failed for region",
@@ -433,8 +444,9 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 			continue
 		}
 		s.lbIP = lbIP
+		s.apiPort = apiPort
 		h.emitClusterMeshProgress(dep, "info",
-			fmt.Sprintf("ClusterMesh: region %q apiserver LB ready at %s", s.key, lbIP))
+			fmt.Sprintf("ClusterMesh: region %q apiserver LB ready at %s (dial port %d)", s.key, lbIP, apiPort))
 	}
 
 	// Step 2: per-region cilium-ca snapshot. Without this we can't
@@ -580,7 +592,7 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 			}
 			// Secret keys the upstream chart mounts at
 			// /var/lib/cilium/clustermesh/<filename>.
-			peerEntries[b.clusterName] = buildPeerConfigBlob(b.clusterName, b.lbIP)
+			peerEntries[b.clusterName] = buildPeerConfigBlob(b.clusterName, b.apiPort)
 			peerEntries[b.clusterName+"-ca.crt"] = b.caCert
 			peerEntries[b.clusterName+".crt"] = clientCert
 			peerEntries[b.clusterName+".key"] = clientKey
@@ -1307,11 +1319,14 @@ func regionKeyFromSpec(rs provisioner.RegionSpec, idx int) string {
 }
 
 // waitForClusterMeshLB polls Service kube-system/clustermesh-apiserver
-// up to clusterMeshLBLookupTimeout for a LoadBalancer ingress IP. Per
-// invariants A2/A3 the Service type MUST be LoadBalancer (always public
-// IP, never NodePort). A typed-mismatch is treated as a hard failure
-// rather than retried.
-func (h *Handler) waitForClusterMeshLB(ctx context.Context, client kubernetes.Interface) (string, error) {
+// up to clusterMeshLBLookupTimeout for a LoadBalancer ingress IP, then
+// resolves the port peers must DIAL on that IP (invariant A3): 2379 on
+// a real cloud LB; the Service NodePort when the ingress IP is a
+// node-owned ExternalIP (Cilium nodeIPAM — the EIP is DNAT'd so the
+// BPF VIP frontend never sees it and 2379 is refused externally; the
+// kom4dc #3241 shape). The Service type MUST be LoadBalancer; a
+// typed-mismatch is treated as a hard failure rather than retried.
+func (h *Handler) waitForClusterMeshLB(ctx context.Context, client kubernetes.Interface) (string, int, error) {
 	timeout := clusterMeshLBLookupTimeout
 	if clusterMeshTestOverrideLBTimeout > 0 {
 		timeout = clusterMeshTestOverrideLBTimeout
@@ -1328,38 +1343,90 @@ func (h *Handler) waitForClusterMeshLB(ctx context.Context, client kubernetes.In
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				if time.Now().After(deadline) {
-					return "", fmt.Errorf("Service %s/%s not found after %s",
+					return "", 0, fmt.Errorf("Service %s/%s not found after %s",
 						clusterMeshNamespace, clusterMeshApiserverService, timeout)
 				}
 				if err := sleepCtx(ctx, interval); err != nil {
-					return "", err
+					return "", 0, err
 				}
 				continue
 			}
-			return "", fmt.Errorf("Get Service %s/%s: %w",
+			return "", 0, fmt.Errorf("Get Service %s/%s: %w",
 				clusterMeshNamespace, clusterMeshApiserverService, err)
 		}
 		// Hard-fail if someone has retyped the Service: invariant A3.
 		if svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
-			return "", fmt.Errorf("Service %s/%s type %q violates invariant A3 (must be LoadBalancer)",
+			return "", 0, fmt.Errorf("Service %s/%s type %q violates invariant A3 (must be LoadBalancer)",
 				clusterMeshNamespace, clusterMeshApiserverService, svc.Spec.Type)
 		}
 		for _, ing := range svc.Status.LoadBalancer.Ingress {
-			if ing.IP != "" {
-				return ing.IP, nil
+			ip := ing.IP
+			if ip == "" {
+				ip = ing.Hostname
 			}
-			if ing.Hostname != "" {
-				return ing.Hostname, nil
+			if ip == "" {
+				continue
 			}
+			port, err := h.resolveClusterMeshDialPort(ctx, client, svc, ip)
+			if err != nil {
+				return "", 0, err
+			}
+			return ip, port, nil
 		}
 		if time.Now().After(deadline) {
-			return "", fmt.Errorf("Service %s/%s has no LoadBalancer ingress after %s",
+			return "", 0, fmt.Errorf("Service %s/%s has no LoadBalancer ingress after %s",
 				clusterMeshNamespace, clusterMeshApiserverService, timeout)
 		}
 		if err := sleepCtx(ctx, interval); err != nil {
-			return "", err
+			return "", 0, err
 		}
 	}
+}
+
+// resolveClusterMeshDialPort decides which port peers dial on the
+// clustermesh-apiserver ingress IP (invariant A3, #3241): when the IP
+// is a node-owned ExternalIP the "LB" is Cilium nodeIPAM and only the
+// Service NodePort answers externally (the EIP is DNAT'd, so the BPF
+// VIP frontend keyed on the public IP never matches and 2379 is
+// connection-refused); a real cloud LB listens on 2379 itself. A
+// node-owned IP without a populated NodePort falls back to 2379 with a
+// warning rather than failing the slot — the etcd connect step will
+// surface the unreachability with full peer context.
+func (h *Handler) resolveClusterMeshDialPort(ctx context.Context, client kubernetes.Interface, svc *corev1.Service, ingressIP string) (int, error) {
+	callCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+	nodes, err := client.CoreV1().Nodes().List(callCtx, metav1.ListOptions{})
+	cancel()
+	if err != nil {
+		return 0, fmt.Errorf("List Nodes (LB-vs-nodeIPAM check for %s): %w", ingressIP, err)
+	}
+	nodeOwned := false
+	for _, n := range nodes.Items {
+		for _, addr := range n.Status.Addresses {
+			if addr.Type == corev1.NodeExternalIP && addr.Address == ingressIP {
+				nodeOwned = true
+				break
+			}
+		}
+		if nodeOwned {
+			break
+		}
+	}
+	if !nodeOwned {
+		return clusterMeshAPIServerPort, nil
+	}
+	for _, p := range svc.Spec.Ports {
+		if int(p.Port) == clusterMeshAPIServerPort && p.NodePort > 0 {
+			h.log.Info("clustermesh: ingress IP is node-owned (nodeIPAM) — peers will dial the NodePort",
+				"ip", ingressIP,
+				"nodePort", p.NodePort,
+			)
+			return int(p.NodePort), nil
+		}
+	}
+	h.log.Warn("clustermesh: ingress IP is node-owned but Service has no NodePort for 2379 — falling back to 2379 (likely unreachable externally)",
+		"ip", ingressIP,
+	)
+	return clusterMeshAPIServerPort, nil
 }
 
 // snapshotRemoteCert reads kube-system/clustermesh-apiserver-remote-cert
@@ -1498,8 +1565,12 @@ func parsePrivateKey(der []byte) (any, error) {
 // t128 (9680edbdce8fefe8, 2026-05-16): the prior code put the
 // LB IP in the endpoint URL; TLS handshake failed because the
 // server cert had no IP SAN matching the public LB IP.
-func buildPeerConfigBlob(peerClusterName, peerLBIP string) []byte {
-	endpoint := fmt.Sprintf("https://%s:%d", peerMeshHostname(peerClusterName), clusterMeshAPIServerPort)
+//
+// peerDialPort is the port resolved by resolveClusterMeshDialPort —
+// 2379 behind a real cloud LB, the Service NodePort when the peer's
+// ingress IP is node-owned (nodeIPAM, #3241).
+func buildPeerConfigBlob(peerClusterName string, peerDialPort int) []byte {
+	endpoint := fmt.Sprintf("https://%s:%d", peerMeshHostname(peerClusterName), peerDialPort)
 	blob := strings.Join([]string{
 		"endpoints:",
 		"- " + endpoint,
