@@ -24,8 +24,8 @@
 //
 // What this writes:
 //   For every CanonicalSovereignSubdomain (console / auth / gitea /
-//   harbor / bao / grafana / hubble / pdns / openova-flow / marketplace
-//   / api / registry / guacamole) an A record
+//   harbor / bao / grafana / hubble / pdns / pdns-admin / openova-flow /
+//   marketplace / api / registry / guacamole / newapi / sandbox) an A record
 //     <sub>.<sovereign-fqdn>. → <primary-lb-ipv4>
 //   in the parent zone. PATCH REPLACE — idempotent re-runs are safe.
 
@@ -64,6 +64,25 @@ var CanonicalSovereignSubdomains = []string{
 	"marketplace",
 	"api",
 	"guacamole",
+	// newapi — public URL for the multi-tenant LLM marketplace gateway
+	// (bp-newapi, bootstrap-kit slot 80). The chart renders an HTTPRoute
+	// at newapi.<sov-fqdn> (platform/newapi/chart/templates/httproute.yaml,
+	// host newapi.${SOVEREIGN_FQDN} per clusters/_template/bootstrap-kit/
+	// 80-newapi.yaml) and Sandbox runtimes hit it via the controller-minted
+	// NEWAPI_BASE_URL=https://newapi.<sov-fqdn>/v1. Without this entry the
+	// parent zone returns NXDOMAIN — every Sandbox LLM call + the operator's
+	// newapi.<fqdn> browser walk fail even though the Gateway listener +
+	// HTTPRoute are Accepted (Refs #3263 #2737). Caught live on hw126:
+	// `dig newapi.hw126.omantel.biz` → empty while every sibling resolved.
+	"newapi",
+	// pdns-admin — public URL for the PowerDNS-Admin web UI (bp-powerdns-admin,
+	// bootstrap-kit slot 11a, host pdns-admin.${SOVEREIGN_FQDN} per
+	// clusters/_template/bootstrap-kit/11a-bp-powerdns-admin.yaml). The bare
+	// pdns.<fqdn> API host IS in this list; the human-facing UI host
+	// pdns-admin.<fqdn> was not, so operators hit NXDOMAIN on the UI even
+	// after #3227 redirected pdns.<fqdn>/ → pdns-admin.<fqdn>/ (the redirect
+	// target itself never resolved). Refs #3225 #3263.
+	"pdns-admin",
 	// sandbox — public URL for the Sandbox product's per-Sandbox
 	// pty-server StatefulSet (PR #1641 rendered the per-Sandbox
 	// HTTPRoute at sandbox.<sov-fqdn>/sessions/<owner-uid>/*; without
