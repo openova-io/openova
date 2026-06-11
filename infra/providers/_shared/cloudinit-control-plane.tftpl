@@ -422,6 +422,26 @@ write_files:
             SOVEREIGN_ENABLE_HOT_STANDBY: "${enable_hot_standby}"
             # ADR-0010 #3188 master gate for bootstrap-kit slot 16a shared-pg.
             SOVEREIGN_ENABLE_SHARED_PG: "${enable_shared_pg}"
+            # #3285 one-flag contract: enabling the shared engine ALSO flips
+            # both consumers to SHARED mode (skip their bundled CNPG; bind
+            # the reflected <consumer>-database-secret off shared-pg).
+            # Proven necessary on hw129 (2026-06-11, the first
+            # SHARED_PG=true prov): the engine + Database CRs + hub Secrets
+            # all materialized, but gitea/harbor still rendered their OWN
+            # gitea-pg/harbor-pg clusters because these per-consumer flips
+            # were a documented-but-manual second step — the founder-visible
+            # "1 engine, 2 consumers" card cannot exist zero-touch without
+            # them. tofu's enable_shared_pg is the string "true"/"false", so
+            # the inverse is computed here template-side.
+            SOVEREIGN_GITEA_PG_OWN_CLUSTER: "${enable_shared_pg == "true" ? "false" : "true"}"
+            SOVEREIGN_HARBOR_PG_OWN_CLUSTER: "${enable_shared_pg == "true" ? "false" : "true"}"
+            # The companion seams the slots default to own-cluster values
+            # (host/secret). In SHARED mode they must point at the shared
+            # engine + the reflected hub Secret (#3284) or the consumers
+            # would skip their bundled cluster yet still dial it.
+            SOVEREIGN_GITEA_PG_HOST: "${enable_shared_pg == "true" ? "shared-pg-rw.shared-data.svc.cluster.local" : "gitea-pg-rw.gitea.svc.cluster.local"}"
+            SOVEREIGN_GITEA_PG_SECRET: "${enable_shared_pg == "true" ? "gitea-database-secret" : "gitea-pg-app"}"
+            SOVEREIGN_HARBOR_PG_HOST: "${enable_shared_pg == "true" ? "shared-pg-rw.shared-data.svc.cluster.local" : "harbor-pg-rw.harbor.svc.cluster.local"}"
             SOVEREIGN_BCP_TOPOLOGY: "${bcp_topology}"
             # SOVEREIGN_REGION_ROLE — this control plane's role in the
             # multi-region topology (primary|secondary). Both providers
