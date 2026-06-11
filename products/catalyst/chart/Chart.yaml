@@ -2628,7 +2628,7 @@ name: bp-catalyst-platform
 # flip admin.dns.<sov> → pdns-admin.<sov> (single-level, wildcard-cert-covered,
 # matches the KC client redirectUris) + bp-powerdns-admin 0.1.5 OIDC env-var
 # name fixes. Refs #3150.
-version: 1.4.565
+version: 1.4.566
 appVersion: 1.4.494
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
