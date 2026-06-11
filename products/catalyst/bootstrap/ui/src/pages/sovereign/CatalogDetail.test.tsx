@@ -282,4 +282,51 @@ describe('CatalogDetail — #3090 class page', () => {
     expect(screen.queryByTestId('sov-instances-table')).toBeNull()
     expect(screen.queryByTestId('btn-new-instance')).toBeNull()
   })
+
+  // ── #3188 / ADR-0010 — the "Data instances" panel on data-engine pages ──
+
+  it('renders the Data instances panel on the bp-postgres class page', async () => {
+    const POSTGRES_CATALOG = {
+      name: 'postgres',
+      version: '0.1.1',
+      card: { title: 'PostgreSQL', category: 'data' },
+      origin: 'upstream',
+      source: 'gitea',
+      raw: { spec: { multiInstance: { enabled: true } } },
+    }
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      // bp-postgres instances feed the data-instances panel (engine count).
+      if (url.includes('/catalog/postgres/instances')) {
+        return jsonRes({
+          items: [
+            {
+              id: 'pg-1',
+              name: 'shared-pg',
+              blueprint: 'postgres',
+              org: 'sovereign',
+              topology: 'singleton',
+              status: 'Ready',
+            },
+          ],
+        })
+      }
+      if (url.includes('/instances')) return jsonRes({ items: [] })
+      if (url.includes('/catalog/')) return jsonRes(POSTGRES_CATALOG)
+      return jsonRes({})
+    }) as typeof fetch
+
+    renderCatalog('postgres')
+    // The ADR-0010 panel + the PostgreSQL engine-class card render here.
+    expect(await screen.findByTestId('data-instances-panel')).toBeTruthy()
+    expect(await screen.findByTestId('engine-class-card')).toBeTruthy()
+    // The one bp-postgres install surfaces as a data-instance card.
+    expect(await screen.findByTestId('data-instance-card')).toBeTruthy()
+  })
+
+  it('does NOT render the Data instances panel on a non-data Blueprint (grafana)', async () => {
+    renderCatalog('grafana')
+    await screen.findByTestId('catalog-title')
+    expect(screen.queryByTestId('data-instances-panel')).toBeNull()
+  })
 })
