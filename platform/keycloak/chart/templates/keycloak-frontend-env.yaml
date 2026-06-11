@@ -1,0 +1,77 @@
+{{- /*
+Keycloak frontend-URL pin — bp-keycloak (#3263 #3150 #2737).
+
+WHY THIS EXISTS
+  Keycloak runs hostname-DYNAMIC on Sovereigns by default: with no
+  KC_HOSTNAME / frontendUrl, KC reflects the request Host header into
+  EVERY endpoint URL it emits — including the `authorization_endpoint`
+  and `issuer` in the `.well-known/openid-configuration` discovery doc.
+
+  That breaks every OIDC client that drives the browser-facing redirect
+  from the discovery doc. Concretely (operator UAT hw126, 2026-06-11):
+  gitea's `openidConnect` provider 307s the browser STRICTLY to the
+  `authorization_endpoint` in the discovery doc fetched at its persisted
+  --auto-discover-url. gitea (an in-cluster Pod) can only reliably reach
+  KC over the in-cluster Service `keycloak.keycloak.svc.cluster.local`
+  (the public `auth.<fqdn>` is not browser-reachable from inside the
+  cluster — split-horizon DNS / no LB hairpin), so the discovery doc it
+  fetches carries `authorization_endpoint:
+  http://keycloak.keycloak.svc.cluster.local/...` — which the operator's
+  BROWSER cannot resolve (chrome-error). bp-gitea 1.2.24 (#3194) tried a
+  public-first / in-cluster-fallback discovery fetch, but the public
+  fetch fails from inside the Pod for exactly the same reason, so it
+  falls back to and PERSISTS the internal URL every reconcile.
+
+THE FIX (owning layer = Keycloak)
+  Pin the FRONTEND base URL to the public `https://auth.<fqdn>` via
+  KC_HOSTNAME (Keycloak 26 hostname v2). With this set, the
+  browser-facing endpoints (authorize + the discovery doc's `issuer`)
+  are ALWAYS the public URL, regardless of which Host the discovery doc
+  was fetched over — so an in-cluster discovery fetch now yields the
+  PUBLIC authorize endpoint. This fixes EVERY autodiscovery consumer
+  (gitea, harbor, grafana, openbao, guacamole, …) in one place.
+
+  KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true keeps the BACKCHANNEL endpoints
+  (token / userinfo / jwks / introspection) request-Host-relative, so
+  in-cluster clients keep talking to KC over the internal Service with
+  no hairpin — backchannel stays internal-efficient. This is the exact
+  split the SSO rule requires: browser-facing → public, backchannel →
+  internal.
+
+  These two go via `keycloak.extraEnvVarsCM` (this ConfigMap). The
+  bitnami subchart renders extraEnvVars/extraEnvVarsCM as the container's
+  trailing `env:` / `envFrom:` entries, which take precedence over its
+  base env-vars ConfigMap (the base never sets KC_HOSTNAME when
+  ingress.enabled is false — verified), so these win cleanly. Rendered
+  only when `gateway.host` is set (the same per-Sovereign value that
+  drives the HTTPRoute) — non-Catalyst installs with no gateway.host keep
+  KC hostname-dynamic exactly as before.
+*/ -}}
+{{- /*
+This ConfigMap is ALWAYS rendered so the subchart's
+`keycloak.extraEnvVarsCM` reference (set in values.yaml) is always valid —
+a dangling configMapRef wedges the Pod with CreateContainerConfigError.
+When `gateway.host` is unset (non-Catalyst install) the ConfigMap is empty,
+so KC stays hostname-dynamic exactly as before; nothing is injected.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-kc-frontend-env
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-keycloak
+    catalyst.openova.io/component: keycloak-frontend-env
+{{- if and .Values.gateway .Values.gateway.host }}
+data:
+  # Public, browser-facing frontend base URL (authorize endpoint + issuer).
+  # `https://` because Cilium Gateway terminates TLS in front of KC and
+  # forwards X-Forwarded-Proto (keycloak.proxyHeaders: xforwarded).
+  KC_HOSTNAME: {{ printf "https://%s" .Values.gateway.host | quote }}
+  # Backchannel (token/userinfo/jwks/introspection) stays request-Host
+  # relative so in-cluster clients reach KC over the internal Service
+  # with no public-host hairpin.
+  KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+{{- else }}
+data: {}
+{{- end }}

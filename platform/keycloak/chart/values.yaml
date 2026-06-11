@@ -257,6 +257,22 @@ keycloak:
   # require `proxyHeaders` to be set so chart-level production-mode validation
   # passes without forcing in-pod TLS.
   proxyHeaders: "xforwarded"
+  # ─── Frontend-URL pin (#3263 #3150 #2737) ──────────────────────────────────
+  # Point the bitnami subchart at the parent-chart ConfigMap
+  # `templates/keycloak-frontend-env.yaml`, which injects:
+  #   KC_HOSTNAME=https://auth.<fqdn>          (frontend/browser-facing base)
+  #   KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true     (token/userinfo stay request-Host)
+  # so the `.well-known/openid-configuration` discovery doc emits the PUBLIC
+  # `authorization_endpoint` + `issuer` regardless of which Host the doc was
+  # fetched over. Without this, KC is hostname-DYNAMIC and an in-cluster
+  # discovery fetch (e.g. gitea's openidConnect provider) persists
+  # `http://keycloak.keycloak.svc.cluster.local/...` as the browser-redirect
+  # target → unresolvable from the operator's browser (chrome-error). Fixing
+  # it here fixes EVERY autodiscovery consumer (gitea, harbor, grafana,
+  # openbao, guacamole, …) in one place. The CM is rendered only when
+  # `gateway.host` is set; the subchart tpl-evaluates this name in its own
+  # context (.Release.Name = keycloak → `keycloak-kc-frontend-env`).
+  extraEnvVarsCM: '{{ .Release.Name }}-kc-frontend-env'
   # ─── Bitnami image-registry consolidation (issue #191) ──────────────────
   # Bitnami consolidated their tag scheme around 2025-09 (see
   # https://github.com/bitnami/charts/issues/30852). The original

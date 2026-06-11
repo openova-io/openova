@@ -140,7 +140,13 @@ spec:
       # required actions — UPDATE_PASSWORD.defaultAction false +
       # catalyst-pin IdP updateProfileFirstLoginMode off. Live-proven on
       # hw124 (fresh federation -> requiredActions=[]). Refs #3150.
-      version: 1.4.21
+      # 1.4.22 (#3263 #3150 #2737, 2026-06-11): pin KC frontend URL to the
+      # public https://auth.${SOVEREIGN_FQDN} (KC_HOSTNAME +
+      # KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true) so the OIDC discovery doc emits
+      # the PUBLIC authorize endpoint — gitea (and every autodiscovery
+      # consumer) no longer 307s the browser to the in-cluster
+      # keycloak.keycloak.svc.cluster.local issuer (hw126 UAT FAIL).
+      version: 1.4.22
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
