@@ -3297,22 +3297,34 @@ func DeriveSecondaryClusterMeshName(req Request, rs RegionSpec) string {
 	if stem == "" {
 		return ""
 	}
-	regionStem := stripTrailingDigits(rs.CloudRegion)
+	regionStem := stripDigitRuns(rs.CloudRegion)
 	if regionStem == "" {
 		return ""
 	}
 	return stem + "-" + regionStem
 }
 
-// stripTrailingDigits removes trailing digit runs from a region name —
-// `nbg1` → `nbg`, `hel1` → `hel`, `fsn1` → `fsn`, `sin` → `sin`.
-// Matches tofu's `replace(r.cloudRegion, "/[0-9]+/", "")`.
-func stripTrailingDigits(s string) string {
-	end := len(s)
-	for end > 0 && s[end-1] >= '0' && s[end-1] <= '9' {
-		end--
+// stripDigitRuns removes EVERY digit run from a region name — `nbg1` →
+// `nbg`, `hel1` → `hel`, `me-east-215-b` → `me-east--b`. This must
+// match tofu's `replace(r.code, "/[0-9]+/", "")` (infra/providers/*
+// secondary cluster.name derivation) EXACTLY: the predecessor
+// (stripTrailingDigits) only removed TRAILING runs, which agreed with
+// tofu on Hetzner regions (`fsn1`, `hel1` — digits at the end) but
+// diverged on kom4dc (`me-east-215-b` — interior run). Live on hw128
+// (#3241 layer 5) the orchestrator wrote peer entries / hostAliases /
+// etcd lookups under `hw128-me-east-215-b` while region-b's cilium
+// registered as `hw128-me-east--b` → region-a polled a cluster-config
+// key that never existed and sat at `remote configuration:
+// retrieved=false` forever, despite a healthy etcd session.
+func stripDigitRuns(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			b.WriteByte(s[i])
+		}
 	}
-	return s[:end]
+	return b.String()
 }
 
 // deriveClusterMeshID returns the canonical Cilium ClusterMesh peer ID
