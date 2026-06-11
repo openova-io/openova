@@ -342,9 +342,11 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 	// path empty" → the secondary never peered → fullyMeshed=0 →
 	// SOVEREIGN_ENABLE_CNPG_PAIR stayed OFF. resolvePrimaryKubeconfigPath
 	// recovers the path from the PVC at `<kubeconfigsDir>/<id>.yaml` (guarded
-	// by os.Stat) AND stamps it back onto dep.Result so downstream readers
-	// see it too. Called OUTSIDE the lock below — it takes dep.mu itself
-	// (sync.Mutex is not reentrant). The returned bool is intentionally
+	// by os.Stat) WITHOUT mutating dep.Result — State() leaks the *Result
+	// pointer to lock-free JSON marshals, so a stamp from this goroutine
+	// would race them; the resolved value is threaded into buildRegionSlots
+	// explicitly instead. Called OUTSIDE the lock below — it takes dep.mu
+	// itself (sync.Mutex is not reentrant). The returned bool is intentionally
 	// ignored here: a genuinely-lost file leaves primaryKubeconfigPath ""
 	// and buildRegionSlots' own primary fallback + the existing
 	// kubeconfig-path-empty error slot handle it (the startup-reconcile gate
@@ -1709,22 +1711,27 @@ func countFullyMeshedRegions(statuses []ClusterMeshStatus) int {
 // rehydrated record before PutKubeconfig stamped it — but the kubeconfig
 // FILE itself always survives on the PVC at `<kubeconfigsDir>/<id>.yaml`.
 //
-// Returns the resolved, stat-readable path and true. On success the
-// resolved path is stamped back onto dep.Result.KubeconfigPath (allocating
-// Result if nil) so downstream readers — AutoEstablishClusterMesh re-reads
-// dep.Result.KubeconfigPath under the lock — see the conventional path. The
-// stat guard matches #3153 exactly: a record whose file was genuinely lost
-// across the restart (PVC unmount / wipe race) or whose kubeconfigsDir is
-// unset returns ("", false) so the caller can warn-and-skip rather than
-// spin a retry budget against a phantom path. Takes dep.mu so concurrent
-// callers (startup restore + the establish goroutine) stay consistent.
+// Returns the resolved, stat-readable path and true. READ-ONLY by
+// design: it must NOT stamp the resolved path back onto
+// dep.Result.KubeconfigPath. Deployment.State() hands the *Result
+// pointer to writeJSON, which marshals it OUTSIDE dep.mu — a write
+// here from the mesh-reconcile goroutine (markPhase1Done →
+// runAutoEstablishClusterMesh) races that marshal (caught by -race in
+// TestGetDeploymentEvents_ReturnsComponentEventsInBuffer). Callers that
+// need the path persisted (shouldResumePhase1's startup-only resume)
+// stamp it themselves under dep.mu; the mesh path threads the returned
+// value into buildRegionSlots explicitly. The stat guard matches #3153
+// exactly: a record whose file was genuinely lost across the restart
+// (PVC unmount / wipe race) or whose kubeconfigsDir is unset returns
+// ("", false) so the caller can warn-and-skip rather than spin a retry
+// budget against a phantom path.
 func (h *Handler) resolvePrimaryKubeconfigPath(dep *Deployment) (string, bool) {
 	dep.mu.Lock()
-	defer dep.mu.Unlock()
 	kubeconfigPath := ""
 	if dep.Result != nil {
 		kubeconfigPath = dep.Result.KubeconfigPath
 	}
+	dep.mu.Unlock()
 	if kubeconfigPath == "" && h.kubeconfigsDir != "" {
 		kubeconfigPath = filepath.Join(h.kubeconfigsDir, dep.ID+".yaml")
 	}
@@ -1734,10 +1741,6 @@ func (h *Handler) resolvePrimaryKubeconfigPath(dep *Deployment) (string, bool) {
 	if _, err := os.Stat(kubeconfigPath); err != nil {
 		return "", false
 	}
-	if dep.Result == nil {
-		dep.Result = &provisioner.Result{}
-	}
-	dep.Result.KubeconfigPath = kubeconfigPath
 	return kubeconfigPath, true
 }
 

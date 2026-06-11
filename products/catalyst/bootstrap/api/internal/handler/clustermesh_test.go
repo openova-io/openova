@@ -984,8 +984,13 @@ func TestShouldStartupClusterMeshReconcile_ConventionalFallback(t *testing.T) {
 		if !h.shouldStartupClusterMeshReconcile(dep) {
 			t.Fatalf("reconcile skipped despite conventional kubeconfig present at %s", convPath)
 		}
-		if dep.Result.KubeconfigPath != convPath {
-			t.Errorf("resolved path not stamped back: got %q want %q", dep.Result.KubeconfigPath, convPath)
+		// READ-ONLY contract: resolvePrimaryKubeconfigPath must NOT stamp
+		// the resolved path onto dep.Result — State() leaks the *Result
+		// pointer to lock-free JSON marshals, and the mesh-reconcile
+		// goroutine calling this would race them (#3241 -race regression).
+		// The reconcile loop re-resolves the path on every attempt instead.
+		if dep.Result.KubeconfigPath != "" {
+			t.Errorf("read-only gate mutated dep.Result.KubeconfigPath: got %q", dep.Result.KubeconfigPath)
 		}
 	})
 
@@ -995,8 +1000,8 @@ func TestShouldStartupClusterMeshReconcile_ConventionalFallback(t *testing.T) {
 		if !h.shouldStartupClusterMeshReconcile(dep) {
 			t.Fatalf("reconcile skipped on nil-Result despite conventional kubeconfig present")
 		}
-		if dep.Result == nil || dep.Result.KubeconfigPath != convPath {
-			t.Errorf("nil Result not populated with conventional path: %+v", dep.Result)
+		if dep.Result != nil {
+			t.Errorf("read-only gate allocated dep.Result: %+v", dep.Result)
 		}
 	})
 

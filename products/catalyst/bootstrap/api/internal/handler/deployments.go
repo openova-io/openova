@@ -707,11 +707,24 @@ func (h *Handler) shouldResumePhase1(dep *Deployment, rec store.Record) bool {
 	// to convergence after ANY catalyst-api roll (image bump, OOM, node
 	// maintenance). Resuming read-only is harmless; skipping it is the bug.
 	//
-	// resolvePrimaryKubeconfigPath also stamps the resolved path back onto
-	// dep.Result.KubeconfigPath so the resumed watch + StreamLogs see it.
-	// #3241 lifted this into the shared helper so the startup ClusterMesh
-	// reconcile path resolves the primary kubeconfig identically.
-	_, ok := h.resolvePrimaryKubeconfigPath(dep)
+	// The resolved path is stamped back onto dep.Result.KubeconfigPath so
+	// the resumed watch + StreamLogs see it. The stamp lives HERE, not in
+	// resolvePrimaryKubeconfigPath: this path runs once at startup
+	// (restoreFromStore, before traffic), while the helper is also called
+	// from the mesh-reconcile goroutine where a Result write would race the
+	// lock-free JSON marshal of the *Result pointer State() hands out
+	// (#3241 -race regression). #3241 lifted the resolution into the shared
+	// helper so the startup ClusterMesh reconcile path resolves the primary
+	// kubeconfig identically.
+	path, ok := h.resolvePrimaryKubeconfigPath(dep)
+	if ok {
+		dep.mu.Lock()
+		if dep.Result == nil {
+			dep.Result = &provisioner.Result{}
+		}
+		dep.Result.KubeconfigPath = path
+		dep.mu.Unlock()
+	}
 	return ok
 }
 
