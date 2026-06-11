@@ -86,7 +86,11 @@ spec:
       # annotations — NOT in the consumer namespaces (gitea/harbor), which
       # don't exist when this HR installs. Breaks the bp-postgres-shared ⟲
       # bp-gitea/bp-harbor circular deadlock (live hw127).
-      version: 0.1.2
+      # 0.1.3 (#3285): the chart MINTS each per-binding role-password Secret
+      # (kubernetes.io/basic-auth, stable via lookup-keep) — CNPG never
+      # auto-creates managed-role secrets, so the hub reflects: pull had no
+      # source and consumers starved on hw130 (CreateContainerConfigError).
+      version: 0.1.3
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

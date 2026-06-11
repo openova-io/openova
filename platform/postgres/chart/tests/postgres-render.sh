@@ -70,7 +70,11 @@ role_count=$(grep -cE '^      - name: "(harbor|gitea)"$' "$TMP/shared.yaml" || t
 
 [ "$cluster_count" -eq 1 ] || fail "expected 1 Cluster, got $cluster_count"
 [ "$db_count" -eq 2 ]      || fail "expected 2 Databases, got $db_count"
-[ "$secret_count" -eq 2 ]  || fail "expected 2 reflected Secrets, got $secret_count"
+# 0.1.3 (#3285): 2 hub connection Secrets + 2 chart-minted role-password
+# Secrets (CNPG never creates managed-role secrets — proven live hw130).
+[ "$secret_count" -eq 4 ]  || fail "expected 4 Secrets (2 hub + 2 role-password), got $secret_count"
+basic_auth_count=$(grep -cE '^type: kubernetes.io/basic-auth$' "$TMP/shared.yaml" || true)
+[ "$basic_auth_count" -eq 2 ] || fail "expected 2 basic-auth role Secrets, got $basic_auth_count"
 [ "$role_count" -eq 2 ]    || fail "expected 2 managed roles, got $role_count"
 
 # ── Case 3: both Databases reference the SAME shared cluster ──────
@@ -165,6 +169,6 @@ on_db=$(grep -cE '^kind: Database$' "$TMP/on.yaml" || true)
 on_secret=$(grep -cE '^kind: Secret$' "$TMP/on.yaml" || true)
 [ "$on_cluster" -eq 1 ] || fail "enabled=true expected 1 Cluster, got $on_cluster"
 [ "$on_db" -eq 2 ]      || fail "enabled=true expected 2 Databases, got $on_db"
-[ "$on_secret" -eq 2 ]  || fail "enabled=true expected 2 Secrets, got $on_secret"
+[ "$on_secret" -eq 4 ]  || fail "enabled=true expected 4 Secrets (2 hub + 2 role), got $on_secret"
 
 echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty)"
