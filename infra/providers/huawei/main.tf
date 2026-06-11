@@ -1233,12 +1233,27 @@ resource "huaweicloud_elb_member" "http" {
 }
 
 resource "huaweicloud_elb_monitor" "https" {
-  pool_id     = huaweicloud_elb_pool.https.id
-  protocol    = "TCP"
-  port        = 30443 # Wave 5.124 (hw29 fix-forward) — Gateway listener
-  interval    = 10
-  timeout     = 5
-  max_retries = 3
+  pool_id  = huaweicloud_elb_pool.https.id
+  # #3301 (hw130, 2026-06-12): TCP-only checks keep a member ONLINE even
+  # when its envoy ACCEPTS connections but fails every upstream HTTP
+  # request ("upstream connect error … connection timeout") — witnessed
+  # live as a strict 200/503 round-robin alternation on api.<fqdn> that
+  # survived an envoy DS restart, with all 4 members operating=ONLINE.
+  # An HTTP-layer check through the gateway listener ejects such a
+  # member from rotation, converting user-facing 1-in-N 503s to zero
+  # while the envoy-side root cause is chased. domain_name gives envoy
+  # its SNI/Host so the request traverses the real route; any HTTP
+  # status proves the member's envoy→backend path is alive (the console
+  # route serves 200/3xx; a dead upstream yields the 503 the check
+  # rejects).
+  protocol      = "HTTPS"
+  port          = 30443 # Wave 5.124 (hw29 fix-forward) — Gateway listener
+  domain_name   = "console.${var.sovereign_fqdn}"
+  url_path      = "/login"
+  status_code   = "200-399"
+  interval      = 10
+  timeout       = 5
+  max_retries   = 3
 }
 
 resource "huaweicloud_elb_monitor" "http" {
