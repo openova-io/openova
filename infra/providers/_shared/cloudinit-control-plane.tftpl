@@ -420,6 +420,8 @@ write_files:
             SOVEREIGN_PRIMARY_REGION: "${primary_region_canonical_label}"
             SOVEREIGN_REPLICA_REGION: "${replica_region_canonical_label}"
             SOVEREIGN_ENABLE_HOT_STANDBY: "${enable_hot_standby}"
+            # ADR-0010 #3188 master gate for bootstrap-kit slot 16a shared-pg.
+            SOVEREIGN_ENABLE_SHARED_PG: "${enable_shared_pg}"
             SOVEREIGN_BCP_TOPOLOGY: "${bcp_topology}"
             # SOVEREIGN_REGION_ROLE — this control plane's role in the
             # multi-region topology (primary|secondary). Both providers

@@ -423,6 +423,32 @@ type Request struct {
 	// checkbox.
 	MarketplaceEnabled bool `json:"marketplaceEnabled"`
 
+	// EnableSharedPostgres — opt-in switch for the ADR-0010 reusable,
+	// shareable backing-services model (#3188). When true, bootstrap-kit
+	// slot 16a (16a-bp-postgres-shared.yaml) renders the shared `shared-pg`
+	// CNPG engine + the per-consumer Database CRs/roles/reflected Secrets;
+	// when false (the safe default) slot 16a installs an EMPTY-but-Ready
+	// release that satisfies the unconditional bp-gitea/bp-harbor
+	// `dependsOn` edge WITHOUT deploying an unused engine. Single-region /
+	// non-sharing provs stay byte-identical to today.
+	//
+	// Threaded through the EXACT same seam as BcpTopology →
+	// SOVEREIGN_ENABLE_HOT_STANDBY: catalyst-api Request → tofu var
+	// `enable_shared_pg` (string "true"/"false") → cloud-init Flux
+	// Kustomization postBuild.substitute as SOVEREIGN_ENABLE_SHARED_PG →
+	// slot 16a reads `${SOVEREIGN_ENABLE_SHARED_PG:=false}`. Before this
+	// field NOTHING set the substitute var, so the chart's envsubst
+	// fallback `false` always won and the #3188 model was dormant +
+	// unreachable even on a fresh prov.
+	//
+	// Default false (the master gate stays OFF). This is the OPT-IN seam —
+	// the default is unchanged. NOTE: to actually run two consumers off the
+	// shared engine the operator ALSO flips the per-consumer
+	// SOVEREIGN_{GITEA,HARBOR}_PG_OWN_CLUSTER=false overlays (the two-flag
+	// contract documented in slot 16a); this field controls ONLY whether
+	// slot 16a renders the engine at all.
+	EnableSharedPostgres bool `json:"enableSharedPostgres"`
+
 	// QATestEnabled — when true, bp-catalyst-platform's qaFixtures stack
 	// (qa-<sov> namespace + qa-wp Application + Continuum CR + CNPGPair
 	// + PDM CRs + ScheduledBackup + status-seeder Jobs + tier-bound
@@ -2286,6 +2312,20 @@ func writeTfvars(deployDir string, req Request) error {
 		// status surfaces use this same value to render the BSS-menu DR
 		// posture chip and the Settings page Continuity Plan row.
 		"bcp_topology": deriveBcpTopology(req),
+
+		// Shared-Postgres opt-in threading (ADR-0010 / #3188). Mirrors the
+		// enable_hot_standby seam exactly: the boolean Request field maps
+		// to a stringified "true"/"false" tofu var the cloud-init template
+		// interpolates verbatim into the bootstrap-kit Kustomization
+		// postBuild.substitute as SOVEREIGN_ENABLE_SHARED_PG. slot 16a
+		// (16a-bp-postgres-shared.yaml) reads `${SOVEREIGN_ENABLE_SHARED_PG
+		// :=false}` as its master gate — OFF (the safe default) renders an
+		// empty-but-Ready release. Before this var NOTHING set the
+		// substitute, so the chart fallback `false` always won and the
+		// reuse model was dormant + unreachable even on a fresh prov.
+		// infra/providers/{hetzner,huawei}/variables.tf carry the matching
+		// `["true","false"]` validation so a typo fails at `tofu plan`.
+		"enable_shared_pg": map[bool]string{true: "true", false: "false"}[req.EnableSharedPostgres],
 
 		// QA namespace + Organization names — derived from the Sovereign
 		// FQDN's first label at provision time per principle #4 (never

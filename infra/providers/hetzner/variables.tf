@@ -96,6 +96,30 @@ variable "enable_hot_standby" {
   }
 }
 
+# enable_shared_pg — opt-in master gate for the ADR-0010 reusable,
+# shareable backing-services model (#3188). Mirrors enable_hot_standby's
+# seam exactly: catalyst-api's provisioner.Request.EnableSharedPostgres
+# stringifies to this var, the cloud-init template interpolates it
+# verbatim into the bootstrap-kit Kustomization postBuild.substitute as
+# SOVEREIGN_ENABLE_SHARED_PG, and bootstrap-kit slot 16a
+# (16a-bp-postgres-shared.yaml) reads `${SOVEREIGN_ENABLE_SHARED_PG:=false}`
+# as the chart-side master gate. Default 'false' keeps the shared engine
+# DORMANT — slot 16a installs an empty-but-Ready release that satisfies the
+# unconditional bp-gitea/bp-harbor dependsOn edge without deploying an
+# unused shared-pg Cluster (single-region / non-sharing provs stay
+# byte-identical to today). Before this var existed NOTHING set the
+# substitute key, so the chart's envsubst fallback `false` always won and
+# the reuse model was unreachable even on a fresh prov.
+variable "enable_shared_pg" {
+  type        = string
+  description = "When 'true', bootstrap-kit slot 16a renders the shared CNPG engine (ADR-0010 #3188 reusable backing-services). Opt-in; default 'false' keeps slot 16a an empty-but-Ready release. Set from catalyst-api Request.EnableSharedPostgres."
+  default     = "false"
+  validation {
+    condition     = contains(["true", "false"], var.enable_shared_pg)
+    error_message = "enable_shared_pg must be the string 'true' or 'false'."
+  }
+}
+
 # ── QA fixtures auto-enable (Fix #73 — qa-loop bounded-cycle iter-16) ──
 # When set, bp-catalyst-platform's qaFixtures stack (qa-<sov> namespace +
 # qa-wp Application + Continuum CR + CNPGPair + PDM CRs + ScheduledBackup
