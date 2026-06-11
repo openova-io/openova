@@ -1956,8 +1956,17 @@ func (h *Handler) shouldStartupClusterMeshReconcile(dep *Deployment) bool {
 	dep.mu.Lock()
 	status := dep.Status
 	regionCount := len(dep.Request.Regions)
+	outcome := ""
+	if dep.Result != nil {
+		outcome = dep.Result.Phase1Outcome
+	}
 	dep.mu.Unlock()
-	if status != "ready" || regionCount < 2 {
+	// ready, OR failed-by-TIMEOUT (#3285/hw130): a timeout record's
+	// cluster keeps converging under Flux — abandoning its mesh forever
+	// contradicted the never-wipe-a-timeout doctrine. Hard failures
+	// (OutcomeFailed / flux-not-reconciling) stay excluded.
+	rescuableTimeout := status == "failed" && outcome == helmwatch.OutcomeTimeout
+	if (status != "ready" && !rescuableTimeout) || regionCount < 2 {
 		return false
 	}
 	if _, ok := h.resolvePrimaryKubeconfigPath(dep); !ok {

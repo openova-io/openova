@@ -829,6 +829,22 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// manually patch per #2441 fallback). See post_handover_policy_
 		// enforce.go for the full helper.
 		go h.runPostHandoverPolicyEnforceFlip(dep)
+	} else if outcome == helmwatch.OutcomeTimeout && len(dep.Request.Regions) >= 2 {
+		// #3285/hw130 (2026-06-12): a Phase-1 TIMEOUT is the
+		// recoverable classification ("components observed, none
+		// hard-failed, not all converged") — Flux keeps reconciling
+		// the cluster long after the watch budget expires, and the
+		// doctrine forbids wiping such envs. But the mesh orchestrator
+		// previously fired ONLY on OutcomeReady, so a timeout record
+		// was permanently abandoned: no mesh, no cnpg-pair flip, no
+		// Pillar-3 — witnessed live on hw130, fully converged at the
+		// cluster level with 0/0 mesh forever. Kick the level-trigger
+		// for timeouts too: its first attempts may fail while the
+		// cluster catches up (warn-and-retry is the loop's design) and
+		// it converges exactly when the env does. Handover, the job
+		// sweep, and the policy flip stay ready-only — this rescues
+		// the TOPOLOGY, not the lifecycle.
+		go h.runAutoEstablishClusterMesh(dep)
 	}
 }
 
