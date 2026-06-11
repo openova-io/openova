@@ -188,7 +188,9 @@ spec:
       # Ingress-only policies default-denied the operator's status probe
       # and the Cluster phase stalled at "Instance Status Extraction
       # Error" on hw126 despite the instance being 1/1 Running.
-      version: 0.2.1
+      # 0.2.2 (hw130): replication netpol also allows OWN-cluster 5432 —
+      # it default-denied the primary's own instance-2 join (>1h wedge).
+      version: 0.2.2
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair
