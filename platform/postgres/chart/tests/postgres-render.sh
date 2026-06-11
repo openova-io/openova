@@ -59,7 +59,7 @@ databases:
     consumer: { blueprint: bp-gitea, mode: shared }
     reflect: { secretName: gitea-database-secret, namespaces: [gitea] }
 YAML
-helm template shared-pg . -f "$TMP/shared.values.yaml" \
+helm template shared-pg . -f "$TMP/shared.values.yaml" --namespace shared-data \
   --api-versions postgresql.cnpg.io/v1 > "$TMP/shared.yaml" 2> "$TMP/shared.err" || {
   cat "$TMP/shared.err" >&2; fail "shared render errored"; }
 
@@ -92,10 +92,11 @@ grep -q 'owner: "gitea"'  "$TMP/shared.yaml" || fail "gitea owner missing"
 echo "[render] Case 3b: #3283 — every reflected Secret in shared-data (push-source), none in gitea/harbor"
 # Extract the namespace of every Secret. The shared.values namespace is
 # shared-data; assert all reflected connection Secrets carry it.
-secret_ns_in_shared=$(awk '/^kind: Secret$/{s=1} s&&/^  namespace: shared-data$/{c++} /^---$/{s=0} END{print c+0}' "$TMP/shared.yaml")
-[ "$secret_ns_in_shared" -eq 2 ] || fail "#3283: expected 2 connection Secrets in shared-data, got $secret_ns_in_shared"
+# 0.1.4: namespaces render quoted; 4 Secrets live in shared-data (2 role-password + 2 hub).
+secret_ns_in_shared=$(awk '/^kind: Secret$/{s=1} s&&/^  namespace: "?shared-data"?$/{c++} /^---$/{s=0} END{print c+0}' "$TMP/shared.yaml")
+[ "$secret_ns_in_shared" -eq 4 ] || fail "#3283: expected 4 Secrets in shared-data (2 role + 2 hub), got $secret_ns_in_shared"
 # NO Secret may target the consumer namespaces directly — that is the bug.
-if grep -E '^  namespace: (gitea|harbor)$' "$TMP/shared.yaml" | grep -q .; then
+if grep -E '^  namespace: "?(gitea|harbor)"?$' "$TMP/shared.yaml" | grep -q .; then
   fail "#3283 REGRESSION: a Secret targets a consumer namespace (gitea/harbor) directly — re-introduces the deadlock"
 fi
 # Each hub Secret must carry the push-source annotations naming its
@@ -113,10 +114,16 @@ grep -q 'reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "harbor"
 grep -q 'reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "gitea"' "$TMP/shared.yaml" \
   || fail "#3283: gitea hub Secret missing reflection-allowed-namespaces: gitea"
 # And each still PULLS from the CNPG role Secret in shared-data (hop 1).
-grep -q 'reflector.v1.k8s.emberstack.com/reflects: "shared-data/shared-pg-harbor"' "$TMP/shared.yaml" \
-  || fail "#3283: harbor hub Secret missing reflects from shared-data/shared-pg-harbor"
-grep -q 'reflector.v1.k8s.emberstack.com/reflects: "shared-data/shared-pg-gitea"' "$TMP/shared.yaml" \
-  || fail "#3283: gitea hub Secret missing reflects from shared-data/shared-pg-gitea"
+# 0.1.4 (#3285): the `reflects:` PULL is gone (two reflector limitations
+# killed it live on hw130 — no retry for late sources; mirrors can't be
+# push sources). The hub now renders its data DIRECTLY; assert the
+# password is present and matches the role Secret's contract instead.
+grep -q 'reflector.v1.k8s.emberstack.com/reflects:' "$TMP/shared.yaml" \
+  && fail "#3285 REGRESSION: a reflects: pull annotation re-appeared — that pattern is dead (see role-secrets.yaml header)"
+hub_pw_count=$(grep -cE '^  password: ' "$TMP/shared.yaml" || true)
+[ "$hub_pw_count" -ge 4 ] || fail "#3285: expected password rendered in 2 role + 2 hub Secrets, got $hub_pw_count"
+hub_host_count=$(grep -cE '^  host: "shared-pg-rw.shared-data.svc.cluster.local"$' "$TMP/shared.yaml" || true)
+[ "$hub_host_count" -eq 2 ] || fail "#3285: expected 2 hub Secrets with the shared-pg-rw host, got $hub_host_count"
 
 # ── Case 4: active-hot-standby + sync → sync GUCs present ─────────
 echo "[render] Case 4: active-hot-standby + sync → synchronous-replication GUCs"
