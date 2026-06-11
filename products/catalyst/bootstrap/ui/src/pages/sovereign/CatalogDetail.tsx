@@ -6,6 +6,7 @@ import { findComponent } from '@/pages/wizard/steps/componentGroups'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { InstancesSection } from './AppDetail/InstancesSection'
+import { DataInstances } from './DataInstances'
 
 /**
  * CatalogDetail — the per-Blueprint CLASS page.
@@ -144,6 +145,15 @@ export function CatalogDetail() {
   const deps = readDependencies(cat)
   const tags = Array.isArray(card.tags) ? card.tags : []
 
+  // ADR-0010 / #3188 — surface the "Data instances" panel on the data-engine
+  // class pages (the bp-postgres data-instance Blueprint + the bp-cnpg engine
+  // operator). This is the reusable/shareable backing-services view the
+  // founder's row-3/4 walk asked for — the PostgreSQL engine class card + each
+  // data-instance card + its Consumers (bindings) table — ported here from the
+  // unrouted Svelte console into the DEPLOYED catalyst-ui. `name` is the bare
+  // blueprint id (the `bp-` prefix is stripped above).
+  const isPostgresDataEngine = name === 'postgres' || name === 'cnpg'
+
   // Icon: reuse the same resolution as AppDetail / AppsPage — the
   // component-catalog `logoUrl` (a real public/ asset URL) keyed by the
   // bare blueprint id. `card.icon` from the API is only a bare SVG
@@ -277,6 +287,16 @@ export function CatalogDetail() {
           </p>
         </section>
       ) : null}
+
+      {/*
+        Data instances (ADR-0010 / #3188) — the reusable/shareable
+        backing-services view, rendered only on the data-engine class pages
+        (bp-postgres / bp-cnpg). PostgreSQL engine-class card (shown once) +
+        each bp-postgres data-instance card with its Consumers (bindings)
+        table. Fed by the live GET /catalyst/v1/catalog/bp-postgres/instances
+        endpoint; honest empty state when the model is gated off.
+      */}
+      {isPostgresDataEngine ? <DataInstances blueprint="bp-postgres" /> : null}
 
       {/*
         Instances — the page BODY (centerpiece). For multi-instance and
