@@ -99,6 +99,7 @@ spec:
     # 90-min wedge). With this edge, the chart never enters the failing
     # state on a fresh roll.
     - name: bp-crossplane-claims
+      namespace: flux-system
     # bp-postgres-shared-c (#3370 adoption): when the SME mesh SHARES
     # the shared-pg-c instance (SOVEREIGN_SME_PG_OWN_CLUSTER=false),
     # gate on it so the sme_auth/sme_billing/sme_documents Databases +
