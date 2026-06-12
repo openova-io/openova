@@ -80,7 +80,12 @@ spec:
     - name: bp-keycloak
     - name: bp-sealed-secrets
     - name: bp-seaweedfs
+    # #2745 pilot: bp-k8s-ws-proxy HR re-homed to host ns `mgmt`
+    # (mgmt vCluster placement). A bare `name:` resolves in THIS HR's
+    # namespace (flux-system) → dangling dep → guacamole wedges
+    # (#3191 shape). Cross-ns dependsOn requires explicit `namespace:`.
     - name: bp-k8s-ws-proxy
+      namespace: mgmt
   chart:
     spec:
       chart: bp-guacamole

@@ -488,7 +488,12 @@ slots:
   #     (RWX recordings PVC) + bp-k8s-ws-proxy (apiserver tunnel).
   - slot: 51
     name: bp-k8s-ws-proxy
-    depends_on: [bp-cilium, bp-sealed-secrets]
+    # #2745 pilot (2026-06-12): MGMT vCluster placement adds
+    # bp-mgmt-vcluster as a new edge so the install gates on vc-mgmt
+    # existing before helm-controller attempts the pivot (same shape
+    # as bp-coraza/bp-dmz-vcluster G92.4 + bp-sandbox/bp-rtz-vcluster
+    # G92.5).
+    depends_on: [bp-mgmt-vcluster, bp-cilium, bp-sealed-secrets]
     wave: present
   - slot: 52
     name: bp-guacamole

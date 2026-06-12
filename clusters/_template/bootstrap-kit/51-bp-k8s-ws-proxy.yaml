@@ -1,3 +1,7 @@
+# #2745 pilot: first app re-homed per the founder vCluster mandate —
+# the coraza/sandbox G92.1 pattern applied; template for the remaining
+# mgmt-tier apps.
+#
 # bp-k8s-ws-proxy — Catalyst bootstrap-kit Blueprint slot 51 (exec
 # fan-out, post-W2.K4). Per-node WebSocket exec proxy that bridges
 # HMAC-signed
@@ -9,11 +13,38 @@
 # onto the local-node pod (zero cross-node hops, zero apiserver
 # round-trips through other nodes).
 #
+# ── #2745 MGMT vCluster placement (pilot) ────────────────────────────
+# The HR CR lives in host ns `mgmt` (where bp-mgmt-vcluster slot 58
+# exports the vc-mgmt kubeconfig Secret). helm-controller resolves
+# spec.kubeConfig.secretRef from the HR's own namespace (Flux v2
+# SecretReference contract) and installs the chart INSIDE the mgmt
+# vCluster. targetNamespace/storageNamespace = the inner
+# `catalyst-system` namespace inside the vCluster (storageNamespace
+# pinned per the hw92 lesson — helm-controller otherwise defaults it
+# to the HR's own ns `mgmt`, which createNamespace never creates
+# inside the vCluster → "namespaces not found" install failure;
+# same latent defect bp-coraza + bp-sandbox hit).
+#
+# Known couplings carried by this pivot (documented in PR #2745 pilot;
+# verify on a fresh prov before promoting the pattern):
+#   - The vc-mgmt-synced Service appears host-side as
+#     `k8s-ws-proxy-x-catalyst-system-x-mgmt` in host ns `mgmt`; host
+#     callers (Guacamole egress NetworkPolicy targets ns
+#     catalyst-system today) must re-point.
+#   - bp-mgmt-vcluster does NOT sync host nodes; the DaemonSet's
+#     one-pod-per-host-node + internalTrafficPolicy:Local contract is
+#     scoped to the vCluster's node view.
+#   - The in-cluster SA token binds the VCLUSTER apiserver — exec
+#     reach is mgmt-vCluster pods only.
+#
 # Wrapper chart: platform/k8s-ws-proxy/chart/
 # Catalyst-curated values: platform/k8s-ws-proxy/chart/values.yaml
 # Reconciled by: Flux on the new Sovereign's k3s control plane.
 #
 # dependsOn:
+#   - bp-mgmt-vcluster — vc-mgmt Secret doesn't exist until that HR is
+#     Ready; the kubeConfig pivot dangles without it. Cross-ns
+#     dependsOn requires explicit `namespace:` (#2745 pilot).
 #   - bp-cilium — DaemonSet pods need a working CNI before they bind
 #     the host-network listen port.
 #   - bp-sealed-secrets — the chart references a SealedSecret carrying
@@ -48,16 +79,42 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-k8s-ws-proxy
-  namespace: flux-system
+  # #2745 pilot: HR lives in host ns `mgmt` (where bp-mgmt-vcluster
+  # exports the vc-mgmt Secret). helm-controller authenticates against
+  # the vCluster apiserver and installs the chart inside the vCluster.
+  namespace: mgmt
   labels:
     catalyst.openova.io/slot: "51"
+    catalyst.openova.io/vcluster: mgmt
 spec:
   interval: 15m
   releaseName: k8s-ws-proxy
+  # targetNamespace = inner namespace INSIDE the mgmt vCluster. Kept
+  # at `catalyst-system` so in-vCluster callers keep the canonical
+  # short name k8s-ws-proxy.catalyst-system.svc.
   targetNamespace: catalyst-system
+  # hw92 lesson (bp-coraza/bp-sandbox): pin storageNamespace =
+  # targetNamespace, else helm-controller defaults it to the HR's own
+  # namespace (`mgmt`) and fails `namespaces "mgmt" not found` storing
+  # the release inside the vCluster (createNamespace only creates the
+  # target `catalyst-system`).
+  storageNamespace: catalyst-system
+  # vCluster pivot — helm-controller installs the chart inside the
+  # mgmt vCluster (Flux v2 HelmRelease v2 contract). #2745 pilot.
+  kubeConfig:
+    secretRef:
+      name: vc-mgmt
+      key: config
   dependsOn:
+    # #2745 pilot: bp-mgmt-vcluster MUST be Ready before this HR tries
+    # to install — the vc-mgmt Secret doesn't exist until then.
+    # Cross-ns dependsOn requires explicit `namespace:`.
+    - name: bp-mgmt-vcluster
+      namespace: flux-system
     - name: bp-cilium
+      namespace: flux-system
     - name: bp-sealed-secrets
+      namespace: flux-system
   chart:
     spec:
       chart: bp-k8s-ws-proxy
@@ -88,6 +145,10 @@ spec:
         name: bp-k8s-ws-proxy
         namespace: flux-system
   install:
+    # #2745 pilot: createNamespace=true so helm-controller provisions
+    # the inner `catalyst-system` namespace inside the mgmt vCluster
+    # on first install (no host-side Namespace YAML needed).
+    createNamespace: true
     timeout: 15m
     disableWait: true
     remediation:
