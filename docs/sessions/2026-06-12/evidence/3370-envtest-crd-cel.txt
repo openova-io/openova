@@ -1,0 +1,9 @@
+=== #3370 Application CRD CEL admission — REAL kube-apiserver v1.36 (envtest) ===
+--- valid fixtures (every doc MUST be accepted) ---
+application.apps.openova.io/marketing-site created (server dry run)
+application.apps.openova.io/shared-pg created (server dry run)
+application.apps.openova.io/wiki created (server dry run)
+--- invalid: non-bootstrap CR missing environmentRef+regions (CEL-only) MUST be rejected ---
+The Application "cel-bootstrap-reject" is invalid: spec: Invalid value: spec.environmentRef and spec.regions are required unless spec.bootstrap=true (bootstrap-owned instance)
+--- accept: bootstrap-owned waiver (spec.bootstrap=true, no environmentRef/regions) ---
+application.apps.openova.io/cel-bootstrap-accept created (server dry run)

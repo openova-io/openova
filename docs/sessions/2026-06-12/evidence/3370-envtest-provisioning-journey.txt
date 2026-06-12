@@ -1,0 +1,34 @@
+=== #3370 DoD-6 + DoD-7 — provisioning journey, REAL catalyst-api binary + REAL kube-apiserver (envtest v1.36) ===
+    (One pre-existing create-path defect fixed en route: blueprintRef.version was never stamped and
+     spec.placement carried the raw topology string + regions pattern rejected every real region key —
+     no console-created Application CR had ever passed CRD admission on a real apiserver.)
+
+[1] DEFAULT — POST /catalyst/v1/apps/instances {blueprint: postgres, name: demo-pg, topology: singleton} -> 201
+    blueprintRef={"name":"bp-postgres","version":"0.1.6"} placement=single-region
+
+[2] ADVANCED (reuse) — {blueprint: wordpress-tenant, name: wiki, backing: [{blueprint: postgres, mode: reuse, instance: demo-pg}]} -> 201
+    (a) demo-pg gained the Context entry in its declared IaC:
+        [{"consumer":{"blueprint":"bp-wordpress-tenant","mode":"shared"},"name":"wiki","owner":"wiki","reflect":{"namespaces":["acme"],"secretName":"wiki-db-credential"}}]
+    (b) wiki carries the dependsOn edge + occupied Context:
+        [{"context":"db/wiki","name":"demo-pg","namespace":"acme"}]
+    (c) NO new backing application — ONE new card.
+
+[3] DEFAULT (auto-create backing) — {blueprint: wordpress-tenant, name: blog, backing: [{blueprint: postgres}]} -> 201
+    TWO new cards — blog + its OWN backing instance with a Context for blog:
+        blog-postgres context=blog consumer=bp-wordpress-tenant credential=blog-db-credential
+
+[4] Bootstrap-owned reuse target REJECTED 409 backing-bootstrap-owned (Contexts live in the Git slot values).
+
+[5] DoD-7 GENERALITY — the SAME wire on bp-valkey (kind=keyspace, valuesKey=keyspaces — declaration only):
+    create demo-cache -> 201; reuse by forum -> 201:
+        demo-cache keyspaces=[{"consumer":{"blueprint":"bp-wordpress-tenant","mode":"shared"},"name":"forum","owner":"forum","reflect":{"namespaces":["acme"],"secretName":"forum-keyspace-credential"}}]
+        forum dependsOn=[{"context":"keyspace/forum","name":"demo-cache","namespace":"acme"}]
+
+[6] Final estate (kubectl get applications -n acme):
+NAME            BLUEPRINT             VERSION   ENVIRONMENT   PLACEMENT       PHASE   AGE
+blog            bp-wordpress-tenant   0.2.0     acme-prod     single-region           54s
+blog-postgres   bp-postgres           0.1.6     acme-prod     single-region           54s
+demo-cache      bp-valkey             1.1.0     acme-prod     single-region           32s
+demo-pg         bp-postgres           0.1.6     acme-prod     single-region           3m57s
+forum           bp-wordpress-tenant   0.2.0     acme-prod     single-region           24s
+wiki            bp-wordpress-tenant   0.2.0     acme-prod     single-region           3m33s
