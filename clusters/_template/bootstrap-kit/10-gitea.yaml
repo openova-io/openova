@@ -128,7 +128,8 @@ spec:
       # wedged live hw128 on the 1.2.27 upgrade).
       # 1.2.29 (2026-06-12, founder): root-URL zero-click — REQUIRE_SIGNIN_VIEW
       # + gateway /user/login -> OIDC entry redirect.
-      version: 1.2.29
+      # 1.2.30: explicit port 443 on the SSO redirect (the #3310 class).
+      version: 1.2.30
       sourceRef:
         kind: HelmRepository
         name: bp-gitea

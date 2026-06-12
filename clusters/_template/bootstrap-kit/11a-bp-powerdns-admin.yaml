@@ -112,7 +112,8 @@ spec:
       # Adds the bp-gitea/bp-harbor Capabilities guard to the CNPG Cluster
       # template so a cold install can't half-render before bp-cnpg's CRD.
       # 0.1.9 (2026-06-12, founder): root-URL zero-click — /login -> /oidc/login.
-      version: 0.1.9
+      # 0.1.10: explicit port 443 on the SSO redirect (the #3310 class).
+      version: 0.1.10
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns-admin
