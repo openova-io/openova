@@ -250,7 +250,7 @@ name: bp-keycloak
 # ${SOVEREIGN_OWNER_EMAIL} literals on pre-existing envs). defaultGroups
 # stays /sovereign-viewers only. Render test
 # tests/sovereign-realm-owner-admin-seed.sh.
-version: 1.4.24
+version: 1.4.25
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
