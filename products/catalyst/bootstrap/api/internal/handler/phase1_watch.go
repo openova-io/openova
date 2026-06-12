@@ -845,6 +845,17 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// sweep, and the policy flip stay ready-only — this rescues
 		// the TOPOLOGY, not the lifecycle.
 		go h.runAutoEstablishClusterMesh(dep)
+		// #3277 (founder, 2026-06-12): the secondary-region job rows
+		// freeze at their last-seen state forever on a timeout record
+		// (witnessed live: 9 "running" rows on hw130 with every
+		// component long Ready) because the C10-003 backfill ran only
+		// on OutcomeReady. The informer-cache reseed is read-only and
+		// converges each install-<region>:<chart> row to the CLUSTER-
+		// CURRENT state — exactly as valid at a timeout terminal as at
+		// ready. INLINE for the same reason as the ready path: the
+		// deferred stopSecondaries clears the watcher map the moment
+		// markPhase1Done returns.
+		h.runSecondaryBridgeBackfill(dep)
 	}
 }
 
