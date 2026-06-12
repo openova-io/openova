@@ -34,3 +34,7 @@ dependencies:
   - name: knative-operator
     version: "v1.21.1"
     repository: "https://knative.github.io/operator"
+annotations:
+  # GUARD-2 contract: defaults fail-fast on required overlay values
+  # (SHA-pin / Sovereign FQDN) BY DESIGN — see scripts/check-chart-annotations.sh
+  catalyst.openova.io/smoke-render-mode: "requires-overlay"

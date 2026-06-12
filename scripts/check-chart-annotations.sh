@@ -244,6 +244,18 @@ EOF
   if ! helm template "smoke-${chart_name}" "$chart_dir" \
         --namespace "smoke-${chart_name}" \
         > "$render_out" 2> "$render_err"; then
+    # requires-overlay (2026-06-12): some Catalyst-authored charts FAIL
+    # default-values render BY DESIGN — Inviolable-Principle-4-style
+    # `required` guards demanding the per-cluster overlay supply a
+    # SHA-pinned tag / the Sovereign FQDN (bp-anthropic-adapter,
+    # bp-knative, bp-librechat today). That fail-fast is the feature;
+    # GUARD 2 must not flag it. The annotation makes the intent
+    # explicit and keeps accidental render-breaks fatal for everyone
+    # else. (The empty-render sibling mode is `default-off` below.)
+    if [ "$smoke_mode" = "requires-overlay" ] && grep -qiE 'execution error|required' "$render_err"; then
+      echo "  ✓ $rel_path — GUARD 2: default-render fail-fast + smoke-render-mode:requires-overlay → OK (overlay-required by design)"
+      continue
+    fi
     render_failed=$((render_failed + 1))
     cat >&2 <<EOF
 

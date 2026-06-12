@@ -39,3 +39,7 @@ dependencies:
   - name: common
     version: "0.1.3"
     repository: "https://sigstore.github.io/helm-charts"
+annotations:
+  # GUARD-2 contract: defaults fail-fast on required overlay values
+  # (SHA-pin / Sovereign FQDN) BY DESIGN — see scripts/check-chart-annotations.sh
+  catalyst.openova.io/smoke-render-mode: "requires-overlay"
