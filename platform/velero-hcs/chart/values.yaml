@@ -131,6 +131,16 @@ velero:
           region: ""
           s3ForcePathStyle: "true"
           s3Url: ""
+          # #2847 acceptance walk (hw130, 2026-06-12): every PutObject
+          # failed with XAmzContentSHA256Mismatch — aws-sdk-go-v2's
+          # flexible-checksum default (CRC32 trailing checksums /
+          # signed streaming payloads) is not honored by Huawei OBS's
+          # S3 compatibility, so the BSL validated "Available" (read
+          # path) while EVERY backup write failed. Empty string
+          # disables the request checksum algorithm in
+          # velero-plugin-for-aws (>=1.10), restoring plain SigV4
+          # bodies that OBS accepts.
+          checksumAlgorithm: ""
     volumeSnapshotLocation:
       - name:
         provider: ""

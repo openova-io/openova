@@ -81,7 +81,9 @@ spec:
   chart:
     spec:
       chart: bp-velero-hcs
-      version: 0.1.0
+      # 0.1.1 (#2847): checksumAlgorithm "" — OBS rejects aws-sdk-v2
+      # flexible checksums (XAmzContentSHA256Mismatch on every write).
+      version: 0.1.1
       sourceRef:
         kind: HelmRepository
         name: bp-velero-hcs
