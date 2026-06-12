@@ -233,7 +233,24 @@ name: bp-keycloak
 # probes-present (Enforce), image-tag-pinned (Enforce), flux-managed (Enforce)
 # were already satisfied. Render-proven per-container, helm lint clean.
 # Refs #3263 #2737.
-version: 1.4.23
+#
+# 1.4.24 (founder NS-3, #3263, 2026-06-12): owner is admin-by-default. The
+# sovereign realm import seeds the deployment owner
+# (.Values.sovereignRealm.ownerEmail, threaded from tofu org_email via the
+# bootstrap-kit ${SOVEREIGN_OWNER_EMAIL} substitution) into
+# /sovereign-admins + /sovereign-viewers at bootstrap. Root cause of the
+# hw130 1/5-admin measurement: the catalyst-pin broker creates the owner
+# with ZERO groups on first SSO login, and every per-app admin mapping
+# (grafana role_attribute_path, gitea --admin-group, harbor
+# oidc_admin_group, openbao group alias) keys on sovereign-admins. The
+# broker's first-broker-login auto-link flow (idp-create-user-if-unique →
+# idp-auto-link, trustEmail=true) links the owner's first SSO login to the
+# pre-seeded user by email match — no prompt, no conflict. Guarded: user
+# renders only when ownerEmail contains "@" (skips empty AND unsubstituted
+# ${SOVEREIGN_OWNER_EMAIL} literals on pre-existing envs). defaultGroups
+# stays /sovereign-viewers only. Render test
+# tests/sovereign-realm-owner-admin-seed.sh.
+version: 1.4.24
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so

@@ -401,6 +401,13 @@ write_files:
             SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
             PROVIDER: ${provider}
             SOVEREIGN_DEPLOYMENT_ID: ${deployment_id}
+            # SOVEREIGN_OWNER_EMAIL (founder NS-3 #3263) — the deployment
+            # owner's email (same org_email as sovereign.json's orgEmail).
+            # bp-keycloak slot 09 threads it into sovereignRealm.ownerEmail;
+            # the sovereign-realm import seeds that user into
+            # /sovereign-admins at bootstrap so the owner is admin-by-default
+            # across grafana/gitea/harbor/openbao on first SSO login.
+            SOVEREIGN_OWNER_EMAIL: "${org_email}"
             # SOVEREIGN_REGION_KEY — the bp-openova-flow-emitter REGION_KEY env
             # (slot 57). Provider-supplied: Hetzner passes the raw region key
             # (var.region / secondary each.key); Huawei passes the canonical
