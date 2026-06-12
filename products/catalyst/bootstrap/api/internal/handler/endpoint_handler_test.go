@@ -66,6 +66,10 @@ func fakeEndpointDynamic(seed ...runtime.Object) (func() (dynamic.Interface, err
 		// #3188: HandleListBlueprintInstances also projects bootstrap
 		// HelmReleases (no-org path) — the fake must know the list kind.
 		helmReleaseGVR: "HelmReleaseList",
+		// #3188 many-to-many cards: the postgres-family instances path
+		// also lists live CNPG Cluster + Database CRs.
+		cnpgClusterGVR:  "ClusterList",
+		cnpgDatabaseGVR: "DatabaseList",
 	}
 	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, seed...)
 	return func() (dynamic.Interface, error) {
@@ -701,6 +705,154 @@ func TestListBlueprintInstances_FilterByOrg(t *testing.T) {
 	}
 	if resp.Items[0].Name != "wp1" {
 		t.Fatalf("expected wp1, got %s", resp.Items[0].Name)
+	}
+}
+
+// seedCNPGCluster builds a postgresql.cnpg.io/v1 Cluster CR for the
+// #3188 many-to-many Data-instances tests.
+func seedCNPGCluster(uid, name, ns string, instances int64, phase string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "postgresql.cnpg.io/v1",
+		"kind":       "Cluster",
+		"metadata": map[string]interface{}{
+			"name":      name,
+			"namespace": ns,
+			"uid":       uid,
+		},
+		"spec":   map[string]interface{}{"instances": instances},
+		"status": map[string]interface{}{"phase": phase},
+	}}
+}
+
+// seedCNPGDatabase builds a postgresql.cnpg.io/v1 Database CR bound to
+// `cluster` declaring database `dbName` owned by `owner`.
+func seedCNPGDatabase(name, ns, cluster, dbName, owner string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "postgresql.cnpg.io/v1",
+		"kind":       "Database",
+		"metadata": map[string]interface{}{
+			"name":      name,
+			"namespace": ns,
+			"uid":       "uid-db-" + name,
+		},
+		"spec": map[string]interface{}{
+			"cluster": map[string]interface{}{"name": cluster},
+			"name":    dbName,
+			"owner":   owner,
+		},
+	}}
+}
+
+// seedEngineHR builds the bootstrap-kit shared-PG engine HelmRelease
+// (HR bp-postgres-shared, chart bp-postgres) — the row the pre-#3188
+// projection rendered as the ONLY instance.
+func seedEngineHR() *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "helm.toolkit.fluxcd.io/v2",
+		"kind":       "HelmRelease",
+		"metadata": map[string]interface{}{
+			"name":      "bp-postgres-shared",
+			"namespace": "flux-system",
+			"uid":       "uid-hr-postgres-shared",
+		},
+		"spec": map[string]interface{}{
+			"chart": map[string]interface{}{"spec": map[string]interface{}{"chart": "bp-postgres"}},
+		},
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{"type": "Ready", "status": "True"},
+			},
+		},
+	}}
+}
+
+// TestListBlueprintInstances_CNPGClustersWithBindings locks the #3188
+// many-to-many Data-instances shape: every live CNPG Cluster CR is one
+// instance row with its consumer bindings — a shared instance carries
+// the Database-CR rows (mode=shared), a bare per-app instance carries
+// ONE implicit dedicated binding. The engine HR (bp-postgres-shared)
+// must NOT add a duplicate card when Cluster rows exist (hw130 walked
+// "1 instance" while 7 Clusters ran live).
+func TestListBlueprintInstances_CNPGClustersWithBindings(t *testing.T) {
+	shared := seedCNPGCluster("uid-pg-shared", "shared-pg", "shared-data", 2, "Cluster in healthy state")
+	perApp := seedCNPGCluster("uid-pg-pdns", "pdns-pg", "powerdns", 1, "Setting up primary")
+	giteaDB := seedCNPGDatabase("shared-pg-gitea", "shared-data", "shared-pg", "gitea", "gitea")
+	h, _, _ := newTestHandlerWithEndpoint(t, shared, perApp, giteaDB, seedEngineHR())
+	h.SetCatalogClient(newFakeCatalog())
+	r := newTestRouter(h)
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/catalyst/v1/catalog/postgres/instances", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	var resp listInstancesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Items) != 2 {
+		t.Fatalf("expected 2 instance rows (one per Cluster CR; engine HR superseded), got %d: %+v", len(resp.Items), resp.Items)
+	}
+	byName := map[string]applicationSummary{}
+	for _, it := range resp.Items {
+		byName[it.Name] = it
+	}
+
+	sp, ok := byName["shared-pg"]
+	if !ok {
+		t.Fatalf("shared-pg row missing: %+v", resp.Items)
+	}
+	if sp.ID != "uid-pg-shared" || sp.Org != "shared-data" || sp.Status != "Ready" || sp.Topology != "ha" {
+		t.Fatalf("shared-pg row = %+v, want id=uid-pg-shared org=shared-data status=Ready topology=ha", sp)
+	}
+	if len(sp.Bindings) != 1 {
+		t.Fatalf("shared-pg bindings = %+v, want exactly the gitea Database-CR row", sp.Bindings)
+	}
+	want := instanceBinding{Database: "gitea", Role: "gitea", Mode: "shared", Secret: "gitea-database-secret", Consumer: "gitea"}
+	if sp.Bindings[0] != want {
+		t.Fatalf("shared-pg binding = %+v, want %+v", sp.Bindings[0], want)
+	}
+
+	pp, ok := byName["pdns-pg"]
+	if !ok {
+		t.Fatalf("pdns-pg row missing: %+v", resp.Items)
+	}
+	if pp.ID != "uid-pg-pdns" || pp.Org != "powerdns" || pp.Status != "Setting up primary" || pp.Topology != "singleton" {
+		t.Fatalf("pdns-pg row = %+v, want id=uid-pg-pdns org=powerdns status verbatim topology=singleton", pp)
+	}
+	if len(pp.Bindings) != 1 {
+		t.Fatalf("pdns-pg bindings = %+v, want ONE implicit dedicated row", pp.Bindings)
+	}
+	wantImplicit := instanceBinding{Database: "app", Role: "app", Mode: "dedicated", Secret: "", Consumer: "powerdns"}
+	if pp.Bindings[0] != wantImplicit {
+		t.Fatalf("pdns-pg binding = %+v, want %+v", pp.Bindings[0], wantImplicit)
+	}
+}
+
+// TestListBlueprintInstances_NoCNPGClusters_HRFallback keeps the
+// pre-existing engine-HR projection alive on an env with NO live CNPG
+// Cluster CRs (e.g. the CRD installed but nothing provisioned yet) —
+// the shared-engine card must still render rather than dropping to
+// zero instances.
+func TestListBlueprintInstances_NoCNPGClusters_HRFallback(t *testing.T) {
+	h, _, _ := newTestHandlerWithEndpoint(t, seedEngineHR())
+	h.SetCatalogClient(newFakeCatalog())
+	r := newTestRouter(h)
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/catalyst/v1/catalog/postgres/instances", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	var resp listInstancesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].Name != "postgres-shared" {
+		t.Fatalf("expected the single engine-HR row, got %+v", resp.Items)
+	}
+	if len(resp.Items[0].Bindings) != 0 {
+		t.Fatalf("HR-projected row must carry no fabricated bindings, got %+v", resp.Items[0].Bindings)
 	}
 }
 

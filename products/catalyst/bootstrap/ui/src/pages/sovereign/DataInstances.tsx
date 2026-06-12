@@ -7,17 +7,20 @@
  * Renders the three ADR-0010 surfaces:
  *   1. ONE PostgreSQL ENGINE-CLASS card (the `bp-cnpg` engine, shown once),
  *      with the live data-instance count.
- *   2. The N DATA-INSTANCE cards (bp-postgres installs), each with a
- *      Consumers (bindings) table: app · database · role · mode · secret.
- *   3. The honest empty states — "No PostgreSQL data instances yet" when the
- *      model is gated off, and per-instance "bindings not yet surfaced by the
- *      API" because no catalyst-api endpoint exposes the binding rows today.
+ *   2. The N DATA-INSTANCE cards — one per live CNPG Cluster (#3188
+ *      many-to-many) — each with a Consumers (bindings) table:
+ *      app · database · role · mode · secret.
+ *   3. The honest empty states — "No PostgreSQL data instances yet" when
+ *      nothing runs, and the per-instance "bindings not surfaced" line for
+ *      rows the API returns without a `bindings[]` field.
  *
  * Fed by the LIVE, REUSED endpoint
  *   GET /catalyst/v1/catalog/bp-postgres/instances
- * via `getApplicationInstances` (the same call InstancesSection uses). NO new
- * API was invented; the per-consumer binding rows are NOT exposed by any
- * endpoint (see dataInstances.ts header) so they are never fabricated.
+ * via `getApplicationInstances` (the same call InstancesSection uses). The
+ * per-consumer binding rows are now surfaced SERVER-SIDE on that endpoint
+ * (#3188: CNPG Cluster CRs → instance rows, Database CRs → shared bindings,
+ * bare per-app Clusters → one implicit dedicated binding); rows without
+ * `bindings` still render the honest empty state — never a fabricated row.
  */
 
 import { useQuery } from '@tanstack/react-query'
@@ -127,15 +130,15 @@ export function DataInstances({
               <div className="di-consumers">
                 <div className="di-consumers-head">Consumers (bindings)</div>
                 {inst.bindings.length === 0 ? (
-                  // Honest gap: no catalyst-api endpoint exposes the
-                  // per-consumer binding rows yet (they live in the install
-                  // HR's chart values.databases[]). Never fabricate rows.
+                  // Honest empty state: this row arrived WITHOUT a
+                  // `bindings[]` field (non-postgres blueprint or an older
+                  // catalyst-api). Never fabricate rows client-side.
                   <div
                     className="di-no-consumers"
                     data-testid="data-instance-no-bindings"
                   >
-                    Bindings (database · role · mode · secret) are not yet
-                    surfaced by the API.
+                    Bindings (database · role · mode · secret) are not
+                    surfaced for this instance.
                   </div>
                 ) : (
                   <table
@@ -296,7 +299,8 @@ table.di-bindings code {
   background: color-mix(in srgb, var(--color-success) 16%, transparent);
   color: var(--color-success);
 }
-.di-mode-private {
+.di-mode-private,
+.di-mode-dedicated {
   background: color-mix(in srgb, var(--color-text-dim) 14%, transparent);
   color: var(--color-text-dim);
 }

@@ -10,10 +10,10 @@
  * SAME view in catalyst-ui (served at console.<fqdn>), where the founder
  * actually looks (#3188 row-3/4 walk complaint).
  *
- * The model (ADR-0010): a `bp-postgres` install = one CNPG Cluster = one
- * DATA-INSTANCE. The single PostgreSQL ENGINE CLASS (the `bp-cnpg`
- * operator) is shown ONCE; each data-instance is a first-class card.
- * Consumers SHARE an instance via isolated databases + per-consumer roles.
+ * The model (ADR-0010): ONE live CNPG Cluster = one DATA-INSTANCE. The
+ * single PostgreSQL ENGINE CLASS (the `bp-cnpg` operator) is shown ONCE;
+ * each data-instance is a first-class card. Consumers SHARE an instance
+ * via isolated databases + per-consumer roles (many-to-many).
  *
  * FEEDING ENDPOINT (verified, reused — NOT invented):
  *
@@ -23,46 +23,50 @@
  * registered at cmd/api/main.go without the /api/ prefix). Its row type
  * `ApplicationInstanceSummary` mirrors the Go `applicationSummary`
  * (endpoint_handler.go:119) VERBATIM — fields `id`, `name`, `blueprint`,
- * `org`, `topology`, `status`, `createdAt` (all lowercase camelCase per the
- * Go `json:` tags). This is the source of the engine-class card's instance
- * count and the per-instance cards.
+ * `org`, `topology`, `status`, `createdAt`, `bindings` (all lowercase
+ * camelCase per the Go `json:` tags). For the postgres engine family the
+ * endpoint enumerates the live `postgresql.cnpg.io/v1` Cluster CRs — one
+ * row per running instance — so the engine-class count and the per-instance
+ * cards reflect EVERY live Postgres, not just the shared engine install.
  *
- * HONEST GAP (do not fabricate): NO catalyst-api endpoint exposes the
- * per-consumer BINDING rows (database · role · mode · secret). Those live
- * only in each bp-postgres install HR's chart `values.databases[]`, which
- * no API surfaces today. So a data-instance's `bindings` is empty here and
- * the Consumers table renders the honest "bindings not yet surfaced by the
- * API" state — never a fabricated row. When the model is gated off (the
- * default on a stock prov, `SOVEREIGN_ENABLE_SHARED_PG=false`) the
- * instances list is empty and the panel renders "No PostgreSQL data
- * instances yet." Surfacing live bindings is a backend endpoint first
- * (a different PR) — see #3188.
+ * BINDINGS (#3188 many-to-many, now surfaced SERVER-SIDE): each row's
+ * `bindings[]` carries the consumer rows (database · role · mode ·
+ * secret · consumer) derived from the CNPG Database CRs (mode=shared) or
+ * the instance's own app database (mode=dedicated). When a row carries no
+ * `bindings` (older API, non-postgres blueprints) the Consumers table
+ * still renders the honest "not surfaced" state — never a fabricated row.
+ * When the instances list is empty the panel renders "No PostgreSQL data
+ * instances yet."
  */
 
 import type { ApplicationInstanceSummary } from '@/lib/catalog.api'
 
 /** One consumer's binding to a data-instance (one row in the table). */
 export interface Binding {
-  /** Consumer Blueprint / app id, e.g. "bp-harbor". */
+  /** Consumer app/namespace, e.g. "gitea". Empty when not derivable. */
   consumer: string
-  /** Isolated database name on the shared Cluster, e.g. "registry". */
+  /** Isolated database name on the Cluster, e.g. "registry". */
   database: string
   /** Per-consumer login role (CNPG-managed), e.g. "harbor". */
   role: string
-  /** Binding provenance — private (dedicated) or shared. */
-  mode: 'private' | 'shared'
+  /**
+   * Binding provenance — `shared` (Database CR on a shared instance),
+   * `dedicated` (the per-app instance's own app database), or `private`
+   * (legacy display fallback for unknown modes).
+   */
+  mode: 'shared' | 'dedicated' | 'private'
   /** Connection Secret reflected into the consumer namespace. */
   secret: string
 }
 
-/** A data-instance = one CNPG Cluster (one bp-postgres App card). */
+/** A data-instance = one CNPG Cluster (one card). */
 export interface DataInstance {
-  /** Instance name = Cluster name = App-card title, e.g. "shared-pg". */
+  /** Instance name = Cluster name = card title, e.g. "shared-pg". */
   name: string
   /** Engine class id (always bp-postgres here). */
   blueprint: string
   /** BCP topology of the instance (inherited by every consumer). */
-  topology: 'singleton' | 'active-hot-standby'
+  topology: 'singleton' | 'ha' | 'replica' | 'active-hot-standby'
   /** Live status of the instance (Ready/Failed/Provisioning/…). */
   status: string
   /** The consumers sharing this instance. */
@@ -103,13 +107,26 @@ export function isShared(instance: DataInstance): boolean {
 }
 
 /**
- * normalizeTopology maps any topology string to the two display states.
- * The instances endpoint returns the per-install topology string; only
- * `active-hot-standby` is the multi-region HA shape, everything else
- * (singleton / single-region / empty) renders as `singleton`.
+ * normalizeTopology maps the wire topology string to the display states.
+ * The instances endpoint emits `singleton`, `ha` (instances>1), `replica`
+ * (spec.replica.enabled — the hot-standby secondary), or the per-install
+ * `active-hot-standby`; anything else renders as `singleton`.
  */
 function normalizeTopology(topology: string | undefined): DataInstance['topology'] {
-  return topology === 'active-hot-standby' ? 'active-hot-standby' : 'singleton'
+  return topology === 'active-hot-standby' ||
+    topology === 'ha' ||
+    topology === 'replica'
+    ? topology
+    : 'singleton'
+}
+
+/**
+ * normalizeMode keeps the wire `mode` verbatim for the two values the API
+ * emits (`shared` / `dedicated`); anything unexpected renders with the
+ * neutral legacy `private` styling rather than an unstyled class.
+ */
+function normalizeMode(mode: string | undefined): Binding['mode'] {
+  return mode === 'shared' || mode === 'dedicated' ? mode : 'private'
 }
 
 /**
@@ -117,14 +134,16 @@ function normalizeTopology(topology: string | undefined): DataInstance['topology
  * the LIVE `GET /catalyst/v1/catalog/{blueprint}/instances` response rows
  * (the same `ApplicationInstanceSummary[]` the InstancesSection consumes).
  *
- * Each bp-postgres install = one data-instance card. The summary carries
- * NO binding data (the API doesn't expose the per-consumer database/role/
- * secret rows — see the module header), so `bindings` is always empty here;
- * the Consumers table renders the honest "not yet surfaced" state rather
- * than fabricating rows. The ENGINE CLASS card's count is `len(instances)`.
+ * Each row = one data-instance card. Rows from the postgres-family path
+ * carry `bindings[]` (surfaced server-side from CNPG Database CRs / the
+ * implicit per-app binding — see the module header); rows without it keep
+ * `bindings` empty so the Consumers table renders the honest "not
+ * surfaced" state rather than fabricating rows. The ENGINE CLASS card's
+ * count is `len(instances)`.
  *
  * CRITICAL (memory feedback_ts_field_casing_vs_go_json_tag): every field
- * read here (`name`, `topology`, `status`) matches the Go `json:` tag
+ * read here (`name`, `topology`, `status`, `bindings` + its `database` /
+ * `role` / `mode` / `secret` / `consumer`) matches the Go `json:` tag
  * VERBATIM. `res.json()` returns wire keys exactly — a casing mismatch
  * silently yields undefined (documented prior outage).
  */
@@ -137,7 +156,15 @@ export function fromInstanceSummaries(
       blueprint: 'bp-postgres',
       topology: normalizeTopology(r.topology),
       status: r.status ?? '',
-      bindings: [] as Binding[],
+      bindings: (r.bindings ?? []).map(
+        (b): Binding => ({
+          consumer: b.consumer,
+          database: b.database,
+          role: b.role,
+          mode: normalizeMode(b.mode),
+          secret: b.secret,
+        }),
+      ),
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
 }
