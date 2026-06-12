@@ -453,3 +453,14 @@ rules:
   - apiGroups: ["sandbox.openova.io"]
     resources: ["sandboxes"]
     verbs: ["get", "list", "watch", "delete"]
+  # #3188 many-to-many Data-instances (PR #3348): the instances endpoint
+  # enumerates live CNPG Clusters + Databases cluster-wide; without
+  # these the list 403s and the card renders empty (caught live on
+  # hw130 — API 0 rows with 7 clusters running). dr.openova.io
+  # cnpgpairs quiets the topology informer's forbidden spam.
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters", "databases"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["dr.openova.io"]
+    resources: ["cnpgpairs", "continuums"]
+    verbs: ["get", "list", "watch"]

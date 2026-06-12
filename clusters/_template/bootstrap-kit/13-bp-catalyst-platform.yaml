@@ -989,7 +989,8 @@ spec:
       # 1.4.581 (#3195 G6): continuum CRD region pattern relaxed to
       # admit real cloud codes (kom4dc digits) — unblocks the
       # production Continuum seed (slot 16b, cnpg-pair 0.2.3).
-      version: 1.4.586
+      # 1.4.587: cnpg list RBAC for the many-to-many instances endpoint (#3188).
+      version: 1.4.587
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
