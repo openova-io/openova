@@ -1834,6 +1834,16 @@ func (r *Reconciler) reconcileBootstrapOwned(ctx context.Context, app *unstructu
 		break
 	}
 
+	// Churn guard: a status write bumps resourceVersion → MODIFIED
+	// watch event → another reconcile. The normal path's Gitea
+	// byte-equality short-circuit naturally dampens that loop; this
+	// status-only path has no such stage, so skip the write when
+	// nothing meaningful changed (proven hot-looping at ~600ms/CR on
+	// the envtest adoption walk without this).
+	if bootstrapStatusUnchanged(app, phase, message, ready) {
+		return nil
+	}
+
 	r.Log.Info("bootstrap-owned adoption: status-only reconcile",
 		"app", app.GetName(),
 		"namespace", app.GetNamespace(),
@@ -1847,6 +1857,30 @@ func (r *Reconciler) reconcileBootstrapOwned(ctx context.Context, app *unstructu
 		Ready:            ready,
 		LastReconciledAt: now,
 	})
+}
+
+// bootstrapStatusUnchanged reports whether the Application's current
+// status already carries the given adoption phase + Ready condition.
+func bootstrapStatusUnchanged(app *unstructured.Unstructured, phase, message, ready string) bool {
+	curPhase, _, _ := unstructured.NestedString(app.Object, "status", "phase")
+	if curPhase != phase {
+		return false
+	}
+	conds, _, _ := unstructured.NestedSlice(app.Object, "status", "conditions")
+	for _, c := range conds {
+		cm, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if cm["type"] != "Ready" {
+			continue
+		}
+		reason, _ := cm["reason"].(string)
+		msg, _ := cm["message"].(string)
+		status, _ := cm["status"].(string)
+		return reason == ReasonBootstrapAdopted && msg == message && status == ready
+	}
+	return false
 }
 
 // markPending is a one-shot status writer for "valid spec, parent

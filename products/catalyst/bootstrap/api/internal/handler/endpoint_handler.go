@@ -795,6 +795,12 @@ func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	obj := newApplicationCRFromSeed(seed)
+	// #3370 — stamp the resolved Blueprint version: the CRD requires an
+	// exact semver on blueprintRef.version (admission rejected every CR
+	// from the old version-less seed on a real apiserver).
+	if v := strings.TrimSpace(bpDoc.Version); v != "" {
+		_ = unstructured.SetNestedField(obj.Object, v, "spec", "blueprintRef", "version")
+	}
 	if len(dependsOnEntries) > 0 {
 		_ = unstructured.SetNestedSlice(obj.Object, dependsOnEntries, "spec", "dependsOn")
 	}
@@ -930,6 +936,14 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 				return nil, &backingError{status: http.StatusBadRequest, code: "backing-invalid", message: serr.Error()}
 			}
 			backingObj := newApplicationCRFromSeed(backingSeed)
+			// Stamp the backing Blueprint's resolved version — the CRD
+			// requires an exact semver on blueprintRef.version (#3370,
+			// same admission contract as the consumer CR below).
+			if bpDoc != nil {
+				if v := strings.TrimSpace(bpDoc.Version); v != "" {
+					_ = unstructured.SetNestedField(backingObj.Object, v, "spec", "blueprintRef", "version")
+				}
+			}
 			if _, cerr := client.Resource(ApplicationGVR()).Namespace(body.Org).Create(ctx, backingObj, metav1.CreateOptions{}); cerr != nil {
 				if !apierrors.IsAlreadyExists(cerr) {
 					return nil, &backingError{status: http.StatusInternalServerError, code: "backing-create-failed", message: cerr.Error()}
@@ -1404,6 +1418,12 @@ func visibilityOrDefault(v string) string {
 // endpoint handlers care about. We unmarshal from the catalog's `Raw`
 // map rather than introducing a structured CRD type.
 type blueprintMeta struct {
+	// Version — Blueprint.spec.version. Stamped onto created
+	// Application CRs' blueprintRef.version (#3370 — the CRD requires
+	// exact semver; the old create path omitted it and every
+	// console-created CR failed admission on a real apiserver).
+	Version string `yaml:"version,omitempty" json:"version,omitempty"`
+
 	Endpoints     []endpointDecl     `yaml:"endpoints,omitempty" json:"endpoints,omitempty"`
 	SSO           *ssoDecl           `yaml:"sso,omitempty" json:"sso,omitempty"`
 	MultiInstance *multiInstanceDecl `yaml:"multiInstance,omitempty" json:"multiInstance,omitempty"`
@@ -1926,7 +1946,11 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 		"blueprintRef": map[string]interface{}{
 			"name": seed.Blueprint,
 		},
-		"placement": seed.Topology,
+		// #3370 — spec.placement carries the CRD's placement ENUM, not
+		// the raw topology string (the old code stamped "singleton",
+		// which admission rejects on a real apiserver). The chosen
+		// topology stays on the catalyst.openova.io/topology label.
+		"placement": placementForTopology(seed.Topology),
 		"regions":   []interface{}{"primary"},
 		// ── G117.2 W2.C2 multi-instance fields ──
 		"instanceId":     seed.InstanceID,
@@ -1942,6 +1966,20 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 	}
 	_ = unstructured.SetNestedMap(obj.Object, spec, "spec")
 	return obj
+}
+
+// placementForTopology maps a BCP topology choice onto the Application
+// CRD's spec.placement enum (#3370).
+func placementForTopology(topology string) string {
+	switch topology {
+	case "active-active":
+		return "active-active"
+	case "active-hot-standby", "active-hotstandby", "active-passive":
+		return "active-hotstandby"
+	default:
+		// singleton / empty / unknown → the single-region posture.
+		return "single-region"
+	}
 }
 
 // readPhase + readTopology read the most-informative status field for

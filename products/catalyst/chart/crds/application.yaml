@@ -138,7 +138,15 @@ spec:
                     For active-hotstandby, regions[0] is the primary.
                   items:
                     type: string
-                    pattern: '^[a-z]+-[a-z]+-[a-z]+-[a-z]+$'
+                    # #3370 — relaxed from '^[a-z]+-[a-z]+-[a-z]+-[a-z]+$'
+                    # (4 letter-only labels): the old pattern rejected
+                    # BOTH the instance-create default region key
+                    # ("primary") AND every real kom4dc region label
+                    # (me-east-215-a — digits), so no console-created
+                    # Application CR could ever pass admission on a
+                    # real apiserver. Same relax the Continuum CRD took
+                    # in #3195 G6 for the kom4dc digit codes.
+                    pattern: '^[a-z][a-z0-9-]{0,62}$'
                 parameters:
                   type: object
                   description: |
