@@ -296,7 +296,15 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 				if errors.Is(err, witness.ErrLeaseHeldByAnother) {
 					_ = r.publishLeaseCollision(ctx, nn, spec, err)
 				}
-				log.Info("lease lost; new holder in charge", "err", err)
+				// #3195 (hw130): quorum-unreachable is NOT a competing
+				// holder — log it as the wiring problem it is, so the
+				// operator fixes resolvers instead of hunting a phantom
+				// primary. Same safety posture (no promote) either way.
+				if errors.Is(err, witness.ErrQuorumUnavailable) {
+					log.Info("witness read-quorum unavailable — check leaseClient resolvers/wiring", "err", err)
+				} else {
+					log.Info("lease lost; new holder in charge", "err", err)
+				}
 				_ = r.patchStatusFromCR(ctx, cr, spec, witness.State{}, cnpg.Status{}, cnpg.Status{}, false, "")
 				continue
 			}

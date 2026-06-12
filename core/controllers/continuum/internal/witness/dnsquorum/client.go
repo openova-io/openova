@@ -265,8 +265,11 @@ func (c *DNSQuorumClient) Acquire(ctx context.Context, holder string, ttl time.D
 	}
 	cur, ok := c.readQuorum(ctx)
 	if !ok {
-		// Read quorum failed — defensive: treat as held by another.
-		return cur, witness.ErrLeaseHeldByAnother
+		// Read quorum failed — same SAFETY posture as held-by-another
+		// (never promote blind), but the DISTINCT sentinel so the
+		// operator sees "fix the witness wiring" instead of hunting a
+		// phantom competing holder (#3195 hw130).
+		return cur, witness.ErrQuorumUnavailable
 	}
 	// Truncate to second precision — matches RFC3339 wire format
 	// granularity (the wire round-trip would truncate anyway, so
