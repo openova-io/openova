@@ -102,7 +102,7 @@ name: bp-guacamole
 # ships the openid extension only (no JDBC permission store), so
 # blueprint.yaml's `rolesFromGroup: sovereign-admins: admin` intent has no
 # implementation — tracked under #3374 DoD row 7.
-version: 0.2.5
+version: 0.2.6
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
