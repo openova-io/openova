@@ -68,6 +68,18 @@
 >
 > Extracted from `spec.endpoints[].ssoEnabled: true` + `spec.sso` (`realm`, `silentLogin: true`) in each `platform/<app>/blueprint.yaml`. **24 ssoEnabled blueprints, 26 ssoEnabled endpoints** (opensearch + catalyst-platform each expose two). The "Open" button replaces the raw endpoint URL on every `ssoEnabled` endpoint with `launchDefault: true`; the URL carries `prompt=none&kc_idp_hint=catalyst-pin` so the new tab lands **already signed in** — no login form, no second click. Realm is `sovereign` for Tier-1/Tier-2 control-plane apps and per-Org `{{.OrgSlug}}` for Tier-3 tenant apps (#2744). Tenant-app rows are walked from the **tenant** console `console.<orgslug>.<pool>`.
 
+### 2.0a ADMIN-BY-DEFAULT (founder NS-3: "emrah.baysal administrates the apps by default — prove surfing the admin panels")
+
+| App | Verdict | Evidence |
+|---|---|---|
+| gitea | ✅ | /admin Site Administration full sidebar (was Forbidden). `docs/sessions/2026-06-12/evidence/hw130-admin2-gitea.png` |
+| harbor | ✅ | Administration nav + Users grid (was absent). `hw130-admin2-harbor.png` |
+| grafana | ✅ | Org **Admin** + server /admin/users renders (was Viewer). `hw130-admin2-grafana.png` |
+| openbao | ✅ | /ui/vault/access auth-methods (held). `hw130-admin2-openbao.png` |
+| pdns-admin | ✅ | Administration sidebar + Users table, Role=Administrator — caveat: first-user-auto-admin, not group mapping (would not generalize to a 2nd admin; banked). `hw130-admin2-pdns.png` |
+
+**Score 5/5 (baseline 1/5)** — keycloak 1.4.26 `sovereign-admins` seeding + per-app group keying; elevation syncs at login (proven: gitea's stale session lacked the menu until re-login).
+
 ### 2.0 ROOT-URL zero-click (the founder acceptance — app's own URL → signed in, zero clicks)
 
 > **Standard note (2026-06-12):** every prior §2.1 SSO row was verified via the console **Launch** path; this section tracks the stricter **root-URL** standard — the user types the app's own URL into the browser and lands signed in with zero clicks.
