@@ -988,7 +988,67 @@ data:
           }
         }
       ],
+      {{- /*
+      Owner is admin-by-default (founder NS-3, #3263).
+
+      Live measurement hw130 (2026-06-12): the deployment owner
+      (ownerEmail) lands 1/5 admin — grafana maps to Viewer, gitea /admin
+      Forbidden, harbor has no Administration nav — because the
+      catalyst-pin broker's `idp-create-user-if-unique` creates the owner
+      with ZERO group memberships on first SSO login. The handover-time
+      `EnsureUser(email, "sovereign-admins")` (auth_handover.go:244) only
+      fires at franchise handover, never on the normal pre-handover PIN
+      walk. Every per-app admin mapping already keys on `sovereign-admins`
+      (grafana role_attribute_path, gitea --admin-group, harbor
+      oidc_admin_group, openbao identity-group alias), so the ONE root
+      fix is seeding the owner into that group at bootstrap, here in the
+      realm import.
+
+      Why a pre-created user is safe with the broker:
+        The catalyst-pin IdP's `first broker login auto link` flow runs
+        idp-create-user-if-unique (sees the email already exists → not
+        unique) and falls through to idp-auto-link, which — with
+        trustEmail=true — links the federated identity to THIS user by
+        email match, no prompt, no SMTP. That is exactly the path the
+        realm already documents for catalyst-api EnsureUser-created
+        users (see the identityProviders comment below). syncMode FORCE
+        only re-syncs mapper-driven profile fields; the realm defines no
+        IdP group mappers, so the seeded memberships persist across
+        logins.
+
+      Why NOT realm defaultGroups: adding /sovereign-admins to
+      defaultGroups would make EVERY future federated user (any tenant
+      user authenticating into the sovereign realm) a full admin — the
+      default stays /sovereign-viewers only.
+
+      keycloak-config-cli reconciles a managed user's group list to
+      exactly the listed set on every import run, so /sovereign-viewers
+      is listed explicitly (defaultGroups only applies at creation;
+      without it here a later re-import would strip viewer membership).
+      Fields not listed (federatedIdentities, attributes) are left
+      untouched — the broker link survives re-imports.
+
+      Guards: skip when ownerEmail is empty (Catalyst-Zero installs) OR
+      lacks "@" — an env provisioned before the SOVEREIGN_OWNER_EMAIL
+      substitute-map var existed leaves the literal `${SOVEREIGN_OWNER_EMAIL}`
+      in the HR values; the "@" check makes that a no-op instead of a
+      junk user. Lowercased: KC stores usernames/emails lowercase and the
+      broker matches by lowercase email.
+      */ -}}
+      {{- $ownerEmail := lower (trim (default "" .Values.sovereignRealm.ownerEmail)) }}
       "users": [
+        {{- if and $ownerEmail (contains "@" $ownerEmail) }}
+        {
+          "username": {{ $ownerEmail | quote }},
+          "email": {{ $ownerEmail | quote }},
+          "enabled": true,
+          "emailVerified": true,
+          "groups": [
+            "/sovereign-admins",
+            "/sovereign-viewers"
+          ]
+        },
+        {{- end }}
         {
           "username": "service-account-catalyst-api-server",
           "enabled": true,

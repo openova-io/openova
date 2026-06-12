@@ -187,9 +187,21 @@ grafana:
       token_url: ""
       api_url: ""
       # JMESPath expression: any contains() over the realm `groups`
-      # claim that matches the adminGroup → Admin, else Viewer.
+      # claim that matches the adminGroup → GrafanaAdmin, else Viewer.
       # Operator overlays may broaden this to map additional groups.
-      role_attribute_path: "contains(groups[*], 'sovereign-admins') && 'Admin' || 'Viewer'"
+      #
+      # Founder NS-3 (#3263, 2026-06-12): 'GrafanaAdmin' (not 'Admin') so
+      # the Sovereign owner — seeded into `sovereign-admins` by the
+      # bp-keycloak realm import — lands as Grafana SERVER admin
+      # (Administration nav: users/orgs/plugins/settings), not merely
+      # org-level Admin. GrafanaAdmin assignment additionally requires
+      # allow_assign_grafana_admin=true below; without that flag Grafana
+      # degrades the mapping to org Admin. The role is re-evaluated from
+      # the groups claim on EVERY OAuth login (no skip_org_role_sync).
+      role_attribute_path: "contains(groups[*], 'sovereign-admins') && 'GrafanaAdmin' || 'Viewer'"
+      # Required for role_attribute_path to be allowed to grant the
+      # server-admin (GrafanaAdmin) flag via OAuth (founder NS-3, #3263).
+      allow_assign_grafana_admin: true
       # `email` claim provides the login identifier.
       login_attribute_path: "preferred_username"
       groups_attribute_path: "groups"
@@ -229,9 +241,10 @@ sso:
   refreshInterval: 1h
   # Realm group → Grafana role mapping (JMESPath expression evaluated
   # against the OIDC userinfo response by Grafana's
-  # role_attribute_path). The Sovereign operator is auto-added to
-  # `sovereign-admins` by the realm import; users in that group land
-  # as Grafana org-level Admins.
+  # role_attribute_path). The Sovereign owner (deployment orgEmail) is
+  # seeded into `sovereign-admins` by the bp-keycloak 1.4.24+ realm
+  # import (founder NS-3, #3263); users in that group land as Grafana
+  # SERVER admins (GrafanaAdmin via allow_assign_grafana_admin above).
   adminGroup: sovereign-admins
   # G117.5 #2744 — Identity Provider hint appended to the OIDC
   # authorize_url so KC's Identity Provider Redirector delegates to

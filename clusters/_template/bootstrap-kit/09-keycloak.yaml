@@ -154,7 +154,14 @@ spec:
       # keycloak 0/1 → every SSO surface a bare login page. Repointed all
       # Bitnami images through the local Harbor proxy-cache + added the
       # policy.cilium.io/enforced label on both StatefulSets.
-      version: 1.4.23
+      # 1.4.24 (founder NS-3 #3263, 2026-06-12): owner is admin-by-default.
+      # Realm import seeds sovereignRealm.ownerEmail (threaded below from
+      # ${SOVEREIGN_OWNER_EMAIL}, i.e. the deployment's org_email) into
+      # /sovereign-admins + /sovereign-viewers at bootstrap, so grafana/
+      # gitea/harbor/openbao admin mappings (all keyed on sovereign-admins)
+      # elevate the owner on first SSO login. The catalyst-pin broker
+      # auto-links to the pre-seeded user by email (trustEmail=true flow).
+      version: 1.4.24
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
@@ -214,7 +221,16 @@ spec:
   # overlays that haven't been migrated.
   values:
     sovereignFQDN: ${SOVEREIGN_FQDN}
+    # sovereignRealm.ownerEmail (founder NS-3 #3263): the deployment owner's
+    # email — cloud-init threads tofu's org_email into the bootstrap-kit
+    # Kustomization substitute map as SOVEREIGN_OWNER_EMAIL. The realm import
+    # seeds this user into /sovereign-admins so the owner is admin-by-default
+    # in every SSO-consuming app. On envs provisioned BEFORE the substitute
+    # var existed, Flux leaves the literal `${SOVEREIGN_OWNER_EMAIL}` in
+    # place — the chart's contains-"@" guard turns that into a no-op (no
+    # junk user) instead of a render failure.
     sovereignRealm:
       name: ${SOVEREIGN_REALM_NAME:=sovereign}
+      ownerEmail: "${SOVEREIGN_OWNER_EMAIL}"
     gateway:
       host: auth.${SOVEREIGN_FQDN}

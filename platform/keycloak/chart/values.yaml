@@ -76,9 +76,29 @@ sso:
 # MUST set this to their tenant short-name. Matrix tests assert paths like
 # `/admin/realms/{name}/...` so the value must match the operator's tenant
 # convention.
+# sovereignRealm.ownerEmail: the deployment owner's email (the Sovereign's
+# `orgEmail`, e.g. emrah.baysal@openova.io). When set, the realm import seeds
+# this user into the `/sovereign-admins` + `/sovereign-viewers` groups so the
+# owner is admin-by-default across every SSO-consuming app (founder NS-3,
+# #3263): grafana (role_attribute_path → GrafanaAdmin), gitea (auth-source
+# --admin-group), harbor (oidc_admin_group), openbao (external identity-group
+# alias). The catalyst-pin broker's `first broker login auto link` flow
+# (idp-create-user-if-unique → idp-auto-link, trustEmail=true) auto-links the
+# owner's first SSO login to this pre-seeded user by email match — the SAME
+# linking path the post-handover catalyst-api EnsureUser-created users take,
+# so pre-seeding is provably safe by the realm's own design.
+#
+# Supplied per-Sovereign by the bootstrap-kit overlay via the
+# ${SOVEREIGN_OWNER_EMAIL} Flux substitution (cloud-init threads tofu's
+# org_email into the bootstrap-kit Kustomization substitute map). Empty
+# default = no user seeded (Catalyst-Zero / non-Sovereign installs).
+# The template additionally requires the value to contain "@" so an
+# UNSUBSTITUTED literal `${SOVEREIGN_OWNER_EMAIL}` (envs provisioned before
+# the substitute-map var existed) can never create a junk user.
 sovereignRealm:
   enabled: true
   name: "sovereign"
+  ownerEmail: ""
 
 # catalystApiServerClientSecret: the client secret for the catalyst-api-server
 # confidential client in the sovereign realm.
