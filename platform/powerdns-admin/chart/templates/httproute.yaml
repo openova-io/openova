@@ -24,25 +24,6 @@ spec:
   hostnames:
     - {{ .Values.gateway.host | quote }}
   rules:
-    # ROOT-URL zero-click SSO (founder mandate 2026-06-12): PDA has no
-    # auto-redirect setting; the gateway sends its login page straight
-    # into the OIDC leg. Logged-in users never hit /login (no loop).
-    - matches:
-        - path:
-            type: Exact
-            value: /login
-      filters:
-        - type: RequestRedirect
-          requestRedirect:
-            # Explicit 443 — Gateway API otherwise copies the cilium
-            # LISTENER port (30443) into Location, which nothing serves
-            # externally (the #3310 pdns lesson, repeated on first render
-            # and caught by the wire check).
-            port: 443
-            path:
-              type: ReplaceFullPath
-              replaceFullPath: /oidc/login
-            statusCode: 302
     - matches:
         - path:
             type: PathPrefix
