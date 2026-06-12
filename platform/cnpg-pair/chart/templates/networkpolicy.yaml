@@ -116,6 +116,20 @@ spec:
       ports:
         - port: 5432
           protocol: TCP
+    # #3322 OWN-CLUSTER carve-out: the replica Cluster's instance-2 joins
+    # instance-1 via the replica's -rw Service on 5432. This netpol selects
+    # the replica Pods, so without an explicit allow for the replica's OWN
+    # cnpg.io/cluster label it default-denies that join → instance-2 wedges
+    # at "Creating a new replica" (dial timeout to replica-rw:5432), exactly
+    # the primary side's own-cluster gap (lines above). hw130 caught this
+    # live (24h wedge). Mirror the primary carve-out.
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ include "cnpg-pair.replicaName" . }}
+      ports:
+        - port: 5432
+          protocol: TCP
     # CNPG operator status + metrics probe — the replica side selects its
     # own instance CR Pods, so it needs the same operator carve-out as the
     # primary or the replica Cluster phase stalls at "Instance Status
