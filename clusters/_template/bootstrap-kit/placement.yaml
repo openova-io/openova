@@ -156,20 +156,19 @@ spec:
     # coupling-fix proof app (gitea).
     - {file: 07-nats-jetstream.yaml, hr: bp-nats-jetstream, vcluster: mgmt, target: mgmt,
        namespace: nats-system}
-    - {file: 09-keycloak.yaml, hr: bp-keycloak, vcluster: mgmt, target: mgmt,
-       namespace: keycloak,
-       values: {gateway.backendService: keycloak-x-keycloak-x-mgmt-vcluster}}
+    # REVERTED TO STAGED (2026-06-13 hw130 outage): the PROMOTE-NOW conversion
+    # assumed the syncer copies HTTPRoute/ExternalSecret/CNPG CRDs into the
+    # vCluster — measured FALSE on live vc-mgmt (0 sync-set CRDs; keycloak
+    # install: "no matches for kind HTTPRoute"). Stays staged until the
+    # in-vCluster CRD mechanism is implemented + proven on a non-critical app.
+    - {file: 09-keycloak.yaml, hr: bp-keycloak, vcluster: host, target: mgmt, namespace: keycloak}
     # extraNamespaces: the umbrella renders the SME service set into ns
     # `sme` and cutover artifacts into ns `catalyst` alongside its own
     # catalyst-system — declared so the live conformance audit can
     # attribute those workloads (multi-namespace chart, not undeclared).
-    - {file: 13-bp-catalyst-platform.yaml, hr: bp-catalyst-platform, vcluster: mgmt, target: mgmt,
-       namespace: catalyst-system, extraNamespaces: [sme, catalyst],
-       values: {ingress.gateway.backendServiceApi: catalyst-api-x-catalyst-system-x-mgmt-vcluster,
-                ingress.gateway.backendServiceUi: catalyst-ui-x-catalyst-system-x-mgmt-vcluster}}
-    - {file: 10-gitea.yaml, hr: bp-gitea, vcluster: mgmt, target: mgmt,
-       namespace: gitea,
-       values: {gateway.backendService: gitea-http-x-gitea-x-mgmt-vcluster}}
+    - {file: 13-bp-catalyst-platform.yaml, hr: bp-catalyst-platform, vcluster: host, target: mgmt,
+       namespace: catalyst-system, extraNamespaces: [sme, catalyst]}
+    - {file: 10-gitea.yaml, hr: bp-gitea, vcluster: host, target: mgmt, namespace: gitea}
 
     # Already inside their vClusters (proven recipe slots).
     - {file: 22-loki.yaml, hr: bp-loki, vcluster: mgmt, target: mgmt, namespace: loki}

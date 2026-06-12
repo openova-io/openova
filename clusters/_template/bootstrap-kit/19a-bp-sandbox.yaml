@@ -90,7 +90,7 @@ spec:
     - name: bp-vcluster-helmrepo
       namespace: flux-system
     - name: bp-catalyst-platform
-      namespace: mgmt
+      namespace: flux-system
     # bp-harbor (slot 19, Wave 11 convergence fix 2026-05-18) — sandbox's
     # chart pull goes through harbor.<sov-fqdn> after the post-handover
     # cutover Step-06 phase-1 HelmRepository URL rewrite. Without this
