@@ -57,7 +57,12 @@ SYSTEM_NAMESPACES = {
 
 def load_placement():
     with open(PLACEMENT) as f:
-        return yaml.safe_load(f)
+        data = yaml.safe_load(f)
+    # Typed-document form (kind PlacementTable): table under spec; the
+    # bare legacy form stays accepted.
+    if data and "spec" in data and "slots" not in data:
+        data = data["spec"]
+    return data
 
 
 def rendered_mode(data, strict_target):

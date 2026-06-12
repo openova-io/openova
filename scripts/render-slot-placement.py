@@ -57,8 +57,13 @@ GENERATED_MARK = "# placement-generated (#3373) — source: placement.yaml; edit
 def load_placement():
     with open(PLACEMENT) as f:
         data = yaml.safe_load(f)
+    # Typed-document form (apiVersion placement.catalyst.openova.io,
+    # kind PlacementTable): the table lives under spec. The bare legacy
+    # form (top-level vclusters/slots) stays accepted.
+    if data and "spec" in data and "slots" not in data:
+        data = data["spec"]
     if not data or "slots" not in data or "vclusters" not in data:
-        sys.exit("placement.yaml malformed: needs vclusters: + slots:")
+        sys.exit("placement.yaml malformed: needs vclusters: + slots: (optionally under spec:)")
     by_hr = {s["hr"]: s for s in data["slots"]}
     return data, by_hr
 
