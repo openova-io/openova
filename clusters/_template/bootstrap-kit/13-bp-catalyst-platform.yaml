@@ -1002,10 +1002,10 @@ spec:
       # 1.4.591 — #2745 (2026-06-12): loki/mimir/tempo → mgmt vCluster;
       # CATALYST_MIMIR_URL re-pointed at the synced host Service + baseline
       # CNP egress allowlist gains `mgmt`.
-      # 1.4.595 — #3370 (2026-06-12): Application CRD bootstrap-adoption
+      # 1.4.596 — #3370 (2026-06-12): Application CRD bootstrap-adoption
       # fields (spec.bootstrap/helmRelease/dependsOn + CEL waiver) +
       # catalog-seed shareable/contextSchema (bp-postgres, bp-valkey).
-      version: 1.4.595
+      version: 1.4.596
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

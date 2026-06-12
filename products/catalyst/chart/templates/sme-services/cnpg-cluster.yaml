@@ -59,7 +59,7 @@ All operationally-meaningful values are overridable via
 */}}
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
 {{- /*
-Embedded-cluster gate (1.4.595, #3370): smePostgres.cluster.enabled=false
+Embedded-cluster gate (1.4.596, #3370): smePostgres.cluster.enabled=false
 skips the bundled sme-pg Cluster — the SME mesh then runs against the
 shared-pg-c instance's sme_auth/sme_billing/sme_documents Contexts
 (slot 16d) via the reflected sme-database-secret hub +
