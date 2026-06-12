@@ -35,6 +35,9 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     catalyst.openova.io/blueprint: bp-gitea
+    # kyverno flux-managed (Enforce): hook Jobs have no HelmRelease
+    # ownerReference — the label is the sanctioned pass (#3297 class).
+    app.kubernetes.io/managed-by: flux
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "0"
@@ -47,6 +50,9 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     catalyst.openova.io/blueprint: bp-gitea
+    # kyverno flux-managed (Enforce): hook Jobs have no HelmRelease
+    # ownerReference — the label is the sanctioned pass (#3297 class).
+    app.kubernetes.io/managed-by: flux
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "0"
@@ -70,6 +76,9 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     catalyst.openova.io/blueprint: bp-gitea
+    # kyverno flux-managed (Enforce): hook Jobs have no HelmRelease
+    # ownerReference — the label is the sanctioned pass (#3297 class).
+    app.kubernetes.io/managed-by: flux
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "0"
@@ -90,6 +99,9 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     catalyst.openova.io/blueprint: bp-gitea
+    # kyverno flux-managed (Enforce): hook Jobs have no HelmRelease
+    # ownerReference — the label is the sanctioned pass (#3297 class).
+    app.kubernetes.io/managed-by: flux
     catalyst.openova.io/component: sso-configure
   annotations:
     "helm.sh/hook": post-install,post-upgrade
