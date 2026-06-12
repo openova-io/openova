@@ -5,10 +5,14 @@
  *   • Toolbar:
  *       - search input that filters across jobName / appId / dependsOn /
  *         status / parent
- *       - filter dropdowns per column for status / app / parent
+ *       - filter dropdowns per column for status / app / parent, plus
+ *         region on a multi-region Sovereign (2+ region buckets in the
+ *         job set, primary counted as its own bucket)
  *   • <table data-testid="jobs-table"> with columns:
- *       name (with child-count badge on parents), app, deps, parent,
- *       status, started, duration
+ *       name (with child-count badge on parents), app, region (multi-
+ *       region only — derived from the backend-stamped region field or
+ *       the install-<region>:<chart> jobName), deps, parent, status,
+ *       started, duration
  *
  * Rows are CLICKABLE LINKS, not expandable accordions. Clicking a
  * leaf navigates to its own JobDetail page; clicking a parent
@@ -77,6 +81,48 @@ export function compareJobs(a: Job, b: Job): number {
 }
 
 /**
+ * Canonical jobName prefixes (mirror the backend's JobNamePrefix in
+ * products/catalyst/bootstrap/api/internal/jobs — per Principle #4 the
+ * literals live here once, never inline in the parser).
+ */
+const INSTALL_JOB_PREFIX = 'install-'
+const LIFECYCLE_JOB_PREFIX = 'provision-'
+
+/**
+ * regionOf — derive the region key from a bare jobName (founder hw126
+ * report: the /jobs table must show + filter region per row, and the
+ * region is derivable from the row name alone).
+ *
+ * Canonical jobName shapes (see helmwatch_bridge.go RegionFromComponent
+ * and the dependsOn canonicalisation table at its line ~544):
+ *   • "install-<region>:<chart>"  — secondary-region install row
+ *     (e.g. "install-me-east-215-b-1:harbor")        → "<region>"
+ *   • "<region>:<chart>"          — bare componentID form → "<region>"
+ *   • "install-<chart>"           — primary-region install → ""
+ *   • "provision-*"               — lifecycle rows (tofu plan/apply,
+ *     network, …) always run from the primary control plane and are
+ *     never region-encoded → "" (the UI labels "" as "primary")
+ *
+ * Returns "" (primary) when no region key is encoded, so the region
+ * filter's "All"/primary semantics match regionFromJob's contract.
+ * Exported so the unit test in JobsTable.test.tsx can lock in the
+ * secondary / primary / lifecycle shapes.
+ */
+export function regionOf(jobName: string): string {
+  if (!jobName) return ''
+  // Lifecycle rows are never region-encoded — even a ":" in their name
+  // (a step qualifier) must not be misread as a region separator.
+  if (jobName.startsWith(LIFECYCLE_JOB_PREFIX)) return ''
+  // Strip the canonical `install-` prefix, then check for the region
+  // separator. Anything before `:` is the region.
+  const stripped = jobName.startsWith(INSTALL_JOB_PREFIX)
+    ? jobName.slice(INSTALL_JOB_PREFIX.length)
+    : jobName
+  const sep = stripped.indexOf(':')
+  return sep > 0 ? stripped.substring(0, sep) : ''
+}
+
+/**
  * regionFromJob — extract the cloud region key from a Job.
  *
  * Preference order:
@@ -85,9 +131,9 @@ export function compareJobs(a: Job, b: Job): number {
  *      of truth — set only for secondary-region rows, empty for primary.
  *   2. Fallback to the `<region>:<chart>` prefix encoded in `appId`
  *      (the backend's canonical componentID for secondaries), then the
- *      `install-<region>:<chart>` `jobName`. The fallback keeps older
- *      payloads (and group rows) rendering correctly while the wire
- *      shape rolls forward.
+ *      `install-<region>:<chart>` `jobName` via {@link regionOf}. The
+ *      fallback keeps older payloads (and group rows) rendering
+ *      correctly while the wire shape rolls forward.
  *
  * The encoding is documented in
  * products/catalyst/bootstrap/api/internal/jobs/helmwatch_bridge.go
@@ -114,16 +160,32 @@ export function regionFromJob(job: Pick<Job, 'jobName' | 'appId' | 'region'>): s
   }
   // Fallback: parse the jobName when AppID is empty (group rows /
   // pre-bridge legacy rows).
-  if (job.jobName) {
-    // Strip the canonical `install-` prefix, then check for the
-    // region separator. Anything before `:` is the region.
-    const stripped = job.jobName.startsWith('install-')
-      ? job.jobName.slice('install-'.length)
-      : job.jobName
-    const sep = stripped.indexOf(':')
-    if (sep > 0) return stripped.substring(0, sep)
+  return regionOf(job.jobName)
+}
+
+/**
+ * regionUnionOfGroup — distinct, lexically-sorted region keys across a
+ * group's direct children (matched by parentId). A parent/group row
+ * carries no region of its own, so its Region cell shows the union of
+ * its children's regions — or "—" when every child is primary (the
+ * union is empty). Nested group rows are skipped: their own children
+ * contribute through their own union, never through the grandparent's.
+ *
+ * Exported so the unit test in JobsTable.test.tsx can lock in the
+ * union / all-primary / other-parent cases.
+ */
+export function regionUnionOfGroup(
+  jobs: readonly Pick<Job, 'jobName' | 'appId' | 'region' | 'parentId' | 'type'>[],
+  groupId: string,
+): string[] {
+  const set = new Set<string>()
+  for (const j of jobs) {
+    if (j.parentId !== groupId) continue
+    if (j.type === 'group') continue
+    const r = regionFromJob(j)
+    if (r) set.add(r)
   }
-  return ''
+  return [...set].sort((a, b) => a.localeCompare(b))
 }
 
 /**
@@ -228,6 +290,18 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
       if (j.type === 'group') {
         m.set(j.id, j.displayName ?? j.jobName)
       }
+    }
+    return m
+  }, [jobs])
+
+  // Region union per group id — a parent/group row has no region of its
+  // own, so its Region cell (and the Parent chip's hover title on a
+  // multi-region Sovereign) surfaces the union of its children's
+  // regions, never a bogus "primary" label (founder hw126 report).
+  const regionUnionByGroupId = useMemo<Map<string, string[]>>(() => {
+    const m = new Map<string, string[]>()
+    for (const j of jobs) {
+      if (j.type === 'group') m.set(j.id, regionUnionOfGroup(jobs, j.id))
     }
     return m
   }, [jobs])
@@ -455,6 +529,7 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
                   job={j}
                   parentLabel={parentLabelById.get(j.parentId) ?? j.parentId}
                   showRegion={showRegion}
+                  regionUnionByGroupId={regionUnionByGroupId}
                 />
               ))
             )}
@@ -471,6 +546,10 @@ interface JobRowProps {
   /** Render the Region cell — true only on a multi-region Sovereign so
       a single-region table keeps its original column set. */
   showRegion: boolean
+  /** Distinct region keys per group id (regionUnionOfGroup output) —
+      drives the group-row Region cell union and the Parent chip's
+      hover title on a multi-region Sovereign. */
+  regionUnionByGroupId: Map<string, string[]>
 }
 
 /**
@@ -521,10 +600,21 @@ function useJobLinkBuilder(): (jobId: string) => string {
   }
 }
 
-function JobRow({ job, parentLabel, showRegion }: JobRowProps) {
+function JobRow({ job, parentLabel, showRegion, regionUnionByGroupId }: JobRowProps) {
   const started = formatRelative(job.startedAt)
   const jobLink = useJobLinkBuilder()
   const region = regionFromJob(job)
+  // Union of the row's OWN children's regions (group rows) + union of
+  // the row's PARENT group's children (drives the Parent chip title).
+  const ownGroupRegions = regionUnionByGroupId.get(job.id) ?? []
+  const parentGroupRegions = regionUnionByGroupId.get(job.parentId) ?? []
+  // On a multi-region Sovereign the Parent chip's hover title carries
+  // the group's region union so the operator can see at a glance which
+  // regions a parent group spans without opening it.
+  const parentTitle =
+    showRegion && parentGroupRegions.length > 0
+      ? `${parentLabel} — regions: ${parentGroupRegions.join(', ')}`
+      : parentLabel
   return (
     <tr
       className="jobs-row"
@@ -549,7 +639,21 @@ function JobRow({ job, parentLabel, showRegion }: JobRowProps) {
       </td>
       {showRegion ? (
         <td className="jobs-cell jobs-cell-region">
-          {region ? (
+          {job.type === 'group' ? (
+            // Parent/group rows have no region of their own — show the
+            // union of their children's regions, or "—" when every
+            // child is primary. Never label a group "primary": a group
+            // spanning region-b children is not a primary-region row.
+            ownGroupRegions.length > 0 ? (
+              <div className="jobs-chip-row">
+                {ownGroupRegions.map((r) => (
+                  <Chip key={r} text={r} testid={`jobs-cell-region-${job.id}-${r}`} kind="app" />
+                ))}
+              </div>
+            ) : (
+              <span className="jobs-empty-cell" data-testid={`jobs-cell-region-empty-${job.id}`}>—</span>
+            )
+          ) : region ? (
             <Chip text={region} testid={`jobs-cell-region-${job.id}`} kind="app" />
           ) : (
             // Primary-region rows have no region key — label them
@@ -581,7 +685,7 @@ function JobRow({ job, parentLabel, showRegion }: JobRowProps) {
             to={jobLink(job.parentId) as never}
             className="jobs-chip jobs-chip-parent jobs-chip-link"
             data-testid={`jobs-cell-parent-${job.id}`}
-            title={parentLabel}
+            title={parentTitle}
           >
             {parentLabel}
           </Link>

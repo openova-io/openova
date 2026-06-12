@@ -34,6 +34,8 @@ import {
   formatDuration,
   matchJob,
   regionFromJob,
+  regionOf,
+  regionUnionOfGroup,
 } from './JobsTable'
 import { FIXTURE_JOBS } from '@/test/fixtures/jobs.fixture'
 import type { Job } from '@/lib/jobs.types'
@@ -262,12 +264,20 @@ describe('JobsTable — render', () => {
     expect(headers).toEqual(['name', 'app', 'deps', 'parent', 'status', 'started', 'duration'])
   })
 
-  it('row link points at the clean /jobs/$jobId path (post-#976 root URLs)', async () => {
+  it('row link stays scoped under /provision/$deploymentId on the mother surface (prov #59)', async () => {
     renderTable({ jobs: FIXTURE_JOBS })
     await screen.findByTestId('jobs-table')
     const link = screen.getByTestId('jobs-row-link-job-install-cilium') as HTMLAnchorElement
     expect(link.tagName.toLowerCase()).toBe('a')
-    expect(link.getAttribute('href')).toBe('/jobs/job-install-cilium')
+    // useJobLinkBuilder contract: on the mother's monitoring surface
+    // (non-sovereign hostname + $deploymentId in the route — exactly
+    // this harness, mounted at /provision/d-1/jobs) every link MUST
+    // stay scoped under /provision/$deploymentId; the clean
+    // /jobs/$jobId form is reserved for the Sovereign chroot console
+    // where the deployment is implicit from the hostname. The previous
+    // expectation here (clean root URLs, post-#976) predated the
+    // prov #59 chroot-scoping fix (2026-05-13) and failed ever since.
+    expect(link.getAttribute('href')).toBe('/provision/d-1/jobs/job-install-cilium')
   })
 
   // Issue #232 verbatim: "simulates 0 reducer-derived jobs + 5
@@ -362,6 +372,141 @@ describe('regionFromJob (C8-005)', () => {
     expect(
       regionFromJob({ jobName: 'install-fsn1:bp-cilium', appId: 'fsn1:bp-cilium', region: undefined }),
     ).toBe('fsn1')
+  })
+})
+
+// ── founder hw126 report: region must be derivable from jobName alone ─
+describe('regionOf — jobName-only region derivation (founder hw126)', () => {
+  it('extracts the region from a secondary-region install row', () => {
+    // The exact shape the founder saw missing a region label on hw126.
+    expect(regionOf('install-me-east-215-b-1:harbor')).toBe('me-east-215-b-1')
+  })
+
+  it('returns "" (primary) for a plain install row', () => {
+    expect(regionOf('install-harbor')).toBe('')
+  })
+
+  it('returns "" (primary) for lifecycle rows (provision-*)', () => {
+    expect(regionOf('provision-tofu-apply')).toBe('')
+    expect(regionOf('provision-network')).toBe('')
+  })
+
+  it('never misreads a ":" qualifier in a lifecycle row as a region', () => {
+    expect(regionOf('provision-tofu:apply')).toBe('')
+  })
+
+  it('handles the bare componentID form <region>:<chart>', () => {
+    expect(regionOf('hel1-2:cilium')).toBe('hel1-2')
+  })
+
+  it('returns "" for group slugs and empty names', () => {
+    expect(regionOf('applications')).toBe('')
+    expect(regionOf('day-2-mutations')).toBe('')
+    expect(regionOf('')).toBe('')
+  })
+})
+
+describe('regionUnionOfGroup — parent/group rows surface the child-region union', () => {
+  const child = (over: Partial<Job>): Pick<Job, 'jobName' | 'appId' | 'region' | 'parentId' | 'type'> => ({
+    jobName: over.jobName ?? 'install-cilium',
+    appId: over.appId ?? '',
+    region: over.region,
+    parentId: over.parentId ?? 'applications',
+    type: over.type ?? 'install',
+  })
+
+  it('unions distinct child regions, lexically sorted', () => {
+    const jobs = [
+      child({ jobName: 'install-hel1-2:cilium' }),
+      child({ jobName: 'install-fsn1:cilium' }),
+      child({ jobName: 'install-fsn1:flux' }), // duplicate region — deduped
+      child({ jobName: 'install-cert-manager' }), // primary — excluded from the union
+    ]
+    expect(regionUnionOfGroup(jobs, 'applications')).toEqual(['fsn1', 'hel1-2'])
+  })
+
+  it('returns [] when every child is primary (cell renders "—")', () => {
+    const jobs = [
+      child({ jobName: 'install-cilium' }),
+      child({ jobName: 'install-flux' }),
+    ]
+    expect(regionUnionOfGroup(jobs, 'applications')).toEqual([])
+  })
+
+  it('only counts direct children of the requested group', () => {
+    const jobs = [
+      child({ jobName: 'install-fsn1:cilium', parentId: 'applications' }),
+      child({ jobName: 'install-hel1-2:cilium', parentId: 'bootstrap-kit' }),
+      // Nested group rows never contribute themselves.
+      child({ jobName: 'nbg1-1:subgroup', parentId: 'applications', type: 'group' }),
+    ]
+    expect(regionUnionOfGroup(jobs, 'applications')).toEqual(['fsn1'])
+  })
+
+  it('prefers the first-class region field on children', () => {
+    const jobs = [
+      child({ jobName: 'install-harbor', region: 'me-east-215-b-1' }),
+    ]
+    expect(regionUnionOfGroup(jobs, 'applications')).toEqual(['me-east-215-b-1'])
+  })
+})
+
+describe('Parent chip hover title carries the group region union (multi-region)', () => {
+  const baseLeaf = {
+    type: 'install' as const,
+    parentId: 'applications',
+    childIds: [],
+    dependsOn: [],
+    status: 'succeeded' as const,
+    startedAt: '2026-06-11T10:00:00Z',
+    finishedAt: '2026-06-11T10:01:00Z',
+    durationMs: 60_000,
+  }
+  const group: Job = {
+    id: 'applications',
+    jobName: 'applications',
+    displayName: 'Applications',
+    type: 'group',
+    appId: '',
+    parentId: '',
+    dependsOn: [],
+    childIds: ['bp-cilium', 'me-east-215-b-1:bp-harbor'],
+    status: 'succeeded',
+    startedAt: '2026-06-11T10:00:00Z',
+    finishedAt: '2026-06-11T10:01:00Z',
+    durationMs: 60_000,
+  }
+
+  it('appends the union to the Parent chip title on a multi-region set', async () => {
+    const jobs: Job[] = [
+      group,
+      { ...baseLeaf, id: 'bp-cilium', jobName: 'install-cilium', appId: 'bp-cilium' },
+      {
+        ...baseLeaf,
+        id: 'me-east-215-b-1:bp-harbor',
+        jobName: 'install-me-east-215-b-1:harbor',
+        appId: 'me-east-215-b-1:bp-harbor',
+        region: 'me-east-215-b-1',
+      },
+    ]
+    renderTable({ jobs })
+    await screen.findByTestId('jobs-table')
+    const chip = screen.getByTestId('jobs-cell-parent-bp-cilium')
+    expect(chip.getAttribute('title')).toBe('Applications — regions: me-east-215-b-1')
+    // The visible chip label stays the plain parent label.
+    expect(chip.textContent).toBe('Applications')
+  })
+
+  it('keeps the plain parent label as title on a single-region set', async () => {
+    const jobs: Job[] = [
+      group,
+      { ...baseLeaf, id: 'bp-cilium', jobName: 'install-cilium', appId: 'bp-cilium' },
+      { ...baseLeaf, id: 'bp-flux', jobName: 'install-flux', appId: 'bp-flux' },
+    ]
+    renderTable({ jobs })
+    await screen.findByTestId('jobs-table')
+    const chip = screen.getByTestId('jobs-cell-parent-bp-cilium')
+    expect(chip.getAttribute('title')).toBe('Applications')
   })
 })
 
