@@ -540,6 +540,23 @@ type sovereignAppItem struct {
 	// operator with their existing SSO session active — no extra wiring
 	// needed on the FE.
 	ExternalURL string `json:"externalURL,omitempty"`
+
+	// ── #3370 — instance cards ──────────────────────────────────────
+	// Instance=true marks a row that is one RUNNING INSTANCE
+	// (Application CR) rather than a blueprint/catalog row. A blueprint
+	// with N instances ⇒ exactly N such rows; the FE renders one card
+	// per instance (`shared-pg · PostgreSQL · singleton · ● Ready ·
+	// ⛓ 3 contexts`) and suppresses the blueprint-level duplicate.
+	Instance bool `json:"instance,omitempty"`
+	// Blueprint — the instance's class (full bp-<name> id), for the
+	// FE's catalog-metadata join (title, logo, family).
+	Blueprint string `json:"blueprint,omitempty"`
+	// Topology — the instance's resolved placement/topology chip.
+	Topology string `json:"topology,omitempty"`
+	// ContextCount — number of Contexts declared on this (shareable)
+	// instance; drives the ⛓ badge that deep-links to the Contexts
+	// tab. 0 renders no badge.
+	ContextCount int `json:"contextCount,omitempty"`
 }
 
 type sovereignAppsResponse struct {
@@ -608,6 +625,13 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 	// so the AppsPage card can render an "Open" launch button next to
 	// the INSTALLED badge.
 	urlByHRName := map[string]string{}
+	// #3370 — instance cards. Every Application CR projects as its own
+	// card row; bootstrap rows whose HR is ADOPTED by a self-registered
+	// CR (spec.helmRelease) are suppressed so one running instance is
+	// exactly one card.
+	var appCRs []unstructured.Unstructured
+	instanceRows := []sovereignAppItem{}
+	adoptedHRs := map[string]bool{}
 	deps, depsErr := h.sovereignDepsFor()
 	if depsErr == nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -689,6 +713,12 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 		// above (which is the load-bearing one for status).
 		if appList, err := deps.dyn.Resource(applicationGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
 			for _, app := range appList.Items {
+				// #3370 — every Application CR is one RUNNING INSTANCE
+				// and projects as its OWN card row (the canonical G117
+				// class≠instance model). Built below after this pass so
+				// the envBySlug join still applies first.
+				appCRs = append(appCRs, app)
+
 				env, _, _ := unstructured.NestedString(app.Object, "spec", "environmentRef")
 				if env == "" {
 					continue
@@ -708,6 +738,54 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 				envBySlug[slug] = env
 			}
 		}
+
+		// #3370 — project every Application CR as one instance card.
+		// Contexts count from the instance's declared IaC values via
+		// the Blueprint's contextSchema (generic, declaration-only).
+		ctxSchemaByBP := map[string]*contextSchemaDecl{}
+		for i := range appCRs {
+			app := &appCRs[i]
+			bpFull, _, _ := unstructured.NestedString(app.Object, "spec", "blueprintRef", "name")
+			slug := strings.TrimPrefix(bpFull, "bp-")
+			schema, cached := ctxSchemaByBP[bpFull]
+			if !cached {
+				schema = h.contextSchemaFor(ctx, bpFull)
+				ctxSchemaByBP[bpFull] = schema
+			}
+			contextCount := 0
+			if schema != nil && schema.ValuesKey != "" {
+				if params, ok, _ := unstructured.NestedMap(app.Object, "spec", "parameters"); ok {
+					if entries, ok := params[schema.ValuesKey].([]interface{}); ok {
+						contextCount = len(entries)
+					}
+				}
+			}
+			phase, _, _ := unstructured.NestedString(app.Object, "status", "phase")
+			status := "installing"
+			if phase == "Ready" {
+				status = "installed"
+			}
+			bootstrapOwned, _, _ := unstructured.NestedBool(app.Object, "spec", "bootstrap")
+			externalURL := ""
+			if hrName, _, _ := unstructured.NestedString(app.Object, "spec", "helmRelease", "name"); hrName != "" {
+				adoptedHRs[hrName] = true
+				externalURL = urlByHRName[hrName]
+			}
+			topology, _, _ := unstructured.NestedString(app.Object, "spec", "placement")
+			instanceRows = append(instanceRows, sovereignAppItem{
+				ID:           app.GetName(),
+				Slug:         slug,
+				Title:        app.GetName(),
+				Status:       status,
+				BootstrapKit: bootstrapOwned,
+				Environment:  resolveAppEnvironment(envBySlug, app.GetName()),
+				ExternalURL:  externalURL,
+				Instance:     true,
+				Blueprint:    bpFull,
+				Topology:     topology,
+				ContextCount: contextCount,
+			})
+		}
 	}
 
 	bootstrapIDs := map[string]bool{}
@@ -717,13 +795,24 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 		bootstrapList = append(bootstrapList, b.ID)
 	}
 
-	apps := make([]sovereignAppItem, 0, len(listed)+len(bootstrap))
+	apps := make([]sovereignAppItem, 0, len(listed)+len(bootstrap)+len(instanceRows))
+
+	// #3370 — instance cards first: one card per RUNNING INSTANCE
+	// (Application CR), of everything. A blueprint with N instances ⇒
+	// exactly N cards.
+	apps = append(apps, instanceRows...)
 
 	// Bootstrap-kit always rendered first as "installed" (unlisted
 	// blueprints don't appear in `listed`). The operator sees them
 	// as part of the catalog, marked "bootstrap" so they can't be
 	// uninstalled via UI.
 	for _, b := range bootstrap {
+		// #3370 — an HR adopted by a self-registered Application CR is
+		// already projected as its instance card above; rendering the
+		// slot row too would show one physical instance as two cards.
+		if adoptedHRs[b.ID] {
+			continue
+		}
 		apps = append(apps, sovereignAppItem{
 			ID:           b.ID,
 			Slug:         b.Slug,

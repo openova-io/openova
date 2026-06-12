@@ -53,7 +53,9 @@ spec:
       # Pinned in lockstep with 16a/16c — see 16a for the chart
       # changelog. 0.1.5 ships the same-owner binding dedupe + the
       # underscore-sanitized Database CR names this slot relies on.
-      version: 0.1.5
+      # 0.1.6 ships the #3370 bootstrapOwned Application-CR
+      # self-registration.
+      version: 0.1.6
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -69,6 +71,12 @@ spec:
   values:
     # Same master gate as 16a/16c — one switch for all three instances.
     enabled: ${SOVEREIGN_ENABLE_SHARED_PG:=false}
+    # Bootstrap self-registration (#3370) — see 16a.
+    bootstrapOwned:
+      enabled: true
+      helmRelease:
+        name: bp-postgres-shared-c
+        namespace: flux-system
     instance:
       name: shared-pg-c
       namespace: shared-data

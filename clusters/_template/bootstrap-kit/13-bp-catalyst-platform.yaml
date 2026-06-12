@@ -84,6 +84,15 @@ spec:
     # 90-min wedge). With this edge, the chart never enters the failing
     # state on a fresh roll.
     - name: bp-crossplane-claims
+    # bp-postgres-shared-c (#3370 adoption): when the SME mesh SHARES
+    # the shared-pg-c instance (SOVEREIGN_SME_PG_OWN_CLUSTER=false),
+    # gate on it so the sme_auth/sme_billing/sme_documents Databases +
+    # role + reflected sme-database-secret exist first. Harmless in the
+    # default 1:1 path — bp-postgres-shared-c is an empty Ready release
+    # within seconds of bp-cnpg + bp-reflector (the keycloak slot-09
+    # unconditional-edge shape).
+    - name: bp-postgres-shared-c
+      namespace: flux-system
   chart:
     spec:
       chart: bp-catalyst-platform
@@ -993,7 +1002,10 @@ spec:
       # 1.4.591 — #2745 (2026-06-12): loki/mimir/tempo → mgmt vCluster;
       # CATALYST_MIMIR_URL re-pointed at the synced host Service + baseline
       # CNP egress allowlist gains `mgmt`.
-      version: 1.4.595
+      # 1.4.596 — #3370 (2026-06-12): Application CRD bootstrap-adoption
+      # fields (spec.bootstrap/helmRelease/dependsOn + CEL waiver) +
+      # catalog-seed shareable/contextSchema (bp-postgres, bp-valkey).
+      version: 1.4.596
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
@@ -1120,7 +1132,18 @@ spec:
     # Set BOTH paths (belt-and-suspenders) so any future chart-side
     # rename doesn't silently regress.
     smePostgres:
+      # ── Shared-instance flip (#3370 — the gitea/harbor/keycloak/pda
+      # one-flag contract). Defaults keep the bundled sme-pg Cluster
+      # byte-identical (envs provisioned before these vars existed
+      # resolve the `:=` defaults). Cloud-init computes the flips from
+      # the SAME enable_shared_pg var that turns slot 16d ON: the mesh
+      # then dials shared-pg-c-rw with credentials from the
+      # reflector-PUSHED sme-database-secret hub (the 16d `sme` role,
+      # one password across sme_auth/sme_billing/sme_documents).
+      externalHost: ${SOVEREIGN_SME_PG_HOST:=}
+      credentialSecret: ${SOVEREIGN_SME_PG_SECRET:=}
       cluster:
+        enabled: ${SOVEREIGN_SME_PG_OWN_CLUSTER:=true}
         instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
     sme:
       postgres:

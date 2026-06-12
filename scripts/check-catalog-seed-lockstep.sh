@@ -122,6 +122,29 @@ for bp_name in $bp_names; do
     echo "  platform/ : '$src_realm'"
     fail=1
   fi
+
+  # Extract shareable (#3370) — the multi-application-reuse declaration.
+  # Drift here means the catalog badge / Contexts tab / reuse selector
+  # disagree between the gitea path and the in-cluster fallback path.
+  seed_shareable="$(yq eval-all "select(.kind == \"Blueprint\" and .metadata.name == \"$bp_name\") | .spec.shareable // \"\"" "$TMP/rendered.yaml" 2>/dev/null || true)"
+  src_shareable="$(yq eval '.spec.shareable // ""' "$source_file" 2>/dev/null || true)"
+  if [ "$seed_shareable" != "$src_shareable" ]; then
+    echo "DRIFT: $bp_name shareable:"
+    echo "  chart-seed: '$seed_shareable'"
+    echo "  platform/ : '$src_shareable'"
+    fail=1
+  fi
+
+  # Extract contextSchema.kind + contextSchema.valuesKey (#3370) — the
+  # Context declaration every generic surface renders from.
+  seed_ctx="$(yq eval-all "select(.kind == \"Blueprint\" and .metadata.name == \"$bp_name\") | (.spec.contextSchema.kind // \"\") + \"|\" + (.spec.contextSchema.valuesKey // \"\")" "$TMP/rendered.yaml" 2>/dev/null || true)"
+  src_ctx="$(yq eval '(.spec.contextSchema.kind // "") + "|" + (.spec.contextSchema.valuesKey // "")' "$source_file" 2>/dev/null || true)"
+  if [ "$seed_ctx" != "$src_ctx" ]; then
+    echo "DRIFT: $bp_name contextSchema (kind|valuesKey):"
+    echo "  chart-seed: '$seed_ctx'"
+    echo "  platform/ : '$src_ctx'"
+    fail=1
+  fi
 done
 
 echo

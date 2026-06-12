@@ -111,6 +111,23 @@ type FanoutInputs struct {
 	// for traceability + cascade-delete (matches
 	// application_controller.go's commonLabels block).
 	OwnerLabels map[string]string
+
+	// DependsOnFor — #3370 backing-service wiring. When non-nil, the
+	// renderer stamps Flux `spec.dependsOn` on each per-cluster HR
+	// with the entries this function returns for that cluster. The
+	// caller (reconciler) resolves the Application-level
+	// `spec.dependsOn[]` refs to concrete HelmRelease names — a
+	// bootstrap-owned backing instance resolves to its slot HR
+	// (spec.helmRelease); a controller-managed one resolves to its
+	// per-cluster `HRNameFor(<backing>, cluster)` HR. nil / empty =
+	// no dependsOn block (legacy shape, byte-identical).
+	DependsOnFor func(cluster string) []HRDependsOn
+}
+
+// HRDependsOn is one Flux HelmRelease spec.dependsOn entry (#3370).
+type HRDependsOn struct {
+	Name      string
+	Namespace string
 }
 
 // FanoutHRs returns one `*unstructured.Unstructured` HelmRelease per
@@ -211,6 +228,29 @@ func renderOneHR(in FanoutInputs, cluster string) *unstructured.Unstructured {
 	// Values.
 	if len(in.Values) > 0 {
 		spec["values"] = in.Values
+	}
+
+	// #3370 — Flux dependsOn wiring to the backing instance(s). The
+	// edge points at the BACKING APPLICATION's HelmRelease (resolved
+	// per-cluster by the caller), never at an operator chart — a
+	// consumer depends on `shared-pg`, not on bp-cnpg.
+	if in.DependsOnFor != nil {
+		if deps := in.DependsOnFor(cluster); len(deps) > 0 {
+			arr := make([]interface{}, 0, len(deps))
+			for _, d := range deps {
+				if d.Name == "" {
+					continue
+				}
+				m := map[string]interface{}{"name": d.Name}
+				if d.Namespace != "" {
+					m["namespace"] = d.Namespace
+				}
+				arr = append(arr, m)
+			}
+			if len(arr) > 0 {
+				spec["dependsOn"] = arr
+			}
+		}
 	}
 
 	// G92.1 #2674 kubeConfig pivot — Flux v2 helm-controller installs

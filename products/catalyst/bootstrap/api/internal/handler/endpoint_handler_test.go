@@ -66,10 +66,9 @@ func fakeEndpointDynamic(seed ...runtime.Object) (func() (dynamic.Interface, err
 		// #3188: HandleListBlueprintInstances also projects bootstrap
 		// HelmReleases (no-org path) — the fake must know the list kind.
 		helmReleaseGVR: "HelmReleaseList",
-		// #3188 many-to-many cards: the postgres-family instances path
-		// also lists live CNPG Cluster + Database CRs.
-		cnpgClusterGVR:  "ClusterList",
-		cnpgDatabaseGVR: "DatabaseList",
+		// #3370: the generic Context-status check reads reflected
+		// credential Secrets.
+		secretGVR: "SecretList",
 	}
 	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, seed...)
 	return func() (dynamic.Interface, error) {
@@ -708,45 +707,15 @@ func TestListBlueprintInstances_FilterByOrg(t *testing.T) {
 	}
 }
 
-// seedCNPGCluster builds a postgresql.cnpg.io/v1 Cluster CR for the
-// #3188 many-to-many Data-instances tests.
-func seedCNPGCluster(uid, name, ns string, instances int64, phase string) *unstructured.Unstructured {
-	return &unstructured.Unstructured{Object: map[string]interface{}{
-		"apiVersion": "postgresql.cnpg.io/v1",
-		"kind":       "Cluster",
-		"metadata": map[string]interface{}{
-			"name":      name,
-			"namespace": ns,
-			"uid":       uid,
-		},
-		"spec":   map[string]interface{}{"instances": instances},
-		"status": map[string]interface{}{"phase": phase},
-	}}
-}
-
-// seedCNPGDatabase builds a postgresql.cnpg.io/v1 Database CR bound to
-// `cluster` declaring database `dbName` owned by `owner`.
-func seedCNPGDatabase(name, ns, cluster, dbName, owner string) *unstructured.Unstructured {
-	return &unstructured.Unstructured{Object: map[string]interface{}{
-		"apiVersion": "postgresql.cnpg.io/v1",
-		"kind":       "Database",
-		"metadata": map[string]interface{}{
-			"name":      name,
-			"namespace": ns,
-			"uid":       "uid-db-" + name,
-		},
-		"spec": map[string]interface{}{
-			"cluster": map[string]interface{}{"name": cluster},
-			"name":    dbName,
-			"owner":   owner,
-		},
-	}}
-}
-
-// seedEngineHR builds the bootstrap-kit shared-PG engine HelmRelease
-// (HR bp-postgres-shared, chart bp-postgres) — the row the pre-#3188
-// projection rendered as the ONLY instance.
-func seedEngineHR() *unstructured.Unstructured {
+// seedSlotHR builds a bootstrap-kit slot HelmRelease for bp-postgres
+// (HR bp-postgres-shared, releaseName shared-pg) carrying the
+// Git-committed Context declarations in spec.values.databases — the
+// #3370 generic-projection source.
+func seedSlotHR(ready bool) *unstructured.Unstructured {
+	status := "False"
+	if ready {
+		status = "True"
+	}
 	return &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "helm.toolkit.fluxcd.io/v2",
 		"kind":       "HelmRelease",
@@ -756,29 +725,120 @@ func seedEngineHR() *unstructured.Unstructured {
 			"uid":       "uid-hr-postgres-shared",
 		},
 		"spec": map[string]interface{}{
-			"chart": map[string]interface{}{"spec": map[string]interface{}{"chart": "bp-postgres"}},
+			"releaseName":     "shared-pg",
+			"targetNamespace": "shared-data",
+			"chart":           map[string]interface{}{"spec": map[string]interface{}{"chart": "bp-postgres"}},
+			"values": map[string]interface{}{
+				"topology": map[string]interface{}{"mode": "singleton"},
+				"databases": []interface{}{
+					map[string]interface{}{
+						"name":     "gitea",
+						"owner":    "gitea",
+						"consumer": map[string]interface{}{"blueprint": "bp-gitea", "mode": "shared"},
+						"reflect":  map[string]interface{}{"secretName": "gitea-database-secret", "namespaces": []interface{}{"gitea"}},
+					},
+					map[string]interface{}{
+						"name":     "registry",
+						"owner":    "harbor",
+						"consumer": map[string]interface{}{"blueprint": "bp-harbor", "mode": "shared"},
+						"reflect":  map[string]interface{}{"secretName": "harbor-database-secret", "namespaces": []interface{}{"harbor"}},
+					},
+				},
+			},
 		},
 		"status": map[string]interface{}{
 			"conditions": []interface{}{
-				map[string]interface{}{"type": "Ready", "status": "True"},
+				map[string]interface{}{"type": "Ready", "status": status},
 			},
 		},
 	}}
 }
 
-// TestListBlueprintInstances_CNPGClustersWithBindings locks the #3188
-// many-to-many Data-instances shape: every live CNPG Cluster CR is one
-// instance row with its consumer bindings — a shared instance carries
-// the Database-CR rows (mode=shared), a bare per-app instance carries
-// ONE implicit dedicated binding. The engine HR (bp-postgres-shared)
-// must NOT add a duplicate card when Cluster rows exist (hw130 walked
-// "1 instance" while 7 Clusters ran live).
-func TestListBlueprintInstances_CNPGClustersWithBindings(t *testing.T) {
-	shared := seedCNPGCluster("uid-pg-shared", "shared-pg", "shared-data", 2, "Cluster in healthy state")
-	perApp := seedCNPGCluster("uid-pg-pdns", "pdns-pg", "powerdns", 1, "Setting up primary")
-	giteaDB := seedCNPGDatabase("shared-pg-gitea", "shared-data", "shared-pg", "gitea", "gitea")
-	h, _, _ := newTestHandlerWithEndpoint(t, shared, perApp, giteaDB, seedEngineHR())
-	h.SetCatalogClient(newFakeCatalog())
+// seedSecret builds a reflected credential Secret (what bp-reflector
+// pushes into the consumer namespace).
+func seedSecret(name, ns string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1",
+		"kind":       "Secret",
+		"metadata":   map[string]interface{}{"name": name, "namespace": ns, "uid": "uid-secret-" + ns + "-" + name},
+	}}
+}
+
+// seedBootstrapOwnedAppCR mirrors what bp-postgres 0.1.6 self-registers
+// for slot 16a: the canonical Application CR named after the instance,
+// spec.bootstrap=true, the owning HR ref, and the Context declarations
+// riding spec.parameters verbatim.
+func seedBootstrapOwnedAppCR() *unstructured.Unstructured {
+	app := &unstructured.Unstructured{}
+	app.SetAPIVersion("apps.openova.io/v1")
+	app.SetKind("Application")
+	app.SetName("shared-pg")
+	app.SetNamespace("shared-data")
+	app.SetUID(types.UID("uid-app-shared-pg"))
+	app.SetLabels(map[string]string{
+		"apps.openova.io/bootstrap-owned":  "true",
+		"catalyst.openova.io/organization": "platform",
+	})
+	app.Object["spec"] = map[string]interface{}{
+		"bootstrap":    true,
+		"blueprintRef": map[string]interface{}{"name": "bp-postgres", "version": "0.1.6"},
+		"placement":    "single-region",
+		"helmRelease":  map[string]interface{}{"name": "bp-postgres-shared", "namespace": "flux-system"},
+		"parameters": map[string]interface{}{
+			"topology": map[string]interface{}{"mode": "singleton"},
+			"databases": []interface{}{
+				map[string]interface{}{
+					"name":     "gitea",
+					"owner":    "gitea",
+					"consumer": map[string]interface{}{"blueprint": "bp-gitea", "mode": "shared"},
+					"reflect":  map[string]interface{}{"secretName": "gitea-database-secret", "namespaces": []interface{}{"gitea"}},
+				},
+			},
+		},
+	}
+	app.Object["status"] = map[string]interface{}{"phase": "Ready"}
+	return app
+}
+
+// shareablePostgresCatalog wires a fake catalog whose bp-postgres
+// declares shareable + contextSchema (#3370) — the declaration every
+// generic surface renders from.
+func shareablePostgresCatalog() *fakeCatalogClient {
+	return newFakeCatalog(&CatalogBlueprint{
+		Name:    "bp-postgres",
+		Version: "0.1.6",
+		Raw: map[string]interface{}{
+			"spec": map[string]interface{}{
+				"version":   "0.1.6",
+				"shareable": true,
+				"contextSchema": map[string]interface{}{
+					"kind":      "db",
+					"valuesKey": "databases",
+					"needs":     []interface{}{"name", "owner"},
+					"produces":  []interface{}{"credentialSecret"},
+				},
+				"multiInstance": map[string]interface{}{"enabled": true},
+				"topology": map[string]interface{}{
+					"supported": []interface{}{"singleton", "active-hot-standby"},
+					"defaults": map[string]interface{}{
+						"multi-region":  "active-hot-standby",
+						"single-region": "singleton",
+					},
+				},
+			},
+		},
+	})
+}
+
+// TestListBlueprintInstances_HRFallback_ContextsProjected — #3370. On
+// an env whose self-registered Application CR hasn\u2019t materialised yet
+// (pre-upgrade), the slot HR projects as ONE instance row named after
+// its releaseName, with Contexts read GENERICALLY from spec.values per
+// the contextSchema declaration. Status: gitea\u2019s credential Secret is
+// reflected \u2192 ready; harbor\u2019s is not yet \u2192 pending.
+func TestListBlueprintInstances_HRFallback_ContextsProjected(t *testing.T) {
+	h, _, _ := newTestHandlerWithEndpoint(t, seedSlotHR(true), seedSecret("gitea-database-secret", "gitea"))
+	h.SetCatalogClient(shareablePostgresCatalog())
 	r := newTestRouter(h)
 
 	rec := httptest.NewRecorder()
@@ -790,53 +850,35 @@ func TestListBlueprintInstances_CNPGClustersWithBindings(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(resp.Items) != 2 {
-		t.Fatalf("expected 2 instance rows (one per Cluster CR; engine HR superseded), got %d: %+v", len(resp.Items), resp.Items)
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected exactly 1 instance row, got %d: %+v", len(resp.Items), resp.Items)
 	}
-	byName := map[string]applicationSummary{}
-	for _, it := range resp.Items {
-		byName[it.Name] = it
+	row := resp.Items[0]
+	if row.Name != "shared-pg" || row.Org != "platform" || row.Status != "Ready" || row.Topology != "singleton" {
+		t.Fatalf("row = %+v, want name=shared-pg org=platform status=Ready topology=singleton", row)
 	}
-
-	sp, ok := byName["shared-pg"]
-	if !ok {
-		t.Fatalf("shared-pg row missing: %+v", resp.Items)
+	if len(row.Contexts) != 2 {
+		t.Fatalf("contexts = %+v, want the 2 declared entries", row.Contexts)
 	}
-	if sp.ID != "uid-pg-shared" || sp.Org != "shared-data" || sp.Status != "Ready" || sp.Topology != "ha" {
-		t.Fatalf("shared-pg row = %+v, want id=uid-pg-shared org=shared-data status=Ready topology=ha", sp)
+	wantGitea := contextRow{Name: "gitea", Kind: "db", OccupiedBy: "gitea", Credential: "gitea-database-secret", Status: "ready"}
+	if row.Contexts[0] != wantGitea {
+		t.Fatalf("contexts[0] = %+v, want %+v", row.Contexts[0], wantGitea)
 	}
-	if len(sp.Bindings) != 1 {
-		t.Fatalf("shared-pg bindings = %+v, want exactly the gitea Database-CR row", sp.Bindings)
-	}
-	want := instanceBinding{Database: "gitea", Role: "gitea", Mode: "shared", Secret: "gitea-database-secret", Consumer: "gitea"}
-	if sp.Bindings[0] != want {
-		t.Fatalf("shared-pg binding = %+v, want %+v", sp.Bindings[0], want)
-	}
-
-	pp, ok := byName["pdns-pg"]
-	if !ok {
-		t.Fatalf("pdns-pg row missing: %+v", resp.Items)
-	}
-	if pp.ID != "uid-pg-pdns" || pp.Org != "powerdns" || pp.Status != "Setting up primary" || pp.Topology != "singleton" {
-		t.Fatalf("pdns-pg row = %+v, want id=uid-pg-pdns org=powerdns status verbatim topology=singleton", pp)
-	}
-	if len(pp.Bindings) != 1 {
-		t.Fatalf("pdns-pg bindings = %+v, want ONE implicit dedicated row", pp.Bindings)
-	}
-	wantImplicit := instanceBinding{Database: "app", Role: "app", Mode: "dedicated", Secret: "", Consumer: "powerdns"}
-	if pp.Bindings[0] != wantImplicit {
-		t.Fatalf("pdns-pg binding = %+v, want %+v", pp.Bindings[0], wantImplicit)
+	wantHarbor := contextRow{Name: "registry", Kind: "db", OccupiedBy: "harbor", Credential: "harbor-database-secret", Status: "pending"}
+	if row.Contexts[1] != wantHarbor {
+		t.Fatalf("contexts[1] = %+v, want %+v", row.Contexts[1], wantHarbor)
 	}
 }
 
-// TestListBlueprintInstances_NoCNPGClusters_HRFallback keeps the
-// pre-existing engine-HR projection alive on an env with NO live CNPG
-// Cluster CRs (e.g. the CRD installed but nothing provisioned yet) —
-// the shared-engine card must still render rather than dropping to
-// zero instances.
-func TestListBlueprintInstances_NoCNPGClusters_HRFallback(t *testing.T) {
-	h, _, _ := newTestHandlerWithEndpoint(t, seedEngineHR())
-	h.SetCatalogClient(newFakeCatalog())
+// TestListBlueprintInstances_AdoptionDedup — #3370 DoD-2/4. When the
+// self-registered Application CR exists ALONGSIDE its slot HR, exactly
+// ONE row renders (the CR, authoritative by uid) — the HR projection
+// dedupes on spec.releaseName. Contexts project from the CR\u2019s
+// spec.parameters (the same Git-committed bytes).
+func TestListBlueprintInstances_AdoptionDedup(t *testing.T) {
+	h, _, _ := newTestHandlerWithEndpoint(t,
+		seedBootstrapOwnedAppCR(), seedSlotHR(true), seedSecret("gitea-database-secret", "gitea"))
+	h.SetCatalogClient(shareablePostgresCatalog())
 	r := newTestRouter(h)
 
 	rec := httptest.NewRecorder()
@@ -848,11 +890,156 @@ func TestListBlueprintInstances_NoCNPGClusters_HRFallback(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(resp.Items) != 1 || resp.Items[0].Name != "postgres-shared" {
-		t.Fatalf("expected the single engine-HR row, got %+v", resp.Items)
+	if len(resp.Items) != 1 {
+		t.Fatalf("ADOPTION DEDUP VIOLATION: expected exactly 1 row for one physical instance, got %d: %+v", len(resp.Items), resp.Items)
 	}
-	if len(resp.Items[0].Bindings) != 0 {
-		t.Fatalf("HR-projected row must carry no fabricated bindings, got %+v", resp.Items[0].Bindings)
+	row := resp.Items[0]
+	if row.ID != "uid-app-shared-pg" {
+		t.Fatalf("row.ID = %q — the Application CR must be authoritative over the HR projection", row.ID)
+	}
+	if len(row.Contexts) != 1 || row.Contexts[0].Kind != "db" || row.Contexts[0].Name != "gitea" || row.Contexts[0].Status != "ready" {
+		t.Fatalf("contexts = %+v, want the CR-declared db/gitea ready row", row.Contexts)
+	}
+}
+
+// TestCreateInstance_BackingReuse — #3370 ADVANCED journey: reusing an
+// existing instance appends the consumer\u2019s Context entry to the
+// target\u2019s declared IaC and stamps spec.dependsOn on the consumer. NO
+// new backing application.
+func TestCreateInstance_BackingReuse(t *testing.T) {
+	// An existing controller-managed bp-postgres instance.
+	target := seedApp("uid-pg-demo", "demo-pg", "acme", "postgres")
+	_ = unstructured.SetNestedMap(target.Object, map[string]interface{}{}, "spec", "parameters")
+
+	h, _, dyn := newTestHandlerWithEndpoint(t, target)
+	h.SetCatalogClient(newFakeCatalog(
+		shareablePostgresCatalog().byKey["bp-postgres@0.1.6"],
+		fakeBlueprintInCatalog("wordpress", []map[string]interface{}{}, true, []string{"singleton"}).byKey["wordpress@1.0.0"],
+	))
+	r := newTestRouter(h)
+
+	body := []byte(`{"blueprint":"wordpress","org":"acme","name":"wiki","topology":"singleton",` +
+		`"backing":[{"blueprint":"postgres","mode":"reuse","instance":"demo-pg"}]}`)
+	req := httptest.NewRequest("POST", "/catalyst/v1/apps/instances", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+
+	// (a) the consumer CR carries the dependsOn edge + Context ref.
+	consumer, err := dyn.Resource(ApplicationGVR()).Namespace("acme").Get(context.Background(), "wiki", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("consumer CR missing: %v", err)
+	}
+	deps, _, _ := unstructured.NestedSlice(consumer.Object, "spec", "dependsOn")
+	if len(deps) != 1 {
+		t.Fatalf("consumer dependsOn = %+v, want 1 entry", deps)
+	}
+	dep := deps[0].(map[string]interface{})
+	if dep["name"] != "demo-pg" || dep["namespace"] != "acme" || dep["context"] != "db/wiki" {
+		t.Fatalf("dependsOn entry = %+v, want demo-pg/acme db/wiki", dep)
+	}
+
+	// (b) the TARGET instance gained the Context entry in its IaC.
+	got, err := dyn.Resource(ApplicationGVR()).Namespace("acme").Get(context.Background(), "demo-pg", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("target CR: %v", err)
+	}
+	params, _, _ := unstructured.NestedMap(got.Object, "spec", "parameters")
+	entries, _ := params["databases"].([]interface{})
+	if len(entries) != 1 {
+		t.Fatalf("target databases = %+v, want the appended wiki Context", params)
+	}
+	entry := entries[0].(map[string]interface{})
+	if entry["name"] != "wiki" || entry["owner"] != "wiki" {
+		t.Fatalf("context entry = %+v, want name/owner wiki", entry)
+	}
+
+	// (c) NO new backing application was created.
+	list, _ := dyn.Resource(ApplicationGVR()).Namespace("").List(context.Background(), metav1.ListOptions{})
+	if len(list.Items) != 2 {
+		t.Fatalf("expected exactly 2 Application CRs (demo-pg + wiki), got %d", len(list.Items))
+	}
+}
+
+// TestCreateInstance_BackingCreate — #3370 DEFAULT journey: the backing
+// service is auto-created as its OWN instance-application (own card)
+// with a Context for the consumer; the consumer carries the dependsOn
+// edge. The operator sees TWO new cards.
+func TestCreateInstance_BackingCreate(t *testing.T) {
+	h, _, dyn := newTestHandlerWithEndpoint(t)
+	h.SetCatalogClient(newFakeCatalog(
+		shareablePostgresCatalog().byKey["bp-postgres@0.1.6"],
+		fakeBlueprintInCatalog("wordpress", []map[string]interface{}{}, true, []string{"singleton"}).byKey["wordpress@1.0.0"],
+	))
+	r := newTestRouter(h)
+
+	body := []byte(`{"blueprint":"wordpress","org":"acme","name":"wiki","topology":"singleton",` +
+		`"backing":[{"blueprint":"postgres"}]}`)
+	req := httptest.NewRequest("POST", "/catalyst/v1/apps/instances", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+
+	// The backing instance exists as its OWN Application (own card)
+	// with the consumer\u2019s Context declared in its IaC values.
+	backing, err := dyn.Resource(ApplicationGVR()).Namespace("acme").Get(context.Background(), "wiki-postgres", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("backing CR missing: %v", err)
+	}
+	params, _, _ := unstructured.NestedMap(backing.Object, "spec", "parameters")
+	entries, _ := params["databases"].([]interface{})
+	if len(entries) != 1 {
+		t.Fatalf("backing databases = %+v, want 1 Context for the consumer", params)
+	}
+	entry := entries[0].(map[string]interface{})
+	cons, _ := entry["consumer"].(map[string]interface{})
+	if cons["blueprint"] != "bp-wordpress" {
+		t.Fatalf("backing context consumer = %+v, want bp-wordpress", cons)
+	}
+
+	// The consumer carries the dependsOn edge to the backing instance.
+	consumer, err := dyn.Resource(ApplicationGVR()).Namespace("acme").Get(context.Background(), "wiki", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("consumer CR missing: %v", err)
+	}
+	deps, _, _ := unstructured.NestedSlice(consumer.Object, "spec", "dependsOn")
+	if len(deps) != 1 {
+		t.Fatalf("consumer dependsOn = %+v, want 1 entry", deps)
+	}
+	dep := deps[0].(map[string]interface{})
+	if dep["name"] != "wiki-postgres" || dep["context"] != "db/wiki" {
+		t.Fatalf("dependsOn entry = %+v, want wiki-postgres db/wiki", dep)
+	}
+}
+
+// TestCreateInstance_BackingReuse_BootstrapOwnedRejected — #3370. A
+// bootstrap-owned instance\u2019s Contexts live in the bootstrap-kit slot
+// values in Git; the API must refuse to append to the CR.
+func TestCreateInstance_BackingReuse_BootstrapOwnedRejected(t *testing.T) {
+	h, _, _ := newTestHandlerWithEndpoint(t, seedBootstrapOwnedAppCR())
+	h.SetCatalogClient(newFakeCatalog(
+		shareablePostgresCatalog().byKey["bp-postgres@0.1.6"],
+		fakeBlueprintInCatalog("wordpress", []map[string]interface{}{}, true, []string{"singleton"}).byKey["wordpress@1.0.0"],
+	))
+	r := newTestRouter(h)
+
+	body := []byte(`{"blueprint":"wordpress","org":"acme","name":"wiki","topology":"singleton",` +
+		`"backing":[{"blueprint":"postgres","mode":"reuse","instance":"shared-pg"}]}`)
+	req := httptest.NewRequest("POST", "/catalyst/v1/apps/instances", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "backing-bootstrap-owned") {
+		t.Fatalf("expected backing-bootstrap-owned code, body=%s", rec.Body.String())
 	}
 }
 

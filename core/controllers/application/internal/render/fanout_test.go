@@ -469,3 +469,109 @@ func TestHRNameFor_AlwaysUnder63(t *testing.T) {
 // Just to keep the fmt import live when nothing uses it (defensive
 // — remove if the test grows a real consumer).
 var _ = fmt.Sprintf
+
+// #3370 — Flux dependsOn wiring to backing instances.
+func TestFanoutHRs_DependsOnStamped(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
+
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "wiki",
+		AppNamespace: "acme",
+		Topology:     bpv1alpha1.BcpActiveHotStandby,
+		Variant:      &variant,
+		Chart:        "bp-wordpress",
+		DependsOnFor: func(cluster string) []HRDependsOn {
+			return []HRDependsOn{
+				// Bootstrap-owned backing instance → its slot HR.
+				{Name: "bp-postgres-shared", Namespace: "flux-system"},
+				// Controller-managed backing instance → per-cluster HR.
+				{Name: HRNameFor("demo-pg", cluster), Namespace: "acme"},
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hrs) != 2 {
+		t.Fatalf("expected 2 HRs, got %d", len(hrs))
+	}
+	for i, hr := range hrs {
+		deps, found, _ := nestedSliceHelper(hr.Object, "spec", "dependsOn")
+		if !found || len(deps) != 2 {
+			t.Fatalf("hr[%d] spec.dependsOn missing or wrong length: found=%v len=%d", i, found, len(deps))
+		}
+		first := deps[0].(map[string]interface{})
+		if first["name"] != "bp-postgres-shared" || first["namespace"] != "flux-system" {
+			t.Errorf("hr[%d] dependsOn[0] = %v, want bp-postgres-shared/flux-system", i, first)
+		}
+		cluster := hr.GetLabels()[LabelCluster]
+		second := deps[1].(map[string]interface{})
+		if second["name"] != HRNameFor("demo-pg", cluster) {
+			t.Errorf("hr[%d] dependsOn[1].name = %v, want per-cluster %q", i, second["name"], HRNameFor("demo-pg", cluster))
+		}
+	}
+}
+
+// #3370 — nil DependsOnFor keeps the legacy byte-identical shape (no
+// spec.dependsOn block at all).
+func TestFanoutHRs_NoDependsOnFor_OmitsBlock(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "obs-prod",
+		AppNamespace: "acme",
+		Topology:     bpv1alpha1.BcpSingleton,
+		Variant:      &variant,
+		Chart:        "grafana",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, found, _ := nestedSliceHelper(hrs[0].Object, "spec", "dependsOn"); found {
+		t.Fatalf("spec.dependsOn must be absent when DependsOnFor is nil")
+	}
+}
+
+// #3370 — empty resolution result omits the block too (no empty array
+// noise on the wire).
+func TestFanoutHRs_EmptyDependsOn_OmitsBlock(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "obs-prod",
+		AppNamespace: "acme",
+		Topology:     bpv1alpha1.BcpSingleton,
+		Variant:      &variant,
+		Chart:        "grafana",
+		DependsOnFor: func(string) []HRDependsOn { return nil },
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, found, _ := nestedSliceHelper(hrs[0].Object, "spec", "dependsOn"); found {
+		t.Fatalf("spec.dependsOn must be absent when the resolver returns nothing")
+	}
+}
+
+// nestedSliceHelper mirrors unstructured.NestedSlice without importing
+// the helper package twice in this test file.
+func nestedSliceHelper(obj map[string]interface{}, fields ...string) ([]interface{}, bool, error) {
+	cur := obj
+	for i, f := range fields {
+		v, ok := cur[f]
+		if !ok {
+			return nil, false, nil
+		}
+		if i == len(fields)-1 {
+			s, ok := v.([]interface{})
+			return s, ok, nil
+		}
+		next, ok := v.(map[string]interface{})
+		if !ok {
+			return nil, false, fmt.Errorf("field %q is not a map", f)
+		}
+		cur = next
+	}
+	return nil, false, nil
+}

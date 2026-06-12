@@ -1419,6 +1419,16 @@ const consoleAppDetailRoute = createRoute({
   path: '/app/$componentId',
   component: AppDetail,
 })
+// #3370 — tab deep-link variant (`/app/shared-pg/contexts`). The
+// provision tree already has the `$tab` sibling
+// (provisionAppDetailTabRoute); the Sovereign console lacked it, so the
+// /apps tile's ⛓ contexts badge had no route to deep-link to. AppDetail
+// reads `params.tab` (AppDetail.tsx urlTab) on both trees.
+const consoleAppDetailTabRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/app/$componentId/$tab',
+  component: AppDetail,
+})
 
 // EPIC-2 Slice I (#1097) — live install flow.
 //
@@ -2138,6 +2148,7 @@ const routeTree = rootRoute.addChildren([
     consoleDashboardRoute,
     consoleAppsRoute,
     consoleAppDetailRoute,
+    consoleAppDetailTabRoute,
     consoleCatalogDetailRoute,
     consoleInstallRoute,
     consoleInstallBlueprintRoute,

@@ -92,6 +92,12 @@ gateway:
 # the upstream container a stable password binding.
 postgres:
   cluster:
+    # 0.1.12 (#3370): embedded-cluster gate. false → the bundled pda-pg
+    # Cluster (and its pda-database-secret mirror) are skipped; PDA runs
+    # against the shared-pg-b instance's `pda` Context via the reflected
+    # pda-shared-database-secret hub (slot 11a flips databaseSecret.name
+    # in lockstep). Default true = byte-identical 1:1 embedded render.
+    enabled: true
     name: pda-pg
     namespace: ""                  # defaults to .Release.Namespace
     instances: 1

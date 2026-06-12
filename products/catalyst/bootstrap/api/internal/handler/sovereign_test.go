@@ -356,13 +356,24 @@ func TestSovereignApps_EnvironmentChipFromApplicationCR(t *testing.T) {
 		t.Errorf("bp-cilium Environment = %q; want prod (from Application CR)", cilium.Environment)
 	}
 	// Sibling rows with no matching Application CR still default to dev.
+	// #3370 — instance rows (one card per Application CR) legitimately
+	// carry their own environment; only blueprint/catalog rows are
+	// asserted here.
 	for _, a := range got.Apps {
-		if a.ID == "bp-cilium" {
+		if a.ID == "bp-cilium" || a.Instance {
 			continue
 		}
 		if a.Environment != defaultSovereignEnvironment {
 			t.Errorf("non-matched app %q Environment = %q; want default %q", a.ID, a.Environment, defaultSovereignEnvironment)
 		}
+	}
+	// #3370 — the Application CR ALSO projects as its own instance card.
+	inst, ok := byID["cilium"]
+	if !ok {
+		t.Fatalf("instance card for Application CR 'cilium' missing from response")
+	}
+	if !inst.Instance {
+		t.Errorf("row 'cilium' should be marked instance=true")
 	}
 }
 

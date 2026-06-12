@@ -50,6 +50,27 @@ type CreateInstanceRequest struct {
 	Topology       string                 `json:"topology,omitempty"`
 	IsolationLevel string                 `json:"isolationLevel,omitempty"`
 	Values         map[string]interface{} `json:"values,omitempty"`
+
+	// Backing — #3370 provisioning journey. One entry per required
+	// backing service of the blueprint being created, carrying the
+	// operator's generic selector choice: Create new (default) or
+	// Reuse existing. On create the backing service becomes its OWN
+	// instance-application (own card) with a Context for this
+	// consumer; on reuse NO new backing application is created — the
+	// flow appends a Context to the named existing instance's IaC and
+	// wires this Application's spec.dependsOn to it.
+	Backing []BackingSelection `json:"backing,omitempty"`
+}
+
+// BackingSelection is one backing-service choice (#3370).
+type BackingSelection struct {
+	// Blueprint — the backing Blueprint id (bp- prefix optional).
+	Blueprint string `json:"blueprint"`
+	// Mode — "create" (default when empty) | "reuse".
+	Mode string `json:"mode,omitempty"`
+	// Instance — required when Mode=reuse: the existing instance
+	// (Application name) to occupy a Context on.
+	Instance string `json:"instance,omitempty"`
 }
 
 // NameRE is the OpenAPI-declared name pattern.
@@ -63,6 +84,11 @@ func (r *CreateInstanceRequest) Sanitise() {
 	r.Name = strings.TrimSpace(r.Name)
 	r.IsolationLevel = strings.TrimSpace(r.IsolationLevel)
 	r.Topology = strings.TrimSpace(r.Topology)
+	for i := range r.Backing {
+		r.Backing[i].Blueprint = strings.TrimSpace(r.Backing[i].Blueprint)
+		r.Backing[i].Mode = strings.ToLower(strings.TrimSpace(r.Backing[i].Mode))
+		r.Backing[i].Instance = strings.TrimSpace(r.Backing[i].Instance)
+	}
 }
 
 // ValidateShape applies the OpenAPI-declared invariants the admission
@@ -79,6 +105,22 @@ func (r CreateInstanceRequest) ValidateShape() *ShapeError {
 	}
 	if r.IsolationLevel != "" && !appv1alpha1.IsValidIsolationLevel(r.IsolationLevel) {
 		return &ShapeError{Code: "isolation-level-invalid", Message: fmt.Sprintf("isolationLevel %q not in {namespace, vcluster}", r.IsolationLevel)}
+	}
+	for i := range r.Backing {
+		b := &r.Backing[i]
+		if b.Blueprint == "" {
+			return &ShapeError{Code: "backing-blueprint-required", Message: "backing[].blueprint is required"}
+		}
+		switch b.Mode {
+		case "", "create":
+			// default — auto-create the backing instance.
+		case "reuse":
+			if b.Instance == "" {
+				return &ShapeError{Code: "backing-instance-required", Message: "backing[].instance is required when mode=reuse"}
+			}
+		default:
+			return &ShapeError{Code: "backing-mode-invalid", Message: fmt.Sprintf("backing[].mode %q not in {create, reuse}", b.Mode)}
+		}
 	}
 	return nil
 }

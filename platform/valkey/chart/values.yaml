@@ -124,6 +124,43 @@ valkey:
       enabled: false
 
 # ─── Catalyst-managed overlay values consumed by templates/ ───────────────
-# (None today — the wrapper currently ships no Catalyst-authored
-# templates. Reserved for future NetworkPolicy / RBAC overlays once the
-# bootstrap-kit security tier (W2.K3) is fully reconciled.)
+
+# ── Contexts (#3370 — the generality proof of the platform-wide reuse
+# mechanism). bp-valkey declares `shareable: true` with contextSchema
+# kind=keyspace, valuesKey=keyspaces (platform/valkey/blueprint.yaml).
+# Each entry below is ONE Context: a consumer application's dedicated
+# logical database index on this instance, materialized as a reflected
+# connection Secret (templates/context-secrets.yaml) — the exact
+# bp-postgres databases[] machinery shape, generalized only by the
+# declaration.
+#
+# keyspaces:
+#   - name: sessions          # the Context name
+#     index: 2                # the dedicated logical database index
+#     consumer:
+#       blueprint: bp-newapi  # for the Contexts table
+#       mode: shared
+#     reflect:
+#       secretName: newapi-keyspace-credential  # hub Secret name
+#       namespaces: [newapi]                    # push targets
+keyspaces: []
+
+# The wire address stamped into every Context credential Secret. Host
+# empty → derived as <release>-primary.<namespace>.svc.cluster.local
+# (the bitnami subchart's primary Service).
+contextsService:
+  host: ""
+  port: 6379
+
+# ── Bootstrap self-registration (#3370) ─────────────────────────────────
+# When enabled, the chart self-registers the apps.openova.io/v1
+# Application CR for this instance (templates/application-cr.yaml) —
+# the canonical representation every console surface reads, marked
+# spec.bootstrap=true so the application-controller ADOPTS the slot
+# HR's install (status-only reconcile). ONLY bootstrap-kit slots set
+# this; console-created instances already carry a controller-created CR.
+bootstrapOwned:
+  enabled: false
+  helmRelease:
+    name: ""
+    namespace: flux-system

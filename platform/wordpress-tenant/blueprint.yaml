@@ -171,9 +171,17 @@ spec:
   manifests:
     chart: ./chart
   depends:
+    # #3370 — the database dependency is the SHAREABLE INSTANCE class
+    # (bp-postgres), not the operator: a wordpress app consumes a
+    # Context (db) on a bp-postgres instance-application, wired purely
+    # as Flux dependsOn. The provisioning journey renders the generic
+    # Create-new / Reuse-existing selector from this declaration.
+    - blueprint: bp-postgres
+      version: ^0.1
+      alias: db
     - blueprint: bp-cnpg
       version: ^1.0
-      alias: db
+      alias: db-operator
     - blueprint: bp-keycloak
       version: ^1.0
       alias: idp
