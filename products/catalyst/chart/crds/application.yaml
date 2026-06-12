@@ -83,7 +83,21 @@ spec:
               # verbatim — this only changes the empty-wire behaviour,
               # from "controller fails the Application" to
               # "controller picks the Blueprint's declared default".
-              required: [environmentRef, blueprintRef, regions]
+              #
+              # #3370 — `environmentRef` + `regions` moved out of the
+              # static `required` list into the CEL rule below: a
+              # bootstrap-owned instance (spec.bootstrap=true, the
+              # Application CR a bootstrap-kit chart self-registers for
+              # its slot-installed HelmRelease) has no Environment CR
+              # and no per-Org region targeting — the install is owned
+              # by the bootstrap-kit HR; the CR is the canonical
+              # representation only. For every non-bootstrap
+              # Application the CEL rule enforces the exact same
+              # contract as before.
+              required: [blueprintRef]
+              x-kubernetes-validations:
+                - rule: '(has(self.bootstrap) && self.bootstrap == true) || (has(self.environmentRef) && has(self.regions))'
+                  message: 'spec.environmentRef and spec.regions are required unless spec.bootstrap=true (bootstrap-owned instance)'
               properties:
                 environmentRef:
                   type: string
@@ -244,6 +258,63 @@ spec:
                     catalyst.openova.io/organization), `.Blueprint`
                     (blueprintRef.name without `bp-` prefix).
                   maxLength: 256
+                # ── #3370 — bootstrap adoption + backing-service wiring ──
+                bootstrap:
+                  type: boolean
+                  default: false
+                  description: |
+                    True for bootstrap-owned instances: slot-installed
+                    HelmReleases whose chart self-registers this
+                    Application CR as the canonical representation
+                    (#3370). The application-controller ADOPTS such an
+                    instance — it skips every render / fan-out / Gitea
+                    path (the install is already owned by the
+                    bootstrap-kit HR; rendering would duplicate it) and
+                    only reconciles status by observing
+                    spec.helmRelease's Ready condition.
+                helmRelease:
+                  type: object
+                  description: |
+                    The owning Flux HelmRelease of a bootstrap-owned
+                    instance (spec.bootstrap=true). The controller's
+                    adoption path observes its Ready condition for
+                    status; console projections dedupe HR-derived rows
+                    against it.
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                dependsOn:
+                  type: array
+                  description: |
+                    Backing-service wiring (#3370). Each entry names
+                    another Application (the backing instance) this
+                    Application consumes, optionally with the Context it
+                    occupies on that instance. The
+                    application-controller resolves each entry to the
+                    backing instance's HelmRelease(s) and stamps Flux
+                    `spec.dependsOn` on every HR it renders — the
+                    runtime wiring is purely Flux, no controller magic.
+                  items:
+                    type: object
+                    required: [name]
+                    properties:
+                      name:
+                        type: string
+                        description: Backing Application metadata.name.
+                      namespace:
+                        type: string
+                        description: |
+                          Backing Application namespace. Defaults to
+                          this Application's own namespace.
+                      context:
+                        type: string
+                        description: |
+                          The Context this Application occupies on the
+                          backing instance, as `<kind>/<name>` (e.g.
+                          `db/gitea`). Display + provenance only — the
+                          Flux wiring uses the resolved HelmRelease.
               x-kubernetes-preserve-unknown-fields: true
             status:
               type: object

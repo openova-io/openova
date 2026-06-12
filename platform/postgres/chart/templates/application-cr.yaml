@@ -1,0 +1,86 @@
+{{- /*
+Bootstrap self-registration (#3370) — the Application CR for this
+data instance.
+
+The Application CR (apps.openova.io/v1) is the canonical representation
+of every running instance (G117 class≠instance model). Console-created
+instances get their CR from POST /catalyst/v1/apps/instances; bootstrap
+slot-installed instances had NONE — `kubectl get applications -A` → 0 on
+hw130 while three shared-pg engines ran live. This template closes that
+gap: the CHART self-registers the CR, so ANY install of bp-postgres
+(slot-driven or otherwise) carries its canonical representation.
+
+Why the chart and not the bootstrap-kit slot (#3370 §8 decision, from
+code):
+  - A raw Application CR manifest in clusters/_template/bootstrap-kit/
+    would be applied by the bootstrap-kit Kustomization BEFORE the CRD
+    exists (the CRD ships in the bp-catalyst-platform chart, slot 13,
+    which transitively depends on THIS chart via bp-gitea) — the atomic
+    Flux apply fails and wedges the whole kit at 0 HRs (#2981/#2982
+    shape).
+  - An unguarded CR in this chart would fail `helm install` until the
+    CRD exists → bp-postgres-shared NotReady → bp-gitea blocked →
+    bp-catalyst-platform (which ships the CRD) blocked → deadlock.
+  - The Capabilities gate below (same idiom as cluster.yaml's
+    postgresql.cnpg.io/v1 gate) renders the CR whenever the CRD is
+    registered and skips benignly during first bootstrap; the CR
+    materializes on the first post-bootstrap upgrade of this HR (every
+    pin bump) and immediately on converged Sovereigns.
+
+Activation: ONLY when the slot opts in via `bootstrapOwned.enabled`
+(slots 16a/16c/16d). Console-created instances of this chart are
+rendered by the application-controller fan-out, which already owns a
+controller-created Application CR — self-registering a second one would
+violate "N instances ⇒ exactly N cards", so the default is OFF.
+
+Adoption safety: `spec.bootstrap: true` makes the application-controller
+ADOPT the existing install — it skips every render/fan-out/Gitea path
+(rendering would duplicate the slot HR's install) and only reconciles
+status by observing `spec.helmRelease`'s Ready condition.
+
+Contexts: `spec.parameters.databases` carries this instance's Context
+declarations (blueprint contextSchema: kind=db, valuesKey=databases)
+verbatim from the slot's Git-committed values — the generic console
+Contexts projection reads them from there.
+*/ -}}
+{{- if and (ne (toString .Values.enabled) "false") .Values.bootstrapOwned.enabled (.Capabilities.APIVersions.Has "apps.openova.io/v1") }}
+apiVersion: apps.openova.io/v1
+kind: Application
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    apps.openova.io/bootstrap-owned: "true"
+    catalyst.openova.io/organization: platform
+spec:
+  bootstrap: true
+  blueprintRef:
+    name: bp-postgres
+    version: {{ .Chart.Version | quote }}
+  {{- /* placement = the canonical topology surface (G117). */}}
+  {{- if eq (.Values.topology.mode | default "singleton") "active-hot-standby" }}
+  placement: active-hotstandby
+  {{- else }}
+  placement: single-region
+  {{- end }}
+  {{- /* The owning Flux HelmRelease — the controller's adoption path
+       observes its Ready condition; console projections dedupe
+       HR-derived rows against it. */}}
+  {{- with .Values.bootstrapOwned.helmRelease }}
+  helmRelease:
+    name: {{ .name | quote }}
+    namespace: {{ .namespace | default "flux-system" | quote }}
+  {{- end }}
+  {{- /* Console Resources/Logs tabs read these (applications.go
+       Family-B contract). */}}
+  targetNamespace: {{ include "bp-postgres.namespace" . }}
+  releaseName: {{ .Release.Name }}
+  parameters:
+    topology:
+      mode: {{ .Values.topology.mode | default "singleton" | quote }}
+    {{- with .Values.databases }}
+    databases:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+{{- end }}

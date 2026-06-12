@@ -130,3 +130,19 @@ topology:
 #       # Secret so aliases never drift.
 #       passwordAliases: []
 databases: []
+
+# ── Bootstrap self-registration (#3370) ─────────────────────────────────
+# When enabled, the chart self-registers the Application CR
+# (apps.openova.io/v1) for this instance — the canonical representation
+# every console surface reads (templates/application-cr.yaml). ONLY the
+# bootstrap-kit slots set this (16a/16c/16d): console-created instances
+# already carry a controller-created Application CR, so the default is
+# OFF to keep "N instances ⇒ exactly N cards" true.
+bootstrapOwned:
+  enabled: false
+  # The owning Flux HelmRelease — the application-controller's adoption
+  # path observes its Ready condition for the instance's status; console
+  # projections dedupe HR-derived rows against it.
+  helmRelease:
+    name: ""
+    namespace: flux-system

@@ -5558,7 +5558,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.1"
+  version: "0.1.6"
   visibility: listed
   # Shareability + Contexts (#3370) — seeded verbatim from
   # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
@@ -5593,7 +5593,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-postgres
-    version: 0.1.1
+    version: 0.1.6
   # Seeded verbatim from platform/postgres/blueprint.yaml spec.topology.
   # singleton = single-instance Cluster; active-hot-standby = sync
   # replication across regions (ADR-0004 Pillar-3 zero-tx-loss) via the

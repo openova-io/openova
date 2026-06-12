@@ -285,4 +285,56 @@ grep -q 'name: "sme_auth"' "$TMP/shared-c.yaml" || fail "instance-C spec.name sm
 grep -q 'name: "sme_billing"' "$TMP/shared-c.yaml" || fail "instance-C spec.name sme_billing missing"
 grep -q 'name: "sme_documents"' "$TMP/shared-c.yaml" || fail "instance-C spec.name sme_documents missing"
 
-echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty; 3-instance shapes locked)"
+# ── Case 10: #3370 bootstrap self-registration (Application CR) ───────
+# (a) bootstrapOwned.enabled + Application CRD registered → EXACTLY ONE
+#     apps.openova.io/v1 Application CR, marked spec.bootstrap=true,
+#     carrying the owning HelmRelease ref + the databases[] Context
+#     declarations in spec.parameters.
+# (b) bootstrapOwned.enabled but CRD NOT registered (first bootstrap:
+#     slot 16a installs before bp-catalyst-platform ships the CRD) →
+#     NO Application CR and NO render error (Capabilities gate).
+# (c) default (bootstrapOwned off) → NO Application CR even with the
+#     CRD present — console-created instances already carry a
+#     controller-created CR ("N instances ⇒ exactly N cards").
+echo "[render] Case 10: #3370 bootstrapOwned → Application CR self-registration"
+helm template shared-pg . -f "$TMP/shared.values.yaml" --namespace shared-data \
+  --set bootstrapOwned.enabled=true \
+  --set bootstrapOwned.helmRelease.name=bp-postgres-shared \
+  --api-versions postgresql.cnpg.io/v1 \
+  --api-versions apps.openova.io/v1 > "$TMP/appcr.yaml" 2> "$TMP/appcr.err" || {
+  cat "$TMP/appcr.err" >&2; fail "bootstrapOwned render errored"; }
+appcr_count=$(grep -cE '^kind: Application$' "$TMP/appcr.yaml" || true)
+[ "$appcr_count" -eq 1 ] || fail "#3370: expected EXACTLY 1 Application CR, got $appcr_count"
+grep -q '^  bootstrap: true$' "$TMP/appcr.yaml" \
+  || fail "#3370: Application CR missing spec.bootstrap=true (adoption marker)"
+grep -q 'apps.openova.io/bootstrap-owned: "true"' "$TMP/appcr.yaml" \
+  || fail "#3370: Application CR missing the bootstrap-owned label"
+grep -q 'name: "bp-postgres-shared"' "$TMP/appcr.yaml" \
+  || fail "#3370: Application CR missing spec.helmRelease.name (owning HR ref)"
+grep -q 'placement: single-region' "$TMP/appcr.yaml" \
+  || fail "#3370: Application CR missing placement (singleton → single-region)"
+# Context declarations ride spec.parameters.databases verbatim.
+awk '/^kind: Application$/{s=1} s' "$TMP/appcr.yaml" > "$TMP/appcr-only.yaml"
+grep -q 'name: registry' "$TMP/appcr-only.yaml" \
+  || fail "#3370: Application CR parameters missing the registry Context"
+grep -q 'blueprint: bp-gitea' "$TMP/appcr-only.yaml" \
+  || fail "#3370: Application CR parameters missing the gitea consumer"
+grep -q 'secretName: harbor-database-secret' "$TMP/appcr-only.yaml" \
+  || fail "#3370: Application CR parameters missing the harbor credential secret"
+# (b) no CRD → benign skip (the bp-catalyst-platform ordering gate).
+helm template shared-pg . -f "$TMP/shared.values.yaml" --namespace shared-data \
+  --set bootstrapOwned.enabled=true \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/appcr-nocrd.yaml" 2> "$TMP/appcr-nocrd.err" || {
+  cat "$TMP/appcr-nocrd.err" >&2; fail "bootstrapOwned-without-CRD render errored"; }
+if grep -qE '^kind: Application$' "$TMP/appcr-nocrd.yaml"; then
+  fail "#3370: Application CR rendered WITHOUT the apps.openova.io/v1 CRD registered"
+fi
+# (c) default off → no Application CR even with the CRD present.
+helm template shared-pg . -f "$TMP/shared.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 \
+  --api-versions apps.openova.io/v1 > "$TMP/appcr-off.yaml" 2>&1 || fail "default render with app CRD errored"
+if grep -qE '^kind: Application$' "$TMP/appcr-off.yaml"; then
+  fail "#3370: Application CR rendered with bootstrapOwned OFF (would duplicate the controller-created CR)"
+fi
+
+echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty; 3-instance shapes locked; #3370 Application-CR self-registration locked)"
