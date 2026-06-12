@@ -1197,9 +1197,6 @@ spec:
       # MUST persist to local Gitea source-of-truth).
       imageRegistry: ''
     ingress:
-      gateway:
-        backendServiceUi: catalyst-ui-x-catalyst-system-x-mgmt-vcluster  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
-        backendServiceApi: catalyst-api-x-catalyst-system-x-mgmt-vcluster  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
       hosts:
         console:
           host: console.${SOVEREIGN_FQDN}
