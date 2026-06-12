@@ -152,6 +152,12 @@ netbird:
     # but can be overridden if the management API is fronted by a
     # separate hostname.
     hostname: ""
+    # #3373 fix (a): when this chart installs inside a vCluster, the slot
+    # overrides these with the host-side syncer-mangled Service names
+    # (<svc>-x-<ns>-x-<vcluster>). Empty = chart-computed names (host
+    # install, byte-identical).
+    signalBackendService: ""
+    managementBackendService: ""
 
   # ── NetworkPolicy ─────────────────────────────────────────────
   # When enabled (default), a default-deny baseline is augmented with

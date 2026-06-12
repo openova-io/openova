@@ -14,6 +14,7 @@ import type {
   CreateInstanceRequest,
   EndpointMutationRequest,
   EndpointPR,
+  InstancePlacement,
   LaunchURL,
   ResolvedEndpoint,
 } from './types';
@@ -130,6 +131,20 @@ export function createMockBackend(initial?: Partial<MockFixture>): MockBackend {
         };
       }
       const topology = req.topology ?? bp.defaultTopology;
+      // #3373 — placement echo. Explicit request placement wins
+      // (source: 'instance', vcluster backfilled from the Blueprint default
+      // when omitted); otherwise the Blueprint's declared default applies
+      // (source: 'blueprint-default'). No placement anywhere → omitted.
+      let placement: InstancePlacement | undefined;
+      if (req.placement) {
+        placement = {
+          ...req.placement,
+          vcluster: req.placement.vcluster ?? bp.defaultPlacement?.vcluster,
+          source: 'instance',
+        };
+      } else if (bp.defaultPlacement) {
+        placement = { ...bp.defaultPlacement, source: 'blueprint-default' };
+      }
       const id = mockId();
       const sov = 't01.omani.works';
       const summary: ApplicationSummary = {
@@ -156,6 +171,7 @@ export function createMockBackend(initial?: Partial<MockFixture>): MockBackend {
           { cluster: 'mgmt-A', role: topology === 'singleton' ? 'singleton' : 'active', status: 'Reconciling' },
         ],
         endpoints,
+        placement,
       };
       fixture.instances[req.blueprint] = [...existing, summary];
       fixture.apps[id] = app;

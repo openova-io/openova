@@ -108,9 +108,34 @@ type applicationBlueprintRef struct {
 }
 
 // applicationPlacement mirrors `Application.spec.placement` + regions[].
+//
+// #3373 — extended with the instance-placement WHERE fields. When
+// VCluster or Clusters is set the handler stamps the OBJECT form of
+// `spec.placement` ({mode, vcluster, regions, clusters}); otherwise it
+// keeps stamping the legacy string form (byte-identical legacy wire).
 type applicationPlacement struct {
 	Mode    string   `json:"mode"`
 	Regions []string `json:"regions"`
+
+	// VCluster — which vCluster the instance lands in: "host" |
+	// "mgmt" | "dmz" | "rtz". Empty = inherit the Blueprint's
+	// defaultPlacement (the silent-accept default flow).
+	VCluster string `json:"vcluster,omitempty"`
+
+	// Clusters — canonical cluster IDs narrowing the topology
+	// fan-out for THIS instance.
+	Clusters []string `json:"clusters,omitempty"`
+}
+
+// validVClusterTier — accepted spec.placement.vcluster values
+// (#3373). Mirrors bpv1alpha1.IsKnownVCluster; kept as a tiny local
+// set so the wire validation stays dependency-free.
+func validVClusterTier(v string) bool {
+	switch v {
+	case "", "host", "mgmt", "dmz", "rtz":
+		return true
+	}
+	return false
 }
 
 // applicationInstallRequest is the body of POST
@@ -751,6 +776,15 @@ func validateApplicationInstallRequest(req applicationInstallRequest) (string, b
 			return fmt.Sprintf("placement.regions[%d] is empty", i), false
 		}
 	}
+	// #3373 — instance placement WHERE fields.
+	if !validVClusterTier(req.Placement.VCluster) {
+		return "placement.vcluster must be one of host, mgmt, dmz, rtz", false
+	}
+	for i, c := range req.Placement.Clusters {
+		if strings.TrimSpace(c) == "" {
+			return fmt.Sprintf("placement.clusters[%d] is empty", i), false
+		}
+	}
 	return "", true
 }
 
@@ -840,13 +874,40 @@ func newApplicationUnstructured(req applicationInstallRequest) *unstructured.Uns
 	for _, r := range req.Placement.Regions {
 		regions = append(regions, r)
 	}
+	// #3373 — spec.placement is dual-form. The legacy string form
+	// stays byte-identical for callers that never set the WHERE
+	// fields; the OBJECT form {mode, vcluster, regions, clusters}
+	// carries the instance placement when the caller (console
+	// advanced view / direct API) declares it.
+	var placementValue any = req.Placement.Mode
+	if req.Placement.VCluster != "" || len(req.Placement.Clusters) > 0 {
+		pl := map[string]any{
+			"mode":     req.Placement.Mode,
+			"vcluster": req.Placement.VCluster,
+		}
+		if len(req.Placement.Regions) > 0 {
+			plRegions := make([]any, 0, len(req.Placement.Regions))
+			for _, r := range req.Placement.Regions {
+				plRegions = append(plRegions, r)
+			}
+			pl["regions"] = plRegions
+		}
+		if len(req.Placement.Clusters) > 0 {
+			plClusters := make([]any, 0, len(req.Placement.Clusters))
+			for _, c := range req.Placement.Clusters {
+				plClusters = append(plClusters, c)
+			}
+			pl["clusters"] = plClusters
+		}
+		placementValue = pl
+	}
 	spec := map[string]any{
 		"environmentRef": req.EnvironmentRef,
 		"blueprintRef": map[string]any{
 			"name":    req.BlueprintRef.Name,
 			"version": req.BlueprintRef.Version,
 		},
-		"placement": req.Placement.Mode,
+		"placement": placementValue,
 		"regions":   regions,
 	}
 	if len(req.Parameters) > 0 {
@@ -1043,6 +1104,29 @@ type applicationDetailResponse struct {
 	// Sovereign's Keycloak so the click lands the operator with their
 	// existing SSO session active.
 	ExternalURL string `json:"externalURL,omitempty"`
+
+	// Contexts — #3370. The Contexts on a SHAREABLE instance (the
+	// first-class child entities consumer applications occupy).
+	// Projected generically from the instance's declared IaC values
+	// (Application spec.parameters / HR spec.values — same bytes)
+	// using the Blueprint's contextSchema. Drives the AppDetail
+	// Contexts tab; empty for non-shareable blueprints.
+	Contexts []contextRow `json:"contexts,omitempty"`
+
+	// DependsOn — #3370. The consumer-side backing-service edges:
+	// which instance this Application depends on and which Context it
+	// occupies there (`Depends on: shared-pg / db:gitea`). From the
+	// Application CR's spec.dependsOn, or derived from the Flux HR
+	// dependsOn graph + the target instance's declared bindings for
+	// HR-synthesised (bootstrap) consumers.
+	DependsOn []dependsOnDetail `json:"dependsOn,omitempty"`
+}
+
+// dependsOnDetail is one consumer-side backing edge (#3370).
+type dependsOnDetail struct {
+	Instance  string `json:"instance"`
+	Namespace string `json:"namespace,omitempty"`
+	Context   string `json:"context,omitempty"`
 }
 
 // HandleApplicationGet — GET /api/v1/sovereigns/{id}/applications/{name}
@@ -1178,6 +1262,36 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 	// `app.kubernetes.io/instance=<applicationName>` by the catalyst
 	// controller. This is the canonical wizard-install selector.
 	resp.InstallLabelSelector = fmt.Sprintf("app.kubernetes.io/instance=%s", resp.ReleaseName)
+
+	// #3370 — bootstrap-owned CR-backed instances surface the same
+	// Bootstrap flag the HR-synth path sets, so the SPA's
+	// platform-component affordances stay consistent across both
+	// representations.
+	if b, _, _ := unstructured.NestedBool(obj.Object, "spec", "bootstrap"); b {
+		resp.Bootstrap = true
+	}
+
+	// #3370 — Contexts (shareable instances) + consumer-side DependsOn,
+	// projected generically from the declaration. Best-effort: a
+	// missing contextSchema (non-shareable blueprint) yields nil.
+	if ctxSchema := h.contextSchemaFor(r.Context(), resp.Blueprint); ctxSchema != nil {
+		resp.Contexts = h.projectContexts(r.Context(), client, ctxSchema, resp.Parameters)
+	}
+	if depsRaw, ok, _ := unstructured.NestedSlice(obj.Object, "spec", "dependsOn"); ok {
+		for _, d := range depsRaw {
+			dm, isMap := d.(map[string]interface{})
+			if !isMap {
+				continue
+			}
+			det := dependsOnDetail{}
+			det.Instance, _ = dm["name"].(string)
+			det.Namespace, _ = dm["namespace"].(string)
+			det.Context, _ = dm["context"].(string)
+			if det.Instance != "" {
+				resp.DependsOn = append(resp.DependsOn, det)
+			}
+		}
+	}
 
 	// Family B (2026-05-17 t10 founder bug C4-003): HR-Ready overlay.
 	//
@@ -1323,11 +1437,16 @@ func (h *Handler) synthesiseAppFromHelmRelease(ctx context.Context, depID, name 
 		return applicationDetailResponse{}, false
 	}
 	for _, hr := range hrs {
-		if hr.GetName() != name {
+		// #3370 — also match on spec.releaseName: the instance identity
+		// the console addresses (/app/shared-pg) is the Helm RELEASE,
+		// while the bootstrap-kit HR is named bp-postgres-shared.
+		// Name-match keeps the legacy /app/bp-alloy addressing working.
+		hrReleaseName, _, _ := unstructured.NestedString(hr.Object, "spec", "releaseName")
+		if hr.GetName() != name && hrReleaseName != name {
 			continue
 		}
 		resp := applicationDetailResponse{
-			Name:       hr.GetName(),
+			Name:       name,
 			Namespace:  hr.GetNamespace(),
 			Conditions: []map[string]interface{}{},
 			Bootstrap:  true,
@@ -1389,9 +1508,98 @@ func (h *Handler) synthesiseAppFromHelmRelease(ctx context.Context, depID, name 
 		// blueprint name comes from spec.chart.spec.chart (e.g. `bp-grafana`,
 		// `bp-newapi`) — externalURLIfUserUI strips the `bp-` prefix.
 		resp.ExternalURL = h.externalURLIfUserUI(ctx, depID, resp.Blueprint, resp.TargetNamespace, resp.ReleaseName)
+
+		// #3370 — Contexts: the HR's spec.values is the instance's
+		// Git-committed IaC; project generically per the Blueprint's
+		// contextSchema (nil for non-shareable charts). Status checks
+		// read Secrets via the in-cluster client, best-effort.
+		if ctxSchema := h.contextSchemaFor(ctx, resp.Blueprint); ctxSchema != nil {
+			values, _, _ := unstructured.NestedMap(hr.Object, "spec", "values")
+			statusClient, _ := h.dynamicClientOrFallback()
+			resp.Contexts = h.projectContexts(ctx, statusClient, ctxSchema, values)
+		}
+
+		// #3370 — consumer-side DependsOn from the Flux dependsOn graph
+		// + the target instance's declared bindings: for each HR this
+		// one dependsOn, resolve the target's releaseName (the instance
+		// identity) and find the Context this consumer occupies there
+		// (the entry whose consumer.blueprint equals this chart).
+		resp.DependsOn = h.dependsOnFromHRGraph(ctx, hrs, hr, resp.Blueprint)
+
 		return resp, true
 	}
 	return applicationDetailResponse{}, false
+}
+
+// dependsOnFromHRGraph derives the consumer-side backing edges for an
+// HR-synthesised application (#3370). Reads ONLY the Flux dependsOn
+// graph + each target instance's declared Context entries — one
+// mechanism for every blueprint, zero special-casing.
+func (h *Handler) dependsOnFromHRGraph(ctx context.Context, hrs []*unstructured.Unstructured, consumer *unstructured.Unstructured, consumerBlueprint string) []dependsOnDetail {
+	depsRaw, _, _ := unstructured.NestedSlice(consumer.Object, "spec", "dependsOn")
+	if len(depsRaw) == 0 {
+		return nil
+	}
+	// Index the HR set by namespace/name for target resolution.
+	byName := map[string]*unstructured.Unstructured{}
+	for _, hr := range hrs {
+		byName[hr.GetNamespace()+"/"+hr.GetName()] = hr
+	}
+	consumerSlug := strings.TrimPrefix(consumerBlueprint, "bp-")
+	out := []dependsOnDetail{}
+	for _, d := range depsRaw {
+		dm, ok := d.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _ := dm["name"].(string)
+		if name == "" {
+			continue
+		}
+		ns, _ := dm["namespace"].(string)
+		if ns == "" {
+			ns = consumer.GetNamespace()
+		}
+		target, found := byName[ns+"/"+name]
+		if !found {
+			continue
+		}
+		// Instance identity = the target's releaseName.
+		instance, _, _ := unstructured.NestedString(target.Object, "spec", "releaseName")
+		if instance == "" {
+			instance = strings.TrimPrefix(name, "bp-")
+		}
+		det := dependsOnDetail{Instance: instance, Namespace: target.GetNamespace()}
+		// Which Context does this consumer occupy on the target? Read
+		// the target's declared IaC per ITS blueprint's contextSchema.
+		targetChart, _, _ := unstructured.NestedString(target.Object, "spec", "chart", "spec", "chart")
+		if ctxSchema := h.contextSchemaFor(ctx, targetChart); ctxSchema != nil {
+			values, _, _ := unstructured.NestedMap(target.Object, "spec", "values")
+			if values != nil {
+				if entries, ok := values[ctxSchema.ValuesKey].([]interface{}); ok {
+					for _, e := range entries {
+						em, ok := e.(map[string]interface{})
+						if !ok {
+							continue
+						}
+						cons, _ := em["consumer"].(map[string]interface{})
+						cbp := ""
+						if cons != nil {
+							cbp, _ = cons["blueprint"].(string)
+						}
+						if strings.TrimPrefix(cbp, "bp-") == consumerSlug {
+							if n, _ := em["name"].(string); n != "" {
+								det.Context = ctxSchema.Kind + "/" + n
+							}
+							break
+						}
+					}
+				}
+			}
+		}
+		out = append(out, det)
+	}
+	return out
 }
 
 // lookupExternalURL — G90 2026-06-01.

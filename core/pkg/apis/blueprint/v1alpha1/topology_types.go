@@ -343,6 +343,91 @@ type BackingServiceSpec struct {
 	SecretName string `json:"secretName,omitempty"`
 }
 
+// ── #3373 PLACEMENT — instance-level placement types ────────────────
+//
+// Founder-ratified law (#3373 §2): "Placement is an INSTANCE property
+// (`Application.spec.placement`), NOT a class mandate. The blueprint
+// declares `defaultPlacement` + `allowedPlacements`; dmz/mgmt/rtz
+// defaults are SUGGESTIONS the user accepts silently — or changes in
+// advanced options."
+//
+// InstancePlacement is the object form of `Application.spec.placement`
+// and the value type of `Blueprint.spec.defaultPlacement`. The legacy
+// string form of `Application.spec.placement` (the BCP-posture enum
+// single-region | active-active | active-hotstandby) remains accepted
+// on the wire; the object form carries that posture in `mode` plus the
+// WHERE: vcluster / regions / clusters.
+
+// VCluster tier names — the canonical vCluster targets an instance can
+// land in. "host" (or "") means the host k3s cluster itself, which is
+// reserved for the HOST-MINIMUM substrate set (#3373 §4).
+const (
+	VClusterHost = "host"
+	VClusterMgmt = "mgmt"
+	VClusterDmz  = "dmz"
+	VClusterRtz  = "rtz"
+)
+
+// KnownVClusters returns the canonical vCluster tier names accepted in
+// InstancePlacement.VCluster (admission + UI selector source).
+func KnownVClusters() []string {
+	return []string{VClusterHost, VClusterMgmt, VClusterDmz, VClusterRtz}
+}
+
+// NormalizeVCluster maps the user-facing "host" sentinel (and "") to
+// the internal empty-string host placement used by the render paths
+// (G92.1: empty = no kubeConfig pivot, HR targets the host cluster).
+func NormalizeVCluster(v string) string {
+	if v == VClusterHost {
+		return ""
+	}
+	return v
+}
+
+// IsKnownVCluster reports whether v is an accepted placement target.
+// Both the "host" sentinel and "" (host) are accepted.
+func IsKnownVCluster(v string) bool {
+	switch v {
+	case "", VClusterHost, VClusterMgmt, VClusterDmz, VClusterRtz:
+		return true
+	}
+	return false
+}
+
+// InstancePlacement — WHERE one Application instance runs (#3373).
+//
+// As `Application.spec.placement` (object form): written by the
+// provisioning journey's advanced view OR edited directly in Git by an
+// advanced user — both equally valid, the Git-committed IaC is the
+// single source of truth and the platform reconciles to it.
+//
+// As `Blueprint.spec.defaultPlacement`: the class-level SUGGESTION the
+// instance inherits when its own placement omits a field.
+type InstancePlacement struct {
+	// VCluster — which vCluster the instance lands in: "mgmt" | "dmz"
+	// | "rtz" | "host" (or "" = host). Drives the ONE generic render
+	// mechanism: the Flux `spec.kubeConfig.secretRef` pivot
+	// (fanout.go G92.1 / render.Inputs.VCluster). Never per-app code.
+	VCluster string `json:"vcluster,omitempty"`
+
+	// Regions — host clusters this instance targets, in priority
+	// order. When set on an Application it overrides the legacy
+	// top-level `spec.regions[]` for placement resolution.
+	Regions []string `json:"regions,omitempty"`
+
+	// Clusters — canonical cluster IDs (Sovereign.spec.clusters
+	// names, e.g. mgmt-A / mgmt-B) the topology fan-out targets.
+	// When set it narrows/overrides the Blueprint topology variant's
+	// PlacementSpec.Clusters for THIS instance.
+	Clusters []string `json:"clusters,omitempty"`
+
+	// Mode — the legacy BCP-posture enum carried by the object form
+	// (single-region | active-active | active-hotstandby). Optional;
+	// empty derives the Blueprint default exactly like the legacy
+	// string form's empty value (G93.2).
+	Mode string `json:"mode,omitempty"`
+}
+
 // BlueprintSpecExtension — the new fields G117 grafts onto the existing
 // Blueprint CR's spec. Production code merges these into the existing
 // dynamic-client-driven blueprint-controller by reading them out of
@@ -361,4 +446,18 @@ type BlueprintSpecExtension struct {
 	SSO             *SSOSpec             `json:"sso,omitempty"`
 	MultiInstance   *MultiInstanceSpec   `json:"multiInstance,omitempty"`
 	BackingServices []BackingServiceSpec `json:"backingServices,omitempty"`
+
+	// DefaultPlacement — #3373: the class-level placement SUGGESTION
+	// every instance of this Blueprint inherits unless its own
+	// `Application.spec.placement` overrides a field. Replaces the
+	// scattered hand-maintained slot-file placement truth.
+	DefaultPlacement *InstancePlacement `json:"defaultPlacement,omitempty"`
+
+	// AllowedPlacements — #3373: the vCluster tiers an instance of
+	// this Blueprint MAY be placed in ("host"|"mgmt"|"dmz"|"rtz").
+	// Empty = unrestricted. The application-controller fails an
+	// Application whose effective vCluster is not in this list; the
+	// provisioning journey's generic advanced selector renders its
+	// options from this declaration (#3370 pattern — no per-app UI).
+	AllowedPlacements []string `json:"allowedPlacements,omitempty"`
 }

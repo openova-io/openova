@@ -83,6 +83,7 @@ spec:
     # ordering puts cutover after these two come up.
     # G92.3 #2662 (2026-06-01): both HRs moved to host ns `mgmt`.
     - name: bp-gitea
+      namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-harbor
     # NB on issue #1871 (TBD-A24 cutover↔gateway circular deadlock):
     # PR #1875 initially added `- name: sovereign-tls` to this list.

@@ -21,6 +21,17 @@ spec:
   #   to sync); active-active feasible if read-only queries split, but the
   #   audit calls out async/eventual-consistency so active-passive is the
   #   honest default.
+  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
+  # Placement is an INSTANCE property (Application.spec.placement); this is
+  # only the default every instance inherits silently — the provisioning
+  # journey's generic advanced selector (and a direct Git edit of the
+  # instance's spec.placement) may override it within allowedPlacements.
+  # Founder §4 table target: mgmt. Single render mechanism: the Flux
+  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
+  defaultPlacement:
+    vcluster: mgmt
+  allowedPlacements: [host, mgmt]
+
   topology:
     supported:
       - active-passive

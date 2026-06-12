@@ -248,6 +248,47 @@ spec:
                         - mgmt
                         - rtz
                   x-kubernetes-preserve-unknown-fields: true
+                # ── #3373 PLACEMENT — class-level SUGGESTION + allow-list ──
+                # Founder-ratified law: placement is an INSTANCE property
+                # (Application.spec.placement); the Blueprint declares the
+                # DEFAULT the user accepts silently and the set of tiers an
+                # instance MAY choose in the provisioning journey's generic
+                # advanced selector. Supersedes (but coexists with) the
+                # legacy single-knob placementSchema.vcluster above:
+                # resolution order in the application-controller is
+                #   instance > defaultPlacement.vcluster >
+                #   placementSchema.vcluster > host.
+                defaultPlacement:
+                  type: object
+                  description: |
+                    #3373 — the placement every instance of this Blueprint
+                    inherits unless its own Application.spec.placement
+                    overrides a field. Mirrors the object form of
+                    Application.spec.placement.
+                  properties:
+                    vcluster:
+                      type: string
+                      enum: [host, mgmt, dmz, rtz]
+                    regions:
+                      type: array
+                      items:
+                        type: string
+                    clusters:
+                      type: array
+                      items:
+                        type: string
+                  x-kubernetes-preserve-unknown-fields: true
+                allowedPlacements:
+                  type: array
+                  description: |
+                    #3373 — vCluster tiers an instance of this Blueprint MAY
+                    be placed in. Empty/absent = unrestricted. The
+                    application-controller fails an Application whose
+                    effective vcluster is not in this list; the console's
+                    generic advanced selector renders its options from it.
+                  items:
+                    type: string
+                    enum: [host, mgmt, dmz, rtz]
                 depends:
                   type: array
                   items:

@@ -41,7 +41,7 @@ func TestBootstrapHRInstances_ProjectsEngineHRs(t *testing.T) {
 		mk("bp-postgres-covered", "bp-postgres", "False"),
 	)
 	h := &Handler{log: quietLog()}
-	rows := h.bootstrapHRInstances(context.Background(), c, "postgres",
+	rows := h.bootstrapHRInstances(context.Background(), c, "postgres", nil,
 		[]applicationSummary{{Name: "postgres-covered"}})
 	if len(rows) != 1 {
 		t.Fatalf("rows = %d, want 1 (engine HR only; gitea chart excluded, covered name deduped): %+v", len(rows), rows)

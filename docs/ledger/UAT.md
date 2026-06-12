@@ -62,6 +62,26 @@ guacamole = **NO admin** (openid-only chart, no permission store — #3374 row-7
 | keycloak+grafana on shared | — | ❌ | flips merged ([#3366](https://github.com/openova-io/openova/pull/3366)), live adoption unverified |
 | pdns/pda/sme on shared | — | ❌ | declared ready-to-adopt only |
 
+## 3a. #3370 Contexts — generic multi-application reusability (PR open, NOT merged — local-build evidence pending the post-merge live re-walk)
+
+Every proof below ran the REAL code of the #3370 PR branch: the real `catalyst-api` binary + the real
+`application-controller` against a REAL kube-apiserver (envtest v1.36) seeded with the hw130 bootstrap
+state (slots 16a/16c/16d, SHARED_PG=true), and the console UI dev build on top of that stack. The live
+hw130 console cannot carry these changes until the founder merges; each row re-walks live post-merge.
+
+| DoD box | Check | Now | Proof |
+|---|---|---|---|
+| 1 | blueprint `shareable` + `contextSchema`; catalog badge (shareable vs non-shareable) | ✅ local | [catalog-tab badges](../sessions/2026-06-12/evidence/3370-G-catalog-tab-shareable-badges.png) · [bp-postgres hero badge](../sessions/2026-06-12/evidence/3370-B-catalog-bp-postgres.png) · [bp-valkey](../sessions/2026-06-12/evidence/3370-F1-catalog-bp-valkey-shareable.png) |
+| 2 | 1 Application CR per postgres instance; `kubectl get hr -A` before/after byte-identical (adoption) | ✅ local | [envtest adoption walk](../sessions/2026-06-12/evidence/3370-envtest-adoption-no-duplicate-hr.txt) + unit tests `TestReconcile_BootstrapOwnedAdoption_*` |
+| 3 | /apps: 3 instance cards with `⛓ N contexts` badges | ✅ local | [shot](../sessions/2026-06-12/evidence/3370-A-apps-instance-cards.png) |
+| 4 | /catalog/bp-postgres: topologies + New instance + instance lines → /app/$id; Data-instances panel GONE | ✅ local | [shot](../sessions/2026-06-12/evidence/3370-B-catalog-bp-postgres.png) + deletion diff in the PR + deletion-lock test |
+| 5 | /app/shared-pg Contexts tab (db/gitea · gitea → · secret · ready ×3); consumer `Depends on: <instance> / db:<ctx>` | ✅ local | [contexts tab](../sessions/2026-06-12/evidence/3370-C-app-shared-pg-contexts-tab.png) · [consumer page](../sessions/2026-06-12/evidence/3370-D-app-wiki-depends-on.png) |
+| 6 | journey: topology at spawn; DEFAULT auto-creates backing as own card; ADVANCED reuse → new Context row | ✅ local | [dialog](../sessions/2026-06-12/evidence/3370-E1-new-instance-dialog-default.png) · [reuse dropdown](../sessions/2026-06-12/evidence/3370-E2-new-instance-dialog-reuse-dropdown.png) · [new Context row](../sessions/2026-06-12/evidence/3370-E3-demo-pg-new-context-row-shop.png) · [wire walk](../sessions/2026-06-12/evidence/3370-envtest-provisioning-journey.txt) |
+| 7 | generality: valkey keyspace Context through the SAME mechanism, declarations only | ✅ local | [keyspace Context row](../sessions/2026-06-12/evidence/3370-F2-app-demo-cache-keyspace-context.png) + wire walk §5 |
+| 8 | ≥2 embedded DBs eliminated (pda + SME seams behind enable_shared_pg) | PR open | byte-identical default renders proven in the PR; live elimination needs a SHARED_PG prov post-merge |
+| — | Application CRD CEL admission on a real apiserver (bootstrap waiver accept/reject) | ✅ local | [CEL walk](../sessions/2026-06-12/evidence/3370-envtest-crd-cel.txt) |
+| — | API wire: 3 instances + Contexts (§5 target table) + /sovereign/apps instance rows | ✅ local | [wire capture](../sessions/2026-06-12/evidence/3370-envtest-api-wire.txt) |
+
 ## 4. Multi-region
 
 | Check | Now | Proof |
@@ -93,6 +113,7 @@ guacamole = **NO admin** (openid-only chart, no permission store — #3374 row-7
 | zone declared for all apps | ✅ | 0 undeclared |
 | apps running inside | ❌ 4/48 | coraza, sandbox, +LGTM merged ([#3361](https://github.com/openova-io/openova/pull/3361)) |
 | carve-outs (4 apps) | awaiting founder | [#2745](https://github.com/openova-io/openova/issues/2745) |
+| placement = data ([#3373](https://github.com/openova-io/openova/issues/3373)) | PR open, pre-merge | [placement.yaml](../../clusters/_template/bootstrap-kit/placement.yaml) is the single truth (62 slots, §4 table verbatim); `render-slot-placement.py check` + `audit-placement-conformance.py` CI-gated; PROMOTE-NOW (nats/keycloak/catalyst-platform→mgmt) + gitea (fix-proof) converted as data; [live baseline](../sessions/2026-06-13/evidence/placement-audit-live-hw130a-pre-merge-baseline.txt) (found stale host loki/mimir residue from the LGTM move); [default-flow shot](../sessions/2026-06-13/evidence/3373-dod2-default-flow-no-vcluster.png) · [advanced-flow shot](../sessions/2026-06-13/evidence/3373-dod2-advanced-flow-placement-rtz.png) · [instance-page shot](../sessions/2026-06-13/evidence/3373-dod3-instance-page-placement-rtz.png) (local mock build — live re-walk post-merge) |
 
 ## 8. Console + env
 

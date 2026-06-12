@@ -50,6 +50,43 @@ type CreateInstanceRequest struct {
 	Topology       string                 `json:"topology,omitempty"`
 	IsolationLevel string                 `json:"isolationLevel,omitempty"`
 	Values         map[string]interface{} `json:"values,omitempty"`
+
+	// Placement — #3373 instance-level placement from the
+	// provisioning journey's GENERIC advanced view (rendered from the
+	// Blueprint's defaultPlacement + allowedPlacements declaration —
+	// never per-app UI). Nil = the user silently accepted the
+	// Blueprint defaults ("he doesn't even need to know the vcluster
+	// detail"); the application-controller derives the rest.
+	Placement *InstancePlacementRequest `json:"placement,omitempty"`
+
+	// Backing — #3370 provisioning journey. One entry per required
+	// backing service of the blueprint being created, carrying the
+	// operator's generic selector choice: Create new (default) or
+	// Reuse existing. On create the backing service becomes its OWN
+	// instance-application (own card) with a Context for this
+	// consumer; on reuse NO new backing application is created — the
+	// flow appends a Context to the named existing instance's IaC and
+	// wires this Application's spec.dependsOn to it.
+	Backing []BackingSelection `json:"backing,omitempty"`
+}
+
+// InstancePlacementRequest mirrors the OBJECT form of
+// `Application.spec.placement` (#3373): WHERE the instance runs.
+type InstancePlacementRequest struct {
+	VCluster string   `json:"vcluster,omitempty"`
+	Regions  []string `json:"regions,omitempty"`
+	Clusters []string `json:"clusters,omitempty"`
+}
+
+// BackingSelection is one backing-service choice (#3370).
+type BackingSelection struct {
+	// Blueprint — the backing Blueprint id (bp- prefix optional).
+	Blueprint string `json:"blueprint"`
+	// Mode — "create" (default when empty) | "reuse".
+	Mode string `json:"mode,omitempty"`
+	// Instance — required when Mode=reuse: the existing instance
+	// (Application name) to occupy a Context on.
+	Instance string `json:"instance,omitempty"`
 }
 
 // NameRE is the OpenAPI-declared name pattern.
@@ -63,6 +100,11 @@ func (r *CreateInstanceRequest) Sanitise() {
 	r.Name = strings.TrimSpace(r.Name)
 	r.IsolationLevel = strings.TrimSpace(r.IsolationLevel)
 	r.Topology = strings.TrimSpace(r.Topology)
+	for i := range r.Backing {
+		r.Backing[i].Blueprint = strings.TrimSpace(r.Backing[i].Blueprint)
+		r.Backing[i].Mode = strings.ToLower(strings.TrimSpace(r.Backing[i].Mode))
+		r.Backing[i].Instance = strings.TrimSpace(r.Backing[i].Instance)
+	}
 }
 
 // ValidateShape applies the OpenAPI-declared invariants the admission
@@ -79,6 +121,43 @@ func (r CreateInstanceRequest) ValidateShape() *ShapeError {
 	}
 	if r.IsolationLevel != "" && !appv1alpha1.IsValidIsolationLevel(r.IsolationLevel) {
 		return &ShapeError{Code: "isolation-level-invalid", Message: fmt.Sprintf("isolationLevel %q not in {namespace, vcluster}", r.IsolationLevel)}
+	}
+	// #3373 — instance placement WHERE fields.
+	if r.Placement != nil {
+		switch r.Placement.VCluster {
+		case "", "host", "mgmt", "dmz", "rtz":
+		default:
+			return &ShapeError{Code: "placement-vcluster-invalid",
+				Message: fmt.Sprintf("placement.vcluster %q not in {host, mgmt, dmz, rtz}", r.Placement.VCluster)}
+		}
+		for i, c := range r.Placement.Clusters {
+			if strings.TrimSpace(c) == "" {
+				return &ShapeError{Code: "placement-clusters-invalid",
+					Message: fmt.Sprintf("placement.clusters[%d] is empty", i)}
+			}
+		}
+		for i, rg := range r.Placement.Regions {
+			if strings.TrimSpace(rg) == "" {
+				return &ShapeError{Code: "placement-regions-invalid",
+					Message: fmt.Sprintf("placement.regions[%d] is empty", i)}
+			}
+		}
+	}
+	for i := range r.Backing {
+		b := &r.Backing[i]
+		if b.Blueprint == "" {
+			return &ShapeError{Code: "backing-blueprint-required", Message: "backing[].blueprint is required"}
+		}
+		switch b.Mode {
+		case "", "create":
+			// default — auto-create the backing instance.
+		case "reuse":
+			if b.Instance == "" {
+				return &ShapeError{Code: "backing-instance-required", Message: "backing[].instance is required when mode=reuse"}
+			}
+		default:
+			return &ShapeError{Code: "backing-mode-invalid", Message: fmt.Sprintf("backing[].mode %q not in {create, reuse}", b.Mode)}
+		}
 	}
 	return nil
 }
@@ -105,6 +184,11 @@ type ApplicationSeed struct {
 	NamingTemplate string
 	Values         map[string]interface{}
 	Labels         map[string]string
+
+	// Placement — #3373 instance placement (nil = Blueprint
+	// defaults; the controller derives). Passed through verbatim to
+	// the OBJECT form of `spec.placement` on the Application CR.
+	Placement *InstancePlacementRequest
 }
 
 // Build constructs the ApplicationSeed from a sanitised+validated
@@ -139,6 +223,7 @@ func (r CreateInstanceRequest) Build(chosenTopology string) (ApplicationSeed, er
 		IsolationLevel: mi.IsolationLevel,
 		NamingTemplate: mi.NamingTemplate,
 		Values:         r.Values,
+		Placement:      r.Placement,
 		Labels: map[string]string{
 			"catalyst.openova.io/managed-by":   "catalyst-api",
 			"catalyst.openova.io/organization": r.Org,

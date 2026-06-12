@@ -58,7 +58,19 @@ All operationally-meaningful values are overridable via
 (Inviolable Principle #4).
 */}}
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
-{{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" }}
+{{- /*
+Embedded-cluster gate (1.4.596, #3370): smePostgres.cluster.enabled=false
+skips the bundled sme-pg Cluster — the SME mesh then runs against the
+shared-pg-c instance's sme_auth/sme_billing/sme_documents Contexts
+(slot 16d) via the reflected sme-database-secret hub +
+smePostgres.externalHost/credentialSecret flips in slot 13. Default
+true keeps the 1:1 embedded render byte-identical.
+*/ -}}
+{{- $smePgEnabled := true }}
+{{- if hasKey .Values.smePostgres.cluster "enabled" }}
+{{- $smePgEnabled = ne (toString .Values.smePostgres.cluster.enabled) "false" }}
+{{- end }}
+{{- if and $smePgEnabled (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:

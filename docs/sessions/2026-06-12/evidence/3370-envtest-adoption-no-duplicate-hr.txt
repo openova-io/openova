@@ -1,0 +1,43 @@
+=== #3370 DoD-2 — adoption proof on a REAL kube-apiserver (envtest v1.36, hw130-mimic state) ===
+
+--- BEFORE application-controller: HelmReleases (the 3 slot installs) ---
+NAMESPACE     NAME                   READY   CHART         RELEASE
+flux-system   bp-postgres-shared     True    bp-postgres   shared-pg
+flux-system   bp-postgres-shared-b   True    bp-postgres   shared-pg-b
+flux-system   bp-postgres-shared-c   True    bp-postgres   shared-pg-c
+
+--- BEFORE: the 3 chart-self-registered Application CRs (bp-postgres 0.1.6 application-cr.yaml) ---
+NAMESPACE     NAME          BLUEPRINT     VERSION   ENVIRONMENT   PLACEMENT       PHASE   PRIMARY   INSTANCE   ISOLATION   AGE
+shared-data   shared-pg     bp-postgres   0.1.6                   single-region                                namespace   24s
+shared-data   shared-pg-b   bp-postgres   0.1.6                   single-region                                namespace   24s
+shared-data   shared-pg-c   bp-postgres   0.1.6                   single-region                                namespace   23s
+
+--- BEFORE: sha256 of the full HR list (names+uids+generations) ---
+0d0a5e90797288e50b27fa253fe4f70cad984dc35092a4c0b95188446000185a  -
+
+--- application-controller ran against this apiserver (go run ./cmd, KUBECONFIG fallback) ---
+    log: 'bootstrap-owned adoption: status-only reconcile' x3 (shared-pg, shared-pg-b, shared-pg-c), phase=Ready
+
+--- AFTER application-controller: HelmReleases — IDENTICAL (zero duplicate installs) ---
+NAMESPACE     NAME                   READY   CHART         RELEASE
+flux-system   bp-postgres-shared     True    bp-postgres   shared-pg
+flux-system   bp-postgres-shared-b   True    bp-postgres   shared-pg-b
+flux-system   bp-postgres-shared-c   True    bp-postgres   shared-pg-c
+
+--- AFTER: sha256 of the full HR list (must match BEFORE) ---
+0d0a5e90797288e50b27fa253fe4f70cad984dc35092a4c0b95188446000185a  -
+HR LIST BYTE-IDENTICAL — adoption created/renamed/mutated NOTHING
+
+--- AFTER: the adopted Application CRs (status mirrored from the owning HRs) ---
+NAMESPACE     NAME          BLUEPRINT     VERSION   ENVIRONMENT   PLACEMENT       PHASE   AGE
+shared-data   shared-pg     bp-postgres   0.1.6                   single-region   Ready   2m
+shared-data   shared-pg-b   bp-postgres   0.1.6                   single-region   Ready   2m
+shared-data   shared-pg-c   bp-postgres   0.1.6                   single-region   Ready   119s
+
+--- shared-pg adopted status (reason=BootstrapAdopted, no controller finalizer) ---
+Ready BootstrapAdopted finalizers=
+
+--- the Contexts as declared IaC riding spec.parameters (the generic projection source) ---
+registry gitea keycloak
+grafana pdns pda
+sme_auth sme_billing sme_documents

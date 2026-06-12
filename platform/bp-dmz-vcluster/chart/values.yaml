@@ -139,6 +139,24 @@ vcluster:
         enabled: true
       secrets:
         enabled: true
+      # #3373 coupling fix (b) — vCluster CRD-sync set (this chart had no
+      # customResources block; siblings bp-mgmt-vcluster / bp-rtz-vcluster
+      # carry the CNPG precedent entries).
+      customResources:
+        # #3373 coupling fix (b) — vCluster CRD-sync set.
+        # Charts re-homed INTO this vCluster ship HTTPRoute (Gateway API)
+        # and ExternalSecret CRs. The syncer registers the CRDs inside the
+        # vCluster apiserver (fromHost CRD discovery, same mechanism as the
+        # CNPG entries in the sibling charts) and mirrors the CRs toHost,
+        # where the host Cilium Gateway serves the route (backendRef
+        # pre-aliased to the syncer-mangled Service name by the slot's
+        # gateway.backendService value — fix (a)) and the host
+        # external-secrets-operator resolves the ExternalSecret in the HR's
+        # own host namespace — fix (c).
+        httproutes.gateway.networking.k8s.io:
+          enabled: true
+        externalsecrets.external-secrets.io:
+          enabled: true
     fromHost:
       ingressClasses:
         enabled: true

@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
     catalyst.openova.io/category: platform
 spec:
-  version: 0.1.1
+  version: 0.1.2
   card:
     title: NetBird
     summary: WireGuard-based zero-trust mesh + remote-access overlay. Operators / engineers / customer admins enroll devices via Keycloak SSO and reach Sovereign-internal services from any laptop. Includes management + signal + coturn (TURN/STUN). One NetBird per Sovereign per ADR-0001 §11.

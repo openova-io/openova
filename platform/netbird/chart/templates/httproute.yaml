@@ -24,7 +24,9 @@ spec:
             type: PathPrefix
             value: /signalexchange.SignalExchange/
       backendRefs:
-        - name: {{ include "bp-netbird.fullname" . }}-signal
+        {{- /* #3373 fix (a): vCluster installs override with the host-side
+        syncer-mangled Service name; empty default = chart-computed name. */}}
+        - name: {{ .Values.netbird.httproute.signalBackendService | default (printf "%s-signal" (include "bp-netbird.fullname" .)) }}
           port: {{ .Values.netbird.signal.port }}
     # Management HTTP API + web dashboard catch-all.
     - matches:
@@ -32,6 +34,7 @@ spec:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: {{ include "bp-netbird.fullname" . }}-management
+        {{- /* #3373 fix (a): see signal backendRef above. */}}
+        - name: {{ .Values.netbird.httproute.managementBackendService | default (printf "%s-management" (include "bp-netbird.fullname" .)) }}
           port: {{ .Values.netbird.management.httpPort }}
 {{- end }}

@@ -30,11 +30,15 @@ on:
     paths:
       - 'products/catalyst/chart/crds/blueprint.yaml'
       - 'products/catalyst/chart/crds/tests/blueprint-sample-*.yaml'
+      - 'products/catalyst/chart/crds/application.yaml'
+      - 'products/catalyst/chart/crds/tests/application-sample-*.yaml'
       - '.github/workflows/preflight-blueprint-crd-cel.yaml'
   pull_request:
     paths:
       - 'products/catalyst/chart/crds/blueprint.yaml'
       - 'products/catalyst/chart/crds/tests/blueprint-sample-*.yaml'
+      - 'products/catalyst/chart/crds/application.yaml'
+      - 'products/catalyst/chart/crds/tests/application-sample-*.yaml'
       - '.github/workflows/preflight-blueprint-crd-cel.yaml'
 
 permissions:
@@ -168,3 +172,105 @@ jobs:
           printf '%s' "$accept_cr" | kubectl apply --dry-run=server -f - \
             || { echo "FAIL: cross-field accept CR was rejected"; exit 1; }
           echo "PASS (accept): supported[] superset of defaults accepted"
+
+      # ── #3370 — Application CRD CEL admission ───────────────────────
+      # The Application CRD gained a spec-level x-kubernetes-validations
+      # rule (environmentRef+regions required UNLESS spec.bootstrap=true,
+      # the bootstrap-owned adoption contract). Same #2936 lesson: only a
+      # real apiserver compiles CEL, so apply the CRD + fixtures here.
+      - name: Install Application CRD (proves the #3370 CEL rule compiles)
+        run: |
+          kubectl apply -f products/catalyst/chart/crds/application.yaml
+          kubectl wait --for=condition=Established --timeout=60s \
+            crd/applications.apps.openova.io
+
+      - name: Application valid fixture — every document MUST be accepted
+        run: |
+          kubectl create namespace acme --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create namespace shared-data --dry-run=client -o yaml | kubectl apply -f -
+          echo "Applying application-sample-valid.yaml (server-side dry-run)…"
+          kubectl apply --dry-run=server \
+            -f products/catalyst/chart/crds/tests/application-sample-valid.yaml
+          echo "PASS: all valid Application documents accepted by admission"
+
+      - name: Application invalid fixture — EVERY document MUST be rejected
+        run: |
+          set -u
+          INVALID="products/catalyst/chart/crds/tests/application-sample-invalid.yaml"
+          tmpdir="$(mktemp -d)"
+          awk -v dir="$tmpdir" '
+            BEGIN { n=0; f=sprintf("%s/doc-%03d.yaml", dir, n) }
+            /^---[[:space:]]*$/ { n++; f=sprintf("%s/doc-%03d.yaml", dir, n); next }
+            { print > f }
+          ' "$INVALID"
+
+          fail=0
+          checked=0
+          for doc in "$tmpdir"/doc-*.yaml; do
+            if ! grep -q 'kind:[[:space:]]*Application' "$doc"; then
+              continue
+            fi
+            checked=$((checked+1))
+            name="$(awk '/^[[:space:]]*name:/{print $2; exit}' "$doc")"
+            out="$(kubectl apply --dry-run=server -f "$doc" 2>&1)" && rc=0 || rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "FAIL: invalid Application document '${name}' was ACCEPTED — admission gap!"
+              echo "----- offending document -----"
+              cat "$doc"
+              fail=1
+            else
+              echo "OK (rejected): ${name}"
+              echo "    └─ $(echo "$out" | head -1)"
+            fi
+          done
+          echo "checked ${checked} invalid Application documents"
+          if [ "$checked" -eq 0 ]; then
+            echo "FAIL: no invalid Application documents were checked — fixture parsing broke"
+            exit 1
+          fi
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+          echo "PASS: every invalid Application document rejected by admission"
+
+      - name: "#3370 CEL spot-check — bootstrap waiver accept + non-bootstrap reject"
+        # (a) spec.bootstrap=true WITHOUT environmentRef/regions → accepted
+        #     (the bootstrap-owned chart self-registration shape).
+        # (b) the SAME CR with bootstrap removed → rejected WITH the CEL
+        #     message. Proves the rule discriminates on spec.bootstrap,
+        #     not on an unrelated structural error.
+        run: |
+          set -u
+          accept_cr="$(cat <<'EOF2'
+          apiVersion: apps.openova.io/v1
+          kind: Application
+          metadata: {name: cel-bootstrap-accept, namespace: shared-data}
+          spec:
+            bootstrap: true
+            blueprintRef: {name: bp-postgres, version: 0.1.6}
+            placement: single-region
+            helmRelease: {name: bp-postgres-shared, namespace: flux-system}
+          EOF2
+          )"
+          reject_cr="$(cat <<'EOF2'
+          apiVersion: apps.openova.io/v1
+          kind: Application
+          metadata: {name: cel-bootstrap-reject, namespace: shared-data}
+          spec:
+            blueprintRef: {name: bp-postgres, version: 0.1.6}
+            placement: single-region
+          EOF2
+          )"
+
+          printf '%s' "$accept_cr" | kubectl apply --dry-run=server -f - \
+            || { echo "FAIL: bootstrap-owned CR without environmentRef/regions was rejected"; exit 1; }
+          echo "PASS (accept): bootstrap-owned waiver works"
+
+          out="$(printf '%s' "$reject_cr" | kubectl apply --dry-run=server -f - 2>&1)" && rc=0 || rc=$?
+          if [ "$rc" -eq 0 ]; then
+            echo "FAIL: non-bootstrap CR missing environmentRef/regions was accepted"
+            exit 1
+          fi
+          echo "$out" | grep -q 'required unless spec.bootstrap=true' \
+            || { echo "FAIL: rejection did not carry the expected CEL message:"; echo "$out"; exit 1; }
+          echo "PASS (reject): ${out}"

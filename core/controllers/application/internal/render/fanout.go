@@ -90,6 +90,15 @@ type FanoutInputs struct {
 	// local Applications). This is the G92.1 pivot seam.
 	KubeConfigSecretFor func(cluster string) (secretName, secretNamespace string)
 
+	// KubeConfigSecretKey — the data key inside the kubeConfig
+	// Secret (Flux v2 `spec.kubeConfig.secretRef.key`). The loft-sh
+	// vcluster exportKubeConfig convention is "config" (matches the
+	// hand-proven bootstrap-kit slots 22/23/24/35/19a and the
+	// per-region render path, core/controllers/pkg/render
+	// manifests.go). Empty = field omitted (Flux default key
+	// lookup). #3373.
+	KubeConfigSecretKey string
+
 	// Chart + ChartVersion + SourceRefName + SourceRefKind +
 	// SourceRefNamespace + Values — passed through verbatim to
 	// every rendered HR's spec.chart + spec.values. The caller
@@ -111,6 +120,23 @@ type FanoutInputs struct {
 	// for traceability + cascade-delete (matches
 	// application_controller.go's commonLabels block).
 	OwnerLabels map[string]string
+
+	// DependsOnFor — #3370 backing-service wiring. When non-nil, the
+	// renderer stamps Flux `spec.dependsOn` on each per-cluster HR
+	// with the entries this function returns for that cluster. The
+	// caller (reconciler) resolves the Application-level
+	// `spec.dependsOn[]` refs to concrete HelmRelease names — a
+	// bootstrap-owned backing instance resolves to its slot HR
+	// (spec.helmRelease); a controller-managed one resolves to its
+	// per-cluster `HRNameFor(<backing>, cluster)` HR. nil / empty =
+	// no dependsOn block (legacy shape, byte-identical).
+	DependsOnFor func(cluster string) []HRDependsOn
+}
+
+// HRDependsOn is one Flux HelmRelease spec.dependsOn entry (#3370).
+type HRDependsOn struct {
+	Name      string
+	Namespace string
 }
 
 // FanoutHRs returns one `*unstructured.Unstructured` HelmRelease per
@@ -213,6 +239,29 @@ func renderOneHR(in FanoutInputs, cluster string) *unstructured.Unstructured {
 		spec["values"] = in.Values
 	}
 
+	// #3370 — Flux dependsOn wiring to the backing instance(s). The
+	// edge points at the BACKING APPLICATION's HelmRelease (resolved
+	// per-cluster by the caller), never at an operator chart — a
+	// consumer depends on `shared-pg`, not on bp-cnpg.
+	if in.DependsOnFor != nil {
+		if deps := in.DependsOnFor(cluster); len(deps) > 0 {
+			arr := make([]interface{}, 0, len(deps))
+			for _, d := range deps {
+				if d.Name == "" {
+					continue
+				}
+				m := map[string]interface{}{"name": d.Name}
+				if d.Namespace != "" {
+					m["namespace"] = d.Namespace
+				}
+				arr = append(arr, m)
+			}
+			if len(arr) > 0 {
+				spec["dependsOn"] = arr
+			}
+		}
+	}
+
 	// G92.1 #2674 kubeConfig pivot — Flux v2 helm-controller installs
 	// INTO the cluster whose kubeconfig is in the referenced Secret.
 	// When KubeConfigSecretFor is nil the field is omitted so the HR
@@ -220,10 +269,18 @@ func renderOneHR(in FanoutInputs, cluster string) *unstructured.Unstructured {
 	if in.KubeConfigSecretFor != nil {
 		secretName, secretNamespace := in.KubeConfigSecretFor(cluster)
 		if secretName != "" {
+			secretRef := map[string]interface{}{
+				"name": secretName,
+			}
+			// #3373: stamp the Secret data key when the caller
+			// declares it (vcluster exportKubeConfig convention is
+			// "config"; without the key Flux looks up its default
+			// key and the pivot silently fails against vc-* Secrets).
+			if in.KubeConfigSecretKey != "" {
+				secretRef["key"] = in.KubeConfigSecretKey
+			}
 			kc := map[string]interface{}{
-				"secretRef": map[string]interface{}{
-					"name": secretName,
-				},
+				"secretRef": secretRef,
 			}
 			// Flux v2 SecretReference contract: namespace is implied
 			// from the HR's own namespace. We DO NOT stamp the

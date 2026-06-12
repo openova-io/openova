@@ -100,6 +100,25 @@
     <div class="tab-body" role="tabpanel">
       {#if tab === 'overview'}
         <section data-testid="tab-body-overview">
+          {#if app.placement}
+            <!-- #3373 — placement row, present only when the API reports it. -->
+            <h3>Placement</h3>
+            <p class="placement" data-testid="app-placement">
+              {#if app.placement.vcluster}
+                <span class="badge vcluster">vCluster: {app.placement.vcluster}</span>
+              {/if}
+              {#if app.placement.regions && app.placement.regions.length > 0}
+                <span class="badge">Regions: {app.placement.regions.join(', ')}</span>
+              {/if}
+              {#if app.placement.clusters && app.placement.clusters.length > 0}
+                <span class="badge">Clusters: {app.placement.clusters.join(', ')}</span>
+              {/if}
+              {#if app.placement.source}
+                <span class="hint">(source: {app.placement.source})</span>
+              {/if}
+            </p>
+          {/if}
+
           <h3>Per-cluster fan-out</h3>
           {#if app.perCluster && app.perCluster.length > 0}
             <table>
@@ -213,6 +232,17 @@
   .badge.topology {
     background: #ddd6fe;
     color: #5b21b6;
+  }
+  .badge.vcluster {
+    background: #dbeafe;
+    color: #1d4ed8;
+  }
+  .placement {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 0.4rem 0 0.8rem;
   }
   .status {
     font-size: 0.75rem;

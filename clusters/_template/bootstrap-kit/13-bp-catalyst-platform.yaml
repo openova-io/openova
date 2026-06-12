@@ -33,8 +33,9 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-catalyst-platform
-  namespace: flux-system
+  namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
+    catalyst.openova.io/vcluster: mgmt
     # slot encodes bootstrap-kit install order; component=catalyst-platform
     # overrides the default Phase 1 mapping so this HR lands in
     # Phase 3 (Sovereign Live) on the openova-flow canvas — once
@@ -55,13 +56,25 @@ spec:
   interval: 15m
   releaseName: catalyst-platform
   targetNamespace: catalyst-system
+  storageNamespace: catalyst-system
+  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
+  kubeConfig:
+    secretRef:
+      name: vc-mgmt
+      key: config
   dependsOn:
+    # bp-mgmt-vcluster MUST be Ready first — the vc-mgmt
+    # Secret doesn't exist until then. placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+    - name: bp-mgmt-vcluster
+      namespace: flux-system
     # G92.3 #2662 (2026-06-01): bp-gitea HR moved to host ns `mgmt`.
     - name: bp-gitea
+      namespace: mgmt
     # bp-gateway-api (issue #503): umbrella chart ships catalyst-ui +
     # catalyst-api HTTPRoute templates; gateway.networking.k8s.io/v1
     # CRDs must be registered first.
     - name: bp-gateway-api
+      namespace: flux-system
     # bp-keycloak + bp-cnpg (issue #512): the catalyst-platform umbrella
     # post-install Jobs bootstrap OIDC clients in Keycloak and seed
     # PostgreSQL schemas for catalog-svc / projector / billing /
@@ -73,7 +86,9 @@ spec:
     # the umbrella install, eliminating the race.
     # G92.2 #2661 (2026-06-01): bp-keycloak HR moved to host ns `mgmt`.
     - name: bp-keycloak
+      namespace: mgmt
     - name: bp-cnpg
+      namespace: flux-system
     # bp-crossplane-claims (chart-roll-rca iter-15, 2026-05-10): owns the
     # access.openova.io/v1alpha1 XRD that qa-fixtures UserAccess CRs
     # require. Without this dep, slot 13 races slot 14 and the umbrella
@@ -84,6 +99,16 @@ spec:
     # 90-min wedge). With this edge, the chart never enters the failing
     # state on a fresh roll.
     - name: bp-crossplane-claims
+      namespace: flux-system
+    # bp-postgres-shared-c (#3370 adoption): when the SME mesh SHARES
+    # the shared-pg-c instance (SOVEREIGN_SME_PG_OWN_CLUSTER=false),
+    # gate on it so the sme_auth/sme_billing/sme_documents Databases +
+    # role + reflected sme-database-secret exist first. Harmless in the
+    # default 1:1 path — bp-postgres-shared-c is an empty Ready release
+    # within seconds of bp-cnpg + bp-reflector (the keycloak slot-09
+    # unconditional-edge shape).
+    - name: bp-postgres-shared-c
+      namespace: flux-system
   chart:
     spec:
       chart: bp-catalyst-platform
@@ -993,7 +1018,12 @@ spec:
       # 1.4.591 — #2745 (2026-06-12): loki/mimir/tempo → mgmt vCluster;
       # CATALYST_MIMIR_URL re-pointed at the synced host Service + baseline
       # CNP egress allowlist gains `mgmt`.
-      version: 1.4.596
+      # 1.4.597 — #3373 fix (a): httproute backendRefs gain ingress.gateway.backendServiceApi/Ui overrides.
+      # 1.4.596 — #3370 (2026-06-12): Application CRD bootstrap-adoption
+      # fields (spec.bootstrap/helmRelease/dependsOn + CEL waiver) +
+      # catalog-seed shareable/contextSchema (bp-postgres, bp-valkey).
+            # 1.4.598 — #3374: CATALYST_OPENBAO_ADDR onto catalyst-api (openbao bare-URL SSO shim).
+      version: 1.4.598
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
@@ -1049,6 +1079,7 @@ spec:
   # DefaultWatchTimeout bump (60m → 120m) so the outer watch budget
   # comfortably contains the new 30m × 3-retry inner HR ceiling.
   install:
+    createNamespace: true  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     disableWait: true
     timeout: 30m
     # #3195-G6 finding (2026-06-12, hw130): helm-controller's CRD
@@ -1120,7 +1151,18 @@ spec:
     # Set BOTH paths (belt-and-suspenders) so any future chart-side
     # rename doesn't silently regress.
     smePostgres:
+      # ── Shared-instance flip (#3370 — the gitea/harbor/keycloak/pda
+      # one-flag contract). Defaults keep the bundled sme-pg Cluster
+      # byte-identical (envs provisioned before these vars existed
+      # resolve the `:=` defaults). Cloud-init computes the flips from
+      # the SAME enable_shared_pg var that turns slot 16d ON: the mesh
+      # then dials shared-pg-c-rw with credentials from the
+      # reflector-PUSHED sme-database-secret hub (the 16d `sme` role,
+      # one password across sme_auth/sme_billing/sme_documents).
+      externalHost: ${SOVEREIGN_SME_PG_HOST:=}
+      credentialSecret: ${SOVEREIGN_SME_PG_SECRET:=}
       cluster:
+        enabled: ${SOVEREIGN_SME_PG_OWN_CLUSTER:=true}
         instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
     sme:
       postgres:
@@ -1160,6 +1202,9 @@ spec:
       # MUST persist to local Gitea source-of-truth).
       imageRegistry: ''
     ingress:
+      gateway:
+        backendServiceUi: catalyst-ui-x-catalyst-system-x-mgmt-vcluster  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+        backendServiceApi: catalyst-api-x-catalyst-system-x-mgmt-vcluster  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
       hosts:
         console:
           host: console.${SOVEREIGN_FQDN}

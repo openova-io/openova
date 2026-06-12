@@ -287,6 +287,30 @@ export interface ApplicationDetailResponse {
    * back to the legacy `externalURL` direct link.
    */
   uid?: string
+  /**
+   * #3370 — Contexts on a SHAREABLE instance (the first-class child
+   * entities consumer applications occupy), projected generically from
+   * the instance's declared IaC values per the Blueprint's
+   * contextSchema. Drives the AppDetail Contexts tab; absent for
+   * non-shareable blueprints.
+   */
+  contexts?: InstanceContext[]
+  /**
+   * #3370 — consumer-side backing edges: which instance this
+   * Application depends on and which Context it occupies there
+   * (`Depends on: shared-pg / db:gitea`). From the Application CR's
+   * spec.dependsOn, or derived from the Flux HR dependsOn graph for
+   * bootstrap consumers.
+   */
+  dependsOn?: AppDependsOn[]
+}
+
+/** Mirrors the Go `dependsOnDetail` (#3370). */
+export interface AppDependsOn {
+  instance: string
+  namespace?: string
+  /** The occupied Context as `<kind>/<name>` (e.g. db/gitea). */
+  context?: string
 }
 
 /**
@@ -735,29 +759,31 @@ export interface ApplicationInstanceSummary {
   status: string
   createdAt?: string
   /**
-   * Mirrors Go `Bindings []instanceBinding` (`bindings,omitempty`) —
-   * present only on postgres-engine-family rows derived from live CNPG
-   * Cluster + Database CRs (#3188 many-to-many Data-instances cards),
-   * absent on every other instance row.
+   * Mirrors Go `Contexts []contextRow` (`contexts,omitempty`) — #3370.
+   * The Contexts on a SHAREABLE instance, projected generically from
+   * the instance's declared IaC values per the Blueprint's
+   * contextSchema. Absent for non-shareable blueprints.
    */
-  bindings?: ApplicationInstanceBinding[]
+  contexts?: InstanceContext[]
 }
 
 /**
- * Mirrors the Go `instanceBinding` (endpoint_handler.go) VERBATIM —
+ * Mirrors the Go `contextRow` (endpoint_handler.go) VERBATIM —
  * lowercase camelCase per the `json:` tags (memory
- * feedback_ts_field_casing_vs_go_json_tag). One consumer's binding row
- * on a data-instance card: database · role · mode · secret · consumer.
+ * feedback_ts_field_casing_vs_go_json_tag). One Context on a shareable
+ * instance: the first-class child entity one consumer application
+ * occupies (#3370).
  */
-export interface ApplicationInstanceBinding {
-  database: string
-  role: string
-  /** "shared" (Database CR on a shared instance) or "dedicated" (the instance's own app database). */
-  mode: string
-  /** Reflected connection Secret name; empty when not derivable. */
-  secret: string
-  /** Consuming app/namespace; empty when not derivable. */
-  consumer: string
+export interface InstanceContext {
+  name: string
+  /** Kind label from the Blueprint contextSchema (db | topic | bucket | keyspace). */
+  kind: string
+  /** Consumer blueprint (bp- prefix stripped); empty when undeclared. */
+  occupiedBy?: string
+  /** Reflected credential Secret declared by the context entry. */
+  credential?: string
+  /** ready | pending | declared — derived from the materialized IaC. */
+  status: string
 }
 
 /** Mirrors `application` at endpoint_handler.go:130 (Summary + perCluster). */
@@ -797,6 +823,21 @@ export interface CreateApplicationInstanceRequest {
   topology?: string
   isolationLevel?: 'namespace' | 'vcluster'
   values?: Record<string, unknown>
+  /**
+   * #3370 — backing-service selections, one per required backing
+   * service (the generic Create new / Reuse existing selector).
+   */
+  backing?: BackingSelection[]
+}
+
+/** Mirrors `instances.BackingSelection` (#3370). */
+export interface BackingSelection {
+  /** Backing Blueprint id (bp- prefix optional). */
+  blueprint: string
+  /** "create" (default) — own card auto-created; "reuse" — Context on an existing instance. */
+  mode?: 'create' | 'reuse'
+  /** Existing instance name (required when mode=reuse). */
+  instance?: string
 }
 
 /** Mirrors `application` 201-response body at endpoint_handler.go:729. */
@@ -846,7 +887,13 @@ export async function getApplicationInstances(
 export async function createApplicationInstance(
   body: CreateApplicationInstanceRequest,
 ): Promise<CreateApplicationInstanceResponse> {
-  const res = await authedFetch(`${API_BASE}/catalyst/v1/apps/instances`, {
+  // #3370 — same /api/ prefix bug class as PR #2878 (GET instances) and
+  // PR #2884 (launch-url): the /catalyst/v1/* route group is registered
+  // WITHOUT the /api prefix, so `${API_BASE}/catalyst/...` produced
+  // /api/catalyst/v1/apps/instances which chi 404s. Every dialog submit
+  // failed silently with HTTP 404 until the #3370 local walk exercised
+  // the POST through the wire. Use BASE like getApplicationInstances.
+  const res = await authedFetch(`${BASE}catalyst/v1/apps/instances`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),

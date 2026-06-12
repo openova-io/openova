@@ -29,12 +29,22 @@ export type ApplicationStatus =
   | 'Failed'
   | 'Uninstalling';
 export type ClusterRole = 'active' | 'passive' | 'singleton';
+// #3373 — instance-level placement. vCluster tiers are the four canonical
+// building blocks; field names mirror the Go json tags verbatim (lowercase).
+export type VClusterTier = 'host' | 'mgmt' | 'dmz' | 'rtz';
 export type ClusterStatus =
   | 'Pending'
   | 'Reconciling'
   | 'Ready'
   | 'Degraded'
   | 'Failed';
+
+export interface InstancePlacement {
+  vcluster?: VClusterTier;
+  regions?: string[];
+  clusters?: string[];
+  source?: string;
+}
 
 export interface EndpointDeclaration {
   name: string;
@@ -68,6 +78,8 @@ export interface CatalogBlueprint {
   multiInstance: { enabled: boolean; maxPerOrg?: number };
   sso?: { realm?: string; silentLogin?: boolean };
   endpoints?: EndpointDeclaration[];
+  defaultPlacement?: InstancePlacement;
+  allowedPlacements?: VClusterTier[];
 }
 
 export interface ApplicationSummary {
@@ -91,6 +103,7 @@ export interface PerClusterStatus {
 export interface Application extends ApplicationSummary {
   perCluster?: PerClusterStatus[];
   endpoints?: ResolvedEndpoint[];
+  placement?: InstancePlacement;
 }
 
 export interface CreateInstanceRequest {
@@ -99,6 +112,9 @@ export interface CreateInstanceRequest {
   name: string;
   topology?: BcpTopology;
   values?: Record<string, unknown>;
+  // Omitted entirely when the user never opened advanced placement —
+  // silent-accept of Blueprint defaults.
+  placement?: InstancePlacement;
 }
 
 export interface EndpointMutationRequest {

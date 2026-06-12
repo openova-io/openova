@@ -11,6 +11,17 @@ spec:
     family: guardian
     description: OWASP-licensed Web Application Firewall, ModSecurity-rule-compatible, fronting bp-stalwart, bp-keycloak, bp-grafana via HAProxy SPOE. Scratch chart wires the official corazawaf/coraza-spoa container.
     docs: https://coraza.io/docs/
+  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
+  # Placement is an INSTANCE property (Application.spec.placement); this is
+  # only the default every instance inherits silently — the provisioning
+  # journey's generic advanced selector (and a direct Git edit of the
+  # instance's spec.placement) may override it within allowedPlacements.
+  # Founder §4 table target: dmz. Single render mechanism: the Flux
+  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
+  defaultPlacement:
+    vcluster: dmz
+  allowedPlacements: [host, dmz]
+
   topology:
     supported:
       - singleton

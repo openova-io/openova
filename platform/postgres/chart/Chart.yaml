@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-postgres
-version: 0.1.5
+version: 0.1.6
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
@@ -30,6 +30,21 @@ description: |
 
   Changelog
   ─────────
+  0.1.6 (2026-06-12, Refs #3370 — Contexts + bootstrap self-registration)
+    - templates/application-cr.yaml: when the slot opts in via
+      bootstrapOwned.enabled, the chart self-registers the
+      apps.openova.io/v1 Application CR for this instance (the canonical
+      G117 representation), marked spec.bootstrap=true so the
+      application-controller ADOPTS the existing install (status-only
+      reconcile — zero duplicate HelmReleases) instead of re-rendering
+      it. Gated on `.Capabilities.APIVersions.Has "apps.openova.io/v1"`
+      (the cluster.yaml CNPG-CRD idiom) so first-bootstrap ordering
+      (this chart installs before bp-catalyst-platform ships the CRD)
+      stays wedge-free. spec.parameters.databases carries the
+      instance's Context declarations (blueprint contextSchema kind=db,
+      valuesKey=databases) verbatim for the generic console Contexts
+      projection. Default OFF — console-created instances already carry
+      a controller-created Application CR.
   0.1.5 (2026-06-12, Refs #3188 — founder NS-2 three-instance model)
     - Same-owner bindings: managed.roles + the role-password Secret are
       deduped per UNIQUE owner, so one role can own N isolated databases

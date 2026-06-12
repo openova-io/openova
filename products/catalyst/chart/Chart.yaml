@@ -2637,12 +2637,32 @@ name: bp-catalyst-platform
 # (b) baseline-catalyst-system CNP allowedPlatformNamespaces gains `mgmt`
 # so catalyst-api egress reaches the synced endpoints (Pods in host ns
 # mgmt). Paired with bp-grafana 1.0.11 datasource re-points. Refs #2745.
-# 1.4.596 (#3374, 2026-06-13): wire CATALYST_OPENBAO_ADDR (Sovereign-only,
+# 1.4.598 (#3374, 2026-06-13): wire CATALYST_OPENBAO_ADDR (Sovereign-only,
 # no token) onto the catalyst-api Pod so the openbao bare-URL SSO shim asks
 # Vault for the OIDC auth_url instead of silently degrading to the one-click
 # deep-link (hw130, measured). Companion to bp-openbao 1.2.29 + the addr-only
 # client change in products/catalyst/bootstrap/api cmd/api/main.go.
-version: 1.4.596
+version: 1.4.598
+# 1.4.597 — #3373 (2026-06-13) — coupling fix (a) placement-as-data:
+# templates/httproute.yaml backendRefs honor new
+# ingress.gateway.backendServiceApi / backendServiceUi overrides. When
+# bp-catalyst-platform installs INSIDE a vCluster (Flux kubeConfig
+# pivot) the slot aliases the host-side syncer-mangled Service names
+# (catalyst-api-x-<ns>-x-<vcluster>) so the HOST Cilium Gateway —
+# which serves the toHost-mirrored HTTPRoute — resolves the backendRefs.
+# Empty defaults = literal catalyst-api / catalyst-ui; default render
+# byte-identical (diff-verified). Refs #3373.
+# 1.4.596 — #3370 (2026-06-12) — Contexts: generic multi-application
+# reusability. (a) Application CRD: spec.bootstrap (bootstrap-owned
+# adoption marker) + spec.helmRelease (owning HR ref) + spec.dependsOn
+# (backing-service wiring, Application+Context refs); environmentRef/
+# regions move from static `required` to a spec-level CEL rule that
+# waives them ONLY for bootstrap-owned instances (preflight-blueprint-
+# crd-cel.yaml now applies this CRD + fixtures to a real apiserver).
+# (b) catalog-seed: bp-postgres + bp-valkey gain shareable +
+# contextSchema (lockstep-guarded against platform/ sources); the
+# bp-postgres seed version pins sync to chart 0.1.6. Refs #3370.
+version: 1.4.598
 # 1.4.587 — #3188: cutover-driver ClusterRole gains postgresql.cnpg.io
 #   clusters/databases + dr.openova.io read — the instances endpoint
 #   403'd cluster-wide (hw130: API 0 rows with 7 live clusters).

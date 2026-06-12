@@ -294,9 +294,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "5ab1c76"
+    tag: "708dbfb"
   catalystUi:
-    tag: "5ab1c76"
+    tag: "708dbfb"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -560,7 +560,7 @@ controllers:
       # — drops cross-namespace ownerRef on the host-side Flux CRs
       # (was being silently GC'd by the K8s collector because
       # Application lives in a different namespace from flux-system).
-      tag: "82fd636"
+      tag: "78de06d"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -909,6 +909,15 @@ ingress:
       # `{{- with .Values.ingress.gateway.parentRef.sectionName }}`,
       # so the field renders only when explicitly set.
       sectionName: ""
+    # #3373 fix (a): when bp-catalyst-platform installs inside a vCluster
+    # (Flux kubeConfig pivot), the slot overrides these with the host-side
+    # syncer-mangled Service names (<svc>-x-<ns>-x-<vcluster>, e.g.
+    # catalyst-api-x-catalyst-system-x-mgmt-vcluster) so the HOST Cilium
+    # Gateway — which serves the toHost-mirrored HTTPRoute — resolves the
+    # backendRef. Empty = chart-literal catalyst-api / catalyst-ui (host
+    # install, byte-identical render).
+    backendServiceApi: ""
+    backendServiceUi: ""
   # Hosts populated by the bootstrap-kit slot
   # (clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml).
   # Empty here so `helm template` without a per-Sovereign overlay fails
@@ -1133,7 +1142,21 @@ marketplace:
 # overlays can right-size storage / instances / pgVersion without forking
 # the chart.
 smePostgres:
+  # ── #3370 embedded-DB elimination seams ───────────────────────────────
+  # externalHost — when set (slot 13 in shared mode), every SME service
+  # + FerretDB dials this host instead of the bundled sme-pg-rw Service
+  # (e.g. shared-pg-c-rw.shared-data.svc.cluster.local). Empty = the
+  # bundled Cluster (byte-identical default).
+  externalHost: ""
+  # credentialSecret — when set, the SME services + FerretDB read
+  # username/password from this Secret instead of the CNPG-generated
+  # sme-pg-app (the slot-16d hub `sme-database-secret`, reflector-PUSHED
+  # into ns sme, carries the same keys). Empty = sme-pg-app.
+  credentialSecret: ""
   cluster:
+    # false → the bundled sme-pg Cluster is skipped entirely (#3370
+    # shared mode: the mesh runs on shared-pg-c's sme_* Contexts).
+    enabled: true
     name: sme-pg                    # produces sme-pg-rw / sme-pg-app / sme-pg-superuser
     namespace: sme                  # the SME services live here too
     instances: 1                    # single-node by default; HA is a per-overlay decision

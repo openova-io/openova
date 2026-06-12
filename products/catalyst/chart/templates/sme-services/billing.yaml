@@ -29,12 +29,12 @@ spec:
             - name: PG_USER
               valueFrom:
                 secretKeyRef:
-                  name: sme-pg-app
+                  name: {{ .Values.smePostgres.credentialSecret | default "sme-pg-app" }}
                   key: username
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: sme-pg-app
+                  name: {{ .Values.smePostgres.credentialSecret | default "sme-pg-app" }}
                   key: password
             - name: POSTGRES_HOST
               valueFrom:

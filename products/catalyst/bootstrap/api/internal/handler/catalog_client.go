@@ -56,6 +56,14 @@ type CatalogBlueprint struct {
 	Org             string                 `json:"org,omitempty"`
 	Raw             map[string]interface{} `json:"raw,omitempty"`
 
+	// DefaultPlacement + AllowedPlacements — #3373 instance-placement
+	// class declaration (`spec.defaultPlacement` /
+	// `spec.allowedPlacements`). Pass-through from catalyst-catalog so
+	// the console's generic advanced selector renders blueprint
+	// defaults; field names mirror source.Blueprint verbatim.
+	DefaultPlacement  *CatalogDefaultPlacement `json:"defaultPlacement,omitempty"`
+	AllowedPlacements []string                 `json:"allowedPlacements,omitempty"`
+
 	// Versions — the per-version index the catalog UI's version-picker
 	// consumes. Mirrors `spec.versions` from the upstream Blueprint CR
 	// so consumers can render the version dropdown without an extra GET
@@ -72,6 +80,14 @@ type CatalogBlueprint struct {
 	// walking the Versions array. Same value as Versions[0].ChartRef
 	// when populated.
 	ChartRef string `json:"chartRef,omitempty"`
+}
+
+// CatalogDefaultPlacement mirrors `spec.defaultPlacement` (#3373) —
+// the object form of Application.spec.placement at the class level.
+type CatalogDefaultPlacement struct {
+	VCluster string   `json:"vcluster,omitempty"`
+	Regions  []string `json:"regions,omitempty"`
+	Clusters []string `json:"clusters,omitempty"`
 }
 
 // CatalogBlueprintVersion is one entry in CatalogBlueprint.Versions.

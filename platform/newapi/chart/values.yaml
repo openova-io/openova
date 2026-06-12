@@ -773,6 +773,15 @@ ingress:
       # still override via a bootstrap-kit overlay for non-Cilium
       # gateways that REQUIRE an explicit sectionName.
       sectionName: ""
+# ─── Gateway backend override (#3373 fix (a)) ────────────────────────────
+# Same key shape as the gitea/harbor/openbao/grafana/powerdns charts
+# (`gateway.backendService`) for slot-side uniformity.
+gateway:
+  # #3373 fix (a): when this chart installs inside a vCluster, the slot
+  # overrides this with the host-side syncer-mangled Service name
+  # (<svc>-x-<ns>-x-<vcluster>). Empty = chart-computed name (host
+  # install, byte-identical).
+  backendService: ""
 # ─── NetworkPolicy ───────────────────────────────────────────────────────
 # Default-allow ingress from the platform's gateway namespace; egress
 # to Postgres, Valkey, Keycloak, in-cluster vLLM, DNS, and the operator-

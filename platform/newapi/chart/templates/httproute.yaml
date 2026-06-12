@@ -66,7 +66,11 @@ spec:
             type: PathPrefix
             value: "/"
       backendRefs:
-        - name: {{ include "bp-newapi.fullname" . }}
+        {{- /* #3373 fix (a): when this chart installs inside a vCluster the
+        slot overrides gateway.backendService with the host-side syncer-
+        mangled Service name (<svc>-x-<ns>-x-<vcluster>); empty default =
+        chart-computed name, default render byte-identical. */}}
+        - name: {{ .Values.gateway.backendService | default (include "bp-newapi.fullname" .) }}
           port: {{ .Values.service.port }}
 {{- end }}
 {{- end }}

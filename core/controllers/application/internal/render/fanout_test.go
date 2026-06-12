@@ -127,6 +127,72 @@ func TestFanoutHRs_KubeConfigSecretRefStamped(t *testing.T) {
 	}
 }
 
+// #3373 — when the caller declares the Secret data key (the loft-sh
+// vcluster exportKubeConfig convention "config"), the renderer stamps
+// spec.kubeConfig.secretRef.key. Without the key Flux looks up its
+// default key name and the pivot silently fails against vc-* Secrets
+// (the hand-proven bootstrap-kit slots 22/23/24/35/19a all pin
+// `key: config`).
+func TestFanoutHRs_KubeConfigSecretKeyStamped(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:        "obs",
+		AppNamespace:   "acme",
+		WriteNamespace: "mgmt",
+		Topology:       bpv1alpha1.BcpActiveHotStandby,
+		Variant:        &variant,
+		Chart:          "grafana",
+		KubeConfigSecretFor: func(cluster string) (string, string) {
+			return "vc-" + strings.ToLower(cluster), ""
+		},
+		KubeConfigSecretKey: "config",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, hr := range hrs {
+		spec := hr.Object["spec"].(map[string]interface{})
+		kc, ok := spec["kubeConfig"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("hr.spec.kubeConfig is missing on a vCluster-pivoted HR")
+		}
+		ref := kc["secretRef"].(map[string]interface{})
+		if key, _ := ref["key"].(string); key != "config" {
+			t.Fatalf("hr.spec.kubeConfig.secretRef.key = %q, want config", key)
+		}
+	}
+}
+
+// #3373 — backwards-compat: no KubeConfigSecretKey declared → no `key`
+// field stamped (byte-identical legacy render).
+func TestFanoutHRs_NoKubeConfigSecretKey_OmitsKey(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:        "obs",
+		AppNamespace:   "acme",
+		WriteNamespace: "mgmt",
+		Topology:       bpv1alpha1.BcpActiveHotStandby,
+		Variant:        &variant,
+		Chart:          "grafana",
+		KubeConfigSecretFor: func(cluster string) (string, string) {
+			return "vc-" + strings.ToLower(cluster), ""
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, hr := range hrs {
+		spec := hr.Object["spec"].(map[string]interface{})
+		kc := spec["kubeConfig"].(map[string]interface{})
+		ref := kc["secretRef"].(map[string]interface{})
+		if _, present := ref["key"]; present {
+			t.Fatalf("hr.spec.kubeConfig.secretRef.key must be omitted when KubeConfigSecretKey is empty")
+		}
+	}
+}
+
 func TestFanoutHRs_NoKubeConfigSecretFor_OmitsBlock(t *testing.T) {
 	// Legacy / mgmt-cluster-local HRs (substrate Blueprints per G92.6)
 	// MUST NOT carry a spec.kubeConfig block — Flux v2 interprets the
@@ -469,3 +535,109 @@ func TestHRNameFor_AlwaysUnder63(t *testing.T) {
 // Just to keep the fmt import live when nothing uses it (defensive
 // — remove if the test grows a real consumer).
 var _ = fmt.Sprintf
+
+// #3370 — Flux dependsOn wiring to backing instances.
+func TestFanoutHRs_DependsOnStamped(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
+
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "wiki",
+		AppNamespace: "acme",
+		Topology:     bpv1alpha1.BcpActiveHotStandby,
+		Variant:      &variant,
+		Chart:        "bp-wordpress",
+		DependsOnFor: func(cluster string) []HRDependsOn {
+			return []HRDependsOn{
+				// Bootstrap-owned backing instance → its slot HR.
+				{Name: "bp-postgres-shared", Namespace: "flux-system"},
+				// Controller-managed backing instance → per-cluster HR.
+				{Name: HRNameFor("demo-pg", cluster), Namespace: "acme"},
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hrs) != 2 {
+		t.Fatalf("expected 2 HRs, got %d", len(hrs))
+	}
+	for i, hr := range hrs {
+		deps, found, _ := nestedSliceHelper(hr.Object, "spec", "dependsOn")
+		if !found || len(deps) != 2 {
+			t.Fatalf("hr[%d] spec.dependsOn missing or wrong length: found=%v len=%d", i, found, len(deps))
+		}
+		first := deps[0].(map[string]interface{})
+		if first["name"] != "bp-postgres-shared" || first["namespace"] != "flux-system" {
+			t.Errorf("hr[%d] dependsOn[0] = %v, want bp-postgres-shared/flux-system", i, first)
+		}
+		cluster := hr.GetLabels()[LabelCluster]
+		second := deps[1].(map[string]interface{})
+		if second["name"] != HRNameFor("demo-pg", cluster) {
+			t.Errorf("hr[%d] dependsOn[1].name = %v, want per-cluster %q", i, second["name"], HRNameFor("demo-pg", cluster))
+		}
+	}
+}
+
+// #3370 — nil DependsOnFor keeps the legacy byte-identical shape (no
+// spec.dependsOn block at all).
+func TestFanoutHRs_NoDependsOnFor_OmitsBlock(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "obs-prod",
+		AppNamespace: "acme",
+		Topology:     bpv1alpha1.BcpSingleton,
+		Variant:      &variant,
+		Chart:        "grafana",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, found, _ := nestedSliceHelper(hrs[0].Object, "spec", "dependsOn"); found {
+		t.Fatalf("spec.dependsOn must be absent when DependsOnFor is nil")
+	}
+}
+
+// #3370 — empty resolution result omits the block too (no empty array
+// noise on the wire).
+func TestFanoutHRs_EmptyDependsOn_OmitsBlock(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "obs-prod",
+		AppNamespace: "acme",
+		Topology:     bpv1alpha1.BcpSingleton,
+		Variant:      &variant,
+		Chart:        "grafana",
+		DependsOnFor: func(string) []HRDependsOn { return nil },
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, found, _ := nestedSliceHelper(hrs[0].Object, "spec", "dependsOn"); found {
+		t.Fatalf("spec.dependsOn must be absent when the resolver returns nothing")
+	}
+}
+
+// nestedSliceHelper mirrors unstructured.NestedSlice without importing
+// the helper package twice in this test file.
+func nestedSliceHelper(obj map[string]interface{}, fields ...string) ([]interface{}, bool, error) {
+	cur := obj
+	for i, f := range fields {
+		v, ok := cur[f]
+		if !ok {
+			return nil, false, nil
+		}
+		if i == len(fields)-1 {
+			s, ok := v.([]interface{})
+			return s, ok, nil
+		}
+		next, ok := v.(map[string]interface{})
+		if !ok {
+			return nil, false, fmt.Errorf("field %q is not a map", f)
+		}
+		cur = next
+	}
+	return nil, false, nil
+}
