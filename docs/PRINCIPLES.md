@@ -58,6 +58,7 @@ Specifically for provisioning:
 - **Crossplane is the ONLY IaC after Phase 1 hand-off.** Not direct provider SDKs. Not Terraform. Not the `catalyst-api` Go service calling cloud APIs.
 - **Flux is the ONLY GitOps reconciler.** Not bespoke kubectl/helm exec calls. Not ArgoCD. Not shelling out to `helm`.
 - **Blueprints are the ONLY install unit.** Every install lands as a `bp-<name>:<semver>` OCI artifact reconciled by Flux. Not direct `helm install`. Not `kubectl apply`. Not `go-helm-client` library calls.
+- **Catalyst is nothing but a thin layer creating IaC** (founder, 2026-06-12/13, verbatim: *"IaC is must-have and non-negotiable… Anything must be working perfectly even if you shut down Catalyst."*). Every user-facing mutation — provisioning, placement, endpoints, contexts, anything — renders to Git-committed IaC reconciled by Flux; the platform must keep serving and reconciling with `catalyst-api` scaled to zero. This is a CONSTRAINT on every ticket and every agent, never a deliverable of its own: it is enforced incrementally on each surface as it is touched — a dedicated "make it IaC" refactor ticket is itself an anti-pattern (big-bang breakage risk; #3377 was closed for exactly this).
 
 If you find yourself writing Go code that calls cloud APIs directly, calls `exec.Command("helm", ...)`, or constructs k3s install scripts inline: stop. That's an architectural violation. The right path is an OpenTofu module, a Crossplane Composition, a Flux Kustomization, or a `bp-` Blueprint.
 
