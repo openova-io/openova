@@ -175,9 +175,17 @@ func TestReconcile_TopologyFanout_TwoClustersTwoHRs(t *testing.T) {
 		t.Fatalf("want 2 per-cluster HRs in mgmt, got %d", got)
 	}
 
-	// Assert per-HR shape — both must carry the canonical labels and
-	// the kubeConfig pivot pointing at a distinct per-cluster secret.
-	seenSecrets := map[string]bool{}
+	// Assert per-HR shape (#3375 DoD-4 — the split-side cluster-ID
+	// registry resolution). A 2-region Sovereign is TWO SEPARATE k3s
+	// clusters joined by ClusterMesh (cnpg-pair hw128 PASS), NOT one
+	// stretched cluster — so the kubeConfig pivot is NOT a per-cluster
+	// `vc-mgmt-a`/`vc-mgmt-b` pair in region A's `mgmt` namespace (the
+	// vCluster export Secret is per-tier `vc-mgmt`, and `mgmt-B` is a
+	// different region's cluster). The local region's ID (mgmt-A) pivots
+	// into the local `vc-mgmt` vCluster; the remote region's ID (mgmt-B)
+	// carries NO kubeConfig block — the split-side default where region
+	// B's own Flux owns its half.
+	kcByCluster := map[string]map[string]interface{}{}
 	seenClusters := map[string]bool{}
 	seenRoles := map[string]bool{}
 	for _, hr := range hrList.Items {
@@ -190,20 +198,7 @@ func TestReconcile_TopologyFanout_TwoClustersTwoHRs(t *testing.T) {
 		seenRoles[labels["catalyst.openova.io/role"]] = true
 
 		kc, _, _ := unstructured.NestedMap(hr.Object, "spec", "kubeConfig")
-		if kc == nil {
-			t.Errorf("HR %s missing spec.kubeConfig (G92.1 pivot)", hr.GetName())
-			continue
-		}
-		ref, _, _ := unstructured.NestedMap(kc, "secretRef")
-		if ref == nil {
-			t.Errorf("HR %s missing spec.kubeConfig.secretRef", hr.GetName())
-			continue
-		}
-		secName, _, _ := unstructured.NestedString(ref, "name")
-		if secName == "" {
-			t.Errorf("HR %s has empty kubeConfig.secretRef.name", hr.GetName())
-		}
-		seenSecrets[secName] = true
+		kcByCluster[cluster] = kc
 
 		// Topology + app labels.
 		if labels["catalyst.openova.io/app"] != "obs" {
@@ -214,15 +209,27 @@ func TestReconcile_TopologyFanout_TwoClustersTwoHRs(t *testing.T) {
 		}
 	}
 
-	// Two distinct clusters, two distinct secrets, both roles present.
+	// Two distinct clusters, both roles present.
 	if !seenClusters["mgmt-A"] || !seenClusters["mgmt-B"] {
 		t.Errorf("expected HRs covering mgmt-A and mgmt-B; got %v", seenClusters)
 	}
-	if !seenSecrets["vc-mgmt-a"] || !seenSecrets["vc-mgmt-b"] {
-		t.Errorf("expected per-cluster kubeConfig secrets vc-mgmt-a + vc-mgmt-b; got %v", seenSecrets)
-	}
 	if !seenRoles["active"] || !seenRoles["passive"] {
 		t.Errorf("expected both active + passive roles; got %v", seenRoles)
+	}
+
+	// mgmt-A (local region) pivots into the local `vc-mgmt` vCluster.
+	if kcA := kcByCluster["mgmt-A"]; kcA == nil {
+		t.Errorf("HR for mgmt-A missing spec.kubeConfig (local-region G92.1 pivot expected)")
+	} else {
+		ref, _, _ := unstructured.NestedMap(kcA, "secretRef")
+		secName, _, _ := unstructured.NestedString(ref, "name")
+		if secName != "vc-mgmt" {
+			t.Errorf("mgmt-A kubeConfig.secretRef.name = %q, want vc-mgmt (per-tier vCluster export Secret)", secName)
+		}
+	}
+	// mgmt-B (remote region) carries NO kubeConfig — split-side default.
+	if kcB := kcByCluster["mgmt-B"]; kcB != nil {
+		t.Errorf("HR for mgmt-B has spec.kubeConfig %v, want NONE (split-side: region B's own Flux owns its half)", kcB)
 	}
 }
 
