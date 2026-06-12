@@ -33,7 +33,7 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-catalyst-platform
-  namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
     catalyst.openova.io/vcluster: mgmt
     # slot encodes bootstrap-kit install order; component=catalyst-platform
@@ -56,12 +56,7 @@ spec:
   interval: 15m
   releaseName: catalyst-platform
   targetNamespace: catalyst-system
-  storageNamespace: catalyst-system
   # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
-  kubeConfig:
-    secretRef:
-      name: vc-mgmt
-      key: config
   dependsOn:
     # bp-mgmt-vcluster MUST be Ready first — the vc-mgmt
     # Secret doesn't exist until then. placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
@@ -69,7 +64,7 @@ spec:
       namespace: flux-system
     # G92.3 #2662 (2026-06-01): bp-gitea HR moved to host ns `mgmt`.
     - name: bp-gitea
-      namespace: mgmt
+      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     # bp-gateway-api (issue #503): umbrella chart ships catalyst-ui +
     # catalyst-api HTTPRoute templates; gateway.networking.k8s.io/v1
     # CRDs must be registered first.
@@ -86,7 +81,7 @@ spec:
     # the umbrella install, eliminating the race.
     # G92.2 #2661 (2026-06-01): bp-keycloak HR moved to host ns `mgmt`.
     - name: bp-keycloak
-      namespace: mgmt
+      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-cnpg
       namespace: flux-system
     # bp-crossplane-claims (chart-roll-rca iter-15, 2026-05-10): owns the
