@@ -72,12 +72,16 @@ for d in docs:
             ds = parsed['datasources'][0]
             found[ds['name']] = ds['url']
 want = {
-    'Prometheus': 'http://mimir-nginx.mimir.svc.cluster.local:80/prometheus',
-    'Loki':       'http://loki.loki.svc.cluster.local:3100',
-    # Tempo: port 3200 is the http-query API (3100 is Loki's gRPC/HTTP);
-    # values.yaml line 300 + Chart.yaml comment line 17 codify the 3100→3200
-    # correction shipped in bp-grafana 1.0.6 (PR #2800). Test must match.
-    'Tempo':      'http://tempo.tempo.svc.cluster.local:3200',
+    # #2745/#3361 (2026-06-12): bp-loki/mimir/tempo were re-homed INSIDE
+    # the mgmt vCluster, so the host-visible datasource targets are the
+    # vCluster-synced Service names (<svc>-x-<inner-ns>-x-mgmt-vcluster in
+    # host ns mgmt), per values.yaml observabilityStack.datasources.*.url.
+    # The test asserts the SHIPPED default values verbatim so the G115
+    # render contract tracks the live vCluster topology (DoD-5 #3375).
+    'Prometheus': 'http://mimir-nginx-x-mimir-x-mgmt-vcluster.mgmt.svc.cluster.local:80/prometheus',
+    'Loki':       'http://loki-x-loki-x-mgmt-vcluster.mgmt.svc.cluster.local:3100',
+    # Tempo: port 3200 is the http-query API (upstream tempo http_listen_port).
+    'Tempo':      'http://tempo-x-tempo-x-mgmt-vcluster.mgmt.svc.cluster.local:3200',
 }
 for name, url in want.items():
     if name not in found:

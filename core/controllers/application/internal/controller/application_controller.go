@@ -61,6 +61,7 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	topo "github.com/openova-io/openova/core/controllers/application/internal/render"
+	"github.com/openova-io/openova/core/controllers/internal/clusterregistry"
 	"github.com/openova-io/openova/core/controllers/internal/placement"
 	"github.com/openova-io/openova/core/controllers/internal/semver"
 	bpv1alpha1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
@@ -317,6 +318,19 @@ type Config struct {
 	//
 	// G92.1 #2660 (2026-06-01).
 	VClusterPlacements map[string]VClusterPlacement
+
+	// LocalRegion is the region suffix ("A" | "B") of the region this
+	// controller instance runs in — the FIRST region's mgmt cluster is
+	// "A", the SECOND region's is "B". Stamped from SOVEREIGN_REGION_ROLE
+	// (primary→A, secondary→B) by cmd/main.go. The topology fan-out's
+	// cluster-ID registry (#3375 DoD-4) uses it to resolve a declared
+	// cluster ID (mgmt-A / mgmt-B / …) to the right kubeConfig Secret:
+	// same-region IDs reuse the local vCluster pivot; cross-region IDs
+	// follow the split-side default (the remote region's own Flux owns
+	// its half) unless an operator wired a remote-region kubeconfig.
+	// Empty defaults to "A" (an unconfigured controller behaves as the
+	// primary).
+	LocalRegion string
 }
 
 // VClusterPlacement carries the per-vCluster runtime values the
@@ -353,6 +367,35 @@ func DefaultVClusterPlacements() map[string]VClusterPlacement {
 		"dmz":  {HostNamespace: "dmz", KubeconfigSecret: "vc-dmz"},
 		"mgmt": {HostNamespace: "mgmt", KubeconfigSecret: "vc-mgmt"},
 		"rtz":  {HostNamespace: "rtz", KubeconfigSecret: "vc-rtz"},
+	}
+}
+
+// clusterResolver builds the cluster-ID registry resolver (#3375 DoD-4)
+// from the controller's VClusterPlacements + LocalRegion. It maps the
+// loft-sh tier names (dmz|mgmt|rtz) onto the registry's Tier enum and
+// carries each tier's local vCluster Secret + host namespace so a
+// same-region canonical cluster ID resolves through the proven G92.1
+// pivot. Cross-region IDs follow the split-side default (no pivot;
+// remote region's own Flux owns its half).
+func (r *Reconciler) clusterResolver() clusterregistry.Resolver {
+	tiers := map[clusterregistry.Tier]clusterregistry.TierVCluster{}
+	for name, vcp := range r.Cfg.VClusterPlacements {
+		t := clusterregistry.Tier(name)
+		if !clusterregistry.IsKnownTier(t) {
+			continue
+		}
+		tiers[t] = clusterregistry.TierVCluster{
+			HostNamespace:    vcp.HostNamespace,
+			KubeconfigSecret: vcp.KubeconfigSecret,
+		}
+	}
+	local := clusterregistry.Region(strings.ToUpper(r.Cfg.LocalRegion))
+	if !clusterregistry.IsKnownRegion(local) {
+		local = clusterregistry.RegionA
+	}
+	return clusterregistry.Resolver{
+		LocalRegion:   local,
+		TierVClusters: tiers,
 	}
 }
 
@@ -783,17 +826,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 							spec.BlueprintName, placementTier, strings.ToUpper(placementTier)))
 				}
 				fanoutWriteNamespace = vcp.HostNamespace
-				// Per-cluster Secret naming convention: `vc-<cluster>`
-				// (lowercased). The cluster IDs in
-				// PlacementSpec.Clusters are the Sovereign-canonical
-				// names declared on Sovereign.spec.clusters (e.g.
-				// mgmt-A, mgmt-B); each vCluster Pod-set exports its
-				// admin kubeconfig at this Secret in the vCluster's
-				// host namespace. Matches the existing
-				// `TestFanoutHRs_KubeConfigSecretRefStamped` contract.
-				fanoutKubeSecretFor = func(cluster string) (string, string) {
-					return "vc-" + strings.ToLower(cluster), vcp.HostNamespace
-				}
+				// #3375 DoD-4 — resolve each declared canonical cluster
+				// ID (mgmt-A / mgmt-B / dmz-A / …) to its kubeConfig
+				// Secret through the cluster-ID registry, seeded from the
+				// controller's VClusterPlacements + local region. This
+				// replaces the prior `vc-<cluster>` mapping, which was
+				// WRONG for the -B IDs: `mgmt-B` is a DIFFERENT region's
+				// cluster, not a same-host vCluster named `vc-mgmt-b`
+				// (which never exists). The registry encodes the proven
+				// split-side model (cnpg-pair hw128 PASS): same-region IDs
+				// reuse the local tier vCluster pivot; cross-region IDs
+				// resolve to "" so the renderer omits the pivot and the
+				// remote region's own Flux owns its half — unless the
+				// operator wired a remote-region kubeconfig.
+				fanoutKubeSecretFor = r.clusterResolver().SecretFor
 			}
 
 			// Source-ref + chart: read from Blueprint.spec.manifests

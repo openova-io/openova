@@ -93,7 +93,7 @@ spec:
       # 1.0.11 (#2745, 2026-06-12): loki/mimir/tempo re-homed into the
       # mgmt vCluster — datasource URLs re-pointed at the syncer-mangled
       # host-side Service names (<svc>-x-<ns>-x-mgmt-vcluster.mgmt.svc).
-      version: 1.0.11
+      version: 1.0.12
       sourceRef:
         kind: HelmRepository
         name: bp-grafana
