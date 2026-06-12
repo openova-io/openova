@@ -568,7 +568,7 @@ controllers:
       # — drops cross-namespace ownerRef on the host-side Flux CRs
       # (was being silently GC'd by the K8s collector because
       # Application lives in a different namespace from flux-system).
-      tag: "887a5cd"
+      tag: "78de06d"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -626,7 +626,7 @@ controllers:
       # (#2745, 2026-06-03) — bumped from 8d01e2f (2026-05-31) to the
       # latest useraccess-controller main-HEAD push (2026-06-02).
       # #2851 closed the drift gap (auto-bump + sweep + freshness guard).
-      tag: "78de06d"
+      tag: "887a5cd"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
