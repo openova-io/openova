@@ -2628,7 +2628,7 @@ name: bp-catalyst-platform
 # flip admin.dns.<sov> → pdns-admin.<sov> (single-level, wildcard-cert-covered,
 # matches the KC client redirectUris) + bp-powerdns-admin 0.1.5 OIDC env-var
 # name fixes. Refs #3150.
-version: 1.4.584
+version: 1.4.585
 # 1.4.581 — #3195 G6 (2026-06-12): crds/continuum.yaml primaryRegion/
 #   hotStandbyRegions pattern relaxed to ^[a-z][a-z0-9]*(-[a-z0-9]+){3,}$
 #   — the letters-only 4-segment pattern was Hetzner-era and
