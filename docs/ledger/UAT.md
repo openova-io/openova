@@ -20,10 +20,10 @@ zero-click from a fresh handover session bounced to the PIN form (fix in #3374 P
 <!-- sso-zero-click-table:begin -->
 | # | App | Try it | Now | Proof (same-day only) |
 |---|---|---|---|---|
-| 1 | console | [open](https://console.hw130.omantel.biz/) | UNVERIFIED | 2026-06-13 probe: handover → /dashboard GREEN (pre-fix) |
-| 2 | grafana | [open](https://grafana.hw130.omantel.biz/) | UNVERIFIED | 2026-06-13 probe: fresh session → PIN form (cookie-domain bug) |
-| 3 | gitea | [open](https://gitea.hw130.omantel.biz/) | UNVERIFIED | same |
-| 4 | harbor | [open](https://registry.hw130.omantel.biz/) | UNVERIFIED | same |
+| 1 | console | [open](https://console.hw130.omantel.biz/) | UNVERIFIED (flipped 2026-06-12 by 6389ba6e) | 2026-06-13 probe: handover → /dashboard GREEN (pre-fix) |
+| 2 | grafana | [open](https://grafana.hw130.omantel.biz/) | UNVERIFIED (flipped 2026-06-12 by 6389ba6e) | 2026-06-13 probe: fresh session → PIN form (cookie-domain bug) |
+| 3 | gitea | [open](https://gitea.hw130.omantel.biz/) | UNVERIFIED (flipped 2026-06-12 by 6389ba6e) | same |
+| 4 | harbor | [open](https://registry.hw130.omantel.biz/) | UNVERIFIED (flipped 2026-06-12 by 6389ba6e) | same |
 | 5 | openbao | [open](https://bao.hw130.omantel.biz/ui/) | KNOWN-BROKEN | 2026-06-13: bare /ui/ = token form ([shot](../sessions/2026-06-13/evidence/row05-openbao-BROKEN-token-form.png)); shim degraded to deep-link ([shot](../sessions/2026-06-13/evidence/row05-openbao-shim-DEGRADED-deeplink-fallback.png)) |
 | 6 | pdns-admin | [open](https://pdns-admin.hw130.omantel.biz/) | KNOWN-BROKEN | 2026-06-13: login form ([shot](../sessions/2026-06-13/evidence/row06-pdns-admin-BROKEN-login-form.png)); 1-click /oidc/login works ([shot](../sessions/2026-06-13/evidence/row06-pdns-admin-oidc-dashboard-1click.png)) |
 | 7 | guacamole | [open](https://guacamole.hw130.omantel.biz/) | KNOWN-BROKEN | 2026-06-13: bare / = Tomcat 404 ([shot](../sessions/2026-06-13/evidence/row07-guacamole-BROKEN-root-404.png)); /guacamole/ zero-clicks but NO admin ([shot](../sessions/2026-06-13/evidence/row07-guacamole-settings-bounced-noadmin.png)) |
@@ -31,7 +31,7 @@ zero-click from a fresh handover session bounced to the PIN form (fix in #3374 P
 | 9 | openova-flow | [open](https://openova-flow.hw130.omantel.biz/) | KNOWN-BROKEN | 2026-06-13: NO auth at all — anonymous JSON API ([shot](../sessions/2026-06-13/evidence/row09-openova-flow-UNAUTH-json.png)) |
 | 10 | hubble | [open](https://hubble.hw130.omantel.biz/) | KNOWN-BROKEN | 2026-06-13: /oauth2/callback 500 `unauthorized_client` — chart secret never registered in KC ([shot](../sessions/2026-06-13/evidence/row10-hubble-BROKEN-oauth2-callback-500.png)) |
 | 11 | keycloak admin | [open](https://auth.hw130.omantel.biz/) | KNOWN-BROKEN | 2026-06-13: master-realm local form is the only path ([shot](../sessions/2026-06-13/evidence/row11-keycloak-admin-BROKEN-local-form.png)) |
-| 12 | marketplace | [open](https://marketplace.hw130.omantel.biz/) | UNVERIFIED | 2026-06-13 probe: anonymous storefront, no login form (by design) ([shot](../sessions/2026-06-13/evidence/row12-marketplace-anonymous-storefront.png)) |
+| 12 | marketplace | [open](https://marketplace.hw130.omantel.biz/) | UNVERIFIED (flipped 2026-06-12 by 6389ba6e) | 2026-06-13 probe: anonymous storefront, no login form (by design) ([shot](../sessions/2026-06-13/evidence/row12-marketplace-anonymous-storefront.png)) |
 | 13-15 | api. / pdns. APIs | — | n/a | token-authed API surfaces — excluded from the zero-click contract (#3374 §3) |
 | 16 | tenant org console + apps | — | UNBUILT | per-Org realm dormant; gated on FUNNEL (#3376) |<!-- sso-zero-click-table:end -->
 
