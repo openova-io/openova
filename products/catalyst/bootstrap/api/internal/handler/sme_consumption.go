@@ -35,15 +35,15 @@ import (
 // orgConsumption is one org's consumption rollup. With zero sub-orgs the
 // only row is the parent (org="<parent>", isParent=true) carrying 100%.
 type orgConsumption struct {
-	Org      string                 `json:"org"`
-	IsParent bool                   `json:"isParent"`
+	Org      string `json:"org"`
+	IsParent bool   `json:"isParent"`
 	// CostUnits — the showback cost in abstract attribution units (the
 	// weighted CPU+memory+storage sum). Showback attributes consumption;
 	// it is not a billed currency amount.
-	CostUnits float64                `json:"costUnits"`
-	CPUMilli  float64                `json:"cpuMilli"`
-	MemoryGiB float64                `json:"memoryGiB"`
-	StorageGiB float64               `json:"storageGiB"`
+	CostUnits  float64 `json:"costUnits"`
+	CPUMilli   float64 `json:"cpuMilli"`
+	MemoryGiB  float64 `json:"memoryGiB"`
+	StorageGiB float64 `json:"storageGiB"`
 	// Apps — per-application breakdown within the org (DoD 3: "per-app
 	// cost attribution").
 	Apps []appConsumption `json:"apps"`
@@ -63,7 +63,7 @@ type appConsumption struct {
 // SovereignConsumptionResponse is the wire shape the billing pages read.
 type SovereignConsumptionResponse struct {
 	// TotalCostUnits — the Sovereign-wide showback total.
-	TotalCostUnits float64          `json:"totalCostUnits"`
+	TotalCostUnits float64 `json:"totalCostUnits"`
 	// Orgs — one rollup per org, parent first. Empty estate ⇒ a single
 	// parent row with zeros (never null — the page renders its chrome).
 	Orgs []orgConsumption `json:"orgs"`
@@ -77,10 +77,10 @@ type SovereignConsumptionResponse struct {
 // exact constants matter less than that the same weights apply to every
 // org so the per-app share (Percent) is meaningful (§2.6 showback).
 const (
-	weightCPUPerMilli   = 1.0      // per millicore of request
-	weightMemPerGiB     = 4.0      // per GiB of memory request
-	weightStoragePerGiB = 0.25     // per GiB of storage request
-	bytesPerGiB         = 1 << 30  // 1 GiB
+	weightCPUPerMilli   = 1.0     // per millicore of request
+	weightMemPerGiB     = 4.0     // per GiB of memory request
+	weightStoragePerGiB = 0.25    // per GiB of storage request
+	bytesPerGiB         = 1 << 30 // 1 GiB
 )
 
 // HandleSovereignConsumption — GET /api/v1/sme/consumption.

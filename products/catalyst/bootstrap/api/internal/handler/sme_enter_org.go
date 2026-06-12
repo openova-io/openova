@@ -138,16 +138,16 @@ func (h *Handler) HandleEnterOrg(w http.ResponseWriter, r *http.Request) {
 	// email_verified). The support_session marker drives the in-console
 	// banner; impersonated_org records which org was entered.
 	tokenClaims := jwt.MapClaims{
-		"iss":             "https://console.openova.io",
-		"sub":             supportPrincipal,
-		"email":           supportPrincipal,
-		"email_verified":  true,
-		"role":            "sovereign-admin",
-		"sovereign_fqdn":  slug + "." + sovFQDN,
-		"deployment_id":   "",
-		"iat":             now.Unix(),
-		"exp":             expiresAt.Unix(),
-		"jti":             jti,
+		"iss":            "https://console.openova.io",
+		"sub":            supportPrincipal,
+		"email":          supportPrincipal,
+		"email_verified": true,
+		"role":           "sovereign-admin",
+		"sovereign_fqdn": slug + "." + sovFQDN,
+		"deployment_id":  "",
+		"iat":            now.Unix(),
+		"exp":            expiresAt.Unix(),
+		"jti":            jti,
 		// Support-session markers (§6 B2): the org console renders the
 		// banner from support_session + records the auditing context.
 		"support_session":   true,

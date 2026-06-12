@@ -326,15 +326,15 @@ type smeTenantResponse struct {
 	ConsoleHost     string                        `json:"console_host"`
 	// Organizations model (issue #3378 B1) — surfaced so the directory
 	// can badge the org by kind/tier/billingMode/isolation.
-	Kind        string `json:"kind,omitempty"`
-	Tier        string `json:"tier,omitempty"`
-	BillingMode string `json:"billing_mode,omitempty"`
-	Isolation   string `json:"isolation,omitempty"`
-	CommitSHA   string `json:"commit_sha,omitempty"`
-	LastError       string                        `json:"last_error,omitempty"`
-	Steps           smeTenantSteps                `json:"steps"`
-	CreatedAt       time.Time                     `json:"created_at"`
-	UpdatedAt       time.Time                     `json:"updated_at"`
+	Kind        string         `json:"kind,omitempty"`
+	Tier        string         `json:"tier,omitempty"`
+	BillingMode string         `json:"billing_mode,omitempty"`
+	Isolation   string         `json:"isolation,omitempty"`
+	CommitSHA   string         `json:"commit_sha,omitempty"`
+	LastError   string         `json:"last_error,omitempty"`
+	Steps       smeTenantSteps `json:"steps"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
 }
 
 // smeTenantSteps surfaces the 7-state machine to the SPA so it can
