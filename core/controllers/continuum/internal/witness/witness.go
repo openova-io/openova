@@ -39,6 +39,19 @@ import (
 // NOT promote: another region is primary.
 var ErrLeaseHeldByAnother = errors.New("witness: lease held by another holder")
 
+// ErrQuorumUnavailable — Acquire could not reach a read quorum of the
+// witness backends at all (resolvers unreachable / misconfigured / a
+// majority down). Operationally DISTINCT from ErrLeaseHeldByAnother:
+// the safety behavior is the same (do NOT promote), but the operator
+// remediation is opposite — fix the witness wiring, don't look for a
+// competing holder. Born on hw130 (2026-06-12, #3195): placeholder
+// resolver IPs made the controller log "lease held by another holder"
+// every 10s with NO holder in existence, costing a forensic detour.
+// Callers MUST treat this like ErrLeaseHeldByAnother for promotion
+// decisions; errors.Is(err, ErrLeaseHeldByAnother) deliberately does
+// NOT match it so logs and conditions can tell the truth.
+var ErrQuorumUnavailable = errors.New("witness: read quorum unavailable (backends unreachable or misconfigured)")
+
 // ErrLeaseLost — Renew detected the witness no longer recognises this
 // holder. The lease has expired (TTL exceeded) or another holder
 // completed a CAS while we were not looking. The caller MUST treat

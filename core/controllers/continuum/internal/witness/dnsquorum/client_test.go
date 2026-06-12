@@ -213,8 +213,11 @@ func TestDNSQuorum_BelowQuorum_AcquireFails(t *testing.T) {
 	c, _ := New(servers, "k", "lease.openova.io", "ns/cr", be, be)
 
 	_, err := c.Acquire(context.Background(), "fsn", 30*time.Second)
-	if !errors.Is(err, witness.ErrLeaseHeldByAnother) {
-		t.Fatalf("Acquire below-quorum: err = %v want ErrLeaseHeldByAnother (defensive)", err)
+	// #3195: below-quorum is the DISTINCT ErrQuorumUnavailable now —
+	// same no-promote safety, honest operator signal (was misreported
+	// as held-by-another, live on hw130).
+	if !errors.Is(err, witness.ErrQuorumUnavailable) {
+		t.Fatalf("Acquire below-quorum: err = %v want ErrQuorumUnavailable (defensive, distinct)", err)
 	}
 }
 
@@ -233,8 +236,8 @@ func TestDNSQuorum_SplitBrain_1_1_1_TreatedAsHeldByAnother(t *testing.T) {
 	be.setRaw("ns3", fqdn, fmt.Sprintf("ash|%s|5", time.Now().Add(time.Minute).UTC().Format(time.RFC3339)))
 
 	_, err := c.Acquire(context.Background(), "iad", 30*time.Second)
-	if !errors.Is(err, witness.ErrLeaseHeldByAnother) {
-		t.Fatalf("split-brain Acquire: err = %v want ErrLeaseHeldByAnother", err)
+	if !errors.Is(err, witness.ErrQuorumUnavailable) {
+		t.Fatalf("split-brain Acquire: err = %v want ErrQuorumUnavailable (1/1/1 disagreement = no readable quorum, distinct from a real holder)", err)
 	}
 }
 
