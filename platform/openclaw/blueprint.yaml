@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: ai-runtime
     catalyst.openova.io/section: pts-4-7-agentic-workspace
 spec:
-  version: 0.2.0
+  version: 0.2.1
   card:
     title: OpenClaw
     summary: |
@@ -105,6 +105,15 @@ spec:
   placementSchema:
     modes: [single-region]
     default: single-region
+  # Founder NS-1 placement mandate (2026-06-12): every app declares its
+  # vCluster zone. OpenClaw is a TENANT-FACING workspace controller +
+  # per-user runtime pods — production workload class, rtz per the
+  # ARCHITECTURE §4 zone model (the audit's one undeclared app).
+  topology:
+    perTopology:
+      single-region:
+        placement:
+          tier: rtz
   manifests:
     chart: ./chart
   depends:
