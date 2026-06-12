@@ -17,7 +17,18 @@ reconcile. The bootstrap-kit slot 11a `dependsOn bp-cnpg` already orders
 this, but the guard mirrors the bp-gitea / bp-harbor gold-standard
 pattern so the chart never half-renders.
 */ -}}
-{{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" }}
+{{- /*
+Embedded-cluster gate (0.1.12, #3370): `postgres.cluster.enabled=false`
+skips the bundled pda-pg Cluster entirely — PDA then runs against the
+shared-pg-b instance's `pda` Context (slot 16c) via the reflected
+`pda-shared-database-secret` hub Secret (databaseSecret.name flip in
+slot 11a). Default true keeps the 1:1 embedded render byte-identical.
+*/ -}}
+{{- $clusterEnabled := true }}
+{{- if hasKey .Values.postgres.cluster "enabled" }}
+{{- $clusterEnabled = ne (toString .Values.postgres.cluster.enabled) "false" }}
+{{- end }}
+{{- if and $clusterEnabled (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:

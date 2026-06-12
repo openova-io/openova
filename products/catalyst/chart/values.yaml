@@ -1125,7 +1125,21 @@ marketplace:
 # overlays can right-size storage / instances / pgVersion without forking
 # the chart.
 smePostgres:
+  # ── #3370 embedded-DB elimination seams ───────────────────────────────
+  # externalHost — when set (slot 13 in shared mode), every SME service
+  # + FerretDB dials this host instead of the bundled sme-pg-rw Service
+  # (e.g. shared-pg-c-rw.shared-data.svc.cluster.local). Empty = the
+  # bundled Cluster (byte-identical default).
+  externalHost: ""
+  # credentialSecret — when set, the SME services + FerretDB read
+  # username/password from this Secret instead of the CNPG-generated
+  # sme-pg-app (the slot-16d hub `sme-database-secret`, reflector-PUSHED
+  # into ns sme, carries the same keys). Empty = sme-pg-app.
+  credentialSecret: ""
   cluster:
+    # false → the bundled sme-pg Cluster is skipped entirely (#3370
+    # shared mode: the mesh runs on shared-pg-c's sme_* Contexts).
+    enabled: true
     name: sme-pg                    # produces sme-pg-rw / sme-pg-app / sme-pg-superuser
     namespace: sme                  # the SME services live here too
     instances: 1                    # single-node by default; HA is a per-overlay decision

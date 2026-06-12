@@ -144,6 +144,9 @@ slots:
     # credentials ExternalSecret. bp-reflector — mirrors CNPG-generated
     # pda-pg-app Secret into pda-database-secret in the chart namespace.
     # bp-gateway-api — HTTPRoute.
+    # bp-postgres-shared-b (#3370): pda adopts the shared-pg-b `pda`
+    # Context when SOVEREIGN_PDA_PG_OWN_CLUSTER=false (one-flag
+    # enable_shared_pg contract); harmless empty-Ready edge otherwise.
     depends_on:
       - bp-powerdns
       - bp-cnpg
@@ -152,6 +155,7 @@ slots:
       - bp-external-secrets-stores
       - bp-reflector
       - bp-gateway-api
+      - bp-postgres-shared-b
     wave: present
   - slot: 12
     name: bp-external-dns
@@ -171,7 +175,10 @@ slots:
     # the access.openova.io/v1alpha1 XRD that qa-fixtures UserAccess CRs
     # require. Without this edge, slot 13 races slot 14 and umbrella
     # upgrade fails admission with `no matches for kind "UserAccess"`.
-    depends_on: [bp-gitea, bp-gateway-api, bp-keycloak, bp-cnpg, bp-crossplane-claims]
+    # bp-postgres-shared-c (#3370): the SME mesh adopts shared-pg-c's
+    # sme_* Contexts when SOVEREIGN_SME_PG_OWN_CLUSTER=false (one-flag
+    # enable_shared_pg contract); harmless empty-Ready edge otherwise.
+    depends_on: [bp-gitea, bp-gateway-api, bp-keycloak, bp-cnpg, bp-crossplane-claims, bp-postgres-shared-c]
     wave: present
   - slot: 14
     name: bp-crossplane-claims

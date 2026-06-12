@@ -72,7 +72,14 @@ name: bp-powerdns-admin
 # cold install can't half-render (apiserver rejecting the Cluster CR before
 # bp-cnpg registers the CRD) and wedge the chart BEFORE it reaches kyverno
 # admission at all.
-version: 0.1.11
+# 0.1.12 (#3370, 2026-06-12): embedded-DB elimination seam — gate
+# `postgres.cluster.enabled` (default true) on the bundled pda-pg
+# Cluster + its pda-database-secret mirror. false → PDA runs against
+# the shared-pg-b instance's `pda` Context (slot 16c hub Secret
+# pda-shared-database-secret, reflector-PUSHED into this namespace)
+# via the slot-11a databaseSecret.name flip — same one-flag contract
+# as gitea/harbor/keycloak (enable_shared_pg).
+version: 0.1.12
 description: |
   PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI Blueprint for
   per-Sovereign PowerDNS zone + record management. Drives the
