@@ -1,0 +1,5 @@
+NAMESPACE     NAME          BLUEPRINT     VERSION   ENVIRONMENT          PLACEMENT       PHASE   AGE
+shared-data   shared-pg     bp-postgres   0.1.8     platform-bootstrap   single-region   Ready   87m
+shared-data   shared-pg-b   bp-postgres   0.1.8     platform-bootstrap   single-region   Ready   87m
+shared-data   shared-pg-c   bp-postgres   0.1.8     platform-bootstrap   single-region   Ready   87m
+valkey        valkey        bp-valkey     1.1.2     platform-bootstrap   single-region   Ready   85m
