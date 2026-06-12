@@ -58,7 +58,9 @@ import {
   getApplicationInstances,
   type ApplicationDetailResponse,
 } from '@/lib/catalog.api'
+import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
 import { ComplianceTab } from './AppDetail/ComplianceTab'
+import { ContextsTab } from './AppDetail/ContextsTab'
 import { PerClusterTable } from './AppDetail/InstancesSection'
 import { MembersTab } from './AppDetail/MembersTab'
 import { TopologyTab } from './AppDetail/TopologyTab'
@@ -75,6 +77,10 @@ import { EndpointsTab } from './AppDetail/EndpointsTab'
  */
 const APP_TAB_IDS = [
   'overview',
+  // #3370 — Contexts: rendered ONLY for shareable blueprints' instances
+  // (the TabButton is conditional below; the id stays registered so the
+  // ⛓ badge deep-link /app/$id/contexts resolves).
+  'contexts',
   'topology',
   'resources',
   'compliance',
@@ -211,6 +217,19 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   const appNamespace = apiApp?.namespace ?? compState?.namespace ?? 'default'
   const appBlueprint = apiApp?.blueprint ?? wizardApp?.id ?? ''
   const appBlueprintVersion = apiApp?.version ?? ''
+  // #3370 — shareability from the build-time catalog declaration (the
+  // blueprint.yaml truth) with the live contexts[] as confirmation.
+  // The Contexts tab renders ONLY for shareable blueprints' instances.
+  const appBlueprintFull = appBlueprint
+    ? appBlueprint.startsWith('bp-')
+      ? appBlueprint
+      : `bp-${appBlueprint}`
+    : ''
+  const appShareable =
+    BLUEPRINT_BY_ID[appBlueprintFull]?.shareable === true ||
+    (apiApp?.contexts?.length ?? 0) > 0
+  const appContexts = apiApp?.contexts ?? []
+  const appDependsOn = apiApp?.dependsOn ?? []
   const appRegions = apiApp?.regions ?? []
   const appLastReconciled = apiApp?.lastReconciledAt ?? ''
   const appPlacement = apiApp?.placement ?? 'single-region'
@@ -628,6 +647,15 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
         */}
         <div role="tablist" aria-label="App detail tabs" className="app-tablist" data-testid="app-detail-tablist">
           <TabButton id="overview" label="Overview" active={appTab} onClick={setAppTab} />
+          {appShareable ? (
+            <TabButton
+              id="contexts"
+              label="Contexts"
+              active={appTab}
+              onClick={setAppTab}
+              count={appContexts.length}
+            />
+          ) : null}
           <TabButton id="topology" label="Topology" active={appTab} onClick={setAppTab} />
           <TabButton id="resources" label="Resources" active={appTab} onClick={setAppTab} />
           <TabButton id="compliance" label="Compliance" active={appTab} onClick={setAppTab} />
@@ -647,7 +675,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
             label="Dependencies"
             active={appTab}
             onClick={setAppTab}
-            count={deps.length + reverseDeps.length}
+            count={deps.length + reverseDeps.length + appDependsOn.length}
           />
         </div>
 
@@ -677,6 +705,10 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               sovereignFQDN={sovereignFQDN}
               deploymentId={deploymentId}
             />
+          </div>
+        ) : appTab === 'contexts' ? (
+          <div role="tabpanel" data-testid="app-tab-contexts-panel" className="app-tabpanel">
+            <ContextsTab contexts={appContexts} />
           </div>
         ) : appTab === 'topology' ? (
           <div role="tabpanel" data-testid="app-tab-topology-panel" className="app-tabpanel">
@@ -740,11 +772,36 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
           </div>
         ) : (
           <div role="tabpanel" data-testid="app-tab-dependencies-panel" className="app-tabpanel">
-            {deps.length === 0 && reverseDeps.length === 0 ? (
+            {/*
+              #3370 — entity edges first: graph edges point at the
+              ENTITY the consumer occupies. Each line reads
+              `Depends on: shared-pg / db:gitea`, with the instance name
+              linking to that instance's own application page. Derived
+              from the Flux dependsOn graph + the instance's declared
+              bindings — one mechanism for every blueprint.
+            */}
+            {appDependsOn.length > 0 ? (
+              <ul className="dep-list" data-testid="sov-app-dependson-list" style={{ marginBottom: '0.75rem' }}>
+                {appDependsOn.map((d) => (
+                  <li key={`${d.instance}-${d.context ?? ''}`} data-testid={`sov-app-dependson-${d.instance}`}>
+                    Depends on:{' '}
+                    <Link
+                      to={'/app/$componentId' as never}
+                      params={{ componentId: d.instance } as never}
+                      style={{ color: 'var(--color-accent)', fontWeight: 600 }}
+                    >
+                      {d.instance}
+                    </Link>
+                    {d.context ? <> / <code>{d.context.replace('/', ':')}</code></> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {deps.length === 0 && reverseDeps.length === 0 && appDependsOn.length === 0 ? (
               <p className="section-hint" data-testid="sov-app-dependencies-empty">
                 This component has no recorded dependencies on other Applications.
               </p>
-            ) : (
+            ) : deps.length === 0 && reverseDeps.length === 0 ? null : (
               <>
                 {deps.length > 0 ? (
                   <>
