@@ -1,0 +1,127 @@
+{
+  "fqdn": "hw130.omantel.biz",
+  "at": "2026-06-12T18:08:50.530Z",
+  "results": [
+    {
+      "name": "console",
+      "url": "https://console.hw130.omantel.biz/auth/handover?token=<redacted>",
+      "status": "GREEN",
+      "finalURL": "https://console.hw130.omantel.biz/dashboard",
+      "details": []
+    },
+    {
+      "name": "grafana",
+      "url": "https://grafana.hw130.omantel.biz/",
+      "status": "RED",
+      "finalURL": "https://console.hw130.omantel.biz/login?next=https%3A%2F%2Fapi.hw130.omantel.biz%2Foidc%2Fauth%3Fscope%3Dopenid%2Bemail%2Bprofile%2Bgroups%26state%3DazI_OZNA0X_PN_mXIsW3AyrZ9V5e946DkPvO7aKVpiY.KhvTnDnP85U.tr9ceAKoQy6K3p88mxLDkA.eyJydSI6Imh0dHBzOi8vZ3JhZmFuYS5odzEzMC5vbWFudGVsLmJpei9sb2dpbi9nZW5lcmljX29hdXRoIiwicnQiOiJjb2RlIiwic3QiOiJzVVRCMUtWZV9ERVR6ZGJrSVlyUk1QeWpQN0toQzhZMkM1WXVxZk1CakRBPSJ9%26response_type%3Dcode%26client_id%3Dcatalyst-pin%26redirect_uri%3Dhttps%253A%252F%252Fauth.hw130.omantel.biz%252Frealms%252Fsovereign%252Fbroker%252Fcatalyst-pin%252Fendpoint%26nonce%3Dm8607GgfpeAYqDv-BVHH8Q",
+      "details": [
+        "missing positive marker selector:button[aria-label=\"Profile\"], [aria-label=\"Profile\"]",
+        "LOGIN-UI marker present url-includes:/login"
+      ]
+    },
+    {
+      "name": "gitea",
+      "url": "https://gitea.hw130.omantel.biz/",
+      "status": "RED",
+      "finalURL": "https://console.hw130.omantel.biz/login?next=https%3A%2F%2Fapi.hw130.omantel.biz%2Foidc%2Fauth%3Fscope%3Dopenid%2Bemail%2Bprofile%2Bgroups%26state%3D-8uRDYacW8cVtIl7edO-b2YdOLEjhRQFHXIAZThjkkY.YgdiIC52R3M.QmsGrcCGQYiCwtw56eh77g.eyJydSI6Imh0dHBzOi8vZ2l0ZWEuaHcxMzAub21hbnRlbC5iaXovdXNlci9vYXV0aDIvb3Blbm92YS1zc28vY2FsbGJhY2siLCJydCI6ImNvZGUiLCJzdCI6ImFmODM4NmI3LTUwNmEtNDc1Ni1hYzE4LWM0YThmNTc2ZTM0YiJ9%26response_type%3Dcode%26client_id%3Dcatalyst-pin%26redirect_uri%3Dhttps%253A%252F%252Fauth.hw130.omantel.biz%252Frealms%252Fsovereign%252Fbroker%252Fcatalyst-pin%252Fendpoint%26nonce%3Dcytb1xRjv7mQVi5vXUcV0w",
+      "details": [
+        "missing positive marker selector:a[href=\"/notifications\"]"
+      ]
+    },
+    {
+      "name": "harbor",
+      "url": "https://registry.hw130.omantel.biz/",
+      "status": "RED",
+      "finalURL": "https://console.hw130.omantel.biz/login?next=https%3A%2F%2Fapi.hw130.omantel.biz%2Foidc%2Fauth%3Fscope%3Dopenid%2Bemail%2Bprofile%2Bgroups%26state%3Dnx3JuhPCgq0SbMrZhIlFGyo8_xiqMdbfMxKBeg2kyPk.NY-rlbWQZcU.GkMbJu6QRGKOnVrO3s0lww.eyJydSI6Imh0dHBzOi8vcmVnaXN0cnkuaHcxMzAub21hbnRlbC5iaXovYy9vaWRjL2NhbGxiYWNrIiwicnQiOiJjb2RlIiwic3QiOiJmZTNnaEM1b2V3VmRXa0dLcVVVZXFYR05JZFhXcGxaNyJ9%26response_type%3Dcode%26client_id%3Dcatalyst-pin%26redirect_uri%3Dhttps%253A%252F%252Fauth.hw130.omantel.biz%252Frealms%252Fsovereign%252Fbroker%252Fcatalyst-pin%252Fendpoint%26nonce%3DFeUbrQhek7NHQnykd6EqRA",
+      "details": [
+        "missing positive marker url-includes:/harbor/projects",
+        "missing positive marker text:Projects"
+      ]
+    },
+    {
+      "name": "openbao",
+      "url": "https://bao.hw130.omantel.biz/ui/",
+      "status": "RED",
+      "finalURL": "https://bao.hw130.omantel.biz/ui/vault/auth?with=token",
+      "details": [
+        "missing positive marker url-regex:/ui/vault/(secrets|dashboard)",
+        "LOGIN-UI marker present text:Sign in to OpenBao",
+        "LOGIN-UI marker present url-includes:/vault/auth"
+      ]
+    },
+    {
+      "name": "pdns-admin",
+      "url": "https://pdns-admin.hw130.omantel.biz/",
+      "status": "RED",
+      "finalURL": "https://pdns-admin.hw130.omantel.biz/login",
+      "details": [
+        "missing positive marker url-includes:/dashboard",
+        "LOGIN-UI marker present selector:input[name=\"username\"]",
+        "LOGIN-UI marker present text:Sign in using OpenID Connect"
+      ]
+    },
+    {
+      "name": "guacamole",
+      "url": "https://guacamole.hw130.omantel.biz/",
+      "status": "RED",
+      "finalURL": "https://guacamole.hw130.omantel.biz/",
+      "details": [
+        "missing positive marker url-includes:/guacamole/",
+        "missing positive marker text:Connections",
+        "LOGIN-UI marker present text:HTTP Status 404"
+      ]
+    },
+    {
+      "name": "newapi",
+      "url": "https://newapi.hw130.omantel.biz/",
+      "status": "RED",
+      "finalURL": "https://newapi.hw130.omantel.biz/",
+      "details": [
+        "LOGIN-UI marker present text:upstream connect error"
+      ]
+    },
+    {
+      "name": "openova-flow",
+      "url": "https://openova-flow.hw130.omantel.biz/",
+      "status": "GREEN",
+      "finalURL": "https://openova-flow.hw130.omantel.biz/",
+      "details": []
+    },
+    {
+      "name": "openova-flow-anon-denied",
+      "url": "https://openova-flow.hw130.omantel.biz/",
+      "status": "RED",
+      "finalURL": "https://openova-flow.hw130.omantel.biz/",
+      "details": [
+        "missing positive marker url-regex:(auth\\.|/realms/|/oauth2/|/protocol/openid-connect/)",
+        "LOGIN-UI marker present text:openova-flow-server"
+      ]
+    },
+    {
+      "name": "hubble",
+      "url": "https://hubble.hw130.omantel.biz/",
+      "status": "RED",
+      "finalURL": "https://console.hw130.omantel.biz/login?next=https%3A%2F%2Fapi.hw130.omantel.biz%2Foidc%2Fauth%3Fscope%3Dopenid%2Bemail%2Bprofile%2Bgroups%26state%3DkOv30Olpix-bLooPS6M5cev1ZZO6yHdkD8VOr-P8pOg.qKHk7F0fF0U.jj44o6RMTEegeebZQnACbg.eyJydSI6Imh0dHBzOi8vaHViYmxlLmh3MTMwLm9tYW50ZWwuYml6L29hdXRoMi9jYWxsYmFjayIsInJ0IjoiY29kZSIsInN0IjoiTHZYa25qWjZHc3Rsck9DY3BINWxFR0NMUnpIRy1RSUZJVE1PU3JIZmxqTTovIn0%26response_type%3Dcode%26client_id%3Dcatalyst-pin%26redirect_uri%3Dhttps%253A%252F%252Fauth.hw130.omantel.biz%252Frealms%252Fsovereign%252Fbroker%252Fcatalyst-pin%252Fendpoint%26nonce%3Ds_5WhIn8dBfgqZaSLARFXA",
+      "details": [
+        "missing positive marker text-regex:Hubble|Service Map|Namespace"
+      ]
+    },
+    {
+      "name": "keycloak-admin",
+      "url": "https://auth.hw130.omantel.biz/",
+      "status": "RED",
+      "finalURL": "https://auth.hw130.omantel.biz/realms/master/protocol/openid-connect/auth?client_id=security-admin-console&redirect_uri=https%3A%2F%2Fauth.hw130.omantel.biz%2Fadmin%2Fmaster%2Fconsole%2F&state=3cb11b55-35b0-4772-bbd3-8790d468635d&response_mode=query&response_type=code&scope=openid&nonce=5bdaa072-47a3-4123-9186-698ba64f16b9&code_challenge=DakyCYLtDCYQJAyN_E7WwexCCFc2hOeFO-E1kJh0v5k&code_challenge_method=S256",
+      "details": [
+        "missing positive marker url-includes:/admin/sovereign/console",
+        "LOGIN-UI marker present selector:input#username"
+      ]
+    },
+    {
+      "name": "marketplace",
+      "url": "https://marketplace.hw130.omantel.biz/",
+      "status": "GREEN",
+      "finalURL": "https://marketplace.hw130.omantel.biz/",
+      "details": []
+    }
+  ]
+}

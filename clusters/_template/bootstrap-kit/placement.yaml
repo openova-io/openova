@@ -97,6 +97,8 @@ spec:
        namespace: external-dns, justification: "HOST-MINIMUM §4 — DNS reconciler substrate"}
     - {file: 14-crossplane-claims.yaml, hr: bp-crossplane-claims, vcluster: host, target: host,
        namespace: crossplane-system, justification: "HOST-MINIMUM §4 — Crossplane claims plumbing"}
+    - {file: 13c-bp-oidc-gate.yaml, hr: bp-oidc-gate, vcluster: host, target: host,
+       namespace: oidc-gate, justification: "HOST-MINIMUM §4 — auth proxy fronting host-Gateway routes (hubble/openova-flow zero-click, #3374); must sit on the gateway datapath"}
     - {file: 15-external-secrets.yaml, hr: bp-external-secrets, vcluster: host, target: host,
        namespace: external-secrets-system, justification: "HOST-MINIMUM §4 — ESO substrate (resolves synced ExternalSecret CRs, fix (c))"}
     - {file: 15a-external-secrets-stores.yaml, hr: bp-external-secrets-stores, vcluster: host, target: host,

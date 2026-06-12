@@ -36,8 +36,11 @@ VERIFICATION (post-fresh-prov on HCS multi-region):
   cilium clustermesh status --context <local>
   # → 2/2 remote clusters Ready (3-region prov: each peer sees 2 others)
 */}}
-{{- if .Values.cilium.clustermesh.apiserver.service.lbIpam }}
-{{- if .Values.cilium.clustermesh.apiserver.service.lbIpam.enabled }}
+{{- /* nil-safe: default values may omit cilium.clustermesh entirely
+     (helm-lint evaluates with defaults; live values set it via the slot). */}}
+{{- $lbIpam := dig "clustermesh" "apiserver" "service" "lbIpam" (dict) (.Values.cilium | default dict) }}
+{{- if $lbIpam }}
+{{- if $lbIpam.enabled }}
 apiVersion: cilium.io/v2alpha1
 kind: CiliumLoadBalancerIPPool
 metadata:
@@ -52,7 +55,7 @@ spec:
   # CILIUM_LB_IPAM_CIDRS. For HCS: this region's CP-node public IPv4/32.
   # For Hetzner: leave lbIpam.enabled=false; hcloud-ccm handles LB.
   blocks:
-    {{- range .Values.cilium.clustermesh.apiserver.service.lbIpam.cidrs }}
+    {{- range $lbIpam.cidrs }}
     - cidr: {{ . | quote }}
     {{- end }}
   serviceSelector:

@@ -328,6 +328,26 @@ func TestReceiveTofuArchive_NoOpenBaoReturns503(t *testing.T) {
 	}
 }
 
+// TestReceiveTofuArchive_AddrOnlyClientReturns503 (#3374) — an addr-only
+// openbao client (the on-Sovereign shape that powers the bare-URL SSO
+// shim) must NOT turn this Pod into a handover target: the seal path
+// still requires the token and keeps the exact 503 semantics.
+func TestReceiveTofuArchive_AddrOnlyClientReturns503(t *testing.T) {
+	h := newTestHandler(t)
+	h.SetOpenBao(openbao.New("http://openbao.openbao.svc.cluster.local:8200", ""))
+	body, _ := json.Marshal(tofuArchiveRequest{
+		DeploymentID:  "x",
+		SovereignFQDN: "x.example",
+		Files:         map[string]string{"a": "Yg=="},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/handover/tofu-archive", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ReceiveTofuArchive(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 for addr-only (token-less) openbao client; got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestReceiveTofuArchive_SealsToOpenBao(t *testing.T) {
 	h := newTestHandler(t)
 

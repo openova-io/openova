@@ -639,6 +639,15 @@ gateway:
   # host: auth.<sovereign-fqdn> — REQUIRED, no default per Inviolable Principle #4
   host: ""
   path: "/"
+  # ── Bare-URL sovereign-admin entry (#3374) ─────────────────────────
+  # 302 the bare root to the SOVEREIGN realm's admin console
+  # (/admin/<realm>/console/), which authenticates silently via the
+  # realm's catalyst-pin IDR and accepts /sovereign-admins members via
+  # the realm-management `realm-admin` group role (realm import). The
+  # master console (local form) stays reachable at its full path.
+  bareURLAdminRedirect:
+    enabled: true
+    realm: sovereign
   # Backend Service — defaults to <release>-keycloak (bitnami subchart fullname)
   backendService: ""
   backendPort: 80

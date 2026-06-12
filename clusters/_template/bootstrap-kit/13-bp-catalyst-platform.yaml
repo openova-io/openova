@@ -1017,6 +1017,7 @@ spec:
       # 1.4.596 — #3370 (2026-06-12): Application CRD bootstrap-adoption
       # fields (spec.bootstrap/helmRelease/dependsOn + CEL waiver) +
       # catalog-seed shareable/contextSchema (bp-postgres, bp-valkey).
+            # 1.4.598 — #3374: CATALYST_OPENBAO_ADDR onto catalyst-api (openbao bare-URL SSO shim).
       version: 1.4.598
       sourceRef:
         kind: HelmRepository

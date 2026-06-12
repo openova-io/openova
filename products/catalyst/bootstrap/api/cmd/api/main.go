@@ -71,20 +71,33 @@ func main() {
 
 	h := handler.New(log)
 
-	// OpenBao client — wired ONLY when CATALYST_OPENBAO_ADDR +
-	// CATALYST_OPENBAO_TOKEN are both set. Production catalyst-api Pods
-	// running on a Sovereign cluster set both (the new Sovereign IS the
-	// handover target — see issue #317). Catalyst-Zero leaves them
-	// unset and ReceiveTofuArchive returns 503 ("not handover target")
-	// for any misrouted POST.
+	// OpenBao client — wired whenever CATALYST_OPENBAO_ADDR is set.
+	//
+	// #3374: the client serves TWO consumers with different credential
+	// needs:
+	//   (a) the bare-URL SSO shim (HandleOpenBaoSSOInit) calls ONLY the
+	//       unauthenticated /v1/auth/<mount>/oidc/auth_url login-flow
+	//       endpoint — an address alone is sufficient. On-Sovereign
+	//       Pods set just CATALYST_OPENBAO_ADDR (bp-catalyst-platform
+	//       api.openbaoAddr); without it the shim silently degraded to
+	//       the one-click deep-link on every Sovereign (hw130 measured).
+	//   (b) the handover-archive receiver (ReceiveTofuArchive) seals to
+	//       KV-v2 and additionally requires CATALYST_OPENBAO_TOKEN; it
+	//       still returns 503 ("not handover target") when the token is
+	//       absent — same external semantics as before.
+	// Catalyst-Zero leaves both unset: client nil, receiver 503, shim
+	// falls back to the deep-link.
 	if addr := os.Getenv("CATALYST_OPENBAO_ADDR"); addr != "" {
-		if token := os.Getenv("CATALYST_OPENBAO_TOKEN"); token != "" {
-			h.SetOpenBao(openbao.New(addr, token))
-			log.Info("openbao: handover-archive receiver enabled",
+		token := os.Getenv("CATALYST_OPENBAO_TOKEN")
+		h.SetOpenBao(openbao.New(addr, token))
+		if token != "" {
+			log.Info("openbao: handover-archive receiver + SSO auth_url enabled",
 				"addr", addr,
 			)
 		} else {
-			log.Warn("openbao: CATALYST_OPENBAO_ADDR set but CATALYST_OPENBAO_TOKEN missing; receiver disabled")
+			log.Info("openbao: SSO auth_url enabled (no token — handover-archive receiver disabled)",
+				"addr", addr,
+			)
 		}
 	}
 

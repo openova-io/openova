@@ -34,6 +34,45 @@ spec:
   hostnames:
     - {{ .Values.gateway.host | quote }}
   rules:
+{{- if and .Values.sso .Values.sso.bareURL .Values.sso.bareURL.enabled }}
+{{- /*
+BARE-URL zero-click SSO (#3374). The contract: typing bao.<fqdn>/ or
+bao.<fqdn>/ui/ in a fresh browser lands the operator signed in — no
+token form. OpenBao's Ember UI has no server-side auto-redirect knob
+(see sso.idpHint note in values.yaml), so the gateway sends the two
+bare entry paths into catalyst-api's openbao-sso-init shim (#3226,
+products/catalyst/bootstrap/api/internal/handler/openbao_sso_init.go),
+which asks Vault for the OIDC auth_url server-side and 302s to Keycloak
+(silent via catalyst-pin) -> Vault UI callback -> landed signed in.
+
+Loop-safety (the pdns-admin 0.1.11 lesson, #3353):
+  - ONLY Exact `/`, `/ui` and `/ui/` are intercepted.
+  - The shim's healthy 302 goes to auth.<fqdn> (different host).
+  - The shim's degraded fallback goes to /ui/vault/auth?with=oidc —
+    NOT matched (different path), so a broken shim degrades to the
+    one-click form, never a redirect loop.
+  - The OIDC callback /ui/vault/auth/oidc/oidc/callback and the
+    post-login landing /ui/vault/secrets are NOT matched.
+  - API clients use /v1/* — never matched.
+Port is explicit 443 (the #3310 listener-port-leak class).
+*/}}
+{{- $apiHost := .Values.sso.bareURL.apiHost | default (printf "api.%s" (regexReplaceAll "^[^.]+\\." .Values.gateway.host "")) }}
+{{- range $entry := list "/" "/ui" "/ui/" }}
+    - matches:
+        - path:
+            type: Exact
+            value: {{ $entry | quote }}
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            hostname: {{ $apiHost | quote }}
+            port: 443
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: {{ $.Values.sso.bareURL.shimPath | default "/catalyst/v1/apps/openbao/openbao-sso-init" | quote }}
+            statusCode: 302
+{{- end }}
+{{- end }}
     - matches:
         - path:
             type: PathPrefix

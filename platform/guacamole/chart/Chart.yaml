@@ -93,6 +93,15 @@ name: bp-guacamole
 # `https://guacamole.<fqdn>/*` already accepts it. New g117-w3d1-sso-
 # secret.sh Case 1b asserts the rendered OPENID_REDIRECT_URI ends with
 # `/guacamole/`.
+# 0.2.5 (#3374, 2026-06-13): bare-root entry — HTTPRoute 302s Exact `/` ->
+# `/guacamole/` (explicit port 443, #3310 class), closing the TBD-G6
+# follow-up: the bare hostname previously 404'd on Tomcat's ROOT context
+# (founder-class #3150 landmine, re-measured live on hw130 2026-06-13).
+# /guacamole/ itself already lands signed-in zero-click via the openid
+# extension + catalyst-pin. NOTE the admin-elevation gap REMAINS: the chart
+# ships the openid extension only (no JDBC permission store), so
+# blueprint.yaml's `rolesFromGroup: sovereign-admins: admin` intent has no
+# implementation — tracked under #3374 DoD row 7.
 version: 0.2.5
 appVersion: "1.5.5"
 description: |
