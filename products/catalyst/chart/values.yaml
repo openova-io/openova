@@ -294,9 +294,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "708dbfb"
+    tag: "78de06d"
   catalystUi:
-    tag: "708dbfb"
+    tag: "78de06d"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -618,7 +618,7 @@ controllers:
       # (#2745, 2026-06-03) — bumped from 8d01e2f (2026-05-31) to the
       # latest useraccess-controller main-HEAD push (2026-06-02).
       # #2851 closed the drift gap (auto-bump + sweep + freshness guard).
-      tag: "78de06d"
+      tag: "82fd636"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
