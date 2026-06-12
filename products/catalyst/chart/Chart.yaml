@@ -2637,7 +2637,7 @@ name: bp-catalyst-platform
 # (b) baseline-catalyst-system CNP allowedPlatformNamespaces gains `mgmt`
 # so catalyst-api egress reaches the synced endpoints (Pods in host ns
 # mgmt). Paired with bp-grafana 1.0.11 datasource re-points. Refs #2745.
-version: 1.4.592
+version: 1.4.593
 # 1.4.587 — #3188: cutover-driver ClusterRole gains postgresql.cnpg.io
 #   clusters/databases + dr.openova.io read — the instances endpoint
 #   403'd cluster-wide (hw130: API 0 rows with 7 live clusters).
