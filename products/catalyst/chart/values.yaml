@@ -448,7 +448,7 @@ controllers:
       # 405 to the in-cluster SA). 72e3f08 = qa-loop iter-8 Fix #42
       # (#1252 + Containerfile fix-up #1253), fixed Bug 1 (UserAccess
       # Claim namespace).
-      tag: "c363dd1"
+      tag: "82fd636"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -488,7 +488,7 @@ controllers:
       # — adds EnsureBranch before PutFile so Gitea's branch-missing
       # 404 (mapped to ErrRepoNotFound by the client) no longer dead-
       # loops the env-controller.
-      tag: "32050f0"
+      tag: "82fd636"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -527,7 +527,7 @@ controllers:
       # (2026-06-02). enabled remains false until the bp-controller
       # surfaces are wired end-to-end; the pin matches the latest
       # successful push-on-main build per Inviolable Principle #4a.
-      tag: "100a213"
+      tag: "c809c11"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -560,7 +560,7 @@ controllers:
       # — drops cross-namespace ownerRef on the host-side Flux CRs
       # (was being silently GC'd by the K8s collector because
       # Application lives in a different namespace from flux-system).
-      tag: "44dedf2"
+      tag: "82fd636"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -618,7 +618,7 @@ controllers:
       # (#2745, 2026-06-03) — bumped from 8d01e2f (2026-05-31) to the
       # latest useraccess-controller main-HEAD push (2026-06-02).
       # #2851 closed the drift gap (auto-bump + sweep + freshness guard).
-      tag: "dcd2bb3"
+      tag: "82fd636"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -1774,9 +1774,17 @@ security:
       - openbao
       - harbor
       - nats-system
+      # #2745 (2026-06-12): loki/mimir/tempo run INSIDE the mgmt
+      # vCluster; their host-side synced Service endpoints
+      # (<svc>-x-<ns>-x-mgmt-vcluster) are Pods in host ns `mgmt` —
+      # the `mgmt` entry below carries that traffic (e.g. the
+      # CATALYST_MIMIR_URL query-frontend). The plain loki/mimir/tempo
+      # entries stay for Sovereigns that keep host-side placement via
+      # per-Sovereign overlay.
       - loki
       - mimir
       - tempo
+      - mgmt
       - alloy
       - opentelemetry
       - external-secrets-system

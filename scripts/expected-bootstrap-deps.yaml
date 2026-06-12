@@ -291,17 +291,22 @@ slots:
     name: bp-alloy
     depends_on: [bp-opentelemetry]
     wave: W2.K2
+  # #2745 (2026-06-12): loki/mimir/tempo re-homed INSIDE the mgmt
+  # vCluster (NS-1 founder DoD, audit PROMOTE-NOW). Each gains the
+  # bp-mgmt-vcluster edge so the install gates on the vc-mgmt
+  # kubeconfig Secret existing before helm-controller attempts the
+  # kubeConfig pivot (same shape as bp-coraza/bp-dmz-vcluster G92.4).
   - slot: 22
     name: bp-loki
-    depends_on: [bp-seaweedfs]
+    depends_on: [bp-mgmt-vcluster, bp-seaweedfs]
     wave: W2.K2
   - slot: 23
     name: bp-mimir
-    depends_on: [bp-seaweedfs]
+    depends_on: [bp-mgmt-vcluster, bp-seaweedfs]
     wave: W2.K2
   - slot: 24
     name: bp-tempo
-    depends_on: [bp-seaweedfs]
+    depends_on: [bp-mgmt-vcluster, bp-seaweedfs]
     wave: W2.K2
   - slot: 25
     name: bp-grafana

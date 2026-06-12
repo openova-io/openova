@@ -1522,13 +1522,18 @@ spec:
             # 5-min / 5-second-step Pod sparkline via Prometheus
             # query_range. Empty value disables the mimir path and the
             # Pod metrics handler falls back to metrics-server's single
-            # point. The default literal matches the Service rendered
-            # by bp-mimir: name `mimir-query-frontend`, namespace
-            # `mimir`, port 8080. Per Inviolable Principle #4
-            # per-Sovereign overlays MAY override via `catalystApi.env`
-            # when bp-mimir ships in a different namespace.
+            # point. #2745 (2026-06-12): bp-mimir is re-homed INSIDE the
+            # mgmt vCluster; catalyst-api runs host-side, so the default
+            # is the host-visible syncer-mangled Service the
+            # bp-mgmt-vcluster sync.toHost.services reflector creates:
+            # `mimir-query-frontend-x-mimir-x-mgmt-vcluster` in host ns
+            # `mgmt`, port 8080 (suffix = vCluster instance name =
+            # slot-58 releaseName `mgmt-vcluster`, same convention as
+            # the nats-jetstream entry in values.yaml). Per Inviolable
+            # Principle #4 per-Sovereign overlays MAY override via
+            # `catalystApi.env` when bp-mimir ships elsewhere.
             - name: CATALYST_MIMIR_URL
-              value: "http://mimir-query-frontend.mimir.svc.cluster.local:8080"
+              value: "http://mimir-query-frontend-x-mimir-x-mgmt-vcluster.mgmt.svc.cluster.local:8080"
             # CATALYST_TEST_SESSION_ENABLED — gates POST /api/v1/auth/test-session
             # (qa-loop iter-11 Cluster-A). Default empty/false → endpoint
             # returns 404 to the public, indistinguishable from "this

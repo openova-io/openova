@@ -2628,7 +2628,16 @@ name: bp-catalyst-platform
 # flip admin.dns.<sov> → pdns-admin.<sov> (single-level, wildcard-cert-covered,
 # matches the KC client redirectUris) + bp-powerdns-admin 0.1.5 OIDC env-var
 # name fixes. Refs #3150.
-version: 1.4.590
+# 1.4.591 — #2745 (2026-06-12) — loki/mimir/tempo re-homed INSIDE the mgmt
+# vCluster (NS-1 founder DoD, audit PROMOTE-NOW; bootstrap-kit slots
+# 22/23/24 carry the kubeConfig pivot). Two host-side consumer updates in
+# lockstep: (a) CATALYST_MIMIR_URL default in api-deployment{,-kustomize}
+# re-points at the syncer-mangled host Service
+# mimir-query-frontend-x-mimir-x-mgmt-vcluster.mgmt.svc:8080;
+# (b) baseline-catalyst-system CNP allowedPlatformNamespaces gains `mgmt`
+# so catalyst-api egress reaches the synced endpoints (Pods in host ns
+# mgmt). Paired with bp-grafana 1.0.11 datasource re-points. Refs #2745.
+version: 1.4.591
 # 1.4.587 — #3188: cutover-driver ClusterRole gains postgresql.cnpg.io
 #   clusters/databases + dr.openova.io read — the instances endpoint
 #   403'd cluster-wide (hw130: API 0 rows with 7 live clusters).

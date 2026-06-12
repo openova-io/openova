@@ -7,7 +7,36 @@
 # Reconciled by:  Flux on the new Sovereign's k3s control plane, AFTER
 #                 bp-seaweedfs is Ready (Tempo trace blocks live on S3).
 #
+# ── #2745 MGMT vCluster placement (NS-1 founder DoD) ─────────────────
+# "Each application must be in a vCluster (dmz/mgmt/rtz) unless there
+# is a very valid exceptional reason." The 18-app audit verdicted
+# loki/mimir/tempo PROMOTE-NOW: S3-backed umbrellas, zero CRD/
+# HTTPRoute/hostPath/valuesFrom coupling — none of the G105 #2697
+# revert traps (Gateway-API/ExternalSecret CRD admission, valuesFrom
+# Secret lookups in the HR's own ns) apply.
+#
+# The HR CR lives in host ns `mgmt` (where bp-mgmt-vcluster slot 58
+# exports the vc-mgmt kubeconfig Secret, exportKubeConfig.secret.name).
+# helm-controller resolves spec.kubeConfig.secretRef from the HR's own
+# namespace (Flux v2 SecretReference contract) and installs the chart
+# INSIDE the mgmt vCluster. targetNamespace/storageNamespace = the
+# inner `tempo` namespace inside the vCluster (storageNamespace pinned
+# per the hw92 lesson — unpinned it defaults to the HR's own ns `mgmt`,
+# which createNamespace never creates inside the vCluster →
+# `namespaces "mgmt" not found` install failure; bp-coraza hit this).
+#
+# Host-side consumers re-point to the syncer-mangled Service name
+# `tempo-x-tempo-x-mgmt-vcluster.mgmt.svc.cluster.local:3200` (vCluster
+# sync.toHost.services; suffix = the vCluster instance name, i.e. the
+# slot-58 releaseName `mgmt-vcluster`). In-vCluster consumers keep the
+# plain `tempo.tempo.svc` name. bp-grafana 1.0.11 datasources updated
+# in lockstep (this PR); when grafana itself promotes into mgmt (audit
+# Phase-2) its datasources revert to the plain names.
+#
 # dependsOn:
+#   - bp-mgmt-vcluster (slot 58) — the vc-mgmt Secret doesn't exist
+#     until that HR is Ready; the kubeConfig pivot dangles without it.
+#     Cross-ns dependsOn requires explicit `namespace:`.
 #   - bp-seaweedfs (slot 18) — Tempo blocks live on SeaweedFS S3.
 #     Without SeaweedFS Ready, Tempo cannot persist spans.
 #
@@ -16,13 +45,6 @@
 # bp-seaweedfs to be fully reconciled. Helm `--wait` would block on
 # the rollout, which the HelmRelease cannot influence.
 
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: tempo
-  labels:
-    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
@@ -40,16 +62,41 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-tempo
-  namespace: flux-system
+  # #2745: HR lives in host ns `mgmt` (where bp-mgmt-vcluster exports
+  # the vc-mgmt Secret). helm-controller authenticates against the
+  # vCluster apiserver and installs the chart inside the vCluster.
+  namespace: mgmt
   labels:
     catalyst.openova.io/slot: "24"
+    catalyst.openova.io/vcluster: mgmt
 spec:
   interval: 15m
   timeout: 15m
   releaseName: tempo
+  # targetNamespace = inner namespace INSIDE the mgmt vCluster. Kept at
+  # `tempo` so in-vCluster consumers keep the canonical tempo.tempo.svc name.
   targetNamespace: tempo
+  # hw92 lesson (bp-coraza): pin storageNamespace = targetNamespace,
+  # else helm-controller defaults it to the HR's own namespace (`mgmt`)
+  # and fails `namespaces "mgmt" not found` storing the release inside
+  # the vCluster (createNamespace only creates the target `tempo`).
+  storageNamespace: tempo
+  # vCluster pivot — helm-controller installs the chart inside the
+  # mgmt vCluster (Flux v2 HelmRelease v2 contract). #2745.
+  kubeConfig:
+    secretRef:
+      name: vc-mgmt
+      key: config
   dependsOn:
+    # #2745: bp-mgmt-vcluster MUST be Ready before this HR tries to
+    # install — the vc-mgmt Secret doesn't exist until then. Cross-ns
+    # dependsOn requires explicit `namespace:`.
+    - name: bp-mgmt-vcluster
+      namespace: flux-system
+    # #2745: explicit namespace — a bare `name:` resolves in THIS HR's
+    # namespace (now `mgmt`) → dangling dep → wedge (#3191 shape).
     - name: bp-seaweedfs
+      namespace: flux-system
   chart:
     spec:
       chart: bp-tempo
@@ -59,6 +106,10 @@ spec:
         name: bp-tempo
         namespace: flux-system
   install:
+    # #2745: createNamespace=true so helm-controller provisions the
+    # inner `tempo` namespace inside the mgmt vCluster on first install
+    # (the host-side Namespace YAML was dropped with this pivot).
+    createNamespace: true
     timeout: 15m
     disableWait: true
     remediation:

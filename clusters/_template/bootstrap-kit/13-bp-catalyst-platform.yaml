@@ -990,7 +990,10 @@ spec:
       # admit real cloud codes (kom4dc digits) — unblocks the
       # production Continuum seed (slot 16b, cnpg-pair 0.2.3).
       # 1.4.587: cnpg list RBAC for the many-to-many instances endpoint (#3188).
-      version: 1.4.590
+      # 1.4.591 — #2745 (2026-06-12): loki/mimir/tempo → mgmt vCluster;
+      # CATALYST_MIMIR_URL re-pointed at the synced host Service + baseline
+      # CNP egress allowlist gains `mgmt`.
+      version: 1.4.591
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
