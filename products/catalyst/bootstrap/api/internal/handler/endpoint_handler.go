@@ -1187,16 +1187,29 @@ type contextSchemaDecl struct {
 
 // contextSchemaFor resolves the contextSchema declaration for a
 // Blueprint (bp- prefix optional — callers address blueprints both
-// ways). Resolution order: the in-cluster / catalog Blueprint CR
-// (covers org-authored blueprints), then the embedded build-time
-// catalog (blueprints.json — the same source the catalog-seed locks
-// against). nil = not shareable.
+// ways). Resolution order: the EMBEDDED build-time catalog FIRST
+// (blueprints.json — in-binary, zero network, the same SHA-pinned
+// blueprint.yaml truth the catalog-seed lockstep guards), then the
+// catalog/Blueprint-CR chain (covers org-authored blueprints, which
+// pay the network dial). Order matters: the listing handlers call this
+// per unique blueprint inside latency-budgeted paths (the
+// /sovereign/apps deps block carries a 10s context), and each chained
+// catalog miss is a multi-second dial — embedded-first keeps the hot
+// path O(memory). nil = not shareable.
 func (h *Handler) contextSchemaFor(ctx context.Context, blueprint string) *contextSchemaDecl {
 	bare := strings.TrimPrefix(strings.TrimSpace(blueprint), "bp-")
 	if bare == "" {
 		return nil
 	}
 	full := "bp-" + bare
+	if bp, ok := catalog.BlueprintByID(full); ok && bp.Shareable && bp.ContextSchema != nil && bp.ContextSchema.Kind != "" {
+		return &contextSchemaDecl{
+			Kind:      bp.ContextSchema.Kind,
+			ValuesKey: bp.ContextSchema.ValuesKey,
+			Needs:     bp.ContextSchema.Needs,
+			Produces:  bp.ContextSchema.Produces,
+		}
+	}
 	for _, candidate := range []string{full, bare} {
 		meta, err := h.resolveBlueprintMeta(ctx, candidate, "")
 		if err != nil || meta == nil {
@@ -1204,14 +1217,6 @@ func (h *Handler) contextSchemaFor(ctx context.Context, blueprint string) *conte
 		}
 		if meta.Shareable && meta.ContextSchema != nil && meta.ContextSchema.Kind != "" {
 			return meta.ContextSchema
-		}
-	}
-	if bp, ok := catalog.BlueprintByID(full); ok && bp.Shareable && bp.ContextSchema != nil && bp.ContextSchema.Kind != "" {
-		return &contextSchemaDecl{
-			Kind:      bp.ContextSchema.Kind,
-			ValuesKey: bp.ContextSchema.ValuesKey,
-			Needs:     bp.ContextSchema.Needs,
-			Produces:  bp.ContextSchema.Produces,
 		}
 	}
 	return nil

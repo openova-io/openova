@@ -887,7 +887,13 @@ export async function getApplicationInstances(
 export async function createApplicationInstance(
   body: CreateApplicationInstanceRequest,
 ): Promise<CreateApplicationInstanceResponse> {
-  const res = await authedFetch(`${API_BASE}/catalyst/v1/apps/instances`, {
+  // #3370 — same /api/ prefix bug class as PR #2878 (GET instances) and
+  // PR #2884 (launch-url): the /catalyst/v1/* route group is registered
+  // WITHOUT the /api prefix, so `${API_BASE}/catalyst/...` produced
+  // /api/catalyst/v1/apps/instances which chi 404s. Every dialog submit
+  // failed silently with HTTP 404 until the #3370 local walk exercised
+  // the POST through the wire. Use BASE like getApplicationInstances.
+  const res = await authedFetch(`${BASE}catalyst/v1/apps/instances`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),

@@ -963,7 +963,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.11",
+    "version": "0.1.12",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-powerdns",
@@ -1292,6 +1292,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "version": "0.4.1",
     "section": "pts-7-sme-tenant",
     "depends": [
+      "bp-postgres",
       "bp-cnpg",
       "bp-keycloak",
       "bp-reflector",
