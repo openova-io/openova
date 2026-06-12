@@ -832,6 +832,14 @@ provisioningState:
 # operator-overridable from the per-Sovereign overlay without rebuilding
 # the chart.
 catalystApi:
+  # OpenBao address for the bare-URL SSO shim (#3374). Rendered into
+  # CATALYST_OPENBAO_ADDR on Sovereign installs only (gated on
+  # global.sovereignFQDN in api-deployment.yaml). Empty = the canonical
+  # in-cluster default http://openbao.openbao.svc.cluster.local:8200
+  # (same value as bp-openbao autoUnseal.baoAddress / sso-configure
+  # BAO_ADDR). The shim uses only the unauthenticated oidc auth_url
+  # endpoint — no token is wired here.
+  openbaoAddr: ""
   # PowerDNS REST API base URL used by:
   #   - SME-tenant pipeline's PATCH-RRset writer (sme_tenant_dns.go)
   #   - Multi-zone parent-domain handler (parent_domains.go, issue #827)

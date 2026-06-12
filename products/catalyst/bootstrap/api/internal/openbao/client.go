@@ -254,9 +254,12 @@ func (c *Client) OIDCAuthURL(ctx context.Context, mount, role, redirectURI strin
 	if strings.TrimSpace(c.Addr) == "" {
 		return "", fmt.Errorf("openbao: address is required")
 	}
-	if strings.TrimSpace(c.Token) == "" {
-		return "", fmt.Errorf("openbao: token is required")
-	}
+	// NO token requirement (#3374): /v1/auth/<mount>/oidc/auth_url is an
+	// UNAUTHENTICATED login-flow endpoint (upstream jwt backend registers
+	// "oidc/auth_url" under PathsSpecial.Unauthenticated). On-Sovereign
+	// catalyst-api Pods carry only CATALYST_OPENBAO_ADDR (no token — the
+	// handover-archive receiver is the only token consumer), and the
+	// bare-URL SSO shim must still work there.
 	role = strings.TrimSpace(role)
 	if role == "" {
 		return "", fmt.Errorf("openbao: role is required")
@@ -288,7 +291,11 @@ func (c *Client) OIDCAuthURL(ctx context.Context, mount, role, redirectURI strin
 		return "", fmt.Errorf("openbao: build auth_url request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Vault-Token", c.Token)
+	// auth_url is unauthenticated — forward the token only when one is
+	// actually held (mothership / handover-target Pods).
+	if strings.TrimSpace(c.Token) != "" {
+		req.Header.Set("X-Vault-Token", c.Token)
+	}
 
 	httpc := c.HTTP
 	if httpc == nil {

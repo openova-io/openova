@@ -310,7 +310,10 @@ type tofuArchiveResponse struct {
 // {capturedAt, deploymentId, sovereignFqdn} for queryability.
 func (h *Handler) ReceiveTofuArchive(w http.ResponseWriter, r *http.Request) {
 	client := h.openbao
-	if client == nil {
+	// #3374: the client may now be wired ADDR-ONLY (SSO auth_url path) —
+	// the seal path additionally needs the token. Both absences mean
+	// "not a handover target"; same 503 semantics as before.
+	if client == nil || strings.TrimSpace(client.Token) == "" {
 		writeJSON(w, http.StatusServiceUnavailable, tofuArchiveResponse{
 			OK:    false,
 			Error: "openbao client not configured: this catalyst-api is not configured as a handover target (CATALYST_OPENBAO_ADDR + CATALYST_OPENBAO_TOKEN must be set on the new Sovereign's catalyst-api Pod)",

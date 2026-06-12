@@ -272,6 +272,37 @@ func TestOIDCAuthURL_OK(t *testing.T) {
 	}
 }
 
+// TestOIDCAuthURL_NoTokenOmitsHeader (#3374) — auth_url is an
+// UNAUTHENTICATED login-flow endpoint; an addr-only client (the
+// on-Sovereign shape: CATALYST_OPENBAO_ADDR set, no token) must succeed
+// and must NOT send an empty X-Vault-Token header.
+func TestOIDCAuthURL_NoTokenOmitsHeader(t *testing.T) {
+	var (
+		gotHasTok bool
+		gotTok    string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, gotHasTok = r.Header["X-Vault-Token"]
+		gotTok = r.Header.Get("X-Vault-Token")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{"auth_url": "https://auth.t01.omani.works/x"},
+		})
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "")
+	got, err := c.OIDCAuthURL(context.Background(), "oidc", "operator", "https://bao.t01.omani.works/cb")
+	if err != nil {
+		t.Fatalf("OIDCAuthURL with no token must succeed (unauthenticated endpoint); got error: %v", err)
+	}
+	if got != "https://auth.t01.omani.works/x" {
+		t.Fatalf("auth_url = %q", got)
+	}
+	if gotHasTok {
+		t.Errorf("X-Vault-Token header must be omitted for a token-less client; got %q", gotTok)
+	}
+}
+
 // TestOIDCAuthURL_DefaultMount — empty mount falls back to "oidc".
 func TestOIDCAuthURL_DefaultMount(t *testing.T) {
 	var gotPath string
@@ -337,7 +368,9 @@ func TestOIDCAuthURL_RequiredFields(t *testing.T) {
 	}{
 		{"nil-client", (*Client)(nil), "default", "https://h/cb", "client is nil"},
 		{"missing-addr", &Client{Token: "tk"}, "default", "https://h/cb", "address is required"},
-		{"missing-token", &Client{Addr: "http://x"}, "default", "https://h/cb", "token is required"},
+		// NOTE (#3374): a missing TOKEN is no longer an error — auth_url
+		// is an unauthenticated login-flow endpoint; see
+		// TestOIDCAuthURL_NoTokenOmitsHeader.
 		{"missing-role", &Client{Addr: "http://x", Token: "tk"}, "", "https://h/cb", "role is required"},
 		{"missing-redirect", &Client{Addr: "http://x", Token: "tk"}, "default", "", "redirect_uri is required"},
 	}

@@ -208,6 +208,36 @@ func TestAuthHandover_HappyPath(t *testing.T) {
 	}
 }
 
+// TestAuthHandover_SessionCookieDomainWidened (#3374) — the handover
+// session cookie MUST carry Domain=.<sovereign-fqdn>. Host-only on
+// console.<fqdn> breaks EVERY silent zero-click chain: Keycloak's
+// catalyst-pin broker redirect to api.<fqdn>/oidc/auth never carries
+// the cookie, so a fresh handover session bounces to the PIN form
+// (measured live on hw130 2026-06-13). Mirrors the PIN-verify path's
+// G113-followup fix (auth.go).
+func TestAuthHandover_SessionCookieDomainWidened(t *testing.T) {
+	h, privKey, _ := testHandoverSetup(t)
+	tok := mintValidToken(t, privKey)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/handover?token="+tok, nil)
+	w := httptest.NewRecorder()
+	h.AuthHandover(w, req)
+
+	sessionCookie := findCookie(w.Result().Cookies(), "catalyst_session")
+	if sessionCookie == nil {
+		t.Fatal("catalyst_session cookie not set")
+	}
+	// mintValidToken's sovereign_fqdn is sov.test; no env overrides in
+	// the test process, so the claim-derived fallback must fire.
+	// NB: Go serialises the Domain attribute WITHOUT the leading dot
+	// (RFC 6265 — a present Domain attribute is always domain-wide),
+	// so the round-tripped cookie reads "sov.test". An EMPTY Domain is
+	// the host-only failure mode this test guards against.
+	if sessionCookie.Domain != "sov.test" {
+		t.Errorf("catalyst_session Domain: got %q want %q (host-only cookies break the api.<fqdn>/oidc silent chain)", sessionCookie.Domain, "sov.test")
+	}
+}
+
 func TestAuthHandover_MissingToken(t *testing.T) {
 	h, _, _ := testHandoverSetup(t)
 	req := httptest.NewRequest(http.MethodGet, "/auth/handover", nil)
