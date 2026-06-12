@@ -74,8 +74,8 @@
 |---|---|---|---|---|---|
 | ROOT-grafana | grafana | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ☑ | browser-proven 2026-06-12 — `docs/sessions/2026-06-12/evidence/hw130-grafana-root-zeroclick-PROOF.png` (chart 1.0.9 `auto_login`) |
 | ROOT-harbor | harbor | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ☑ | lands `/harbor/projects` zero-click (`primary_auth_mode`, 1.2.30) |
-| ROOT-gitea | gitea | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ✖ | fix in flight — route-level `/user/login` redirect + `REQUIRE_SIGNIN_VIEW` |
-| ROOT-pdns-admin | pdns-admin | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ✖ | fix in flight — `/login` → `/oidc/login` redirect |
+| ROOT-gitea | gitea | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ☑ | three stacked fixes shipped+rolled (gateway redirect #3343, port-443 #3344, LANDING_PAGE=login #3347): anon root → 303 /user/login → 302 OIDC → signed in. Wire verdict 2026-06-12. |
+| ROOT-pdns-admin | pdns-admin | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ☑ | /login → 302 → /oidc/login at :443 (#3343+#3344 rolled); 1-click OIDC chain previously browser-proven (hw130-sso-pdns-admin-PASS.png). Wire verdict 2026-06-12. |
 | ROOT-openbao | openbao | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ✖ | upstream popup-only UI contract — 2-click first login, 0-click returns; upstream filing |
 
 ### 2.1 Tier-1 — sovereign-realm control-plane (4) — #2744 already-wired
