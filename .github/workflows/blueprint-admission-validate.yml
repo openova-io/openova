@@ -30,12 +30,27 @@ on:
       - 'products/**/blueprint.yaml'
       - 'platform/_schemas/**'
       - '.github/workflows/blueprint-admission-validate.yml'
+      - 'scripts/test-topology-admission-gate.sh'
   workflow_dispatch:
 
 env:
-  # FLIP TO 'true' WHEN WAVE-2 LANDS spec.topology BLOCKS ACROSS ALL bp
-  # PER docs/sessions/2026-06-02-per-blueprint-topology-audit.md.
-  FAIL_ON_INVALID: 'false'
+  # #3375 DoD-3: Wave-2 has landed — all 90 platform/*/blueprint.yaml now
+  # carry a spec.topology block (docs/topology-matrix.md: 90/90 declared).
+  # Flipped to 'true' so the G116 admission gate is LIVE: any new or
+  # changed blueprint.yaml without a valid, canonical spec.topology block
+  # fails the job. See
+  # docs/sessions/2026-06-02-per-blueprint-topology-audit.md §G116.
+  FAIL_ON_INVALID: 'true'
+  # G116 presence gate: when 'true', a blueprint.yaml with NO spec.topology
+  # is rejected (not just schema-skipped). This is the "new blueprint
+  # without a populated declaration = rejected" rule (#3375 DoD-3).
+  REQUIRE_TOPOLOGY: 'true'
+  # Scope-removed blueprints owned by a SEPARATE project are exempt from
+  # this gate until their owning team converges them — they are NOT part
+  # of the #3375 backlog. bp-sandbox's active-hot-standby variant declares
+  # replication.mode=async (the schema requires sync for hot-standby); its
+  # owner fixes that. Space-separated blueprint dir names.
+  GATE_EXEMPT_BLUEPRINTS: 'sandbox'
 
 jobs:
   validate:
@@ -56,51 +71,87 @@ jobs:
       - name: Validate every blueprint.yaml
         run: |
           python3 << 'PY'
-          import json, os, sys, yaml, jsonschema, pathlib
+          import json, os, re, sys, yaml, jsonschema, pathlib
 
           schema = json.load(open('platform/_schemas/blueprint-topology.json'))
           fail_on_invalid = os.environ.get('FAIL_ON_INVALID', 'false').lower() == 'true'
+          require_topology = os.environ.get('REQUIRE_TOPOLOGY', 'false').lower() == 'true'
+          exempt = set(os.environ.get('GATE_EXEMPT_BLUEPRINTS', '').split())
+
+          # Canonical cluster-ID form, mirroring the Blueprint CRD pattern
+          # (products/catalyst/chart/crds/blueprint.yaml) + the cluster-ID
+          # registry (core/controllers/internal/clusterregistry): a tier
+          # prefix (mgmt|dmz|rtz) + a region suffix (A|B).
+          CLUSTER_RE = re.compile(r'^(mgmt|dmz|rtz)-[AB]$')
+          VALID_BCP = {"active-active", "active-hot-standby", "active-passive", "singleton"}
 
           checked = 0
           failures: list[str] = []
+          exempted: list[str] = []
+
+          def check_one(path):
+              global checked
+              checked += 1
+              name = path.parent.name
+              if name in exempt:
+                  exempted.append(name)
+                  return
+              try:
+                  doc = yaml.safe_load(path.read_text())
+              except Exception as e:
+                  failures.append(f"{path}: yaml parse: {e}")
+                  return
+              spec = (doc.get('spec') or {})
+              topo = spec.get('topology')
+              # G116 presence gate (#3375 DoD-3).
+              if require_topology and not topo:
+                  failures.append(f"{path}: G116 — spec.topology is REQUIRED (new blueprint without a populated declaration is rejected)")
+                  return
+              # Structural schema (CEL pre-image).
+              try:
+                  jsonschema.validate(doc, schema)
+              except jsonschema.ValidationError as e:
+                  failures.append(f"{path}: {e.message[:140]}")
+                  return
+              # Canonical cluster-ID + role coverage per declared variant.
+              for vk, v in ((topo or {}).get('perTopology') or {}).items():
+                  if vk not in VALID_BCP:
+                      failures.append(f"{path}: perTopology key '{vk}' is not a canonical BCP topology")
+                  pl = (v or {}).get('placement') or {}
+                  clusters = pl.get('clusters') or []
+                  roles = pl.get('roles') or {}
+                  for c in clusters:
+                      if not CLUSTER_RE.match(c):
+                          failures.append(f"{path}: variant '{vk}' cluster '{c}' is not a canonical ID (tier-{{A|B}})")
+                  # Every declared cluster must carry a role (the contract
+                  # the fan-out renderer reads).
+                  for c in clusters:
+                      if c not in roles:
+                          failures.append(f"{path}: variant '{vk}' cluster '{c}' missing a role in placement.roles")
 
           for path in sorted(pathlib.Path('.').glob('platform/*/blueprint.yaml')):
-              checked += 1
-              try:
-                  doc = yaml.safe_load(path.read_text())
-              except Exception as e:
-                  failures.append(f"{path}: yaml parse: {e}")
-                  continue
-              # Skip schema validation when spec.topology is absent —
-              # the field is OPTIONAL until Wave-2 lands. The schema
-              # itself doesn't make topology required at root level.
-              try:
-                  jsonschema.validate(doc, schema)
-              except jsonschema.ValidationError as e:
-                  failures.append(f"{path}: {e.message[:140]}")
-
+              check_one(path)
           for path in sorted(pathlib.Path('.').glob('products/*/blueprint.yaml')):
-              checked += 1
-              try:
-                  doc = yaml.safe_load(path.read_text())
-              except Exception as e:
-                  failures.append(f"{path}: yaml parse: {e}")
-                  continue
-              try:
-                  jsonschema.validate(doc, schema)
-              except jsonschema.ValidationError as e:
-                  failures.append(f"{path}: {e.message[:140]}")
+              check_one(path)
 
-          print(f"checked {checked} blueprint.yaml files")
+          print(f"checked {checked} blueprint.yaml files (require_topology={require_topology})")
+          if exempted:
+              print(f"exempt (scope-removed, owned elsewhere): {sorted(set(exempted))}")
           if failures:
               print(f"\n{len(failures)} validation findings:")
               for f in failures:
                   print(f"  ! {f}")
               if fail_on_invalid:
-                  print("\nFAIL_ON_INVALID=true → exiting non-zero")
+                  print("\nFAIL_ON_INVALID=true -> exiting non-zero")
                   sys.exit(1)
               else:
-                  print("\nFAIL_ON_INVALID=false (Wave-1 phase) → not failing the job")
+                  print("\nFAIL_ON_INVALID=false (Wave-1 phase) -> not failing the job")
           else:
               print("all blueprint.yaml files validate clean")
           PY
+
+      - name: Red-proof the admission gate (#3375 DoD-3)
+        # Proves the gate REJECTS invalid shapes (missing topology, bad
+        # cluster ID, missing role, non-canonical BCP key) — a gate that
+        # only ever goes green is theater.
+        run: bash scripts/test-topology-admission-gate.sh

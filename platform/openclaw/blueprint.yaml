@@ -109,11 +109,26 @@ spec:
   # vCluster zone. OpenClaw is a TENANT-FACING workspace controller +
   # per-user runtime pods — production workload class, rtz per the
   # ARCHITECTURE §4 zone model (the audit's one undeclared app).
+  # #3375 ROW-AMENDMENT (founder-adjudicate): the 2026-06-02 agreement
+  # row for bp-openclaw is TBD (scaffold). The prior declaration used a
+  # non-canonical `single-region` perTopology key with no `supported[]`,
+  # which fails the canonical-enum gate. Pending the founder's real row,
+  # this is the safe scaffold default matching bp-qa-app: singleton in
+  # the rtz tier on rtz-A. See docs/topology-matrix.md §ROW-AMENDMENTS.
   topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
     perTopology:
-      single-region:
+      singleton:
         placement:
           tier: rtz
+          clusters:
+            - rtz-A
+          roles:
+            rtz-A: singleton
   manifests:
     chart: ./chart
   depends:

@@ -113,7 +113,7 @@ fields sourced from the agreement row + chart citations (never invented):
 | bp-network-policies | singleton: mgmt-A,mgmt-B,dmz-A,dmz-B,rtz-A,rtz-B | matches-row + orphan-placementSchema→remove | n/a-singleton | per-cluster infra; Flux-reconciled from Git | pending |
 | bp-netbird | active-hot-standby: mgmt-A,mgmt-B | matches-row + orphan-placementSchema→remove | implements-row(cited:cnpg-pair) | cnpg-pair sync (hw128 PASS pattern) | pending |
 | bp-spire | active-hot-standby: mgmt-A,mgmt-B | matches-row | implements-row(cited:cnpg-pair) | cnpg-pair sync (hw128 PASS pattern) | pending |
-| bp-openclaw | — | amendment-proposed + orphan-placementSchema→remove | amendment | openclaw TBD scaffold — row=TBD | pending |
+| bp-openclaw | singleton: rtz-A | fixed-this-ticket (amendment applied; founder-adjudicate) | n/a-singleton | scaffold default per ROW-AMENDMENT (was empty supported[]) | pending |
 | bp-ferretdb | active-passive: rtz-A,rtz-B | matches-row | implements-row(cited:cnpg-pair) | cnpg-pair sync (hw128 PASS pattern) | pending |
 | bp-valkey | active-passive: rtz-A,rtz-B | matches-row + orphan-placementSchema→remove | gap(CLASS-B) | row mechanism: sentinel — not yet wired | pending |
 | bp-strimzi | active-active: rtz-A,rtz-B | matches-row | gap(CLASS-B) | row mechanism: mirrormaker2 — not yet wired | pending |
