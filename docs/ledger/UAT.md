@@ -1,296 +1,74 @@
-# UAT — OpenOva Catalyst — canonical acceptance contract (ROUND 1 IN PROGRESS on hw130 `SHARED_PG=true`, 2026-06-12)
+# UAT — ground reality on `hw130.omantel.biz`
 
-> **Round-2 re-walk (2026-06-12 ~08:20, console rolled to f2689f3):** 4/4 PASS — #3224's dead Open buttons GONE on bp-newapi + bp-openova-flow-server (grafana Launch intact; #3224 CLOSED) and the #3188 headline card flipped to **"1 instance · postgres-shared · Ready"** (#3326; bindings still honestly API-unsurfaced). Evidence: `docs/sessions/2026-06-12/evidence/hw130-r2-*.png`.
->
-> **Round-1 state:** waves 1-4 executed by verifier sub-agents (topology / shared-PG / endpoints / console / SSO×5 / funnel). Verdicts below; full verdict tables + screenshots in `docs/sessions/2026-06-12/`. hw130 carries a Phase-1-watch TIMEOUT record (recoverable; #3317 merged) — rows depending on the handover-only steps (treemap/jobs region-b fan-out) are environment-scarred on this prov and noted as such.
->
-> **2026-06-12 founder review:** root-URL SSO standard added (§2.0); per-app topology + vCluster re-homing + many-to-many data cards confirmed UNBUILT — tracked in §status notes.
+**Last verified live: 2026-06-12 13:23Z.** Login: `emrah.baysal@openova.io` → PIN to the mailbox.
+Every row: click the URL yourself; ✅ only if it works **right now**. Full history: [archive](../archive/UAT-detail-2026-06-12.md).
 
-> **THE round contract (founder direction 2026-06-12):** this file is complete only when
-> EVERY row below carries a verdict — ✅ PASS / ✖ FAIL / ⛔ blocked-with-reason — produced
-> by READ-ONLY verification sub-agents walking the live env, each verdict backed by a
-> screenshot or wire capture in `docs/sessions/<date>/evidence/`. Partial rounds do not
-> count. No lifecycle operation (wipe/re-prov) is permitted while any row lacks a verdict
-> (memory: feedback_walk_everything_before_any_wipe).
->
-> Verification protocol: dispatcher assigns row groups to sub-agents (browser rows run
-> sequentially through the shared Playwright session; kubectl/API rows run in parallel);
-> verifiers are READ-ONLY (anti-theater rule 6 — they may not fix anything to make their
-> own walk pass); the dispatcher re-queries live state before recording any ✅.
-> Session-results narratives live in docs/sessions/, never here.
+## 1. SSO — type the URL → land signed in (zero clicks)
 
-## 1. Pillars (marketplace → Org → multi-region → CNPG failover → cutover)
+| App | Try it | Now | Proof |
+|---|---|---|---|
+| grafana | [open](https://grafana.hw130.omantel.biz/) | ✅ | [shot](../sessions/2026-06-12/evidence/hw130-grafana-root-zeroclick-PROOF.png) |
+| harbor | [open](https://registry.hw130.omantel.biz/) | ✅ | lands /harbor/projects |
+| gitea | [open](https://gitea.hw130.omantel.biz/) | ✅ | 303 → OIDC → in |
+| pdns-admin | [open](https://pdns-admin.hw130.omantel.biz/) | ❌ 1 click | [OIDC click works](../sessions/2026-06-12/evidence/hw130-sso-pdns-admin-PASS.png) |
+| openbao | [open](https://bao.hw130.omantel.biz/ui/) | ❌ form | zero-click shim ([#3231](https://github.com/openova-io/openova/pull/3231)) rides the console **Open** button — untested today after the roll storm |
 
-| # | Test group | Tested page | Test case (what you do) | What you must see | Result | Evidence |
-|---|---|---|---|---|---|---|
-| **Pillar 1 — Marketplace + voucher onboarding → Organization** |||||||
-| TC-01 | Marketplace storefront | `marketplace.hw130.omantel.biz/` | Open the storefront | "Build your tenant" renders, non-empty, branded | ✅ | wave-4 verifier: "Build Your Tenant — OpenOva SME", 6-step wizard, 14 apps. `docs/sessions/2026-06-12/evidence/hw130-funnel-2-marketplace.png` |
-| TC-02 | Operator issues voucher | `console.hw130.omantel.biz/bss/vouchers` | Operator: +Issue voucher → code+credit → submit | Voucher appears in the table, active | ✅ | WALKMART2026, 10 OMR, Active 0/1 → later Exhausted 1/1 (full round-trip). `docs/sessions/2026-06-12/evidence/hw130-funnel-1-bss-voucher.png` |
-| TC-03 | Voucher email | recipient inbox | Open the voucher email | Delivered via the **Sovereign's own SMTP** with the redeem link | ⛔ | cutover is one-way/destructive — not in round-1 scope; needs a dedicated decision + env (TC-15..17) |
-| TC-04 | Redeem voucher | `marketplace.hw130.omantel.biz/redeem/?code=WALKMART2026` | Open the redeem link | "Voucher valid" + OMR credit | ✅ | "Voucher valid — 10 OMR credit". `docs/sessions/2026-06-12/evidence/hw130-funnel-3-redeem.png` |
-| TC-05 | Pick plan | `…/plans` | Pick a plan card | Advances to app picker | ✅ | plan S (5.000 OMR/mo) accepted → app picker (wave-4). |
-| TC-06 | Pick apps | `…/apps` | Select a Postgres-backed app | Advances to setup/extras | ✅ | WordPress selected → advanced (wave-4). |
-| TC-07 | Choose subdomain | `…/addons` | Type a valid subdomain | Pool picker offers a free domain; subdomain accepted | ✅ | walkmart.omani.homes accepted from the pool (wave-4). |
-| TC-08 | Checkout (credit-only) | `…/checkout` | Sign in (email→PIN), confirm | Voucher **credit applied**, no card required | ✅ | see E1 — `docs/sessions/2026-06-12/evidence/hw130-funnel-5-checkout.png` |
-| TC-09 | Organization created | "Your tenant is ready" | Follow the tenant link | Lands on `console.<orgslug>.<pool>` | ✖ | **FUNNEL BREAKS HERE** — see E2 — `docs/sessions/2026-06-12/evidence/hw130-funnel-6-checkout-error.png` |
-| TC-10 | Tenant first login | tenant console | Customer PIN-login | Dashboard renders (Phase 2a) | ✖ | see E3 — `docs/sessions/2026-06-12/evidence/hw130-funnel-7-tenant-console.png` |
-| **Pillar 2 — Multi-region BCP topology chosen at signup** |||||||
-| TC-11 | BCP at signup | `marketplace.hw124.omani.works/bcp` | Choose **active-hot-standby**, pick **two different** regions | Same-region rejected; two distinct regions accepted; provisions BOTH in one pass | ⛔ | cutover is one-way/destructive — not in round-1 scope; needs a dedicated decision + env (TC-15..17) |
-| TC-12 | Cloud view = 2 REAL regions | `console.hw130.omantel.biz/cloud` | Open the Cloud view | **2 regions, 2 clusters with REAL nodes in each** | ✅ | see E4 — `docs/sessions/2026-06-12/evidence/hw130-cloud-graph.png` |
-| **Pillar 3 — Two independent CNPG clusters + region-kill failover** |||||||
-| TC-13 | CNPG pair across regions | `/app/$id` → Topology | CNPG pair placement | Cross-region pair live: primary + replica streaming (canonical expectation: TOPO-cnpg-pair) | ✅ | see E5 |
-| TC-14 | Region-kill failover | data plane | Kill primary region | Failover, 0 tx lost | ✅ | see E6 — `docs/sessions/2026-06-11/hw128-region-kill-walk-PASS.md` |
-| **Pillar 5 — Sovereign independence (`bp-self-sovereign-cutover`)** |||||||
-| TC-15 | Trigger cutover | `console.hw101.<dom>/settings` → Sovereignty | "Soft-tethered" → tap "Achieve True Sovereignty" → confirm | Progress card; 8 tether-pivot steps advance | ⛔ | cutover is one-way/destructive — not in round-1 scope; needs a dedicated decision + env (TC-15..17) |
-| TC-16 | Egress-block proof | progress card | Wait through the final step | **10-min deny-egress** hold vs github.com/ghcr.io/harbor.openova.io; stays green → badge **"Independent"**, `cutoverComplete=true` | ⛔ | cutover is one-way/destructive — not in round-1 scope; needs a dedicated decision + env (TC-15..17) |
-| TC-17 | Post-cutover resilience | tenant console + an app | PIN-login + tap **Open** | Both still work, now pulling exclusively from local Gitea/Harbor | ⛔ | cutover is one-way/destructive — not in round-1 scope; needs a dedicated decision + env (TC-15..17) |
-| **G117 — Application lifecycle (EPIC #2737) — class ≠ instance** |||||||
-| TC-G1a | Catalog class page | `console.hw124.omani.works/catalog/bp-postgres` | Open the CLASS page | **CLASS page** `/catalog/$bp` — instances-list + New-instance only, no single-instance tabs | ✅ | see E7 — `docs/sessions/2026-06-12/evidence/hw130-data-instances-card.png` |
-| TC-G5-cards | **Many-to-many data cards (founder NS-2)** | `/catalog/bp-cnpg` → Data instances | Open the class page | ONE card per live CNPG instance with its Consumers (bindings) table | ✅ | **FOUNDER-DoD ACCEPTED 2026-06-12 (browser, full-page proof): "7 instances"** — cnpg-pair-primary/newapi-pg/openova-flow-pg/pda-pg/pdns-pg/**shared-pg(SHARED badge)**/sme-pg, per-card bindings (#3348 + RBAC #3354). `docs/sessions/2026-06-12/evidence/hw130-7-instance-cards-PROOF.png` |
-| TC-G6-jobs-region | **Jobs region visibility (founder hw126 report)** | `/jobs` | Open the jobs page | ✅ | COMPLETE: #3364 handover jobs-export shipped 127/127 rows to the chroot (region-b included, retry absorbed the mid-roll 503s); Region column LIVE on /jobs (screenshot `docs/sessions/2026-06-12/evidence/hw130-jobs-page-postimport.png`). New defect found by the walk: search crashes on imported rows → #3367. |
-| TC-G1b | Instance page ≠ class | `/apps` → Deployments tab → click an instance | Click an instance | **INSTANCE page** `/app/$id` — that one instance only; **NO "New instance"**; the two clicks NEVER open the same page | ⛔ | cutover is one-way/destructive — not in round-1 scope; needs a dedicated decision + env (TC-15..17) |
-| TC-G2 | Multi-instance children | `/catalog/$bp` | "+ New instance" ×3, distinct names | All accepted, no collision; class page lists all N, each → its own `/app/$id` | ◑ / ⛔ | cutover is one-way/destructive — not in round-1 scope; needs a dedicated decision + env (TC-15..17) |
-| TC-G4 | Endpoints tab editable | `/app/$id` → Endpoints | Add alias / edit / delete | EDITABLE; each mutation → Git-IaC PR (3 checks) → auto-merge → new FQDN serves TLS+SSO ≤2 min | ⛔ | cutover is one-way/destructive — not in round-1 scope; needs a dedicated decision + env (TC-15..17) |
+## 2. Admin by default — emrah.baysal administrates each app
 
-### Evidence notes — §1
+| App | Try it | Now | Proof |
+|---|---|---|---|
+| gitea | [/admin](https://gitea.hw130.omantel.biz/admin) | ✅ | [shot](../sessions/2026-06-12/evidence/hw130-admin2-gitea.png) |
+| harbor | [users](https://registry.hw130.omantel.biz/harbor/users) | ✅ | [shot](../sessions/2026-06-12/evidence/hw130-admin2-harbor.png) |
+| grafana | [/admin/users](https://grafana.hw130.omantel.biz/admin/users) | ✅ | [shot](../sessions/2026-06-12/evidence/hw130-admin2-grafana.png) |
+| openbao | [access](https://bao.hw130.omantel.biz/ui/vault/access) | ✅ | [shot](../sessions/2026-06-12/evidence/hw130-admin2-openbao.png) |
+| pdns-admin | [users](https://pdns-admin.hw130.omantel.biz/admin/manage-user) | ✅ | [shot](../sessions/2026-06-12/evidence/hw130-admin2-pdns.png) |
 
-- **E1 (TC-08):** real Stalwart PIN 245717 accepted; "Credit available -OMR 10.000, Due now OMR 0.000, ✓ Credit covers this order". `docs/sessions/2026-06-12/evidence/hw130-funnel-5-checkout.png`
-- **E2 (TC-09):** **FUNNEL BREAKS HERE**: org 201 marketplace-side (slug walkmart, status provisioning) + checkout 200 BUT `POST /api/provisioning/start` → **502**; BSS→Tenants "No tenants provisioned yet"; no Organization CR on hw130. `docs/sessions/2026-06-12/evidence/hw130-funnel-6-checkout-error.png`
-- **E3 (TC-10):** `console.walkmart.omani.homes` ERR_CONNECTION_REFUSED; DNS points at stale Hetzner 49.12.16.160, not hw130 (pool wildcard never re-wired). `docs/sessions/2026-06-12/evidence/hw130-funnel-7-tenant-console.png`
-- **E4 (TC-12):** wave-2 verifier: chip "Region 2/2", both region groups with CP+3 workers each, WorkerNode 12/12, Service 153/153. `docs/sessions/2026-06-12/evidence/hw130-cloud-graph.png`
-- **E5 (TC-13):** FULL chain live on hw130 (2026-06-12 ~05:16): mesh rescued post-#3317 (worker datapaths 1/1 both regions), two-stage flip self-assembled primary+replica, own-cluster netpol fix (#3322) unwedged the join, `pg_stat_replication` = 1 STREAMING cross-region. Self-healed zero-touch from the chart pins.
-- **E6 (TC-14):** PASSED live on hw128 2026-06-11 (3s promote, zero data unavailability): `docs/sessions/2026-06-11/hw128-region-kill-walk-PASS.md`. Not re-run on hw130 (destructive; hw128 proof stands).
-- **E7 (TC-G1a):** wave-2: /catalog/bp-cnpg renders the CLASS page (Data-instances panel + Instance + topologies; no instance tabs). `docs/sessions/2026-06-12/evidence/hw130-data-instances-card.png`
+## 3. Postgres — instances + cards
 
-## 2. PER-APP SSO single-click login — ONE ROW PER `ssoEnabled` app
+| Check | Try it | Now | Proof |
+|---|---|---|---|
+| 3 shared instances live | — | ✅ | kubectl: `shared-pg`, `shared-pg-b`, `shared-pg-c` healthy 13:23Z |
+| 1 card per instance | [cards](https://console.hw130.omantel.biz/catalog/bp-cnpg) | ✅ | [7-card shot](../sessions/2026-06-12/evidence/hw130-7-instance-cards-PROOF.png) (pre-b/c; now renders 9) |
+| gitea+harbor ON shared-pg | — | ✅ | 110+49 tables on the engine |
+| keycloak+grafana on shared | — | ❌ | flips merged ([#3366](https://github.com/openova-io/openova/pull/3366)), live adoption unverified |
+| pdns/pda/sme on shared | — | ❌ | declared ready-to-adopt only |
 
-> **The founder's #1 demand: an explicit single-click-login row for gitea, openbao, grafana, and every other ssoEnabled app — never a generic "works for grafana/gitea/harbor/openbao" row.**
->
-> Extracted from `spec.endpoints[].ssoEnabled: true` + `spec.sso` (`realm`, `silentLogin: true`) in each `platform/<app>/blueprint.yaml`. **24 ssoEnabled blueprints, 26 ssoEnabled endpoints** (opensearch + catalyst-platform each expose two). The "Open" button replaces the raw endpoint URL on every `ssoEnabled` endpoint with `launchDefault: true`; the URL carries `prompt=none&kc_idp_hint=catalyst-pin` so the new tab lands **already signed in** — no login form, no second click. Realm is `sovereign` for Tier-1/Tier-2 control-plane apps and per-Org `{{.OrgSlug}}` for Tier-3 tenant apps (#2744). Tenant-app rows are walked from the **tenant** console `console.<orgslug>.<pool>`.
+## 4. Multi-region
 
-### 2.0a ADMIN-BY-DEFAULT (founder NS-3: "emrah.baysal administrates the apps by default — prove surfing the admin panels")
-
-| App | Verdict | Evidence |
+| Check | Now | Proof |
 |---|---|---|
-| gitea | ✅ | /admin Site Administration full sidebar (was Forbidden). `docs/sessions/2026-06-12/evidence/hw130-admin2-gitea.png` |
-| harbor | ✅ | Administration nav + Users grid (was absent). `hw130-admin2-harbor.png` |
-| grafana | ✅ | Org **Admin** + server /admin/users renders (was Viewer). `hw130-admin2-grafana.png` |
-| openbao | ✅ | /ui/vault/access auth-methods (held). `hw130-admin2-openbao.png` |
-| pdns-admin | ✅ | Administration sidebar + Users table, Role=Administrator — caveat: first-user-auto-admin, not group mapping (would not generalize to a 2nd admin; banked). `hw130-admin2-pdns.png` |
+| mesh both regions | ✅ | 1/1 remote ready |
+| cross-region sync replication | ✅ | `pg_stat_replication` streaming/sync |
+| region-kill survives, 0 loss | ✅ | [hw128 walk](../sessions/2026-06-11/hw128-region-kill-walk-PASS.md) |
+| gitea/openbao/etc per-app multi-region | ❌ | not executed — [#2745](https://github.com/openova-io/openova/issues/2745) |
 
-**Score 5/5 (baseline 1/5)** — keycloak 1.4.26 `sovereign-admins` seeding + per-app group keying; elevation syncs at login (proven: gitea's stale session lacked the menu until re-login).
+## 5. Jobs
 
-### 2.0 ROOT-URL zero-click (the founder acceptance — app's own URL → signed in, zero clicks)
+| Check | Try it | Now | Proof |
+|---|---|---|---|
+| both regions listed | [jobs](https://console.hw130.omantel.biz/jobs) | ✅ | [shot](../sessions/2026-06-12/evidence/hw130-jobs-page-postimport.png) — 127 rows incl. 60 region-b |
+| search box | same | ❌ crashes | [#3367](https://github.com/openova-io/openova/issues/3367) |
 
-> **Standard note (2026-06-12):** every prior §2.1 SSO row was verified via the console **Launch** path; this section tracks the stricter **root-URL** standard — the user types the app's own URL into the browser and lands signed in with zero clicks.
+## 6. Funnel — voucher → running tenant
 
-| # | App | Test case | What you must see | Result | Evidence / status |
-|---|---|---|---|---|---|
-| ROOT-grafana | grafana | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ✅ | browser-proven 2026-06-12 — `docs/sessions/2026-06-12/evidence/hw130-grafana-root-zeroclick-PROOF.png` (chart 1.0.9 `auto_login`) |
-| ROOT-harbor | harbor | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ✅ | lands `/harbor/projects` zero-click (`primary_auth_mode`, 1.2.30) |
-| ROOT-gitea | gitea | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ✅ | three stacked fixes shipped+rolled (gateway redirect #3343, port-443 #3344, LANDING_PAGE=login #3347): anon root → 303 /user/login → 302 OIDC → signed in. Wire verdict 2026-06-12. |
-| ROOT-pdns-admin | pdns-admin | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ✅ | /login → 302 → /oidc/login at :443 (#3343+#3344 rolled); 1-click OIDC chain previously browser-proven (hw130-sso-pdns-admin-PASS.png). Wire verdict 2026-06-12. |
-| ROOT-openbao | openbao | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ✖ | upstream popup-only UI contract — 2-click first login, 0-click returns; upstream filing |
+| Step | Try it | Now | Proof |
+|---|---|---|---|
+| issue voucher | [BSS](https://console.hw130.omantel.biz/bss) | ✅ | [shot](../sessions/2026-06-12/evidence/hw130-funnel-1-bss-voucher.png) |
+| marketplace + redeem + PIN checkout | [marketplace](https://marketplace.hw130.omantel.biz/) | ✅ | [shots 2-5](../sessions/2026-06-12/evidence/hw130-funnel-5-checkout.png) |
+| tenant actually provisions | — | ❌ | one unbuilt wire — [#3319](https://github.com/openova-io/openova/issues/3319) |
 
-### 2.1 Tier-1 — sovereign-realm control-plane (4) — #2744 already-wired
+## 7. vClusters — every app in dmz/mgmt/rtz
 
-| # | Tested page | Test case | What you must see | Result | Evidence |
-|---|---|---|---|---|---|
-| SSO-grafana | `/app/bp-grafana` (instance) | Click **Open** | New tab lands in **Grafana** ALREADY signed in — silent OIDC, **NO** login form, **NO** second click. Realm=`sovereign` (full expectation: see E8) | ✅ | see E8 — `docs/sessions/2026-06-12/evidence/hw130-sso-grafana.png` |
-| SSO-gitea | `/app/bp-gitea` (instance) | Click **Open** | New tab lands in **Gitea** ALREADY signed in — silent OIDC, NO login form. Realm=`sovereign` (quirk detail: see E9) | ✅ | see E9 — `docs/sessions/2026-06-12/evidence/hw130-sso-gitea.png` |
-| SSO-harbor | `/app/bp-harbor` (instance, `ui` endpoint) | Click **Open** | New tab lands in **Harbor** ALREADY signed in — silent OIDC, NO login form. Realm=`sovereign` (quirk + registry-endpoint detail: see E10) | ✅ | see E10 — `docs/sessions/2026-06-12/evidence/hw130-sso-harbor.png` |
-| SSO-openbao | `/app/bp-openbao` (instance, `api` endpoint) | Click **Open** | New tab lands in **OpenBao** ALREADY signed in via OIDC — Realm=`sovereign`, `default_role=operator` (cap-library quirk: see E11) | ✅ | see E11 — `docs/sessions/2026-06-12/evidence/hw130-sso-openbao.png` |
+| Check | Now | Proof |
+|---|---|---|
+| zone declared for all apps | ✅ | 0 undeclared |
+| apps running inside | ❌ 4/48 | coraza, sandbox, +LGTM merged ([#3361](https://github.com/openova-io/openova/pull/3361)) |
+| carve-outs (4 apps) | awaiting founder | [#2745](https://github.com/openova-io/openova/issues/2745) |
 
-### Evidence notes — §2.1
+## 8. Console + env
 
-- **E8 (SSO-grafana)** — *Full expectation:* New tab lands in **Grafana** ALREADY signed in — silent OIDC (`prompt=none&kc_idp_hint=catalyst-pin`), **NO** login form, **NO** second click. Realm=`sovereign`. Roles mapped from KC groups (`grafana-editors`→editor, `grafana-viewers`→viewer, `sovereign-admins`→admin). *Evidence:* wave-3 verifier: console Open → lands in Grafana authenticated (avatar, no form, no PIN). SILENT, 1 click total. `docs/sessions/2026-06-12/evidence/hw130-sso-grafana.png`
-- **E9 (SSO-gitea)** — *Full expectation:* New tab lands in **Gitea** ALREADY signed in — silent OIDC, NO login form. Realm=`sovereign`. **Quirk:** silent delegation rides the sovereign-realm IDR `defaultProvider=catalyst-pin` (fires with OR without the hint — verified live). gitea's `openidConnect` provider 307s the browser straight to KC's authorize endpoint built from the **persisted discovery URL** (it IGNORES `--custom-auth-url` — the prior "custom-url-mapping carries the hint" note was wrong). *Evidence:* wave-3: oauth2 entry → logged-in dashboard "emrah.baysal - Dashboard", ZERO clicks. `docs/sessions/2026-06-12/evidence/hw130-sso-gitea.png`
-- **E10 (SSO-harbor)** — *Full expectation:* New tab lands in **Harbor** ALREADY signed in — silent OIDC, NO login form. Realm=`sovereign`. **Quirk:** silent SSO rides Harbor's `oidc_extra_redirect_parms` config field set to `{"kc_idp_hint":"catalyst-pin"}` by the configure-oauth Job (`platform/harbor/chart`). (The 2nd `registry` endpoint is `ssoEnabled: false` — OCI clients use robot accounts, **no** Open button there.) *Evidence:* wave-3: lands /harbor/projects as emrah.baysal@openova.io, ZERO clicks. `docs/sessions/2026-06-12/evidence/hw130-sso-harbor.png`
-- **E11 (SSO-openbao)** — *Full expectation:* New tab lands in **OpenBao** ALREADY signed in via OIDC — Realm=`sovereign`, `default_role=operator`. **Quirk:** OpenBao's `api` endpoint is `visibility: private`; silent SSO does **NOT** ride a `prompt=none` URL param — the hashicorp/cap library (`builtin/credential/jwt/path_oidc.go createOIDCRequest`) builds the `auth_url` server-side and exposes **no** query-param knob, so silent login is delivered **only** by the KC realm IDR `defaultProvider=catalyst-pin` (NOT by URL hint). Must still land signed-in with no KC login form. *Evidence:* wave-3: 2 in-app clicks (Method→OIDC + provider button — the documented cap-library quirk, #3226 shim still open), then silent → /ui/vault/secrets. `docs/sessions/2026-06-12/evidence/hw130-sso-openbao.png`
-
-### 2.2 Tier-2 — sovereign-realm operator-facing (4) — #2744 federate-to-sovereign
-
-| # | Tested page | Test case | What you must see | Result | Evidence |
-|---|---|---|---|---|---|
-| SSO-guacamole | `/app/bp-guacamole` (instance) | Click **Open** | New tab lands in **Guacamole** ALREADY signed in — silent OIDC, NO login form. Realm=`sovereign` (`sovereign-admins`→admin). | ✅ | see E12 — `docs/sessions/2026-06-12/evidence/hw130-sso-guacamole.png` |
-| SSO-powerdns-admin | `/app/bp-powerdns-admin` (instance) | Click **Open** | New tab lands in **PowerDNS-Admin** ALREADY signed in — silent OIDC, NO login form. Realm=`sovereign`. Endpoint `visibility: private` (operator-only). | ✅ | see E13 — `docs/sessions/2026-06-12/evidence/hw130-sso-pdns-admin-PASS.png` |
-| SSO-netbird | `/app/bp-netbird` (instance) | Click **Open** | New tab lands in **NetBird** dashboard ALREADY signed in — silent OIDC, NO login form. Realm=`sovereign` (`sovereign-admins`→admin). | ⛔ | not deployed on hw130 (kubectl: netbird ns empty; wave-6) |
-| SSO-spire | `/app/bp-spire` (instance) | Click **Open** | **⛔ #3084-BLOCKED:** `platform/spire` has no `spec.sso` block / no KC OIDC client → no Open button today (full analysis: see E14) | ⛔ | not deployed on hw130 + no UI endpoint (wave-6) |
-
-### Evidence notes — §2.2
-
-- **E12 (SSO-guacamole):** wave-3: /guacamole/ → logged-in home as emrah.baysal@openova.io, ZERO clicks (root `/` still 404 — known residue). `docs/sessions/2026-06-12/evidence/hw130-sso-guacamole.png`
-- **E13 (SSO-powerdns-admin):** RE-WALKED on healed ingress (post-#3301 cp1 fix): ONE click on "Sign in using OpenID Connect" → lands /dashboard/ authenticated, fully silent. The wave-6 ✖ was entirely the dead ELB leg (#3323 closed). `docs/sessions/2026-06-12/evidence/hw130-sso-pdns-admin-PASS.png`
-- **E14 (SSO-spire)** — *Full expectation:* **⛔ #3084-BLOCKED:** `platform/spire` is a scaffold chart with **no** `spec.sso` block and **no** Keycloak OIDC client — there is currently NO ssoEnabled endpoint and NO Open button. Expectation once #3084 ships: silent OIDC into the SPIRE console at realm=`sovereign` (or explicit de-scope, since SPIRE is SPIFFE machine-identity, not human login). Until #3084: this row is **⛔ blocked**, not a pass.
-
-### 2.3 Tier-3 — per-Org-realm tenant apps (realm=`{{.OrgSlug}}`) — #2744 2-hop broker
-
-> Walked from the **tenant** console after Org onboarding. Each Org gets its own KC realm with a Keycloak-OIDC IdP federated to the `sovereign` realm broker (decision #6). `prompt=none&kc_idp_hint=catalyst-pin` on every Open.
-
-| # | Tested page | Test case | What you must see | Result | Evidence |
-|---|---|---|---|---|---|
-| SSO-opensearch-dashboards | `/app/bp-opensearch` (instance, `dashboards` endpoint) | Click **Open** | New tab lands in **OpenSearch Dashboards** ALREADY signed in — silent OIDC, NO login form. Realm=`{{.OrgSlug}}` (`opensearch-admins`→admin, `opensearch-users`→user). | ⛔ | gated on a TENANT Org existing — the funnel handoff is the open seam (#3319); walk from the tenant console once it lands |
-| SSO-opensearch-api | `/app/bp-opensearch` (instance, `api` endpoint) | Inspect the `api` endpoint | `ssoEnabled: true` but `launchDefault: false` — **no** primary Open button (full expectation: see E15) | ⛔ | gated on a TENANT Org existing — the funnel handoff is the open seam (#3319); walk from the tenant console once it lands |
-| SSO-matrix | `/app/bp-matrix` (instance) | Click **Open** | New tab lands in **Matrix** (Element) ALREADY signed in — silent OIDC, NO login form. Realm=`{{.OrgSlug}}`. | ⛔ | gated on a TENANT Org existing — the funnel handoff is the open seam (#3319); walk from the tenant console once it lands |
-| SSO-langfuse | `/app/bp-langfuse` (instance) | Click **Open** | New tab lands in **Langfuse** ALREADY signed in — silent OIDC, NO login form. Realm=`{{.OrgSlug}}`. | ⛔ | gated on a TENANT Org existing — the funnel handoff is the open seam (#3319); walk from the tenant console once it lands |
-| SSO-temporal | `/app/bp-temporal` (instance) | Click **Open** | New tab lands in **Temporal** Web UI ALREADY signed in — silent OIDC, NO login form. Realm=`{{.OrgSlug}}`. | ⛔ | gated on a TENANT Org existing — the funnel handoff is the open seam (#3319); walk from the tenant console once it lands |
-| SSO-librechat | `/app/bp-librechat` (instance) | Click **Open** | New tab lands in **LibreChat** ALREADY signed in — silent OIDC, NO login form. Realm=`{{.OrgSlug}}`. | ⛔ | gated on a TENANT Org existing — the funnel handoff is the open seam (#3319); walk from the tenant console once it lands |
-| SSO-openmeter | `/app/bp-openmeter` (instance) | Click **Open** | New tab lands in **OpenMeter** ALREADY signed in — silent OIDC, NO login form. Realm=`{{.OrgSlug}}`. | ⛔ | gated on a TENANT Org existing — the funnel handoff is the open seam (#3319); walk from the tenant console once it lands |
-| SSO-wordpress-tenant | `/app/bp-wordpress-tenant` (instance) | Click **Open** | New tab lands in **WordPress** (wp-admin) ALREADY signed in — silent OIDC, NO login form. Realm=`{{.OrgSlug}}`. Hostname is per-instance `{{.AppName}}.{{.OrgSlug}}.<sov>`. | ⛔ | gated on a TENANT Org existing — the funnel handoff is the open seam (#3319); walk from the tenant console once it lands |
-| SSO-vllm | `/app/bp-vllm` (instance) | Click **Open** | New tab lands in **vLLM** UI ALREADY signed in — silent OIDC, NO login form. Realm=`{{.OrgSlug}}`. | ⛔ | gated on a TENANT Org existing — the funnel handoff is the open seam (#3319); walk from the tenant console once it lands |
-| SSO-kserve | `/app/bp-kserve` (instance) | Click **Open** | New tab lands in **KServe** UI ALREADY signed in — silent OIDC, NO login form. Realm=`{{.OrgSlug}}`. | ⛔ | gated on a TENANT Org existing — the funnel handoff is the open seam (#3319); walk from the tenant console once it lands |
-| SSO-livekit | `/app/bp-livekit` (instance) | Click **Open** | New tab lands in **LiveKit** UI ALREADY signed in — silent OIDC, NO login form. Realm=`{{.OrgSlug}}`. | ⛔ | gated on a TENANT Org existing — the funnel handoff is the open seam (#3319); walk from the tenant console once it lands |
-| SSO-llm-gateway | `/app/bp-llm-gateway` (instance) | Click **Open** | New tab lands in **LLM Gateway** UI ALREADY signed in — silent OIDC, NO login form. Realm=`{{.OrgSlug}}`. | ⛔ | gated on a TENANT Org existing — the funnel handoff is the open seam (#3319); walk from the tenant console once it lands |
-| SSO-flink | `/app/bp-flink` (instance) | Click **Open** | New tab lands in **Flink** dashboard ALREADY signed in — silent OIDC, NO login form. Realm=`{{.OrgSlug}}`. | ⛔ | gated on a TENANT Org existing — the funnel handoff is the open seam (#3319); walk from the tenant console once it lands |
-| SSO-neo4j | `/app/bp-neo4j` (instance, `browser` endpoint) | Click **Open** | New tab lands in **Neo4j Browser** ALREADY signed in — silent OIDC, NO login form. Realm=`{{.OrgSlug}}`. (The `bolt` endpoint is `ssoEnabled: false` — driver auth, no Open button.) | ⛔ | gated on a TENANT Org existing — the funnel handoff is the open seam (#3319); walk from the tenant console once it lands |
-| SSO-litmus | `/app/bp-litmus` (instance) | Click **Open** | New tab lands in **LitmusChaos** ALREADY signed in — silent OIDC, NO login form. Realm=`{{.OrgSlug}}`. (Topology = singleton.) | ⛔ | gated on a TENANT Org existing — the funnel handoff is the open seam (#3319); walk from the tenant console once it lands |
-| SSO-stalwart-tenant | `/app/bp-stalwart-tenant` (instance, `webmail` endpoint) | Click **Open** | New tab lands in **Stalwart webmail** ALREADY signed in — silent OIDC. Realm=`{{.OrgSlug}}` (smtp/imap detail: see E16) | ⛔ | gated on a TENANT Org existing — the funnel handoff is the open seam (#3319); walk from the tenant console once it lands |
-
-### Evidence notes — §2.3
-
-- **E15 (SSO-opensearch-api)** — *Full expectation:* `api` endpoint is `ssoEnabled: true` but `launchDefault: false` — **no** primary Open button (Dashboards is the launch target); API auth still OIDC-bearer at realm=`{{.OrgSlug}}`.
-- **E16 (SSO-stalwart-tenant)** — *Full expectation:* New tab lands in **Stalwart webmail** ALREADY signed in — silent OIDC, NO login form. Realm=`{{.OrgSlug}}`. (The `smtp`/`imap` endpoints are `ssoEnabled: false` — protocol auth, no Open button.)
-
-### 2.4 Non-SSO / no-Open endpoints — negative-assertion (must NOT show an Open button)
-
-> Extracted apps whose front-door endpoint is `ssoEnabled: false` or that have **no** Keycloak login surface — the React console must **not** render an Open silent-SSO button for these.
-
-| # | Tested page | Test case | What you must see | Result | Evidence |
-|---|---|---|---|---|---|
-| SSO-neg-keycloak | `/app/bp-keycloak` → Endpoints | Inspect `ui`/`auth` endpoint | Keycloak's own `ui` endpoint is `ssoEnabled: false` (it IS the IdP) — **no** silent-SSO Open button; the KC admin console is a direct login. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| SSO-neg-hubble | `/app/bp-cilium` → Endpoints | Inspect `hubble` endpoint | Hubble UI endpoint exists (`hubble.<sov>`, `visibility: private`) but is **NOT** `ssoEnabled` in the blueprint → **no** Open silent-SSO button today. (Founder named hubble; current blueprint carries no `sso` block — documented gap, not a pass.) | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| SSO-neg-wire | `/app/bp-{strimzi,valkey,ferretdb,clickhouse,milvus,iceberg,stunner}` → Endpoints | Inspect the wire/grpc/turn endpoint | Protocol-only endpoints, `ssoEnabled: false` → **no** Open button (full expectation: see E17) | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| SSO-neg-registry | `/app/bp-harbor` → `registry` endpoint | Inspect `registry` endpoint | `registry.<sov>` is `ssoEnabled: false` — docker/OCI robot-account auth, **no** Open button (Harbor `ui` is the SSO surface — covered by SSO-harbor). | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-
-### Evidence notes — §2.4
-
-- **E17 (SSO-neg-wire)** — *Full expectation:* These expose only protocol endpoints (`kafka`/`valkey`/`db`/`grpc`/`catalog`/`turn`) with `ssoEnabled: false` → **no** Open button; clients authenticate at the wire protocol, not via browser SSO.
-
-## 3. PER-APP topology — ONE ROW PER app carrying a non-trivial topology
-
-> **The founder's #2 demand: an app-by-app topology view (openbao topology view named explicitly) — never a generic claim.**
->
-> Extracted from `spec.topology.defaults.multi-region` in each `platform/<app>/blueprint.yaml`. Walked on a **2-region** Sovereign (hw101): install the app, open `/app/$id` → **Topology tab** (`products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx`), read the placement + `perCluster[]` and confirm it matches the declared `spec.topology`. Counts match the audit: **10 active-hot-standby / 14 active-active / 20 active-passive / 44 singleton.**
->
-> Topology → expectation mapping:
-> - **active-active** → N active HRs, **one per region**, both serving live traffic (load-balanced).
-> - **active-hot-standby** → 2 HRs: primary **active** + secondary **passive/warm** kept in sync, promotes on region-kill.
-> - **active-passive** → primary **active** + secondary **cold/warm** standby (DR target; not serving until promoted).
-> - **singleton** → **1** HR on the primary cluster only; **region-kill loses it** until restored (Velero).
-
-### 3.1 active-hot-standby (10) — each individually
-
-> **⛔ GAP ANALYSIS — all 10 active-hot-standby rows are gated on a 2-region prov (2026-06-10, live kubectl).** The "active-hot-standby" target = primary **active** + secondary **warm standby** kept in sync via a `bp-cnpg-pair` CNPG `ReplicaCluster` over Cilium ClusterMesh, with `bp-continuum` promote + PowerDNS flip on region-kill. **Current state on hw124:** every app runs its **single-region primary only** — `kubectl get clusters.postgresql.cnpg.io -A` shows the per-app primaries healthy (gitea→`gitea/gitea-pg`, harbor→`harbor/harbor-pg`, both 2-instance same-cluster; keycloak/grafana/guacamole/catalyst-platform back onto the catalyst-platform PG), but **0 clusters have `replica.enabled=true`** and **all nodes are in `me-east-215-a` (1 region)**. So the *standby half* of every active-hot-standby agreement is physically absent. **Remediation (Flux-native, no controller):** a fresh **2-region** prov with `SOVEREIGN_ENABLE_CNPG_PAIR=true` → bp-cnpg-pair renders the region-B `ReplicaCluster` (`spec.replica.enabled=true`, `primary:` → region-A source) synced over ClusterMesh; the blueprint side is verified-ready (#3189 B: 9/9 cnpg-pair refs, 0 drift; continuum-controller Running via #3204). **These rows cannot move past ☐/⛔ without that prov — it is physics (no region B → no warm standby), tracked on #3195.** The blueprint declarations themselves are confirmed correct; what's missing is the live 2-region substrate.
-
-| # | Tested page | Test case | What you must see | Result | Evidence |
-|---|---|---|---|---|---|
-| TOPO-catalyst-platform | `/app/bp-catalyst-platform` → Topology | Read placement | **active-hot-standby** → primary `mgmt-A` active + `mgmt-B` warm standby (Catalyst CRDs + PG via bp-cnpg-pair); `bp-continuum` flips PowerDNS for `console.<sov>`/`api.<sov>` on region-kill. `perCluster[]` shows 2 mgmt clusters. | ✖ | see E18 — `docs/sessions/2026-06-12/evidence/hw130-topo2-bp-catalyst-platform.png` |
-| TOPO-keycloak | `/app/bp-keycloak` → Topology | Read placement | **active-hot-standby** → `mgmt-A` active + `mgmt-B` passive; PG via bp-cnpg-pair sync; DNS flip `auth.<sov>` ~30s on promote. | ✅ | wave-6: same placement editor renders; same Live-status 404 caveat. `docs/sessions/2026-06-12/evidence/hw130-topo-keycloak.png` |
-| TOPO-gitea | `/app/bp-gitea` → Topology | Read placement | **active-hot-standby** → primary HR active + secondary passive (sync); PG via bp-cnpg-pair, Git blobs on SeaweedFS S3; flip `gitea.<sov>`. | ✖ | walked (1 #3301 retry): same projection-gap shape despite declared active-hotstandby. `docs/sessions/2026-06-12/evidence/hw130-topo2-bp-gitea.png` |
-| TOPO-grafana | `/app/bp-grafana` → Topology | Read placement | **active-hot-standby** → 2 HRs: primary active + secondary passive (sync); Grafana DB on bp-cnpg-pair; flip `grafana.<sov>` ~30s. | ✅ | see E19 — `docs/sessions/2026-06-12/evidence/hw130-topo-grafana.png` |
-| TOPO-harbor | `/app/bp-harbor` → Topology | Read placement | **active-hot-standby** → primary active + secondary passive; PG via bp-cnpg-pair, image blobs on object-storage replication; flip `harbor.<sov>`+`registry.<sov>`. | ✖ | walked: same projection-gap shape. `docs/sessions/2026-06-12/evidence/hw130-topo2-bp-harbor.png` |
-| TOPO-guacamole | `/app/bp-guacamole` → Topology | Read placement | **active-hot-standby** → primary active + secondary passive; PG via bp-cnpg-pair; flip `guac.<sov>` (in-progress remote-desktop sessions drop). | ✖ | walked: same projection-gap shape. `docs/sessions/2026-06-12/evidence/hw130-topo2-bp-guacamole.png` |
-| TOPO-netbird | `/app/bp-netbird` → Topology | Read placement | **active-hot-standby** → primary active + secondary passive; mgmt state in PG via bp-cnpg-pair (candidate CP); flip `netbird.<sov>`. | ✖ | see E20 — `docs/sessions/2026-06-12/evidence/hw130-topo2-bp-netbird.png` |
-| TOPO-spire | `/app/bp-spire` → Topology | Read placement | **active-hot-standby** declared → primary active + secondary passive; SPIRE Server datastore in PG. (SSO is #3084-blocked, but the topology declaration is present and walkable.) | ⛔ | see E21 — `docs/sessions/2026-06-12/evidence/hw130-topo2-bp-spire.png` |
-| TOPO-cnpg-pair | `/app/bp-cnpg-pair` → Topology | Read placement | **active-hot-standby** → canonical Pillar-3 pair: `rtz-A` active + `rtz-B` warm standby, synchronous streaming over ClusterMesh (full: see E22). **Ties TC-13/TC-14.** | ✖ | see E22 — `docs/sessions/2026-06-12/evidence/hw130-topo-cnpg-pair.png` + `hw130-topo-cnpg-pair-post-seed.png` |
-| TOPO-sandbox | `/app/bp-sandbox` → Topology | (OUT of scope) | sandbox declares **active-hot-standby**, but **Sandbox is OUT of scope** for this UAT — row recorded for completeness only, not walked. | ⛔ | Sandbox is OUT of this track's scope (founder 2026-06-11, carved to a separate project) — row retained for completeness only. |
-
-### Evidence notes — §3.1
-
-- **E18 (TOPO-catalyst-platform):** walked: editor renders but single-region checked, regions unchecked, NO perCluster[], Live-status dead ("Loading status…") — the #3188 active-hotstandby projection gap. `docs/sessions/2026-06-12/evidence/hw130-topo2-bp-catalyst-platform.png`
-- **E19 (TOPO-grafana):** wave-6: Topology tab renders the real placement editor (single-region checked; both region clusters listed). Caveat: Live-status panel dead — per-app status API 404s (#3188 note). `docs/sessions/2026-06-12/evidence/hw130-topo-grafana.png`
-- **E20 (TOPO-netbird):** walked: component NOT deployed yet the UI renders a FULL editable AppDetail+Topology (Pending, dead Live-status) — misleading surface, noted on #3188. `docs/sessions/2026-06-12/evidence/hw130-topo2-bp-netbird.png`
-- **E21 (TOPO-spire):** walked: hard "App not found — not part of this deployment" (no Application CR projection; component not deployed). `docs/sessions/2026-06-12/evidence/hw130-topo2-bp-spire.png`
-- **E22 (TOPO-cnpg-pair)** — *Full expectation:* **active-hot-standby** → the canonical Pillar-3 pair: `rtz-A` active + `rtz-B` warm standby, **synchronous** streaming (`remote_apply`) over Cilium ClusterMesh, zero-tx-loss; `bp-continuum` lease + `cnpg promote` + PowerDNS lua-flip `db.<org>.<sov>`. **Ties TC-13/TC-14.** *Evidence:* wave-6: page reads "single-region / no Application CR" with ZERO cross-region reflection while the REAL pair assembles in cnpg ns (instances=2 ready=1, replica joining) — the projection gap (#3188). `docs/sessions/2026-06-12/evidence/hw130-topo-cnpg-pair.png` + POST-SEED re-walk (05:35Z, fresh PIN login): byte-identical panel even with the live Continuum CR in-cluster — the UI reads Application CRs + the 404ing status API, NOT the dr.openova.io CRs; triple-confirmed projection root. `docs/sessions/2026-06-12/evidence/hw130-topo-cnpg-pair-post-seed.png`
-
-### 3.2 active-passive (20) — each individually (incl. openbao, founder-named)
-
-| # | Tested page | Test case | What you must see | Result | Evidence |
-|---|---|---|---|---|---|
-| TOPO-openbao | `/app/bp-openbao` → Topology | Read placement | **active-passive** → Raft primary active + warm standby via async perf-replication. **(Founder named this view explicitly; full expectation: see E23)** | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-stalwart-tenant | `/app/bp-stalwart-tenant` → Topology | Read placement | **active-passive** → primary active + secondary warm; PG via bp-cnpg-pair, mail blobs on tenant S3 replicated; flip `mail.<org>.<sov>`. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-matrix | `/app/bp-matrix` → Topology | Read placement | **active-passive** → primary active + secondary warm; homeserver DB in PG via bp-cnpg-pair, media on S3; flip `matrix.<org>.<sov>`. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-langfuse | `/app/bp-langfuse` → Topology | Read placement | **active-passive** → primary active + secondary warm; traces in PG (bp-cnpg-pair) + ClickHouse; flip `langfuse.<org>.<sov>`. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-temporal | `/app/bp-temporal` → Topology | Read placement | **active-passive** → primary active + secondary warm; history in PG (bp-cnpg-pair) + visibility in OpenSearch; workflows resume from history on promote. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-openmeter | `/app/bp-openmeter` → Topology | Read placement | **active-passive** → primary active + secondary warm; events in ClickHouse + state in PG (bp-cnpg-pair); flip `openmeter.<org>.<sov>`. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-neo4j | `/app/bp-neo4j` → Topology | Read placement | **active-passive** → primary active + read-replica/standby; graph store on PVC, cross-region via backup-restore; promote read-replica or Velero restore. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-wordpress-tenant | `/app/bp-wordpress-tenant` → Topology | Read placement | **active-passive** → primary active + secondary warm; PG via bp-cnpg-pair, media on tenant S3 replicated; flip `<site>.<org>.<sov>`. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-ferretdb | `/app/bp-ferretdb` → Topology | Read placement | **active-passive** → primary active + secondary warm; Mongo-API over PG backend via bp-cnpg-pair (ferretdb itself stateless). | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-valkey | `/app/bp-valkey` → Topology | Read placement | **active-passive** → master + replica; Sentinel-pair across clusters via ClusterMesh; `bp-continuum` Sentinel failover (~5s reconnect). | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-milvus | `/app/bp-milvus` → Topology | Read placement | **active-passive** → primary active + standby queriers; vector index on S3 + metadata in etcd, both replicated. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-flink | `/app/bp-flink` → Topology | Read placement | **active-passive** → jobmanager active + standby (ZK/k8s leader-election); checkpoints on S3 replicated; resumes from last checkpoint. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-debezium | `/app/bp-debezium` → Topology | Read placement | **active-passive** → connector active on primary + restartable on standby reading latest Kafka offset (offsets in bp-strimzi, MM2-replicated). | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-loki | `/app/bp-loki` → Topology | Read placement | **active-passive** → primary active + standby querier; all chunks/index on object-storage (bucket-replicated); flip `loki.<sov>`. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-mimir | `/app/bp-mimir` → Topology | Read placement | **active-passive** → primary active + standby querier; TSDB blocks on object-storage replicated. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-tempo | `/app/bp-tempo` → Topology | Read placement | **active-passive** → primary active + standby querier; traces on object-storage replicated. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-nats-jetstream | `/app/bp-nats-jetstream` → Topology | Read placement | **active-passive** → 3-node JetStream (Raft) active in mgmt + leaf-node tunnel to standby; in-flight msgs drop unless `stream.mirror` enabled. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-newapi | `/app/bp-newapi` → Topology | Read placement | **active-passive** → stateless API active on primary + standby; DNS flip via bp-continuum. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-sso-bridge | `/app/bp-sso-bridge` → Topology | Read placement | **active-passive** → stateless auth bridge active on primary + standby; DNS flip via bp-continuum. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-k8s-ws-proxy | `/app/bp-k8s-ws-proxy` → Topology | Read placement | **active-passive** → stateless WebSocket proxy active + standby; new connections route to standby, in-flight WS drop. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-
-### Evidence notes — §3.2
-
-- **E23 (TOPO-openbao)** — *Full expectation:* **active-passive** → primary **active** (Raft 3-5 replicas) + secondary **warm** standby via async perf-replication; `bp-continuum` runs `vault operator raft transition-to-primary` on the standby; KV reads continue uninterrupted on the replica. `perCluster[]` shows primary + passive. **(Founder named this view explicitly.)**
-
-### 3.3 active-active (14) — each individually
-
-| # | Tested page | Test case | What you must see | Result | Evidence |
-|---|---|---|---|---|---|
-| TOPO-opensearch | `/app/bp-opensearch` → Topology | Read placement | **active-active** → N active HRs, **one per region**, both ingesting; cross-cluster replication (CCR follower catches up from leader). `perCluster[]` shows ≥2 active. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-clickhouse | `/app/bp-clickhouse` → Topology | Read placement | **active-active** → each region runs its own replica of the same shard (native replication via Keeper); both ingest. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-strimzi | `/app/bp-strimzi` → Topology | Read placement | **active-active** → per-cluster Kafka, MirrorMaker2 replicates topics both ways; consumer offset translation via MM2. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-iceberg | `/app/bp-iceberg` → Topology | Read placement | **active-active** → catalog (Hive/REST) active in both; data + table-metadata on S3, data plane reads same S3 from both regions. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-livekit | `/app/bp-livekit` → Topology | Read placement | **active-active** → stateless SFU active in both regions; new rooms route to surviving region (rooms ephemeral). | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-stunner | `/app/bp-stunner` → Topology | Read placement | **active-active** → stateless TURN/STUN relay active in both; new ICE sessions route to surviving region. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-vllm | `/app/bp-vllm` → Topology | Read placement | **active-active** → stateless GPU inference active in both; weights on shared PVC / baked image; new requests route to survivor. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-kserve | `/app/bp-kserve` → Topology | Read placement | **active-active** → stateless model serving active in both; artifacts on S3. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-knative | `/app/bp-knative` → Topology | Read placement | **active-active** → controller active in both; serverless Pods ephemeral; scale-to-zero unaffected. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-librechat | `/app/bp-librechat` → Topology | Read placement | **active-active** → UI stateless active in both; chat history in PG via bp-cnpg-pair. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-llm-gateway | `/app/bp-llm-gateway` → Topology | Read placement | **active-active** → stateless proxy active in both; secrets via External-Secrets. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-anthropic-adapter | `/app/bp-anthropic-adapter` → Topology | Read placement | **active-active** → stateless adapter active in both; DNS load-balanced. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-bge | `/app/bp-bge` → Topology | Read placement | **active-active** → stateless embedding service active in both; model in image. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-nemo-guardrails | `/app/bp-nemo-guardrails` → Topology | Read placement | **active-active** → stateless policy enforcement active in both; policies from Git. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-
-### 3.4 singleton (44) — representative set + coverage-sweep
-
-> Singletons declare **1 HR on the primary cluster only**; region-kill loses the instance until Velero-restored. Representative explicit rows below, then one coverage-sweep row for the remainder.
-
-| # | Tested page | Test case | What you must see | Result | Evidence |
-|---|---|---|---|---|---|
-| TOPO-powerdns-admin | `/app/bp-powerdns-admin` → Topology | Read placement | **singleton** → 1 HR (admin UI state in PG); a cluster failure means edit via another cluster's instance; no cross-cluster sync. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-litmus | `/app/bp-litmus` → Topology | Read placement | **singleton** → 1 HR; chaos experiments are intentionally cluster-scoped; region-kill loses experiment runs. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-seaweedfs | `/app/bp-seaweedfs` → Topology | Read placement | **singleton** (per cluster) → 1 HR primary; within-cluster replicas + erasure coding; cross-cluster is async pull only — **region-kill-loses-it** warning if not replicated. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-cnpg | `/app/bp-cnpg` → Topology | Read placement | **singleton** → 1 HR operator (stateless); the Clusters it manages get their own topology via bp-cnpg-pair. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-cilium | `/app/bp-cilium` → Topology | Read placement | **singleton** (per cluster) → each cluster owns its identity space; ClusterMesh shares endpoint reachability only, not control state. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-velero | `/app/bp-velero` → Topology | Read placement | **singleton** → 1 HR; backup catalog in PVC + blobs on replicated S3; restore is operator-initiated (it IS the DR tool). | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| TOPO-singleton-sweep | each remaining singleton's `/app/$id` → Topology | Walk the rest | **Coverage sweep** for the remaining ~38 singletons — full list + per-app expectations: see E24 | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-
-### Evidence notes — §3.4
-
-- **E24 (TOPO-singleton-sweep)** — *Full expectation:* **Coverage sweep** for the remaining ~38 singletons (alloy, cert-manager(+webhooks), coraza, crossplane(+claims), external-dns, external-secrets(+stores), falco, flux, gateway-api, hcloud-*, kyverno(+policies), network-policies, opentelemetry(+operator), reflector, reloader, sealed-secrets, self-sovereign-cutover, sigstore, syft-grype, trivy, vpa, velero-hcs, qa-app, stalwart-sovereign, bp-*-vcluster, bp-vcluster-helmrepo, cluster-autoscaler-hcloud): each shows **1 HR on the primary cluster only**, no cross-cluster sync, region-kill warning where stateful. `bp-stalwart-sovereign` is **external** (mothership) — no Sovereign placement. `openclaw` is a scaffold with no topology declared yet.
-
-## 4. PER-APP / per-zone vCluster containment
-
-> Each App Blueprint must run **inside** its declared vCluster (mgmt / dmz / rtz), with **only** substrate prerequisites on the host cluster. No App Blueprint may schedule directly on a host node. Walked at `/app/$id` → placement (vCluster column). Grouped by zone; representative apps named per group.
-
-| # | Zone / scope | Apps (representative) | What you must see | Result | Evidence |
-|---|---|---|---|---|---|
-| VC-mgmt | **mgmt** vCluster (control plane) | control-plane apps (bp-catalyst-platform, bp-keycloak, bp-gitea, … — full list: see E25) | Each runs **inside** a `mgmt` vCluster (catalyst-platform `mgmt-A`/`mgmt-B`); none scheduled on the host node. `perCluster[].vcluster` = mgmt. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| VC-rtz | **rtz** vCluster (regulated tenant) | tenant data/app blueprints (bp-cnpg-pair, bp-ferretdb, bp-valkey, … — full list: see E26) | Each runs **inside** the Org's `rtz` vCluster; tenant workloads never touch a host node. `perCluster[].vcluster` = rtz. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| VC-dmz | **dmz** vCluster (DMZ tenant) | tenant Apps placed in the DMZ tier per Org policy (bp-dmz-vcluster host) | DMZ-tier tenant Apps run **inside** the `dmz` vCluster; substrate-only on host. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-| VC-host-substrate | **host** cluster (substrate only) | host-substrate prereqs (bp-cilium, bp-cert-manager, bp-flux, … — full list: see E27) | These ARE the host-substrate prereqs — they run on the host cluster by design (singleton per cluster). **No App-tier Blueprint** (anything in §2/§3.1–§3.3 tenant/CP list) should appear on a host node. | ⛔ | not walked in round-1 — carried to round-2 with the env intact |
-
-### Evidence notes — §4
-
-- **E25 (VC-mgmt)** — *Full apps list:* bp-catalyst-platform, bp-keycloak, bp-gitea, bp-harbor, bp-grafana, bp-openbao, bp-guacamole, bp-netbird, bp-powerdns-admin, bp-spire, bp-loki/mimir/tempo, bp-nats-jetstream, bp-sso-bridge
-- **E26 (VC-rtz)** — *Full apps list:* bp-cnpg-pair, bp-ferretdb, bp-valkey, bp-opensearch, bp-clickhouse, bp-matrix, bp-langfuse, bp-temporal, bp-openmeter, bp-neo4j, bp-stalwart-tenant, bp-wordpress-tenant, bp-milvus, bp-flink, bp-strimzi
-- **E27 (VC-host-substrate)** — *Full apps list:* bp-cilium, bp-cert-manager(+webhooks), bp-flux, bp-gateway-api, bp-crossplane, bp-external-secrets, bp-external-dns, bp-kyverno, bp-sealed-secrets, bp-coraza, bp-falco, bp-vpa, bp-reloader, bp-reflector, bp-opentelemetry, bp-seaweedfs, bp-velero, bp-*-vcluster operators
-
----
-
-## Coverage summary
-
-- **Per-app SSO rows (§2):** 24 ssoEnabled blueprints, **26 ssoEnabled endpoints** → explicit rows. Tier-1 (4): grafana, gitea, harbor, openbao. Tier-2 (4): guacamole, powerdns-admin, netbird, spire(⛔ #3084). Tier-3 (16 endpoints): opensearch×2, matrix, langfuse, temporal, librechat, openmeter, wordpress-tenant, vllm, kserve, livekit, llm-gateway, flink, neo4j, litmus, stalwart-tenant. Plus negative-assertion rows for keycloak/hubble/wire-protocol/registry (no Open button). **catalyst-platform** (console/api) is the console itself — its SSO is exercised by Pillar-1 login, not an Open button.
-- **Per-app topology rows (§3):** every active-hot-standby (10), active-passive (20), active-active (14) app individually; singletons (44) as a representative set + coverage-sweep. Matches the audit's 10 / 20 / 14 / 44.
-- **gitea / openbao / grafana each have BOTH** an explicit SSO row (SSO-gitea, SSO-openbao, SSO-grafana) **and** an explicit topology row (TOPO-gitea, TOPO-openbao, TOPO-grafana). ✔
-- **Gaps flagged (not passes):** spire SSO ⛔ #3084 (scaffold, no OIDC client); hubble has an endpoint but no `sso` block (no Open button today); sandbox topology recorded but OUT of scope.
+| Check | Try it | Now |
+|---|---|---|
+| mothership shows hw130 | [mothership](https://console.openova.io/sovereign) | ✅ ready |
+| dashboard | [open](https://console.hw130.omantel.biz/dashboard) | ✅ (region-a only in treemap) |
+| cloud 2 regions | [open](https://console.hw130.omantel.biz/cloud) | ✅ |
