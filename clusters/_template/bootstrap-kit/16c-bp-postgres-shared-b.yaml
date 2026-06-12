@@ -68,7 +68,7 @@ spec:
       # passwordAliases) + the `uri` key this slot's bindings rely on.
       # 0.1.6 ships the #3370 bootstrapOwned Application-CR
       # self-registration.
-      version: 0.1.6
+      version: 0.1.8
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

@@ -30,7 +30,11 @@ name: bp-valkey
 # values.yaml under `valkey.auth` for the full rationale +
 # follow-up to re-enable auth once bp-newapi mirrors the
 # bp-valkey-generated password.
-version: 1.1.0
+# 1.1.1 — #3370 hotfix: bootstrap Application CR stamps environmentRef +
+#   regions so it admits under BOTH the pre-#3370 CRD (hard-required) and the
+#   #3370 CRD (CEL-waived) — breaks the live upgrade-rollback deadlock that
+#   blocked keycloak->gitea->catalyst-platform on hw130.
+version: 1.1.2
 description: |
   Catalyst-curated Blueprint umbrella chart for Valkey (Redis-compatible
   cache, BSD-3). Depends on the upstream `valkey` chart (Bitnami) as a

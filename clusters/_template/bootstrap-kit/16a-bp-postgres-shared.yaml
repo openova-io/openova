@@ -115,7 +115,7 @@ spec:
       # instance (canonical G117 representation; adoption-guarded,
       # Capabilities-gated) carrying the databases[] Context
       # declarations in spec.parameters.
-      version: 0.1.6
+      version: 0.1.8
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
