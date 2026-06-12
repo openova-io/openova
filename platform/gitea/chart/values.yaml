@@ -80,6 +80,13 @@ gitea:
       # signed in. Git/Flux/API clients are unaffected (token auth).
       service:
         REQUIRE_SIGNIN_VIEW: true
+      # LANDING_PAGE=login: gitea EXEMPTS its home page from
+      # REQUIRE_SIGNIN_VIEW (verified in-pod: anon / = 200), so anonymous
+      # visitors must be steered to /user/login (-> the gateway OIDC
+      # redirect -> signed in). Signed-in users at / get their dashboard
+      # (session checked first) — no loop.
+      server:
+        LANDING_PAGE: login
       oauth2_client:
         ENABLE_AUTO_REGISTRATION: true
         # Use email + username from claims; never email-only (avoids
