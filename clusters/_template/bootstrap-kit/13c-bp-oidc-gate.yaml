@@ -55,7 +55,7 @@ spec:
   dependsOn:
     - name: bp-cilium
     - name: bp-keycloak
-      namespace: mgmt
+      namespace: flux-system
     - name: bp-external-secrets-stores
   chart:
     spec:
