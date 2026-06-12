@@ -77,6 +77,16 @@ compliancePolicies:
       - cert-manager
       - openova-system
       - catalyst
+      # 2026-06-13: ns `sme` is the operator's tenant-provisioning control
+      # plane (provisioning/ferretdb/billing/marketplace/catalog) — same
+      # operator-trust tier as `catalyst`/`mgmt`/`rtz`/`sso-bridge` already
+      # excluded. Its Deployments legitimately MIX a proxied util init
+      # (alpine/k8s) with native openova-io main images; harbor-proxy-pull's
+      # anyPattern requires per-pod homogeneity, so the mix is denied on
+      # reinstall under Enforce (hw130 umbrella install blocked live). It is
+      # NOT tenant workload — it provisions tenants. catalyst-system carries
+      # the same shape (catalyst-api + util inits).
+      - sme
       - kyverno
       - monitoring
       - ingress

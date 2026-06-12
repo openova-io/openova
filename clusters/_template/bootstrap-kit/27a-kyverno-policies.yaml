@@ -95,7 +95,7 @@ spec:
       # images still need the per-chart 11-harbor-proxy fix (a cluster-wide image-
       # rewrite mutate can't know the per-Sovereign Harbor host without re-tethering
       # to the mothership → Pillar 5 violation). See Chart.yaml for the full RCA.
-      version: 1.0.31
+      version: 1.0.32
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno
