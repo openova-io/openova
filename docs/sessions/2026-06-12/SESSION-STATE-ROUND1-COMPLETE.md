@@ -26,3 +26,35 @@
 
 ## Hard-won rules now in memory
 walk-everything-before-any-wipe · wipe pipelines stop before the wipe step · `git diff --check` before committing conflict resolutions · reflector can't chain mirrors + never retries late sources · CNPG never mints managed-role secrets · timeout ≠ dead.
+
+---
+
+# ARC 2 ADDENDUM (2026-06-12 ~06:00-09:30) — round-2, six closures, the dead-leg map
+
+## Round-2 re-walk (post console roll to f2689f3) — 4/4 PASS
+- **#3224 CLOSED**: no Open button on bp-newapi/bp-openova-flow-server; grafana Launch intact (`evidence/hw130-r2-*.png`). Fix #3325: evidence-or-no-button, single deliberate fail-open = catalog-client-unwired.
+- **#3188 card LIVE**: "1 instance · postgres-shared · Ready" (was 0) via #3326's bootstrap-HR projection. Remaining: bindings rows, per-app status-API 404, cnpg-pair reflection (one root: Application-CR-only projection).
+
+## Issues closed this arc (6 total today)
+#3263 (11-gap register, per-gap mapping) · #3189 (acceptance table, all parts verified at source) · #2922 (headline live-verified; remainder → #3195-G6) · #3224 (re-walk) — plus arc-1's #3285 #3225.
+
+## #3195-G6 reduced to ONE design call
+The Continuum CR seed exists in-chart; `CONTINUUM_ENABLED=true` is live (region-derived); the flip is gated on the CRD region pattern (letters-only 4-segment) vs kom4dc's digit codes (`me-east-215-a`). Recommendation on the issue: relax the pattern, carry real codes.
+
+## #3301 — the dead-leg map (top reliability item)
+- Signature: strict 200/503 alternation on api.<fqdn>; survives envoy DS bounce.
+- Eliminated WITH EVIDENCE: stale Endpoints, stale cilium BPF backends (all 4 nodes), route overlap, node→pod TCP, in-cluster member probing (hostport serves only the EIP-DNAT path), **and rotation-side mitigation** — the live HTTPS-monitor experiment took ALL members OFFLINE (Huawei checker sends no SNI) → ~3min self-inflicted outage → rolled back, PR #3328 withdrawn. Honest record on the issue.
+- The compounding-subresource proof: blank OpenBao shell, vendor chunks 503 (`evidence/hw130-openbao-login-oidc-selected.png`) — why browser surfaces fail at compounded rates vs 1-in-N curls; retroactively explains #3323, the funnel "flaps," and the #3226 retries.
+- Next: wire-side member identification (cilium-dbg monitor during external burst / envoy access logs).
+
+## #3226 shim — half-validated live
+auth_url mints server-side (200, PKCE, UI-callback redirect); IDR auto-fires (no KC form). Open question: does the Ember UI accept a full-page callback — blocked 3× by the dead leg; gated on #3301.
+
+## #3319 root cause split
+`provisioning/start` 502 = `sme/provisioning` Init:0/1 forever (`wait-for-cutover-token` — a HANDOVER step; timeout records never hand over). Real residual defects: stale omani.homes wildcard DNS (49.12.16.160), voucher burned on failed provisioning, marketplace-api flaps (likely #3301). Design question for the founder: should converged-but-late envs ever hand over?
+
+## Founder decisions queued
+1. hw130 wipe/keep (holds the only live full topology; #3140's wipe-JSON verdict + a clean prov for #3319 both want a wipe-then-fire window).
+2. Handover-on-timeout policy (#3319/#3277/#3317 family).
+3. Continuum CRD region-pattern relaxation (#3195-G6).
+4. Prioritization: Dragonfly registries + default Grafana dashboards (the two unprioritized hw126 gaps) vs funnel/projection work.
