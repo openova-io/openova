@@ -459,13 +459,25 @@ jobs:
         if: steps.chart.outputs.skip != 'true'
         id: push
         run: |
-          set -e
+          # pipefail: without it the awk tail eats `helm push`'s exit code
+          # and a FAILED push reports green — the job "succeeds", the tag
+          # never lands on GHCR, and the failure surfaces minutes later as
+          # a Sovereign-side HelmChart "chart pull error: not found"
+          # (issue #2859's whole confusion class; bit live twice on
+          # 2026-06-11/12: bp-gitea 1.2.28 + bp-postgres 0.1.4).
+          set -eo pipefail
           name="${{ steps.chart.outputs.name }}"
           version="${{ steps.chart.outputs.version }}"
           # `helm package` writes <chart_name>-<version>.tgz; the chart name
           # already carries the `bp-` prefix per BLUEPRINT-AUTHORING.md §3.
           file="/tmp/charts/${name}-${version}.tgz"
           digest=$(helm push "$file" oci://ghcr.io/openova-io 2>&1 | tee /dev/stderr | awk '/Digest:/{print $2}')
+          # Belt-and-braces: a push that "succeeded" without printing a
+          # digest is also a failure (registry half-write).
+          if [ -z "$digest" ]; then
+            echo "::error::helm push produced no digest for ${name}:${version} — treating as failed publish"
+            exit 1
+          fi
           echo "ref=ghcr.io/openova-io/${name}:${version}" >> "$GITHUB_OUTPUT"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
