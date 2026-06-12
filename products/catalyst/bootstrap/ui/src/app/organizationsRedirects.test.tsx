@@ -30,8 +30,8 @@ const ORGANIZATIONS_REDIRECTS: readonly { path: string; to: string }[] = [
   { path: '/bss/orders', to: '/organizations/billing/orders' },
   { path: '/bss/revenue', to: '/organizations/billing/revenue' },
   { path: '/bss/vouchers', to: '/organizations/billing/vouchers' },
-  { path: '/sme/users', to: '/organizations' },
-  { path: '/sme/roles', to: '/organizations' },
+  // /sme/users + /sme/roles keep live routes until the org-detail
+  // users/roles tabs land — intentionally NOT in the redirect map yet.
   { path: '/sme/tenants/new', to: '/organizations/new' },
   { path: '/parent-domains', to: '/organizations/domains' },
 ]

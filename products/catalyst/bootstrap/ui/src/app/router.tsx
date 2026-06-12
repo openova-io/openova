@@ -107,9 +107,14 @@ import { NotificationsPage } from '@/pages/sovereign/NotificationsPage'
 // scrolling to the Marketplace anchor.
 import { DeploymentsList } from '@/pages/sovereign/DeploymentsList'
 // CreateTenantPage re-mounts as the Organizations internal door at
-// /organizations/new (issue #3378). The SME UsersPage / RolesPage
-// imports were removed with their legacy routes — their people surfaces
-// fold into the org-detail page in a follow-on PR on the #3378 chain.
+// /organizations/new (issue #3378). The SME UsersPage / RolesPage keep
+// their /sme/users + /sme/roles routes for now — their people surfaces
+// fold into the org-detail page's users + roles tabs in a follow-on PR
+// on the #3378 chain, and only THEN do those two paths redirect (the
+// redirect destination must exist first). Until then they render live so
+// no SME-admin people surface regresses.
+import { UsersPage as SMEUsersPage } from '@/pages/sme/UsersPage'
+import { RolesPage as SMERolesPage } from '@/pages/sme/RolesPage'
 import { CreateTenantPage as SMECreateTenantPage } from '@/pages/sme/CreateTenantPage'
 import { SovereigntyPreviewPage } from '@/pages/sovereignty/SovereigntyPreviewPage'
 // qa-loop iter-6 Cluster-A `spa-target-state-routes-missing` —
@@ -1508,15 +1513,27 @@ const consoleInstallBlueprintRoute = createRoute({
  * keeps the bundle a single SPA per [Q-mine-1]/#795 and lets the
  * SME admin deep-link into either page from the welcome email.
  */
-// The legacy /sme/users, /sme/roles, /parent-domains, and
-// /sme/tenants/new route registrations moved to the Organizations menu
-// (issue #3378): their old paths now resolve via
-// consoleOrganizationsRedirectRoutes (→ /organizations + /organizations/
-// new + /organizations/domains), and the create form re-mounts as
-// CreateOrganizationPage at /organizations/new. The SMEUsersPage /
-// SMERolesPage people surfaces fold into the org-detail page's users +
-// roles tabs in a follow-on PR on this chain; until that lands the
-// legacy paths redirect to the directory so no deep-link 404s.
+// Organizations menu move (issue #3378): /parent-domains and
+// /sme/tenants/new now resolve via consoleOrganizationsRedirectRoutes
+// (→ /organizations/domains + /organizations/new), and the create form
+// re-mounts as CreateOrganizationPage at /organizations/new.
+//
+// /sme/users + /sme/roles keep their live routes below for now — their
+// people surfaces fold into the org-detail page's users + roles tabs in
+// a follow-on PR on this chain, and only THEN do those two paths
+// redirect (the destination must exist first). Until then they render
+// live so the SME-admin people surface (and the sme-demo walk) keeps
+// working.
+const consoleSMEUsersRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/sme/users',
+  component: SMEUsersPage,
+})
+const consoleSMERolesRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/sme/roles',
+  component: SMERolesPage,
+})
 
 /* ── Compliance dashboards — chroot Sovereign Console (slice U, #1096) ──
  *
@@ -1683,9 +1700,10 @@ const ORGANIZATIONS_REDIRECTS: readonly OrgRedirect[] = [
   { path: '/bss/orders', to: '/organizations/billing/orders' },
   { path: '/bss/revenue', to: '/organizations/billing/revenue' },
   { path: '/bss/vouchers', to: '/organizations/billing/vouchers' },
-  // SME-admin people surfaces → the org's own page owns its people.
-  { path: '/sme/users', to: '/organizations' },
-  { path: '/sme/roles', to: '/organizations' },
+  // /sme/users + /sme/roles intentionally NOT redirected yet — they keep
+  // live routes until the org-detail users/roles tabs land (the redirect
+  // destination must exist first; redirecting to a non-existent tab would
+  // break the SME-admin people surface + the sme-demo walk).
   { path: '/sme/tenants/new', to: '/organizations/new' },
   // Parent-domain pools → the Organizations Domains home.
   { path: '/parent-domains', to: '/organizations/domains' },
@@ -2225,6 +2243,10 @@ const routeTree = rootRoute.addChildren([
     consoleBlueprintsPublishRoute,
     consoleBlueprintsCurateRoute,
     consoleSettingsRoute,
+    // SME-admin people surfaces — live until the org-detail users/roles
+    // tabs land on the #3378 chain (then /sme/users + /sme/roles redirect).
+    consoleSMEUsersRoute,
+    consoleSMERolesRoute,
     // Compliance dashboards — chroot routes (slice U, #1096).
     consoleSREComplianceRoute,
     consoleSecComplianceRoute,
