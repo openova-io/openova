@@ -1044,12 +1044,23 @@ spec:
   install:
     disableWait: true
     timeout: 30m
+    # #3195-G6 finding (2026-06-12, hw130): helm-controller's CRD
+    # defaults are install=Create, upgrade=SKIP — so every crds/ change
+    # shipped since a Sovereign's install silently never applied (the
+    # 1.4.5xx changelog claim that "Flux re-applies crds/ with
+    # CreateReplace" was aspirational; spec.install/upgrade.crds was
+    # never set). Witnessed live: 1.4.582 UpgradeSucceeded while the
+    # Continuum CRD kept the old region pattern, wedging cnpg-pair
+    # 0.2.3 into RollbackSucceeded on its seed CR. CreateReplace on
+    # BOTH paths makes CRD evolution actually flow.
+    crds: CreateReplace
     remediation:
       retries: -1
       remediateLastFailure: true
   upgrade:
     disableWait: true
     timeout: 30m
+    crds: CreateReplace
     remediation:
       retries: 3
       strategy: rollback
