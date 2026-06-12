@@ -71,6 +71,16 @@ resources:
   #
   # Slot ordering: after bp-cnpg (16, operator + CRDs), before bp-cnpg-
   # pair (16b). Flux dependsOn pins the real install order regardless.
+  #
+  # THREE-INSTANCE MODEL (founder NS-2, Refs #3188): slots 16a + 16c +
+  # 16d are THREE installs of the same bp-postgres chart — engines
+  # shared-pg (gitea + harbor + keycloak), shared-pg-b (grafana +
+  # powerdns + powerdns-admin) and shared-pg-c (the SME mesh) — all
+  # riding the ONE SOVEREIGN_ENABLE_SHARED_PG gate. All three MUST be
+  # registered here: bp-keycloak (09) / bp-gitea (10) / bp-harbor (19)
+  # dependsOn bp-postgres-shared and bp-grafana (25) dependsOn
+  # bp-postgres-shared-b UNCONDITIONALLY, so an authored-but-unlisted
+  # slot file is the #3191 dangling-dependsOn wedge.
   - 16a-bp-postgres-shared.yaml
   # bp-cnpg-pair (slot 16b) — Pillar-3 cross-region DR primitive (#3195,
   # Refs #3189). Primary + replica CNPG Cluster pair across two regions,
@@ -92,6 +102,12 @@ resources:
   # slot's Cluster CRs gate on. See 16b-bp-cnpg-pair.yaml header for the
   # full Pillar-3 dependency analysis + the harbor-proxy-pull image note.
   - 16b-bp-cnpg-pair.yaml
+  # Instances B + C of the three-instance model (see the 16a block
+  # comment above) — HR-only slot files (Namespace + HelmRepository live
+  # in 16a). Same SOVEREIGN_ENABLE_SHARED_PG gate, same empty-Ready
+  # default-OFF shape.
+  - 16c-bp-postgres-shared-b.yaml
+  - 16d-bp-postgres-shared-c.yaml
   - 17-valkey.yaml
   # bp-hcloud-csi (formerly slot 17a) REMOVED 2026-05-17 (Wave 7):
   # the Flux source-controller chart pull went through harbor.t11.* OCI

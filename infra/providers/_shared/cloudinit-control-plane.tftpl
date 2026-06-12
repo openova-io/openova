@@ -449,6 +449,17 @@ write_files:
             SOVEREIGN_GITEA_PG_HOST: "${enable_shared_pg == "true" ? "shared-pg-rw.shared-data.svc.cluster.local" : "gitea-pg-rw.gitea.svc.cluster.local"}"
             SOVEREIGN_GITEA_PG_SECRET: "${enable_shared_pg == "true" ? "gitea-database-secret" : "gitea-pg-app"}"
             SOVEREIGN_HARBOR_PG_HOST: "${enable_shared_pg == "true" ? "shared-pg-rw.shared-data.svc.cluster.local" : "harbor-pg-rw.harbor.svc.cluster.local"}"
+            # #3188 three-instance model: the SAME one-flag contract
+            # extends to instance A's third consumer (keycloak — slot 09
+            # skips its bundled bitnami postgresql + flips to
+            # externalDatabase mode off the keycloak-database-secret hub)
+            # and instance B's grafana (slot 25 envFromSecrets
+            # `grafana-database-env`; optional=false hard-gates the Pod on
+            # the reflector push so grafana can never silently start on
+            # sqlite while sharing is live). Slots 16c/16d (shared-pg-b /
+            # shared-pg-c) ride the SOVEREIGN_ENABLE_SHARED_PG gate above.
+            SOVEREIGN_KEYCLOAK_PG_OWN_CLUSTER: "${enable_shared_pg == "true" ? "false" : "true"}"
+            SOVEREIGN_GRAFANA_DB_SECRET_OPTIONAL: "${enable_shared_pg == "true" ? "false" : "true"}"
             SOVEREIGN_BCP_TOPOLOGY: "${bcp_topology}"
             # SOVEREIGN_REGION_ROLE — this control plane's role in the
             # multi-region topology (primary|secondary). Both providers

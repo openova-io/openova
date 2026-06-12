@@ -1,0 +1,104 @@
+# bp-postgres (shared instance C) — Catalyst bootstrap-kit Blueprint, slot 16d.
+#
+# THREE-INSTANCE MODEL (founder NS-2, Refs #3188): instance C of three.
+# A third install of the SAME bp-postgres chart (slot 16a header has the
+# full model): CNPG Cluster `shared-pg-c` in shared-data carrying the
+# SME microservice mesh (bp-catalyst-platform, slot 13) — READY-TO-ADOPT.
+#
+# The SME mesh today bootstraps its own `sme-pg` Cluster (products/
+# catalyst/chart/templates/sme-services/cnpg-cluster.yaml) with the
+# primary sme_auth database plus sme_billing + sme_documents via initdb
+# postInitApplicationSQL, all owned by ONE role `sme` and gated on
+# marketplace.enabled. This slot declares the SAME shape on shared-pg-c
+# (three Database CRs, one deduped `sme` role — chart 0.1.5 same-owner
+# bindings) so the adoption flip is a per-app follow-up that points the
+# SME services' secret/host values at `sme-database-secret` /
+# shared-pg-c-rw without re-modelling anything. FerretDB (sme_documents)
+# rides the same role.
+#
+# SAFE-BY-DEFAULT: same SOVEREIGN_ENABLE_SHARED_PG gate as 16a/16c — OFF
+# renders ZERO resources (empty Ready release). The shared-data
+# Namespace + the bp-postgres HelmRepository are declared ONCE in 16a;
+# this slot is the HelmRelease only.
+#
+# Wrapper chart: platform/postgres/chart/
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  # bp-postgres-shared-c is the instance-C data-instance HR. The SME
+  # mesh (bp-catalyst-platform) dependsOn THIS post-adoption, per
+  # ADR-0010. releaseName matches instance.name so Cluster + Secrets
+  # are named consistently.
+  name: bp-postgres-shared-c
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "16d"
+    catalyst.openova.io/data-instance: shared-pg-c
+spec:
+  interval: 15m
+  releaseName: shared-pg-c
+  targetNamespace: shared-data
+  # Same edges as 16a/16c.
+  dependsOn:
+    - name: bp-cnpg
+      namespace: flux-system
+    - name: bp-reflector
+      namespace: flux-system
+  chart:
+    spec:
+      chart: bp-postgres
+      # Pinned in lockstep with 16a/16c — see 16a for the chart
+      # changelog. 0.1.5 ships the same-owner binding dedupe + the
+      # underscore-sanitized Database CR names this slot relies on.
+      version: 0.1.5
+      sourceRef:
+        kind: HelmRepository
+        name: bp-postgres
+        namespace: flux-system
+  install:
+    timeout: 15m
+    remediation:
+      retries: -1
+  upgrade:
+    timeout: 15m
+    remediation:
+      retries: 3
+  values:
+    # Same master gate as 16a/16c — one switch for all three instances.
+    enabled: ${SOVEREIGN_ENABLE_SHARED_PG:=false}
+    instance:
+      name: shared-pg-c
+      namespace: shared-data
+      storageSize: 10Gi
+    topology:
+      mode: singleton
+      instances: 1
+    # The SME-mesh bindings: three isolated databases, ONE role `sme`
+    # (chart 0.1.5 dedupes the role + password Secret across same-owner
+    # bindings). Database names mirror smePostgres.cluster.database +
+    # additionalDatabases in products/catalyst/chart/values.yaml so the
+    # adoption flip is a host+secret swap, not a rename.
+    databases:
+      - name: sme_auth          # auth service primary DB
+        owner: sme
+        consumer:
+          blueprint: bp-catalyst-platform
+          mode: shared
+        # One hub Secret for the whole mesh — every SME service shares
+        # the `sme` credentials and derives its own database name.
+        reflect:
+          secretName: sme-database-secret
+          namespaces: [sme]
+      - name: sme_billing       # billing service primary DB
+        owner: sme
+        consumer:
+          blueprint: bp-catalyst-platform
+          mode: shared
+      - name: sme_documents     # FerretDB (MongoDB-wire) backing DB
+        owner: sme
+        consumer:
+          blueprint: bp-catalyst-platform
+          mode: shared

@@ -26,7 +26,11 @@ so the slot 16a HR is an empty Ready release when sharing is disabled.
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:
-  name: {{ printf "%s-%s" (include "bp-postgres.instanceName" $ctx) .name | trunc 63 | trimSuffix "-" }}
+  # `replace "_" "-"` (0.1.5, #3188): Postgres database names legally
+  # carry underscores (sme_auth, sme_billing) but Kubernetes resource
+  # names are RFC-1123 — sanitize the CR name; spec.name keeps the real
+  # database name verbatim.
+  name: {{ printf "%s-%s" (include "bp-postgres.instanceName" $ctx) .name | replace "_" "-" | trunc 63 | trimSuffix "-" }}
   namespace: {{ include "bp-postgres.namespace" $ctx }}
   labels:
     {{- include "bp-postgres.labels" $ctx | nindent 4 }}

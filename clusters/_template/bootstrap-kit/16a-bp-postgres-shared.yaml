@@ -1,28 +1,39 @@
-# bp-postgres (shared instance) — Catalyst bootstrap-kit Blueprint, slot 16a.
+# bp-postgres (shared instance A) — Catalyst bootstrap-kit Blueprint, slot 16a.
 #
-# ADR-0010 reuse proof: ONE shared CNPG Cluster (`shared-pg`) that BOTH
-# bp-harbor and bp-gitea run off, via two ISOLATED databases + two
-# per-consumer roles. This is the reusable, shareable backing-services
-# model proven live: 2 consumers, 1 engine.
+# ADR-0010 reuse proof: ONE shared CNPG Cluster (`shared-pg`) that
+# bp-gitea, bp-harbor AND bp-keycloak run off, via three ISOLATED
+# databases + three per-consumer roles. This is the reusable, shareable
+# backing-services model proven live (gitea+harbor, hw130) — keycloak
+# joins via the same #3283/#3285 hub-secret push pattern.
+#
+# THREE-INSTANCE MODEL (founder NS-2, Refs #3188): this slot is instance
+# A of three. Slots 16c (`shared-pg-b`: grafana + powerdns + powerdns-
+# admin) and 16d (`shared-pg-c`: the SME mesh) are two more installs of
+# the SAME bp-postgres chart, all gated on SOVEREIGN_ENABLE_SHARED_PG.
+# Three engines, 7 consumer applications, 3+3+1.
 #
 # The binding is pure declarative YAML — this HR's values.databases[]
 # renders (in platform/postgres/chart):
 #   - one CNPG Cluster `shared-pg`
-#   - two Database CRs (registry → harbor, gitea → gitea) on it
-#   - two managed.roles (harbor, gitea) on it
-#   - two hub connection Secrets (harbor-database-secret, gitea-database-
-#     secret) in THIS release's namespace (shared-data) carrying reflector
-#     auto-push annotations (#3283) so bp-reflector copies a same-named
-#     Secret into ns harbor / ns gitea once those namespaces appear — each
-#     consumer chart then runs in externalDatabase mode off its own Secret.
+#   - three Database CRs (registry → harbor, gitea → gitea,
+#     keycloak → keycloak) on it
+#   - three managed.roles (harbor, gitea, keycloak) on it
+#   - three hub connection Secrets (harbor-database-secret, gitea-
+#     database-secret, keycloak-database-secret) in THIS release's
+#     namespace (shared-data) carrying reflector auto-push annotations
+#     (#3283) so bp-reflector copies a same-named Secret into ns harbor /
+#     ns gitea / ns keycloak once those namespaces appear — each consumer
+#     chart then runs in externalDatabase mode off its own Secret.
 #     (The hub Secret lives in shared-data, NOT the consumer namespace,
 #     because those namespaces don't exist when this HR installs — creating
 #     the Secret there directly was the FATAL deadlock fixed in 0.1.2.)
 #
 # NO custom controller, NO Crossplane. The CNPG operator (bp-cnpg, slot
 # 16) + Flux reconcile everything. bp-harbor (19) and bp-gitea (10) set
-# postgres.cluster.enabled=false (their own embedded Cluster is skipped)
-# and dependsOn bp-postgres-shared.
+# postgres.cluster.enabled=false (their own embedded Cluster is skipped);
+# bp-keycloak (09) sets keycloak.postgresql.enabled=false (bundled
+# bitnami postgresql skipped, externalDatabase mode on). All three
+# dependsOn bp-postgres-shared.
 #
 # Slot ordering: after bp-cnpg (16, the operator + CRDs), before
 # bp-harbor (19). bp-gitea (10) gates on this via Flux dependsOn
@@ -95,7 +106,11 @@ spec:
       # reflects: pull was dead on two reflector limitations (no retry
       # for late sources; mirrors can't be push sources), proven live
       # hw130. Hub stays the #3283 push source for consumer namespaces.
-      version: 0.1.4
+      # 0.1.5 (#3188 three-instance model): same-owner binding dedupe +
+      # Database-CR-name underscore sanitize + hub `uri` key +
+      # reflect.extraData / reflect.passwordAliases (env-style hub for
+      # grafana). Enables slots 16c/16d as additional chart installs.
+      version: 0.1.5
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -120,10 +135,11 @@ spec:
     # today (the same default-OFF shape as slot 16b SOVEREIGN_ENABLE_HOT_
     # STANDBY / slot 62 CONTINUUM_ENABLED).
     #
-    # TWO-FLAG CONTRACT to actually share a real shared instance: flip
-    # BOTH SOVEREIGN_{GITEA,HARBOR}_PG_OWN_CLUSTER=false (consumer skips
-    # its own Cluster + points DB host at shared-pg) AND
-    # SOVEREIGN_ENABLE_SHARED_PG=true (this slot renders the engine).
+    # ONE-FLAG CONTRACT (#3285/#3309): cloud-init computes the per-
+    # consumer flips (SOVEREIGN_{GITEA,HARBOR,KEYCLOAK}_PG_OWN_CLUSTER=
+    # false → consumer skips its own Cluster + points at shared-pg) from
+    # the SAME enable_shared_pg tofu var that drives this gate, so
+    # SOVEREIGN_ENABLE_SHARED_PG=true is the single switch.
     enabled: ${SOVEREIGN_ENABLE_SHARED_PG:=false}
     instance:
       name: shared-pg
@@ -136,8 +152,9 @@ spec:
     topology:
       mode: singleton
       instances: 1
-    # The two bindings — the reuse proof. Two isolated databases + two
-    # roles on ONE Cluster; each reflected into its consumer's namespace.
+    # The three bindings — the reuse proof. Three isolated databases +
+    # three roles on ONE Cluster; each reflected into its consumer's
+    # namespace.
     databases:
       - name: registry          # harbor's coreDatabase
         owner: harbor
@@ -155,3 +172,18 @@ spec:
         reflect:
           secretName: gitea-database-secret
           namespaces: [gitea]
+      # keycloak (#3188 three-instance model): the bitnami keycloak
+      # subchart flips to externalDatabase mode off this hub Secret —
+      # slot 09 gates its bundled keycloak-postgresql StatefulSet on
+      # SOVEREIGN_KEYCLOAK_PG_OWN_CLUSTER (computed from enable_shared_pg
+      # in cloud-init, same one-flag contract as gitea/harbor). Keycloak
+      # runs Liquibase on first boot, so an empty `keycloak` database is
+      # the correct starting state — no schema bootstrap needed here.
+      - name: keycloak          # keycloak's Liquibase-managed database
+        owner: keycloak
+        consumer:
+          blueprint: bp-keycloak
+          mode: shared
+        reflect:
+          secretName: keycloak-database-secret
+          namespaces: [keycloak]

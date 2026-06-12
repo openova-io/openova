@@ -646,51 +646,60 @@ jobs:
             exit 0
           fi
 
-          # Defensive: refuse to operate if multiple slots reference the
-          # same chart name — bootstrap-kit invariant is one slot per
-          # chart, and a violation would mean the schema changed under
-          # us and the hook would write wrong things.
-          slot_count=$(echo "$pin_file" | wc -l)
-          if [ "$slot_count" -ne 1 ]; then
-            echo "::error title=Multiple bootstrap-kit slots for ${CHART_NAME}::Expected exactly one slot file pinning chart '${CHART_NAME}', found ${slot_count}: $pin_file"
-            exit 1
-          fi
+          # Multiple slots MAY pin the same chart — the #3188 three-
+          # instance model installs bp-postgres at slots 16a/16c/16d
+          # (three data instances of one chart). The lockstep bump
+          # applies to EVERY slot file pinning the chart; the pin-sync
+          # audit (scripts/check-bootstrap-kit-pin-sync.sh) asserts the
+          # same all-pins contract.
+          bumped=false
+          bumped_files=""
+          prev_versions=""
+          for f in $pin_file; do
+            # Read current pin. The HelmRelease.spec.chart.spec.version
+            # is at exactly 6 spaces of indent in every slot (audited
+            # 2026-05-18 across all 51 files). If the shape ever changes
+            # we fail loudly rather than write the wrong line.
+            current=$(awk '/^      version:/{print $2; exit}' "$f" | tr -d '"')
+            if [ -z "$current" ]; then
+              echo "::error title=Unparseable bootstrap-kit pin::No '      version:' line at 6-space indent in $f. The HelmRelease.spec.chart.spec.version shape changed under TBD-A6's auto-bump hook; refusing to write."
+              exit 1
+            fi
 
-          # Read current pin. The HelmRelease.spec.chart.spec.version is
-          # at exactly 6 spaces of indent in every slot (audited 2026-
-          # 05-18 across all 51 files). If the shape ever changes we
-          # fail loudly rather than write the wrong line.
-          current=$(awk '/^      version:/{print $2; exit}' "$pin_file" | tr -d '"')
-          if [ -z "$current" ]; then
-            echo "::error title=Unparseable bootstrap-kit pin::No '      version:' line at 6-space indent in $pin_file. The HelmRelease.spec.chart.spec.version shape changed under TBD-A6's auto-bump hook; refusing to write."
-            exit 1
-          fi
+            if [ "$current" = "$CHART_VERSION" ]; then
+              echo "INFO: ${f} already pins ${CHART_NAME}=${CHART_VERSION} — no-op."
+              continue
+            fi
 
-          if [ "$current" = "$CHART_VERSION" ]; then
-            echo "INFO: ${pin_file} already pins ${CHART_NAME}=${CHART_VERSION} — no-op."
+            echo "Bumping ${f}: ${CHART_NAME} ${current} → ${CHART_VERSION}"
+            # sed targets the single 6-space `      version:` line at the
+            # chart-pin scope. There is exactly one such line per slot
+            # (audited 2026-05-18); the regex is anchored to start-of-line
+            # so a deeper-indented `version:` (e.g. inside .values.xxx)
+            # cannot accidentally match.
+            sed -i -E "s|^      version: .*\$|      version: ${CHART_VERSION}|" "$f"
+
+            # Verify the sed actually flipped the line — defence against
+            # a future indent change shipping silently.
+            new=$(awk '/^      version:/{print $2; exit}' "$f" | tr -d '"')
+            if [ "$new" != "$CHART_VERSION" ]; then
+              echo "::error title=sed failed::After rewrite, ${f} still pins '${new}', expected '${CHART_VERSION}'."
+              exit 1
+            fi
+
+            bumped=true
+            bumped_files="${bumped_files:+${bumped_files} }${f}"
+            prev_versions="${prev_versions:+${prev_versions} }${current}"
+          done
+
+          if [ "$bumped" != "true" ]; then
             echo "bumped=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "Bumping ${pin_file}: ${CHART_NAME} ${current} → ${CHART_VERSION}"
-          # sed targets the single 6-space `      version:` line at the
-          # chart-pin scope. There is exactly one such line per slot
-          # (audited 2026-05-18); the regex is anchored to start-of-line
-          # so a deeper-indented `version:` (e.g. inside .values.xxx)
-          # cannot accidentally match.
-          sed -i -E "s|^      version: .*\$|      version: ${CHART_VERSION}|" "$pin_file"
-
-          # Verify the sed actually flipped the line — defence against
-          # a future indent change shipping silently.
-          new=$(awk '/^      version:/{print $2; exit}' "$pin_file" | tr -d '"')
-          if [ "$new" != "$CHART_VERSION" ]; then
-            echo "::error title=sed failed::After rewrite, ${pin_file} still pins '${new}', expected '${CHART_VERSION}'."
-            exit 1
-          fi
-
           echo "bumped=true" >> "$GITHUB_OUTPUT"
-          echo "pin_file=${pin_file}" >> "$GITHUB_OUTPUT"
-          echo "prev_version=${current}" >> "$GITHUB_OUTPUT"
+          echo "pin_file=${bumped_files}" >> "$GITHUB_OUTPUT"
+          echo "prev_version=${prev_versions}" >> "$GITHUB_OUTPUT"
 
       # ──────────────────────────────────────────────────────────────
       # LOCKSTEP — platform/<bp>/blueprint.yaml `spec.version`

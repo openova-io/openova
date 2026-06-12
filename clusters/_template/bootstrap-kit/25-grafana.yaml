@@ -14,6 +14,7 @@
 #   - bp-mimir (slot 23)        — datasource for metrics.
 #   - bp-tempo (slot 24)        — datasource for traces.
 #   - bp-keycloak (slot 09)     — OIDC IdP for SSO.
+#   - bp-postgres-shared-b (16c) — shared-instance hub Secret (#3188).
 #
 # disableWait: Grafana waits for its CNPG-managed `grafana-app` Secret
 # (synthesised by bp-cnpg via the chart's Cluster CR), and for upstream
@@ -71,6 +72,14 @@ spec:
     # bp-gateway-api (issue #503): chart ships an HTTPRoute template;
     # gateway.networking.k8s.io/v1 CRDs must be registered first.
     - name: bp-gateway-api
+    # bp-postgres-shared-b (#3188 three-instance model): when grafana
+    # SHARES the shared-pg-b instance, gate on it so the grafana Database
+    # + role + reflector-pushed `grafana-database-env` hub Secret exist
+    # before grafana's Deployment references them. Harmless in the
+    # default path — bp-postgres-shared-b is an empty Ready release
+    # within seconds of bp-cnpg + bp-reflector (same unconditional-edge
+    # shape as bp-gitea/bp-harbor → bp-postgres-shared).
+    - name: bp-postgres-shared-b
   chart:
     spec:
       chart: bp-grafana
@@ -113,3 +122,29 @@ spec:
     # fresh Sovereign.
     sso:
       sovereignFqdn: ${SOVEREIGN_FQDN}
+    # ── Shared-instance flip (#3188 three-instance model) ───────────────
+    # The upstream grafana subchart appends this envFrom secretRef to the
+    # Deployment. The hub Secret `grafana-database-env` (slot 16c, chart
+    # bp-postgres 0.1.5) carries grafana's NATIVE env contract —
+    # GF_DATABASE_TYPE/HOST/NAME/USER (reflect.extraData) + the minted
+    # GF_DATABASE_PASSWORD (passwordAliases) — and per grafana's config
+    # precedence env vars override grafana.ini, so injecting it flips
+    # grafana from its sqlite default to the shared-pg-b `grafana`
+    # database with ZERO grafana.ini churn. Grafana migrates its own
+    # schema on first boot.
+    #
+    # The `optional` seam is the safety: cloud-init computes it from the
+    # SAME enable_shared_pg var as the 16a/16c/16d gates (one-flag
+    # contract). Default optional=true → the Secret never exists on a
+    # non-sharing prov and the stanza is provably inert (a secretRef
+    # marked optional on an absent Secret injects nothing). Shared mode
+    # optional=false → kubelet hard-gates the Pod (CreateContainer-
+    # ConfigError, auto-retried) until reflector pushes the Secret, so
+    # grafana can NEVER silently start on sqlite while the binding is
+    # live — the race documented in feedback_netpol_carveouts / #3283 is
+    # closed by construction. envFromSecrets (plural) is used because
+    # envFromSecret (singular) already carries the SSO credentials.
+    grafana:
+      envFromSecrets:
+        - name: grafana-database-env
+          optional: ${SOVEREIGN_GRAFANA_DB_SECRET_OPTIONAL:=true}

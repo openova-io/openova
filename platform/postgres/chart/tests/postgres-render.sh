@@ -178,4 +178,111 @@ on_secret=$(grep -cE '^kind: Secret$' "$TMP/on.yaml" || true)
 [ "$on_db" -eq 2 ]      || fail "enabled=true expected 2 Databases, got $on_db"
 [ "$on_secret" -eq 4 ]  || fail "enabled=true expected 4 Secrets (2 hub + 2 role), got $on_secret"
 
-echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty)"
+# ── Case 8: instance-B shape (#3188 three-instance model) ────────────
+# grafana binding with extraData (static GF_DATABASE_* env keys) +
+# passwordAliases (GF_DATABASE_PASSWORD) + ready-to-adopt pdns + pda
+# bindings. Locks: the env-style hub contract, the `uri` key
+# (powerdns-admin #3189 A3 adoption contract), 3 Databases on ONE
+# shared-pg-b Cluster.
+echo "[render] Case 8: instance-B shape → grafana env-style hub + uri key + 3 Databases on shared-pg-b"
+cat > "$TMP/shared-b.values.yaml" <<'YAML'
+instance:
+  name: shared-pg-b
+  namespace: shared-data
+topology:
+  mode: singleton
+  instances: 1
+databases:
+  - name: grafana
+    owner: grafana
+    consumer: { blueprint: bp-grafana, mode: shared }
+    reflect:
+      secretName: grafana-database-env
+      namespaces: [grafana]
+      extraData:
+        GF_DATABASE_TYPE: postgres
+        GF_DATABASE_HOST: shared-pg-b-rw.shared-data.svc.cluster.local:5432
+        GF_DATABASE_NAME: grafana
+        GF_DATABASE_USER: grafana
+        GF_DATABASE_SSL_MODE: disable
+      passwordAliases: [GF_DATABASE_PASSWORD]
+  - name: pdns
+    owner: pdns
+    consumer: { blueprint: bp-powerdns, mode: shared }
+    reflect: { secretName: pdns-database-secret, namespaces: [powerdns] }
+  - name: pda
+    owner: pda
+    consumer: { blueprint: bp-powerdns-admin, mode: shared }
+    reflect: { secretName: pda-shared-database-secret, namespaces: [powerdns-admin] }
+YAML
+helm template shared-pg-b . -f "$TMP/shared-b.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/shared-b.yaml" 2> "$TMP/shared-b.err" || {
+  cat "$TMP/shared-b.err" >&2; fail "instance-B render errored"; }
+b_cluster=$(grep -cE '^kind: Cluster$' "$TMP/shared-b.yaml" || true)
+b_db=$(grep -cE '^kind: Database$' "$TMP/shared-b.yaml" || true)
+b_secret=$(grep -cE '^kind: Secret$' "$TMP/shared-b.yaml" || true)
+[ "$b_cluster" -eq 1 ] || fail "instance-B expected 1 Cluster, got $b_cluster"
+[ "$b_db" -eq 3 ]      || fail "instance-B expected 3 Databases, got $b_db"
+[ "$b_secret" -eq 6 ]  || fail "instance-B expected 6 Secrets (3 role + 3 hub), got $b_secret"
+grep -q 'GF_DATABASE_TYPE: "postgres"' "$TMP/shared-b.yaml" \
+  || fail "instance-B grafana hub missing GF_DATABASE_TYPE extraData"
+grep -q 'GF_DATABASE_HOST: "shared-pg-b-rw.shared-data.svc.cluster.local:5432"' "$TMP/shared-b.yaml" \
+  || fail "instance-B grafana hub missing GF_DATABASE_HOST extraData"
+grep -qE '^  GF_DATABASE_PASSWORD: ' "$TMP/shared-b.yaml" \
+  || fail "instance-B grafana hub missing GF_DATABASE_PASSWORD alias"
+# The alias must carry the SAME password as the grafana role Secret.
+grafana_role_pw=$(awk '/name: "shared-pg-b-grafana"/{s=1} s&&/^  password: /{print $2; exit}' "$TMP/shared-b.yaml")
+grafana_alias_pw=$(awk '/^  GF_DATABASE_PASSWORD: /{print $2; exit}' "$TMP/shared-b.yaml")
+[ -n "$grafana_role_pw" ] && [ "$grafana_role_pw" = "$grafana_alias_pw" ] \
+  || fail "instance-B GF_DATABASE_PASSWORD alias drifted from the grafana role password"
+uri_count=$(grep -cE '^  uri: "postgresql://' "$TMP/shared-b.yaml" || true)
+[ "$uri_count" -eq 3 ] || fail "instance-B expected 3 hub uri keys (#3189 A3 contract), got $uri_count"
+grep -q 'uri: "postgresql://pda:' "$TMP/shared-b.yaml" \
+  || fail "instance-B pda hub uri missing/owner-mismatched"
+
+# ── Case 9: instance-C shape — same-owner bindings (SME mesh) ─────────
+# THREE databases (sme_auth, sme_billing, sme_documents) owned by ONE
+# role `sme`. Locks the 0.1.5 dedupe (1 managed role, 1 role Secret)
+# and the underscore sanitize on Database CR k8s names.
+echo "[render] Case 9: instance-C shape → 3 same-owner Databases, 1 role, sanitized CR names"
+cat > "$TMP/shared-c.values.yaml" <<'YAML'
+instance:
+  name: shared-pg-c
+  namespace: shared-data
+topology:
+  mode: singleton
+  instances: 1
+databases:
+  - name: sme_auth
+    owner: sme
+    consumer: { blueprint: bp-catalyst-platform, mode: shared }
+    reflect: { secretName: sme-database-secret, namespaces: [sme] }
+  - name: sme_billing
+    owner: sme
+    consumer: { blueprint: bp-catalyst-platform, mode: shared }
+  - name: sme_documents
+    owner: sme
+    consumer: { blueprint: bp-catalyst-platform, mode: shared }
+YAML
+helm template shared-pg-c . -f "$TMP/shared-c.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/shared-c.yaml" 2> "$TMP/shared-c.err" || {
+  cat "$TMP/shared-c.err" >&2; fail "instance-C render errored"; }
+c_db=$(grep -cE '^kind: Database$' "$TMP/shared-c.yaml" || true)
+c_role=$(grep -cE '^      - name: "sme"$' "$TMP/shared-c.yaml" || true)
+c_basic=$(grep -cE '^type: kubernetes.io/basic-auth$' "$TMP/shared-c.yaml" || true)
+c_secret=$(grep -cE '^kind: Secret$' "$TMP/shared-c.yaml" || true)
+[ "$c_db" -eq 3 ]    || fail "instance-C expected 3 Databases, got $c_db"
+[ "$c_role" -eq 1 ]  || fail "instance-C expected EXACTLY 1 managed role sme (dedupe), got $c_role"
+[ "$c_basic" -eq 1 ] || fail "instance-C expected EXACTLY 1 role-password Secret (dedupe), got $c_basic"
+[ "$c_secret" -eq 2 ] || fail "instance-C expected 2 Secrets (1 role + 1 hub), got $c_secret"
+# Sanitized k8s names; verbatim Postgres names.
+grep -q 'name: shared-pg-c-sme-auth' "$TMP/shared-c.yaml" \
+  || fail "instance-C Database CR name not underscore-sanitized"
+if grep -qE '^  name: shared-pg-c-sme_' "$TMP/shared-c.yaml"; then
+  fail "instance-C Database CR k8s name leaked an underscore"
+fi
+grep -q 'name: "sme_auth"' "$TMP/shared-c.yaml" || fail "instance-C spec.name sme_auth missing"
+grep -q 'name: "sme_billing"' "$TMP/shared-c.yaml" || fail "instance-C spec.name sme_billing missing"
+grep -q 'name: "sme_documents"' "$TMP/shared-c.yaml" || fail "instance-C spec.name sme_documents missing"
+
+echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty; 3-instance shapes locked)"

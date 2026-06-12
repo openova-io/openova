@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-postgres
-version: 0.1.4
+version: 0.1.5
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
@@ -30,6 +30,25 @@ description: |
 
   Changelog
   ─────────
+  0.1.5 (2026-06-12, Refs #3188 — founder NS-2 three-instance model)
+    - Same-owner bindings: managed.roles + the role-password Secret are
+      deduped per UNIQUE owner, so one role can own N isolated databases
+      (the SME-mesh shape: sme_auth + sme_billing + sme_documents all
+      owned by role `sme`). One password per owner, stable across the
+      dedupe (lookup role Secret -> lookup any hub of that owner -> mint).
+    - Database CR k8s names sanitized (`replace "_" "-"`) so databases
+      with legal-Postgres underscores render valid RFC-1123 CR names;
+      spec.name keeps the real database name verbatim.
+    - Hub connection Secret gains `uri` (CNPG-app-Secret-parity
+      postgresql:// connection string, the powerdns-admin #3189 A3
+      adoption contract) + optional per-binding `reflect.extraData`
+      (static keys, e.g. grafana's GF_DATABASE_TYPE/HOST/NAME/USER) +
+      `reflect.passwordAliases` (extra key names carrying the minted
+      password, e.g. GF_DATABASE_PASSWORD) so env-style consumers bind
+      via upstream envFromSecrets with zero consumer-chart templates.
+    - Enables the 3-instance bootstrap-kit shape: slots 16a (shared-pg) +
+      16c (shared-pg-b) + 16d (shared-pg-c) are three installs of THIS
+      chart, all gated on SOVEREIGN_ENABLE_SHARED_PG.
   0.1.2 (2026-06-11, Refs #3283)
     - FATAL deadlock fix: connection-secret.yaml now creates each reflected
       connection Secret in the RELEASE namespace (shared-data, which always
