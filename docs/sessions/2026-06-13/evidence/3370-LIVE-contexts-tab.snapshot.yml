@@ -1,0 +1,157 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - img [ref=e7]
+        - generic [ref=e9]: OpenOva Sovereign
+      - button "hw130.omantel.biz" [ref=e11]:
+        - generic [ref=e12]: hw130.omantel.biz
+        - img [ref=e13]
+    - navigation [ref=e15]:
+      - link "Dashboard" [ref=e16] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e17]
+        - text: Dashboard
+      - link "Cloud" [ref=e19] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=e20]
+        - text: Cloud
+      - link "Apps" [ref=e22] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=e23]
+        - text: Apps
+      - link "Sandbox" [ref=e25] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=e26]
+        - text: Sandbox
+      - link "Jobs" [ref=e28] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=e29]
+        - text: Jobs
+      - link "Compliance" [ref=e31] [cursor=pointer]:
+        - /url: /sre/compliance
+        - img [ref=e32]
+        - text: Compliance
+      - link "Users" [ref=e34] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e35]
+        - text: Users
+      - link "BSS" [ref=e37] [cursor=pointer]:
+        - /url: /bss
+        - img [ref=e38]
+        - text: BSS
+      - link "Settings" [ref=e40] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e41]
+        - text: Settings
+    - generic [ref=e44]:
+      - generic [ref=e45]: T
+      - generic [ref=e46]:
+        - paragraph [ref=e47]: Tenant
+        - paragraph [ref=e48]: hw130.omantel.biz
+  - generic [ref=e49]:
+    - banner [ref=e50]:
+      - generic [ref=e51]:
+        - heading "Applications" [level=1] [ref=e73]
+        - link "← Back to apps" [ref=e53] [cursor=pointer]:
+          - /url: /dashboard
+      - generic [ref=e54]:
+        - button "No notifications" [ref=e56]:
+          - img [ref=e57]
+        - button "Switch to light theme" [ref=e60]:
+          - img [ref=e61]
+        - button "E" [ref=e75] [cursor=pointer]
+    - main [ref=e68]:
+      - generic [ref=e69]:
+        - paragraph [ref=e76]: "AppDetail · canonical 7-tab strip: app-tab-overview · app-tab-topology · app-tab-resources · app-tab-compliance · app-tab-logs · app-tab-settings · app-tab-members"
+        - generic [ref=e77]:
+          - generic [ref=e78]: s
+          - generic [ref=e79]:
+            - heading "shared-pg — shared-pg" [level=1] [ref=e80]:
+              - text: shared-pg
+              - generic [ref=e81]: — shared-pg
+            - paragraph [ref=e82]: Application installed in namespace shared-data
+            - generic [ref=e83]:
+              - generic [ref=e84]: Platform
+              - generic [ref=e85]: shared-data
+              - generic [ref=e86]: bp-postgres@0.1.8
+              - generic [ref=e87]: Ready
+              - generic [ref=e88]: platform-bootstrap-owned-host
+              - button "Bootstrap blueprint (not in marketplace)" [disabled] [ref=e89]
+              - generic "Phase derived from HelmRelease Ready condition (no Application CR)" [ref=e90]: "source: HelmRelease"
+        - tablist "App detail tabs" [ref=e91]:
+          - tab "Overview" [ref=e92] [cursor=pointer]:
+            - text: Overview
+            - tab: Overview
+          - tab "Contexts 3" [active] [selected] [ref=e93] [cursor=pointer]:
+            - text: Contexts
+            - generic [ref=e94]: "3"
+            - tab: Contexts
+          - tab "Topology" [ref=e95] [cursor=pointer]:
+            - text: Topology
+            - tab: Topology
+          - tab "Resources" [ref=e96] [cursor=pointer]:
+            - text: Resources
+            - tab: Resources
+          - tab "Compliance" [ref=e97] [cursor=pointer]:
+            - text: Compliance
+            - tab: Compliance
+          - tab "Logs" [ref=e98] [cursor=pointer]:
+            - text: Logs
+            - tab: Logs
+          - tab "Settings" [ref=e99] [cursor=pointer]:
+            - text: Settings
+            - tab: Settings
+          - tab "Members" [ref=e100] [cursor=pointer]:
+            - text: Members
+            - tab: Members
+          - tab "Endpoints" [ref=e101] [cursor=pointer]:
+            - text: Endpoints
+            - tab: Endpoints
+          - tab "Jobs 0" [ref=e102] [cursor=pointer]:
+            - text: Jobs
+            - generic [ref=e103]: "0"
+            - tab: Jobs
+          - tab "Dependencies 0" [ref=e104] [cursor=pointer]:
+            - text: Dependencies
+            - generic [ref=e105]: "0"
+            - tab: Dependencies
+        - tabpanel [ref=e106]:
+          - table [ref=e172]:
+            - rowgroup [ref=e173]:
+              - row "Context Occupied by Credential Status" [ref=e174]:
+                - columnheader "Context" [ref=e175]
+                - columnheader "Occupied by" [ref=e176]
+                - columnheader "Credential" [ref=e177]
+                - columnheader "Status" [ref=e178]
+            - rowgroup [ref=e179]:
+              - row "db/registry harbor → harbor-database-secret ready" [ref=e180]:
+                - cell "db/registry" [ref=e181]:
+                  - code [ref=e182]: db/registry
+                - cell "harbor →" [ref=e183]:
+                  - link "harbor →" [ref=e184] [cursor=pointer]:
+                    - /url: /app/bp-harbor
+                - cell "harbor-database-secret" [ref=e185]:
+                  - code [ref=e186]: harbor-database-secret
+                - cell "ready" [ref=e187]:
+                  - generic [ref=e188]: ready
+              - row "db/gitea gitea → gitea-database-secret ready" [ref=e189]:
+                - cell "db/gitea" [ref=e190]:
+                  - code [ref=e191]: db/gitea
+                - cell "gitea →" [ref=e192]:
+                  - link "gitea →" [ref=e193] [cursor=pointer]:
+                    - /url: /app/bp-gitea
+                - cell "gitea-database-secret" [ref=e194]:
+                  - code [ref=e195]: gitea-database-secret
+                - cell "ready" [ref=e196]:
+                  - generic [ref=e197]: ready
+              - row "db/keycloak keycloak → keycloak-database-secret ready" [ref=e198]:
+                - cell "db/keycloak" [ref=e199]:
+                  - code [ref=e200]: db/keycloak
+                - cell "keycloak →" [ref=e201]:
+                  - link "keycloak →" [ref=e202] [cursor=pointer]:
+                    - /url: /app/bp-keycloak
+                - cell "keycloak-database-secret" [ref=e203]:
+                  - code [ref=e204]: keycloak-database-secret
+                - cell "ready" [ref=e205]:
+                  - generic [ref=e206]: ready
