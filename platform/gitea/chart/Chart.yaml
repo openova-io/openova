@@ -108,7 +108,7 @@ name: bp-gitea
 # the bootstrap-kit slot 10 `SOVEREIGN_GITEA_PG_SECRET` seam (own-cluster
 # default gitea-pg-app → SHARED gitea-database-secret). own-cluster render
 # byte-identical to 1.2.26.
-version: 1.2.31
+version: 1.2.32
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so

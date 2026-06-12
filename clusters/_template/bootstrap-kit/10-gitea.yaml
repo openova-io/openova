@@ -131,7 +131,7 @@ spec:
       # + gateway /user/login -> OIDC entry redirect.
       # 1.2.30: explicit port 443 on the SSO redirect (the #3310 class).
       # 1.2.31: LANDING_PAGE=login — anon root funnels into OIDC.
-      version: 1.2.31
+      version: 1.2.32
       sourceRef:
         kind: HelmRepository
         name: bp-gitea
