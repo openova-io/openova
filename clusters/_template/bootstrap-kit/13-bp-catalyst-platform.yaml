@@ -990,7 +990,7 @@ spec:
       # admit real cloud codes (kom4dc digits) — unblocks the
       # production Continuum seed (slot 16b, cnpg-pair 0.2.3).
       # 1.4.587: cnpg list RBAC for the many-to-many instances endpoint (#3188).
-      version: 1.4.588
+      version: 1.4.589
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
