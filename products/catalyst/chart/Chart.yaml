@@ -2656,7 +2656,7 @@ name: bp-catalyst-platform
 # (b) catalog-seed: bp-postgres + bp-valkey gain shareable +
 # contextSchema (lockstep-guarded against platform/ sources); the
 # bp-postgres seed version pins sync to chart 0.1.6. Refs #3370.
-version: 1.4.597
+version: 1.4.598
 # 1.4.587 — #3188: cutover-driver ClusterRole gains postgresql.cnpg.io
 #   clusters/databases + dr.openova.io read — the instances endpoint
 #   403'd cluster-wide (hw130: API 0 rows with 7 live clusters).
@@ -2666,7 +2666,7 @@ version: 1.4.597
 #   unsatisfiable on kom4dc (me-east-215-*), which kept the production
 #   Continuum seed unfireable. Backwards-compatible (all-letter labels
 #   still match). Flux CreateReplace flows it to live Sovereigns.
-appVersion: 1.4.494
+appVersion: 1.4.598
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
