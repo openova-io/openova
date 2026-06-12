@@ -527,7 +527,7 @@ controllers:
       # (2026-06-02). enabled remains false until the bp-controller
       # surfaces are wired end-to-end; the pin matches the latest
       # successful push-on-main build per Inviolable Principle #4a.
-      tag: "100a213"
+      tag: "c809c11"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -618,7 +618,7 @@ controllers:
       # (#2745, 2026-06-03) — bumped from 8d01e2f (2026-05-31) to the
       # latest useraccess-controller main-HEAD push (2026-06-02).
       # #2851 closed the drift gap (auto-bump + sweep + freshness guard).
-      tag: "dcd2bb3"
+      tag: "82fd636"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
