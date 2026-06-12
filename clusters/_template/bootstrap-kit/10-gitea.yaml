@@ -195,6 +195,9 @@ spec:
     # in platform/gitea/chart/values.yaml) — Sovereigns ingress through
     # cilium-gateway from clusters/_template/bootstrap-kit/01-cilium.yaml.
       host: gitea.${SOVEREIGN_FQDN}
+    # Restored 2026-06-13 (same #3373/#3391 shape as slot 09).
+    gateway:
+      host: gitea.${SOVEREIGN_FQDN}
     # DoD D25 (t129 2026-05-16): override the chart's baked dev hostname
     # `gitea.catalyst.local` so the Gitea Web UI renders the LIVE
     # Sovereign FQDN in pageData.appUrl, clone URLs, and internal links.

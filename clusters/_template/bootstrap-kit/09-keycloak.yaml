@@ -238,6 +238,12 @@ spec:
       name: ${SOVEREIGN_REALM_NAME:=sovereign}
       ownerEmail: "${SOVEREIGN_OWNER_EMAIL}"
       host: auth.${SOVEREIGN_FQDN}
+    # Restored 2026-06-13: the #3373 slot regeneration replaced gateway.host
+    # with the vCluster backendService alias; the #3391 residue strip then
+    # removed the whole block — chart renders NO HTTPRoute without
+    # gateway.host (auth.<fqdn> 404'd live).
+    gateway:
+      host: auth.${SOVEREIGN_FQDN}
     # ── Shared-instance flip (#3188 three-instance model) ───────────────
     # Default OWN_CLUSTER=true → the bundled bitnami postgresql subchart
     # renders exactly as today (the externalDatabase block is UNREAD when
