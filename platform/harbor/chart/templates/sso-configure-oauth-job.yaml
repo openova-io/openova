@@ -217,6 +217,7 @@ spec:
               cat >/tmp/payload.json <<JSON
               {
                 "auth_mode": "oidc_auth",
+                "primary_auth_mode": true,
                 "oidc_name": "${OIDC_NAME}",
                 "oidc_endpoint": "${OIDC_ENDPOINT}",
                 "oidc_client_id": "${OIDC_CLIENT_ID}",

@@ -188,7 +188,9 @@ spec:
       # pulled via harbor.openova.io/proxy-dockerhub (bare refs denied by
       # harbor-proxy-pull on any roll — wedged live hw128 on the 1.2.28
       # upgrade, harbor-registry ReplicaSet FailedCreate).
-      version: 1.2.29
+      # 1.2.30 (2026-06-12, founder): primary_auth_mode=true — hitting
+      # registry.<fqdn>/ auto-initiates OIDC instead of showing the form.
+      version: 1.2.30
       sourceRef:
         kind: HelmRepository
         name: bp-harbor

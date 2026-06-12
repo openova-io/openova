@@ -66,7 +66,9 @@ spec:
   chart:
     spec:
       chart: bp-grafana
-      version: 1.0.8
+      # 1.0.9 (2026-06-12, founder): zero-click from the app ROOT —
+      # oauth_auto_login + generic_oauth.auto_login flipped true.
+      version: 1.0.9
       sourceRef:
         kind: HelmRepository
         name: bp-grafana
