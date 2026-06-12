@@ -33,6 +33,18 @@ import {
 
 const QUERY_STALE_MS = 30_000
 
+// The Organizations menu's sibling surfaces (issue #3378 §4). The
+// directory is the landing; commerce/billing/domains hang off it.
+const SECTION_LINKS: readonly { id: string; label: string; to: string }[] = [
+  { id: 'commerce-plans', label: 'Commerce · Plans', to: '/organizations/commerce/plans' },
+  { id: 'commerce-addons', label: 'Add-ons', to: '/organizations/commerce/addons' },
+  { id: 'commerce-bundles', label: 'Bundles', to: '/organizations/commerce/bundles' },
+  { id: 'commerce-industries', label: 'Industries', to: '/organizations/commerce/industries' },
+  { id: 'commerce-apps', label: 'Apps', to: '/organizations/commerce/apps' },
+  { id: 'billing', label: 'Billing', to: '/organizations/billing/billing' },
+  { id: 'domains', label: 'Domains', to: '/organizations/domains' },
+]
+
 export interface OrganizationsDirectoryPageProps {
   /** Test seam — bypass the React Query fetcher with synthetic rows. */
   initialOrgsOverride?: readonly OrgRow[]
@@ -92,11 +104,29 @@ export function OrganizationsDirectoryPage({
       }
     >
       <div data-testid="organizations-directory-page">
-        <p className="mb-4 text-sm text-[var(--color-text-dim)]">
+        <p className="mb-3 text-sm text-[var(--color-text-dim)]">
           Every organization on this Sovereign. The parent organization — the
           Sovereign itself — is the first row; each department and customer is
           one Organization with its own identity, RBAC, and cost attribution.
         </p>
+
+        {/* Section nav — the Organizations menu's sibling surfaces
+            (commerce / billing / domains). Issue #3378 §4. */}
+        <nav
+          data-testid="organizations-section-nav"
+          className="mb-4 flex flex-wrap gap-1.5 text-xs"
+        >
+          {SECTION_LINKS.map((s) => (
+            <Link
+              key={s.to}
+              to={s.to as never}
+              data-testid={`organizations-nav-${s.id}`}
+              className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1 text-[var(--color-text-dim)] no-underline transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-text)]"
+            >
+              {s.label}
+            </Link>
+          ))}
+        </nav>
 
         <div className="mb-3 flex flex-wrap items-end gap-3" data-testid="organizations-toolbar">
           <label className="flex flex-1 min-w-[240px] max-w-md flex-col gap-1">

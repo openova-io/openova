@@ -160,6 +160,10 @@ import { VouchersPage as BssVouchersPage } from '@/pages/sovereign/bss/VouchersP
 // /bss*, /sme/users, /sme/roles, /sme/tenants/new, /parent-domains URLs
 // keep resolving) — see consoleOrgRedirectRoutes below.
 import { OrganizationsDirectoryPage } from '@/pages/sovereign/organizations/OrganizationsDirectoryPage'
+// Organizations commerce editors (issue #3378 DoD 7/8) — one kind-aware
+// editor over the EXISTING /catalog/admin/* endpoints, mounted at
+// /organizations/commerce/{plans,addons,bundles,industries,apps}.
+import { CommerceEditorPage } from '@/pages/sovereign/organizations/CommerceEditorPage'
 // Wave 3 — Sandbox UI scaffold (branch: sandbox-wave3-ui-scaffold).
 // Per-Org agent-coding workspace mounted under /sandbox/* in the chroot
 // Sovereign Console. SandboxLanding is the 6-agent picker;
@@ -1678,6 +1682,17 @@ const consoleOrgDomainsRoute = createRoute({
   component: ParentDomainsPage,
 })
 
+/* Commerce editors (issue #3378 DoD 7/8) — one CommerceEditorPage per
+ * kind over the EXISTING /catalog/admin/* endpoints. */
+const COMMERCE_KINDS = ['plans', 'addons', 'bundles', 'industries', 'apps'] as const
+const consoleOrgCommerceRoutes = COMMERCE_KINDS.map((kind) =>
+  createRoute({
+    getParentRoute: () => consoleLayoutRoute,
+    path: `/organizations/commerce/${kind}`,
+    component: () => <CommerceEditorPage kind={kind} />,
+  }),
+)
+
 /* ── Organizations redirect map (issue #3378 §4) ───────────────────────
  *
  * "old URLs never break" — every legacy BSS / SME-admin / parent-domains
@@ -2265,6 +2280,7 @@ const routeTree = rootRoute.addChildren([
     consoleOrgRevenueRoute,
     consoleOrgVouchersRoute,
     consoleOrgDomainsRoute,
+    ...consoleOrgCommerceRoutes,
     ...consoleOrganizationsRedirectRoutes,
     // Wave 3 — Sandbox UI scaffold. Static /sandbox/settings registered
     // before /sandbox/$id so the literal segment wins on path match.

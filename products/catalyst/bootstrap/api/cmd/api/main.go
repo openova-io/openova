@@ -1655,6 +1655,18 @@ func main() {
 		// SME catalog service.
 		rg.Patch("/api/v1/sovereign/apps/{slug}/publish", h.HandleSovereignAppPublish)
 
+		// Organizations commerce editors (issue #3378 DoD 7/8) — the
+		// console's plans/addons/bundles/industries/apps editors proxy
+		// CRUD onto the EXISTING superadmin-JWT /catalog/admin/* endpoints
+		// on the in-cluster SME commerce catalog. NOT new business
+		// endpoints (§6) — the same mintSMEBridgeToken → smeCatalog proxy
+		// hop HandleSovereignAppPublish uses, generalized to full CRUD so
+		// console.<sovereign>/api/* can reach the admin paths. Reads use
+		// the existing public /catalog/{kind} list endpoints (SME gateway).
+		rg.Post("/api/v1/sme/commerce/{kind}", h.HandleSMECommerceCreate)
+		rg.Put("/api/v1/sme/commerce/{kind}/{id}", h.HandleSMECommerceUpdate)
+		rg.Delete("/api/v1/sme/commerce/{kind}/{id}", h.HandleSMECommerceDelete)
+
 		// EPIC-3 (#1098) — Sovereign-prefix RBAC access-matrix surface
 		// (TBD-F4 / C6-007). Chroot-friendly mirror of
 		// /api/v1/sovereigns/{id}/rbac/access-matrix; the id is resolved

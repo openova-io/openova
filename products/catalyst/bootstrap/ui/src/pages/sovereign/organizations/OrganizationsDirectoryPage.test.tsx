@@ -40,7 +40,25 @@ function renderDirectory(orgs: readonly OrgRow[]) {
     path: '/organizations/$org',
     component: () => <div data-testid="orgs-detail-stub" />,
   })
-  const tree = rootRoute.addChildren([dirRoute, newRoute, detailRoute])
+  // Section-nav targets — register stubs so the directory's <Link>s
+  // resolve at render.
+  const sectionPaths = [
+    '/organizations/commerce/plans',
+    '/organizations/commerce/addons',
+    '/organizations/commerce/bundles',
+    '/organizations/commerce/industries',
+    '/organizations/commerce/apps',
+    '/organizations/billing/billing',
+    '/organizations/domains',
+  ]
+  const sectionRoutes = sectionPaths.map((p) =>
+    createRoute({
+      getParentRoute: () => rootRoute,
+      path: p,
+      component: () => <div data-testid={`section-${p}`} />,
+    }),
+  )
+  const tree = rootRoute.addChildren([dirRoute, newRoute, detailRoute, ...sectionRoutes])
   const router = createRouter({
     routeTree: tree,
     history: createMemoryHistory({ initialEntries: ['/organizations'] }),
