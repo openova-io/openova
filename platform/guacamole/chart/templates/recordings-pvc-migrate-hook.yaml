@@ -64,6 +64,8 @@ metadata:
   labels:
     {{- include "bp-guacamole.labels" . | nindent 4 }}
     catalyst.openova.io/component: recordings-migrate
+    # kyverno flux-managed (Enforce): hook Jobs carry no HR ownerReference (#3297 class).
+    app.kubernetes.io/managed-by: flux
   annotations:
     # Run BEFORE templates land — pre-install + pre-upgrade so a fresh
     # install (no PVC yet) is also a no-op safely (the kubectl-get in
@@ -101,6 +103,9 @@ spec:
           # deprecation-fallback path. Operator override via
           # `.Values.guacamole.recordings.migrationImage`.
           image: {{ .Values.guacamole.recordings.migrationImage | default "bitnamilegacy/kubectl:1.30.7" | quote }}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 200m, memory: 128Mi}
           imagePullPolicy: IfNotPresent
           securityContext:
             runAsNonRoot: true

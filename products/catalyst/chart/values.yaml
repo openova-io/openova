@@ -1298,7 +1298,10 @@ smeServices:
     # requires PostgreSQL with the DocumentDB extension which the
     # sme-pg cluster does not ship; bumping is a separate change that
     # also needs a custom CNPG image. See Chart.yaml 1.4.4 changelog.
-    image: ghcr.io/ferretdb/ferretdb
+    # 1.4.600 — kyverno harbor-proxy-pull (Enforce): raw ghcr.io denied on
+    # tonight's umbrella reinstall (hw130 live). Same proxy-ghcr pattern as
+    # every other upstream image (#3296/#3297 family).
+    image: harbor.openova.io/proxy-ghcr/ferretdb/ferretdb
     tag: "1.24"
     imagePullPolicy: IfNotPresent
     replicas: 1
