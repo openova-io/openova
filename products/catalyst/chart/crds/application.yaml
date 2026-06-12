@@ -105,16 +105,44 @@ spec:
                       description: Semver of the Blueprint OCI artifact.
                       pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.-]+)?$'
                 placement:
-                  type: string
-                  enum:
-                    - single-region
-                    - active-active
-                    - active-hotstandby
+                  # #3373 — DUAL-FORM field (founder-ratified placement law).
+                  #
+                  # Form 1 (legacy string): the DR-posture enum
+                  #   single-region | active-active | active-hotstandby.
+                  #   Existing CRs + writers keep working verbatim.
+                  #
+                  # Form 2 (object): WHERE this instance runs —
+                  #   { vcluster: host|mgmt|dmz|rtz,
+                  #     regions:  [<host-cluster>, ...],
+                  #     clusters: [<canonical-cluster-id>, ...],
+                  #     mode:     <the legacy DR-posture enum> }
+                  #   Every field optional; omitted fields default from the
+                  #   Blueprint (spec.defaultPlacement + the legacy
+                  #   placementSchema seams). The application-controller
+                  #   validates vcluster against {host,mgmt,dmz,rtz} and the
+                  #   Blueprint's spec.allowedPlacements at reconcile time.
+                  #
+                  # Written by the provisioning journey's advanced view OR
+                  # edited DIRECTLY in Git by an advanced user — both equally
+                  # valid: the Git-committed IaC is the single source of
+                  # truth; the console reflects it (status.placement), never
+                  # fights it.
+                  #
+                  # Structural-schema note: a node with
+                  # x-kubernetes-preserve-unknown-fields:true may omit `type`
+                  # (the int-or-string-style exception) — that is what makes
+                  # the string|object dual form admissible.
+                  x-kubernetes-preserve-unknown-fields: true
                   description: |
-                    DR posture. single-region = one cluster only. active-active
-                    = manifests fan out to all regions[]. active-hotstandby =
-                    primary in regions[0], standby in regions[1..] with
-                    replica:0; failover managed by the Continuum controller.
+                    Placement of this instance (#3373). String form = the
+                    legacy DR posture (single-region = one cluster only;
+                    active-active = manifests fan out to all regions[];
+                    active-hotstandby = primary in regions[0], standby in
+                    regions[1..] with replica:0; failover managed by the
+                    Continuum controller). Object form =
+                    {vcluster, regions, clusters, mode} — WHERE the instance
+                    runs; defaulted from the Blueprint's defaultPlacement;
+                    gated by the Blueprint's allowedPlacements.
                 regions:
                   type: array
                   minItems: 1
@@ -316,4 +344,29 @@ spec:
                 observedGeneration:
                   type: integer
                   format: int64
+                placement:
+                  type: object
+                  description: |
+                    #3373 — the EFFECTIVE placement the last reconcile
+                    resolved + rendered (instance > Blueprint default >
+                    legacy seams). The console reflects this — it mirrors
+                    the Git-committed truth, never fights it.
+                  properties:
+                    vcluster:
+                      type: string
+                      enum: [host, mgmt, dmz, rtz]
+                    source:
+                      type: string
+                      description: |
+                        Which declaration won the resolution: instance |
+                        blueprint-default | blueprint-placementSchema |
+                        host-default.
+                    regions:
+                      type: array
+                      items:
+                        type: string
+                    clusters:
+                      type: array
+                      items:
+                        type: string
               x-kubernetes-preserve-unknown-fields: true

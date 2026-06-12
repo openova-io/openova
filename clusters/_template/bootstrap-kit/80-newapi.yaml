@@ -68,6 +68,7 @@ spec:
     # host ns `mgmt`.
     - name: bp-openbao
     - name: bp-keycloak
+      namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-cnpg
   chart:
     spec:
@@ -199,7 +200,8 @@ spec:
       # 1.4.41 — chore(privacy): rename the partner-named channel slot
       # to `qwenPartner` and strip partner identifiers from comments /
       # fixtures / Secret names.
-      version: 1.4.63
+      # 1.4.64 — #3373 fix (a): httproute backendRef honors gateway.backendService override.
+      version: 1.4.64
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

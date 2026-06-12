@@ -637,6 +637,31 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				spec.Placement, spec.BlueprintName, allowedModes))
 	}
 
+	// 5.5 (#3373) — resolve the instance's effective vCluster
+	// placement. Resolution order (founder-ratified law §2.1):
+	//
+	//   1. Application.spec.placement.vcluster   (instance choice —
+	//      console advanced view OR a direct Git edit, equally valid)
+	//   2. Blueprint.spec.defaultPlacement.vcluster (class SUGGESTION)
+	//   3. legacy seams — placementSchema.vcluster (per-region path) /
+	//      topology variant placement.tier (fan-out path), unchanged.
+	//
+	// The resolved value is rendered by the ONE generic mechanism:
+	// the Flux spec.kubeConfig.secretRef pivot (G92.1). Zero per-app
+	// placement code.
+	effVC, effVCSource, effVCFound := "", "", false
+	if spec.PlacementVClusterSet {
+		effVC, effVCSource, effVCFound = spec.PlacementVCluster, "instance", true
+	} else if v, ok := blueprintDefaultPlacementVCluster(bp); ok {
+		effVC, effVCSource, effVCFound = v, "blueprint-default", true
+	}
+	allowedPlacements := blueprintAllowedPlacements(bp)
+	if effVCFound && !vclusterAllowedByBlueprint(effVC, allowedPlacements) {
+		return r.markFailed(ctx, app, ReasonInvalid,
+			fmt.Sprintf("placement vcluster %q not in Blueprint %q allowedPlacements %v",
+				vclusterOrHost(effVC), spec.BlueprintName, allowedPlacements))
+	}
+
 	// 6. Validate parameters against the Blueprint configSchema.
 	configSchema, _, _ := unstructured.NestedMap(bp.Object, "spec", "configSchema")
 	rep, valErr := validate.Parameters(configSchema, spec.Parameters)
@@ -711,6 +736,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			// the existing single-region vCluster pivot earlier in
 			// this reconcile).
 			placementTier := variant.Placement.Tier
+			// #3373 — the instance's effective vCluster (instance >
+			// blueprint defaultPlacement) overrides the class-level
+			// topology tier. An explicit instance "host" ("" after
+			// normalization) lands the HRs on the host cluster.
+			if effVCFound {
+				placementTier = effVC
+			}
+			if !vclusterAllowedByBlueprint(placementTier, allowedPlacements) {
+				return r.markFailed(ctx, app, ReasonInvalid,
+					fmt.Sprintf("topology placement tier %q not in Blueprint %q allowedPlacements %v",
+						vclusterOrHost(placementTier), spec.BlueprintName, allowedPlacements))
+			}
 			var (
 				fanoutWriteNamespace string
 				fanoutKubeSecretFor  func(cluster string) (string, string)
@@ -741,18 +778,44 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			fanoutSourceKind, _, _ := unstructured.NestedString(bp.Object, "spec", "manifests", "source", "kind")
 			fanoutSourceRef, _, _ := unstructured.NestedString(bp.Object, "spec", "manifests", "source", "ref")
 
+			// #3373 — Application.spec.placement.clusters narrows the
+			// topology variant's PlacementSpec.Clusters for THIS
+			// instance. Copy-on-write: the Blueprint-derived variant
+			// is shared state and must not be mutated.
+			fanoutVariant := variant
+			if len(spec.PlacementClusters) > 0 {
+				v := *variant
+				p := *variant.Placement
+				p.Clusters = spec.PlacementClusters
+				if len(p.Roles) > 0 {
+					roles := make(map[string]string, len(spec.PlacementClusters))
+					for _, c := range spec.PlacementClusters {
+						if role, ok := p.Roles[c]; ok {
+							roles[c] = role
+						}
+					}
+					p.Roles = roles
+				}
+				v.Placement = &p
+				fanoutVariant = &v
+			}
+
 			hrs, ferr := topo.FanoutHRs(topo.FanoutInputs{
 				AppName:             app.GetName(),
 				AppNamespace:        app.GetNamespace(),
 				WriteNamespace:      fanoutWriteNamespace,
 				Topology:            choice,
-				Variant:             variant,
+				Variant:             fanoutVariant,
 				Chart:               firstNonEmpty(blueprintChart(bp), spec.BlueprintName),
 				ChartVersion:        spec.BlueprintVersion,
 				SourceRefName:       ifEmpty(fanoutSourceRef, r.Cfg.CatalogSourceRef),
 				SourceRefKind:       fanoutSourceKind,
 				SourceRefNamespace:  r.Cfg.SourceNamespace,
 				KubeConfigSecretFor: fanoutKubeSecretFor,
+				// #3373 — loft-sh vcluster exportKubeConfig data key
+				// (matches the per-region render path + the
+				// hand-proven bootstrap-kit vCluster slots).
+				KubeConfigSecretKey: "config",
 				IntervalSeconds:     r.Cfg.HelmReleaseIntervalSeconds,
 				OwnerLabels: map[string]string{
 					"catalyst.openova.io/organization": envSpec.OrganizationRef,
@@ -858,6 +921,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	// (dmz|mgmt|rtz). Empty/unset = install onto the host k3s
 	// (legacy shape, kept for substrate Blueprints per G92.6 #2665).
 	bpVCluster := blueprintVCluster(bp)
+	// #3373 — the instance's effective vCluster (instance >
+	// blueprint defaultPlacement) overrides the legacy class-level
+	// placementSchema.vcluster. An explicit instance "host" ("")
+	// keeps the host install (no kubeConfig pivot).
+	if effVCFound {
+		bpVCluster = effVC
+	}
+	if !vclusterAllowedByBlueprint(bpVCluster, allowedPlacements) {
+		return r.markFailed(ctx, app, ReasonInvalid,
+			fmt.Sprintf("placement vcluster %q not in Blueprint %q allowedPlacements %v",
+				vclusterOrHost(bpVCluster), spec.BlueprintName, allowedPlacements))
+	}
 	vcPlacement, vcOK := r.Cfg.VClusterPlacements[bpVCluster]
 	if bpVCluster != "" && !vcOK {
 		return r.markFailed(ctx, app, ReasonInvalid,
@@ -1048,6 +1123,33 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 		Ready:            finalReady,
 		LastReconciledAt: time.Now().UTC().Format(time.RFC3339),
 		PerCluster:       perClusterStatus,
+	}
+
+	// #3373 — surface the EFFECTIVE placement (post-resolution) so the
+	// console reflects the Git-committed truth without re-deriving it.
+	statusPlacementSource := effVCSource
+	if statusPlacementSource == "" {
+		if blueprintVCluster(bp) != "" {
+			statusPlacementSource = "blueprint-placementSchema"
+		} else {
+			statusPlacementSource = "host-default"
+		}
+	}
+	statusRegions := make([]interface{}, 0, len(spec.Regions))
+	for _, rg := range spec.Regions {
+		statusRegions = append(statusRegions, rg)
+	}
+	su.Placement = map[string]interface{}{
+		"vcluster": vclusterOrHost(bpVCluster),
+		"source":   statusPlacementSource,
+		"regions":  statusRegions,
+	}
+	if len(spec.PlacementClusters) > 0 {
+		clusters := make([]interface{}, 0, len(spec.PlacementClusters))
+		for _, c := range spec.PlacementClusters {
+			clusters = append(clusters, c)
+		}
+		su.Placement["clusters"] = clusters
 	}
 	return r.updateStatus(ctx, app, su)
 }
@@ -1590,6 +1692,13 @@ type statusUpdate struct {
 	// Empty value leaves the field untouched. qa-loop iter-11 Fix #45
 	// Cluster-B follow-up.
 	LastReconciledAt string
+
+	// Placement — #3373. The EFFECTIVE placement this reconcile
+	// resolved + rendered: {vcluster, source, regions, clusters}.
+	// Surfaced via `status.placement` so the console reflects the
+	// Git-committed truth (law §2.4: the console reflects Git, never
+	// fights it). Nil leaves the field untouched.
+	Placement map[string]interface{}
 }
 
 // updateStatus writes the status sub-resource via the dynamic client.
@@ -1626,6 +1735,10 @@ func (r *Reconciler) updateStatus(ctx context.Context, app *unstructured.Unstruc
 			regions[i] = r
 		}
 		currentStatus["regions"] = regions
+	}
+	if su.Placement != nil {
+		// #3373 — effective placement reflection.
+		currentStatus["placement"] = su.Placement
 	}
 	if su.GiteaRepo != "" {
 		currentStatus["giteaRepo"] = su.GiteaRepo
@@ -1735,6 +1848,30 @@ type appSpec struct {
 	// When empty, the reconciler picks the Blueprint's default
 	// keyed on Sovereign-region-count (locked decision #7).
 	Topology string
+
+	// ── #3373 instance-level placement (object form of
+	// `spec.placement`) ──────────────────────────────────────────
+	//
+	// `spec.placement` accepts TWO wire forms:
+	//   string — the legacy BCP-posture enum (parsed into Placement
+	//            above; PlacementVClusterSet stays false).
+	//   object — {vcluster, regions, clusters, mode}: mode lands in
+	//            Placement; the WHERE lands here.
+	//
+	// PlacementVClusterSet distinguishes "field absent" (inherit the
+	// Blueprint's defaultPlacement / placementSchema suggestion) from
+	// an explicit instance choice — including an explicit "host".
+	PlacementVCluster    string
+	PlacementVClusterSet bool
+
+	// PlacementClusters — instance override of the topology
+	// variant's PlacementSpec.Clusters (fan-out narrowing).
+	PlacementClusters []string
+
+	// PlacementRegions — instance override of the legacy top-level
+	// spec.regions[]; when non-empty it replaces Regions for
+	// placement resolution (parseSpec applies the override).
+	PlacementRegions []string
 }
 
 func parseSpec(app *unstructured.Unstructured) (appSpec, error) {
@@ -1766,8 +1903,56 @@ func parseSpec(app *unstructured.Unstructured) (appSpec, error) {
 	// seam that makes a fresh marketplace install on a multi-region
 	// Sovereign land on active-hotstandby zero-touch for every
 	// CNPG-backed Blueprint that declares defaultOnMultiRegion.
-	pl, _, _ := unstructured.NestedString(app.Object, "spec", "placement")
-	out.Placement = pl
+	// #3373 — `spec.placement` is dual-form: legacy string (BCP-posture
+	// enum) OR object {vcluster, regions, clusters, mode}. The object
+	// form is the founder-ratified instance-placement law: WHERE an
+	// instance runs is one declared Git-committed field, defaulted from
+	// the Blueprint, rendered by the one generic kubeConfig-pivot
+	// mechanism — never per-app code.
+	if pl, found, serr := unstructured.NestedString(app.Object, "spec", "placement"); serr == nil && found {
+		out.Placement = pl
+	} else if plMap, mfound, merr := unstructured.NestedMap(app.Object, "spec", "placement"); merr == nil && mfound && plMap != nil {
+		if mode, ok := plMap["mode"].(string); ok {
+			out.Placement = mode
+		}
+		if raw, exists := plMap["vcluster"]; exists {
+			s, ok := raw.(string)
+			if !ok {
+				return out, fmt.Errorf("spec.placement.vcluster is not a string: %T", raw)
+			}
+			if !bpv1alpha1.IsKnownVCluster(s) {
+				return out, fmt.Errorf("spec.placement.vcluster %q not in {host, mgmt, dmz, rtz}", s)
+			}
+			out.PlacementVCluster = bpv1alpha1.NormalizeVCluster(s)
+			out.PlacementVClusterSet = true
+		}
+		if raw, exists := plMap["clusters"]; exists {
+			items, ok := raw.([]interface{})
+			if !ok {
+				return out, fmt.Errorf("spec.placement.clusters is not a list: %T", raw)
+			}
+			for _, it := range items {
+				s, ok := it.(string)
+				if !ok {
+					return out, fmt.Errorf("spec.placement.clusters[] entry is not a string: %T", it)
+				}
+				out.PlacementClusters = append(out.PlacementClusters, s)
+			}
+		}
+		if raw, exists := plMap["regions"]; exists {
+			items, ok := raw.([]interface{})
+			if !ok {
+				return out, fmt.Errorf("spec.placement.regions is not a list: %T", raw)
+			}
+			for _, it := range items {
+				s, ok := it.(string)
+				if !ok {
+					return out, fmt.Errorf("spec.placement.regions[] entry is not a string: %T", it)
+				}
+				out.PlacementRegions = append(out.PlacementRegions, s)
+			}
+		}
+	}
 
 	rgRaw, _, _ := unstructured.NestedSlice(app.Object, "spec", "regions")
 	if len(rgRaw) == 0 {
@@ -1779,6 +1964,12 @@ func parseSpec(app *unstructured.Unstructured) (appSpec, error) {
 			return out, fmt.Errorf("spec.regions[] entry is not a string: %T", r)
 		}
 		out.Regions = append(out.Regions, s)
+	}
+
+	// #3373 — placement.regions (the instance's declared WHERE) wins
+	// over the legacy top-level spec.regions[] when both are present.
+	if len(out.PlacementRegions) > 0 {
+		out.Regions = out.PlacementRegions
 	}
 
 	params, _, _ := unstructured.NestedMap(app.Object, "spec", "parameters")
@@ -1937,6 +2128,61 @@ func firstNonEmpty(ss ...string) string {
 func blueprintVCluster(bp *unstructured.Unstructured) string {
 	vc, _, _ := unstructured.NestedString(bp.Object, "spec", "placementSchema", "vcluster")
 	return vc
+}
+
+// blueprintDefaultPlacementVCluster reads
+// `spec.defaultPlacement.vcluster` from a Blueprint (#3373) — the
+// class-level placement SUGGESTION every instance inherits unless its
+// own `Application.spec.placement.vcluster` overrides it. The bool
+// reports field presence so an explicit `vcluster: host` default is
+// distinguishable from "not declared" (which falls back to the legacy
+// `placementSchema.vcluster` G92.1 field).
+func blueprintDefaultPlacementVCluster(bp *unstructured.Unstructured) (string, bool) {
+	vc, found, err := unstructured.NestedString(bp.Object, "spec", "defaultPlacement", "vcluster")
+	if err != nil || !found {
+		return "", false
+	}
+	return bpv1alpha1.NormalizeVCluster(vc), true
+}
+
+// blueprintAllowedPlacements reads `spec.allowedPlacements` from a
+// Blueprint (#3373) — the vCluster tiers an instance MAY be placed in.
+// Empty slice when absent (treated as "unrestricted").
+func blueprintAllowedPlacements(bp *unstructured.Unstructured) []string {
+	raw, _, _ := unstructured.NestedSlice(bp.Object, "spec", "allowedPlacements")
+	out := make([]string, 0, len(raw))
+	for _, r := range raw {
+		if s, ok := r.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// vclusterAllowedByBlueprint reports whether the effective vCluster
+// placement is permitted by the Blueprint's allowedPlacements
+// declaration (#3373). An empty allow-list permits everything. The
+// "host" sentinel and "" compare equal.
+func vclusterAllowedByBlueprint(effective string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	eff := bpv1alpha1.NormalizeVCluster(effective)
+	for _, a := range allowed {
+		if bpv1alpha1.NormalizeVCluster(a) == eff {
+			return true
+		}
+	}
+	return false
+}
+
+// vclusterOrHost maps the internal empty-string host placement back to
+// the user-facing "host" sentinel for status/UI surfaces (#3373).
+func vclusterOrHost(v string) string {
+	if v == "" {
+		return bpv1alpha1.VClusterHost
+	}
+	return v
 }
 
 // branchForEnvType maps env-type → Gitea branch name per NAMING §11.2.

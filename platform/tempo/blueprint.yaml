@@ -17,6 +17,17 @@ spec:
   # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
   #   mgmt-A=Active, mgmt-B=Passive; traces on object storage; cross-region
   #   S3 bucket replication async. Same shape as Loki/Mimir.
+  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
+  # Placement is an INSTANCE property (Application.spec.placement); this is
+  # only the default every instance inherits silently — the provisioning
+  # journey's generic advanced selector (and a direct Git edit of the
+  # instance's spec.placement) may override it within allowedPlacements.
+  # Founder §4 table target: mgmt. Single render mechanism: the Flux
+  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
+  defaultPlacement:
+    vcluster: mgmt
+  allowedPlacements: [host, mgmt]
+
   topology:
     supported:
       - active-passive

@@ -17,6 +17,8 @@ on:
       - 'scripts/check-bootstrap-deps.sh'
       - 'scripts/check-bootstrap-kit-pin-sync.sh'
       - 'scripts/expected-bootstrap-deps.yaml'
+      - 'scripts/render-slot-placement.py'
+      - 'scripts/audit-placement-conformance.py'
       - '.github/workflows/test-bootstrap-kit.yaml'
     branches: [main]
   pull_request:
@@ -29,6 +31,8 @@ on:
       - 'scripts/check-bootstrap-deps.sh'
       - 'scripts/check-bootstrap-kit-pin-sync.sh'
       - 'scripts/expected-bootstrap-deps.yaml'
+      - 'scripts/render-slot-placement.py'
+      - 'scripts/audit-placement-conformance.py'
       - '.github/workflows/test-bootstrap-kit.yaml'
   workflow_dispatch:
 
@@ -63,6 +67,25 @@ jobs:
 
       - name: Run bootstrap-kit dependency audit
         run: bash scripts/check-bootstrap-deps.sh
+
+      - name: Placement-as-data drift gate (#3373 DoD-6)
+        # placement.yaml is THE single placement source of truth; a
+        # hand-edited placement field in any slot (metadata.namespace,
+        # targetNamespace/storageNamespace, kubeConfig pivot, vcluster
+        # label, runtime dependsOn edge, dependents' cross-ns edges)
+        # fails here. Fix path: edit placement.yaml + run
+        # `python3 scripts/render-slot-placement.py fix`.
+        run: |
+          pip install pyyaml --quiet 2>/dev/null || true
+          python3 scripts/render-slot-placement.py check
+
+      - name: Placement conformance audit — rendered (#3373 DoD-4)
+        # actual==declared at render level + §4 host-minimum
+        # justification discipline + the migration-gap report. The
+        # live-cluster sweep (zero undeclared host workloads) is the
+        # operator-walk companion:
+        #   python3 scripts/audit-placement-conformance.py live --kubeconfig <kc>
+        run: python3 scripts/audit-placement-conformance.py rendered
 
   pin-sync-audit:
     # TBD-A6 regression test. Asserts every Chart.yaml in platform/* or

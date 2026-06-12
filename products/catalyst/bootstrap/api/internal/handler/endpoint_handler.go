@@ -151,6 +151,65 @@ type application struct {
 	applicationSummary
 	PerCluster []applicationClusterStatus `json:"perCluster,omitempty"`
 	Endpoints  []resolvedEndpoint         `json:"endpoints,omitempty"`
+
+	// Placement — #3373. The instance's placement: the EFFECTIVE
+	// value from `status.placement` when the controller has
+	// reconciled (source of truth: the Git-committed spec, resolved),
+	// falling back to the declared `spec.placement` object before the
+	// first reconcile. Omitted for legacy string-form CRs that have
+	// no placement signal yet.
+	Placement *placementInfo `json:"placement,omitempty"`
+}
+
+// placementInfo mirrors the object form of placement on the wire
+// (lowercase camelCase json per feedback_ts_field_casing_vs_go_json_tag).
+type placementInfo struct {
+	VCluster string   `json:"vcluster,omitempty"`
+	Regions  []string `json:"regions,omitempty"`
+	Clusters []string `json:"clusters,omitempty"`
+	Source   string   `json:"source,omitempty"`
+}
+
+// placementInfoFromCR extracts the placement view from an Application
+// CR: status.placement (effective, post-reconcile) wins; the
+// spec.placement OBJECT form is the pre-reconcile fallback; legacy
+// string-form specs yield nil (no WHERE signal).
+func placementInfoFromCR(u *unstructured.Unstructured) *placementInfo {
+	readFrom := func(path ...string) *placementInfo {
+		m, ok, err := unstructured.NestedMap(u.Object, path...)
+		if err != nil || !ok || m == nil {
+			return nil
+		}
+		out := &placementInfo{}
+		if s, ok := m["vcluster"].(string); ok {
+			out.VCluster = s
+		}
+		if s, ok := m["source"].(string); ok {
+			out.Source = s
+		}
+		if items, ok := m["regions"].([]interface{}); ok {
+			for _, it := range items {
+				if s, ok := it.(string); ok {
+					out.Regions = append(out.Regions, s)
+				}
+			}
+		}
+		if items, ok := m["clusters"].([]interface{}); ok {
+			for _, it := range items {
+				if s, ok := it.(string); ok {
+					out.Clusters = append(out.Clusters, s)
+				}
+			}
+		}
+		if out.VCluster == "" && out.Source == "" && len(out.Regions) == 0 && len(out.Clusters) == 0 {
+			return nil
+		}
+		return out
+	}
+	if pi := readFrom("status", "placement"); pi != nil {
+		return pi
+	}
+	return readFrom("spec", "placement")
 }
 
 type applicationClusterStatus struct {
@@ -800,6 +859,11 @@ func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
 			Status:    "Pending",
 			CreatedAt: created.GetCreationTimestamp().UTC().Format(time.RFC3339),
 		},
+		// #3373 — echo the instance placement the CR was created
+		// with (nil when the user silently accepted the Blueprint
+		// defaults; the controller's status.placement carries the
+		// resolved effective value after the first reconcile).
+		Placement: placementInfoFromCR(created),
 	}
 	writeJSON(w, http.StatusCreated, resp)
 }
@@ -1706,13 +1770,43 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 	obj.SetName(seed.Name)
 	obj.SetNamespace(seed.Namespace)
 	obj.SetLabels(seed.Labels)
+	// #3373 — spec.placement is dual-form. The legacy string form
+	// (the chosen topology) stays byte-identical when the user
+	// silently accepted the Blueprint defaults; the OBJECT form
+	// carries the advanced view's instance placement.
+	var placementValue interface{} = seed.Topology
+	regions := []interface{}{"primary"}
+	if seed.Placement != nil {
+		pl := map[string]interface{}{
+			"mode": seed.Topology,
+		}
+		if seed.Placement.VCluster != "" {
+			pl["vcluster"] = seed.Placement.VCluster
+		}
+		if len(seed.Placement.Regions) > 0 {
+			plRegions := make([]interface{}, 0, len(seed.Placement.Regions))
+			for _, r := range seed.Placement.Regions {
+				plRegions = append(plRegions, r)
+			}
+			pl["regions"] = plRegions
+			regions = plRegions
+		}
+		if len(seed.Placement.Clusters) > 0 {
+			plClusters := make([]interface{}, 0, len(seed.Placement.Clusters))
+			for _, c := range seed.Placement.Clusters {
+				plClusters = append(plClusters, c)
+			}
+			pl["clusters"] = plClusters
+		}
+		placementValue = pl
+	}
 	spec := map[string]interface{}{
 		"environmentRef": seed.Namespace + "-prod",
 		"blueprintRef": map[string]interface{}{
 			"name": seed.Blueprint,
 		},
-		"placement": seed.Topology,
-		"regions":   []interface{}{"primary"},
+		"placement": placementValue,
+		"regions":   regions,
 		// ── G117.2 W2.C2 multi-instance fields ──
 		"instanceId":     seed.InstanceID,
 		"isolationLevel": string(seed.IsolationLevel),
@@ -1739,7 +1833,11 @@ func readPhase(u *unstructured.Unstructured) string {
 }
 
 func readTopology(u *unstructured.Unstructured) string {
-	if v, ok, _ := unstructured.NestedString(u.Object, "spec", "placement"); ok && v != "" {
+	if v, ok, err := unstructured.NestedString(u.Object, "spec", "placement"); err == nil && ok && v != "" {
+		return v
+	}
+	// #3373 — object form: the legacy posture rides in `mode`.
+	if v, ok, _ := unstructured.NestedString(u.Object, "spec", "placement", "mode"); ok && v != "" {
 		return v
 	}
 	if labels := u.GetLabels(); labels != nil {

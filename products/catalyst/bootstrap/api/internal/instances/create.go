@@ -50,6 +50,22 @@ type CreateInstanceRequest struct {
 	Topology       string                 `json:"topology,omitempty"`
 	IsolationLevel string                 `json:"isolationLevel,omitempty"`
 	Values         map[string]interface{} `json:"values,omitempty"`
+
+	// Placement — #3373 instance-level placement from the
+	// provisioning journey's GENERIC advanced view (rendered from the
+	// Blueprint's defaultPlacement + allowedPlacements declaration —
+	// never per-app UI). Nil = the user silently accepted the
+	// Blueprint defaults ("he doesn't even need to know the vcluster
+	// detail"); the application-controller derives the rest.
+	Placement *InstancePlacementRequest `json:"placement,omitempty"`
+}
+
+// InstancePlacementRequest mirrors the OBJECT form of
+// `Application.spec.placement` (#3373): WHERE the instance runs.
+type InstancePlacementRequest struct {
+	VCluster string   `json:"vcluster,omitempty"`
+	Regions  []string `json:"regions,omitempty"`
+	Clusters []string `json:"clusters,omitempty"`
 }
 
 // NameRE is the OpenAPI-declared name pattern.
@@ -80,6 +96,27 @@ func (r CreateInstanceRequest) ValidateShape() *ShapeError {
 	if r.IsolationLevel != "" && !appv1alpha1.IsValidIsolationLevel(r.IsolationLevel) {
 		return &ShapeError{Code: "isolation-level-invalid", Message: fmt.Sprintf("isolationLevel %q not in {namespace, vcluster}", r.IsolationLevel)}
 	}
+	// #3373 — instance placement WHERE fields.
+	if r.Placement != nil {
+		switch r.Placement.VCluster {
+		case "", "host", "mgmt", "dmz", "rtz":
+		default:
+			return &ShapeError{Code: "placement-vcluster-invalid",
+				Message: fmt.Sprintf("placement.vcluster %q not in {host, mgmt, dmz, rtz}", r.Placement.VCluster)}
+		}
+		for i, c := range r.Placement.Clusters {
+			if strings.TrimSpace(c) == "" {
+				return &ShapeError{Code: "placement-clusters-invalid",
+					Message: fmt.Sprintf("placement.clusters[%d] is empty", i)}
+			}
+		}
+		for i, rg := range r.Placement.Regions {
+			if strings.TrimSpace(rg) == "" {
+				return &ShapeError{Code: "placement-regions-invalid",
+					Message: fmt.Sprintf("placement.regions[%d] is empty", i)}
+			}
+		}
+	}
 	return nil
 }
 
@@ -105,6 +142,11 @@ type ApplicationSeed struct {
 	NamingTemplate string
 	Values         map[string]interface{}
 	Labels         map[string]string
+
+	// Placement — #3373 instance placement (nil = Blueprint
+	// defaults; the controller derives). Passed through verbatim to
+	// the OBJECT form of `spec.placement` on the Application CR.
+	Placement *InstancePlacementRequest
 }
 
 // Build constructs the ApplicationSeed from a sanitised+validated
@@ -139,6 +181,7 @@ func (r CreateInstanceRequest) Build(chosenTopology string) (ApplicationSeed, er
 		IsolationLevel: mi.IsolationLevel,
 		NamingTemplate: mi.NamingTemplate,
 		Values:         r.Values,
+		Placement:      r.Placement,
 		Labels: map[string]string{
 			"catalyst.openova.io/managed-by":   "catalyst-api",
 			"catalyst.openova.io/organization": r.Org,

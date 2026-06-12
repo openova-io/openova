@@ -127,6 +127,72 @@ func TestFanoutHRs_KubeConfigSecretRefStamped(t *testing.T) {
 	}
 }
 
+// #3373 — when the caller declares the Secret data key (the loft-sh
+// vcluster exportKubeConfig convention "config"), the renderer stamps
+// spec.kubeConfig.secretRef.key. Without the key Flux looks up its
+// default key name and the pivot silently fails against vc-* Secrets
+// (the hand-proven bootstrap-kit slots 22/23/24/35/19a all pin
+// `key: config`).
+func TestFanoutHRs_KubeConfigSecretKeyStamped(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:        "obs",
+		AppNamespace:   "acme",
+		WriteNamespace: "mgmt",
+		Topology:       bpv1alpha1.BcpActiveHotStandby,
+		Variant:        &variant,
+		Chart:          "grafana",
+		KubeConfigSecretFor: func(cluster string) (string, string) {
+			return "vc-" + strings.ToLower(cluster), ""
+		},
+		KubeConfigSecretKey: "config",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, hr := range hrs {
+		spec := hr.Object["spec"].(map[string]interface{})
+		kc, ok := spec["kubeConfig"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("hr.spec.kubeConfig is missing on a vCluster-pivoted HR")
+		}
+		ref := kc["secretRef"].(map[string]interface{})
+		if key, _ := ref["key"].(string); key != "config" {
+			t.Fatalf("hr.spec.kubeConfig.secretRef.key = %q, want config", key)
+		}
+	}
+}
+
+// #3373 — backwards-compat: no KubeConfigSecretKey declared → no `key`
+// field stamped (byte-identical legacy render).
+func TestFanoutHRs_NoKubeConfigSecretKey_OmitsKey(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:        "obs",
+		AppNamespace:   "acme",
+		WriteNamespace: "mgmt",
+		Topology:       bpv1alpha1.BcpActiveHotStandby,
+		Variant:        &variant,
+		Chart:          "grafana",
+		KubeConfigSecretFor: func(cluster string) (string, string) {
+			return "vc-" + strings.ToLower(cluster), ""
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, hr := range hrs {
+		spec := hr.Object["spec"].(map[string]interface{})
+		kc := spec["kubeConfig"].(map[string]interface{})
+		ref := kc["secretRef"].(map[string]interface{})
+		if _, present := ref["key"]; present {
+			t.Fatalf("hr.spec.kubeConfig.secretRef.key must be omitted when KubeConfigSecretKey is empty")
+		}
+	}
+}
+
 func TestFanoutHRs_NoKubeConfigSecretFor_OmitsBlock(t *testing.T) {
 	// Legacy / mgmt-cluster-local HRs (substrate Blueprints per G92.6)
 	// MUST NOT carry a spec.kubeConfig block — Flux v2 interprets the

@@ -90,6 +90,15 @@ type FanoutInputs struct {
 	// local Applications). This is the G92.1 pivot seam.
 	KubeConfigSecretFor func(cluster string) (secretName, secretNamespace string)
 
+	// KubeConfigSecretKey — the data key inside the kubeConfig
+	// Secret (Flux v2 `spec.kubeConfig.secretRef.key`). The loft-sh
+	// vcluster exportKubeConfig convention is "config" (matches the
+	// hand-proven bootstrap-kit slots 22/23/24/35/19a and the
+	// per-region render path, core/controllers/pkg/render
+	// manifests.go). Empty = field omitted (Flux default key
+	// lookup). #3373.
+	KubeConfigSecretKey string
+
 	// Chart + ChartVersion + SourceRefName + SourceRefKind +
 	// SourceRefNamespace + Values — passed through verbatim to
 	// every rendered HR's spec.chart + spec.values. The caller
@@ -220,10 +229,18 @@ func renderOneHR(in FanoutInputs, cluster string) *unstructured.Unstructured {
 	if in.KubeConfigSecretFor != nil {
 		secretName, secretNamespace := in.KubeConfigSecretFor(cluster)
 		if secretName != "" {
+			secretRef := map[string]interface{}{
+				"name": secretName,
+			}
+			// #3373: stamp the Secret data key when the caller
+			// declares it (vcluster exportKubeConfig convention is
+			// "config"; without the key Flux looks up its default
+			// key and the pivot silently fails against vc-* Secrets).
+			if in.KubeConfigSecretKey != "" {
+				secretRef["key"] = in.KubeConfigSecretKey
+			}
 			kc := map[string]interface{}{
-				"secretRef": map[string]interface{}{
-					"name": secretName,
-				},
+				"secretRef": secretRef,
 			}
 			// Flux v2 SecretReference contract: namespace is implied
 			// from the HR's own namespace. We DO NOT stamp the

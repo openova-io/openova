@@ -35,7 +35,7 @@ metadata:
   # G105-followup4 #2697 (2026-06-01): metadata.namespace reverted
   # to flux-system. G92.x slot-level forcing dropped (see slot
   # 09-keycloak.yaml header comment for the rationale).
-  namespace: flux-system
+  namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
     catalyst.openova.io/slot: "07"
     catalyst.openova.io/vcluster: mgmt
@@ -48,6 +48,12 @@ spec:
   # inside the vCluster and resolve `nats-jetstream.nats-system.svc.
   # cluster.local` natively via vCluster CoreDNS.
   targetNamespace: nats-system
+  storageNamespace: nats-system
+  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
+  kubeConfig:
+    secretRef:
+      name: vc-mgmt
+      key: config
   # vCluster pivot — helm-controller pulls the kubeconfig from the
   # G105-followup4 #2697 (2026-06-01): kubeConfig.secretRef removed
   # (G92.x slot-level forcing dropped, see slot 09-keycloak.yaml for
