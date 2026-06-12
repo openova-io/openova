@@ -1,5 +1,22 @@
 apiVersion: v2
 name: bp-valkey
+# 1.1.0 (#3370, 2026-06-12): Contexts — the generality proof of the
+# platform-wide reuse mechanism on a NON-database blueprint. New
+# Catalyst overlay templates:
+#   - context-secrets.yaml: each `keyspaces[]` entry (the canonical
+#     context entry shape: name + index + consumer.blueprint +
+#     reflect.secretName/namespaces) materializes ONE reflected
+#     credential Secret (host/port/index/uri, password when
+#     valkey.auth.enabled) in the RELEASE namespace as a reflector
+#     push source — the exact bp-postgres databases[] machinery
+#     shape, generalized only by the blueprint.yaml contextSchema
+#     declaration (kind=keyspace, valuesKey=keyspaces).
+#   - application-cr.yaml: bootstrapOwned self-registration of the
+#     canonical apps.openova.io/v1 Application CR (adoption-guarded,
+#     Capabilities-gated — see bp-postgres 0.1.6).
+# Default render is byte-compatible with 1.0.2 (keyspaces:[] +
+# bootstrapOwned off → zero overlay resources); locked by
+# tests/contexts-render.sh.
 # 1.0.2 (TBD-V12 #2003, 2026-05-20): default valkey.auth.enabled flips
 # from true → false to match bp-newapi's passwordless
 # REDIS_CONN_STRING default. Pre-1.0.2 every freshly-franchised
@@ -13,7 +30,7 @@ name: bp-valkey
 # values.yaml under `valkey.auth` for the full rationale +
 # follow-up to re-enable auth once bp-newapi mirrors the
 # bp-valkey-generated password.
-version: 1.0.2
+version: 1.1.0
 description: |
   Catalyst-curated Blueprint umbrella chart for Valkey (Redis-compatible
   cache, BSD-3). Depends on the upstream `valkey` chart (Bitnami) as a

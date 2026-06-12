@@ -56,7 +56,11 @@ spec:
       # newapi, blocking Pillar 4 / qwen-code / MCP). See
       # platform/valkey/chart/values.yaml `auth` block for the
       # consumer-tolerance + follow-up plan.
-      version: 1.0.2
+      # 1.1.0 (#3370 Contexts): keyspace Context machinery
+      # (context-secrets.yaml) + bootstrapOwned Application-CR
+      # self-registration — the generality proof of the platform-wide
+      # reuse mechanism on a non-database blueprint.
+      version: 1.1.0
       sourceRef:
         kind: HelmRepository
         name: bp-valkey
@@ -72,3 +76,18 @@ spec:
     disableWait: true
     remediation:
       retries: 3
+  values:
+    # ── Bootstrap self-registration (#3370) ─────────────────────────
+    # The chart self-registers the Application CR for this valkey
+    # instance (the canonical representation every console surface
+    # reads), marked spec.bootstrap=true so the application-controller
+    # ADOPTS this HR's install instead of re-rendering it. Contexts
+    # (keyspaces[]) stay empty here — today's bootstrap consumers
+    # (bp-newapi, sme-services) connect to the default logical
+    # database directly; their keyspace adoption is enumerated on
+    # #3370's follow-up checklist.
+    bootstrapOwned:
+      enabled: true
+      helmRelease:
+        name: bp-valkey
+        namespace: flux-system

@@ -2802,7 +2802,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.2"
+  version: "1.1.0"
   visibility: unlisted
   # Shareability + Contexts (#3370 generality proof) — seeded verbatim
   # from platform/valkey/blueprint.yaml (lockstep-guarded). One instance
@@ -2845,7 +2845,7 @@ docs/SRE.md §2.5).
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-valkey
-    version: "1.0.2"
+    version: "1.1.0"
   topology:
     supported:
     - active-passive

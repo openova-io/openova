@@ -1225,7 +1225,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.2",
+    "version": "1.1.0",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-flux"
