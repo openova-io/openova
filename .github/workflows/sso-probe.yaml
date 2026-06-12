@@ -1,0 +1,99 @@
+# sso-probe.yaml — per-app zero-click SSO synthetic walk (#3374 DoD-6).
+#
+# Runs scripts/sso-zero-click-probe.mjs against a live Sovereign: fresh
+# Chromium context -> handover session -> every external bare URL must
+# land signed in (authenticated-landing marker present, NO login-form
+# marker). A red row is the regression tripwire the #3374 law demands
+# ("a walked-once SSO is worthless if the next chart roll silently
+# kills it").
+#
+# Triggers:
+#   - workflow_dispatch: on-demand against any env (operator supplies
+#     fqdn + a fresh handover URL minted off-runner — the JWT private
+#     key never enters CI).
+#   - schedule: nightly against the canonical walk env IF the
+#     SSO_PROBE_FQDN + SSO_PROBE_HANDOVER_JWT_B64 secrets are set
+#     (a 5-min handover JWT cannot be a static secret, so the scheduled
+#     leg expects SSO_PROBE_JWT_KEY_B64 — the env's handover signing
+#     key — and mints in-run; skip cleanly when unset).
+name: sso-zero-click-probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      fqdn:
+        description: "Sovereign FQDN (e.g. hw130.omantel.biz)"
+        required: true
+      handover_url:
+        description: "Fresh handover URL (console.<fqdn>/auth/handover?token=...)"
+        required: false
+      expect_broken:
+        description: "Comma list of rows expected RED (negative validation)"
+        required: false
+  schedule:
+    - cron: "17 2 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install playwright + chromium
+        run: |
+          npm install --no-save playwright@1.46.0
+          npx playwright install --with-deps chromium
+
+      - name: Resolve target
+        id: target
+        env:
+          SCHED_FQDN: ${{ secrets.SSO_PROBE_FQDN }}
+          JWT_KEY_B64: ${{ secrets.SSO_PROBE_JWT_KEY_B64 }}
+          DEPLOYMENT_ID: ${{ secrets.SSO_PROBE_DEPLOYMENT_ID }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "fqdn=${{ inputs.fqdn }}" >> "$GITHUB_OUTPUT"
+            echo "mode=dispatch" >> "$GITHUB_OUTPUT"
+          elif [ -n "${SCHED_FQDN:-}" ] && [ -n "${JWT_KEY_B64:-}" ]; then
+            echo "fqdn=${SCHED_FQDN}" >> "$GITHUB_OUTPUT"
+            echo "mode=scheduled" >> "$GITHUB_OUTPUT"
+            printf '%s' "${JWT_KEY_B64}" | base64 -d > /tmp/probe-jwt-key.pem
+            chmod 600 /tmp/probe-jwt-key.pem
+          else
+            echo "mode=skip" >> "$GITHUB_OUTPUT"
+            echo "::notice::SSO_PROBE_FQDN / SSO_PROBE_JWT_KEY_B64 secrets unset — scheduled probe skipped"
+          fi
+
+      - name: Run probe
+        if: steps.target.outputs.mode != 'skip'
+        env:
+          DEPLOYMENT_ID: ${{ secrets.SSO_PROBE_DEPLOYMENT_ID }}
+        run: |
+          set -euo pipefail
+          ARGS=(--fqdn "${{ steps.target.outputs.fqdn }}" --json sso-probe-result.json)
+          if [ "${{ steps.target.outputs.mode }}" = "dispatch" ] && [ -n "${{ inputs.handover_url }}" ]; then
+            ARGS+=(--handover-url "${{ inputs.handover_url }}")
+          else
+            ARGS+=(--jwt-key /tmp/probe-jwt-key.pem --deployment-id "${DEPLOYMENT_ID:-}")
+          fi
+          if [ -n "${{ inputs.expect_broken || '' }}" ]; then
+            ARGS+=(--expect-broken "${{ inputs.expect_broken }}")
+          fi
+          node scripts/sso-zero-click-probe.mjs "${ARGS[@]}"
+
+      - name: Upload result
+        if: always() && steps.target.outputs.mode != 'skip'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sso-probe-result
+          path: sso-probe-result.json
+          if-no-files-found: ignore
