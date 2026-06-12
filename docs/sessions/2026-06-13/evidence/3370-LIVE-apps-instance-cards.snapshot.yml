@@ -1,0 +1,756 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - img [ref=e7]
+        - generic [ref=e9]: OpenOva Sovereign
+      - button "hw130.omantel.biz" [ref=e11]:
+        - generic [ref=e12]: hw130.omantel.biz
+        - img [ref=e13]
+    - navigation [ref=e15]:
+      - link "Dashboard" [ref=e16] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e17]
+        - text: Dashboard
+      - link "Cloud" [ref=e19] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=e20]
+        - text: Cloud
+      - link "Apps" [ref=e22] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=e23]
+        - text: Apps
+      - link "Sandbox" [ref=e25] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=e26]
+        - text: Sandbox
+      - link "Jobs" [ref=e28] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=e29]
+        - text: Jobs
+      - link "Compliance" [ref=e31] [cursor=pointer]:
+        - /url: /sre/compliance
+        - img [ref=e32]
+        - text: Compliance
+      - link "Users" [ref=e34] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e35]
+        - text: Users
+      - link "BSS" [ref=e37] [cursor=pointer]:
+        - /url: /bss
+        - img [ref=e38]
+        - text: BSS
+      - link "Settings" [ref=e40] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e41]
+        - text: Settings
+    - generic [ref=e44]:
+      - generic [ref=e45]: T
+      - generic [ref=e46]:
+        - paragraph [ref=e47]: Tenant
+        - paragraph [ref=e48]: hw130.omantel.biz
+  - generic [ref=e49]:
+    - banner [ref=e50]:
+      - heading "Applications" [level=1] [ref=e52]
+      - generic [ref=e53]:
+        - generic [ref=e54]:
+          - text: Provisioning
+          - link "View jobs" [ref=e56] [cursor=pointer]:
+            - /url: /jobs
+        - button "No notifications" [ref=e58]:
+          - img [ref=e59]
+        - button "Switch to light theme" [ref=e62]:
+          - img [ref=e63]
+        - button "Sign in" [ref=e69] [cursor=pointer]
+    - main [ref=e70]:
+      - tablist [ref=e71]:
+        - tab "Deployments 49" [selected] [ref=e72] [cursor=pointer]:
+          - text: Deployments
+          - generic [ref=e73]: "49"
+        - tab "Catalog 63" [ref=e74] [cursor=pointer]:
+          - text: Catalog
+          - generic [ref=e75]: "63"
+      - generic [ref=e76]:
+        - generic [ref=e77]:
+          - img [ref=e78]
+          - textbox "Search your 49 apps…" [ref=e81]
+        - generic [ref=e82]: Environment:devstagingprod
+      - generic [ref=e83]:
+        - link "Alloy Alloy INSIGHTS Unified node agent for logs, metrics, and traces dev FREE BOOTSTRAP + opentelemetry PENDING" [ref=e84] [cursor=pointer]:
+          - /url: /app/bp-alloy
+          - img "Alloy" [ref=e85]
+          - generic [ref=e86]:
+            - generic [ref=e87]:
+              - generic [ref=e88]: Alloy
+              - generic [ref=e89]: INSIGHTS
+            - paragraph [ref=e90]: Unified node agent for logs, metrics, and traces
+            - generic [ref=e91]:
+              - 'generic "Environment: dev" [ref=e92]': dev
+              - generic [ref=e93]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e94]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e95]: + opentelemetry
+          - generic [ref=e97]: PENDING
+        - link "c catalyst-platform Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e99] [cursor=pointer]:
+          - /url: /app/bp-catalyst-platform
+          - generic [ref=e100]: c
+          - generic [ref=e101]:
+            - generic [ref=e102]:
+              - generic [ref=e103]: catalyst-platform
+              - generic [ref=e104]: Platform
+            - paragraph [ref=e105]: Platform
+            - generic [ref=e106]:
+              - 'generic "Environment: dev" [ref=e107]': dev
+              - generic [ref=e108]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e109]: BOOTSTRAP
+          - generic [ref=e111]: PENDING
+        - link "Cert-Manager Cert-Manager GUARDIAN Automated TLS issuance and rotation for every ingress dev FREE BOOTSTRAP + cilium PENDING" [ref=e113] [cursor=pointer]:
+          - /url: /app/bp-cert-manager
+          - img "Cert-Manager" [ref=e114]
+          - generic [ref=e115]:
+            - generic [ref=e116]:
+              - generic [ref=e117]: Cert-Manager
+              - generic [ref=e118]: GUARDIAN
+            - paragraph [ref=e119]: Automated TLS issuance and rotation for every ingress
+            - generic [ref=e120]:
+              - 'generic "Environment: dev" [ref=e121]': dev
+              - generic [ref=e122]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e123]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e124]: + cilium
+          - generic [ref=e126]: PENDING
+        - link "c cert-manager-powerdns-webhook Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e128] [cursor=pointer]:
+          - /url: /app/bp-cert-manager-powerdns-webhook
+          - generic [ref=e129]: c
+          - generic [ref=e130]:
+            - generic [ref=e131]:
+              - generic [ref=e132]: cert-manager-powerdns-webhook
+              - generic [ref=e133]: Platform
+            - paragraph [ref=e134]: Platform
+            - generic [ref=e135]:
+              - 'generic "Environment: dev" [ref=e136]': dev
+              - generic [ref=e137]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e138]: BOOTSTRAP
+          - generic [ref=e140]: PENDING
+        - link "Cilium Cilium SPINE eBPF CNI and service mesh with kernel-level policy dev FREE BOOTSTRAP PENDING" [ref=e142] [cursor=pointer]:
+          - /url: /app/bp-cilium
+          - img "Cilium" [ref=e143]
+          - generic [ref=e144]:
+            - generic [ref=e145]:
+              - generic [ref=e146]: Cilium
+              - generic [ref=e147]: SPINE
+            - paragraph [ref=e148]: eBPF CNI and service mesh with kernel-level policy
+            - generic [ref=e149]:
+              - 'generic "Environment: dev" [ref=e150]': dev
+              - generic [ref=e151]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e152]: BOOTSTRAP
+          - generic [ref=e154]: PENDING
+        - link "CloudNative PG CloudNative PG FABRIC Operated PostgreSQL with replicas, PITR, and pooling dev FREE BOOTSTRAP + flux PENDING" [ref=e156] [cursor=pointer]:
+          - /url: /app/bp-cnpg
+          - img "CloudNative PG" [ref=e157]
+          - generic [ref=e158]:
+            - generic [ref=e159]:
+              - generic [ref=e160]: CloudNative PG
+              - generic [ref=e161]: FABRIC
+            - paragraph [ref=e162]: Operated PostgreSQL with replicas, PITR, and pooling
+            - generic [ref=e163]:
+              - 'generic "Environment: dev" [ref=e164]': dev
+              - generic [ref=e165]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e166]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e167]: + flux
+          - generic [ref=e169]: PENDING
+        - link "c cluster-autoscaler Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e171] [cursor=pointer]:
+          - /url: /app/bp-cluster-autoscaler
+          - generic [ref=e172]: c
+          - generic [ref=e173]:
+            - generic [ref=e174]:
+              - generic [ref=e175]: cluster-autoscaler
+              - generic [ref=e176]: Platform
+            - paragraph [ref=e177]: Platform
+            - generic [ref=e178]:
+              - 'generic "Environment: dev" [ref=e179]': dev
+              - generic [ref=e180]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e181]: BOOTSTRAP
+          - generic [ref=e183]: PENDING
+        - link "C Continuum SURGE Cross-zone failover orchestration for stateful workloads dev FREE BOOTSTRAP PENDING" [ref=e185] [cursor=pointer]:
+          - /url: /app/bp-continuum
+          - generic [ref=e186]: C
+          - generic [ref=e187]:
+            - generic [ref=e188]:
+              - generic [ref=e189]: Continuum
+              - generic [ref=e190]: SURGE
+            - paragraph [ref=e191]: Cross-zone failover orchestration for stateful workloads
+            - generic [ref=e192]:
+              - 'generic "Environment: dev" [ref=e193]': dev
+              - generic [ref=e194]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e195]: BOOTSTRAP
+          - generic [ref=e197]: PENDING
+        - link "Coraza WAF Coraza WAF SPINE OWASP Core Rule Set L7 firewall on Envoy dev FREE BOOTSTRAP + cilium + cert-manager PENDING" [ref=e199] [cursor=pointer]:
+          - /url: /app/bp-coraza
+          - img "Coraza WAF" [ref=e200]
+          - generic [ref=e201]:
+            - generic [ref=e202]:
+              - generic [ref=e203]: Coraza WAF
+              - generic [ref=e204]: SPINE
+            - paragraph [ref=e205]: OWASP Core Rule Set L7 firewall on Envoy
+            - generic [ref=e206]:
+              - 'generic "Environment: dev" [ref=e207]': dev
+              - generic [ref=e208]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e209]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e210]: + cilium
+              - generic "Bundled dependency" [ref=e211]: + cert-manager
+          - generic [ref=e213]: PENDING
+        - link "Crossplane Crossplane PILOT Cloud and Kubernetes APIs as native CRDs dev FREE BOOTSTRAP + flux PENDING" [ref=e215] [cursor=pointer]:
+          - /url: /app/bp-crossplane
+          - img "Crossplane" [ref=e216]
+          - generic [ref=e217]:
+            - generic [ref=e218]:
+              - generic [ref=e219]: Crossplane
+              - generic [ref=e220]: PILOT
+            - paragraph [ref=e221]: Cloud and Kubernetes APIs as native CRDs
+            - generic [ref=e222]:
+              - 'generic "Environment: dev" [ref=e223]': dev
+              - generic [ref=e224]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e225]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e226]: + flux
+          - generic [ref=e228]: PENDING
+        - link "c crossplane-claims Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e230] [cursor=pointer]:
+          - /url: /app/bp-crossplane-claims
+          - generic [ref=e231]: c
+          - generic [ref=e232]:
+            - generic [ref=e233]:
+              - generic [ref=e234]: crossplane-claims
+              - generic [ref=e235]: Platform
+            - paragraph [ref=e236]: Platform
+            - generic [ref=e237]:
+              - 'generic "Environment: dev" [ref=e238]': dev
+              - generic [ref=e239]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e240]: BOOTSTRAP
+          - generic [ref=e242]: PENDING
+        - link "d dmz-vcluster Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e244] [cursor=pointer]:
+          - /url: /app/bp-dmz-vcluster
+          - generic [ref=e245]: d
+          - generic [ref=e246]:
+            - generic [ref=e247]:
+              - generic [ref=e248]: dmz-vcluster
+              - generic [ref=e249]: Platform
+            - paragraph [ref=e250]: Platform
+            - generic [ref=e251]:
+              - 'generic "Environment: dev" [ref=e252]': dev
+              - generic [ref=e253]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e254]: BOOTSTRAP
+          - generic [ref=e256]: PENDING
+        - link "External DNS External DNS SPINE Reconciles Service, Ingress, Gateway into authoritative DNS dev FREE BOOTSTRAP + cert-manager + powerdns + reflector PENDING" [ref=e258] [cursor=pointer]:
+          - /url: /app/bp-external-dns
+          - img "External DNS" [ref=e259]
+          - generic [ref=e260]:
+            - generic [ref=e261]:
+              - generic [ref=e262]: External DNS
+              - generic [ref=e263]: SPINE
+            - paragraph [ref=e264]: Reconciles Service, Ingress, Gateway into authoritative DNS
+            - generic [ref=e265]:
+              - 'generic "Environment: dev" [ref=e266]': dev
+              - generic [ref=e267]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e268]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e269]: + cert-manager
+              - generic "Bundled dependency" [ref=e270]: + powerdns
+              - generic "Bundled dependency" [ref=e271]: + reflector
+          - generic [ref=e273]: PENDING
+        - link "External Secrets External Secrets GUARDIAN Bridges OpenBao to native Kubernetes Secret objects dev FREE BOOTSTRAP + openbao + cert-manager PENDING" [ref=e275] [cursor=pointer]:
+          - /url: /app/bp-external-secrets
+          - img "External Secrets" [ref=e276]
+          - generic [ref=e277]:
+            - generic [ref=e278]:
+              - generic [ref=e279]: External Secrets
+              - generic [ref=e280]: GUARDIAN
+            - paragraph [ref=e281]: Bridges OpenBao to native Kubernetes Secret objects
+            - generic [ref=e282]:
+              - 'generic "Environment: dev" [ref=e283]': dev
+              - generic [ref=e284]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e285]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e286]: + openbao
+              - generic "Bundled dependency" [ref=e287]: + cert-manager
+          - generic [ref=e289]: PENDING
+        - link "Falco Falco GUARDIAN eBPF runtime threat detection with real-time syscall alerting dev FREE BOOTSTRAP + cilium PENDING" [ref=e291] [cursor=pointer]:
+          - /url: /app/bp-falco
+          - img "Falco" [ref=e292]
+          - generic [ref=e293]:
+            - generic [ref=e294]:
+              - generic [ref=e295]: Falco
+              - generic [ref=e296]: GUARDIAN
+            - paragraph [ref=e297]: eBPF runtime threat detection with real-time syscall alerting
+            - generic [ref=e298]:
+              - 'generic "Environment: dev" [ref=e299]': dev
+              - generic [ref=e300]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e301]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e302]: + cilium
+          - generic [ref=e304]: PENDING
+        - link "Flux CD Flux CD PILOT GitOps reconciler driving every Sovereign cluster from Git dev FREE BOOTSTRAP + cert-manager PENDING" [ref=e306] [cursor=pointer]:
+          - /url: /app/bp-flux
+          - img "Flux CD" [ref=e307]
+          - generic [ref=e308]:
+            - generic [ref=e309]:
+              - generic [ref=e310]: Flux CD
+              - generic [ref=e311]: PILOT
+            - paragraph [ref=e312]: GitOps reconciler driving every Sovereign cluster from Git
+            - generic [ref=e313]:
+              - 'generic "Environment: dev" [ref=e314]': dev
+              - generic [ref=e315]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e316]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e317]: + cert-manager
+          - generic [ref=e319]: PENDING
+        - link "Gitea Gitea PILOT Sovereign-local Git server with five tenant organisations dev FREE BOOTSTRAP + keycloak + gateway-api + cnpg PENDING" [ref=e321] [cursor=pointer]:
+          - /url: /app/bp-gitea
+          - img "Gitea" [ref=e322]
+          - generic [ref=e323]:
+            - generic [ref=e324]:
+              - generic [ref=e325]: Gitea
+              - generic [ref=e326]: PILOT
+            - paragraph [ref=e327]: Sovereign-local Git server with five tenant organisations
+            - generic [ref=e328]:
+              - 'generic "Environment: dev" [ref=e329]': dev
+              - generic [ref=e330]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e331]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e332]: + keycloak
+              - generic "Bundled dependency" [ref=e333]: + gateway-api
+              - generic "Bundled dependency" [ref=e334]: + cnpg
+          - generic [ref=e336]: PENDING
+        - link "Grafana Grafana INSIGHTS Curated dashboards across metrics, logs, and traces dev FREE BOOTSTRAP + cnpg + loki + mimir PENDING" [ref=e338] [cursor=pointer]:
+          - /url: /app/bp-grafana
+          - img "Grafana" [ref=e339]
+          - generic [ref=e340]:
+            - generic [ref=e341]:
+              - generic [ref=e342]: Grafana
+              - generic [ref=e343]: INSIGHTS
+            - paragraph [ref=e344]: Curated dashboards across metrics, logs, and traces
+            - generic [ref=e345]:
+              - 'generic "Environment: dev" [ref=e346]': dev
+              - generic [ref=e347]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e348]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e349]: + cnpg
+              - generic "Bundled dependency" [ref=e350]: + loki
+              - generic "Bundled dependency" [ref=e351]: + mimir
+          - generic [ref=e353]: PENDING
+        - link "g guacamole Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e355] [cursor=pointer]:
+          - /url: /app/bp-guacamole
+          - generic [ref=e356]: g
+          - generic [ref=e357]:
+            - generic [ref=e358]:
+              - generic [ref=e359]: guacamole
+              - generic [ref=e360]: Platform
+            - paragraph [ref=e361]: Platform
+            - generic [ref=e362]:
+              - 'generic "Environment: dev" [ref=e363]': dev
+              - generic [ref=e364]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e365]: BOOTSTRAP
+          - generic [ref=e367]: PENDING
+        - link "Harbor Harbor SILO Private OCI registry with cosign trust and CVE scanning dev FREE BOOTSTRAP + cnpg + cert-manager + gateway-api PENDING" [ref=e369] [cursor=pointer]:
+          - /url: /app/bp-harbor
+          - img "Harbor" [ref=e370]
+          - generic [ref=e371]:
+            - generic [ref=e372]:
+              - generic [ref=e373]: Harbor
+              - generic [ref=e374]: SILO
+            - paragraph [ref=e375]: Private OCI registry with cosign trust and CVE scanning
+            - generic [ref=e376]:
+              - 'generic "Environment: dev" [ref=e377]': dev
+              - generic [ref=e378]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e379]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e380]: + cnpg
+              - generic "Bundled dependency" [ref=e381]: + cert-manager
+              - generic "Bundled dependency" [ref=e382]: + gateway-api
+          - generic [ref=e384]: PENDING
+        - link "h hcloud-ccm Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e386] [cursor=pointer]:
+          - /url: /app/bp-hcloud-ccm
+          - generic [ref=e387]: h
+          - generic [ref=e388]:
+            - generic [ref=e389]:
+              - generic [ref=e390]: hcloud-ccm
+              - generic [ref=e391]: Platform
+            - paragraph [ref=e392]: Platform
+            - generic [ref=e393]:
+              - 'generic "Environment: dev" [ref=e394]': dev
+              - generic [ref=e395]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e396]: BOOTSTRAP
+          - generic [ref=e398]: PENDING
+        - link "k k8s-ws-proxy Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e400] [cursor=pointer]:
+          - /url: /app/bp-k8s-ws-proxy
+          - generic [ref=e401]: k
+          - generic [ref=e402]:
+            - generic [ref=e403]:
+              - generic [ref=e404]: k8s-ws-proxy
+              - generic [ref=e405]: Platform
+            - paragraph [ref=e406]: Platform
+            - generic [ref=e407]:
+              - 'generic "Environment: dev" [ref=e408]': dev
+              - generic [ref=e409]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e410]: BOOTSTRAP
+          - generic [ref=e412]: PENDING
+        - link "Keycloak Keycloak GUARDIAN OIDC and SAML identity provider with realm isolation dev FREE BOOTSTRAP + cert-manager + gateway-api PENDING" [ref=e414] [cursor=pointer]:
+          - /url: /app/bp-keycloak
+          - img "Keycloak" [ref=e415]
+          - generic [ref=e416]:
+            - generic [ref=e417]:
+              - generic [ref=e418]: Keycloak
+              - generic [ref=e419]: GUARDIAN
+            - paragraph [ref=e420]: OIDC and SAML identity provider with realm isolation
+            - generic [ref=e421]:
+              - 'generic "Environment: dev" [ref=e422]': dev
+              - generic [ref=e423]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e424]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e425]: + cert-manager
+              - generic "Bundled dependency" [ref=e426]: + gateway-api
+          - generic [ref=e428]: PENDING
+        - link "Kyverno Kyverno GUARDIAN Native-YAML policy engine gating every admission request dev FREE BOOTSTRAP + cilium PENDING" [ref=e430] [cursor=pointer]:
+          - /url: /app/bp-kyverno
+          - img "Kyverno" [ref=e431]
+          - generic [ref=e432]:
+            - generic [ref=e433]:
+              - generic [ref=e434]: Kyverno
+              - generic [ref=e435]: GUARDIAN
+            - paragraph [ref=e436]: Native-YAML policy engine gating every admission request
+            - generic [ref=e437]:
+              - 'generic "Environment: dev" [ref=e438]': dev
+              - generic [ref=e439]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e440]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e441]: + cilium
+          - generic [ref=e443]: PENDING
+        - link "Loki Loki INSIGHTS Label-indexed log store backed by object storage dev FREE BOOTSTRAP + seaweedfs PENDING" [ref=e445] [cursor=pointer]:
+          - /url: /app/bp-loki
+          - img "Loki" [ref=e446]
+          - generic [ref=e447]:
+            - generic [ref=e448]:
+              - generic [ref=e449]: Loki
+              - generic [ref=e450]: INSIGHTS
+            - paragraph [ref=e451]: Label-indexed log store backed by object storage
+            - generic [ref=e452]:
+              - 'generic "Environment: dev" [ref=e453]': dev
+              - generic [ref=e454]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e455]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e456]: + seaweedfs
+          - generic [ref=e458]: PENDING
+        - link "m mgmt-vcluster Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e460] [cursor=pointer]:
+          - /url: /app/bp-mgmt-vcluster
+          - generic [ref=e461]: m
+          - generic [ref=e462]:
+            - generic [ref=e463]:
+              - generic [ref=e464]: mgmt-vcluster
+              - generic [ref=e465]: Platform
+            - paragraph [ref=e466]: Platform
+            - generic [ref=e467]:
+              - 'generic "Environment: dev" [ref=e468]': dev
+              - generic [ref=e469]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e470]: BOOTSTRAP
+          - generic [ref=e472]: PENDING
+        - link "Mimir Mimir INSIGHTS Horizontally-scaled metrics store with PromQL compatibility dev FREE BOOTSTRAP + seaweedfs PENDING" [ref=e474] [cursor=pointer]:
+          - /url: /app/bp-mimir
+          - img "Mimir" [ref=e475]
+          - generic [ref=e476]:
+            - generic [ref=e477]:
+              - generic [ref=e478]: Mimir
+              - generic [ref=e479]: INSIGHTS
+            - paragraph [ref=e480]: Horizontally-scaled metrics store with PromQL compatibility
+            - generic [ref=e481]:
+              - 'generic "Environment: dev" [ref=e482]': dev
+              - generic [ref=e483]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e484]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e485]: + seaweedfs
+          - generic [ref=e487]: PENDING
+        - link "n nats-jetstream Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e489] [cursor=pointer]:
+          - /url: /app/bp-nats-jetstream
+          - generic [ref=e490]: "n"
+          - generic [ref=e491]:
+            - generic [ref=e492]:
+              - generic [ref=e493]: nats-jetstream
+              - generic [ref=e494]: Platform
+            - paragraph [ref=e495]: Platform
+            - generic [ref=e496]:
+              - 'generic "Environment: dev" [ref=e497]': dev
+              - generic [ref=e498]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e499]: BOOTSTRAP
+          - generic [ref=e501]: PENDING
+        - link "n network-policies Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e503] [cursor=pointer]:
+          - /url: /app/bp-network-policies
+          - generic [ref=e504]: "n"
+          - generic [ref=e505]:
+            - generic [ref=e506]:
+              - generic [ref=e507]: network-policies
+              - generic [ref=e508]: Platform
+            - paragraph [ref=e509]: Platform
+            - generic [ref=e510]:
+              - 'generic "Environment: dev" [ref=e511]': dev
+              - generic [ref=e512]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e513]: BOOTSTRAP
+          - generic [ref=e515]: PENDING
+        - link "n newapi Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e517] [cursor=pointer]:
+          - /url: /app/bp-newapi
+          - generic [ref=e518]: "n"
+          - generic [ref=e519]:
+            - generic [ref=e520]:
+              - generic [ref=e521]: newapi
+              - generic [ref=e522]: Platform
+            - paragraph [ref=e523]: Platform
+            - generic [ref=e524]:
+              - 'generic "Environment: dev" [ref=e525]': dev
+              - generic [ref=e526]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e527]: BOOTSTRAP
+          - generic [ref=e529]: PENDING
+        - link "OpenBao OpenBao GUARDIAN Independent-Raft secrets vault with dynamic credentials dev FREE BOOTSTRAP + spire + gateway-api + cnpg PENDING" [ref=e531] [cursor=pointer]:
+          - /url: /app/bp-openbao
+          - img "OpenBao" [ref=e532]
+          - generic [ref=e533]:
+            - generic [ref=e534]:
+              - generic [ref=e535]: OpenBao
+              - generic [ref=e536]: GUARDIAN
+            - paragraph [ref=e537]: Independent-Raft secrets vault with dynamic credentials
+            - generic [ref=e538]:
+              - 'generic "Environment: dev" [ref=e539]': dev
+              - generic [ref=e540]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e541]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e542]: + spire
+              - generic "Bundled dependency" [ref=e543]: + gateway-api
+              - generic "Bundled dependency" [ref=e544]: + cnpg
+          - generic [ref=e546]: PENDING
+        - link "o openova-flow-emitter Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e548] [cursor=pointer]:
+          - /url: /app/bp-openova-flow-emitter
+          - generic [ref=e549]: o
+          - generic [ref=e550]:
+            - generic [ref=e551]:
+              - generic [ref=e552]: openova-flow-emitter
+              - generic [ref=e553]: Platform
+            - paragraph [ref=e554]: Platform
+            - generic [ref=e555]:
+              - 'generic "Environment: dev" [ref=e556]': dev
+              - generic [ref=e557]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e558]: BOOTSTRAP
+          - generic [ref=e560]: PENDING
+        - link "o openova-flow-server Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e562] [cursor=pointer]:
+          - /url: /app/bp-openova-flow-server
+          - generic [ref=e563]: o
+          - generic [ref=e564]:
+            - generic [ref=e565]:
+              - generic [ref=e566]: openova-flow-server
+              - generic [ref=e567]: Platform
+            - paragraph [ref=e568]: Platform
+            - generic [ref=e569]:
+              - 'generic "Environment: dev" [ref=e570]': dev
+              - generic [ref=e571]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e572]: BOOTSTRAP
+          - generic [ref=e574]: PENDING
+        - link "OpenTelemetry OpenTelemetry INSIGHTS Vendor-neutral SDKs and Collector for traces, metrics, logs dev FREE BOOTSTRAP + cert-manager PENDING" [ref=e576] [cursor=pointer]:
+          - /url: /app/bp-opentelemetry
+          - img "OpenTelemetry" [ref=e577]
+          - generic [ref=e578]:
+            - generic [ref=e579]:
+              - generic [ref=e580]: OpenTelemetry
+              - generic [ref=e581]: INSIGHTS
+            - paragraph [ref=e582]: Vendor-neutral SDKs and Collector for traces, metrics, logs
+            - generic [ref=e583]:
+              - 'generic "Environment: dev" [ref=e584]': dev
+              - generic [ref=e585]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e586]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e587]: + cert-manager
+          - generic [ref=e589]: PENDING
+        - link "P PowerDNS SPINE Authoritative DNS with DNSSEC signing and geographic failover dev FREE BOOTSTRAP + cert-manager + gateway-api + cnpg PENDING" [ref=e591] [cursor=pointer]:
+          - /url: /app/bp-powerdns
+          - generic [ref=e592]: P
+          - generic [ref=e593]:
+            - generic [ref=e594]:
+              - generic [ref=e595]: PowerDNS
+              - generic [ref=e596]: SPINE
+            - paragraph [ref=e597]: Authoritative DNS with DNSSEC signing and geographic failover
+            - generic [ref=e598]:
+              - 'generic "Environment: dev" [ref=e599]': dev
+              - generic [ref=e600]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e601]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e602]: + cert-manager
+              - generic "Bundled dependency" [ref=e603]: + gateway-api
+              - generic "Bundled dependency" [ref=e604]: + cnpg
+          - generic [ref=e606]: PENDING
+        - link "Reloader Reloader SURGE Rolls workloads automatically when ConfigMaps or Secrets change dev FREE BOOTSTRAP PENDING" [ref=e608] [cursor=pointer]:
+          - /url: /app/bp-reloader
+          - img "Reloader" [ref=e609]
+          - generic [ref=e610]:
+            - generic [ref=e611]:
+              - generic [ref=e612]: Reloader
+              - generic [ref=e613]: SURGE
+            - paragraph [ref=e614]: Rolls workloads automatically when ConfigMaps or Secrets change
+            - generic [ref=e615]:
+              - 'generic "Environment: dev" [ref=e616]': dev
+              - generic [ref=e617]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e618]: BOOTSTRAP
+          - generic [ref=e620]: PENDING
+        - link "r rtz-vcluster Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e622] [cursor=pointer]:
+          - /url: /app/bp-rtz-vcluster
+          - generic [ref=e623]: r
+          - generic [ref=e624]:
+            - generic [ref=e625]:
+              - generic [ref=e626]: rtz-vcluster
+              - generic [ref=e627]: Platform
+            - paragraph [ref=e628]: Platform
+            - generic [ref=e629]:
+              - 'generic "Environment: dev" [ref=e630]': dev
+              - generic [ref=e631]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e632]: BOOTSTRAP
+          - generic [ref=e634]: PENDING
+        - link "s sealed-secrets Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e636] [cursor=pointer]:
+          - /url: /app/bp-sealed-secrets
+          - generic [ref=e637]: s
+          - generic [ref=e638]:
+            - generic [ref=e639]:
+              - generic [ref=e640]: sealed-secrets
+              - generic [ref=e641]: Platform
+            - paragraph [ref=e642]: Platform
+            - generic [ref=e643]:
+              - 'generic "Environment: dev" [ref=e644]': dev
+              - generic [ref=e645]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e646]: BOOTSTRAP
+          - generic [ref=e648]: PENDING
+        - link "SeaweedFS SeaweedFS SILO One pool exposed over S3, NFS, FUSE, HDFS dev FREE BOOTSTRAP + flux + cert-manager PENDING" [ref=e650] [cursor=pointer]:
+          - /url: /app/bp-seaweedfs
+          - img "SeaweedFS" [ref=e651]
+          - generic [ref=e652]:
+            - generic [ref=e653]:
+              - generic [ref=e654]: SeaweedFS
+              - generic [ref=e655]: SILO
+            - paragraph [ref=e656]: One pool exposed over S3, NFS, FUSE, HDFS
+            - generic [ref=e657]:
+              - 'generic "Environment: dev" [ref=e658]': dev
+              - generic [ref=e659]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e660]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e661]: + flux
+              - generic "Bundled dependency" [ref=e662]: + cert-manager
+          - generic [ref=e664]: PENDING
+        - link "Sigstore Sigstore GUARDIAN Keyless image signing with transparent audit log dev FREE BOOTSTRAP + cert-manager PENDING" [ref=e666] [cursor=pointer]:
+          - /url: /app/bp-sigstore
+          - img "Sigstore" [ref=e667]
+          - generic [ref=e668]:
+            - generic [ref=e669]:
+              - generic [ref=e670]: Sigstore
+              - generic [ref=e671]: GUARDIAN
+            - paragraph [ref=e672]: Keyless image signing with transparent audit log
+            - generic [ref=e673]:
+              - 'generic "Environment: dev" [ref=e674]': dev
+              - generic [ref=e675]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e676]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e677]: + cert-manager
+          - generic [ref=e679]: PENDING
+        - link "Syft + Grype Syft + Grype GUARDIAN SBOM generation and continuous CVE matching across artifacts dev FREE BOOTSTRAP + cert-manager PENDING" [ref=e681] [cursor=pointer]:
+          - /url: /app/bp-syft-grype
+          - img "Syft + Grype" [ref=e682]
+          - generic [ref=e683]:
+            - generic [ref=e684]:
+              - generic [ref=e685]: Syft + Grype
+              - generic [ref=e686]: GUARDIAN
+            - paragraph [ref=e687]: SBOM generation and continuous CVE matching across artifacts
+            - generic [ref=e688]:
+              - 'generic "Environment: dev" [ref=e689]': dev
+              - generic [ref=e690]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e691]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e692]: + cert-manager
+          - generic [ref=e694]: PENDING
+        - link "Tempo Tempo INSIGHTS Object-storage tracing backend with TraceQL analytics dev FREE BOOTSTRAP + seaweedfs PENDING" [ref=e696] [cursor=pointer]:
+          - /url: /app/bp-tempo
+          - img "Tempo" [ref=e697]
+          - generic [ref=e698]:
+            - generic [ref=e699]:
+              - generic [ref=e700]: Tempo
+              - generic [ref=e701]: INSIGHTS
+            - paragraph [ref=e702]: Object-storage tracing backend with TraceQL analytics
+            - generic [ref=e703]:
+              - 'generic "Environment: dev" [ref=e704]': dev
+              - generic [ref=e705]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e706]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e707]: + seaweedfs
+          - generic [ref=e709]: PENDING
+        - link "Trivy Trivy GUARDIAN Image, IaC, and dependency vulnerability scanning at admission dev FREE BOOTSTRAP + cert-manager PENDING" [ref=e711] [cursor=pointer]:
+          - /url: /app/bp-trivy
+          - img "Trivy" [ref=e712]
+          - generic [ref=e713]:
+            - generic [ref=e714]:
+              - generic [ref=e715]: Trivy
+              - generic [ref=e716]: GUARDIAN
+            - paragraph [ref=e717]: Image, IaC, and dependency vulnerability scanning at admission
+            - generic [ref=e718]:
+              - 'generic "Environment: dev" [ref=e719]': dev
+              - generic [ref=e720]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e721]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e722]: + cert-manager
+          - generic [ref=e724]: PENDING
+        - link "Valkey Valkey FABRIC Drop-in Redis-compatible operated cache and queue store dev FREE BOOTSTRAP + flux PENDING" [ref=e726] [cursor=pointer]:
+          - /url: /app/bp-valkey
+          - img "Valkey" [ref=e727]
+          - generic [ref=e728]:
+            - generic [ref=e729]:
+              - generic [ref=e730]: Valkey
+              - generic [ref=e731]: FABRIC
+            - paragraph [ref=e732]: Drop-in Redis-compatible operated cache and queue store
+            - generic [ref=e733]:
+              - 'generic "Environment: dev" [ref=e734]': dev
+              - generic [ref=e735]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e736]: BOOTSTRAP
+              - generic "Bundled dependency" [ref=e737]: + flux
+          - generic [ref=e739]: PENDING
+        - link "v vcluster-helmrepo Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e741] [cursor=pointer]:
+          - /url: /app/bp-vcluster-helmrepo
+          - generic [ref=e742]: v
+          - generic [ref=e743]:
+            - generic [ref=e744]:
+              - generic [ref=e745]: vcluster-helmrepo
+              - generic [ref=e746]: Platform
+            - paragraph [ref=e747]: Platform
+            - generic [ref=e748]:
+              - 'generic "Environment: dev" [ref=e749]': dev
+              - generic [ref=e750]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e751]: BOOTSTRAP
+          - generic [ref=e753]: PENDING
+        - link "v vcluster-host-namespaces Platform Platform dev FREE BOOTSTRAP PENDING" [ref=e755] [cursor=pointer]:
+          - /url: /app/bp-vcluster-host-namespaces
+          - generic [ref=e756]: v
+          - generic [ref=e757]:
+            - generic [ref=e758]:
+              - generic [ref=e759]: vcluster-host-namespaces
+              - generic [ref=e760]: Platform
+            - paragraph [ref=e761]: Platform
+            - generic [ref=e762]:
+              - 'generic "Environment: dev" [ref=e763]': dev
+              - generic [ref=e764]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e765]: BOOTSTRAP
+          - generic [ref=e767]: PENDING
+        - link "Velero Velero SILO Cluster backup and cross-region disaster-recovery primitive dev FREE BOOTSTRAP PENDING" [ref=e769] [cursor=pointer]:
+          - /url: /app/bp-velero
+          - img "Velero" [ref=e770]
+          - generic [ref=e771]:
+            - generic [ref=e772]:
+              - generic [ref=e773]: Velero
+              - generic [ref=e774]: SILO
+            - paragraph [ref=e775]: Cluster backup and cross-region disaster-recovery primitive
+            - generic [ref=e776]:
+              - 'generic "Environment: dev" [ref=e777]': dev
+              - generic [ref=e778]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e779]: BOOTSTRAP
+          - generic [ref=e781]: PENDING
+        - link "vLLM vLLM CORTEX High-throughput LLM inference with PagedAttention and batching dev FREE BOOTSTRAP PENDING" [ref=e783] [cursor=pointer]:
+          - /url: /app/bp-vllm
+          - img "vLLM" [ref=e784]
+          - generic [ref=e785]:
+            - generic [ref=e786]:
+              - generic [ref=e787]: vLLM
+              - generic [ref=e788]: CORTEX
+            - paragraph [ref=e789]: High-throughput LLM inference with PagedAttention and batching
+            - generic [ref=e790]:
+              - 'generic "Environment: dev" [ref=e791]': dev
+              - generic [ref=e792]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e793]: BOOTSTRAP
+          - generic [ref=e795]: PENDING
+        - link "VPA VPA SURGE Right-sizes pod requests from real-usage telemetry dev FREE BOOTSTRAP PENDING" [ref=e797] [cursor=pointer]:
+          - /url: /app/bp-vpa
+          - img "VPA" [ref=e798]
+          - generic [ref=e799]:
+            - generic [ref=e800]:
+              - generic [ref=e801]: VPA
+              - generic [ref=e802]: SURGE
+            - paragraph [ref=e803]: Right-sizes pod requests from real-usage telemetry
+            - generic [ref=e804]:
+              - 'generic "Environment: dev" [ref=e805]': dev
+              - generic [ref=e806]: FREE
+              - generic "Bootstrap-kit component (always installed)" [ref=e807]: BOOTSTRAP
+          - generic [ref=e809]: PENDING
