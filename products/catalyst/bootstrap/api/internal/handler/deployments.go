@@ -598,11 +598,15 @@ func (h *Handler) restoreFromStore() {
 			// kubeconfigs are warn-and-skipped inside the should-helper.
 			meshReconciles++
 			go h.runAutoEstablishClusterMesh(dep)
-		} else if h.shouldConvergedLateRescue(dep) {
-			// #3319 (founder, 2026-06-12) — converged-late handover.
-			// A failed+TIMEOUT record whose cluster has since reached
-			// full convergence flips to ready and fires the complete
-			// handover chain. See phase1_converged_late.go.
+		}
+		// #3319 (founder, 2026-06-12) — converged-late handover. MUST be
+		// an INDEPENDENT hook, not the else-arm above: #3317 made the
+		// mesh branch accept failed+TIMEOUT records too, so as an
+		// else-if this never evaluated (witnessed live: mothership
+		// logged clusterMeshReconciles=1 for hw130 and no rescue). The
+		// two are complementary — mesh reconcile AND rescue both fire
+		// for a converged-late record; each is idempotent.
+		if h.shouldConvergedLateRescue(dep) {
 			go h.runConvergedLateRescue(dep)
 		}
 
