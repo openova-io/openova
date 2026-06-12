@@ -69,12 +69,12 @@ spec:
       namespace: flux-system
     # G92.3 #2662 (2026-06-01): bp-gitea HR moved to host ns `mgmt`.
     - name: bp-gitea
-      namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      namespace: mgmt
     # bp-gateway-api (issue #503): umbrella chart ships catalyst-ui +
     # catalyst-api HTTPRoute templates; gateway.networking.k8s.io/v1
     # CRDs must be registered first.
     - name: bp-gateway-api
-      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      namespace: flux-system
     # bp-keycloak + bp-cnpg (issue #512): the catalyst-platform umbrella
     # post-install Jobs bootstrap OIDC clients in Keycloak and seed
     # PostgreSQL schemas for catalog-svc / projector / billing /
@@ -86,9 +86,9 @@ spec:
     # the umbrella install, eliminating the race.
     # G92.2 #2661 (2026-06-01): bp-keycloak HR moved to host ns `mgmt`.
     - name: bp-keycloak
-      namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      namespace: mgmt
     - name: bp-cnpg
-      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      namespace: flux-system
     # bp-crossplane-claims (chart-roll-rca iter-15, 2026-05-10): owns the
     # access.openova.io/v1alpha1 XRD that qa-fixtures UserAccess CRs
     # require. Without this dep, slot 13 races slot 14 and the umbrella
@@ -99,7 +99,7 @@ spec:
     # 90-min wedge). With this edge, the chart never enters the failing
     # state on a fresh roll.
     - name: bp-crossplane-claims
-      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      namespace: flux-system
   chart:
     spec:
       chart: bp-catalyst-platform
@@ -1095,8 +1095,6 @@ spec:
   # for console/admin/api. All chart-level Catalyst service config (image refs,
   # OTel endpoints, NATS subjects) lives in products/catalyst/chart/values.yaml.
   values:
-    gateway:
-      backendServiceApi: catalyst-api-x-catalyst-system-x-mgmt-vcluster  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     # G91.catalyst-console-admin-self-grant (#2659): the Sovereign operator
     # (deployment.OrgEmail; from the sovereign-fqdn ConfigMap orgEmail key)
     # is auto-granted the realm-role `catalyst-admin` (composite over
@@ -1180,6 +1178,9 @@ spec:
       # MUST persist to local Gitea source-of-truth).
       imageRegistry: ''
     ingress:
+      gateway:
+        backendServiceUi: catalyst-ui-x-catalyst-system-x-mgmt-vcluster  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+        backendServiceApi: catalyst-api-x-catalyst-system-x-mgmt-vcluster  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
       hosts:
         console:
           host: console.${SOVEREIGN_FQDN}

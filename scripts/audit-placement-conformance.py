@@ -131,7 +131,13 @@ def live_mode(data, kubeconfig):
 
     # 2. Zero undeclared host workloads.
     declared_host_ns = {s["namespace"] for s in data["slots"] if s.get("vcluster", "host") == "host"}
-    allowed = SYSTEM_NAMESPACES | declared_host_ns | vcluster_host_ns
+    # Multi-namespace charts declare their additional render targets via
+    # extraNamespaces (e.g. bp-catalyst-platform → sme + catalyst). A
+    # vCluster-placed chart's extraNamespaces remain HOST-side only while
+    # the chart still renders host-reaching pieces — the migration gap
+    # report tracks the residue.
+    extra_ns = {ns for s in data["slots"] for ns in (s.get("extraNamespaces") or [])}
+    allowed = SYSTEM_NAMESPACES | declared_host_ns | vcluster_host_ns | extra_ns
     undeclared = []
     for kind in ("deployments", "statefulsets", "daemonsets"):
         objs = kubectl(kubeconfig, "get", kind, "-A")

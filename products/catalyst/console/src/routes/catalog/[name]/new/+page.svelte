@@ -17,7 +17,12 @@
 <script lang="ts">
   import { catalystApi } from '../../../../lib/api/catalystApi';
   import TopologyPicker from '../../../../components/TopologyPicker.svelte';
-  import type { BcpTopology, CatalogBlueprint } from '../../../../lib/api/types';
+  import PlacementSelector from '../../../../components/PlacementSelector.svelte';
+  import type {
+    BcpTopology,
+    CatalogBlueprint,
+    InstancePlacement,
+  } from '../../../../lib/api/types';
 
   let {
     blueprintName = 'grafana',
@@ -28,6 +33,9 @@
   let instanceName = $state('');
   let org = $state('');
   let topology = $state<BcpTopology | ''>('');
+  // #3373 — null until the user changes advanced placement away from the
+  // Blueprint defaults; then it carries only the changed fields.
+  let placement = $state<InstancePlacement | null>(null);
   let endpointHostname = $state('');
   let submitting = $state(false);
   let error = $state<string | null>(null);
@@ -65,6 +73,9 @@
         name: instanceName,
         topology: topology || undefined,
         values: Object.keys(values).length > 0 ? values : undefined,
+        // Omitted entirely when untouched — silent-accept of Blueprint
+        // placement defaults (#3373).
+        placement: placement ?? undefined,
       });
       if (typeof window !== 'undefined') {
         window.location.href = `/apps/${app.id}`;
@@ -130,6 +141,21 @@
 
       <TopologyPicker {blueprint} bind:value={topology} {regionsCount} />
 
+      <!--
+        #3373 — advanced placement, collapsed by default. The default flow
+        never mentions vClusters; regions/clusters lists arrive in Wave-2
+        (empty arrays hide those selectors).
+      -->
+      <details class="advanced">
+        <summary data-testid="advanced-options-toggle">Advanced options</summary>
+        <PlacementSelector
+          {blueprint}
+          regions={[]}
+          clusters={[]}
+          bind:value={placement}
+        />
+      </details>
+
       <label>
         Endpoint hostname <span class="opt">(optional)</span>
         <input
@@ -191,6 +217,17 @@
     border: 1px solid #cbd5e1;
     border-radius: 4px;
     margin-top: 0.2rem;
+  }
+  .advanced {
+    margin: 0.75rem 0;
+  }
+  .advanced summary {
+    cursor: pointer;
+    color: #64748b;
+    font-size: 0.9rem;
+  }
+  .advanced summary:hover {
+    color: #1d4ed8;
   }
   .actions {
     display: flex;

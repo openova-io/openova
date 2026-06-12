@@ -1,0 +1,26 @@
+# #3373 fix (a) — helm-template render proof (default vs override), captured 2026-06-12T17:57:20Z
+## bp-catalyst-platform (1.4.596): default backendRefs
+      6         - name: catalyst-api
+      2         - name: catalyst-ui
+## with ingress.gateway.backendService{Api,Ui} overrides → mangled-name count:
+6
+## bp-newapi: default vs override
+0
+## bp-netbird: default vs override
+0
+## bp-newapi (corrected flags): default backendRef
+        - name: t-bp-newapi
+## bp-newapi with gateway.backendService override → mangled count:
+1
+## bp-netbird (corrected flags): default backendRefs
+## bp-netbird with overrides → mangled count:
+0
+## bp-netbird (management.domain set): default backendRefs
+## bp-netbird with overrides → mangled count:
+0
+## bp-netbird (full required values; oidc.issuer requirement is PRE-EXISTING): default backendRefs
+        - name: management
+        - name: signal
+        - name: t-bp-netbird-signal
+## bp-netbird with overrides → mangled count:
+2

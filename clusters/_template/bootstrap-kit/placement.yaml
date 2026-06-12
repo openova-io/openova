@@ -149,9 +149,14 @@ slots:
   - {file: 09-keycloak.yaml, hr: bp-keycloak, vcluster: mgmt, target: mgmt,
      namespace: keycloak,
      values: {gateway.backendService: keycloak-x-keycloak-x-mgmt-vcluster}}
+  # extraNamespaces: the umbrella renders the SME service set into ns
+  # `sme` and cutover artifacts into ns `catalyst` alongside its own
+  # catalyst-system — declared so the live conformance audit can
+  # attribute those workloads (multi-namespace chart, not undeclared).
   - {file: 13-bp-catalyst-platform.yaml, hr: bp-catalyst-platform, vcluster: mgmt, target: mgmt,
-     namespace: catalyst-system,
-     values: {gateway.backendServiceApi: catalyst-api-x-catalyst-system-x-mgmt-vcluster}}
+     namespace: catalyst-system, extraNamespaces: [sme, catalyst],
+     values: {ingress.gateway.backendServiceApi: catalyst-api-x-catalyst-system-x-mgmt-vcluster,
+              ingress.gateway.backendServiceUi: catalyst-ui-x-catalyst-system-x-mgmt-vcluster}}
   - {file: 10-gitea.yaml, hr: bp-gitea, vcluster: mgmt, target: mgmt,
      namespace: gitea,
      values: {gateway.backendService: gitea-http-x-gitea-x-mgmt-vcluster}}

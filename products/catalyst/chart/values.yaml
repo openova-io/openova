@@ -901,6 +901,15 @@ ingress:
       # `{{- with .Values.ingress.gateway.parentRef.sectionName }}`,
       # so the field renders only when explicitly set.
       sectionName: ""
+    # #3373 fix (a): when bp-catalyst-platform installs inside a vCluster
+    # (Flux kubeConfig pivot), the slot overrides these with the host-side
+    # syncer-mangled Service names (<svc>-x-<ns>-x-<vcluster>, e.g.
+    # catalyst-api-x-catalyst-system-x-mgmt-vcluster) so the HOST Cilium
+    # Gateway — which serves the toHost-mirrored HTTPRoute — resolves the
+    # backendRef. Empty = chart-literal catalyst-api / catalyst-ui (host
+    # install, byte-identical render).
+    backendServiceApi: ""
+    backendServiceUi: ""
   # Hosts populated by the bootstrap-kit slot
   # (clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml).
   # Empty here so `helm template` without a per-Sovereign overlay fails

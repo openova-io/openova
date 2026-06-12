@@ -27,7 +27,11 @@ name: bp-rtz-vcluster
 # image registry is driven by slot 59's `${REGISTRY_MIRROR:=harbor.openova.io}`
 # substitution. Renamed the dead `global.imageRegistry`. Default render
 # byte-identical. Sibling to bp-mgmt-vcluster 0.2.6 + bp-dmz-vcluster 0.2.5.
-version: 0.2.6
+# 0.2.7 — Refs #3373: sync.toHost.customResources gains
+# httproutes.gateway.networking.k8s.io +
+# externalsecrets.external-secrets.io (coupling fix (b) — re-homed
+# charts' routes/secrets mirror toHost).
+version: 0.2.7
 appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign RTZ

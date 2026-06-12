@@ -64,6 +64,7 @@ Every row: click the URL yourself; ✅ only if it works **right now**. Full hist
 | zone declared for all apps | ✅ | 0 undeclared |
 | apps running inside | ❌ 4/48 | coraza, sandbox, +LGTM merged ([#3361](https://github.com/openova-io/openova/pull/3361)) |
 | carve-outs (4 apps) | awaiting founder | [#2745](https://github.com/openova-io/openova/issues/2745) |
+| placement = data ([#3373](https://github.com/openova-io/openova/issues/3373)) | PR open, pre-merge | [placement.yaml](../../clusters/_template/bootstrap-kit/placement.yaml) is the single truth (62 slots, §4 table verbatim); `render-slot-placement.py check` + `audit-placement-conformance.py` CI-gated; PROMOTE-NOW (nats/keycloak/catalyst-platform→mgmt) + gitea (fix-proof) converted as data; [live baseline](../sessions/2026-06-13/evidence/placement-audit-live-hw130a-pre-merge-baseline.txt) (found stale host loki/mimir residue from the LGTM move); [default-flow shot](../sessions/2026-06-13/evidence/3373-dod2-default-flow-no-vcluster.png) · [advanced-flow shot](../sessions/2026-06-13/evidence/3373-dod2-advanced-flow-placement-rtz.png) · [instance-page shot](../sessions/2026-06-13/evidence/3373-dod3-instance-page-placement-rtz.png) (local mock build — live re-walk post-merge) |
 
 ## 8. Console + env
 

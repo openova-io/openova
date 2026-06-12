@@ -63,7 +63,10 @@ spec:
             type: Exact
             value: "/healthz"
       backendRefs:
-        - name: catalyst-api
+        {{- /* #3373 fix (a): vCluster installs override with the host-side
+        syncer-mangled Service name (catalyst-api-x-<ns>-x-<vcluster>);
+        empty default = literal catalyst-api (host install). */}}
+        - name: {{ .Values.ingress.gateway.backendServiceApi | default "catalyst-api" }}
           port: 8080
     # /auth/handover on the console hostname routes to catalyst-api
     # (the Go backend), not catalyst-ui (the React shell). The handover
@@ -93,14 +96,20 @@ spec:
             type: Exact
             value: "/auth/handover"
       backendRefs:
-        - name: catalyst-api
+        {{- /* #3373 fix (a): vCluster installs override with the host-side
+        syncer-mangled Service name (catalyst-api-x-<ns>-x-<vcluster>);
+        empty default = literal catalyst-api (host install). */}}
+        - name: {{ .Values.ingress.gateway.backendServiceApi | default "catalyst-api" }}
           port: 8080
     - matches:
         - path:
             type: PathPrefix
             value: "/api/"
       backendRefs:
-        - name: catalyst-api
+        {{- /* #3373 fix (a): vCluster installs override with the host-side
+        syncer-mangled Service name (catalyst-api-x-<ns>-x-<vcluster>);
+        empty default = literal catalyst-api (host install). */}}
+        - name: {{ .Values.ingress.gateway.backendServiceApi | default "catalyst-api" }}
           port: 8080
     # G117.2 #2741 (2026-06-03) — /catalyst/v1/* on the console hostname
     # routes to catalyst-api, not catalyst-ui. The G117 multi-instance
@@ -125,7 +134,10 @@ spec:
             type: PathPrefix
             value: "/catalyst/"
       backendRefs:
-        - name: catalyst-api
+        {{- /* #3373 fix (a): vCluster installs override with the host-side
+        syncer-mangled Service name (catalyst-api-x-<ns>-x-<vcluster>);
+        empty default = literal catalyst-api (host install). */}}
+        - name: {{ .Values.ingress.gateway.backendServiceApi | default "catalyst-api" }}
           port: 8080
     # Default — catalyst-ui (the React shell)
     - matches:
@@ -133,7 +145,8 @@ spec:
             type: PathPrefix
             value: "/"
       backendRefs:
-        - name: catalyst-ui
+        {{- /* #3373 fix (a): see backendServiceApi note above. */}}
+        - name: {{ .Values.ingress.gateway.backendServiceUi | default "catalyst-ui" }}
           port: 80
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -159,7 +172,10 @@ spec:
             type: PathPrefix
             value: "/"
       backendRefs:
-        - name: catalyst-api
+        {{- /* #3373 fix (a): vCluster installs override with the host-side
+        syncer-mangled Service name (catalyst-api-x-<ns>-x-<vcluster>);
+        empty default = literal catalyst-api (host install). */}}
+        - name: {{ .Values.ingress.gateway.backendServiceApi | default "catalyst-api" }}
           port: 8080
 {{- end }}
 {{- end }}

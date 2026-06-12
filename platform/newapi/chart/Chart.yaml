@@ -1,5 +1,14 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.64 — Refs #3373 (coupling fix (a)): templates/httproute.yaml
+# backendRef now honors a new `gateway.backendService` override (same
+# key shape as gitea/harbor/openbao/grafana/powerdns for slot
+# uniformity). When this chart installs INSIDE a vCluster via the Flux
+# kubeConfig pivot, the slot aliases the host-side syncer-mangled
+# Service name (<svc>-x-<ns>-x-<vcluster>) so the HOST Cilium Gateway
+# — which serves the toHost-mirrored HTTPRoute — resolves the
+# backendRef. Empty default = chart-computed fullname; default render
+# byte-identical (diff-verified).
 # 1.4.52 — feat(tests): HTTPRoute render audit (Wave 5.84 #2421). 5-case
 # smoke at chart/tests/httproute-render.sh exercises the overlay-enabled
 # path (httpRoute.enabled=true + sovereignFQDN set) that the canonical
@@ -411,7 +420,7 @@ name: bp-newapi
 # `lookup valkey.valkey.svc.cluster.local: no such host`). Same hostname
 # already documented as canonical in products/catalyst/chart/values.yaml
 # bp-cnpg-pair comments.
-version: 1.4.63
+version: 1.4.64
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

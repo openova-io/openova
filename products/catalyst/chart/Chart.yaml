@@ -2637,7 +2637,16 @@ name: bp-catalyst-platform
 # (b) baseline-catalyst-system CNP allowedPlatformNamespaces gains `mgmt`
 # so catalyst-api egress reaches the synced endpoints (Pods in host ns
 # mgmt). Paired with bp-grafana 1.0.11 datasource re-points. Refs #2745.
-version: 1.4.595
+# 1.4.596 — #3373 (2026-06-13) — coupling fix (a) placement-as-data:
+# templates/httproute.yaml backendRefs honor new
+# ingress.gateway.backendServiceApi / backendServiceUi overrides. When
+# bp-catalyst-platform installs INSIDE a vCluster (Flux kubeConfig
+# pivot) the slot aliases the host-side syncer-mangled Service names
+# (catalyst-api-x-<ns>-x-<vcluster>) so the HOST Cilium Gateway —
+# which serves the toHost-mirrored HTTPRoute — resolves the backendRefs.
+# Empty defaults = literal catalyst-api / catalyst-ui; default render
+# byte-identical (diff-verified). Refs #3373.
+version: 1.4.596
 # 1.4.587 — #3188: cutover-driver ClusterRole gains postgresql.cnpg.io
 #   clusters/databases + dr.openova.io read — the instances endpoint
 #   403'd cluster-wide (hw130: API 0 rows with 7 live clusters).

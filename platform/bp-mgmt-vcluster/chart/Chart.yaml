@@ -47,7 +47,11 @@ name: bp-mgmt-vcluster
 # honoured it). Default `helm template` renders byte-identical. A
 # per-Sovereign overlay / bp-self-sovereign-cutover Step-04 pivot flips
 # the host in one place. Additive value + helper change only.
-version: 0.2.6
+# 0.2.7 — Refs #3373: sync.toHost.customResources gains
+# httproutes.gateway.networking.k8s.io +
+# externalsecrets.external-secrets.io (coupling fix (b) — re-homed
+# charts' routes/secrets mirror toHost).
+version: 0.2.7
 appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT
