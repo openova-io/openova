@@ -201,7 +201,7 @@ spec:
       # to `qwenPartner` and strip partner identifiers from comments /
       # fixtures / Secret names.
       # 1.4.64 — #3373 fix (a): httproute backendRef honors gateway.backendService override.
-      version: 1.4.64
+      version: 1.4.65
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
