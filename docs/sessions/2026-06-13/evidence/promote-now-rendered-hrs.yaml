@@ -1,0 +1,109 @@
+# #3373 — kustomize-rendered HelmReleases of the 4 placement conversions
+# (kubectl kustomize clusters/_template/bootstrap-kit, post render-slot-placement.py fix)
+# Each carries the ONE generic mechanism: spec.kubeConfig.secretRef -> vc-mgmt/config.
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-catalyst-platform
+  namespace: mgmt
+  labels:
+    catalyst.openova.io/component: catalyst-platform
+    catalyst.openova.io/region-role: primary
+    catalyst.openova.io/slot: '13'
+    catalyst.openova.io/vcluster: mgmt
+spec:
+  releaseName: catalyst-platform
+  targetNamespace: catalyst-system
+  storageNamespace: catalyst-system
+  kubeConfig:
+    secretRef:
+      key: config
+      name: vc-mgmt
+  dependsOn:
+  - name: bp-mgmt-vcluster
+    namespace: flux-system
+  - name: bp-gitea
+    namespace: mgmt
+  - name: bp-gateway-api
+    namespace: flux-system
+  - name: bp-keycloak
+    namespace: mgmt
+  - name: bp-cnpg
+    namespace: flux-system
+  - name: bp-crossplane-claims
+    namespace: flux-system
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-gitea
+  namespace: mgmt
+  labels:
+    catalyst.openova.io/slot: '10'
+    catalyst.openova.io/vcluster: mgmt
+spec:
+  releaseName: gitea
+  targetNamespace: gitea
+  storageNamespace: gitea
+  kubeConfig:
+    secretRef:
+      key: config
+      name: vc-mgmt
+  dependsOn:
+  - name: bp-mgmt-vcluster
+    namespace: flux-system
+  - name: bp-keycloak
+    namespace: mgmt
+  - name: bp-gateway-api
+    namespace: flux-system
+  - name: bp-cnpg
+    namespace: flux-system
+  - name: bp-postgres-shared
+    namespace: flux-system
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-keycloak
+  namespace: mgmt
+  labels:
+    catalyst.openova.io/slot: 09
+    catalyst.openova.io/vcluster: mgmt
+spec:
+  releaseName: keycloak
+  targetNamespace: keycloak
+  storageNamespace: keycloak
+  kubeConfig:
+    secretRef:
+      key: config
+      name: vc-mgmt
+  dependsOn:
+  - name: bp-mgmt-vcluster
+    namespace: flux-system
+  - name: bp-cert-manager
+    namespace: flux-system
+  - name: bp-gateway-api
+    namespace: flux-system
+  - name: bp-postgres-shared
+    namespace: flux-system
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-nats-jetstream
+  namespace: mgmt
+  labels:
+    catalyst.openova.io/slot: '07'
+    catalyst.openova.io/vcluster: mgmt
+spec:
+  releaseName: nats-jetstream
+  targetNamespace: nats-system
+  storageNamespace: nats-system
+  kubeConfig:
+    secretRef:
+      key: config
+      name: vc-mgmt
+  dependsOn:
+  - name: bp-mgmt-vcluster
+    namespace: flux-system

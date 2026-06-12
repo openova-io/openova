@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
     catalyst.openova.io/category: platform
 spec:
-  version: 0.2.5
+  version: 0.2.6
   card:
     title: DMZ vCluster
     summary: |

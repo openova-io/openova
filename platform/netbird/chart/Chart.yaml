@@ -1,6 +1,15 @@
 apiVersion: v2
 name: bp-netbird
-version: 0.1.1
+# 0.1.2 — Refs #3373 (coupling fix (a)): templates/httproute.yaml
+# backendRefs now honor `netbird.httproute.signalBackendService` /
+# `netbird.httproute.managementBackendService` overrides. When this
+# chart installs INSIDE a vCluster via the Flux kubeConfig pivot, the
+# slot aliases the host-side syncer-mangled Service names
+# (<svc>-x-<ns>-x-<vcluster>) so the HOST Cilium Gateway — which
+# serves the toHost-mirrored HTTPRoute — resolves the backendRefs.
+# Empty defaults = chart-computed names; default render byte-identical
+# (diff-verified).
+version: 0.1.2
 appVersion: "0.34.0"
 description: |
   Catalyst-authored Blueprint chart for NetBird — a WireGuard-based

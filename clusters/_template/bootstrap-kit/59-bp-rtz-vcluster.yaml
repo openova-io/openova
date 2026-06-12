@@ -64,7 +64,8 @@ spec:
       chart: bp-rtz-vcluster
       # 0.2.6 (#2940 Pillar 5): registry host driven by global.registryMirror
       # + the ${REGISTRY_MIRROR:=harbor.openova.io} subchart substitution below.
-      version: 0.2.6
+      # 0.2.7 (#3373 fix (b)): toHost customResources sync gains HTTPRoute + ExternalSecret.
+      version: 0.2.7
       sourceRef:
         kind: HelmRepository
         name: bp-rtz-vcluster

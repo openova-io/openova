@@ -1,0 +1,201 @@
+# placement.yaml — THE single placement source of truth for every
+# bootstrap-kit slot (#3373, founder-ratified law 2026-06-12/13).
+#
+# Where an application runs stops being decided by scattered
+# hand-maintained YAML. Each slot's placement-owned HelmRelease fields
+# (metadata.namespace, targetNamespace, storageNamespace,
+# spec.kubeConfig, the catalyst.openova.io/vcluster label, the
+# bp-<tier>-vcluster dependsOn edge, and dependents' cross-namespace
+# edges) are a pure function of THIS file. CI enforces it:
+#
+#   python3 scripts/render-slot-placement.py check   # drift gate
+#   python3 scripts/render-slot-placement.py fix     # regenerate
+#
+# Hand-editing a slot's placement fields without changing this file
+# fails CI — placement is DATA, never code (#3373 DoD-6).
+#
+# Companion conformance audit (declared == actual, zero undeclared
+# host workloads — #3373 DoD-4):
+#
+#   python3 scripts/audit-placement-conformance.py rendered
+#   python3 scripts/audit-placement-conformance.py live --kubeconfig <kc>
+#
+# Field reference (per slot):
+#   file          slot file name (clusters/_template/bootstrap-kit/)
+#   hr            HelmRelease metadata.name
+#   vcluster      ACTIVE placement this template renders TODAY:
+#                 host | mgmt | dmz | rtz. The generator stamps the
+#                 slot from this value.
+#   target        the founder-ratified §4 TARGET placement. When
+#                 vcluster != target the row is migration backlog —
+#                 promoting it is a ONE-FIELD data change here +
+#                 `render-slot-placement.py fix` (#3373 execution
+#                 order: PROMOTE-NOW first, NEEDS-REWORK behind the
+#                 coupling fixes, staged per ticket §5).
+#   namespace     the app's own namespace: targetNamespace on host
+#                 placements; the INNER vCluster namespace otherwise.
+#   justification REQUIRED when target == host — the §4 host-minimum
+#                 reason ("only the minimums could stay there").
+#   values        placement-coupled HR values the generator stamps
+#                 (fix (a) backendRef aliases for vCluster-synced
+#                 Services: <svc>-x-<innerNs>-x-<vclusterRelease>).
+# Typed document (placement.catalyst.openova.io) so the bootstrap-kit
+# static-validation harness (tests/e2e/bootstrap-kit
+# TestBootstrapKit_TemplateClusterParses) accepts it alongside the Flux
+# manifests. NOT registered in kustomization.yaml — kustomize/Flux never
+# apply it; it is consumed exclusively by the two placement scripts.
+apiVersion: placement.catalyst.openova.io/v1alpha1
+kind: PlacementTable
+metadata:
+  name: bootstrap-kit-placement
+spec:
+  version: 1
+
+  # The vCluster runtimes (slots 54/58/59) — host namespace, exported
+  # kubeconfig Secret, runtime HR (the dependsOn anchor), and the
+  # syncer name-mangling suffix (= the runtime HR's releaseName).
+  vclusters:
+    mgmt:
+      hostNamespace: mgmt
+      kubeconfigSecret: vc-mgmt
+      runtimeHR: bp-mgmt-vcluster
+      syncSuffix: mgmt-vcluster
+    dmz:
+      hostNamespace: dmz
+      kubeconfigSecret: vc-dmz
+      runtimeHR: bp-dmz-vcluster
+      syncSuffix: dmz-vcluster
+    rtz:
+      hostNamespace: rtz
+      kubeconfigSecret: vc-rtz
+      runtimeHR: bp-rtz-vcluster
+      syncSuffix: rtz-vcluster
+
+  slots:
+    # ── HOST-MINIMUM (§4: cluster substrate / admission / CNI / the
+    #    vCluster runtimes themselves — "only the minimums could stay
+    #    there, otherwise nothing stays in host") ─────────────────────
+    - {file: 01-cilium.yaml, hr: bp-cilium, vcluster: host, target: host,
+       namespace: kube-system, justification: "HOST-MINIMUM §4 — CNI substrate"}
+    - {file: 01a-gateway-api.yaml, hr: bp-gateway-api, vcluster: host, target: host,
+       namespace: flux-system, justification: "HOST-MINIMUM §4 — Gateway API CRDs (cluster-scoped)"}
+    - {file: 02-cert-manager.yaml, hr: bp-cert-manager, vcluster: host, target: host,
+       namespace: cert-manager, justification: "HOST-MINIMUM §4 — cluster TLS substrate"}
+    - {file: 03-flux.yaml, hr: bp-flux, vcluster: host, target: host,
+       namespace: flux-system, justification: "HOST-MINIMUM §4 — the GitOps engine itself"}
+    - {file: 04-crossplane.yaml, hr: bp-crossplane, vcluster: host, target: host,
+       namespace: crossplane-system, justification: "HOST-MINIMUM §4 — day-2 infra plumbing (never a user surface)"}
+    - {file: 05-sealed-secrets.yaml, hr: bp-sealed-secrets, vcluster: host, target: host,
+       namespace: kube-system, justification: "HOST-MINIMUM §4 — secret decryption substrate"}
+    - {file: 05a-reflector.yaml, hr: bp-reflector, vcluster: host, target: host,
+       namespace: reflector, justification: "HOST-MINIMUM §4 — canonical cross-namespace Secret mirror"}
+    - {file: 06a-bp-self-sovereign-cutover.yaml, hr: bp-self-sovereign-cutover, vcluster: host, target: host,
+       namespace: catalyst, justification: "HOST-MINIMUM §4 — host-credential surgery by design (8-tether pivot, ADR-0002)"}
+    - {file: 11-powerdns.yaml, hr: bp-powerdns, vcluster: host, target: host,
+       namespace: powerdns, justification: "HOST-MINIMUM §4 — authoritative DNS substrate"}
+    - {file: 12-external-dns.yaml, hr: bp-external-dns, vcluster: host, target: host,
+       namespace: external-dns, justification: "HOST-MINIMUM §4 — DNS reconciler substrate"}
+    - {file: 14-crossplane-claims.yaml, hr: bp-crossplane-claims, vcluster: host, target: host,
+       namespace: crossplane-system, justification: "HOST-MINIMUM §4 — Crossplane claims plumbing"}
+    - {file: 15-external-secrets.yaml, hr: bp-external-secrets, vcluster: host, target: host,
+       namespace: external-secrets-system, justification: "HOST-MINIMUM §4 — ESO substrate (resolves synced ExternalSecret CRs, fix (c))"}
+    - {file: 15a-external-secrets-stores.yaml, hr: bp-external-secrets-stores, vcluster: host, target: host,
+       namespace: external-secrets-system, justification: "HOST-MINIMUM §4 — ESO stores substrate"}
+    - {file: 16-cnpg.yaml, hr: bp-cnpg, vcluster: host, target: host,
+       namespace: cnpg-system, justification: "HOST-MINIMUM §4 — CNPG operator substrate (reconciles synced Cluster CRs)"}
+    - {file: 19c-opentelemetry-operator.yaml, hr: bp-opentelemetry-operator, vcluster: host, target: host,
+       namespace: opentelemetry, justification: "HOST-MINIMUM §4 — observability operator substrate"}
+    - {file: 20-opentelemetry.yaml, hr: bp-opentelemetry, vcluster: host, target: host,
+       namespace: opentelemetry, justification: "HOST-MINIMUM §4 — observability collector substrate"}
+    - {file: 21-alloy.yaml, hr: bp-alloy, vcluster: host, target: host,
+       namespace: alloy, justification: "HOST-MINIMUM §4 — node-level telemetry shipper (DaemonSet)"}
+    - {file: 26-network-policies.yaml, hr: bp-network-policies, vcluster: host, target: host,
+       namespace: catalyst-system, justification: "HOST-MINIMUM §4 — cluster network policy substrate"}
+    - {file: 27-kyverno.yaml, hr: bp-kyverno, vcluster: host, target: host,
+       namespace: kyverno, justification: "HOST-MINIMUM §4 — admission substrate"}
+    - {file: 27a-kyverno-policies.yaml, hr: bp-kyverno-policies, vcluster: host, target: host,
+       namespace: kyverno, justification: "HOST-MINIMUM §4 — admission policies"}
+    - {file: 28-reloader.yaml, hr: bp-reloader, vcluster: host, target: host,
+       namespace: reloader, justification: "HOST-MINIMUM §4 — rollout substrate"}
+    - {file: 29-vpa.yaml, hr: bp-vpa, vcluster: host, target: host,
+       namespace: vpa, justification: "HOST-MINIMUM §4 — autoscaling substrate"}
+    - {file: 30-trivy.yaml, hr: bp-trivy, vcluster: host, target: host,
+       namespace: trivy-system, justification: "HOST-MINIMUM §4 — image-scanning substrate"}
+    - {file: 31-falco.yaml, hr: bp-falco, vcluster: host, target: host,
+       namespace: falco, justification: "HOST-MINIMUM §4 — kernel-level runtime security (node access)"}
+    - {file: 32-sigstore.yaml, hr: bp-sigstore, vcluster: host, target: host,
+       namespace: sigstore-system, justification: "HOST-MINIMUM §4 — signature verification substrate"}
+    - {file: 33-syft-grype.yaml, hr: bp-syft-grype, vcluster: host, target: host,
+       namespace: syft-grype, justification: "HOST-MINIMUM §4 — SBOM substrate"}
+    - {file: 34-velero.yaml, hr: bp-velero, vcluster: host, target: host,
+       namespace: velero, justification: "HOST-MINIMUM §4 — cluster backup substrate"}
+    - {file: 34a-bp-velero-hcs.yaml, hr: bp-velero-hcs, vcluster: host, target: host,
+       namespace: velero, justification: "HOST-MINIMUM §4 — cluster backup substrate (HCS)"}
+    - {file: 49-bp-cert-manager-powerdns-webhook.yaml, hr: bp-cert-manager-powerdns-webhook, vcluster: host, target: host,
+       namespace: cert-manager, justification: "HOST-MINIMUM §4 — ACME DNS01 webhook substrate"}
+    - {file: 50-cluster-autoscaler.yaml, hr: bp-cluster-autoscaler-hcloud, vcluster: host, target: host,
+       namespace: cluster-autoscaler, justification: "HOST-MINIMUM §4 — node autoscaling substrate"}
+    - {file: 54-bp-dmz-vcluster.yaml, hr: bp-dmz-vcluster, vcluster: host, target: host,
+       namespace: dmz, justification: "HOST-MINIMUM §4 — the DMZ vCluster runtime itself"}
+    - {file: 55-bp-hcloud-ccm.yaml, hr: bp-hcloud-ccm, vcluster: host, target: host,
+       namespace: kube-system, justification: "HOST-MINIMUM §4 — cloud controller manager"}
+    - {file: 58-bp-mgmt-vcluster.yaml, hr: bp-mgmt-vcluster, vcluster: host, target: host,
+       namespace: mgmt, justification: "HOST-MINIMUM §4 — the MGMT vCluster runtime itself"}
+    - {file: 59-bp-rtz-vcluster.yaml, hr: bp-rtz-vcluster, vcluster: host, target: host,
+       namespace: rtz, justification: "HOST-MINIMUM §4 — the RTZ vCluster runtime itself"}
+    - {file: 60-bp-vcluster-helmrepo.yaml, hr: bp-vcluster-helmrepo, vcluster: host, target: host,
+       namespace: flux-system, justification: "HOST-MINIMUM §4 — vCluster chart source"}
+    - {file: 62-bp-continuum.yaml, hr: bp-continuum, vcluster: host, target: host,
+       namespace: catalyst-system, justification: "HOST-MINIMUM §4 — DR/switchover controller (host reach by design)"}
+
+    # ── §4 TABLE — current → target (PROMOTE-NOW conversions ACTIVE;
+    #    the rest is staged migration backlog per ticket §5 execution
+    #    order: NEEDS-REWORK 6 behind coupling fix (a), remainder after) ──
+
+    # PROMOTE-NOW (ticket §5 — clean per the 18-app audit) + the DoD-5
+    # coupling-fix proof app (gitea).
+    - {file: 07-nats-jetstream.yaml, hr: bp-nats-jetstream, vcluster: mgmt, target: mgmt,
+       namespace: nats-system}
+    - {file: 09-keycloak.yaml, hr: bp-keycloak, vcluster: mgmt, target: mgmt,
+       namespace: keycloak,
+       values: {gateway.backendService: keycloak-x-keycloak-x-mgmt-vcluster}}
+    # extraNamespaces: the umbrella renders the SME service set into ns
+    # `sme` and cutover artifacts into ns `catalyst` alongside its own
+    # catalyst-system — declared so the live conformance audit can
+    # attribute those workloads (multi-namespace chart, not undeclared).
+    - {file: 13-bp-catalyst-platform.yaml, hr: bp-catalyst-platform, vcluster: mgmt, target: mgmt,
+       namespace: catalyst-system, extraNamespaces: [sme, catalyst],
+       values: {ingress.gateway.backendServiceApi: catalyst-api-x-catalyst-system-x-mgmt-vcluster,
+                ingress.gateway.backendServiceUi: catalyst-ui-x-catalyst-system-x-mgmt-vcluster}}
+    - {file: 10-gitea.yaml, hr: bp-gitea, vcluster: mgmt, target: mgmt,
+       namespace: gitea,
+       values: {gateway.backendService: gitea-http-x-gitea-x-mgmt-vcluster}}
+
+    # Already inside their vClusters (proven recipe slots).
+    - {file: 22-loki.yaml, hr: bp-loki, vcluster: mgmt, target: mgmt, namespace: loki}
+    - {file: 23-mimir.yaml, hr: bp-mimir, vcluster: mgmt, target: mgmt, namespace: mimir}
+    - {file: 24-tempo.yaml, hr: bp-tempo, vcluster: mgmt, target: mgmt, namespace: tempo}
+    - {file: 35-coraza.yaml, hr: bp-coraza, vcluster: dmz, target: dmz, namespace: coraza}
+    - {file: 19a-bp-sandbox.yaml, hr: bp-sandbox, vcluster: rtz, target: rtz, namespace: catalyst-system}
+
+    # NEEDS-REWORK / staged backlog (§4 targets; active=host until each
+    # wave's coupling audit completes — a promote is a one-field flip).
+    - {file: 08-openbao.yaml, hr: bp-openbao, vcluster: host, target: mgmt, namespace: openbao}
+    - {file: 11a-bp-powerdns-admin.yaml, hr: bp-powerdns-admin, vcluster: host, target: mgmt,
+       namespace: powerdns-admin}   # §4: UI not substrate — DEFAULT mgmt, listed for founder veto
+    - {file: 13b-bp-sso-bridge.yaml, hr: bp-sso-bridge, vcluster: host, target: mgmt, namespace: sso-bridge}
+    - {file: 16a-bp-postgres-shared.yaml, hr: bp-postgres-shared, vcluster: host, target: rtz, namespace: shared-data}
+    - {file: 16b-bp-cnpg-pair.yaml, hr: bp-cnpg-pair, vcluster: host, target: rtz, namespace: cnpg}
+    - {file: 16c-bp-postgres-shared-b.yaml, hr: bp-postgres-shared-b, vcluster: host, target: rtz, namespace: shared-data}
+    - {file: 16d-bp-postgres-shared-c.yaml, hr: bp-postgres-shared-c, vcluster: host, target: rtz, namespace: shared-data}
+    - {file: 17-valkey.yaml, hr: bp-valkey, vcluster: host, target: rtz, namespace: valkey}
+    - {file: 18-seaweedfs.yaml, hr: bp-seaweedfs, vcluster: host, target: rtz, namespace: seaweedfs}
+    - {file: 19-harbor.yaml, hr: bp-harbor, vcluster: host, target: mgmt, namespace: harbor}
+    - {file: 25-grafana.yaml, hr: bp-grafana, vcluster: host, target: mgmt, namespace: grafana}
+    - {file: 39-bp-vllm.yaml, hr: bp-vllm, vcluster: host, target: rtz, namespace: vllm}
+    - {file: 51-bp-k8s-ws-proxy.yaml, hr: bp-k8s-ws-proxy, vcluster: host, target: mgmt,
+       namespace: catalyst-system}   # recipe proven, draft PR #3350
+    - {file: 52-bp-guacamole.yaml, hr: bp-guacamole, vcluster: host, target: mgmt, namespace: catalyst-system}
+    - {file: 56-bp-openova-flow-server.yaml, hr: bp-openova-flow-server, vcluster: host, target: mgmt, namespace: catalyst-system}
+    - {file: 57-bp-openova-flow-emitter.yaml, hr: bp-openova-flow-emitter, vcluster: host, target: mgmt, namespace: catalyst-system}
+    - {file: 80-newapi.yaml, hr: bp-newapi, vcluster: host, target: mgmt, namespace: newapi}

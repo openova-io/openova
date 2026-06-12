@@ -11,6 +11,17 @@ spec:
     title: nats-jetstream
     summary: Event spine for the Catalyst control plane. JetStream Streams + KV + Object Store via bundled nack JetStream Controller (Wave 5.45 #2254). Per-Organization Accounts. Replaces what was previously specified as Redpanda + Valkey for the control plane.
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
+  # Placement is an INSTANCE property (Application.spec.placement); this is
+  # only the default every instance inherits silently — the provisioning
+  # journey's generic advanced selector (and a direct Git edit of the
+  # instance's spec.placement) may override it within allowedPlacements.
+  # Founder §4 table target: mgmt. Single render mechanism: the Flux
+  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
+  defaultPlacement:
+    vcluster: mgmt
+  allowedPlacements: [host, mgmt]
+
   manifests:
     chart: ./chart
   depends: []

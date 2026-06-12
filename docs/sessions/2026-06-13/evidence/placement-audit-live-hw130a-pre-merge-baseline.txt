@@ -1,0 +1,102 @@
+# #3373 — placement conformance audit, LIVE hw130 region-a — PRE-MERGE BASELINE
+# Captured 2026-06-13 via: python3 scripts/audit-placement-conformance.py live --kubeconfig /tmp/hw130-a.kubeconfig
+# (READ-ONLY kubectl get sweep; zero-touch.)
+#
+# Reading guide — the ✗ rows decompose into exactly two classes:
+#  1. EXPECTED pre-merge drift: bp-nats-jetstream / bp-keycloak /
+#     bp-catalyst-platform / bp-gitea (+ their host workloads in
+#     nats-system/keycloak/gitea) — this PR re-declares them into the
+#     mgmt vCluster (founder §4 PROMOTE-NOW); hw130 still runs the
+#     pre-merge host placement. Resolves on merge + chart roll.
+#  2. REAL FINDING (pre-existing): stale bp-loki/bp-mimir HelmReleases
+#     in flux-system + their orphaned host workloads in ns loki/mimir —
+#     leftovers of the #2745 22/23/24 vCluster move (the HR moved to ns
+#     mgmt; the OLD host-side helm release was never uninstalled). The
+#     vCluster copies are live (✓ bp-loki/mimir/tempo mgmt) — the host
+#     residue needs a one-time cleanup on rolled envs; fresh provs are
+#     unaffected. Exactly the class of drift this audit exists to catch.
+#
+✗ bp-catalyst-platform: actual (ns=flux-system, kubeConfig=-) != declared (ns=mgmt, kubeConfig=vc-mgmt)
+✗ bp-gitea: actual (ns=flux-system, kubeConfig=-) != declared (ns=mgmt, kubeConfig=vc-mgmt)
+✗ bp-keycloak: actual (ns=flux-system, kubeConfig=-) != declared (ns=mgmt, kubeConfig=vc-mgmt)
+✗ bp-loki: actual (ns=flux-system, kubeConfig=-) != declared (ns=mgmt, kubeConfig=vc-mgmt)
+✗ bp-mimir: actual (ns=flux-system, kubeConfig=-) != declared (ns=mgmt, kubeConfig=vc-mgmt)
+✗ bp-nats-jetstream: actual (ns=flux-system, kubeConfig=-) != declared (ns=mgmt, kubeConfig=vc-mgmt)
+✗ UNDECLARED HOST WORKLOADS (not in placement.yaml, not vCluster-projected, not system):
+    deployment/gitea/gitea
+    deployment/mimir/mimir-distributor
+    deployment/mimir/mimir-gateway
+    deployment/mimir/mimir-minio
+    deployment/mimir/mimir-querier
+    deployment/mimir/mimir-query-frontend
+    deployment/mimir/mimir-query-scheduler
+    deployment/mimir/mimir-rollout-operator
+    deployment/mimir/mimir-ruler
+    deployment/nats-system/nats-jetstream
+    deployment/nats-system/nats-jetstream-box
+    statefulset/keycloak/keycloak
+    statefulset/keycloak/keycloak-postgresql
+    statefulset/loki/loki
+    statefulset/mimir/mimir-alertmanager
+    statefulset/mimir/mimir-compactor
+    statefulset/mimir/mimir-ingester
+    statefulset/mimir/mimir-store-gateway
+    statefulset/nats-system/nats-jetstream
+✓ bp-coraza: dmz (ns=dmz)
+✓ bp-alloy: host (ns=flux-system)
+✓ bp-cert-manager: host (ns=flux-system)
+✓ bp-cert-manager-powerdns-webhook: host (ns=flux-system)
+✓ bp-cilium: host (ns=flux-system)
+✓ bp-cluster-autoscaler-hcloud: host (ns=flux-system)
+✓ bp-cnpg: host (ns=flux-system)
+✓ bp-cnpg-pair: host (ns=flux-system)
+✓ bp-continuum: host (ns=flux-system)
+✓ bp-crossplane: host (ns=flux-system)
+✓ bp-crossplane-claims: host (ns=flux-system)
+✓ bp-dmz-vcluster: host (ns=flux-system)
+✓ bp-external-dns: host (ns=flux-system)
+✓ bp-external-secrets: host (ns=flux-system)
+✓ bp-external-secrets-stores: host (ns=flux-system)
+✓ bp-falco: host (ns=flux-system)
+✓ bp-flux: host (ns=flux-system)
+✓ bp-gateway-api: host (ns=flux-system)
+✓ bp-grafana: host (ns=flux-system)
+✓ bp-guacamole: host (ns=flux-system)
+✓ bp-harbor: host (ns=flux-system)
+✓ bp-hcloud-ccm: host (ns=flux-system)
+✓ bp-k8s-ws-proxy: host (ns=flux-system)
+✓ bp-kyverno: host (ns=flux-system)
+✓ bp-kyverno-policies: host (ns=flux-system)
+✓ bp-mgmt-vcluster: host (ns=flux-system)
+✓ bp-network-policies: host (ns=flux-system)
+✓ bp-newapi: host (ns=flux-system)
+✓ bp-openbao: host (ns=flux-system)
+✓ bp-openova-flow-emitter: host (ns=flux-system)
+✓ bp-openova-flow-server: host (ns=flux-system)
+✓ bp-opentelemetry: host (ns=flux-system)
+✓ bp-opentelemetry-operator: host (ns=flux-system)
+✓ bp-postgres-shared: host (ns=flux-system)
+✓ bp-postgres-shared-b: host (ns=flux-system)
+✓ bp-postgres-shared-c: host (ns=flux-system)
+✓ bp-powerdns: host (ns=flux-system)
+✓ bp-powerdns-admin: host (ns=flux-system)
+✓ bp-reflector: host (ns=flux-system)
+✓ bp-reloader: host (ns=flux-system)
+✓ bp-rtz-vcluster: host (ns=flux-system)
+✓ bp-sealed-secrets: host (ns=flux-system)
+✓ bp-seaweedfs: host (ns=flux-system)
+✓ bp-self-sovereign-cutover: host (ns=flux-system)
+✓ bp-sigstore: host (ns=flux-system)
+✓ bp-sso-bridge: host (ns=flux-system)
+✓ bp-syft-grype: host (ns=flux-system)
+✓ bp-trivy: host (ns=flux-system)
+✓ bp-valkey: host (ns=flux-system)
+✓ bp-vcluster-helmrepo: host (ns=flux-system)
+✓ bp-velero: host (ns=flux-system)
+✓ bp-velero-hcs: host (ns=flux-system)
+✓ bp-vllm: host (ns=flux-system)
+✓ bp-vpa: host (ns=flux-system)
+✓ bp-loki: mgmt (ns=mgmt)
+✓ bp-mimir: mgmt (ns=mgmt)
+✓ bp-tempo: mgmt (ns=mgmt)
+✓ bp-sandbox: rtz (ns=rtz)

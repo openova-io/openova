@@ -108,9 +108,34 @@ type applicationBlueprintRef struct {
 }
 
 // applicationPlacement mirrors `Application.spec.placement` + regions[].
+//
+// #3373 — extended with the instance-placement WHERE fields. When
+// VCluster or Clusters is set the handler stamps the OBJECT form of
+// `spec.placement` ({mode, vcluster, regions, clusters}); otherwise it
+// keeps stamping the legacy string form (byte-identical legacy wire).
 type applicationPlacement struct {
 	Mode    string   `json:"mode"`
 	Regions []string `json:"regions"`
+
+	// VCluster — which vCluster the instance lands in: "host" |
+	// "mgmt" | "dmz" | "rtz". Empty = inherit the Blueprint's
+	// defaultPlacement (the silent-accept default flow).
+	VCluster string `json:"vcluster,omitempty"`
+
+	// Clusters — canonical cluster IDs narrowing the topology
+	// fan-out for THIS instance.
+	Clusters []string `json:"clusters,omitempty"`
+}
+
+// validVClusterTier — accepted spec.placement.vcluster values
+// (#3373). Mirrors bpv1alpha1.IsKnownVCluster; kept as a tiny local
+// set so the wire validation stays dependency-free.
+func validVClusterTier(v string) bool {
+	switch v {
+	case "", "host", "mgmt", "dmz", "rtz":
+		return true
+	}
+	return false
 }
 
 // applicationInstallRequest is the body of POST
@@ -751,6 +776,15 @@ func validateApplicationInstallRequest(req applicationInstallRequest) (string, b
 			return fmt.Sprintf("placement.regions[%d] is empty", i), false
 		}
 	}
+	// #3373 — instance placement WHERE fields.
+	if !validVClusterTier(req.Placement.VCluster) {
+		return "placement.vcluster must be one of host, mgmt, dmz, rtz", false
+	}
+	for i, c := range req.Placement.Clusters {
+		if strings.TrimSpace(c) == "" {
+			return fmt.Sprintf("placement.clusters[%d] is empty", i), false
+		}
+	}
 	return "", true
 }
 
@@ -840,13 +874,40 @@ func newApplicationUnstructured(req applicationInstallRequest) *unstructured.Uns
 	for _, r := range req.Placement.Regions {
 		regions = append(regions, r)
 	}
+	// #3373 — spec.placement is dual-form. The legacy string form
+	// stays byte-identical for callers that never set the WHERE
+	// fields; the OBJECT form {mode, vcluster, regions, clusters}
+	// carries the instance placement when the caller (console
+	// advanced view / direct API) declares it.
+	var placementValue any = req.Placement.Mode
+	if req.Placement.VCluster != "" || len(req.Placement.Clusters) > 0 {
+		pl := map[string]any{
+			"mode":     req.Placement.Mode,
+			"vcluster": req.Placement.VCluster,
+		}
+		if len(req.Placement.Regions) > 0 {
+			plRegions := make([]any, 0, len(req.Placement.Regions))
+			for _, r := range req.Placement.Regions {
+				plRegions = append(plRegions, r)
+			}
+			pl["regions"] = plRegions
+		}
+		if len(req.Placement.Clusters) > 0 {
+			plClusters := make([]any, 0, len(req.Placement.Clusters))
+			for _, c := range req.Placement.Clusters {
+				plClusters = append(plClusters, c)
+			}
+			pl["clusters"] = plClusters
+		}
+		placementValue = pl
+	}
 	spec := map[string]any{
 		"environmentRef": req.EnvironmentRef,
 		"blueprintRef": map[string]any{
 			"name":    req.BlueprintRef.Name,
 			"version": req.BlueprintRef.Version,
 		},
-		"placement": req.Placement.Mode,
+		"placement": placementValue,
 		"regions":   regions,
 	}
 	if len(req.Parameters) > 0 {
