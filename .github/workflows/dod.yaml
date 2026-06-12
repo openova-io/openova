@@ -166,7 +166,7 @@ jobs:
 
       - name: Upload SBOM + run logs as workflow artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dod-run-${{ github.run_id }}
           path: |
