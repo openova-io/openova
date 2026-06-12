@@ -39,7 +39,7 @@ metadata:
   # longer needs to colocate with vc-mgmt. Reverting also restores
   # the Helm valuesFrom lookup of secrets like 'object-storage'
   # (cloud-init seeds it in flux-system; lookup is in HR's own ns).
-  namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
     catalyst.openova.io/slot: "09"
     catalyst.openova.io/vcluster: mgmt
@@ -47,23 +47,7 @@ spec:
   interval: 15m
   releaseName: keycloak
   targetNamespace: keycloak
-  storageNamespace: keycloak
   # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
-  kubeConfig:
-    secretRef:
-      name: vc-mgmt
-      key: config
-  # G105-followup #2697 (2026-06-01) — G92.2 #2661 placement REVERTED.
-  # bp-keycloak was moved INSIDE the mgmt vCluster, but the vCluster
-  # doesn't yet sync Gateway API CRDs / ExternalSecret CRDs / mgmt ns
-  # back to host, so the chart's HTTPRoute + ExternalSecret resources
-  # fail admission inside the vCluster with `no matches for kind
-  # "HTTPRoute" in version "gateway.networking.k8s.io/v1"`. The
-  # application-controller G92.1 #2674 pivot at the Blueprint layer
-  # STAYS — only this slot's hard-coded kubeConfig.secretRef is removed
-  # so the chart installs on HOST until vCluster CRD sync ships.
-  # Caught live on hw86 2026-06-01: founder PIN-sign-in fails → cascade →
-  # grafana shows local login → no SSO.
   dependsOn:
     # bp-mgmt-vcluster MUST be Ready first — the vc-mgmt
     # Secret doesn't exist until then. placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix

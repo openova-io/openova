@@ -40,7 +40,7 @@ metadata:
   # longer needs to colocate with vc-mgmt. Reverting also restores
   # the Helm valuesFrom lookup of secrets like 'object-storage'
   # (cloud-init seeds it in flux-system; lookup is in HR's own ns).
-  namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
     catalyst.openova.io/slot: "10"
     catalyst.openova.io/vcluster: mgmt
@@ -48,17 +48,7 @@ spec:
   interval: 15m
   releaseName: gitea
   targetNamespace: gitea
-  storageNamespace: gitea
   # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
-  kubeConfig:
-    secretRef:
-      name: vc-mgmt
-      key: config
-  # G105-followup #2697 (2026-06-01) — G92.3 #2662 placement REVERTED.
-  # vCluster lacks Gateway API + ExternalSecret CRDs and the mgmt
-  # namespace inside itself. App installs on HOST until vCluster CRD
-  # sync ships. Application-controller G92.1 Blueprint-layer pivot
-  # stays; only slot-level forcing removed.
   dependsOn:
     # bp-mgmt-vcluster MUST be Ready first — the vc-mgmt
     # Secret doesn't exist until then. placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
@@ -66,7 +56,7 @@ spec:
       namespace: flux-system
     # bp-keycloak now lives in flux-system (G105-followup #2697).
     - name: bp-keycloak
-      namespace: mgmt
+      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     # bp-gateway-api (issue #503): chart ships an HTTPRoute template;
     # gateway.networking.k8s.io/v1 CRDs must be registered first.
     - name: bp-gateway-api
