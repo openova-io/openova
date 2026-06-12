@@ -11,7 +11,7 @@ Every row: click the URL yourself; ✅ only if it works **right now**. Full hist
 | harbor | [open](https://registry.hw130.omantel.biz/) | ✅ | lands /harbor/projects |
 | gitea | [open](https://gitea.hw130.omantel.biz/) | ✅ | 303 → OIDC → in |
 | pdns-admin | [open](https://pdns-admin.hw130.omantel.biz/) | ❌ 1 click | [OIDC click works](../sessions/2026-06-12/evidence/hw130-sso-pdns-admin-PASS.png) |
-| openbao | [open](https://bao.hw130.omantel.biz/ui/) | ❌ form | zero-click shim ([#3231](https://github.com/openova-io/openova/pull/3231)) rides the console **Open** button — untested today after the roll storm |
+| openbao | [open](https://bao.hw130.omantel.biz/ui/) | ✅ via Open | console **Open** → lands [/ui/vault/secrets](https://bao.hw130.omantel.biz/ui/vault/secrets) signed-in, zero clicks ([proof](../sessions/2026-06-12/evidence/hw130-openbao-zeroclick-rewalk-vault-secrets.png), re-walked 14:58Z post-roll-storm; shim [#3231](https://github.com/openova-io/openova/pull/3231)). Bare /ui/ first visit still forms until the Open path runs |
 
 ## 2. Admin by default — emrah.baysal administrates each app
 
