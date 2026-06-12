@@ -717,6 +717,19 @@ func main() {
 	// leave the chroot disk or enter logged structs (INVIOLABLE-PRINCIPLES #10).
 	r.Post("/api/v1/sovereign/secondary-kubeconfig", h.HandleSovereignSecondaryKubeconfig)
 
+	// /api/v1/internal/jobs/import — Sovereign-side receiver for the
+	// mother's handover jobs snapshot (Refs #3263 #3277). The chroot's
+	// jobs store is seeded only by its own bootstrap watch (region-a);
+	// the secondary regions' install rows live solely in the mothership
+	// store, so the chroot /jobs page showed half the regions until the
+	// mother started shipping its rows here at handover. Same auth model
+	// as /api/v1/internal/deployments/import — no operator session
+	// exists on the child at handover time; validation is by FQDN match
+	// against CATALYST_OTECH_FQDN + the safe-id regex on deploymentId.
+	// Idempotent: jobs.Store.ImportSnapshot never regresses a terminal
+	// row and preserves the chroot's own region-a rows.
+	r.Post("/api/v1/internal/jobs/import", h.HandleJobsImport)
+
 	// Wire the tenant registry — flat-file store at
 	// CATALYST_DEPLOYMENTS_DIR/-tenant-registry.json. Per ADR-0001 §6
 	// the catalyst-api is the host process for the unified-rbac slice

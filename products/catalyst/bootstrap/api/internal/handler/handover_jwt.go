@@ -184,6 +184,14 @@ func (h *Handler) MintHandoverToken(w http.ResponseWriter, r *http.Request) {
 	// so unconditional re-fire is safe. Fire-and-forget like fireHandover.
 	go h.exportSecondaryKubeconfigsToChild(dep, fqdn, id)
 
+	// #3263 #3277 — re-fire the handover jobs export for the same
+	// recovery reason: an env whose handover predates the jobs wire
+	// (hw130) or whose handover-time export was lost to a catalyst-api
+	// roll receives its region-b job rows on the next operator re-mint.
+	// The chroot's import is idempotent (ImportSnapshot never regresses
+	// a terminal row), so unconditional re-fire is safe.
+	go h.exportJobsToChild(id, fqdn)
+
 	writeJSON(w, http.StatusOK, map[string]string{
 		"token":       tokenStr,
 		"redirectURL": redirectURL,
