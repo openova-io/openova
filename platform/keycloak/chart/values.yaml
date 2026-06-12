@@ -462,6 +462,13 @@ keycloak:
   #     can apply group-based RoleBindings (oidc:<group> prefix per
   #     k3s --oidc-groups-prefix flag)
   keycloakConfigCli:
+    # 100m: a config-import job does not need 500m; the bitnami default
+    # request wedged 25m Pending on hw130 (4 nodes "Insufficient cpu" by
+    # REQUESTS while real usage sat at 3-20%) blocking the admin seed.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
     enabled: true
     # Run the realm-import Job as a Helm post-install/post-upgrade/post-rollback
     # hook (bitnami subchart default — annotations defined on the Job template
