@@ -2804,6 +2804,19 @@ metadata:
 spec:
   version: "1.0.2"
   visibility: unlisted
+  # Shareability + Contexts (#3370 generality proof) — seeded verbatim
+  # from platform/valkey/blueprint.yaml (lockstep-guarded). One instance
+  # serves many consumers, each via a Context (keyspace = dedicated
+  # logical database index + reflected credential Secret).
+  shareable: true
+  contextSchema:
+    kind: keyspace
+    valuesKey: keyspaces
+    needs:
+      - name
+      - index
+    produces:
+      - credentialSecret
   card:
     title: "Valkey"
     category: "data"
@@ -5547,6 +5560,19 @@ metadata:
 spec:
   version: "0.1.1"
   visibility: listed
+  # Shareability + Contexts (#3370) — seeded verbatim from
+  # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
+  # serves many consumers, each via a Context (db = isolated database +
+  # role + reflected credential Secret).
+  shareable: true
+  contextSchema:
+    kind: db
+    valuesKey: databases
+    needs:
+      - name
+      - owner
+    produces:
+      - credentialSecret
   card:
     title: "PostgreSQL"
     category: data
