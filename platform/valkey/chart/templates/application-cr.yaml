@@ -25,6 +25,16 @@ metadata:
     catalyst.openova.io/organization: platform
 spec:
   bootstrap: true
+  {{- /* OLD-CRD compatibility (hw130 outage 2026-06-13): the pre-#3370
+       CRD hard-requires environmentRef + regions; the #3370 CRD CEL-
+       waives them for bootstrap-owned instances but still ACCEPTS them.
+       Without these two fields, the Capabilities gate above passes on a
+       CONVERGED env (the old CRD exists) and the CR is rejected ->
+       upgrade fails -> rollback loop -> the keycloak->gitea->umbrella
+       chain deadlocks BEFORE the umbrella can ship the new CRD. These
+       values are inert under both schemas. */}}
+  environmentRef: platform-bootstrap
+  regions: ["primary"]
   blueprintRef:
     name: bp-valkey
     version: {{ .Chart.Version | quote }}
