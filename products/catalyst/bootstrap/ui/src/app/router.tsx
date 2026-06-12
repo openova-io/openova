@@ -106,8 +106,10 @@ import { NotificationsPage } from '@/pages/sovereign/NotificationsPage'
 // resolve via the operator clicking Settings in the sidebar then
 // scrolling to the Marketplace anchor.
 import { DeploymentsList } from '@/pages/sovereign/DeploymentsList'
-import { UsersPage as SMEUsersPage } from '@/pages/sme/UsersPage'
-import { RolesPage as SMERolesPage } from '@/pages/sme/RolesPage'
+// CreateTenantPage re-mounts as the Organizations internal door at
+// /organizations/new (issue #3378). The SME UsersPage / RolesPage
+// imports were removed with their legacy routes — their people surfaces
+// fold into the org-detail page in a follow-on PR on the #3378 chain.
 import { CreateTenantPage as SMECreateTenantPage } from '@/pages/sme/CreateTenantPage'
 import { SovereigntyPreviewPage } from '@/pages/sovereignty/SovereigntyPreviewPage'
 // qa-loop iter-6 Cluster-A `spa-target-state-routes-missing` —
@@ -138,12 +140,21 @@ import { PodLogsPage } from '@/pages/sovereign/resources/PodLogsPage'
 // retired in favor of the sidebar's existing BSS group + the landing's
 // section-nav grid. Iframe content is preserved in the section pages
 // until Wave 6 PRs 2-6 native-port each one.
-import { BssLandingPage } from '@/pages/sovereign/bss/BssLandingPage'
+// BSS section pages re-mount under /organizations/billing/* (issue
+// #3378). BssLandingPage + TenantsPage are fully replaced by the
+// Organizations directory (the parent-first org table), so their imports
+// were removed with the legacy /bss + /bss/tenants routes.
 import { BillingPage as BssBillingPage } from '@/pages/sovereign/bss/BillingPage'
 import { OrdersPage as BssOrdersPage } from '@/pages/sovereign/bss/OrdersPage'
 import { RevenuePage as BssRevenuePage } from '@/pages/sovereign/bss/RevenuePage'
 import { VouchersPage as BssVouchersPage } from '@/pages/sovereign/bss/VouchersPage'
-import { TenantsPage as BssTenantsPage } from '@/pages/sovereign/bss/TenantsPage'
+// Organizations menu (issue #3378) — ONE menu replacing BSS+OSS. The
+// directory's parent org is the first citizen; CreateOrganizationPage is
+// the internal door (the same component as the SME create form, mounted
+// under the Organization-named route). Pages move WITH redirects (the old
+// /bss*, /sme/users, /sme/roles, /sme/tenants/new, /parent-domains URLs
+// keep resolving) — see consoleOrgRedirectRoutes below.
+import { OrganizationsDirectoryPage } from '@/pages/sovereign/organizations/OrganizationsDirectoryPage'
 // Wave 3 — Sandbox UI scaffold (branch: sandbox-wave3-ui-scaffold).
 // Per-Org agent-coding workspace mounted under /sandbox/* in the chroot
 // Sovereign Console. SandboxLanding is the 6-agent picker;
@@ -1497,47 +1508,15 @@ const consoleInstallBlueprintRoute = createRoute({
  * keeps the bundle a single SPA per [Q-mine-1]/#795 and lets the
  * SME admin deep-link into either page from the welcome email.
  */
-const consoleSMEUsersRoute = createRoute({
-  getParentRoute: () => consoleLayoutRoute,
-  path: '/sme/users',
-  component: SMEUsersPage,
-})
-
-const consoleSMERolesRoute = createRoute({
-  getParentRoute: () => consoleLayoutRoute,
-  path: '/sme/roles',
-  component: SMERolesPage,
-})
-
-/* ── Multi-domain Sovereign — Parent Domains admin (issue #829) ────────
- *
- * Operator-admin "Add another parent domain" surface + DNS propagation
- * status panel. Mounted under /console/* so it sits behind the same
- * RequireSession + Sovereign-tier auth gate every other admin page uses.
- *
- *   /console/parent-domains    → ParentDomainsPage
- *
- * Visibility in the sidebar is decided in SovereignSidebar.tsx by
- * checking the operator-admin role; the route registration here is
- * always present so a deep-link from the welcome email still resolves.
- */
-const consoleParentDomainsRoute = createRoute({
-  getParentRoute: () => consoleLayoutRoute,
-  path: '/parent-domains',
-  component: ParentDomainsPage,
-})
-
-// /console/sme/tenants/new — multi-domain SME tenant onboarding form
-// (issue #828, parent epic #825). The page renders the parent-domain
-// dropdown on free-subdomain mode and a CNAME-validation hint on BYO
-// mode. Mounted under the same SovereignConsoleLayout so it's
-// reachable from the operator-tier sidebar (decided at runtime by the
-// SME-tenant-aware nav, see SovereignSidebar.tsx).
-const consoleSMECreateTenantRoute = createRoute({
-  getParentRoute: () => consoleLayoutRoute,
-  path: '/sme/tenants/new',
-  component: SMECreateTenantPage,
-})
+// The legacy /sme/users, /sme/roles, /parent-domains, and
+// /sme/tenants/new route registrations moved to the Organizations menu
+// (issue #3378): their old paths now resolve via
+// consoleOrganizationsRedirectRoutes (→ /organizations + /organizations/
+// new + /organizations/domains), and the create form re-mounts as
+// CreateOrganizationPage at /organizations/new. The SMEUsersPage /
+// SMERolesPage people surfaces fold into the org-detail page's users +
+// roles tabs in a follow-on PR on this chain; until that lands the
+// legacy paths redirect to the directory so no deep-link 404s.
 
 /* ── Compliance dashboards — chroot Sovereign Console (slice U, #1096) ──
  *
@@ -1618,36 +1597,109 @@ const consoleNotificationsRoute = createRoute({
  * is admin-visible (unconditional for v1) and the SME gateway enforces
  * /back-office/* tier checks server-side for the iframe content.
  */
-const consoleBssIndexRoute = createRoute({
+/* ── Organizations menu (issue #3378) ──────────────────────────────────
+ *
+ * ONE menu — Organizations — replaces BSS and the never-built OSS. The
+ * directory is the parent org's complete view of everything beneath it:
+ * the parent itself is the first citizen (never an empty menu), the
+ * internal door for creating departments, the commerce catalog, mode-
+ * aware billing, the domain pools, and per-sub-org `Enter org` support
+ * (audited impersonation). Founder-agreed model 2026-06-13.
+ *
+ *   /organizations        → OrganizationsDirectoryPage (the directory;
+ *                           parent-first row + Create button; replaces
+ *                           /bss/tenants)
+ *   /organizations/new    → CreateOrganizationPage (the internal door;
+ *                           reuses the SME create form component, mounted
+ *                           under the Organization-named route — #3383
+ *                           naming law: sme/tenant never name anything new)
+ *
+ * The /organizations/$org detail page, the commerce + billing + domains
+ * sub-routes, and the Enter-org button arrive in follow-on PRs on this
+ * same #3378 chain. The redirect map below keeps every legacy URL alive.
+ */
+const consoleOrganizationsRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
-  path: '/bss',
-  component: BssLandingPage,
+  path: '/organizations',
+  component: OrganizationsDirectoryPage,
 })
-const consoleBssBillingRoute = createRoute({
+const consoleOrganizationsNewRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
-  path: '/bss/billing',
+  path: '/organizations/new',
+  component: SMECreateTenantPage,
+})
+
+/* Moved pages — the SAME page components as the legacy BSS / parent-
+ * domains routes, re-mounted under their /organizations home. Page
+ * internals are untouched (#3378 §non-negotiables "pages move with
+ * redirects"); only the URL changes. Billing pages render mode-aware in
+ * a follow-on PR on this chain; for now they keep their full surface so
+ * the operator never loses billing/orders/revenue/vouchers/domains. */
+const consoleOrgBillingRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/organizations/billing/billing',
   component: BssBillingPage,
 })
-const consoleBssOrdersRoute = createRoute({
+const consoleOrgOrdersRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
-  path: '/bss/orders',
+  path: '/organizations/billing/orders',
   component: BssOrdersPage,
 })
-const consoleBssRevenueRoute = createRoute({
+const consoleOrgRevenueRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
-  path: '/bss/revenue',
+  path: '/organizations/billing/revenue',
   component: BssRevenuePage,
 })
-const consoleBssVouchersRoute = createRoute({
+const consoleOrgVouchersRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
-  path: '/bss/vouchers',
+  path: '/organizations/billing/vouchers',
   component: BssVouchersPage,
 })
-const consoleBssTenantsRoute = createRoute({
+const consoleOrgDomainsRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
-  path: '/bss/tenants',
-  component: BssTenantsPage,
+  path: '/organizations/domains',
+  component: ParentDomainsPage,
 })
+
+/* ── Organizations redirect map (issue #3378 §4) ───────────────────────
+ *
+ * "old URLs never break" — every legacy BSS / SME-admin / parent-domains
+ * path answers with a redirect to its new home under /organizations.
+ * Pages move WITH redirects (no big-bang; the #3378 §non-negotiables
+ * "pages move with redirects, page internals untouched"). Uses the same
+ * beforeLoad-throw-redirect idiom as consoleLegacyCloudRedirectRoutes.
+ */
+interface OrgRedirect {
+  /** Legacy path under consoleLayoutRoute (no /console prefix). */
+  path: string
+  /** New home under /organizations. */
+  to: string
+}
+const ORGANIZATIONS_REDIRECTS: readonly OrgRedirect[] = [
+  // BSS → Organizations billing/directory.
+  { path: '/bss', to: '/organizations' },
+  { path: '/bss/tenants', to: '/organizations' },
+  { path: '/bss/billing', to: '/organizations/billing/billing' },
+  { path: '/bss/orders', to: '/organizations/billing/orders' },
+  { path: '/bss/revenue', to: '/organizations/billing/revenue' },
+  { path: '/bss/vouchers', to: '/organizations/billing/vouchers' },
+  // SME-admin people surfaces → the org's own page owns its people.
+  { path: '/sme/users', to: '/organizations' },
+  { path: '/sme/roles', to: '/organizations' },
+  { path: '/sme/tenants/new', to: '/organizations/new' },
+  // Parent-domain pools → the Organizations Domains home.
+  { path: '/parent-domains', to: '/organizations/domains' },
+]
+const consoleOrganizationsRedirectRoutes = ORGANIZATIONS_REDIRECTS.map((r) =>
+  createRoute({
+    getParentRoute: () => consoleLayoutRoute,
+    path: r.path,
+    component: NoopRedirectComponent,
+    beforeLoad: () => {
+      throw redirect({ to: r.to as never, replace: true })
+    },
+  }),
+)
 
 /* ── Wave 3 — Sandbox UI scaffold (sandbox-wave3-ui-scaffold) ──────────
  *
@@ -2173,10 +2225,6 @@ const routeTree = rootRoute.addChildren([
     consoleBlueprintsPublishRoute,
     consoleBlueprintsCurateRoute,
     consoleSettingsRoute,
-    consoleSMEUsersRoute,
-    consoleSMERolesRoute,
-    consoleParentDomainsRoute,
-    consoleSMECreateTenantRoute,
     // Compliance dashboards — chroot routes (slice U, #1096).
     consoleSREComplianceRoute,
     consoleSecComplianceRoute,
@@ -2184,15 +2232,18 @@ const routeTree = rootRoute.addChildren([
     // Wave-2 Family-E (#1583, C11-008): chroot Falco runtime alerts.
     consoleComplianceRuntimeRoute,
     consoleNotificationsRoute,
-    // Family F (Wave 3 → Wave 6) — BSS-in-console.
-    // /bss is a native landing (BssLandingPage); each section is a
-    // sibling that wraps in PortalShell via BssSectionShell.
-    consoleBssIndexRoute,
-    consoleBssBillingRoute,
-    consoleBssOrdersRoute,
-    consoleBssRevenueRoute,
-    consoleBssVouchersRoute,
-    consoleBssTenantsRoute,
+    // Organizations menu (issue #3378) — ONE menu replacing BSS+OSS.
+    // Directory (parent-first) + internal door + moved billing/domains
+    // pages + the legacy-URL redirect map (every /bss*, /sme/*,
+    // /parent-domains path keeps resolving).
+    consoleOrganizationsRoute,
+    consoleOrganizationsNewRoute,
+    consoleOrgBillingRoute,
+    consoleOrgOrdersRoute,
+    consoleOrgRevenueRoute,
+    consoleOrgVouchersRoute,
+    consoleOrgDomainsRoute,
+    ...consoleOrganizationsRedirectRoutes,
     // Wave 3 — Sandbox UI scaffold. Static /sandbox/settings registered
     // before /sandbox/$id so the literal segment wins on path match.
     consoleSandboxIndexRoute,
