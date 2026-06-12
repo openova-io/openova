@@ -23,6 +23,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { PortalShell } from '../PortalShell'
+import { ShowbackPanel } from './ShowbackPanel'
 import {
   listOrganizations,
   type OrgRow,
@@ -127,6 +128,16 @@ export function OrganizationsDirectoryPage({
             </Link>
           ))}
         </nav>
+
+        {/* B3 parent self-showback (DoD 3): the sovereign's own per-app
+            cost attribution — walkable pre-sub-org. Hidden in the test
+            seam path (initialOrgsOverride) to keep the directory's
+            empty-state test focused. */}
+        {initialOrgsOverride ? null : (
+          <div className="mb-4">
+            <ShowbackPanel />
+          </div>
+        )}
 
         <div className="mb-3 flex flex-wrap items-end gap-3" data-testid="organizations-toolbar">
           <label className="flex flex-1 min-w-[240px] max-w-md flex-col gap-1">

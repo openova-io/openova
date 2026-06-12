@@ -187,3 +187,72 @@ export async function listOrganizations(): Promise<OrgRow[]> {
   for (const t of tenants) rows.push(subOrgRowFromTenant(t))
   return rows
 }
+
+/* ── B3 consumption / showback feed (#3378 §6 B3, DoD 3) ───────────── */
+
+/** AppConsumption — one application's showback slice within an org. */
+export interface AppConsumption {
+  application: string
+  namespace: string
+  costUnits: number
+  cpuMilli: number
+  memoryGiB: number
+  storageGiB: number
+  percent: number
+}
+
+/** OrgConsumption — one org's consumption rollup (parent first). */
+export interface OrgConsumption {
+  org: string
+  isParent: boolean
+  costUnits: number
+  cpuMilli: number
+  memoryGiB: number
+  storageGiB: number
+  apps: AppConsumption[]
+}
+
+/** SovereignConsumption — the metering feed wire shape. */
+export interface SovereignConsumption {
+  totalCostUnits: number
+  orgs: OrgConsumption[]
+  /** True when the metrics cache wasn't ready — the panel flags "metering
+   *  warming up" instead of asserting a false zero. */
+  pending: boolean
+}
+
+const EMPTY_CONSUMPTION: SovereignConsumption = {
+  totalCostUnits: 0,
+  orgs: [],
+  pending: true,
+}
+
+/**
+ * getConsumption — fetch the per-org showback rollup (the B3 feed). The
+ * FIRST deliverable is parent self-showback: on a zero-sub-org estate the
+ * only org row is the parent carrying 100% (§5 day-one). Tolerates
+ * failure by returning the pending empty shape so the panel renders its
+ * chrome rather than crashing.
+ */
+export async function getConsumption(): Promise<SovereignConsumption> {
+  let res: Response
+  try {
+    res = await authedFetch(`${API_BASE}/v1/sme/consumption`, {
+      headers: { Accept: 'application/json' },
+    })
+  } catch {
+    return EMPTY_CONSUMPTION
+  }
+  if (!res.ok) return EMPTY_CONSUMPTION
+  try {
+    const body = (await res.json()) as Partial<SovereignConsumption> | null
+    if (!body || typeof body !== 'object') return EMPTY_CONSUMPTION
+    return {
+      totalCostUnits: Number(body.totalCostUnits ?? 0),
+      orgs: Array.isArray(body.orgs) ? (body.orgs as OrgConsumption[]) : [],
+      pending: Boolean(body.pending),
+    }
+  } catch {
+    return EMPTY_CONSUMPTION
+  }
+}

@@ -1667,6 +1667,14 @@ func main() {
 		rg.Put("/api/v1/sme/commerce/{kind}/{id}", h.HandleSMECommerceUpdate)
 		rg.Delete("/api/v1/sme/commerce/{kind}/{id}", h.HandleSMECommerceDelete)
 
+		// Organizations metering feed (issue #3378 B3) — per-org
+		// consumption aggregation, parent self-showback first. Lean
+		// kube-metrics aggregation (no new component): reuses the
+		// dashboard's per-namespace resource-request rows. The billing
+		// pages read this one GET; 100% attributes to the parent on a
+		// zero-sub-org estate (§5 day-one showback).
+		rg.Get("/api/v1/sme/consumption", h.HandleSovereignConsumption)
+
 		// EPIC-3 (#1098) — Sovereign-prefix RBAC access-matrix surface
 		// (TBD-F4 / C6-007). Chroot-friendly mirror of
 		// /api/v1/sovereigns/{id}/rbac/access-matrix; the id is resolved
