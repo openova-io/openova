@@ -504,6 +504,23 @@ components:
         topology:  { $ref: '#/components/schemas/BcpTopology' }
         status:    { type: string, enum: [Pending, Reconciling, Ready, Degraded, Failed, Uninstalling] }
         createdAt: { type: string, format: date-time }
+        bindings:
+          type: array
+          description: |
+            Consumer bindings on a data-instance row (#3188 many-to-many
+            cards). Present only on postgres-engine-family instance rows
+            derived from live CNPG Cluster/Database CRs; omitted elsewhere.
+          items: { $ref: '#/components/schemas/InstanceBinding' }
+    InstanceBinding:
+      type: object
+      description: One consumer's binding to a data-instance (one Consumers-table row).
+      required: [database, role, mode, secret, consumer]
+      properties:
+        database: { type: string, description: Isolated database name on the instance }
+        role:     { type: string, description: Per-consumer login role (CNPG-managed owner) }
+        mode:     { type: string, enum: [shared, dedicated], description: shared = Database CR on a shared instance; dedicated = the instance's own app database }
+        secret:   { type: string, description: Reflected connection Secret name; empty when unknown }
+        consumer: { type: string, description: Consuming app/namespace; empty when not derivable }
     Application:
       allOf:
         - $ref: '#/components/schemas/ApplicationSummary'

@@ -734,6 +734,30 @@ export interface ApplicationInstanceSummary {
   topology: string
   status: string
   createdAt?: string
+  /**
+   * Mirrors Go `Bindings []instanceBinding` (`bindings,omitempty`) —
+   * present only on postgres-engine-family rows derived from live CNPG
+   * Cluster + Database CRs (#3188 many-to-many Data-instances cards),
+   * absent on every other instance row.
+   */
+  bindings?: ApplicationInstanceBinding[]
+}
+
+/**
+ * Mirrors the Go `instanceBinding` (endpoint_handler.go) VERBATIM —
+ * lowercase camelCase per the `json:` tags (memory
+ * feedback_ts_field_casing_vs_go_json_tag). One consumer's binding row
+ * on a data-instance card: database · role · mode · secret · consumer.
+ */
+export interface ApplicationInstanceBinding {
+  database: string
+  role: string
+  /** "shared" (Database CR on a shared instance) or "dedicated" (the instance's own app database). */
+  mode: string
+  /** Reflected connection Secret name; empty when not derivable. */
+  secret: string
+  /** Consuming app/namespace; empty when not derivable. */
+  consumer: string
 }
 
 /** Mirrors `application` at endpoint_handler.go:130 (Summary + perCluster). */

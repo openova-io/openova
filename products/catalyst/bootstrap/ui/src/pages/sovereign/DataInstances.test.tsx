@@ -113,13 +113,61 @@ describe('DataInstances — #3188 ADR-0010 panel (catalyst-ui)', () => {
     expect(text).toContain('Ready')
   })
 
-  it('renders the honest "bindings not yet surfaced" state per instance (never fabricates rows)', async () => {
+  it('renders the honest "bindings not surfaced" state per bindings-less instance (never fabricates rows)', async () => {
     renderPanel()
     const empties = await screen.findAllByTestId('data-instance-no-bindings')
     expect(empties.length).toBe(2)
     // No consumers table is fabricated when the API exposes no binding rows.
     expect(screen.queryByTestId('consumers-table')).toBeNull()
     expect(screen.queryByTestId('binding-row')).toBeNull()
+  })
+
+  it('renders the Consumers table from the wire `bindings[]` rows (#3188 many-to-many)', async () => {
+    // Wire body with server-side bindings: shared-pg carries two shared
+    // Database-CR rows, pdns-pg carries the implicit dedicated row. Field
+    // names are the Go `instanceBinding` json tags VERBATIM.
+    installFetch({
+      items: [
+        {
+          id: 'aaaaaaaa-1111',
+          name: 'shared-pg',
+          blueprint: 'postgres',
+          org: 'shared-data',
+          topology: 'ha',
+          status: 'Ready',
+          bindings: [
+            { database: 'gitea', role: 'gitea', mode: 'shared', secret: 'gitea-database-secret', consumer: 'gitea' },
+            { database: 'registry', role: 'harbor', mode: 'shared', secret: 'harbor-database-secret', consumer: 'harbor' },
+          ],
+        },
+        {
+          id: 'bbbbbbbb-2222',
+          name: 'pdns-pg',
+          blueprint: 'postgres',
+          org: 'powerdns',
+          topology: 'singleton',
+          status: 'Ready',
+          bindings: [
+            { database: 'app', role: 'app', mode: 'dedicated', secret: '', consumer: 'powerdns' },
+          ],
+        },
+      ],
+    })
+    renderPanel()
+    const tables = await screen.findAllByTestId('consumers-table')
+    expect(tables.length).toBe(2)
+    const rows = screen.getAllByTestId('binding-row')
+    expect(rows.length).toBe(3)
+    const text = rows.map((r) => r.textContent).join(' ')
+    // database · role · mode · secret · consumer, casing per the Go tags.
+    expect(text).toContain('gitea-database-secret')
+    expect(text).toContain('registry')
+    expect(text).toContain('harbor')
+    expect(text).toContain('shared')
+    expect(text).toContain('dedicated')
+    expect(text).toContain('powerdns')
+    // shared-pg has 2 consumers → SHARED pill; no honest-gap line remains.
+    expect(screen.queryByTestId('data-instance-no-bindings')).toBeNull()
   })
 
   it('renders the honest empty state on [] (model gated off)', async () => {

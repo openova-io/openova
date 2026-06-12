@@ -125,6 +125,24 @@ type applicationSummary struct {
 	Topology  string `json:"topology"`
 	Status    string `json:"status"`
 	CreatedAt string `json:"createdAt,omitempty"`
+	// Bindings — #3188 many-to-many data-instance cards: the consumers
+	// bound to this instance (one row per database · role · mode ·
+	// secret · consumer). Populated only on the postgres-engine-family
+	// rows derived from live CNPG Cluster/Database CRs; omitted
+	// everywhere else so the UI keeps its honest empty state.
+	Bindings []instanceBinding `json:"bindings,omitempty"`
+}
+
+// instanceBinding is one consumer's binding to a data-instance — the
+// row the Data-instances panel's Consumers table renders. Field names
+// follow the Catalyst wire convention (lowercase camelCase json tags,
+// memory feedback_ts_field_casing_vs_go_json_tag).
+type instanceBinding struct {
+	Database string `json:"database"`
+	Role     string `json:"role"`
+	Mode     string `json:"mode"`
+	Secret   string `json:"secret"`
+	Consumer string `json:"consumer"`
 }
 
 // application mirrors `schema/Application` (Summary plus per-cluster
@@ -831,6 +849,26 @@ func (h *Handler) HandleListBlueprintInstances(w http.ResponseWriter, r *http.Re
 		})
 	}
 
+	// #3188 many-to-many cards: for the postgres engine family the live
+	// CNPG Cluster CRs are the per-instance ground truth — ONE card per
+	// running Postgres instance with its consumer bindings, not just
+	// the shared engine. On hw130 the HR projection below showed "1
+	// instance" (bp-postgres-shared) while 7 CNPG Clusters ran live
+	// (openova-flow-pg, newapi-pg, pdns-pg, pda-pg, shared-pg, sme-pg,
+	// cnpg-pair-primary). Enumerate the Clusters directly; each one is
+	// an instance row carrying its bindings (Database CRs → shared
+	// rows, none → one implicit dedicated row).
+	cnpgAuthoritative := false
+	if bp == "cnpg" || bp == "postgres" {
+		cnpgRows := h.cnpgClusterInstances(r.Context(), client, bp, orgFilter, out)
+		// When live Cluster CRs exist they supersede the engine-HR
+		// projection: the HR (bp-postgres-shared) is only the INSTALLER
+		// of the shared-pg Cluster, so projecting both would render one
+		// physical instance as two cards.
+		cnpgAuthoritative = len(cnpgRows) > 0
+		out = append(out, cnpgRows...)
+	}
+
 	// #3188 (hw129/hw130 round-1): bootstrap-kit installs of this
 	// blueprint ship as Flux HelmReleases with NO companion Application
 	// CR — the platform shared-PG engine (HR bp-postgres-shared, chart
@@ -840,8 +878,10 @@ func (h *Handler) HandleListBlueprintInstances(w http.ResponseWriter, r *http.Re
 	// consumers (gitea 110 tables + registry 49). Project those HRs as
 	// instance rows too — same fallback philosophy as the silent-SSO
 	// launch-url HR path above. Org-scoped filtering: bootstrap HRs are
-	// platform-owned, so any explicit ?org= filter excludes them.
-	if orgFilter == "" {
+	// platform-owned, so any explicit ?org= filter excludes them. When
+	// the CNPG Cluster enumeration above already produced rows, the HR
+	// path is skipped (it would double-count the shared engine).
+	if orgFilter == "" && !cnpgAuthoritative {
 		out = append(out, h.bootstrapHRInstances(r.Context(), client, bp, out)...)
 	}
 	writeJSON(w, http.StatusOK, listInstancesResponse{Items: out})
@@ -901,6 +941,134 @@ func (h *Handler) bootstrapHRInstances(ctx context.Context, client dynamic.Inter
 		})
 	}
 	return rows
+}
+
+// cnpgClusterGVR / cnpgDatabaseGVR — the CloudNativePG CRs the #3188
+// many-to-many Data-instances cards read. Declared locally like
+// helmReleaseGVR in sovereign.go.
+var cnpgClusterGVR = schema.GroupVersionResource{
+	Group:    "postgresql.cnpg.io",
+	Version:  "v1",
+	Resource: "clusters",
+}
+
+var cnpgDatabaseGVR = schema.GroupVersionResource{
+	Group:    "postgresql.cnpg.io",
+	Version:  "v1",
+	Resource: "databases",
+}
+
+// cnpgClusterInstances projects every live postgresql.cnpg.io/v1
+// Cluster CR into one instance row (#3188 many-to-many cards): name =
+// CR name, org = namespace, status from `.status.phase`, topology from
+// `.spec.replica.enabled` / `.spec.instances`, plus the consumer
+// bindings. A name already covered by an Application-CR row is not
+// duplicated — instead that existing row receives the bindings.
+// Best-effort: on a cluster without the CNPG CRD the List fails and
+// the Application-CR + HR rows stay authoritative.
+func (h *Handler) cnpgClusterInstances(ctx context.Context, client dynamic.Interface, bp, orgFilter string, existing []applicationSummary) []applicationSummary {
+	clusters, err := client.Resource(cnpgClusterGVR).Namespace("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil
+	}
+	bindingsByCluster := h.cnpgDatabaseBindings(ctx, client)
+	existingIdx := map[string]int{}
+	for i := range existing {
+		existingIdx[strings.ToLower(existing[i].Name)] = i
+	}
+	rows := []applicationSummary{}
+	for i := range clusters.Items {
+		cl := &clusters.Items[i]
+		ns := cl.GetNamespace()
+		if orgFilter != "" && !strings.EqualFold(ns, orgFilter) {
+			continue
+		}
+		bindings := bindingsByCluster[ns+"/"+cl.GetName()]
+		if len(bindings) == 0 {
+			// Per-app instance with no Database CRs: the Cluster's
+			// CNPG-bootstrapped `app` database serves exactly its own
+			// namespace — surface that as ONE implicit dedicated
+			// binding rather than an empty Consumers table.
+			bindings = []instanceBinding{{
+				Database: "app",
+				Role:     "app",
+				Mode:     "dedicated",
+				Consumer: ns,
+			}}
+		}
+		if idx, dup := existingIdx[strings.ToLower(cl.GetName())]; dup {
+			// An Application CR already covers this instance — keep
+			// that row authoritative, attach the live bindings to it.
+			if len(existing[idx].Bindings) == 0 {
+				existing[idx].Bindings = bindings
+			}
+			continue
+		}
+		status, _, _ := unstructured.NestedString(cl.Object, "status", "phase")
+		if status == "Cluster in healthy state" {
+			status = "Ready"
+		}
+		topology := "singleton"
+		if replicaEnabled, _, _ := unstructured.NestedBool(cl.Object, "spec", "replica", "enabled"); replicaEnabled {
+			topology = "replica"
+		} else if n, _, _ := unstructured.NestedInt64(cl.Object, "spec", "instances"); n > 1 {
+			topology = "ha"
+		}
+		rows = append(rows, applicationSummary{
+			ID:        string(cl.GetUID()),
+			Name:      cl.GetName(),
+			Blueprint: bp,
+			Org:       ns,
+			Topology:  topology,
+			Status:    status,
+			CreatedAt: cl.GetCreationTimestamp().UTC().Format(time.RFC3339),
+			Bindings:  bindings,
+		})
+	}
+	return rows
+}
+
+// cnpgDatabaseBindings lists every postgresql.cnpg.io/v1 Database CR
+// and groups them by owning Cluster (`<namespace>/<spec.cluster.name>`).
+// Each Database CR is one shared binding: database = .spec.name, role =
+// .spec.owner. The consumer is best-effort from the Database CR naming
+// convention `<cluster>-<consumer>` (shared-pg-gitea on cluster
+// shared-pg → gitea); when known, the reflected connection Secret
+// follows the `<consumer>-database-secret` convention.
+func (h *Handler) cnpgDatabaseBindings(ctx context.Context, client dynamic.Interface) map[string][]instanceBinding {
+	out := map[string][]instanceBinding{}
+	dbs, err := client.Resource(cnpgDatabaseGVR).Namespace("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		// Best-effort: a missing Database CRD only means no shared
+		// bindings to surface; the Cluster rows still render.
+		return out
+	}
+	for i := range dbs.Items {
+		db := &dbs.Items[i]
+		clusterName, _, _ := unstructured.NestedString(db.Object, "spec", "cluster", "name")
+		if clusterName == "" {
+			continue
+		}
+		dbName, _, _ := unstructured.NestedString(db.Object, "spec", "name")
+		owner, _, _ := unstructured.NestedString(db.Object, "spec", "owner")
+		consumer := ""
+		if rest := strings.TrimPrefix(db.GetName(), clusterName+"-"); rest != db.GetName() && rest != "" {
+			consumer = rest
+		}
+		secret := ""
+		if consumer != "" {
+			secret = consumer + "-database-secret"
+		}
+		key := db.GetNamespace() + "/" + clusterName
+		out[key] = append(out[key], instanceBinding{
+			Database: dbName,
+			Role:     owner,
+			Mode:     "shared",
+			Secret:   secret,
+			Consumer: consumer,
+		})
+	}
+	return out
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
