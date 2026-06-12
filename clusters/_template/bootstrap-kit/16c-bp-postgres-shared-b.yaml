@@ -1,0 +1,129 @@
+# bp-postgres (shared instance B) — Catalyst bootstrap-kit Blueprint, slot 16c.
+#
+# THREE-INSTANCE MODEL (founder NS-2, Refs #3188): instance B of three.
+# A second install of the SAME bp-postgres chart (slot 16a header has the
+# full model): CNPG Cluster `shared-pg-b` in shared-data carrying the
+# observability + DNS consumers:
+#
+#   - grafana (bp-grafana, slot 25) — FLIPPED zero-touch. The hub Secret
+#     `grafana-database-env` renders the upstream grafana chart's native
+#     env contract (GF_DATABASE_TYPE/HOST/NAME/USER + the minted
+#     GF_DATABASE_PASSWORD alias) via reflect.extraData/passwordAliases
+#     (chart 0.1.5); slot 25's grafana.envFromSecrets picks it up once
+#     reflector pushes it into ns grafana. Grafana migrates its own
+#     schema on first boot, so the empty database is the correct start.
+#   - pdns (bp-powerdns, slot 11) — READY-TO-ADOPT. Database + role +
+#     hub Secret (`pdns-database-secret`) are declared here, but the
+#     consumer flip is a per-app follow-up: bp-powerdns applies the
+#     gpgsql auth-5.0.3 schema via its own Cluster's initdb
+#     postInitApplicationSQL, and CNPG Database CRs have no schema hook —
+#     the flip needs a schema-bootstrap path in the bp-powerdns chart.
+#   - pda (bp-powerdns-admin, slot 11a) — READY-TO-ADOPT. Database +
+#     role + hub Secret (`pda-shared-database-secret` — the chart's own
+#     reflector mirror already owns the `pda-database-secret` name) are
+#     declared; the hub's `uri` key is the exact SQLALCHEMY_DATABASE_URI
+#     contract (#3189 A3), so the follow-up flip is a values-only
+#     databaseSecret.name swap once bp-powerdns-admin gates its bundled
+#     pda-pg Cluster.
+#
+# SAFE-BY-DEFAULT: same SOVEREIGN_ENABLE_SHARED_PG gate as 16a — OFF
+# renders ZERO resources (empty Ready release), so non-sharing provs are
+# byte-identical to today. The shared-data Namespace + the bp-postgres
+# HelmRepository are declared ONCE in 16a (kustomize build rejects
+# duplicates); this slot is the HelmRelease only.
+#
+# Wrapper chart: platform/postgres/chart/
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  # bp-postgres-shared-b is the instance-B data-instance HR. Consumers
+  # (bp-grafana today; bp-powerdns/bp-powerdns-admin post-adoption)
+  # dependsOn THIS, not bp-cnpg, per ADR-0010. releaseName matches
+  # instance.name so Cluster + Secrets are named consistently.
+  name: bp-postgres-shared-b
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "16c"
+    catalyst.openova.io/data-instance: shared-pg-b
+spec:
+  interval: 15m
+  releaseName: shared-pg-b
+  targetNamespace: shared-data
+  # Same edges as 16a: the CNPG operator (CRDs + webhook) must be
+  # reconciling before the Cluster/Database CRs apply; bp-reflector
+  # pushes the hub Secrets into consumer namespaces as they appear.
+  dependsOn:
+    - name: bp-cnpg
+      namespace: flux-system
+    - name: bp-reflector
+      namespace: flux-system
+  chart:
+    spec:
+      chart: bp-postgres
+      # Pinned in lockstep with 16a/16d — see 16a for the chart
+      # changelog. 0.1.5 ships the env-style hub (reflect.extraData +
+      # passwordAliases) + the `uri` key this slot's bindings rely on.
+      version: 0.1.5
+      sourceRef:
+        kind: HelmRepository
+        name: bp-postgres
+        namespace: flux-system
+  install:
+    timeout: 15m
+    remediation:
+      retries: -1
+  upgrade:
+    timeout: 15m
+    remediation:
+      retries: 3
+  values:
+    # Same master gate as 16a — one switch for all three instances.
+    enabled: ${SOVEREIGN_ENABLE_SHARED_PG:=false}
+    instance:
+      name: shared-pg-b
+      namespace: shared-data
+      storageSize: 10Gi
+    topology:
+      mode: singleton
+      instances: 1
+    databases:
+      # grafana — FLIPPED (see header). The extraData keys are grafana's
+      # native GF_DATABASE_* env contract; GF_DATABASE_HOST carries
+      # host:port in one var per grafana's [database].host convention.
+      - name: grafana
+        owner: grafana
+        consumer:
+          blueprint: bp-grafana
+          mode: shared
+        reflect:
+          secretName: grafana-database-env
+          namespaces: [grafana]
+          extraData:
+            GF_DATABASE_TYPE: postgres
+            GF_DATABASE_HOST: shared-pg-b-rw.shared-data.svc.cluster.local:5432
+            GF_DATABASE_NAME: grafana
+            GF_DATABASE_USER: grafana
+            GF_DATABASE_SSL_MODE: disable
+          passwordAliases: [GF_DATABASE_PASSWORD]
+      # pdns — READY-TO-ADOPT (schema-bootstrap follow-up, see header).
+      - name: pdns
+        owner: pdns
+        consumer:
+          blueprint: bp-powerdns
+          mode: shared
+        reflect:
+          secretName: pdns-database-secret
+          namespaces: [powerdns]
+      # pda — READY-TO-ADOPT (values-only flip once the bundled pda-pg
+      # Cluster is gated; the `uri` key is the #3189 A3 contract).
+      - name: pda
+        owner: pda
+        consumer:
+          blueprint: bp-powerdns-admin
+          mode: shared
+        reflect:
+          secretName: pda-shared-database-secret
+          namespaces: [powerdns-admin]

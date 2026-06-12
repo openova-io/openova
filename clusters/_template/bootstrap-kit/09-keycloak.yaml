@@ -65,6 +65,15 @@ spec:
     # gateway.networking.k8s.io/v1 CRDs must be registered first.
     - name: bp-gateway-api
       namespace: flux-system
+    # bp-postgres-shared (#3188 three-instance model): when keycloak
+    # SHARES the shared-pg instance A (SOVEREIGN_KEYCLOAK_PG_OWN_CLUSTER
+    # =false), gate on it so the keycloak Database + role + reflected
+    # keycloak-database-secret exist first. Harmless in the default 1:1
+    # path — bp-postgres-shared is an empty Ready release within seconds
+    # of bp-cnpg + bp-reflector (the same unconditional-edge shape
+    # bp-gitea slot 10 + bp-harbor slot 19 already carry).
+    - name: bp-postgres-shared
+      namespace: flux-system
   chart:
     spec:
       chart: bp-keycloak
@@ -236,3 +245,35 @@ spec:
       ownerEmail: "${SOVEREIGN_OWNER_EMAIL}"
     gateway:
       host: auth.${SOVEREIGN_FQDN}
+    # ── Shared-instance flip (#3188 three-instance model) ───────────────
+    # Default OWN_CLUSTER=true → the bundled bitnami postgresql subchart
+    # renders exactly as today (the externalDatabase block is UNREAD when
+    # postgresql.enabled=true — default single-region render byte-
+    # identical, proven by the chart-render diff in the PR). Cloud-init
+    # computes OWN_CLUSTER=false from the same enable_shared_pg var that
+    # turns slot 16a ON (one-flag contract, #3285/#3309 gitea/harbor
+    # shape): the subchart StatefulSet is skipped and Keycloak runs in
+    # externalDatabase mode against the shared-pg `keycloak` database +
+    # role, reading credentials from the reflector-pushed hub Secret
+    # `keycloak-database-secret` (#3283 push pattern; the Pod sits in
+    # CreateContainerConfigError for the few seconds between namespace
+    # creation and the reflector push, then starts — kubelet retries).
+    # Keycloak's Liquibase owns the schema, so the empty database is the
+    # correct starting state. The bitnami subchart builds KC_DB_URL from
+    # the static host/port/database below; the password comes from the
+    # hub Secret via existingSecret/existingSecretPasswordKey. NOTE: do
+    # NOT set existingSecretUserKey — bitnami 25.2.0 consults it even
+    # when postgresql.enabled=true (KC_DB_USERNAME flips to a _FILE
+    # mount), which would break the default own-cluster render; the
+    # plain `user` value below carries the username instead (it matches
+    # the hub Secret's role by construction).
+    keycloak:
+      postgresql:
+        enabled: ${SOVEREIGN_KEYCLOAK_PG_OWN_CLUSTER:=true}
+      externalDatabase:
+        host: shared-pg-rw.shared-data.svc.cluster.local
+        port: 5432
+        user: keycloak
+        database: keycloak
+        existingSecret: keycloak-database-secret
+        existingSecretPasswordKey: password

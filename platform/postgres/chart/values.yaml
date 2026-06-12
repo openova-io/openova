@@ -97,6 +97,12 @@ topology:
 # Secret. Two entries = two consumers SHARING this one Cluster (two
 # isolated databases + two roles).
 #
+# 0.1.5 (#3188): bindings may SHARE one owner (N databases, ONE role +
+# ONE password — the SME-mesh shape). The role Secret + managed.roles
+# entry are deduped per unique owner; database names with underscores
+# are legal (the Database CR's k8s name is sanitized, spec.name keeps
+# the real Postgres name).
+#
 # databases:
 #   - name: registry        # the isolated database name
 #     owner: harbor         # the per-consumer login role (CNPG manages it)
@@ -114,4 +120,13 @@ topology:
 #     reflect:
 #       secretName: harbor-database-secret  # name in the consumer ns
 #       namespaces: [harbor]                # target namespace(s)
+#       # Optional STATIC keys rendered verbatim into the hub Secret —
+#       # lets an env-style consumer (grafana envFromSecrets) read its
+#       # native variable names. NEVER put credentials here (Principle
+#       # #10) — use passwordAliases for the minted password.
+#       extraData: {}
+#       # Optional extra key names carrying the chart-minted password
+#       # (e.g. [GF_DATABASE_PASSWORD]) — same render scope as the role
+#       # Secret so aliases never drift.
+#       passwordAliases: []
 databases: []

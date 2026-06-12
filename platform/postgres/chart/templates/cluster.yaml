@@ -58,16 +58,24 @@ spec:
   CNPG reconciles CREATE/ALTER ROLE + password from the named Secret on
   every reconcile, so a Secret rotation or initdb-vs-Secret drift is
   ALTER USER'd away (the bp-gitea Wave-5.35 #2211 lesson, generalised).
+  0.1.5 (#3188): deduped per UNIQUE owner — bindings may share one owner
+  (the SME mesh's sme_auth/sme_billing/sme_documents all owned by `sme`),
+  which is N Database CRs on ONE role. The passwordSecret is taken from
+  the FIRST binding declaring the owner, matching role-secrets.yaml.
   */ -}}
   {{- if .Values.databases }}
   managed:
     roles:
+      {{- $seenOwners := dict }}
       {{- range .Values.databases }}
+      {{- if not (hasKey $seenOwners .owner) }}
+      {{- $_ := set $seenOwners .owner true }}
       - name: {{ .owner | quote }}
         ensure: present
         login: true
         passwordSecret:
           name: {{ include "bp-postgres.roleSecretName" (dict "ctx" $ "db" .) | quote }}
+      {{- end }}
       {{- end }}
   {{- end }}
   # inheritedMetadata: CNPG propagates these onto every Secret it generates

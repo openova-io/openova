@@ -241,38 +241,38 @@ for chart_yaml in "${CHART_YAMLS[@]}"; do
     continue
   fi
 
-  slot_count=$(echo "${pin_files}" | wc -l)
-  if [ "${slot_count}" -gt 1 ]; then
-    echo "error: multiple bootstrap-kit slots pin chart '${name}':" >&2
-    echo "${pin_files}" >&2
-    echo "       (bootstrap-kit invariant: one slot per chart name)" >&2
-    exit 2
-  fi
+  # Multiple slots MAY pin the same chart — the #3188 three-instance
+  # model installs bp-postgres at slots 16a/16c/16d (three data
+  # instances of one chart). The lockstep contract simply applies to
+  # EVERY pin: each slot file's `      version:` must equal the source
+  # Chart.yaml version. (The former one-slot-per-chart invariant was a
+  # schema assumption, not a convergence requirement; the auto-bump
+  # hook in blueprint-release.yaml bumps every matching slot file.)
+  for pin_file in ${pin_files}; do
+    pinned_version=$(awk '/^      version:/{print $2; exit}' "${pin_file}" | tr -d '"')
 
-  pin_file="${pin_files}"
-  pinned_version=$(awk '/^      version:/{print $2; exit}' "${pin_file}" | tr -d '"')
+    if [ -z "${pinned_version}" ]; then
+      echo "error: ${pin_file} has no '      version:' line at 6-space indent" >&2
+      exit 2
+    fi
 
-  if [ -z "${pinned_version}" ]; then
-    echo "error: ${pin_file} has no '      version:' line at 6-space indent" >&2
-    exit 2
-  fi
+    checked=$((checked + 1))
 
-  checked=$((checked + 1))
+    if [ "${pinned_version}" = "${version}" ]; then
+      echo "  OK   ${name}: chart=${version} pin=${pinned_version} (${pin_file#${REPO_ROOT}/})"
+    else
+      echo "  DRIFT ${name}: chart=${version} pin=${pinned_version} (file: ${pin_file#${REPO_ROOT}/})"
+      drift=$((drift + 1))
+    fi
 
-  if [ "${pinned_version}" = "${version}" ]; then
-    echo "  OK   ${name}: chart=${version} pin=${pinned_version}"
-  else
-    echo "  DRIFT ${name}: chart=${version} pin=${pinned_version} (file: ${pin_file#${REPO_ROOT}/})"
-    drift=$((drift + 1))
-  fi
-
-  # Collect the pin tuple for the optional --check-ghcr phase. We
-  # check the PIN version (not the chart version) — the contract is
-  # that whatever the kit installs must exist on GHCR. If drift is
-  # also flagged, both errors are reported.
-  GHCR_NAMES+=("${name}")
-  GHCR_VERSIONS+=("${pinned_version}")
-  GHCR_PINS+=("${pin_file#${REPO_ROOT}/}")
+    # Collect the pin tuple for the optional --check-ghcr phase. We
+    # check the PIN version (not the chart version) — the contract is
+    # that whatever the kit installs must exist on GHCR. If drift is
+    # also flagged, both errors are reported.
+    GHCR_NAMES+=("${name}")
+    GHCR_VERSIONS+=("${pinned_version}")
+    GHCR_PINS+=("${pin_file#${REPO_ROOT}/}")
+  done
 done
 
 echo

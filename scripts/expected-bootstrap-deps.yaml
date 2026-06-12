@@ -100,7 +100,14 @@ slots:
     # bp-gateway-api dep (issue #503): chart ships an HTTPRoute template.
     # G92.2 #2661 (2026-06-01): MGMT vCluster placement added
     # bp-mgmt-vcluster — REVERTED by G105-followup (see slot 8 note).
-    depends_on: [bp-cert-manager, bp-gateway-api]
+    # bp-postgres-shared dep (#3188 three-instance model): when keycloak
+    # SHARES the shared-pg instance A (SOVEREIGN_KEYCLOAK_PG_OWN_CLUSTER=
+    # false), gate on it so the keycloak Database + role + reflected
+    # keycloak-database-secret exist first. Harmless in the default 1:1
+    # path (empty-Ready release) — same shape as slots 10/19. No cycle:
+    # bp-postgres-shared ← {bp-cnpg ← bp-flux, bp-reflector ←
+    # bp-cert-manager}; none of those reaches bp-keycloak.
+    depends_on: [bp-cert-manager, bp-gateway-api, bp-postgres-shared]
     wave: present
   - slot: 10
     name: bp-gitea
@@ -224,6 +231,21 @@ slots:
     name: bp-cnpg-pair
     depends_on: [bp-cnpg]
     wave: present
+  # bp-postgres-shared-b (slot 16c) + bp-postgres-shared-c (slot 16d) —
+  # instances B + C of the #3188 three-instance model (founder NS-2):
+  # three installs of the SAME bp-postgres chart, all gated
+  # ${SOVEREIGN_ENABLE_SHARED_PG}. B (shared-pg-b) carries grafana
+  # (flipped, slot 25) + powerdns/powerdns-admin (ready-to-adopt); C
+  # (shared-pg-c) carries the SME mesh (ready-to-adopt). Same edges as
+  # 16a: bp-cnpg (operator + CRDs), bp-reflector (hub-Secret push).
+  - slot: 16c
+    name: bp-postgres-shared-b
+    depends_on: [bp-cnpg, bp-reflector]
+    wave: W2.K1
+  - slot: 16d
+    name: bp-postgres-shared-c
+    depends_on: [bp-cnpg, bp-reflector]
+    wave: W2.K1
   - slot: 17
     name: bp-valkey
     depends_on: [bp-flux]
@@ -311,7 +333,12 @@ slots:
   - slot: 25
     name: bp-grafana
     # bp-gateway-api dep (issue #503): chart ships an HTTPRoute template.
-    depends_on: [bp-cnpg, bp-loki, bp-mimir, bp-tempo, bp-keycloak, bp-gateway-api]
+    # bp-postgres-shared-b dep (#3188 three-instance model): when grafana
+    # SHARES the shared-pg-b instance, gate on it so the reflector-pushed
+    # grafana-database-env hub Secret exists before grafana's Deployment
+    # references it (envFromSecrets, optional=false in shared mode).
+    # Harmless in the default path (empty-Ready release).
+    depends_on: [bp-cnpg, bp-loki, bp-mimir, bp-tempo, bp-keycloak, bp-gateway-api, bp-postgres-shared-b]
     wave: W2.K2
   - slot: 26
     name: bp-network-policies
