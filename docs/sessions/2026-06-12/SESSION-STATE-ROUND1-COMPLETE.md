@@ -58,3 +58,26 @@ auth_url mints server-side (200, PKCE, UI-callback redirect); IDR auto-fires (no
 2. Handover-on-timeout policy (#3319/#3277/#3317 family).
 3. Continuum CRD region-pattern relaxation (#3195-G6).
 4. Prioritization: Dragonfly registries + default Grafana dashboards (the two unprioritized hw126 gaps) vs funnel/projection work.
+
+---
+
+# END-OF-SESSION HEALTH SNAPSHOT — hw130 @ 2026-06-12 05:18Z (verified live, not claimed)
+
+```
+HRs:        57/57 True (first all-green moment of the env's life; 3 suspended hetzner slots)
+Streaming:  pg_stat_replication — primary-2 streaming|sync + primary-3 streaming|potential
+            (synchronous replication ACTIVE: the Pillar-3 zero-tx-loss wiring, post-#3322)
+Mesh:       1/1 remote clusters ready, 1 global-service (worker datapaths)
+Continuum:  cnpg/cnpg-pair-bp-cnpg-pair-continuum present, Degraded (the witness-resolver
+            item — quorum design call queued, full spec on #3195)
+Backups:    uat-2847-acceptance-r3 Completed, 4h old, in the per-Sovereign OBS bucket
+Shared-PG:  gitea + harbor-core 1/1 Running, 9h uptime on the one engine
+Ingress:    console 8/8 probes 200 (post-#3301-heal, durable)
+```
+
+Day totals: 13 issues closed on evidence · 18 PRs merged (+1 withdrawn on live falsification)
+· 2 verifier rounds + remainder sweeps, ledger fully verdicted · 50+ evidence artifacts.
+Forward path: 4 founder decisions (hw130 wipe/keep · handover-on-timeout · lease-quorum
+third voter · feature prioritization) + clean-prov re-walks (#3319 family) + 5 specced
+code items (witness wiring · #3277 status semantics · #3188 bindings · undeployed-component
+consistency · #3301 source question).
