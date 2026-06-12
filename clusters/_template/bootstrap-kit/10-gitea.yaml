@@ -129,7 +129,8 @@ spec:
       # 1.2.29 (2026-06-12, founder): root-URL zero-click — REQUIRE_SIGNIN_VIEW
       # + gateway /user/login -> OIDC entry redirect.
       # 1.2.30: explicit port 443 on the SSO redirect (the #3310 class).
-      version: 1.2.30
+      # 1.2.31: LANDING_PAGE=login — anon root funnels into OIDC.
+      version: 1.2.31
       sourceRef:
         kind: HelmRepository
         name: bp-gitea
