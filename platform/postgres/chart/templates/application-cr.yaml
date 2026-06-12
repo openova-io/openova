@@ -64,7 +64,10 @@ spec:
        chain deadlocks BEFORE the umbrella can ship the new CRD. These
        values are inert under both schemas. */}}
   environmentRef: platform-bootstrap
-  regions: ["primary"]
+  {{- /* old-CRD regions pattern is 4 letter-only dash tokens
+       (^[a-z]+-[a-z]+-[a-z]+-[a-z]+$) — "primary" is rejected; this
+       token satisfies old AND relaxed-new schemas, inert in both. */}}
+  regions: ["platform-bootstrap-owned-host"]
   blueprintRef:
     name: bp-postgres
     version: {{ .Chart.Version | quote }}
