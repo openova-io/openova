@@ -115,7 +115,7 @@ spec:
       # 0.1.10: explicit port 443 on the SSO redirect (the #3310 class).
       # 0.1.11: REVERT the /login redirect — it intercepted the OIDC
       # post-callback bounce (ERR_TOO_MANY_REDIRECTS -> 500, admin walk).
-      version: 0.1.11
+      version: 0.1.12
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns-admin

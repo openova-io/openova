@@ -195,3 +195,16 @@ sso:
   # value below is kept for consistency with other Tier-1 charts + for
   # documentation; it is not consumed by the configure-deployment.
   idpHint: catalyst-pin
+  # ── Bare-URL zero-click entry (#3374) ────────────────────────────────
+  # Gateway-level interception of the bare entry paths (/, /ui, /ui/)
+  # into catalyst-api's openbao-sso-init shim (#3226). See the loop-safety
+  # analysis in templates/httproute.yaml. Disable to fall back to the
+  # token form on bare entry (the founder-witnessed #3374 failure).
+  bareURL:
+    enabled: true
+    # Hostname of the catalyst-api HTTPRoute. When empty, derived from
+    # gateway.host by replacing the first DNS label with "api."
+    # (bao.hw130.omantel.biz -> api.hw130.omantel.biz).
+    apiHost: ""
+    # Path of the server-side SSO-init shim on the catalyst-api host.
+    shimPath: /catalyst/v1/apps/openbao/openbao-sso-init

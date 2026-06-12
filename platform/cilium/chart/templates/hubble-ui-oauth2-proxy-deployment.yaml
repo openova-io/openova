@@ -91,10 +91,19 @@ spec:
             - --reverse-proxy=true
             - --whitelist-domain={{ $hostname }}
           env:
+            # #3374: with ssoBridgeSync the client-secret comes from the
+            # bp-sso-bridge-published ExternalSecret (the LIVE Keycloak
+            # value) instead of the chart-generated one that Keycloak
+            # never learned (the hw130 unauthorized_client 500). The
+            # cookie-secret stays chart-managed either way.
             - name: OAUTH2_PROXY_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
+                  {{- if $proxy.ssoBridgeSync.enabled }}
+                  name: hubble-ui-oauth2-proxy-oidc
+                  {{- else }}
                   name: {{ $proxy.existingSecret | quote }}
+                  {{- end }}
                   key: client-secret
             - name: OAUTH2_PROXY_COOKIE_SECRET
               valueFrom:

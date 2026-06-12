@@ -26,7 +26,19 @@ name: bp-openbao
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.2.28
+version: 1.2.29
+# 1.2.29 (#3374, 2026-06-13): BARE-URL zero-click SSO. The #3226 shim only
+# fired from the console Open button; typing bao.<fqdn>/ui/ still showed the
+# token form (founder-witnessed). The HTTPRoute now 302s the bare entry paths
+# (Exact /, /ui, /ui/) to catalyst-api's openbao-sso-init shim with explicit
+# port 443 (#3310 class) and an explicit hostname rewrite to api.<fqdn>.
+# Loop-safe by construction (the pdns-admin 0.1.11 lesson): the shim's
+# fallback (/ui/vault/auth?with=oidc), the OIDC callback
+# (/ui/vault/auth/oidc/oidc/callback) and the post-login landing
+# (/ui/vault/secrets) are all non-matching paths. Companion change:
+# sso-configure tunes the oidc mount listing_visibility=unauth so a degraded
+# shim falls back to a form that preselects OIDC, not Token. Gated on
+# sso.bareURL.enabled (default true — the bare URL IS the #3374 contract).
 # 1.2.28 (#3226, 2026-06-10): zero-click silent-SSO parity with grafana/harbor.
 # blueprint.yaml endpoint declares ssoShim:true so catalyst-api's launch-url
 # returns the server-side OpenBao SSO-init shim URL instead of the SPA

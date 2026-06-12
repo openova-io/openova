@@ -104,10 +104,17 @@ spec:
     flowServer:
       enabled: true
       httproute:
-        # Default ON — cross-cluster emitters reach this server's
-        # public HTTPS endpoint via the Cilium Gateway. Per-Sovereign
-        # overlay disables when only the in-cluster Service is needed.
-        enabled: true
+        # #3374: the route is now OWNED by bp-oidc-gate (slot 13c) —
+        # the gate's oauth2-proxy serves openova-flow.${SOVEREIGN_FQDN}
+        # and proxies to this chart's in-cluster Service. Two HTTPRoutes
+        # on one hostname is undefined routing, so this one is off.
+        # Cross-cluster emitters keep POSTing the same public URL —
+        # the gate skip-auth-routes the emitter WRITE paths (slot-56
+        # intent preserved: public HTTPS reachability, no NetBird);
+        # browser READS now require the operator's Keycloak session
+        # (this surface previously had NO auth at all — measured live
+        # on hw130 2026-06-13).
+        enabled: false
         hostname: openova-flow.${SOVEREIGN_FQDN}
         # Canonical Sovereign Gateway — every other HTTPRoute
         # (catalyst-api, catalyst-ui, marketplace, gitea, harbor,

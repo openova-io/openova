@@ -993,7 +993,7 @@ spec:
       # 1.4.591 — #2745 (2026-06-12): loki/mimir/tempo → mgmt vCluster;
       # CATALYST_MIMIR_URL re-pointed at the synced host Service + baseline
       # CNP egress allowlist gains `mgmt`.
-      version: 1.4.595
+      version: 1.4.596
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

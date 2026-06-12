@@ -38,6 +38,34 @@ spec:
   hostnames:
     - {{ .Values.gateway.host | quote }}
   rules:
+{{- if and .Values.gateway.bareURLAdminRedirect .Values.gateway.bareURLAdminRedirect.enabled }}
+{{- /*
+BARE-URL sovereign-admin entry (#3374). Keycloak's own root previously
+302'd to /admin/master/console/ — the MASTER realm, whose only auth is
+the local username/password form (no catalyst-pin broker): the last
+login-form holdout on the Sovereign. The SOVEREIGN realm's admin console
+(/admin/<realm>/console/) authenticates through that realm's browser
+flow — silent catalyst-pin — and accepts /sovereign-admins members via
+the realm-management `realm-admin` group role shipped in the realm
+import. So the gateway sends the bare root there instead.
+Loop-safety: one-way hop; the admin console SPA lives entirely under
+/admin/<realm>/console/ and never redirects back to `/`. The master
+console stays reachable at its full path (break-glass untouched, law
+#3374 §2.6). Port explicit 443 (the #3310 class).
+*/}}
+    - matches:
+        - path:
+            type: Exact
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            port: 443
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: {{ printf "/admin/%s/console/" (.Values.gateway.bareURLAdminRedirect.realm | default "sovereign") | quote }}
+            statusCode: 302
+{{- end }}
     - matches:
         - path:
             type: PathPrefix

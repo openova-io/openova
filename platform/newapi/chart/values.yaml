@@ -353,6 +353,16 @@ auth:
       # ExternalSecret carrying client_secret. Required key:
       # OIDC_CLIENT_SECRET.
       existingSecret: "" # e.g. "newapi-oidc"
+      # #3374 — converge the client-secret with Keycloak. Emits an
+      # AppRegistration ConfigMap (bp-sso-bridge mints `clientId` in the
+      # SOVEREIGN realm + publishes the live KC secret to OpenBao
+      # sso/sovereign/<clientId>) and an ExternalSecret that MERGES
+      # OIDC_CLIENT_SECRET into `existingSecret`. The placeholder
+      # keycloak-client-secret.yaml keeps the Pod bootable pre-publish.
+      ssoBridgeSync:
+        enabled: true
+        externalSecretStoreName: vault-region1
+        refreshInterval: 1h
     # Bootstrap-only master key. Set via ExternalSecret. Required key:
     # MASTER_KEY. The blueprint's smoke test ASSERTS this is unset on
     # production overlays.
@@ -781,6 +791,12 @@ networkPolicy:
     # primary fromNamespaceLabels.
     allowedFromNamespaces:
       - catalyst-system
+    # #3374: admit Cilium Gateway API traffic. Gateway-proxied requests
+    # reach the Pod with the reserved `ingress` ENTITY identity, which no
+    # K8s NetworkPolicy selector can express — without this CNP every
+    # external hit to newapi.<fqdn> times out (measured live on hw130,
+    # 2026-06-13). Renders templates/cilium-ingress-networkpolicy.yaml.
+    allowGatewayEntity: true
   egress:
     # NOTE: bp-cnpg egress is NOT listed here — it is rendered
     # directly in templates/networkpolicy.yaml when `.Values.cnpg.enabled`

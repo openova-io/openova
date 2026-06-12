@@ -176,6 +176,16 @@ data:
           ;;
       esac
 
+      # listing_visibility=unauth (#3374): the Ember UI preselects the
+      # first unauth-listed method as the default sign-in tab, so even
+      # when the bare-URL shim degrades and the form IS shown, it opens
+      # on OIDC (one click) instead of the Token form. Idempotent PUT.
+      if bao_write sys/auth/oidc/tune '{"listing_visibility":"unauth"}'; then
+        log "oidc mount tuned listing_visibility=unauth"
+      else
+        log "WARN: oidc mount tune failed (non-fatal); retrying next tick"
+      fi
+
       # Idempotent PUT — last write wins
       CONFIG_PAYLOAD="$(printf '{"oidc_discovery_url":"%s","oidc_client_id":"%s","oidc_client_secret":"%s","default_role":"operator"}' \
         "${ISSUER_URL}" "${CLIENT_ID}" "${CLIENT_SECRET}")"

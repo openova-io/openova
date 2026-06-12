@@ -250,7 +250,18 @@ name: bp-keycloak
 # ${SOVEREIGN_OWNER_EMAIL} literals on pre-existing envs). defaultGroups
 # stays /sovereign-viewers only. Render test
 # tests/sovereign-realm-owner-admin-seed.sh.
-version: 1.4.26
+# 1.4.27 (#3374, 2026-06-13): sovereign-admin model for the KC admin console
+# — the IdP's own UI was the last login-form holdout (bare auth.<fqdn>/
+# 302'd to /admin/master/console/ = master-realm local form, measured live
+# on hw130 2026-06-13). Two changes: (a) realm import grants /sovereign-
+# admins the realm-management `realm-admin` client role (generic on the
+# group, never per-user; keycloak-config-cli re-applies so existing realms
+# reconcile); (b) the HTTPRoute 302s the bare root to
+# /admin/sovereign/console/ (explicit port 443, #3310 class), which
+# authenticates silently via the sovereign realm's catalyst-pin IDR. The
+# master console remains reachable at its full path (break-glass untouched).
+# Gated on gateway.bareURLAdminRedirect.enabled (default true).
+version: 1.4.27
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so

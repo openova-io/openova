@@ -1,0 +1,102 @@
+# bp-oidc-gate — Catalyst bootstrap-kit Blueprint slot 13c
+# (#3374 — the ONE generic OIDC gate).
+#
+# A reusable oauth2-proxy front that brings login-less external apps
+# under the Sovereign zero-click SSO contract (fresh browser -> bare URL
+# -> Keycloak sovereign realm, silent via catalyst-pin -> signed in).
+# One chart, N instances — never N bespoke per-app proxies (#3374 §5).
+#
+# First gated instance: openova-flow.<sovereign-fqdn>. The flow-server
+# route previously served its HTTP+SSE API with NO auth at all
+# (measured live on hw130 2026-06-13 — anonymous JSON descriptor).
+# Slot-56 intent is preserved: cross-cluster emitters POST FlowMessage
+# envelopes over public HTTPS, so the emitter WRITE paths are
+# skip-auth-route'd (the pre-existing machine-write surface, unchanged)
+# and token-bearing callers pass via --skip-jwt-bearer-tokens; the
+# browser-facing READ surface (snapshots, SSE streams, log-lines GETs)
+# now requires the operator's Keycloak session. The flow-server's own
+# HTTPRoute is disabled in slot 56 (two HTTPRoutes on one hostname is
+# undefined routing) — this gate owns the hostname.
+#
+# dependsOn:
+#   - bp-cilium                  — Pod network + the cilium-gateway the
+#                                  gate's HTTPRoutes parent to.
+#   - bp-keycloak                — sovereign realm (issuer).
+#   - bp-external-secrets-stores — ClusterSecretStore vault-region1 the
+#                                  per-instance ExternalSecret resolves
+#                                  client secrets through.
+# (bp-sso-bridge is deliberately NOT a dependsOn: the gate Pod starts
+# and serves 302s before the client bundle lands — the ExternalSecret
+# converges eventually, the same pattern as every Tier-1/2 SSO app.)
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-oidc-gate
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-oidc-gate
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "13c"
+spec:
+  interval: 1m
+  releaseName: oidc-gate
+  targetNamespace: oidc-gate
+  dependsOn:
+    - name: bp-cilium
+    - name: bp-keycloak
+    - name: bp-external-secrets-stores
+  chart:
+    spec:
+      chart: bp-oidc-gate
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-oidc-gate
+        namespace: flux-system
+  install:
+    createNamespace: true
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 5
+      remediateLastFailure: true
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  values:
+    global:
+      # Pillar-5 anti-tether (#2940 pattern): per-Sovereign overlay or
+      # the cutover Step-04 registry pivot re-points in one place.
+      registryMirror: ${REGISTRY_MIRROR:=harbor.openova.io}
+    sovereignFQDN: ${SOVEREIGN_FQDN}
+    realm: sovereign
+    instances:
+      # openova-flow (#3374 §3 row 9). Upstream is the slot-56 Service
+      # in catalyst-system; the gate proxies it at the public hostname.
+      - name: openova-flow
+        enabled: true
+        clientId: openova-flow
+        upstream: http://openova-flow-server.catalyst-system.svc.cluster.local:80
+        # Token-bearing machine callers (future emitter JWTs) pass.
+        skipJwtBearerTokens: true
+        skipAuthRoutes:
+          # Emitter WRITE paths — the slot-56 cross-cluster machine
+          # surface (pre-existing, unchanged by the gate; flagged in
+          # #3374 as the emitter-token follow-up).
+          - "POST=^/v1/flows/[^/]+/events$"
+          - "POST=^/v1/flows/[^/]+/log-lines$"
+          # Health endpoints stay probe-able.
+          - "GET=^/(healthz|readyz)$"

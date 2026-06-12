@@ -1,0 +1,67 @@
+{{- /*
+#3374 (2026-06-13) — hubble-ui AppRegistration ConfigMap.
+
+ROOT CAUSE this closes (measured live on hw130): the oauth2-proxy's
+chart-generated client-secret (hubble-ui-oauth2-proxy-secret.yaml
+lookup-or-generate) and the bp-keycloak realm-import's deterministic
+`bp-keycloak.tier2ClientSecret` NEVER converge — Keycloak rejects the
+code exchange with `unauthorized_client` and the /oauth2/callback 500s
+(oauthproxy.go:881 "Error redeeming code ... Invalid client or Invalid
+client credentials"). hubble-ui was the ONLY SSO client with no
+bp-sso-bridge-published bundle (no hubble-ui secret under flux-system,
+unlike gitea/grafana/harbor/openbao/powerdns-admin).
+
+This ConfigMap is the documented bridge (see the PATTERN note in
+hubble-ui-oauth2-proxy-secret.yaml): bp-sso-bridge's AppRegistration
+watcher (0.2.3 #2801, configmap-reconciler.yaml
+reconcile_app_registrations) upserts the client into the realm named by
+data.realm, reads the LIVE KC-stored client_secret, and publishes the
+bundle to OpenBao at `sso/<realm>/<client-id>` =
+`sso/sovereign/hubble-ui`, where the companion
+hubble-ui-oauth2-proxy-externalsecret.yaml resolves it. The watcher's
+existing-client path PUTs a merged representation (template wins) and
+PRESERVES the KC-side secret — so the realm-imported client is adopted,
+not clobbered.
+
+data.realm = "sovereign": the watcher only requires the realm to EXIST
+(GET /admin/realms/<realm> == 200); the sovereign realm always does.
+*/ -}}
+{{- $ov := .Values.catalystOverlay.hubbleUI -}}
+{{- $hostname := $ov.hostname -}}
+{{- if and (not $hostname) $ov.sovereignFQDN -}}
+{{- $hostname = printf "hubble.%s" $ov.sovereignFQDN -}}
+{{- end -}}
+{{- $proxy := $ov.oauth2Proxy -}}
+{{- if and $ov.enabled $hostname (eq $ov.auth "oidc") $proxy.ssoBridgeSync.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hubble-ui-sso-registration
+  namespace: {{ $ov.serviceRef.namespace | quote }}
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: hubble-ui-oauth2-proxy
+    catalyst.openova.io/blueprint: bp-cilium
+    sso.openova.io/app-registration: hubble-ui
+data:
+  realm: sovereign
+  client.json: |
+    {
+      "clientId": "hubble-ui",
+      "name": "Cilium Hubble UI (Tier-2 silent-SSO)",
+      "enabled": true,
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "https://{{ $hostname }}/oauth2/callback"
+      ],
+      "webOrigins": [
+        "https://{{ $hostname }}"
+      ],
+      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "email", "groups"],
+      "attributes": {
+        "access.token.lifespan": "900"
+      }
+    }
+{{- end }}
