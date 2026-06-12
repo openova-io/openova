@@ -83,7 +83,7 @@ spec:
                 primaryRegion:
                   type: string
                   description: Currently-primary host cluster name. Switched on failover.
-                  pattern: '^[a-z]+-[a-z]+-[a-z]+-[a-z]+$'
+                  pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+){3,}$'
                 hotStandbyRegions:
                   type: array
                   minItems: 1
@@ -91,7 +91,7 @@ spec:
                   description: Host clusters running standby replicas. Promoted on failover.
                   items:
                     type: string
-                    pattern: '^[a-z]+-[a-z]+-[a-z]+-[a-z]+$'
+                    pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+){3,}$'
                 leaseClient:
                   type: object
                   required: [kind]

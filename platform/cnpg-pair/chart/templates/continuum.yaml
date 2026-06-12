@@ -33,7 +33,7 @@ live there too.
 */ -}}
 {{- if and .Values.cnpgPair.enabled .Values.cnpgPair.continuum.enabled (include "cnpg-pair.isPrimarySide" .) }}
 {{- include "cnpg-pair.validateRegions" . }}
-{{- $cprim := required "continuum.primaryRegion is REQUIRED when continuum.enabled=true — set the canonical 4-segment label (e.g. hz-fsn-rtz-prod) matching the Continuum CRD pattern ^[a-z]+-[a-z]+-[a-z]+-[a-z]+$" .Values.cnpgPair.continuum.primaryRegion -}}
+{{- $cprim := required "continuum.primaryRegion is REQUIRED when continuum.enabled=true — set the canonical 4-segment label (e.g. hz-fsn-rtz-prod) matching the Continuum CRD region pattern (canonical label, e.g. hw-me-east-215-a-rtz-prod)" .Values.cnpgPair.continuum.primaryRegion -}}
 {{- $cstby := required "continuum.hotStandbyRegion is REQUIRED when continuum.enabled=true — set the canonical 4-segment label (e.g. hz-hel-rtz-prod)" .Values.cnpgPair.continuum.hotStandbyRegion -}}
 apiVersion: dr.openova.io/v1
 kind: Continuum
