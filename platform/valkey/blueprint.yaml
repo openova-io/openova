@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-4-1-data-services
 spec:
-  version: 1.0.2
+  version: 1.1.0
   card:
     title: Valkey
     summary: |
@@ -18,6 +18,31 @@ spec:
     icon: valkey.svg
     category: data
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  # ── Shareability + Contexts (#3370 generality proof) ────────────────
+  # shareable: one Valkey instance serves many consumer applications,
+  # each through its own Context — for valkey a KEYSPACE (a dedicated
+  # logical database index + a reflected connection Secret). Contexts
+  # are declared as Git-committed IaC in the instance's values under
+  # `contextSchema.valuesKey` and materialize via the same machinery
+  # shape as bp-postgres databases[]: per-context reflected credential
+  # Secret pushed into the consumer namespace (chart/templates/
+  # context-secrets.yaml).
+  shareable: true
+  contextSchema:
+    # Kind label — the Context prefix the console renders (keyspace/<n>).
+    kind: keyspace
+    # Where Context entries live in the instance's IaC values. Every
+    # entry follows the canonical context shape: name +
+    # consumer.blueprint + reflect.secretName + reflect.namespaces
+    # (+ kind-specific fields such as `index` here).
+    valuesKey: keyspaces
+    # What a Context needs (provisioning-journey inputs).
+    needs:
+      - name
+      - index
+    # What a Context produces (consumer-visible outputs).
+    produces:
+      - credentialSecret
   configSchema:
     type: object
     properties:

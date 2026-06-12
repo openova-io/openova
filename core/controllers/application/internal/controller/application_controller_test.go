@@ -3,15 +3,15 @@
 // Per slice C4 brief §"Tests (envtest required)" the controller's
 // 9-test matrix covers:
 //
-//   1. Pending on missing Environment
-//   2. Pending on missing Blueprint
-//   3. Invalid on parameters schema mismatch
-//   4. single-region happy path → expected manifest set written
-//   5. active-active fan-out → 2 regions, 2 identical sets
-//   6. active-hotstandby → primary regular, standby replicas: 0
-//   7. Idempotency — re-reconcile = 0 Gitea writes
-//   8. Deletion cascade → manifests removed, finalizer released
-//   9. Drift detection → manifest in Gitea hand-edited → controller restores
+//  1. Pending on missing Environment
+//  2. Pending on missing Blueprint
+//  3. Invalid on parameters schema mismatch
+//  4. single-region happy path → expected manifest set written
+//  5. active-active fan-out → 2 regions, 2 identical sets
+//  6. active-hotstandby → primary regular, standby replicas: 0
+//  7. Idempotency — re-reconcile = 0 Gitea writes
+//  8. Deletion cascade → manifests removed, finalizer released
+//  9. Drift detection → manifest in Gitea hand-edited → controller restores
 //
 // Implementation note: the brief said "envtest required". The 4 sibling
 // Group C controllers (C1/C2/C3/C5) all shipped with the
@@ -61,7 +61,7 @@ type fakeGitea struct {
 
 	// failOnPath: if non-empty, PutFile to this path returns
 	// failPathErr.
-	failOnPath string
+	failOnPath  string
 	failPathErr error
 }
 
@@ -199,14 +199,14 @@ func newScheme() *runtime.Scheme {
 
 func listKindMap() map[schema.GroupVersionResource]string {
 	return map[schema.GroupVersionResource]string{
-		ApplicationGVR:        "ApplicationList",
-		EnvironmentGVR:        "EnvironmentList",
-		OrganizationGVR:       "OrganizationList",
-		BlueprintGVR:          "BlueprintList",
-		BlueprintGVRv1alpha1:  "BlueprintList",
-		FluxGitRepositoryGVR:  "GitRepositoryList",
-		FluxKustomizationGVR:  "KustomizationList",
-		FluxHelmReleaseGVR:    "HelmReleaseList",
+		ApplicationGVR:       "ApplicationList",
+		EnvironmentGVR:       "EnvironmentList",
+		OrganizationGVR:      "OrganizationList",
+		BlueprintGVR:         "BlueprintList",
+		BlueprintGVRv1alpha1: "BlueprintList",
+		FluxGitRepositoryGVR: "GitRepositoryList",
+		FluxKustomizationGVR: "KustomizationList",
+		FluxHelmReleaseGVR:   "HelmReleaseList",
 	}
 }
 
@@ -228,8 +228,8 @@ func makeApp(namespace, name, env, bpName, bpVer, place string, regions []string
 			"name":    bpName,
 			"version": bpVer,
 		},
-		"placement": place,
-		"regions":   regionsAny,
+		"placement":  place,
+		"regions":    regionsAny,
 		"parameters": params,
 	}
 	return u
@@ -353,7 +353,8 @@ func newReconciler(t *testing.T, fg *fakeGitea, objs ...*unstructured.Unstructur
 
 func appStatus(t *testing.T, dyn interface {
 	// shape suffices via duck typing — see below
-}, _ *Reconciler, _, _ string) {}
+}, _ *Reconciler, _, _ string) {
+}
 
 // readApp re-fetches the Application from the fake cluster.
 func readApp(t *testing.T, r *Reconciler, ns, name string) *unstructured.Unstructured {

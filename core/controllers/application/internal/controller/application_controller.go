@@ -4,36 +4,36 @@
 // The controller watches `Application.apps.openova.io/v1` CRs and on
 // each event:
 //
-//   1. Fetches the parent `Environment.catalyst.openova.io/v1` named in
-//      `spec.environmentRef`. Pending-on-miss with reason
-//      `EnvironmentMissing`.
+//  1. Fetches the parent `Environment.catalyst.openova.io/v1` named in
+//     `spec.environmentRef`. Pending-on-miss with reason
+//     `EnvironmentMissing`.
 //
-//   2. Fetches the parent `Organization.orgs.openova.io/v1` named in
-//      `Environment.spec.organizationRef`. Pending-on-miss with reason
-//      `OrganizationMissing`.
+//  2. Fetches the parent `Organization.orgs.openova.io/v1` named in
+//     `Environment.spec.organizationRef`. Pending-on-miss with reason
+//     `OrganizationMissing`.
 //
-//   3. Fetches the `Blueprint.catalyst.openova.io/v1` (with v1alpha1
-//      fallback) at name `spec.blueprintRef.name`. Pending-on-miss
-//      with reason `BlueprintMissing`. Validates
-//      `Application.spec.parameters` against
-//      `Blueprint.spec.configSchema`. On invalid surfaces an `Invalid`
-//      condition listing every failing JSON pointer.
+//  3. Fetches the `Blueprint.catalyst.openova.io/v1` (with v1alpha1
+//     fallback) at name `spec.blueprintRef.name`. Pending-on-miss
+//     with reason `BlueprintMissing`. Validates
+//     `Application.spec.parameters` against
+//     `Blueprint.spec.configSchema`. On invalid surfaces an `Invalid`
+//     condition listing every failing JSON pointer.
 //
-//   4. Resolves the placement → per-region work plan via
-//      `internal/placement`. For each region, renders the manifest set
-//      via `internal/render` and idempotently writes
-//      `clusters/<region>/applications/<app>/{kustomization,helmrelease}.yaml`
-//      to the per-Org Gitea repo `<org>/<app>` on the env-type-mapped
-//      branch (per slice C2 BranchForEnvType).
+//  4. Resolves the placement → per-region work plan via
+//     `internal/placement`. For each region, renders the manifest set
+//     via `internal/render` and idempotently writes
+//     `clusters/<region>/applications/<app>/{kustomization,helmrelease}.yaml`
+//     to the per-Org Gitea repo `<org>/<app>` on the env-type-mapped
+//     branch (per slice C2 BranchForEnvType).
 //
-//   5. Updates `Application.status` with phase, primaryRegion,
-//      regions[], giteaRepo URL, installedBlueprint snapshot, and
-//      conditions.
+//  5. Updates `Application.status` with phase, primaryRegion,
+//     regions[], giteaRepo URL, installedBlueprint snapshot, and
+//     conditions.
 //
-//   6. Honors a finalizer: on deletion, removes every manifest the
-//      controller wrote and waits for Flux to drain. The finalizer
-//      releases on the next reconcile pass when the Gitea repo no
-//      longer carries any of THIS Application's paths.
+//  6. Honors a finalizer: on deletion, removes every manifest the
+//     controller wrote and waits for Flux to drain. The finalizer
+//     releases on the next reconcile pass when the Gitea repo no
+//     longer carries any of THIS Application's paths.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md the controller never calls
 // `kubectl apply`, `helm install`, or any cloud API. Its only K8s
@@ -61,9 +61,9 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	topo "github.com/openova-io/openova/core/controllers/application/internal/render"
-	bpv1alpha1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 	"github.com/openova-io/openova/core/controllers/internal/placement"
 	"github.com/openova-io/openova/core/controllers/internal/semver"
+	bpv1alpha1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/core/controllers/pkg/render"
 	"github.com/openova-io/openova/core/controllers/pkg/validate"
@@ -180,6 +180,12 @@ const (
 	// render.InvalidTopologyReason — kept in sync verbatim because the
 	// Wave-2 verifier (G117.6 acceptance) asserts this exact string.
 	ReasonInvalidTopology = topo.InvalidTopologyReason
+
+	// ReasonBootstrapAdopted — #3370. Stamped on bootstrap-owned
+	// Applications (spec.bootstrap=true): the controller ADOPTS the
+	// slot-installed HelmRelease named by spec.helmRelease instead of
+	// rendering anything. Status mirrors that HR's Ready condition.
+	ReasonBootstrapAdopted = "BootstrapAdopted"
 )
 
 // FinalizerName — owned by application-controller.
@@ -532,11 +538,11 @@ func (r *Reconciler) watchOnce(ctx context.Context) error {
 // On any deletion timestamp, this drives the finalizer drain path —
 // see handleDeletion(). Otherwise the steady-state reconcile flow is:
 //
-//   1. Ensure finalizer present (idempotent).
-//   2. Fetch parents + Blueprint; on miss surface Pending and return.
-//   3. Validate parameters; on miss surface Invalid and return.
-//   4. Resolve placement; render + commit per-region manifests.
-//   5. Update status.
+//  1. Ensure finalizer present (idempotent).
+//  2. Fetch parents + Blueprint; on miss surface Pending and return.
+//  3. Validate parameters; on miss surface Invalid and return.
+//  4. Resolve placement; render + commit per-region manifests.
+//  5. Update status.
 func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructured) error {
 	if app == nil {
 		return nil
@@ -544,6 +550,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 
 	if !app.GetDeletionTimestamp().IsZero() {
 		return r.handleDeletion(ctx, app)
+	}
+
+	// #3370 — bootstrap-owned ADOPTION guard. A bootstrap-owned
+	// Application (spec.bootstrap=true) is the canonical representation
+	// a bootstrap-kit chart self-registered for its slot-installed
+	// HelmRelease (e.g. shared-pg ← HR flux-system/bp-postgres-shared).
+	// The install ALREADY exists and is owned by that HR — running the
+	// normal reconcile would render + persist per-cluster HelmReleases
+	// (`<app>-<cluster>` via render.HRNameFor) and commit per-region
+	// manifests to Gitea, DUPLICATING the install. Adoption = skip every
+	// render / fan-out / Gitea path and reconcile STATUS ONLY by
+	// observing the owning HR's Ready condition. The guard sits BEFORE
+	// ensureFinalizer so bootstrap-owned CRs never carry the controller
+	// finalizer (their lifecycle is Helm's, not ours — a chart
+	// uninstall must not wedge on our finalizer).
+	if isBootstrapOwned(app) {
+		return r.reconcileBootstrapOwned(ctx, app)
 	}
 
 	// Ensure finalizer is present.
@@ -800,6 +823,48 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				fanoutVariant = &v
 			}
 
+			// #3370 — resolve spec.dependsOn[] backing refs to concrete
+			// Flux HelmRelease edges. A bootstrap-owned backing instance
+			// (shared-pg) resolves to its slot HR (spec.helmRelease,
+			// e.g. flux-system/bp-postgres-shared); a controller-managed
+			// backing instance resolves to its per-cluster
+			// HRNameFor(<backing>, cluster) HR in the backing CR's
+			// namespace. Unresolvable refs fall back to the per-cluster
+			// convention so a late-created backing CR still gates the
+			// consumer (Flux dependsOn on a missing HR = wait, which is
+			// the correct conservative behaviour).
+			var fanoutDependsOnFor func(cluster string) []topo.HRDependsOn
+			if len(spec.DependsOn) > 0 {
+				appNamespace := app.GetNamespace()
+				dependsOnRefs := spec.DependsOn
+				fanoutDependsOnFor = func(cluster string) []topo.HRDependsOn {
+					out := make([]topo.HRDependsOn, 0, len(dependsOnRefs))
+					for _, d := range dependsOnRefs {
+						ns := d.Namespace
+						if ns == "" {
+							ns = appNamespace
+						}
+						if target, terr := r.Dynamic.Resource(ApplicationGVR).Namespace(ns).
+							Get(ctx, d.Name, metav1.GetOptions{}); terr == nil && isBootstrapOwned(target) {
+							thn, _, _ := unstructured.NestedString(target.Object, "spec", "helmRelease", "name")
+							thns, _, _ := unstructured.NestedString(target.Object, "spec", "helmRelease", "namespace")
+							if thn != "" {
+								if thns == "" {
+									thns = "flux-system"
+								}
+								out = append(out, topo.HRDependsOn{Name: thn, Namespace: thns})
+								continue
+							}
+						}
+						out = append(out, topo.HRDependsOn{
+							Name:      topo.HRNameFor(d.Name, cluster),
+							Namespace: ns,
+						})
+					}
+					return out
+				}
+			}
+
 			hrs, ferr := topo.FanoutHRs(topo.FanoutInputs{
 				AppName:             app.GetName(),
 				AppNamespace:        app.GetNamespace(),
@@ -816,6 +881,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				// (matches the per-region render path + the
 				// hand-proven bootstrap-kit vCluster slots).
 				KubeConfigSecretKey: "config",
+				DependsOnFor:        fanoutDependsOnFor,
 				IntervalSeconds:     r.Cfg.HelmReleaseIntervalSeconds,
 				OwnerLabels: map[string]string{
 					"catalyst.openova.io/organization": envSpec.OrganizationRef,
@@ -1109,10 +1175,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			app.GetNamespace(), app.GetName(), len(plan.Regions))
 	}
 	su := statusUpdate{
-		Phase:            finalPhase,
-		PrimaryRegion:    plan.PrimaryRegion,
-		Regions:          regionStatuses,
-		GiteaRepo:        giteaRepo,
+		Phase:         finalPhase,
+		PrimaryRegion: plan.PrimaryRegion,
+		Regions:       regionStatuses,
+		GiteaRepo:     giteaRepo,
 		Installed: map[string]interface{}{
 			"name":    spec.BlueprintName,
 			"version": spec.BlueprintVersion,
@@ -1358,14 +1424,14 @@ func (r *Reconciler) ensureHostFluxBootstrap(
 	// themselves are removed by an explicit Delete call in
 	// handleDeletion (separate Fix #42 follow-up — TODO).
 	commonLabels := map[string]interface{}{
-		"app.kubernetes.io/managed-by":         "application-controller",
-		"catalyst.openova.io/application":      app.GetName(),
-		"catalyst.openova.io/organization":     envSpec.OrganizationRef,
-		"catalyst.openova.io/env-type":         envSpec.EnvType,
+		"app.kubernetes.io/managed-by":     "application-controller",
+		"catalyst.openova.io/application":  app.GetName(),
+		"catalyst.openova.io/organization": envSpec.OrganizationRef,
+		"catalyst.openova.io/env-type":     envSpec.EnvType,
 		// Reference labels for cascade-delete (replaces ownerRef which
 		// can't span namespaces). handleDeletion() looks these up.
-		"catalyst.openova.io/app-namespace":    app.GetNamespace(),
-		"catalyst.openova.io/app-uid":          string(app.GetUID()),
+		"catalyst.openova.io/app-namespace": app.GetNamespace(),
+		"catalyst.openova.io/app-uid":       string(app.GetUID()),
 	}
 
 	// --- GitRepository ---
@@ -1515,6 +1581,15 @@ func (r *Reconciler) handleDeletion(ctx context.Context, app *unstructured.Unstr
 		// Already fully cleaned up — nothing to do; the API server
 		// will GC the CR on its own once all finalizers are gone.
 		return nil
+	}
+
+	// #3370 — bootstrap-owned CRs own NO rendered artifacts (the
+	// adoption guard skips every render/Gitea path), so deletion drives
+	// no teardown. Defensive: the steady-state path never adds our
+	// finalizer to these, but if one is present (e.g. a CR that
+	// pre-dates the marker) just release it.
+	if isBootstrapOwned(app) {
+		return r.removeFinalizer(ctx, app)
 	}
 
 	// Surface phase=Uninstalling for the UI.
@@ -1669,14 +1744,14 @@ func (r *Reconciler) fetchBlueprint(ctx context.Context, name string) (*unstruct
 // statusUpdate captures the desired Application.status changes for one
 // reconcile pass.
 type statusUpdate struct {
-	Phase            string
-	PrimaryRegion    string
-	Regions          []map[string]interface{}
-	GiteaRepo        string
-	Installed        map[string]interface{}
-	Reason           string
-	Message          string
-	Ready            string // "True" | "False" | "Unknown"
+	Phase         string
+	PrimaryRegion string
+	Regions       []map[string]interface{}
+	GiteaRepo     string
+	Installed     map[string]interface{}
+	Reason        string
+	Message       string
+	Ready         string // "True" | "False" | "Unknown"
 
 	// PerCluster — G117.6 (Refs #2745). One row per cluster the
 	// Application is fanned out across (per the Blueprint's resolved
@@ -1795,6 +1870,132 @@ func (r *Reconciler) updateStatus(ctx context.Context, app *unstructured.Unstruc
 	return nil
 }
 
+// isBootstrapOwned reports whether the Application is a bootstrap-owned
+// instance (spec.bootstrap=true) — the canonical CR a bootstrap-kit
+// chart self-registers for its slot-installed HelmRelease (#3370).
+func isBootstrapOwned(app *unstructured.Unstructured) bool {
+	b, _, _ := unstructured.NestedBool(app.Object, "spec", "bootstrap")
+	return b
+}
+
+// reconcileBootstrapOwned — #3370 ADOPTION path for bootstrap-owned
+// Applications. Status-only: observe the owning HelmRelease named by
+// spec.helmRelease and mirror its Ready condition onto the Application.
+// NEVER renders, NEVER fans out, NEVER touches Gitea — those would
+// duplicate the install the bootstrap-kit HR already owns (the unit
+// tests assert zero HelmRelease writes on this path).
+func (r *Reconciler) reconcileBootstrapOwned(ctx context.Context, app *unstructured.Unstructured) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	hrName, _, _ := unstructured.NestedString(app.Object, "spec", "helmRelease", "name")
+	hrNamespace, _, _ := unstructured.NestedString(app.Object, "spec", "helmRelease", "namespace")
+	if hrNamespace == "" {
+		hrNamespace = "flux-system"
+	}
+	if hrName == "" {
+		// No HR ref — the CR is still the canonical representation,
+		// but there is nothing to observe. Surface Pending so the
+		// console shows an honest "unobserved" state rather than a
+		// fabricated Ready.
+		return r.updateStatus(ctx, app, statusUpdate{
+			Phase:            PhasePending,
+			Reason:           ReasonBootstrapAdopted,
+			Message:          "bootstrap-owned instance declares no spec.helmRelease to observe",
+			Ready:            "False",
+			LastReconciledAt: now,
+		})
+	}
+
+	hr, err := r.Dynamic.Resource(FluxHelmReleaseGVR).Namespace(hrNamespace).
+		Get(ctx, hrName, metav1.GetOptions{})
+	if err != nil {
+		if isNotFound(err) {
+			return r.updateStatus(ctx, app, statusUpdate{
+				Phase:            PhasePending,
+				Reason:           ReasonBootstrapAdopted,
+				Message:          fmt.Sprintf("owning HelmRelease %s/%s not found", hrNamespace, hrName),
+				Ready:            "False",
+				LastReconciledAt: now,
+			})
+		}
+		return fmt.Errorf("bootstrap-owned: get HelmRelease %s/%s: %w", hrNamespace, hrName, err)
+	}
+
+	phase := PhaseProvisioning
+	ready := "Unknown"
+	message := fmt.Sprintf("adopted bootstrap install %s/%s (no Ready condition yet)", hrNamespace, hrName)
+	conds, _, _ := unstructured.NestedSlice(hr.Object, "status", "conditions")
+	for _, c := range conds {
+		cm, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if cm["type"] != "Ready" {
+			continue
+		}
+		hrMsg, _ := cm["message"].(string)
+		switch cm["status"] {
+		case "True":
+			phase = PhaseReady
+			ready = "True"
+			message = fmt.Sprintf("adopted bootstrap install %s/%s: %s", hrNamespace, hrName, hrMsg)
+		case "False":
+			phase = PhaseDegraded
+			ready = "False"
+			message = fmt.Sprintf("adopted bootstrap install %s/%s not Ready: %s", hrNamespace, hrName, hrMsg)
+		}
+		break
+	}
+
+	// Churn guard: a status write bumps resourceVersion → MODIFIED
+	// watch event → another reconcile. The normal path's Gitea
+	// byte-equality short-circuit naturally dampens that loop; this
+	// status-only path has no such stage, so skip the write when
+	// nothing meaningful changed (proven hot-looping at ~600ms/CR on
+	// the envtest adoption walk without this).
+	if bootstrapStatusUnchanged(app, phase, message, ready) {
+		return nil
+	}
+
+	r.Log.Info("bootstrap-owned adoption: status-only reconcile",
+		"app", app.GetName(),
+		"namespace", app.GetNamespace(),
+		"helmRelease", hrNamespace+"/"+hrName,
+		"phase", phase)
+
+	return r.updateStatus(ctx, app, statusUpdate{
+		Phase:            phase,
+		Reason:           ReasonBootstrapAdopted,
+		Message:          message,
+		Ready:            ready,
+		LastReconciledAt: now,
+	})
+}
+
+// bootstrapStatusUnchanged reports whether the Application's current
+// status already carries the given adoption phase + Ready condition.
+func bootstrapStatusUnchanged(app *unstructured.Unstructured, phase, message, ready string) bool {
+	curPhase, _, _ := unstructured.NestedString(app.Object, "status", "phase")
+	if curPhase != phase {
+		return false
+	}
+	conds, _, _ := unstructured.NestedSlice(app.Object, "status", "conditions")
+	for _, c := range conds {
+		cm, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if cm["type"] != "Ready" {
+			continue
+		}
+		reason, _ := cm["reason"].(string)
+		msg, _ := cm["message"].(string)
+		status, _ := cm["status"].(string)
+		return reason == ReasonBootstrapAdopted && msg == message && status == ready
+	}
+	return false
+}
+
 // markPending is a one-shot status writer for "valid spec, parent
 // missing" cases.
 func (r *Reconciler) markPending(ctx context.Context, app *unstructured.Unstructured, reason, message string) error {
@@ -1872,6 +2073,21 @@ type appSpec struct {
 	// spec.regions[]; when non-empty it replaces Regions for
 	// placement resolution (parseSpec applies the override).
 	PlacementRegions []string
+
+	// DependsOn — #3370 backing-service wiring. Each entry names
+	// another Application (the backing instance) this Application
+	// consumes + optionally the Context it occupies there. The
+	// reconciler resolves each entry to the backing instance's
+	// HelmRelease(s) and stamps Flux `spec.dependsOn` on every HR it
+	// renders — the runtime wiring stays purely Flux.
+	DependsOn []dependsOnRef
+}
+
+// dependsOnRef is one parsed spec.dependsOn[] entry (#3370).
+type dependsOnRef struct {
+	Name      string
+	Namespace string
+	Context   string
 }
 
 func parseSpec(app *unstructured.Unstructured) (appSpec, error) {
@@ -1979,6 +2195,23 @@ func parseSpec(app *unstructured.Unstructured) (appSpec, error) {
 	// override. Empty string is the default-derived path.
 	tp, _, _ := unstructured.NestedString(app.Object, "spec", "topology")
 	out.Topology = tp
+
+	// #3370 — optional spec.dependsOn[] backing-service wiring.
+	depsRaw, _, _ := unstructured.NestedSlice(app.Object, "spec", "dependsOn")
+	for _, d := range depsRaw {
+		dm, ok := d.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		ref := dependsOnRef{}
+		ref.Name, _ = dm["name"].(string)
+		ref.Namespace, _ = dm["namespace"].(string)
+		ref.Context, _ = dm["context"].(string)
+		if ref.Name == "" {
+			continue
+		}
+		out.DependsOn = append(out.DependsOn, ref)
+	}
 
 	return out, nil
 }

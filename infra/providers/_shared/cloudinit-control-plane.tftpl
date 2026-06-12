@@ -474,6 +474,18 @@ write_files:
             # shared-pg-c) ride the SOVEREIGN_ENABLE_SHARED_PG gate above.
             SOVEREIGN_KEYCLOAK_PG_OWN_CLUSTER: "${enable_shared_pg == "true" ? "false" : "true"}"
             SOVEREIGN_GRAFANA_DB_SECRET_OPTIONAL: "${enable_shared_pg == "true" ? "false" : "true"}"
+            # #3370 — the SAME one-flag contract extends to instance B's
+            # pda (slot 11a skips the bundled pda-pg Cluster + reads the
+            # reflector-pushed pda-shared-database-secret hub directly)
+            # and instance C's SME mesh (slot 13 skips the bundled
+            # sme-pg Cluster; every SME service + FerretDB dials
+            # shared-pg-c-rw with credentials from the sme-database-
+            # secret hub — one `sme` role across the three databases).
+            SOVEREIGN_PDA_PG_OWN_CLUSTER: "${enable_shared_pg == "true" ? "false" : "true"}"
+            SOVEREIGN_PDA_PG_SECRET: "${enable_shared_pg == "true" ? "pda-shared-database-secret" : "pda-database-secret"}"
+            SOVEREIGN_SME_PG_OWN_CLUSTER: "${enable_shared_pg == "true" ? "false" : "true"}"
+            SOVEREIGN_SME_PG_HOST: "${enable_shared_pg == "true" ? "shared-pg-c-rw.shared-data.svc.cluster.local" : ""}"
+            SOVEREIGN_SME_PG_SECRET: "${enable_shared_pg == "true" ? "sme-database-secret" : ""}"
             SOVEREIGN_BCP_TOPOLOGY: "${bcp_topology}"
             # SOVEREIGN_REGION_ROLE — this control plane's role in the
             # multi-region topology (primary|secondary). Both providers

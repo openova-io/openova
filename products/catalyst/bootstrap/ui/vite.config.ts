@@ -98,6 +98,26 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
+      // #3370 — the /catalyst/v1/* route group (instances, contexts,
+      // launch-url, endpoints) is served WITHOUT the /api prefix in
+      // production (the bp-catalyst-platform HTTPRoute forwards
+      // PathPrefix /catalyst/ to catalyst-api — see catalog.api.ts
+      // getApplicationInstances). Mirror that here so the dev server
+      // can exercise the instances/Contexts surfaces too.
+      '/catalyst': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      // #3370 — /auth/handover is served SERVER-SIDE in production (the
+      // HTTPRoute hands it to catalyst-api, which validates the RS256
+      // handover JWT and sets the HttpOnly catalyst_session cookie
+      // BEFORE the SPA ever loads). Proxy it in dev for the same
+      // behaviour so the real handover-redemption flow works against a
+      // local catalyst-api.
+      '/auth/handover': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
     },
   },
   // Vitest config — drives `npm run test` in this package. The test runner

@@ -65,6 +65,7 @@ import (
 	"github.com/openova-io/openova/core/controllers/application/admission"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/catalog"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/giteapr"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/instances"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
@@ -125,24 +126,33 @@ type applicationSummary struct {
 	Topology  string `json:"topology"`
 	Status    string `json:"status"`
 	CreatedAt string `json:"createdAt,omitempty"`
-	// Bindings — #3188 many-to-many data-instance cards: the consumers
-	// bound to this instance (one row per database · role · mode ·
-	// secret · consumer). Populated only on the postgres-engine-family
-	// rows derived from live CNPG Cluster/Database CRs; omitted
-	// everywhere else so the UI keeps its honest empty state.
-	Bindings []instanceBinding `json:"bindings,omitempty"`
+	// Contexts — #3370. The Contexts on a SHAREABLE instance: the
+	// first-class child entities consumer applications occupy (for
+	// postgres a db, for valkey a keyspace, …). Projected GENERICALLY
+	// from the instance's declared IaC values using the Blueprint's
+	// contextSchema declaration — no blueprint-specific code. Omitted
+	// for non-shareable blueprints.
+	Contexts []contextRow `json:"contexts,omitempty"`
 }
 
-// instanceBinding is one consumer's binding to a data-instance — the
-// row the Data-instances panel's Consumers table renders. Field names
+// contextRow — #3370. One Context on a shareable instance. Field names
 // follow the Catalyst wire convention (lowercase camelCase json tags,
 // memory feedback_ts_field_casing_vs_go_json_tag).
-type instanceBinding struct {
-	Database string `json:"database"`
-	Role     string `json:"role"`
-	Mode     string `json:"mode"`
-	Secret   string `json:"secret"`
-	Consumer string `json:"consumer"`
+//
+//   - Name/Kind render entity-first as `<kind>/<name>` (db/gitea).
+//   - OccupiedBy is the consumer (blueprint id, bp- prefix stripped).
+//   - Credential is the reflected credential Secret declared by the
+//     context entry (contextSchema `produces: [credentialSecret]`).
+//   - Status derives from the materialized IaC: `ready` when the
+//     credential Secret exists in every declared consumer namespace,
+//     `pending` while reflection is in flight, `declared` when the
+//     entry produces nothing checkable.
+type contextRow struct {
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	OccupiedBy string `json:"occupiedBy,omitempty"`
+	Credential string `json:"credential,omitempty"`
+	Status     string `json:"status"`
 }
 
 // application mirrors `schema/Application` (Summary plus per-cluster
@@ -828,7 +838,31 @@ func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// #3370 — backing-service journey. BEFORE creating the consumer:
+	// for each selection, either auto-create the backing service as its
+	// OWN instance-application (own card; default) or append a Context
+	// to the named existing instance's IaC (reuse). Both return the
+	// spec.dependsOn entries the consumer CR is created with, so the
+	// Flux wiring is present from the first reconcile.
+	dependsOnEntries, backingErr := h.wireBackingServices(r.Context(), client, &body)
+	if backingErr != nil {
+		writeJSON(w, backingErr.status, map[string]string{
+			"code":    backingErr.code,
+			"message": backingErr.message,
+		})
+		return
+	}
+
 	obj := newApplicationCRFromSeed(seed)
+	// #3370 — stamp the resolved Blueprint version: the CRD requires an
+	// exact semver on blueprintRef.version (admission rejected every CR
+	// from the old version-less seed on a real apiserver).
+	if v := strings.TrimSpace(bpDoc.Version); v != "" {
+		_ = unstructured.SetNestedField(obj.Object, v, "spec", "blueprintRef", "version")
+	}
+	if len(dependsOnEntries) > 0 {
+		_ = unstructured.SetNestedSlice(obj.Object, dependsOnEntries, "spec", "dependsOn")
+	}
 	created, err := client.Resource(ApplicationGVR()).Namespace(body.Org).Create(
 		r.Context(), obj, metav1.CreateOptions{})
 	if err != nil {
@@ -868,6 +902,195 @@ func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, resp)
 }
 
+// backingError is the structured error wireBackingServices maps to the
+// HTTP response.
+type backingError struct {
+	status  int
+	code    string
+	message string
+}
+
+// wireBackingServices — #3370 provisioning journey, both modes.
+//
+// DEFAULT (mode=create): the required backing service is auto-created
+// as its OWN instance-application — an Application CR named
+// `<consumer>-<backing-slug>` in the same Org, whose IaC values declare
+// ONE Context for this consumer per the backing Blueprint's
+// contextSchema. The operator sees TWO new cards.
+//
+// ADVANCED (mode=reuse): NO new backing application. The flow appends
+// the consumer's Context entry to the EXISTING instance's declared IaC
+// (Application spec.parameters[valuesKey] — the controller re-renders
+// and Git-commits it on the next reconcile; Flux materializes the
+// Context + reflected credential). The operator sees ONE new card.
+//
+// Both modes return the consumer's spec.dependsOn entries (backing
+// Application name/namespace + the occupied Context as <kind>/<name>)
+// so the application-controller stamps Flux dependsOn on every HR it
+// renders for the consumer.
+//
+// Bootstrap-owned reuse targets are rejected with a structured 409:
+// their Context declarations live in the bootstrap-kit slot values in
+// Git, not in the Application CR — appending here would render a row
+// whose materialization never happens.
+func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interface, body *instances.CreateInstanceRequest) ([]interface{}, *backingError) {
+	if len(body.Backing) == 0 {
+		return nil, nil
+	}
+	dependsOn := make([]interface{}, 0, len(body.Backing))
+	for _, sel := range body.Backing {
+		bpFull := sel.Blueprint
+		if !strings.HasPrefix(bpFull, "bp-") {
+			bpFull = "bp-" + bpFull
+		}
+		slug := strings.TrimPrefix(bpFull, "bp-")
+
+		ctxSchema := h.contextSchemaFor(ctx, bpFull)
+		if ctxSchema == nil {
+			return nil, &backingError{
+				status:  http.StatusUnprocessableEntity,
+				code:    "backing-not-shareable",
+				message: fmt.Sprintf("Blueprint %s declares no shareable contextSchema — it cannot serve as a backing service", bpFull),
+			}
+		}
+
+		// The Context entry — the canonical context shape every
+		// shareable chart materializes from (the bp-postgres
+		// databases[] machinery, generalized by declaration only).
+		contextName := body.Name
+		credential := fmt.Sprintf("%s-%s-credential", body.Name, ctxSchema.Kind)
+		entry := map[string]interface{}{
+			"name":  contextName,
+			"owner": body.Name,
+			"consumer": map[string]interface{}{
+				"blueprint": "bp-" + strings.TrimPrefix(body.Blueprint, "bp-"),
+				"mode":      "shared",
+			},
+			"reflect": map[string]interface{}{
+				"secretName": credential,
+				"namespaces": []interface{}{body.Org},
+			},
+		}
+
+		switch sel.Mode {
+		case "", "create":
+			backingName := fmt.Sprintf("%s-%s", body.Name, slug)
+			backing := instances.CreateInstanceRequest{
+				Blueprint: bpFull,
+				Org:       body.Org,
+				Name:      backingName,
+				Values: map[string]interface{}{
+					ctxSchema.ValuesKey: []interface{}{entry},
+				},
+			}
+			bpDoc, bpErr := h.resolveBlueprintMeta(ctx, bpFull, "")
+			if bpErr != nil {
+				return nil, &backingError{status: http.StatusServiceUnavailable, code: "blueprint-unavailable", message: bpErr.Error()}
+			}
+			backingTopology := ""
+			if bpDoc != nil && bpDoc.Topology != nil {
+				if h.detectMultiRegion(ctx) {
+					backingTopology = bpDoc.Topology.Defaults.MultiRegion
+				} else {
+					backingTopology = bpDoc.Topology.Defaults.SingleRegion
+				}
+			}
+			backingSeed, serr := backing.Build(backingTopology)
+			if serr != nil {
+				return nil, &backingError{status: http.StatusBadRequest, code: "backing-invalid", message: serr.Error()}
+			}
+			backingObj := newApplicationCRFromSeed(backingSeed)
+			// Stamp the backing Blueprint's resolved version — the CRD
+			// requires an exact semver on blueprintRef.version (#3370,
+			// same admission contract as the consumer CR below).
+			if bpDoc != nil {
+				if v := strings.TrimSpace(bpDoc.Version); v != "" {
+					_ = unstructured.SetNestedField(backingObj.Object, v, "spec", "blueprintRef", "version")
+				}
+			}
+			if _, cerr := client.Resource(ApplicationGVR()).Namespace(body.Org).Create(ctx, backingObj, metav1.CreateOptions{}); cerr != nil {
+				if !apierrors.IsAlreadyExists(cerr) {
+					return nil, &backingError{status: http.StatusInternalServerError, code: "backing-create-failed", message: cerr.Error()}
+				}
+			}
+			dependsOn = append(dependsOn, map[string]interface{}{
+				"name":      backingName,
+				"namespace": body.Org,
+				"context":   ctxSchema.Kind + "/" + contextName,
+			})
+
+		case "reuse":
+			target, terr := h.findInstanceByName(ctx, client, bpFull, sel.Instance)
+			if terr != nil {
+				return nil, &backingError{
+					status:  http.StatusNotFound,
+					code:    "backing-instance-not-found",
+					message: fmt.Sprintf("no %s instance named %q", bpFull, sel.Instance),
+				}
+			}
+			if b, _, _ := unstructured.NestedBool(target.Object, "spec", "bootstrap"); b {
+				return nil, &backingError{
+					status:  http.StatusConflict,
+					code:    "backing-bootstrap-owned",
+					message: fmt.Sprintf("instance %q is bootstrap-owned — its Contexts are declared in the bootstrap-kit slot values in Git; add the Context there", sel.Instance),
+				}
+			}
+			// Append the Context entry to the instance's declared IaC.
+			params, _, _ := unstructured.NestedMap(target.Object, "spec", "parameters")
+			if params == nil {
+				params = map[string]interface{}{}
+			}
+			entries, _ := params[ctxSchema.ValuesKey].([]interface{})
+			for _, e := range entries {
+				if em, ok := e.(map[string]interface{}); ok {
+					if n, _ := em["name"].(string); n == contextName {
+						return nil, &backingError{
+							status:  http.StatusConflict,
+							code:    "context-exists",
+							message: fmt.Sprintf("instance %q already declares Context %s/%s", sel.Instance, ctxSchema.Kind, contextName),
+						}
+					}
+				}
+			}
+			params[ctxSchema.ValuesKey] = append(entries, entry)
+			if err := unstructured.SetNestedMap(target.Object, params, "spec", "parameters"); err != nil {
+				return nil, &backingError{status: http.StatusInternalServerError, code: "context-write-failed", message: err.Error()}
+			}
+			if _, uerr := client.Resource(ApplicationGVR()).Namespace(target.GetNamespace()).Update(ctx, target, metav1.UpdateOptions{}); uerr != nil {
+				return nil, &backingError{status: http.StatusInternalServerError, code: "context-write-failed", message: uerr.Error()}
+			}
+			dependsOn = append(dependsOn, map[string]interface{}{
+				"name":      target.GetName(),
+				"namespace": target.GetNamespace(),
+				"context":   ctxSchema.Kind + "/" + contextName,
+			})
+		}
+	}
+	return dependsOn, nil
+}
+
+// findInstanceByName resolves an Application CR by instance name +
+// blueprint across every namespace (the reuse selector lists instances
+// cluster-wide; an Org member reusing a foreign-Org instance is gated
+// by the credential reflection, not by this lookup).
+func (h *Handler) findInstanceByName(ctx context.Context, client dynamic.Interface, bpFull, name string) (*unstructured.Unstructured, error) {
+	list, err := client.Resource(ApplicationGVR()).Namespace("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	for i := range list.Items {
+		item := &list.Items[i]
+		if item.GetName() != name {
+			continue
+		}
+		bpName, _, _ := unstructured.NestedString(item.Object, "spec", "blueprintRef", "name")
+		if bpName == bpFull {
+			return item.DeepCopy(), nil
+		}
+	}
+	return nil, errAppNotFound
+}
+
 // HandleListBlueprintInstances — GET /catalyst/v1/catalog/{blueprint}/instances
 func (h *Handler) HandleListBlueprintInstances(w http.ResponseWriter, r *http.Request) {
 	bp := strings.TrimPrefix(chi.URLParam(r, "blueprint"), "bp-")
@@ -891,6 +1114,11 @@ func (h *Handler) HandleListBlueprintInstances(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// #3370 — resolve the Blueprint's shareability declaration ONCE so
+	// every row's Contexts project from the same contextSchema. nil =
+	// non-shareable blueprint = no Contexts on any row.
+	ctxSchema := h.contextSchemaFor(r.Context(), "bp-"+bp)
+
 	out := []applicationSummary{}
 	for i := range list.Items {
 		item := &list.Items[i]
@@ -902,6 +1130,7 @@ func (h *Handler) HandleListBlueprintInstances(w http.ResponseWriter, r *http.Re
 		if orgFilter != "" && !strings.EqualFold(org, orgFilter) {
 			continue
 		}
+		params, _, _ := unstructured.NestedMap(item.Object, "spec", "parameters")
 		out = append(out, applicationSummary{
 			ID:        string(item.GetUID()),
 			Name:      item.GetName(),
@@ -910,53 +1139,36 @@ func (h *Handler) HandleListBlueprintInstances(w http.ResponseWriter, r *http.Re
 			Topology:  readTopology(item),
 			Status:    readPhase(item),
 			CreatedAt: item.GetCreationTimestamp().UTC().Format(time.RFC3339),
+			Contexts:  h.projectContexts(r.Context(), client, ctxSchema, params),
 		})
 	}
 
-	// #3188 many-to-many cards: for the postgres engine family the live
-	// CNPG Cluster CRs are the per-instance ground truth — ONE card per
-	// running Postgres instance with its consumer bindings, not just
-	// the shared engine. On hw130 the HR projection below showed "1
-	// instance" (bp-postgres-shared) while 7 CNPG Clusters ran live
-	// (openova-flow-pg, newapi-pg, pdns-pg, pda-pg, shared-pg, sme-pg,
-	// cnpg-pair-primary). Enumerate the Clusters directly; each one is
-	// an instance row carrying its bindings (Database CRs → shared
-	// rows, none → one implicit dedicated row).
-	cnpgAuthoritative := false
-	if bp == "cnpg" || bp == "postgres" {
-		cnpgRows := h.cnpgClusterInstances(r.Context(), client, bp, orgFilter, out)
-		// When live Cluster CRs exist they supersede the engine-HR
-		// projection: the HR (bp-postgres-shared) is only the INSTALLER
-		// of the shared-pg Cluster, so projecting both would render one
-		// physical instance as two cards.
-		cnpgAuthoritative = len(cnpgRows) > 0
-		out = append(out, cnpgRows...)
-	}
-
 	// #3188 (hw129/hw130 round-1): bootstrap-kit installs of this
-	// blueprint ship as Flux HelmReleases with NO companion Application
-	// CR — the platform shared-PG engine (HR bp-postgres-shared, chart
-	// bp-postgres, release in shared-data) being the founder-headline
-	// case. Counting only Application CRs rendered the Data-instances
-	// card as "0 instances" on an env whose engine was live with two
-	// consumers (gitea 110 tables + registry 49). Project those HRs as
-	// instance rows too — same fallback philosophy as the silent-SSO
-	// launch-url HR path above. Org-scoped filtering: bootstrap HRs are
-	// platform-owned, so any explicit ?org= filter excludes them. When
-	// the CNPG Cluster enumeration above already produced rows, the HR
-	// path is skipped (it would double-count the shared engine).
-	if orgFilter == "" && !cnpgAuthoritative {
-		out = append(out, h.bootstrapHRInstances(r.Context(), client, bp, out)...)
+	// blueprint ship as Flux HelmReleases. Since #3370 those carry a
+	// chart-self-registered Application CR (bp-postgres 0.1.6
+	// bootstrapOwned) — already projected above — but the CR only
+	// materialises on the first post-bootstrap upgrade after the
+	// Application CRD lands, so the HR projection stays as the GENERIC
+	// fallback for not-yet-registered installs. Dedup is by the HR's
+	// spec.releaseName (the instance identity the self-registered CR is
+	// named after), so an adopted install never renders twice.
+	// Org-scoped filtering: bootstrap HRs are platform-owned, so any
+	// explicit ?org= filter excludes them.
+	if orgFilter == "" {
+		out = append(out, h.bootstrapHRInstances(r.Context(), client, bp, ctxSchema, out)...)
 	}
 	writeJSON(w, http.StatusOK, listInstancesResponse{Items: out})
 }
 
 // bootstrapHRInstances projects Flux HelmReleases whose chart is
-// bp-<blueprint> into applicationSummary rows — the bootstrap-kit
-// (platform-owned) installs that have no Application CR. `existing`
-// suppresses duplicates when a future Application CR adopts a release
-// (matched by release/instance name).
-func (h *Handler) bootstrapHRInstances(ctx context.Context, client dynamic.Interface, bp string, existing []applicationSummary) []applicationSummary {
+// bp-<blueprint> into applicationSummary rows — the GENERIC fallback
+// for bootstrap-kit installs whose chart-self-registered Application CR
+// (#3370) hasn't materialised yet (the CR renders on the first
+// post-bootstrap upgrade after the Application CRD lands). `existing`
+// suppresses duplicates: the row identity is the HR's spec.releaseName
+// (the instance name the self-registered CR is also named after, e.g.
+// HR bp-postgres-shared → releaseName shared-pg → CR shared-pg).
+func (h *Handler) bootstrapHRInstances(ctx context.Context, client dynamic.Interface, bp string, ctxSchema *contextSchemaDecl, existing []applicationSummary) []applicationSummary {
 	hrs, err := client.Resource(helmReleaseGVR).Namespace("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		// Best-effort projection: the Application-CR rows already in
@@ -975,10 +1187,13 @@ func (h *Handler) bootstrapHRInstances(ctx context.Context, client dynamic.Inter
 		if chart != "bp-"+bp {
 			continue
 		}
-		// Instance display name: the release name (HR name with the
-		// bp- prefix stripped reads naturally — bp-postgres-shared →
-		// postgres-shared), targetNamespace as the locality hint.
-		name := strings.TrimPrefix(hr.GetName(), "bp-")
+		// Instance identity: spec.releaseName (the Helm release IS the
+		// instance — shared-pg). Falls back to the HR name with the
+		// bp- prefix stripped (Flux default: release name = HR name).
+		name, _, _ := unstructured.NestedString(hr.Object, "spec", "releaseName")
+		if name == "" {
+			name = strings.TrimPrefix(hr.GetName(), "bp-")
+		}
 		if _, dup := seen[strings.ToLower(name)]; dup {
 			continue
 		}
@@ -994,145 +1209,158 @@ func (h *Handler) bootstrapHRInstances(ctx context.Context, client dynamic.Inter
 				break
 			}
 		}
+		// #3370 — the HR's spec.values is the SAME Git-committed IaC
+		// the self-registered CR carries in spec.parameters, so the
+		// generic Contexts projection applies identically here.
+		values, _, _ := unstructured.NestedMap(hr.Object, "spec", "values")
 		rows = append(rows, applicationSummary{
 			ID:        string(hr.GetUID()),
 			Name:      name,
 			Blueprint: bp,
 			Org:       "platform",
-			Topology:  "singleton",
+			Topology:  readTopologyFromValues(values),
 			Status:    status,
 			CreatedAt: hr.GetCreationTimestamp().UTC().Format(time.RFC3339),
+			Contexts:  h.projectContexts(ctx, client, ctxSchema, values),
 		})
 	}
 	return rows
 }
 
-// cnpgClusterGVR / cnpgDatabaseGVR — the CloudNativePG CRs the #3188
-// many-to-many Data-instances cards read. Declared locally like
-// helmReleaseGVR in sovereign.go.
-var cnpgClusterGVR = schema.GroupVersionResource{
-	Group:    "postgresql.cnpg.io",
-	Version:  "v1",
-	Resource: "clusters",
+// ── #3370 — generic Contexts projection ─────────────────────────────
+//
+// One mechanism platform-wide: a SHAREABLE Blueprint declares a
+// contextSchema (kind label + valuesKey + needs/produces); its
+// instances declare Context entries as Git-committed IaC under
+// values[valuesKey] (the bp-postgres databases[] machinery shape:
+// name + consumer.blueprint + reflect.secretName + reflect.namespaces).
+// The projection below reads ONLY that declaration — adding a new
+// shareable blueprint (valkey keyspaces, kafka topics, seaweedfs
+// buckets) requires zero code here.
+
+// secretGVR — core/v1 Secrets, read for the context-status check.
+var secretGVR = schema.GroupVersionResource{Version: "v1", Resource: "secrets"}
+
+// contextSchemaDecl mirrors Blueprint.spec.contextSchema (#3370).
+type contextSchemaDecl struct {
+	Kind      string   `yaml:"kind" json:"kind"`
+	ValuesKey string   `yaml:"valuesKey" json:"valuesKey"`
+	Needs     []string `yaml:"needs" json:"needs"`
+	Produces  []string `yaml:"produces" json:"produces"`
 }
 
-var cnpgDatabaseGVR = schema.GroupVersionResource{
-	Group:    "postgresql.cnpg.io",
-	Version:  "v1",
-	Resource: "databases",
-}
-
-// cnpgClusterInstances projects every live postgresql.cnpg.io/v1
-// Cluster CR into one instance row (#3188 many-to-many cards): name =
-// CR name, org = namespace, status from `.status.phase`, topology from
-// `.spec.replica.enabled` / `.spec.instances`, plus the consumer
-// bindings. A name already covered by an Application-CR row is not
-// duplicated — instead that existing row receives the bindings.
-// Best-effort: on a cluster without the CNPG CRD the List fails and
-// the Application-CR + HR rows stay authoritative.
-func (h *Handler) cnpgClusterInstances(ctx context.Context, client dynamic.Interface, bp, orgFilter string, existing []applicationSummary) []applicationSummary {
-	clusters, err := client.Resource(cnpgClusterGVR).Namespace("").List(ctx, metav1.ListOptions{})
-	if err != nil {
+// contextSchemaFor resolves the contextSchema declaration for a
+// Blueprint (bp- prefix optional — callers address blueprints both
+// ways). Resolution order: the EMBEDDED build-time catalog FIRST
+// (blueprints.json — in-binary, zero network, the same SHA-pinned
+// blueprint.yaml truth the catalog-seed lockstep guards), then the
+// catalog/Blueprint-CR chain (covers org-authored blueprints, which
+// pay the network dial). Order matters: the listing handlers call this
+// per unique blueprint inside latency-budgeted paths (the
+// /sovereign/apps deps block carries a 10s context), and each chained
+// catalog miss is a multi-second dial — embedded-first keeps the hot
+// path O(memory). nil = not shareable.
+func (h *Handler) contextSchemaFor(ctx context.Context, blueprint string) *contextSchemaDecl {
+	bare := strings.TrimPrefix(strings.TrimSpace(blueprint), "bp-")
+	if bare == "" {
 		return nil
 	}
-	bindingsByCluster := h.cnpgDatabaseBindings(ctx, client)
-	existingIdx := map[string]int{}
-	for i := range existing {
-		existingIdx[strings.ToLower(existing[i].Name)] = i
+	full := "bp-" + bare
+	if bp, ok := catalog.BlueprintByID(full); ok && bp.Shareable && bp.ContextSchema != nil && bp.ContextSchema.Kind != "" {
+		return &contextSchemaDecl{
+			Kind:      bp.ContextSchema.Kind,
+			ValuesKey: bp.ContextSchema.ValuesKey,
+			Needs:     bp.ContextSchema.Needs,
+			Produces:  bp.ContextSchema.Produces,
+		}
 	}
-	rows := []applicationSummary{}
-	for i := range clusters.Items {
-		cl := &clusters.Items[i]
-		ns := cl.GetNamespace()
-		if orgFilter != "" && !strings.EqualFold(ns, orgFilter) {
+	for _, candidate := range []string{full, bare} {
+		meta, err := h.resolveBlueprintMeta(ctx, candidate, "")
+		if err != nil || meta == nil {
 			continue
 		}
-		bindings := bindingsByCluster[ns+"/"+cl.GetName()]
-		if len(bindings) == 0 {
-			// Per-app instance with no Database CRs: the Cluster's
-			// CNPG-bootstrapped `app` database serves exactly its own
-			// namespace — surface that as ONE implicit dedicated
-			// binding rather than an empty Consumers table.
-			bindings = []instanceBinding{{
-				Database: "app",
-				Role:     "app",
-				Mode:     "dedicated",
-				Consumer: ns,
-			}}
+		if meta.Shareable && meta.ContextSchema != nil && meta.ContextSchema.Kind != "" {
+			return meta.ContextSchema
 		}
-		if idx, dup := existingIdx[strings.ToLower(cl.GetName())]; dup {
-			// An Application CR already covers this instance — keep
-			// that row authoritative, attach the live bindings to it.
-			if len(existing[idx].Bindings) == 0 {
-				existing[idx].Bindings = bindings
+	}
+	return nil
+}
+
+// projectContexts projects the Context rows of one instance from its
+// declared IaC values (HR spec.values or Application spec.parameters —
+// the same bytes). Generic over the contextSchema declaration.
+func (h *Handler) projectContexts(ctx context.Context, client dynamic.Interface, ctxSchema *contextSchemaDecl, values map[string]interface{}) []contextRow {
+	if ctxSchema == nil || ctxSchema.ValuesKey == "" || values == nil {
+		return nil
+	}
+	entriesRaw, ok := values[ctxSchema.ValuesKey].([]interface{})
+	if !ok || len(entriesRaw) == 0 {
+		return nil
+	}
+	rows := make([]contextRow, 0, len(entriesRaw))
+	for _, e := range entriesRaw {
+		em, ok := e.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _ := em["name"].(string)
+		if name == "" {
+			continue
+		}
+		row := contextRow{Name: name, Kind: ctxSchema.Kind}
+		if consumer, ok := em["consumer"].(map[string]interface{}); ok {
+			if cbp, ok := consumer["blueprint"].(string); ok {
+				row.OccupiedBy = strings.TrimPrefix(cbp, "bp-")
 			}
-			continue
 		}
-		status, _, _ := unstructured.NestedString(cl.Object, "status", "phase")
-		if status == "Cluster in healthy state" {
-			status = "Ready"
+		var reflectNamespaces []string
+		if reflect, ok := em["reflect"].(map[string]interface{}); ok {
+			row.Credential, _ = reflect["secretName"].(string)
+			if nss, ok := reflect["namespaces"].([]interface{}); ok {
+				for _, n := range nss {
+					if s, ok := n.(string); ok && s != "" {
+						reflectNamespaces = append(reflectNamespaces, s)
+					}
+				}
+			}
 		}
-		topology := "singleton"
-		if replicaEnabled, _, _ := unstructured.NestedBool(cl.Object, "spec", "replica", "enabled"); replicaEnabled {
-			topology = "replica"
-		} else if n, _, _ := unstructured.NestedInt64(cl.Object, "spec", "instances"); n > 1 {
-			topology = "ha"
-		}
-		rows = append(rows, applicationSummary{
-			ID:        string(cl.GetUID()),
-			Name:      cl.GetName(),
-			Blueprint: bp,
-			Org:       ns,
-			Topology:  topology,
-			Status:    status,
-			CreatedAt: cl.GetCreationTimestamp().UTC().Format(time.RFC3339),
-			Bindings:  bindings,
-		})
+		row.Status = h.contextStatus(ctx, client, row.Credential, reflectNamespaces)
+		rows = append(rows, row)
 	}
 	return rows
 }
 
-// cnpgDatabaseBindings lists every postgresql.cnpg.io/v1 Database CR
-// and groups them by owning Cluster (`<namespace>/<spec.cluster.name>`).
-// Each Database CR is one shared binding: database = .spec.name, role =
-// .spec.owner. The consumer is best-effort from the Database CR naming
-// convention `<cluster>-<consumer>` (shared-pg-gitea on cluster
-// shared-pg → gitea); when known, the reflected connection Secret
-// follows the `<consumer>-database-secret` convention.
-func (h *Handler) cnpgDatabaseBindings(ctx context.Context, client dynamic.Interface) map[string][]instanceBinding {
-	out := map[string][]instanceBinding{}
-	dbs, err := client.Resource(cnpgDatabaseGVR).Namespace("").List(ctx, metav1.ListOptions{})
-	if err != nil {
-		// Best-effort: a missing Database CRD only means no shared
-		// bindings to surface; the Cluster rows still render.
-		return out
+// contextStatus derives a Context's status from its materialized IaC:
+// `ready` when the declared credential Secret is present in every
+// consumer namespace it reflects into; `pending` while reflection is in
+// flight (or the namespaces don't exist yet); `declared` when the entry
+// produces nothing checkable (no reflected credential).
+func (h *Handler) contextStatus(ctx context.Context, client dynamic.Interface, credential string, namespaces []string) string {
+	if credential == "" || len(namespaces) == 0 {
+		return "declared"
 	}
-	for i := range dbs.Items {
-		db := &dbs.Items[i]
-		clusterName, _, _ := unstructured.NestedString(db.Object, "spec", "cluster", "name")
-		if clusterName == "" {
-			continue
-		}
-		dbName, _, _ := unstructured.NestedString(db.Object, "spec", "name")
-		owner, _, _ := unstructured.NestedString(db.Object, "spec", "owner")
-		consumer := ""
-		if rest := strings.TrimPrefix(db.GetName(), clusterName+"-"); rest != db.GetName() && rest != "" {
-			consumer = rest
-		}
-		secret := ""
-		if consumer != "" {
-			secret = consumer + "-database-secret"
-		}
-		key := db.GetNamespace() + "/" + clusterName
-		out[key] = append(out[key], instanceBinding{
-			Database: dbName,
-			Role:     owner,
-			Mode:     "shared",
-			Secret:   secret,
-			Consumer: consumer,
-		})
+	if client == nil {
+		return "pending"
 	}
-	return out
+	for _, ns := range namespaces {
+		if _, err := client.Resource(secretGVR).Namespace(ns).Get(ctx, credential, metav1.GetOptions{}); err != nil {
+			return "pending"
+		}
+	}
+	return "ready"
+}
+
+// readTopologyFromValues lifts the conventional `topology.mode` knob
+// from an instance's declared IaC values; "singleton" when absent.
+func readTopologyFromValues(values map[string]interface{}) string {
+	if values != nil {
+		if topo, ok := values["topology"].(map[string]interface{}); ok {
+			if mode, ok := topo["mode"].(string); ok && mode != "" {
+				return mode
+			}
+		}
+	}
+	return "singleton"
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -1259,10 +1487,22 @@ func visibilityOrDefault(v string) string {
 // endpoint handlers care about. We unmarshal from the catalog's `Raw`
 // map rather than introducing a structured CRD type.
 type blueprintMeta struct {
+	// Version — Blueprint.spec.version. Stamped onto created
+	// Application CRs' blueprintRef.version (#3370 — the CRD requires
+	// exact semver; the old create path omitted it and every
+	// console-created CR failed admission on a real apiserver).
+	Version string `yaml:"version,omitempty" json:"version,omitempty"`
+
 	Endpoints     []endpointDecl     `yaml:"endpoints,omitempty" json:"endpoints,omitempty"`
 	SSO           *ssoDecl           `yaml:"sso,omitempty" json:"sso,omitempty"`
 	MultiInstance *multiInstanceDecl `yaml:"multiInstance,omitempty" json:"multiInstance,omitempty"`
 	Topology      *topologyDecl      `yaml:"topology,omitempty" json:"topology,omitempty"`
+
+	// Shareable + ContextSchema — #3370. The multi-application-reuse
+	// declaration every generic surface (catalog badge, Contexts tab,
+	// reuse selector) renders from.
+	Shareable     bool               `yaml:"shareable,omitempty" json:"shareable,omitempty"`
+	ContextSchema *contextSchemaDecl `yaml:"contextSchema,omitempty" json:"contextSchema,omitempty"`
 }
 
 type endpointDecl struct {
@@ -1774,7 +2014,7 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 	// (the chosen topology) stays byte-identical when the user
 	// silently accepted the Blueprint defaults; the OBJECT form
 	// carries the advanced view's instance placement.
-	var placementValue interface{} = seed.Topology
+	var placementValue interface{} = placementForTopology(seed.Topology)
 	regions := []interface{}{"primary"}
 	if seed.Placement != nil {
 		pl := map[string]interface{}{
@@ -1805,6 +2045,11 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 		"blueprintRef": map[string]interface{}{
 			"name": seed.Blueprint,
 		},
+		// #3370+#3373 merged — placementValue carries the instance's
+		// placement OBJECT when the advanced view set one (#3373); the
+		// string fallback maps through placementForTopology so the CRD
+		// enum, not the raw topology string, is stamped (#3370's
+		// admission fix). Topology stays on the label.
 		"placement": placementValue,
 		"regions":   regions,
 		// ── G117.2 W2.C2 multi-instance fields ──
@@ -1821,6 +2066,20 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 	}
 	_ = unstructured.SetNestedMap(obj.Object, spec, "spec")
 	return obj
+}
+
+// placementForTopology maps a BCP topology choice onto the Application
+// CRD's spec.placement enum (#3370).
+func placementForTopology(topology string) string {
+	switch topology {
+	case "active-active":
+		return "active-active"
+	case "active-hot-standby", "active-hotstandby", "active-passive":
+		return "active-hotstandby"
+	default:
+		// singleton / empty / unknown → the single-region posture.
+		return "single-region"
+	}
 }
 
 // readPhase + readTopology read the most-informative status field for

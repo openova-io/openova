@@ -38,6 +38,24 @@ export interface BlueprintCardEntry {
   section: string | null
   /** Other Blueprint ids this Blueprint depends on. */
   depends: string[]
+  /** #3370 — instances support multi-application reuse (Contexts). */
+  shareable: boolean
+  /** #3370 — the Context declaration (null when not shareable). */
+  contextSchema: BlueprintContextSchema | null
+}
+
+/**
+ * #3370 — what a Context is for a shareable Blueprint. The kind label
+ * (db | topic | bucket | keyspace) prefixes every Context in the
+ * console; valuesKey names the array in the instance's IaC values where
+ * Context entries live; needs/produces describe the provisioning form
+ * inputs and the consumer-visible outputs.
+ */
+export interface BlueprintContextSchema {
+  kind: string
+  valuesKey: string
+  needs: string[]
+  produces: string[]
 }
 
 /**
@@ -62,7 +80,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-external-secrets"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-bge",
@@ -78,7 +98,31 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
+  },
+  {
+    "id": "bp-catalyst-platform",
+    "slug": "catalyst-platform",
+    "title": "Catalyst Platform",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.0.0",
+    "section": "pts-2-3-per-sovereign-supporting-services",
+    "depends": [
+      "bp-gitea",
+      "bp-gateway-api",
+      "bp-keycloak",
+      "bp-cnpg",
+      "bp-crossplane-claims"
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-cert-manager",
@@ -90,9 +134,11 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.0",
+    "version": "1.2.5",
     "section": "pts-3-3-security-and-policy",
-    "depends": []
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-cert-manager-dynadot-webhook",
@@ -104,11 +150,13 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.1.2",
     "section": "pts-3-3-security-and-policy",
     "depends": [
       "bp-cert-manager"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-cert-manager-powerdns-webhook",
@@ -120,11 +168,13 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "section": "pts-3-3-security-and-policy",
     "depends": [
       "bp-cert-manager"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-cilium",
@@ -136,9 +186,43 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "section": "pts-3-1-networking-and-service-mesh",
-    "depends": []
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
+  },
+  {
+    "id": "bp-cilium-policies",
+    "slug": "cilium-policies",
+    "title": "Cilium Policy Library",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-1-networking-and-service-mesh",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
+  },
+  {
+    "id": "bp-clickhouse",
+    "slug": "clickhouse",
+    "title": "Clickhouse",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.0.0",
+    "section": "pts-4-application-tier",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-cnpg",
@@ -150,11 +234,13 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.0.9",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-flux"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-cnpg-pair",
@@ -166,13 +252,15 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.2",
+    "version": "0.2.3",
     "section": "pts-9-disaster-recovery",
     "depends": [
       "bp-cnpg",
       "bp-hcloud-csi",
       "bp-cilium"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-crossplane",
@@ -186,7 +274,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "version": "1.1.4",
     "section": "pts-3-2-gitops-and-iac",
-    "depends": []
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-crossplane-claims",
@@ -198,11 +288,29 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.0",
+    "version": "1.1.5",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
       "bp-crossplane"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
+  },
+  {
+    "id": "bp-debezium",
+    "slug": "debezium",
+    "title": "Debezium",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.0.0",
+    "section": "pts-4-application-tier",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-dmz-vcluster",
@@ -214,12 +322,30 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.0",
+    "version": "0.2.5",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium",
       "bp-cert-manager"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
+  },
+  {
+    "id": "bp-external-dns",
+    "slug": "external-dns",
+    "title": "ExternalDNS",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.1.8",
+    "section": "pts-3-1-networking-and-service-mesh",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-external-secrets",
@@ -231,12 +357,14 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.0",
+    "version": "1.1.3",
     "section": "pts-3-3-security-and-policy",
     "depends": [
       "bp-openbao",
       "bp-cert-manager"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-external-secrets-stores",
@@ -248,9 +376,43 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.0.6",
     "section": "pts-3-3-security-and-policy",
-    "depends": []
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
+  },
+  {
+    "id": "bp-ferretdb",
+    "slug": "ferretdb",
+    "title": "Ferretdb",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.0.0",
+    "section": "pts-4-application-tier",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
+  },
+  {
+    "id": "bp-flink",
+    "slug": "flink",
+    "title": "Flink",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.0.0",
+    "section": "pts-4-application-tier",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-flux",
@@ -262,9 +424,11 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.0",
+    "version": "1.2.6",
     "section": "pts-3-2-gitops-and-iac",
-    "depends": []
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-gateway-api",
@@ -278,7 +442,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "version": "1.1.0",
     "section": "pts-3-1-networking-and-service-mesh",
-    "depends": []
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-gitea",
@@ -290,9 +456,11 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.5",
+    "version": "1.2.31",
     "section": "pts-2-3-per-sovereign-supporting-services",
-    "depends": []
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-guacamole",
@@ -304,7 +472,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.0",
+    "version": "0.2.4",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-keycloak",
@@ -312,7 +480,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-seaweedfs",
       "bp-sealed-secrets",
       "bp-k8s-ws-proxy"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-hcloud-csi",
@@ -324,9 +494,27 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "section": "pts-3-5-storage-and-data",
-    "depends": []
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
+  },
+  {
+    "id": "bp-iceberg",
+    "slug": "iceberg",
+    "title": "Iceberg",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.0.0",
+    "section": "pts-4-application-tier",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-k8s-ws-proxy",
@@ -338,11 +526,13 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.0",
+    "version": "0.1.14",
     "section": "pts-3-3-security-and-policy",
     "depends": [
       "bp-sealed-secrets"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-keycloak",
@@ -354,9 +544,11 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.5.0",
+    "version": "1.4.26",
     "section": "pts-2-3-per-sovereign-supporting-services",
-    "depends": []
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-knative",
@@ -373,7 +565,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [
       "bp-cilium",
       "bp-cert-manager"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-kserve",
@@ -391,7 +585,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-cilium",
       "bp-cert-manager",
       "bp-knative"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-librechat",
@@ -403,14 +599,16 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "section": "pts-4-7-application-tier-chat-ui",
     "depends": [
       "bp-llm-gateway",
       "bp-vllm",
       "bp-bge",
       "bp-keycloak"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-livekit",
@@ -428,7 +626,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-stunner",
       "bp-cert-manager",
       "bp-valkey"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-llm-gateway",
@@ -440,13 +640,15 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",
       "bp-keycloak",
       "bp-external-secrets"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-matrix",
@@ -458,13 +660,15 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "section": "pts-4-5-communication",
     "depends": [
       "bp-cnpg",
       "bp-keycloak",
       "bp-cert-manager"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-mgmt-vcluster",
@@ -476,26 +680,46 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.0",
+    "version": "0.2.6",
     "section": "pts-3-2-control-plane-isolation",
     "depends": [
       "bp-cilium",
       "bp-cert-manager"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
-    "id": "bp-nats-jetstream",
-    "slug": "nats-jetstream",
-    "title": "nats-jetstream",
-    "summary": "Event spine for the Catalyst control plane. JetStream Streams + KV. Per-Organization Accounts. Replaces what was previously specified as Redpanda + Valkey for the control plane.",
+    "id": "bp-milvus",
+    "slug": "milvus",
+    "title": "Milvus",
+    "summary": "|",
     "icon": null,
     "category": null,
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.0",
+    "version": "0.0.0",
+    "section": "pts-4-application-tier",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
+  },
+  {
+    "id": "bp-nats-jetstream",
+    "slug": "nats-jetstream",
+    "title": "nats-jetstream",
+    "summary": "Event spine for the Catalyst control plane. JetStream Streams + KV + Object Store via bundled nack JetStream Controller (Wave 5.45",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.3.3",
     "section": "pts-2-3-per-sovereign-supporting-services",
-    "depends": []
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-nemo-guardrails",
@@ -511,7 +735,25 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-4-7-ai-safety",
     "depends": [
       "bp-vllm"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
+  },
+  {
+    "id": "bp-neo4j",
+    "slug": "neo4j",
+    "title": "Neo4J",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.0.0",
+    "section": "pts-4-application-tier",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-netbird",
@@ -523,13 +765,15 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-keycloak",
       "bp-cilium",
       "bp-sealed-secrets"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-network-policies",
@@ -541,11 +785,13 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.0.4",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-newapi",
@@ -557,7 +803,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.1.0",
+    "version": "1.4.63",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",
@@ -565,7 +811,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-external-secrets",
       "bp-valkey",
       "bp-vllm"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-openbao",
@@ -577,9 +825,11 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.14",
+    "version": "1.2.28",
     "section": "pts-2-3-per-sovereign-supporting-services",
-    "depends": []
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-openclaw",
@@ -591,13 +841,15 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.0",
+    "version": "0.2.1",
     "section": "pts-4-7-agentic-workspace",
     "depends": [
       "bp-newapi",
       "bp-keycloak",
       "bp-cert-manager"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-openmeter",
@@ -609,13 +861,31 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "section": "pts-4-8-identity-and-metering",
     "depends": [
       "bp-cnpg",
       "bp-nats-jetstream",
       "bp-cert-manager"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
+  },
+  {
+    "id": "bp-opensearch",
+    "slug": "opensearch",
+    "title": "Opensearch",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.0.0",
+    "section": "pts-4-application-tier",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-opentelemetry-operator",
@@ -627,12 +897,14 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.0.4",
     "section": "pts-3-2-observability-and-tracing",
     "depends": [
       "bp-opentelemetry",
       "bp-cert-manager"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-postgres",
@@ -644,12 +916,24 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.1",
+    "version": "0.1.6",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-cnpg",
       "bp-reflector"
-    ]
+    ],
+    "shareable": true,
+    "contextSchema": {
+      "kind": "db",
+      "valuesKey": "databases",
+      "needs": [
+        "name",
+        "owner"
+      ],
+      "produces": [
+        "credentialSecret"
+      ]
+    }
   },
   {
     "id": "bp-powerdns",
@@ -661,11 +945,37 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.8",
+    "version": "1.2.12",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
       "bp-cert-manager"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
+  },
+  {
+    "id": "bp-powerdns-admin",
+    "slug": "powerdns-admin",
+    "title": "powerdns-admin",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.12",
+    "section": "pts-2-3-per-sovereign-supporting-services",
+    "depends": [
+      "bp-powerdns",
+      "bp-cnpg",
+      "bp-keycloak",
+      "bp-sso-bridge",
+      "bp-external-secrets-stores",
+      "bp-reflector",
+      "bp-gateway-api"
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-qa-app",
@@ -679,7 +989,25 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "listed",
     "version": "0.1.0",
     "section": "pts-qa",
-    "depends": []
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
+  },
+  {
+    "id": "bp-reflector",
+    "slug": "reflector",
+    "title": "Reflector",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-rtz-vcluster",
@@ -691,12 +1019,35 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.0",
+    "version": "0.2.6",
     "section": "pts-3-2-control-plane-isolation",
     "depends": [
       "bp-cilium",
       "bp-cert-manager"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
+  },
+  {
+    "id": "bp-sandbox",
+    "slug": "sandbox",
+    "title": "Sandbox",
+    "summary": "|",
+    "icon": "sandbox.svg",
+    "category": "devtools",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "0.3.10",
+    "section": "pts-4-sandbox",
+    "depends": [
+      "bp-rtz-vcluster",
+      "bp-vcluster-helmrepo",
+      "bp-catalyst-platform",
+      "bp-harbor"
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-sealed-secrets",
@@ -710,7 +1061,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "version": "1.1.2",
     "section": "pts-3-3-security-and-policy",
-    "depends": []
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-self-sovereign-cutover",
@@ -722,12 +1075,14 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.14",
+    "version": "0.1.56",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-gitea",
       "bp-harbor"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-spire",
@@ -741,7 +1096,29 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "version": "1.1.7",
     "section": "pts-2-3-per-sovereign-supporting-services",
-    "depends": []
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
+  },
+  {
+    "id": "bp-sso-bridge",
+    "slug": "sso-bridge",
+    "title": "sso-bridge",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.2.15",
+    "section": "pts-2-3-per-sovereign-supporting-services",
+    "depends": [
+      "bp-keycloak",
+      "bp-openbao",
+      "bp-external-secrets-stores"
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-stalwart-sovereign",
@@ -759,7 +1136,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-cert-manager",
       "bp-cert-manager-powerdns-webhook",
       "bp-powerdns"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-stalwart-tenant",
@@ -771,14 +1150,32 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "section": "pts-4-5-communication",
     "depends": [
       "bp-keycloak",
       "bp-external-secrets",
       "bp-cert-manager",
       "bp-powerdns"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
+  },
+  {
+    "id": "bp-strimzi",
+    "slug": "strimzi",
+    "title": "Strimzi",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.0.0",
+    "section": "pts-4-application-tier",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-stunner",
@@ -795,7 +1192,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [
       "bp-cilium",
       "bp-cert-manager"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-temporal",
@@ -807,12 +1206,14 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "section": "pts-4-3-workflow-and-processing",
     "depends": [
       "bp-cnpg",
       "bp-cert-manager"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-valkey",
@@ -824,11 +1225,41 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-flux"
-    ]
+    ],
+    "shareable": true,
+    "contextSchema": {
+      "kind": "keyspace",
+      "valuesKey": "keyspaces",
+      "needs": [
+        "name",
+        "index"
+      ],
+      "produces": [
+        "credentialSecret"
+      ]
+    }
+  },
+  {
+    "id": "bp-vcluster-helmrepo",
+    "slug": "vcluster-helmrepo",
+    "title": "vCluster HelmRepository",
+    "summary": "|",
+    "icon": "vcluster.svg",
+    "category": "platform",
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.2.0",
+    "section": "pts-3-1-networking-and-service-mesh",
+    "depends": [
+      "bp-flux"
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-vllm",
@@ -844,7 +1275,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-kserve"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   },
   {
     "id": "bp-wordpress-tenant",
@@ -856,14 +1289,17 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.0",
+    "version": "0.4.1",
     "section": "pts-7-sme-tenant",
     "depends": [
+      "bp-postgres",
       "bp-cnpg",
       "bp-keycloak",
       "bp-reflector",
       "bp-cert-manager"
-    ]
+    ],
+    "shareable": false,
+    "contextSchema": null
   }
 ] as const
 
@@ -884,22 +1320,30 @@ export const BLUEPRINT_BY_ID: Readonly<Record<string, BlueprintCardEntry>> = Obj
 export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/anthropic-adapter/blueprint.yaml",
   "platform/bge/blueprint.yaml",
+  "platform/catalyst-platform/blueprint.yaml",
   "platform/cert-manager-dynadot-webhook/blueprint.yaml",
   "platform/cert-manager-powerdns-webhook/blueprint.yaml",
   "platform/cert-manager/blueprint.yaml",
+  "platform/cilium-policies/blueprint.yaml",
   "platform/cilium/blueprint.yaml",
+  "platform/clickhouse/blueprint.yaml",
   "platform/cnpg-pair/blueprint.yaml",
   "platform/cnpg/blueprint.yaml",
   "platform/crossplane-claims/blueprint.yaml",
   "platform/crossplane/blueprint.yaml",
+  "platform/debezium/blueprint.yaml",
   "platform/dmz-vcluster/blueprint.yaml",
+  "platform/external-dns/blueprint.yaml",
   "platform/external-secrets-stores/blueprint.yaml",
   "platform/external-secrets/blueprint.yaml",
+  "platform/ferretdb/blueprint.yaml",
+  "platform/flink/blueprint.yaml",
   "platform/flux/blueprint.yaml",
   "platform/gateway-api/blueprint.yaml",
   "platform/gitea/blueprint.yaml",
   "platform/guacamole/blueprint.yaml",
   "platform/hcloud-csi/blueprint.yaml",
+  "platform/iceberg/blueprint.yaml",
   "platform/k8s-ws-proxy/blueprint.yaml",
   "platform/keycloak/blueprint.yaml",
   "platform/knative/blueprint.yaml",
@@ -909,26 +1353,36 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/llm-gateway/blueprint.yaml",
   "platform/matrix/blueprint.yaml",
   "platform/mgmt-vcluster/blueprint.yaml",
+  "platform/milvus/blueprint.yaml",
   "platform/nats-jetstream/blueprint.yaml",
   "platform/nemo-guardrails/blueprint.yaml",
+  "platform/neo4j/blueprint.yaml",
   "platform/netbird/blueprint.yaml",
   "platform/network-policies/blueprint.yaml",
   "platform/newapi/blueprint.yaml",
   "platform/openbao/blueprint.yaml",
   "platform/openclaw/blueprint.yaml",
   "platform/openmeter/blueprint.yaml",
+  "platform/opensearch/blueprint.yaml",
   "platform/opentelemetry-operator/blueprint.yaml",
+  "platform/postgres/blueprint.yaml",
+  "platform/powerdns-admin/blueprint.yaml",
   "platform/powerdns/blueprint.yaml",
   "platform/qa-app/blueprint.yaml",
+  "platform/reflector/blueprint.yaml",
   "platform/rtz-vcluster/blueprint.yaml",
+  "platform/sandbox/blueprint.yaml",
   "platform/sealed-secrets/blueprint.yaml",
   "platform/self-sovereign-cutover/blueprint.yaml",
   "platform/spire/blueprint.yaml",
+  "platform/sso-bridge/blueprint.yaml",
   "platform/stalwart-sovereign/blueprint.yaml",
   "platform/stalwart-tenant/blueprint.yaml",
+  "platform/strimzi/blueprint.yaml",
   "platform/stunner/blueprint.yaml",
   "platform/temporal/blueprint.yaml",
   "platform/valkey/blueprint.yaml",
+  "platform/vcluster-helmrepo/blueprint.yaml",
   "platform/vllm/blueprint.yaml",
   "platform/wordpress-tenant/blueprint.yaml"
 ] as const
@@ -954,6 +1408,13 @@ export interface BootstrapKitEntry {
 }
 
 export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
+  {
+    "id": "bp-vcluster-host-namespaces",
+    "slug": "vcluster-host-namespaces",
+    "label": "vcluster-host-namespaces",
+    "file": "00-vcluster-host-namespaces.yaml",
+    "order": 0
+  },
   {
     "id": "bp-cilium",
     "slug": "cilium",
@@ -1123,6 +1584,13 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "order": 25
   },
   {
+    "id": "bp-network-policies",
+    "slug": "network-policies",
+    "label": "network-policies",
+    "file": "26-network-policies.yaml",
+    "order": 26
+  },
+  {
     "id": "bp-kyverno",
     "slug": "kyverno",
     "label": "kyverno",
@@ -1184,6 +1652,13 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "label": "coraza",
     "file": "35-coraza.yaml",
     "order": 35
+  },
+  {
+    "id": "bp-vllm",
+    "slug": "vllm",
+    "label": "vllm",
+    "file": "39-bp-vllm.yaml",
+    "order": 39
   },
   {
     "id": "bp-cert-manager-powerdns-webhook",
@@ -1254,6 +1729,20 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "label": "rtz-vcluster",
     "file": "59-bp-rtz-vcluster.yaml",
     "order": 59
+  },
+  {
+    "id": "bp-vcluster-helmrepo",
+    "slug": "vcluster-helmrepo",
+    "label": "vcluster-helmrepo",
+    "file": "60-bp-vcluster-helmrepo.yaml",
+    "order": 60
+  },
+  {
+    "id": "bp-continuum",
+    "slug": "continuum",
+    "label": "continuum",
+    "file": "62-bp-continuum.yaml",
+    "order": 62
   },
   {
     "id": "bp-newapi",

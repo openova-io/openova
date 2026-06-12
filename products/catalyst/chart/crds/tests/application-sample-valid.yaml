@@ -44,3 +44,57 @@ spec:
     rto: 60s
     rpo: 5s
     minReplicas: 2
+---
+# #3370 — bootstrap-owned instance (chart self-registration). A
+# slot-installed HelmRelease's chart registers this CR as the canonical
+# representation: spec.bootstrap=true, NO environmentRef and NO regions
+# (the CEL rule waives them for bootstrap-owned instances), the owning
+# HelmRelease ref for the controller's adoption/status path, and the
+# instance's Context declarations riding spec.parameters verbatim.
+apiVersion: apps.openova.io/v1
+kind: Application
+metadata:
+  name: shared-pg
+  namespace: shared-data
+  labels:
+    apps.openova.io/bootstrap-owned: "true"
+    catalyst.openova.io/organization: platform
+spec:
+  bootstrap: true
+  blueprintRef:
+    name: bp-postgres
+    version: 0.1.6
+  placement: single-region
+  helmRelease:
+    name: bp-postgres-shared
+    namespace: flux-system
+  parameters:
+    topology:
+      mode: singleton
+    databases:
+      - name: gitea
+        owner: gitea
+        consumer: {blueprint: bp-gitea, mode: shared}
+        reflect: {secretName: gitea-database-secret, namespaces: [gitea]}
+---
+# #3370 — consumer with backing-service wiring: spec.dependsOn names the
+# backing instance Application + the Context it occupies. The controller
+# resolves the entry to the backing HelmRelease and stamps Flux
+# spec.dependsOn on every HR it renders.
+apiVersion: apps.openova.io/v1
+kind: Application
+metadata:
+  name: wiki
+  namespace: acme
+spec:
+  environmentRef: acme-prod
+  blueprintRef:
+    name: bp-wordpress
+    version: 1.3.0
+  placement: single-region
+  regions:
+    - hz-fsn-rtz-prod
+  dependsOn:
+    - name: shared-pg
+      namespace: shared-data
+      context: db/wiki

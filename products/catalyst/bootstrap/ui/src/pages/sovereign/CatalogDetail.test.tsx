@@ -169,10 +169,14 @@ describe('CatalogDetail — #3090 class page', () => {
     expect(screen.getByTestId('btn-new-instance')).toBeTruthy()
   })
 
-  it('instance rows link to the INSTANCE page /app/$componentId', async () => {
+  it('instance rows link to THAT INSTANCE\'s own page /app/<instance>', async () => {
+    // #3370 — each instance line drills into its OWN application page
+    // (the old bp-<blueprint> link collapsed every instance onto one
+    // class-named page; with N instances that violated "N instances ⇒
+    // N pages").
     renderCatalog('grafana')
     const link = await screen.findByTestId('sov-instance-link-obs-1')
-    expect(link.getAttribute('href')).toBe('/app/bp-grafana')
+    expect(link.getAttribute('href')).toBe('/app/obs-1')
   })
 
   it('"+ New instance" opens the topology dialog INLINE (no navigation, no 404)', async () => {
@@ -238,9 +242,9 @@ describe('CatalogDetail — #3090 class page', () => {
   it('instances table exposes Version + Actions columns and an Open link', async () => {
     renderCatalog('grafana')
     await screen.findByTestId('sov-instances-table')
-    // Action "Open →" links drill into the INSTANCE page.
+    // Action "Open →" links drill into THAT INSTANCE's page (#3370).
     const open = screen.getByTestId('sov-instance-open-obs-1')
-    expect(open.getAttribute('href')).toBe('/app/bp-grafana')
+    expect(open.getAttribute('href')).toBe('/app/obs-1')
   })
 
   it('bootstrap/singleton apps surface the running install, not an empty table', async () => {
@@ -283,20 +287,29 @@ describe('CatalogDetail — #3090 class page', () => {
     expect(screen.queryByTestId('btn-new-instance')).toBeNull()
   })
 
-  // ── #3188 / ADR-0010 — the "Data instances" panel on data-engine pages ──
+  // ── #3370 — the rejected "Data instances" panel is DELETED ──────────
+  // Any new panel/concept/special view for shared instances is the
+  // precise failure #3370 exists to kill: instances are listed by the
+  // SAME InstancesSection as every blueprint; Contexts live on the
+  // instance page's Contexts tab. This test LOCKS the deletion.
 
-  it('renders the Data instances panel on the bp-postgres class page', async () => {
+  it('bp-postgres class page renders the generic InstancesSection — the Data-instances panel is GONE', async () => {
     const POSTGRES_CATALOG = {
       name: 'postgres',
-      version: '0.1.1',
+      version: '0.1.6',
       card: { title: 'PostgreSQL', category: 'data' },
       origin: 'upstream',
       source: 'gitea',
-      raw: { spec: { multiInstance: { enabled: true } } },
+      raw: {
+        spec: {
+          multiInstance: { enabled: true },
+          shareable: true,
+          contextSchema: { kind: 'db', valuesKey: 'databases' },
+        },
+      },
     }
     globalThis.fetch = ((input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString()
-      // bp-postgres instances feed the data-instances panel (engine count).
       if (url.includes('/catalog/postgres/instances')) {
         return jsonRes({
           items: [
@@ -304,9 +317,18 @@ describe('CatalogDetail — #3090 class page', () => {
               id: 'pg-1',
               name: 'shared-pg',
               blueprint: 'postgres',
-              org: 'sovereign',
+              org: 'platform',
               topology: 'singleton',
               status: 'Ready',
+              contexts: [
+                {
+                  name: 'gitea',
+                  kind: 'db',
+                  occupiedBy: 'gitea',
+                  credential: 'gitea-database-secret',
+                  status: 'ready',
+                },
+              ],
             },
           ],
         })
@@ -317,11 +339,21 @@ describe('CatalogDetail — #3090 class page', () => {
     }) as typeof fetch
 
     renderCatalog('postgres')
-    // The ADR-0010 panel + the PostgreSQL engine-class card render here.
-    expect(await screen.findByTestId('data-instances-panel')).toBeTruthy()
-    expect(await screen.findByTestId('engine-class-card')).toBeTruthy()
-    // The one bp-postgres install surfaces as a data-instance card.
-    expect(await screen.findByTestId('data-instance-card')).toBeTruthy()
+    await screen.findByTestId('catalog-title')
+    // DELETION LOCK: no bespoke panel, no engine-class card, no
+    // data-instance card — the class of solution the founder rejected.
+    expect(screen.queryByTestId('data-instances-panel')).toBeNull()
+    expect(screen.queryByTestId('engine-class-card')).toBeNull()
+    expect(screen.queryByTestId('data-instance-card')).toBeNull()
+    // The ONE generic representation: the shared InstancesSection lists
+    // the instance, linking to its own application page.
+    expect(await screen.findByTestId('sov-instances-table')).toBeTruthy()
+    expect(screen.getByTestId('sov-instance-row-shared-pg')).toBeTruthy()
+    expect(screen.getByTestId('sov-instance-link-shared-pg').getAttribute('href')).toBe(
+      '/app/shared-pg',
+    )
+    // #3370 — the shareable badge renders from the declaration.
+    expect(screen.getByTestId('badge-shareable')).toBeTruthy()
   })
 
   it('does NOT render the Data instances panel on a non-data Blueprint (grafana)', async () => {

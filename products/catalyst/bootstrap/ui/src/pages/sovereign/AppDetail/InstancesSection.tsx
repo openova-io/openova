@@ -23,8 +23,10 @@ import {
   createApplicationInstance,
   getCatalogItemVersion,
   type ApplicationInstanceSummary,
+  type BackingSelection,
   type CreateApplicationInstanceRequest,
 } from '@/lib/catalog.api'
+import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
 
 /**
  * InstancesSection — renders the per-Blueprint instances list (one row
@@ -187,13 +189,16 @@ export function InstancesSection({
                 style={{ borderBottom: '1px solid var(--color-border)' }}
               >
                 <td style={{ padding: '0.45rem 0.5rem' }}>
-                  {/* #3090 — instance rows drill into the INSTANCE page
-                      `/app/$componentId`. The Application instance is
-                      addressed by its Blueprint-scoped component id
-                      (`bp-<blueprint>`), matching consoleAppDetailRoute. */}
+                  {/* #3370 — instance rows drill into THAT INSTANCE's
+                      own application page `/app/<instance>`. The detail
+                      handler resolves the name against Application CRs
+                      AND HelmRelease releaseNames, so shared-pg /
+                      shared-pg-b each land on their own page (the old
+                      `bp-<blueprint>` link collapsed every instance
+                      onto one class-named page). */}
                   <Link
                     to={'/app/$componentId' as never}
-                    params={{ componentId: `bp-${inst.blueprint}` } as never}
+                    params={{ componentId: inst.name } as never}
                     data-testid={`sov-instance-link-${inst.name}`}
                     style={{ color: 'var(--color-accent)', fontWeight: 600 }}
                   >
@@ -217,7 +222,7 @@ export function InstancesSection({
                 <td style={{ padding: '0.45rem 0.5rem', textAlign: 'right' }}>
                   <Link
                     to={'/app/$componentId' as never}
-                    params={{ componentId: `bp-${inst.blueprint}` } as never}
+                    params={{ componentId: inst.name } as never}
                     data-testid={`sov-instance-open-${inst.name}`}
                     className="external-url-link"
                   >
@@ -412,6 +417,9 @@ export function NewInstanceDialog({
   const [topology, setTopology] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // #3370 — per-backing-service selection: "" = Create new (default),
+  // any other value = the existing instance name to reuse.
+  const [backingChoice, setBackingChoice] = useState<Record<string, string>>({})
 
   // Resolve the Blueprint's supported topologies via the catalog
   // version endpoint. We don't have a fixed version pin from the
@@ -460,6 +468,17 @@ export function NewInstanceDialog({
     }
   }, [defaultTopology, topology])
 
+  // #3370 — required backing services: the blueprint's declared
+  // dependencies that are themselves SHAREABLE (declare a
+  // contextSchema). Each renders ONE generic selector: Create new
+  // (default) / Reuse existing — the same mechanism for every
+  // blueprint, driven purely by the declarations.
+  const backingBlueprints = useMemo<string[]>(() => {
+    const self = BLUEPRINT_BY_ID[`bp-${bpName}`]
+    const depends = self?.depends ?? []
+    return depends.filter((d) => BLUEPRINT_BY_ID[d]?.shareable === true)
+  }, [bpName])
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (submitting) return
@@ -472,6 +491,14 @@ export function NewInstanceDialog({
         name: name.trim(),
       }
       if (topology) body.topology = topology
+      if (backingBlueprints.length > 0) {
+        body.backing = backingBlueprints.map((bp): BackingSelection => {
+          const chosen = backingChoice[bp] ?? ''
+          return chosen
+            ? { blueprint: bp, mode: 'reuse', instance: chosen }
+            : { blueprint: bp, mode: 'create' }
+        })
+      }
       await createApplicationInstance(body)
       onCreated()
     } catch (err) {
@@ -623,6 +650,38 @@ export function NewInstanceDialog({
           )}
         </fieldset>
 
+        {/*
+          #3370 — backing services. EVERY required backing service of
+          this blueprint (declared depends[] whose target is shareable)
+          renders ONE generic selector: Create new (default) / Reuse
+          existing. The dropdown lists existing instances of that
+          blueprint with topology + context count. No per-service UI —
+          the SAME selector for postgres, valkey, kafka, seaweedfs.
+        */}
+        {backingBlueprints.length > 0 ? (
+          <fieldset
+            data-testid="backing-services"
+            style={{
+              border: '1px solid var(--color-border)',
+              borderRadius: '4px',
+              padding: '0.5rem 0.7rem',
+              marginBottom: '0.6rem',
+            }}
+          >
+            <legend style={{ fontSize: '0.8rem', padding: '0 0.3rem' }}>
+              Backing services
+            </legend>
+            {backingBlueprints.map((bp) => (
+              <BackingServiceSelector
+                key={bp}
+                blueprint={bp}
+                value={backingChoice[bp] ?? ''}
+                onChange={(v) => setBackingChoice((prev) => ({ ...prev, [bp]: v }))}
+              />
+            ))}
+          </fieldset>
+        ) : null}
+
         {error ? (
           <p
             data-testid="dialog-error"
@@ -679,6 +738,106 @@ export function NewInstanceDialog({
           </button>
         </div>
       </form>
+    </div>
+  )
+}
+
+/**
+ * BackingServiceSelector — #3370. ONE generic selector per required
+ * backing service: Create new (default) / Reuse existing. The reuse
+ * dropdown lists the existing instances of that blueprint, each with
+ * its topology + Context count. Identical for every shareable
+ * blueprint — the declaration drives everything.
+ */
+function BackingServiceSelector({
+  blueprint,
+  value,
+  onChange,
+}: {
+  /** Full backing Blueprint id (bp-<name>). */
+  blueprint: string
+  /** "" = Create new; otherwise the existing instance name to reuse. */
+  value: string
+  onChange: (v: string) => void
+}) {
+  const slug = blueprint.replace(/^bp-/, '')
+  const title = BLUEPRINT_BY_ID[blueprint]?.title ?? slug
+  const kind = BLUEPRINT_BY_ID[blueprint]?.contextSchema?.kind ?? ''
+  const instancesQuery = useQuery({
+    queryKey: ['blueprint-instances', blueprint],
+    queryFn: () => getApplicationInstances(blueprint),
+    staleTime: 15_000,
+    retry: 1,
+  })
+  const items: ApplicationInstanceSummary[] = instancesQuery.data?.items ?? []
+
+  return (
+    <div
+      data-testid={`backing-selector-${slug}`}
+      style={{ padding: '0.25rem 0', fontSize: '0.82rem' }}
+    >
+      <span style={{ display: 'block', marginBottom: '0.2rem', fontWeight: 600 }}>
+        {title}
+        {kind ? (
+          <span style={{ marginLeft: '0.4rem', color: 'var(--color-text-dim)', fontWeight: 400 }}>
+            (Context: {kind})
+          </span>
+        ) : null}
+      </span>
+      <label style={{ display: 'block', padding: '0.1rem 0', cursor: 'pointer' }}>
+        <input
+          type="radio"
+          name={`backing-${slug}`}
+          checked={value === ''}
+          onChange={() => onChange('')}
+          data-testid={`backing-create-${slug}`}
+          style={{ marginRight: '0.4rem' }}
+        />
+        Create new (default) — provisions its own {title} instance with a Context for this app
+      </label>
+      <label style={{ display: 'block', padding: '0.1rem 0', cursor: 'pointer' }}>
+        <input
+          type="radio"
+          name={`backing-${slug}`}
+          checked={value !== ''}
+          disabled={items.length === 0}
+          onChange={() => {
+            if (items.length > 0) onChange(items[0].name)
+          }}
+          data-testid={`backing-reuse-${slug}`}
+          style={{ marginRight: '0.4rem' }}
+        />
+        Reuse existing
+        {items.length === 0 ? (
+          <span style={{ marginLeft: '0.35rem', color: 'var(--color-text-dim)' }}>
+            (no instances yet)
+          </span>
+        ) : null}
+      </label>
+      {value !== '' && items.length > 0 ? (
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          data-testid={`backing-instance-${slug}`}
+          style={{
+            width: '100%',
+            marginTop: '0.25rem',
+            padding: '0.3rem 0.5rem',
+            background: 'var(--color-bg)',
+            color: 'var(--color-text)',
+            border: '1px solid var(--color-border)',
+            borderRadius: '4px',
+            fontSize: '0.82rem',
+          }}
+        >
+          {items.map((inst) => (
+            <option key={inst.id || inst.name} value={inst.name}>
+              {inst.name} · {inst.topology} · {(inst.contexts ?? []).length}{' '}
+              context{(inst.contexts ?? []).length === 1 ? '' : 's'}
+            </option>
+          ))}
+        </select>
+      ) : null}
     </div>
   )
 }

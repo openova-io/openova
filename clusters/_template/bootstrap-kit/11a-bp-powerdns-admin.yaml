@@ -74,6 +74,15 @@ spec:
       namespace: flux-system
     - name: bp-cnpg
       namespace: flux-system
+    # bp-postgres-shared-b (#3370 adoption): when PDA SHARES the
+    # shared-pg-b instance (SOVEREIGN_PDA_PG_OWN_CLUSTER=false), gate on
+    # it so the `pda` Database + role + reflected
+    # pda-shared-database-secret exist first. Harmless in the default
+    # 1:1 path — bp-postgres-shared-b is an empty Ready release within
+    # seconds of bp-cnpg + bp-reflector (the same unconditional-edge
+    # shape bp-keycloak slot 09 carries on bp-postgres-shared).
+    - name: bp-postgres-shared-b
+      namespace: flux-system
     # G92.2 #2661 (2026-06-01): bp-keycloak HR moved to host ns `mgmt`.
     - name: bp-keycloak
       namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
@@ -116,7 +125,11 @@ spec:
       # 0.1.10: explicit port 443 on the SSO redirect (the #3310 class).
       # 0.1.11: REVERT the /login redirect — it intercepted the OIDC
       # post-callback bounce (ERR_TOO_MANY_REDIRECTS -> 500, admin walk).
-      version: 0.1.11
+      # 0.1.12 (#3370): embedded-DB elimination seam —
+      # postgres.cluster.enabled gate + databaseSecret.name flip so PDA
+      # adopts the shared-pg-b `pda` Context (one-flag enable_shared_pg
+      # contract, the gitea/harbor/keycloak shape).
+      version: 0.1.12
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns-admin
@@ -133,3 +146,17 @@ spec:
       host: "pdns-admin.${SOVEREIGN_FQDN}"
     sso:
       sovereignFqdn: "${SOVEREIGN_FQDN}"
+    # ── Shared-instance flip (#3370 — the gitea/harbor/keycloak shape) ──
+    # Default OWN_CLUSTER=true → the bundled pda-pg Cluster + its
+    # pda-database-secret mirror render exactly as today (single-region
+    # render byte-identical; envs provisioned before these vars existed
+    # resolve the `:=` defaults). Cloud-init computes OWN_CLUSTER=false
+    # + the secret flip from the SAME enable_shared_pg var that turns
+    # slot 16c ON: PDA then reads username/password/uri straight from
+    # the reflector-PUSHED pda-shared-database-secret hub (shared-pg-b's
+    # `pda` Context) — no mirror hop, no reflects: pull.
+    postgres:
+      cluster:
+        enabled: ${SOVEREIGN_PDA_PG_OWN_CLUSTER:=true}
+    databaseSecret:
+      name: ${SOVEREIGN_PDA_PG_SECRET:=pda-database-secret}

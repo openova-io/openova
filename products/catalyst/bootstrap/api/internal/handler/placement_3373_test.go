@@ -112,8 +112,13 @@ func TestNewApplicationCRFromSeed_NoPlacement_LegacyString(t *testing.T) {
 	}
 	obj := newApplicationCRFromSeed(seed)
 	pl, ok, err := unstructured.NestedString(obj.Object, "spec", "placement")
-	if err != nil || !ok || pl != "singleton" {
-		t.Fatalf("silent-accept flow must keep the legacy string form, got (%q, %v, %v)", pl, ok, err)
+	// Post-#3370 merge: the legacy STRING form is the DR-posture enum
+	// (single-region|active-active|active-hotstandby) — raw topology
+	// strings like "singleton" are NOT admissible on the real
+	// apiserver, so the silent-accept flow maps through
+	// placementForTopology (singleton → single-region).
+	if err != nil || !ok || pl != "single-region" {
+		t.Fatalf("silent-accept flow must stamp the mapped DR-posture enum, got (%q, %v, %v)", pl, ok, err)
 	}
 }
 

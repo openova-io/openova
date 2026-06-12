@@ -55,11 +55,11 @@ Sovereign install renders cleanly without operator input.
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
 {{- $ferret := .Values.smeServices.ferretdb -}}
 {{- $ns := $ferret.namespace | default "sme" -}}
-{{- $pgService := printf "%s-rw.%s.svc.cluster.local" (.Values.smePostgres.cluster.name | default "sme-pg") $ns -}}
+{{- $pgService := .Values.smePostgres.externalHost | default (printf "%s-rw.%s.svc.cluster.local" (.Values.smePostgres.cluster.name | default "sme-pg") $ns) -}}
 {{- $pgPort := $ferret.postgresPort | default 5432 -}}
 {{- $pgDB := $ferret.postgresDatabase | default "sme_documents" -}}
 {{- $sslmode := $ferret.sslmode | default "disable" -}}
-{{- $appSecret := printf "%s-app" (.Values.smePostgres.cluster.name | default "sme-pg") -}}
+{{- $appSecret := .Values.smePostgres.credentialSecret | default (printf "%s-app" (.Values.smePostgres.cluster.name | default "sme-pg")) -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

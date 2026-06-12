@@ -1,0 +1,101 @@
+=== #3370 — REAL catalyst-api binary (cmd/api, this branch) against the envtest hw130-mimic cluster ===
+
+--- GET /catalyst/v1/catalog/postgres/instances — EXACTLY the 3 instances + their Contexts (§5 target table) ---
+{
+    "items": [
+        {
+            "id": "b8547af1-a9d6-44e2-8560-5bd2320de173",
+            "name": "shared-pg",
+            "blueprint": "postgres",
+            "org": "platform",
+            "topology": "single-region",
+            "status": "Ready",
+            "createdAt": "2026-06-12T16:27:58Z",
+            "contexts": [
+                {
+                    "name": "registry",
+                    "kind": "db",
+                    "occupiedBy": "harbor",
+                    "credential": "harbor-database-secret",
+                    "status": "ready"
+                },
+                {
+                    "name": "gitea",
+                    "kind": "db",
+                    "occupiedBy": "gitea",
+                    "credential": "gitea-database-secret",
+                    "status": "ready"
+                },
+                {
+                    "name": "keycloak",
+                    "kind": "db",
+                    "occupiedBy": "keycloak",
+                    "credential": "keycloak-database-secret",
+                    "status": "ready"
+                }
+            ]
+        },
+        {
+            "id": "5fcf9078-8809-43e3-9d98-e0067f01d2bc",
+            "name": "shared-pg-b",
+            "blueprint": "postgres",
+            "org": "platform",
+            "topology": "single-region",
+            "status": "Ready",
+            "createdAt": "2026-06-12T16:27:58Z",
+            "contexts": [
+                {
+                    "name": "grafana",
+                    "kind": "db",
+                    "occupiedBy": "grafana",
+                    "credential": "grafana-database-env",
+                    "status": "ready"
+                },
+                {
+                    "name": "pdns",
+                    "kind": "db",
+                    "occupiedBy": "powerdns",
+                    "credential": "pdns-database-secret",
+                    "status": "ready"
+                },
+                {
+                    "name": "pda",
+                    "kind": "db",
+                    "occupiedBy": "powerdns-admin",
+                    "credential": "pda-shared-database-secret",
+                    "status": "ready"
+                }
+            ]
+        },
+        {
+            "id": "1beab03a-d209-4051-8186-3e7ee82503e2",
+            "name": "shared-pg-c",
+            "blueprint": "postgres",
+            "org": "platform",
+            "topology": "single-region",
+            "status": "Ready",
+            "createdAt": "2026-06-12T16:27:59Z",
+            "contexts": [
+                {
+                    "name": "sme_auth",
+                    "kind": "db",
+                    "occupiedBy": "catalyst-platform",
+                    "credential": "sme-database-secret",
+                    "status": "ready"
+                },
+                {
+                    "name": "sme_billing",
+                    "kind": "db",
+                    "occupiedBy": "catalyst-platform",
+                    "status": "declared"
+                },
+                {
+                    "name": "sme_documents",
+                    "kind": "db",
+                    "occupiedBy": "catalyst-platform",
+                    "status": "declared"
+                }
+            ]
+        }
+    ]
+}

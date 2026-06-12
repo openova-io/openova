@@ -150,6 +150,9 @@ slots:
     # credentials ExternalSecret. bp-reflector — mirrors CNPG-generated
     # pda-pg-app Secret into pda-database-secret in the chart namespace.
     # bp-gateway-api — HTTPRoute.
+    # bp-postgres-shared-b (#3370): pda adopts the shared-pg-b `pda`
+    # Context when SOVEREIGN_PDA_PG_OWN_CLUSTER=false (one-flag
+    # enable_shared_pg contract); harmless empty-Ready edge otherwise.
     depends_on:
       - bp-powerdns
       - bp-cnpg
@@ -158,6 +161,7 @@ slots:
       - bp-external-secrets-stores
       - bp-reflector
       - bp-gateway-api
+      - bp-postgres-shared-b
     wave: present
   - slot: 12
     name: bp-external-dns
@@ -179,7 +183,10 @@ slots:
     # upgrade fails admission with `no matches for kind "UserAccess"`.
     # #3373 (2026-06-13): bp-mgmt-vcluster — the umbrella now installs
     # INSIDE the mgmt vCluster (placement-as-data; see slot 09 note).
-    depends_on: [bp-gitea, bp-gateway-api, bp-keycloak, bp-cnpg, bp-crossplane-claims, bp-mgmt-vcluster]
+    # bp-postgres-shared-c (#3370): the SME mesh adopts shared-pg-c's
+    # sme_* Contexts when SOVEREIGN_SME_PG_OWN_CLUSTER=false (one-flag
+    # enable_shared_pg contract); harmless empty-Ready edge otherwise.
+    depends_on: [bp-gitea, bp-gateway-api, bp-keycloak, bp-cnpg, bp-crossplane-claims, bp-postgres-shared-c, bp-mgmt-vcluster]
     wave: present
   - slot: 14
     name: bp-crossplane-claims
