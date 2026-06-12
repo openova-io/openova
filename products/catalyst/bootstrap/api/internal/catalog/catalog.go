@@ -160,6 +160,22 @@ func AllBlueprints() ([]Blueprint, error) {
 	return out, nil
 }
 
+// BlueprintByID returns the catalog entry for a full bp-<name> id.
+// (#3370 — the contextSchema fallback resolution path when the
+// in-cluster Blueprint CR is absent/unwired.)
+func BlueprintByID(id string) (Blueprint, bool) {
+	c, err := load()
+	if err != nil {
+		return Blueprint{}, false
+	}
+	for _, b := range c.Blueprints {
+		if b.ID == id {
+			return b, true
+		}
+	}
+	return Blueprint{}, false
+}
+
 // ListedBlueprints returns the Blueprints with visibility=listed —
 // the same set the wizard's StepComponents card grid renders. This
 // is the canonical "marketplace" view a Sovereign Console operator

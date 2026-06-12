@@ -504,23 +504,25 @@ components:
         topology:  { $ref: '#/components/schemas/BcpTopology' }
         status:    { type: string, enum: [Pending, Reconciling, Ready, Degraded, Failed, Uninstalling] }
         createdAt: { type: string, format: date-time }
-        bindings:
+        contexts:
           type: array
           description: |
-            Consumer bindings on a data-instance row (#3188 many-to-many
-            cards). Present only on postgres-engine-family instance rows
-            derived from live CNPG Cluster/Database CRs; omitted elsewhere.
-          items: { $ref: '#/components/schemas/InstanceBinding' }
-    InstanceBinding:
+            #3370 — Contexts on a SHAREABLE instance: the first-class
+            child entities consumer applications occupy (db / topic /
+            bucket / keyspace). Projected generically from the
+            instance's declared IaC values per the Blueprint's
+            contextSchema; omitted for non-shareable blueprints.
+          items: { $ref: '#/components/schemas/Context' }
+    Context:
       type: object
-      description: One consumer's binding to a data-instance (one Consumers-table row).
-      required: [database, role, mode, secret, consumer]
+      description: One Context on a shareable instance (#3370).
+      required: [name, kind, status]
       properties:
-        database: { type: string, description: Isolated database name on the instance }
-        role:     { type: string, description: Per-consumer login role (CNPG-managed owner) }
-        mode:     { type: string, enum: [shared, dedicated], description: shared = Database CR on a shared instance; dedicated = the instance's own app database }
-        secret:   { type: string, description: Reflected connection Secret name; empty when unknown }
-        consumer: { type: string, description: Consuming app/namespace; empty when not derivable }
+        name:       { type: string, description: Context name (e.g. the isolated database name) }
+        kind:       { type: string, description: Kind label from the Blueprint contextSchema (db | topic | bucket | keyspace) }
+        occupiedBy: { type: string, description: Consumer blueprint (bp- prefix stripped); empty when undeclared }
+        credential: { type: string, description: Reflected credential Secret declared by the context entry }
+        status:     { type: string, enum: [ready, pending, declared], description: ready = credential reflected in every consumer namespace; pending = reflection in flight; declared = nothing checkable produced }
     Application:
       allOf:
         - $ref: '#/components/schemas/ApplicationSummary'
@@ -562,6 +564,22 @@ components:
           type: object
           additionalProperties: true
           description: Per-Blueprint Helm values overrides (subject to configSchema gating).
+        backing:
+          type: array
+          description: |
+            #3370 — backing-service selections, one per required backing
+            service. mode=create (default) auto-creates the backing
+            service as its OWN instance-application with a Context for
+            this consumer; mode=reuse appends a Context to the named
+            existing instance and wires this Application's dependsOn to
+            it (no new backing application).
+          items:
+            type: object
+            required: [blueprint]
+            properties:
+              blueprint: { type: string, description: Backing Blueprint id (bp- prefix optional) }
+              mode:      { type: string, enum: [create, reuse], default: create }
+              instance:  { type: string, description: Existing instance name (required when mode=reuse) }
     EndpointMutationRequest:
       type: object
       required: [name]
