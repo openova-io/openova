@@ -55,9 +55,17 @@ spec:
   targetNamespace: grafana
   dependsOn:
     - name: bp-cnpg
+    # #2745 (2026-06-12): bp-loki/bp-mimir/bp-tempo HRs re-homed to host
+    # ns `mgmt` (mgmt vCluster placement). A bare `name:` resolves in
+    # THIS HR's namespace (flux-system) → dangling dep → grafana wedges
+    # forever (#3191 shape). Cross-ns dependsOn requires explicit
+    # `namespace:`.
     - name: bp-loki
+      namespace: mgmt
     - name: bp-mimir
+      namespace: mgmt
     - name: bp-tempo
+      namespace: mgmt
     # G92.2 #2661 (2026-06-01): bp-keycloak HR moved to host ns `mgmt`.
     - name: bp-keycloak
     # bp-gateway-api (issue #503): chart ships an HTTPRoute template;
@@ -72,7 +80,10 @@ spec:
       # GrafanaAdmin (server admin) + allow_assign_grafana_admin=true, so
       # the owner — seeded into sovereign-admins by bp-keycloak 1.4.24 —
       # gets the full Administration nav, not org-Viewer.
-      version: 1.0.10
+      # 1.0.11 (#2745, 2026-06-12): loki/mimir/tempo re-homed into the
+      # mgmt vCluster — datasource URLs re-pointed at the syncer-mangled
+      # host-side Service names (<svc>-x-<ns>-x-mgmt-vcluster.mgmt.svc).
+      version: 1.0.11
       sourceRef:
         kind: HelmRepository
         name: bp-grafana

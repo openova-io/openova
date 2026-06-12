@@ -6,7 +6,40 @@
 # Reconciled by:  Flux on the new Sovereign's k3s control plane, AFTER
 #                 bp-seaweedfs is Ready (Mimir blocks live on S3).
 #
+# ── #2745 MGMT vCluster placement (NS-1 founder DoD) ─────────────────
+# "Each application must be in a vCluster (dmz/mgmt/rtz) unless there
+# is a very valid exceptional reason." The 18-app audit verdicted
+# loki/mimir/tempo PROMOTE-NOW: S3-backed umbrellas, zero CRD/
+# HTTPRoute/hostPath/valuesFrom coupling — none of the G105 #2697
+# revert traps (Gateway-API/ExternalSecret CRD admission, valuesFrom
+# Secret lookups in the HR's own ns) apply. The chart's webhook-gate
+# hook + rollout-operator register against the VCLUSTER apiserver —
+# self-contained, no host admission coupling.
+#
+# The HR CR lives in host ns `mgmt` (where bp-mgmt-vcluster slot 58
+# exports the vc-mgmt kubeconfig Secret, exportKubeConfig.secret.name).
+# helm-controller resolves spec.kubeConfig.secretRef from the HR's own
+# namespace (Flux v2 SecretReference contract) and installs the chart
+# INSIDE the mgmt vCluster. targetNamespace/storageNamespace = the
+# inner `mimir` namespace inside the vCluster (storageNamespace pinned
+# per the hw92 lesson — unpinned it defaults to the HR's own ns `mgmt`,
+# which createNamespace never creates inside the vCluster →
+# `namespaces "mgmt" not found` install failure; bp-coraza hit this).
+#
+# Host-side consumers re-point to the syncer-mangled Service names
+# (vCluster sync.toHost.services; suffix = the vCluster instance name,
+# i.e. the slot-58 releaseName `mgmt-vcluster`):
+#   query API:    mimir-nginx-x-mimir-x-mgmt-vcluster.mgmt.svc:80
+#   query-frontend: mimir-query-frontend-x-mimir-x-mgmt-vcluster.mgmt.svc:8080
+# Updated in lockstep in this PR: bp-grafana 1.0.11 prometheus
+# datasource + bp-catalyst-platform 1.4.591 CATALYST_MIMIR_URL +
+# baseline-catalyst-system CNP egress ns allowlist (+ `mgmt`).
+# In-vCluster consumers keep the plain `*.mimir.svc` names.
+#
 # dependsOn:
+#   - bp-mgmt-vcluster (slot 58) — the vc-mgmt Secret doesn't exist
+#     until that HR is Ready; the kubeConfig pivot dangles without it.
+#     Cross-ns dependsOn requires explicit `namespace:`.
 #   - bp-seaweedfs (slot 18) — Mimir blocks-storage uses SeaweedFS S3.
 #     Without SeaweedFS Ready, Mimir compactor/ingester StatefulSets
 #     cannot persist metric blocks.
@@ -18,13 +51,6 @@
 # Ready when manifests apply; runtime convergence is observed via
 # kubectl rollout status.
 
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: mimir
-  labels:
-    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
@@ -42,16 +68,41 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-mimir
-  namespace: flux-system
+  # #2745: HR lives in host ns `mgmt` (where bp-mgmt-vcluster exports
+  # the vc-mgmt Secret). helm-controller authenticates against the
+  # vCluster apiserver and installs the chart inside the vCluster.
+  namespace: mgmt
   labels:
     catalyst.openova.io/slot: "23"
+    catalyst.openova.io/vcluster: mgmt
 spec:
   interval: 15m
   timeout: 15m
   releaseName: mimir
+  # targetNamespace = inner namespace INSIDE the mgmt vCluster. Kept at
+  # `mimir` so in-vCluster consumers keep the canonical *.mimir.svc names.
   targetNamespace: mimir
+  # hw92 lesson (bp-coraza): pin storageNamespace = targetNamespace,
+  # else helm-controller defaults it to the HR's own namespace (`mgmt`)
+  # and fails `namespaces "mgmt" not found` storing the release inside
+  # the vCluster (createNamespace only creates the target `mimir`).
+  storageNamespace: mimir
+  # vCluster pivot — helm-controller installs the chart inside the
+  # mgmt vCluster (Flux v2 HelmRelease v2 contract). #2745.
+  kubeConfig:
+    secretRef:
+      name: vc-mgmt
+      key: config
   dependsOn:
+    # #2745: bp-mgmt-vcluster MUST be Ready before this HR tries to
+    # install — the vc-mgmt Secret doesn't exist until then. Cross-ns
+    # dependsOn requires explicit `namespace:`.
+    - name: bp-mgmt-vcluster
+      namespace: flux-system
+    # #2745: explicit namespace — a bare `name:` resolves in THIS HR's
+    # namespace (now `mgmt`) → dangling dep → wedge (#3191 shape).
     - name: bp-seaweedfs
+      namespace: flux-system
   chart:
     spec:
       chart: bp-mimir
@@ -61,6 +112,10 @@ spec:
         name: bp-mimir
         namespace: flux-system
   install:
+    # #2745: createNamespace=true so helm-controller provisions the
+    # inner `mimir` namespace inside the mgmt vCluster on first install
+    # (the host-side Namespace YAML was dropped with this pivot).
+    createNamespace: true
     timeout: 15m
     disableWait: true
     remediation:

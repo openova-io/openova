@@ -1774,9 +1774,17 @@ security:
       - openbao
       - harbor
       - nats-system
+      # #2745 (2026-06-12): loki/mimir/tempo run INSIDE the mgmt
+      # vCluster; their host-side synced Service endpoints
+      # (<svc>-x-<ns>-x-mgmt-vcluster) are Pods in host ns `mgmt` —
+      # the `mgmt` entry below carries that traffic (e.g. the
+      # CATALYST_MIMIR_URL query-frontend). The plain loki/mimir/tempo
+      # entries stay for Sovereigns that keep host-side placement via
+      # per-Sovereign overlay.
       - loki
       - mimir
       - tempo
+      - mgmt
       - alloy
       - opentelemetry
       - external-secrets-system
