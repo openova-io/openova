@@ -164,6 +164,10 @@ import { OrganizationsDirectoryPage } from '@/pages/sovereign/organizations/Orga
 // editor over the EXISTING /catalog/admin/* endpoints, mounted at
 // /organizations/commerce/{plans,addons,bundles,industries,apps}.
 import { CommerceEditorPage } from '@/pages/sovereign/organizations/CommerceEditorPage'
+// B4 mode-aware billing (issue #3378 DoD 5) — wraps the moved billing
+// pages; payment flows render only in real mode, showback/chargeback get
+// the consumption view with zero payment actions.
+import { BillingModeGate } from '@/pages/sovereign/organizations/BillingModeGate'
 // Wave 3 — Sandbox UI scaffold (branch: sandbox-wave3-ui-scaffold).
 // Per-Org agent-coding workspace mounted under /sandbox/* in the chroot
 // Sovereign Console. SandboxLanding is the 6-agent picker;
@@ -1653,28 +1657,31 @@ const consoleOrganizationsNewRoute = createRoute({
 /* Moved pages — the SAME page components as the legacy BSS / parent-
  * domains routes, re-mounted under their /organizations home. Page
  * internals are untouched (#3378 §non-negotiables "pages move with
- * redirects"); only the URL changes. Billing pages render mode-aware in
- * a follow-on PR on this chain; for now they keep their full surface so
- * the operator never loses billing/orders/revenue/vouchers/domains. */
+ * redirects"); only the URL changes. B4 (mode-aware billing, DoD 5): the
+ * payment pages render ONLY in real mode — BillingModeGate wraps each
+ * route and renders the showback consumption view (zero payment actions)
+ * for a showback/chargeback org (the parent is showback, so a single-org
+ * Sovereign sees the showback view by default). The payment pages'
+ * internals stay untouched. */
 const consoleOrgBillingRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/organizations/billing/billing',
-  component: BssBillingPage,
+  component: () => <BillingModeGate><BssBillingPage /></BillingModeGate>,
 })
 const consoleOrgOrdersRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/organizations/billing/orders',
-  component: BssOrdersPage,
+  component: () => <BillingModeGate><BssOrdersPage /></BillingModeGate>,
 })
 const consoleOrgRevenueRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/organizations/billing/revenue',
-  component: BssRevenuePage,
+  component: () => <BillingModeGate><BssRevenuePage /></BillingModeGate>,
 })
 const consoleOrgVouchersRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/organizations/billing/vouchers',
-  component: BssVouchersPage,
+  component: () => <BillingModeGate><BssVouchersPage /></BillingModeGate>,
 })
 const consoleOrgDomainsRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
