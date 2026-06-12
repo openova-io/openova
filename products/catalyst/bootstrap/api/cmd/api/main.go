@@ -1675,6 +1675,14 @@ func main() {
 		// zero-sub-org estate (§5 day-one showback).
 		rg.Get("/api/v1/sme/consumption", h.HandleSovereignConsumption)
 
+		// Organizations Enter-org support session (issue #3378 B2) —
+		// mints the audited, time-boxed (≤60min) impersonation into a
+		// sub-org's OWN console as a support principal in the org's realm
+		// (never the owner's identity). Reuses the handover-redemption
+		// flow + the #3374/#3385 cookie fix. Writes the audit event;
+		// hidden on the parent row (and rejects entering the parent).
+		rg.Post("/api/v1/sme/organizations/{slug}/enter", h.HandleEnterOrg)
+
 		// EPIC-3 (#1098) — Sovereign-prefix RBAC access-matrix surface
 		// (TBD-F4 / C6-007). Chroot-friendly mirror of
 		// /api/v1/sovereigns/{id}/rbac/access-matrix; the id is resolved

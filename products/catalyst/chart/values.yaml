@@ -469,6 +469,14 @@ controllers:
     # iter-8 Fix #42 root cause). Default matches the qa-fixtures
     # convention at templates/qa-fixtures/useraccess-qa-user1.yaml.
     userAccessNamespace: "catalyst-system"
+    # Organizations Enter-org support model (issue #3378 DoD 6). When true
+    # the org-controller's reconcilePerOrgRealm (#3101) auto-wires a
+    # dedicated Keycloak realm per Organization — the precondition for the
+    # Enter-org support session (impersonation into a sub-org's own realm).
+    # Defaults FALSE: the realm path is merged-dormant until an operator
+    # validates it on a live env and flips this in the per-Sovereign values
+    # overlay. Stays runtime-overridable per Inviolable Principle #4.
+    perOrgRealmEnabled: false
     # Free-form extra env vars threaded into the Pod (advanced; for one-off
     # operator-side knobs not yet promoted to a top-level value).
     env: {}

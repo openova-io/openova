@@ -256,3 +256,37 @@ export async function getConsumption(): Promise<SovereignConsumption> {
     return EMPTY_CONSUMPTION
   }
 }
+
+/* ── B2 Enter-org support session (#3378 §6 B2, DoD 6) ─────────────── */
+
+/** EnterOrgResult — the minted support session (the org-console handover
+ *  URL + the audited support principal + the ≤60min expiry). */
+export interface EnterOrgResult {
+  handoverURL: string
+  supportPrincipal: string
+  org: string
+  expiresAt: string
+  auditEventId: string
+}
+
+/**
+ * enterOrg — mint an audited, time-boxed support session into a sub-org's
+ * own console (§2.4). POSTs to the catalyst-api Enter-org endpoint; the
+ * caller opens the returned handoverURL. Throws on failure so the button
+ * surfaces the error (an unauthorized caller, an attempt to enter the
+ * parent, or an unwired handover signer).
+ */
+export async function enterOrg(slug: string): Promise<EnterOrgResult> {
+  const res = await authedFetch(
+    `${API_BASE}/v1/sme/organizations/${encodeURIComponent(slug)}/enter`,
+    {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+    },
+  )
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`enter org: HTTP ${res.status} ${detail}`.trim())
+  }
+  return (await res.json()) as EnterOrgResult
+}

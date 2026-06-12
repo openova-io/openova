@@ -123,6 +123,15 @@ spec:
             # products/catalyst/chart/templates/qa-fixtures/useraccess-qa-user1.yaml.
             - name: CATALYST_USERACCESS_NAMESPACE
               value: {{ .Values.controllers.organization.userAccessNamespace | default "catalyst-system" | quote }}
+            # Organizations Enter-org support model (issue #3378 DoD 6):
+            # gates the per-Org Keycloak realm auto-wiring (reconcilePerOrgRealm,
+            # #3101). Defaults FALSE — the realm path is merged-dormant until
+            # an operator validates it on a live env and flips
+            # perOrgRealmEnabled=true in the per-Sovereign values overlay.
+            # cmd/main.go reads CATALYST_PER_ORG_REALM_ENABLED; a sub-org
+            # with a realm is the precondition for the Enter-org walk.
+            - name: CATALYST_PER_ORG_REALM_ENABLED
+              value: {{ .Values.controllers.organization.perOrgRealmEnabled | default false | quote }}
             {{- range $k, $v := .Values.controllers.organization.env }}
             - name: {{ $k | quote }}
               value: {{ $v | quote }}

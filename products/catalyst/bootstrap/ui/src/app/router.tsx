@@ -164,6 +164,9 @@ import { OrganizationsDirectoryPage } from '@/pages/sovereign/organizations/Orga
 // editor over the EXISTING /catalog/admin/* endpoints, mounted at
 // /organizations/commerce/{plans,addons,bundles,industries,apps}.
 import { CommerceEditorPage } from '@/pages/sovereign/organizations/CommerceEditorPage'
+// Org detail (issue #3378 §4) — identity card + consumption panel +
+// Enter-org button (sub-orgs only). Wires the dead data-href-todo.
+import { OrganizationDetailPage } from '@/pages/sovereign/organizations/OrganizationDetailPage'
 // B4 mode-aware billing (issue #3378 DoD 5) — wraps the moved billing
 // pages; payment flows render only in real mode, showback/chargeback get
 // the consumption view with zero payment actions.
@@ -1653,6 +1656,19 @@ const consoleOrganizationsNewRoute = createRoute({
   path: '/organizations/new',
   component: SMECreateTenantPage,
 })
+// /organizations/$org — the org detail page (identity card + consumption
+// panel + Enter-org button). The literal /organizations/{new,commerce,
+// billing,domains} routes are registered too; TanStack matches the most
+// specific literal segment before this $org param, so e.g.
+// /organizations/new resolves to the create form, not org slug "new".
+const consoleOrganizationDetailRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/organizations/$org',
+  component: () => {
+    const { org } = consoleOrganizationDetailRoute.useParams() as { org: string }
+    return <OrganizationDetailPage org={org} />
+  },
+})
 
 /* Moved pages — the SAME page components as the legacy BSS / parent-
  * domains routes, re-mounted under their /organizations home. Page
@@ -2282,6 +2298,7 @@ const routeTree = rootRoute.addChildren([
     // /parent-domains path keeps resolving).
     consoleOrganizationsRoute,
     consoleOrganizationsNewRoute,
+    consoleOrganizationDetailRoute,
     consoleOrgBillingRoute,
     consoleOrgOrdersRoute,
     consoleOrgRevenueRoute,
