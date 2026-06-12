@@ -1018,7 +1018,7 @@ spec:
       # fields (spec.bootstrap/helmRelease/dependsOn + CEL waiver) +
       # catalog-seed shareable/contextSchema (bp-postgres, bp-valkey).
             # 1.4.598 — #3374: CATALYST_OPENBAO_ADDR onto catalyst-api (openbao bare-URL SSO shim).
-      version: 1.4.599
+      version: 1.4.600
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
