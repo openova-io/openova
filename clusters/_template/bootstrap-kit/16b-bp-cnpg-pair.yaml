@@ -190,7 +190,9 @@ spec:
       # Error" on hw126 despite the instance being 1/1 Running.
       # 0.2.2 (hw130): replication netpol also allows OWN-cluster 5432 —
       # it default-denied the primary's own instance-2 join (>1h wedge).
-      version: 0.2.2
+      # 0.2.3 (#3195 G6): production Continuum seed flipped ON (real
+      # region labels; CRD pattern relaxed in lockstep, catalyst chart).
+      version: 0.2.3
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair
@@ -270,6 +272,21 @@ spec:
         region: '${SOVEREIGN_PRIMARY_REGION:-}'
       replica:
         region: '${SOVEREIGN_REPLICA_REGION:-}'
+      # ── Continuum DR contract seed (#3195 G6, flipped 2026-06-12) ──
+      # Renders the production Continuum CR so continuum-controller has
+      # a real DR contract to reconcile (it was idle on every prov —
+      # `kubectl get continuum -A` empty, verified hw130). Gating: the
+      # chart renders this ONLY when cnpgPair.enabled is ALSO true, so
+      # single-region provs (gate OFF) stay byte-identical. The region
+      # labels carry the REAL canonical labels — the Continuum CRD
+      # pattern was relaxed in lockstep (products/catalyst/chart/crds/
+      # continuum.yaml) to admit digit-bearing codes; the prior
+      # letters-only pattern was Hetzner-era and unsatisfiable on
+      # kom4dc (me-east-215-*), which is what kept this seed OFF.
+      continuum:
+        enabled: true
+        primaryRegion: '${SOVEREIGN_PRIMARY_REGION:-}'
+        hotStandbyRegion: '${SOVEREIGN_REPLICA_REGION:-}'
       image:
         # harbor-proxy-pull compliant prefix (see header). Public CNPG
         # image; proxy-ghcr serves it cred-free pre-cutover.
