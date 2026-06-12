@@ -161,7 +161,8 @@ spec:
       # gitea/harbor/openbao admin mappings (all keyed on sovereign-admins)
       # elevate the owner on first SSO login. The catalyst-pin broker
       # auto-links to the pre-seeded user by email (trustEmail=true flow).
-      version: 1.4.24
+      # 1.4.25: hook Job managed-by:flux (kyverno Enforce, #3297 class).
+      version: 1.4.25
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
