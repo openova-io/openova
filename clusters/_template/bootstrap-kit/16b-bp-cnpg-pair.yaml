@@ -192,7 +192,7 @@ spec:
       # it default-denied the primary's own instance-2 join (>1h wedge).
       # 0.2.3 (#3195 G6): production Continuum seed flipped ON (real
       # region labels; CRD pattern relaxed in lockstep, catalyst chart).
-      version: 0.2.3
+      version: 0.2.4
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair
