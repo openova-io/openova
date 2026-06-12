@@ -15,9 +15,11 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -181,4 +183,62 @@ func (c *smeCatalogClient) SetPublished(ctx context.Context, slug string, publis
 	c.cachedAt = time.Time{}
 	c.mu.Unlock()
 	return resp.StatusCode, nil
+}
+
+// AdminProxy forwards an arbitrary method + sub-path + JSON body to the
+// SME commerce catalog (services/catalog) and returns (status, body,
+// contentType, error). It is the generic transport for the Organizations
+// commerce editors (issue #3378 DoD 7/8) — the editors ride the EXISTING
+// /catalog/admin/* endpoints (no new business endpoint, §6); this proxy
+// is the same thin transport SetPublished uses, generalized.
+//
+// `subPath` is appended to "<baseURL>/catalog/admin" (e.g.
+// "/plans", "/plans/{id}"). `body` is the verbatim request body bytes
+// (nil for DELETE). The bearer is the canonical SME bridge token minted
+// by the caller (mintSMEBridgeToken) — empty bearer ⇒ the upstream
+// JWTAuth returns 401 which we surface verbatim. Per
+// docs/INVIOLABLE-PRINCIPLES.md #10 the token is never logged.
+//
+// Caching: the SME catalog admin mutations invalidate the published
+// cache so a publish/unpublish or app edit reflects on the next read.
+func (c *smeCatalogClient) AdminProxy(
+	ctx context.Context,
+	method, subPath string,
+	body []byte,
+	bearer string,
+) (int, []byte, string, error) {
+	sub := "/" + strings.TrimLeft(strings.TrimSpace(subPath), "/")
+	url := c.baseURL + "/catalog/admin" + sub
+
+	var reader io.Reader
+	if len(body) > 0 {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, reader)
+	if err != nil {
+		return 0, nil, "", err
+	}
+	req.Header.Set("Accept", "application/json")
+	if len(body) > 0 {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if strings.TrimSpace(bearer) != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0, nil, "", err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	ct := resp.Header.Get("Content-Type")
+
+	// A successful mutation invalidates the published cache.
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		c.mu.Lock()
+		c.cached = nil
+		c.cachedAt = time.Time{}
+		c.mu.Unlock()
+	}
+	return resp.StatusCode, respBody, ct, nil
 }

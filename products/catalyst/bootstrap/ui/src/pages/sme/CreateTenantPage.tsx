@@ -33,6 +33,14 @@ import {
   type SMETenantDomainMode,
   type SovereignParentDomain,
 } from './sme.api'
+// Organizations model (issue #3378 B1) — the kind-derived defaults that
+// drive the internal door's billingMode + isolation rendering.
+import {
+  kindDefaults,
+  type OrgBillingMode,
+  type OrgIsolation,
+  type OrgKind,
+} from '@/lib/organizations.api'
 
 export interface CreateTenantPageProps {
   /** Test seam — supplies the parent-domain pool synchronously. */
@@ -60,6 +68,32 @@ export function CreateTenantPage({
     useState<SMETenantDomainMode>('free-subdomain')
   const [parentDomain, setParentDomain] = useState<string>('')
   const [byoDomain, setByoDomain] = useState<string>('')
+
+  // ── Organizations internal door (issue #3378 B1) ──
+  // kind drives the kind-derived billingMode + isolation defaults
+  // (internal → showback + namespace; customer → real + vcluster). The
+  // advanced override exposes the two derived fields for the rare org
+  // that needs a non-default shape (§2.1 advanced-view override). kind
+  // defaults to 'customer' so this page behaves exactly as the legacy
+  // SME create form until the operator picks Internal.
+  const [orgKind, setOrgKind] = useState<OrgKind>('customer')
+  const [advancedOpen, setAdvancedOpen] = useState<boolean>(false)
+  const derived = kindDefaults(orgKind)
+  const [billingMode, setBillingMode] = useState<OrgBillingMode>(derived.billingMode)
+  const [isolation, setIsolation] = useState<OrgIsolation>(derived.isolation)
+
+  // When kind flips, re-seed billingMode + isolation to the kind default
+  // UNLESS the operator has opened the advanced override (then their
+  // explicit choice sticks). This is what makes "internal → showback +
+  // namespace render" the moment Internal is selected (DoD-4).
+  useEffect(() => {
+    if (advancedOpen) return
+    const d = kindDefaults(orgKind)
+    setBillingMode(d.billingMode)
+    setIsolation(d.isolation)
+  }, [orgKind, advancedOpen])
+
+  const isInternal = orgKind === 'internal'
 
   const [submitting, setSubmitting] = useState<boolean>(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -135,6 +169,12 @@ export function CreateTenantPage({
             : undefined,
         byo_domain:
           domainMode === 'byo' ? byoDomain.trim().toLowerCase() : undefined,
+        // Organizations model (issue #3378 B1) — send the resolved shape.
+        // The backend re-derives + validates; we send the explicit values
+        // so the advanced override round-trips.
+        kind: orgKind,
+        billing_mode: billingMode,
+        isolation,
       })
       setCreated(result)
     } catch (err) {
@@ -148,14 +188,16 @@ export function CreateTenantPage({
     <div data-testid="sme-create-tenant-page" className="px-6 py-4">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-[var(--color-text-strong)]">
-            Onboard SME Tenant
+          <h1
+            data-testid="create-org-title"
+            className="text-xl font-semibold text-[var(--color-text-strong)]"
+          >
+            Create organization
           </h1>
           <p className="text-sm text-[var(--color-text-dim)]">
-            Provisions a per-SME vCluster, blueprint charts, DNS, certs,
-            Keycloak realm, and tenant-registry entry. Choose a free
-            subdomain under one of this Sovereign&apos;s parent domains
-            or bring an SME-owned apex.
+            {isInternal
+              ? 'An internal department — a people, app, and cost boundary on this Sovereign. No marketplace voucher; consumption attributes to the org via showback.'
+              : 'A customer organization — provisions its own vCluster, blueprint charts, DNS, certs, Keycloak realm, and registry entry. Choose a free subdomain under one of this Sovereign’s parent domains or bring an org-owned apex.'}
           </p>
         </div>
       </div>
@@ -174,8 +216,107 @@ export function CreateTenantPage({
         onSubmit={onSubmit}
         className="grid max-w-2xl gap-4 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-5"
       >
+        {/* ── Organizations internal door (issue #3378 B1) ──
+            The kind toggle: Internal = a department (this menu's Create),
+            Customer = the external door the marketplace funnel uses. The
+            kind-derived billingMode + isolation render beneath, with an
+            advanced override. */}
+        <fieldset className="grid gap-2 text-sm" data-testid="create-org-kind">
+          <legend className="text-[var(--color-text-dim)]">Organization kind</legend>
+          <div className="flex gap-2">
+            {(['internal', 'customer'] as OrgKind[]).map((k) => {
+              const active = orgKind === k
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  data-testid={`create-org-kind-${k}`}
+                  aria-pressed={active}
+                  onClick={() => setOrgKind(k)}
+                  className={`flex-1 rounded-md border px-3 py-2 text-left transition-colors ${
+                    active
+                      ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-text-strong)]'
+                      : 'border-[var(--color-border)] bg-[var(--color-input)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)]'
+                  }`}
+                >
+                  <span className="block font-medium capitalize">{k}</span>
+                  <span className="block text-xs text-[var(--color-text-dim)]">
+                    {k === 'internal'
+                      ? 'Department — people/app/cost boundary'
+                      : 'Customer — its own Kubernetes universe'}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          {/* Kind-derived defaults — the §2.3 values that render the
+              moment Internal/Customer is selected. */}
+          <div
+            data-testid="create-org-defaults"
+            className="flex flex-wrap items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2 text-xs"
+          >
+            <span className="text-[var(--color-text-dim)]">Defaults:</span>
+            <span
+              data-testid="create-org-billing-mode"
+              data-mode={billingMode}
+              className="rounded-full border border-[var(--color-border)] px-2 py-0.5 font-medium text-[var(--color-text)]"
+            >
+              billing: {billingMode}
+            </span>
+            <span
+              data-testid="create-org-isolation"
+              data-isolation={isolation}
+              className="rounded-full border border-[var(--color-border)] px-2 py-0.5 font-medium text-[var(--color-text)]"
+            >
+              isolation: {isolation}
+            </span>
+            <button
+              type="button"
+              data-testid="create-org-advanced-toggle"
+              onClick={() => setAdvancedOpen((v) => !v)}
+              className="ml-auto text-[var(--color-accent)] hover:underline"
+            >
+              {advancedOpen ? 'Hide advanced' : 'Advanced override'}
+            </button>
+          </div>
+          {advancedOpen ? (
+            <div
+              data-testid="create-org-advanced"
+              className="grid gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] p-3 sm:grid-cols-2"
+            >
+              <label className="grid gap-1">
+                <span className="text-[var(--color-text-dim)]">Billing mode</span>
+                <select
+                  data-testid="create-org-billing-select"
+                  value={billingMode}
+                  onChange={(e) => setBillingMode(e.target.value as OrgBillingMode)}
+                  className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5"
+                >
+                  <option value="real">real</option>
+                  <option value="chargeback">chargeback</option>
+                  <option value="showback">showback</option>
+                </select>
+              </label>
+              <label className="grid gap-1">
+                <span className="text-[var(--color-text-dim)]">Isolation</span>
+                <select
+                  data-testid="create-org-isolation-select"
+                  value={isolation}
+                  onChange={(e) => setIsolation(e.target.value as OrgIsolation)}
+                  className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5"
+                >
+                  <option value="namespace">namespace</option>
+                  <option value="vcluster">vcluster</option>
+                </select>
+              </label>
+            </div>
+          ) : null}
+        </fieldset>
+
         <label className="grid gap-1 text-sm">
-          <span className="text-[var(--color-text-dim)]">SME tenant slug</span>
+          <span className="text-[var(--color-text-dim)]">
+            {isInternal ? 'Organization slug' : 'SME tenant slug'}
+          </span>
           <input
             data-testid="sme-create-tenant-subdomain"
             type="text"

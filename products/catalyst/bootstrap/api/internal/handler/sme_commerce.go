@@ -1,0 +1,133 @@
+// sme_commerce.go — the Organizations commerce editors' proxy hop
+// (issue #3378 DoD 7/8).
+//
+// The Sovereign console's Organizations menu surfaces editor UIs for the
+// commerce catalog (plans / add-ons / bundles / industries / apps). Those
+// editors ride the EXISTING superadmin-JWT /catalog/admin/* endpoints on
+// the SME commerce catalog (core/services/catalog/handlers/routes.go:
+// 19-38) — §6 of #3378: "Any new endpoint beyond B1-B3 = FAIL". This file
+// is therefore NOT a new business endpoint: it is the same thin proxy hop
+// HandleSovereignAppPublish already uses (mintSMEBridgeToken → smeCatalog
+// client → /catalog/admin/*), generalized to the full CRUD so the console
+// (served at console.<sovereign>, which proxies /api/* through catalyst-
+// api) can reach the admin endpoints that are otherwise only reachable
+// behind the catalog service's own gateway.
+//
+// Routes (registered in cmd/api/main.go), all session-gated like the rest
+// of /api/v1/* and forwarded with the canonical SME bridge token:
+//
+//   POST   /api/v1/sme/commerce/{kind}            → create
+//   PUT    /api/v1/sme/commerce/{kind}/{id}       → update
+//   DELETE /api/v1/sme/commerce/{kind}/{id}       → delete
+//
+// where {kind} ∈ {plans, addons, bundles, industries, apps}. Reads use
+// the existing public catalog list endpoints via the SME gateway — the
+// editors fetch those directly, so no read proxy is added here.
+
+package handler
+
+import (
+	"context"
+	"net/http"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+)
+
+// commerceKinds is the closed set of /catalog/admin/* resource families
+// the editors manage. Anything outside this set is rejected with 404 so
+// the proxy can never be pointed at an arbitrary upstream sub-path.
+var commerceKinds = map[string]bool{
+	"plans":      true,
+	"addons":     true,
+	"bundles":    true,
+	"industries": true,
+	"apps":       true,
+}
+
+// HandleSMECommerceCreate — POST /api/v1/sme/commerce/{kind}.
+func (h *Handler) HandleSMECommerceCreate(w http.ResponseWriter, r *http.Request) {
+	h.proxyCommerce(w, r, http.MethodPost, "")
+}
+
+// HandleSMECommerceUpdate — PUT /api/v1/sme/commerce/{kind}/{id}.
+func (h *Handler) HandleSMECommerceUpdate(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		writeBadRequest(w, "missing-id", "id path parameter is required")
+		return
+	}
+	h.proxyCommerce(w, r, http.MethodPut, id)
+}
+
+// HandleSMECommerceDelete — DELETE /api/v1/sme/commerce/{kind}/{id}.
+func (h *Handler) HandleSMECommerceDelete(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		writeBadRequest(w, "missing-id", "id path parameter is required")
+		return
+	}
+	h.proxyCommerce(w, r, http.MethodDelete, id)
+}
+
+// proxyCommerce is the shared body: validate kind, mint the bridge
+// token, read the request body, forward to /catalog/admin/{kind}[/{id}],
+// and relay the upstream status + body verbatim so the editor sees the
+// real validation errors from the catalog service.
+func (h *Handler) proxyCommerce(w http.ResponseWriter, r *http.Request, method, id string) {
+	kind := strings.ToLower(strings.TrimSpace(chi.URLParam(r, "kind")))
+	if !commerceKinds[kind] {
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error":  "unknown-commerce-kind",
+			"detail": "kind must be one of plans, addons, bundles, industries, apps",
+		})
+		return
+	}
+
+	bearer, status, errResp := h.mintSMEBridgeToken(r)
+	if errResp != nil {
+		writeJSON(w, status, errResp)
+		return
+	}
+
+	// Read the request body verbatim (create/update carry JSON; delete
+	// carries none). We forward raw bytes — the catalog service owns the
+	// schema, so its own decoder + validation is the single source of
+	// truth. readMutationBody returns (body, true) when a 4xx was already
+	// written (the inverted-boolean convention; see infrastructure.go).
+	var body []byte
+	if method != http.MethodDelete {
+		b, errd := readMutationBody(w, r)
+		if errd {
+			return
+		}
+		body = b
+	}
+
+	subPath := "/" + kind
+	if id != "" {
+		subPath += "/" + id
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), smeCatalogProbeBudget)
+	defer cancel()
+	upstreamStatus, respBody, ct, err := smeCatalog().AdminProxy(ctx, method, subPath, body, bearer)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "sme-catalog-unreachable",
+			"detail": err.Error(),
+		})
+		return
+	}
+	// Relay the upstream response verbatim — status + body — so the
+	// editor surfaces the catalog service's real result (created object,
+	// validation error, 404, etc.).
+	if ct == "" {
+		ct = "application/json"
+	}
+	w.Header().Set("Content-Type", ct)
+	w.WriteHeader(upstreamStatus)
+	if len(respBody) > 0 {
+		_, _ = w.Write(respBody)
+	}
+}

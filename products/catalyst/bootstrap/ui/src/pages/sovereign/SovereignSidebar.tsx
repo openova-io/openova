@@ -38,7 +38,7 @@ const CLOUD_ICON =
   'M6.657 18c-2.572 0 -4.657 -2.007 -4.657 -4.483c0 -2.475 2.085 -4.482 4.657 -4.482c.393 -1.762 1.794 -3.2 3.675 -3.773c1.88 -.572 3.956 -.193 5.444 1c1.488 1.19 2.162 3.007 1.77 4.769h.99c1.913 0 3.464 1.56 3.464 3.486c0 1.927 -1.551 3.487 -3.465 3.487h-11.878'
 
 interface FlatNavItem {
-  id: 'apps' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'bss' | 'settings'
+  id: 'apps' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'settings'
   label: string
   to: string
   icon: string
@@ -112,25 +112,25 @@ const FLAT_NAV: FlatNavItem[] = [
     to: '/users',
     icon: 'M9 7a4 4 0 100 8 4 4 0 000-8zM3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2M16 3.13a4 4 0 010 7.75M21 21v-2a4 4 0 00-3-3.87',
   },
-  // BSS — Business Support Systems (Family F, Wave 3, founder #1 /
-  // 2026-05-17). Surfaces Billing / Orders / Revenue / Vouchers /
-  // Tenants under the canonical /bss/* URL tree.
+  // Organizations (issue #3378, founder-agreed model 2026-06-13). ONE
+  // menu replacing BSS and the never-built OSS: the parent org's complete
+  // view of everything beneath it — the org directory (parent first),
+  // entering any sub-org for support (audited impersonation), the
+  // commerce catalog, mode-aware billing, and the domain pools. Replaces
+  // the BSS entry that previously lived here; the legacy /bss* + /sme/* +
+  // /parent-domains URLs redirect into /organizations (router.tsx).
   //
-  // Icon (Wave 5, 2026-05-17): briefcase line-glyph — fits the
-  // single-stroke icon family used by Apps/Jobs/Cloud/Users/Settings
-  // and reads as "business" at a glance. Replaces the bespoke
-  // receipt icon shipped by Family F that the founder flagged as
-  // off-style.
+  // Icon: an org-chart / building line-glyph (nodes + connecting edges)
+  // matching the single-stroke icon family used by the other entries.
   //
-  // RBAC: always visible for v1 — the whoami payload doesn't expose
-  // tier yet, and the SME gateway server-side enforces tier-bound
-  // access on every /api/v1/sme/* and /back-office/* call. When
-  // whoami grows a `tier` field the sidebar can hide for tier=user.
+  // RBAC: always visible — the sovereign-admin owns the directory; the
+  // catalyst-api enforces tier-bound access server-side on every
+  // /api/v1/sme/* and /catalog/admin/* call.
   {
-    id: 'bss',
-    label: 'BSS',
-    to: '/bss',
-    icon: 'M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2M3 13v6a2 2 0 002 2h14a2 2 0 002-2v-6M3 9h18a0 0 0 010 0v4H3V9z',
+    id: 'organizations',
+    label: 'Organizations',
+    to: '/organizations',
+    icon: 'M9 3a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V3zM3 17a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H5a2 2 0 01-2-2v-2zm12 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zM12 7v4M12 11H6v4m6-4h6v4',
   },
 ]
 
@@ -172,7 +172,7 @@ const SETTINGS_SUB_NAV: SubNavItem[] = [
 
 // ── Active-state derivation ───────────────────────────────────────────────────
 
-type ActiveSection = 'apps' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'bss' | 'settings'
+type ActiveSection = 'apps' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'settings'
 
 const CLOUD_PATH_RE = /^\/(cloud|infrastructure)(\/|$)/
 
@@ -190,10 +190,10 @@ function deriveActiveSection(pathname: string): ActiveSection {
   if (/^\/(sre|sec)\/compliance(\/|$)/.test(pathname)) return 'compliance'
   if (/^\/compliance(\/|$)/.test(pathname)) return 'compliance'
   if (/^\/users(\/|$)/.test(pathname)) return 'users'
-  // /bss(/*) → 'bss' so the BSS nav item highlights for every BSS
-  // sub-tab (billing/orders/revenue/vouchers/tenants). Family F
-  // (Wave 3, 2026-05-17, founder #1).
-  if (/^\/bss(\/|$)/.test(pathname)) return 'bss'
+  // /organizations(/*) → 'organizations' so the Organizations nav item
+  // highlights for the directory, the internal door, and every moved
+  // sub-surface (billing/orders/revenue/vouchers/domains). Issue #3378.
+  if (/^\/organizations(\/|$)/.test(pathname)) return 'organizations'
   // /settings/* OR /parent-domains → 'settings' so the Settings nav
   // item highlights and the sub-nav (Marketplace + Parent Domains)
   // expands. Per inviolable principle #4, the path list is pulled
