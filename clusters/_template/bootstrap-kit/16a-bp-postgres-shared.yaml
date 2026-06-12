@@ -110,7 +110,12 @@ spec:
       # Database-CR-name underscore sanitize + hub `uri` key +
       # reflect.extraData / reflect.passwordAliases (env-style hub for
       # grafana). Enables slots 16c/16d as additional chart installs.
-      version: 0.1.5
+      # 0.1.6 (#3370 Contexts): bootstrapOwned self-registration — the
+      # chart renders the apps.openova.io/v1 Application CR for this
+      # instance (canonical G117 representation; adoption-guarded,
+      # Capabilities-gated) carrying the databases[] Context
+      # declarations in spec.parameters.
+      version: 0.1.6
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -141,6 +146,16 @@ spec:
     # the SAME enable_shared_pg tofu var that drives this gate, so
     # SOVEREIGN_ENABLE_SHARED_PG=true is the single switch.
     enabled: ${SOVEREIGN_ENABLE_SHARED_PG:=false}
+    # ── Bootstrap self-registration (#3370) ─────────────────────────────
+    # The chart self-registers the Application CR for shared-pg (the
+    # canonical instance representation every console surface reads),
+    # marked spec.bootstrap=true so the application-controller ADOPTS
+    # this HR's install instead of re-rendering it (zero duplicate HRs).
+    bootstrapOwned:
+      enabled: true
+      helmRelease:
+        name: bp-postgres-shared
+        namespace: flux-system
     instance:
       name: shared-pg
       namespace: shared-data

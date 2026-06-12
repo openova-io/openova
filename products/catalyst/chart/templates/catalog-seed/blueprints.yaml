@@ -2802,8 +2802,21 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.2"
+  version: "1.1.0"
   visibility: unlisted
+  # Shareability + Contexts (#3370 generality proof) — seeded verbatim
+  # from platform/valkey/blueprint.yaml (lockstep-guarded). One instance
+  # serves many consumers, each via a Context (keyspace = dedicated
+  # logical database index + reflected credential Secret).
+  shareable: true
+  contextSchema:
+    kind: keyspace
+    valuesKey: keyspaces
+    needs:
+      - name
+      - index
+    produces:
+      - credentialSecret
   card:
     title: "Valkey"
     category: "data"
@@ -2832,7 +2845,7 @@ docs/SRE.md §2.5).
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-valkey
-    version: "1.0.2"
+    version: "1.1.0"
   topology:
     supported:
     - active-passive
@@ -5545,8 +5558,21 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.1"
+  version: "0.1.6"
   visibility: listed
+  # Shareability + Contexts (#3370) — seeded verbatim from
+  # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
+  # serves many consumers, each via a Context (db = isolated database +
+  # role + reflected credential Secret).
+  shareable: true
+  contextSchema:
+    kind: db
+    valuesKey: databases
+    needs:
+      - name
+      - owner
+    produces:
+      - credentialSecret
   card:
     title: "PostgreSQL"
     category: data
@@ -5567,7 +5593,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-postgres
-    version: 0.1.1
+    version: 0.1.6
   # Seeded verbatim from platform/postgres/blueprint.yaml spec.topology.
   # singleton = single-instance Cluster; active-hot-standby = sync
   # replication across regions (ADR-0004 Pillar-3 zero-tx-loss) via the

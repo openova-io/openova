@@ -71,6 +71,28 @@ type Blueprint struct {
 	Version    *string    `json:"version"`
 	Section    *string    `json:"section"`
 	Depends    []string   `json:"depends"`
+
+	// Shareable (#3370) — instances of this Blueprint support
+	// multi-application reuse: one instance serves many consumer
+	// applications, each through its own Context. Declared as
+	// `spec.shareable: true` in the Blueprint's blueprint.yaml.
+	Shareable bool `json:"shareable"`
+	// ContextSchema (#3370) — the Context declaration for shareable
+	// Blueprints (nil otherwise). Every generic console surface
+	// (catalog badge, Contexts tab, reuse selector) renders from this.
+	ContextSchema *ContextSchema `json:"contextSchema"`
+}
+
+// ContextSchema (#3370) describes what a Context is for a shareable
+// Blueprint: the kind label (db | topic | bucket | keyspace) that
+// prefixes every Context in the console, the key in the instance's
+// IaC values where Context entries live, and the declared
+// needs/produces field lists.
+type ContextSchema struct {
+	Kind      string   `json:"kind"`
+	ValuesKey string   `json:"valuesKey"`
+	Needs     []string `json:"needs"`
+	Produces  []string `json:"produces"`
 }
 
 // BootstrapKitEntry mirrors the wizard's BOOTSTRAP_KIT shape. These
@@ -136,6 +158,22 @@ func AllBlueprints() ([]Blueprint, error) {
 	out := make([]Blueprint, len(c.Blueprints))
 	copy(out, c.Blueprints)
 	return out, nil
+}
+
+// BlueprintByID returns the catalog entry for a full bp-<name> id.
+// (#3370 — the contextSchema fallback resolution path when the
+// in-cluster Blueprint CR is absent/unwired.)
+func BlueprintByID(id string) (Blueprint, bool) {
+	c, err := load()
+	if err != nil {
+		return Blueprint{}, false
+	}
+	for _, b := range c.Blueprints {
+		if b.ID == id {
+			return b, true
+		}
+	}
+	return Blueprint{}, false
 }
 
 // ListedBlueprints returns the Blueprints with visibility=listed —

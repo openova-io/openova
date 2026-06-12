@@ -106,7 +106,23 @@ function parseBlueprintYaml(raw) {
     const content = noComment.slice(indent)
 
     // Pop stack frames whose indent is >= current indent (they've ended).
-    while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
+    //
+    // #3370 fix: a YAML block list may sit at the SAME indent as its key
+    // (`endpoints:\n- name: wire` — the style platform/valkey/blueprint.yaml
+    // uses). The old unconditional `>=` pop dropped the key's own frame on
+    // the first `- ` line, so the array-conversion below re-keyed the list
+    // onto the GRANDPARENT key — replacing e.g. the whole `spec` object
+    // with the endpoints array and silently nulling every spec field of
+    // that blueprint in the generated catalog. For list lines, a frame at
+    // EQUAL indent that was pushed by a `key:` line is the list's owner —
+    // keep it.
+    const isListLine = /^-(\s|$)/.test(content)
+    while (
+      stack.length > 1 &&
+      (stack[stack.length - 1].indent > indent ||
+        (stack[stack.length - 1].indent === indent &&
+          !(isListLine && stack[stack.length - 1].key != null)))
+    ) {
       stack.pop()
     }
 
@@ -230,6 +246,23 @@ function buildCatalog() {
     // raw "bp-<name>" id alongside so consumers can write either form.
     const slug = name.replace(/^bp-/, '')
 
+    // #3370 — shareability declaration. `shareable: true` marks a
+    // Blueprint whose instances support multi-application reuse; the
+    // companion contextSchema declares what a Context is (kind label,
+    // where Context entries live in the instance values, what a Context
+    // needs and produces). All generic console surfaces (catalog badge,
+    // Contexts tab, reuse selector) render from this declaration only.
+    const ctxRaw = spec.contextSchema
+    const contextSchema =
+      ctxRaw && typeof ctxRaw === 'object' && !Array.isArray(ctxRaw)
+        ? {
+            kind: typeof ctxRaw.kind === 'string' ? ctxRaw.kind : '',
+            valuesKey: typeof ctxRaw.valuesKey === 'string' ? ctxRaw.valuesKey : '',
+            needs: Array.isArray(ctxRaw.needs) ? ctxRaw.needs.filter(n => typeof n === 'string') : [],
+            produces: Array.isArray(ctxRaw.produces) ? ctxRaw.produces.filter(p => typeof p === 'string') : [],
+          }
+        : null
+
     entries.push({
       id: name,
       slug,
@@ -245,6 +278,8 @@ function buildCatalog() {
       depends: Array.isArray(spec.depends)
         ? spec.depends.map(d => (typeof d === 'string' ? d : d?.blueprint)).filter(Boolean)
         : [],
+      shareable: spec.shareable === true,
+      contextSchema,
     })
   }
 
@@ -350,6 +385,24 @@ export interface BlueprintCardEntry {
   section: string | null
   /** Other Blueprint ids this Blueprint depends on. */
   depends: string[]
+  /** #3370 — instances support multi-application reuse (Contexts). */
+  shareable: boolean
+  /** #3370 — the Context declaration (null when not shareable). */
+  contextSchema: BlueprintContextSchema | null
+}
+
+/**
+ * #3370 — what a Context is for a shareable Blueprint. The kind label
+ * (db | topic | bucket | keyspace) prefixes every Context in the
+ * console; valuesKey names the array in the instance's IaC values where
+ * Context entries live; needs/produces describe the provisioning form
+ * inputs and the consumer-visible outputs.
+ */
+export interface BlueprintContextSchema {
+  kind: string
+  valuesKey: string
+  needs: string[]
+  produces: string[]
 }
 
 /**

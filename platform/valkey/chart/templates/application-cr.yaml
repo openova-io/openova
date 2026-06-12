@@ -1,0 +1,47 @@
+{{- /*
+Bootstrap self-registration (#3370) — the Application CR for this
+valkey instance. The SAME mechanism as bp-postgres 0.1.6's
+templates/application-cr.yaml (see its header for the full
+chart-vs-slot decision rationale): the chart self-registers the
+canonical apps.openova.io/v1 Application CR when the slot opts in via
+`bootstrapOwned.enabled`, gated on the Application CRD being registered
+(`.Capabilities.APIVersions.Has` — benign skip during first bootstrap;
+the CR materialises on the first post-CRD upgrade).
+
+spec.parameters.keyspaces carries this instance's Context declarations
+(blueprint contextSchema: kind=keyspace, valuesKey=keyspaces) verbatim
+— the generic console Contexts projection reads them from there with
+ZERO valkey-specific code.
+*/ -}}
+{{- if and .Values.bootstrapOwned.enabled (.Capabilities.APIVersions.Has "apps.openova.io/v1") }}
+apiVersion: apps.openova.io/v1
+kind: Application
+metadata:
+  name: {{ include "bp-valkey.instanceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-valkey.labels" . | nindent 4 }}
+    apps.openova.io/bootstrap-owned: "true"
+    catalyst.openova.io/organization: platform
+spec:
+  bootstrap: true
+  blueprintRef:
+    name: bp-valkey
+    version: {{ .Chart.Version | quote }}
+  placement: single-region
+  {{- with .Values.bootstrapOwned.helmRelease }}
+  helmRelease:
+    name: {{ .name | quote }}
+    namespace: {{ .namespace | default "flux-system" | quote }}
+  {{- end }}
+  targetNamespace: {{ .Release.Namespace }}
+  releaseName: {{ .Release.Name }}
+  parameters:
+    {{- with .Values.keyspaces }}
+    keyspaces:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- if not .Values.keyspaces }}
+    keyspaces: []
+    {{- end }}
+{{- end }}

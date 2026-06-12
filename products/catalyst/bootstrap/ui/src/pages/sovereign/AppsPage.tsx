@@ -31,7 +31,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { useRouter, Link, useParams } from '@tanstack/react-router'
+import { useRouter, Link, useParams, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
@@ -40,6 +40,8 @@ import { authedFetch } from '@/shared/lib/authedFetch'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
 import { resolveApplications, type ApplicationDescriptor } from './applicationCatalog'
+import { findComponent } from '@/pages/wizard/steps/componentGroups'
+import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import type { ApplicationStatus } from './eventReducer'
 import { WipeDeploymentModal } from '@/components/CrudModals/WipeDeploymentModal'
@@ -109,6 +111,24 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
      * components). G90 2026-06-01.
      */
     externalURLById: Record<string, string>
+    /**
+     * instances — #3370. One entry per RUNNING INSTANCE (Application
+     * CR) the BE projects (`instance: true` rows): a blueprint with N
+     * instances ⇒ exactly N cards on the Deployments tab, each with
+     * its topology chip + ⛓ contexts badge.
+     */
+    instances: LiveInstanceRow[]
+  }
+  interface LiveInstanceRow {
+    id: string
+    slug: string
+    blueprint: string
+    topology: string
+    contextCount: number
+    status: ApplicationStatus
+    environment: string
+    externalURL: string
+    bootstrapKit: boolean
   }
   const liveAppsQuery = useQuery<LiveAppsData>({
     queryKey: ['sovereign-apps-live'],
@@ -127,14 +147,36 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           marketplacePublished?: boolean
           environment?: string
           externalURL?: string
+          instance?: boolean
+          blueprint?: string
+          topology?: string
+          contextCount?: number
+          bootstrapKit?: boolean
         }>
       }
       const statusById: Record<string, ApplicationStatus> = {}
       const publishedBySlug: Record<string, boolean> = {}
       const environmentById: Record<string, string> = {}
       const externalURLById: Record<string, string> = {}
+      const instances: LiveInstanceRow[] = []
       for (const a of body.apps ?? []) {
         if (!a.id) continue
+        if (a.instance === true) {
+          // #3370 — instance rows render as their OWN cards below;
+          // they are not part of the blueprint-status overlay.
+          instances.push({
+            id: a.id,
+            slug: a.slug ?? '',
+            blueprint: a.blueprint ?? '',
+            topology: a.topology ?? '',
+            contextCount: a.contextCount ?? 0,
+            status: a.status === 'installed' ? 'installed' : 'installing',
+            environment: a.environment ?? 'dev',
+            externalURL: a.externalURL ?? '',
+            bootstrapKit: a.bootstrapKit === true,
+          })
+          continue
+        }
         if (typeof a.externalURL === 'string' && a.externalURL !== '') {
           externalURLById[a.id] = a.externalURL
         }
@@ -163,7 +205,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           environmentById[a.id] = a.environment
         }
       }
-      return { statusById, publishedBySlug, environmentById, externalURLById }
+      return { statusById, publishedBySlug, environmentById, externalURLById, instances }
     },
     retry: false,
     placeholderData: (prev) => prev,
@@ -172,6 +214,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   const publishedBySlug = liveAppsQuery.data?.publishedBySlug ?? {}
   const environmentById = liveAppsQuery.data?.environmentById ?? {}
   const externalURLById = liveAppsQuery.data?.externalURLById ?? {}
+  const liveInstances = liveAppsQuery.data?.instances ?? []
   const refetchLive = liveAppsQuery.refetch
   // DEFAULT_APP_ENVIRONMENT mirrors the BE's defaultSovereignEnvironment
   // so even when the live API hasn't responded yet (cold load) every
@@ -615,7 +658,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         </div>
       </div>
 
-      {tab === 'installed' && installedApps.length === 0 ? (
+      {tab === 'installed' && installedApps.length === 0 && liveInstances.length === 0 ? (
         <div className="empty-state" data-testid="sov-empty-deployments">
           <p className="empty-title">No applications installed yet.</p>
           <p className="empty-sub">Provisioning has not produced any deployments — open the catalog to see what will install.</p>
@@ -625,7 +668,63 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         </div>
       ) : (
         <div className="apps-grid" data-testid="sov-apps-grid">
-          {visibleApps.map((app) => {
+          {/*
+            #3370 — instance cards: one card per RUNNING INSTANCE
+            (Application CR). `shared-pg · PostgreSQL · singleton ·
+            ● Ready · ⛓ 3 contexts`. The ⛓ badge deep-links to the
+            instance's Contexts tab; the breakup never renders on
+            tiles. Deployments tab only — the Catalog tab is the
+            class view.
+          */}
+          {tab === 'installed'
+            ? liveInstances
+                .filter((inst) =>
+                  query
+                    ? inst.id.toLowerCase().includes(query.toLowerCase()) ||
+                      inst.slug.toLowerCase().includes(query.toLowerCase())
+                    : true,
+                )
+                .map((inst) => {
+                  const comp = findComponent(inst.slug)
+                  const descriptor: ApplicationDescriptor = {
+                    id: inst.id,
+                    bareId: inst.slug,
+                    title: inst.id,
+                    description: `${comp?.name ?? inst.slug} instance`,
+                    familyId: comp?.product ?? 'platform',
+                    familyName: comp?.name ?? inst.slug,
+                    tier: comp?.tier ?? 'mandatory',
+                    logoUrl: comp?.logoUrl ?? null,
+                    dependencies: [],
+                    bootstrapKit: inst.bootstrapKit,
+                  }
+                  return (
+                    <AppCard
+                      key={`instance-${inst.id}`}
+                      app={descriptor}
+                      isCatalog={false}
+                      environment={inst.environment}
+                      externalURL={inst.externalURL}
+                      status={inst.status}
+                      isService={false}
+                      marketplacePublished={null}
+                      slug={inst.slug}
+                      topology={inst.topology}
+                      contextCount={inst.contextCount}
+                    />
+                  )
+                })
+            : null}
+          {visibleApps
+            .filter(
+              (app) =>
+                // #3370 — a blueprint whose instances render their own
+                // cards must not ALSO render a blueprint-level card on
+                // the Deployments tab (N instances ⇒ exactly N cards).
+                tab !== 'installed' ||
+                !liveInstances.some((inst) => inst.blueprint === app.id),
+            )
+            .map((app) => {
             const slug = app.id.replace(/^bp-/, '')
             const published = Object.prototype.hasOwnProperty.call(publishedBySlug, slug)
               ? publishedBySlug[slug]
@@ -742,10 +841,22 @@ interface AppCardProps {
    * registered as an OIDC client on the Sovereign).
    */
   externalURL?: string
+  /**
+   * #3370 — instance-card extras. `topology` renders the placement chip
+   * (`singleton`, `single-region`, `active-hotstandby`); `contextCount`
+   * renders the ⛓ badge that deep-links to the instance's Contexts tab.
+   * Both undefined on blueprint/catalog cards.
+   */
+  topology?: string
+  contextCount?: number
 }
 
-function AppCard({ app, status, isCatalog, isService, environment, marketplacePublished, slug, onPublishedChange }: AppCardProps) {
+function AppCard({ app, status, isCatalog, isService, environment, marketplacePublished, slug, onPublishedChange, topology, contextCount }: AppCardProps) {
   const stateClass = `state-${status}`
+  const navigate = useNavigate()
+  // #3370 — class-level shareable badge on Catalog-tab cards, from the
+  // build-time blueprint.yaml declaration.
+  const shareable = isCatalog && BLUEPRINT_BY_ID[app.id]?.shareable === true
   // Chroot-aware target: on the mother monitor surface
   // (console.openova.io/sovereign/provision/<id>/...) every link MUST stay
   // scoped under /provision/<id>/... — escaping to the clean root /app/<id>
@@ -797,6 +908,42 @@ function AppCard({ app, status, isCatalog, isService, environment, marketplacePu
           {app.bootstrapKit ? (
             <span className="chip chip-dep" title="Bootstrap-kit component (always installed)">
               BOOTSTRAP
+            </span>
+          ) : null}
+          {topology ? (
+            <span
+              className="chip chip-dep"
+              title={`Topology: ${topology}`}
+              data-testid={`sov-app-topology-${app.id}`}
+            >
+              {topology}
+            </span>
+          ) : null}
+          {typeof contextCount === 'number' && contextCount > 0 ? (
+            <button
+              type="button"
+              className="chip chip-env"
+              data-testid={`sov-app-contexts-${app.id}`}
+              title={`${contextCount} Contexts on this instance — open the Contexts tab`}
+              onClick={(e) => {
+                // The whole card is a Link; the ⛓ badge deep-links to
+                // the Contexts tab instead.
+                e.preventDefault()
+                e.stopPropagation()
+                void navigate({ to: `/app/${app.id}/contexts` as never })
+              }}
+              style={{ cursor: 'pointer', border: 0 }}
+            >
+              ⛓ {contextCount} context{contextCount === 1 ? '' : 's'}
+            </button>
+          ) : null}
+          {shareable ? (
+            <span
+              className="chip chip-env"
+              data-testid={`sov-catalog-shareable-${app.id}`}
+              title="Instances support multi-application reuse via Contexts"
+            >
+              ⛓ shareable
             </span>
           ) : null}
           {app.dependencies.slice(0, 3).map((d) => (
