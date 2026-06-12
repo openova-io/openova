@@ -2628,7 +2628,7 @@ name: bp-catalyst-platform
 # flip admin.dns.<sov> → pdns-admin.<sov> (single-level, wildcard-cert-covered,
 # matches the KC client redirectUris) + bp-powerdns-admin 0.1.5 OIDC env-var
 # name fixes. Refs #3150.
-version: 1.4.587
+version: 1.4.588
 # 1.4.587 — #3188: cutover-driver ClusterRole gains postgresql.cnpg.io
 #   clusters/databases + dr.openova.io read — the instances endpoint
 #   403'd cluster-wide (hw130: API 0 rows with 7 live clusters).
