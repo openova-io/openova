@@ -1,0 +1,132 @@
+{{- /*
+DR-7 (#3375) — cross-region async mirror of the gitea blob bucket.
+
+Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md (bp-gitea row,
+the LAW): "Git blobs land on SeaweedFS S3 mirrored cross-region (async,
+~seconds lag)". The PG half of the row (bp-cnpg-pair sync + bp-continuum
+demote/promote) is already implemented and proven (hw128); this template is
+the blob-mirror half.
+
+MECHANISM (lowest-complexity native SeaweedFS path):
+SeaweedFS replicates a bucket to a REMOTE SeaweedFS cluster via its Filer
+Remote Storage feature — NOT a bespoke copy loop:
+  1. `weed filer.remote.configure` registers the remote-region S3 endpoint
+     (its seaweedfs-s3, reached over Cilium ClusterMesh — the same global-
+     Service plumbing bp-cnpg-pair uses for WAL streaming) as a named remote
+     storage target, with the remote's access/secret keys.
+  2. `weed filer.remote.mount` maps the local bucket directory
+     (/buckets/<bucket>) to that remote target.
+  3. `weed filer.remote.sync` runs CONTINUOUSLY, tailing the filer's change
+     log and async-pushing every new/changed blob to the remote (sub-second
+     to seconds lag — exactly the row's "~seconds lag").
+This is the canonical SeaweedFS cross-cluster replication primitive (vs. the
+per-Sovereign `global.replicationPlacment` knob in
+platform/seaweedfs/chart/values.yaml line ~50, which is INTRA-cluster volume
+replication only — it cannot reach a second region). filer.remote.sync is the
+only native SeaweedFS mechanism that mirrors a bucket to a SEPARATE cluster,
+so it is the correct + minimal choice for the row's cross-region requirement.
+
+SIDE MODEL (mirrors bp-cnpg-pair's split-side model): the mirror runs on the
+PRIMARY region only (`mirror.side: primary`) — it pushes primary → secondary.
+On the secondary it renders nothing, so a post-switchover promote flips roles
+via the overlay (set side=primary on the new primary) without a bidirectional-
+write conflict during steady state.
+
+DEFAULT-OFF / byte-identical: gated on
+`objectStorage.enabled AND objectStorage.mirror.enabled` (both default false),
+so a default `helm template` and every single-region prov render nothing here.
+*/}}
+{{- if and .Values.objectStorage.enabled .Values.objectStorage.mirror.enabled (eq (.Values.objectStorage.mirror.side | default "primary") "primary") }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitea-objectstorage-mirror
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-gitea
+    catalyst.openova.io/component: gitea-objectstorage-mirror
+    # hooks/Jobs bypass helm-controller OriginLabels — flux-managed policy
+    # denies un-self-labelled workloads on a converged kyverno-Enforce env
+    # (#3296 class). This is a plain Deployment (not a hook) so it inherits
+    # OriginLabels, but the explicit label keeps it consistent.
+    app.kubernetes.io/managed-by: flux
+spec:
+  replicas: 1
+  # Single mirror process — filer.remote.sync is a stateful tail of the
+  # change log; two replicas would double-push. Recreate so a roll never
+  # runs two syncers against the same remote.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      catalyst.openova.io/component: gitea-objectstorage-mirror
+  template:
+    metadata:
+      labels:
+        catalyst.openova.io/component: gitea-objectstorage-mirror
+        app.kubernetes.io/managed-by: flux
+    spec:
+      restartPolicy: Always
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: mirror
+          image: {{ .Values.objectStorage.mirror.image | default "harbor.openova.io/proxy-dockerhub/chrislusf/seaweedfs:4.22" }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              REMOTE_ENDPOINT="${REMOTE_ENDPOINT}"
+              if [ -z "${REMOTE_ENDPOINT}" ]; then
+                echo "[gitea-objectstorage-mirror] remote endpoint unset — nothing to mirror to. Set objectStorage.mirror.remoteEndpoint on the secondary region's seaweedfs-s3 global Service. Sleeping (non-fatal)."
+                # Non-fatal idle: the Deployment stays Ready=available but does
+                # no work, so dependsOn checks don't wedge on an unconfigured
+                # mirror. The overlay flips remoteEndpoint when the secondary
+                # region's ClusterMesh endpoint is published.
+                exec sleep infinity
+              fi
+              echo "[gitea-objectstorage-mirror] configuring remote storage target -> ${REMOTE_ENDPOINT}"
+              # 1. Register the remote-region S3 endpoint as a named remote.
+              weed filer.remote.configure \
+                -filer="${FILER_ENDPOINT}" \
+                -name=gitea-dr \
+                -s3.endpoint="http://${REMOTE_ENDPOINT}" \
+                -s3.access_key="${REMOTE_ACCESS_KEY_ID}" \
+                -s3.secret_key="${REMOTE_SECRET_ACCESS_KEY}" \
+                -s3.region="${LOCATION}"
+              # 2. Map the local bucket dir to the remote target.
+              weed filer.remote.mount \
+                -filer="${FILER_ENDPOINT}" \
+                -dir="/buckets/${BUCKET}" \
+                -remote=gitea-dr/${BUCKET}
+              echo "[gitea-objectstorage-mirror] starting continuous async sync (primary -> secondary)"
+              # 3. Continuous async push of the bucket change-log to the remote.
+              exec weed filer.remote.sync \
+                -filer="${FILER_ENDPOINT}" \
+                -dir="/buckets/${BUCKET}"
+          env:
+            - name: REMOTE_ENDPOINT
+              value: {{ .Values.objectStorage.mirror.remoteEndpoint | default "" | quote }}
+            - name: FILER_ENDPOINT
+              value: {{ .Values.objectStorage.mirror.filerEndpoint | default "seaweedfs-filer.seaweedfs.svc.cluster.local:8888" | quote }}
+            - name: BUCKET
+              value: {{ .Values.objectStorage.bucket | default "gitea-blobs" | quote }}
+            - name: LOCATION
+              value: {{ .Values.objectStorage.location | default "us-east-1" | quote }}
+            - name: REMOTE_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.objectStorage.mirror.remoteSecretName | default "gitea-objectstorage-remote-s3-secret" }}
+                  key: {{ .Values.objectStorage.mirror.remoteAccessKeyIdKey | default "admin_access_key_id" }}
+                  optional: true
+            - name: REMOTE_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.objectStorage.mirror.remoteSecretName | default "gitea-objectstorage-remote-s3-secret" }}
+                  key: {{ .Values.objectStorage.mirror.remoteSecretAccessKeyKey | default "admin_secret_access_key" }}
+                  optional: true
+          resources:
+            {{- toYaml .Values.objectStorage.mirror.resources | nindent 12 }}
+{{- end }}

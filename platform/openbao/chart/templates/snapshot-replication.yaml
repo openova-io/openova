@@ -1,0 +1,330 @@
+{{- /*
+Catalyst cross-cluster snapshot-replication — bp-openbao (DR / #3375 DoD-8).
+
+Implements the bp-openbao state-preservation row of
+docs/sessions/2026-06-02-per-blueprint-topology-audit.md (bp-openbao):
+
+  mgmt-A = Active, mgmt-B = Passive. Stateful (Raft store on PVC).
+  State preservation: "Within cluster: Raft consensus. Cross-cluster:
+  async perf-replication (OSS uses snapshot+restore; Enterprise has
+  native primary→replica)."
+  Switchover: "bp-continuum runs `bao operator raft transition-to-primary`
+  on the standby; KV reads continue uninterrupted on replica throughout."
+
+OpenBao OSS has NO Enterprise perf-replication license, so the row's
+state-preservation mechanism is the OSS primitive named in the row:
+PERIODIC RAFT SNAPSHOTS shipped to the platform S3 surface (SeaweedFS),
+restored on the standby for promotion. This file renders that primitive.
+
+🛑 "KV reads continue uninterrupted on replica throughout" — INVARIANT.
+`bao operator raft snapshot save` is a READ against the Raft leader's
+store; it streams a point-in-time copy WITHOUT quiescing the cluster.
+KV reads AND writes continue on the leader and on every replica while the
+snapshot is taken and shipped. The save runs on the PRIMARY (active)
+cluster; the SECONDARY's KV reads are never touched by either the save or
+the fetch (the fetch only writes a file onto a staging PVC — it does NOT
+call any OpenBao mutating API). The actual restore + `transition-to-primary`
+is a bp-continuum switchover step (CLASS-B controller follow-on), NOT
+performed here.
+
+Auth: the CronJob authenticates to OpenBao via the SAME Kubernetes auth
+method every ongoing component uses (sso-configure-deployment.yaml:113
+bao_login() and ESO) — K8s SA token → POST auth/<mountPath>/login with
+{role, jwt} → client_token. The one-shot root token written at init is
+REVOKED + DELETED by auth-bootstrap-job.yaml:274, so an ONGOING CronJob
+cannot reuse it and MUST use K8s auth. The role `openbao-snapshot` is bound
+to this block's ServiceAccount (with the snapshot policy) by
+auth-bootstrap-job.yaml.
+
+Snapshot transport: the SAVE is `GET /v1/sys/storage/raft/snapshot` (the
+HTTP form of `bao operator raft snapshot save`) streamed to a file, then
+`aws s3 cp` to SeaweedFS. A single `amazon/aws-cli` image carries both
+`curl` and `aws`, so no `bao` binary or two-container handoff is needed.
+
+Skip-render (per #402 lesson — never `{{ fail }}`): the entire file emits
+NOTHING unless `.Values.snapshotReplication.enabled=true`. A default
+`helm template` is byte-identical to origin/main (gated keys render no
+objects). The primary vs secondary CronJob is selected by
+`.Values.snapshotReplication.role`.
+*/}}
+{{- $sr := .Values.snapshotReplication | default dict -}}
+{{- if $sr.enabled -}}
+{{- $role := $sr.role | default "primary" -}}
+{{- $img := $sr.image | default dict -}}
+{{- $repo := $img.repository | default "amazon/aws-cli" -}}
+{{- $registry := (.Values.global | default dict).imageRegistry | default "" -}}
+{{- if $registry }}{{- $repo = printf "%s/%s" $registry $repo -}}{{- end -}}
+{{- $tag := $img.tag | default "2.17.0" -}}
+{{- $pullPolicy := $img.pullPolicy | default "IfNotPresent" -}}
+{{- $baoAddr := $sr.baoAddress | default (printf "http://%s-openbao.%s.svc.cluster.local:8200" .Release.Name .Release.Namespace) -}}
+{{- $schedule := $sr.schedule | default "*/10 * * * *" -}}
+{{- $deadline := $sr.activeDeadlineSeconds | default 600 -}}
+{{- $backoff := $sr.backoffLimit | default 3 -}}
+{{- $kAuth := $sr.kubernetesAuth | default dict -}}
+{{- $authMount := $kAuth.mountPath | default "kubernetes" -}}
+{{- $authRole := $kAuth.role | default "openbao-snapshot" -}}
+{{- $s3 := $sr.s3 | default dict -}}
+{{- $s3Endpoint := $s3.endpoint | default "http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333" -}}
+{{- $s3Bucket := $s3.bucket | default "openbao-snapshots" -}}
+{{- $s3Region := $s3.region | default "us-east-1" -}}
+{{- $credSecret := $s3.credentialsSecret | default dict -}}
+{{- $credName := $credSecret.name | default "seaweedfs-s3-secret" -}}
+{{- $credNs := $credSecret.namespace | default "seaweedfs" -}}
+{{- $accessKeyKey := $credSecret.accessKeyKey | default "admin_access_key_id" -}}
+{{- $secretKeyKey := $credSecret.secretKeyKey | default "admin_secret_access_key" -}}
+{{- $staging := $sr.restoreStaging | default dict -}}
+{{- $stagingPath := $staging.path | default "/snapshots/latest.snap" -}}
+{{- $stagingPvc := $staging.pvc | default dict -}}
+{{- $stagingSize := $stagingPvc.size | default "10Gi" -}}
+{{- $stagingSC := $stagingPvc.storageClass | default "" -}}
+---
+# ServiceAccount the snapshot/restore CronJob runs as. The K8s-auth login
+# presents this SA's projected token to OpenBao; auth-bootstrap-job.yaml
+# binds the `openbao-snapshot` role to this SA in this namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openbao-snapshot
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-snapshot-replication
+    app.kubernetes.io/name: openbao-snapshot
+---
+# Role: read the S3 credentials Secret (the only K8s object the CronJob
+# reads). Scoped to the single credential Secret name. Lives in the S3
+# creds Secret's namespace so the SA can read it cross-namespace via a
+# RoleBinding there.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: openbao-snapshot-s3-creds
+  namespace: {{ $credNs | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-snapshot-replication
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    resourceNames:
+      - {{ $credName | quote }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: openbao-snapshot-s3-creds
+  namespace: {{ $credNs | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-snapshot-replication
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: openbao-snapshot-s3-creds
+subjects:
+  - kind: ServiceAccount
+    name: openbao-snapshot
+    namespace: {{ .Release.Namespace | quote }}
+{{- if eq $role "secondary" }}
+---
+# Restore-staging PVC — only on the SECONDARY. The fetch CronJob writes the
+# latest snapshot here so bp-continuum's `transition-to-primary` step finds
+# the data already present for restore. Not a Helm hook — persists across
+# upgrades so a fetched snapshot survives chart bumps.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openbao-snapshot-restore-staging
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-snapshot-replication
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ $stagingSize | quote }}
+  {{- if $stagingSC }}
+  storageClassName: {{ $stagingSC | quote }}
+  {{- end }}
+{{- end }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+{{- if eq $role "secondary" }}
+  name: openbao-snapshot-fetch
+{{- else }}
+  name: openbao-snapshot-save
+{{- end }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-snapshot-replication
+    catalyst.openova.io/snapshot-role: {{ $role | quote }}
+spec:
+  schedule: {{ $schedule | quote }}
+  # Async, periodic — matches the row's "async perf-replication". Never run
+  # two snapshot/fetch Jobs concurrently; if one overruns, skip the tick.
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        catalyst.openova.io/blueprint: bp-openbao
+        catalyst.openova.io/component: openbao-snapshot-replication
+    spec:
+      activeDeadlineSeconds: {{ $deadline }}
+      backoffLimit: {{ $backoff }}
+      ttlSecondsAfterFinished: 600
+      template:
+        metadata:
+          labels:
+            catalyst.openova.io/blueprint: bp-openbao
+            catalyst.openova.io/component: openbao-snapshot-replication
+        spec:
+          serviceAccountName: openbao-snapshot
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: snapshot
+              image: {{ printf "%s:%s" $repo $tag | quote }}
+              imagePullPolicy: {{ $pullPolicy | quote }}
+              env:
+                - name: BAO_ADDR
+                  value: {{ $baoAddr | quote }}
+                - name: BAO_K8S_AUTH_PATH
+                  value: {{ $authMount | quote }}
+                - name: BAO_K8S_AUTH_ROLE
+                  value: {{ $authRole | quote }}
+                - name: S3_ENDPOINT
+                  value: {{ $s3Endpoint | quote }}
+                - name: S3_BUCKET
+                  value: {{ $s3Bucket | quote }}
+                - name: AWS_DEFAULT_REGION
+                  value: {{ $s3Region | quote }}
+                - name: AWS_EC2_METADATA_DISABLED
+                  value: "true"
+                - name: STAGING_PATH
+                  value: {{ $stagingPath | quote }}
+                # S3 creds — admin access/secret keys from the cluster-wide
+                # seaweedfs-s3-secret (same Secret bp-cnpg barman consumes).
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $credName | quote }}
+                      key: {{ $accessKeyKey | quote }}
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $credName | quote }}
+                      key: {{ $secretKeyKey | quote }}
+              # amazon/aws-cli's entrypoint is `aws`; override to a shell so
+              # the login + snapshot + transfer flow runs in one container.
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  log() { printf '%s | %s\n' "$(date -u +%FT%TZ)" "$*"; }
+
+                  # ─── K8s-auth login to OpenBao ─────────────────────────
+                  # SAME pattern as sso-configure-deployment.yaml:113 and
+                  # ESO: present the projected SA token to
+                  # auth/<path>/login, extract client_token. The init-time
+                  # root token was revoked by auth-bootstrap, so this is the
+                  # only valid ongoing auth path.
+                  SA_TOKEN="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+                  BAO_TOKEN="$(curl -sS -k \
+                    -H 'Content-Type: application/json' \
+                    --data "{\"role\":\"${BAO_K8S_AUTH_ROLE}\",\"jwt\":\"${SA_TOKEN}\"}" \
+                    "${BAO_ADDR%/}/v1/auth/${BAO_K8S_AUTH_PATH}/login" \
+                    | sed -n 's/.*"client_token":"\([^"]*\)".*/\1/p')"
+                  if [ -z "${BAO_TOKEN}" ]; then
+                    log "FATAL: bao login returned no client_token — the ${BAO_K8S_AUTH_ROLE} role may not yet be bound by auth-bootstrap"
+                    exit 1
+                  fi
+                  log "authenticated to OpenBao via k8s auth role ${BAO_K8S_AUTH_ROLE}"
+{{- if eq $role "secondary" }}
+                  # ─── SECONDARY: fetch latest snapshot to staging PVC ────
+                  # Pull the most recent snapshot object from S3 to the
+                  # restore-staging path. This does NOT touch any OpenBao
+                  # mutating API — KV reads on this standby replica are
+                  # uninterrupted. The restore + transition-to-primary is a
+                  # bp-continuum step; this only stages the data.
+                  log "fetching latest snapshot from s3://${S3_BUCKET} to ${STAGING_PATH}"
+                  LATEST="$(aws --endpoint-url "${S3_ENDPOINT}" s3api list-objects-v2 \
+                    --bucket "${S3_BUCKET}" \
+                    --query 'sort_by(Contents,&LastModified)[-1].Key' \
+                    --output text)"
+                  if [ -z "${LATEST}" ] || [ "${LATEST}" = "None" ]; then
+                    log "WARN: no snapshot objects in s3://${S3_BUCKET} yet — nothing to stage this tick"
+                    exit 0
+                  fi
+                  mkdir -p "$(dirname "${STAGING_PATH}")"
+                  aws --endpoint-url "${S3_ENDPOINT}" s3 cp \
+                    "s3://${S3_BUCKET}/${LATEST}" "${STAGING_PATH}"
+                  log "staged ${LATEST} -> ${STAGING_PATH} (restore-ready for bp-continuum promotion)"
+{{- else }}
+                  # ─── PRIMARY: snapshot save + ship to S3 ────────────────
+                  # GET /v1/sys/storage/raft/snapshot is the HTTP form of
+                  # `bao operator raft snapshot save` — a READ on the Raft
+                  # leader that streams a point-in-time copy WITHOUT
+                  # quiescing the cluster. KV reads + writes continue
+                  # uninterrupted on the leader and every replica throughout
+                  # (the row's invariant).
+                  TS="$(date -u +%Y%m%dT%H%M%SZ)"
+                  SNAP="/tmp/openbao-${TS}.snap"
+                  log "taking raft snapshot (GET sys/storage/raft/snapshot) -> ${SNAP}"
+                  curl -sS -k -f \
+                    -H "X-Vault-Token: ${BAO_TOKEN}" \
+                    "${BAO_ADDR%/}/v1/sys/storage/raft/snapshot" \
+                    -o "${SNAP}"
+                  if [ ! -s "${SNAP}" ]; then
+                    log "FATAL: snapshot file is empty — raft snapshot save failed"
+                    exit 1
+                  fi
+                  KEY="openbao-${TS}.snap"
+                  log "uploading ${SNAP} to s3://${S3_BUCKET}/${KEY}"
+                  aws --endpoint-url "${S3_ENDPOINT}" s3 cp "${SNAP}" "s3://${S3_BUCKET}/${KEY}"
+                  # Also publish a stable `latest.snap` pointer so the
+                  # secondary's fetch (and bp-continuum) can find the newest
+                  # without listing.
+                  aws --endpoint-url "${S3_ENDPOINT}" s3 cp "${SNAP}" "s3://${S3_BUCKET}/latest.snap"
+                  rm -f "${SNAP}"
+                  log "snapshot ${KEY} shipped (KV reads uninterrupted throughout)"
+{{- end }}
+                  log "snapshot-replication tick complete (role={{ $role }})"
+              volumeMounts:
+{{- if eq $role "secondary" }}
+                - name: restore-staging
+                  mountPath: /snapshots
+{{- end }}
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+{{- if eq $role "secondary" }}
+            - name: restore-staging
+              persistentVolumeClaim:
+                claimName: openbao-snapshot-restore-staging
+{{- end }}
+            - name: tmp
+              emptyDir: {}
+{{- end }}

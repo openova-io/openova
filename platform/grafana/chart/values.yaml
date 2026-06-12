@@ -30,10 +30,24 @@ grafana:
 
   # Pin upstream image tag — DO NOT use floating tags per
   # docs/INVIOLABLE-PRINCIPLES.md.
+  # #3375 — proxy-glob ALL grafana images through the Sovereign's local
+  # Harbor so kyverno's harbor-proxy-pull Enforce policy admits every Pod
+  # on a converged env. The subchart defaults to raw docker.io/quay.io,
+  # which a converged Enforce Sovereign DENIES on the first chart-roll
+  # (the same landmine that wedged bp-openbao on hw130). Mirror the harbor
+  # chart's harbor.openova.io/proxy-<src>/... convention.
   image:
-    repository: grafana/grafana
+    registry: harbor.openova.io
+    repository: proxy-dockerhub/grafana/grafana
     tag: "12.3.1"
     pullPolicy: IfNotPresent
+  testFramework:
+    image:
+      registry: harbor.openova.io
+      repository: proxy-dockerhub/bats/bats
+  downloadDashboardsImage:
+    registry: harbor.openova.io
+    repository: proxy-dockerhub/curlimages/curl
 
   # Persistence — required so dashboard state survives pod restarts. Default
   # 10Gi on the cluster's default StorageClass; per-Sovereign overlays SET
@@ -120,6 +134,12 @@ grafana:
   # Pod boot so fresh-install Grafana renders charts immediately
   # without the per-Sovereign overlay having to wire each.
   sidecar:
+    # #3375 — the kiwigrid/k8s-sidecar image (a co-container of the
+    # grafana Pod) must be proxy-globbed through the local Harbor too, or
+    # kyverno's harbor-proxy-pull Enforce denies the WHOLE grafana Pod.
+    image:
+      registry: harbor.openova.io
+      repository: proxy-quay/kiwigrid/k8s-sidecar
     datasources:
       enabled: true
       label: grafana_datasource

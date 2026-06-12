@@ -65,6 +65,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -205,7 +206,24 @@ func loadConfigFromEnv() controller.Config {
 				KubeconfigSecret: env("VCLUSTER_PLACEMENT_RTZ_SECRET", "vc-rtz"),
 			},
 		},
+		// #3375 DoD-4 — the region suffix ("A"|"B") this controller runs
+		// in, derived from the same SOVEREIGN_REGION_ROLE the cnpg-pair
+		// bootstrap slot uses (primary→A, secondary→B). The cluster-ID
+		// registry consults it to resolve declared cluster IDs to the
+		// right kubeConfig Secret. Empty/unknown defaults to "A".
+		LocalRegion: regionSuffixFromRole(env("SOVEREIGN_REGION_ROLE", "primary")),
 	}
+}
+
+// regionSuffixFromRole maps the per-region SOVEREIGN_REGION_ROLE value
+// (primary|secondary) to the canonical region suffix ("A"|"B") used in
+// cluster IDs (mgmt-A / mgmt-B). Anything other than "secondary" maps to
+// "A" (the safe primary default).
+func regionSuffixFromRole(role string) string {
+	if strings.EqualFold(strings.TrimSpace(role), "secondary") {
+		return "B"
+	}
+	return "A"
 }
 
 // giteaClassifier adapts the gitea package's typed errors to the
