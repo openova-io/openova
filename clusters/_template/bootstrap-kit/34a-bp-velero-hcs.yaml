@@ -149,3 +149,11 @@ spec:
               key: cloud
             config:
               s3ForcePathStyle: "true"
+              # #2847 (hw130 acceptance walk): OBS rejects aws-sdk-v2
+              # flexible checksums (XAmzContentSHA256Mismatch on every
+              # PutObject). Empty string disables the request checksum.
+              # NOTE this must live HERE: this slot's values define the
+              # whole backupStorageLocation[0] entry, and Helm replaces
+              # LIST values wholesale — the chart-default config map
+              # (0.1.1) never survives the overlay.
+              checksumAlgorithm: ""
