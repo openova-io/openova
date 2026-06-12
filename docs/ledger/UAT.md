@@ -7,7 +7,7 @@
 > **2026-06-12 founder review:** root-URL SSO standard added (§2.0); per-app topology + vCluster re-homing + many-to-many data cards confirmed UNBUILT — tracked in §status notes.
 
 > **THE round contract (founder direction 2026-06-12):** this file is complete only when
-> EVERY row below carries a verdict — ☑ PASS / ✖ FAIL / ⛔ blocked-with-reason — produced
+> EVERY row below carries a verdict — ✅ PASS / ✖ FAIL / ⛔ blocked-with-reason — produced
 > by READ-ONLY verification sub-agents walking the live env, each verdict backed by a
 > screenshot or wire capture in `docs/sessions/<date>/evidence/`. Partial rounds do not
 > count. No lifecycle operation (wipe/re-prov) is permitted while any row lacks a verdict
@@ -16,7 +16,7 @@
 > Verification protocol: dispatcher assigns row groups to sub-agents (browser rows run
 > sequentially through the shared Playwright session; kubectl/API rows run in parallel);
 > verifiers are READ-ONLY (anti-theater rule 6 — they may not fix anything to make their
-> own walk pass); the dispatcher re-queries live state before recording any ☑.
+> own walk pass); the dispatcher re-queries live state before recording any ✅.
 > Session-results narratives live in docs/sessions/, never here.
 
 ## 1. Pillars (marketplace → Org → multi-region → CNPG failover → cutover)
@@ -24,30 +24,30 @@
 | # | Test group | Tested page | Test case (what you do) | What you must see | Result | Evidence |
 |---|---|---|---|---|---|---|
 | **Pillar 1 — Marketplace + voucher onboarding → Organization** |||||||
-| TC-01 | Marketplace storefront | `marketplace.hw130.omantel.biz/` | Open the storefront | "Build your tenant" renders, non-empty, branded | ☑ | wave-4 verifier: "Build Your Tenant — OpenOva SME", 6-step wizard, 14 apps. `docs/sessions/2026-06-12/evidence/hw130-funnel-2-marketplace.png` |
-| TC-02 | Operator issues voucher | `console.hw130.omantel.biz/bss/vouchers` | Operator: +Issue voucher → code+credit → submit | Voucher appears in the table, active | ☑ | WALKMART2026, 10 OMR, Active 0/1 → later Exhausted 1/1 (full round-trip). `docs/sessions/2026-06-12/evidence/hw130-funnel-1-bss-voucher.png` |
+| TC-01 | Marketplace storefront | `marketplace.hw130.omantel.biz/` | Open the storefront | "Build your tenant" renders, non-empty, branded | ✅ | wave-4 verifier: "Build Your Tenant — OpenOva SME", 6-step wizard, 14 apps. `docs/sessions/2026-06-12/evidence/hw130-funnel-2-marketplace.png` |
+| TC-02 | Operator issues voucher | `console.hw130.omantel.biz/bss/vouchers` | Operator: +Issue voucher → code+credit → submit | Voucher appears in the table, active | ✅ | WALKMART2026, 10 OMR, Active 0/1 → later Exhausted 1/1 (full round-trip). `docs/sessions/2026-06-12/evidence/hw130-funnel-1-bss-voucher.png` |
 | TC-03 | Voucher email | recipient inbox | Open the voucher email | Delivered via the **Sovereign's own SMTP** with the redeem link | ⛔ | cutover is one-way/destructive — not in round-1 scope; needs a dedicated decision + env (TC-15..17) |
-| TC-04 | Redeem voucher | `marketplace.hw130.omantel.biz/redeem/?code=WALKMART2026` | Open the redeem link | "Voucher valid" + OMR credit | ☑ | "Voucher valid — 10 OMR credit". `docs/sessions/2026-06-12/evidence/hw130-funnel-3-redeem.png` |
-| TC-05 | Pick plan | `…/plans` | Pick a plan card | Advances to app picker | ☑ | plan S (5.000 OMR/mo) accepted → app picker (wave-4). |
-| TC-06 | Pick apps | `…/apps` | Select a Postgres-backed app | Advances to setup/extras | ☑ | WordPress selected → advanced (wave-4). |
-| TC-07 | Choose subdomain | `…/addons` | Type a valid subdomain | Pool picker offers a free domain; subdomain accepted | ☑ | walkmart.omani.homes accepted from the pool (wave-4). |
-| TC-08 | Checkout (credit-only) | `…/checkout` | Sign in (email→PIN), confirm | Voucher **credit applied**, no card required | ☑ | see E1 — `docs/sessions/2026-06-12/evidence/hw130-funnel-5-checkout.png` |
+| TC-04 | Redeem voucher | `marketplace.hw130.omantel.biz/redeem/?code=WALKMART2026` | Open the redeem link | "Voucher valid" + OMR credit | ✅ | "Voucher valid — 10 OMR credit". `docs/sessions/2026-06-12/evidence/hw130-funnel-3-redeem.png` |
+| TC-05 | Pick plan | `…/plans` | Pick a plan card | Advances to app picker | ✅ | plan S (5.000 OMR/mo) accepted → app picker (wave-4). |
+| TC-06 | Pick apps | `…/apps` | Select a Postgres-backed app | Advances to setup/extras | ✅ | WordPress selected → advanced (wave-4). |
+| TC-07 | Choose subdomain | `…/addons` | Type a valid subdomain | Pool picker offers a free domain; subdomain accepted | ✅ | walkmart.omani.homes accepted from the pool (wave-4). |
+| TC-08 | Checkout (credit-only) | `…/checkout` | Sign in (email→PIN), confirm | Voucher **credit applied**, no card required | ✅ | see E1 — `docs/sessions/2026-06-12/evidence/hw130-funnel-5-checkout.png` |
 | TC-09 | Organization created | "Your tenant is ready" | Follow the tenant link | Lands on `console.<orgslug>.<pool>` | ✖ | **FUNNEL BREAKS HERE** — see E2 — `docs/sessions/2026-06-12/evidence/hw130-funnel-6-checkout-error.png` |
 | TC-10 | Tenant first login | tenant console | Customer PIN-login | Dashboard renders (Phase 2a) | ✖ | see E3 — `docs/sessions/2026-06-12/evidence/hw130-funnel-7-tenant-console.png` |
 | **Pillar 2 — Multi-region BCP topology chosen at signup** |||||||
 | TC-11 | BCP at signup | `marketplace.hw124.omani.works/bcp` | Choose **active-hot-standby**, pick **two different** regions | Same-region rejected; two distinct regions accepted; provisions BOTH in one pass | ⛔ | cutover is one-way/destructive — not in round-1 scope; needs a dedicated decision + env (TC-15..17) |
-| TC-12 | Cloud view = 2 REAL regions | `console.hw130.omantel.biz/cloud` | Open the Cloud view | **2 regions, 2 clusters with REAL nodes in each** | ☑ | see E4 — `docs/sessions/2026-06-12/evidence/hw130-cloud-graph.png` |
+| TC-12 | Cloud view = 2 REAL regions | `console.hw130.omantel.biz/cloud` | Open the Cloud view | **2 regions, 2 clusters with REAL nodes in each** | ✅ | see E4 — `docs/sessions/2026-06-12/evidence/hw130-cloud-graph.png` |
 | **Pillar 3 — Two independent CNPG clusters + region-kill failover** |||||||
-| TC-13 | CNPG pair across regions | `/app/$id` → Topology | CNPG pair placement | Cross-region pair live: primary + replica streaming (canonical expectation: TOPO-cnpg-pair) | ☑ | see E5 |
-| TC-14 | Region-kill failover | data plane | Kill primary region | Failover, 0 tx lost | ☑ | see E6 — `docs/sessions/2026-06-11/hw128-region-kill-walk-PASS.md` |
+| TC-13 | CNPG pair across regions | `/app/$id` → Topology | CNPG pair placement | Cross-region pair live: primary + replica streaming (canonical expectation: TOPO-cnpg-pair) | ✅ | see E5 |
+| TC-14 | Region-kill failover | data plane | Kill primary region | Failover, 0 tx lost | ✅ | see E6 — `docs/sessions/2026-06-11/hw128-region-kill-walk-PASS.md` |
 | **Pillar 5 — Sovereign independence (`bp-self-sovereign-cutover`)** |||||||
 | TC-15 | Trigger cutover | `console.hw101.<dom>/settings` → Sovereignty | "Soft-tethered" → tap "Achieve True Sovereignty" → confirm | Progress card; 8 tether-pivot steps advance | ⛔ | cutover is one-way/destructive — not in round-1 scope; needs a dedicated decision + env (TC-15..17) |
 | TC-16 | Egress-block proof | progress card | Wait through the final step | **10-min deny-egress** hold vs github.com/ghcr.io/harbor.openova.io; stays green → badge **"Independent"**, `cutoverComplete=true` | ⛔ | cutover is one-way/destructive — not in round-1 scope; needs a dedicated decision + env (TC-15..17) |
 | TC-17 | Post-cutover resilience | tenant console + an app | PIN-login + tap **Open** | Both still work, now pulling exclusively from local Gitea/Harbor | ⛔ | cutover is one-way/destructive — not in round-1 scope; needs a dedicated decision + env (TC-15..17) |
 | **G117 — Application lifecycle (EPIC #2737) — class ≠ instance** |||||||
-| TC-G1a | Catalog class page | `console.hw124.omani.works/catalog/bp-postgres` | Open the CLASS page | **CLASS page** `/catalog/$bp` — instances-list + New-instance only, no single-instance tabs | ☑ | see E7 — `docs/sessions/2026-06-12/evidence/hw130-data-instances-card.png` |
-| TC-G5-cards | **Many-to-many data cards (founder NS-2)** | `/catalog/bp-cnpg` → Data instances | Open the class page | ONE card per live CNPG instance with its Consumers (bindings) table | ☑ | **FOUNDER-DoD ACCEPTED 2026-06-12 (browser, full-page proof): "7 instances"** — cnpg-pair-primary/newapi-pg/openova-flow-pg/pda-pg/pdns-pg/**shared-pg(SHARED badge)**/sme-pg, per-card bindings (#3348 + RBAC #3354). `docs/sessions/2026-06-12/evidence/hw130-7-instance-cards-PROOF.png` |
-| TC-G6-jobs-region | **Jobs region visibility (founder hw126 report)** | `/jobs` | Open the jobs page | Region column + filter; rows from BOTH regions | ◑ | Column+filter shipped (#3278 + #3352 deltas); region-b ROWS were handover-gated — the converged-late rescue (#3349+#3356) flipped hw130 ready+handover 2026-06-12; flips ☑ on the post-redemption re-walk. |
+| TC-G1a | Catalog class page | `console.hw124.omani.works/catalog/bp-postgres` | Open the CLASS page | **CLASS page** `/catalog/$bp` — instances-list + New-instance only, no single-instance tabs | ✅ | see E7 — `docs/sessions/2026-06-12/evidence/hw130-data-instances-card.png` |
+| TC-G5-cards | **Many-to-many data cards (founder NS-2)** | `/catalog/bp-cnpg` → Data instances | Open the class page | ONE card per live CNPG instance with its Consumers (bindings) table | ✅ | **FOUNDER-DoD ACCEPTED 2026-06-12 (browser, full-page proof): "7 instances"** — cnpg-pair-primary/newapi-pg/openova-flow-pg/pda-pg/pdns-pg/**shared-pg(SHARED badge)**/sme-pg, per-card bindings (#3348 + RBAC #3354). `docs/sessions/2026-06-12/evidence/hw130-7-instance-cards-PROOF.png` |
+| TC-G6-jobs-region | **Jobs region visibility (founder hw126 report)** | `/jobs` | Open the jobs page | Region column + filter; rows from BOTH regions | ◑ | Column+filter shipped (#3278 + #3352 deltas); region-b ROWS were handover-gated — the converged-late rescue (#3349+#3356) flipped hw130 ready+handover 2026-06-12; flips ✅ on the post-redemption re-walk. |
 | TC-G1b | Instance page ≠ class | `/apps` → Deployments tab → click an instance | Click an instance | **INSTANCE page** `/app/$id` — that one instance only; **NO "New instance"**; the two clicks NEVER open the same page | ⛔ | cutover is one-way/destructive — not in round-1 scope; needs a dedicated decision + env (TC-15..17) |
 | TC-G2 | Multi-instance children | `/catalog/$bp` | "+ New instance" ×3, distinct names | All accepted, no collision; class page lists all N, each → its own `/app/$id` | ◑ / ⛔ | cutover is one-way/destructive — not in round-1 scope; needs a dedicated decision + env (TC-15..17) |
 | TC-G4 | Endpoints tab editable | `/app/$id` → Endpoints | Add alias / edit / delete | EDITABLE; each mutation → Git-IaC PR (3 checks) → auto-merge → new FQDN serves TLS+SSO ≤2 min | ⛔ | cutover is one-way/destructive — not in round-1 scope; needs a dedicated decision + env (TC-15..17) |
@@ -74,20 +74,20 @@
 
 | # | App | Test case | What you must see | Result | Evidence / status |
 |---|---|---|---|---|---|
-| ROOT-grafana | grafana | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ☑ | browser-proven 2026-06-12 — `docs/sessions/2026-06-12/evidence/hw130-grafana-root-zeroclick-PROOF.png` (chart 1.0.9 `auto_login`) |
-| ROOT-harbor | harbor | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ☑ | lands `/harbor/projects` zero-click (`primary_auth_mode`, 1.2.30) |
-| ROOT-gitea | gitea | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ☑ | three stacked fixes shipped+rolled (gateway redirect #3343, port-443 #3344, LANDING_PAGE=login #3347): anon root → 303 /user/login → 302 OIDC → signed in. Wire verdict 2026-06-12. |
-| ROOT-pdns-admin | pdns-admin | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ☑ | /login → 302 → /oidc/login at :443 (#3343+#3344 rolled); 1-click OIDC chain previously browser-proven (hw130-sso-pdns-admin-PASS.png). Wire verdict 2026-06-12. |
+| ROOT-grafana | grafana | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ✅ | browser-proven 2026-06-12 — `docs/sessions/2026-06-12/evidence/hw130-grafana-root-zeroclick-PROOF.png` (chart 1.0.9 `auto_login`) |
+| ROOT-harbor | harbor | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ✅ | lands `/harbor/projects` zero-click (`primary_auth_mode`, 1.2.30) |
+| ROOT-gitea | gitea | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ✅ | three stacked fixes shipped+rolled (gateway redirect #3343, port-443 #3344, LANDING_PAGE=login #3347): anon root → 303 /user/login → 302 OIDC → signed in. Wire verdict 2026-06-12. |
+| ROOT-pdns-admin | pdns-admin | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ✅ | /login → 302 → /oidc/login at :443 (#3343+#3344 rolled); 1-click OIDC chain previously browser-proven (hw130-sso-pdns-admin-PASS.png). Wire verdict 2026-06-12. |
 | ROOT-openbao | openbao | Open the app's own root URL in a fresh tab | Signed in, zero clicks | ✖ | upstream popup-only UI contract — 2-click first login, 0-click returns; upstream filing |
 
 ### 2.1 Tier-1 — sovereign-realm control-plane (4) — #2744 already-wired
 
 | # | Tested page | Test case | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| SSO-grafana | `/app/bp-grafana` (instance) | Click **Open** | New tab lands in **Grafana** ALREADY signed in — silent OIDC, **NO** login form, **NO** second click. Realm=`sovereign` (full expectation: see E8) | ☑ | see E8 — `docs/sessions/2026-06-12/evidence/hw130-sso-grafana.png` |
-| SSO-gitea | `/app/bp-gitea` (instance) | Click **Open** | New tab lands in **Gitea** ALREADY signed in — silent OIDC, NO login form. Realm=`sovereign` (quirk detail: see E9) | ☑ | see E9 — `docs/sessions/2026-06-12/evidence/hw130-sso-gitea.png` |
-| SSO-harbor | `/app/bp-harbor` (instance, `ui` endpoint) | Click **Open** | New tab lands in **Harbor** ALREADY signed in — silent OIDC, NO login form. Realm=`sovereign` (quirk + registry-endpoint detail: see E10) | ☑ | see E10 — `docs/sessions/2026-06-12/evidence/hw130-sso-harbor.png` |
-| SSO-openbao | `/app/bp-openbao` (instance, `api` endpoint) | Click **Open** | New tab lands in **OpenBao** ALREADY signed in via OIDC — Realm=`sovereign`, `default_role=operator` (cap-library quirk: see E11) | ☑ | see E11 — `docs/sessions/2026-06-12/evidence/hw130-sso-openbao.png` |
+| SSO-grafana | `/app/bp-grafana` (instance) | Click **Open** | New tab lands in **Grafana** ALREADY signed in — silent OIDC, **NO** login form, **NO** second click. Realm=`sovereign` (full expectation: see E8) | ✅ | see E8 — `docs/sessions/2026-06-12/evidence/hw130-sso-grafana.png` |
+| SSO-gitea | `/app/bp-gitea` (instance) | Click **Open** | New tab lands in **Gitea** ALREADY signed in — silent OIDC, NO login form. Realm=`sovereign` (quirk detail: see E9) | ✅ | see E9 — `docs/sessions/2026-06-12/evidence/hw130-sso-gitea.png` |
+| SSO-harbor | `/app/bp-harbor` (instance, `ui` endpoint) | Click **Open** | New tab lands in **Harbor** ALREADY signed in — silent OIDC, NO login form. Realm=`sovereign` (quirk + registry-endpoint detail: see E10) | ✅ | see E10 — `docs/sessions/2026-06-12/evidence/hw130-sso-harbor.png` |
+| SSO-openbao | `/app/bp-openbao` (instance, `api` endpoint) | Click **Open** | New tab lands in **OpenBao** ALREADY signed in via OIDC — Realm=`sovereign`, `default_role=operator` (cap-library quirk: see E11) | ✅ | see E11 — `docs/sessions/2026-06-12/evidence/hw130-sso-openbao.png` |
 
 ### Evidence notes — §2.1
 
@@ -100,8 +100,8 @@
 
 | # | Tested page | Test case | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| SSO-guacamole | `/app/bp-guacamole` (instance) | Click **Open** | New tab lands in **Guacamole** ALREADY signed in — silent OIDC, NO login form. Realm=`sovereign` (`sovereign-admins`→admin). | ☑ | see E12 — `docs/sessions/2026-06-12/evidence/hw130-sso-guacamole.png` |
-| SSO-powerdns-admin | `/app/bp-powerdns-admin` (instance) | Click **Open** | New tab lands in **PowerDNS-Admin** ALREADY signed in — silent OIDC, NO login form. Realm=`sovereign`. Endpoint `visibility: private` (operator-only). | ☑ | see E13 — `docs/sessions/2026-06-12/evidence/hw130-sso-pdns-admin-PASS.png` |
+| SSO-guacamole | `/app/bp-guacamole` (instance) | Click **Open** | New tab lands in **Guacamole** ALREADY signed in — silent OIDC, NO login form. Realm=`sovereign` (`sovereign-admins`→admin). | ✅ | see E12 — `docs/sessions/2026-06-12/evidence/hw130-sso-guacamole.png` |
+| SSO-powerdns-admin | `/app/bp-powerdns-admin` (instance) | Click **Open** | New tab lands in **PowerDNS-Admin** ALREADY signed in — silent OIDC, NO login form. Realm=`sovereign`. Endpoint `visibility: private` (operator-only). | ✅ | see E13 — `docs/sessions/2026-06-12/evidence/hw130-sso-pdns-admin-PASS.png` |
 | SSO-netbird | `/app/bp-netbird` (instance) | Click **Open** | New tab lands in **NetBird** dashboard ALREADY signed in — silent OIDC, NO login form. Realm=`sovereign` (`sovereign-admins`→admin). | ⛔ | not deployed on hw130 (kubectl: netbird ns empty; wave-6) |
 | SSO-spire | `/app/bp-spire` (instance) | Click **Open** | **⛔ #3084-BLOCKED:** `platform/spire` has no `spec.sso` block / no KC OIDC client → no Open button today (full analysis: see E14) | ⛔ | not deployed on hw130 + no UI endpoint (wave-6) |
 
@@ -173,9 +173,9 @@
 | # | Tested page | Test case | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
 | TOPO-catalyst-platform | `/app/bp-catalyst-platform` → Topology | Read placement | **active-hot-standby** → primary `mgmt-A` active + `mgmt-B` warm standby (Catalyst CRDs + PG via bp-cnpg-pair); `bp-continuum` flips PowerDNS for `console.<sov>`/`api.<sov>` on region-kill. `perCluster[]` shows 2 mgmt clusters. | ✖ | see E18 — `docs/sessions/2026-06-12/evidence/hw130-topo2-bp-catalyst-platform.png` |
-| TOPO-keycloak | `/app/bp-keycloak` → Topology | Read placement | **active-hot-standby** → `mgmt-A` active + `mgmt-B` passive; PG via bp-cnpg-pair sync; DNS flip `auth.<sov>` ~30s on promote. | ☑ | wave-6: same placement editor renders; same Live-status 404 caveat. `docs/sessions/2026-06-12/evidence/hw130-topo-keycloak.png` |
+| TOPO-keycloak | `/app/bp-keycloak` → Topology | Read placement | **active-hot-standby** → `mgmt-A` active + `mgmt-B` passive; PG via bp-cnpg-pair sync; DNS flip `auth.<sov>` ~30s on promote. | ✅ | wave-6: same placement editor renders; same Live-status 404 caveat. `docs/sessions/2026-06-12/evidence/hw130-topo-keycloak.png` |
 | TOPO-gitea | `/app/bp-gitea` → Topology | Read placement | **active-hot-standby** → primary HR active + secondary passive (sync); PG via bp-cnpg-pair, Git blobs on SeaweedFS S3; flip `gitea.<sov>`. | ✖ | walked (1 #3301 retry): same projection-gap shape despite declared active-hotstandby. `docs/sessions/2026-06-12/evidence/hw130-topo2-bp-gitea.png` |
-| TOPO-grafana | `/app/bp-grafana` → Topology | Read placement | **active-hot-standby** → 2 HRs: primary active + secondary passive (sync); Grafana DB on bp-cnpg-pair; flip `grafana.<sov>` ~30s. | ☑ | see E19 — `docs/sessions/2026-06-12/evidence/hw130-topo-grafana.png` |
+| TOPO-grafana | `/app/bp-grafana` → Topology | Read placement | **active-hot-standby** → 2 HRs: primary active + secondary passive (sync); Grafana DB on bp-cnpg-pair; flip `grafana.<sov>` ~30s. | ✅ | see E19 — `docs/sessions/2026-06-12/evidence/hw130-topo-grafana.png` |
 | TOPO-harbor | `/app/bp-harbor` → Topology | Read placement | **active-hot-standby** → primary active + secondary passive; PG via bp-cnpg-pair, image blobs on object-storage replication; flip `harbor.<sov>`+`registry.<sov>`. | ✖ | walked: same projection-gap shape. `docs/sessions/2026-06-12/evidence/hw130-topo2-bp-harbor.png` |
 | TOPO-guacamole | `/app/bp-guacamole` → Topology | Read placement | **active-hot-standby** → primary active + secondary passive; PG via bp-cnpg-pair; flip `guac.<sov>` (in-progress remote-desktop sessions drop). | ✖ | walked: same projection-gap shape. `docs/sessions/2026-06-12/evidence/hw130-topo2-bp-guacamole.png` |
 | TOPO-netbird | `/app/bp-netbird` → Topology | Read placement | **active-hot-standby** → primary active + secondary passive; mgmt state in PG via bp-cnpg-pair (candidate CP); flip `netbird.<sov>`. | ✖ | see E20 — `docs/sessions/2026-06-12/evidence/hw130-topo2-bp-netbird.png` |
