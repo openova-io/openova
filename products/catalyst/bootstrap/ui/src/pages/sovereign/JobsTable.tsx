@@ -192,17 +192,21 @@ export function regionUnionOfGroup(
  * Search predicate — matches across jobName / appId / dependsOn /
  * status / parentId. Case-insensitive substring match. Exported so
  * unit tests cover edge cases (empty query, query in deps, etc.).
+ *
+ * Every field access tolerates undefined/null: handover-imported rows
+ * (POST /api/v1/internal/jobs/import) carry only what the mothership
+ * export stamped, so the wire shape can omit any of these despite the
+ * Job type — TS types don't survive res.json().
  */
 export function matchJob(job: Job, query: string): boolean {
   if (!query.trim()) return true
   const q = query.toLowerCase()
-  if (job.jobName.toLowerCase().includes(q)) return true
-  if (job.displayName && job.displayName.toLowerCase().includes(q)) return true
-  if (job.appId.toLowerCase().includes(q)) return true
-  if (job.parentId.toLowerCase().includes(q)) return true
-  if (job.status.toLowerCase().includes(q)) return true
-  for (const d of job.dependsOn) {
-    if (d.toLowerCase().includes(q)) return true
+  const fields = [job.jobName, job.displayName, job.appId, job.parentId, job.status]
+  for (const f of fields) {
+    if (typeof f === 'string' && f.toLowerCase().includes(q)) return true
+  }
+  for (const d of job.dependsOn ?? []) {
+    if (typeof d === 'string' && d.toLowerCase().includes(q)) return true
   }
   return false
 }

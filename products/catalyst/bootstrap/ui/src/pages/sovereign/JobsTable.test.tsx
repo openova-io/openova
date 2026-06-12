@@ -191,6 +191,24 @@ describe('JobsTable — matchJob (search filter)', () => {
   it('returns false when no field matches', () => {
     expect(matchJob(job, 'nothing-matches-this')).toBe(false)
   })
+
+  it('never throws on handover-imported rows that omit wire fields (#3367)', () => {
+    // Shape observed live on hw130 after the #3364 jobs import: the Job
+    // type promises strings, but imported rows carry only what the
+    // export stamped. Cast mirrors the runtime wire shape.
+    const imported = {
+      id: 'imp-1',
+      jobName: 'bp-grafana',
+      type: 'install',
+      status: 'succeeded',
+    } as unknown as Job
+    expect(() => matchJob(imported, 'graf')).not.toThrow()
+    expect(matchJob(imported, 'graf')).toBe(true)
+    expect(matchJob(imported, 'nothing-matches-this')).toBe(false)
+    const empty = { id: 'imp-2' } as unknown as Job
+    expect(() => matchJob(empty, 'x')).not.toThrow()
+    expect(matchJob(empty, 'x')).toBe(false)
+  })
 })
 
 describe('JobsTable — formatDuration', () => {
