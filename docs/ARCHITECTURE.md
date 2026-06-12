@@ -452,12 +452,30 @@ All in `apps.openova.io/v1`, `orgs.openova.io/v1`, `catalyst.openova.io/v1`, or 
 | `Organization` | `orgs.openova.io/v1` | Multi-tenancy unit; reconciles to vCluster + Keycloak group + Gitea Org + base RBAC |
 | `Environment` | `catalyst.openova.io/v1` | User-facing scope (`{org}-{env_type}`); reconciles per-region vCluster + Flux + JetStream subjects |
 | `Application` | `apps.openova.io/v1` | Running deployment; validated against `Blueprint.spec.configSchema` at admission |
-| `Blueprint` | `catalyst.openova.io/v1` | Catalog item; CRD-validated `card / visibility / owner / configSchema / placementSchema / depends / manifests.source / overlays / upgrades / rotation / observability` |
+| `Blueprint` | `catalyst.openova.io/v1` | Catalog item; CRD-validated `card / visibility / owner / configSchema / topology† / depends / manifests.source / overlays / upgrades / rotation / observability` |
 | `EnvironmentPolicy` | `catalyst.openova.io/v1` | Compliance config + promotion gating + placement defaults (per-Org weight + mode per-policy) |
 | `SecretPolicy` | `catalyst.openova.io/v1` | Rotation rules (TTL, action: rotate/warn/block) |
 | `Runbook` | `catalyst.openova.io/v1` | Auto-remediation hooks |
 | `Continuum` | `dr.openova.io/v1` | Active-hotstandby orchestration: lease, replication health, switchover sequence, lua-record body |
 | `UserAccess` | `catalyst.openova.io/v1` | Tier-based RBAC (scope = label selectors; AND within UA, OR across UAs) |
+
+> **† Canonical placement/topology declaration (#3375 DoD-1).** A Blueprint
+> declares its multi-region placement in **one canonical shape**:
+> `spec.topology` (`supported[] · defaults · perTopology{<bcp>:{replication,
+> switchover, placement{tier, clusters[], roles{}}}}`). This is the shape the
+> application-controller's fan-out renderer consumes (`internal/render/
+> topology.go` `ResolveTopology` → `fanout.go` `FanoutHRs`), the shape the
+> cluster-ID registry resolves (`internal/clusterregistry`), and the shape the
+> agreement table (`docs/topology-matrix.md`) carries — it expresses the
+> mechanism, switchover, and per-cluster role columns directly. The earlier
+> `spec.placementSchema` (`modes[]/default/vcluster`, G92/G93) is the **legacy
+> orphan**: it cannot express replication backend, switchover mechanism, or
+> per-cluster roles. It remains wired only to the legacy `Application.spec.
+> placement` string-enum path (`internal/placement/placement.go`); its removal
+> is a coordinated controller-migration follow-on (sequenced after the #3370/
+> #3373 placement wave converges), not a declaration change. New Blueprints use
+> `spec.topology` exclusively — the CI admission gate (`blueprint-admission-
+> validate`) rejects a blueprint without it (G116).
 
 ### §5.5 Controllers
 
