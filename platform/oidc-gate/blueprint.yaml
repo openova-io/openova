@@ -1,0 +1,37 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-oidc-gate
+  labels:
+    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
+    catalyst.openova.io/tier: catalyst-cp
+spec:
+  version: 0.1.0
+  card:
+    title: oidc-gate
+    summary: |
+      The ONE generic OIDC gate (#3374). A per-app oauth2-proxy instance
+      set that brings login-less external apps under the Sovereign
+      zero-click SSO contract: fresh browser -> bare URL -> Keycloak
+      sovereign realm (silent via catalyst-pin) -> signed in. Client
+      secrets converge with Keycloak via bp-sso-bridge AppRegistration
+      ConfigMaps + ExternalSecrets. First gated instance: openova-flow.
+      Mandatory infra — auto-installed by the bootstrap-kit (slot 13c).
+  visibility: unlisted              # mandatory infra
+  manifests:
+    chart: ./chart
+  depends:
+    - bp-cilium
+    - bp-keycloak
+    - bp-external-secrets-stores
+
+  # ── Topology declaration ────────────────────────────────────────────
+  # Stateless reverse-proxy instances; cookie secret is per-cluster
+  # local. Per-cluster active; switchover is bp-continuum DNS flip.
+  topology:
+    supported:
+      - active-passive
+      - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton

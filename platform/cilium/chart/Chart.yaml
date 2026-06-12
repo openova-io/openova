@@ -73,7 +73,19 @@ name: bp-cilium
 # + socketLB.hostNamespaceOnly=true defaults so fresh worker pods can
 # resolve DNS reliably on first-join (cilium/cilium#28456 mitigation).
 # Backward-compat: per-Sovereign overlays MAY override either knob.
-version: 1.4.0
+# 1.4.1 (#3374, 2026-06-13): hubble-ui zero-click SSO actually lands. The
+# oauth2-proxy's chart-generated client-secret and the bp-keycloak realm-
+# import's deterministic tier2ClientSecret never converged -> Keycloak
+# rejected every code exchange (`unauthorized_client`) and the
+# /oauth2/callback 500'd (measured live on hw130 2026-06-13; oauth2-proxy
+# log oauthproxy.go:881). New oauth2Proxy.ssoBridgeSync (default ON when
+# auth=oidc): an AppRegistration ConfigMap has bp-sso-bridge 0.2.3+ adopt
+# the realm's hubble-ui client and publish the LIVE KC secret to OpenBao
+# sso/sovereign/hubble-ui; an ExternalSecret materialises it and the
+# Deployment's OAUTH2_PROXY_CLIENT_SECRET now reads that. cookie-secret
+# stays chart-managed. Set ssoBridgeSync.enabled=false to restore the old
+# (broken-by-design) standalone secret.
+version: 1.4.1
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`

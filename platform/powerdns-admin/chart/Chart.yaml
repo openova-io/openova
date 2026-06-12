@@ -72,6 +72,17 @@ name: bp-powerdns-admin
 # cold install can't half-render (apiserver rejecting the Cluster CR before
 # bp-cnpg registers the CRD) and wedge the chart BEFORE it reaches kyverno
 # admission at all.
+# 0.1.13 (#3374, 2026-06-13): ROOT-URL zero-click SSO — the callback-aware
+# replacement the 0.1.11 revert (464e4182, #3353) demanded. The HTTPRoute now
+# 302s ONLY the bare root `/` (Exact match, explicit port 443 per #3310) to
+# /oidc/login. The reverted 0.1.10 rule intercepted /login, which the live
+# pda-legacy 0.4.2 source proves is the OIDC session-exchange hop
+# (/oidc/authorized stores the token then bounces to /login) — that is why it
+# looped. The root-only rule cannot loop: the post-exchange chain goes
+# /login -> /dashboard/ (authed-user guard) and never revisits `/`; /login,
+# /oidc/login and /oidc/authorized are never intercepted, so OIDC errors
+# degrade to the visible form. Gated on sso.bareURL.enabled (default true).
+# Full forensics in templates/httproute.yaml.
 # 0.1.12 (#3370, 2026-06-12): embedded-DB elimination seam — gate
 # `postgres.cluster.enabled` (default true) on the bundled pda-pg
 # Cluster + its pda-database-secret mirror. false → PDA runs against
@@ -79,7 +90,7 @@ name: bp-powerdns-admin
 # pda-shared-database-secret, reflector-PUSHED into this namespace)
 # via the slot-11a databaseSecret.name flip — same one-flag contract
 # as gitea/harbor/keycloak (enable_shared_pg).
-version: 0.1.12
+version: 0.1.13
 description: |
   PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI Blueprint for
   per-Sovereign PowerDNS zone + record management. Drives the

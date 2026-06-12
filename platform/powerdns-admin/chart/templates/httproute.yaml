@@ -24,6 +24,43 @@ spec:
   hostnames:
     - {{ .Values.gateway.host | quote }}
   rules:
+{{- if and .Values.sso .Values.sso.bareURL .Values.sso.bareURL.enabled }}
+{{- /*
+ROOT-URL zero-click SSO (#3374) — the CALLBACK-AWARE approach the 0.1.11
+revert (464e4182, #3353) demanded. ONLY the bare root `/` is intercepted.
+
+Why the 0.1.10 `/login` rule looped (verified against the live pda-legacy
+0.4.2 source, powerdnsadmin/routes/index.py + services/oidc.py):
+  - /oidc/authorized (the KC callback) stores the token in the Flask
+    session and 302s to /login (services/oidc.py oidc_authorized());
+  - /login is where the oidc_token -> app-session exchange happens
+    (routes/index.py login(), `if 'oidc_token' in session:` branch);
+  - intercepting /login therefore decapitates the callback chain:
+    /login -> gw -> /oidc/login -> KC -> /oidc/authorized -> /login -> gw
+    -> ... = ERR_TOO_MANY_REDIRECTS.
+
+Why the root-only rule CANNOT loop:
+  - post-exchange, authenticate_user() 302s to /login, whose
+    authed-user guard 302s STRAIGHT to /dashboard/ (routes/index.py
+    login(): `return redirect(url_for('dashboard.dashboard'))`) —
+    the chain never revisits `/`;
+  - /login, /oidc/login and /oidc/authorized are never intercepted, so
+    any OIDC error degrades to the visible login form, never a loop.
+Port is explicit 443 (the #3310 listener-port-leak class).
+*/}}
+    - matches:
+        - path:
+            type: Exact
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            port: 443
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /oidc/login
+            statusCode: 302
+{{- end }}
     - matches:
         - path:
             type: PathPrefix

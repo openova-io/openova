@@ -1,0 +1,59 @@
+# sso-uat-flip.yaml — mechanical UAT-row invalidation (#3374 DoD-8).
+#
+# THE LAW (#3374 §2.3): a walked-once SSO row is worthless if the next
+# roll silently kills it — every merge to main touching the SSO chain
+# flips the UAT.md zero-click rows back to UNVERIFIED until re-walked.
+# This is the TRUST.md law applied mechanically to the SSO surface.
+#
+# Path list = the SSO chain: the per-app charts carrying SSO/httproute
+# config, the IdP, the bridge, the gate, catalyst-api (handover/session/
+# oidc-provider/shim) and the console auth surface.
+name: sso-uat-flip
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "platform/openbao/**"
+      - "platform/keycloak/**"
+      - "platform/gitea/**"
+      - "platform/grafana/**"
+      - "platform/harbor/**"
+      - "platform/powerdns-admin/**"
+      - "platform/guacamole/**"
+      - "platform/newapi/**"
+      - "platform/cilium/**"
+      - "platform/sso-bridge/**"
+      - "platform/oidc-gate/**"
+      - "platform/openova-flow-server/**"
+      - "products/catalyst/bootstrap/api/**"
+      - "products/catalyst/chart/**"
+      - "core/console/**"
+      - "clusters/_template/bootstrap-kit/**"
+
+permissions:
+  contents: write
+
+jobs:
+  flip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Flip SSO UAT rows to UNVERIFIED
+        run: python3 scripts/uat-sso-flip.py --ref "${GITHUB_SHA::8}"
+
+      - name: Commit flip (if any)
+        run: |
+          set -euo pipefail
+          if git diff --quiet docs/ledger/UAT.md; then
+            echo "no rows flipped — nothing to commit"
+            exit 0
+          fi
+          git -c user.name=openova-uat-bot -c user.email=bot@openova.io \
+            commit -m "docs(uat): flip SSO rows UNVERIFIED after SSO-chain merge ${GITHUB_SHA::8} (mechanical, Refs #3374)" \
+            docs/ledger/UAT.md
+          git push origin main

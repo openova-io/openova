@@ -1,0 +1,54 @@
+{{- /*
+#3374 (2026-06-13) — newapi-admin AppRegistration ConfigMap.
+
+The ops-staff admin UI's OIDC was wired to a realm that DOES NOT EXIST:
+slot 80 pointed OIDC_ISSUER at https://auth.<fqdn>/realms/ops, but the
+bp-keycloak realm import creates only `sovereign` + per-Org realms
+(measured live on hw130 2026-06-13). And the `newapi-oidc` Secret was a
+chart-local placeholder (keycloak-client-secret.yaml randAlphaNum) that
+Keycloak never learned — the same two-independent-secrets disease as
+hubble-ui.
+
+This ConfigMap has bp-sso-bridge's AppRegistration watcher (0.2.3
+#2801) upsert the `newapi-admin` client into the SOVEREIGN realm and
+publish the LIVE KC client_secret to OpenBao at
+`sso/sovereign/newapi-admin`, where the companion
+sso-externalsecret.yaml merges it into the Pod's secret. Companion slot
+change: 80-newapi.yaml issuer now targets realms/sovereign.
+
+data.realm = "sovereign": the watcher only requires the realm to EXIST
+(GET /admin/realms/<realm> == 200).
+*/ -}}
+{{- $kcMode := eq .Values.auth.adminUI.mode "keycloak" -}}
+{{- $sync := .Values.auth.adminUI.keycloak.ssoBridgeSync -}}
+{{- if and .Values.newapi.enabled $kcMode $sync.enabled .Values.sovereignFQDN }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bp-newapi.fullname" . }}-sso-registration
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    sso.openova.io/app-registration: {{ .Values.auth.adminUI.keycloak.clientId | quote }}
+data:
+  realm: sovereign
+  client.json: |
+    {
+      "clientId": {{ .Values.auth.adminUI.keycloak.clientId | quote }},
+      "name": "NewAPI ops-staff admin UI",
+      "enabled": true,
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "https://newapi.{{ .Values.sovereignFQDN }}{{ .Values.auth.adminUI.keycloak.callbackPath }}",
+        "https://newapi.{{ .Values.sovereignFQDN }}/*"
+      ],
+      "webOrigins": [
+        "https://newapi.{{ .Values.sovereignFQDN }}"
+      ],
+      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "email", "groups"],
+      "attributes": {
+        "access.token.lifespan": "900"
+      }
+    }
+{{- end }}

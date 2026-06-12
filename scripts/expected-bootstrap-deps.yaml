@@ -203,6 +203,18 @@ slots:
     # (sovereign-fqdn ConfigMap with `orgEmail` key) all Ready.
     depends_on: [bp-keycloak, bp-openbao]
     wave: present
+  - slot: "13c"
+    name: bp-oidc-gate
+    # #3374: the ONE generic OIDC gate — per-app oauth2-proxy instances
+    # bringing login-less external apps (first: openova-flow) under the
+    # zero-click SSO contract. Needs bp-cilium (gateway), bp-keycloak
+    # (sovereign realm issuer) and bp-external-secrets-stores
+    # (ClusterSecretStore vault-region1 for the client-secret
+    # ExternalSecret). Deliberately NOT bp-sso-bridge — the gate serves
+    # 302s before the client bundle lands; the ExternalSecret converges
+    # eventually (same pattern as the Tier-1/2 SSO apps).
+    depends_on: [bp-cilium, bp-keycloak, bp-external-secrets-stores]
+    wave: present
 
   # ---- Tier 5: storage + DB (W2.K1, slots 15-19) ----------------------------
   - slot: 15

@@ -13,6 +13,31 @@ spec:
   hostnames:
     - {{ include "bp-guacamole.host" . | quote }}
   rules:
+{{- if and .Values.guacamole.httproute.rootRedirect .Values.guacamole.httproute.rootRedirect.enabled }}
+{{- /*
+ROOT-URL entry (#3374; closes the TBD-G6 follow-up promised in
+guacamole-deployment.yaml). Tomcat serves the WAR at /guacamole/ — the
+bare root `/` is the ROOT context and 404s (the #3150 landmine,
+re-measured live on hw130 2026-06-13). 302 the bare root into the WAR
+context; the webapp's own OIDC extension then auto-redirects to
+Keycloak (silent via catalyst-pin) and lands the operator signed in.
+Loop-safety: one-way hop — the webapp lives entirely under /guacamole/
+(OPENID_REDIRECT_URI ends /guacamole/) and never redirects back to `/`.
+Port is explicit 443 (the #3310 listener-port-leak class).
+*/}}
+    - matches:
+        - path:
+            type: Exact
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            port: 443
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /guacamole/
+            statusCode: 302
+{{- end }}
     - matches:
         - path:
             type: PathPrefix

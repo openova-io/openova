@@ -84,7 +84,7 @@ spec:
       # `catalyst.openova.io/hubble-ui-auth: oidc` annotation and flipped
       # default `catalystOverlay.hubbleUI.auth` from `oidc` → `none`
       # (no enforcement filter shipped yet). Refs #2744.
-      version: 1.4.0
+      version: 1.4.1
       sourceRef:
         kind: HelmRepository
         name: bp-cilium

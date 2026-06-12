@@ -1,3 +1,5 @@
+{{- /* nil-safe (helm-lint with defaults): cilium.clustermesh may be absent */}}
+{{- $cm := dig "clustermesh" (dict) (.Values.cilium | default dict) }}
 {{/*
 Cilium ClusterMesh per-peer config CR — slice EPIC-5 leftovers CM
 #1100. Documents the operator-side `cilium clustermesh connect` runbook
@@ -14,12 +16,12 @@ completed `cilium clustermesh enable` + `cilium clustermesh connect`
 on both peers.
 
 This template ships the chart-side render. It is gated by
-`.Values.cilium.clustermesh.config.enabled` AND the upstream Cilium
+`$cm.config.enabled` AND the upstream Cilium
 chart's `cluster.name` / `cluster.id` non-empty checks (which the
 upstream chart performs at install time when ClusterMesh is on).
 
 The CR shape mirrors the upstream Cilium chart's expectation: each
-peer in `.Values.cilium.clustermesh.config.clusters[]` becomes one
+peer in `$cm.config.clusters[]` becomes one
 entry. Operators populate that list via the per-Sovereign overlay
 once `cilium clustermesh connect` has issued the certs that make a
 real peer connection possible.
@@ -33,7 +35,7 @@ the empty `clusters: []` default renders an empty mesh declaration.
 That's intentional: the chart never auto-peers without operator
 consent.
 */}}
-{{- if and .Values.cilium.clustermesh.useAPIServer .Values.cilium.clustermesh.config.enabled .Values.cilium.cluster.name -}}
+{{- if and $cm.useAPIServer $cm.config.enabled .Values.cilium.cluster.name -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -57,9 +59,9 @@ data:
   # `cilium clustermesh connect` to populate.
   cluster-name: {{ .Values.cilium.cluster.name | quote }}
   cluster-id: {{ .Values.cilium.cluster.id | quote }}
-  domain: {{ .Values.cilium.clustermesh.config.domain | default "mesh.cilium.io" | quote }}
+  domain: {{ $cm.config.domain | default "mesh.cilium.io" | quote }}
   # JSON-encoded peer list. Each entry: {"name": "<peer-name>",
   # "address": "<peer-clustermesh-apiserver-LB>", "port": 2379}.
   # Populated post-`cilium clustermesh connect` on each peer.
-  peers: {{ .Values.cilium.clustermesh.config.clusters | toJson | quote }}
+  peers: {{ $cm.config.clusters | toJson | quote }}
 {{- end -}}

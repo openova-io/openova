@@ -420,6 +420,22 @@ name: bp-newapi
 # `lookup valkey.valkey.svc.cluster.local: no such host`). Same hostname
 # already documented as canonical in products/catalyst/chart/values.yaml
 # bp-cnpg-pair comments.
+# 1.4.65 (#3374, 2026-06-13): un-dead the public gateway path. The K8s
+# NetworkPolicy admits only traefik/catalyst-system NAMESPACES, but Cilium
+# Gateway traffic carries the reserved `ingress` ENTITY identity that no K8s
+# selector can express -> every external hit to newapi.<fqdn> connection-
+# timed-out (measured live on hw130 2026-06-13, "upstream connect error").
+# New additive CiliumNetworkPolicy (fromEntities: [ingress], Capabilities-
+# guarded per the #2988/#3102 idiom) admits the gateway; gated on
+# networkPolicy.ingress.allowGatewayEntity (default true).
+# ALSO #3374: real OIDC for the ops-staff admin UI. The slot pointed
+# OIDC_ISSUER at the non-existent `ops` realm and the `newapi-oidc` Secret
+# was a chart-local placeholder Keycloak never learned (the hubble-ui
+# disease). New auth.adminUI.keycloak.ssoBridgeSync (default true):
+# AppRegistration ConfigMap mints `newapi-admin` in the SOVEREIGN realm via
+# bp-sso-bridge + an ExternalSecret (creationPolicy Merge) converges
+# OIDC_CLIENT_SECRET to the live KC value; companion slot fix points the
+# issuer at realms/sovereign.
 version: 1.4.65
 appVersion: "0.13.2"
 description: |

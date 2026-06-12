@@ -193,6 +193,13 @@ sso:
   # Auto-onboarding — PDA creates a local user record on first OIDC
   # sign-in if it doesn't already exist.
   autoOnboard: true
+  # ── Bare-URL zero-click entry (#3374) ──────────────────────────────
+  # Gateway-level 302 of ONLY the bare root `/` into /oidc/login — the
+  # callback-aware replacement for the reverted 0.1.10 /login rule
+  # (which decapitated PDA's /oidc/authorized -> /login session
+  # exchange; see the loop forensics in templates/httproute.yaml).
+  bareURL:
+    enabled: true
 
 # Misc PDA settings.
 config:

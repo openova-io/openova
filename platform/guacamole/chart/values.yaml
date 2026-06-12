@@ -164,6 +164,11 @@ guacamole:
     parentRef:
       name: cilium-gateway
       namespace: kube-system
+    # Bare-root entry (#3374): 302 `/` -> `/guacamole/` (the Tomcat WAR
+    # context). Without it the bare hostname 404s on Tomcat's ROOT
+    # context (the #3150 landmine). See guacamole-httproute.yaml.
+    rootRedirect:
+      enabled: true
     # Hostname this Guacamole answers on. Empty value fails the
     # helm template render (see _helpers.tpl `bp-guacamole.host`).
     hostname: ""

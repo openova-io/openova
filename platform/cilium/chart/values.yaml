@@ -358,6 +358,20 @@ catalystOverlay:
       # cookie-secret) — e.g. an ExternalSecret synced by bp-sso-bridge.
       chartManagedSecret: true
       existingSecret: hubble-ui-oauth2-proxy-sso
+      # #3374 — converge the client-secret with Keycloak. The chart-
+      # generated secret and the bp-keycloak realm-import's deterministic
+      # tier2ClientSecret never matched, so the /oauth2/callback failed
+      # `unauthorized_client` (hw130, founder-class regression). When
+      # enabled (default), the chart (a) emits an AppRegistration
+      # ConfigMap so bp-sso-bridge 0.2.3+ adopts the realm's hubble-ui
+      # client and publishes the LIVE KC secret to OpenBao
+      # `sso/sovereign/hubble-ui`, and (b) consumes it via ExternalSecret
+      # `hubble-ui-oauth2-proxy-oidc` for OAUTH2_PROXY_CLIENT_SECRET.
+      # cookie-secret remains chart-managed (no KC counterpart).
+      ssoBridgeSync:
+        enabled: true
+        externalSecretStoreName: vault-region1
+        refreshInterval: 1h
       replicas: 1
       image:
         repository: quay.io/oauth2-proxy/oauth2-proxy

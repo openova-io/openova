@@ -129,7 +129,7 @@ spec:
       # postgres.cluster.enabled gate + databaseSecret.name flip so PDA
       # adopts the shared-pg-b `pda` Context (one-flag enable_shared_pg
       # contract, the gitea/harbor/keycloak shape).
-      version: 0.1.12
+      version: 0.1.13
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns-admin

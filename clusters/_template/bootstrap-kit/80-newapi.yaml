@@ -223,7 +223,7 @@ spec:
   # Per-Sovereign overrides — the operator MUST supply at install time:
   #   - ingress.host           = api.${SOVEREIGN_FQDN}
   #   - ingress.adminHost      = admin.${SOVEREIGN_FQDN}
-  #   - auth.adminUI.keycloak.issuer = https://auth.${SOVEREIGN_FQDN}/realms/ops
+  #   - auth.adminUI.keycloak.issuer = https://auth.${SOVEREIGN_FQDN}/realms/sovereign (#3374)
   #   - database.existingSecret      = Postgres DSN Secret (from the
   #                                    Crossplane PostgresqlInstance claim)
   #   - credentials.existingSecret   = SESSION_SECRET + CRYPTO_SECRET
@@ -283,7 +283,12 @@ spec:
       adminUI:
         mode: keycloak
         keycloak:
-          issuer: https://auth.${SOVEREIGN_FQDN}/realms/ops
+          # #3374: was realms/ops — a realm that does not exist on any
+          # Sovereign (bp-keycloak imports only `sovereign` + per-Org
+          # realms; measured live on hw130 2026-06-13). The sovereign
+          # realm is where sovereign-admins live and where bp-sso-bridge
+          # mints the newapi-admin client (chart sso-app-registration).
+          issuer: https://auth.${SOVEREIGN_FQDN}/realms/sovereign
           clientId: newapi-admin
           existingSecret: newapi-oidc
       customerAPI:

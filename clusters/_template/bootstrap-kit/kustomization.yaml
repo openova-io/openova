@@ -41,6 +41,9 @@ resources:
   # (founder walk: slot file existed at 13b-bp-sso-bridge.yaml but
   # kustomization.yaml didn't list it, so Flux never created the HR).
   - 13b-bp-sso-bridge.yaml
+  # 13c (#3374): the ONE generic OIDC gate (oauth2-proxy instance set) —
+  # zero-click SSO front for login-less external apps (first: openova-flow).
+  - 13c-bp-oidc-gate.yaml
   - 14-crossplane-claims.yaml
   - 15-external-secrets.yaml
   - 15a-external-secrets-stores.yaml

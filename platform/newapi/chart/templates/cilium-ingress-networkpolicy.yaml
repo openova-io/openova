@@ -1,0 +1,45 @@
+{{- /*
+#3374 (2026-06-13): the gateway path was DEAD on hw130 — every external
+hit to newapi.<fqdn> returned "upstream connect error ... connection
+timeout". Root cause: the K8s NetworkPolicy in networkpolicy.yaml allows
+ingress only from the traefik + catalyst-system NAMESPACES, but Cilium
+Gateway API traffic reaches the backend with the reserved `ingress`
+ENTITY identity (the Envoy proxy embedded in the cilium agent), which NO
+K8s NetworkPolicy selector (podSelector / namespaceSelector / ipBlock)
+can express — the exact failure class of the sso-bridge kube-apiserver
+entity saga (0.2.14) and the #3201 default-deny lesson: Cilium `{}` /
+namespace rules match only Pod endpoints, never reserved entities.
+
+CiliumNetworkPolicy fromEntities is the canonical expression (same idiom
+as platform/sso-bridge cilium-networkpolicy-apiserver.yaml). When both a
+K8s NetworkPolicy and a CNP select the same Pod the allow-sets union, so
+this is purely additive: gateway traffic is admitted, everything the K8s
+policy already allowed stays allowed, everything else stays denied.
+
+Gated on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so
+the chart still installs on CRD-less clusters (kind CI).
+*/ -}}
+{{- if and .Values.newapi.enabled .Values.networkPolicy.enabled .Values.networkPolicy.ingress.allowGatewayEntity (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "bp-newapi.fullname" . }}-gateway-ingress
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    catalyst.openova.io/component: newapi-gateway-netpol
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "bp-newapi.selectorLabels" . | nindent 6 }}
+  ingress:
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - port: {{ .Values.newapi.port | quote }}
+              protocol: TCP
+            {{- if .Values.meteringSidecar.enabled }}
+            - port: {{ .Values.meteringSidecar.port | quote }}
+              protocol: TCP
+            {{- end }}
+{{- end }}

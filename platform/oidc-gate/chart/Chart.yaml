@@ -1,0 +1,42 @@
+apiVersion: v2
+name: bp-oidc-gate
+# 0.1.0 (#3374, 2026-06-13): the ONE generic OIDC gate. A single reusable
+# oauth2-proxy front for external apps that ship NO native OIDC (the law:
+# one component, never N bespoke hacks). Per gated app the chart renders an
+# instance set: Deployment + Service + HTTPRoute (owning the app's public
+# hostname) + cookie-secret (lookup-or-generate, keep) + an AppRegistration
+# ConfigMap (bp-sso-bridge 0.2.3+ mints/adopts the Keycloak client in the
+# sovereign realm and publishes the LIVE client_secret to OpenBao
+# sso/sovereign/<clientId>) + an ExternalSecret consuming it — the exact
+# credential topology that fixed hubble-ui in bp-cilium 1.4.1 (#3374),
+# generalised. Silent zero-click via kc_idp_hint=catalyst-pin login-url +
+# --skip-provider-button, the proven hubble-ui oauth2-proxy arg set
+# (G117.5 #2744). Machine paths: per-instance skipAuthRoutes (regex,
+# METHOD=^path form) + --skip-jwt-bearer-tokens so token-bearing
+# service-to-service callers pass without a browser session.
+version: 0.1.0
+appVersion: "7.6.0"
+description: |
+  Catalyst generic OIDC gate — a per-app oauth2-proxy instance set that
+  brings login-less external apps under the Sovereign zero-click SSO
+  contract (#3374): fresh browser -> bare URL -> Keycloak sovereign
+  realm (silent via catalyst-pin) -> signed in. Used for apps with no
+  native OIDC support (first consumer: openova-flow); any app can be
+  gated by adding an instances[] entry. Client secrets converge with
+  Keycloak via bp-sso-bridge AppRegistration + ExternalSecret.
+keywords:
+  - catalyst
+  - sso
+  - oauth2-proxy
+  - zero-click
+sources:
+  - https://github.com/openova-io/openova
+annotations:
+  catalyst.openova.io/blueprint: bp-oidc-gate
+  # Catalyst-authored only — no upstream chart dependency (oauth2-proxy is
+  # consumed as an image, not a subchart).
+  catalyst.openova.io/no-upstream: "true"
+  # Default values render nothing by design: instances[] is empty and
+  # sovereignFQDN is operator-driven (Inviolable Principle #4 fail-closed).
+  # The bootstrap-kit slot 13c supplies both.
+  catalyst.openova.io/smoke-render-mode: "default-off"

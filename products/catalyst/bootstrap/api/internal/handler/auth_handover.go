@@ -322,10 +322,30 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 	cookieMaxAge := int(sessionTTL.Seconds())
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 
+	// #3374 (2026-06-13): domain-widen the session cookie EXACTLY like the
+	// PIN-verify path (auth.go G113-followup hw86). Without a Domain the
+	// cookie is host-only on console.<fqdn>, so KC's catalyst-pin broker
+	// redirect to api.<fqdn>/oidc/auth never carries it -> EVERY silent
+	// zero-click chain from a handover-established session bounced to the
+	// console PIN form (measured live on hw130 2026-06-13: fresh handover
+	// -> grafana.<fqdn> landed on console./login?next=...oidc/auth...).
+	// The PIN path was fixed on hw86 2026-06-02; the handover path missed
+	// the same fix. Resolution order: explicit env > SOVEREIGN_FQDN env >
+	// the validated handover claim (this handler always has it).
+	cookieDomain := os.Getenv("CATALYST_SESSION_COOKIE_DOMAIN")
+	if cookieDomain == "" {
+		if sovFQDN := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")); sovFQDN != "" {
+			cookieDomain = "." + sovFQDN
+		} else if fq := strings.TrimSpace(claims.SovereignFQDN); fq != "" {
+			cookieDomain = "." + fq
+		}
+	}
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "catalyst_session",
 		Value:    accessToken,
 		Path:     "/",
+		Domain:   cookieDomain,
 		MaxAge:   cookieMaxAge,
 		HttpOnly: true,
 		Secure:   secure,

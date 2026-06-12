@@ -216,8 +216,27 @@ data:
       "defaultGroups": [
         "/sovereign-viewers"
       ],
+      {{- /*
+      #3374 (2026-06-13) — sovereign-admin access model for the Keycloak
+      admin console (the IdP's own UI, the last login-form holdout).
+      Members of /sovereign-admins receive the realm-management
+      `realm-admin` composite client role, so the SOVEREIGN realm's own
+      admin console (/admin/sovereign/console/) accepts them — and that
+      console authenticates through the sovereign realm's browser flow,
+      i.e. silently via the catalyst-pin IDR. Zero-click, generic on the
+      group (law: elevation keys on sovereign-admins, never per-user).
+      keycloak-config-cli re-applies the import, so this reconciles onto
+      existing realms too. The master realm + its local form remain
+      untouched (not the default path; bp-keycloak httproute now 302s
+      the bare root to the sovereign realm console).
+      */ -}}
       "groups": [
-        { "name": "sovereign-admins" },
+        {
+          "name": "sovereign-admins",
+          "clientRoles": {
+            "realm-management": ["realm-admin"]
+          }
+        },
         { "name": "sovereign-ops" },
         { "name": "sovereign-viewers" }
       ],
