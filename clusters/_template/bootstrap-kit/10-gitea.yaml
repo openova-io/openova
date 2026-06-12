@@ -126,7 +126,9 @@ spec:
       # hook); gitea image pulled via harbor.openova.io/proxy-dockerhub
       # (bare gitea/gitea ref denied by harbor-proxy-pull on any roll —
       # wedged live hw128 on the 1.2.27 upgrade).
-      version: 1.2.28
+      # 1.2.29 (2026-06-12, founder): root-URL zero-click — REQUIRE_SIGNIN_VIEW
+      # + gateway /user/login -> OIDC entry redirect.
+      version: 1.2.29
       sourceRef:
         kind: HelmRepository
         name: bp-gitea

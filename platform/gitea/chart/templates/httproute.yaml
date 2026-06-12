@@ -33,6 +33,23 @@ spec:
   hostnames:
     - {{ .Values.gateway.host | quote }}
   rules:
+    # ROOT-URL zero-click SSO (founder mandate 2026-06-12): gitea has no
+    # native auto-redirect knob, so the gateway sends the login page
+    # itself into the OIDC entry. Logged-in users never hit /user/login
+    # (no loop); git/API clients never hit it either (token/basic auth).
+    # Paired with service.REQUIRE_SIGNIN_VIEW=true (values) so anonymous
+    # hits to ANY page funnel: / -> /user/login -> OIDC -> signed in.
+    - matches:
+        - path:
+            type: Exact
+            value: /user/login
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /user/oauth2/openova-sso
+            statusCode: 302
     - matches:
         - path:
             type: PathPrefix

@@ -24,6 +24,20 @@ spec:
   hostnames:
     - {{ .Values.gateway.host | quote }}
   rules:
+    # ROOT-URL zero-click SSO (founder mandate 2026-06-12): PDA has no
+    # auto-redirect setting; the gateway sends its login page straight
+    # into the OIDC leg. Logged-in users never hit /login (no loop).
+    - matches:
+        - path:
+            type: Exact
+            value: /login
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /oidc/login
+            statusCode: 302
     - matches:
         - path:
             type: PathPrefix

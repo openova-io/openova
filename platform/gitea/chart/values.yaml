@@ -73,6 +73,13 @@ gitea:
       # G91.gitea (#2653) — global OAuth2-client toggles. Per-provider
       # config (clientId/secret/autoDiscoverUrl) lives under `gitea.oauth`
       # below; these are the global app.ini knobs.
+      # ROOT-URL zero-click SSO (founder mandate 2026-06-12): anonymous
+      # hits to ANY page must funnel into OIDC instead of the public
+      # landing/explore pages. REQUIRE_SIGNIN_VIEW sends anonymous ->
+      # /user/login, which the HTTPRoute redirects -> the OIDC entry ->
+      # signed in. Git/Flux/API clients are unaffected (token auth).
+      service:
+        REQUIRE_SIGNIN_VIEW: true
       oauth2_client:
         ENABLE_AUTO_REGISTRATION: true
         # Use email + username from claims; never email-only (avoids
