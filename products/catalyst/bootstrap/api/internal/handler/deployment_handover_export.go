@@ -54,6 +54,14 @@ func (h *Handler) exportDeploymentToChild(dep *Deployment, fqdn string) {
 	// — it must not be suppressed by an EOF on the deployment POST.
 	go h.exportSecondaryKubeconfigsToChild(dep, fqdn, depID)
 
+	// #3263 #3277: ship the deployment's Job rows (BOTH regions) to the
+	// chroot's jobs store. The chroot's own bootstrap watch seeds only
+	// region-a; the secondary regions' install rows exist solely in the
+	// mothership's store, so without this the chroot /jobs page shows
+	// half the regions. Independent of the record export for the same
+	// reason as the kubeconfig fan-out above.
+	go h.exportJobsToChild(depID, fqdn)
+
 	body, err := json.Marshal(rec)
 	if err != nil {
 		h.log.Error("deployment-export: marshal failed",
