@@ -34,6 +34,11 @@ spec:
       filters:
         - type: RequestRedirect
           requestRedirect:
+            # Explicit 443 — Gateway API otherwise copies the cilium
+            # LISTENER port (30443) into Location, which nothing serves
+            # externally (the #3310 pdns lesson, repeated on first render
+            # and caught by the wire check).
+            port: 443
             path:
               type: ReplaceFullPath
               replaceFullPath: /oidc/login
