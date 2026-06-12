@@ -156,6 +156,16 @@ export interface SMETenantCreateRequest {
   parent_domain?: string
   admin_email: string
   company_name?: string
+  /** The Organizations internal door (issue #3378 B1). When omitted the
+   *  backend defaults to the customer shape (kind=customer, tier=sme,
+   *  billingMode=real, isolation=vcluster) so the marketplace funnel is
+   *  unaffected. kind='internal' stamps the department shape (showback +
+   *  namespace) and skips the voucher dependency. These map onto the
+   *  OrganizationSpec fields (Kind/Tier/BillingMode + Isolation). */
+  kind?: 'internal' | 'customer'
+  tier?: 'sme' | 'corporate'
+  billing_mode?: 'real' | 'chargeback' | 'showback'
+  isolation?: 'namespace' | 'vcluster'
 }
 
 /** Wire shape mirrors the canonical issue #829 endpoint

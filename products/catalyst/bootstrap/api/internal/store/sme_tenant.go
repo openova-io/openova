@@ -166,7 +166,24 @@ type SMETenantProvisionRecord struct {
 	RetryCount int `json:"retry_count"`
 	// LastError — structured `<step>:<class>:<detail>` per ADR-0003
 	// §3.8. Truncated to 256 bytes.
-	LastError string    `json:"last_error,omitempty"`
+	LastError string `json:"last_error,omitempty"`
+
+	// ── Organizations model (issue #3378 B1 — the internal door) ──
+	//
+	// These four fields map onto OrganizationSpec
+	// (core/controllers/organization/internal/orgapi/types.go:54-79):
+	// Kind/Tier/BillingMode + the derived Isolation. The marketplace
+	// funnel (the customer door) omits them and the create handler
+	// stamps the customer default shape (kind=customer, tier=sme,
+	// billingMode=real, isolation=vcluster) so the funnel is byte-
+	// unchanged. The internal door (kind=internal) stamps the
+	// department shape (showback + namespace) and skips the voucher
+	// dependency. Empty (legacy records) reads as the customer default.
+	Kind        string `json:"kind,omitempty"`
+	Tier        string `json:"tier,omitempty"`
+	BillingMode string `json:"billing_mode,omitempty"`
+	Isolation   string `json:"isolation,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

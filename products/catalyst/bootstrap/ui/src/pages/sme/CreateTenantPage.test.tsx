@@ -26,9 +26,44 @@ const POOL: SovereignParentDomain[] = [
 describe('CreateTenantPage', () => {
   it('renders heading + form', () => {
     render(<CreateTenantPage initialParentDomains={POOL} disableFetch />)
-    expect(screen.getByText('Onboard SME Tenant')).toBeTruthy()
+    // Issue #3378: the page is the Organizations internal door now.
+    expect(screen.getByTestId('create-org-title').textContent).toBe('Create organization')
     expect(screen.getByTestId('sme-create-tenant-form')).toBeTruthy()
     expect(screen.getByTestId('sme-create-tenant-submit')).toBeTruthy()
+  })
+
+  /* ── Organizations internal door (issue #3378 B1, DoD-4) ── */
+
+  it('defaults to customer kind with real + vcluster derived defaults', () => {
+    render(<CreateTenantPage initialParentDomains={POOL} disableFetch />)
+    expect(
+      screen.getByTestId('create-org-kind-customer').getAttribute('aria-pressed'),
+    ).toBe('true')
+    expect(screen.getByTestId('create-org-billing-mode').getAttribute('data-mode')).toBe('real')
+    expect(screen.getByTestId('create-org-isolation').getAttribute('data-isolation')).toBe('vcluster')
+  })
+
+  it('selecting Internal renders showback + namespace defaults', () => {
+    render(<CreateTenantPage initialParentDomains={POOL} disableFetch />)
+    fireEvent.click(screen.getByTestId('create-org-kind-internal'))
+    expect(
+      screen.getByTestId('create-org-kind-internal').getAttribute('aria-pressed'),
+    ).toBe('true')
+    expect(screen.getByTestId('create-org-billing-mode').getAttribute('data-mode')).toBe('showback')
+    expect(screen.getByTestId('create-org-isolation').getAttribute('data-isolation')).toBe('namespace')
+  })
+
+  it('the advanced override is visible and can change billing/isolation', () => {
+    render(<CreateTenantPage initialParentDomains={POOL} disableFetch />)
+    fireEvent.click(screen.getByTestId('create-org-kind-internal'))
+    // advanced panel hidden until toggled
+    expect(screen.queryByTestId('create-org-advanced')).toBeNull()
+    fireEvent.click(screen.getByTestId('create-org-advanced-toggle'))
+    expect(screen.getByTestId('create-org-advanced')).toBeTruthy()
+    // override billing to chargeback — the badge reflects it
+    const billingSel = screen.getByTestId('create-org-billing-select') as HTMLSelectElement
+    fireEvent.change(billingSel, { target: { value: 'chargeback' } })
+    expect(screen.getByTestId('create-org-billing-mode').getAttribute('data-mode')).toBe('chargeback')
   })
 
   it('renders parent-domain dropdown with every sme-pool entry', () => {
