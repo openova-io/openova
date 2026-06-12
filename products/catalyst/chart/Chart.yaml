@@ -2647,7 +2647,7 @@ name: bp-catalyst-platform
 # (b) catalog-seed: bp-postgres + bp-valkey gain shareable +
 # contextSchema (lockstep-guarded against platform/ sources); the
 # bp-postgres seed version pins sync to chart 0.1.6. Refs #3370.
-version: 1.4.596
+version: 1.4.597
 # 1.4.587 — #3188: cutover-driver ClusterRole gains postgresql.cnpg.io
 #   clusters/databases + dr.openova.io read — the instances endpoint
 #   403'd cluster-wide (hw130: API 0 rows with 7 live clusters).
