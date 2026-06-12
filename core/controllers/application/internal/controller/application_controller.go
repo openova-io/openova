@@ -180,6 +180,12 @@ const (
 	// render.InvalidTopologyReason — kept in sync verbatim because the
 	// Wave-2 verifier (G117.6 acceptance) asserts this exact string.
 	ReasonInvalidTopology = topo.InvalidTopologyReason
+
+	// ReasonBootstrapAdopted — #3370. Stamped on bootstrap-owned
+	// Applications (spec.bootstrap=true): the controller ADOPTS the
+	// slot-installed HelmRelease named by spec.helmRelease instead of
+	// rendering anything. Status mirrors that HR's Ready condition.
+	ReasonBootstrapAdopted = "BootstrapAdopted"
 )
 
 // FinalizerName — owned by application-controller.
@@ -546,6 +552,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 		return r.handleDeletion(ctx, app)
 	}
 
+	// #3370 — bootstrap-owned ADOPTION guard. A bootstrap-owned
+	// Application (spec.bootstrap=true) is the canonical representation
+	// a bootstrap-kit chart self-registered for its slot-installed
+	// HelmRelease (e.g. shared-pg ← HR flux-system/bp-postgres-shared).
+	// The install ALREADY exists and is owned by that HR — running the
+	// normal reconcile would render + persist per-cluster HelmReleases
+	// (`<app>-<cluster>` via render.HRNameFor) and commit per-region
+	// manifests to Gitea, DUPLICATING the install. Adoption = skip every
+	// render / fan-out / Gitea path and reconcile STATUS ONLY by
+	// observing the owning HR's Ready condition. The guard sits BEFORE
+	// ensureFinalizer so bootstrap-owned CRs never carry the controller
+	// finalizer (their lifecycle is Helm's, not ours — a chart
+	// uninstall must not wedge on our finalizer).
+	if isBootstrapOwned(app) {
+		return r.reconcileBootstrapOwned(ctx, app)
+	}
+
 	// Ensure finalizer is present.
 	if err := r.ensureFinalizer(ctx, app); err != nil {
 		return fmt.Errorf("ensure finalizer: %w", err)
@@ -741,6 +764,48 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			fanoutSourceKind, _, _ := unstructured.NestedString(bp.Object, "spec", "manifests", "source", "kind")
 			fanoutSourceRef, _, _ := unstructured.NestedString(bp.Object, "spec", "manifests", "source", "ref")
 
+			// #3370 — resolve spec.dependsOn[] backing refs to concrete
+			// Flux HelmRelease edges. A bootstrap-owned backing instance
+			// (shared-pg) resolves to its slot HR (spec.helmRelease,
+			// e.g. flux-system/bp-postgres-shared); a controller-managed
+			// backing instance resolves to its per-cluster
+			// HRNameFor(<backing>, cluster) HR in the backing CR's
+			// namespace. Unresolvable refs fall back to the per-cluster
+			// convention so a late-created backing CR still gates the
+			// consumer (Flux dependsOn on a missing HR = wait, which is
+			// the correct conservative behaviour).
+			var fanoutDependsOnFor func(cluster string) []topo.HRDependsOn
+			if len(spec.DependsOn) > 0 {
+				appNamespace := app.GetNamespace()
+				dependsOnRefs := spec.DependsOn
+				fanoutDependsOnFor = func(cluster string) []topo.HRDependsOn {
+					out := make([]topo.HRDependsOn, 0, len(dependsOnRefs))
+					for _, d := range dependsOnRefs {
+						ns := d.Namespace
+						if ns == "" {
+							ns = appNamespace
+						}
+						if target, terr := r.Dynamic.Resource(ApplicationGVR).Namespace(ns).
+							Get(ctx, d.Name, metav1.GetOptions{}); terr == nil && isBootstrapOwned(target) {
+							thn, _, _ := unstructured.NestedString(target.Object, "spec", "helmRelease", "name")
+							thns, _, _ := unstructured.NestedString(target.Object, "spec", "helmRelease", "namespace")
+							if thn != "" {
+								if thns == "" {
+									thns = "flux-system"
+								}
+								out = append(out, topo.HRDependsOn{Name: thn, Namespace: thns})
+								continue
+							}
+						}
+						out = append(out, topo.HRDependsOn{
+							Name:      topo.HRNameFor(d.Name, cluster),
+							Namespace: ns,
+						})
+					}
+					return out
+				}
+			}
+
 			hrs, ferr := topo.FanoutHRs(topo.FanoutInputs{
 				AppName:             app.GetName(),
 				AppNamespace:        app.GetNamespace(),
@@ -753,6 +818,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				SourceRefKind:       fanoutSourceKind,
 				SourceRefNamespace:  r.Cfg.SourceNamespace,
 				KubeConfigSecretFor: fanoutKubeSecretFor,
+				DependsOnFor:        fanoutDependsOnFor,
 				IntervalSeconds:     r.Cfg.HelmReleaseIntervalSeconds,
 				OwnerLabels: map[string]string{
 					"catalyst.openova.io/organization": envSpec.OrganizationRef,
@@ -1415,6 +1481,15 @@ func (r *Reconciler) handleDeletion(ctx context.Context, app *unstructured.Unstr
 		return nil
 	}
 
+	// #3370 — bootstrap-owned CRs own NO rendered artifacts (the
+	// adoption guard skips every render/Gitea path), so deletion drives
+	// no teardown. Defensive: the steady-state path never adds our
+	// finalizer to these, but if one is present (e.g. a CR that
+	// pre-dates the marker) just release it.
+	if isBootstrapOwned(app) {
+		return r.removeFinalizer(ctx, app)
+	}
+
 	// Surface phase=Uninstalling for the UI.
 	_ = r.updateStatus(ctx, app, statusUpdate{
 		Phase:   PhaseUninstalling,
@@ -1682,6 +1757,98 @@ func (r *Reconciler) updateStatus(ctx context.Context, app *unstructured.Unstruc
 	return nil
 }
 
+// isBootstrapOwned reports whether the Application is a bootstrap-owned
+// instance (spec.bootstrap=true) — the canonical CR a bootstrap-kit
+// chart self-registers for its slot-installed HelmRelease (#3370).
+func isBootstrapOwned(app *unstructured.Unstructured) bool {
+	b, _, _ := unstructured.NestedBool(app.Object, "spec", "bootstrap")
+	return b
+}
+
+// reconcileBootstrapOwned — #3370 ADOPTION path for bootstrap-owned
+// Applications. Status-only: observe the owning HelmRelease named by
+// spec.helmRelease and mirror its Ready condition onto the Application.
+// NEVER renders, NEVER fans out, NEVER touches Gitea — those would
+// duplicate the install the bootstrap-kit HR already owns (the unit
+// tests assert zero HelmRelease writes on this path).
+func (r *Reconciler) reconcileBootstrapOwned(ctx context.Context, app *unstructured.Unstructured) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	hrName, _, _ := unstructured.NestedString(app.Object, "spec", "helmRelease", "name")
+	hrNamespace, _, _ := unstructured.NestedString(app.Object, "spec", "helmRelease", "namespace")
+	if hrNamespace == "" {
+		hrNamespace = "flux-system"
+	}
+	if hrName == "" {
+		// No HR ref — the CR is still the canonical representation,
+		// but there is nothing to observe. Surface Pending so the
+		// console shows an honest "unobserved" state rather than a
+		// fabricated Ready.
+		return r.updateStatus(ctx, app, statusUpdate{
+			Phase:            PhasePending,
+			Reason:           ReasonBootstrapAdopted,
+			Message:          "bootstrap-owned instance declares no spec.helmRelease to observe",
+			Ready:            "False",
+			LastReconciledAt: now,
+		})
+	}
+
+	hr, err := r.Dynamic.Resource(FluxHelmReleaseGVR).Namespace(hrNamespace).
+		Get(ctx, hrName, metav1.GetOptions{})
+	if err != nil {
+		if isNotFound(err) {
+			return r.updateStatus(ctx, app, statusUpdate{
+				Phase:            PhasePending,
+				Reason:           ReasonBootstrapAdopted,
+				Message:          fmt.Sprintf("owning HelmRelease %s/%s not found", hrNamespace, hrName),
+				Ready:            "False",
+				LastReconciledAt: now,
+			})
+		}
+		return fmt.Errorf("bootstrap-owned: get HelmRelease %s/%s: %w", hrNamespace, hrName, err)
+	}
+
+	phase := PhaseProvisioning
+	ready := "Unknown"
+	message := fmt.Sprintf("adopted bootstrap install %s/%s (no Ready condition yet)", hrNamespace, hrName)
+	conds, _, _ := unstructured.NestedSlice(hr.Object, "status", "conditions")
+	for _, c := range conds {
+		cm, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if cm["type"] != "Ready" {
+			continue
+		}
+		hrMsg, _ := cm["message"].(string)
+		switch cm["status"] {
+		case "True":
+			phase = PhaseReady
+			ready = "True"
+			message = fmt.Sprintf("adopted bootstrap install %s/%s: %s", hrNamespace, hrName, hrMsg)
+		case "False":
+			phase = PhaseDegraded
+			ready = "False"
+			message = fmt.Sprintf("adopted bootstrap install %s/%s not Ready: %s", hrNamespace, hrName, hrMsg)
+		}
+		break
+	}
+
+	r.Log.Info("bootstrap-owned adoption: status-only reconcile",
+		"app", app.GetName(),
+		"namespace", app.GetNamespace(),
+		"helmRelease", hrNamespace+"/"+hrName,
+		"phase", phase)
+
+	return r.updateStatus(ctx, app, statusUpdate{
+		Phase:            phase,
+		Reason:           ReasonBootstrapAdopted,
+		Message:          message,
+		Ready:            ready,
+		LastReconciledAt: now,
+	})
+}
+
 // markPending is a one-shot status writer for "valid spec, parent
 // missing" cases.
 func (r *Reconciler) markPending(ctx context.Context, app *unstructured.Unstructured, reason, message string) error {
@@ -1735,6 +1902,21 @@ type appSpec struct {
 	// When empty, the reconciler picks the Blueprint's default
 	// keyed on Sovereign-region-count (locked decision #7).
 	Topology string
+
+	// DependsOn — #3370 backing-service wiring. Each entry names
+	// another Application (the backing instance) this Application
+	// consumes + optionally the Context it occupies there. The
+	// reconciler resolves each entry to the backing instance's
+	// HelmRelease(s) and stamps Flux `spec.dependsOn` on every HR it
+	// renders — the runtime wiring stays purely Flux.
+	DependsOn []dependsOnRef
+}
+
+// dependsOnRef is one parsed spec.dependsOn[] entry (#3370).
+type dependsOnRef struct {
+	Name      string
+	Namespace string
+	Context   string
 }
 
 func parseSpec(app *unstructured.Unstructured) (appSpec, error) {
@@ -1788,6 +1970,23 @@ func parseSpec(app *unstructured.Unstructured) (appSpec, error) {
 	// override. Empty string is the default-derived path.
 	tp, _, _ := unstructured.NestedString(app.Object, "spec", "topology")
 	out.Topology = tp
+
+	// #3370 — optional spec.dependsOn[] backing-service wiring.
+	depsRaw, _, _ := unstructured.NestedSlice(app.Object, "spec", "dependsOn")
+	for _, d := range depsRaw {
+		dm, ok := d.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		ref := dependsOnRef{}
+		ref.Name, _ = dm["name"].(string)
+		ref.Namespace, _ = dm["namespace"].(string)
+		ref.Context, _ = dm["context"].(string)
+		if ref.Name == "" {
+			continue
+		}
+		out.DependsOn = append(out.DependsOn, ref)
+	}
 
 	return out, nil
 }
