@@ -436,7 +436,7 @@ name: bp-newapi
 # bp-sso-bridge + an ExternalSecret (creationPolicy Merge) converges
 # OIDC_CLIENT_SECRET to the live KC value; companion slot fix points the
 # issuer at realms/sovereign.
-version: 1.4.65
+version: 1.4.66
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
