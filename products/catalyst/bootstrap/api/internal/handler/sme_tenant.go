@@ -242,6 +242,73 @@ type smeTenantCreateRequest struct {
 	AdminEmail string `json:"admin_email"`
 	// CompanyName — branding metadata; optional.
 	CompanyName string `json:"company_name,omitempty"`
+
+	// ── Organizations internal door (issue #3378 B1) ──
+	//
+	// These map onto OrganizationSpec Kind/Tier/BillingMode + the
+	// derived Isolation. When omitted (the marketplace funnel = the
+	// customer door) the handler stamps the customer default shape so
+	// the funnel is byte-unchanged. kind="internal" (this menu's Create
+	// = the internal door) stamps the department shape (showback +
+	// namespace) and skips the voucher dependency — no voucher step for
+	// an internal org. The handler resolves billing_mode + isolation
+	// from kind when those two are omitted (the kind-derived default;
+	// the advanced-view override sends them explicitly).
+	Kind        string `json:"kind,omitempty"`
+	Tier        string `json:"tier,omitempty"`
+	BillingMode string `json:"billing_mode,omitempty"`
+	Isolation   string `json:"isolation,omitempty"`
+}
+
+// orgShape is the resolved Organizations-model shape (issue #3378 B1)
+// the create handler stamps onto the provision record.
+type orgShape struct {
+	Kind        string
+	Tier        string
+	BillingMode string
+	Isolation   string
+}
+
+// resolveOrgShape applies the §2.1/§2.3 model: kind defaults to
+// "customer" (the marketplace door); kind-derived billingMode +
+// isolation defaults (internal → showback + namespace; customer → real +
+// vcluster) fill in when the advanced override didn't send them; tier
+// defaults to "sme". Unknown enum values fall back to the kind default
+// so a malformed body can never stamp a nonsense shape.
+func resolveOrgShape(req smeTenantCreateRequest) orgShape {
+	kind := strings.ToLower(strings.TrimSpace(req.Kind))
+	if kind != "internal" && kind != "customer" {
+		kind = "customer"
+	}
+
+	// kind-derived defaults (§2.3).
+	defBilling, defIsolation := "real", "vcluster"
+	if kind == "internal" {
+		defBilling, defIsolation = "showback", "namespace"
+	}
+
+	billing := strings.ToLower(strings.TrimSpace(req.BillingMode))
+	switch billing {
+	case "real", "chargeback", "showback":
+	default:
+		billing = defBilling
+	}
+
+	isolation := strings.ToLower(strings.TrimSpace(req.Isolation))
+	switch isolation {
+	case "namespace", "vcluster":
+	default:
+		isolation = defIsolation
+	}
+
+	tier := strings.ToLower(strings.TrimSpace(req.Tier))
+	switch tier {
+	case "sme", "corporate":
+	default:
+		tier = "sme"
+	}
+
+	return orgShape{Kind: kind, Tier: tier, BillingMode: billing, Isolation: isolation}
 }
 
 type smeTenantResponse struct {
@@ -257,11 +324,17 @@ type smeTenantResponse struct {
 	VClusterName    string                        `json:"vcluster_name"`
 	TenantNamespace string                        `json:"tenant_namespace"`
 	ConsoleHost     string                        `json:"console_host"`
-	CommitSHA       string                        `json:"commit_sha,omitempty"`
-	LastError       string                        `json:"last_error,omitempty"`
-	Steps           smeTenantSteps                `json:"steps"`
-	CreatedAt       time.Time                     `json:"created_at"`
-	UpdatedAt       time.Time                     `json:"updated_at"`
+	// Organizations model (issue #3378 B1) — surfaced so the directory
+	// can badge the org by kind/tier/billingMode/isolation.
+	Kind        string         `json:"kind,omitempty"`
+	Tier        string         `json:"tier,omitempty"`
+	BillingMode string         `json:"billing_mode,omitempty"`
+	Isolation   string         `json:"isolation,omitempty"`
+	CommitSHA   string         `json:"commit_sha,omitempty"`
+	LastError   string         `json:"last_error,omitempty"`
+	Steps       smeTenantSteps `json:"steps"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
 }
 
 // smeTenantSteps surfaces the 7-state machine to the SPA so it can
@@ -366,6 +439,10 @@ func smeTenantRecordToResponse(rec store.SMETenantProvisionRecord) smeTenantResp
 		VClusterName:    rec.VClusterName,
 		TenantNamespace: rec.TenantNamespace,
 		ConsoleHost:     deriveConsoleHost(rec),
+		Kind:            rec.Kind,
+		Tier:            rec.Tier,
+		BillingMode:     rec.BillingMode,
+		Isolation:       rec.Isolation,
 		CommitSHA:       rec.CommitSHA,
 		LastError:       rec.LastError,
 		Steps:           stepsForState(rec.State, rec.LastError),
@@ -462,6 +539,14 @@ func (h *Handler) HandleCreateSMETenant(w http.ResponseWriter, r *http.Request) 
 		writeBadRequest(w, "admin-email-invalid", "admin_email must be a valid email")
 		return
 	}
+
+	// Organizations model (issue #3378 B1): resolve the kind/tier/
+	// billingMode/isolation shape. kind defaults to "customer" (the
+	// marketplace funnel door) so the funnel is byte-unchanged; the
+	// internal door sends kind="internal" → showback + namespace, no
+	// voucher step. The resolved shape is stamped on the record below.
+	shape := resolveOrgShape(body)
+
 	if mode == "" {
 		mode = string(store.SMEDomainFreeSubdomain)
 	}
@@ -556,6 +641,15 @@ func (h *Handler) HandleCreateSMETenant(w http.ResponseWriter, r *http.Request) 
 		OTECHFQDN:       otech,
 		VClusterName:    "vc-" + subdomain,
 		TenantNamespace: "sme-" + smeTenantID,
+		// Organizations model (issue #3378 B1) — stamp the resolved
+		// kind/tier/billingMode/isolation so the directory badges the
+		// org correctly and the controller can later read the spec
+		// shape (namespace-mode reconcile is the placement/org-controller
+		// follow-on per #3378 §9; this records the desired-state fields).
+		Kind:        shape.Kind,
+		Tier:        shape.Tier,
+		BillingMode: shape.BillingMode,
+		Isolation:   shape.Isolation,
 	}
 	if err := deps.Store.Put(rec); err != nil {
 		h.log.Error("sme-tenant: persist pending failed", "err", err)

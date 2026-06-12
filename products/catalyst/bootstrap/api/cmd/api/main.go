@@ -1655,6 +1655,34 @@ func main() {
 		// SME catalog service.
 		rg.Patch("/api/v1/sovereign/apps/{slug}/publish", h.HandleSovereignAppPublish)
 
+		// Organizations commerce editors (issue #3378 DoD 7/8) — the
+		// console's plans/addons/bundles/industries/apps editors proxy
+		// CRUD onto the EXISTING superadmin-JWT /catalog/admin/* endpoints
+		// on the in-cluster SME commerce catalog. NOT new business
+		// endpoints (§6) — the same mintSMEBridgeToken → smeCatalog proxy
+		// hop HandleSovereignAppPublish uses, generalized to full CRUD so
+		// console.<sovereign>/api/* can reach the admin paths. Reads use
+		// the existing public /catalog/{kind} list endpoints (SME gateway).
+		rg.Post("/api/v1/sme/commerce/{kind}", h.HandleSMECommerceCreate)
+		rg.Put("/api/v1/sme/commerce/{kind}/{id}", h.HandleSMECommerceUpdate)
+		rg.Delete("/api/v1/sme/commerce/{kind}/{id}", h.HandleSMECommerceDelete)
+
+		// Organizations metering feed (issue #3378 B3) — per-org
+		// consumption aggregation, parent self-showback first. Lean
+		// kube-metrics aggregation (no new component): reuses the
+		// dashboard's per-namespace resource-request rows. The billing
+		// pages read this one GET; 100% attributes to the parent on a
+		// zero-sub-org estate (§5 day-one showback).
+		rg.Get("/api/v1/sme/consumption", h.HandleSovereignConsumption)
+
+		// Organizations Enter-org support session (issue #3378 B2) —
+		// mints the audited, time-boxed (≤60min) impersonation into a
+		// sub-org's OWN console as a support principal in the org's realm
+		// (never the owner's identity). Reuses the handover-redemption
+		// flow + the #3374/#3385 cookie fix. Writes the audit event;
+		// hidden on the parent row (and rejects entering the parent).
+		rg.Post("/api/v1/sme/organizations/{slug}/enter", h.HandleEnterOrg)
+
 		// EPIC-3 (#1098) — Sovereign-prefix RBAC access-matrix surface
 		// (TBD-F4 / C6-007). Chroot-friendly mirror of
 		// /api/v1/sovereigns/{id}/rbac/access-matrix; the id is resolved
