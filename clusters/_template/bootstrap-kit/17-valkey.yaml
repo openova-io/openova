@@ -60,7 +60,7 @@ spec:
       # (context-secrets.yaml) + bootstrapOwned Application-CR
       # self-registration — the generality proof of the platform-wide
       # reuse mechanism on a non-database blueprint.
-      version: 1.1.1
+      version: 1.1.2
       sourceRef:
         kind: HelmRepository
         name: bp-valkey
