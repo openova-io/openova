@@ -72,7 +72,7 @@ name: bp-powerdns-admin
 # cold install can't half-render (apiserver rejecting the Cluster CR before
 # bp-cnpg registers the CRD) and wedge the chart BEFORE it reaches kyverno
 # admission at all.
-version: 0.1.8
+version: 0.1.9
 description: |
   PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI Blueprint for
   per-Sovereign PowerDNS zone + record management. Drives the

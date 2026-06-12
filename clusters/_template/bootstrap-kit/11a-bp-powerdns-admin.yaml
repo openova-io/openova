@@ -111,7 +111,8 @@ spec:
       # propagates past the stale pre-0.1.7 artifact hw126 first admitted.
       # Adds the bp-gitea/bp-harbor Capabilities guard to the CNPG Cluster
       # template so a cold install can't half-render before bp-cnpg's CRD.
-      version: 0.1.8
+      # 0.1.9 (2026-06-12, founder): root-URL zero-click — /login -> /oidc/login.
+      version: 0.1.9
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns-admin
