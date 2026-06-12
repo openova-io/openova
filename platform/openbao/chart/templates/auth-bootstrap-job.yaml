@@ -266,6 +266,31 @@ spec:
                 policies=sso-configure-admin \
                 ttl=$TOKEN_TTL \
                 max_ttl=$TOKEN_MAX_TTL
+{{- if (.Values.snapshotReplication | default dict).enabled }}
+{{- $sr := .Values.snapshotReplication | default dict }}
+{{- $srAuthRole := (($sr.kubernetesAuth | default dict).role) | default "openbao-snapshot" }}
+
+              # ─── Cross-cluster snapshot-replication role (#3375 DoD-8) ──
+              # The snapshot/restore CronJob (templates/snapshot-replication.yaml)
+              # authenticates via this K8s-auth role to call the raft
+              # snapshot API. Least-privilege: READ on
+              # sys/storage/raft/snapshot only (the snapshot SAVE endpoint).
+              # The init-time root token is revoked below, so the ongoing
+              # CronJob MUST use this K8s-auth role — mirrors the
+              # sso-configure / ESO ongoing-auth pattern.
+              echo "[openbao-auth-bootstrap] writing openbao-snapshot policy"
+              cat <<EOF | bao policy write openbao-snapshot -
+              path "sys/storage/raft/snapshot" {
+                capabilities = ["read"]
+              }
+              EOF
+              bao write auth/$AUTH_MOUNT_PATH/role/{{ $srAuthRole }} \
+                bound_service_account_names=openbao-snapshot \
+                bound_service_account_namespaces=$NAMESPACE \
+                policies=openbao-snapshot \
+                ttl=$TOKEN_TTL \
+                max_ttl=$TOKEN_MAX_TTL
+{{- end }}
 
               # ─── Revoke + cleanup root token ──────────────────────────
               # Acceptance criterion #6: the privileged root token must

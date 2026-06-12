@@ -1,0 +1,68 @@
+{{- /*
+DR-7 (#3375) — Gitea object-storage env block for SeaweedFS S3.
+
+Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md (bp-gitea row,
+the LAW): "Git blobs land on SeaweedFS S3 mirrored cross-region". Gitea's
+blob-class data (LFS + attachments + packages + repo-archive) moves to
+SeaweedFS S3 via Gitea's env-to-app.ini mechanism, which maps
+  GITEA__storage__STORAGE_TYPE=minio
+  GITEA__storage__MINIO_ENDPOINT / MINIO_BUCKET / MINIO_LOCATION /
+  MINIO_BASE_PATH / MINIO_USE_SSL
+plus the access/secret keys (sourced via secretKeyRef from the reflected
+seaweedfs-s3-secret — see objectstorage-secret.yaml). Per-section
+[storage.lfs] / [storage.packages] etc. inherit the default [storage]
+section unless overridden, so setting the default `storage` section to minio
+routes ALL blob classes to S3 (Gitea keeps SQLite/leveldb METADATA — issue/
+repo indexers, sessions, queues — on the local PVC).
+
+WHY this is a ConfigMap, not a direct subchart value: the upstream subchart
+consumes `gitea.gitea.additionalConfigFromEnvs` with a plain `toYaml` (not
+`tpl`), so the umbrella chart can NOT template per-Sovereign values (endpoint,
+bucket, region) into the subchart's static list — identical constraint to
+GITEA__database__PASSWD. The bootstrap-kit slot-10 overlay
+(clusters/_template/bootstrap-kit/10-gitea.yaml) injects the env entries into
+`gitea.gitea.additionalConfigFromEnvs` (it OVERRIDES the whole single-element
+list — last write wins, the same seam SOVEREIGN_GITEA_PG_SECRET uses). This
+ConfigMap is the chart-rendered, declarative source-of-truth for the EXACT
+env entries the overlay must inject — it makes `helm template --set
+objectStorage.enabled=true` show the resolved S3 config, and audit/
+observability pipelines can read the wiring without reverse-engineering the
+overlay. The reflected-Secret keys (MINIO_ACCESS_KEY_ID / _SECRET_ACCESS_KEY)
+are referenced by NAME only here (no plaintext — docs/INVIOLABLE-PRINCIPLES.md
+#10); the overlay binds them via secretKeyRef.
+
+DEFAULT-OFF / byte-identical: gated on `objectStorage.enabled` (default
+false), so a default `helm template` renders nothing here.
+*/}}
+{{- if .Values.objectStorage.enabled }}
+{{- $os := .Values.objectStorage }}
+{{- $secret := $os.sourceSecret.reflectedName | default "gitea-objectstorage-s3-secret" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitea-objectstorage-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-gitea
+    catalyst.openova.io/component: gitea
+data:
+  # The slot-10 overlay copies these into
+  # gitea.gitea.additionalConfigFromEnvs (plain-value entries inline; the two
+  # credential entries as secretKeyRef against {{ $secret }}). Gitea reads
+  # GITEA__storage__* at init and writes the [storage] app.ini section.
+  GITEA__storage__STORAGE_TYPE: {{ $os.storageType | default "minio" | quote }}
+  GITEA__storage__MINIO_ENDPOINT: {{ $os.endpoint | default "seaweedfs-s3.seaweedfs.svc.cluster.local:8333" | quote }}
+  GITEA__storage__MINIO_BUCKET: {{ $os.bucket | default "gitea-blobs" | quote }}
+  GITEA__storage__MINIO_BASE_PATH: {{ $os.basePath | default "gitea" | quote }}
+  GITEA__storage__MINIO_LOCATION: {{ $os.location | default "us-east-1" | quote }}
+  GITEA__storage__MINIO_USE_SSL: {{ $os.useSSL | default false | quote }}
+  # Credential env entries are bound by the overlay via secretKeyRef against
+  # the reflected Secret — recorded here as the source mapping (Secret name +
+  # keys), NOT the values.
+  _accessKeySecretRef: {{ printf "%s:%s" $secret ($os.sourceSecret.accessKeyIdKey | default "admin_access_key_id") | quote }}
+  _secretKeySecretRef: {{ printf "%s:%s" $secret ($os.sourceSecret.secretAccessKeyKey | default "admin_secret_access_key") | quote }}
+  # Per-class routing record (all eligible classes inherit the [storage]
+  # default unless a class is explicitly false here, in which case the
+  # overlay sets GITEA__storage.<class>__STORAGE_TYPE=local for that one).
+  _classes: {{ printf "lfs=%v,attachments=%v,packages=%v,repoArchive=%v" $os.classes.lfs $os.classes.attachments $os.classes.packages $os.classes.repoArchive | quote }}
+{{- end }}
