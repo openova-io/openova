@@ -26,7 +26,14 @@ name: bp-dmz-vcluster
 # image registry is driven by slot 54's `${REGISTRY_MIRROR:=harbor.openova.io}`
 # substitution. Renamed the dead `global.imageRegistry`. Default render
 # byte-identical. Sibling to bp-mgmt-vcluster 0.2.6 + bp-rtz-vcluster 0.2.6.
-version: 0.2.5
+# 0.2.6 — Refs #3373: sync.toHost.customResources gains
+# httproutes.gateway.networking.k8s.io +
+# externalsecrets.external-secrets.io (coupling fix (b) — re-homed
+# charts' routes/secrets mirror toHost). This chart had no
+# customResources block before (no CNPG precedent here); added with
+# the two #3373 entries. Sibling to bp-mgmt-vcluster 0.2.7 +
+# bp-rtz-vcluster 0.2.7.
+version: 0.2.6
 appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign DMZ

@@ -1,0 +1,4 @@
+ok  	github.com/openova-io/openova/core/controllers/application/admission	1.014s
+ok  	github.com/openova-io/openova/core/controllers/application/cmd	1.027s
+ok  	github.com/openova-io/openova/core/controllers/application/internal/controller	1.104s
+ok  	github.com/openova-io/openova/core/controllers/application/internal/render	1.017s

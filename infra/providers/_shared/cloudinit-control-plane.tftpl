@@ -230,6 +230,15 @@ write_files:
   # AWS S3 / …). Harbor + Velero HelmReleases read these keys. Emit BOTH
   # the canonical `s3-*` keys and the bare aliases so every chart variant
   # resolves (Wave 5.101 #2447 — bp-harbor/bp-velero want `s3-bucket`).
+  #
+  # #3373 coupling fix (c) — reflector annotations (same pattern as
+  # ghcr-pull above): Flux `valuesFrom` resolves a Secret in the HR's
+  # OWN namespace, so when a slot re-homes into a vCluster its HR moves
+  # to the vCluster host namespace (mgmt/dmz/rtz) and a flux-system-only
+  # object-storage Secret would dangle (the #2697 revert class).
+  # bp-reflector (slot 05a, host substrate) mirrors it into the three
+  # vCluster host namespaces so every re-homed HR's valuesFrom keeps
+  # resolving — placement stays a pure data change.
   - path: /var/lib/catalyst/object-storage-secret.yaml
     permissions: '0600'
     content: |
@@ -238,6 +247,11 @@ write_files:
       metadata:
         name: object-storage
         namespace: flux-system
+        annotations:
+          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "mgmt,dmz,rtz"
+          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "mgmt,dmz,rtz"
       type: Opaque
       stringData:
         endpoint: "${object_storage_endpoint}"

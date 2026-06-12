@@ -85,6 +85,18 @@ type Blueprint struct {
 	// topology modes without re-fetching the full Blueprint.
 	PlacementSchema *BlueprintPlacement `json:"placementSchema,omitempty"`
 
+	// DefaultPlacement — #3373: the class-level placement SUGGESTION
+	// (`spec.defaultPlacement`) every instance inherits silently
+	// unless its own Application.spec.placement overrides a field.
+	// Surfaced so the console's generic advanced selector renders
+	// blueprint defaults without re-fetching Raw.
+	DefaultPlacement *BlueprintDefaultPlacement `json:"defaultPlacement,omitempty"`
+
+	// AllowedPlacements — #3373: `spec.allowedPlacements`, the
+	// vCluster tiers (host|mgmt|dmz|rtz) an instance MAY choose.
+	// Empty = unrestricted.
+	AllowedPlacements []string `json:"allowedPlacements,omitempty"`
+
 	// UpgradeFrom is `spec.upgrades.from` — the list of versions an
 	// install at THIS version can upgrade FROM. Used for the version
 	// matrix.
@@ -131,6 +143,14 @@ type BlueprintPlacement struct {
 	Default    string   `json:"default,omitempty"`
 	MinRegions int      `json:"minRegions,omitempty"`
 	MaxRegions int      `json:"maxRegions,omitempty"`
+}
+
+// BlueprintDefaultPlacement mirrors `spec.defaultPlacement` (#3373) —
+// the object form of Application.spec.placement at the class level.
+type BlueprintDefaultPlacement struct {
+	VCluster string   `json:"vcluster,omitempty"`
+	Regions  []string `json:"regions,omitempty"`
+	Clusters []string `json:"clusters,omitempty"`
 }
 
 // Source abstracts a Blueprint provider. Implementations: Public,
@@ -191,6 +211,23 @@ func ParseBlueprint(yamlBytes []byte, origin Origin, org, repoName string) (*Blu
 	}
 	if pl, ok := spec["placementSchema"].(map[string]interface{}); ok {
 		bp.PlacementSchema = parsePlacement(pl)
+	}
+	// #3373 — instance-placement class defaults.
+	if dp, ok := spec["defaultPlacement"].(map[string]interface{}); ok {
+		out := &BlueprintDefaultPlacement{}
+		if v, ok := dp["vcluster"].(string); ok {
+			out.VCluster = v
+		}
+		if v, ok := dp["regions"].([]interface{}); ok {
+			out.Regions = strSlice(v)
+		}
+		if v, ok := dp["clusters"].([]interface{}); ok {
+			out.Clusters = strSlice(v)
+		}
+		bp.DefaultPlacement = out
+	}
+	if ap, ok := spec["allowedPlacements"].([]interface{}); ok {
+		bp.AllowedPlacements = strSlice(ap)
 	}
 	if upg, ok := spec["upgrades"].(map[string]interface{}); ok {
 		if from, ok := upg["from"].([]interface{}); ok {

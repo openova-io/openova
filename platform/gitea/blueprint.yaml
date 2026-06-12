@@ -11,6 +11,17 @@ spec:
     title: gitea
     summary: Gitea — per-Sovereign Git server. Catalyst control plane. Hosts catalog (public Blueprint mirror), catalog-sovereign (Sovereign-curated private Blueprints), one Gitea Org per Catalyst Organization, and system (sovereign-admin scope).
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
+  # Placement is an INSTANCE property (Application.spec.placement); this is
+  # only the default every instance inherits silently — the provisioning
+  # journey's generic advanced selector (and a direct Git edit of the
+  # instance's spec.placement) may override it within allowedPlacements.
+  # Founder §4 table target: mgmt. Single render mechanism: the Flux
+  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
+  defaultPlacement:
+    vcluster: mgmt
+  allowedPlacements: [host, mgmt]
+
   manifests:
     chart: ./chart
   depends: []

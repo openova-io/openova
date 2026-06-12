@@ -100,6 +100,11 @@ slots:
     # bp-gateway-api dep (issue #503): chart ships an HTTPRoute template.
     # G92.2 #2661 (2026-06-01): MGMT vCluster placement added
     # bp-mgmt-vcluster — REVERTED by G105-followup (see slot 8 note).
+    # #3373 (2026-06-13): MGMT vCluster placement RESTORED behind the 3
+    # platform-level coupling fixes (vcluster CRD-sync for HTTPRoute/
+    # ExternalSecret + gateway.backendService alias + ESO-in-HR-ns) —
+    # bp-mgmt-vcluster edge re-added; placement now lives in
+    # clusters/_template/bootstrap-kit/placement.yaml (placement-as-data).
     # bp-postgres-shared dep (#3188 three-instance model): when keycloak
     # SHARES the shared-pg instance A (SOVEREIGN_KEYCLOAK_PG_OWN_CLUSTER=
     # false), gate on it so the keycloak Database + role + reflected
@@ -107,7 +112,7 @@ slots:
     # path (empty-Ready release) — same shape as slots 10/19. No cycle:
     # bp-postgres-shared ← {bp-cnpg ← bp-flux, bp-reflector ←
     # bp-cert-manager}; none of those reaches bp-keycloak.
-    depends_on: [bp-cert-manager, bp-gateway-api, bp-postgres-shared]
+    depends_on: [bp-cert-manager, bp-gateway-api, bp-postgres-shared, bp-mgmt-vcluster]
     wave: present
   - slot: 10
     name: bp-gitea
@@ -120,7 +125,8 @@ slots:
     # Harmless in the default 1:1 path (dependency just waits for shared-pg Ready).
     # G92.3 #2662 (2026-06-01): MGMT vCluster placement added
     # bp-mgmt-vcluster — REVERTED by G105-followup (see slot 8 note).
-    depends_on: [bp-keycloak, bp-gateway-api, bp-cnpg, bp-postgres-shared]
+    # #3373 (2026-06-13): restored (placement-as-data; see slot 09 note).
+    depends_on: [bp-keycloak, bp-gateway-api, bp-cnpg, bp-postgres-shared, bp-mgmt-vcluster]
     wave: present
   - slot: 11
     name: bp-powerdns
@@ -175,10 +181,12 @@ slots:
     # the access.openova.io/v1alpha1 XRD that qa-fixtures UserAccess CRs
     # require. Without this edge, slot 13 races slot 14 and umbrella
     # upgrade fails admission with `no matches for kind "UserAccess"`.
+    # #3373 (2026-06-13): bp-mgmt-vcluster — the umbrella now installs
+    # INSIDE the mgmt vCluster (placement-as-data; see slot 09 note).
     # bp-postgres-shared-c (#3370): the SME mesh adopts shared-pg-c's
     # sme_* Contexts when SOVEREIGN_SME_PG_OWN_CLUSTER=false (one-flag
     # enable_shared_pg contract); harmless empty-Ready edge otherwise.
-    depends_on: [bp-gitea, bp-gateway-api, bp-keycloak, bp-cnpg, bp-crossplane-claims, bp-postgres-shared-c]
+    depends_on: [bp-gitea, bp-gateway-api, bp-keycloak, bp-cnpg, bp-crossplane-claims, bp-postgres-shared-c, bp-mgmt-vcluster]
     wave: present
   - slot: 14
     name: bp-crossplane-claims
