@@ -272,13 +272,16 @@ sso:
 
 # ─── SSO landing page (#3374) ────────────────────────────────────────────
 # The tiny nginx that serves the on-origin bare-URL landing page. Rendered
-# only when sso.bareURL.enabled. Image goes through the Harbor proxy mirror
-# (kyverno harbor-proxy-pull Enforce — `*/proxy-*/*`).
+# only when sso.bareURL.enabled. Image goes through the Harbor DockerHub
+# proxy-cache project (kyverno harbor-proxy-pull Enforce — `*/proxy-*/*`).
+# The project is `proxy-dockerhub` (the live convention — proxy-dockerhub/
+# library/alpine, .../hashicorp/vault-k8s all pull; the bare `proxy-docker`
+# project does NOT exist on Harbor and 401s the pull — measured on hw133).
 ssoLanding:
   replicas: 1
   image:
     registry: harbor.openova.io
-    repository: proxy-docker/library/nginx
+    repository: proxy-dockerhub/library/nginx
     tag: "1.27-alpine"
 
 # ─── Cross-cluster snapshot-replication (DR / #3375 DoD-8) ────────────────
