@@ -1,0 +1,174 @@
+OpenOva Sovereign
+hw133.omani.works
+Dashboard
+Cloud
+Apps
+Sandbox
+Jobs
+Compliance
+Users
+Organizations
+Settings
+T
+
+Tenant
+
+hw133.omani.works
+
+Dashboard
+97 items
+Decommission
+E
+Dashboard
+SIZE
+CPU request
+Memory request
+CPU usage (live)
+Memory usage (live)
+CPU limit
+Memory limit
+Storage limit
+Replica count
+COLOR
+Utilisation
+Health
+Age
+LAYER 1
+Sovereign
+Region
+Cluster
+vCluster
+Family
+Namespace
+LAYER 2
+Sovereign
+Region
+Cluster
+Family
+Namespace
+Application
++
+−
+host
+cnpg-pair-bp-cnpg-pair-primary
+1%
+seaweedfs
+1%
+kyverno
+2%
+harbor
+2%
+alloy
+2%
+cilium-agent
+28%
+falco
+11%
+powerdns
+1%
+scan-vulnerabili…
+— %
+keycloak
+2%
+self-sovereign…
+9%
+crossplane
+2%
+guacamole
+1%
+k8s-ws-pro…
+2%
+openteleme…
+2%
+external-s…
+2%
+vpa
+2%
+newapi
+2%
+catalyst-a…
+44%
+cert-manag…
+3%
+cnpg
+2%
+continuu…
+2%
+coredns-…
+6%
+gitea
+3%
+grafana
+12%
+image-au…
+1%
+image-r…
+4%
+metrics…
+4%
+newapi-…
+12%
+notific…
+1%
+openbao
+14%
+openova-f…
+8%
+openova-f…
+23%
+pdns-pg
+10%
+scan-vuln…
+— %
+scan-vuln…
+— %
+shared-pg
+5%
+shared-pg…
+9%
+shared-pg…
+5%
+sigstore
+3%
+trivy
+2%
+valkey
+14%
+velero
+5%
+opentel…
+4%
+cert-ma…
+4%
+environ…
+2%
+externa…
+2%
+reload…
+2%
+sealed…
+2%
+source…
+20%
+mgmt
+mimir
+3%
+mgmt-vcluster
+8%
+loki
+5%
+tempo
+2%
+dmz
+dmz-vcluster
+8%
+coraza
+1%
+rtz
+rtz-vclust…
+8%
+sandbox-co…
+— %
+Wasted
+Optimum
+Hot

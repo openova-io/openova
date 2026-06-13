@@ -1,0 +1,527 @@
+OpenOva Sovereign
+hw133.omani.works
+Dashboard
+Cloud
+Apps
+Sandbox
+Jobs
+Compliance
+Users
+Organizations
+Settings
+T
+
+Tenant
+
+hw133.omani.works
+
+Applications
+View install history
+E
+Deployments
+49
+Catalog
+63
+Environment:devstagingprod
+Alloy
+INSIGHTS
+
+Unified node agent for logs, metrics, and traces
+
+dev
+FREE
+BOOTSTRAP
++ opentelemetry
+INSTALLED
+c
+catalyst-platform
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+Cert-Manager
+GUARDIAN
+
+Automated TLS issuance and rotation for every ingress
+
+dev
+FREE
+BOOTSTRAP
++ cilium
+INSTALLED
+c
+cert-manager-powerdns-webhook
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+Cilium
+SPINE
+
+eBPF CNI and service mesh with kernel-level policy
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+CloudNative PG
+FABRIC
+
+Operated PostgreSQL with replicas, PITR, and pooling
+
+dev
+FREE
+BOOTSTRAP
++ flux
+INSTALLED
+c
+cluster-autoscaler
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+C
+Continuum
+SURGE
+
+Cross-zone failover orchestration for stateful workloads
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+Coraza WAF
+SPINE
+
+OWASP Core Rule Set L7 firewall on Envoy
+
+dev
+FREE
+BOOTSTRAP
++ cilium
++ cert-manager
+INSTALLED
+Crossplane
+PILOT
+
+Cloud and Kubernetes APIs as native CRDs
+
+dev
+FREE
+BOOTSTRAP
++ flux
+INSTALLED
+c
+crossplane-claims
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+d
+dmz-vcluster
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+External DNS
+SPINE
+
+Reconciles Service, Ingress, Gateway into authoritative DNS
+
+dev
+FREE
+BOOTSTRAP
++ cert-manager
++ powerdns
++ reflector
+INSTALLED
+External Secrets
+GUARDIAN
+
+Bridges OpenBao to native Kubernetes Secret objects
+
+dev
+FREE
+BOOTSTRAP
++ openbao
++ cert-manager
+INSTALLED
+Falco
+GUARDIAN
+
+eBPF runtime threat detection with real-time syscall alerting
+
+dev
+FREE
+BOOTSTRAP
++ cilium
+INSTALLED
+Flux CD
+PILOT
+
+GitOps reconciler driving every Sovereign cluster from Git
+
+dev
+FREE
+BOOTSTRAP
++ cert-manager
+INSTALLED
+Gitea
+PILOT
+
+Sovereign-local Git server with five tenant organisations
+
+dev
+FREE
+BOOTSTRAP
++ keycloak
++ gateway-api
++ cnpg
+INSTALLED
+Grafana
+INSIGHTS
+
+Curated dashboards across metrics, logs, and traces
+
+dev
+FREE
+BOOTSTRAP
++ cnpg
++ loki
++ mimir
+INSTALLED
+g
+guacamole
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+Harbor
+SILO
+
+Private OCI registry with cosign trust and CVE scanning
+
+dev
+FREE
+BOOTSTRAP
++ cnpg
++ cert-manager
++ gateway-api
+INSTALLED
+h
+hcloud-ccm
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+k
+k8s-ws-proxy
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+Keycloak
+GUARDIAN
+
+OIDC and SAML identity provider with realm isolation
+
+dev
+FREE
+BOOTSTRAP
++ cert-manager
++ gateway-api
+INSTALLED
+Kyverno
+GUARDIAN
+
+Native-YAML policy engine gating every admission request
+
+dev
+FREE
+BOOTSTRAP
++ cilium
+INSTALLED
+Loki
+INSIGHTS
+
+Label-indexed log store backed by object storage
+
+dev
+FREE
+BOOTSTRAP
++ seaweedfs
+INSTALLED
+m
+mgmt-vcluster
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+Mimir
+INSIGHTS
+
+Horizontally-scaled metrics store with PromQL compatibility
+
+dev
+FREE
+BOOTSTRAP
++ seaweedfs
+INSTALLED
+n
+nats-jetstream
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+n
+network-policies
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+n
+newapi
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+OpenBao
+GUARDIAN
+
+Independent-Raft secrets vault with dynamic credentials
+
+dev
+FREE
+BOOTSTRAP
++ spire
++ gateway-api
++ cnpg
+INSTALLED
+o
+openova-flow-emitter
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+o
+openova-flow-server
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+OpenTelemetry
+INSIGHTS
+
+Vendor-neutral SDKs and Collector for traces, metrics, logs
+
+dev
+FREE
+BOOTSTRAP
++ cert-manager
+INSTALLED
+P
+PowerDNS
+SPINE
+
+Authoritative DNS with DNSSEC signing and geographic failover
+
+dev
+FREE
+BOOTSTRAP
++ cert-manager
++ gateway-api
++ cnpg
+INSTALLED
+Reloader
+SURGE
+
+Rolls workloads automatically when ConfigMaps or Secrets change
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+r
+rtz-vcluster
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+s
+sealed-secrets
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+SeaweedFS
+SILO
+
+One pool exposed over S3, NFS, FUSE, HDFS
+
+dev
+FREE
+BOOTSTRAP
++ flux
++ cert-manager
+INSTALLED
+Sigstore
+GUARDIAN
+
+Keyless image signing with transparent audit log
+
+dev
+FREE
+BOOTSTRAP
++ cert-manager
+INSTALLED
+Syft + Grype
+GUARDIAN
+
+SBOM generation and continuous CVE matching across artifacts
+
+dev
+FREE
+BOOTSTRAP
++ cert-manager
+INSTALLED
+Tempo
+INSIGHTS
+
+Object-storage tracing backend with TraceQL analytics
+
+dev
+FREE
+BOOTSTRAP
++ seaweedfs
+INSTALLED
+Trivy
+GUARDIAN
+
+Image, IaC, and dependency vulnerability scanning at admission
+
+dev
+FREE
+BOOTSTRAP
++ cert-manager
+INSTALLED
+Valkey
+FABRIC
+
+Drop-in Redis-compatible operated cache and queue store
+
+dev
+FREE
+BOOTSTRAP
++ flux
+INSTALLED
+v
+vcluster-helmrepo
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+v
+vcluster-host-namespaces
+Platform
+
+Platform
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+Velero
+SILO
+
+Cluster backup and cross-region disaster-recovery primitive
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+vLLM
+CORTEX
+
+High-throughput LLM inference with PagedAttention and batching
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
+VPA
+SURGE
+
+Right-sizes pod requests from real-usage telemetry
+
+dev
+FREE
+BOOTSTRAP
+INSTALLED
