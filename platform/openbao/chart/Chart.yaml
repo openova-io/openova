@@ -26,7 +26,23 @@ name: bp-openbao
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.2.34
+version: 1.2.35
+# 1.2.35 (#3374, 2026-06-14): TRUE zero-click bare-URL — kill the popup-only
+# OIDC-callback postMessage error. OpenBao's Vault-UI OIDC login is POPUP-ONLY
+# (the callback route does an UNCONDITIONAL window.opener.postMessage with no
+# null-check + no in-page completion). The #3226 catalyst-api shim 302'd the
+# WHOLE browser tab into that callback → window.opener null → every bare-URL
+# visit rendered "Cannot read properties of null (reading 'postMessage')"
+# (measured live hw133 2026-06-14; the native popup login WORKED, proving the
+# wire/policy were fine). Replaced the shim redirect with an on-origin landing
+# page (templates/sso-landing.yaml): bare /, /ui, /ui/ now 302 to /sso/landing
+# (SAME host — no catalyst-api dependency, immune to a mothership roll-storm),
+# which runs the OIDC round-trip as a TOP-LEVEL window (auth_url → Keycloak
+# silent via catalyst-pin → back to /sso/landing?code → GET oidc/callback →
+# reconstruct the Vault-UI token in localStorage → /ui/vault/secrets). Added
+# the landing redirect_uri to the OIDC role allowed_redirect_uris (KC client
+# already allows it via `/*`). tests/sso-landing-render.sh pins the route +
+# the captured localStorage shape so a future UI bump cannot silently regress.
 # 1.2.34 (#3374, 2026-06-13): the openbao-sso-configure Deployment now rolls
 # when reconcile.sh changes. The reconcile loop lives in a ConfigMap, so a
 # SCRIPT change left the Pod template byte-identical → helm upgrade did NOT
