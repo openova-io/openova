@@ -64,4 +64,23 @@ data:
         "access.token.lifespan": "900"
       }
     }
+  # #3374 (2026-06-14) — declare the ExternalSecret bp-sso-bridge must apply
+  # for us. bp-cilium is bootstrap-kit slot 01 (the CNI), so it installs
+  # before bp-external-secrets (slot 15); a chart-rendered ExternalSecret is
+  # omitted at install time by the `.Capabilities` CRD-race guard and never
+  # re-added (helm-controller drift-check uses the install-time capability
+  # snapshot — see Chart.yaml 1.4.2). bp-sso-bridge's AppRegistration watcher
+  # runs post-ESO with the CRD present and applies THIS declaration verbatim
+  # every tick, materialising `hubble-ui-oauth2-proxy-oidc` (key
+  # `client-secret`) in kube-system from OpenBao sso/sovereign/hubble-ui —
+  # the secret the oauth2-proxy Deployment consumes for
+  # OAUTH2_PROXY_CLIENT_SECRET when ssoBridgeSync is enabled. Fresh-prov-safe
+  # + zero-touch.
+  externalSecret.json: |
+    {
+      "name": "hubble-ui-oauth2-proxy-oidc",
+      "namespace": {{ $ov.serviceRef.namespace | quote }},
+      "secretKey": "client-secret",
+      "property": "client_secret"
+    }
 {{- end }}

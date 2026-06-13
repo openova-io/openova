@@ -1,5 +1,32 @@
 apiVersion: v2
 name: bp-cilium
+# 1.4.2 (#3374, 2026-06-14): hubble-ui oauth2-proxy client-secret is now
+# delivered by bp-sso-bridge (which APPLIES the ExternalSecret from its own
+# post-ESO reconciler), NOT by a chart-rendered ExternalSecret here. ROOT
+# CAUSE measured on hw133: bp-cilium is bootstrap-kit slot 01 (the CNI —
+# installs FIRST, long before bp-external-secrets at slot 15), so at install
+# time `.Capabilities.APIVersions.Has "external-secrets.io/v1beta1"` is FALSE
+# and the in-chart ExternalSecret was omitted (the #2988 CRD-race guard,
+# correctly). Unlike grafana(25)/harbor(19)/gitea(effective-after-16a) —
+# every other SSO consumer installs AFTER ESO so their guard is TRUE at
+# install — the slot-01 CNI chart then NEVER upgrades (helm-controller
+# drift-check re-renders with the release's INSTALL-TIME capability snapshot,
+# not live cluster capabilities, so it forever reports "release in-sync" and
+# the ExternalSecret was never added). Net effect: `hubble-ui-oauth2-proxy-
+# oidc` Secret never created → oauth2-proxy stuck CreateContainerConfigError
+# → hubble UI 503. An in-chart post-install hook cannot fix it either: a CNI
+# hook that waits for ESO deadlocks (ESO's slot dependsOn the CNI being
+# Ready). The correct home is bp-sso-bridge — it already publishes the live
+# KC secret to OpenBao `sso/sovereign/hubble-ui` AND already applies
+# ExternalSecrets for Tier-1/2 apps from a reconciler that runs post-ESO with
+# the CRD present. This chart's hubble-ui-sso-registration ConfigMap now
+# carries a `data.externalSecret.json` block declaring the exact target
+# (name hubble-ui-oauth2-proxy-oidc, ns kube-system, key client-secret); the
+# sso-bridge AppRegistration watcher applies it verbatim every tick. The old
+# templates/hubble-ui-oauth2-proxy-externalsecret.yaml is REMOVED to avoid
+# dual ownership. Fresh-prov-safe + zero-touch (no manual version bump
+# needed). Lockstep: bp-sso-bridge 0.2.14 + 13b slot pin; 01-cilium.yaml pin
+# → 1.4.2.
 # 1.4.0 (G117.5 #2744, 2026-06-03): HUBBLE UI OIDC ENFORCEMENT SHIPPED.
 # Closes the Tier-2 SSO gap the 1.3.7 changelog deferred. New templates
 # hubble-ui-oauth2-proxy-{deployment,service,secret}.yaml render an
@@ -85,7 +112,7 @@ name: bp-cilium
 # Deployment's OAUTH2_PROXY_CLIENT_SECRET now reads that. cookie-secret
 # stays chart-managed. Set ssoBridgeSync.enabled=false to restore the old
 # (broken-by-design) standalone secret.
-version: 1.4.1
+version: 1.4.2
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`

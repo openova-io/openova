@@ -1,6 +1,19 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.15
+version: 0.2.16
+# 0.2.16 (#3374, 2026-06-14): the AppRegistration watcher (upsert_per_org_
+# client) now applies an OPTIONAL chart-declared ExternalSecret when the
+# AppRegistration ConfigMap carries a `data["externalSecret.json"]` block
+# ({name, namespace, secretKey, property}). This lets a chart that installs
+# BEFORE bp-external-secrets — the slot-01 CNI bp-cilium (hubble-ui oauth2-
+# proxy) — get its OIDC client-secret ExternalSecret created by THIS post-
+# ESO reconciler instead of by its own chart template, which the slot-01
+# install-time `.Capabilities` snapshot permanently omits (helm-controller
+# drift never re-evaluates it; an in-chart CNI hook that waits for ESO would
+# deadlock since ESO's slot dependsOn the CNI). The remoteRef key is always
+# the canonical `sso/<realm>/<cid>` this function already writes. Purely
+# additive: consumers without the field (6 Tier-3 apps + per-Org charts) are
+# byte-identical. Lockstep: bp-cilium 1.4.2 ships the hubble-ui declaration.
 # 0.2.15 (#2940 Pillar 5 anti-tether, 2026-06-08): the reconciler image's
 # registry host is no longer hardcoded `harbor.openova.io` in
 # `image.repository`. New `global.registryMirror` value (default
