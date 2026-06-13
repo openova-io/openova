@@ -75,7 +75,10 @@ spec:
       # 0.2.7 (#3373 fix (b)): toHost customResources sync gains HTTPRoute + ExternalSecret.
       # 0.2.8 (#3380-D): k8s distro control-plane images pinned off
       # registry.k8s.io onto Harbor proxy-k8s (harbor-proxy-pull Enforce).
-      version: 0.2.8
+      # 0.2.9 (#3376): add `sme` to the isolation netpol ingress allow-list
+      # — #3373 moved NATS into this vCluster, walling off the host SME/BSS
+      # services that use it as their event bus (funnel back-half was dead).
+      version: 0.2.9
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster
