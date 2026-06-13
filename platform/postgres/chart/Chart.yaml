@@ -1,5 +1,14 @@
 apiVersion: v2
 name: bp-postgres
+# 0.1.10 — #3375: sanitize the per-OWNER role-Secret name (roleSecretName
+#   helper) so an owner with a legal-Postgres underscore (e.g. `openova_flow`)
+#   renders the valid k8s Secret name `<instance>-openova-flow` instead of the
+#   RFC-1123-invalid `<instance>-openova_flow`. On hw133 the shared-pg-c HR was
+#   Stalled ("Secret \"shared-pg-c-openova_flow\" is invalid: metadata.name …")
+#   which blocked the WHOLE bp-catalyst-platform dependsOn chain from upgrading
+#   (catalyst-ui frozen on the old image). 0.1.5 already sanitized the Database
+#   CR names but missed the role-Secret name — this closes that gap. spec roles
+#   + username keep the real underscore'd identifier (Postgres allows it).
 # 0.1.9 — #3370: pin bump (no template change vs 0.1.8) so helm-controller
 #   performs a HelmRelease UPGRADE on already-converged Sovereigns. The
 #   application-cr.yaml self-registration is Capabilities-gated on
@@ -14,7 +23,7 @@ name: bp-postgres
 #   regions so it admits under BOTH the pre-#3370 CRD (hard-required) and the
 #   #3370 CRD (CEL-waived) — breaks the live upgrade-rollback deadlock that
 #   blocked keycloak->gitea->catalyst-platform on hw130.
-version: 0.1.9
+version: 0.1.10
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
@@ -44,6 +53,17 @@ description: |
 
   Changelog
   ─────────
+  0.1.10 (2026-06-14, Refs #3375 — role-Secret name RFC-1123 sanitization)
+    - _helpers.tpl: new `bp-postgres.k8sName` sanitizer; `roleSecretName`
+      now sanitizes the owner segment so an owner like `openova_flow` yields
+      the valid `<instance>-openova-flow` Secret name (was the invalid
+      `<instance>-openova_flow`). cluster.yaml managed.roles[].passwordSecret
+      and role-secrets.yaml share the helper so the CNPG role reference and
+      the created Secret stay in lockstep. The PG role name + username keep
+      the verbatim underscore'd identifier. Unblocks hw133 shared-pg-c (was
+      Stalled on the invalid Secret name → blocked the bp-catalyst-platform
+      dependsOn chain). Completes the 0.1.5 Database-CR-name sanitization,
+      which had missed the role-Secret path.
   0.1.9 (2026-06-14, Refs #3370 — pin bump to fire the live upgrade)
     - No template change vs 0.1.8. The application-cr.yaml self-registration
       (Capabilities-gated on apps.openova.io/v1) never materialized on

@@ -18,16 +18,33 @@ bp-postgres common helpers (ADR-0010, #3188).
 {{- end -}}
 
 {{/*
+Sanitise an arbitrary string into an RFC 1123 DNS-subdomain-safe name
+fragment so it can be used in a k8s resource name. PostgreSQL identifiers
+(role/database names) legally contain underscores (e.g. `openova_flow`),
+but k8s object names may NOT — a Secret named `shared-pg-c-openova_flow`
+is rejected with `metadata.name: Invalid value … must be lowercase RFC
+1123`. This lowercases and replaces every run of non-[a-z0-9-] with a
+single `-`, then trims leading/trailing `-`. (#3375 hw133 — bp-postgres-
+shared-c was Stalled on exactly this, which blocked the whole
+bp-catalyst-platform dependsOn chain.)
+*/}}
+{{- define "bp-postgres.k8sName" -}}
+{{- regexReplaceAll "[^a-z0-9-]+" (lower (toString .)) "-" | trimAll "-" | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
 The Secret name CNPG reconciles a managed role's password FROM. When a
 binding omits `passwordSecret`, default to `<instance>-<owner>` so a
 CNPG-bootstrapped role Secret (or a same-named consumer Secret) lines up.
+The owner segment is sanitised (k8sName) so an owner like `openova_flow`
+yields the valid `…-openova-flow` instead of an underscore'd invalid name.
 */}}
 {{- define "bp-postgres.roleSecretName" -}}
 {{- $instance := include "bp-postgres.instanceName" .ctx -}}
 {{- if .db.passwordSecret -}}
 {{- .db.passwordSecret -}}
 {{- else -}}
-{{- printf "%s-%s" $instance .db.owner -}}
+{{- printf "%s-%s" $instance (include "bp-postgres.k8sName" .db.owner) -}}
 {{- end -}}
 {{- end -}}
 
