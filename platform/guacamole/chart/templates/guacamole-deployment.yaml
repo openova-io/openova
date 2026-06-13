@@ -9,6 +9,20 @@ metadata:
     catalyst.openova.io/component: webapp
 spec:
   replicas: {{ .Values.guacamole.webapp.replicas }}
+  # #3374 (2026-06-14): Recreate, not the default RollingUpdate. The webapp
+  # mounts the `guacamole-recordings` PVC ReadWriteOnce (seaweedfs-pvc.yaml).
+  # Under RollingUpdate the OLD pod keeps the RWO PVC bound to its node until
+  # the NEW pod is Ready, so the new pod can never schedule — it Pends forever
+  # with `volume node affinity conflict` + `Insufficient cpu` (caught live on
+  # hw133: the post-#3374-DB-seed replica stuck Pending 40m while the stale
+  # pre-seed pod — with no Postgres env, so no JDBC permission store — kept
+  # serving, leaving SSO users with no admin menu). Recreate terminates the old
+  # pod first → releases the RWO PVC → the new pod (with POSTGRESQL_* + JDBC)
+  # schedules and enrolls SSO users into the sovereign-admins admin group.
+  # Single-replica app (ADR-0001 §11 caps Guacamole at one per Sovereign), so
+  # the brief Recreate gap is acceptable.
+  strategy:
+    type: {{ .Values.guacamole.webapp.strategy | default "Recreate" | quote }}
   selector:
     matchLabels:
       {{- include "bp-guacamole.webappSelectorLabels" . | nindent 6 }}
@@ -171,9 +185,27 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
       volumes:
+        # #3374 (2026-06-14): recordings volume is emptyDir by DEFAULT
+        # (recordings.persistence=false). The persistent PVC pinned the webapp
+        # Pod to one node: on hw133 the `seaweedfs-storage` class is actually
+        # backed by rancher.io/local-path, so the PVC's PV carries a HARD
+        # node-affinity to the node that provisioned it (RWO). That node was at
+        # 97% CPU requests, so the post-#3374-DB-seed replica (the one with the
+        # POSTGRESQL_* env + JDBC permission store) Pended forever with `volume
+        # node affinity conflict` + `Insufficient cpu`, while the stale pre-seed
+        # pod kept serving with no admin menu. Session-capture recordings are
+        # NOT required for core Guacamole or the admin walk, and a solo-node
+        # local-path PVC is fragile anyway — so default to an emptyDir (no
+        # node-pin → schedules on any node with CPU). Operators who run real
+        # distributed SeaweedFS RWX flip recordings.persistence=true.
         - name: recordings
+          {{- if .Values.guacamole.recordings.persistence }}
           persistentVolumeClaim:
             claimName: {{ include "bp-guacamole.recordingsName" . }}
+          {{- else }}
+          emptyDir:
+            sizeLimit: {{ .Values.guacamole.recordings.emptyDirSizeLimit | default "2Gi" | quote }}
+          {{- end }}
         - name: tmp
           emptyDir: {}
         # Tomcat insists on writable work + temp dirs even with

@@ -52,6 +52,10 @@ guacamole:
     port: 4822
   # ── guacamole webapp: Tomcat front-end ─────────────────────────
   webapp:
+    # #3374: Deployment strategy. Recreate (not RollingUpdate) so the single
+    # webapp Pod releases its volumes before the replacement starts — required
+    # when recordings.persistence=true (RWO PVC) and harmless otherwise.
+    strategy: Recreate
     # Resource name. Defaults to `guacamole-server` per the qa-loop test
     # matrix + catalyst-api shells/issue handler.
     name: guacamole-server
@@ -76,6 +80,16 @@ guacamole:
     port: 8080
   # ── Recording (SeaweedFS PVC) ──────────────────────────────────
   recordings:
+    # #3374: persistence DEFAULT false → the recordings volume is an emptyDir,
+    # not a PVC. A persistent PVC pinned the webapp Pod to one node (on hw133
+    # `seaweedfs-storage` resolves to rancher.io/local-path, whose PV carries a
+    # hard node-affinity + RWO), and when that node was CPU-saturated the
+    # post-DB-seed replica Pended forever → SSO users got no admin menu.
+    # Session-capture recordings are not required for core function or the
+    # admin walk. Operators with real distributed SeaweedFS RWX set this true.
+    persistence: false
+    # emptyDir sizeLimit when persistence=false.
+    emptyDirSizeLimit: 2Gi
     # PVC name. Defaults to `guacamole-recordings`. Override only when
     # multiple Guacamole instances share a namespace.
     pvcName: guacamole-recordings

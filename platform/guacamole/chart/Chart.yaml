@@ -130,7 +130,22 @@ name: bp-guacamole
 # anyPattern to reject. The vendored SQL is pinned to
 # guacamole.webapp.image.tag (1.5.5); bump both together. Lockstep:
 # 52-bp-guacamole.yaml pin → 0.2.11. Refs #3374 #3434 #3296.
-version: 0.2.12
+# 0.2.13 (#3374 admin-tier, 2026-06-14): un-pin the webapp Pod so the JDBC
+# permission store actually reaches a serving pod. After 0.2.11 the seed Job
+# installed the sovereign-admins ADMINISTER USER_GROUP, but on hw133 the
+# replacement webapp replica (the one carrying POSTGRESQL_* + the JDBC
+# extension) Pended 40m+ with `volume node affinity conflict` + `Insufficient
+# cpu` while the stale pre-DB pod kept serving with no admin menu. ROOT CAUSE:
+# the recordings PVC's `seaweedfs-storage` class resolves to rancher.io/
+# local-path here, so its PV carries a hard node-affinity (RWO) that pinned the
+# Pod to a CPU-saturated node. Fix: (a) recordings.persistence DEFAULT false →
+# emptyDir recordings (no node-pin → schedules on any node with CPU; the PVC +
+# its migration hook/RBAC are skipped); (b) webapp.strategy=Recreate so the
+# single Pod releases its volumes before the replacement starts. Session-capture
+# recordings are not required for core function or the admin walk; operators with
+# real distributed SeaweedFS RWX set recordings.persistence=true. Lockstep:
+# 52-bp-guacamole.yaml pin → 0.2.13. Refs #3374.
+version: 0.2.13
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
