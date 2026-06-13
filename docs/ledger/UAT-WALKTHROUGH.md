@@ -2,8 +2,8 @@
 
 **Purpose.** This is the **end-user web-UI acceptance test** for every founder-approved ticket. **100% browser — no terminal, no kubectl, no git, no curl.** The end user never touches a shell; every step is **open a URL → click/type → see a screen**. Once the founder **agrees on this document**, the walk-execution agents run each section in a real browser and flip each `☐` to ✅ (witnessed on screen) or ❌ (failed on screen) with a screenshot.
 
-**How to read a step.** Each line is one browser action: `☐ open <URL> → click/type <X> → you should see <Y>`. The lines **wrap** (no tables) so the whole walk reads top-to-bottom with no horizontal scrolling.
-- **`GAP`** = the feature has **no web-UI surface** — so a user cannot accept it. That is itself a finding (a feature with no UI is not user-acceptance-testable); it is **not** a reason to drop to a terminal check.
+**Table format (mandated).** Each section is a 4-column table — **Tested page · Description · Status · Evidence**. Four narrow columns fit without horizontal scrolling (the developer `file:line` column is gone — it's irrelevant to a user). The walk agent fills **Status** (✅/❌) and pastes the screenshot link into **Evidence**.
+- **`GAP`** in a row = the feature has **no web-UI surface** — so a user cannot accept it. That is itself a finding (a feature with no UI is not user-acceptance-testable); it is **not** a reason to drop to a terminal check.
 - A **redirect that ends on a login screen is a fail** for SSO — only a rendered, signed-in screen counts.
 
 **Acceptance bar.** Every walk runs in a browser against a **fresh, zero-touch, converged** Sovereign (no hand-patching). Evidence = **screenshots** under `docs/sessions/<date>/evidence/`, linked from `docs/ledger/UAT.md`. PR-merge ≠ done; only a witnessed on-screen walk is done.
