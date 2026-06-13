@@ -121,6 +121,13 @@ metadata:
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform
     catalyst.openova.io/component: gitea-tenants-repo-bootstrap
+    # kyverno `flux-managed` Enforce policy (converged Sovereigns) blocks
+    # any Job NOT carrying this label or a HelmRelease ownerReference. Hook
+    # Jobs are created by Helm (not Flux-owned) so they MUST self-declare.
+    # Canonical idiom — see platform/gitea sso-configure-oauth-job.yaml,
+    # platform/openbao init-job.yaml. Release ns (catalyst-system) is NOT
+    # in the policy's namespace-exclude list, so this is load-bearing.
+    app.kubernetes.io/managed-by: flux
   annotations:
     helm.sh/hook: pre-install,pre-upgrade
     # Weight 12: AFTER the catalyst-gitea-token mint Job (weight 10) so the
@@ -137,6 +144,7 @@ metadata:
   namespace: gitea
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform
+    app.kubernetes.io/managed-by: flux
   annotations:
     helm.sh/hook: pre-install,pre-upgrade
     helm.sh/hook-weight: "12"
@@ -154,6 +162,7 @@ metadata:
   namespace: gitea
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform
+    app.kubernetes.io/managed-by: flux
   annotations:
     helm.sh/hook: pre-install,pre-upgrade
     helm.sh/hook-weight: "12"
@@ -175,6 +184,9 @@ metadata:
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform
     catalyst.openova.io/component: gitea-tenants-repo-bootstrap
+    # Required by the kyverno `flux-managed` Enforce policy on converged
+    # Sovereigns (the release ns catalyst-system is NOT namespace-excluded).
+    app.kubernetes.io/managed-by: flux
   annotations:
     helm.sh/hook: pre-install,pre-upgrade
     helm.sh/hook-weight: "12"
