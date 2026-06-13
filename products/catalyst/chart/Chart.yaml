@@ -2667,8 +2667,17 @@ name: bp-catalyst-platform
 # (sme-tenants-gitrepo-auth-secret.yaml, sourced from the catalyst-gitea-token
 # PAT) + wire smeTenants.gitRepository.secretRef. Also fix the repo-bootstrap
 # hook's /api/v1/version probe to authenticate (anon /version = 403 under
-# REQUIRE_SIGNIN_VIEW burned all 168 iterations on hw133).
-version: 1.4.615
+# REQUIRE_SIGNIN_VIEW burned all 168 loop passes on hw133).
+# 1.4.616 (#3454, 2026-06-14): RBAC-race fix in the repo-bootstrap hook. The
+# 1.4.613-615 hook read gitea/gitea-admin-secret via kubectl, needing a
+# cross-namespace Role in `gitea`; that Helm-hook Role was DELETED on upgrade
+# re-attempt (before-hook-creation) while the OnFailure-retrying Job pod still
+# ran -> pod lost RBAC -> FATAL "missing username/password" (observed live on
+# hw133, the hook never created the repo). Redesign: inject the
+# catalyst-gitea-token PAT as the GITEA_TOKEN env via secretKeyRef (same-ns,
+# kubelet-resolved at Pod start, no kubectl, no Role) and use token auth for
+# all Gitea calls. Drops the SA + gitea-ns Role/RoleBinding entirely.
+version: 1.4.616
 # 1.4.597 — #3373 (2026-06-13) — coupling fix (a) placement-as-data:
 # templates/httproute.yaml backendRefs honor new
 # ingress.gateway.backendServiceApi / backendServiceUi overrides. When
