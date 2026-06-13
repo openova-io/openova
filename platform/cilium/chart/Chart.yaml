@@ -112,7 +112,22 @@ name: bp-cilium
 # Deployment's OAUTH2_PROXY_CLIENT_SECRET now reads that. cookie-secret
 # stays chart-managed. Set ssoBridgeSync.enabled=false to restore the old
 # (broken-by-design) standalone secret.
-version: 1.4.2
+# 1.4.3 (#3374 admin-tier, 2026-06-14): seed an oidc-audience-mapper on the
+# hubble-ui AppRegistration client so the bare URL lands signed-in. After
+# 1.4.2 the secret-convergence fix landed (oauth2-proxy 1/1, no more 503) but
+# the OIDC callback then returned HTTP 500 on hw133 (oauthproxy.go:888):
+#   audience from claim aud with value [realm-management account] does not
+#   match with any of allowed audiences map[hubble-ui:{}]
+# oauth2-proxy's keycloak-oidc provider VERIFIES the ID token's `aud` carries
+# its own --client-id; a vanilla confidential client only lists a client in
+# `aud` when the user holds a client role for it, and emrah.baysal holds none
+# on hubble-ui, so `aud` was [realm-management account] and never hubble-ui.
+# The client.json now seeds an oidc-audience-mapper (included.client.audience
+# =hubble-ui, id.token.claim=true because oauth2-proxy checks the ID token) —
+# the netbird realm-config idiom, identical to the bp-oidc-gate openova-flow
+# fix (#3447). bp-sso-bridge PUTs client.json template-wins every tick, so the
+# mapper lands on the live hubble-ui client zero-touch.
+version: 1.4.3
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`
