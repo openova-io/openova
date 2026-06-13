@@ -1,43 +1,42 @@
-## #3378 ORGANIZATIONS
+# #3378 ORGANIZATIONS — user acceptance walk (100% web UI)
 
-**Model:** ONE `Organizations` menu replacing BSS + the never-built OSS — parent-first directory, the internal door, audited Enter-org impersonation, commerce catalog, mode-aware billing (real/chargeback/showback), parent self-showback day one, domain pools, redirect map — while the scope wall (Dashboard/Cloud/Apps/Sandbox/Jobs/Compliance/Users/Settings) stays byte-identical.
+**What the user sees:** ONE **Organizations** menu (replacing the old BSS/OSS), with the Sovereign itself as the first row, the ability to create sub-orgs, enter an org for support, run commerce, and see per-app cost — all in the console. **Sign in:** `https://console.<sov>/`.
 
-### A. Scope wall
-| A1-A5 | `console.<sov>/dashboard` | sidebar = Dashboard,Cloud,Apps,Sandbox,Jobs,Compliance,Users,**Organizations**,Settings; NO `BSS`; the 8 others byte-identical; click Organizations → `/organizations` | `SovereignSidebar.tsx:52-142,193-196` | ☐ |
+_Each line = one browser step. `☐`/`✅`/`❌`._
 
-### B. Directory — parent first citizen
-| # | Go to | Expect | Source | ☐ |
-|---|---|---|---|---|
-| B1-B4 | `/organizations` | title + intro "The parent organization — the Sovereign itself — is the first row"; table cols Organization\|Kind\|Tier\|Billing\|Isolation\|Status; FIRST row = parent (FQDN + `Parent` pill): `internal·corporate·showback·vcluster·Active` | `OrganizationsDirectoryPage.tsx:93-251`; `organizations.api.ts:132-147` | ☐ |
-| B5 | `/organizations` | directory NEVER blank (parent seeded even if sub-org fetch fails) | `organizations.api.ts:181-189` | ☐ |
-| B7 | `/organizations` | section nav: Commerce·Plans, Add-ons, Bundles, Industries, Apps, Billing, Domains | `OrganizationsDirectoryPage.tsx:116-130` | ☐ |
+### The single menu (scope wall intact)
+- [ ] The left sidebar shows: Dashboard, Cloud, Apps, Sandbox, Jobs, Compliance, Users, **Organizations**, Settings — and **no** "BSS" entry.
+- [ ] Click each of the other 8 items in turn → each opens its existing page unchanged.
+- [ ] Click **Organizations** → the Organizations directory opens.
 
-### C. Parent self-showback (B3 feed)
-| C1-C4 | `/organizations` showback panel | heading "Showback — per-app consumption"; org line "(parent — your own estate) · units · CPU · mem · storage"; per-app table (Application\|Namespace\|CPU\|Mem\|Share); ~100% to parent | `ShowbackPanel.tsx:48-104`; `sme_consumption.go:122-221` | ☐ |
+### The directory, parent first
+- [ ] The directory intro reads "The parent organization — the Sovereign itself — is the first row".
+- [ ] The first row is the Sovereign (its domain) with a **Parent** tag, and columns: Kind **internal**, Tier **corporate**, Billing **showback**, Isolation **vcluster**, Status **Active**.
+- [ ] A **Create organization** button is present, plus a sub-nav: Commerce · Plans, Add-ons, Bundles, Industries, Apps, Billing, Domains.
 
-### D. Internal door
-| # | Go to | Do | Expect | Source | ☐ |
-|---|---|---|---|---|---|
-| D1-D7 | `/organizations/new` | choose **internal** | defaults flip `showback`+`namespace`; NO voucher step; Advanced override = billing/isolation selects; slug `finance` → submit | `CreateTenantPage.tsx:224-359`; `organizations.api.ts:81-88` | ☐ |
-| D9 | `/organizations` | the `finance` row badges | **GAP (PARTIAL) — `subOrgRowFromTenant` hardcodes every sub-org to `customer/real/vcluster` (`organizations.api.ts:156-172`); an internal org mis-badges until the tenants feed surfaces spec fields.** | ☐ |
+### Showback works on day one
+- [ ] On the Organizations page, a **Showback — per-app consumption** panel shows the parent org's total (units · CPU · memory · storage) and a per-app table with each app's share.
 
-### E. Mode-aware billing
-| E1-E5 | `/organizations/billing/billing` | BillingModeGate → showback notice + panel, NO payment actions; real-mode half rides FUNNEL #3376 (don't fabricate); fallback defaults to showback | `BillingModeGate.tsx:40-72` | ☐ |
+### Create a sub-organization (internal department)
+- [ ] **Create organization** → choose **Internal** → the defaults change to **showback** billing + **namespace** isolation, and **no voucher/payment step** appears.
+- [ ] Open **Advanced override** → you can change billing mode and isolation.
+- [ ] Type a slug (e.g. **finance**) → submit → a success panel renders, and **finance** appears in the directory.
+- [ ] ❌ **GAP** — the new internal org is **mis-badged** in the directory as customer / real / vcluster (the directory hardcodes those), instead of internal / showback / namespace.
 
-### F. Enter org — audited impersonation
-| # | Go to | Do | Expect | Source | ☐ |
-|---|---|---|---|---|---|
-| F1-F2 | `/organizations/$org` | parent has NO Enter-org button; sub-org HAS it | `OrganizationDetailPage.tsx:67-71`; `EnterOrgButton.tsx:51-64` | ☐ |
-| F4-F6 | click **Enter org** | POST `/organizations/finance/enter` → opens handover URL → **org's own console lands logged in as `support+<op>@finance...`** (NOT a wire-302); confirm line "expires <≤60min>" | `sme_enter_org.go:119-179`; `EnterOrgButton.tsx:36-73` | ☐ |
-| F8-F9 | catalyst-api logs | audit line "enter-org: support session minted" with initiatedBy/org/ttl; ≤60min | `sme_enter_org.go:45-177` | ☐ |
-| F10-F12 | negative | enter-parent → 400; non-admin → 403; signer unwired → 503 | `sme_enter_org.go:83-117` | ☐ |
+### Mode-aware billing
+- [ ] **Organizations → Billing** → for the parent (showback) it shows a **showback notice + the consumption panel** with **no** payment actions (payment never leaks for a showback org).
 
-### G/H. Commerce CRUD (+ #3156 regression)
-| G1-G8 | `/organizations/commerce/plans` | create/edit/delete a plan; it surfaces in the storefront `?product=generic`; **a `product_slug:sandbox` plan does NOT appear in the generic picker** | `CommerceEditorPage.tsx`; `catalog/handlers.go:265-280` | ☐ |
-| H1-H5 | addons/bundles/industries/apps | full CRUD; bundles/industries multi-select from `/catalog/apps`,`/catalog/bundles` | `CommerceEditorPage.tsx:256-286` | ☐ |
+### Enter an org for support (audited, time-boxed)
+- [ ] Click into the **finance** org's detail page → an **Enter org** button is present (the parent has none).
+- [ ] Click **Enter org** → a new tab opens **finance's own console**, signed in as a **support** identity (not the owner), and the original tab shows "Support session … expires <≤60 min>".
+- [ ] ❌ acceptance note — the new tab must actually **land logged in** (not just redirect); verify it shows the org console, not a login page.
 
-### I. Redirect map + Domains
-| I1-I8 | `/bss*`,`/sme/tenants/new`,`/parent-domains` | each redirects to its `/organizations/*` home | `router.tsx:1733-1758` | ☐ |
-| I10 | `/sme/users`,`/sme/roles` | **NOT redirected (by design)** — org-detail users/roles tabs not built yet; confirm they still render | `router.tsx:1538-1546,1741-1744` | ☐ |
+### Commerce editing reflects in the storefront
+- [ ] **Organizations → Commerce → Plans** → **+ New Plan** → fill the fields → **Create** → the plan appears in the table.
+- [ ] Open the marketplace storefront's plan picker → the plan you just created appears there (no redeploy).
+- [ ] Edit its price → it updates in both the table and the storefront.
 
-**Gaps:** (1) directory badge fidelity PARTIAL (sub-orgs hardcoded customer/real/vcluster); (2) `/sme/users`+`/roles` un-redirected, org-detail tabs not built (deferred); (3) Enter-org acceptance = lands-logged-in, depends on the org-side handover redemption + cookie-domain fix.
+### Redirects from old paths
+- [ ] Open `/bss`, `/bss/billing`, `/parent-domains` → each redirects to its new `Organizations` home.
+
+**Gaps:** new sub-orgs mis-badged in the directory; the org-detail Users/Roles tabs aren't built yet (old `/sme/users` still in place); Enter-org acceptance depends on the org-side handover landing logged in.

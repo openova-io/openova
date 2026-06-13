@@ -1,14 +1,12 @@
 # UAT WALK-THROUGH — the agreement document (2026-06-14)
 
-**Purpose.** This is the click-by-click verification protocol for every founder-approved ticket. It is authored from the **real merged code** (every row cites `file:line`), NOT from claims. Once the founder **agrees on this document**, the walk-execution agents run each section on the live env and flip each `☐` to ✅ (witnessed) or ❌ (failed) with evidence. **No row may be marked done without the cited observation.**
+**Purpose.** This is the **end-user web-UI acceptance test** for every founder-approved ticket. **100% browser — no terminal, no kubectl, no git, no curl.** The end user never touches a shell; every step is **open a URL → click/type → see a screen**. Once the founder **agrees on this document**, the walk-execution agents run each section in a real browser and flip each `☐` to ✅ (witnessed on screen) or ❌ (failed on screen) with a screenshot.
 
-**How to read a row.** `| # | Go to (URL/route) | Do (exact click/type) | Expect (exact screen/text/state) | Source (file:line) | ☐ |`
-- **Source** cites the real code that makes the row true.
-- **`NO UI FOUND — gap`** = the DoD criterion has no operator-visible surface in the code today; it is a genuine gap, walked at the kubectl/Git layer and flagged for the founder.
-- **`AUTOMATED, NOT ACCEPTANCE`** = a CI/unit gate, demoted per the founder's rule ("this is only a unit test!!!"). Acceptance is the founder/agent walking the clickable + kubectl steps.
-- A **302-to-realm is never a pass** for SSO — only a rendered, logged-in screen counts.
+**How to read a step.** Each line is one browser action: `☐ open <URL> → click/type <X> → you should see <Y>`. The lines **wrap** (no tables) so the whole walk reads top-to-bottom with no horizontal scrolling.
+- **`GAP`** = the feature has **no web-UI surface** — so a user cannot accept it. That is itself a finding (a feature with no UI is not user-acceptance-testable); it is **not** a reason to drop to a terminal check.
+- A **redirect that ends on a login screen is a fail** for SSO — only a rendered, signed-in screen counts.
 
-**Acceptance bar.** Every walk runs on a **fresh, zero-touch, converged** Sovereign (no hand-patching). Evidence (screenshot + wire-capture + kubectl) lands under `docs/sessions/<date>/evidence/` and is linked from `docs/ledger/UAT.md`. PR-merge ≠ done; only a witnessed walk is done.
+**Acceptance bar.** Every walk runs in a browser against a **fresh, zero-touch, converged** Sovereign (no hand-patching). Evidence = **screenshots** under `docs/sessions/<date>/evidence/`, linked from `docs/ledger/UAT.md`. PR-merge ≠ done; only a witnessed on-screen walk is done.
 
 ---
 
