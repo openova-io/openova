@@ -490,7 +490,7 @@ name: bp-newapi
 # blocks the main container until SQL_DSN is non-empty → NewAPI always
 # initialises against Postgres. Gated on cnpg.enabled. Lockstep: 80-newapi.yaml
 # pin → 1.4.75.
-version: 1.4.75
+version: 1.4.76
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
