@@ -14,7 +14,8 @@ catalystBlueprint:
     version: ""
     repo: ""
     images:
-      vllm: "vllm/vllm-openai"
+      # Harbor-proxy path (kyverno K1 enforce) — see vllm.image below.
+      vllm: "harbor.openova.io/proxy-dockerhub/vllm/vllm-openai"
 
 # ─── vLLM inference server ───────────────────────────────────────────────
 vllm:
@@ -27,8 +28,17 @@ vllm:
   # Pinned upstream image tag. DO NOT use floating tags per
   # docs/INVIOLABLE-PRINCIPLES.md #4. vllm-openai 0.6.4 is the latest
   # GA release as of 2026-04 with stable Llama-3.1-8B support.
+  #
+  # Image MUST pull through the Sovereign's local Harbor proxy
+  # (kyverno K1 `harbor-proxy-pull` ENFORCING — allowed globs are
+  # `*/proxy-*/*` or `*/openova-io/*`; a bare `vllm/vllm-openai`
+  # docker.io ref is DENIED at admission on first scale-up, #3380
+  # row D). `harbor.openova.io/proxy-dockerhub/...` is the canonical
+  # default every chart uses (cnpg/flux/guacamole/openbao/...) and the
+  # bootstrap-kit slot overlays the host via `${REGISTRY_MIRROR}` so a
+  # post-cutover Sovereign rewrites it to its local Harbor.
   image:
-    repository: vllm/vllm-openai
+    repository: harbor.openova.io/proxy-dockerhub/vllm/vllm-openai
     tag: "v0.6.4"
     pullPolicy: IfNotPresent
 
