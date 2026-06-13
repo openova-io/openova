@@ -101,7 +101,7 @@ spec:
       # pdns-auth-50 + dnsdist-19 images to raw docker.io because proxy-docker is
       # not bootstrap-pullable on a fresh prov (#3380-D's reroute wedged hw131 +
       # hw132). powerdns stays subject to every OTHER policy (scoped carve-out).
-      version: 1.0.34
+      version: 1.0.35
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno
