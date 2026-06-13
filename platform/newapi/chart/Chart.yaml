@@ -479,7 +479,7 @@ name: bp-newapi
 # the full label set with managed-by=flux as a SINGLE key; the 4 hook Jobs +
 # the admin-promote CronJob + its jobTemplate use it instead of the
 # labels+duplicate pattern. Lockstep: 80-newapi.yaml pin → 1.4.73.
-version: 1.4.73
+version: 1.4.74
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
