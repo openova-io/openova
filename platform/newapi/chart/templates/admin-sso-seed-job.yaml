@@ -1,0 +1,426 @@
+{{- /*
+#3374 (2026-06-14) — NewAPI admin-init + SSO-provider seed + admin-promote.
+
+ROOT CAUSE measured live on hw133 (newapi 0.13.2): newapi shows the
+"uninitialized" setup wizard and grants NO admin. `GET /api/setup` returns
+`{"status":false,"root_init":false}`; every newapi table (`users`, `setups`,
+`custom_oauth_providers`) is EMPTY. The chart had wired the `newapi-admin`
+Keycloak client + an `OIDC_*` ConfigMap, but newapi 0.13.x does NOT read OIDC
+from env — its OIDC providers live in the DB `custom_oauth_providers` table,
+and it has no root user, so the app is stuck pre-setup and the owner could
+never land signed-in as admin.
+
+NewAPI facts (verified against QuantumNous/new-api):
+  - `setups` (id, version, initialized_at): one row ⇒ `status:true`.
+  - `RootUserExists()` = any `users.role = 100` ⇒ `root_init:true`. role
+    constants: common=1, admin=10, root=100.
+  - OIDC login (controller/oidc.go) matches an existing user by `oidc_id`
+    (the `sub` claim); when none matches AND registration is enabled it
+    CREATES the user with the DB-default role=1 (common) — there is NO
+    group→role mechanism and NO "first user becomes root". So an SSO user
+    is ALWAYS created as common and must be promoted out of band.
+  - `custom_oauth_providers` is the OIDC-provider table (slug uniqueIndex;
+    client_id/secret; well_known auto-discovers endpoints; user_id_field
+    default `sub`; auth_style 0=auto; access_policy = JSON
+    {logic, conditions:[{field,op,value}], groups:[...]} that GATES login).
+
+This template ships, all DB-direct via the CNPG `<cluster>-app` Secret (the
+chart's smoke test ASSERTS `auth.adminUI.masterKeySecret` is unset, so the
+admin-API/master-key path is unavailable — we go straight to Postgres, which
+newapi owns):
+
+  1. A post-install/post-upgrade Job that, idempotently:
+     a. inserts a `setups` row (⇒ status:true, kills the wizard),
+     b. inserts a system root user (role=100, SSO-only — a locked password
+        sentinel that can never bcrypt-verify, so password login is
+        impossible) ⇒ root_init:true,
+     c. inserts the sovereign-realm OIDC provider row (enabled) ⇒ the
+        "Sign in with <name>" button works and the silent-SSO chain lands,
+        with access_policy gating the `sovereign-admins` group,
+     d. promotes any already-present OIDC user to root (re-run catch-up).
+  2. A CronJob (default every minute) that promotes any SSO-authenticated
+     user (`oidc_id<>'' AND role<100`) to root — so the owner's FIRST bare-
+     URL SSO login lands them as admin within ~1 min. Gated to the
+     access_policy'd provider, only `sovereign-admins` members ever get a
+     user row, so the promote is owner-scoped.
+
+Fresh-prov-safe + zero-touch: pgcrypto is NOT required (locked-sentinel
+password, never verified); all statements are idempotent guards.
+
+Skip-render: `auth.adminUI.mode != keycloak`, `newapi.enabled=false`, or
+`cnpg.enabled=false` ⇒ no Job/CronJob (the DB-direct seam needs the CNPG
+cluster). Operators on an external Postgres or a non-OIDC posture get
+nothing.
+*/ -}}
+{{- $seed := .Values.adminSeed | default dict -}}
+{{- $kcMode := eq .Values.auth.adminUI.mode "keycloak" -}}
+{{- if and (default true $seed.enabled) .Values.newapi.enabled $kcMode .Values.cnpg.enabled .Values.sovereignFQDN -}}
+{{- $clusterName := printf "%s-newapi-pg" (include "bp-newapi.fullname" .) -}}
+{{- $cnpgSecretName := printf "%s-app" $clusterName -}}
+{{- $jobName := include "bp-newapi.adminSeedJobName" . -}}
+{{- $cronName := include "bp-newapi.adminPromoteCronName" . -}}
+{{- $pgImage := .Values.cnpg.cluster.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16.4" -}}
+{{- $fqdn := .Values.sovereignFQDN -}}
+{{- $clientId := .Values.auth.adminUI.keycloak.clientId | default "newapi-admin" -}}
+{{- $oidcSecretName := .Values.auth.adminUI.keycloak.existingSecret | default (printf "%s-oidc" (include "bp-newapi.fullname" .)) -}}
+{{- $adminGroup := $seed.adminGroup | default "sovereign-admins" -}}
+{{- $rootUsername := $seed.rootUsername | default "catalyst-root" -}}
+{{- $providerName := $seed.providerName | default "OpenOva SSO" -}}
+{{- $providerSlug := $seed.providerSlug | default "sovereign" -}}
+{{- $version := .Chart.AppVersion | default "0.13.2" -}}
+{{- $pullPolicy := (default dict $seed.image).pullPolicy | default "IfNotPresent" -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $jobName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    catalyst.openova.io/component: admin-seed
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "8"
+    "helm.sh/hook-delete-policy": before-hook-creation
+  {{- with .Values.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $jobName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    catalyst.openova.io/component: admin-seed
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "8"
+    "helm.sh/hook-delete-policy": before-hook-creation
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - {{ $cnpgSecretName | quote }}
+      - {{ $oidcSecretName | quote }}
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $jobName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    catalyst.openova.io/component: admin-seed
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "8"
+    "helm.sh/hook-delete-policy": before-hook-creation
+subjects:
+  - kind: ServiceAccount
+    name: {{ $jobName }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ $jobName }}
+  apiGroup: rbac.authorization.k8s.io
+---
+{{- /*
+The SQL is identical for the one-shot seed Job and the periodic promote
+CronJob's catch-up, so it lives in one ConfigMap mounted into both. Two
+scripts: seed.sh (full init, Job) + promote.sh (promote-only, CronJob).
+The CNPG <cluster>-app Secret (basic-auth) carries host/port/dbname/user/
+password; we read them from a mounted Secret volume rather than env so the
+plaintext never lands in the Pod manifest.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $jobName }}-scripts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    catalyst.openova.io/component: admin-seed
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "8"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  common.sh: |
+    # Shared: build PSQL from the mounted CNPG -app Secret + wait for tables.
+    set -eu
+    CRED=/cnpg
+    PGHOST="$(cat "${CRED}/host")"
+    PGPORT="$(cat "${CRED}/port" 2>/dev/null || echo 5432)"
+    PGDATABASE="$(cat "${CRED}/dbname")"
+    PGUSER="$(cat "${CRED}/user" 2>/dev/null || cat "${CRED}/username")"
+    PGPASSWORD="$(cat "${CRED}/password")"
+    export PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD
+    PSQL="psql -v ON_ERROR_STOP=1 -qtA"
+    wait_for_users_table() {
+      i=0
+      until [ "$i" -ge 60 ]; do
+        if $PSQL -c "SELECT to_regclass('public.users');" 2>/dev/null | grep -q '^users$'; then
+          echo "[admin-seed] users table present"; return 0
+        fi
+        i=$((i+1)); echo "[admin-seed] waiting for newapi schema migration ($i/60)"; sleep 5
+      done
+      echo "[admin-seed] FATAL: users table not present after 5min (newapi never migrated?)" >&2
+      return 1
+    }
+    promote_oidc_users() {
+      # Any SSO-authenticated, active user that is not yet root → root (100).
+      # access_policy on the provider gates login to the admin group, so only
+      # authorised owners ever own an oidc_id row.
+      n="$($PSQL -c "UPDATE users SET role=100 WHERE oidc_id IS NOT NULL AND oidc_id <> '' AND role < 100 AND status = 1 RETURNING id;" | wc -l | tr -d ' ')"
+      echo "[admin-seed] promoted ${n} OIDC user(s) to root"
+    }
+  seed.sh: |
+    . /scripts/common.sh
+    echo "[admin-seed] target=${PGHOST}:${PGPORT}/${PGDATABASE} user=${PGUSER}"
+    wait_for_users_table
+
+    # (a) setups row → status:true (kills the setup wizard). Idempotent.
+    $PSQL -c "INSERT INTO setups (version, initialized_at)
+              SELECT '{{ $version }}', EXTRACT(EPOCH FROM now())::bigint
+              WHERE NOT EXISTS (SELECT 1 FROM setups);"
+    echo "[admin-seed] setups row ensured"
+
+    # (b) system root user → root_init:true. SSO-only: the password is a
+    #     locked sentinel that can NEVER bcrypt-verify (newapi's
+    #     ValidateAndFill bcrypt-compare returns an error ⇒ password login
+    #     impossible). The owner signs in via SSO, never this account.
+    $PSQL -c "INSERT INTO users (username, password, display_name, role, status, email, quota, \"group\", created_at)
+              SELECT '{{ $rootUsername }}',
+                     '!locked-sso-only-' || md5(random()::text),
+                     'Catalyst Root (SSO-only)', 100, 1,
+                     '{{ $rootUsername }}@{{ $fqdn }}', 100000000, 'default',
+                     EXTRACT(EPOCH FROM now())::bigint
+              WHERE NOT EXISTS (SELECT 1 FROM users WHERE role = 100);"
+    echo "[admin-seed] root user ensured (role=100, SSO-only)"
+
+    # (c) sovereign-realm OIDC provider → the in-app SSO button works and the
+    #     silent-SSO chain (catalyst-pin) lands the owner. well_known drives
+    #     endpoint discovery; access_policy gates login to the admin group.
+    CLIENT_SECRET="$(cat /oidc/client_secret 2>/dev/null || cat /oidc/OIDC_CLIENT_SECRET 2>/dev/null || echo '')"
+    if [ -z "${CLIENT_SECRET}" ]; then
+      echo "[admin-seed] WARN: OIDC client_secret not yet published (bp-sso-bridge); provider insert deferred — CronJob/next reconcile will retry"
+    else
+      WELLKNOWN="https://auth.{{ $fqdn }}/realms/{{ $providerSlug }}/.well-known/openid-configuration"
+      AUTHZ="https://auth.{{ $fqdn }}/realms/{{ $providerSlug }}/protocol/openid-connect/auth?kc_idp_hint=catalyst-pin"
+      TOKEN="https://auth.{{ $fqdn }}/realms/{{ $providerSlug }}/protocol/openid-connect/token"
+      USERINFO="https://auth.{{ $fqdn }}/realms/{{ $providerSlug }}/protocol/openid-connect/userinfo"
+      # access_policy: OPTIONAL gate. When enforceAdminGroup=true the userinfo
+      # `groups` array (KC sovereign realm emits the BARE name — realm mapper
+      # full.path=false, so grafana's working `contains(groups[*],
+      # 'sovereign-admins')` proves the format) must CONTAIN the admin group.
+      # Default OFF (empty policy): the sovereign realm's catalyst-pin IdP
+      # already restricts WHO can authenticate, and the promote step keys on
+      # oidc_id — so the owner ALWAYS lands (the #3150 lesson: never let a gate
+      # break the actual login). Operators flip enforceAdminGroup=true to also
+      # deny non-admins at the newapi boundary.
+      {{- if $seed.enforceAdminGroup }}
+      POLICY='{"logic":"and","conditions":[{"field":"groups","op":"contains","value":"{{ $adminGroup }}"}],"groups":[]}'
+      {{- else }}
+      POLICY=''
+      {{- end }}
+      # Upsert on the unique slug. ON CONFLICT keeps secret/endpoints fresh
+      # across rotations.
+      $PSQL <<SQL
+    INSERT INTO custom_oauth_providers
+      (name, slug, icon, enabled, client_id, client_secret,
+       authorization_endpoint, token_endpoint, user_info_endpoint,
+       scopes, user_id_field, username_field, display_name_field, email_field,
+       well_known, auth_style, access_policy, access_denied_message,
+       created_at, updated_at)
+    VALUES
+      ('{{ $providerName }}', '{{ $providerSlug }}', 'keycloak', true,
+       '{{ $clientId }}', '${CLIENT_SECRET}',
+       '${AUTHZ}', '${TOKEN}', '${USERINFO}',
+       'openid profile email groups', 'sub', 'preferred_username', 'name', 'email',
+       '${WELLKNOWN}', 0,
+       '${POLICY}',
+       'Access denied — your account is not a member of the {{ $adminGroup }} group.',
+       now(), now())
+    ON CONFLICT (slug) DO UPDATE SET
+       enabled = EXCLUDED.enabled,
+       client_id = EXCLUDED.client_id,
+       client_secret = EXCLUDED.client_secret,
+       authorization_endpoint = EXCLUDED.authorization_endpoint,
+       token_endpoint = EXCLUDED.token_endpoint,
+       user_info_endpoint = EXCLUDED.user_info_endpoint,
+       well_known = EXCLUDED.well_known,
+       access_policy = EXCLUDED.access_policy,
+       updated_at = now();
+    SQL
+      echo "[admin-seed] sovereign OIDC provider ensured (slug={{ $providerSlug }}, admin group={{ $adminGroup }})"
+    fi
+
+    # (d) promote anyone already signed in (re-run catch-up).
+    promote_oidc_users
+    echo "[admin-seed] done."
+  promote.sh: |
+    . /scripts/common.sh
+    wait_for_users_table
+    promote_oidc_users
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $jobName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    catalyst.openova.io/component: admin-seed
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "12"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: {{ $seed.backoffLimit | default 6 }}
+  activeDeadlineSeconds: {{ $seed.activeDeadlineSeconds | default 420 }}
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        {{- include "bp-newapi.selectorLabels" . | nindent 8 }}
+        catalyst.openova.io/component: admin-seed
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ $jobName }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 26
+        runAsGroup: 26
+        fsGroup: 26
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: scripts
+          configMap:
+            name: {{ $jobName }}-scripts
+            defaultMode: 0555
+        - name: cnpg
+          secret:
+            secretName: {{ $cnpgSecretName | quote }}
+        - name: oidc
+          secret:
+            secretName: {{ $oidcSecretName | quote }}
+            optional: true
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Mi
+      containers:
+        - name: admin-seed
+          image: {{ $pgImage | quote }}
+          imagePullPolicy: {{ $pullPolicy }}
+          command: ["/bin/sh", "/scripts/seed.sh"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: cnpg
+              mountPath: /cnpg
+              readOnly: true
+            - name: oidc
+              mountPath: /oidc
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml ($seed.resources | default (dict "requests" (dict "cpu" "10m" "memory" "64Mi") "limits" (dict "cpu" "200m" "memory" "128Mi"))) | nindent 12 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $cronName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    catalyst.openova.io/component: admin-promote
+spec:
+  schedule: {{ $seed.promoteSchedule | default "* * * * *" | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  startingDeadlineSeconds: 120
+  jobTemplate:
+    metadata:
+      labels:
+        {{- include "bp-newapi.labels" . | nindent 8 }}
+        catalyst.openova.io/component: admin-promote
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 120
+      ttlSecondsAfterFinished: 120
+      template:
+        metadata:
+          labels:
+            {{- include "bp-newapi.selectorLabels" . | nindent 12 }}
+            catalyst.openova.io/component: admin-promote
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ $jobName }}
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 26
+            runAsGroup: 26
+            fsGroup: 26
+            seccompProfile:
+              type: RuntimeDefault
+          volumes:
+            - name: scripts
+              configMap:
+                name: {{ $jobName }}-scripts
+                defaultMode: 0555
+            - name: cnpg
+              secret:
+                secretName: {{ $cnpgSecretName | quote }}
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 8Mi
+          containers:
+            - name: admin-promote
+              image: {{ $pgImage | quote }}
+              imagePullPolicy: {{ $pullPolicy }}
+              command: ["/bin/sh", "/scripts/promote.sh"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                - name: cnpg
+                  mountPath: /cnpg
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  cpu: 100m
+                  memory: 128Mi
+{{- end }}

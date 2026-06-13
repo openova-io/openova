@@ -201,7 +201,12 @@ spec:
       # to `qwenPartner` and strip partner identifiers from comments /
       # fixtures / Secret names.
       # 1.4.64 — #3373 fix (a): httproute backendRef honors gateway.backendService override.
-      version: 1.4.66
+      # 1.4.67 — #3374: admin-init + SSO-provider seed Job (+ promote CronJob).
+      # newapi 0.13.x stored OIDC providers + root user in its DB, not env, so a
+      # fresh Sovereign showed the "uninitialized" wizard with no admin. The new
+      # DB-direct seed writes the setups row + SSO-only root user + sovereign
+      # OIDC provider + promotes the owner to root on first login.
+      version: 1.4.67
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

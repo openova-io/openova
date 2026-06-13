@@ -373,6 +373,53 @@ auth:
     # `self-serve`: customer-facing portal is enabled (NOT recommended
     # in Catalyst Sovereigns).
     keyIssuer: "catalyst"
+# ─── Admin-init + SSO-provider seed (#3374) ──────────────────────────────
+# NewAPI 0.13.x stores OIDC providers + the root user in its Postgres DB,
+# not env. Without seeding, a fresh Sovereign's newapi shows the
+# "uninitialized" setup wizard and grants NO admin, and the owner can never
+# land signed-in. templates/admin-sso-seed-job.yaml runs a DB-direct
+# post-install/post-upgrade Job (+ a promote CronJob) that: writes a setups
+# row (status:true), a system root user (role=100, SSO-only locked
+# password ⇒ root_init:true), the sovereign-realm OIDC provider (the in-app
+# SSO button), and promotes any SSO-authenticated user (oidc_id set) to
+# root so the owner's first bare-URL login lands as admin. All DB-direct via
+# the CNPG <cluster>-app Secret (the master-key path is asserted-unset by the
+# smoke test). Requires cnpg.enabled + auth.adminUI.mode=keycloak +
+# sovereignFQDN; otherwise the whole bundle is suppressed.
+adminSeed:
+  enabled: true
+  # Username of the SSO-only system root account that satisfies
+  # RootUserExists() (NewAPI's root_init flag). Never used to log in — its
+  # password is a locked sentinel; the owner signs in via SSO and is promoted.
+  rootUsername: "catalyst-root"
+  # In-app OIDC provider card (NewAPI "Sign in with <name>" button).
+  providerName: "OpenOva SSO"
+  # Unique provider slug (custom_oauth_providers.slug). Also the KC realm
+  # segment used to build the well-known/authorize/token/userinfo URLs.
+  providerSlug: "sovereign"
+  # Group whose members are elevated to admin. Elevation always keys on the
+  # group, never per-user (#3374 law §5).
+  adminGroup: "sovereign-admins"
+  # When true, also GATE the newapi OIDC provider on adminGroup membership
+  # (access_policy contains(groups, adminGroup)). Default OFF so a strict
+  # claim-format mismatch can never break the owner's landing (the #3150
+  # lesson — wire-proof ≠ walk). The realm catalyst-pin IdP already restricts
+  # who can authenticate; the promote keys on oidc_id.
+  enforceAdminGroup: false
+  # How often the promote CronJob runs (owner's first SSO login → root within
+  # this window). Default every minute.
+  promoteSchedule: "* * * * *"
+  image:
+    pullPolicy: IfNotPresent
+  backoffLimit: 6
+  activeDeadlineSeconds: 420
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
 # ─── Channels ────────────────────────────────────────────────────────────
 # Operator-defined LLM provider channels. Every channel MUST carry a
 # verifiable `attestation` block; render fails with a helpful error if
