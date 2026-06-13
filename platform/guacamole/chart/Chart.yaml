@@ -153,7 +153,7 @@ name: bp-guacamole
 # connected → the permission store was unreachable → still no admin. Renamed to
 # the upstream-canonical POSTGRESQL_USER. Lockstep: 52-bp-guacamole.yaml pin →
 # 0.2.15. Refs #3374.
-version: 0.2.15
+version: 0.2.16
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
