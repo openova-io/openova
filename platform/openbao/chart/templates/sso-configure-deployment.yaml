@@ -349,6 +349,16 @@ spec:
       annotations:
         # Force re-roll when sso.sovereignFqdn or admin group change.
         checksum/sso-config: {{ printf "%s:%s:%s:%s:%s" (.Values.sso.sovereignFqdn | default "") (.Values.sso.adminGroup | default "") (.Values.sso.opsGroup | default "") (.Values.sso.viewerGroup | default "") (.Values.sso.clientId | default "openbao") | sha256sum }}
+        # #3374 — the reconcile loop lives in the openbao-sso-configure
+        # ConfigMap (reconcile.sh). A change to that SCRIPT does not alter
+        # this Pod template, so without a revision marker the helm upgrade
+        # leaves the OLD pod running the OLD script with the stale mounted
+        # ConfigMap (caught live on hw133: the 1.2.32/1.2.33 idempotency
+        # fix landed in the ConfigMap but the running reconciler kept
+        # logging the false WARN because its pod never rolled). Hashing the
+        # chart version forces a roll on every chart bump — and the
+        # script-lockstep rule means a script change always bumps the chart.
+        checksum/reconcile-script: {{ .Chart.Version | sha256sum }}
     spec:
       serviceAccountName: openbao-sso-configure
       securityContext:

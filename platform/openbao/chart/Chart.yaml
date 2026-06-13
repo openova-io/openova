@@ -26,7 +26,16 @@ name: bp-openbao
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.2.33
+version: 1.2.34
+# 1.2.34 (#3374, 2026-06-13): the openbao-sso-configure Deployment now rolls
+# when reconcile.sh changes. The reconcile loop lives in a ConfigMap, so a
+# SCRIPT change left the Pod template byte-identical → helm upgrade did NOT
+# restart the pod → the running reconciler kept the STALE mounted ConfigMap
+# (the 1.2.32/1.2.33 idempotency fix landed in the ConfigMap but the live
+# pod never picked it up, so the false per-tick WARN persisted on hw133).
+# Added a `checksum/reconcile-script: sha256(.Chart.Version)` Pod annotation —
+# every chart bump (and the script-lockstep rule means a script change always
+# bumps the chart) now forces the Deployment to roll onto the new script.
 # 1.2.33 (#3374, 2026-06-13): the three openbao Job/CronJob templates
 # (init-job, auth-bootstrap-job post-upgrade hooks + the snapshot-replication
 # CronJob) now carry `app.kubernetes.io/managed-by: flux`. The kyverno
