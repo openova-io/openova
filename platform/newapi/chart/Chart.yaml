@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.67 (#3374, 2026-06-14): admin-init + SSO-provider seed. NewAPI 0.13.x
+# showed the "uninitialized" setup wizard and granted NO admin on a fresh
+# Sovereign — `GET /api/setup` = {status:false,root_init:false}, every newapi
+# table empty. NewAPI stores OIDC providers + the root user in its Postgres
+# DB (not env, which the chart had wired), so the app was stuck pre-setup.
+# New templates/admin-sso-seed-job.yaml runs a DB-direct post-install/post-
+# upgrade Job (+ a per-minute promote CronJob) that writes the setups row
+# (status:true), a system root user (role=100, SSO-only locked sentinel ⇒
+# root_init:true), the sovereign-realm OIDC provider (the in-app SSO button),
+# and promotes any SSO-authenticated user (oidc_id set) to root so the owner's
+# first bare-URL login lands as admin. All DB-direct via the CNPG <cluster>-app
+# Secret (master-key path is asserted-unset by the smoke test). Gated on
+# cnpg.enabled + auth.adminUI.mode=keycloak + sovereignFQDN. New `adminSeed.*`
+# values. Lockstep: 80-newapi.yaml pin → 1.4.67. Refs #3374.
 # 1.4.64 — Refs #3373 (coupling fix (a)): templates/httproute.yaml
 # backendRef now honors a new `gateway.backendService` override (same
 # key shape as gitea/harbor/openbao/grafana/powerdns for slot
@@ -436,7 +450,7 @@ name: bp-newapi
 # bp-sso-bridge + an ExternalSecret (creationPolicy Merge) converges
 # OIDC_CLIENT_SECRET to the live KC value; companion slot fix points the
 # issuer at realms/sovereign.
-version: 1.4.66
+version: 1.4.67
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

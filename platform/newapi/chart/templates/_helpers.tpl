@@ -150,6 +150,14 @@ emitted by templates/channel-seed-job.yaml.
 {{- printf "%s-channel-seed" (include "bp-newapi.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{- define "bp-newapi.adminSeedJobName" -}}
+{{- printf "%s-admin-seed" (include "bp-newapi.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "bp-newapi.adminPromoteCronName" -}}
+{{- printf "%s-admin-promote" (include "bp-newapi.fullname" .) | trunc 52 | trimSuffix "-" }}
+{{- end }}
+
 {{/*
 Channel attestation gate — refuses to render if any enabled channel
 lacks attestation. Compliance posture defined in
