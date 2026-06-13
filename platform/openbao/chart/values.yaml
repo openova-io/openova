@@ -365,7 +365,11 @@ snapshotReplication:
   # access/secret keys), the same Secret bp-cnpg barman backups consume.
   s3:
     # S3 API endpoint. Default = canonical SeaweedFS S3 Service FQDN.
-    endpoint: "http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333"
+    # #3373 Batch A (2026-06-14): bp-seaweedfs moved INSIDE the rtz vCluster;
+    # the host-synced S3 Service carries the syncer-mangled name below.
+    # snapshot-replication is default-OFF — this applies only when an operator
+    # enables it post-move. Override `endpoint` for a host-placed seaweedfs.
+    endpoint: "http://seaweedfs-s3-x-seaweedfs-x-rtz-vcluster.rtz.svc.cluster.local:8333"
     # Bucket the snapshots live in. The primary uploads here; the secondary
     # fetches the latest object from here.
     bucket: openbao-snapshots

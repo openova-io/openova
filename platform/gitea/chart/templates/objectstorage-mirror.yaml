@@ -110,7 +110,7 @@ spec:
             - name: REMOTE_ENDPOINT
               value: {{ .Values.objectStorage.mirror.remoteEndpoint | default "" | quote }}
             - name: FILER_ENDPOINT
-              value: {{ .Values.objectStorage.mirror.filerEndpoint | default "seaweedfs-filer.seaweedfs.svc.cluster.local:8888" | quote }}
+              value: {{ .Values.objectStorage.mirror.filerEndpoint | default "seaweedfs-filer-x-seaweedfs-x-rtz-vcluster.rtz.svc.cluster.local:8888" | quote }}
             - name: BUCKET
               value: {{ .Values.objectStorage.bucket | default "gitea-blobs" | quote }}
             - name: LOCATION

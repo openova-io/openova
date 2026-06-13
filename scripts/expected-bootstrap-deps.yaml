@@ -283,7 +283,11 @@ slots:
     wave: W2.K1
   - slot: 18
     name: bp-seaweedfs
-    depends_on: [bp-flux, bp-cert-manager]
+    # #3373 Batch A (2026-06-14): bp-seaweedfs moved INTO the rtz vCluster
+    # (placement.yaml) — the generator adds the bp-rtz-vcluster runtime edge
+    # (the vc-rtz Secret doesn't exist until that HR is Ready). Same pattern as
+    # loki/mimir/tempo declaring bp-mgmt-vcluster.
+    depends_on: [bp-flux, bp-cert-manager, bp-rtz-vcluster]
     wave: W2.K1
   - slot: 19
     name: bp-harbor

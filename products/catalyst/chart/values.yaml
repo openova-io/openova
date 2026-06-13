@@ -1812,7 +1812,10 @@ qaFixtures:
   # qa-omantel namespace so cluster-primary's spec.backup resolves.
   # Override these for off-cluster S3 (R2 / B2 / native AWS).
   cnpgBackupBucket: qa-fixtures
-  cnpgBackupEndpointURL: http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333
+  # #3373 Batch A (2026-06-14): bp-seaweedfs moved INSIDE the rtz vCluster →
+  # the host-synced S3 Service carries the syncer-mangled name below (qa-fixtures
+  # only; override for off-cluster S3).
+  cnpgBackupEndpointURL: http://seaweedfs-s3-x-seaweedfs-x-rtz-vcluster.rtz.svc.cluster.local:8333
   cnpgBackupS3SecretName: qa-cnpg-backup-s3
   cnpgBackupSourceSecretNamespace: seaweedfs
   cnpgBackupSourceSecretName: seaweedfs-s3-secret
