@@ -1,0 +1,329 @@
+{{- /*
+Pre-install/pre-upgrade hook that bootstraps the local Sovereign Gitea
+`openova/openova` repo + `sme-tenants` branch the SME-tenant gitops chain
+targets — issue #3454 (Refs #3376 / #3378 FUNNEL).
+
+WHY THIS FILE EXISTS
+====================
+#3122 wired BOTH ends of the SME-tenant gitops chain at the local Gitea
+on a Sovereign, intended to work PRE-cutover:
+
+  - catalyst-api push target (templates/api-deployment.yaml):
+      CATALYST_GITOPS_REPO_URL = http://gitea-http.gitea.svc.cluster.local:3000/openova/openova
+      CATALYST_GITOPS_BRANCH   = sme-tenants
+      CATALYST_GITOPS_USER     = gitea_admin
+      CATALYST_GITOPS_TOKEN    = catalyst-gitea-token PAT (via the mirrored
+                                 provisioning-github-token Secret)
+    consumed by internal/handler/sme_tenant_gitops.go WriteTenantOverlay.
+
+  - Flux source (templates/sme-services/sme-tenants-gitrepository.yaml):
+      GitRepository openova-sme-tenants → same URL, branch sme-tenants.
+
+  - Flux reconciler (templates/sme-services/sme-tenants-kustomization.yaml):
+      Kustomization sme-tenants → sourceRef openova-sme-tenants.
+
+The token is correct (the catalyst-gitea-token PAT authenticates 200 as
+gitea_admin). The MISSING prerequisite is the repo + branch THEMSELVES.
+
+ROOT CAUSE (hw133, deployment 40c4e17667b600eb, 2026-06-14)
+===========================================================
+The ONLY thing that creates the local Gitea `openova/openova` repo is
+bp-self-sovereign-cutover Step 01 (platform/self-sovereign-cutover/chart/
+templates/01-gitea-mirror-job.yaml), which runs POST-handover (gated by
+#3379 — the tofu-phase0-archive is sealed in OpenBao only at handover, so
+self-sovereign-cutover-status.cutoverComplete=false, currentStepIndex=0
+on a fresh prov). PRE-cutover:
+
+  - GET /api/v1/repos/openova/openova → 404 even with the admin PAT.
+  - The gitea-mirror-resync CronJob logs "local repo openova/openova not
+    present — Step-01 hasn't completed; skipping".
+  - Flux GitRepository openova-sme-tenants → Ready=False:
+      "unable to clone '.../openova/openova': authentication required"
+    (Gitea returns 401/403 for a NON-EXISTENT private path — the
+    "authentication required" is a missing-repo symptom, NOT a missing
+    credential; the GitRepository correctly needs no secretRef because
+    cutover Step 01 creates the repo as private:false / public).
+
+So every sub-org sits in Provisioning and the funnel hangs — NOT because
+the gitops token is unconfigured, but because there is no repo to push to
+or clone from until handover. The catalog-seed _README.txt already
+documents the same gap ("Gitea has no catalog/openova orgs ... 01-gitea-
+mirror-job only mirrors openova-io/openova").
+
+FIX
+===
+Create the repo + branch PRE-cutover, independent of the cutover engine,
+so the SME-tenant gitops chain is live from first convergence exactly as
+#3122 intended. This pre-install/pre-upgrade hook Job (modeled on the
+proven catalyst-gitea-token-secret.yaml mint Job — same gitea-admin-secret
+source, same Gitea API surface) idempotently:
+
+  1. ensures org `openova` exists  (POST /api/v1/orgs, visibility public);
+  2. ensures repo `openova/openova` exists with auto_init=true so it has
+     a default branch + initial commit (a non-empty repo Flux can clone);
+  3. ensures the `sme-tenants` branch exists  (POST .../branches from the
+     default branch).
+
+Cutover Step 01 later runs `git push --mirror --force` from upstream,
+which OVERWRITES this seed content with the full catalog — fully
+idempotent with this Job (Step 01 creates the org/repo with the SAME
+coordinates if absent, or refreshes content if present). The dedicated
+`sme-tenants` branch is the one the catalyst-api writer keeps appending
+tenant commits to; the TBD-C18e mirror-clobber concern is about `main`
+(which Step 01 force-pushes), NOT this branch — the auto-init seed here
+only establishes the branch so the FIRST tenant push + the GitRepository
+clone both succeed pre-cutover.
+
+GATING
+======
+Rendered ONLY when BOTH:
+  - .Values.global.sovereignFQDN non-empty  → Sovereign, not the
+    Catalyst-Zero mothership (which pushes to github.com/openova-io and
+    has no local Gitea). Same discriminator the #3122 REPO_URL override,
+    the openova-sme-tenants GitRepository, and the sme-tenants
+    Kustomization already use.
+  - .Values.ingress.marketplace.enabled  → the SME tenant pipeline is on.
+    Non-marketplace Sovereigns don't run the pipeline, so they don't need
+    the repo.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #3 (no kubectl apply of workloads): the
+chart templates a Helm hook Job; the Job calls the Gitea REST API. Per
+#10 (no plaintext creds): the admin password is read at runtime from
+gitea/gitea-admin-secret and fed to curl via an Authorization: Basic
+header; it never appears in chart source or rendered manifests. Per #4
+(never hardcode): org/repo/branch + the in-cluster Gitea URL all flow
+through operator-overridable values with the same defaults the rest of
+the SME bundle uses.
+
+References:
+  - Issue #3454 (this fix), Refs #3376 / #3378
+  - templates/catalyst-gitea-token-secret.yaml (the mint-Job pattern + the
+    gitea-admin-secret RBAC precedent reused here)
+  - templates/sme-services/sme-tenants-gitrepository.yaml (consumer)
+  - templates/sme-services/provisioning-github-token.yaml (credential)
+  - platform/self-sovereign-cutover/chart/templates/01-gitea-mirror-job.yaml
+    (the post-cutover full-mirror that this seed front-runs, idempotently)
+*/}}
+{{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
+{{- if .Values.global.sovereignFQDN -}}
+{{- $bs := (.Values.smeTenants).repoBootstrap | default dict -}}
+{{- $giteaURL := $bs.giteaInternalURL | default "http://gitea-http.gitea.svc.cluster.local:3000" -}}
+{{- $org := $bs.org | default "openova" -}}
+{{- $repo := $bs.repo | default "openova" -}}
+{{- $branch := $bs.branch | default "sme-tenants" -}}
+{{- $namespace := .Release.Namespace -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: catalyst-gitea-tenants-repo-bootstrap
+  namespace: {{ $namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+    catalyst.openova.io/component: gitea-tenants-repo-bootstrap
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    # Weight 12: AFTER the catalyst-gitea-token mint Job (weight 10) so the
+    # admin creds are definitely populated, BEFORE the regular release
+    # resources (the openova-sme-tenants GitRepository + sme-tenants
+    # Kustomization) reconcile against the repo this Job creates.
+    helm.sh/hook-weight: "12"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: catalyst-gitea-tenants-repo-bootstrap-reader
+  namespace: gitea
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "12"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["gitea-admin-secret"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: catalyst-gitea-tenants-repo-bootstrap-reader
+  namespace: gitea
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "12"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: catalyst-gitea-tenants-repo-bootstrap
+    namespace: {{ $namespace }}
+roleRef:
+  kind: Role
+  name: catalyst-gitea-tenants-repo-bootstrap-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: catalyst-gitea-tenants-repo-bootstrap
+  namespace: {{ $namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+    catalyst.openova.io/component: gitea-tenants-repo-bootstrap
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "12"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 8
+  template:
+    metadata:
+      labels:
+        catalyst.openova.io/blueprint: bp-catalyst-platform
+        catalyst.openova.io/component: gitea-tenants-repo-bootstrap
+    spec:
+      serviceAccountName: catalyst-gitea-tenants-repo-bootstrap
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          # Explicit harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md
+          # MIRROR-EVERYTHING rule (matches the mint Job's image choice).
+          image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
+          env:
+            - name: GITEA_URL
+              value: {{ $giteaURL | quote }}
+            - name: GITEA_ORG
+              value: {{ $org | quote }}
+            - name: GITEA_REPO
+              value: {{ $repo | quote }}
+            - name: TENANTS_BRANCH
+              value: {{ $branch | quote }}
+            - name: ITERATIONS
+              value: {{ .Values.giteaWait.iterations | default 168 | quote }}
+            - name: INTERVAL
+              value: {{ .Values.giteaWait.intervalSeconds | default 5 | quote }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              API="${GITEA_URL}/api/v1"
+
+              # Step 1: wait for the Gitea API to be reachable. Same budget
+              # knob the token-mint Job uses (default 168 x 5s = 14m) —
+              # covers the autoscaler-cold-start worst case on a fresh prov.
+              for i in $(seq 1 "$ITERATIONS"); do
+                if curl -sSf -o /dev/null --max-time 3 "${API}/version"; then
+                  echo "[repo-bootstrap] gitea api reachable"
+                  break
+                fi
+                echo "[repo-bootstrap] waiting for gitea api ($i/$ITERATIONS)"
+                sleep "$INTERVAL"
+              done
+
+              # Step 2: read admin creds from gitea/gitea-admin-secret.
+              GU=$(kubectl -n gitea get secret gitea-admin-secret \
+                -o jsonpath='{.data.username}' | base64 -d)
+              GP=$(kubectl -n gitea get secret gitea-admin-secret \
+                -o jsonpath='{.data.password}' | base64 -d)
+              if [ -z "$GU" ] || [ -z "$GP" ]; then
+                echo "[repo-bootstrap] FATAL: gitea-admin-secret missing username/password" >&2
+                exit 1
+              fi
+              # Basic auth header — never echo the password.
+              AUTH=$(printf '%s:%s' "$GU" "$GP" | base64 -w0 2>/dev/null || printf '%s:%s' "$GU" "$GP" | base64 | tr -d '\n')
+
+              # Step 3: ensure the org exists (idempotent).
+              ORG_CODE=$(curl -sS -o /dev/null -w '%{http_code}' \
+                -H "Authorization: Basic ${AUTH}" "${API}/orgs/${GITEA_ORG}")
+              if [ "$ORG_CODE" = "200" ]; then
+                echo "[repo-bootstrap] org ${GITEA_ORG} already present"
+              else
+                echo "[repo-bootstrap] creating org ${GITEA_ORG} (GET was ${ORG_CODE})"
+                curl -sS -o /dev/null -w '[repo-bootstrap] POST /orgs -> %{http_code}\n' \
+                  -H "Authorization: Basic ${AUTH}" -H "Content-Type: application/json" \
+                  -X POST "${API}/orgs" \
+                  -d "{\"username\":\"${GITEA_ORG}\",\"visibility\":\"public\"}" || true
+              fi
+
+              # Step 4: ensure the repo exists with an initial commit so it
+              # has a default branch (auto_init=true). private=false matches
+              # cutover Step 01's create so Flux clones anonymously, no
+              # secretRef needed.
+              REPO_CODE=$(curl -sS -o /dev/null -w '%{http_code}' \
+                -H "Authorization: Basic ${AUTH}" "${API}/repos/${GITEA_ORG}/${GITEA_REPO}")
+              if [ "$REPO_CODE" = "200" ]; then
+                echo "[repo-bootstrap] repo ${GITEA_ORG}/${GITEA_REPO} already present"
+              else
+                echo "[repo-bootstrap] creating repo ${GITEA_ORG}/${GITEA_REPO} (GET was ${REPO_CODE})"
+                curl -sS -o /dev/null -w '[repo-bootstrap] POST /orgs/repos -> %{http_code}\n' \
+                  -H "Authorization: Basic ${AUTH}" -H "Content-Type: application/json" \
+                  -X POST "${API}/orgs/${GITEA_ORG}/repos" \
+                  -d "{\"name\":\"${GITEA_REPO}\",\"auto_init\":true,\"private\":false,\"default_branch\":\"main\",\"description\":\"Sovereign-local clone of openova-io/openova (SME-tenant gitops target; seeded pre-cutover by bp-catalyst-platform #3454, full content mirrored by cutover Step 01)\"}" || true
+                # Verify the repo is now visible + non-empty before branching.
+                for i in $(seq 1 30); do
+                  META=$(curl -sS -H "Authorization: Basic ${AUTH}" "${API}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null || echo '{}')
+                  if printf '%s' "$META" | grep -q '"empty":false'; then
+                    echo "[repo-bootstrap] repo created + non-empty"
+                    break
+                  fi
+                  echo "[repo-bootstrap] waiting for repo to materialise ($i/30)"
+                  sleep 2
+                done
+              fi
+
+              # Step 5: ensure the sme-tenants branch exists (the catalyst-api
+              # tenant gitops writer pushes to HEAD:sme-tenants and the
+              # openova-sme-tenants GitRepository tracks this branch).
+              BR_CODE=$(curl -sS -o /dev/null -w '%{http_code}' \
+                -H "Authorization: Basic ${AUTH}" \
+                "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/branches/${TENANTS_BRANCH}")
+              if [ "$BR_CODE" = "200" ]; then
+                echo "[repo-bootstrap] branch ${TENANTS_BRANCH} already present"
+              else
+                # Resolve the repo's actual default branch (auto_init names it
+                # per the instance default, usually "main").
+                DEFAULT_BRANCH=$(curl -sS -H "Authorization: Basic ${AUTH}" \
+                  "${API}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null \
+                  | grep -oE '"default_branch":"[^"]*"' | head -1 | cut -d'"' -f4)
+                [ -n "$DEFAULT_BRANCH" ] || DEFAULT_BRANCH=main
+                echo "[repo-bootstrap] creating branch ${TENANTS_BRANCH} from ${DEFAULT_BRANCH} (GET was ${BR_CODE})"
+                curl -sS -o /dev/null -w '[repo-bootstrap] POST /branches -> %{http_code}\n' \
+                  -H "Authorization: Basic ${AUTH}" -H "Content-Type: application/json" \
+                  -X POST "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/branches" \
+                  -d "{\"new_branch_name\":\"${TENANTS_BRANCH}\",\"old_branch_name\":\"${DEFAULT_BRANCH}\"}" || true
+                FINAL=$(curl -sS -o /dev/null -w '%{http_code}' \
+                  -H "Authorization: Basic ${AUTH}" \
+                  "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/branches/${TENANTS_BRANCH}")
+                if [ "$FINAL" = "200" ]; then
+                  echo "[repo-bootstrap] branch ${TENANTS_BRANCH} present"
+                else
+                  echo "[repo-bootstrap] FATAL: branch ${TENANTS_BRANCH} not present after create (HTTP ${FINAL})" >&2
+                  exit 1
+                fi
+              fi
+
+              echo "[repo-bootstrap] done — ${GITEA_ORG}/${GITEA_REPO}@${TENANTS_BRANCH} ready for SME-tenant gitops"
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { memory: 256Mi }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}
+{{- end }}
