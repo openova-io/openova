@@ -60,4 +60,19 @@ describe('EnterOrgButton — B2 support session (DoD 6)', () => {
     expect(await screen.findByTestId('enter-org-error')).toBeTruthy()
     expect(screen.getByTestId('enter-org-error').textContent).toContain('insufficient-role')
   })
+
+  // #3378 enter-org gap: a still-provisioning sub-org has no live console,
+  // so the button must be disabled (no blank-tab handover) with a clear
+  // "not live yet" state, NOT open a blank tab.
+  it('disables the button + explains when the org console is not live yet', () => {
+    const provisioning = { ...SUB, status: 'provisioning' as const }
+    const open = vi.fn()
+    render(<EnterOrgButton org={provisioning} onEnterOverride={vi.fn()} openOverride={open} />)
+    const btn = screen.getByTestId('enter-org-button') as HTMLButtonElement
+    expect(btn.disabled).toBe(true)
+    expect(screen.getByTestId('enter-org-not-live').textContent).toContain('Console not live yet')
+    // clicking a disabled button must not mint/open anything
+    fireEvent.click(btn)
+    expect(open).not.toHaveBeenCalled()
+  })
 })

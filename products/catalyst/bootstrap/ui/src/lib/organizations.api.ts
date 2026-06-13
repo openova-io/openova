@@ -147,23 +147,64 @@ export function parentRowFromSelf(self: SovereignSelf | null): OrgRow {
 }
 
 /**
+ * normalizeKind — coerce the tenants-feed `kind` string onto the OrgKind
+ * union. Anything that isn't the literal 'internal' (incl. empty/legacy
+ * rows) reads as 'customer' — the marketplace external door is the safe
+ * default for a row whose spec predates the B1 fields.
+ */
+function normalizeKind(raw: string | undefined): OrgKind {
+  return String(raw ?? '').trim().toLowerCase() === 'internal' ? 'internal' : 'customer'
+}
+
+/**
+ * normalizeTier — coerce the tenants-feed `tier` onto OrgTier. 'corporate'
+ * is honored verbatim; everything else (incl. empty) reads as 'sme'.
+ */
+function normalizeTier(raw: string | undefined): OrgTier {
+  return String(raw ?? '').trim().toLowerCase() === 'corporate' ? 'corporate' : 'sme'
+}
+
+/**
+ * normalizeBillingMode — coerce the tenants-feed `billing_mode` onto the
+ * OrgBillingMode union, falling back to the kind-derived default when the
+ * field is empty or unrecognized (legacy rows that predate B1).
+ */
+function normalizeBillingMode(raw: string | undefined, kind: OrgKind): OrgBillingMode {
+  const v = String(raw ?? '').trim().toLowerCase()
+  if (v === 'real' || v === 'chargeback' || v === 'showback') return v
+  return kindDefaults(kind).billingMode
+}
+
+/**
+ * normalizeIsolation — coerce the tenants-feed `isolation` onto the
+ * OrgIsolation union, falling back to the kind-derived default when empty
+ * or unrecognized.
+ */
+function normalizeIsolation(raw: string | undefined, kind: OrgKind): OrgIsolation {
+  const v = String(raw ?? '').trim().toLowerCase()
+  if (v === 'namespace' || v === 'vcluster') return v
+  return kindDefaults(kind).isolation
+}
+
+/**
  * subOrgRowFromTenant — map an existing Tenant (one Organization CR) to a
- * directory row. The tenants feed today is the customer path, so kind
- * defaults to 'customer' with the customer-derived isolation/billing
- * unless the feed later surfaces the real spec fields. tier defaults to
- * 'sme' (the customer tier).
+ * directory row. The tenants feed surfaces the real spec fields the
+ * orchestrator stamps (kind / tier / billing_mode / isolation, issue
+ * #3378 B1), so an Internal org badges Internal · showback · namespace —
+ * NOT the old hardcoded customer/real/vcluster. Rows whose spec predates
+ * the B1 fields (empty kind/tier/billing/isolation) fall back to the
+ * kind-derived defaults so a legacy customer row still badges sensibly.
  */
 export function subOrgRowFromTenant(t: Tenant): OrgRow {
-  const kind: OrgKind = 'customer'
-  const def = kindDefaults(kind)
+  const kind = normalizeKind(t.kind)
   return {
     id: t.id,
     slug: t.subdomain || t.orgName || t.id,
     displayName: t.orgName || t.subdomain || t.id,
     kind,
-    tier: 'sme',
-    billingMode: def.billingMode,
-    isolation: def.isolation,
+    tier: normalizeTier(t.tier),
+    billingMode: normalizeBillingMode(t.billingMode, kind),
+    isolation: normalizeIsolation(t.isolation, kind),
     status: t.status,
     isParent: false,
     ownerEmail: t.ownerEmail,

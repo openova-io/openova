@@ -63,6 +63,10 @@ describe('subOrgRowFromTenant', () => {
     subdomain: 'acme',
     parentDomain: 'omani.homes',
     plan: 'pro',
+    kind: 'customer',
+    tier: 'sme',
+    billingMode: 'real',
+    isolation: 'vcluster',
     status: 'active',
     region: 'me-east-215-a',
     ownerEmail: 'owner@acme.example',
@@ -75,11 +79,61 @@ describe('subOrgRowFromTenant', () => {
     const row = subOrgRowFromTenant(tenant)
     expect(row.isParent).toBe(false)
     expect(row.kind).toBe('customer')
+    expect(row.tier).toBe('sme')
     expect(row.billingMode).toBe('real')
     expect(row.isolation).toBe('vcluster')
     expect(row.displayName).toBe('ACME Corp')
     expect(row.slug).toBe('acme')
     expect(row.ownerEmail).toBe('owner@acme.example')
     expect(row.status).toBe('active')
+  })
+
+  // #3378 badge-fidelity regression: an Internal org must badge Internal
+  // (showback + namespace), NOT the old hardcoded customer/real/vcluster.
+  it('maps an internal tenant to an internal/showback/namespace row', () => {
+    const row = subOrgRowFromTenant({
+      ...tenant,
+      id: 'tnt-internal',
+      orgName: 'Finance',
+      subdomain: 'finance',
+      kind: 'internal',
+      tier: 'corporate',
+      billingMode: 'showback',
+      isolation: 'namespace',
+    })
+    expect(row.kind).toBe('internal')
+    expect(row.tier).toBe('corporate')
+    expect(row.billingMode).toBe('showback')
+    expect(row.isolation).toBe('namespace')
+  })
+
+  // An internal org with a chargeback override round-trips that override
+  // (the advanced-view billing-mode pick), not the kind default.
+  it('honors an explicit billingMode override on an internal org', () => {
+    const row = subOrgRowFromTenant({
+      ...tenant,
+      kind: 'internal',
+      billingMode: 'chargeback',
+      isolation: 'namespace',
+    })
+    expect(row.kind).toBe('internal')
+    expect(row.billingMode).toBe('chargeback')
+  })
+
+  // Legacy rows that predate the B1 spec fields (empty kind/tier/billing/
+  // isolation) fall back to the kind-derived customer defaults so they
+  // still badge sensibly rather than rendering blanks.
+  it('falls back to customer defaults when spec fields are empty (legacy row)', () => {
+    const row = subOrgRowFromTenant({
+      ...tenant,
+      kind: '',
+      tier: '',
+      billingMode: '',
+      isolation: '',
+    })
+    expect(row.kind).toBe('customer')
+    expect(row.tier).toBe('sme')
+    expect(row.billingMode).toBe('real')
+    expect(row.isolation).toBe('vcluster')
   })
 })
