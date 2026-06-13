@@ -103,12 +103,19 @@ echo "PASS: empty image.tag fails fast"
 # ClusterRoleBinding).
 # ─────────────────────────────────────────────────────────────────────
 render_on="$TMP/on.yaml"
+# #3374 (2026-06-14): recordings.persistence is now DEFAULT false (emptyDir,
+# no node-pin). The canonical 14-resource "full" bundle includes the
+# recordings PVC + its storageClass-migration hook (Job + SA + Role + RB), so
+# the full-ON case sets persistence=true to exercise that complete shape. The
+# default (emptyDir) path drops those 5 resources by design — covered by the
+# dedicated persistence-default check below.
 helm template bp-guacamole . \
   --set guacamole.enabled=true \
   --set guacamole.guacd.image.tag=1.5.5-r1 \
   --set guacamole.webapp.image.tag=1.5.5-r1 \
   --set guacamole.httproute.hostname=guacamole.test \
   --set guacamole.oidc.issuer=https://kc.test/realms/sovereign \
+  --set guacamole.recordings.persistence=true \
   > "$render_on"
 
 # 14-doc target with chartManagedSecret default ON: Deployment×2 (guacd
@@ -146,6 +153,32 @@ for k in "${required_kinds[@]}"; do
   fi
 done
 echo "PASS: every required kind present"
+
+# #3374 (2026-06-14): recordings.persistence DEFAULT false → the webapp Pod
+# uses an emptyDir recordings volume (no node-pin) + Recreate strategy, and
+# the recordings PVC / migration hook are NOT rendered. This is what unwedges
+# the JDBC-permission-store pod on a CPU-pressured local-path Sovereign.
+render_default="$TMP/default-recordings.yaml"
+helm template bp-guacamole . \
+  --set guacamole.enabled=true \
+  --set guacamole.guacd.image.tag=1.5.5-r1 \
+  --set guacamole.webapp.image.tag=1.5.5-r1 \
+  --set guacamole.httproute.hostname=guacamole.test \
+  --set guacamole.oidc.issuer=https://kc.test/realms/sovereign \
+  > "$render_default"
+if grep -qE '^kind: PersistentVolumeClaim$' "$render_default"; then
+  echo "FAIL: recordings PVC rendered with persistence default (should be emptyDir)"
+  exit 1
+fi
+if ! grep -qE 'type: "?Recreate"?' "$render_default"; then
+  echo "FAIL: webapp Deployment missing strategy type: Recreate"
+  exit 1
+fi
+if ! grep -qE 'emptyDir' "$render_default"; then
+  echo "FAIL: default recordings volume is not an emptyDir"
+  exit 1
+fi
+echo "PASS: persistence-default renders emptyDir recordings + Recreate, no PVC"
 
 # G117.5 W3.D1 #2744 (2026-06-02): the chart-managed Secret carries
 # `helm.sh/resource-policy: keep` per memory
