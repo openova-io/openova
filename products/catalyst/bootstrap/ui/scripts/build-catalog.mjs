@@ -25,7 +25,7 @@
 // §3 Phase 3) reuses the same card surface across products.
 
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -204,6 +204,99 @@ function parseScalar(s) {
   return s
 }
 
+/**
+ * #3375 — Topology declaration extraction.
+ *
+ * Every blueprint.yaml carries `spec.topology` (the G117 shape promoted
+ * into docs/topology-matrix.md — the agreement is the law). The tiny YAML
+ * reader above parses the nested objects, but inline flow arrays
+ * (`clusters: [mgmt-A, mgmt-B]`) come through `parseScalar` as the raw
+ * bracketed string. `parseInlineArray` normalises those.
+ *
+ * The console's AppDetail Topology tab READS BACK this declaration for
+ * EVERY installed app (the §1 acceptance of #3375): topology class, DR
+ * mechanism (replication backend/mode + switchover mechanism + RTO/RPO),
+ * and per-cluster placement roles (mgmt-A active / mgmt-B passive, …).
+ * Sourced here so the read-back has the SAME source the matrix promotes
+ * — never invented, never hardcoded (INVIOLABLE-PRINCIPLES.md #4).
+ */
+function parseInlineArray(v) {
+  if (Array.isArray(v)) return v.filter((x) => x != null && x !== '')
+  if (typeof v !== 'string') return []
+  const s = v.trim()
+  if (s.startsWith('[') && s.endsWith(']')) {
+    const inner = s.slice(1, -1).trim()
+    if (inner === '') return []
+    return inner
+      .split(',')
+      .map((p) => parseScalar(p.trim()))
+      .filter((x) => x != null && x !== '')
+  }
+  // A lone scalar promotes to a single-element list.
+  return [parseScalar(s)]
+}
+
+/**
+ * extractTopology turns the parsed `spec.topology` object into the typed
+ * shape the console reads back. Returns null when the Blueprint declares
+ * no topology block (older scaffolds), so the consumer can fall back to a
+ * neutral "singleton" render rather than asserting a class it never declared.
+ */
+function extractTopology(topoRaw) {
+  if (!topoRaw || typeof topoRaw !== 'object' || Array.isArray(topoRaw)) return null
+
+  const supported = parseInlineArray(topoRaw.supported).map(String)
+  const defaults = topoRaw.defaults && typeof topoRaw.defaults === 'object' ? topoRaw.defaults : {}
+  const multiRegion =
+    typeof defaults['multi-region'] === 'string' ? defaults['multi-region'] : null
+  const singleRegion =
+    typeof defaults['single-region'] === 'string' ? defaults['single-region'] : null
+
+  // perTopology: { <variant>: { replication{backend,mode,lagSloSeconds},
+  //   switchover{mechanism,rtoSeconds,rpoSeconds}, placement{tier,clusters[],roles{}} } }
+  const perTopologyRaw =
+    topoRaw.perTopology && typeof topoRaw.perTopology === 'object' && !Array.isArray(topoRaw.perTopology)
+      ? topoRaw.perTopology
+      : {}
+  const perTopology = {}
+  for (const [variant, vRaw] of Object.entries(perTopologyRaw)) {
+    if (!vRaw || typeof vRaw !== 'object') continue
+    const repl = vRaw.replication && typeof vRaw.replication === 'object' ? vRaw.replication : null
+    const sw = vRaw.switchover && typeof vRaw.switchover === 'object' ? vRaw.switchover : null
+    const pl = vRaw.placement && typeof vRaw.placement === 'object' ? vRaw.placement : null
+    const roles =
+      pl && pl.roles && typeof pl.roles === 'object' && !Array.isArray(pl.roles)
+        ? Object.fromEntries(Object.entries(pl.roles).map(([k, v]) => [k, String(v)]))
+        : {}
+    perTopology[variant] = {
+      replication: repl
+        ? {
+            backend: typeof repl.backend === 'string' ? repl.backend : null,
+            mode: typeof repl.mode === 'string' ? repl.mode : null,
+            lagSloSeconds: typeof repl.lagSloSeconds === 'number' ? repl.lagSloSeconds : null,
+          }
+        : null,
+      switchover: sw
+        ? {
+            mechanism: typeof sw.mechanism === 'string' ? sw.mechanism : null,
+            rtoSeconds: typeof sw.rtoSeconds === 'number' ? sw.rtoSeconds : null,
+            rpoSeconds: typeof sw.rpoSeconds === 'number' ? sw.rpoSeconds : null,
+          }
+        : null,
+      placement: pl
+        ? {
+            tier: typeof pl.tier === 'string' ? pl.tier : null,
+            clusters: parseInlineArray(pl.clusters).map(String),
+            roles,
+          }
+        : null,
+    }
+  }
+
+  if (supported.length === 0 && Object.keys(perTopology).length === 0) return null
+  return { supported, multiRegion, singleRegion, perTopology }
+}
+
 function listBlueprintFiles(dir) {
   if (!existsSync(dir)) return []
   const out = []
@@ -234,11 +327,28 @@ function buildCatalog() {
     const meta = parsed?.metadata ?? {}
     const spec = parsed?.spec ?? {}
     const card = spec?.card ?? {}
-    const name = meta?.name
+    const rawName = meta?.name
     const visibility = spec?.visibility ?? 'unlisted'
 
-    if (!name || typeof name !== 'string' || !name.startsWith('bp-')) {
-      skipped.push({ file, reason: `missing or invalid metadata.name (must be bp-<name>): ${name}` })
+    // #3375 — canonical id derivation. The contract is `bp-<folder>`. Many
+    // bootstrap blueprints (harbor, grafana, loki, tempo, trivy, velero, …)
+    // declare `metadata.name: <folder>` WITHOUT the `bp-` prefix — they
+    // install fine (the HR name is `bp-<folder>`) but the old hard
+    // `startsWith('bp-')` gate dropped them from the catalog ENTIRELY, so
+    // their AppDetail page never had a catalog entry and their Topology tab
+    // could not read back a declared class. The folder name IS the canonical
+    // slug (it matches the bootstrap-kit NN-<name>.yaml derivation), so when
+    // metadata.name is present but un-prefixed we derive `bp-<folder>` and
+    // keep going. Genuinely-missing / non-string names are still skipped.
+    const folderSlug = basename(dirname(file)).replace(/^bp-/, '')
+    let name
+    if (typeof rawName === 'string' && rawName.startsWith('bp-')) {
+      name = rawName
+    } else if (typeof rawName === 'string' && rawName.trim() !== '' && rawName.replace(/^bp-/, '') === folderSlug) {
+      // Un-prefixed name that matches the folder — derive the canonical id.
+      name = `bp-${folderSlug}`
+    } else {
+      skipped.push({ file, reason: `missing or invalid metadata.name (must be bp-<name> or match folder): ${rawName}` })
       continue
     }
 
@@ -280,6 +390,10 @@ function buildCatalog() {
         : [],
       shareable: spec.shareable === true,
       contextSchema,
+      // #3375 — declared topology + DR contract (read back by the
+      // AppDetail Topology tab for EVERY app). null when the Blueprint
+      // ships no `spec.topology` block.
+      topology: extractTopology(spec.topology),
     })
   }
 
@@ -389,6 +503,15 @@ export interface BlueprintCardEntry {
   shareable: boolean
   /** #3370 — the Context declaration (null when not shareable). */
   contextSchema: BlueprintContextSchema | null
+  /**
+   * #3375 — declared topology + DR contract, lifted verbatim from the
+   * Blueprint's \`spec.topology\` (the same source docs/topology-matrix.md
+   * promotes). Read back by the AppDetail Topology tab for every app so
+   * the operator sees the app's real declared class + DR mechanism +
+   * per-cluster placement — not a blank editor. null when the Blueprint
+   * ships no topology block.
+   */
+  topology: BlueprintTopology | null
 }
 
 /**
@@ -403,6 +526,39 @@ export interface BlueprintContextSchema {
   valuesKey: string
   needs: string[]
   produces: string[]
+}
+
+/**
+ * #3375 — the per-Blueprint topology declaration the console reads back.
+ *
+ *   supported       — declared topology variants (e.g. [active-hot-standby, singleton])
+ *   multiRegion     — defaults.multi-region (the class a 2-region Sovereign picks)
+ *   singleRegion    — defaults.single-region (the class a 1-region Sovereign picks)
+ *   perTopology     — DR contract per variant (replication + switchover + placement roles)
+ */
+export interface BlueprintTopology {
+  supported: string[]
+  multiRegion: string | null
+  singleRegion: string | null
+  perTopology: Record<string, BlueprintTopologyVariant>
+}
+
+export interface BlueprintTopologyVariant {
+  replication: {
+    backend: string | null
+    mode: string | null
+    lagSloSeconds: number | null
+  } | null
+  switchover: {
+    mechanism: string | null
+    rtoSeconds: number | null
+    rpoSeconds: number | null
+  } | null
+  placement: {
+    tier: string | null
+    clusters: string[]
+    roles: Record<string, string>
+  } | null
 }
 
 /**
@@ -425,6 +581,19 @@ export const LISTED_CATEGORIES: readonly string[] = Array.from(
 /** Lookup: id → entry. */
 export const BLUEPRINT_BY_ID: Readonly<Record<string, BlueprintCardEntry>> = Object.fromEntries(
   ALL_BLUEPRINTS.map(b => [b.id, b])
+)
+
+/**
+ * #3375 — Lookup: blueprint id → declared topology (null when the
+ * Blueprint ships no topology block). The AppDetail Topology tab resolves
+ * an app's matrix-declared class + DR mechanism + per-cluster roles from
+ * here, keyed on either the \`bp-<name>\` id or the bare slug.
+ */
+export const TOPOLOGY_BY_ID: Readonly<Record<string, BlueprintTopology>> = Object.fromEntries(
+  ALL_BLUEPRINTS.filter(b => b.topology != null).flatMap(b => {
+    const t = b.topology as BlueprintTopology
+    return [[b.id, t], [b.slug, t]]
+  })
 )
 
 /** Source files this catalog was built from (for diagnostics / CI logs). */

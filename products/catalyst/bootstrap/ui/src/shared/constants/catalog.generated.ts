@@ -42,6 +42,15 @@ export interface BlueprintCardEntry {
   shareable: boolean
   /** #3370 — the Context declaration (null when not shareable). */
   contextSchema: BlueprintContextSchema | null
+  /**
+   * #3375 — declared topology + DR contract, lifted verbatim from the
+   * Blueprint's `spec.topology` (the same source docs/topology-matrix.md
+   * promotes). Read back by the AppDetail Topology tab for every app so
+   * the operator sees the app's real declared class + DR mechanism +
+   * per-cluster placement — not a blank editor. null when the Blueprint
+   * ships no topology block.
+   */
+  topology: BlueprintTopology | null
 }
 
 /**
@@ -59,6 +68,39 @@ export interface BlueprintContextSchema {
 }
 
 /**
+ * #3375 — the per-Blueprint topology declaration the console reads back.
+ *
+ *   supported       — declared topology variants (e.g. [active-hot-standby, singleton])
+ *   multiRegion     — defaults.multi-region (the class a 2-region Sovereign picks)
+ *   singleRegion    — defaults.single-region (the class a 1-region Sovereign picks)
+ *   perTopology     — DR contract per variant (replication + switchover + placement roles)
+ */
+export interface BlueprintTopology {
+  supported: string[]
+  multiRegion: string | null
+  singleRegion: string | null
+  perTopology: Record<string, BlueprintTopologyVariant>
+}
+
+export interface BlueprintTopologyVariant {
+  replication: {
+    backend: string | null
+    mode: string | null
+    lagSloSeconds: number | null
+  } | null
+  switchover: {
+    mechanism: string | null
+    rtoSeconds: number | null
+    rpoSeconds: number | null
+  } | null
+  placement: {
+    tier: string | null
+    clusters: string[]
+    roles: Record<string, string>
+  } | null
+}
+
+/**
  * Every Blueprint discovered at build time. Order is stable (sorted by id).
  *
  * StepComponents filters this with `visibility === 'listed'` to render the
@@ -66,6 +108,58 @@ export interface BlueprintContextSchema {
  * bootstrap-kit phases when the SSE backend emits Flux Kustomization events.
  */
 export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
+  {
+    "id": "bp-alloy",
+    "slug": "alloy",
+    "title": "Alloy",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.1",
+    "section": "pts-3-observability",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "none",
+            "mode": "none",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
   {
     "id": "bp-anthropic-adapter",
     "slug": "anthropic-adapter",
@@ -82,7 +176,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-external-secrets"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-active",
+        "singleton"
+      ],
+      "multiRegion": "active-active",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-active": {
+          "replication": {
+            "backend": "none",
+            "mode": "none",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "none",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "active"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-bge",
@@ -100,7 +240,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-cnpg"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-active",
+        "singleton"
+      ],
+      "multiRegion": "active-active",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-active": {
+          "replication": {
+            "backend": "none",
+            "mode": "none",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "none",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "active"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-catalyst-platform",
@@ -122,7 +308,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-crossplane-claims"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-hot-standby",
+        "singleton"
+      ],
+      "multiRegion": "active-hot-standby",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-hot-standby": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 30,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "active",
+              "mgmt-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-cert-manager",
@@ -138,7 +370,43 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "openbao-perf-replication",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-cert-manager-dynadot-webhook",
@@ -156,7 +424,39 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-cert-manager"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-cert-manager-powerdns-webhook",
@@ -174,7 +474,39 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-cert-manager"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-cilium",
@@ -186,11 +518,43 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.4.0",
+    "version": "1.4.1",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-cilium-policies",
@@ -206,7 +570,43 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "flux-git",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-clickhouse",
@@ -222,7 +622,101 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-4-application-tier",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-active",
+        "singleton"
+      ],
+      "multiRegion": "active-active",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-active": {
+          "replication": {
+            "backend": "none",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "none",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "active"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-cluster-autoscaler-hcloud",
+    "slug": "cluster-autoscaler-hcloud",
+    "title": "Cluster Autoscaler (Hetzner)",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.3.0",
+    "section": "pts-3-2-scaling-and-resilience",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-cnpg",
@@ -240,7 +734,39 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-flux"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-cnpg-pair",
@@ -252,7 +778,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.3",
+    "version": "0.2.4",
     "section": "pts-9-disaster-recovery",
     "depends": [
       "bp-cnpg",
@@ -260,7 +786,91 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-cilium"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-hot-standby"
+      ],
+      "multiRegion": "active-hot-standby",
+      "singleRegion": "active-hot-standby",
+      "perTopology": {
+        "active-hot-standby": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 10,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-coraza",
+    "slug": "coraza",
+    "title": "Coraza WAF (SPOA)",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "flux-git",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-crossplane",
@@ -276,7 +886,43 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-3-2-gitops-and-iac",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "flux-git",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-crossplane-claims",
@@ -294,7 +940,43 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-crossplane"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "flux-git",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-debezium",
@@ -310,7 +992,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-4-application-tier",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "mirrormaker2",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-dmz-vcluster",
@@ -322,14 +1050,42 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.2.5",
+    "version": "0.2.7",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium",
       "bp-cert-manager"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "velero",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "dmz",
+            "clusters": [
+              "dmz-A",
+              "dmz-B"
+            ],
+            "roles": {
+              "dmz-A": "singleton",
+              "dmz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-external-dns",
@@ -345,7 +1101,43 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "none",
+            "mode": "none",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-external-secrets",
@@ -364,7 +1156,43 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-cert-manager"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "openbao-perf-replication",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-external-secrets-stores",
@@ -380,7 +1208,91 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "flux-git",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-falco",
+    "slug": "falco",
+    "title": "Falco",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.1",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-ferretdb",
@@ -396,7 +1308,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-4-application-tier",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 60,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-flink",
@@ -412,7 +1370,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-4-application-tier",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "s3-bucket-replication",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-flux",
@@ -428,7 +1432,43 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-3-2-gitops-and-iac",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "flux-git",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-gateway-api",
@@ -444,7 +1484,43 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "flux-git",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-gitea",
@@ -456,11 +1532,119 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.31",
+    "version": "1.2.34",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-hot-standby",
+        "singleton"
+      ],
+      "multiRegion": "active-hot-standby",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-hot-standby": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 30,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "active",
+              "mgmt-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-grafana",
+    "slug": "grafana",
+    "title": "Grafana",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.12",
+    "section": "pts-3-observability",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-hot-standby",
+        "singleton"
+      ],
+      "multiRegion": "active-hot-standby",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-hot-standby": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 30,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "active",
+              "mgmt-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-guacamole",
@@ -472,7 +1656,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.4",
+    "version": "0.2.8",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-keycloak",
@@ -482,7 +1666,166 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-k8s-ws-proxy"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-hot-standby",
+        "singleton"
+      ],
+      "multiRegion": "active-hot-standby",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-hot-standby": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 30,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "active",
+              "mgmt-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-harbor",
+    "slug": "harbor",
+    "title": "Harbor",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.2.30",
+    "section": "pts-3-5-storage-and-data",
+    "depends": [
+      "bp-cnpg",
+      "bp-cert-manager"
+    ],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-hot-standby",
+        "singleton"
+      ],
+      "multiRegion": "active-hot-standby",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-hot-standby": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 30,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "active",
+              "mgmt-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-hcloud-ccm",
+    "slug": "hcloud-ccm",
+    "title": "Hetzner Cloud Controller Manager",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-1-cloud-integration",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-hcloud-csi",
@@ -498,7 +1841,39 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-3-5-storage-and-data",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-iceberg",
@@ -514,7 +1889,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-4-application-tier",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-active",
+        "singleton"
+      ],
+      "multiRegion": "active-active",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-active": {
+          "replication": {
+            "backend": "s3-bucket-replication",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "none",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "active"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-k8s-ws-proxy",
@@ -532,7 +1953,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-sealed-secrets"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "none",
+            "mode": "none",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 5,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "active",
+              "mgmt-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-keycloak",
@@ -544,11 +2011,57 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.4.26",
+    "version": "1.4.27",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-hot-standby",
+        "singleton"
+      ],
+      "multiRegion": "active-hot-standby",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-hot-standby": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 30,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "active",
+              "mgmt-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-knative",
@@ -567,7 +2080,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-cert-manager"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-active",
+        "singleton"
+      ],
+      "multiRegion": "active-active",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-active": {
+          "replication": {
+            "backend": "none",
+            "mode": "none",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "none",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "active"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-kserve",
@@ -587,7 +2146,219 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-knative"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-active",
+        "singleton"
+      ],
+      "multiRegion": "active-active",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-active": {
+          "replication": {
+            "backend": "none",
+            "mode": "none",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "none",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "active"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-kyverno",
+    "slug": "kyverno",
+    "title": "Kyverno",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.3.6",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "flux-git",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-kyverno-policies",
+    "slug": "kyverno-policies",
+    "title": "Kyverno Policy Library",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.33",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "flux-git",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-langfuse",
+    "slug": "langfuse",
+    "title": "Langfuse",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.1.0",
+    "section": "pts-3-observability",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 60,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-librechat",
@@ -608,7 +2379,93 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-keycloak"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-active",
+        "singleton"
+      ],
+      "multiRegion": "active-active",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-active": {
+          "replication": {
+            "backend": "none",
+            "mode": "none",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "none",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "active"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-litmus",
+    "slug": "litmus",
+    "title": "LitmusChaos",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-livekit",
@@ -628,7 +2485,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-valkey"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-active",
+        "singleton"
+      ],
+      "multiRegion": "active-active",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-active": {
+          "replication": {
+            "backend": "none",
+            "mode": "none",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "none",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "active"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-llm-gateway",
@@ -648,7 +2551,115 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-external-secrets"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-active",
+        "singleton"
+      ],
+      "multiRegion": "active-active",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-active": {
+          "replication": {
+            "backend": "none",
+            "mode": "none",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "none",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "active"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-loki",
+    "slug": "loki",
+    "title": "Loki",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-observability",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "s3-bucket-replication",
+            "mode": "async",
+            "lagSloSeconds": 60
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 60,
+            "rpoSeconds": 60
+          },
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "active",
+              "mgmt-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-matrix",
@@ -668,7 +2679,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-cert-manager"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 60,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-mgmt-vcluster",
@@ -680,14 +2737,42 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.2.6",
+    "version": "0.2.8",
     "section": "pts-3-2-control-plane-isolation",
     "depends": [
       "bp-cilium",
       "bp-cert-manager"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "velero",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-milvus",
@@ -703,7 +2788,115 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-4-application-tier",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "s3-bucket-replication",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-mimir",
+    "slug": "mimir",
+    "title": "Mimir",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.5",
+    "section": "pts-3-observability",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "s3-bucket-replication",
+            "mode": "async",
+            "lagSloSeconds": 60
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 60,
+            "rpoSeconds": 60
+          },
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "active",
+              "mgmt-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-nats-jetstream",
@@ -719,7 +2912,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "raft",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 30,
+            "rpoSeconds": 60
+          },
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "active",
+              "mgmt-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-nemo-guardrails",
@@ -737,7 +2976,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-vllm"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-active",
+        "singleton"
+      ],
+      "multiRegion": "active-active",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-active": {
+          "replication": {
+            "backend": "flux-git",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "none",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "active"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-neo4j",
@@ -753,7 +3038,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-4-application-tier",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "velero",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "bp-velero-restore",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-netbird",
@@ -765,7 +3096,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-keycloak",
@@ -773,7 +3104,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-sealed-secrets"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-hot-standby",
+        "singleton"
+      ],
+      "multiRegion": "active-hot-standby",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-hot-standby": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 30,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "active",
+              "mgmt-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-network-policies",
@@ -791,7 +3168,43 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-cilium"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "flux-git",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-newapi",
@@ -803,7 +3216,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.4.63",
+    "version": "1.4.66",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",
@@ -813,7 +3226,119 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-vllm"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 30,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "active",
+              "mgmt-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-oidc-gate",
+    "slug": "oidc-gate",
+    "title": "oidc-gate",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.0",
+    "section": "pts-2-3-per-sovereign-supporting-services",
+    "depends": [
+      "bp-cilium",
+      "bp-keycloak",
+      "bp-external-secrets-stores"
+    ],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "none",
+            "mode": "none",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 30,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "active",
+              "mgmt-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-openbao",
@@ -825,11 +3350,57 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.28",
+    "version": "1.2.31",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "openbao-perf-replication",
+            "mode": "async",
+            "lagSloSeconds": 30
+          },
+          "switchover": {
+            "mechanism": "raft-transition",
+            "rtoSeconds": 60,
+            "rpoSeconds": 30
+          },
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "active",
+              "mgmt-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-openclaw",
@@ -849,7 +3420,29 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-cert-manager"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-openmeter",
@@ -869,7 +3462,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-cert-manager"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 60,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-opensearch",
@@ -885,7 +3524,125 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-4-application-tier",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-active",
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-active",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-active": {
+          "replication": {
+            "backend": "ccr",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "ccr-promote",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "active"
+            }
+          }
+        },
+        "active-passive": {
+          "replication": {
+            "backend": "ccr",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "ccr-promote",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-opentelemetry",
+    "slug": "opentelemetry",
+    "title": "OpenTelemetry Collector",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.2.1",
+    "section": "pts-3-observability",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-opentelemetry-operator",
@@ -904,7 +3661,39 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-cert-manager"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-postgres",
@@ -916,7 +3705,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.6",
+    "version": "0.1.8",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-cnpg",
@@ -933,6 +3722,52 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "produces": [
         "credentialSecret"
       ]
+    },
+    "topology": {
+      "supported": [
+        "singleton",
+        "active-hot-standby"
+      ],
+      "multiRegion": "active-hot-standby",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        },
+        "active-hot-standby": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 10,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        }
+      }
     }
   },
   {
@@ -945,13 +3780,45 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.12",
+    "version": "1.2.14",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
       "bp-cert-manager"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-powerdns-admin",
@@ -963,7 +3830,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.12",
+    "version": "0.1.13",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-powerdns",
@@ -975,7 +3842,39 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-gateway-api"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-qa-app",
@@ -991,7 +3890,31 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-qa",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-reflector",
@@ -1007,7 +3930,91 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "none",
+            "mode": "none",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-reloader",
+    "slug": "reloader",
+    "title": "Reloader",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-rtz-vcluster",
@@ -1019,14 +4026,42 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.2.6",
+    "version": "0.2.8",
     "section": "pts-3-2-control-plane-isolation",
     "depends": [
       "bp-cilium",
       "bp-cert-manager"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "velero",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-sandbox",
@@ -1047,7 +4082,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-harbor"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-hot-standby",
+        "singleton"
+      ],
+      "multiRegion": "active-hot-standby",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-hot-standby": {
+          "replication": {
+            "backend": "none",
+            "mode": "async",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 30,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-sealed-secrets",
@@ -1063,7 +4144,93 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-seaweedfs",
+    "slug": "seaweedfs",
+    "title": "SeaweedFS",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.2.1",
+    "section": "pts-3-5-storage-and-data",
+    "depends": [
+      "bp-cert-manager"
+    ],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "filer-remote-storage",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-self-sovereign-cutover",
@@ -1082,7 +4249,81 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-harbor"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "none",
+            "mode": "none",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-sigstore",
+    "slug": "sigstore",
+    "title": "Sigstore Policy Controller",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-spire",
@@ -1098,7 +4339,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-hot-standby",
+        "singleton"
+      ],
+      "multiRegion": "active-hot-standby",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-hot-standby": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 30,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "active",
+              "mgmt-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-sso-bridge",
@@ -1118,7 +4405,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-external-secrets-stores"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "none",
+            "mode": "none",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 30,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "active",
+              "mgmt-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-stalwart-sovereign",
@@ -1138,7 +4471,25 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-powerdns"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [],
+            "roles": {}
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-stalwart-tenant",
@@ -1159,7 +4510,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-powerdns"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 60,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-strimzi",
@@ -1175,7 +4572,77 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-4-application-tier",
     "depends": [],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-active",
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-active",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-active": {
+          "replication": {
+            "backend": "mirrormaker2",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "mm2-symmetric",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "active"
+            }
+          }
+        },
+        "active-passive": {
+          "replication": {
+            "backend": "mirrormaker2",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "mm2-symmetric",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-stunner",
@@ -1194,7 +4661,163 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-cert-manager"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-active",
+        "singleton"
+      ],
+      "multiRegion": "active-active",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-active": {
+          "replication": {
+            "backend": "none",
+            "mode": "none",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "none",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "active"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-syft-grype",
+    "slug": "syft-grype",
+    "title": "Syft + Grype",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-tempo",
+    "slug": "tempo",
+    "title": "Tempo",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-observability",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "s3-bucket-replication",
+            "mode": "async",
+            "lagSloSeconds": 60
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 60,
+            "rpoSeconds": 60
+          },
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B"
+            ],
+            "roles": {
+              "mgmt-A": "active",
+              "mgmt-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-temporal",
@@ -1213,7 +4836,101 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-cert-manager"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 60,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-trivy",
+    "slug": "trivy",
+    "title": "Trivy",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.3",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-valkey",
@@ -1225,7 +4942,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.0",
+    "version": "1.1.2",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-flux"
@@ -1241,6 +4958,52 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "produces": [
         "credentialSecret"
       ]
+    },
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "sentinel",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "sentinel-failover",
+            "rtoSeconds": 30,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
     }
   },
   {
@@ -1259,7 +5022,143 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-flux"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-velero",
+    "slug": "velero",
+    "title": "Velero",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.2.2",
+    "section": "pts-3-observability",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "s3-bucket-replication",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-velero-hcs",
+    "slug": "velero-hcs",
+    "title": "Velero (HCS)",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.1",
+    "section": "pts-3-observability",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "s3-bucket-replication",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-vllm",
@@ -1277,7 +5176,101 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-kserve"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-active",
+        "singleton"
+      ],
+      "multiRegion": "active-active",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-active": {
+          "replication": {
+            "backend": "none",
+            "mode": "none",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "none",
+            "rtoSeconds": null,
+            "rpoSeconds": null
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "active"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "bp-vpa",
+    "slug": "vpa",
+    "title": "Vertical Pod Autoscaler",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.1",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    }
   },
   {
     "id": "bp-wordpress-tenant",
@@ -1299,7 +5292,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-cert-manager"
     ],
     "shareable": false,
-    "contextSchema": null
+    "contextSchema": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 60,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    }
   }
 ] as const
 
@@ -1316,8 +5355,22 @@ export const BLUEPRINT_BY_ID: Readonly<Record<string, BlueprintCardEntry>> = Obj
   ALL_BLUEPRINTS.map(b => [b.id, b])
 )
 
+/**
+ * #3375 — Lookup: blueprint id → declared topology (null when the
+ * Blueprint ships no topology block). The AppDetail Topology tab resolves
+ * an app's matrix-declared class + DR mechanism + per-cluster roles from
+ * here, keyed on either the `bp-<name>` id or the bare slug.
+ */
+export const TOPOLOGY_BY_ID: Readonly<Record<string, BlueprintTopology>> = Object.fromEntries(
+  ALL_BLUEPRINTS.filter(b => b.topology != null).flatMap(b => {
+    const t = b.topology as BlueprintTopology
+    return [[b.id, t], [b.slug, t]]
+  })
+)
+
 /** Source files this catalog was built from (for diagnostics / CI logs). */
 export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
+  "platform/alloy/blueprint.yaml",
   "platform/anthropic-adapter/blueprint.yaml",
   "platform/bge/blueprint.yaml",
   "platform/catalyst-platform/blueprint.yaml",
@@ -1327,8 +5380,10 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/cilium-policies/blueprint.yaml",
   "platform/cilium/blueprint.yaml",
   "platform/clickhouse/blueprint.yaml",
+  "platform/cluster-autoscaler-hcloud/blueprint.yaml",
   "platform/cnpg-pair/blueprint.yaml",
   "platform/cnpg/blueprint.yaml",
+  "platform/coraza/blueprint.yaml",
   "platform/crossplane-claims/blueprint.yaml",
   "platform/crossplane/blueprint.yaml",
   "platform/debezium/blueprint.yaml",
@@ -1336,54 +5391,75 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/external-dns/blueprint.yaml",
   "platform/external-secrets-stores/blueprint.yaml",
   "platform/external-secrets/blueprint.yaml",
+  "platform/falco/blueprint.yaml",
   "platform/ferretdb/blueprint.yaml",
   "platform/flink/blueprint.yaml",
   "platform/flux/blueprint.yaml",
   "platform/gateway-api/blueprint.yaml",
   "platform/gitea/blueprint.yaml",
+  "platform/grafana/blueprint.yaml",
   "platform/guacamole/blueprint.yaml",
+  "platform/harbor/blueprint.yaml",
+  "platform/hcloud-ccm/blueprint.yaml",
   "platform/hcloud-csi/blueprint.yaml",
   "platform/iceberg/blueprint.yaml",
   "platform/k8s-ws-proxy/blueprint.yaml",
   "platform/keycloak/blueprint.yaml",
   "platform/knative/blueprint.yaml",
   "platform/kserve/blueprint.yaml",
+  "platform/kyverno-policies/blueprint.yaml",
+  "platform/kyverno/blueprint.yaml",
+  "platform/langfuse/blueprint.yaml",
   "platform/librechat/blueprint.yaml",
+  "platform/litmus/blueprint.yaml",
   "platform/livekit/blueprint.yaml",
   "platform/llm-gateway/blueprint.yaml",
+  "platform/loki/blueprint.yaml",
   "platform/matrix/blueprint.yaml",
   "platform/mgmt-vcluster/blueprint.yaml",
   "platform/milvus/blueprint.yaml",
+  "platform/mimir/blueprint.yaml",
   "platform/nats-jetstream/blueprint.yaml",
   "platform/nemo-guardrails/blueprint.yaml",
   "platform/neo4j/blueprint.yaml",
   "platform/netbird/blueprint.yaml",
   "platform/network-policies/blueprint.yaml",
   "platform/newapi/blueprint.yaml",
+  "platform/oidc-gate/blueprint.yaml",
   "platform/openbao/blueprint.yaml",
   "platform/openclaw/blueprint.yaml",
   "platform/openmeter/blueprint.yaml",
   "platform/opensearch/blueprint.yaml",
   "platform/opentelemetry-operator/blueprint.yaml",
+  "platform/opentelemetry/blueprint.yaml",
   "platform/postgres/blueprint.yaml",
   "platform/powerdns-admin/blueprint.yaml",
   "platform/powerdns/blueprint.yaml",
   "platform/qa-app/blueprint.yaml",
   "platform/reflector/blueprint.yaml",
+  "platform/reloader/blueprint.yaml",
   "platform/rtz-vcluster/blueprint.yaml",
   "platform/sandbox/blueprint.yaml",
   "platform/sealed-secrets/blueprint.yaml",
+  "platform/seaweedfs/blueprint.yaml",
   "platform/self-sovereign-cutover/blueprint.yaml",
+  "platform/sigstore/blueprint.yaml",
   "platform/spire/blueprint.yaml",
   "platform/sso-bridge/blueprint.yaml",
   "platform/stalwart-sovereign/blueprint.yaml",
   "platform/stalwart-tenant/blueprint.yaml",
   "platform/strimzi/blueprint.yaml",
   "platform/stunner/blueprint.yaml",
+  "platform/syft-grype/blueprint.yaml",
+  "platform/tempo/blueprint.yaml",
   "platform/temporal/blueprint.yaml",
+  "platform/trivy/blueprint.yaml",
   "platform/valkey/blueprint.yaml",
   "platform/vcluster-helmrepo/blueprint.yaml",
+  "platform/velero-hcs/blueprint.yaml",
+  "platform/velero/blueprint.yaml",
   "platform/vllm/blueprint.yaml",
+  "platform/vpa/blueprint.yaml",
   "platform/wordpress-tenant/blueprint.yaml"
 ] as const
 
