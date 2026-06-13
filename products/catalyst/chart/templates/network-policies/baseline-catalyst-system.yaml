@@ -79,7 +79,7 @@ when qaFixtures is disabled.
      The plain loki/mimir/tempo entries stay for Sovereigns that keep
      the host-side placement via per-Sovereign overlay. */}}
 {{- $allowedPlatform := .Values.security.baselineCnp.allowedPlatformNamespaces | default (list "keycloak" "gitea" "powerdns" "cnpg-system" "openbao" "harbor" "nats-system" "loki" "mimir" "tempo" "alloy" "opentelemetry" "external-secrets-system" "cert-manager" "sme" "newapi" "mgmt") }}
-{{- $allowedIngressNs := .Values.security.baselineCnp.allowedIngressNamespaces | default (list "catalyst" "flux-system" "kube-system") }}
+{{- $allowedIngressNs := .Values.security.baselineCnp.allowedIngressNamespaces | default (list "catalyst" "flux-system" "kube-system" "oidc-gate") }}
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -154,6 +154,23 @@ spec:
     #        public traffic is also in kube-system but is matched by
     #        rule 1's `reserved.ingress: ""` selector — this rule
     #        covers the non-gateway kube-system Pods.
+    #
+    #      - `oidc-gate` (the bp-oidc-gate auth-proxy host namespace,
+    #        placement.yaml slot 13c, #3374) — the per-app oauth2-proxy
+    #        Pods front the host-Gateway routes for zero-click SSO and
+    #        reverse-proxy authenticated traffic to their upstream
+    #        Service. openova-flow's gate
+    #        (`--upstream=http://openova-flow-server.catalyst-system.
+    #        svc.cluster.local:80`) lives in `oidc-gate` and dials
+    #        flow-server in catalyst-system. Without this allow the
+    #        ingress hook on every catalyst-system upstream drops the
+    #        proxied request → oidc-gate authenticates the User but
+    #        every page 502s (upstream timeout). Regression caught on
+    #        hw133 (#813, fresh prov 2026-06-14): SSO callback
+    #        succeeded but openova-flow never served because the
+    #        ClusterIP Service AND the direct pod-IP both timed out
+    #        from oidc-gate — same isolation class as the sme→NATS
+    #        block (#3423).
     #
     #    Operators may extend or shrink this list via
     #    `.Values.security.baselineCnp.allowedIngressNamespaces`.

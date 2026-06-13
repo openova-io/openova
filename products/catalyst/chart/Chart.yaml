@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.619 — #3374 (2026-06-14) — baseline-default-deny: allow ingress
+# from the `oidc-gate` host namespace. The bp-oidc-gate auth-proxy (slot 13c)
+# reverse-proxies authenticated traffic to its upstream Service in
+# catalyst-system; openova-flow's gate dials
+# `openova-flow-server.catalyst-system.svc:80`. baseline-default-deny
+# (endpointSelector {} → every catalyst-system Pod, incl. flow-server) did NOT
+# list `oidc-gate` in allowedIngressNamespaces, so the proxied request was
+# dropped at flow-server's Cilium ingress hook — oidc-gate authenticated the
+# User (oauth2 callback succeeded) but openova-flow 502'd because the ClusterIP
+# Service AND the direct pod-IP both timed out from oidc-gate. Same isolation
+# class as the sme→NATS block (#3423). Added `oidc-gate` to both the values
+# default and the template fallback list. Diagnosed live on hw133 (both Pods
+# co-resident on cp1 → ruled out cross-node datapath; flow-server endpoint
+# ingress=Enabled while oidc-gate ns absent from the allow-list). Refs #3374.
 # 1.4.552 — #3188 (2026-06-10) — catalog-seed: add the missing bp-postgres
 # Blueprint CR. bp-postgres (the operator-facing, SHAREABLE PostgreSQL
 # data-instance card, ADR-0010) was the lone catalog-404 for the data-instance
@@ -2678,7 +2692,7 @@ name: bp-catalyst-platform
 # catalyst-gitea-token PAT as the GITEA_TOKEN env via secretKeyRef (same-ns,
 # kubelet-resolved at Pod start, no kubectl, no Role) and use token auth for
 # all Gitea calls. Drops the SA + gitea-ns Role/RoleBinding entirely.
-version: 1.4.618
+version: 1.4.619
 # 1.4.597 — #3373 (2026-06-13) — coupling fix (a) placement-as-data:
 # templates/httproute.yaml backendRefs honor new
 # ingress.gateway.backendServiceApi / backendServiceUi overrides. When

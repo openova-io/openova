@@ -1897,10 +1897,20 @@ security:
     #     do cluster introspection calls into catalyst-system. The
     #     reserved.ingress gateway endpoint also in kube-system is
     #     matched by a separate rule via reserved.ingress: "" label.
+    #   - oidc-gate — the bp-oidc-gate auth-proxy host namespace
+    #     (placement.yaml slot 13c, #3374). The per-app oauth2-proxy
+    #     reverse-proxies authenticated traffic to its upstream Service
+    #     in catalyst-system (openova-flow's gate dials
+    #     `openova-flow-server.catalyst-system.svc:80`). Without this
+    #     allow the baseline-default-deny ingress hook drops the
+    #     proxied request — oidc-gate authenticates the User but the
+    #     app 502s on upstream timeout (hw133 #813, fresh prov
+    #     2026-06-14; same isolation class as the sme→NATS #3423 block).
     allowedIngressNamespaces:
       - catalyst
       - flux-system
       - kube-system
+      - oidc-gate
 
 # ── Migrations (post-install / post-upgrade Helm-hook Jobs) ──────────────
 # Per PR #2795 (G117.2 multi-instance Application CRD): backfill spec.instanceId
