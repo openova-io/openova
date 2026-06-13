@@ -130,7 +130,7 @@ name: bp-guacamole
 # anyPattern to reject. The vendored SQL is pinned to
 # guacamole.webapp.image.tag (1.5.5); bump both together. Lockstep:
 # 52-bp-guacamole.yaml pin → 0.2.11. Refs #3374 #3434 #3296.
-version: 0.2.11
+version: 0.2.12
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
