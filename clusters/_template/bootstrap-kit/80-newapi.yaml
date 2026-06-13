@@ -206,7 +206,7 @@ spec:
       # fresh Sovereign showed the "uninitialized" wizard with no admin. The new
       # DB-direct seed writes the setups row + SSO-only root user + sovereign
       # OIDC provider + promotes the owner to root on first login.
-      version: 1.4.67
+      version: 1.4.68
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
