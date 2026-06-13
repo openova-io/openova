@@ -121,7 +121,14 @@ spec:
       # 0.1.1 (G91-fu, Refs #2659, edc55c08 PR #2676): adds realm-role
       # grant + skipClientUpsert opt-out for charts whose Keycloak Client
       # is realm-imported at bp-keycloak install time (catalyst-ui etc.).
-      version: 0.2.15
+      # 0.2.16 (#3374, 2026-06-14): AppRegistration watcher applies an
+      # optional chart-declared ExternalSecret (data["externalSecret.json"])
+      # so a before-ESO chart (slot-01 bp-cilium hubble-ui) gets its OIDC
+      # client-secret ExternalSecret from THIS post-ESO reconciler — fixes
+      # the hubble oauth2-proxy CreateContainerConfigError (slot-01 install-
+      # time .Capabilities snapshot permanently omits the chart's own ES).
+      # Lockstep: bp-cilium 1.4.2 ships the hubble-ui declaration. Refs #3374.
+      version: 0.2.16
       sourceRef:
         kind: HelmRepository
         name: bp-sso-bridge
