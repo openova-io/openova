@@ -14,7 +14,15 @@ name: bp-oidc-gate
 # (G117.5 #2744). Machine paths: per-instance skipAuthRoutes (regex,
 # METHOD=^path form) + --skip-jwt-bearer-tokens so token-bearing
 # service-to-service callers pass without a browser session.
-version: 0.1.0
+#
+# 0.1.1 (#3374, 2026-06-14): FIX the openova-flow bare-URL 500. The
+# minted KC client emitted `aud: [realm-management account]` with no
+# self-clientId, so oauth2-proxy's ID-token audience verification
+# rejected every callback (oauthproxy.go:888) — the bare URL never landed
+# signed-in. client.json now seeds an oidc-audience-mapper injecting the
+# clientId into the ID-token aud; bp-sso-bridge PUT (template-wins) lands
+# it on the live pre-existing client zero-touch.
+version: 0.1.1
 appVersion: "7.6.0"
 description: |
   Catalyst generic OIDC gate — a per-app oauth2-proxy instance set that
