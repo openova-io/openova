@@ -75,6 +75,48 @@ func TestAdminProxy_ForwardsMethodPathBodyAndBearer(t *testing.T) {
 	}
 }
 
+// TestPublicProxy_ForwardsGetToPublicCatalogPath locks the read hop the
+// Sovereign console uses for its commerce tables (issue #3378 plans-table
+// 404): GET → "<base>/catalog/{kind}", no bearer, verbatim status+body
+// relay. This is the path that makes the console plans table render the
+// rows the storefront shows.
+func TestPublicProxy_ForwardsGetToPublicCatalogPath(t *testing.T) {
+	var gotMethod, gotPath, gotAuth string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[{"id":"p-1","slug":"starter"}]`))
+	}))
+	defer upstream.Close()
+
+	c := &smeCatalogClient{baseURL: upstream.URL, http: upstream.Client()}
+	status, body, ct, err := c.PublicProxy(context.Background(), "/plans")
+	if err != nil {
+		t.Fatalf("PublicProxy: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Errorf("status: got %d want 200", status)
+	}
+	if string(body) != `[{"id":"p-1","slug":"starter"}]` {
+		t.Errorf("body relayed verbatim: got %q", body)
+	}
+	if ct != "application/json" {
+		t.Errorf("content-type relayed: got %q", ct)
+	}
+	if gotMethod != http.MethodGet {
+		t.Errorf("upstream method: got %q want GET", gotMethod)
+	}
+	if gotPath != "/catalog/plans" {
+		t.Errorf("upstream path: got %q want /catalog/plans", gotPath)
+	}
+	if gotAuth != "" {
+		t.Errorf("public read must not forward an Authorization header, got %q", gotAuth)
+	}
+}
+
 func TestAdminProxy_DeleteWithIDSubPathNoBody(t *testing.T) {
 	var gotMethod, gotPath string
 	hadBody := false

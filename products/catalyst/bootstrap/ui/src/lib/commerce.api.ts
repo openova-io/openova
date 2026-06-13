@@ -4,9 +4,16 @@
  * apps, edited over the EXISTING endpoints (§6 — no new business
  * endpoint):
  *
- *   • READ  — the public catalog list endpoints via the SME gateway:
- *       GET /api/catalog/{plans,addons,bundles,industries,apps}
- *     (core/services/gateway/main.go:50-54, Public:true).
+ *   • READ  — the catalyst-api commerce read-proxy that forwards to the
+ *     public catalog list endpoints (sme_commerce.go HandleSMECommerceList
+ *     → /catalog/{kind}):
+ *       GET /api/v1/sme/commerce/{plans,addons,bundles,industries,apps}
+ *     Reads go through catalyst-api (not a bare /api/catalog/*) because the
+ *     Sovereign console host (console.<sovereign>) proxies /api/* to
+ *     catalyst-api, which — unlike the SME/marketplace gateway — does NOT
+ *     route /api/catalog/* to the catalog service. A bare GET
+ *     /api/catalog/plans therefore 404'd on the console even though the
+ *     storefront showed the plan (issue #3378 plans-table 404).
  *   • WRITE — the catalyst-api commerce proxy that forwards to the
  *     superadmin-JWT /catalog/admin/* endpoints (sme_commerce.go):
  *       POST   /api/v1/sme/commerce/{kind}
@@ -86,16 +93,19 @@ export interface CommerceApp {
 
 export type CommerceKind = 'plans' | 'addons' | 'bundles' | 'industries' | 'apps'
 
-/** API_BASE without the /api version suffix — commerce reads hit the
- *  public /api/catalog/* gateway path, writes hit /api/v1/sme/commerce/*. */
+/** API_BASE root — both commerce reads AND writes hit catalyst-api under
+ *  /api/v1/sme/commerce/*. Reads proxy the public /catalog/{kind} list;
+ *  writes proxy the superadmin-JWT /catalog/admin/* endpoints. (See the
+ *  file header for why reads must NOT use a bare /api/catalog/* path on the
+ *  Sovereign console host — issue #3378 plans-table 404.) */
 const apiRoot = `${BASE}api`
 
-/* ── Reads (public list endpoints) ─────────────────────────────────── */
+/* ── Reads (catalyst-api commerce read-proxy → public catalog list) ─── */
 
 async function readList<T>(kind: CommerceKind): Promise<T[]> {
   // apps must NOT pass ?published=true here — the editor lists EVERY app
   // (published + unpublished) so the operator can toggle either way.
-  const res = await authedFetch(`${apiRoot}/catalog/${kind}`, {
+  const res = await authedFetch(`${apiRoot}/v1/sme/commerce/${kind}`, {
     headers: { Accept: 'application/json' },
   })
   if (!res.ok) {

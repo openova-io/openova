@@ -631,6 +631,18 @@ export interface Tenant {
   parentDomain: string
   /** Plan tier (free|pro|enterprise|...) — null until BE wires it. */
   plan: string | null
+  /**
+   * Organizations-model spec fields (issue #3378 B1). The orchestrator
+   * stamps these on the SMETenantProvisionRecord and the tenants feed
+   * surfaces them as kind / tier / billing_mode / isolation. Empty string
+   * when the record predates the B1 fields (older provisioning runs) — the
+   * Organizations directory then falls back to kind-derived defaults so a
+   * legacy row still badges sensibly rather than rendering blanks.
+   */
+  kind: string
+  tier: string
+  billingMode: string
+  isolation: string
   /** Lifecycle status normalized to the UI vocabulary. */
   status: TenantStatus
   /** Hetzner region key (fsn1 / hel1 / ...) — null until BE wires it. */
@@ -694,6 +706,13 @@ interface RawTenant {
   console_host?: string
   plan?: string
   region?: string
+  // Organizations-model spec fields (issue #3378 B1) — already emitted by
+  // smeTenantResponse (products/catalyst/bootstrap/api/internal/handler/
+  // sme_tenant.go:329-332). Optional so older payloads still parse.
+  kind?: string
+  tier?: string
+  billing_mode?: string
+  isolation?: string
   last_error?: string
   created_at?: string
   updated_at?: string
@@ -711,6 +730,10 @@ function mapTenant(raw: RawTenant): Tenant {
     subdomain,
     parentDomain,
     plan: raw.plan && raw.plan !== '' ? String(raw.plan) : null,
+    kind: String(raw.kind ?? '').trim(),
+    tier: String(raw.tier ?? '').trim(),
+    billingMode: String(raw.billing_mode ?? '').trim(),
+    isolation: String(raw.isolation ?? '').trim(),
     status: mapStateToStatus(String(raw.state ?? '')),
     region: raw.region && raw.region !== '' ? String(raw.region) : null,
     ownerEmail: String(raw.admin_email ?? ''),
