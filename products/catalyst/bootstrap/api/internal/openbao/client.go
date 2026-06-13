@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -57,6 +58,98 @@ func New(addr, token string) *Client {
 		Token: token,
 		HTTP:  &http.Client{Timeout: 15 * time.Second},
 	}
+}
+
+// defaultK8sSATokenPath is the in-cluster ServiceAccount projected token
+// path. Override via CATALYST_OPENBAO_K8S_SA_TOKEN_PATH for tests / custom
+// projections (docs/PRINCIPLES.md #4 — runtime-configurable knobs).
+const defaultK8sSATokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+
+// LoginKubernetes exchanges the pod's projected ServiceAccount JWT for a
+// short-lived Vault token via OpenBao's Kubernetes auth method and stores
+// it on c.Token. This is the canonical seam for the handover-archive
+// receiver (ReceiveTofuArchive) on a Sovereign: bp-openbao's
+// auth-bootstrap Job binds a `catalyst-api` role to this pod's SA plus a
+// write policy on `secret/catalyst/*`, so the catalyst-api seals the
+// phase0 archive WITHOUT a long-lived static token in a K8s Secret
+// (better hygiene per docs/PRINCIPLES.md #10, and IaC-pure — the grant
+// lives entirely in the OpenBao chart's bootstrap Job).
+//
+// The auth path mount defaults to "kubernetes" (matches
+// auth-bootstrap-job.yaml's AUTH_MOUNT_PATH). saTokenPath is where the SA
+// token is read; pass "" to read defaultK8sSATokenPath (overridable via
+// CATALYST_OPENBAO_K8S_SA_TOKEN_PATH).
+//
+// On success c.Token holds the freshly-minted Vault token and the method
+// returns the token's lease TTL in seconds so the caller can schedule a
+// re-login before expiry. Idempotent: safe to call repeatedly (each call
+// mints a fresh token). Never logs the JWT or the minted token — only the
+// status code + OpenBao's own error array surface on failure.
+func (c *Client) LoginKubernetes(ctx context.Context, authMount, role, saTokenPath string) (int, error) {
+	if c == nil {
+		return 0, fmt.Errorf("openbao: client is nil")
+	}
+	if strings.TrimSpace(c.Addr) == "" {
+		return 0, fmt.Errorf("openbao: address is required")
+	}
+	if strings.TrimSpace(role) == "" {
+		return 0, fmt.Errorf("openbao: kubernetes auth role is required")
+	}
+	authMount = strings.Trim(strings.TrimSpace(authMount), "/")
+	if authMount == "" {
+		authMount = "kubernetes"
+	}
+	if strings.TrimSpace(saTokenPath) == "" {
+		saTokenPath = defaultK8sSATokenPath
+	}
+	jwt, err := os.ReadFile(saTokenPath)
+	if err != nil {
+		return 0, fmt.Errorf("openbao: read SA token %s: %w", saTokenPath, err)
+	}
+	body, err := json.Marshal(map[string]string{
+		"role": role,
+		"jwt":  strings.TrimSpace(string(jwt)),
+	})
+	if err != nil {
+		return 0, fmt.Errorf("openbao: marshal login body: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/v1/auth/%s/login", strings.TrimRight(c.Addr, "/"), authMount)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return 0, fmt.Errorf("openbao: build login request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	httpc := c.HTTP
+	if httpc == nil {
+		httpc = http.DefaultClient
+	}
+	resp, err := httpc.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("openbao: login request: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<14))
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("openbao: kubernetes login at auth/%s/role/%s: status %d: %s",
+			authMount, role, resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	var parsed struct {
+		Auth struct {
+			ClientToken   string `json:"client_token"`
+			LeaseDuration int    `json:"lease_duration"`
+		} `json:"auth"`
+	}
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return 0, fmt.Errorf("openbao: decode login response: %w", err)
+	}
+	if strings.TrimSpace(parsed.Auth.ClientToken) == "" {
+		return 0, fmt.Errorf("openbao: kubernetes login returned empty client_token")
+	}
+	c.Token = parsed.Auth.ClientToken
+	return parsed.Auth.LeaseDuration, nil
 }
 
 // PutKVv2 writes a single key/value blob to a KV-v2 secrets engine

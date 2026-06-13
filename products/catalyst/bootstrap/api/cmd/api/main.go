@@ -89,8 +89,59 @@ func main() {
 	// falls back to the deep-link.
 	if addr := os.Getenv("CATALYST_OPENBAO_ADDR"); addr != "" {
 		token := os.Getenv("CATALYST_OPENBAO_TOKEN")
-		h.SetOpenBao(openbao.New(addr, token))
-		if token != "" {
+		obClient := openbao.New(addr, token)
+
+		// #3376 — Sovereign handover-archive receiver auth. On a Sovereign
+		// no long-lived static token is injected (that would be a secret
+		// at rest with no rotation); instead bp-openbao's auth-bootstrap
+		// Job binds a `catalyst-api` Kubernetes-auth role + a write policy
+		// on `secret/catalyst/*` to this pod's ServiceAccount. When
+		// CATALYST_OPENBAO_K8S_AUTH_ROLE is set we log in via that role to
+		// mint a short-lived Vault token, then re-login on a TTL-driven
+		// cadence so ReceiveTofuArchive can seal the phase0 archive at
+		// handover. Without this the receiver 503s and the cutover (and
+		// therefore the tenant-Org funnel) never un-gates.
+		if role := strings.TrimSpace(os.Getenv("CATALYST_OPENBAO_K8S_AUTH_ROLE")); role != "" && token == "" {
+			authMount := os.Getenv("CATALYST_OPENBAO_K8S_AUTH_MOUNT") // "" → "kubernetes"
+			saPath := os.Getenv("CATALYST_OPENBAO_K8S_SA_TOKEN_PATH") // "" → default
+			ttl, lerr := obClient.LoginKubernetes(context.Background(), authMount, role, saPath)
+			if lerr != nil {
+				// Non-fatal: the SSO auth_url shim still works ADDR-only,
+				// and a transient OpenBao-not-yet-ready window self-heals
+				// on the next re-login tick. Log loudly per PRINCIPLES #3.
+				log.Error("openbao: kubernetes login failed (handover-archive receiver stays 503 until re-login succeeds)",
+					"addr", addr, "role", role, "err", lerr,
+				)
+			} else {
+				log.Info("openbao: kubernetes login succeeded — handover-archive receiver enabled",
+					"addr", addr, "role", role, "leaseTTLSeconds", ttl,
+				)
+			}
+			// Re-login loop: refresh the token before the lease expires.
+			// A zero/short TTL falls back to a 5-minute cadence; we always
+			// refresh at min(ttl/2, ...) so a missed tick never strands the
+			// receiver with an expired token.
+			go func() {
+				for {
+					sleep := 5 * time.Minute
+					if ttl > 60 {
+						sleep = time.Duration(ttl/2) * time.Second
+					}
+					time.Sleep(sleep)
+					nttl, rerr := obClient.LoginKubernetes(context.Background(), authMount, role, saPath)
+					if rerr != nil {
+						log.Error("openbao: kubernetes re-login failed (will retry)",
+							"addr", addr, "role", role, "err", rerr,
+						)
+						continue
+					}
+					ttl = nttl
+				}
+			}()
+		}
+
+		h.SetOpenBao(obClient)
+		if strings.TrimSpace(obClient.Token) != "" {
 			log.Info("openbao: handover-archive receiver + SSO auth_url enabled",
 				"addr", addr,
 			)

@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -384,5 +386,97 @@ func TestOIDCAuthURL_RequiredFields(t *testing.T) {
 				t.Errorf("error message mismatch; got %v", err)
 			}
 		})
+	}
+}
+
+// writeSAToken writes a fake projected SA JWT to a tempfile and returns
+// its path — LoginKubernetes reads it as the `jwt` login field.
+func writeSAToken(t *testing.T, jwt string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(p, []byte(jwt), 0o600); err != nil {
+		t.Fatalf("write SA token: %v", err)
+	}
+	return p
+}
+
+func TestLoginKubernetes_OK(t *testing.T) {
+	var (
+		gotPath string
+		gotBody map[string]any
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"auth":{"client_token":"minted-vault-token","lease_duration":3600}}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "") // no static token — login mints one
+	ttl, err := c.LoginKubernetes(context.Background(), "kubernetes", "catalyst-api", writeSAToken(t, "fake.sa.jwt"))
+	if err != nil {
+		t.Fatalf("LoginKubernetes: %v", err)
+	}
+	if gotPath != "/v1/auth/kubernetes/login" {
+		t.Errorf("wrong login path; got %q", gotPath)
+	}
+	if gotBody["role"] != "catalyst-api" {
+		t.Errorf("role not forwarded; got %v", gotBody["role"])
+	}
+	if gotBody["jwt"] != "fake.sa.jwt" {
+		t.Errorf("jwt not forwarded; got %v", gotBody["jwt"])
+	}
+	if c.Token != "minted-vault-token" {
+		t.Errorf("client token not updated; got %q", c.Token)
+	}
+	if ttl != 3600 {
+		t.Errorf("lease TTL = %d, want 3600", ttl)
+	}
+}
+
+func TestLoginKubernetes_DefaultMount(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"auth":{"client_token":"t","lease_duration":60}}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "")
+	if _, err := c.LoginKubernetes(context.Background(), "", "r", writeSAToken(t, "j")); err != nil {
+		t.Fatalf("LoginKubernetes: %v", err)
+	}
+	if gotPath != "/v1/auth/kubernetes/login" {
+		t.Errorf("default mount not 'kubernetes'; got %q", gotPath)
+	}
+}
+
+func TestLoginKubernetes_StatusErrorWraps(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"errors":["role catalyst-api not found"]}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "")
+	_, err := c.LoginKubernetes(context.Background(), "kubernetes", "catalyst-api", writeSAToken(t, "j"))
+	if err == nil {
+		t.Fatal("expected error on 403; got nil")
+	}
+	if !strings.Contains(err.Error(), "403") || !strings.Contains(err.Error(), "role catalyst-api not found") {
+		t.Errorf("error should surface status + bao error array; got %v", err)
+	}
+	if c.Token != "" {
+		t.Errorf("token must not be set on login failure; got %q", c.Token)
+	}
+}
+
+func TestLoginKubernetes_RequiresRole(t *testing.T) {
+	c := New("http://x", "")
+	if _, err := c.LoginKubernetes(context.Background(), "kubernetes", "", writeSAToken(t, "j")); err == nil {
+		t.Fatal("expected error for empty role; got nil")
 	}
 }

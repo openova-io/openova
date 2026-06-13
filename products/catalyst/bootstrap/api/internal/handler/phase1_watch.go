@@ -1287,6 +1287,17 @@ func (h *Handler) fireHandover(dep *Deployment) {
 	// catalyst-api journal.
 	go h.exportDeploymentToChild(dep, fqdn)
 
+	// #3376 — ship the phase0 tofu archive to the child so its
+	// ReceiveTofuArchive seals secret/catalyst/tofu-phase0-archive, which
+	// un-gates the cutover (425→fires) → Step 09 patches
+	// secret/sme/provisioning-github-token → the sme/provisioning init
+	// container proceeds → the tenant-Org funnel completes. Before this,
+	// the archive push lived ONLY in the synchronous FinaliseHandover
+	// wizard path; auto-handover never pushed it, so every fresh prov's
+	// funnel wedged. Fire-and-forget with its own retry, same as the jobs
+	// + deployment exports above.
+	go h.exportTofuArchiveToChild(depID, fqdn)
+
 	// Emit the typed SSE event. The Message field IS the data payload
 	// (see writeSSEEvent in deployments.go) — a JSON object the
 	// wizard parses verbatim. Per #768's contract the payload is
