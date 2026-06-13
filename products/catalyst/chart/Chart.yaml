@@ -2643,7 +2643,7 @@ name: bp-catalyst-platform
 # deep-link (hw130, measured). Companion to bp-openbao 1.2.29 + the addr-only
 # client change in products/catalyst/bootstrap/api cmd/api/main.go.
 # 1.4.600 — sme/ferretdb image via harbor proxy-ghcr (kyverno rule 11; hw130 reinstall denial).
-version: 1.4.608
+version: 1.4.609
 # 1.4.597 — #3373 (2026-06-13) — coupling fix (a) placement-as-data:
 # templates/httproute.yaml backendRefs honor new
 # ingress.gateway.backendServiceApi / backendServiceUi overrides. When
