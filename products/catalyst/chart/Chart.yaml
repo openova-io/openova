@@ -2668,7 +2668,7 @@ name: bp-catalyst-platform
 # PAT) + wire smeTenants.gitRepository.secretRef. Also fix the repo-bootstrap
 # hook's /api/v1/version probe to authenticate (anon /version = 403 under
 # REQUIRE_SIGNIN_VIEW burned all 168 iterations on hw133).
-version: 1.4.615
+version: 1.4.616
 # 1.4.597 — #3373 (2026-06-13) — coupling fix (a) placement-as-data:
 # templates/httproute.yaml backendRefs honor new
 # ingress.gateway.backendServiceApi / backendServiceUi overrides. When
