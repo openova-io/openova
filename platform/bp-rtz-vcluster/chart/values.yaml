@@ -73,6 +73,16 @@ rtzVcluster:
       # …:443 i/o timeout") and never reconcile. flux-system is trusted
       # control-plane, so tenant isolation (world/other-tenants out) is intact. #3055
       - flux-system
+      # REQUIRED (#3373 Batch A, 2026-06-14): the host `sme` namespace runs
+      # the BSS control-plane services (auth/gateway via VALKEY_ADDR), which
+      # consume bp-valkey. #3373 placement moved bp-valkey INTO this RTZ
+      # vCluster, so its host-synced Service
+      # (valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc) now sits behind
+      # this isolation policy. Without this entry the SME auth/gateway
+      # services fail to reach valkey ("dial tcp …:6379 i/o timeout").
+      # Endpoints are healthy; the policy is the wall. Mirrors the #3423
+      # sme→NATS carve-out on bp-mgmt-vcluster.
+      - sme
     allowWorldIngress: false   # tenant pods never face world directly
 
 vcluster:

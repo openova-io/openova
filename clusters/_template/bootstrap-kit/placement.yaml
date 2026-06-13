@@ -189,7 +189,7 @@ spec:
     - {file: 16b-bp-cnpg-pair.yaml, hr: bp-cnpg-pair, vcluster: host, target: rtz, namespace: cnpg}
     - {file: 16c-bp-postgres-shared-b.yaml, hr: bp-postgres-shared-b, vcluster: host, target: rtz, namespace: shared-data}
     - {file: 16d-bp-postgres-shared-c.yaml, hr: bp-postgres-shared-c, vcluster: host, target: rtz, namespace: shared-data}
-    - {file: 17-valkey.yaml, hr: bp-valkey, vcluster: host, target: rtz, namespace: valkey}
+    - {file: 17-valkey.yaml, hr: bp-valkey, vcluster: rtz, target: rtz, namespace: valkey}   # Batch A (#3373) — PROMOTED: pure-OSS clean (no route/secret/CNPG); plain Service DNS via OSS services-sync
     - {file: 18-seaweedfs.yaml, hr: bp-seaweedfs, vcluster: host, target: rtz, namespace: seaweedfs}
     - {file: 19-harbor.yaml, hr: bp-harbor, vcluster: host, target: mgmt, namespace: harbor}
     - {file: 25-grafana.yaml, hr: bp-grafana, vcluster: host, target: mgmt, namespace: grafana}
