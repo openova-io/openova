@@ -14,9 +14,12 @@ on:
       - 'platform/**/chart/**'
       - 'products/**/chart/**'
       - 'clusters/**'
+      - 'infra/providers/_shared/cloudinit-control-plane.tftpl'
       - 'scripts/check-bootstrap-deps.sh'
       - 'scripts/check-bootstrap-kit-pin-sync.sh'
+      - 'scripts/check-cloudinit-kustomization-deps.sh'
       - 'scripts/expected-bootstrap-deps.yaml'
+      - 'scripts/expected-cloudinit-kustomization-deps.yaml'
       - 'scripts/render-slot-placement.py'
       - 'scripts/audit-placement-conformance.py'
       - '.github/workflows/test-bootstrap-kit.yaml'
@@ -28,9 +31,12 @@ on:
       - 'platform/**/chart/**'
       - 'products/**/chart/**'
       - 'clusters/**'
+      - 'infra/providers/_shared/cloudinit-control-plane.tftpl'
       - 'scripts/check-bootstrap-deps.sh'
       - 'scripts/check-bootstrap-kit-pin-sync.sh'
+      - 'scripts/check-cloudinit-kustomization-deps.sh'
       - 'scripts/expected-bootstrap-deps.yaml'
+      - 'scripts/expected-cloudinit-kustomization-deps.yaml'
       - 'scripts/render-slot-placement.py'
       - 'scripts/audit-placement-conformance.py'
       - '.github/workflows/test-bootstrap-kit.yaml'
@@ -67,6 +73,16 @@ jobs:
 
       - name: Run bootstrap-kit dependency audit
         run: bash scripts/check-bootstrap-deps.sh
+
+      - name: Cloud-init Kustomization dependsOn drift guard (#3380 row D)
+        # The bootstrap-kit audit above only covers HelmReleases INSIDE the
+        # kit. The three top-level Flux Kustomizations cloud-init creates
+        # (bootstrap-kit / sovereign-tls / infrastructure-config) had no
+        # guard — so the sovereign-tls→bootstrap-kit edge (the ~75-min TLS
+        # serialization on hw130) could be narrowed and then silently drift
+        # back. This pins them to scripts/expected-cloudinit-kustomization-
+        # deps.yaml; any drift fails here.
+        run: bash scripts/check-cloudinit-kustomization-deps.sh
 
       - name: Placement-as-data drift gate (#3373 DoD-6)
         # placement.yaml is THE single placement source of truth; a
