@@ -162,13 +162,57 @@ func (c *Client) CreateZone(ctx context.Context, name string, kind ZoneKind, nam
 	defer resp.Body.Close()
 	switch resp.StatusCode {
 	case http.StatusCreated, http.StatusOK:
+		// #3376 — overwrite the SOA. PowerDNS auto-creates a SOA at apex on
+		// zone POST using its `default-soa-content` template, which on a
+		// stock install is the PLACEHOLDER primary
+		// `a.misconfigured.dns.server.invalid.` (measured live on the
+		// omani.homes pool zone, 2026-06-13). A bad SOA primary breaks
+		// strict resolvers + DNSSEC + any RFC2136 dynamic-update client that
+		// dials the MNAME. Stamp a valid SOA keyed to the first canonical
+		// nameserver so every freshly-created pool zone is well-formed. A
+		// SOA write failure is non-fatal (the zone + its A records still
+		// resolve); we log via the returned error only when it's the create
+		// itself that failed.
+		_ = c.writeValidSOA(ctx, zone.Name, zone.Nameservers)
 		return nil
 	case http.StatusConflict:
-		// Idempotent — zone already exists. The bootstrap path relies on this.
+		// Idempotent — zone already exists. The bootstrap path relies on
+		// this. Re-stamp the SOA so a zone created BEFORE this fix (carrying
+		// the misconfigured-default SOA) self-heals on the next PDM
+		// reconcile without a manual edit.
+		_ = c.writeValidSOA(ctx, zone.Name, zone.Nameservers)
 		return nil
 	default:
 		return decodeAPIError(resp, "create zone "+name)
 	}
+}
+
+// writeValidSOA upserts a well-formed SOA RRset at the zone apex,
+// replacing PowerDNS's `a.misconfigured.dns.server.invalid.` default
+// primary (#3376). The MNAME is the first canonical nameserver
+// (ns1.openova.io); RNAME is hostmaster.<zone>. Serial is a date-stamp
+// (YYYYMMDD01) so a re-stamp on the same day is idempotent in PowerDNS's
+// REPLACE semantics. Timers match the platform PowerDNS conventions
+// (refresh 10800 / retry 3600 / expire 604800 / minimum 3600). Best-
+// effort: a failure here never blocks zone creation — A records still
+// resolve regardless of the SOA primary.
+func (c *Client) writeValidSOA(ctx context.Context, zoneName string, nameservers []string) error {
+	zoneName = canonicaliseZone(zoneName)
+	ns := canonicaliseNameservers(nameservers)
+	primary := "ns1.openova.io."
+	if len(ns) > 0 {
+		primary = ns[0]
+	}
+	hostmaster := "hostmaster." + zoneName
+	serial := time.Now().UTC().Format("20060102") + "01"
+	soa := fmt.Sprintf("%s %s %s 10800 3600 604800 3600", primary, hostmaster, serial)
+	return c.PatchRRSets(ctx, zoneName, []RRSet{{
+		Name:       zoneName,
+		Type:       "SOA",
+		TTL:        3600,
+		ChangeType: "REPLACE",
+		Records:    []Record{{Content: soa}},
+	}})
 }
 
 // DeleteZone drops a zone, all its records, and its DNSSEC keys. Idempotent

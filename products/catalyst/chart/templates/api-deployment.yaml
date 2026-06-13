@@ -899,17 +899,28 @@ spec:
             # CATALYST_OPENBAO_ADDR (#3374) — in-cluster OpenBao address for
             # the bare-URL SSO shim (HandleOpenBaoSSOInit). The shim calls
             # ONLY the unauthenticated /v1/auth/oidc/oidc/auth_url login-flow
-            # endpoint, so NO token is set here; without this env the shim
-            # silently degraded to the one-click deep-link on every Sovereign
-            # (hw130, measured 2026-06-13). Sovereign-only (empty on
-            # Catalyst-Zero, where the handover-archive receiver wires both
-            # ADDR + TOKEN out-of-band). Address matches the canonical
-            # autoUnseal.baoAddress / sso-configure BAO_ADDR value in
-            # bp-openbao. CATALYST_OPENBAO_TOKEN deliberately NOT set — the
-            # receiver keeps 503ing ("not handover target") per
-            # cmd/api/main.go + ReceiveTofuArchive.
+            # endpoint, so NO token is needed for that path; without this env
+            # the shim silently degraded to the one-click deep-link on every
+            # Sovereign (hw130, measured 2026-06-13). Sovereign-only (empty on
+            # Catalyst-Zero, where catalyst-api is the SENDER not the
+            # receiver). Address matches the canonical autoUnseal.baoAddress /
+            # sso-configure BAO_ADDR value in bp-openbao.
             - name: CATALYST_OPENBAO_ADDR
               value: '{{ if .Values.global.sovereignFQDN }}{{ .Values.catalystApi.openbaoAddr | default "http://openbao.openbao.svc.cluster.local:8200" }}{{ end }}'
+            # CATALYST_OPENBAO_K8S_AUTH_ROLE (#3376) — Sovereign handover-
+            # archive receiver auth. When set, catalyst-api logs in to
+            # OpenBao via the Kubernetes auth method using this Pod's
+            # projected SA token, mints a short-lived Vault token, and
+            # re-logs before the lease expires. bp-openbao's auth-bootstrap
+            # Job (kubernetesAuth.catalystApi) binds this role to the
+            # catalyst-api SA + a write policy on secret/catalyst/*, so
+            # ReceiveTofuArchive can seal secret/catalyst/tofu-phase0-archive
+            # at handover — the durable marker the cutover's 425 gate keys on.
+            # Without it the receiver 503s ("not handover target") and the
+            # tenant-Org funnel never un-wedges (#3376). No long-lived static
+            # token at rest. Sovereign-only (empty on Catalyst-Zero).
+            - name: CATALYST_OPENBAO_K8S_AUTH_ROLE
+              value: '{{ if .Values.global.sovereignFQDN }}{{ .Values.catalystApi.openbaoK8sAuthRole | default "catalyst-api" }}{{ end }}'
             # SOVEREIGN_FQDN — Sovereign's public FQDN. The /auth/handover
             # validator (auth_handover.go) reads this to compute the expected
             # JWT audience claim ("https://console." + SOVEREIGN_FQDN). When

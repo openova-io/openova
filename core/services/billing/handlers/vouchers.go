@@ -82,14 +82,30 @@ func (h *Handler) IssueVoucher(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := req.PromoCode
-	if p.Code == "" || p.CreditOMR <= 0 {
-		respond.Error(w, http.StatusBadRequest, "code and credit_omr are required")
+	if p.CreditOMR <= 0 {
+		respond.Error(w, http.StatusBadRequest, "credit_omr is required")
 		return
 	}
 	// Normalize the code to uppercase to match the admin UI's convention
 	// (BillingPage.svelte uppercases on save). Public redemption is also
 	// case-insensitive — see RedeemVoucherPreview.
 	p.Code = strings.ToUpper(strings.TrimSpace(p.Code))
+	// #3376 DoD-6 — voucher-code entropy. An omitted code auto-generates a
+	// high-entropy one (crypto/rand, ~60 bits); a supplied code must pass
+	// the server-side strength minimum so a guessable code (the walk's
+	// `WALKMART2026` shape) can't be issued. The redeem path resists
+	// brute-force only if the code space is large.
+	if p.Code == "" {
+		gen, err := generateVoucherCode()
+		if err != nil {
+			respond.Error(w, http.StatusInternalServerError, "failed to generate voucher code")
+			return
+		}
+		p.Code = gen
+	} else if err := validateVoucherCodeStrength(p.Code); err != nil {
+		respond.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := h.Store.UpsertPromoCode(r.Context(), &p); err != nil {
 		respond.Error(w, http.StatusInternalServerError, "failed to save voucher")
 		return

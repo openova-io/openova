@@ -179,6 +179,20 @@ autoUnseal:
     # Token TTLs for ESO sessions.
     tokenTTL: "1h"
     tokenMaxTTL: "24h"
+    # ─── #3376 — catalyst-api handover-archive writer role ────────────────
+    # The Sovereign's catalyst-api seals the phase0 tofu archive at
+    # secret/catalyst/tofu-phase0-archive (ReceiveTofuArchive) — the durable
+    # handover marker the cutover's 425 gate keys on. It authenticates via
+    # this Kubernetes-auth role (bound to the catalyst-api Pod's SA) and a
+    # write policy scoped to secret/{data,metadata}/catalyst/*. No
+    # long-lived static token at rest — the catalyst-api logs in with its
+    # projected SA token (CATALYST_OPENBAO_K8S_AUTH_ROLE) and re-logs before
+    # the lease expires.
+    catalystApi:
+      enabled: true
+      role: catalyst-api
+      serviceAccountName: catalyst-api-cutover-driver
+      serviceAccountNamespace: catalyst-system
 
 # ─── G91.openbao (#2655) SSO opt-in ───────────────────────────────────────
 # Per SECURITY.md §6.3 every Application Blueprint declares SSO support
