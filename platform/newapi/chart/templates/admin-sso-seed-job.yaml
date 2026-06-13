@@ -273,13 +273,12 @@ metadata:
   name: {{ $jobName }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "bp-newapi.labels" . | nindent 4 }}
+    # hookLabels = bp-newapi.labels but managed-by=flux (single key, no dup):
+    # kyverno flux-managed Enforce DENIES a hook Job without managed-by=flux
+    # (helm-controller-created, no HR ownerReference). Without it this
+    # post-upgrade SSO admin seed fails → HR rolls back (#3374 / #3434).
+    {{- include "bp-newapi.hookLabels" . | nindent 4 }}
     catalyst.openova.io/component: admin-seed
-    # Override the helper's managed-by=Helm: kyverno `flux-managed` Enforce
-    # DENIES a hook Job without managed-by=flux (helm-controller-created, no
-    # HR ownerReference). Without it this post-upgrade SSO admin seed fails
-    # and the HR rolls back, so the admin map never lands (#3374 / #3434).
-    app.kubernetes.io/managed-by: flux
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "12"
@@ -354,14 +353,13 @@ metadata:
   name: {{ $cronName }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "bp-newapi.labels" . | nindent 4 }}
+    # hookLabels = managed-by=flux (single key, no dup). kyverno flux-managed
+    # Enforce gates CronJob too (helm-controller hook CronJobs carry no HR
+    # ownerReference) → stamp it on the CronJob AND its spawned Jobs
+    # (jobTemplate below). Caught live on hw133 once the 4-Job managed-by fix
+    # let the upgrade reach the CronJob (#3374; openbao snapshot-replication #3434).
+    {{- include "bp-newapi.hookLabels" . | nindent 4 }}
     catalyst.openova.io/component: admin-promote
-    # kyverno `flux-managed` Enforce gates CronJob too (helm-controller hook
-    # CronJobs carry no HR ownerReference). Stamp managed-by=flux on the
-    # CronJob AND its spawned Jobs (jobTemplate below) or admission denies the
-    # CronJob — caught live on hw133 once the 4-Job managed-by fix let the
-    # upgrade reach the CronJob (#3374; openbao snapshot-replication #3434 class).
-    app.kubernetes.io/managed-by: flux
 spec:
   schedule: {{ $seed.promoteSchedule | default "* * * * *" | quote }}
   concurrencyPolicy: Forbid
@@ -371,10 +369,9 @@ spec:
   jobTemplate:
     metadata:
       labels:
-        {{- include "bp-newapi.labels" . | nindent 8 }}
+        # The CronJob-spawned Job is itself gated by flux-managed — managed-by=flux.
+        {{- include "bp-newapi.hookLabels" . | nindent 8 }}
         catalyst.openova.io/component: admin-promote
-        # The CronJob-spawned Job is itself gated by flux-managed — stamp it.
-        app.kubernetes.io/managed-by: flux
     spec:
       backoffLimit: 2
       activeDeadlineSeconds: 120

@@ -37,6 +37,29 @@ catalyst.openova.io/blueprint: bp-newapi
 {{- end }}
 
 {{/*
+Hook-resource labels (#3374). Identical to bp-newapi.labels EXCEPT
+`app.kubernetes.io/managed-by: flux` instead of Helm. Helm hook Jobs/CronJobs
+are created by the helm-controller with no HelmRelease ownerReference, so the
+kyverno `flux-managed` Enforce policy DENIES them unless they carry
+managed-by=flux. We can't simply append a second `managed-by` line after
+`bp-newapi.labels` — that yields a DUPLICATE map key that strict-YAML
+post-render (`error while running post render ... mapping key ... already
+defined`, caught live on hw133 with bp-newapi 1.4.71) rejects even though
+`helm template` renders it last-wins. This single-source helper emits the key
+ONCE with the flux value.
+*/}}
+{{- define "bp-newapi.hookLabels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+app.kubernetes.io/name: {{ include "bp-newapi.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: flux
+catalyst.openova.io/blueprint: bp-newapi
+{{- end }}
+
+{{/*
 Selector labels.
 */}}
 {{- define "bp-newapi.selectorLabels" -}}
