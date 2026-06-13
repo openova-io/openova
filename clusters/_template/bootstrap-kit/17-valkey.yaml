@@ -81,13 +81,28 @@ spec:
     # The chart self-registers the Application CR for this valkey
     # instance (the canonical representation every console surface
     # reads), marked spec.bootstrap=true so the application-controller
-    # ADOPTS this HR's install instead of re-rendering it. Contexts
-    # (keyspaces[]) stay empty here — today's bootstrap consumers
-    # (bp-newapi, sme-services) connect to the default logical
-    # database directly; their keyspace adoption is enumerated on
-    # #3370's follow-up checklist.
+    # ADOPTS this HR's install instead of re-rendering it.
     bootstrapOwned:
       enabled: true
       helmRelease:
         name: bp-valkey
         namespace: flux-system
+    # ── Keyspace Contexts (#3370 generality proof on a non-DB blueprint) ─
+    # The SAME reuse mechanism as bp-postgres databases[], generalized by
+    # declaration only (kind=keyspace, valuesKey=keyspaces). bp-newapi is
+    # the canonical Valkey consumer (its REDIS_CONN_STRING) — declaring its
+    # keyspace here renders one keyspace/newapi Context (a dedicated logical
+    # DB index + a reflected newapi-keyspace-credential Secret pushed into
+    # ns newapi) so the instance's Contexts tab shows a populated
+    # keyspace/… row, proving the platform-wide mechanism on a cache, not a
+    # database. Auth is disabled on this Sovereign (slot changelog 1.0.2),
+    # so the reflected uri is redis://valkey:6379/1.
+    keyspaces:
+      - name: newapi          # bp-newapi's cache keyspace
+        index: 1              # dedicated logical DB index (0 = default)
+        consumer:
+          blueprint: bp-newapi
+          mode: shared
+        reflect:
+          secretName: newapi-keyspace-credential
+          namespaces: [newapi]
