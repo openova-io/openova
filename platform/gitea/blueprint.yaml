@@ -24,7 +24,14 @@ spec:
 
   manifests:
     chart: ./chart
-  depends: []
+  # bp-postgres (#3370): Gitea's database is a Context on a SHAREABLE
+  # bp-postgres data-instance (slot 10 wires gitea's HR dependsOn
+  # bp-postgres-shared). Declaring the shareable INSTANCE Blueprint here
+  # (not just the engine) makes the console New-instance wizard render the
+  # generic PostgreSQL backing selector (Create new / Reuse existing).
+  depends:
+    - blueprint: bp-postgres
+      version: ^0
 
   # ── G117.1: Topology declaration ────────────────────────────────────────
   # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:

@@ -282,6 +282,20 @@ export const GROUPS: GroupDef[] = [
     required: false,
     components: [
       { id: 'cnpg',       name: 'CloudNative PG', desc: 'Operated PostgreSQL with replicas, PITR, and pooling',         tier: 'recommended', dependencies: [] },
+      // #3370 — bp-postgres is the SHAREABLE data-instance Blueprint (a
+      // first-class Catalog card, visibility: listed), distinct from
+      // bp-cnpg the engine OPERATOR (unlisted). A bp-postgres instance is
+      // ONE CNPG Cluster that many consumers share via Contexts (isolated
+      // db + role). It surfaces in the Catalog grid like every other
+      // listed Blueprint; gitea/harbor/keycloak depend on the INSTANCE
+      // (postgres), not the engine (cnpg), per §2.4. dependencies:['cnpg']
+      // keeps the engine operator pulled in transitively.
+      // logoUrl: null → letter-mark fallback (the brand-mark test requires
+      // the asset filename to equal the component id; there is no
+      // postgres.svg, and the elephant mark already ships as cnpg.svg for
+      // the engine card, so the instance card renders the "P" letter-mark
+      // — same explicit-fallback path as powerdns).
+      { id: 'postgres',   name: 'PostgreSQL',     desc: 'Shareable PostgreSQL data-instance — many apps via isolated Contexts', tier: 'recommended', dependencies: ['cnpg'], logoUrl: null },
       { id: 'valkey',     name: 'Valkey',         desc: 'Drop-in Redis-compatible operated cache and queue store',      tier: 'recommended', dependencies: [] },
       { id: 'strimzi',    name: 'Strimzi',        desc: 'Operated Kafka with TLS, SCRAM, and Cruise Control',           tier: 'recommended', dependencies: [] },
       { id: 'debezium',   name: 'Debezium',       desc: 'Row-level change-data-capture from PostgreSQL into Kafka topics', tier: 'recommended', dependencies: ['strimzi'] },
@@ -438,7 +452,7 @@ export const PRODUCTS: Product[] = [
     subtitle: 'Data & Integration',
     description: 'Event streaming, CDC, workflow orchestration, and analytics databases',
     tier: 'recommended',
-    components: ['cnpg', 'valkey', 'strimzi', 'debezium', 'flink', 'temporal', 'clickhouse', 'ferretdb', 'iceberg', 'superset'],
+    components: ['cnpg', 'postgres', 'valkey', 'strimzi', 'debezium', 'flink', 'temporal', 'clickhouse', 'ferretdb', 'iceberg', 'superset'],
     // FABRIC is à-la-carte — Strimzi, Temporal, ClickHouse, Superset are
     // independent stacks operators pick individually. Selecting one
     // doesn't imply the others.

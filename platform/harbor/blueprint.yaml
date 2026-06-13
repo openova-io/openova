@@ -68,8 +68,16 @@ spec:
   manifests:
     chart: ./chart
   depends:
-    - blueprint: bp-cnpg             # registry metadata DB (postgresql.cnpg.io/v1.Cluster)
+    - blueprint: bp-cnpg             # CNPG operator + CRDs (engine substrate)
       version: ^1
+    # bp-postgres (#3370): Harbor's registry metadata DB is a Context on a
+    # SHAREABLE bp-postgres data-instance (the slot wires harbor's HR
+    # dependsOn bp-postgres-shared). Declaring bp-postgres here — the
+    # shareable INSTANCE Blueprint, not just bp-cnpg the engine operator —
+    # makes the console's New-instance wizard render the generic PostgreSQL
+    # backing selector (Create new / Reuse existing) per §2.4 / §7.
+    - blueprint: bp-postgres
+      version: ^0
     - blueprint: bp-cert-manager     # registry endpoint TLS via ClusterIssuer
       version: ^1
     # Note: bp-seaweedfs dependency REMOVED in 1.1.0 (issue #383). Per
