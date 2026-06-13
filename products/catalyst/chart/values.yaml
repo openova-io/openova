@@ -1080,6 +1080,26 @@ smeTenants:
     # in-cluster Gitea repo becomes private. For the public repo path
     # source-controller does an unauthenticated clone, matching the
     # bootstrap GitRepository's secret-less shape.
+  # ─── Pre-cutover local-Gitea repo bootstrap (#3454, Refs #3376) ─────
+  # The SME-tenant gitops chain (catalyst-api push target + the
+  # openova-sme-tenants GitRepository above) targets the local Gitea
+  # repo `openova/openova`@`sme-tenants`. PRE-cutover that repo does not
+  # exist — bp-self-sovereign-cutover Step 01 (the gitea-mirror Job)
+  # creates it only POST-handover, so the GitRepository sits in
+  # "authentication required" (missing-repo → Gitea 401) and every
+  # sub-org hangs in Provisioning. The pre-install hook Job rendered by
+  # templates/sme-services/gitea-tenants-repo-bootstrap-job.yaml seeds
+  # the org/repo/branch via the Gitea API (admin creds from
+  # gitea/gitea-admin-secret) so the chain is live from first
+  # convergence; cutover Step 01 later mirrors the full upstream content
+  # over the same coordinates (idempotent). MUST stay in sync with
+  # gitRepository.{org,repo,branch} above and the catalyst-api
+  # CATALYST_GITOPS_REPO_URL/BRANCH env (templates/api-deployment.yaml).
+  repoBootstrap:
+    giteaInternalURL: "http://gitea-http.gitea.svc.cluster.local:3000"
+    org: openova
+    repo: openova
+    branch: sme-tenants
 
 # ─── Per-Organization public HTTPRoutes (issue #1629 follow-up) ───────
 # PowerDNS now resolves `<slug>.<parentDomain>` for every Org that maps

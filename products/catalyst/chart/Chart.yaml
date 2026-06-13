@@ -2643,7 +2643,16 @@ name: bp-catalyst-platform
 # deep-link (hw130, measured). Companion to bp-openbao 1.2.29 + the addr-only
 # client change in products/catalyst/bootstrap/api cmd/api/main.go.
 # 1.4.600 — sme/ferretdb image via harbor proxy-ghcr (kyverno rule 11; hw130 reinstall denial).
-version: 1.4.611
+# 1.4.612 (#3454, Refs #3376/#3378, 2026-06-14): pre-cutover local-Gitea repo
+# bootstrap. The SME-tenant gitops chain targets local Gitea openova/openova@
+# sme-tenants, but that repo is created ONLY by cutover Step 01 (post-handover),
+# so PRE-cutover the openova-sme-tenants GitRepository sits "authentication
+# required" (missing-repo → 401) and every sub-org hangs in Provisioning. New
+# pre-install/pre-upgrade hook Job (templates/sme-services/gitea-tenants-repo-
+# bootstrap-job.yaml) seeds the org/repo/sme-tenants branch via the Gitea API so
+# the chain is live from first convergence; cutover Step 01 mirrors full content
+# later (idempotent). Gated on global.sovereignFQDN + ingress.marketplace.enabled.
+version: 1.4.612
 # 1.4.597 — #3373 (2026-06-13) — coupling fix (a) placement-as-data:
 # templates/httproute.yaml backendRefs honor new
 # ingress.gateway.backendServiceApi / backendServiceUi overrides. When
