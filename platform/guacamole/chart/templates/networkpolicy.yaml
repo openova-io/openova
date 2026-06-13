@@ -93,4 +93,19 @@ spec:
       ports:
         - protocol: TCP
           port: 4222
+
+    {{- $db := .Values.guacamole.database | default dict }}
+    {{- if and (default true $db.enabled) ((default dict $db.cluster).enabled | default true) }}
+    # PostgreSQL JDBC permission store (#3374) — the webapp reads/writes the
+    # guacamole CNPG cluster for connection + permission state. The cluster
+    # is provisioned by templates/cnpg-cluster.yaml in this same namespace;
+    # CNPG labels its pods `cnpg.io/cluster: <name>`.
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ (default dict $db.cluster).name | default "guacamole-pg" | quote }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    {{- end }}
 {{- end }}

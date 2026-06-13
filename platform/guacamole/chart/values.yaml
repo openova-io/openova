@@ -150,6 +150,70 @@ guacamole:
     # Optional groups claim from the IdP — Guacamole reads roles
     # from this claim and maps them to per-connection ACLs.
     groupsClaim: groups
+  # ── PostgreSQL JDBC permission store (#3374) ───────────────────
+  # The guacamole-auth-sso-openid extension AUTHENTICATES users but, alone,
+  # carries NO permission store — every SSO user lands with zero connections
+  # and NO admin (the #3374 DoD-7 gap; the image ships only the openid jar).
+  # Wiring the bundled JDBC (postgresql) extension gives guacamole a real
+  # permission store: POSTGRESQL_AUTO_CREATE_ACCOUNTS auto-provisions a JDBC
+  # record for each SSO user on first login, OPENID_GROUPS_CLAIM_TYPE maps the
+  # `groups` claim onto guacamole USER_GROUP entities, and the schema-seed Job
+  # creates a `<adminGroup>` USER_GROUP holding the ADMINISTER system
+  # permission — so every owner in `sovereign-admins` inherits guacamole admin
+  # the moment they sign in. The image (guacamole/guacamole:1.5.5) already
+  # bundles guacamole-auth-jdbc-postgresql + the driver + the schema SQL; the
+  # entrypoint installs the JDBC extension automatically when POSTGRESQL_* is
+  # set.
+  database:
+    # Master switch. Default ON: without it guacamole grants no admin, which
+    # is the founder-witnessed #3374 gap. Set false to keep openid-only.
+    enabled: true
+    # Dedicated CNPG cluster (mirrors bp-gitea / bp-harbor / bp-newapi). The
+    # JDBC schema needs CREATE TYPE/TABLE, so the seed Job applies it as the
+    # CNPG superuser (enableSuperuserAccess below). ADR-0010 SHARING is a
+    # follow-up — guacamole's schema-init is heavier than a single Database CR.
+    cluster:
+      enabled: true
+      name: guacamole-pg
+      namespace: "" # default .Release.Namespace
+      instances: 1
+      database: guacamole_db
+      owner: guacamole
+      imageName: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql
+      pgVersion: "16"
+      storageSize: 5Gi
+      storageClass: local-path
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
+    # The CNPG <cluster>-app Secret carries the rotating password; the
+    # Deployment + seed Job read it (key `password`).
+    appSecretName: "" # default "<cluster.name>-app"
+    sslMode: require
+    # Auto-provision a JDBC user record for each SSO-authenticated principal on
+    # first login (so openid users exist in the permission store).
+    autoCreateAccounts: true
+    # The IdP group whose members become guacamole admins. A USER_GROUP entity
+    # of this name is seeded with the ADMINISTER system permission; the openid
+    # `groups` claim binds the SSO user into it. Elevation keys on the group,
+    # never per-user (#3374 law §5).
+    adminGroup: sovereign-admins
+    # Image for the schema-seed Job's psql container (same CNPG postgres image
+    # as the cluster — has psql). The schema SQL itself is copied out of the
+    # guacamole webapp image by an initContainer.
+    seedJob:
+      backoffLimit: 6
+      activeDeadlineSeconds: 420
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
   # ── HTTPRoute (Cilium Gateway) ─────────────────────────────────
   httproute:
     enabled: true

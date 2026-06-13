@@ -82,6 +82,12 @@ spec:
     - name: bp-sealed-secrets
     - name: bp-seaweedfs
     - name: bp-k8s-ws-proxy
+    # #3374 — bp-guacamole now ships a CNPG Cluster CR for its JDBC
+    # permission store (admin elevation). bp-cnpg (slot 16) registers the
+    # postgresql.cnpg.io/v1 CRD; without this edge the Cluster CR's
+    # Capabilities gate would skip on a fresh prov (guacamole installs before
+    # cnpg) → no DB → no admin. bp-cnpg before bp-guacamole closes that race.
+    - name: bp-cnpg
   chart:
     spec:
       chart: bp-guacamole
@@ -151,7 +157,11 @@ spec:
       # 0.2.3: lockstep with chart bump d232af3f (upstream 1.5.5) — the
       # deploy commit bumped Chart.yaml but the auto-bump pin hook didn't
       # fire, leaving this pin drifted (broke the full lockstep sweep).
-      version: 0.2.8
+      # 0.2.9 — #3374: JDBC permission store + sovereign-admins admin
+      # USER_GROUP. The openid extension authenticated SSO users but granted
+      # no admin; the new CNPG cluster + schema-seed Job + POSTGRESQL_* env
+      # make sovereign-admins members land as guacamole admin on SSO login.
+      version: 0.2.9
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole

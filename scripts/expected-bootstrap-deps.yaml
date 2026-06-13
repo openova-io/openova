@@ -558,6 +558,11 @@ slots:
       - bp-sealed-secrets
       - bp-seaweedfs
       - bp-k8s-ws-proxy
+      # #3374 — bp-guacamole now ships a CNPG Cluster for its JDBC permission
+      # store (admin elevation). bp-cnpg (slot 16) must register the
+      # postgresql.cnpg.io/v1 CRD first or the Cluster CR's Capabilities gate
+      # skips on a fresh prov → no admin.
+      - bp-cnpg
     wave: present
 
   # ---- Slot 53 — bp-netbird WireGuard zero-trust mesh + remote-access overlay.
