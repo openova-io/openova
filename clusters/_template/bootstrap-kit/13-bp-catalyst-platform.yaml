@@ -1020,7 +1020,7 @@ spec:
             # 1.4.598 — #3374: CATALYST_OPENBAO_ADDR onto catalyst-api (openbao bare-URL SSO shim).
             # 1.4.612 — #3454: pre-cutover local-Gitea openova/openova@sme-tenants repo bootstrap (SME gitops chain).
             # 1.4.613 — #3454: add managed-by:flux on the repo-bootstrap hook Job (kyverno flux-managed Enforce).
-      version: 1.4.613
+      version: 1.4.614
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
