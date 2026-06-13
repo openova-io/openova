@@ -226,19 +226,8 @@ spec:
               set -eu
               API="${GITEA_URL}/api/v1"
 
-              # Step 1: wait for the Gitea API to be reachable. Same budget
-              # knob the token-mint Job uses (default 168 x 5s = 14m) —
-              # covers the autoscaler-cold-start worst case on a fresh prov.
-              for i in $(seq 1 "$ITERATIONS"); do
-                if curl -sSf -o /dev/null --max-time 3 "${API}/version"; then
-                  echo "[repo-bootstrap] gitea api reachable"
-                  break
-                fi
-                echo "[repo-bootstrap] waiting for gitea api ($i/$ITERATIONS)"
-                sleep "$INTERVAL"
-              done
-
-              # Step 2: read admin creds from gitea/gitea-admin-secret.
+              # Step 1: read admin creds from gitea/gitea-admin-secret FIRST
+              # (the reachability probe below must authenticate — see Step 2).
               GU=$(kubectl -n gitea get secret gitea-admin-secret \
                 -o jsonpath='{.data.username}' | base64 -d)
               GP=$(kubectl -n gitea get secret gitea-admin-secret \
@@ -249,6 +238,28 @@ spec:
               fi
               # Basic auth header — never echo the password.
               AUTH=$(printf '%s:%s' "$GU" "$GP" | base64 -w0 2>/dev/null || printf '%s:%s' "$GU" "$GP" | base64 | tr -d '\n')
+
+              # Step 2: wait for the Gitea API to be reachable. Same budget
+              # knob the token-mint Job uses (default 168 x 5s = 14m) —
+              # covers the autoscaler-cold-start worst case on a fresh prov.
+              #
+              # #3454 — the probe MUST authenticate: bp-gitea sets
+              # service.REQUIRE_SIGNIN_VIEW=true (platform/gitea values.yaml),
+              # so the unauthenticated /api/v1/version returns 403, NOT 200.
+              # Probing anonymously burned all 168 iterations on hw133 before
+              # falling through. Send the admin Basic header so a healthy
+              # Gitea answers 200; treat 401/403 as "not ready yet" too (the
+              # Pod may still be initialising its admin user).
+              for i in $(seq 1 "$ITERATIONS"); do
+                code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 \
+                  -H "Authorization: Basic ${AUTH}" "${API}/version" || echo 000)
+                if [ "$code" = "200" ]; then
+                  echo "[repo-bootstrap] gitea api reachable (authed /version=200)"
+                  break
+                fi
+                echo "[repo-bootstrap] waiting for gitea api ($i/$ITERATIONS, /version=${code})"
+                sleep "$INTERVAL"
+              done
 
               # Step 3: ensure the org exists (idempotent).
               ORG_CODE=$(curl -sS -o /dev/null -w '%{http_code}' \
