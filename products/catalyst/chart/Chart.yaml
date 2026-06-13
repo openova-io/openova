@@ -2701,7 +2701,12 @@ name: bp-catalyst-platform
 # the bp-rtz-vcluster isolation netpol's `sme` carve-out). Mirrors the
 # #3376 SME NATS_URL→synced-name move. Catalyst-Zero (no sovereignFQDN)
 # render byte-unchanged.
-version: 1.4.622
+# 1.4.623 (#3373 Batch A, 2026-06-14): bp-seaweedfs moved INSIDE the rtz
+# vCluster. Rewire the qa-fixtures CNPG barman backup endpoint default
+# (qaFixtures.cnpgBackupEndpointURL + cnpg-clusters-qa.yaml) to the
+# syncer-mangled host Service name. qa-fixtures only; Catalyst-Zero render
+# byte-unchanged. (1.4.622 was a content-free deploy-bot image sweep.)
+version: 1.4.623
 # 1.4.597 — #3373 (2026-06-13) — coupling fix (a) placement-as-data:
 # templates/httproute.yaml backendRefs honor new
 # ingress.gateway.backendServiceApi / backendServiceUi overrides. When

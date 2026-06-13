@@ -102,7 +102,7 @@ spec:
     # #2745: explicit namespace — a bare `name:` resolves in THIS HR's
     # namespace (now `mgmt`) → dangling dep → wedge (#3191 shape).
     - name: bp-seaweedfs
-      namespace: flux-system
+      namespace: rtz
   chart:
     spec:
       chart: bp-mimir

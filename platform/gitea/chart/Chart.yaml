@@ -108,7 +108,12 @@ name: bp-gitea
 # the bootstrap-kit slot 10 `SOVEREIGN_GITEA_PG_SECRET` seam (own-cluster
 # default gitea-pg-app → SHARED gitea-database-secret). own-cluster render
 # byte-identical to 1.2.26.
-version: 1.2.34
+# 1.2.35 — Refs #3373 Batch A (2026-06-14): bp-seaweedfs moved INTO the rtz
+# vCluster; rewire the objectStorage S3 + filer endpoint DEFAULTS to the
+# syncer-mangled host Service name (seaweedfs-s3-x-seaweedfs-x-rtz-vcluster.rtz.svc).
+# objectStorage.enabled is default-OFF, so the single-region/Catalyst-Zero render
+# is byte-identical (the defaults apply only when an operator enables S3).
+version: 1.2.35
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so

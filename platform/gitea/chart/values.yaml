@@ -401,9 +401,14 @@ objectStorage:
   storageType: minio
   # Canonical SeaweedFS S3 endpoint (host:port, NO scheme — Gitea's
   # MINIO_ENDPOINT expects host:port and toggles TLS via MINIO_USE_SSL).
-  # Matches platform/seaweedfs/chart/values.yaml s3 block (Service
-  # seaweedfs-s3, ClusterIP, port 8333) per docs/PLATFORM-TECH-STACK.md §3.5.
-  endpoint: seaweedfs-s3.seaweedfs.svc.cluster.local:8333
+  # #3373 Batch A (2026-06-14): bp-seaweedfs moved INSIDE the rtz vCluster
+  # (placement.yaml). The bp-rtz-vcluster syncer reflects the in-vCluster
+  # `seaweedfs-s3` Service to the HOST under the mangled name below, so the
+  # old `seaweedfs-s3.seaweedfs.svc` resolves NXDOMAIN. gitea is host-placed
+  # in Batch A and objectStorage is default-OFF — this default applies only
+  # when an operator flips objectStorage.enabled=true; align it to the synced
+  # name now. Override `endpoint` for a host-placed seaweedfs.
+  endpoint: seaweedfs-s3-x-seaweedfs-x-rtz-vcluster.rtz.svc.cluster.local:8333
   # Bucket that holds gitea's blob-class data. Created on first write by the
   # MinIO driver (Gitea auto-creates the bucket if MINIO_BUCKET is absent).
   bucket: gitea-blobs
@@ -475,7 +480,10 @@ objectStorage:
     remoteSecretAccessKeyKey: admin_secret_access_key
     # SeaweedFS filer the mirror sidecar talks to for the remote.configure /
     # remote.sync gRPC calls. Defaults to the in-cluster filer Service.
-    filerEndpoint: seaweedfs-filer.seaweedfs.svc.cluster.local:8888
+    # #3373 Batch A: seaweedfs moved into the rtz vCluster → the host-synced
+    # filer Service is the mangled name below. mirror.enabled is default-OFF;
+    # this applies only when the cross-region mirror is enabled post-move.
+    filerEndpoint: seaweedfs-filer-x-seaweedfs-x-rtz-vcluster.rtz.svc.cluster.local:8888
     # Container image for the `weed` CLI. Pulled through the Harbor
     # proxy-cache per CLAUDE.md inviolable rule (bare upstream refs are
     # denied by kyverno harbor-proxy-pull on a converged env).

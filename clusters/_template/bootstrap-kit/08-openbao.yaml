@@ -77,7 +77,8 @@ spec:
   chart:
     spec:
       chart: bp-openbao
-      version: 1.2.37
+      # 1.2.38 (#3373 Batch A): snapshot-replication s3 endpoint default → rtz-vCluster synced name (seaweedfs moved into rtz).
+      version: 1.2.38
       sourceRef:
         kind: HelmRepository
         name: bp-openbao

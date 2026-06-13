@@ -69,7 +69,9 @@ spec:
       # registry.k8s.io onto Harbor proxy-k8s (harbor-proxy-pull Enforce).
       # 0.2.9 (#3373 Batch A): `sme` carve-out in allowedIngressNamespaces
       # so SME services reach the now-rtz-vCluster bp-valkey synced Service.
-      version: 0.2.9
+      # 0.2.10 (#3373 Batch A): gitea/harbor/catalyst-system/mgmt/velero carve-outs
+      # in allowedIngressNamespaces so seaweedfs S3 consumers reach the now-rtz-vCluster synced Service.
+      version: 0.2.10
       sourceRef:
         kind: HelmRepository
         name: bp-rtz-vcluster
