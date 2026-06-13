@@ -461,7 +461,14 @@ name: bp-newapi
 # Jobs are stamped so the upgrade doesn't merely stall at the NEXT hook. Same
 # class as openbao #3434 + gitea/harbor #3296→#3297. Lockstep: 80-newapi.yaml
 # pin → 1.4.69.
-version: 1.4.70
+# 1.4.71 (#3374 admin-tier, 2026-06-14): stamp managed-by:flux on the
+# admin-promote CronJob + its jobTemplate too. Once 1.4.69's 4-Job fix let the
+# upgrade get PAST flux-managed, the upgrade reached the admin-promote CronJob
+# which (a) also lacked managed-by:flux and (b) tripped the resource-requests
+# Enforce autogen bug (fixed in lockstep, bp-kyverno-policies 1.0.34). Stamping
+# the CronJob closes (a); the policy fix closes (b). Lockstep: 80-newapi.yaml
+# pin → 1.4.71.
+version: 1.4.71
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
