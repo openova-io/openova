@@ -1076,10 +1076,26 @@ smeTenants:
     org: openova
     repo: openova
     interval: 1m
-    # secretRef: name: gitea-credentials  # uncomment + populate if the
-    # in-cluster Gitea repo becomes private. For the public repo path
-    # source-controller does an unauthenticated clone, matching the
-    # bootstrap GitRepository's secret-less shape.
+    # #3454 — Flux MUST authenticate to clone the local Gitea even when
+    # openova/openova is PUBLIC, because bp-gitea sets
+    # service.REQUIRE_SIGNIN_VIEW=true (platform/gitea/chart/values.yaml)
+    # which makes ANONYMOUS git clone return 401 (proven live on hw133: a
+    # fresh public repo's info/refs?service=git-upload-pack = 401 anon, 200
+    # authed). The bp-gitea values comment confirms the intent: "Git/Flux/
+    # API clients are unaffected (token auth)". So the openova-sme-tenants
+    # GitRepository carries a secretRef to a Flux basic-auth Secret holding
+    # the catalyst-gitea-token PAT (rendered by sme-tenants-gitrepo-auth-
+    # secret.yaml). Without this the GitRepository sits "authentication
+    # required" forever and every sub-org hangs in Provisioning.
+    secretRef:
+      # Name of the Flux basic-auth Secret in this GitRepository's namespace
+      # (flux-system). Rendered by sme-tenants-gitrepo-auth-secret.yaml.
+      name: openova-sme-tenants-git-auth
+      # Gitea account the PAT belongs to (matches CATALYST_GITOPS_USER in
+      # api-deployment.yaml). The PAT is sourced from catalyst-gitea-token.
+      username: gitea_admin
+      patSourceSecretName: catalyst-gitea-token
+      patSourceKey: token
   # ─── Pre-cutover local-Gitea repo bootstrap (#3454, Refs #3376) ─────
   # The SME-tenant gitops chain (catalyst-api push target + the
   # openova-sme-tenants GitRepository above) targets the local Gitea

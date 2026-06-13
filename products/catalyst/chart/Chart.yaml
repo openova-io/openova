@@ -2658,7 +2658,17 @@ name: bp-catalyst-platform
 # SA + Role + RoleBinding (canonical idiom — gitea sso-configure-oauth-job, openbao
 # init-job). Verified via server-side dry-run against live hw133 (all kyverno
 # Enforce policies pass).
-version: 1.4.614
+# 1.4.615 (#3454, 2026-06-14): the DEEPER half of the SME-tenant gitops fix.
+# bp-gitea sets service.REQUIRE_SIGNIN_VIEW=true, so ANONYMOUS git clone of
+# even a PUBLIC repo returns 401 (proven live on hw133: a fresh public repo's
+# info/refs?service=git-upload-pack = 401 anon / 200 authed). The
+# openova-sme-tenants GitRepository had NO secretRef -> "authentication
+# required" forever, repo-present-or-not. Add a Flux basic-auth Secret
+# (sme-tenants-gitrepo-auth-secret.yaml, sourced from the catalyst-gitea-token
+# PAT) + wire smeTenants.gitRepository.secretRef. Also fix the repo-bootstrap
+# hook's /api/v1/version probe to authenticate (anon /version = 403 under
+# REQUIRE_SIGNIN_VIEW burned all 168 iterations on hw133).
+version: 1.4.615
 # 1.4.597 — #3373 (2026-06-13) — coupling fix (a) placement-as-data:
 # templates/httproute.yaml backendRefs honor new
 # ingress.gateway.backendServiceApi / backendServiceUi overrides. When
