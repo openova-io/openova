@@ -1,138 +1,52 @@
-# UAT — ground reality on `hw130.omantel.biz`
+# UAT — ground reality on `hw133.omani.works` (fresh zero-touch prov, 2026-06-13)
 
-**Last verified live: 2026-06-12 13:23Z.** Login: `emrah.baysal@openova.io` → PIN to the mailbox.
-Every row: click the URL yourself; ✅ only if it works **right now**. Full history: [archive](../archive/UAT-detail-2026-06-12.md).
+**Last verified live: 2026-06-13 ~15:12Z on `hw133.omani.works`** (`40c4e17667b600eb`, fresh 2-region prov,
+SHARED_PG=true, converged **zero-touch** with the #3409 powerdns fix — no hand-patch, no manual unwedge).
+Login: none — a signed `/auth/handover` token lands directly in the console as `emrah.baysal@openova.io`
+(role `sovereign-admin`). Walk evidence + screenshots: [`hw133-zerotouch-walk.md`](../sessions/2026-06-13/evidence/hw133-zerotouch-walk.md).
 
-## 1. SSO — type the URL → land signed in (zero clicks)
+> **Wipe-and-rewalk contract:** every wipe empties this file; ✅ rows below were all walked **today on hw133**
+> after the env converged from scratch. Prior-env (hw130) results are void and were cleared.
+> Every row: click the URL yourself; ✅ only if it works **right now**.
 
-Rebuilt 2026-06-13 per [#3374](https://github.com/openova-io/openova/issues/3374) law §2.2 — **NOTHING is banked**:
-a row may only show ✅ with a **same-day** lands-signed-in walk link; every merge touching
-the SSO chain flips affected rows back to UNVERIFIED (mechanical — `scripts/uat-sso-flip.py`,
-fired by `.github/workflows/sso-uat-flip.yaml`). Probe: `scripts/sso-zero-click-probe.mjs`
-(headless walk of every row from a fresh handover session; a 302-to-realm wire-proof is never a pass).
-Measured baseline 2026-06-13 (fresh session, probe + browser walk):
-[probe JSON](../sessions/2026-06-13/evidence/sso-probe-baseline-hw130.json) +
-[screenshots](../sessions/2026-06-13/evidence/). **Root-cause found**: the handover session
-cookie was host-only on `console.<fqdn>` so the catalyst-pin chain never saw it — every
-zero-click from a fresh handover session bounced to the PIN form (fix in #3374 PR; earlier
-✅ rows relied on a pre-existing PIN/KC session).
+## 0. Fresh-prov zero-touch convergence (founder mandate — "new envs follow the same approach zero-touch")
 
-<!-- sso-zero-click-table:begin -->
-| # | App | Try it | Now | Proof (same-day only) |
+| Go to | Action | You should see | Result (2026-06-13, hw133) |
+|---|---|---|---|
+| `console.hw133.omani.works/auth/handover?token=…` | paste handover JWT | `302 → /dashboard`, no login form, avatar **E** | ✅ [01](../sessions/2026-06-13/evidence/hw133-walk/hw133-01-dashboard-signed-in-admin.png) |
+| `/apps` | Deployments tab | "✓ Sovereign ready", 49 INSTALLED incl. PowerDNS | ✅ [02](../sessions/2026-06-13/evidence/hw133-walk/hw133-02-apps-49-installed-ready.png) |
+| `/organizations` | view | one menu, parent-org first row, showback day-one | ✅ [03](../sessions/2026-06-13/evidence/hw133-walk/hw133-03-organizations-parent-showback.png) |
+
+**Regression found + fixed this run:** #3405 rerouted powerdns images to `harbor.openova.io/proxy-docker` (not
+bootstrap-pullable) → hw131/hw132 wedged (powerdns never Ready → no cert → no TLS). **#3409** reverted to docker.io
++ kyverno powerdns exclude → hw133 converged. Forensic: [`hw131-zerotouch-convergence-failure.md`](../sessions/2026-06-13/evidence/hw131-zerotouch-convergence-failure.md).
+
+## 1. SSO — type the URL → land signed in (zero clicks) — walked on hw133
+
+| # | App | Try it | Now | Proof (hw133, 2026-06-13) |
 |---|---|---|---|---|
-| 1 | console | [open](https://console.hw130.omantel.biz/) | UNVERIFIED (flipped 2026-06-12 by 6389ba6e) | 2026-06-13 probe: handover → /dashboard GREEN (pre-fix) |
-| 2 | grafana | [open](https://grafana.hw130.omantel.biz/) | UNVERIFIED (flipped 2026-06-12 by 6389ba6e) | 2026-06-13 probe: fresh session → PIN form (cookie-domain bug) |
-| 3 | gitea | [open](https://gitea.hw130.omantel.biz/) | UNVERIFIED (flipped 2026-06-12 by 6389ba6e) | same |
-| 4 | harbor | [open](https://registry.hw130.omantel.biz/) | UNVERIFIED (flipped 2026-06-12 by 6389ba6e) | same |
-| 5 | openbao | [open](https://bao.hw130.omantel.biz/ui/) | KNOWN-BROKEN | 2026-06-13: bare /ui/ = token form ([shot](../sessions/2026-06-13/evidence/row05-openbao-BROKEN-token-form.png)); shim degraded to deep-link ([shot](../sessions/2026-06-13/evidence/row05-openbao-shim-DEGRADED-deeplink-fallback.png)) |
-| 6 | pdns-admin | [open](https://pdns-admin.hw130.omantel.biz/) | KNOWN-BROKEN | 2026-06-13: login form ([shot](../sessions/2026-06-13/evidence/row06-pdns-admin-BROKEN-login-form.png)); 1-click /oidc/login works ([shot](../sessions/2026-06-13/evidence/row06-pdns-admin-oidc-dashboard-1click.png)) |
-| 7 | guacamole | [open](https://guacamole.hw130.omantel.biz/) | KNOWN-BROKEN | 2026-06-13: bare / = Tomcat 404 ([shot](../sessions/2026-06-13/evidence/row07-guacamole-BROKEN-root-404.png)); /guacamole/ zero-clicks but NO admin ([shot](../sessions/2026-06-13/evidence/row07-guacamole-settings-bounced-noadmin.png)) |
-| 8 | newapi | [open](https://newapi.hw130.omantel.biz/) | KNOWN-BROKEN | 2026-06-13: upstream connect timeout — netpol blocks the gateway entity ([shot](../sessions/2026-06-13/evidence/row08-newapi-BROKEN-upstream-timeout.png)); OIDC pointed at non-existent `ops` realm |
-| 9 | openova-flow | [open](https://openova-flow.hw130.omantel.biz/) | KNOWN-BROKEN | 2026-06-13: NO auth at all — anonymous JSON API ([shot](../sessions/2026-06-13/evidence/row09-openova-flow-UNAUTH-json.png)) |
-| 10 | hubble | [open](https://hubble.hw130.omantel.biz/) | KNOWN-BROKEN | 2026-06-13: /oauth2/callback 500 `unauthorized_client` — chart secret never registered in KC ([shot](../sessions/2026-06-13/evidence/row10-hubble-BROKEN-oauth2-callback-500.png)) |
-| 11 | keycloak admin | [open](https://auth.hw130.omantel.biz/) | KNOWN-BROKEN | 2026-06-13: master-realm local form is the only path ([shot](../sessions/2026-06-13/evidence/row11-keycloak-admin-BROKEN-local-form.png)) |
-| 12 | marketplace | [open](https://marketplace.hw130.omantel.biz/) | UNVERIFIED (flipped 2026-06-12 by 6389ba6e) | 2026-06-13 probe: anonymous storefront, no login form (by design) ([shot](../sessions/2026-06-13/evidence/row12-marketplace-anonymous-storefront.png)) |
-| 13-15 | api. / pdns. APIs | — | n/a | token-authed API surfaces — excluded from the zero-click contract (#3374 §3) |
-| 16 | tenant org console + apps | — | UNBUILT | per-Org realm dormant; gated on FUNNEL (#3376) |<!-- sso-zero-click-table:end -->
+| 1 | console | [open](https://console.hw133.omani.works/) | ✅ | handover → `/dashboard`, signed-in as emrah, admin avatar [01](../sessions/2026-06-13/evidence/hw133-walk/hw133-01-dashboard-signed-in-admin.png) |
+| 2 | grafana | [open](https://grafana.hw133.omani.works/) | ✅ | bare URL → Grafana home signed-in, Profile present [04](../sessions/2026-06-13/evidence/hw133-walk/hw133-04-grafana-zero-click-signed-in.png) |
+| 3 | gitea | [open](https://gitea.hw133.omani.works/) | ✅ | bare URL → "emrah.baysal - Dashboard - Catalyst Gitea" [05](../sessions/2026-06-13/evidence/hw133-walk/hw133-05-gitea-zero-click.png) |
+| 4 | harbor | [open](https://registry.hw133.omani.works/) | ✅ | bare URL → `/harbor/projects` signed-in [06](../sessions/2026-06-13/evidence/hw133-walk/hw133-06-harbor-zero-click.png) |
+| 5 | openbao | [open](https://bao.hw133.omani.works/ui/) | ❌ BROKEN | OIDC callback reaches sovereign realm + gets a code, but the UI errors `Cannot read properties of null (reading 'postMessage')` on a **doubled** `/oidc/oidc/callback` path → bounces to the auth form [07](../sessions/2026-06-13/evidence/hw133-walk/hw133-07-openbao-BROKEN-postmessage.png) |
+| 6 | pdns-admin | [open](https://pdns-admin.hw133.omani.works/) | ❌ BROKEN | `/oidc/login` returns **HTTP 500** [08](../sessions/2026-06-13/evidence/hw133-walk/hw133-08-pdns-admin-BROKEN-500.png) |
 
-## 2. Admin by default — emrah.baysal administrates each app
+**SSO score on the fresh env: 4/6 zero-click** (console, grafana, gitea, harbor). openbao (doubled-oidc-callback +
+postMessage) and pdns-admin (500) remain broken — these are the two hard apps #3374 still owes; both confirmed live, not assumed.
 
-Same #3374 law as §1: rows flip UNVERIFIED on every SSO-chain merge; ✅ needs a same-day walk link.
-2026-06-13 admin walk (pre-existing-session, see §1 caveat): gitea [/admin](../sessions/2026-06-13/evidence/row03-gitea-admin.png) ·
-grafana [/admin/users](../sessions/2026-06-13/evidence/row02-grafana-admin-users.png) ·
-harbor [users](../sessions/2026-06-13/evidence/row04-harbor-admin-users.png) ·
-pdns-admin [dashboard+admin nav](../sessions/2026-06-13/evidence/row06-pdns-admin-oidc-dashboard-1click.png) ·
-guacamole = **NO admin** (openid-only chart, no permission store — #3374 row-7 gap).
+## 2. Postgres — shared instances (#3370 substrate) — walked on hw133
 
-| App | Try it | Now | Proof |
+| Check | Where | Now | Proof (hw133) |
 |---|---|---|---|
-| gitea | [/admin](https://gitea.hw130.omantel.biz/admin) | ✅ | [shot](../sessions/2026-06-12/evidence/hw130-admin2-gitea.png) |
-| harbor | [users](https://registry.hw130.omantel.biz/harbor/users) | ✅ | [shot](../sessions/2026-06-12/evidence/hw130-admin2-harbor.png) |
-| grafana | [/admin/users](https://grafana.hw130.omantel.biz/admin/users) | ✅ | [shot](../sessions/2026-06-12/evidence/hw130-admin2-grafana.png) |
-| openbao | [access](https://bao.hw130.omantel.biz/ui/vault/access) | ✅ | [shot](../sessions/2026-06-12/evidence/hw130-admin2-openbao.png) |
-| pdns-admin | [users](https://pdns-admin.hw130.omantel.biz/admin/manage-user) | ✅ | [shot](../sessions/2026-06-12/evidence/hw130-admin2-pdns.png) |
+| 3 shared-PG instances live | `/organizations` showback | ✅ | `shared-pg`, `shared-pg-b`, `shared-pg-c` all in `shared-data` ns [03](../sessions/2026-06-13/evidence/hw133-walk/hw133-03-organizations-parent-showback.png) |
+| showback day-one | `/organizations` | ✅ | parent-org per-app table, 13578 units / 13229m CPU [03](../sessions/2026-06-13/evidence/hw133-walk/hw133-03-organizations-parent-showback.png) |
 
-## 3. Postgres — instances + cards
+## 3. Remaining deeper walks (substrate up on hw133, end-to-end walk pending)
 
-| Check | Try it | Now | Proof |
-|---|---|---|---|
-| 3 shared instances live | — | ✅ | kubectl: `shared-pg`, `shared-pg-b`, `shared-pg-c` healthy 13:23Z |
-| 1 card per instance | [cards](https://console.hw130.omantel.biz/catalog/bp-cnpg) | ✅ | [7-card shot](../sessions/2026-06-12/evidence/hw130-7-instance-cards-PROOF.png) (pre-b/c; now renders 9) |
-| gitea+harbor ON shared-pg | — | ✅ | 110+49 tables on the engine |
-| keycloak+grafana on shared | — | ❌ | flips merged ([#3366](https://github.com/openova-io/openova/pull/3366)), live adoption unverified |
-| pdns/pda/sme on shared | — | ❌ | declared ready-to-adopt only |
-
-## 3a. #3370 Contexts — generic multi-application reusability (PR open, NOT merged — local-build evidence pending the post-merge live re-walk)
-
-Every proof below ran the REAL code of the #3370 PR branch: the real `catalyst-api` binary + the real
-`application-controller` against a REAL kube-apiserver (envtest v1.36) seeded with the hw130 bootstrap
-state (slots 16a/16c/16d, SHARED_PG=true), and the console UI dev build on top of that stack. The live
-hw130 console cannot carry these changes until the founder merges; each row re-walks live post-merge.
-
-| DoD box | Check | Now | Proof |
-|---|---|---|---|
-| 1 | blueprint `shareable` + `contextSchema`; catalog badge (shareable vs non-shareable) | ✅ local | [catalog-tab badges](../sessions/2026-06-12/evidence/3370-G-catalog-tab-shareable-badges.png) · [bp-postgres hero badge](../sessions/2026-06-12/evidence/3370-B-catalog-bp-postgres.png) · [bp-valkey](../sessions/2026-06-12/evidence/3370-F1-catalog-bp-valkey-shareable.png) |
-| 2 | 1 Application CR per postgres instance; `kubectl get hr -A` before/after byte-identical (adoption) | ✅ local | [envtest adoption walk](../sessions/2026-06-12/evidence/3370-envtest-adoption-no-duplicate-hr.txt) + unit tests `TestReconcile_BootstrapOwnedAdoption_*` |
-| 3 | /apps: 3 instance cards with `⛓ N contexts` badges | ✅ local | [shot](../sessions/2026-06-12/evidence/3370-A-apps-instance-cards.png) |
-| 4 | /catalog/bp-postgres: topologies + New instance + instance lines → /app/$id; Data-instances panel GONE | ✅ local | [shot](../sessions/2026-06-12/evidence/3370-B-catalog-bp-postgres.png) + deletion diff in the PR + deletion-lock test |
-| 5 | /app/shared-pg Contexts tab (db/gitea · gitea → · secret · ready ×3); consumer `Depends on: <instance> / db:<ctx>` | ✅ local | [contexts tab](../sessions/2026-06-12/evidence/3370-C-app-shared-pg-contexts-tab.png) · [consumer page](../sessions/2026-06-12/evidence/3370-D-app-wiki-depends-on.png) |
-| 6 | journey: topology at spawn; DEFAULT auto-creates backing as own card; ADVANCED reuse → new Context row | ✅ local | [dialog](../sessions/2026-06-12/evidence/3370-E1-new-instance-dialog-default.png) · [reuse dropdown](../sessions/2026-06-12/evidence/3370-E2-new-instance-dialog-reuse-dropdown.png) · [new Context row](../sessions/2026-06-12/evidence/3370-E3-demo-pg-new-context-row-shop.png) · [wire walk](../sessions/2026-06-12/evidence/3370-envtest-provisioning-journey.txt) |
-| 7 | generality: valkey keyspace Context through the SAME mechanism, declarations only | ✅ local | [keyspace Context row](../sessions/2026-06-12/evidence/3370-F2-app-demo-cache-keyspace-context.png) + wire walk §5 |
-| 8 | ≥2 embedded DBs eliminated (pda + SME seams behind enable_shared_pg) | PR open | byte-identical default renders proven in the PR; live elimination needs a SHARED_PG prov post-merge |
-| — | Application CRD CEL admission on a real apiserver (bootstrap waiver accept/reject) | ✅ local | [CEL walk](../sessions/2026-06-12/evidence/3370-envtest-crd-cel.txt) |
-| — | API wire: 3 instances + Contexts (§5 target table) + /sovereign/apps instance rows | ✅ local | [wire capture](../sessions/2026-06-12/evidence/3370-envtest-api-wire.txt) |
-
-## 4. Multi-region
-
-| Check | Now | Proof |
+| Item | State on hw133 | Pending |
 |---|---|---|
-| mesh both regions | ✅ | 1/1 remote ready |
-| cross-region sync replication | ✅ | `pg_stat_replication` streaming/sync |
-| region-kill survives, 0 loss | ✅ | [hw128 walk](../sessions/2026-06-11/hw128-region-kill-walk-PASS.md) |
-| gitea/openbao/etc per-app multi-region | ❌ | not executed — [#2745](https://github.com/openova-io/openova/issues/2745) |
-
-### 4a. Topology / DR convergence — [#3375](https://github.com/openova-io/openova/issues/3375), measured live on hw130 2026-06-13
-
-| DoD box | Now | Proof (hw130, same-day) |
-|---|---|---|
-| Schema reconciliation — `spec.topology` canonical, orphan flagged, CRD CEL | ✅ | [topology-matrix §canonical-shape](../topology-matrix.md) (#3395) |
-| `docs/topology-matrix.md` — 90 rows + convergence cols, amendments flagged | ✅ | [topology-matrix](../topology-matrix.md) (#3395 + oidc-gate row this PR) |
-| CI lint + red-proof + G116 admission gate | ✅ | `scripts/test-topology-admission-gate.sh` → ALL CASES PASS (91 green + 4 red) |
-| Cluster-ID registry → real per-region kubeconfig Secrets; `KubeConfigSecretFor` wired | ✅ | unit tests green; [live Secrets proof](../sessions/2026-06-13/evidence/3375-LIVE-cluster-id-registry-proof.txt) (vc-mgmt/vc-rtz/vc-dmz, valid kubeconfig) |
-| cnpg-pair both regions healthy (intra-cluster HA; #3322/#3400) | ✅ | [both regions 3/3](../sessions/2026-06-13/evidence/3375-LIVE-cnpg-pair-both-regions.txt) |
-| cnpg-pair **continuum-driven switchover** machinery walked | ✅ machinery | [continuum dry-run plan](../sessions/2026-06-13/evidence/3375-LIVE-continuum-driven-switchover-dryrun.json) — 7-step plan, lease+swap compute |
-| cnpg-pair **full region-kill** (replica streaming, promote, 0 loss) | ⏸ DEFERRED to fresh-prov | continuum step-2 BLOCKS: pair incomplete (replica not streaming). [cross-VPC WAL dead](../sessions/2026-06-13/evidence/3375-LIVE-cross-vpc-wal-receiver.txt) (`lsn=0/5000000`, 0 receivers) — gated on VPC peering [#3307](https://github.com/openova-io/openova/issues/3307). [verdict](../sessions/2026-06-13/evidence/3375-LIVE-walk-verdict.md) |
-| gitea/openbao/valkey/harbor row mechanisms (CLASS-B) | ⏸ DEFERRED | matrix CLASS-B checklist; same cross-VPC gate |
-
-## 5. Jobs
-
-| Check | Try it | Now | Proof |
-|---|---|---|---|
-| both regions listed | [jobs](https://console.hw130.omantel.biz/jobs) | ✅ | [shot](../sessions/2026-06-12/evidence/hw130-jobs-page-postimport.png) — 127 rows incl. 60 region-b |
-| search box | same | ❌ crashes | [#3367](https://github.com/openova-io/openova/issues/3367) |
-
-## 6. Funnel — voucher → running tenant
-
-| Step | Try it | Now | Proof |
-|---|---|---|---|
-| issue voucher | [BSS](https://console.hw130.omantel.biz/bss) | ✅ | [shot](../sessions/2026-06-12/evidence/hw130-funnel-1-bss-voucher.png) |
-| marketplace + redeem + PIN checkout | [marketplace](https://marketplace.hw130.omantel.biz/) | ✅ | [shots 2-5](../sessions/2026-06-12/evidence/hw130-funnel-5-checkout.png) |
-| voucher-code entropy (auto-gen + strength floor) | [BSS](https://console.hw130.omantel.biz/bss) | 🟡 code merged | [#3404](https://github.com/openova-io/openova/pull/3404) — `crypto/rand` base32 default + distinct-char floor; live-walk pending fresh prov |
-| tenant actually provisions | — | 🟡 wire merged | [#3404](https://github.com/openova-io/openova/pull/3404) — mother→child phase0 tofu-archive push (`exportTofuArchiveToChild` from `fireHandover`+`MintHandoverToken`) + child OpenBao k8s-auth seal (`ReceiveTofuArchive` no longer 503s) → cutover un-gates → Step 09 patches `sme/provisioning-github-token` → init proceeds. Live-walk pending fresh prov (current hw130 SME services CrashLoop on stale host NATS from the in-flight #3373 mgmt-vcluster move — pre-existing, not this wire). Refs [#3376](https://github.com/openova-io/openova/issues/3376) |
-
-## 7. vClusters — every app in dmz/mgmt/rtz
-
-| Check | Now | Proof |
-|---|---|---|
-| zone declared for all apps | ✅ | 0 undeclared |
-| apps running inside | ❌ 4/48 | coraza, sandbox, +LGTM merged ([#3361](https://github.com/openova-io/openova/pull/3361)) |
-| carve-outs (4 apps) | awaiting founder | [#2745](https://github.com/openova-io/openova/issues/2745) |
-| placement = data ([#3373](https://github.com/openova-io/openova/issues/3373)) | PR open, pre-merge | [placement.yaml](../../clusters/_template/bootstrap-kit/placement.yaml) is the single truth (62 slots, §4 table verbatim); `render-slot-placement.py check` + `audit-placement-conformance.py` CI-gated; PROMOTE-NOW (nats/keycloak/catalyst-platform→mgmt) + gitea (fix-proof) converted as data; [live baseline](../sessions/2026-06-13/evidence/placement-audit-live-hw130a-pre-merge-baseline.txt) (found stale host loki/mimir residue from the LGTM move); [default-flow shot](../sessions/2026-06-13/evidence/3373-dod2-default-flow-no-vcluster.png) · [advanced-flow shot](../sessions/2026-06-13/evidence/3373-dod2-advanced-flow-placement-rtz.png) · [instance-page shot](../sessions/2026-06-13/evidence/3373-dod3-instance-page-placement-rtz.png) (local mock build — live re-walk post-merge) |
-
-## 8. Console + env
-
-| Check | Try it | Now |
-|---|---|---|
-| mothership shows hw130 | [mothership](https://console.openova.io/sovereign) | ✅ ready |
-| dashboard | [open](https://console.hw130.omantel.biz/dashboard) | ✅ (region-a only in treemap) |
-| cloud 2 regions | [open](https://console.hw130.omantel.biz/cloud) | ✅ |
+| #3376 FUNNEL (voucher→tenant→signed-in) | SME stack running in `sme` ns | the end-to-end redeem walk |
+| #3375 region-kill DR | cnpg-pair primary present, #3307 peering at boot | continuum-driven kill + promote walk |
+| #3379 cutover | dormant at slot-06a | post-handover 8-tether pivot + 10-min egress hold |
+| #3373 vCluster re-home | mgmt/dmz/rtz vclusters live | founder decision: OSS Pro-gating (license / host-bridge / host-side) |

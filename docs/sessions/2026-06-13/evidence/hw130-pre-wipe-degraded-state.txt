@@ -1,0 +1,149 @@
+# hw130 (526540f27f4acfbc) pre-wipe forensic — 2026-06-13
+## console
+HTTP/1.1 200 OK
+## region A non-Ready HRs
+NAMESPACE     NAME                               AGE   READY   STATUS
+dmz           bp-coraza                          37h   True    Helm install succeeded for release coraza/coraza.v1 with chart bp-coraza@1.0.0
+flux-system   bp-alloy                           37h   True    Helm install succeeded for release alloy/alloy.v1 with chart bp-alloy@1.0.1
+flux-system   bp-catalyst-platform               12h   True    Helm upgrade succeeded for release catalyst-system/catalyst-platform.v7 with chart bp-catalyst-platform@1.4.606
+flux-system   bp-cert-manager                    37h   True    Helm install succeeded for release cert-manager/cert-manager.v1 with chart bp-cert-manager@1.2.5
+flux-system   bp-cert-manager-powerdns-webhook   37h   True    Helm install succeeded for release cert-manager/cert-manager-powerdns-webhook.v1 with chart bp-cert-manager-powerdns-webhook@1.1.0
+flux-system   bp-cilium                          37h   True    Helm upgrade succeeded for release kube-system/cilium.v2 with chart bp-cilium@1.4.1
+flux-system   bp-cnpg                            37h   True    Helm install succeeded for release cnpg-system/cnpg.v1 with chart bp-cnpg@1.0.9
+flux-system   bp-cnpg-pair                       37h   True    Helm upgrade succeeded for release cnpg/cnpg-pair.v13 with chart bp-cnpg-pair@0.2.4
+flux-system   bp-continuum                       37h   True    Helm install succeeded for release catalyst-system/continuum.v1 with chart bp-continuum@0.1.5
+flux-system   bp-crossplane                      37h   True    Helm install succeeded for release crossplane-system/crossplane.v1 with chart bp-crossplane@1.1.4
+flux-system   bp-crossplane-claims               37h   True    Helm install succeeded for release crossplane-system/crossplane-claims.v1 with chart bp-crossplane-claims@1.1.5
+flux-system   bp-dmz-vcluster                    37h   True    Helm upgrade succeeded for release dmz/dmz-vcluster.v2 with chart bp-dmz-vcluster@0.2.6
+flux-system   bp-external-dns                    37h   True    Helm install succeeded for release external-dns/external-dns.v1 with chart bp-external-dns@1.1.8
+flux-system   bp-external-secrets                37h   True    Helm upgrade succeeded for release external-secrets-system/external-secrets.v2 with chart bp-external-secrets@1.1.3
+flux-system   bp-external-secrets-stores         37h   False   dependency 'flux-system/bp-openbao' is not ready
+flux-system   bp-falco                           37h   True    Helm install succeeded for release falco/falco.v1 with chart bp-falco@1.0.1
+flux-system   bp-flux                            37h   True    Helm install succeeded for release flux-system/flux.v1 with chart bp-flux@1.2.6
+flux-system   bp-gateway-api                     37h   True    Helm install succeeded for release flux-system/gateway-api.v1 with chart bp-gateway-api@1.1.0
+flux-system   bp-gitea                           12h   True    Helm upgrade succeeded for release gitea/gitea.v3 with chart bp-gitea@1.2.34
+flux-system   bp-grafana                         37h   True    Helm upgrade succeeded for release grafana/grafana.v3 with chart bp-grafana@1.0.12
+flux-system   bp-guacamole                       37h   True    Helm upgrade succeeded for release catalyst-system/guacamole.v18 with chart bp-guacamole@0.2.8
+flux-system   bp-harbor                          37h   True    Helm upgrade succeeded for release harbor/harbor.v2 with chart bp-harbor@1.2.30
+flux-system   bp-k8s-ws-proxy                    37h   True    Helm install succeeded for release catalyst-system/k8s-ws-proxy.v1 with chart bp-k8s-ws-proxy@0.1.14
+flux-system   bp-keycloak                        12h   True    Helm upgrade succeeded for release keycloak/keycloak.v4 with chart bp-keycloak@1.4.27
+flux-system   bp-kyverno                         37h   True    Helm upgrade succeeded for release kyverno/kyverno.v2 with chart bp-kyverno@1.3.6
+flux-system   bp-kyverno-policies                37h   True    Helm upgrade succeeded for release kyverno/kyverno-policies.v3 with chart bp-kyverno-policies@1.0.32
+flux-system   bp-loki                            37h   False   Helm uninstall failed for release loki/loki.v1 with chart bp-loki@1.0.0: failed to delete release: loki
+flux-system   bp-mgmt-vcluster                   37h   True    Helm upgrade succeeded for release mgmt/mgmt-vcluster.v2 with chart bp-mgmt-vcluster@0.2.7
+flux-system   bp-mimir                           37h   False   Helm uninstall failed for release mimir/mimir.v1 with chart bp-mimir@1.0.5: failed to delete release: mimir
+flux-system   bp-nats-jetstream                  37h   False   Helm uninstall failed for release nats-system/nats-jetstream.v1 with chart bp-nats-jetstream@1.3.3: failed to delete release: nats-jetstream
+flux-system   bp-network-policies                37h   True    Helm install succeeded for release catalyst-system/network-policies.v1 with chart bp-network-policies@1.0.4
+flux-system   bp-newapi                          37h   False   dependency 'flux-system/bp-openbao' is not ready
+flux-system   bp-oidc-gate                       11h   False   dependency 'flux-system/bp-external-secrets-stores' is not ready
+flux-system   bp-openbao                         37h   False   Helm rollback to previous release openbao/openbao.v26 with chart bp-openbao@1.2.30 succeeded
+flux-system   bp-openova-flow-emitter            37h   True    Helm install succeeded for release catalyst-system/openova-flow-emitter.v1 with chart bp-openova-flow-emitter@0.1.1
+flux-system   bp-openova-flow-server             37h   True    Helm upgrade succeeded for release catalyst-system/openova-flow-server.v2 with chart bp-openova-flow-server@0.2.3
+flux-system   bp-opentelemetry                   37h   True    Helm install succeeded for release opentelemetry/opentelemetry.v1 with chart bp-opentelemetry@1.2.1
+flux-system   bp-opentelemetry-operator          37h   True    Helm install succeeded for release opentelemetry/opentelemetry-operator.v1 with chart bp-opentelemetry-operator@1.0.4
+flux-system   bp-postgres-shared                 37h   True    Helm upgrade succeeded for release shared-data/shared-pg.v21 with chart bp-postgres@0.1.8
+flux-system   bp-postgres-shared-b               18h   True    Helm upgrade succeeded for release shared-data/shared-pg-b.v18 with chart bp-postgres@0.1.8
+flux-system   bp-postgres-shared-c               18h   True    Helm upgrade succeeded for release shared-data/shared-pg-c.v18 with chart bp-postgres@0.1.8
+flux-system   bp-powerdns                        37h   True    Helm install succeeded for release powerdns/powerdns.v1 with chart bp-powerdns@1.2.12
+flux-system   bp-powerdns-admin                  37h   False   dependency 'flux-system/bp-sso-bridge' is not ready
+flux-system   bp-reflector                       37h   True    Helm install succeeded for release reflector/reflector.v1 with chart bp-reflector@1.0.0
+flux-system   bp-reloader                        37h   True    Helm install succeeded for release reloader/reloader.v1 with chart bp-reloader@1.0.0
+flux-system   bp-rtz-vcluster                    37h   True    Helm upgrade succeeded for release rtz/rtz-vcluster.v2 with chart bp-rtz-vcluster@0.2.7
+flux-system   bp-sealed-secrets                  37h   True    Helm install succeeded for release kube-system/sealed-secrets.v1 with chart bp-sealed-secrets@1.1.2
+flux-system   bp-seaweedfs                       37h   True    Helm install succeeded for release seaweedfs/seaweedfs.v1 with chart bp-seaweedfs@1.2.1
+flux-system   bp-self-sovereign-cutover          37h   True    Helm install succeeded for release catalyst/self-sovereign-cutover.v1 with chart bp-self-sovereign-cutover@0.1.56
+flux-system   bp-sigstore                        37h   True    Helm install succeeded for release sigstore-system/sigstore.v1 with chart bp-sigstore@1.0.0
+flux-system   bp-sso-bridge                      37h   False   dependency 'flux-system/bp-openbao' is not ready
+flux-system   bp-syft-grype                      37h   True    Helm install succeeded for release syft-grype/syft-grype.v1 with chart bp-syft-grype@1.0.0
+flux-system   bp-trivy                           37h   True    Helm install succeeded for release trivy-system/trivy.v1 with chart bp-trivy@1.0.3
+flux-system   bp-valkey                          37h   True    Helm upgrade succeeded for release valkey/valkey.v12 with chart bp-valkey@1.1.2
+flux-system   bp-vcluster-helmrepo               37h   True    Helm install succeeded for release flux-system/vcluster-helmrepo.v1 with chart bp-vcluster-helmrepo@0.2.0
+flux-system   bp-velero-hcs                      37h   True    Helm upgrade succeeded for release velero/velero.v3 with chart bp-velero-hcs@0.1.1
+flux-system   bp-vllm                            37h   True    Helm install succeeded for release vllm/vllm.v1 with chart bp-vllm@1.0.0
+flux-system   bp-vpa                             37h   True    Helm install succeeded for release vpa/vpa.v1 with chart bp-vpa@1.0.1
+mgmt          bp-loki                            19h   True    Helm install succeeded for release loki/loki.v1 with chart bp-loki@1.0.0
+mgmt          bp-mimir                           19h   True    Helm install succeeded for release mimir/mimir.v1 with chart bp-mimir@1.0.5
+mgmt          bp-nats-jetstream                  12h   True    Helm install succeeded for release nats-system/nats-jetstream.v1 with chart bp-nats-jetstream@1.3.3
+mgmt          bp-tempo                           19h   True    Helm install succeeded for release tempo/tempo.v1 with chart bp-tempo@1.0.0
+rtz           bp-sandbox                         37h   True    Helm install succeeded for release catalyst-system/sandbox.v1 with chart sandbox@0.3.10
+## region A SME pods (NATS-migration crashloop)
+NAME                            READY   STATUS             RESTARTS         AGE
+admin-647bf979d6-htdqx          1/1     Running            0                11h
+auth-85596585c4-htjgz           0/1     CrashLoopBackOff   134 (5m5s ago)   11h
+auth-89444f57d-jjpqc            0/1     CrashLoopBackOff   8 (2m28s ago)    19m
+billing-647df9567d-644t7        0/1     CrashLoopBackOff   135 (98s ago)    11h
+billing-84748cf858-gfw2x        0/1     CrashLoopBackOff   8 (3m8s ago)     19m
+catalog-6df786d66d-f6rgw        1/1     Running            0                7m35s
+console-dfb485cfb-gbmmd         1/1     Running            0                11h
+domain-6b879c664d-zh8gn         0/1     CrashLoopBackOff   135 (69s ago)    11h
+domain-ccdfc5948-9gj5h          0/1     CrashLoopBackOff   8 (3m8s ago)     19m
+ferretdb-6f6cb7bd54-n4l6h       1/1     Running            0                11h
+gateway-7df8fdb449-ghtcl        1/1     Running            0                7m35s
+marketplace-79d6d48486-qlvdn    1/1     Running            0                11h
+notification-68fc5994d5-p5z98   0/1     CrashLoopBackOff   135 (37s ago)    11h
+notification-77cd8dc8bf-m5pnk   0/1     CrashLoopBackOff   8 (2m15s ago)    19m
+provisioning-6cb88b6f9d-srd4l   0/1     Init:0/1           0                19m
+provisioning-88546bd78-z456w    0/1     Init:0/1           22 (8m39s ago)   11h
+sme-pg-1                        1/1     Running            0                11h
+sme-pg-2                        1/1     Running            0                11h
+tenant-6c496cb75-gxs6h          0/1     CrashLoopBackOff   8 (3m12s ago)    19m
+tenant-6f4dcb5cbc-qqjmr         0/1     CrashLoopBackOff   135 (11s ago)    11h
+## region B non-Ready HRs
+NAMESPACE     NAME                               AGE   READY   STATUS
+dmz           bp-coraza                          37h   True    Helm install succeeded for release coraza/coraza.v1 with chart bp-coraza@1.0.0
+flux-system   bp-alloy                           37h   True    Helm install succeeded for release alloy/alloy.v1 with chart bp-alloy@1.0.1
+flux-system   bp-cert-manager                    37h   True    Helm install succeeded for release cert-manager/cert-manager.v1 with chart bp-cert-manager@1.2.5
+flux-system   bp-cert-manager-powerdns-webhook   37h   True    Helm install succeeded for release cert-manager/cert-manager-powerdns-webhook.v1 with chart bp-cert-manager-powerdns-webhook@1.1.0
+flux-system   bp-cilium                          37h   True    Helm upgrade succeeded for release kube-system/cilium.v2 with chart bp-cilium@1.4.1
+flux-system   bp-cnpg                            37h   True    Helm install succeeded for release cnpg-system/cnpg.v1 with chart bp-cnpg@1.0.9
+flux-system   bp-cnpg-pair                       37h   True    Helm upgrade succeeded for release cnpg/cnpg-pair.v5 with chart bp-cnpg-pair@0.2.4
+flux-system   bp-crossplane                      37h   True    Helm install succeeded for release crossplane-system/crossplane.v1 with chart bp-crossplane@1.1.4
+flux-system   bp-crossplane-claims               37h   True    Helm install succeeded for release crossplane-system/crossplane-claims.v1 with chart bp-crossplane-claims@1.1.5
+flux-system   bp-dmz-vcluster                    37h   True    Helm upgrade succeeded for release dmz/dmz-vcluster.v2 with chart bp-dmz-vcluster@0.2.6
+flux-system   bp-external-dns                    37h   True    Helm install succeeded for release external-dns/external-dns.v1 with chart bp-external-dns@1.1.8
+flux-system   bp-external-secrets                37h   True    Helm install succeeded for release external-secrets-system/external-secrets.v1 with chart bp-external-secrets@1.1.3
+flux-system   bp-external-secrets-stores         37h   True    Helm install succeeded for release external-secrets-system/external-secrets-stores.v1 with chart bp-external-secrets-stores@1.0.6
+flux-system   bp-falco                           37h   True    Helm install succeeded for release falco/falco.v1 with chart bp-falco@1.0.1
+flux-system   bp-flux                            37h   True    Helm install succeeded for release flux-system/flux.v1 with chart bp-flux@1.2.6
+flux-system   bp-gateway-api                     37h   True    Helm install succeeded for release flux-system/gateway-api.v1 with chart bp-gateway-api@1.1.0
+flux-system   bp-gitea                           12h   False   dependency 'flux-system/bp-keycloak' is not ready
+flux-system   bp-grafana                         37h   False   dependency 'flux-system/bp-keycloak' is not ready
+flux-system   bp-guacamole                       37h   False   dependency 'flux-system/bp-keycloak' is not ready
+flux-system   bp-harbor                          37h   True    Helm upgrade succeeded for release harbor/harbor.v3 with chart bp-harbor@1.2.30
+flux-system   bp-k8s-ws-proxy                    37h   True    Helm install succeeded for release catalyst-system/k8s-ws-proxy.v1 with chart bp-k8s-ws-proxy@0.1.14
+flux-system   bp-keycloak                        12h   False   Helm install failed for release keycloak/keycloak with chart bp-keycloak@1.4.27: failed post-install: 1 error occurred:...
+flux-system   bp-kyverno                         37h   True    Helm install succeeded for release kyverno/kyverno.v1 with chart bp-kyverno@1.3.6
+flux-system   bp-kyverno-policies                37h   True    Helm upgrade succeeded for release kyverno/kyverno-policies.v2 with chart bp-kyverno-policies@1.0.32
+flux-system   bp-mgmt-vcluster                   37h   True    Helm upgrade succeeded for release mgmt/mgmt-vcluster.v2 with chart bp-mgmt-vcluster@0.2.7
+flux-system   bp-network-policies                37h   True    Helm install succeeded for release catalyst-system/network-policies.v1 with chart bp-network-policies@1.0.4
+flux-system   bp-newapi                          37h   False   dependency 'flux-system/bp-keycloak' is not ready
+flux-system   bp-oidc-gate                       11h   False   dependency 'flux-system/bp-keycloak' is not ready
+flux-system   bp-openbao                         37h   True    Helm upgrade succeeded for release openbao/openbao.v4 with chart bp-openbao@1.2.31
+flux-system   bp-openova-flow-emitter            37h   True    Helm install succeeded for release catalyst-system/openova-flow-emitter.v1 with chart bp-openova-flow-emitter@0.1.1
+flux-system   bp-openova-flow-server             37h   True    Helm upgrade succeeded for release catalyst-system/openova-flow-server.v2 with chart bp-openova-flow-server@0.2.3
+flux-system   bp-opentelemetry                   37h   True    Helm install succeeded for release opentelemetry/opentelemetry.v1 with chart bp-opentelemetry@1.2.1
+flux-system   bp-opentelemetry-operator          37h   True    Helm upgrade succeeded for release opentelemetry/opentelemetry-operator.v2 with chart bp-opentelemetry-operator@1.0.4
+flux-system   bp-postgres-shared                 37h   True    Helm upgrade succeeded for release shared-data/shared-pg.v7 with chart bp-postgres@0.1.8
+flux-system   bp-postgres-shared-b               18h   True    Helm upgrade succeeded for release shared-data/shared-pg-b.v4 with chart bp-postgres@0.1.8
+flux-system   bp-postgres-shared-c               18h   True    Helm upgrade succeeded for release shared-data/shared-pg-c.v4 with chart bp-postgres@0.1.8
+flux-system   bp-powerdns                        37h   True    Helm upgrade succeeded for release powerdns/powerdns.v2 with chart bp-powerdns@1.2.12
+flux-system   bp-powerdns-admin                  37h   False   dependency 'flux-system/bp-keycloak' is not ready
+flux-system   bp-reflector                       37h   True    Helm install succeeded for release reflector/reflector.v1 with chart bp-reflector@1.0.0
+flux-system   bp-reloader                        37h   True    Helm install succeeded for release reloader/reloader.v1 with chart bp-reloader@1.0.0
+flux-system   bp-rtz-vcluster                    37h   True    Helm upgrade succeeded for release rtz/rtz-vcluster.v2 with chart bp-rtz-vcluster@0.2.7
+flux-system   bp-sealed-secrets                  37h   True    Helm install succeeded for release kube-system/sealed-secrets.v1 with chart bp-sealed-secrets@1.1.2
+flux-system   bp-seaweedfs                       37h   True    Helm install succeeded for release seaweedfs/seaweedfs.v1 with chart bp-seaweedfs@1.2.1
+flux-system   bp-sigstore                        37h   True    Helm install succeeded for release sigstore-system/sigstore.v1 with chart bp-sigstore@1.0.0
+flux-system   bp-sso-bridge                      37h   False   dependency 'flux-system/bp-keycloak' is not ready
+flux-system   bp-syft-grype                      37h   True    Helm install succeeded for release syft-grype/syft-grype.v1 with chart bp-syft-grype@1.0.0
+flux-system   bp-trivy                           37h   True    Helm install succeeded for release trivy-system/trivy.v1 with chart bp-trivy@1.0.3
+flux-system   bp-valkey                          37h   True    Helm upgrade succeeded for release valkey/valkey.v4 with chart bp-valkey@1.1.2
+flux-system   bp-vcluster-helmrepo               37h   True    Helm install succeeded for release flux-system/vcluster-helmrepo.v1 with chart bp-vcluster-helmrepo@0.2.0
+flux-system   bp-velero-hcs                      37h   True    Helm upgrade succeeded for release velero/velero.v3 with chart bp-velero-hcs@0.1.1
+flux-system   bp-vllm                            37h   True    Helm install succeeded for release vllm/vllm.v1 with chart bp-vllm@1.0.0
+flux-system   bp-vpa                             37h   True    Helm install succeeded for release vpa/vpa.v1 with chart bp-vpa@1.0.1
+mgmt          bp-loki                            19h   True    Helm install succeeded for release loki/loki.v1 with chart bp-loki@1.0.0
+mgmt          bp-mimir                           19h   True    Helm install succeeded for release mimir/mimir.v1 with chart bp-mimir@1.0.5
+mgmt          bp-nats-jetstream                  12h   True    Helm install succeeded for release nats-system/nats-jetstream.v1 with chart bp-nats-jetstream@1.3.3
+mgmt          bp-tempo                           19h   True    Helm install succeeded for release tempo/tempo.v1 with chart bp-tempo@1.0.0
+## DIAGNOSIS: openbao rollback-loop (PR#3404 seal-auth needs clean boot) + nats-jetstream stuck failed-uninstall (#3373 NATS->vcluster half-applied) + SME services crashloop. Console chain held (200). Remaining feature walks structurally require fresh prov.
