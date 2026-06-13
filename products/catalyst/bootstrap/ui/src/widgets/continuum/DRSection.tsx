@@ -63,6 +63,13 @@ export interface DRSectionProps {
    * raft-transition) surfaced in the contract line when no live CR exists.
    */
   switchoverMechanism?: string | null
+  /**
+   * #3375 — whether this variant carries an operator-initiated switchover.
+   * false for active-active apps that declare `switchover: none` (both
+   * regions serve, no promotion) — the panel then shows the replication
+   * posture but no Switchover button. Defaults true for back-compat.
+   */
+  hasSwitchover?: boolean
   /** Test seam — pre-fill the Continuum CR + audit list, skip network. */
   initialContinuum?: ContinuumGetResponse
   /** Test seam — bypass the audit fetch + network calls. */
@@ -77,6 +84,7 @@ export function DRSection({
   callerTier,
   declaredClass,
   switchoverMechanism,
+  hasSwitchover = true,
   initialContinuum,
   disableNetwork = false,
 }: DRSectionProps) {
@@ -151,8 +159,9 @@ export function DRSection({
   // switchover — the catalyst-api handler defaults the target to the first
   // hot-standby region server-side, so we pass an empty target and let the
   // dialog/handler resolve it. This is what makes the control walkable
-  // rather than permanently absent.
-  const canSwitchover = isOwner && (!!failoverTarget || crMissing)
+  // rather than permanently absent. Suppressed entirely when the variant
+  // declares no switchover (active-active / none).
+  const canSwitchover = hasSwitchover && isOwner && (!!failoverTarget || crMissing)
 
   return (
     <section
@@ -163,7 +172,14 @@ export function DRSection({
         <h3 className="text-sm font-semibold text-[var(--color-text-strong)]">
           {heading}
         </h3>
-        {canSwitchover ? (
+        {!hasSwitchover ? (
+          <span
+            data-testid="continuum-dr-no-switchover"
+            className="text-xs text-[var(--color-text-dim)]"
+          >
+            Both regions serve — no switchover
+          </span>
+        ) : canSwitchover ? (
           <button
             type="button"
             data-testid="continuum-dr-switchover-btn"

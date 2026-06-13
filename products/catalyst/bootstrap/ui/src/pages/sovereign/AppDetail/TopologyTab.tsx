@@ -273,6 +273,16 @@ export function TopologyTab({
   }, [liveClass, declaredClass])
   const showDR = isDRCapableClass(effectiveDRClass)
 
+  // Whether this variant carries an operator-initiated switchover. active-active
+  // apps that declare `switchover: none` (e.g. clickhouse/iceberg/vllm — both
+  // regions serve, no promotion) get the replication/DR info but NO Switchover
+  // button (there's nothing to promote). hot-standby / active-passive always do.
+  const switchoverMechanism = declaredVariant?.switchover?.mechanism ?? null
+  const hasSwitchover =
+    effectiveDRClass === 'active-hot-standby' ||
+    effectiveDRClass === 'active-passive' ||
+    (!!switchoverMechanism && switchoverMechanism.toLowerCase() !== 'none')
+
   useEffect(() => {
     // When initialApp updates, just trigger no-op so consumers re-derive.
   }, [initialApp])
@@ -395,7 +405,8 @@ export function TopologyTab({
           namespace={namespace}
           callerTier={callerTier}
           declaredClass={effectiveDRClass}
-          switchoverMechanism={declaredVariant?.switchover?.mechanism ?? null}
+          switchoverMechanism={switchoverMechanism}
+          hasSwitchover={hasSwitchover}
           disableNetwork={disableNetwork}
         />
       ) : null}
