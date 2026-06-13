@@ -2692,7 +2692,7 @@ name: bp-catalyst-platform
 # catalyst-gitea-token PAT as the GITEA_TOKEN env via secretKeyRef (same-ns,
 # kubelet-resolved at Pod start, no kubectl, no Role) and use token auth for
 # all Gitea calls. Drops the SA + gitea-ns Role/RoleBinding entirely.
-version: 1.4.619
+version: 1.4.620
 # 1.4.597 — #3373 (2026-06-13) — coupling fix (a) placement-as-data:
 # templates/httproute.yaml backendRefs honor new
 # ingress.gateway.backendServiceApi / backendServiceUi overrides. When
