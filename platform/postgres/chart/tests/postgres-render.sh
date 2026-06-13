@@ -337,4 +337,48 @@ if grep -qE '^kind: Application$' "$TMP/appcr-off.yaml"; then
   fail "#3370: Application CR rendered with bootstrapOwned OFF (would duplicate the controller-created CR)"
 fi
 
-echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty; 3-instance shapes locked; #3370 Application-CR self-registration locked)"
+# ── Case 11: #3375 — underscore OWNER → sanitized role-Secret name ────
+# An owner with a legal-Postgres underscore (openova_flow) must render the
+# RFC-1123-valid role-Secret name `shared-pg-c-openova-flow` AND the CNPG
+# managed.roles[].passwordSecret.name must reference the SAME sanitized
+# name (cluster.yaml + role-secrets.yaml share the roleSecretName helper).
+# The PG role + username keep the verbatim underscore'd identifier. Locks
+# the hw133 shared-pg-c Stalled fix (Secret "…-openova_flow" was invalid).
+echo "[render] Case 11: underscore owner → sanitized role-Secret name (#3375)"
+cat > "$TMP/uscore.values.yaml" <<'YAML'
+instance:
+  name: shared-pg-c
+  namespace: shared-data
+topology:
+  mode: singleton
+  instances: 1
+databases:
+  - name: openova_flow
+    owner: openova_flow
+    consumer: { blueprint: bp-openova-flow, mode: shared }
+    reflect: { namespaces: [catalyst-system] }
+YAML
+helm template shared-pg-c . -f "$TMP/uscore.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/uscore.yaml" 2> "$TMP/uscore.err" || {
+  cat "$TMP/uscore.err" >&2; fail "underscore-owner render errored"; }
+# The role-password Secret name (Secret metadata.name, 2-space indent) is sanitized.
+grep -qE '^  name: "?shared-pg-c-openova-flow"?$' "$TMP/uscore.yaml" \
+  || fail "#3375: role Secret name not sanitized (expected shared-pg-c-openova-flow)"
+# The CNPG managed role references the SAME sanitized Secret name (10-space
+# indent under managed.roles[].passwordSecret) — proves the cluster.yaml +
+# role-secrets.yaml lockstep via the shared roleSecretName helper.
+grep -qE '^          name: "?shared-pg-c-openova-flow"?$' "$TMP/uscore.yaml" \
+  || fail "#3375: managed.roles passwordSecret.name not sanitized / not in lockstep"
+# The Database CR's OWN metadata.name (2-space indent) is sanitized too
+# (0.1.5 contract); no k8s object name carries the underscore.
+if grep -qE '^  name: "?shared-pg-c-[a-z0-9-]*_' "$TMP/uscore.yaml"; then
+  fail "#3375: a k8s resource name leaked an underscore"
+fi
+# The PG role + username + Database spec.name keep the verbatim underscore'd
+# identifier (Postgres permits it; only the k8s OBJECT names are sanitized).
+grep -qE '^      - name: "openova_flow"$' "$TMP/uscore.yaml" \
+  || fail "#3375: managed role name should keep the verbatim openova_flow identifier"
+grep -q 'username: "openova_flow"' "$TMP/uscore.yaml" \
+  || fail "#3375: role Secret username should keep the verbatim openova_flow identifier"
+
+echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty; 3-instance shapes locked; #3370 Application-CR self-registration locked; #3375 underscore-owner role-Secret sanitization locked)"
