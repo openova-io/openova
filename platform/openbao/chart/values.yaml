@@ -240,18 +240,46 @@ sso:
   # documentation; it is not consumed by the configure-deployment.
   idpHint: catalyst-pin
   # ── Bare-URL zero-click entry (#3374) ────────────────────────────────
-  # Gateway-level interception of the bare entry paths (/, /ui, /ui/)
-  # into catalyst-api's openbao-sso-init shim (#3226). See the loop-safety
-  # analysis in templates/httproute.yaml. Disable to fall back to the
-  # token form on bare entry (the founder-witnessed #3374 failure).
+  # Gateway-level interception of the bare entry paths (/, /ui, /ui/) ->
+  # 302 to the on-origin SSO landing page (templates/sso-landing.yaml),
+  # which completes the OIDC round-trip as a TOP-LEVEL window and lands the
+  # operator in /ui/vault/secrets signed in. See the loop-safety + root-
+  # cause analysis in templates/httproute.yaml + sso-landing.yaml. Disable
+  # to fall back to the token form on bare entry (the founder-witnessed
+  # #3374 failure).
+  #
+  # NOTE: the prior design 302'd the bare paths to catalyst-api's
+  # openbao-sso-init shim (#3226). That shim full-page-redirected into
+  # OpenBao's POPUP-ONLY OIDC callback (window.opener postMessage, no
+  # null-check) and ALWAYS rendered the Ember "Cannot read properties of
+  # null (reading 'postMessage')" error — measured live on hw133
+  # 2026-06-14. The landing page replaces it; apiHost/shimPath are retained
+  # only for reference and are no longer consumed by the HTTPRoute.
   bareURL:
     enabled: true
-    # Hostname of the catalyst-api HTTPRoute. When empty, derived from
-    # gateway.host by replacing the first DNS label with "api."
-    # (bao.hw130.omantel.biz -> api.hw130.omantel.biz).
+    # Path of the on-origin SSO landing page (served by the
+    # openbao-sso-landing nginx Deployment). MUST stay in sync across
+    # httproute.yaml, sso-landing.yaml, and OIDC_ALLOWED_REDIRECT_URIS.
+    landingPath: /sso/landing
+    # Vault OIDC auth-method mount + role the landing page drives. Match
+    # the sso-configure Deployment (auth/oidc enable + role/operator).
+    oidcMount: oidc
+    oidcRole: operator
+    # (Legacy, unused by the HTTPRoute since the landing-page fix — kept for
+    # reference / external tooling that still reads them.)
     apiHost: ""
-    # Path of the server-side SSO-init shim on the catalyst-api host.
     shimPath: /catalyst/v1/apps/openbao/openbao-sso-init
+
+# ─── SSO landing page (#3374) ────────────────────────────────────────────
+# The tiny nginx that serves the on-origin bare-URL landing page. Rendered
+# only when sso.bareURL.enabled. Image goes through the Harbor proxy mirror
+# (kyverno harbor-proxy-pull Enforce — `*/proxy-*/*`).
+ssoLanding:
+  replicas: 1
+  image:
+    registry: harbor.openova.io
+    repository: proxy-docker/library/nginx
+    tag: "1.27-alpine"
 
 # ─── Cross-cluster snapshot-replication (DR / #3375 DoD-8) ────────────────
 # Implements the bp-openbao state-preservation row from
