@@ -1,7 +1,23 @@
-# UAT — ground reality on `hw130.omantel.biz`
+# UAT — ground reality on `hw133.omani.works` (fresh zero-touch prov, 2026-06-13)
 
-**Last verified live: 2026-06-12 13:23Z.** Login: `emrah.baysal@openova.io` → PIN to the mailbox.
+**Last verified live: 2026-06-13 ~14:00Z on `hw133.omani.works`** (`40c4e17667b600eb`, fresh 2-region prov,
+SHARED_PG=true, converged zero-touch with the #3409 powerdns fix). Login: none — signed `/auth/handover` token
+lands directly in the console as `emrah.baysal@openova.io` (role `sovereign-admin`).
+Walk evidence + screenshots: [`hw133-zerotouch-walk.md`](../sessions/2026-06-13/evidence/hw133-zerotouch-walk.md).
 Every row: click the URL yourself; ✅ only if it works **right now**. Full history: [archive](../archive/UAT-detail-2026-06-12.md).
+
+## 0. Fresh-prov zero-touch convergence (founder mandate — "new envs follow the same approach zero-touch")
+
+| Go to | Action | You should see | Result (2026-06-13, hw133) |
+|---|---|---|---|
+| `console.hw133.omani.works/auth/handover?token=…` | paste handover JWT | `302 → /dashboard`, no login form, avatar **E** | ✅ [01](../sessions/2026-06-13/evidence/hw133-walk/hw133-01-dashboard-signed-in-admin.png) |
+| `/apps` | Deployments tab | "✓ Sovereign ready", 49 INSTALLED incl. PowerDNS | ✅ [02](../sessions/2026-06-13/evidence/hw133-walk/hw133-02-apps-49-installed-ready.png) |
+| `/organizations` | view | one menu, parent-org first row, showback day-one, 3× shared-pg | ✅ [03](../sessions/2026-06-13/evidence/hw133-walk/hw133-03-organizations-parent-showback.png) |
+| `grafana.hw133.omani.works` | bare URL | signed-in Grafana home, no login | ✅ [04](../sessions/2026-06-13/evidence/hw133-walk/hw133-04-grafana-zero-click-signed-in.png) |
+
+**Regression found + fixed this run:** #3405 rerouted powerdns images to `harbor.openova.io/proxy-docker` (not
+bootstrap-pullable) → hw131/hw132 wedged (powerdns never Ready → no cert → no TLS). **#3409** reverted to docker.io
++ kyverno powerdns exclude → hw133 converged. Forensic: [`hw131-zerotouch-convergence-failure.md`](../sessions/2026-06-13/evidence/hw131-zerotouch-convergence-failure.md).
 
 ## 1. SSO — type the URL → land signed in (zero clicks)
 
