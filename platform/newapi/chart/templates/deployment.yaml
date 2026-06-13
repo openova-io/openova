@@ -122,9 +122,19 @@ spec:
       {{- $dsnGate := .Values.databaseDsnGate | default dict -}}
       {{- if and (default true $dsnGate.enabled) .Values.cnpg.enabled }}
       initContainers:
+        # Image defaults to the NewAPI image itself (same ghcr.io/openova-io/*
+        # glob as the main container). kyverno harbor-proxy-pull uses an
+        # anyPattern that requires ONE allowed glob to match BOTH the
+        # initContainers AND the containers of a workload — a curl image
+        # (proxy-dockerhub) mixed with the openova-io main image matches no
+        # single glob and is DENIED (the bp-guacamole jdbc-seed lesson, #3461;
+        # caught live on hw133 with bp-newapi 1.4.75). The NewAPI image has
+        # /bin/sh, so it runs the trivial file-poll gate. Operators override via
+        # databaseDsnGate.image with any image that also matches the glob +
+        # carries the ghcr-pull secret.
         - name: wait-for-sql-dsn
-          image: {{ $dsnGate.image | default "harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1" | quote }}
-          imagePullPolicy: IfNotPresent
+          image: {{ $dsnGate.image | default (printf "%s:%s" .Values.newapi.image.repository .Values.newapi.image.tag) | quote }}
+          imagePullPolicy: {{ .Values.newapi.image.pullPolicy | default "IfNotPresent" }}
           env:
             - name: DSN_GATE_TIMEOUT_SECONDS
               value: {{ $dsnGate.timeoutSeconds | default 300 | quote }}

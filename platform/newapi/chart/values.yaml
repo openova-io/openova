@@ -199,7 +199,12 @@ database:
 # opt out entirely.
 databaseDsnGate:
   enabled: true
-  image: "" # default harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1
+  # Default: the NewAPI image itself (same ghcr.io/openova-io/* glob as the main
+  # container, so kyverno harbor-proxy-pull's anyPattern — which needs ONE glob
+  # to match BOTH init + main containers — passes; a curl/proxy-dockerhub image
+  # mixed with the openova-io main image matches no single glob and is denied,
+  # #3461). The image has /bin/sh, which is all the file-poll gate needs.
+  image: "" # default "<newapi.image.repository>:<newapi.image.tag>"
   timeoutSeconds: 300
   intervalSeconds: 5
 # ─── CNPG-backed auto-provisioned Postgres (issue #943) ──────────────────
