@@ -693,4 +693,28 @@ if grep -A20 'gitea-token-mint' "$TMP/render.yaml" | grep -q 'X DELETE.*tokens/'
 fi
 echo "  PASS (Step-09: validity probe short-circuits re-runs; unique mint name; no active-token DELETE)"
 
+echo "[cutover-contract] Case 25: slot-06a overlay enables the REAL deny-egress hold (#3379)"
+# The chart default (values.yaml egressTest.enforceCIDRBlock: false) ships
+# the passive assertion-only Step-08 — which verifies the post-cutover
+# architectural state but does NOT actually deny egress. ADR-0002 + the
+# founder rule require cutoverComplete=true to be earned through a REAL
+# 10-minute deny-egress hold against github.com/ghcr.io/harbor.openova.io.
+# The per-Sovereign overlay
+# (clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml)
+# is the lockstep half: it MUST set egressTest.enforceCIDRBlock: true so the
+# real CiliumClusterwideNetworkPolicy egressDeny is applied on every prov.
+# Guard against a silent revert to assertion-only. Located relative to the
+# repo root ($CHART_DIR/../../..); skipped only if the overlay is absent
+# (chart consumed standalone outside the monorepo).
+OVERLAY_06A="${CHART_DIR}/../../../clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml"
+if [ -f "$OVERLAY_06A" ]; then
+  if ! grep -Eq '^[[:space:]]*enforceCIDRBlock:[[:space:]]*true' "$OVERLAY_06A"; then
+    echo "FAIL: slot-06a overlay does not set egressTest.enforceCIDRBlock: true — the deny-egress hold would silently degrade to assertion-only (#3379)" >&2
+    exit 1
+  fi
+  echo "  PASS (slot-06a overlay enables the real deny-egress hold)"
+else
+  echo "  SKIP (slot-06a overlay not present — chart consumed standalone)"
+fi
+
 echo "[cutover-contract] All gates green."
