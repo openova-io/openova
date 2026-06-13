@@ -186,7 +186,6 @@ database:
   # (the contabo path historically did this via Crossplane).
   existingSecret: "" # operator-supplied (e.g. "newapi-db-dsn")
   existingSecretKey: "SQL_DSN"
-
 # ─── SQL_DSN readiness gate (#3374) ──────────────────────────────────────
 # An initContainer (wait-for-sql-dsn) that blocks the NewAPI container from
 # booting until the chart-emitted DSN Secret has a NON-EMPTY SQL_DSN. Without
@@ -203,7 +202,6 @@ databaseDsnGate:
   image: "" # default harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1
   timeoutSeconds: 300
   intervalSeconds: 5
-
 # ─── CNPG-backed auto-provisioned Postgres (issue #943) ──────────────────
 # When enabled (DEFAULT true), the chart renders templates/cnpg-cluster.yaml:
 #   - postgresql.cnpg.io/v1.Cluster `<release>-newapi-pg`
