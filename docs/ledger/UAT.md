@@ -117,7 +117,8 @@ hw130 console cannot carry these changes until the founder merges; each row re-w
 |---|---|---|---|
 | issue voucher | [BSS](https://console.hw130.omantel.biz/bss) | ✅ | [shot](../sessions/2026-06-12/evidence/hw130-funnel-1-bss-voucher.png) |
 | marketplace + redeem + PIN checkout | [marketplace](https://marketplace.hw130.omantel.biz/) | ✅ | [shots 2-5](../sessions/2026-06-12/evidence/hw130-funnel-5-checkout.png) |
-| tenant actually provisions | — | ❌ | one unbuilt wire — [#3319](https://github.com/openova-io/openova/issues/3319) |
+| voucher-code entropy (auto-gen + strength floor) | [BSS](https://console.hw130.omantel.biz/bss) | 🟡 code merged | [#3404](https://github.com/openova-io/openova/pull/3404) — `crypto/rand` base32 default + distinct-char floor; live-walk pending fresh prov |
+| tenant actually provisions | — | 🟡 wire merged | [#3404](https://github.com/openova-io/openova/pull/3404) — mother→child phase0 tofu-archive push (`exportTofuArchiveToChild` from `fireHandover`+`MintHandoverToken`) + child OpenBao k8s-auth seal (`ReceiveTofuArchive` no longer 503s) → cutover un-gates → Step 09 patches `sme/provisioning-github-token` → init proceeds. Live-walk pending fresh prov (current hw130 SME services CrashLoop on stale host NATS from the in-flight #3373 mgmt-vcluster move — pre-existing, not this wire). Refs [#3376](https://github.com/openova-io/openova/issues/3376) |
 
 ## 7. vClusters — every app in dmz/mgmt/rtz
 
