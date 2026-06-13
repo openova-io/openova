@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 )
 
@@ -162,6 +163,76 @@ func TestOpenBaoSSOInit_UnknownAppIs404(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for unknown app, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// TestOpenBaoSSOInit_ReachableWithoutSession — #3374 REGRESSION GUARD.
+//
+// The bare-URL contract (bp-openbao HTTPRoute 302s `/`, `/ui`, `/ui/`
+// straight to this shim) means the VERY FIRST request always comes from a
+// FRESH browser with NO `catalyst_session` cookie. The shim therefore MUST
+// be registered OUTSIDE the RequireSession middleware group. It originally
+// shipped (#3226) INSIDE that group, so on hw133 every bare-URL visit was
+// rejected by the session middleware with 401 {"error":"unauthenticated"}
+// before HandleOpenBaoSSOInit ever ran — the founder-witnessed token form
+// was never bypassed.
+//
+// This test reproduces production's two-group router shape (a public route
+// + a RequireSession-gated sibling) with a non-nil auth.Config (so the
+// middleware actually enforces) and asserts:
+//   - cookieless GET to the shim → 302 (the handler ran), NOT 401; and
+//   - cookieless GET to a RequireSession sibling → 401 (proving the
+//     middleware IS live in this harness, so the 302 above is meaningful).
+func TestOpenBaoSSOInit_ReachableWithoutSession(t *testing.T) {
+	vault := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{
+				"auth_url": "https://auth.t01.omani.works/realms/sovereign/protocol/openid-connect/auth?client_id=openbao",
+			},
+		})
+	}))
+	defer vault.Close()
+
+	h := newSSOInitHandler(t, vault.URL)
+	log := slog.New(slog.NewTextHandler(io_discard{}, nil))
+
+	// A non-nil Config with no cookie secret + no JWKS makes RequireSession
+	// enforce: ReadSessionToken returns "" for a cookieless request, so the
+	// middleware 401s before the handler. (A nil Config would be a
+	// transparent passthrough and would NOT catch the placement bug.)
+	cfg := &auth.Config{Realm: "sovereign", ClientID: "catalyst-zero-ui"}
+
+	r := chi.NewMux()
+	// Public group (mirrors main.go: shim lives here, OUTSIDE RequireSession).
+	r.Get("/catalyst/v1/apps/{id}/openbao-sso-init", h.HandleOpenBaoSSOInit)
+	// Session-gated group (mirrors main.go's r.Group(RequireSession)).
+	r.Group(func(rg chi.Router) {
+		rg.Use(auth.RequireSession(cfg, log))
+		rg.Get("/api/v1/whoami", h.HandleWhoami)
+	})
+
+	// 1) The shim must run WITHOUT a session cookie → 302, never 401.
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/catalyst/v1/apps/openbao/openbao-sso-init", nil))
+	if rec.Code == http.StatusUnauthorized {
+		t.Fatalf("REGRESSION (#3374): cookieless bare-URL visit got 401 %s — "+
+			"the openbao-sso-init shim is behind RequireSession again; it MUST "+
+			"be registered in the PUBLIC route section of main.go", rec.Body.String())
+	}
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected the shim to 302 a cookieless browser to Keycloak, got %d (body=%s)",
+			rec.Code, rec.Body.String())
+	}
+
+	// 2) Sanity: the RequireSession middleware IS enforcing in this harness,
+	//    so the 302 above is a real "handler ran without a session", not a
+	//    passthrough artefact.
+	rec2 := httptest.NewRecorder()
+	r.ServeHTTP(rec2, httptest.NewRequest("GET", "/api/v1/whoami", nil))
+	if rec2.Code != http.StatusUnauthorized {
+		t.Fatalf("harness check: a RequireSession route should 401 without a "+
+			"cookie, got %d — the middleware is not enforcing, so this test "+
+			"cannot prove the shim is genuinely public", rec2.Code)
 	}
 }
 
