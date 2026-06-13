@@ -95,7 +95,13 @@ spec:
       # images still need the per-chart 11-harbor-proxy fix (a cluster-wide image-
       # rewrite mutate can't know the per-Sovereign Harbor host without re-tethering
       # to the mothership → Pillar 5 violation). See Chart.yaml for the full RCA.
-      version: 1.0.32
+      # 1.0.33 (2026-06-13): EXCLUDE the `powerdns` namespace from the
+      # harbor-proxy-pull (11) Enforce policy (new per-policy
+      # harborProxyPull.extraExcludeNamespaces). bp-powerdns 1.2.14 reverted its
+      # pdns-auth-50 + dnsdist-19 images to raw docker.io because proxy-docker is
+      # not bootstrap-pullable on a fresh prov (#3380-D's reroute wedged hw131 +
+      # hw132). powerdns stays subject to every OTHER policy (scoped carve-out).
+      version: 1.0.33
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno

@@ -76,19 +76,29 @@ powerdns:
   replicaCount: 3
 
   image:
-    # #3380-D (2026-06-13): route the PowerDNS Authoritative image through
-    # the Harbor `proxy-docker` cache instead of raw `docker.io`. The
-    # subchart default `docker.io/powerdns/pdns-auth-50` matches NEITHER
-    # harbor-proxy-pull glob (`*/proxy-*/*`, `*/openova-io/*`) — confirmed
-    # LIVE on hw130 (`powerdns-*` pods running `docker.io/powerdns/
-    # pdns-auth-50:5.0.3`, and the `powerdns` namespace is NOT in the
-    # policy excludeNamespaces list) — so the NEXT image roll would be
-    # Enforce-DENIED. `proxy-docker` proxies `registry-1.docker.io`, so
-    # `harbor.openova.io/proxy-docker/powerdns/pdns-auth-50` resolves the
-    # identical upstream digest. `harbor.openova.io` is the bootstrap
-    # default re-pointed by slot 11 / cutover Step-04 (same pattern as the
-    # CNPG/dnsdist images already proxied).
-    repository: harbor.openova.io/proxy-docker/powerdns/pdns-auth-50
+    # 2026-06-13: REVERTED #3380-D's `harbor.openova.io/proxy-docker/...`
+    # reroute back to raw `docker.io/powerdns/pdns-auth-50`. WHY: the
+    # `proxy-docker` Harbor project is NOT reliably pullable by a fresh-prov
+    # node at bootstrap (unlike `proxy-ghcr`, which serves PUBLIC images
+    # cred-free — see the postgres `imageName` below). #3380-D's reroute
+    # broke EVERY fresh prov (hw131 + hw132 both wedged here): the PowerDNS
+    # pods never started → the REST API never came up → the
+    # `powerdns-zone-bootstrap` hook Job hit DeadlineExceeded → bp-powerdns
+    # never went Ready → cert-manager DNS01 could not issue the wildcard →
+    # no TLS → console + everything stayed down. `docker.io` is hw130's
+    # proven-working source (provisioned BEFORE #3380-D — its `powerdns-*`
+    # pods ran `docker.io/powerdns/pdns-auth-50:5.0.3` healthy). The
+    # kyverno-Enforce `harbor-proxy-pull` concern that motivated #3380-D is
+    # now handled the RIGHT way — by EXCLUDING the `powerdns` namespace from
+    # that policy (platform/kyverno-policies/chart/values.yaml
+    # harborProxyPull.extraExcludeNamespaces) — NOT by rerouting the image
+    # (which is what broke bootstrap). powerdns is a trusted first-party
+    # bootstrap component; the namespace exclude matches hw130's effective
+    # state (it ran docker.io under kyverno without denial because the
+    # policy was still in Audit mode pre-handover there). Re-doing #3380-D's
+    # proxy hardening CORRECTLY (making proxy-docker bootstrap-pullable,
+    # cred-free like proxy-ghcr) is a separate follow-up.
+    repository: docker.io/powerdns/pdns-auth-50
     # tag: null → upstream chart falls back to .Chart.AppVersion (5.0.3).
     # Per INVIOLABLE-PRINCIPLES #4 we don't pin a literal tag here — the
     # chart's appVersion is the single source of truth and bumping the
@@ -328,13 +338,14 @@ dnsdist:
     # line (matches Authoritative 5.0.x release cadence). Pin a concrete
     # tag here — the dnsdist Deployment template defaults to the value
     # below when image.tag is unset.
-    # #3380-D (2026-06-13): routed through the Harbor `proxy-docker` cache
-    # (was raw `docker.io/powerdns/dnsdist-19`). The raw docker.io ref
-    # matches no harbor-proxy-pull glob and would be Enforce-DENIED on the
-    # next image roll — confirmed LIVE on hw130 (`dnsdist-*` pod running
-    # `docker.io/powerdns/dnsdist-19:1.9.14`, `powerdns` ns not excluded).
-    # proxy-docker proxies registry-1.docker.io → identical digest.
-    repository: harbor.openova.io/proxy-docker/powerdns/dnsdist-19
+    # 2026-06-13: REVERTED #3380-D's `proxy-docker` reroute back to raw
+    # `docker.io/powerdns/dnsdist-19` — same root cause + fix as the
+    # pdns-auth-50 image above. `proxy-docker` is not bootstrap-pullable on
+    # a fresh prov, so the reroute wedged hw131 + hw132; docker.io is
+    # hw130's proven-working source. The kyverno-Enforce concern is handled
+    # by excluding the `powerdns` namespace from the harbor-proxy-pull
+    # policy (NOT by rerouting the image).
+    repository: docker.io/powerdns/dnsdist-19
     tag: "1.9.14"
     pullPolicy: IfNotPresent
   replicaCount: 1                   # scale alongside Sovereign expansion; single instance fronts one region

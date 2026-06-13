@@ -1,5 +1,21 @@
 apiVersion: v2
 name: bp-kyverno-policies
+# 1.0.33 (2026-06-13): EXCLUDE the `powerdns` namespace from the
+# harbor-proxy-pull (11) Enforce policy via a new per-policy
+# `harborProxyPull.extraExcludeNamespaces` carve-out (same shape as the
+# `flux-managed` extraExcludeNamespaces). bp-powerdns reverted its
+# pdns-auth-50 + dnsdist-19 images back to raw `docker.io/powerdns/...`
+# (bp-powerdns 1.2.14) because the `proxy-docker` Harbor project is NOT
+# bootstrap-pullable on a fresh prov — #3380-D's proxy-docker reroute
+# wedged EVERY fresh prov (hw131 + hw132: powerdns pods never started → no
+# DNS → no wildcard TLS → console down). powerdns is a trusted first-party
+# bootstrap component, so the docker.io images are exempt from the
+# image-source glob; powerdns stays subject to every OTHER policy (scoped
+# to THIS policy, NOT the shared complianceDefaultExcludes anchor). The
+# carve-out is applied to all three harbor-proxy rules (pod / workload /
+# cronjob). Re-doing #3380-D's proxy hardening correctly (proxy-docker
+# made bootstrap-pullable, cred-free like proxy-ghcr) is a separate
+# follow-up; once that lands the exclude can be dropped.
 # 1.0.31 (Refs #3268 #3263, 2026-06-11): SYSTEMIC inoculation — NEW MUTATE policy
 # `stamp-cilium-enforced-label` (templates/mutate/00-...) auto-stamps
 # `policy.cilium.io/enforced: "true"` on the Pod template of every always-on
@@ -154,7 +170,7 @@ type: application
 # while keeping proxy-cache for anonymous public registries.
 # Lockstep with bp-self-sovereign-cutover 0.1.43 (Step 03 Phase A
 # skopeo native-push + Step 07 REGISTRY drops /proxy-ghcr/ suffix).
-version: 1.0.32
+version: 1.0.33
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:
