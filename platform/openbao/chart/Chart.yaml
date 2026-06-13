@@ -26,7 +26,19 @@ name: bp-openbao
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.2.31
+version: 1.2.32
+# 1.2.32 (#3374, 2026-06-13): sso-configure external identity-group mapping
+# is now FULLY idempotent. The reconciler created each sovereign-admins /
+# sovereign-ops → sso-operator-admin alias via POST identity/group-alias,
+# which Vault 400s ("alias already exists") on EVERY tick after the first —
+# so the loop logged "WARN: mapping external group … failed" forever even
+# though tick-1 had bound it (verified live on hw133). Two fixes: (a) parse
+# the canonical group id from data.canonical_id (not a greedy "id" match
+# that could grab the alias sub-object's id and corrupt the binding); (b) on
+# subsequent ticks UPDATE the existing alias via
+# identity/group-alias/id/<alias_id> instead of re-creating it. The admin
+# uplift was already live (tick-1 succeeded), but the false per-tick WARN
+# masked genuine failures and the greedy id parse was a latent rebind hazard.
 # 1.2.29 (#3374, 2026-06-13): BARE-URL zero-click SSO. The #3226 shim only
 # fired from the console Open button; typing bao.<fqdn>/ui/ still showed the
 # token form (founder-witnessed). The HTTPRoute now 302s the bare entry paths

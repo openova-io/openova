@@ -264,21 +264,55 @@ data:
       if [ -z "${OIDC_ACCESSOR}" ]; then
         log "WARN: could not resolve oidc auth mount accessor; admin-group mapping deferred to next tick"
       else
+        # group_field pulls the FIRST "<key>":"<value>" out of a
+        # `bao_get identity/group/name/<name>` body (one comma-joined line).
+        # The body nests an `alias` sub-object that ALSO carries `id` +
+        # `canonical_id`, so a greedy `.*"id":"…"` over the whole line is
+        # ambiguous. We split on commas first (tr , \n) and take head -1,
+        # which deterministically returns the EARLIEST key occurrence:
+        #   - `canonical_id` appears once (inside the alias) and its value
+        #     IS the canonical group id we must bind the alias to → _gid;
+        #   - `id` appears first as the alias's own id → _aid (the alias to
+        #     UPDATE on re-runs). $1=json body, $2=key name.
+        group_field() {
+          printf '%s' "$1" | tr ',' '\n' | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p" | head -1
+        }
         map_admin_group() {
-          # $1 = realm group name (claim value)
+          # $1 = realm group name (claim value). Fully idempotent: creates
+          # the external group + alias on first tick, and UPDATES both on
+          # every subsequent tick. Vault rejects a DUPLICATE
+          # `identity/group-alias` create with 400 ("alias already exists"),
+          # so re-creating an existing alias every tick logged a false
+          # "mapping failed" forever (#3374, hw133) even though tick-1 had
+          # already bound it. The update path targets the existing alias by
+          # id via identity/group-alias/id/<alias_id>.
           _grp="$1"
-          # Idempotent create/update of the external group with the admin policy.
           _gjson="$(bao_get "identity/group/name/${_grp}")"
-          _gid="$(printf '%s' "${_gjson}" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+          # The canonical group id == the alias.canonical_id in the body.
+          _gid="$(group_field "${_gjson}" canonical_id)"
+          # The existing group-alias id (absent until the first alias write).
+          _aid="$(group_field "${_gjson}" id)"
           if [ -z "${_gid}" ]; then
+            # Group does not exist yet — create it, then re-read its id.
             bao_write "identity/group" "$(printf '{"name":"%s","type":"external","policies":["sso-operator-admin"]}' "${_grp}")" || return 1
-            _gid="$(bao_get "identity/group/name/${_grp}" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+            _gjson="$(bao_get "identity/group/name/${_grp}")"
+            _gid="$(group_field "${_gjson}" canonical_id)"
+            _aid="$(group_field "${_gjson}" id)"
           else
+            # Group exists — keep its policy current (last-write-wins).
             bao_write "identity/group/name/${_grp}" '{"type":"external","policies":["sso-operator-admin"]}' || return 1
           fi
           [ -z "${_gid}" ] && return 1
-          # Idempotent alias: name == claim value, bound to this oidc mount.
-          bao_write "identity/group-alias" "$(printf '{"name":"%s","mount_accessor":"%s","canonical_id":"%s"}' "${_grp}" "${OIDC_ACCESSOR}" "${_gid}")"
+          # Bind (or rebind) the alias: name == the realm group claim value,
+          # mounted on this oidc accessor, pointing at the canonical group.
+          if [ -n "${_aid}" ]; then
+            # Alias already exists → UPDATE by id (POST to the same path on
+            # an existing alias 400s with "alias already exists").
+            bao_write "identity/group-alias/id/${_aid}" "$(printf '{"name":"%s","mount_accessor":"%s","canonical_id":"%s"}' "${_grp}" "${OIDC_ACCESSOR}" "${_gid}")"
+          else
+            # No alias yet → CREATE it.
+            bao_write "identity/group-alias" "$(printf '{"name":"%s","mount_accessor":"%s","canonical_id":"%s"}' "${_grp}" "${OIDC_ACCESSOR}" "${_gid}")"
+          fi
         }
         for g in "${OIDC_ADMIN_GROUP}" "${OIDC_OPS_GROUP}"; do
           if map_admin_group "${g}"; then
