@@ -917,6 +917,72 @@ data:
       openbao_put "sso/${realm}/${cid}" "${bundle}" \
         && log "app-registration[${cid}]: secret persisted to OpenBao ${OPENBAO_KV_MOUNT}/data/sso/${realm}/${cid}" \
         || { warn "app-registration[${cid}]: OpenBao PUT failed"; return 1; }
+
+      # #3374 (2026-06-14) — OPTIONAL chart-declared ExternalSecret.
+      # Some AppRegistration consumers (notably bp-cilium's hubble-ui
+      # oauth2-proxy) live in a chart that installs BEFORE bp-external-
+      # secrets (the slot-01 CNI), so the chart's OWN ExternalSecret
+      # template is omitted at install time by the `.Capabilities` CRD-
+      # race guard and — because helm-controller's drift-check re-renders
+      # with the release's install-time capability snapshot, never live —
+      # is never added on a later reconcile. The consuming chart therefore
+      # cannot self-deliver the Secret. bp-sso-bridge CAN: this reconciler
+      # runs long after ESO is up (CRD present, kubectl working) and is not
+      # subject to any Helm capability snapshot. When the ConfigMap carries
+      # `data["externalSecret.json"]` we apply the declared ExternalSecret
+      # verbatim here, every tick (idempotent). Consumers that omit the
+      # field (the 6 Tier-3 apps + per-Org charts) are unaffected.
+      #
+      # Declared shape (all fields required when the block is present):
+      #   { "name": "<es+secret name>", "namespace": "<target ns>",
+      #     "secretKey": "<key in the produced Secret>",
+      #     "property": "<property in the OpenBao bundle, e.g. client_secret>" }
+      # The remoteRef key is ALWAYS the canonical sso/<realm>/<cid> this
+      # function just wrote — callers never override the storage path.
+      local es_decl
+      es_decl="$(printf '%s' "${cm_json}" | jq -r '.data["externalSecret.json"] // empty')"
+      if [ -n "${es_decl}" ]; then
+        local es_name es_ns es_key es_prop
+        es_name="$(printf '%s' "${es_decl}" | jq -r '.name // empty')"
+        es_ns="$(printf '%s' "${es_decl}" | jq -r '.namespace // empty')"
+        es_key="$(printf '%s' "${es_decl}" | jq -r '.secretKey // empty')"
+        es_prop="$(printf '%s' "${es_decl}" | jq -r '.property // "client_secret"')"
+        if [ -z "${es_name}" ] || [ -z "${es_ns}" ] || [ -z "${es_key}" ]; then
+          warn "app-registration[${cid}]: externalSecret.json present but missing name/namespace/secretKey; skipping ES apply"
+        else
+          # Render via printf (consistent leading-space indent — the same
+          # convention emit_external_secret uses; column-0 heredoc body
+          # lines silently terminate a YAML literal block).
+          if printf '%s\n' \
+            "apiVersion: external-secrets.io/v1beta1" \
+            "kind: ExternalSecret" \
+            "metadata:" \
+            "  name: ${es_name}" \
+            "  namespace: ${es_ns}" \
+            "  labels:" \
+            "    catalyst.openova.io/blueprint: bp-sso-bridge" \
+            "    bp-sso-bridge.openova.io/managed: \"true\"" \
+            "    bp-sso-bridge.openova.io/client-id: \"${cid}\"" \
+            "spec:" \
+            "  refreshInterval: 1h" \
+            "  secretStoreRef:" \
+            "    name: vault-region1" \
+            "    kind: ClusterSecretStore" \
+            "  target:" \
+            "    name: ${es_name}" \
+            "    creationPolicy: Owner" \
+            "  data:" \
+            "    - secretKey: ${es_key}" \
+            "      remoteRef:" \
+            "        key: sso/${realm}/${cid}" \
+            "        property: ${es_prop}" \
+            | kubectl --request-timeout=15s apply -f - >/dev/null 2>&1; then
+            log "app-registration[${cid}]: applied ExternalSecret ${es_ns}/${es_name} (key=${es_key} <- sso/${realm}/${cid}#${es_prop})"
+          else
+            warn "app-registration[${cid}]: ExternalSecret apply ${es_ns}/${es_name} failed (CRD not ready yet? retry next tick)"
+          fi
+        fi
+      fi
     }
 
     reconcile_app_registrations() {
