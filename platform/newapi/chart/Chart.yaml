@@ -468,7 +468,7 @@ name: bp-newapi
 # Enforce autogen bug (fixed in lockstep, bp-kyverno-policies 1.0.34). Stamping
 # the CronJob closes (a); the policy fix closes (b). Lockstep: 80-newapi.yaml
 # pin → 1.4.71.
-version: 1.4.71
+version: 1.4.72
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
