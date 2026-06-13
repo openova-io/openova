@@ -150,7 +150,7 @@ spec:
       # keeps this in sync with chart bumps; the
       # scripts/check-bootstrap-kit-pin-sync.sh CI gate fails the build
       # if drift is introduced.
-      version: 1.0.0
+      version: 1.0.1
       sourceRef:
         kind: HelmRepository
         name: bp-vllm
@@ -181,6 +181,19 @@ spec:
       # commercial relay. Operator overlays opt-IN with SOVEREIGN_VLLM_ENABLED=true.
       enabled: ${SOVEREIGN_VLLM_ENABLED:-false}
       replicas: 1
+      # Image host overlay (#3380 row D). The chart default already
+      # pins the Harbor-proxy path so kyverno K1 `harbor-proxy-pull`
+      # (ENFORCING — allowed globs `*/proxy-*/*` or `*/openova-io/*`)
+      # admits the pod; a bare `vllm/vllm-openai` docker.io ref would be
+      # DENIED at the first scale-up. `${REGISTRY_MIRROR:=harbor.openova.io}`
+      # keeps the bootstrap pull on the mothership proxy-cache and lets a
+      # per-Sovereign overlay (or the cutover registry pivot) rewrite the
+      # host to its local Harbor — identical idiom to slots 13b/13c/54/
+      # 58/59. The `/proxy-dockerhub/vllm/vllm-openai` suffix is
+      # invariant.
+      image:
+        repository: ${REGISTRY_MIRROR:=harbor.openova.io}/proxy-dockerhub/vllm/vllm-openai
+        tag: "v0.6.4"
       # Qwen2.5-Coder-1.5B-Instruct — public Apache-2.0 Coder-tuned
       # model, ~3 GB CPU footprint, ~5 min cold-load on cpx52. Sized
       # for the canonical cpx52 worker with no GPU. GPU Sovereigns

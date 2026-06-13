@@ -18,7 +18,7 @@ description: |
   bp-llm-gateway (slot 40, multi-model fan-out), bp-nemo-guardrails
   (slot 43, prompt-injection rails), and bp-bge (slot 42, embeddings).
 type: application
-version: 1.0.0
+version: 1.0.1
 appVersion: "0.6.4"
 keywords: [catalyst, blueprint, vllm, llm, inference, openai-compatible, gpu, ai]
 maintainers:
