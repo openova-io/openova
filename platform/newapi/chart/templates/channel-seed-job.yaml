@@ -205,6 +205,11 @@ metadata:
   labels:
     {{- include "bp-newapi.labels" . | nindent 4 }}
     catalyst.openova.io/component: channel-seed
+    # Override the helper's managed-by=Helm: kyverno `flux-managed` Enforce
+    # DENIES a hook Job without managed-by=flux (helm-controller-created, no
+    # HR ownerReference). Without it this post-upgrade hook fails and the HR
+    # rolls back — the same landmine that stalled bp-newapi on hw133 (#3374).
+    app.kubernetes.io/managed-by: flux
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "10"

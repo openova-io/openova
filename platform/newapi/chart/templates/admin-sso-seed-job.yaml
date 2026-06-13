@@ -275,6 +275,11 @@ metadata:
   labels:
     {{- include "bp-newapi.labels" . | nindent 4 }}
     catalyst.openova.io/component: admin-seed
+    # Override the helper's managed-by=Helm: kyverno `flux-managed` Enforce
+    # DENIES a hook Job without managed-by=flux (helm-controller-created, no
+    # HR ownerReference). Without it this post-upgrade SSO admin seed fails
+    # and the HR rolls back, so the admin map never lands (#3374 / #3434).
+    app.kubernetes.io/managed-by: flux
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "12"

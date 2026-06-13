@@ -450,7 +450,18 @@ name: bp-newapi
 # bp-sso-bridge + an ExternalSecret (creationPolicy Merge) converges
 # OIDC_CLIENT_SECRET to the live KC value; companion slot fix points the
 # issuer at realms/sovereign.
-version: 1.4.68
+# 1.4.69 (#3374 admin-tier, 2026-06-14): stamp `app.kubernetes.io/managed-by:
+# flux` on ALL FOUR hook Jobs — the pre-upgrade `newapi-eswebhook-gate`
+# (000-external-secrets-webhook-readiness-job) PLUS the post-upgrade
+# admin-sso-seed / channel-seed / db-dsn-sync Jobs. On hw133 the 1.4.68
+# upgrade FAILED the pre-upgrade hook (kyverno `flux-managed` Enforce denies a
+# Job without managed-by=flux — helm-controller hook Jobs carry no HR
+# ownerReference) and the HR rolled back to 1.4.66, so the SSO admin seed
+# never reached the cluster (NewAPI stuck at /setup, uninitialized). All four
+# Jobs are stamped so the upgrade doesn't merely stall at the NEXT hook. Same
+# class as openbao #3434 + gitea/harbor #3296→#3297. Lockstep: 80-newapi.yaml
+# pin → 1.4.69.
+version: 1.4.69
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
