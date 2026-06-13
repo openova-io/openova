@@ -1,0 +1,49 @@
+# Expected dependsOn DAG for the top-level Flux Kustomizations that the
+# control-plane cloud-init bootstraps (infra/providers/_shared/
+# cloudinit-control-plane.tftpl).
+#
+# WHY THIS FILE EXISTS (#3380 row D — sovereign-tls dependsOn drift guard):
+# the bootstrap-kit dependency-graph audit (scripts/check-bootstrap-deps.sh)
+# only covers the HelmRelease documents inside clusters/_template/
+# bootstrap-kit/. The THREE top-level Flux Kustomizations created directly
+# by cloud-init — `bootstrap-kit`, `sovereign-tls`, `infrastructure-config`
+# — had ZERO drift protection. The hazard is PROVEN: `sovereign-tls`
+# dependsOn the whole `bootstrap-kit` Kustomization, so when shared-PG
+# stalled on hw130 the wildcard-TLS cert path was serialized behind it and
+# ALL TLS was delayed ~75 min. Once that dependsOn is narrowed (so the TLS
+# cert no longer waits for the slowest thing in the kit), nothing must let
+# it silently drift back to the broad `bootstrap-kit` edge — or silently
+# broaden any other top-level Kustomization. This file is the pinned
+# expectation; scripts/check-cloudinit-kustomization-deps.sh fails CI on
+# any drift.
+#
+# Flux semantics note: a Kustomization's spec.dependsOn references OTHER
+# Kustomizations by name (NOT HelmReleases). The only Kustomizations that
+# exist to depend on are the three listed here, so a genuine narrowing of
+# `sovereign-tls` to "just the cert path" requires first splitting
+# cert-manager (+ cilium/gateway-api) out of `bootstrap-kit` into its own
+# Kustomization — tracked as the #3380 row-D narrowing checkbox. THIS guard
+# locks whatever the declared dependsOn is so the narrowing, once shipped,
+# cannot regress. To change a dependency intentionally: edit the matching
+# .tftpl Kustomization AND this file in the SAME PR (the guard fails
+# otherwise — exactly the lockstep the bootstrap-kit audit enforces for HRs).
+#
+# Each entry: the Kustomization metadata.name → the sorted set of
+# dependsOn[].name it is allowed to carry. An empty list means "no
+# dependsOn" (a root). `optional: true` marks a Kustomization that is
+# conditionally rendered (HCL `%{ if ... }` guard) and therefore may be
+# absent for some providers — its absence is NOT drift, but when present
+# its dependsOn must match.
+kustomizations:
+  - name: bootstrap-kit
+    depends_on: []
+  - name: sovereign-tls
+    depends_on:
+      - bootstrap-kit
+  - name: infrastructure-config
+    # Hetzner-only (HCL `%{ if provider == "hetzner" }` guard) — absent for
+    # other providers, which is expected, not drift.
+    optional: true
+    depends_on:
+      - bootstrap-kit
+      - sovereign-tls
