@@ -1,0 +1,326 @@
+{{- /*
+bp-openbao SSO landing — TRUE zero-click bare-URL entry (#3374).
+
+WHY THIS EXISTS (root cause, measured live on hw133 2026-06-14):
+  OpenBao's Vault-UI (Ember) OIDC login is POPUP-ONLY. The callback route
+  `vault/cluster/oidc-callback` `afterModel` does an UNCONDITIONAL
+  `window.opener.postMessage(payload, origin)` — there is NO null-check and
+  NO in-page completion path (verified against openbao v2.3.1 UI source).
+  The #3226 catalyst-api shim drove a server-side FULL-PAGE 302 straight
+  into that callback, so `window.opener` was null and every bare-URL visit
+  rendered the Ember error page:
+    "Error: Cannot read properties of null (reading 'postMessage')"
+  (oidc-callback afterModel, vault bundle). Wire-proof 302 ≠ landed-in.
+
+WHAT THIS PAGE DOES (gesture-free, popup-free, version-stable):
+  A tiny static page served on the OpenBao origin itself. It IS the OIDC
+  redirect_uri (added to the role's allowed_redirect_uris + matched by the
+  KC client's `/*`), so it completes the round-trip as a TOP-LEVEL window:
+    1. No `code` in URL  -> POST auth/<mount>/oidc/auth_url
+       {role, redirect_uri:<this page>} (unauthenticated endpoint), then
+       top-window `location.replace(auth_url)` -> Keycloak (silent via the
+       realm IDP defaultProvider=catalyst-pin) -> back HERE with code+state.
+    2. `code`+`state` in URL -> GET auth/<mount>/oidc/callback?state=&code=
+       (the exact exchange the Ember adapter does) -> returns the auth block
+       {client_token, policies, entity_id, lease_duration, renewable}. We
+       reconstruct the Vault-UI localStorage entry `vault-token<DELIM>1`
+       (+ selectedAuth) — the ground-truth shape captured from a live
+       working OIDC session on this OpenBao version — and redirect to
+       /ui/vault/secrets. The UI boots already-authenticated. No popup, no
+       window.opener, no token form.
+
+  All dynamic auth values come from the live API response; only the static
+  `token`-backend descriptor + the `<DELIM>1` cluster key are structural
+  constants (asserted by tests/sso-landing-localstorage-shape.sh so a future
+  OpenBao UI bump that changes the shape fails CI, per #3374 law §2.3).
+
+  Loop-safety: this page lives at /sso/landing — NOT a Vault UI route, NOT
+  the OIDC callback. The bare-path HTTPRoute (/, /ui, /ui/) redirects HERE;
+  a re-entry that already holds a valid token short-circuits to
+  /ui/vault/secrets (idempotent). API clients use /v1/* — never touched.
+*/ -}}
+{{- if and .Values.gateway .Values.gateway.enabled .Values.gateway.host .Values.sso .Values.sso.enabled .Values.sso.bareURL .Values.sso.bareURL.enabled }}
+{{- $mount := .Values.sso.bareURL.oidcMount | default "oidc" }}
+{{- $role := .Values.sso.bareURL.oidcRole | default "operator" }}
+{{- $landingPath := .Values.sso.bareURL.landingPath | default "/sso/landing" }}
+{{- $img := printf "%s/%s:%s" (.Values.ssoLanding.image.registry | default "harbor.openova.io") (.Values.ssoLanding.image.repository | default "proxy-docker/library/nginx") (.Values.ssoLanding.image.tag | default "1.27-alpine") }}
+---
+# ── landing page content (HTML + JS) ──────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openbao-sso-landing
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-sso-landing
+data:
+  index.html: |
+    <!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="robots" content="noindex,nofollow">
+      <title>Signing in… — OpenBao</title>
+      <style>
+        html,body{height:100%;margin:0}
+        body{display:flex;align-items:center;justify-content:center;
+          font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+          background:#1c1c28;color:#e3e3e8}
+        .box{text-align:center;max-width:30rem;padding:2rem}
+        .spin{width:2.5rem;height:2.5rem;margin:0 auto 1.25rem;border:3px solid #3a3a4d;
+          border-top-color:#ffd814;border-radius:50%;animation:r .8s linear infinite}
+        @keyframes r{to{transform:rotate(360deg)}}
+        h1{font-size:1.15rem;font-weight:600;margin:.25rem 0}
+        p{font-size:.9rem;color:#9a9aad;margin:.4rem 0 0}
+        a{color:#ffd814}
+        .err{display:none;color:#ff8a8a}
+      </style>
+    </head>
+    <body>
+      <div class="box">
+        <div class="spin" id="spin"></div>
+        <h1 id="msg">Signing you in to OpenBao…</h1>
+        <p id="sub">One moment — completing single sign-on.</p>
+        <p class="err" id="err"></p>
+      </div>
+      <script>
+      (function () {
+        // Injected at render time by Helm (Inviolable Principle #4 — no
+        // hard-coded host/mount; everything derives from chart values).
+        var MOUNT = {{ $mount | quote }};
+        var ROLE  = {{ $role | quote }};
+        var LANDING_PATH = {{ $landingPath | quote }};
+        var ORIGIN = window.location.origin;
+        var REDIRECT_URI = ORIGIN + LANDING_PATH;
+        var API = ORIGIN + "/v1/auth/" + MOUNT;
+        var POST_LOGIN = "/ui/vault/secrets";
+
+        function fail(m) {
+          var s = document.getElementById("spin"); if (s) s.style.display = "none";
+          document.getElementById("msg").textContent = "Sign-in could not complete";
+          document.getElementById("sub").style.display = "none";
+          var e = document.getElementById("err");
+          e.style.display = "block";
+          e.innerHTML = (m || "Unexpected error.") +
+            '<br><br><a href="/ui/vault/auth?with=' + encodeURIComponent(MOUNT + "/") +
+            '">Continue to the sign-in page</a>';
+        }
+
+        function qs(name) {
+          return new URLSearchParams(window.location.search).get(name);
+        }
+
+        // Vault-UI localStorage skeleton (ground-truth shape, openbao 2.3.x).
+        // The `token` auth backend descriptor is what the UI persists after
+        // ANY login (OIDC included); dynamic fields come from the live auth
+        // response. tests/sso-landing-localstorage-shape.sh pins this.
+        function persist(authResp, displayName) {
+          var a = authResp || {};
+          var ttl = a.lease_duration || 0;
+          var data = {
+            userRootNamespace: "",
+            displayName: displayName || (a.metadata && a.metadata.role ? ("oidc-" + a.metadata.role) : "oidc"),
+            backend: {
+              type: "token",
+              typeDisplay: "Token",
+              description: "Token authentication.",
+              tokenPath: "id",
+              displayNamePath: "display_name",
+              formAttributes: ["token"]
+            },
+            token: a.client_token,
+            policies: a.policies || [],
+            renewable: !!a.renewable,
+            entity_id: a.entity_id || "",
+            ttl: ttl,
+            tokenExpirationEpoch: Date.now() + (ttl * 1000)
+          };
+          // Ember store assigns cluster id "1" to the single Vault cluster;
+          // the key delimiter is U+2603 (snowman), per Vault-UI token-store.
+          var DELIM = "☃";
+          window.localStorage.setItem("vault-token" + DELIM + "1", JSON.stringify(data));
+          window.localStorage.setItem("selectedAuth", MOUNT + "/");
+        }
+
+        function exchange(state, code) {
+          document.getElementById("sub").textContent = "Finalising your session…";
+          var url = API + "/oidc/callback?state=" + encodeURIComponent(state) +
+                    "&code=" + encodeURIComponent(code);
+          fetch(url, { credentials: "omit", headers: { "Accept": "application/json" } })
+            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+            .then(function (res) {
+              var a = res.j && res.j.auth;
+              if (!res.ok || !a || !a.client_token) {
+                fail("The identity provider returned no session token.");
+                return;
+              }
+              // Cosmetic display name from a token self-lookup (best-effort;
+              // never blocks the landing on failure).
+              fetch(ORIGIN + "/v1/auth/token/lookup-self", {
+                credentials: "omit",
+                headers: { "X-Vault-Token": a.client_token, "Accept": "application/json" }
+              }).then(function (r) { return r.ok ? r.json() : null; })
+                .catch(function () { return null; })
+                .then(function (look) {
+                  var dn = look && look.data && look.data.display_name ? look.data.display_name : null;
+                  try { persist(a, dn); } catch (e) { fail("Could not store the session locally."); return; }
+                  window.location.replace(POST_LOGIN);
+                });
+            })
+            .catch(function () { fail("Network error completing sign-in."); });
+        }
+
+        function begin() {
+          fetch(API + "/oidc/auth_url", {
+            method: "POST",
+            credentials: "omit",
+            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            body: JSON.stringify({ role: ROLE, redirect_uri: REDIRECT_URI })
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+              var au = j && j.data && j.data.auth_url;
+              if (!au) { fail("Could not start single sign-on (no authorization URL)."); return; }
+              window.location.replace(au);
+            })
+            .catch(function () { fail("Network error starting sign-in."); });
+        }
+
+        // Already signed in? (re-entry / idempotent) — straight through.
+        try {
+          var DELIM = "☃";
+          var existing = window.localStorage.getItem("vault-token" + DELIM + "1");
+          if (existing) {
+            var ex = JSON.parse(existing);
+            if (ex && ex.token && ex.tokenExpirationEpoch && ex.tokenExpirationEpoch > Date.now() + 30000) {
+              window.location.replace(POST_LOGIN);
+              return;
+            }
+          }
+        } catch (e) { /* fall through to a fresh login */ }
+
+        var code = qs("code");
+        var state = qs("state");
+        if (code && state) { exchange(state, code); } else { begin(); }
+      })();
+      </script>
+    </body>
+    </html>
+  nginx.conf: |
+    worker_processes 1;
+    events { worker_connections 64; }
+    http {
+      types { text/html html; }
+      default_type text/html;
+      access_log off;
+      server {
+        listen 8080;
+        # Never let the landing page be cached — it carries the live OIDC
+        # state machine; a stale copy would replay an expired code/state.
+        add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        location = /healthz { return 200 "ok\n"; }
+        location / {
+          root /usr/share/nginx/html;
+          try_files /index.html =404;
+        }
+      }
+    }
+---
+# ── nginx Deployment serving the landing page ─────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openbao-sso-landing
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-sso-landing
+spec:
+  replicas: {{ .Values.ssoLanding.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bp-openbao
+      catalyst.openova.io/component: openbao-sso-landing
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-openbao
+        catalyst.openova.io/component: openbao-sso-landing
+      annotations:
+        # Roll the Deployment whenever the page/nginx config changes so the
+        # served content tracks the chart (silent-ConfigMap-edit trap).
+        checksum/config: {{ .Files.Get "templates/sso-landing.yaml" | sha256sum | trunc 16 | quote }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: {{ $img | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["nginx", "-c", "/etc/nginx/nginx.conf", "-g", "daemon off;"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - { name: html, mountPath: /usr/share/nginx/html/index.html, subPath: index.html, readOnly: true }
+            - { name: conf, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true }
+            - { name: cache, mountPath: /var/cache/nginx }
+            - { name: run, mountPath: /var/run }
+          resources:
+            requests: { cpu: 5m, memory: 16Mi }
+            limits: { cpu: 50m, memory: 32Mi }
+      volumes:
+        - name: html
+          configMap:
+            name: openbao-sso-landing
+            items: [{ key: index.html, path: index.html }]
+        - name: conf
+          configMap:
+            name: openbao-sso-landing
+            items: [{ key: nginx.conf, path: nginx.conf }]
+        - name: cache
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+---
+# ── Service ────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: openbao-sso-landing
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-sso-landing
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: bp-openbao
+    catalyst.openova.io/component: openbao-sso-landing
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+{{- end }}

@@ -403,8 +403,16 @@ spec:
             # (https://bao.<fqdn>/ui/vault/auth/oidc/oidc/callback). With the
             # wrong host the OIDC callback's redirect_uri failed openbao's
             # allowed_redirect_uris check → silent SSO never completed. (#3150)
+            #
+            # The THIRD URI is the bare-URL landing page (#3374,
+            # templates/sso-landing.yaml): the landing JS calls
+            # auth/oidc/oidc/auth_url with redirect_uri=<this landing>, so the
+            # OIDC role must allow it (OpenBao's allowed_redirect_uris is a
+            # strict allowlist, no wildcard). The Keycloak `openbao` client
+            # already accepts it via its `/*` redirectUri (bp-sso-bridge). The
+            # value MUST match $landingPath in httproute.yaml / sso-landing.yaml.
             - name: OIDC_ALLOWED_REDIRECT_URIS
-              value: {{ printf "https://bao.%s/ui/vault/auth/oidc/oidc/callback http://localhost:8250/oidc/callback" (.Values.sso.sovereignFqdn | default "openbao.local") | quote }}
+              value: {{ printf "https://bao.%s/ui/vault/auth/oidc/oidc/callback https://bao.%s%s http://localhost:8250/oidc/callback" (.Values.sso.sovereignFqdn | default "openbao.local") (.Values.sso.sovereignFqdn | default "openbao.local") (.Values.sso.bareURL.landingPath | default "/sso/landing") | quote }}
             - name: INTERVAL_SECONDS
               value: "60"
           resources:
