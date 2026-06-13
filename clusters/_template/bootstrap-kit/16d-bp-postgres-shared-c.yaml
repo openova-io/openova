@@ -54,8 +54,10 @@ spec:
       # changelog. 0.1.5 ships the same-owner binding dedupe + the
       # underscore-sanitized Database CR names this slot relies on.
       # 0.1.6 ships the #3370 bootstrapOwned Application-CR
-      # self-registration.
-      version: 0.1.8
+      # self-registration. 0.1.9 is the pin bump that fires the live
+      # upgrade so the CR renders, plus this slot's newapi + openova-flow
+      # Context additions below.
+      version: 0.1.9
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -110,3 +112,32 @@ spec:
         consumer:
           blueprint: bp-catalyst-platform
           mode: shared
+      # newapi (#3370 §5 target shared-pg-c set): the bp-newapi consumer
+      # today embeds its own `newapi-bp-newapi-newapi-pg` Cluster
+      # (§4 violation). Declaring its Context here (isolated `newapi`
+      # database + `newapi` role + reflected secret into ns newapi) lets
+      # bp-newapi adopt shared-pg-c by flipping to externalDatabase mode
+      # off `newapi-database-secret` — same one-flag pattern as
+      # gitea/harbor/keycloak. READY-TO-ADOPT.
+      - name: newapi            # bp-newapi primary DB
+        owner: newapi
+        consumer:
+          blueprint: bp-newapi
+          mode: shared
+        reflect:
+          secretName: newapi-database-secret
+          namespaces: [newapi]
+      # openova-flow (#3370 §5 target shared-pg-c set): the
+      # catalyst-system openova-flow consumer today embeds its own
+      # `openova-flow-pg` Cluster (§4 violation). Its Context here
+      # (isolated `openova_flow` database + `openova_flow` role +
+      # reflected secret into ns catalyst-system) lets it adopt
+      # shared-pg-c. READY-TO-ADOPT.
+      - name: openova_flow      # openova-flow primary DB
+        owner: openova_flow
+        consumer:
+          blueprint: bp-openova-flow
+          mode: shared
+        reflect:
+          secretName: openova-flow-database-secret
+          namespaces: [catalyst-system]
