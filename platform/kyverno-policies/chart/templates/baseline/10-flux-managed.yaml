@@ -73,6 +73,29 @@ spec:
                 {{- range $ns := .Values.compliancePolicies.fluxManaged.extraExcludeNamespaces }}
                 - {{ $ns }}
                 {{- end }}
+          {{- /*
+            #3374 (2026-06-14): exclude CNPG operator-created objects by LABEL,
+            cluster-wide, instead of by namespace. The per-namespace exclude
+            above only covers CNPG clusters in dedicated namespaces (cnpg /
+            shared-data / powerdns-admin). PER-APP CNPG clusters that land in a
+            SHARED namespace — guacamole-pg in catalyst-system, newapi-pg in
+            newapi, openova-flow-pg in catalyst-system — could not be excluded
+            that way without also exempting the real Deployments that share the
+            namespace. On hw133 a FRESH guacamole-pg Cluster was wedged at
+            "Unable to create required cluster objects" because its operator-
+            created Service/guacamole-pg-r was denied (the existing newapi-pg /
+            openova-flow-pg Services only passed because they were created at
+            bootstrap before Enforce engaged — grandfathered). Every CNPG
+            operator object carries `app.kubernetes.io/managed-by: cloudnative-pg`;
+            excluding on that label exempts ONLY operator-owned Services + utility
+            Jobs in ANY namespace, while every Flux/Helm/kubectl workload stays
+            gated. This is the definitional carve-out the namespace list was
+            approximating. Refs #3374 #3248.
+          */}}
+          - resources:
+              selector:
+                matchLabels:
+                  app.kubernetes.io/managed-by: cloudnative-pg
       validate:
         message: >-
           {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} is

@@ -181,7 +181,19 @@ type: application
 # CronJob), each at its real container path — mirrors the harbor-proxy policy
 # (#2611) that solved the identical autogen-doesn't-expand class. No behavior
 # change for Deployment/StatefulSet/DaemonSet/Job (still gated). Refs #3374.
-version: 1.0.34
+# 1.0.35 (#3374 admin-tier, 2026-06-14): exclude CNPG operator-created objects
+# from flux-managed by LABEL (app.kubernetes.io/managed-by: cloudnative-pg),
+# cluster-wide, instead of only by namespace. A FRESH guacamole-pg CNPG Cluster
+# (in shared catalyst-system) was wedged at "Unable to create required cluster
+# objects" on hw133 because its operator-created Service/guacamole-pg-r was
+# denied by flux-managed — the per-namespace exclude only covered dedicated
+# CNPG namespaces (cnpg/shared-data/powerdns-admin), and catalyst-system /
+# newapi host real Deployments that must stay gated. newapi-pg / openova-flow-pg
+# only passed because they were bootstrap-grandfathered (kyverno validates on
+# CREATE/UPDATE only) — a truly fresh prov hits the same wall. Excluding on the
+# operator label exempts ONLY CNPG operator-owned Services + utility Jobs in any
+# namespace; every Flux/Helm/kubectl workload stays gated. Refs #3374 #3248.
+version: 1.0.35
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:
