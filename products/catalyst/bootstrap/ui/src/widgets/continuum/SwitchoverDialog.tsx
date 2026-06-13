@@ -129,10 +129,20 @@ export function SwitchoverDialog({
         >
           <p className="font-medium text-[var(--color-text)]">
             Primary will move{' '}
-            <code className="font-mono text-[var(--color-accent)]">{fromRegion}</code>
+            <code className="font-mono text-[var(--color-accent)]">
+              {fromRegion || 'the current primary'}
+            </code>
             {' → '}
-            <code className="font-mono text-[var(--color-accent)]">{toRegion}</code>
+            <code className="font-mono text-[var(--color-accent)]">
+              {toRegion || 'the standby region'}
+            </code>
           </p>
+          {!toRegion ? (
+            <p className="mt-1 text-xs text-[var(--color-text-dim)]">
+              The standby region is resolved automatically from the declared
+              hot-standby placement.
+            </p>
+          ) : null}
         </div>
 
         <div className="mb-4">

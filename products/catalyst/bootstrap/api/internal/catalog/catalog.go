@@ -81,6 +81,51 @@ type Blueprint struct {
 	// Blueprints (nil otherwise). Every generic console surface
 	// (catalog badge, Contexts tab, reuse selector) renders from this.
 	ContextSchema *ContextSchema `json:"contextSchema"`
+
+	// Topology (#3375) — the declared topology + DR contract lifted from
+	// the Blueprint's spec.topology (the source docs/topology-matrix.md
+	// promotes). nil when the Blueprint ships no topology block. The
+	// console reads this back per-app on the Topology tab; the catalyst-api
+	// can surface it on the application-status endpoint so the read-back
+	// works for chroot-installed apps with no wizard-store entry.
+	Topology *Topology `json:"topology,omitempty"`
+}
+
+// Topology (#3375) is the per-Blueprint topology declaration. Mirrors the
+// BlueprintTopology TS shape emitted by build-catalog.mjs verbatim.
+type Topology struct {
+	Supported    []string                   `json:"supported"`
+	MultiRegion  *string                    `json:"multiRegion"`
+	SingleRegion *string                    `json:"singleRegion"`
+	PerTopology  map[string]TopologyVariant `json:"perTopology"`
+}
+
+// TopologyVariant is the DR contract for one declared variant.
+type TopologyVariant struct {
+	Replication *TopologyReplication `json:"replication"`
+	Switchover  *TopologySwitchover  `json:"switchover"`
+	Placement   *TopologyPlacement   `json:"placement"`
+}
+
+// TopologyReplication is the state-preservation backend for a variant.
+type TopologyReplication struct {
+	Backend       *string `json:"backend"`
+	Mode          *string `json:"mode"`
+	LagSloSeconds *int    `json:"lagSloSeconds"`
+}
+
+// TopologySwitchover is the promotion mechanism + RTO/RPO for a variant.
+type TopologySwitchover struct {
+	Mechanism  *string `json:"mechanism"`
+	RtoSeconds *int    `json:"rtoSeconds"`
+	RpoSeconds *int    `json:"rpoSeconds"`
+}
+
+// TopologyPlacement is the tier + per-cluster role map for a variant.
+type TopologyPlacement struct {
+	Tier     *string           `json:"tier"`
+	Clusters []string          `json:"clusters"`
+	Roles    map[string]string `json:"roles"`
 }
 
 // ContextSchema (#3370) describes what a Context is for a shareable

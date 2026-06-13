@@ -29,6 +29,16 @@ export interface SessionState {
   signedIn: boolean
   email: string | null
   sub: string | null
+  /**
+   * #3375 — the operator's Catalyst tier (viewer < developer < operator <
+   * admin < owner), lower-cased, from GET /whoami. Empty string when the
+   * session carries no tier claim. Threaded into the AppDetail Topology tab
+   * so the DR Switchover control enables for the owner/admin tier instead of
+   * rendering permanently disabled "Owner tier required".
+   */
+  tier: string
+  /** #3375 — Keycloak realm-access roles (e.g. catalyst-owner) from /whoami. */
+  roles: string[]
   loading: boolean
   refetch: () => void
   signOut: () => Promise<void>
@@ -38,6 +48,10 @@ interface WhoamiResponse {
   email: string
   sub: string
   verified: boolean
+  /** Catalyst tier (#3375) — present on PIN-derived + chroot sessions. */
+  tier?: string
+  /** Keycloak realm-access claim (#3375). */
+  realm_access?: { roles?: string[] }
 }
 
 const SESSION_QUERY_KEY = ['catalyst', 'session', 'whoami'] as const
@@ -135,6 +149,11 @@ export function useSession(): SessionState {
     signedIn: data !== null,
     email: data?.email ?? null,
     sub: data?.sub ?? null,
+    // #3375 — expose tier + realm roles so the DR Switchover control can
+    // enable for the owner/admin tier. The whoami handler already returns
+    // both (auth.go HandleWhoami: Tier + realm_access.roles).
+    tier: (data?.tier ?? '').toLowerCase(),
+    roles: data?.realm_access?.roles ?? [],
     loading: q.isLoading,
     refetch,
     signOut,
