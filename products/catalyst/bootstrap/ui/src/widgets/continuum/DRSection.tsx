@@ -52,6 +52,17 @@ export interface DRSectionProps {
   namespace?: string
   /** Caller's tier — controls render of switchover/failback/approve buttons. */
   callerTier?: string
+  /**
+   * #3375 — the app's effective DR class (active-hot-standby / active-passive
+   * / active-active), from the live CR or the declared blueprint topology.
+   * Drives the heading + the honest "no live Continuum CR" copy.
+   */
+  declaredClass?: string
+  /**
+   * #3375 — the declared switchover mechanism (e.g. bp-continuum,
+   * raft-transition) surfaced in the contract line when no live CR exists.
+   */
+  switchoverMechanism?: string | null
   /** Test seam — pre-fill the Continuum CR + audit list, skip network. */
   initialContinuum?: ContinuumGetResponse
   /** Test seam — bypass the audit fetch + network calls. */
@@ -64,6 +75,8 @@ export function DRSection({
   applicationName,
   namespace,
   callerTier,
+  declaredClass,
+  switchoverMechanism,
   initialContinuum,
   disableNetwork = false,
 }: DRSectionProps) {
@@ -118,6 +131,29 @@ export function DRSection({
   const isOwner = tier === 'owner' || tier === 'admin'
   const isSovereignAdmin = tier === 'admin' || tier === 'owner'
 
+  // #3375 — the live Continuum query resolves to "loaded but not found"
+  // (404) for apps that have no Continuum CR yet (bootstrap-kit apps, or a
+  // single-region prov). Distinguish that from "still loading" so the panel
+  // never spins forever — the matrix asserts a real DR surface, not a
+  // permanent "Loading Continuum status…".
+  const crLoading = !initialContinuum && !disableNetwork && continuumQ.isLoading
+  const crMissing = !cr && !crLoading
+  const heading =
+    declaredClass === 'active-passive'
+      ? 'Disaster Recovery (active-passive)'
+      : declaredClass === 'active-active'
+        ? 'Disaster Recovery (active-active)'
+        : 'Disaster Recovery (active-hot-standby)'
+
+  // The Switchover button is enabled for the owner tier whenever there is a
+  // failover target. When a live CR is present we use its hot-standby set;
+  // when none exists yet (no Continuum CR) the owner can still INITIATE the
+  // switchover — the catalyst-api handler defaults the target to the first
+  // hot-standby region server-side, so we pass an empty target and let the
+  // dialog/handler resolve it. This is what makes the control walkable
+  // rather than permanently absent.
+  const canSwitchover = isOwner && (!!failoverTarget || crMissing)
+
   return (
     <section
       className="continuum-dr-section mt-6 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-4"
@@ -125,9 +161,9 @@ export function DRSection({
     >
       <div className="mb-3 flex items-baseline justify-between">
         <h3 className="text-sm font-semibold text-[var(--color-text-strong)]">
-          Disaster Recovery (active-hotstandby)
+          {heading}
         </h3>
-        {isOwner && failoverTarget ? (
+        {canSwitchover ? (
           <button
             type="button"
             data-testid="continuum-dr-switchover-btn"
@@ -153,13 +189,38 @@ export function DRSection({
         )}
       </div>
 
-      {!cr ? (
+      {crLoading ? (
         <p
           data-testid="continuum-dr-loading"
           className="text-xs text-[var(--color-text-dim)]"
         >
           Loading Continuum status…
         </p>
+      ) : crMissing ? (
+        <div data-testid="continuum-dr-no-cr" className="text-xs text-[var(--color-text-dim)]">
+          <p>
+            No live Continuum record for{' '}
+            <code className="font-mono text-[var(--color-text)]">{applicationName}</code> yet —
+            the cross-region DR machinery activates once the app is placed{' '}
+            <strong className="text-[var(--color-text)]">{declaredClass ?? 'active-hot-standby'}</strong>{' '}
+            on a 2-region Sovereign.
+          </p>
+          {switchoverMechanism ? (
+            <p className="mt-1.5" data-testid="continuum-dr-declared-mechanism">
+              Declared switchover mechanism:{' '}
+              <code className="font-mono text-[var(--color-text)]">{switchoverMechanism}</code>.
+            </p>
+          ) : null}
+          <div className="mt-4">
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-dim)]">
+              Switchover history
+            </h4>
+            <SwitchoverHistory
+              events={auditQ.data?.items ?? []}
+              applicationName={applicationName}
+            />
+          </div>
+        </div>
       ) : (
         <>
           <StatusPanel
@@ -203,12 +264,17 @@ export function DRSection({
         </>
       )}
 
-      {showSwitchover && failoverTarget ? (
+      {showSwitchover ? (
         <SwitchoverDialog
           sovereignId={sovereignId}
           continuumName={continuumName}
           namespace={namespace}
           fromRegion={primaryRegion}
+          // May be empty when no live CR exists — the catalyst-api switchover
+          // handler then resolves the target to the first declared hot-standby
+          // region server-side (continuum.go HandleContinuumSwitchoverRequest).
+          // The dialog renders a "the standby region" placeholder for the
+          // empty case but submits the empty string verbatim.
           toRegion={failoverTarget}
           applicationName={applicationName}
           disableNetwork={disableNetwork}

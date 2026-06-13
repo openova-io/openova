@@ -50,6 +50,7 @@ import { deriveJobs } from './jobs'
 import { adaptDerivedJobsToFlat } from './jobsAdapter'
 import { findComponent } from '@/pages/wizard/steps/componentGroups'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
+import { useSession } from '@/shared/lib/useSession'
 import { API_BASE } from '@/shared/config/urls'
 import type { ApplicationStatus } from './eventReducer'
 import {
@@ -117,6 +118,24 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   const componentId = params.componentId ?? ''
   const urlTab = params.tab
   const store = useWizardStore()
+
+  // #3375 — the operator's Catalyst tier, used to enable the DR Switchover
+  // control on the Topology tab for the owner/admin tier (the prior bug:
+  // callerTier was never threaded → the button was permanently disabled
+  // "Owner tier required"). Prefer the explicit `tier` claim; fall back to
+  // deriving it from the catalyst-<tier> realm roles whoami also returns —
+  // so a session that carries only realm roles still resolves correctly.
+  const session = useSession()
+  const callerTier = useMemo(() => {
+    if (session.tier) return session.tier
+    const roles = session.roles.map((r) => r.toLowerCase())
+    if (roles.includes('catalyst-owner')) return 'owner'
+    if (roles.includes('catalyst-admin')) return 'admin'
+    if (roles.includes('catalyst-operator')) return 'operator'
+    if (roles.includes('catalyst-developer')) return 'developer'
+    if (roles.includes('catalyst-viewer')) return 'viewer'
+    return ''
+  }, [session.tier, session.roles])
 
   const applications = useMemo(
     () => resolveApplications(store.selectedComponents),
@@ -716,6 +735,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               sovereignId={deploymentId}
               applicationName={componentId}
               namespace={appNamespace}
+              callerTier={callerTier}
             />
           </div>
         ) : appTab === 'resources' ? (

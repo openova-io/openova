@@ -1,6 +1,58 @@
 {
-  "generatedAt": "2026-06-12T17:40:39.542Z",
+  "generatedAt": "2026-06-13T18:40:48.549Z",
   "blueprints": [
+    {
+      "id": "bp-alloy",
+      "slug": "alloy",
+      "title": "Alloy",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.1",
+      "section": "pts-3-observability",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "none",
+              "mode": "none",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
     {
       "id": "bp-anthropic-adapter",
       "slug": "anthropic-adapter",
@@ -17,7 +69,53 @@
         "bp-external-secrets"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-active",
+          "singleton"
+        ],
+        "multiRegion": "active-active",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-active": {
+            "replication": {
+              "backend": "none",
+              "mode": "none",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "none",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "active"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-bge",
@@ -35,7 +133,53 @@
         "bp-cnpg"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-active",
+          "singleton"
+        ],
+        "multiRegion": "active-active",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-active": {
+            "replication": {
+              "backend": "none",
+              "mode": "none",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "none",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "active"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-catalyst-platform",
@@ -57,7 +201,53 @@
         "bp-crossplane-claims"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-hot-standby",
+          "singleton"
+        ],
+        "multiRegion": "active-hot-standby",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-hot-standby": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 30,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "active",
+                "mgmt-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-cert-manager",
@@ -73,7 +263,43 @@
       "section": "pts-3-3-security-and-policy",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "openbao-perf-replication",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-cert-manager-dynadot-webhook",
@@ -91,7 +317,39 @@
         "bp-cert-manager"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-cert-manager-powerdns-webhook",
@@ -109,7 +367,39 @@
         "bp-cert-manager"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-cilium",
@@ -121,11 +411,43 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.4.0",
+      "version": "1.4.1",
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-cilium-policies",
@@ -141,7 +463,43 @@
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "flux-git",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-clickhouse",
@@ -157,7 +515,101 @@
       "section": "pts-4-application-tier",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-active",
+          "singleton"
+        ],
+        "multiRegion": "active-active",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-active": {
+            "replication": {
+              "backend": "none",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "none",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "active"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-cluster-autoscaler-hcloud",
+      "slug": "cluster-autoscaler-hcloud",
+      "title": "Cluster Autoscaler (Hetzner)",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.3.0",
+      "section": "pts-3-2-scaling-and-resilience",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-cnpg",
@@ -175,7 +627,39 @@
         "bp-flux"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-cnpg-pair",
@@ -187,7 +671,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "section": "pts-9-disaster-recovery",
       "depends": [
         "bp-cnpg",
@@ -195,7 +679,91 @@
         "bp-cilium"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-hot-standby"
+        ],
+        "multiRegion": "active-hot-standby",
+        "singleRegion": "active-hot-standby",
+        "perTopology": {
+          "active-hot-standby": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 10,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "passive"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-coraza",
+      "slug": "coraza",
+      "title": "Coraza WAF (SPOA)",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.0",
+      "section": "pts-3-3-security-and-policy",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "flux-git",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-crossplane",
@@ -211,7 +779,43 @@
       "section": "pts-3-2-gitops-and-iac",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "flux-git",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-crossplane-claims",
@@ -229,7 +833,43 @@
         "bp-crossplane"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "flux-git",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-debezium",
@@ -245,7 +885,53 @@
       "section": "pts-4-application-tier",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "mirrormaker2",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-dmz-vcluster",
@@ -257,14 +943,42 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.2.5",
+      "version": "0.2.7",
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [
         "bp-cilium",
         "bp-cert-manager"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "velero",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "dmz",
+              "clusters": [
+                "dmz-A",
+                "dmz-B"
+              ],
+              "roles": {
+                "dmz-A": "singleton",
+                "dmz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-external-dns",
@@ -280,7 +994,43 @@
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "none",
+              "mode": "none",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-external-secrets",
@@ -299,7 +1049,43 @@
         "bp-cert-manager"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "openbao-perf-replication",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-external-secrets-stores",
@@ -315,7 +1101,91 @@
       "section": "pts-3-3-security-and-policy",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "flux-git",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-falco",
+      "slug": "falco",
+      "title": "Falco",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.1",
+      "section": "pts-3-3-security-and-policy",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-ferretdb",
@@ -331,7 +1201,53 @@
       "section": "pts-4-application-tier",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 60,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-flink",
@@ -347,7 +1263,53 @@
       "section": "pts-4-application-tier",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "s3-bucket-replication",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-flux",
@@ -363,7 +1325,43 @@
       "section": "pts-3-2-gitops-and-iac",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "flux-git",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-gateway-api",
@@ -379,7 +1377,43 @@
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "flux-git",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-gitea",
@@ -391,11 +1425,119 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.2.31",
+      "version": "1.2.34",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-hot-standby",
+          "singleton"
+        ],
+        "multiRegion": "active-hot-standby",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-hot-standby": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 30,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "active",
+                "mgmt-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-grafana",
+      "slug": "grafana",
+      "title": "Grafana",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.12",
+      "section": "pts-3-observability",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-hot-standby",
+          "singleton"
+        ],
+        "multiRegion": "active-hot-standby",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-hot-standby": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 30,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "active",
+                "mgmt-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-guacamole",
@@ -407,7 +1549,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.4",
+      "version": "0.2.8",
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [
         "bp-keycloak",
@@ -417,7 +1559,166 @@
         "bp-k8s-ws-proxy"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-hot-standby",
+          "singleton"
+        ],
+        "multiRegion": "active-hot-standby",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-hot-standby": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 30,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "active",
+                "mgmt-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-harbor",
+      "slug": "harbor",
+      "title": "Harbor",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.2.30",
+      "section": "pts-3-5-storage-and-data",
+      "depends": [
+        "bp-cnpg",
+        "bp-cert-manager"
+      ],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-hot-standby",
+          "singleton"
+        ],
+        "multiRegion": "active-hot-standby",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-hot-standby": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 30,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "active",
+                "mgmt-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-hcloud-ccm",
+      "slug": "hcloud-ccm",
+      "title": "Hetzner Cloud Controller Manager",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.0",
+      "section": "pts-3-1-cloud-integration",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-hcloud-csi",
@@ -433,7 +1734,39 @@
       "section": "pts-3-5-storage-and-data",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-iceberg",
@@ -449,7 +1782,53 @@
       "section": "pts-4-application-tier",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-active",
+          "singleton"
+        ],
+        "multiRegion": "active-active",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-active": {
+            "replication": {
+              "backend": "s3-bucket-replication",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "none",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "active"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-k8s-ws-proxy",
@@ -467,7 +1846,53 @@
         "bp-sealed-secrets"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "none",
+              "mode": "none",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 5,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "active",
+                "mgmt-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-keycloak",
@@ -479,11 +1904,57 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.4.26",
+      "version": "1.4.27",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-hot-standby",
+          "singleton"
+        ],
+        "multiRegion": "active-hot-standby",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-hot-standby": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 30,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "active",
+                "mgmt-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-knative",
@@ -502,7 +1973,53 @@
         "bp-cert-manager"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-active",
+          "singleton"
+        ],
+        "multiRegion": "active-active",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-active": {
+            "replication": {
+              "backend": "none",
+              "mode": "none",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "none",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "active"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-kserve",
@@ -522,7 +2039,219 @@
         "bp-knative"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-active",
+          "singleton"
+        ],
+        "multiRegion": "active-active",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-active": {
+            "replication": {
+              "backend": "none",
+              "mode": "none",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "none",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "active"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-kyverno",
+      "slug": "kyverno",
+      "title": "Kyverno",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.3.6",
+      "section": "pts-3-3-security-and-policy",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "flux-git",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-kyverno-policies",
+      "slug": "kyverno-policies",
+      "title": "Kyverno Policy Library",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.33",
+      "section": "pts-3-3-security-and-policy",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "flux-git",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-langfuse",
+      "slug": "langfuse",
+      "title": "Langfuse",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.1.0",
+      "section": "pts-3-observability",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 60,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-librechat",
@@ -543,7 +2272,93 @@
         "bp-keycloak"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-active",
+          "singleton"
+        ],
+        "multiRegion": "active-active",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-active": {
+            "replication": {
+              "backend": "none",
+              "mode": "none",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "none",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "active"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-litmus",
+      "slug": "litmus",
+      "title": "LitmusChaos",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.0",
+      "section": "pts-3-3-security-and-policy",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-livekit",
@@ -563,7 +2378,53 @@
         "bp-valkey"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-active",
+          "singleton"
+        ],
+        "multiRegion": "active-active",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-active": {
+            "replication": {
+              "backend": "none",
+              "mode": "none",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "none",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "active"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-llm-gateway",
@@ -583,7 +2444,115 @@
         "bp-external-secrets"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-active",
+          "singleton"
+        ],
+        "multiRegion": "active-active",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-active": {
+            "replication": {
+              "backend": "none",
+              "mode": "none",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "none",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "active"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-loki",
+      "slug": "loki",
+      "title": "Loki",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.0",
+      "section": "pts-3-observability",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "s3-bucket-replication",
+              "mode": "async",
+              "lagSloSeconds": 60
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 60,
+              "rpoSeconds": 60
+            },
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "active",
+                "mgmt-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-matrix",
@@ -603,7 +2572,53 @@
         "bp-cert-manager"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 60,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-mgmt-vcluster",
@@ -615,14 +2630,42 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.2.6",
+      "version": "0.2.8",
       "section": "pts-3-2-control-plane-isolation",
       "depends": [
         "bp-cilium",
         "bp-cert-manager"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "velero",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-milvus",
@@ -638,7 +2681,115 @@
       "section": "pts-4-application-tier",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "s3-bucket-replication",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-mimir",
+      "slug": "mimir",
+      "title": "Mimir",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.5",
+      "section": "pts-3-observability",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "s3-bucket-replication",
+              "mode": "async",
+              "lagSloSeconds": 60
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 60,
+              "rpoSeconds": 60
+            },
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "active",
+                "mgmt-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-nats-jetstream",
@@ -654,7 +2805,53 @@
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "raft",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 30,
+              "rpoSeconds": 60
+            },
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "active",
+                "mgmt-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-nemo-guardrails",
@@ -672,7 +2869,53 @@
         "bp-vllm"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-active",
+          "singleton"
+        ],
+        "multiRegion": "active-active",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-active": {
+            "replication": {
+              "backend": "flux-git",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "none",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "active"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-neo4j",
@@ -688,7 +2931,53 @@
       "section": "pts-4-application-tier",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "velero",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "bp-velero-restore",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-netbird",
@@ -700,7 +2989,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [
         "bp-keycloak",
@@ -708,7 +2997,53 @@
         "bp-sealed-secrets"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-hot-standby",
+          "singleton"
+        ],
+        "multiRegion": "active-hot-standby",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-hot-standby": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 30,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "active",
+                "mgmt-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-network-policies",
@@ -726,7 +3061,43 @@
         "bp-cilium"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "flux-git",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-newapi",
@@ -738,7 +3109,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "1.4.63",
+      "version": "1.4.66",
       "section": "pts-4-6-llm-serving",
       "depends": [
         "bp-cnpg",
@@ -748,7 +3119,119 @@
         "bp-vllm"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 30,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "active",
+                "mgmt-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-oidc-gate",
+      "slug": "oidc-gate",
+      "title": "oidc-gate",
+      "summary": "|",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "0.1.0",
+      "section": "pts-2-3-per-sovereign-supporting-services",
+      "depends": [
+        "bp-cilium",
+        "bp-keycloak",
+        "bp-external-secrets-stores"
+      ],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "none",
+              "mode": "none",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 30,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "active",
+                "mgmt-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-openbao",
@@ -760,11 +3243,57 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.2.28",
+      "version": "1.2.31",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "openbao-perf-replication",
+              "mode": "async",
+              "lagSloSeconds": 30
+            },
+            "switchover": {
+              "mechanism": "raft-transition",
+              "rtoSeconds": 60,
+              "rpoSeconds": 30
+            },
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "active",
+                "mgmt-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-openclaw",
@@ -784,7 +3313,29 @@
         "bp-cert-manager"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-openmeter",
@@ -804,7 +3355,53 @@
         "bp-cert-manager"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 60,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-opensearch",
@@ -820,7 +3417,125 @@
       "section": "pts-4-application-tier",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-active",
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-active",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-active": {
+            "replication": {
+              "backend": "ccr",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "ccr-promote",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "active"
+              }
+            }
+          },
+          "active-passive": {
+            "replication": {
+              "backend": "ccr",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "ccr-promote",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-opentelemetry",
+      "slug": "opentelemetry",
+      "title": "OpenTelemetry Collector",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.2.1",
+      "section": "pts-3-observability",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-opentelemetry-operator",
@@ -839,7 +3554,39 @@
         "bp-cert-manager"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-postgres",
@@ -851,7 +3598,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "section": "pts-4-1-data-services",
       "depends": [
         "bp-cnpg",
@@ -868,6 +3615,52 @@
         "produces": [
           "credentialSecret"
         ]
+      },
+      "topology": {
+        "supported": [
+          "singleton",
+          "active-hot-standby"
+        ],
+        "multiRegion": "active-hot-standby",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          },
+          "active-hot-standby": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 10,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "passive"
+              }
+            }
+          }
+        }
       }
     },
     {
@@ -880,13 +3673,45 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.2.12",
+      "version": "1.2.14",
       "section": "pts-3-2-gitops-and-iac",
       "depends": [
         "bp-cert-manager"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-powerdns-admin",
@@ -898,7 +3723,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.1.12",
+      "version": "0.1.13",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [
         "bp-powerdns",
@@ -910,7 +3735,39 @@
         "bp-gateway-api"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-qa-app",
@@ -926,7 +3783,31 @@
       "section": "pts-qa",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-reflector",
@@ -942,7 +3823,91 @@
       "section": "pts-3-3-security-and-policy",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "none",
+              "mode": "none",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-reloader",
+      "slug": "reloader",
+      "title": "Reloader",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.0",
+      "section": "pts-3-3-security-and-policy",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-rtz-vcluster",
@@ -954,14 +3919,42 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.2.6",
+      "version": "0.2.8",
       "section": "pts-3-2-control-plane-isolation",
       "depends": [
         "bp-cilium",
         "bp-cert-manager"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "velero",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-sandbox",
@@ -982,7 +3975,53 @@
         "bp-harbor"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-hot-standby",
+          "singleton"
+        ],
+        "multiRegion": "active-hot-standby",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-hot-standby": {
+            "replication": {
+              "backend": "none",
+              "mode": "async",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 30,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-sealed-secrets",
@@ -998,7 +4037,93 @@
       "section": "pts-3-3-security-and-policy",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-seaweedfs",
+      "slug": "seaweedfs",
+      "title": "SeaweedFS",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.2.1",
+      "section": "pts-3-5-storage-and-data",
+      "depends": [
+        "bp-cert-manager"
+      ],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "filer-remote-storage",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-self-sovereign-cutover",
@@ -1017,7 +4142,81 @@
         "bp-harbor"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "none",
+              "mode": "none",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-sigstore",
+      "slug": "sigstore",
+      "title": "Sigstore Policy Controller",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.0",
+      "section": "pts-3-3-security-and-policy",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-spire",
@@ -1033,7 +4232,53 @@
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-hot-standby",
+          "singleton"
+        ],
+        "multiRegion": "active-hot-standby",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-hot-standby": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 30,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "active",
+                "mgmt-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-sso-bridge",
@@ -1053,7 +4298,53 @@
         "bp-external-secrets-stores"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "none",
+              "mode": "none",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 30,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "active",
+                "mgmt-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-stalwart-sovereign",
@@ -1073,7 +4364,25 @@
         "bp-powerdns"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [],
+              "roles": {}
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-stalwart-tenant",
@@ -1094,7 +4403,53 @@
         "bp-powerdns"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 60,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-strimzi",
@@ -1110,7 +4465,77 @@
       "section": "pts-4-application-tier",
       "depends": [],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-active",
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-active",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-active": {
+            "replication": {
+              "backend": "mirrormaker2",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "mm2-symmetric",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "active"
+              }
+            }
+          },
+          "active-passive": {
+            "replication": {
+              "backend": "mirrormaker2",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "mm2-symmetric",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-stunner",
@@ -1129,7 +4554,163 @@
         "bp-cert-manager"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-active",
+          "singleton"
+        ],
+        "multiRegion": "active-active",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-active": {
+            "replication": {
+              "backend": "none",
+              "mode": "none",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "none",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "active"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-syft-grype",
+      "slug": "syft-grype",
+      "title": "Syft + Grype",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.0",
+      "section": "pts-3-3-security-and-policy",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-tempo",
+      "slug": "tempo",
+      "title": "Tempo",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.0",
+      "section": "pts-3-observability",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "s3-bucket-replication",
+              "mode": "async",
+              "lagSloSeconds": 60
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 60,
+              "rpoSeconds": 60
+            },
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B"
+              ],
+              "roles": {
+                "mgmt-A": "active",
+                "mgmt-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "mgmt",
+              "clusters": [
+                "mgmt-A"
+              ],
+              "roles": {
+                "mgmt-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-temporal",
@@ -1148,7 +4729,101 @@
         "bp-cert-manager"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 60,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-trivy",
+      "slug": "trivy",
+      "title": "Trivy",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.3",
+      "section": "pts-3-3-security-and-policy",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-valkey",
@@ -1160,7 +4835,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.1.0",
+      "version": "1.1.2",
       "section": "pts-4-1-data-services",
       "depends": [
         "bp-flux"
@@ -1176,6 +4851,52 @@
         "produces": [
           "credentialSecret"
         ]
+      },
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "sentinel",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "sentinel-failover",
+              "rtoSeconds": 30,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
       }
     },
     {
@@ -1194,7 +4915,143 @@
         "bp-flux"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-velero",
+      "slug": "velero",
+      "title": "Velero",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.2.2",
+      "section": "pts-3-observability",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "s3-bucket-replication",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-velero-hcs",
+      "slug": "velero-hcs",
+      "title": "Velero (HCS)",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "0.1.1",
+      "section": "pts-3-observability",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": {
+              "backend": "s3-bucket-replication",
+              "mode": "async",
+              "lagSloSeconds": null
+            },
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-vllm",
@@ -1212,7 +5069,101 @@
         "bp-kserve"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-active",
+          "singleton"
+        ],
+        "multiRegion": "active-active",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-active": {
+            "replication": {
+              "backend": "none",
+              "mode": "none",
+              "lagSloSeconds": null
+            },
+            "switchover": {
+              "mechanism": "none",
+              "rtoSeconds": null,
+              "rpoSeconds": null
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "active"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bp-vpa",
+      "slug": "vpa",
+      "title": "Vertical Pod Autoscaler",
+      "summary": "",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "1.0.1",
+      "section": "pts-3-3-security-and-policy",
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "",
+              "clusters": [
+                "mgmt-A",
+                "mgmt-B",
+                "dmz-A",
+                "dmz-B",
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "mgmt-A": "singleton",
+                "mgmt-B": "singleton",
+                "dmz-A": "singleton",
+                "dmz-B": "singleton",
+                "rtz-A": "singleton",
+                "rtz-B": "singleton"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "id": "bp-wordpress-tenant",
@@ -1234,7 +5185,53 @@
         "bp-cert-manager"
       ],
       "shareable": false,
-      "contextSchema": null
+      "contextSchema": null,
+      "topology": {
+        "supported": [
+          "active-passive",
+          "singleton"
+        ],
+        "multiRegion": "active-passive",
+        "singleRegion": "singleton",
+        "perTopology": {
+          "active-passive": {
+            "replication": {
+              "backend": "cnpg-pair",
+              "mode": "sync",
+              "lagSloSeconds": 0
+            },
+            "switchover": {
+              "mechanism": "bp-continuum",
+              "rtoSeconds": 60,
+              "rpoSeconds": 0
+            },
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A",
+                "rtz-B"
+              ],
+              "roles": {
+                "rtz-A": "active",
+                "rtz-B": "passive"
+              }
+            }
+          },
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "bootstrapKit": [
