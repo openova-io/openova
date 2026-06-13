@@ -60,9 +60,24 @@ Redpanda default so contabo's existing SME consumers keep functioning.
   {{- /* Sovereign default: no Redpanda exists in cluster — leave empty
        so the SME services skip the legacy Kafka transport entirely. */ -}}
   {{- $defaultBrokers = "" -}}
-  {{- /* Sovereign default NATS URL. Correct namespace is `nats-system`
-       (see header comment §3). */ -}}
-  {{- $defaultNATS = "nats://nats-jetstream.nats-system.svc.cluster.local:4222" -}}
+  {{- /* Sovereign default NATS URL (#3376 funnel fix). #3373/#2697 moved
+       bp-nats-jetstream INSIDE the mgmt vCluster (placement.yaml:
+       `bp-nats-jetstream → vcluster: mgmt, namespace: nats-system`). The
+       bp-mgmt-vcluster syncer reflects the in-vCluster Service to the
+       HOST under the syncer-mangled name
+       `nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc`, so the
+       host `nats-system` namespace no longer carries a `nats-jetstream`
+       Service — the old default `nats-jetstream.nats-system.svc`
+       resolves NXDOMAIN and EVERY SME service (billing/tenant/
+       provisioning/domain/notification) CrashLoops on `nats connect:
+       no such host`, wedging the funnel (measured live hw130
+       2026-06-13: provisioning Init:0/1, billing/tenant/domain/
+       notification CrashLoopBackOff). The catalyst-api/continuum config
+       (values.yaml catalystApi.nats.url) was already updated to the
+       synced name in #2697; the SME default was missed in the move.
+       Align it here. Override via smeServices.eventBus.natsURL for a
+       host-placed NATS. */ -}}
+  {{- $defaultNATS = "nats://nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc.cluster.local:4222" -}}
 {{- end -}}
 {{- $brokers := default $defaultBrokers (index (default (dict) .Values.smeServices.eventBus) "brokers") -}}
 {{- $natsURL := default $defaultNATS (index (default (dict) .Values.smeServices.eventBus) "natsURL") -}}
