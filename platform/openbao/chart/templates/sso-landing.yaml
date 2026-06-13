@@ -43,7 +43,7 @@ WHAT THIS PAGE DOES (gesture-free, popup-free, version-stable):
 {{- $mount := .Values.sso.bareURL.oidcMount | default "oidc" }}
 {{- $role := .Values.sso.bareURL.oidcRole | default "operator" }}
 {{- $landingPath := .Values.sso.bareURL.landingPath | default "/sso/landing" }}
-{{- $img := printf "%s/%s:%s" (.Values.ssoLanding.image.registry | default "harbor.openova.io") (.Values.ssoLanding.image.repository | default "proxy-docker/library/nginx") (.Values.ssoLanding.image.tag | default "1.27-alpine") }}
+{{- $img := printf "%s/%s:%s" (.Values.ssoLanding.image.registry | default "harbor.openova.io") (.Values.ssoLanding.image.repository | default "proxy-dockerhub/library/nginx") (.Values.ssoLanding.image.tag | default "1.27-alpine") }}
 ---
 # ── landing page content (HTML + JS) ──────────────────────────────────
 apiVersion: v1
