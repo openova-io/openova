@@ -206,7 +206,11 @@ spec:
       # fresh Sovereign showed the "uninitialized" wizard with no admin. The new
       # DB-direct seed writes the setups row + SSO-only root user + sovereign
       # OIDC provider + promotes the owner to root on first login.
-      version: 1.4.68
+      # 1.4.69 — #3374 admin-tier: stamp managed-by:flux on all 4 hook Jobs so
+      # the upgrade's pre-upgrade gate (and post-upgrade seed/channel/db-sync)
+      # aren't denied by kyverno flux-managed Enforce → 1.4.68 rolled back to
+      # 1.4.66 on hw133, leaving NewAPI uninitialized. Same class as openbao #3434.
+      version: 1.4.69
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
