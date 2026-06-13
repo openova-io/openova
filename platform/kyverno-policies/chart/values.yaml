@@ -226,6 +226,24 @@ compliancePolicies:
     allowedImagePatterns:
       - "*/proxy-*/*"           # proxy-cache mode (cilium, cert-manager, postgres, etc.)
       - "*/openova-io/*"        # native-push mode (catalyst-api + all openova-io services post-cutover)
+    # 2026-06-13: EXCLUDE the `powerdns` namespace from harbor-proxy-pull.
+    # bp-powerdns's pdns-auth-50 + dnsdist-19 images pull from raw
+    # `docker.io/powerdns/...` (see platform/powerdns/chart/values.yaml).
+    # They CANNOT route through `harbor.openova.io/proxy-docker/...` because
+    # that Harbor project is not reliably pullable by a fresh-prov node at
+    # bootstrap — #3380-D's proxy-docker reroute wedged every fresh prov
+    # (hw131 + hw132: powerdns pods never started → no DNS → no wildcard TLS
+    # → console down). powerdns is a trusted first-party bootstrap component,
+    # so exempt it from the image-source glob here (matches hw130's effective
+    # state, where docker.io powerdns ran under kyverno without denial). This
+    # is scoped to THIS policy only (per-policy extraExcludeNamespaces, NOT
+    # the shared complianceDefaultExcludes anchor) — powerdns stays subject
+    # to every OTHER policy (probes / requests / image-tag-pinned / etc.).
+    # Same shape as the `flux-managed` extraExcludeNamespaces carve-out.
+    # Follow-up: making proxy-docker bootstrap-pullable (cred-free like
+    # proxy-ghcr) would let us drop this exclude and re-do #3380-D correctly.
+    extraExcludeNamespaces:
+      - powerdns
 
   imageTagPinned:
     enabled: true
