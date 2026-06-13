@@ -13,7 +13,18 @@ name: bp-powerdns
 # founder's browser lands on the UI instead of a 404. The /api forward
 # rule is preserved (Gateway-API longest-prefix). Default empty = no
 # redirect rule rendered (zero regression).
-version: 1.2.12
+# 1.2.13 (#3380-D, 2026-06-13): (1) the REST-API Ingress now renders ONLY
+# when the Gateway path is OFF (api.gateway.enabled=false). On a
+# Cilium-Gateway Sovereign the Ingress was redundant with the HTTPRoute AND
+# its cert-manager.io/cluster-issuer annotation spawned a standalone
+# `powerdns-api-tls` Certificate that sits Ready=False forever (chart
+# default issuer `letsencrypt-prod` names a ClusterIssuer absent on
+# Sovereigns; the cilium-gateway wildcard already serves pdns.<sov-fqdn>).
+# (2) the dnsdist + pdns-auth images route through the Harbor `proxy-docker`
+# cache (were raw docker.io — Enforce-DENIED by harbor-proxy-pull on the
+# next roll, the `powerdns` ns is not excluded). Verified live hw130.
+# Contabo (gateway OFF, real Traefik) unaffected.
+version: 1.2.13
 description: |
   Catalyst-curated Blueprint wrapper for PowerDNS Authoritative.
   Carries Catalyst-specific values.yaml + templates (CNPG cluster, dnsdist

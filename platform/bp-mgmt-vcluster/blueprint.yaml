@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-2-control-plane-isolation
     catalyst.openova.io/category: platform
 spec:
-  version: 0.2.7
+  version: 0.2.8
   card:
     title: Management vCluster
     summary: |

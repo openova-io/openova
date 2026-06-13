@@ -80,6 +80,29 @@ vcluster:
     distro:
       k8s:
         enabled: true
+        # #3380-D Pillar-5 anti-tether (2026-06-13): pin the k8s distro
+        # control-plane images off upstream `registry.k8s.io` and onto the
+        # Sovereign-local Harbor `proxy-k8s` cache (lockstep with
+        # bp-mgmt-vcluster). The loft-sh subchart otherwise defaults the
+        # apiServer/controllerManager/scheduler images to
+        # `registry.k8s.io/kube-*`, which the `harbor-proxy-pull` Enforce
+        # ClusterPolicy would DENY on the next image roll. `harbor.openova.io`
+        # is the bootstrap default (subchart values can't self-template
+        # `global.registryMirror`); slot 58/59 flips it via
+        # `${REGISTRY_MIRROR:=harbor.openova.io}` and cutover Step-04 pivots
+        # it post-handover. `tag` left to the subchart default.
+        apiServer:
+          image:
+            registry: harbor.openova.io
+            repository: proxy-k8s/kube-apiserver
+        controllerManager:
+          image:
+            registry: harbor.openova.io
+            repository: proxy-k8s/kube-controller-manager
+        scheduler:
+          image:
+            registry: harbor.openova.io
+            repository: proxy-k8s/kube-scheduler
     backingStore:
       database:
         embedded:
