@@ -986,6 +986,25 @@ func main() {
 	// what was hanging cutover on otech113 2026-05-05 (issue #935).
 	r.Post("/api/v1/internal/cutover/trigger", h.HandleCutoverInternalTrigger)
 
+	// #3374 — server-side zero-click silent-SSO shim for OpenBao.
+	// OpenBao's UI is a client-side SPA, so a static ssoInitPath can only
+	// pre-select the OIDC method (still one click). This shim asks Vault
+	// for the OIDC auth_url server-side and 302s the browser to Keycloak,
+	// giving grafana/harbor parity. The openbao HTTPRoute (bp-openbao)
+	// 302s the BARE URL (`/`, `/ui`, `/ui/`) straight here, so the very
+	// first request comes from a FRESH browser with NO catalyst_session
+	// cookie — therefore this route MUST live OUTSIDE RequireSession.
+	// Putting it inside (where it shipped through #3226) made the session
+	// middleware reject every bare-URL visit with 401 {"error":
+	// "unauthenticated"} before HandleOpenBaoSSOInit ever ran, so the
+	// founder-witnessed token form never got bypassed (caught live on
+	// hw133). The handler is self-contained and session-free: it resolves
+	// the blueprint from the catalog (empty session token tolerated), asks
+	// Vault for the auth_url, and 302s to Keycloak — falling back to the
+	// app deep-link on any error so it can NEVER 500, and 404ing only when
+	// no SSO-enabled openbao endpoint resolves.
+	r.Get("/catalyst/v1/apps/{id}/openbao-sso-init", h.HandleOpenBaoSSOInit)
+
 	// Auth-gated wizard endpoints — RequireSession validates the
 	// HMAC-signed catalyst_session cookie on every request. When
 	// cfg is nil (Sovereign clusters, CI without CATALYST_KC_ADDR)
@@ -1514,13 +1533,11 @@ func main() {
 		rg.Patch("/catalyst/v1/apps/{id}/endpoints/{name}", h.HandlePatchAppEndpoint)
 		rg.Delete("/catalyst/v1/apps/{id}/endpoints/{name}", h.HandleDeleteAppEndpoint)
 		rg.Get("/catalyst/v1/apps/{id}/launch-url", h.HandleGetLaunchURL)
-		// #3226 — server-side zero-click silent-SSO shim for OpenBao.
-		// OpenBao's UI is a client-side SPA, so a static ssoInitPath can
-		// only pre-select the OIDC method (still one click). This shim
-		// asks Vault for the OIDC auth_url server-side and 302s the
-		// browser to Keycloak, giving grafana/harbor parity. The openbao
-		// blueprint's ssoInitPath points the Open button at this route.
-		rg.Get("/catalyst/v1/apps/{id}/openbao-sso-init", h.HandleOpenBaoSSOInit)
+		// NOTE: the OpenBao silent-SSO shim (openbao-sso-init) is
+		// registered OUTSIDE this RequireSession group — see the public
+		// route above. A fresh browser hitting bao.<fqdn>/ has NO
+		// catalyst_session cookie, so RequireSession would 401 it before
+		// the shim ever ran (#3374 root cause).
 		rg.Post("/catalyst/v1/apps/instances", h.HandleCreateInstance)
 		rg.Get("/catalyst/v1/catalog/{blueprint}/instances", h.HandleListBlueprintInstances)
 
