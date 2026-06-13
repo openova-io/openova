@@ -26,7 +26,15 @@ name: bp-openbao
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.2.36
+version: 1.2.37
+# 1.2.37 (#3374, 2026-06-14): fix the sso-landing nginx ImagePullBackOff. The
+# image was `harbor.openova.io/proxy-docker/library/nginx` but the live Harbor
+# DockerHub proxy-cache project is `proxy-dockerhub` (proxy-docker does NOT
+# exist → 401 Unauthorized on the manifest HEAD, landing pod ImagePullBackOff
+# — measured on hw133). Corrected to proxy-dockerhub/library/nginx (the same
+# convention the rest of the chart + every other bp-* uses; verified it pulls
+# live). The kyverno `*/proxy-*/*` glob accepted both, which is why the render
+# test passed — the project-existence is a runtime fact, not a glob fact.
 # 1.2.36 (#3374, 2026-06-14): the 1.2.35 Blueprint-Release publish FAILED at
 # the chart-integration-test step — tests/sso-landing-render.sh Case 4 piped
 # the whole helm render into `grep -q`, which exits early and SIGPIPEs the
