@@ -70,7 +70,9 @@ spec:
       # self-registration. 0.1.9 is the pin bump that fires the live
       # helm-controller upgrade so the Capabilities-gated Application CR
       # finally renders on already-converged Sovereigns.
-      version: 0.1.9
+      # 0.1.10 (#3375): role-Secret name RFC-1123 sanitization (lockstep
+      # bump with 16a/16d — underscore-owner fix, see chart changelog).
+      version: 0.1.10
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

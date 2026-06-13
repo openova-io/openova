@@ -57,7 +57,9 @@ spec:
       # self-registration. 0.1.9 is the pin bump that fires the live
       # upgrade so the CR renders, plus this slot's newapi + openova-flow
       # Context additions below.
-      version: 0.1.9
+      # 0.1.10 (#3375): role-Secret name RFC-1123 sanitization — fixes THIS
+      # slot's Stalled upgrade (Secret "shared-pg-c-openova_flow" invalid).
+      version: 0.1.10
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
