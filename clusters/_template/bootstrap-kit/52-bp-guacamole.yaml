@@ -161,7 +161,7 @@ spec:
       # USER_GROUP. The openid extension authenticated SSO users but granted
       # no admin; the new CNPG cluster + schema-seed Job + POSTGRESQL_* env
       # make sovereign-admins members land as guacamole admin on SSO login.
-      version: 0.2.9
+      version: 0.2.10
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
