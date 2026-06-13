@@ -165,7 +165,12 @@ spec:
       # denied → rolled back to 0.2.8). Stamp managed-by:flux on the Job +
       # vendor the schema so it is single-container (no mixed-registry
       # initContainer for harbor-proxy-pull anyPattern to reject).
-      version: 0.2.16
+      # 0.2.17 — #3374 admin group-enrollment: a per-minute admin-enroll CronJob
+      # + post-upgrade catch-up write the guacamole_user_group_member row binding
+      # SSO users into sovereign-admins → admin DETERMINISTIC. 0.2.16 had the
+      # USER_GROUP+ADMINISTER but the membership table stayed empty so the owner
+      # got no admin menu (#3475). Proven live on hw133.
+      version: 0.2.17
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole

@@ -421,6 +421,24 @@ adminSeed:
   # Group whose members are elevated to admin. Elevation always keys on the
   # group, never per-user (#3374 law §5).
   adminGroup: "sovereign-admins"
+  # #3374 (2026-06-14): NewAPI's public base URL, written into the `options`
+  # table as `ServerAddress`. NewAPI builds the OAuth token-exchange
+  # redirect_uri as `fmt.Sprintf("%s/oauth/%s", ServerAddress, slug)`
+  # (upstream oauth/generic.go:97); the frontend builds the AUTHORIZE
+  # redirect_uri as `${window.location.origin}/oauth/${slug}`
+  # (web/.../use-oauth-login.ts:204). RFC-6749 §4.1.3 requires the
+  # token-exchange redirect_uri to EXACTLY match the authorize one, so
+  # ServerAddress MUST equal the browser origin `https://newapi.<fqdn>`.
+  # When EMPTY, NewAPI's ServerAddress defaults to "" → token-exchange sends
+  # the relative `/oauth/sovereign`, which never matches the absolute
+  # authorize URI → Keycloak rejects the exchange with
+  # `invalid_grant - Incorrect redirect_uri` → no session → the owner bounces
+  # to /login?expired=true (measured live on hw133 2026-06-14, #3475 re-walk).
+  # Default empty ⇒ the seed derives `https://newapi.<sovereignFQDN>` (the
+  # canonical public host, == the ingress.httpRoute.host and the KC
+  # newapi-admin client redirectUris). Operator overlay may override for a
+  # non-standard public hostname.
+  serverAddress: ""
   # When true, also GATE the newapi OIDC provider on adminGroup membership
   # (access_policy contains(groups, adminGroup)). Default OFF so a strict
   # claim-format mismatch can never break the owner's landing (the #3150

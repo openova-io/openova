@@ -215,6 +215,19 @@ guacamole:
     # `groups` claim binds the SSO user into it. Elevation keys on the group,
     # never per-user (#3374 law §5).
     adminGroup: sovereign-admins
+    # #3374 (2026-06-14): how often the admin-enroll CronJob runs. Guacamole's
+    # JDBC permission resolver grants a USER_GROUP's permissions via EITHER a
+    # `guacamole_user_group_member` row OR a runtime name-match against the
+    # OIDC `groups` claim (EntityMapper.xml selectEffectiveGroupIdentifiers).
+    # The runtime name-match did NOT reach emrah on hw133 (admin menu absent,
+    # `guacamole_user_group_member` empty — #3475 re-walk), so we make admin
+    # DETERMINISTIC by writing the membership row: a per-minute CronJob enrolls
+    # every JDBC USER (auto-created by POSTGRESQL_AUTO_CREATE_ACCOUNTS on first
+    # SSO login) into `<adminGroup>`. The sovereign realm's `catalyst-pin` IdP
+    # already gates WHO can authenticate into this Sovereign-level guacamole
+    # (operators only), so enrolling SSO users as admin matches the chart's
+    # intent (same model as bp-newapi's promote CronJob). Idempotent.
+    promoteSchedule: "* * * * *"
     # Image for the schema-seed Job's psql container (same CNPG postgres image
     # as the cluster — has psql). The schema SQL itself is copied out of the
     # guacamole webapp image by an initContainer.
