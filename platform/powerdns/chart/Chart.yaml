@@ -24,7 +24,19 @@ name: bp-powerdns
 # cache (were raw docker.io — Enforce-DENIED by harbor-proxy-pull on the
 # next roll, the `powerdns` ns is not excluded). Verified live hw130.
 # Contabo (gateway OFF, real Traefik) unaffected.
-version: 1.2.13
+# 1.2.14 (2026-06-13): REVERT the #3380-D part-(2) image reroute — the
+# dnsdist + pdns-auth images go BACK to raw `docker.io/powerdns/...`. The
+# `proxy-docker` Harbor project is NOT bootstrap-pullable on a fresh prov
+# (unlike cred-free `proxy-ghcr`), so #3380-D wedged EVERY fresh prov
+# (hw131 + hw132: powerdns pods never started → REST API never up →
+# zone-bootstrap Job DeadlineExceeded → bp-powerdns never Ready →
+# cert-manager DNS01 can't issue the wildcard → no TLS → console down).
+# docker.io is hw130's proven-working source. The kyverno-Enforce concern
+# is now handled correctly by EXCLUDING the `powerdns` namespace from the
+# harbor-proxy-pull policy (bp-kyverno-policies 1.0.33,
+# harborProxyPull.extraExcludeNamespaces), NOT by rerouting the image.
+# The #3380-D part-(1) REST-API-Ingress gating is UNCHANGED.
+version: 1.2.14
 description: |
   Catalyst-curated Blueprint wrapper for PowerDNS Authoritative.
   Carries Catalyst-specific values.yaml + templates (CNPG cluster, dnsdist

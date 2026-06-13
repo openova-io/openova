@@ -68,6 +68,7 @@ spec:
     {{- $excludeNs := .Values.compliancePolicies.harborProxyPull.excludeNamespaces }}
     {{- $pats := .Values.compliancePolicies.harborProxyPull.allowedImagePatterns }}
     {{- $msg := "Container image does not match any allowed Harbor-source glob (proxy-cache `*/proxy-*/*` or native-push `*/openova-io/*`). Re-tag the image to pull through the Sovereign's local Harbor (e.g. registry.<sov-fqdn>/proxy-ghcr/... or registry.<sov-fqdn>/openova-io/openova/<svc>:<tag>)." }}
+    {{- $extraExcludeNs := .Values.compliancePolicies.harborProxyPull.extraExcludeNamespaces }}
     - name: image-from-harbor-proxy-pod
       match:
         any:
@@ -79,6 +80,18 @@ spec:
           - resources:
               namespaces:
                 {{- range $ns := $excludeNs }}
+                - {{ $ns }}
+                {{- end }}
+                {{- /*
+                  2026-06-13: per-policy extra excludes (NOT the shared anchor).
+                  bp-powerdns pulls pdns-auth-50 + dnsdist-19 from raw docker.io
+                  because the proxy-docker Harbor project is not bootstrap-pullable
+                  on a fresh prov (#3380-D's reroute wedged hw131 + hw132).
+                  powerdns is a trusted first-party bootstrap component; exempt it
+                  from the image-source glob HERE only — it stays subject to every
+                  other policy. Same shape as flux-managed.extraExcludeNamespaces.
+                */}}
+                {{- range $ns := $extraExcludeNs }}
                 - {{ $ns }}
                 {{- end }}
       validate:
@@ -110,6 +123,10 @@ spec:
                 {{- range $ns := $excludeNs }}
                 - {{ $ns }}
                 {{- end }}
+                {{- /* 2026-06-13: see image-from-harbor-proxy-pod rule above — powerdns docker.io carve-out. */}}
+                {{- range $ns := $extraExcludeNs }}
+                - {{ $ns }}
+                {{- end }}
       validate:
         message: {{ $msg | quote }}
         anyPattern:
@@ -133,6 +150,10 @@ spec:
           - resources:
               namespaces:
                 {{- range $ns := $excludeNs }}
+                - {{ $ns }}
+                {{- end }}
+                {{- /* 2026-06-13: see image-from-harbor-proxy-pod rule above — powerdns docker.io carve-out. */}}
+                {{- range $ns := $extraExcludeNs }}
                 - {{ $ns }}
                 {{- end }}
       validate:

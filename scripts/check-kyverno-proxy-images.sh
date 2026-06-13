@@ -88,11 +88,21 @@ ALLOWLIST_REGEX='(\{\{)|(\$\{)|(alpine/k8s)|(alpine/git)|(curlimages/curl)|(libr
 #   Format: "<chart-path>|<helm --set args>". These are the registry-sensitive
 #   subchart-wrapping bootstrap charts most prone to an upstream-registry leak.
 #   Extend this list when a new subchart-wrapping bp-* lands.
+#   bp-powerdns is INTENTIONALLY NOT in this list as of 2026-06-13: its
+#   pdns-auth-50 + dnsdist-19 images pull from raw `docker.io/powerdns/...`
+#   because the Harbor `proxy-docker` project is not bootstrap-pullable on a
+#   fresh prov (#3380-D's proxy-docker reroute wedged hw131 + hw132 — powerdns
+#   pods never started → no DNS → no wildcard TLS → console down). The
+#   harbor-proxy-pull policy EXCLUDES the `powerdns` namespace
+#   (platform/kyverno-policies/chart/values.yaml
+#   harborProxyPull.extraExcludeNamespaces: [powerdns]), so those docker.io
+#   images are NOT Enforce-denied at admission — there is nothing for this
+#   render-time guard to assert. Re-add powerdns here only if proxy-docker is
+#   made bootstrap-pullable and the namespace exclude is dropped.
 CHARTS=(
   "platform/bp-mgmt-vcluster/chart|--set mgmtVcluster.enabled=true"
   "platform/bp-dmz-vcluster/chart|--set dmzVcluster.enabled=true"
   "platform/bp-rtz-vcluster/chart|--set rtzVcluster.enabled=true"
-  "platform/powerdns/chart|--set api.enabled=true --set api.gateway.enabled=true"
 )
 
 matches_any_glob() {

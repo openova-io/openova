@@ -140,7 +140,13 @@ spec:
       # 1.2.13 (#3380-D): REST-API Ingress gated off on the Gateway path so
       # no orphaned powerdns-api-tls Certificate (Ready=False) is spawned;
       # dnsdist + pdns-auth images routed through Harbor proxy-docker.
-      version: 1.2.13
+      # 1.2.14 (2026-06-13): REVERT the #3380-D image reroute — dnsdist +
+      # pdns-auth go BACK to raw docker.io. proxy-docker is not
+      # bootstrap-pullable on a fresh prov, so #3380-D wedged hw131 + hw132
+      # (powerdns pods never started → no DNS → no wildcard TLS → console
+      # down). The kyverno-Enforce concern is handled by excluding the
+      # `powerdns` ns from harbor-proxy-pull (bp-kyverno-policies 1.0.33).
+      version: 1.2.14
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns
