@@ -14,23 +14,23 @@ Each row: open the [Dashboard](https://console.hw133.omani.works/dashboard) tree
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-nats-jetstream` must appear under **mgmt-vcluster** (now=mgmt — should PASS) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-loki` must appear under **mgmt-vcluster** (now=mgmt — should PASS) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-mimir` must appear under **mgmt-vcluster** (now=mgmt — should PASS) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-tempo` must appear under **mgmt-vcluster** (now=mgmt — should PASS) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-keycloak` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-catalyst-platform` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-gitea` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-openbao` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-powerdns-admin` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-sso-bridge` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-harbor` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-grafana` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-k8s-ws-proxy` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-guacamole` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-openova-flow-server` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-openova-flow-emitter` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-newapi` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) | ☐ | |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-nats-jetstream` must appear under **mgmt-vcluster** (now=mgmt — should PASS) — treemap shows `nats-jetstream` tile inside the **mgmt** group | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-loki` must appear under **mgmt-vcluster** (now=mgmt — should PASS) — `loki` tile inside **mgmt** group | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-mimir` must appear under **mgmt-vcluster** (now=mgmt — should PASS) — `mimir` tile inside **mgmt** group | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-tempo` must appear under **mgmt-vcluster** (now=mgmt — should PASS) — `tempo` tile inside **mgmt** group | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-keycloak` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) — `keycloak` tile is inside the **host** block | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-catalyst-platform` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) — `catalyst-api`/`catalyst-ui`/`catalyst-c…` tiles all in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-gitea` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) — `gitea` tile in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-openbao` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) — `openbao` tile in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-powerdns-admin` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) — `powerd…` (pdns-admin) tile in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-sso-bridge` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) — `sso-bri…` tile in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-harbor` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) — `harbor` tile in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-grafana` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) — `grafana` tile in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-k8s-ws-proxy` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) — `k8s-ws-proxy` tile in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-guacamole` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) — `guacamole` tile in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-openova-flow-server` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) — `openova-flow…` tile in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-openova-flow-emitter` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) — `openova-flow-emi…` tile in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-newapi` must appear under **mgmt-vcluster** — ❌ expected-fail (still on host) — `newapi`/`newapi-bp-ne…` tiles in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
 
 ---
 
@@ -40,14 +40,14 @@ Each row: open the [Dashboard](https://console.hw133.omani.works/dashboard) tree
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-sandbox` must appear under **rtz-vcluster** (now=rtz — should PASS) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-postgres-shared` must appear under **rtz-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-cnpg-pair` must appear under **rtz-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-postgres-shared-b` must appear under **rtz-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-postgres-shared-c` must appear under **rtz-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-valkey` must appear under **rtz-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-seaweedfs` must appear under **rtz-vcluster** — ❌ expected-fail (still on host) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-vllm` must appear under **rtz-vcluster** — ❌ expected-fail (still on host) | ☐ | |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-sandbox` must appear under **rtz-vcluster** (now=rtz — should PASS) — `sandbox-co…` tile inside the **rtz** group | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-postgres-shared` must appear under **rtz-vcluster** — ❌ expected-fail (still on host) — `shared-pg` tile in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-cnpg-pair` must appear under **rtz-vcluster** — ❌ expected-fail (still on host) — `cnpg-pair-bp-cnpg-pair-primary` tile in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-postgres-shared-b` must appear under **rtz-vcluster** — ❌ expected-fail (still on host) — `shared-pg…` replica tile in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-postgres-shared-c` must appear under **rtz-vcluster** — ❌ expected-fail (still on host) — `shared-pg…` replica tile in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-valkey` must appear under **rtz-vcluster** — ❌ expected-fail (still on host) — `valkey` tile in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-seaweedfs` must appear under **rtz-vcluster** — ❌ expected-fail (still on host) — `seaweedfs` tile in **host** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-vllm` must appear under **rtz-vcluster** — ❌ expected-fail (still on host) — no `vllm` workload tile renders (GPU-gated, not running); certainly not under **rtz** | ❌ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
 
 ---
 
@@ -55,7 +55,7 @@ Each row: open the [Dashboard](https://console.hw133.omani.works/dashboard) tree
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-coraza` must appear under **dmz-vcluster** (now=dmz — should PASS) | ☐ | |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-coraza` must appear under **dmz-vcluster** (now=dmz — should PASS) — `coraza` tile inside the **dmz** group | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
 
 ---
 
@@ -65,44 +65,51 @@ Each row: open the [Dashboard](https://console.hw133.omani.works/dashboard) tree
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-cilium` must appear under **host** (HOST-MINIMUM — CNI substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-gateway-api` must appear under **host** (HOST-MINIMUM — Gateway API CRDs) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-cert-manager` must appear under **host** (HOST-MINIMUM — cluster TLS substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-flux` must appear under **host** (HOST-MINIMUM — the GitOps engine itself) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-crossplane` must appear under **host** (HOST-MINIMUM — day-2 infra plumbing) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-sealed-secrets` must appear under **host** (HOST-MINIMUM — secret decryption substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-reflector` must appear under **host** (HOST-MINIMUM — cross-namespace Secret mirror) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-self-sovereign-cutover` must appear under **host** (HOST-MINIMUM — host-credential surgery by design) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-powerdns` must appear under **host** (HOST-MINIMUM — authoritative DNS substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-external-dns` must appear under **host** (HOST-MINIMUM — DNS reconciler substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-crossplane-claims` must appear under **host** (HOST-MINIMUM — Crossplane claims plumbing) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-oidc-gate` must appear under **host** (HOST-MINIMUM — auth proxy on the gateway datapath) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-external-secrets` must appear under **host** (HOST-MINIMUM — ESO substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-external-secrets-stores` must appear under **host** (HOST-MINIMUM — ESO stores substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-cnpg` must appear under **host** (HOST-MINIMUM — CNPG operator substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-opentelemetry-operator` must appear under **host** (HOST-MINIMUM — observability operator substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-opentelemetry` must appear under **host** (HOST-MINIMUM — observability collector substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-alloy` must appear under **host** (HOST-MINIMUM — node-level telemetry DaemonSet) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-network-policies` must appear under **host** (HOST-MINIMUM — cluster network policy substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-kyverno` must appear under **host** (HOST-MINIMUM — admission substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-kyverno-policies` must appear under **host** (HOST-MINIMUM — admission policies) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-reloader` must appear under **host** (HOST-MINIMUM — rollout substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-vpa` must appear under **host** (HOST-MINIMUM — autoscaling substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-trivy` must appear under **host** (HOST-MINIMUM — image-scanning substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-falco` must appear under **host** (HOST-MINIMUM — kernel-level runtime security) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-sigstore` must appear under **host** (HOST-MINIMUM — signature verification substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-syft-grype` must appear under **host** (HOST-MINIMUM — SBOM substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-velero` must appear under **host** (HOST-MINIMUM — cluster backup substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-velero-hcs` must appear under **host** (HOST-MINIMUM — cluster backup substrate, HCS) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-cert-manager-powerdns-webhook` must appear under **host** (HOST-MINIMUM — ACME DNS01 webhook substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-cluster-autoscaler-hcloud` must appear under **host** (HOST-MINIMUM — node autoscaling substrate) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-dmz-vcluster` must appear under **host** (HOST-MINIMUM — the DMZ vCluster runtime itself) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-hcloud-ccm` must appear under **host** (HOST-MINIMUM — cloud controller manager) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-mgmt-vcluster` must appear under **host** (HOST-MINIMUM — the MGMT vCluster runtime itself) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-rtz-vcluster` must appear under **host** (HOST-MINIMUM — the RTZ vCluster runtime itself) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-vcluster-helmrepo` must appear under **host** (HOST-MINIMUM — vCluster chart source) | ☐ | |
-| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-continuum` must appear under **host** (HOST-MINIMUM — DR/switchover controller, host reach by design) | ☐ | |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-cilium` must appear under **host** (HOST-MINIMUM — CNI substrate) — `cilium-agent`/`cilium-envoy`/`cilium-o…` tiles in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-gateway-api` must appear under **host** (HOST-MINIMUM — Gateway API CRDs) — `gateway…` tile in **host**; CRD-only Blueprint, not inside any vCluster | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-cert-manager` must appear under **host** (HOST-MINIMUM — cluster TLS substrate) — `cert-manager` tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-flux` must appear under **host** (HOST-MINIMUM — the GitOps engine itself) — `source…`/`kustom…`/`helm-con…` controllers in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-crossplane` must appear under **host** (HOST-MINIMUM — day-2 infra plumbing) — `crossplane` tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-sealed-secrets` must appear under **host** (HOST-MINIMUM — secret decryption substrate) — `sealed-…` tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-reflector` must appear under **host** (HOST-MINIMUM — cross-namespace Secret mirror) — `reflec…` tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-self-sovereign-cutover` must appear under **host** (HOST-MINIMUM — host-credential surgery by design) — `self-sovereign-c…` tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-powerdns` must appear under **host** (HOST-MINIMUM — authoritative DNS substrate) — `powerdns`/`pdns-pg` tiles in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-external-dns` must appear under **host** (HOST-MINIMUM — DNS reconciler substrate) — `externa…` tile in **host**; not inside any vCluster | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-crossplane-claims` must appear under **host** (HOST-MINIMUM — Crossplane claims plumbing) — claims-only Blueprint; not inside any vCluster (no leaf tile, by design) | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-oidc-gate` must appear under **host** (HOST-MINIMUM — auth proxy on the gateway datapath) — `oidc-g…` tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-external-secrets` must appear under **host** (HOST-MINIMUM — ESO substrate) — `external-secrets`/`external-s…` tiles in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-external-secrets-stores` must appear under **host** (HOST-MINIMUM — ESO stores substrate) — stores-only Blueprint; not inside any vCluster (no leaf tile, by design) | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-cnpg` must appear under **host** (HOST-MINIMUM — CNPG operator substrate) — `cnpg` operator tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-opentelemetry-operator` must appear under **host** (HOST-MINIMUM — observability operator substrate) — `opentel…` tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-opentelemetry` must appear under **host** (HOST-MINIMUM — observability collector substrate) — `opente…` collector tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-alloy` must appear under **host** (HOST-MINIMUM — node-level telemetry DaemonSet) — `alloy` tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-network-policies` must appear under **host** (HOST-MINIMUM — cluster network policy substrate) — CNP/CCNP-only Blueprint; not inside any vCluster (no leaf tile, by design) | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-kyverno` must appear under **host** (HOST-MINIMUM — admission substrate) — `kyverno` tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-kyverno-policies` must appear under **host** (HOST-MINIMUM — admission policies) — policy-only Blueprint; not inside any vCluster (no leaf tile, by design) | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-reloader` must appear under **host** (HOST-MINIMUM — rollout substrate) — `reload…` tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-vpa` must appear under **host** (HOST-MINIMUM — autoscaling substrate) — `vpa` tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-trivy` must appear under **host** (HOST-MINIMUM — image-scanning substrate) — `trivy`/`scan-vuln…` tiles in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-falco` must appear under **host** (HOST-MINIMUM — kernel-level runtime security) — `falco` tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-sigstore` must appear under **host** (HOST-MINIMUM — signature verification substrate) — `sigst…` tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-syft-grype` must appear under **host** (HOST-MINIMUM — SBOM substrate) — `image-…`/`scan-…` SBOM job tiles in **host**; not inside any vCluster | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-velero` must appear under **host** (HOST-MINIMUM — cluster backup substrate) — `velero` tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-velero-hcs` must appear under **host** (HOST-MINIMUM — cluster backup substrate, HCS) — HCS variant under the same `velero` host grouping; not inside any vCluster | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-cert-manager-powerdns-webhook` must appear under **host** (HOST-MINIMUM — ACME DNS01 webhook substrate) — `cert-man…` webhook tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-cluster-autoscaler-hcloud` must appear under **host** (HOST-MINIMUM — node autoscaling substrate) — host substrate; not inside any vCluster (no leaf tile on HCS, by design) | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-dmz-vcluster` must appear under **host** (HOST-MINIMUM — the DMZ vCluster runtime itself) — `dmz-vcluster` runtime tile sits in **host** (NOT inside the dmz group) | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-hcloud-ccm` must appear under **host** (HOST-MINIMUM — cloud controller manager) — host substrate; not inside any vCluster (HCS uses CCM, no separate hcloud tile) | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-mgmt-vcluster` must appear under **host** (HOST-MINIMUM — the MGMT vCluster runtime itself) — `mgmt-vcluster` runtime tile sits in **host** (NOT nested inside the mgmt group's apps) | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-rtz-vcluster` must appear under **host** (HOST-MINIMUM — the RTZ vCluster runtime itself) — `rtz-vcluster` runtime tile sits in **host** (NOT inside the rtz group) | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-vcluster-helmrepo` must appear under **host** (HOST-MINIMUM — vCluster chart source) — HelmRepository-only Blueprint; not inside any vCluster (no leaf tile, by design) | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
+| [Dashboard](https://console.hw133.omani.works/dashboard) | `bp-continuum` must appear under **host** (HOST-MINIMUM — DR/switchover controller, host reach by design) — `continuu…` tile in **host** | ✅ | [treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png) |
 
 ---
 
 **Summary:** **6 of 26** vCluster-targeted apps are actually in their vCluster (nats-jetstream, loki, mimir, tempo → mgmt; sandbox → rtz; coraza → dmz); the remaining **20** are still on host (migration incomplete). All **37** host-minimum apps must stay on host.
+
+**Result (walked 2026-06-14 on live hw133.omani.works, deployment `40c4e17667b600eb`):** ✅ 43 / ❌ 20 of 63 rows.
+- **§1 mgmt (17):** ✅ 4 (nats-jetstream, loki, mimir, tempo) / ❌ 13 (keycloak, catalyst-platform, gitea, openbao, powerdns-admin, sso-bridge, harbor, grafana, k8s-ws-proxy, guacamole, openova-flow-server, openova-flow-emitter, newapi — all still in the **host** block).
+- **§2 rtz (8):** ✅ 1 (sandbox) / ❌ 7 (postgres-shared, cnpg-pair, postgres-shared-b, postgres-shared-c, valkey, seaweedfs, vllm — vllm has no running workload, the rest render in **host**).
+- **§3 dmz (1):** ✅ 1 (coraza).
+- **§4 host-minimum (37):** ✅ 37 (all CNI/admission/GitOps/day-2/vCluster-runtime substrate render in — or are not inside any — vCluster, i.e. on **host**; the 3 vCluster runtimes `mgmt-/dmz-/rtz-vcluster` themselves sit in host, not inside their own group).
+- **Headline finding:** the per-app migration is exactly as `placement.yaml` predicts — **6 of 26** vCluster-targeted apps reached their vCluster; **20 remain on host**, confirming the migration is unfinished. **Proof surface:** the Dashboard treemap with Layer 1=`vCluster` ([treemap](../../sessions/2026-06-14/evidence/3373/treemap-vcluster.png), [replica-count view](../../sessions/2026-06-14/evidence/3373/treemap-vcluster-replicas.png)) — top-level groups render as `host` / `mgmt` / `dmz` / `rtz`, and tile-to-group assignment was read by SVG coordinate (see `evidence/3373/treemap-*.txt`). The per-app `/app/bp-<name>` detail page exposes only `PLACEMENT: single-region` + `NAMESPACE: default` and does **not** carry a vCluster field, so the treemap is the authoritative placement surface (as the doc anticipates).

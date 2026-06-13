@@ -4,13 +4,23 @@
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw133.omani.works](https://console.hw133.omani.works/) | After a brand-new Sovereign is provisioned, the console loads and you are signed in (no manual fixing) | ☐ | |
-| [Apps](https://console.hw133.omani.works/apps) | The full app catalog shows everything **Installed** — none stuck failing | ☐ | |
-| [grafana.hw133.omani.works](https://grafana.hw133.omani.works/) | Each main app loads → the env is usable end-to-end | ☐ | |
-| [Apps](https://console.hw133.omani.works/apps) | Install a new app → it comes up; the rest of the console keeps working during the install | ☐ | |
-| [console.hw133.omani.works](https://console.hw133.omani.works/) | Decommission/wipe a test environment → reported cleanly; the user's other environments are unaffected | ☐ | |
-| _(internal — no UI)_ | The internal protections (image policy, network rules, retries, wipe cleanup) have **no UI** — validated only by the outcomes above | ☐ | |
+| [console.hw133.omani.works](https://console.hw133.omani.works/) | After a brand-new Sovereign is provisioned, the console loads and you are signed in (no manual fixing) | ✅ | [shot](../sessions/2026-06-14/evidence/3380/r1.png) |
+| [Apps](https://console.hw133.omani.works/apps) | The full app catalog shows everything **Installed** — none stuck failing | ✅ | [shot](../sessions/2026-06-14/evidence/3380/r2.png) |
+| [grafana.hw133.omani.works](https://grafana.hw133.omani.works/) | Each main app loads → the env is usable end-to-end | ❌ | [shot](../sessions/2026-06-14/evidence/3380/r3.png) |
+| [Apps](https://console.hw133.omani.works/apps) | Install a new app → it comes up; the rest of the console keeps working during the install | ☐ | [shot](../sessions/2026-06-14/evidence/3380/r4.png) |
+| [console.hw133.omani.works](https://console.hw133.omani.works/) | Decommission/wipe a test environment → reported cleanly; the user's other environments are unaffected | ❌ | [shot](../sessions/2026-06-14/evidence/3380/r1.png) |
+| _(internal — no UI)_ | The internal protections (image policy, network rules, retries, wipe cleanup) have **no UI** — validated only by the outcomes above | ☐ | — |
 
-**Verdict:** **not an end-user-UI feature.** It passes only as the **outcome** of every other ticket's walk succeeding on a fresh, zero-touch environment.
+**Result:** ✅ 2 / ❌ 2 / ☐ 2. The env **comes up signed-in and the console's own catalog reports all 49 deployments `INSTALLED` (2-region: region-a + `me-east-215-b-1`)** — so the platform did not visibly wound itself at the deploy-record level. But the end-to-end *usability* claim **fails**: **grafana renders "We are sorry… Account is disabled, contact your administrator"** — the SSO-provisioned admin user is disabled, so a main app is not usable. The Dashboard treemap also shows several workloads reporting **no utilisation ("— %")** — `scan-vulnerability*`, `sandbox` — consistent with pods not running cleanly. Honest headline: **"comes up clean" partially fails** — the deploy ledger is green, but lived usability (grafana login, the funnel back-half) is not.
 
-**Live note (hw133):** the fresh-environment walk already surfaced a wound a user *would* feel — the SME/billing stack crash-looping (breaks the funnel) — so "comes up clean" currently **fails** for the funnel path.
+**Walk detail / honest caveats:**
+- **Row 1 ✅** — `https://console.hw133.omani.works/` → redirects to `/dashboard`, fully signed-in as the sovereign-admin, 97-item treemap rendered, zero manual fixing.
+- **Row 2 ✅ (with caveat)** — Apps page: **Deployments 49 / Catalog 63**, every deployment badge reads `INSTALLED`, none `INSTALLING/FAILED/PENDING`. Caveat: this is the console's *install-record* view; it does **not** reflect per-pod runtime health, so a crash-looping app can still read `INSTALLED` here.
+- **Row 3 ❌** — `grafana.hw133.omani.works` completes SSO (302 → `auth.hw133.omani.works/realms/sovereign/...`) then lands on **"Account is disabled, contact your administrator"** (HTTP 400 from the broker endpoint). App not usable. (Cross-check: `gitea.hw133.omani.works` ✅ rendered the signed-in dashboard for `emrah.baysal` — so the failure is grafana-account-specific, not a global SSO outage. See [gitea shot](../sessions/2026-06-14/evidence/3380/r3b.png).)
+- **Row 4 ☐** — **not walked.** Installing a new app mutates the live env; the read-only walk does not perform destructive/mutating actions. The Apps **Catalog (63)** install surface is reachable, but "it comes up + console stays responsive during install" was not exercised. Left ☐ honestly.
+- **Row 5 ❌ / not-walkable-via-UI** — the **Decommission** button is present in the console header (visible top-right of [r1](../sessions/2026-06-14/evidence/3380/r1.png)), but **clicking it is destructive** — wiping hw133 is out of scope for a read-only acceptance walk and would destroy the env the other agents are walking. Cannot be accepted via UI here; marked ❌ as un-walkable for this run, not as a defect.
+- **Row 6 ☐** — internal protections (image policy, NetworkPolicy, retries, wipe cleanup) have **no UI by design**; only the outcomes above are observable in a browser. Inherently un-walkable as a UI step.
+
+**Funnel note (hw133):** the marketplace funnel **front** (`marketplace.hw133.omani.works` → "Build your cloud tenant" wizard, Plan→Stack→Add-ons→Topology→Review→Checkout) **renders** ([shot](../sessions/2026-06-14/evidence/3380/marketplace.png)), and `console/jobs` + `console/organizations` (showback) render. But the SME/billing **back-half** crash-loop the briefing flagged is real and a user *would* feel it through the broken funnel — it just isn't surfaced as a `FAILED` app card in the console's deploy-record view. (Note: `console/compliance` returns in-app **"Not Found"**.)
+
+**Verdict:** **not an end-user-UI feature.** It passes only as the **outcome** of every other ticket's walk succeeding on a fresh, zero-touch environment — and on hw133 that outcome is **partial**: deploy ledger green, but grafana-usability + the SME funnel back-half are not clean.
