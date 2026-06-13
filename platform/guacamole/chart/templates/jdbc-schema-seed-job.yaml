@@ -5,20 +5,33 @@ The guacamole-auth-sso-openid extension authenticates SSO users but has no
 permission store, so every SSO user lands with no connections and NO admin
 (the founder-witnessed #3374 gap; blueprint.yaml's `rolesFromGroup:
 sovereign-admins: admin` intent was unimplemented). This Job wires the
-bundled JDBC (postgresql) permission store:
+bundled JDBC (postgresql) permission store with a SINGLE container (CNPG
+postgres image — has psql) that:
+  a. applies 001-create-schema.sql ONCE (idempotent guard: skip if the
+     `guacamole_entity` table already exists),
+  b. creates a `<adminGroup>` USER_GROUP entity holding the ADMINISTER
+     (+ CREATE_*) system permissions, so any SSO user whose `groups`
+     claim contains <adminGroup> inherits guacamole admin. We DELIBERATELY
+     do NOT seed the default guacadmin/guacadmin password account from
+     002-create-admin-user.sql — admin is group-driven via SSO only.
 
-  1. An initContainer running the guacamole webapp image copies the bundled
-     JDBC schema (/opt/guacamole/postgresql/schema/*.sql) into a shared
-     emptyDir — the schema lives in the image, not this chart.
-  2. The main container (CNPG postgres image — has psql) connects to the
-     guacamole CNPG cluster and:
-       a. applies 001-create-schema.sql ONCE (idempotent guard: skip if the
-          `guacamole_entity` table already exists),
-       b. creates a `<adminGroup>` USER_GROUP entity holding the ADMINISTER
-          (+ CREATE_*) system permissions, so any SSO user whose `groups`
-          claim contains <adminGroup> inherits guacamole admin. We DELIBERATELY
-          do NOT seed the default guacadmin/guacadmin password account from
-          002-create-admin-user.sql — admin is group-driven via SSO only.
+#3374 admin-tier (2026-06-14) — the schema SQL is now VENDORED into the chart
+(files/postgresql/001-create-schema.sql, the verbatim Apache Guacamole 1.5.5
+schema, loaded into the scripts ConfigMap via .Files.Get) instead of being
+copied at runtime from the guacamole webapp image by an initContainer. WHY:
+the kyverno `harbor-proxy-pull` Enforce policy uses an `anyPattern` that
+requires ONE allowed glob to match BOTH the initContainers AND the containers
+of a Job. The guacamole webapp image is `ghcr.io/openova-io/...` (matches the
+native-push glob `STAR/openova-io/STAR` only; the private image 404s through
+the Harbor proxy-ghcr cache — verified live on hw133) while the CNPG psql
+image is `harbor.openova.io/proxy-ghcr/...` (matches the proxy glob
+`STAR/proxy-STAR/STAR` only). No single glob matches both, so the
+mixed-registry initContainer+container Job was DENIED (rolled bp-guacamole
+0.2.10 back to 0.2.8 on hw133, so the permission store never installed and SSO
+users had no admin Settings menu). Vendoring the static, version-pinned schema
+removes the second registry entirely so the Job is single-container (proxy
+glob) and passes. The vendored SQL is pinned to
+`.Values.guacamole.webapp.image.tag` (1.5.5); bump both together on upgrade.
 
 Combined with the Deployment's POSTGRESQL_AUTO_CREATE_ACCOUNTS=true +
 OPENID_GROUPS_CLAIM_TYPE=groups, an `emrah.baysal`-in-sovereign-admins SSO
@@ -39,7 +52,6 @@ postgresql.cnpg.io CRD absent.
 {{- $appSecret := $db.appSecretName | default (printf "%s-app" $name) -}}
 {{- $adminGroup := $db.adminGroup | default "sovereign-admins" -}}
 {{- $pgImage := printf "%s:%s" ($cl.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql") ($cl.pgVersion | default "16") -}}
-{{- $guacImage := include "bp-guacamole.webappImage" . -}}
 {{- $sj := $db.seedJob | default dict -}}
 {{- $jobName := printf "%s-jdbc-seed" (include "bp-guacamole.fullname" .) | trunc 63 | trimSuffix "-" -}}
 ---
@@ -123,6 +135,13 @@ data:
     SQL
     echo "[jdbc-seed] admin USER_GROUP '${ADMIN_GROUP}' ensured with ADMINISTER"
     echo "[jdbc-seed] done."
+  # Verbatim Apache Guacamole 1.5.5 PostgreSQL schema, vendored into the chart
+  # (files/postgresql/001-create-schema.sql) and pinned to
+  # .Values.guacamole.webapp.image.tag. Loaded here so the seed container needs
+  # ONLY the CNPG postgres image (no mixed-registry initContainer → kyverno
+  # harbor-proxy-pull anyPattern passes; see the header note).
+  001-create-schema.sql: |
+{{ .Files.Get "files/postgresql/001-create-schema.sql" | indent 4 }}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -132,6 +151,11 @@ metadata:
   labels:
     {{- include "bp-guacamole.labels" . | nindent 4 }}
     catalyst.openova.io/component: jdbc-seed
+    # kyverno `flux-managed` Enforce DENIES a Job without this label (helm
+    # hook Jobs are helm-controller-created, no HR ownerReference). Without it
+    # the post-upgrade seed fails and the HR rolls back — the exact landmine
+    # that stalled bp-guacamole 0.2.10 on hw133 (#3374; #3434/#3296 class).
+    app.kubernetes.io/managed-by: flux
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "10"
@@ -158,30 +182,11 @@ spec:
         fsGroup: 26
         seccompProfile:
           type: RuntimeDefault
-      initContainers:
-        # Copy the bundled JDBC schema out of the guacamole image so the
-        # postgres container can apply it. The schema is image-versioned —
-        # never hand-copied into this chart.
-        - name: copy-schema
-          image: {{ $guacImage | quote }}
-          imagePullPolicy: {{ .Values.guacamole.webapp.image.pullPolicy | default "IfNotPresent" }}
-          command:
-            - /bin/sh
-            - -c
-            - |
-              set -eu
-              cp /opt/guacamole/postgresql/schema/001-create-schema.sql /schema/
-              echo "copied JDBC schema"
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            runAsNonRoot: true
-            capabilities:
-              drop: ["ALL"]
-          volumeMounts:
-            - name: schema
-              mountPath: /schema
       containers:
+        # SINGLE container (CNPG postgres image — has psql). The schema SQL is
+        # vendored into the scripts ConfigMap (.Files.Get) and mounted at
+        # /schema, so there is no second-registry initContainer for kyverno's
+        # harbor-proxy-pull anyPattern to reject (see the header note).
         - name: jdbc-seed
           image: {{ $pgImage | quote }}
           imagePullPolicy: IfNotPresent
@@ -195,7 +200,9 @@ spec:
           volumeMounts:
             - name: scripts
               mountPath: /scripts
-            - name: schema
+            # Same ConfigMap re-mounted read-only at /schema — seed.sh reads
+            # /schema/001-create-schema.sql (the vendored schema key).
+            - name: scripts
               mountPath: /schema
             - name: cnpg
               mountPath: /cnpg
@@ -209,9 +216,6 @@ spec:
           configMap:
             name: {{ $jobName }}-scripts
             defaultMode: 0555
-        - name: schema
-          emptyDir:
-            sizeLimit: 4Mi
         - name: cnpg
           secret:
             secretName: {{ $appSecret | quote }}

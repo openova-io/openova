@@ -115,7 +115,22 @@ name: bp-guacamole
 # an SSO user in sovereign-admins auto-creates a JDBC record, binds into the
 # group, and lands as guacamole admin. New `guacamole.database.*` values.
 # Lockstep: 52-bp-guacamole.yaml pin → 0.2.9. Refs #3374.
-version: 0.2.10
+# 0.2.11 (#3374 admin-tier, 2026-06-14): un-stall the seed Job on hw133. The
+# 0.2.10 jdbc-schema-seed Job was DENIED on every reconcile (HR rolled back to
+# 0.2.8) by TWO kyverno Enforce policies: (1) flux-managed — the hook Job
+# carried managed-by=Helm (the helper) not flux; (2) harbor-proxy-pull — its
+# anyPattern needs ONE allowed glob to match BOTH the initContainers AND the
+# containers, but the guacamole-webapp initContainer was ghcr.io/openova-io/...
+# (native-push glob) while the psql container was proxy-ghcr/cnpg... (proxy
+# glob), and no single glob matched both. Fix: (a) stamp managed-by:flux on the
+# Job; (b) VENDOR the Apache Guacamole 1.5.5 schema into the chart
+# (files/postgresql/001-create-schema.sql, loaded into the scripts ConfigMap
+# via .Files.Get) and drop the webapp initContainer, so the Job is
+# single-container (CNPG psql, proxy glob) — no second registry for the
+# anyPattern to reject. The vendored SQL is pinned to
+# guacamole.webapp.image.tag (1.5.5); bump both together. Lockstep:
+# 52-bp-guacamole.yaml pin → 0.2.11. Refs #3374 #3434 #3296.
+version: 0.2.11
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
