@@ -115,7 +115,11 @@ spec:
       # instance (canonical G117 representation; adoption-guarded,
       # Capabilities-gated) carrying the databases[] Context
       # declarations in spec.parameters.
-      version: 0.1.8
+      # 0.1.9 (#3370): pin bump — no template change; forces a
+      # helm-controller UPGRADE on already-converged Sovereigns so the
+      # Capabilities-gated Application CR renders (it was skipped at the
+      # bootstrap INSTALL, before the umbrella shipped the CRD).
+      version: 0.1.9
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

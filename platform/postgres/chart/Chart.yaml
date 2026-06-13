@@ -1,10 +1,20 @@
 apiVersion: v2
 name: bp-postgres
+# 0.1.9 — #3370: pin bump (no template change vs 0.1.8) so helm-controller
+#   performs a HelmRelease UPGRADE on already-converged Sovereigns. The
+#   application-cr.yaml self-registration is Capabilities-gated on
+#   apps.openova.io/v1; on hw133 the shared-pg{,-b,-c} HRs were INSTALLED at
+#   bootstrap (revision .v1) BEFORE the umbrella shipped that CRD, so the gate
+#   was false at install time and the Application CRs never rendered
+#   (`kubectl get applications -A` → 0 while 3 engines ran). helm-controller
+#   only re-renders chart templates on an upgrade, and an upgrade only fires on
+#   a new chart version — hence this lockstep bump. The CRD is now registered,
+#   so the upgrade renders the 3 bootstrap-owned Application CRs.
 # 0.1.7 — #3370 hotfix: bootstrap Application CR stamps environmentRef +
 #   regions so it admits under BOTH the pre-#3370 CRD (hard-required) and the
 #   #3370 CRD (CEL-waived) — breaks the live upgrade-rollback deadlock that
 #   blocked keycloak->gitea->catalyst-platform on hw130.
-version: 0.1.8
+version: 0.1.9
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
@@ -34,6 +44,20 @@ description: |
 
   Changelog
   ─────────
+  0.1.9 (2026-06-14, Refs #3370 — pin bump to fire the live upgrade)
+    - No template change vs 0.1.8. The application-cr.yaml self-registration
+      (Capabilities-gated on apps.openova.io/v1) never materialized on
+      already-converged Sovereigns: the shared-pg{,-b,-c} HRs were INSTALLED
+      at bootstrap BEFORE the umbrella shipped that CRD (gate false → CR
+      skipped), and helm-controller does NOT re-render templates without a
+      HelmRelease UPGRADE, which only fires on a new chart version. This
+      lockstep version + slot-pin bump (16a/16c/16d) triggers that upgrade;
+      the CRD is now registered so the 3 bootstrap-owned Application CRs
+      render → 3 Deployment cards + the catalog Instances list populate.
+    - slot 16d (shared-pg-c) gains two more Context bindings — `newapi`
+      (consumer bp-newapi) + `openova-flow` (consumer bp-openova-flow) — so
+      shared-pg-c exposes the spec §5 target set (sme + newapi + openova-flow)
+      and the two embedded consumer Clusters can adopt it.
   0.1.6 (2026-06-12, Refs #3370 — Contexts + bootstrap self-registration)
     - templates/application-cr.yaml: when the slot opts in via
       bootstrapOwned.enabled, the chart self-registers the
