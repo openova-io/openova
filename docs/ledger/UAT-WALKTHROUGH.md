@@ -2,7 +2,7 @@
 
 **Purpose.** This is the **end-user web-UI acceptance test** for every founder-approved ticket. **100% browser — no terminal, no kubectl, no git, no curl.** The end user never touches a shell; every step is **open a URL → click/type → see a screen**. Once the founder **agrees on this document**, the walk-execution agents run each section in a real browser and flip each `☐` to ✅ (witnessed on screen) or ❌ (failed on screen) with a screenshot.
 
-**Table format (mandated).** Each section is a 4-column table — **Tested page · Description · Status · Evidence**. Four narrow columns fit without horizontal scrolling (the developer `file:line` column is gone — it's irrelevant to a user). The walk agent fills **Status** (✅/❌) and pastes the screenshot link into **Evidence**.
+**Table format (mandated).** Each section is a 4-column table — **Tested page · Description · Status · Evidence**. Four narrow columns fit without horizontal scrolling (the developer `file:line` column is gone — it's irrelevant to a user). **Every "Tested page" cell is a clickable link** to the actual live page on the current env (**hw133.omani.works**) — click it and the page opens. On each wipe + re-walk the links flip to the new env. The walk agent fills **Status** (✅/❌) and pastes the screenshot link into **Evidence**.
 - **`GAP`** in a row = the feature has **no web-UI surface** — so a user cannot accept it. That is itself a finding (a feature with no UI is not user-acceptance-testable); it is **not** a reason to drop to a terminal check.
 - A **redirect that ends on a login screen is a fail** for SSO — only a rendered, signed-in screen counts.
 
