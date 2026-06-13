@@ -38,7 +38,15 @@ name: bp-rtz-vcluster
 # `registry.k8s.io/kube-*` — which the `harbor-proxy-pull` Enforce
 # ClusterPolicy DENIES on the next image roll. Additive values only.
 # Sibling to bp-mgmt-vcluster 0.2.8 + bp-dmz-vcluster 0.2.7.
-version: 0.2.8
+# 0.2.9 — Refs #3373 Batch A (2026-06-14): add `sme` to
+# networkPolicy.allowedIngressNamespaces. bp-valkey moved INTO this RTZ
+# vCluster; its host-synced Service now sits behind the `-isolation`
+# NetworkPolicy whose allow-list was {dmz, flux-system}. The host `sme`
+# namespace runs the BSS auth/gateway services that consume valkey via
+# VALKEY_ADDR — without this carve-out they fail to reach the synced
+# Service. Additive; mirrors the #3423 sme→NATS carve-out on
+# bp-mgmt-vcluster.
+version: 0.2.9
 appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign RTZ

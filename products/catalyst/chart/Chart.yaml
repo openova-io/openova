@@ -2692,7 +2692,16 @@ name: bp-catalyst-platform
 # catalyst-gitea-token PAT as the GITEA_TOKEN env via secretKeyRef (same-ns,
 # kubelet-resolved at Pod start, no kubectl, no Role) and use token auth for
 # all Gitea calls. Drops the SA + gitea-ns Role/RoleBinding entirely.
-version: 1.4.620
+# 1.4.621 (#3373 Batch A, 2026-06-14): bp-valkey moved INSIDE the rtz
+# vCluster (placement.yaml). Rewire the SME valkey consumer + projector
+# addr to the syncer-mangled host Service name
+# `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc` (smeServices.valkey.host
+# + projector.valkey.addr); disable the now-moot valkey-cross-ns CNP (its
+# host `valkey` ns no longer carries the workload — the wire is governed by
+# the bp-rtz-vcluster isolation netpol's `sme` carve-out). Mirrors the
+# #3376 SME NATS_URL→synced-name move. Catalyst-Zero (no sovereignFQDN)
+# render byte-unchanged.
+version: 1.4.621
 # 1.4.597 — #3373 (2026-06-13) — coupling fix (a) placement-as-data:
 # templates/httproute.yaml backendRefs honor new
 # ingress.gateway.backendServiceApi / backendServiceUi overrides. When
