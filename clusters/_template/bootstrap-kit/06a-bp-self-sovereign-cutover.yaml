@@ -494,6 +494,30 @@ spec:
       # hw91. This is the missing lockstep half of #3012; mirror of
       # harbor/giteaPublicURL.
       consolePublicURL: https://console.${SOVEREIGN_FQDN}
+    # #3379 (2026-06-13): enable the REAL 10-minute deny-egress hold for
+    # Step-08 (egress-block-test). The chart default
+    # (egressTest.enforceCIDRBlock: false, values.yaml) ships the passive
+    # assertion-only fallback — it verifies the post-cutover architectural
+    # state (local Flux/Harbor URLs) + polls HR/Ks readiness, but it does
+    # NOT actually deny egress, so a HIDDEN runtime tether (a Go constant
+    # dialing harbor.openova.io, an image pull not routed through a
+    # HelmRepository) would pass silently. ADR-0002 + the founder rule are
+    # explicit: `cutoverComplete=true` is earned ONLY with the egress-block
+    # proof. With this set true, Step-08 resolves github.com / ghcr.io /
+    # harbor.openova.io / xpkg.upbound.io → public /32s and applies a
+    # cluster-wide CiliumClusterwideNetworkPolicy egressDeny for the
+    # survival window (private/loopback IPs are skipped, so intra-cluster
+    # traffic is never blocked), then asserts every HelmRelease +
+    # Kustomization stays Ready throughout. The Step-08 Job is fail-safe:
+    # any resolve/apply error falls back to assertion-only and NEVER wedges
+    # the cutover on a tooling failure (see 08-egress-block-test-job.yaml),
+    # and the deny policy is torn down on every pass/fail/abort path
+    # (inline delete + TERM/EXIT trap). The hold is reversible BY DESIGN
+    # (a timed CiliumClusterwideNetworkPolicy, removed at end-of-window) —
+    # safe to apply to a converged Sovereign because every blocked host is
+    # a tether the preceding steps 01-07 already pivoted off.
+    egressTest:
+      enforceCIDRBlock: true
     # Wave 5.110 (#2462): bastion mirror endpoint for harbor.openova.io,
     # substituted from cloudinit's flux-system/bastion-mirror Secret
     # (Huawei provider only; Hetzner leaves the var empty → chart skips
