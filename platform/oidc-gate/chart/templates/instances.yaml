@@ -14,6 +14,19 @@ Loop-safety per the pdns-admin 0.1.11 lesson: the gate's own callback
 (/oauth2/callback) is SERVED by oauth2-proxy itself, never redirected;
 already-authenticated sessions pass straight to the upstream
 (idempotent); skipAuthRoutes lets machine paths through untouched.
+
+Audience contract (0.1.1, #3374): oauth2-proxy's keycloak-oidc provider
+VERIFIES the ID token's `aud` claim contains its own --client-id during
+the callback code exchange. A vanilla Keycloak confidential client emits
+`aud: [realm-management account]` (the user's default role audiences) and
+NEVER its own clientId unless the user holds a client role — so the gate
+500'd every callback ("audience from claim aud with value
+[realm-management account] does not match ... map[openova-flow:{}]",
+oauthproxy.go:888). The client.json below therefore seeds an
+oidc-audience-mapper that injects <clientId> into the ID token aud (the
+netbird realm-config idiom). bp-sso-bridge POSTs client.json verbatim and
+shallow-merges template-wins on PUT, so the mapper reaches both freshly
+minted and pre-existing clients on the next reconcile tick — zero-touch.
 */ -}}
 {{- $root := . -}}
 {{- range $inst := .Values.instances }}
@@ -71,6 +84,18 @@ data:
         "https://{{ $hostname }}"
       ],
       "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "email", "groups"],
+      "protocolMappers": [
+        {
+          "name": {{ printf "audience-%s" $cid | quote }},
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": {{ $cid | quote }},
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ],
       "attributes": {
         "access.token.lifespan": "900"
       }

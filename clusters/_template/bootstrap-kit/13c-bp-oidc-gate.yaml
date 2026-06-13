@@ -60,7 +60,7 @@ spec:
   chart:
     spec:
       chart: bp-oidc-gate
-      version: 0.1.0
+      version: 0.1.1
       sourceRef:
         kind: HelmRepository
         name: bp-oidc-gate
