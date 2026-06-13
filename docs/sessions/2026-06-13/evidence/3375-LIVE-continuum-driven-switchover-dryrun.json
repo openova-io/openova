@@ -1,0 +1,84 @@
+# Continuum-driven switchover DRY-RUN — live CR on hw130 (Refs #3375 DoD-6)
+# POST /v1/continuums/cnpg/cnpg-pair-bp-cnpg-pair-continuum/dry-run  (port 8082)
+# Captured: Sat Jun 13 06:31:32 AM UTC 2026. The continuum-controller's OWN switchover-readiness read.
+
+## /dry-run (7-step continuum-driven plan, region A -> region B):
+{
+    "planFingerprint": "28c64b2883902372",
+    "steps": [
+        {
+            "step": 1,
+            "name": "validate-lease",
+            "preconditionsMet": true,
+            "estimatedDurationSeconds": 1,
+            "notes": [
+                "lease unheld \u2014 ToRegion will take it cold"
+            ]
+        },
+        {
+            "step": 2,
+            "name": "cordon-old-primary",
+            "preconditionsMet": false,
+            "estimatedDurationSeconds": 2,
+            "notes": [
+                "FindPair cnpg/cnpg-pair-bp-cnpg-pair: cnpg: pair \"cnpg-pair-bp-cnpg-pair\" incomplete (primary=true replica=false)"
+            ]
+        },
+        {
+            "step": 3,
+            "name": "drain-http",
+            "preconditionsMet": true,
+            "estimatedDurationSeconds": 0,
+            "notes": [
+                "no HTTPRoute drainer (single-region degenerate or not wired) \u2014 step is a no-op"
+            ]
+        },
+        {
+            "step": 4,
+            "name": "flip-dns",
+            "preconditionsMet": false,
+            "estimatedDurationSeconds": 5,
+            "notes": [
+                "dns.Synthesize: dns.Synthesize: nil Application AND no params.Hostnames"
+            ]
+        },
+        {
+            "step": 5,
+            "name": "swap-lease",
+            "preconditionsMet": true,
+            "estimatedDurationSeconds": 2,
+            "notes": [
+                "would Release(\"hw-me-east-215-a-rtz-prod\") then Acquire(\"hw-me-east-215-b-rtz-prod\", ttl=30s)"
+            ]
+        },
+        {
+            "step": 6,
+            "name": "uncordon-new-primary",
+            "preconditionsMet": false,
+            "estimatedDurationSeconds": 3,
+            "notes": [
+                "FindPair (re-check for uncordon): cnpg: pair \"cnpg-pair-bp-cnpg-pair\" incomplete (primary=true replica=false)"
+            ]
+        },
+        {
+            "step": 7,
+            "name": "audit-emit",
+            "preconditionsMet": false,
+            "estimatedDurationSeconds": 1,
+            "notes": [
+                "Audit publisher not configured"
+            ]
+        }
+    ],
+    "warnings": [
+        "step-1: lease currently unheld; switchover will acquire on ToRegion as a fresh claim"
+    ],
+    "blockers": [
+        "step-2: cannot resolve cluster-pair \"cnpg-pair-bp-cnpg-pair\" in ns \"cnpg\": cnpg: pair \"cnpg-pair-bp-cnpg-pair\" incomplete (primary=true replica=false)",
+        "step-4: lua-record synthesis failed: dns.Synthesize: nil Application AND no params.Hostnames",
+        "step-7: Audit publisher is required"
+    ],
+    "estimatedDurationSeconds": 14,
+    "estimatedWriteDisruptionSeconds": 4,
+    "generatedAt": "2026-06-13T06:31:32.390818592Z"
+}

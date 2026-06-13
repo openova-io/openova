@@ -1,0 +1,7 @@
+# cnpg-pair both regions — Refs #3375 DoD-6 — Sat Jun 13 06:31:18 AM UTC 2026
+=== REGION A primary ===
+NAME                             AGE   INSTANCES   READY   STATUS                     PRIMARY
+cnpg-pair-bp-cnpg-pair-primary   34h   3           3       Cluster in healthy state   cnpg-pair-bp-cnpg-pair-primary-1
+=== REGION B replica ===
+NAME                             AGE   INSTANCES   READY   STATUS                     PRIMARY
+cnpg-pair-bp-cnpg-pair-replica   33h   3           3       Cluster in healthy state   cnpg-pair-bp-cnpg-pair-replica-1

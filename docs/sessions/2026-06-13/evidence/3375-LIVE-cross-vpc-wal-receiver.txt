@@ -1,0 +1,6 @@
+# Cross-VPC WAL receiver on region-B replica — Refs #3375 DoD-6
+# Captured Sat Jun 13 06:31:18 AM UTC 2026
+measured_at | last_wal_receive_lsn:
+2026-06-13 06:31:18.222155+00|0/5000000
+active cross-region receivers (0 = stream dead):
+0
