@@ -299,6 +299,26 @@ vcluster:
       #                                       active-hot-standby tier
       #   scheduledbackups.postgresql.cnpg.io daily backup CRs (host's
       #                                       backup quota applies)
+      #
+      # ⚠️ EMPIRICAL CORRECTION (#3373, hw130 2026-06-13): enabling a CRD
+      # under `sync.toHost.customResources` does NOT register the CRD
+      # *definition* inside the vCluster apiserver on the OSS vCluster build
+      # we run (`loft-sh/vcluster:0.21.0`). Verified live on hw130's vc-mgmt:
+      # with all five entries below enabled in the running syncer config
+      # secret (`vc-config-mgmt-vcluster`), the vCluster apiserver had ZERO
+      # of these CRDs registered, the syncer boot log created ZERO
+      # custom-resource syncer controllers, and an in-vcluster
+      # `kubectl apply` of an HTTPRoute failed with `no matches for kind
+      # "HTTPRoute"`. The toHost custom-resource SYNC (and its CRD
+      # auto-import) is a vCluster Pro/Platform-gated feature (the binary
+      # carries "pro feature" gates) — so this block is schema-accepted but
+      # INERT on OSS. It is kept (a) so a Pro-licensed operator activates the
+      # toHost mirror without a values change, and (b) as the declarative
+      # record of which CRs are intended to mirror host-ward. The actual
+      # CRD *registration inside the vCluster* — the prerequisite that lets
+      # an in-vcluster app create these CRs at all — is done by the
+      # OSS-native init-manifests deployer under
+      # `experimental.deploy.vcluster.manifests` below (proven on hw130).
       customResources:
         clusters.postgresql.cnpg.io:
           enabled: true
@@ -306,16 +326,10 @@ vcluster:
           enabled: true
         scheduledbackups.postgresql.cnpg.io:
           enabled: true
-        # #3373 coupling fix (b) — vCluster CRD-sync set.
-        # Charts re-homed INTO this vCluster ship HTTPRoute (Gateway API)
-        # and ExternalSecret CRs. The syncer registers the CRDs inside the
-        # vCluster apiserver (fromHost CRD discovery, same mechanism as the
-        # CNPG entries above) and mirrors the CRs toHost, where the host
-        # Cilium Gateway serves the route (backendRef pre-aliased to the
-        # syncer-mangled Service name by the slot's
-        # gateway.backendService value — fix (a)) and the host
-        # external-secrets-operator resolves the ExternalSecret in the HR's
-        # own host namespace — fix (c).
+        # #3373: charts re-homed INTO this vCluster ship HTTPRoute (Gateway
+        # API) and ExternalSecret CRs. On a Pro-licensed build the toHost
+        # mirror carries them host-ward; the in-vcluster CRD registration
+        # that lets the app create them at all is the init-manifest below.
         httproutes.gateway.networking.k8s.io:
           enabled: true
         externalsecrets.external-secrets.io:
@@ -323,6 +337,119 @@ vcluster:
     fromHost:
       ingressClasses:
         enabled: true
+
+  # ── In-vCluster CRD registration (#3373, OSS-native) ────────────────────
+  # The init-manifests deployer (`loft-sh/vcluster` controllers
+  # `RegisterInitManifestsController` / `ApplyGivenInitManifests`, present in
+  # the OSS binary) applies these manifests INSIDE the vCluster apiserver at
+  # control-plane startup. They register the host CRDs that re-homed apps
+  # must be able to CREATE from inside vc-mgmt — without them an in-vcluster
+  # HelmRelease that ships an HTTPRoute / ExternalSecret / CNPG Cluster fails
+  # its reconcile with `no matches for kind …` (the #3373 gap, reproduced
+  # live on hw130's vc-mgmt 2026-06-13).
+  #
+  # These are STRUCTURAL CRDs (`x-kubernetes-preserve-unknown-fields: true`),
+  # NOT copies of the full upstream schemas. Empirically (hw130 2026-06-13) a
+  # structural CRD is sufficient for the vCluster apiserver to register the
+  # kind and accept a fully-specified CR with the entire spec preserved
+  # byte-for-byte (hostnames / parentRefs / backendRefs all round-tripped).
+  # The host operators (Cilium Gateway-API, external-secrets-operator,
+  # cnpg-operator) hold the AUTHORITATIVE full-schema CRDs and perform the
+  # real validation + reconciliation host-side — the vCluster apiserver only
+  # needs to accept the create. Shipping structural stubs (not 6 500-line
+  # vendored CRDs) keeps this chart lean and free of upstream-CRD drift.
+  #
+  # NB: registering the CRD here makes the in-vcluster CREATE path work. On
+  # OSS vCluster the toHost mirror of these CRs is Pro-gated (see the
+  # customResources note above), so an app whose route must reach the HOST
+  # Cilium Gateway still requires either a Pro license OR staying host-side.
+  # Internal in-vcluster apps that merely need the kind to exist (e.g. an app
+  # that owns its own in-vcluster CNPG Cluster reconciled by an in-vcluster
+  # operator) work fully on OSS today.
+  experimental:
+    deploy:
+      vcluster:
+        manifests: |
+          apiVersion: apiextensions.k8s.io/v1
+          kind: CustomResourceDefinition
+          metadata:
+            name: httproutes.gateway.networking.k8s.io
+            annotations:
+              api-approved.kubernetes.io: "https://github.com/kubernetes-sigs/gateway-api/pull/1111"
+              catalyst.openova.io/managed-by: bp-mgmt-vcluster
+          spec:
+            group: gateway.networking.k8s.io
+            scope: Namespaced
+            names:
+              kind: HTTPRoute
+              listKind: HTTPRouteList
+              plural: httproutes
+              singular: httproute
+            versions:
+              - name: v1
+                served: true
+                storage: true
+                schema:
+                  openAPIV3Schema:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+              - name: v1beta1
+                served: true
+                storage: false
+                schema:
+                  openAPIV3Schema:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+          ---
+          apiVersion: apiextensions.k8s.io/v1
+          kind: CustomResourceDefinition
+          metadata:
+            name: externalsecrets.external-secrets.io
+            annotations:
+              catalyst.openova.io/managed-by: bp-mgmt-vcluster
+          spec:
+            group: external-secrets.io
+            scope: Namespaced
+            names:
+              kind: ExternalSecret
+              listKind: ExternalSecretList
+              plural: externalsecrets
+              singular: externalsecret
+              shortNames:
+                - es
+            versions:
+              - name: v1beta1
+                served: true
+                storage: true
+                schema:
+                  openAPIV3Schema:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+          ---
+          apiVersion: apiextensions.k8s.io/v1
+          kind: CustomResourceDefinition
+          metadata:
+            name: clusters.postgresql.cnpg.io
+            annotations:
+              catalyst.openova.io/managed-by: bp-mgmt-vcluster
+          spec:
+            group: postgresql.cnpg.io
+            scope: Namespaced
+            names:
+              kind: Cluster
+              listKind: ClusterList
+              plural: clusters
+              singular: cluster
+              shortNames:
+                - cnp
+            versions:
+              - name: v1
+                served: true
+                storage: true
+                schema:
+                  openAPIV3Schema:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
 
   # exportKubeConfig — writes vc-<vclusterName> Secret into the host
   # namespace with a kubeconfig pointing at the vCluster's apiserver.

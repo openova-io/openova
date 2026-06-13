@@ -110,5 +110,46 @@ if ! grep -qE "^kind: Service$" "$render_on"; then
 fi
 echo "PASS: full-ON renders subchart Service"
 
+# ─────────────────────────────────────────────────────────────────────
+# 4. #3373 — the vCluster config secret MUST carry the three app-needed
+#    CRDs as init-manifests (experimental.deploy.vcluster.manifests), so
+#    the OSS init-manifests controller registers them INSIDE the vCluster
+#    apiserver. Without this, an in-vcluster HelmRelease that ships an
+#    HTTPRoute / ExternalSecret / CNPG Cluster fails reconcile with
+#    `no matches for kind …` (the gap reproduced live on hw130 2026-06-13).
+#    The `sync.toHost.customResources` block alone does NOT register CRDs
+#    on OSS vCluster (that auto-import is Pro/Platform-gated). This guard
+#    fails if a future edit drops the init-manifest registration.
+# ─────────────────────────────────────────────────────────────────────
+vc_cfg="$TMP/vc-config.yaml"
+# Decode the rendered vc-config secret's config.yaml so we can assert on
+# the syncer config the vCluster control plane actually reads at boot.
+python3 - "$render_on" > "$vc_cfg" <<'PY'
+import sys, re, base64
+txt = open(sys.argv[1]).read()
+m = re.search(r'config\.yaml:\s*"([A-Za-z0-9+/=]+)"', txt)
+if not m:
+    sys.exit("FAIL: rendered vc-config secret has no config.yaml")
+sys.stdout.write(base64.b64decode(m.group(1)).decode())
+PY
+missing=0
+for crd in httproutes.gateway.networking.k8s.io \
+           externalsecrets.external-secrets.io \
+           clusters.postgresql.cnpg.io; do
+  if ! grep -q "name: $crd" "$vc_cfg"; then
+    echo "FAIL: vCluster init-manifests missing CRD registration for $crd"
+    missing=1
+  fi
+done
+# The init-manifest CRD blocks must sit under experimental.deploy.vcluster.manifests
+if ! grep -qE "manifests: \|" "$vc_cfg"; then
+  echo "FAIL: vCluster config missing experimental.deploy.vcluster.manifests block"
+  missing=1
+fi
+if [[ "$missing" -ne 0 ]]; then
+  exit 1
+fi
+echo "PASS: #3373 vCluster init-manifests register HTTPRoute + ExternalSecret + CNPG Cluster CRDs inside vc-mgmt"
+
 echo ""
 echo "All bp-mgmt-vcluster render tests passed."
