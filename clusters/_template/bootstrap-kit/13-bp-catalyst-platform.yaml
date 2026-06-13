@@ -1024,7 +1024,8 @@ spec:
             # 1.4.617 — #3454: repo-bootstrap hook PAT via secretKeyRef (no cross-ns RBAC race; 1.4.616 was a deploy-bot sweep of the old hook).
             # 1.4.618 — deploy-bot auto pin-bump (no chart-content change; Refs TBD-A6).
             # 1.4.619 — #3374: baseline-default-deny allows ingress from the oidc-gate host ns → oidc-gate auth-proxy can reach openova-flow-server in catalyst-system (was dropped → SSO OK but app 502'd on upstream timeout; same class as sme→NATS #3423).
-      version: 1.4.620
+            # 1.4.621 — #3373 Batch A: SME valkey consumer + projector addr → rtz-vCluster syncer-mangled name (bp-valkey moved into rtz); valkey-cross-ns CNP disabled (rtz isolation netpol `sme` carve-out governs the wire).
+      version: 1.4.621
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

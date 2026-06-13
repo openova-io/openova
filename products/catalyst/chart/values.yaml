@@ -785,7 +785,16 @@ services:
       stream: "catalyst.events"
       subject: "catalyst.events.>"
     valkey:
-      addr: "valkey-primary.valkey.svc.cluster.local:6379"
+      # #3373 Batch A (2026-06-14): bp-valkey moved INSIDE the rtz
+      # vCluster (placement.yaml: `bp-valkey → vcluster: rtz, namespace:
+      # valkey`). The bp-rtz-vcluster syncer reflects the in-vCluster
+      # `valkey-primary` Service to the HOST under the syncer-mangled
+      # name `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc`, so the host
+      # `valkey` namespace no longer carries a `valkey-primary` Service —
+      # the old `valkey-primary.valkey.svc` resolves NXDOMAIN. Align the
+      # projector addr to the synced name (lockstep with the nats.url move
+      # above). Override via this key for a host-placed valkey.
+      addr: "valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc.cluster.local:6379"
       username: ""
       # Optional Secret reference for the Valkey password.
       passwordSecret: {}
@@ -1374,15 +1383,25 @@ smeServices:
         cpu: 500m
         memory: 256Mi
   valkey:
-    # bp-valkey 1.0.0 (slot 17) deploys to namespace `valkey` with
-    # bitnami valkey 5.5.1 + architecture: replication. Service names:
-    #   - valkey-primary.valkey.svc.cluster.local (read/write)
-    #   - valkey-replicas.valkey.svc.cluster.local (read-only)
-    #   - valkey-headless.valkey.svc.cluster.local (StatefulSet headless)
-    # SME services pin to the primary by default so writes succeed; per-
-    # Sovereign overlays MAY split read traffic to -replicas via a
-    # second VALKEY_READ_ADDR (separate ticket).
-    host: valkey-primary.valkey.svc.cluster.local
+    # bp-valkey (slot 17) renders bitnami valkey 5.5.1 + architecture:
+    # replication. In-vCluster Service names (inner `valkey` ns):
+    #   - valkey-primary.valkey.svc (read/write)
+    #   - valkey-replicas.valkey.svc (read-only)
+    #   - valkey-headless.valkey.svc (StatefulSet headless)
+    #
+    # #3373 Batch A (2026-06-14): bp-valkey moved INSIDE the rtz vCluster
+    # (placement.yaml: `bp-valkey → vcluster: rtz, namespace: valkey`).
+    # The bp-rtz-vcluster syncer reflects the in-vCluster `valkey-primary`
+    # Service to the HOST under the syncer-mangled name
+    # `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc`, so the host
+    # `valkey` namespace no longer carries a `valkey-primary` Service. The
+    # SME control-plane services (host ns `sme`, still host-placed in
+    # Batch A) consume valkey across the vCluster boundary → pin to the
+    # synced name. SME services pin to the primary so writes succeed; per-
+    # Sovereign overlays MAY split read traffic to -replicas via a second
+    # VALKEY_READ_ADDR (separate ticket). Override `host` for a
+    # host-placed valkey.
+    host: valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc.cluster.local
     port: 6379
     namespace: valkey
     # ─── Cross-ns auth Secret mirror (issue #863) ──────────────────────
@@ -1402,11 +1421,18 @@ smeServices:
     crossNsPolicy:
       # Render templates/sme-services/valkey-cross-ns-policy.yaml — a
       # CiliumNetworkPolicy in the `valkey` namespace allowing ingress
-      # from the `sme` namespace on Valkey's port. Default true since
-      # the cross-ns wire is the canonical Sovereign topology. Disable
-      # via per-Sovereign overlay only when bp-valkey is repackaged
-      # into the `sme` namespace (rare).
-      enabled: true
+      # from the `sme` namespace on Valkey's port.
+      #
+      # #3373 Batch A (2026-06-14): DISABLED. bp-valkey moved INSIDE the
+      # rtz vCluster, so its pods are syncer-reflected into the HOST `rtz`
+      # namespace (the host `valkey` namespace no longer carries the
+      # workload). This CNP (endpointSelector in ns `valkey`) would select
+      # zero endpoints. The cross-ns wire is now governed by the
+      # bp-rtz-vcluster isolation NetworkPolicy, which carves out the `sme`
+      # namespace in allowedIngressNamespaces (mirrors the #3423 sme→NATS
+      # carve-out). Re-enable + override `namespace` only for a
+      # host-placed valkey.
+      enabled: false
       sourceNamespace: sme
   # ─── provisioning service GitHub token (issue #866) ──────────────────
   # The SME `provisioning` service Deployment references

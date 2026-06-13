@@ -10,14 +10,30 @@
 # Wrapper chart: platform/valkey/chart/
 # Catalyst-curated values: platform/valkey/chart/values.yaml
 # Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# ── #3373 Batch A — RTZ vCluster placement (every instance in its
+#    vCluster by data) ────────────────────────────────────────────────
+# valkey is the clean pure-OSS migration (no HTTPRoute, no
+# ExternalSecret, no CNPG Cluster CR — none of the Free-tier
+# `customResources` toHost-sync coupling). Its wire is plain Service DNS,
+# which the OSS `services` toHost sync already mirrors (proven live by
+# nats-jetstream/loki/mimir/tempo). The HR CR lives in host ns `rtz`
+# (where bp-rtz-vcluster slot 59 exports the vc-rtz kubeconfig Secret);
+# helm-controller resolves spec.kubeConfig.secretRef from the HR's own
+# namespace and installs the chart INSIDE the rtz vCluster.
+# targetNamespace/storageNamespace = the inner `valkey` namespace inside
+# the vCluster (storageNamespace pinned per the hw92 lesson). The
+# host-side Namespace YAML is dropped — createNamespace:true provisions
+# the inner `valkey` ns inside the vCluster.
+#
+# Host-side consumer (the SME control-plane services in host ns `sme`,
+# still host-placed in Batch A) re-points to the syncer-mangled Service
+# name `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc.cluster.local:6379`
+# — rewired in products/catalyst values (smeServices.valkey.host +
+# projector.valkey.addr). The rtz isolation netpol gains a `sme` carve-out
+# (bp-rtz-vcluster allowedIngressNamespaces) so that wire is admitted
+# after the move (mirrors the #3423 sme→NATS carve-out).
 
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: valkey
-  labels:
-    catalyst.openova.io/sovereign: SOVEREIGN_FQDN_PLACEHOLDER
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
@@ -35,16 +51,28 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-valkey
-  namespace: flux-system
+  namespace: rtz  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
+    catalyst.openova.io/vcluster: rtz
     catalyst.openova.io/slot: "17"
 spec:
   interval: 15m
   releaseName: valkey
   targetNamespace: valkey
+  storageNamespace: valkey
+  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
+  kubeConfig:
+    secretRef:
+      name: vc-rtz
+      key: config
   # Valkey is a self-contained cache — only needs Flux Ready.
   dependsOn:
+    # bp-rtz-vcluster MUST be Ready first — the vc-rtz
+    # Secret doesn't exist until then. placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+    - name: bp-rtz-vcluster
+      namespace: flux-system
     - name: bp-flux
+      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   chart:
     spec:
       chart: bp-valkey
@@ -67,6 +95,7 @@ spec:
         namespace: flux-system
   # Event-driven install per docs/INVIOLABLE-PRINCIPLES.md #3.
   install:
+    createNamespace: true  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     timeout: 15m
     disableWait: true
     remediation:
