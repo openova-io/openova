@@ -192,6 +192,17 @@ func (h *Handler) MintHandoverToken(w http.ResponseWriter, r *http.Request) {
 	// a terminal row), so unconditional re-fire is safe.
 	go h.exportJobsToChild(id, fqdn)
 
+	// #3376 — re-fire the phase0 tofu-archive push on every operator
+	// re-mint. This is the recovery path for an env whose handover
+	// predates the archive wire (hw130) OR whose auto-handover push was
+	// lost to a transient network blip: the next "Open Sovereign console"
+	// re-mint re-ships the archive, the child re-seals
+	// secret/catalyst/tofu-phase0-archive (PutKVv2 overwrites — idempotent),
+	// the cutover un-gates, and the tenant-Org funnel un-wedges. The
+	// mother keeps the tofu workdir until the synchronous FinaliseHandover
+	// later slims-and-deletes it, so this re-fire always has a source.
+	go h.exportTofuArchiveToChild(id, fqdn)
+
 	writeJSON(w, http.StatusOK, map[string]string{
 		"token":       tokenStr,
 		"redirectURL": redirectURL,

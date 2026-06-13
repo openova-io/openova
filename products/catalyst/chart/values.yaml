@@ -848,6 +848,12 @@ catalystApi:
   # BAO_ADDR). The shim uses only the unauthenticated oidc auth_url
   # endpoint — no token is wired here.
   openbaoAddr: ""
+  # OpenBao Kubernetes-auth role (#3376) the catalyst-api logs in with to
+  # seal the phase0 tofu archive (ReceiveTofuArchive). Rendered into
+  # CATALYST_OPENBAO_K8S_AUTH_ROLE on Sovereign installs only. Must match
+  # bp-openbao kubernetesAuth.catalystApi.role. Empty falls back to the
+  # canonical "catalyst-api" role bound by bp-openbao's auth-bootstrap Job.
+  openbaoK8sAuthRole: ""
   # PowerDNS REST API base URL used by:
   #   - SME-tenant pipeline's PATCH-RRset writer (sme_tenant_dns.go)
   #   - Multi-zone parent-domain handler (parent_domains.go, issue #827)

@@ -246,7 +246,7 @@ func TestIssueVoucher_SendsEmail_WhenRecipientPresent(t *testing.T) {
 			     active = EXCLUDED.active,
 			     max_redemptions = EXCLUDED.max_redemptions,
 			     deleted_at = NULL`,
-	)).WithArgs("GIFT-50", 50, "Q4 launch", true, 0).
+	)).WithArgs("GIFT5012ABCD", 50, "Q4 launch", true, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	rt := &captureRoundTripper{}
@@ -258,7 +258,7 @@ func TestIssueVoucher_SendsEmail_WhenRecipientPresent(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(map[string]any{
-		"code":            "gift-50", // lower-case; handler upper-cases
+		"code":            "GIFT5012ABCD", // lower-case; handler upper-cases
 		"credit_omr":      50,
 		"description":     "Q4 launch",
 		"active":          true,
@@ -302,8 +302,8 @@ func TestIssueVoucher_SendsEmail_WhenRecipientPresent(t *testing.T) {
 	if !ok {
 		t.Fatalf("notification data not an object: %v", payload["data"])
 	}
-	if dataAny["code"] != "GIFT-50" {
-		t.Errorf("data.code: got %v, want GIFT-50 (upper-cased)", dataAny["code"])
+	if dataAny["code"] != "GIFT5012ABCD" {
+		t.Errorf("data.code: got %v, want GIFT5012ABCD (upper-cased)", dataAny["code"])
 	}
 	if dataAny["credit_omr"].(float64) != 50 {
 		t.Errorf("data.credit_omr: got %v, want 50", dataAny["credit_omr"])
@@ -335,7 +335,7 @@ func TestIssueVoucher_NoEmail_WhenRecipientAbsent(t *testing.T) {
 			     active = EXCLUDED.active,
 			     max_redemptions = EXCLUDED.max_redemptions,
 			     deleted_at = NULL`,
-	)).WithArgs("LAUNCH", 100, "", false, 0).
+	)).WithArgs("LAUNCH012ABC", 100, "", false, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	rt := &captureRoundTripper{}
@@ -347,7 +347,7 @@ func TestIssueVoucher_NoEmail_WhenRecipientAbsent(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(map[string]any{
-		"code":       "launch",
+		"code":       "LAUNCH012ABC",
 		"credit_omr": 100,
 	})
 	r := httptest.NewRequest("POST", "/billing/vouchers/issue", bytes.NewReader(body))
@@ -388,7 +388,7 @@ func TestIssueVoucher_NotificationFailure_DoesNotFailUpsert(t *testing.T) {
 			     active = EXCLUDED.active,
 			     max_redemptions = EXCLUDED.max_redemptions,
 			     deleted_at = NULL`,
-	)).WithArgs("FAIL-MAIL", 10, "", false, 0).
+	)).WithArgs("FAILMAIL1234", 10, "", false, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	rt := &captureRoundTripper{
@@ -406,7 +406,7 @@ func TestIssueVoucher_NotificationFailure_DoesNotFailUpsert(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(map[string]any{
-		"code":            "fail-mail",
+		"code":            "FAILMAIL1234",
 		"credit_omr":      10,
 		"recipient_email": "bob@example.test",
 	})
@@ -481,7 +481,7 @@ func TestIssueVoucher_SendsAuthorizationHeader(t *testing.T) {
 			     active = EXCLUDED.active,
 			     max_redemptions = EXCLUDED.max_redemptions,
 			     deleted_at = NULL`,
-	)).WithArgs("AUTH-1", 10, "auth header guard", true, 0).
+	)).WithArgs("AUTH12345678", 10, "auth header guard", true, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// Choose explicit test bytes — production reads
@@ -501,7 +501,7 @@ func TestIssueVoucher_SendsAuthorizationHeader(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(map[string]any{
-		"code":            "AUTH-1",
+		"code":            "AUTH12345678",
 		"credit_omr":      10,
 		"description":     "auth header guard",
 		"active":          true,
@@ -602,7 +602,7 @@ func TestIssueVoucher_NoAuthHeader_WhenJWTSecretUnset(t *testing.T) {
 			     active = EXCLUDED.active,
 			     max_redemptions = EXCLUDED.max_redemptions,
 			     deleted_at = NULL`,
-	)).WithArgs("BACKCOMPAT", 5, "", true, 0).
+	)).WithArgs("BACKCOMPAT12", 5, "", true, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	rt := &captureRoundTripper{}
@@ -614,7 +614,7 @@ func TestIssueVoucher_NoAuthHeader_WhenJWTSecretUnset(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(map[string]any{
-		"code":            "BACKCOMPAT",
+		"code":            "BACKCOMPAT12",
 		"credit_omr":      5,
 		"active":          true,
 		"recipient_email": "legacy@example.test",
@@ -662,7 +662,7 @@ func TestIssueVoucher_DetachesEmailDispatch_DoesNotBlockOnSlowRelay(t *testing.T
 			     active = EXCLUDED.active,
 			     max_redemptions = EXCLUDED.max_redemptions,
 			     deleted_at = NULL`,
-	)).WithArgs("SLOW-50", 50, "slow", true, 0).
+	)).WithArgs("SLOW50123ABC", 50, "slow", true, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	rt := &blockingRoundTripper{started: make(chan struct{}), release: make(chan struct{})}
@@ -674,7 +674,7 @@ func TestIssueVoucher_DetachesEmailDispatch_DoesNotBlockOnSlowRelay(t *testing.T
 	}
 
 	body, _ := json.Marshal(map[string]any{
-		"code":            "slow-50",
+		"code":            "SLOW50123ABC",
 		"credit_omr":      50,
 		"description":     "slow",
 		"active":          true,

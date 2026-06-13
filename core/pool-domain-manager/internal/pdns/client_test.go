@@ -26,22 +26,41 @@ func newTestServer(t *testing.T, h http.HandlerFunc) (*Client, *httptest.Server)
 
 func TestCreateZoneSuccess(t *testing.T) {
 	var got Zone
+	var sawSOA bool
+	var soaContent string
 	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("method = %s, want POST", r.Method)
-		}
-		if r.URL.Path != "/api/v1/servers/localhost/zones" {
-			t.Errorf("path = %s", r.URL.Path)
-		}
 		if r.Header.Get("X-API-Key") != "test-api-key" {
 			t.Errorf("missing X-API-Key header")
 		}
-		body, _ := io.ReadAll(r.Body)
-		if err := json.Unmarshal(body, &got); err != nil {
-			t.Fatalf("decode body: %v", err)
+		// #3376 — CreateZone now follows the POST (create) with a PATCH
+		// (valid-SOA stamp). Accept both methods on the same handler.
+		switch r.Method {
+		case http.MethodPost:
+			if r.URL.Path != "/api/v1/servers/localhost/zones" {
+				t.Errorf("path = %s", r.URL.Path)
+			}
+			body, _ := io.ReadAll(r.Body)
+			if err := json.Unmarshal(body, &got); err != nil {
+				t.Fatalf("decode body: %v", err)
+			}
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"name":"omantel.omani.works.","kind":"Native"}`))
+		case http.MethodPatch:
+			sawSOA = true
+			body, _ := io.ReadAll(r.Body)
+			var payload struct {
+				RRSets []RRSet `json:"rrsets"`
+			}
+			_ = json.Unmarshal(body, &payload)
+			for _, rr := range payload.RRSets {
+				if rr.Type == "SOA" && len(rr.Records) > 0 {
+					soaContent = rr.Records[0].Content
+				}
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected method %s", r.Method)
 		}
-		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`{"name":"omantel.omani.works.","kind":"Native"}`))
 	})
 
 	err := c.CreateZone(context.Background(), "omantel.omani.works", ZoneKindNative, []string{"ns1.openova.io", "ns2.openova.io"})
@@ -57,6 +76,20 @@ func TestCreateZoneSuccess(t *testing.T) {
 	if len(got.Nameservers) != 2 || got.Nameservers[0] != "ns1.openova.io." {
 		t.Errorf("nameservers = %v, want [ns1.openova.io. ns2.openova.io.]", got.Nameservers)
 	}
+	// #3376 — the SOA must be re-stamped with a VALID primary, never the
+	// PowerDNS `a.misconfigured.dns.server.invalid.` placeholder.
+	if !sawSOA {
+		t.Error("CreateZone did not follow up with a SOA PATCH")
+	}
+	if strings.Contains(soaContent, "misconfigured") {
+		t.Errorf("SOA still carries the misconfigured-default primary: %q", soaContent)
+	}
+	if !strings.HasPrefix(soaContent, "ns1.openova.io.") {
+		t.Errorf("SOA primary = %q, want it to start with ns1.openova.io.", soaContent)
+	}
+	if !strings.Contains(soaContent, "hostmaster.omantel.omani.works.") {
+		t.Errorf("SOA rname = %q, want hostmaster.<zone>", soaContent)
+	}
 }
 
 func TestCreateZoneIdempotentOnConflict(t *testing.T) {
@@ -70,20 +103,27 @@ func TestCreateZoneIdempotentOnConflict(t *testing.T) {
 }
 
 func TestCreateZoneServerErrorRetries(t *testing.T) {
-	var calls int32
+	var posts int32
 	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		n := atomic.AddInt32(&calls, 1)
-		if n == 1 {
-			w.WriteHeader(http.StatusInternalServerError)
+		// #3376 — count only the POST (create) attempts; the follow-up
+		// SOA PATCH is a separate, best-effort call.
+		if r.Method == http.MethodPost {
+			n := atomic.AddInt32(&posts, 1)
+			if n == 1 {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
 			return
 		}
-		w.WriteHeader(http.StatusCreated)
+		// SOA PATCH — accept.
+		w.WriteHeader(http.StatusNoContent)
 	})
 	if err := c.CreateZone(context.Background(), "test.io", ZoneKindNative, nil); err != nil {
 		t.Errorf("retry path failed: %v", err)
 	}
-	if atomic.LoadInt32(&calls) != 2 {
-		t.Errorf("expected 2 calls (retry once on 5xx), got %d", calls)
+	if atomic.LoadInt32(&posts) != 2 {
+		t.Errorf("expected 2 POST attempts (retry once on 5xx), got %d", posts)
 	}
 }
 
