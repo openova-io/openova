@@ -1,0 +1,222 @@
+{{- /*
+#3374 (2026-06-14) — Guacamole JDBC schema-init + admin USER_GROUP seed.
+
+The guacamole-auth-sso-openid extension authenticates SSO users but has no
+permission store, so every SSO user lands with no connections and NO admin
+(the founder-witnessed #3374 gap; blueprint.yaml's `rolesFromGroup:
+sovereign-admins: admin` intent was unimplemented). This Job wires the
+bundled JDBC (postgresql) permission store:
+
+  1. An initContainer running the guacamole webapp image copies the bundled
+     JDBC schema (/opt/guacamole/postgresql/schema/*.sql) into a shared
+     emptyDir — the schema lives in the image, not this chart.
+  2. The main container (CNPG postgres image — has psql) connects to the
+     guacamole CNPG cluster and:
+       a. applies 001-create-schema.sql ONCE (idempotent guard: skip if the
+          `guacamole_entity` table already exists),
+       b. creates a `<adminGroup>` USER_GROUP entity holding the ADMINISTER
+          (+ CREATE_*) system permissions, so any SSO user whose `groups`
+          claim contains <adminGroup> inherits guacamole admin. We DELIBERATELY
+          do NOT seed the default guacadmin/guacadmin password account from
+          002-create-admin-user.sql — admin is group-driven via SSO only.
+
+Combined with the Deployment's POSTGRESQL_AUTO_CREATE_ACCOUNTS=true +
+OPENID_GROUPS_CLAIM_TYPE=groups, an `emrah.baysal`-in-sovereign-admins SSO
+login auto-creates the JDBC user, binds it into the USER_GROUP, and lands it
+as admin.
+
+DB-direct via the CNPG <cluster>-app Secret (host/port/dbname/user/password).
+enableSuperuserAccess on the Cluster is for the schema DDL; the app owner here
+owns the objects it creates, so the app credential suffices for the seed.
+
+Skip-render: guacamole.enabled=false, database.enabled=false, or the
+postgresql.cnpg.io CRD absent.
+*/ -}}
+{{- $db := .Values.guacamole.database | default dict -}}
+{{- $cl := $db.cluster | default dict -}}
+{{- if and .Values.guacamole.enabled (default true $db.enabled) (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
+{{- $name := $cl.name | default "guacamole-pg" -}}
+{{- $appSecret := $db.appSecretName | default (printf "%s-app" $name) -}}
+{{- $adminGroup := $db.adminGroup | default "sovereign-admins" -}}
+{{- $pgImage := printf "%s:%s" ($cl.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql") ($cl.pgVersion | default "16") -}}
+{{- $guacImage := include "bp-guacamole.webappImage" . -}}
+{{- $sj := $db.seedJob | default dict -}}
+{{- $jobName := printf "%s-jdbc-seed" (include "bp-guacamole.fullname" .) | trunc 63 | trimSuffix "-" -}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $jobName }}-scripts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+    catalyst.openova.io/component: jdbc-seed
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  seed.sh: |
+    set -eu
+    CRED=/cnpg
+    PGHOST="$(cat "${CRED}/host")"
+    PGPORT="$(cat "${CRED}/port" 2>/dev/null || echo 5432)"
+    PGDATABASE="$(cat "${CRED}/dbname")"
+    PGUSER="$(cat "${CRED}/user" 2>/dev/null || cat "${CRED}/username")"
+    PGPASSWORD="$(cat "${CRED}/password")"
+    export PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD
+    PSQL="psql -v ON_ERROR_STOP=1 -qtA"
+    echo "[jdbc-seed] target=${PGHOST}:${PGPORT}/${PGDATABASE} user=${PGUSER}"
+
+    # Wait for the CNPG primary to accept connections.
+    i=0
+    until [ "$i" -ge 60 ]; do
+      if $PSQL -c "SELECT 1;" >/dev/null 2>&1; then echo "[jdbc-seed] db reachable"; break; fi
+      i=$((i+1)); echo "[jdbc-seed] waiting for postgres ($i/60)"; sleep 5
+    done
+    if [ "$i" -ge 60 ]; then echo "[jdbc-seed] FATAL: postgres unreachable after 5min" >&2; exit 1; fi
+
+    # (1) Apply the guacamole JDBC schema ONCE. The schema SQL (copied out of
+    #     the guacamole image by the initContainer) creates the enum TYPEs +
+    #     ~15 tables. Idempotency guard: skip when guacamole_entity exists.
+    if $PSQL -c "SELECT to_regclass('public.guacamole_entity');" | grep -q '^guacamole_entity$'; then
+      echo "[jdbc-seed] schema already present — skipping 001-create-schema.sql"
+    else
+      echo "[jdbc-seed] applying 001-create-schema.sql"
+      $PSQL -f /schema/001-create-schema.sql
+      echo "[jdbc-seed] schema applied"
+    fi
+
+    # (2) Seed the admin USER_GROUP (idempotent). Members inherit guacamole
+    #     admin (ADMINISTER) + the CREATE_* system permissions. The openid
+    #     extension binds an SSO user into this group when its `groups` claim
+    #     contains the name. NO password account is created — SSO-only admin.
+    ADMIN_GROUP="{{ $adminGroup }}"
+    $PSQL <<SQL
+    INSERT INTO guacamole_entity (name, type)
+    SELECT '${ADMIN_GROUP}', 'USER_GROUP'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM guacamole_entity WHERE name = '${ADMIN_GROUP}' AND type = 'USER_GROUP'
+    );
+
+    INSERT INTO guacamole_user_group (entity_id)
+    SELECT entity_id FROM guacamole_entity
+    WHERE name = '${ADMIN_GROUP}' AND type = 'USER_GROUP'
+      AND entity_id NOT IN (SELECT entity_id FROM guacamole_user_group);
+
+    INSERT INTO guacamole_system_permission (entity_id, permission)
+    SELECT e.entity_id, p.permission::guacamole_system_permission_type
+    FROM (VALUES
+      ('CREATE_CONNECTION'),
+      ('CREATE_CONNECTION_GROUP'),
+      ('CREATE_SHARING_PROFILE'),
+      ('CREATE_USER'),
+      ('CREATE_USER_GROUP'),
+      ('ADMINISTER')
+    ) AS p(permission)
+    JOIN guacamole_entity e ON e.name = '${ADMIN_GROUP}' AND e.type = 'USER_GROUP'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM guacamole_system_permission sp
+      WHERE sp.entity_id = e.entity_id
+        AND sp.permission = p.permission::guacamole_system_permission_type
+    );
+    SQL
+    echo "[jdbc-seed] admin USER_GROUP '${ADMIN_GROUP}' ensured with ADMINISTER"
+    echo "[jdbc-seed] done."
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $jobName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+    catalyst.openova.io/component: jdbc-seed
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: {{ $sj.backoffLimit | default 6 }}
+  activeDeadlineSeconds: {{ $sj.activeDeadlineSeconds | default 420 }}
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        {{- include "bp-guacamole.selectorLabels" . | nindent 8 }}
+        catalyst.openova.io/component: jdbc-seed
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.guacamole.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 26
+        runAsGroup: 26
+        fsGroup: 26
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Copy the bundled JDBC schema out of the guacamole image so the
+        # postgres container can apply it. The schema is image-versioned —
+        # never hand-copied into this chart.
+        - name: copy-schema
+          image: {{ $guacImage | quote }}
+          imagePullPolicy: {{ .Values.guacamole.webapp.image.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              cp /opt/guacamole/postgresql/schema/001-create-schema.sql /schema/
+              echo "copied JDBC schema"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: schema
+              mountPath: /schema
+      containers:
+        - name: jdbc-seed
+          image: {{ $pgImage | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/scripts/seed.sh"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: schema
+              mountPath: /schema
+            - name: cnpg
+              mountPath: /cnpg
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml ($sj.resources | default (dict "requests" (dict "cpu" "10m" "memory" "64Mi") "limits" (dict "cpu" "200m" "memory" "128Mi"))) | nindent 12 }}
+      volumes:
+        - name: scripts
+          configMap:
+            name: {{ $jobName }}-scripts
+            defaultMode: 0555
+        - name: schema
+          emptyDir:
+            sizeLimit: 4Mi
+        - name: cnpg
+          secret:
+            secretName: {{ $appSecret | quote }}
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Mi
+{{- end }}

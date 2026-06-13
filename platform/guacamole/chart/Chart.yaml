@@ -102,7 +102,20 @@ name: bp-guacamole
 # ships the openid extension only (no JDBC permission store), so
 # blueprint.yaml's `rolesFromGroup: sovereign-admins: admin` intent has no
 # implementation — tracked under #3374 DoD row 7.
-version: 0.2.8
+# 0.2.9 (#3374, 2026-06-14): CLOSES the admin-elevation gap the 0.2.5 note
+# flagged. The openid extension authenticates SSO users but carries no
+# permission store, so every SSO user landed with no connections and NO admin
+# (founder-witnessed). New templates wire the bundled JDBC (postgresql)
+# permission store: a dedicated CNPG cluster (cnpg-cluster.yaml), POSTGRESQL_*
+# env on the webapp (guacamole-deployment.yaml) with AUTO_CREATE_ACCOUNTS +
+# EXTENSION_PRIORITY="openid, postgresql", a schema-seed Job
+# (jdbc-schema-seed-job.yaml) that applies the image-bundled
+# 001-create-schema.sql once and seeds a `sovereign-admins` USER_GROUP holding
+# ADMINISTER, and a netpol egress to :5432. With OPENID_GROUPS_CLAIM_TYPE=groups
+# an SSO user in sovereign-admins auto-creates a JDBC record, binds into the
+# group, and lands as guacamole admin. New `guacamole.database.*` values.
+# Lockstep: 52-bp-guacamole.yaml pin → 0.2.9. Refs #3374.
+version: 0.2.9
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless

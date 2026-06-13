@@ -1,0 +1,72 @@
+{{- /*
+#3374 (2026-06-14) — CNPG-managed Postgres cluster for the Guacamole JDBC
+permission store.
+
+The guacamole-auth-sso-openid extension authenticates SSO users but carries
+NO permission store on its own, so every SSO user landed with no connections
+and no admin (the founder-witnessed #3374 gap). This Cluster backs the bundled
+guacamole-auth-jdbc-postgresql extension: with POSTGRESQL_* env set, the
+guacamole entrypoint installs the JDBC extension, the schema-seed Job applies
+the bundled schema + a `<adminGroup>` USER_GROUP holding ADMINISTER, and
+POSTGRESQL_AUTO_CREATE_ACCOUNTS auto-provisions a JDBC record per SSO user on
+first login.
+
+Pattern mirrors bp-gitea / bp-harbor / bp-newapi cnpg-cluster.yaml. CNPG
+synthesises a `<name>-app` Secret (the rotating app password) that both the
+Deployment and the seed Job read. enableSuperuserAccess=true because the JDBC
+schema needs CREATE TYPE / TABLE which the seed Job runs as the superuser.
+
+Capabilities gate: bp-cnpg ships postgresql.cnpg.io/v1; the check skips this
+template until the CRD is registered (bootstrap order lands bp-cnpg first).
+*/ -}}
+{{- $db := .Values.guacamole.database | default dict -}}
+{{- $cl := $db.cluster | default dict -}}
+{{- if and .Values.guacamole.enabled (default true $db.enabled) (default true $cl.enabled) (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
+{{- $name := $cl.name | default "guacamole-pg" -}}
+{{- $ns := $cl.namespace | default .Release.Namespace -}}
+{{- $owner := $cl.owner | default "guacamole" -}}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+    catalyst.openova.io/component: guacamole-db
+spec:
+  instances: {{ $cl.instances | default 1 }}
+  imageName: {{ $cl.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql" }}:{{ $cl.pgVersion | default "16" }}
+  {{- if ge (int ($cl.instances | default 1)) 2 }}
+  affinity:
+    topologyKey: {{ (default dict $cl.affinity).topologyKey | default "topology.kubernetes.io/region" | quote }}
+    podAntiAffinityType: {{ (default dict $cl.affinity).podAntiAffinityType | default "preferred" | quote }}
+  {{- end }}
+  bootstrap:
+    initdb:
+      database: {{ $cl.database | default "guacamole_db" | quote }}
+      owner: {{ $owner | quote }}
+  managed:
+    roles:
+      - name: {{ $owner | quote }}
+        ensure: present
+        login: true
+        passwordSecret:
+          name: {{ printf "%s-app" $name | quote }}
+  postgresql:
+    parameters:
+      max_connections: "100"
+      shared_buffers: "64MB"
+      effective_cache_size: "192MB"
+      work_mem: "4MB"
+      maintenance_work_mem: "64MB"
+      log_statement: "ddl"
+      log_min_duration_statement: "1000"
+  resources:
+    {{- toYaml ($cl.resources | default (dict "requests" (dict "cpu" "50m" "memory" "128Mi") "limits" (dict "memory" "512Mi"))) | nindent 4 }}
+  storage:
+    size: {{ $cl.storageSize | default "5Gi" }}
+    storageClass: {{ $cl.storageClass | default "local-path" | quote }}
+  enableSuperuserAccess: true
+  monitoring:
+    enablePodMonitor: false
+{{- end }}
