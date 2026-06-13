@@ -26,7 +26,17 @@ name: bp-openbao
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.2.32
+version: 1.2.33
+# 1.2.33 (#3374, 2026-06-13): the three openbao Job/CronJob templates
+# (init-job, auth-bootstrap-job post-upgrade hooks + the snapshot-replication
+# CronJob) now carry `app.kubernetes.io/managed-by: flux`. The kyverno
+# `flux-managed` Enforce policy (baseline 10-flux-managed) gates Job + CronJob
+# in the openbao namespace (NOT on its exclude list) and DENIES any without
+# that label. Helm hook Jobs are created by the helm-controller, not Flux, so
+# the FIRST chart roll on a converged Enforce env (hw133) failed the
+# post-upgrade init-job hook → the HR rolled the 1.2.32 upgrade back to 1.2.31
+# every attempt → the sso-configure idempotency fix never reached the cluster.
+# Same landmine class as the gitea/harbor hook Jobs (#3296→#3297).
 # 1.2.32 (#3374, 2026-06-13): sso-configure external identity-group mapping
 # is now FULLY idempotent. The reconciler created each sovereign-admins /
 # sovereign-ops → sso-operator-admin alias via POST identity/group-alias,

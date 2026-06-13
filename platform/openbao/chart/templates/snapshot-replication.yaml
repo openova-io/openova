@@ -163,6 +163,11 @@ metadata:
     catalyst.openova.io/blueprint: bp-openbao
     catalyst.openova.io/component: openbao-snapshot-replication
     catalyst.openova.io/snapshot-role: {{ $role | quote }}
+    # kyverno `flux-managed` Enforce gates CronJob + Job in the openbao ns
+    # (not on its exclude list). Helm stamps managed-by=Helm, not flux, so
+    # the CronJob AND its spawned Jobs (jobTemplate below) need this label
+    # explicitly or admission denies them when DoD-8 enables replication.
+    app.kubernetes.io/managed-by: flux
 spec:
   schedule: {{ $schedule | quote }}
   # Async, periodic — matches the row's "async perf-replication". Never run
@@ -176,6 +181,9 @@ spec:
       labels:
         catalyst.openova.io/blueprint: bp-openbao
         catalyst.openova.io/component: openbao-snapshot-replication
+        # The CronJob-spawned Job is itself gated by the flux-managed
+        # policy — stamp managed-by=flux on the jobTemplate too.
+        app.kubernetes.io/managed-by: flux
     spec:
       activeDeadlineSeconds: {{ $deadline }}
       backoffLimit: {{ $backoff }}

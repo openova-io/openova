@@ -67,6 +67,11 @@ metadata:
   labels:
     catalyst.openova.io/blueprint: bp-openbao
     catalyst.openova.io/component: openbao-auth-bootstrap
+    # kyverno `flux-managed` Enforce DENIES a Job without this label. Helm
+    # hook Jobs are created by the helm-controller, not Flux, so stamp it
+    # explicitly or the FIRST chart roll on a converged Enforce env fails
+    # the post-upgrade hook and the HR rolls back (#3374 / #3296 class).
+    app.kubernetes.io/managed-by: flux
 spec:
   activeDeadlineSeconds: {{ $deadline }}
   backoffLimit: {{ $backoff }}
