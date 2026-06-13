@@ -499,7 +499,7 @@ name: bp-newapi
 # class as bp-guacamole #3461). Default the gate image to the NewAPI image
 # itself (has /bin/sh; same openova-io glob as the main container). Lockstep:
 # 80-newapi.yaml pin → 1.4.77.
-version: 1.4.77
+version: 1.4.78
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
