@@ -105,7 +105,16 @@ spec:
               value: "5432"
             - name: POSTGRESQL_DATABASE
               value: {{ $cl.database | default "guacamole_db" | quote }}
-            - name: POSTGRESQL_USERNAME
+            # #3374 (2026-06-14): the env var is POSTGRESQL_USER, NOT
+            # POSTGRESQL_USERNAME. The Apache Guacamole image entrypoint
+            # (guacamole-docker .../bin/start.sh) requires POSTGRESQL_USER and
+            # FATALs `Missing required environment variables ... POSTGRESQL_USER`
+            # otherwise — which is exactly how the JDBC-enabled webapp pod
+            # crash-looped the moment it finally scheduled on hw133 (the
+            # POSTGRESQL_USERNAME name never matched, so the bundled JDBC
+            # extension never connected and the permission store was unreachable
+            # → no admin). Fixed to the upstream-canonical POSTGRESQL_USER.
+            - name: POSTGRESQL_USER
               value: {{ $cl.owner | default "guacamole" | quote }}
             - name: POSTGRESQL_PASSWORD
               valueFrom:

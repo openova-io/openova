@@ -145,7 +145,15 @@ name: bp-guacamole
 # recordings are not required for core function or the admin walk; operators with
 # real distributed SeaweedFS RWX set recordings.persistence=true. Lockstep:
 # 52-bp-guacamole.yaml pin → 0.2.13. Refs #3374.
-version: 0.2.14
+# 0.2.15 (#3374 admin-tier, 2026-06-14): fix the POSTGRESQL_USER env name. Once
+# 0.2.13 let the JDBC-enabled webapp pod schedule, it CRASH-LOOPED on hw133 with
+# `FATAL: Missing required environment variables ... POSTGRESQL_USER` — the
+# chart set POSTGRESQL_USERNAME, but the Apache Guacamole image entrypoint
+# requires POSTGRESQL_USER. With the wrong name the bundled JDBC extension never
+# connected → the permission store was unreachable → still no admin. Renamed to
+# the upstream-canonical POSTGRESQL_USER. Lockstep: 52-bp-guacamole.yaml pin →
+# 0.2.15. Refs #3374.
+version: 0.2.15
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
