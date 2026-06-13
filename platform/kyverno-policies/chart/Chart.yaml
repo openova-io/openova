@@ -170,7 +170,18 @@ type: application
 # while keeping proxy-cache for anonymous public registries.
 # Lockstep with bp-self-sovereign-cutover 0.1.43 (Step 03 Phase A
 # skopeo native-push + Step 07 REGISTRY drops /proxy-ghcr/ suffix).
-version: 1.0.33
+# 1.0.34 (#3374 admin-tier, 2026-06-14): fix the resource-requests Enforce
+# policy for CronJob. The single rule wrote `spec.template.spec.containers`
+# (the Pod-controller path) and relied on Kyverno autogen to rewrite it to
+# `spec.jobTemplate.spec.template.spec.containers` for CronJob — which did NOT
+# fire for a freshly-created helm hook CronJob: bp-newapi's admin-promote
+# CronJob (resources.requests PRESENT) was DENIED at `/spec/template/` and the
+# whole bp-newapi upgrade was blocked (#3455). Pin `autogen-controllers: none`
+# and split into explicit per-shape rules (Pod / template-bearing workload /
+# CronJob), each at its real container path — mirrors the harbor-proxy policy
+# (#2611) that solved the identical autogen-doesn't-expand class. No behavior
+# change for Deployment/StatefulSet/DaemonSet/Job (still gated). Refs #3374.
+version: 1.0.34
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:

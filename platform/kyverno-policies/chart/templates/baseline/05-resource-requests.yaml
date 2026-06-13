@@ -21,6 +21,23 @@ metadata:
     catalyst.openova.io/policy-tier: compliance
     catalyst.openova.io/policy-domain: resilience
   annotations:
+    # Autogen is OFF and each workload PATH-SHAPE has its own explicit rule
+    # (#3374, 2026-06-14). ROOT CAUSE caught live on hw133: the prior SINGLE
+    # rule wrote the container path as `spec.template.spec.containers` (the
+    # Pod-controller path) and relied on Kyverno autogen to rewrite it to
+    # `spec.jobTemplate.spec.template.spec.containers` for CronJob. Autogen's
+    # CronJob expansion did NOT fire for a freshly-created helm hook CronJob:
+    # the `newapi-bp-newapi-admin-promote` CronJob (resources.requests PRESENT
+    # on its single container) was DENIED at path `/spec/template/` — the
+    # Pod-controller rule applied to a CronJob, which has no `spec.template`,
+    # so the pattern can never match → deny-everything for fresh CronJobs.
+    # (Live CronJobs created at bootstrap were merely grandfathered; kyverno
+    # validates on CREATE/UPDATE only.) This blocked bp-newapi's whole upgrade
+    # (#3455 / #3374). Same autogen-doesn't-expand-anyPattern/CronJob class as
+    # baseline/11-harbor-proxy.yaml (#2611), which already pins autogen off and
+    # writes one rule per shape. Fix mirrors it: Pod + template-bearing
+    # workload + CronJob rules, each at its real container path.
+    pod-policies.kyverno.io/autogen-controllers: none
     policies.kyverno.io/title: Containers must declare CPU and memory requests
     policies.kyverno.io/category: catalyst-compliance
     policies.kyverno.io/severity: high
@@ -33,7 +50,31 @@ spec:
   validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.resourceRequests.action) }}
   background: true
   rules:
-    - name: containers-must-declare-cpu-memory-requests
+    {{- $excludeNs := .Values.compliancePolicies.resourceRequests.excludeNamespaces }}
+    {{- $msg := "Every container must declare resources.requests.cpu and resources.requests.memory." }}
+    - name: requests-pod
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := $excludeNs }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: {{ $msg | quote }}
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  requests:
+                    cpu: "?*"
+                    memory: "?*"
+    - name: requests-workload
       match:
         any:
           - resources:
@@ -42,19 +83,15 @@ spec:
                 - StatefulSet
                 - DaemonSet
                 - Job
-                - CronJob
       exclude:
         any:
           - resources:
               namespaces:
-                {{- range $ns := .Values.compliancePolicies.resourceRequests.excludeNamespaces }}
+                {{- range $ns := $excludeNs }}
                 - {{ $ns }}
                 {{- end }}
       validate:
-        message: >-
-          Every container in
-          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} must
-          declare resources.requests.cpu and resources.requests.memory.
+        message: {{ $msg | quote }}
         pattern:
           spec:
             template:
@@ -64,4 +101,30 @@ spec:
                       requests:
                         cpu: "?*"
                         memory: "?*"
+    - name: requests-cronjob
+      match:
+        any:
+          - resources:
+              kinds:
+                - CronJob
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := $excludeNs }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: {{ $msg | quote }}
+        pattern:
+          spec:
+            jobTemplate:
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - resources:
+                          requests:
+                            cpu: "?*"
+                            memory: "?*"
 {{- end -}}
