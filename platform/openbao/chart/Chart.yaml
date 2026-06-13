@@ -26,7 +26,16 @@ name: bp-openbao
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.2.35
+version: 1.2.36
+# 1.2.36 (#3374, 2026-06-14): the 1.2.35 Blueprint-Release publish FAILED at
+# the chart-integration-test step — tests/sso-landing-render.sh Case 4 piped
+# the whole helm render into `grep -q`, which exits early and SIGPIPEs the
+# producer ("printf: write error: Broken pipe") → under `set -o pipefail` the
+# pipeline returned non-zero → 1.2.35 never reached the OCI registry, so the
+# landing fix never reconciled. Rewrote every assertion to pipe-free bash
+# substring matching (`case`/helper) so no large-input-into-grep-q exists;
+# stress-ran 5x clean. Chart content is identical to 1.2.35 (the landing fix);
+# this is a test/publish-unblock bump only.
 # 1.2.35 (#3374, 2026-06-14): TRUE zero-click bare-URL — kill the popup-only
 # OIDC-callback postMessage error. OpenBao's Vault-UI OIDC login is POPUP-ONLY
 # (the callback route does an UNCONDITIONAL window.opener.postMessage with no
