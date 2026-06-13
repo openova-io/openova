@@ -673,6 +673,7 @@ data:
           "secret": {{ include "bp-keycloak.tier1ClientSecret" (dict "ctx" . "clientId" "openbao") | quote }},
           "redirectUris": [
             "https://bao.{{ .Values.sovereignFQDN }}/ui/vault/auth/oidc/oidc/callback",
+            "https://bao.{{ .Values.sovereignFQDN }}/sso/landing",
             "http://localhost:8250/oidc/callback"
           ],
           "webOrigins": [

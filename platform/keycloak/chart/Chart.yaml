@@ -261,7 +261,17 @@ name: bp-keycloak
 # authenticates silently via the sovereign realm's catalyst-pin IDR. The
 # master console remains reachable at its full path (break-glass untouched).
 # Gated on gateway.bareURLAdminRedirect.enabled (default true).
-version: 1.4.27
+# 1.4.28 (#3374, 2026-06-14): add https://bao.<fqdn>/sso/landing to the
+# `openbao` Tier-1 client redirectUris. The bp-openbao bare-URL zero-click
+# fix routes the bare paths to an on-origin landing page at /sso/landing
+# that runs the OIDC round-trip as a top-level window (kills the popup-only
+# postMessage error). Its auth_url call sets redirect_uri=<landing>, so
+# Keycloak must allow it — without this the authorize request 400s "Invalid
+# parameter: redirect_uri" (measured live hw133 2026-06-14). keycloak-config-
+# cli reconciles the realm on every post-upgrade Job, so this lands on both
+# fresh provs AND the existing live client. (The OpenBao OIDC role's
+# allowed_redirect_uris already carries it via bp-openbao 1.2.35+.)
+version: 1.4.28
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
