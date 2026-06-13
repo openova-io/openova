@@ -2701,7 +2701,7 @@ name: bp-catalyst-platform
 # the bp-rtz-vcluster isolation netpol's `sme` carve-out). Mirrors the
 # #3376 SME NATS_URL→synced-name move. Catalyst-Zero (no sovereignFQDN)
 # render byte-unchanged.
-version: 1.4.621
+version: 1.4.622
 # 1.4.597 — #3373 (2026-06-13) — coupling fix (a) placement-as-data:
 # templates/httproute.yaml backendRefs honor new
 # ingress.gateway.backendServiceApi / backendServiceUi overrides. When
