@@ -468,7 +468,18 @@ name: bp-newapi
 # Enforce autogen bug (fixed in lockstep, bp-kyverno-policies 1.0.34). Stamping
 # the CronJob closes (a); the policy fix closes (b). Lockstep: 80-newapi.yaml
 # pin → 1.4.71.
-version: 1.4.72
+# 1.4.73 (#3374 admin-tier, 2026-06-14): fix the DUPLICATE-KEY post-render
+# failure 1.4.71/1.4.72 introduced. Appending `app.kubernetes.io/managed-by:
+# flux` AFTER `{{ include "bp-newapi.labels" . }}` (which already emits
+# managed-by=Helm) yielded TWO managed-by keys in one map. `helm template`
+# renders it last-wins, but bp-newapi's strict-YAML post-render rejected it:
+#   error while running post render ... mapping key
+#   "app.kubernetes.io/managed-by" already defined
+# → the whole upgrade FAILED on hw133. New `bp-newapi.hookLabels` helper emits
+# the full label set with managed-by=flux as a SINGLE key; the 4 hook Jobs +
+# the admin-promote CronJob + its jobTemplate use it instead of the
+# labels+duplicate pattern. Lockstep: 80-newapi.yaml pin → 1.4.73.
+version: 1.4.73
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
