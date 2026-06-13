@@ -99,20 +99,36 @@
 # default emptyDir is fine for smoke-test and dev Sovereigns where
 # a re-pull on Pod restart is acceptable; production Sovereigns
 # MUST switch to a PVC to amortize the cold-load over upgrades.
+#
+# ── #3373 Batch A — RTZ vCluster placement (every instance in its
+#    vCluster by data) ────────────────────────────────────────────────
+# vllm is a clean pure-OSS migration: a plain Deployment+Service, no
+# HTTPRoute, no ExternalSecret, no CNPG Cluster CR — none of the Free-tier
+# `customResources` toHost-sync coupling. Its wire is plain Service DNS,
+# which the OSS `services` toHost sync mirrors. Both vllm AND its sole
+# consumer (bp-newapi's `defaultChannels.vllm` channel, slot 80) are
+# DEFAULT-OFF on a fresh prov (lockstep `${SOVEREIGN_VLLM_ENABLED:-false}`),
+# so the base render breaks no active wire — the move is byte-clean.
+#
+# The HR CR lives in host ns `rtz` (where bp-rtz-vcluster slot 59 exports
+# the vc-rtz kubeconfig Secret); helm-controller installs the chart INSIDE
+# the rtz vCluster. targetNamespace/storageNamespace = the inner `vllm`
+# namespace (storageNamespace pinned per the hw92 lesson). The host-side
+# Namespace YAML is dropped — createNamespace:true provisions the inner
+# `vllm` ns inside the vCluster. (The former host-ns
+# `pod-security.kubernetes.io/enforce: restricted` label is unnecessary
+# inside the vCluster: the vllm container runs as uid 1000 / non-root and
+# the kyverno PSS posture is enforced by the host's bp-kyverno-policies
+# against the syncer-reflected pods in the rtz host namespace.)
+#
+# Consumer rewire: bp-newapi's vllm channel `endpoint` default re-points
+# to the syncer-mangled host Service name
+# `vllm-bp-vllm-x-vllm-x-rtz-vcluster.rtz.svc.cluster.local:8000/v1`
+# (slot 80). The rtz isolation netpol gains a `newapi` carve-out
+# (bp-rtz-vcluster allowedIngressNamespaces) so the host-placed newapi
+# gateway reaches the synced Service after the move (mirrors the #3423
+# sme→NATS carve-out).
 
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: vllm
-  labels:
-    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
-    catalyst.openova.io/component: ai-runtime
-    # Kyverno PSS gate: vllm container runs as uid 1000 (non-root) so
-    # the chart values match `restricted` profile defaults. No
-    # exceptions required.
-    pod-security.kubernetes.io/enforce: restricted
-    pod-security.kubernetes.io/enforce-version: latest
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
@@ -130,17 +146,31 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-vllm
-  namespace: flux-system
+  namespace: rtz  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
+    catalyst.openova.io/vcluster: rtz
     catalyst.openova.io/slot: "39"
     catalyst.openova.io/component: ai-runtime
 spec:
   interval: 15m
   releaseName: vllm
   targetNamespace: vllm
-  # No explicit dependsOn — see the slot-39 dependsOn rationale comment
-  # block above. The chart only needs CNI + Flux (implicit cluster-
-  # bootstrap deps).
+  storageNamespace: vllm
+  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
+  kubeConfig:
+    secretRef:
+      name: vc-rtz
+      key: config
+  dependsOn:
+    # bp-rtz-vcluster MUST be Ready first — the vc-rtz
+    # Secret doesn't exist until then. placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+    - name: bp-rtz-vcluster
+      namespace: flux-system
+  # #3373 Batch A: bp-rtz-vcluster is the ONLY explicit dependsOn — the
+  # vc-rtz Secret doesn't exist until it is Ready (the kubeConfig pivot
+  # dangles otherwise). The chart itself only needs CNI + Flux (implicit
+  # cluster-bootstrap deps); no bp-kserve edge (slot 38 has no on-disk
+  # file — declaring it would wedge the HR; see the rationale block above).
   chart:
     spec:
       chart: bp-vllm
@@ -156,6 +186,7 @@ spec:
         name: bp-vllm
         namespace: flux-system
   install:
+    createNamespace: true  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     timeout: 15m
     disableWait: true
     remediation:

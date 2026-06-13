@@ -474,7 +474,11 @@ slots:
     # (Flux dependsOn waits for Ready=True; missing HRs never report).
     # When bp-kserve later lands as a real slot, this dep can be
     # re-introduced + bp-vllm can be re-wrapped as a KServe ServingRuntime.
-    depends_on: []
+    # #3373 Batch A (2026-06-14): bp-vllm moved INTO the rtz vCluster
+    # (placement.yaml) — the generator adds the bp-rtz-vcluster runtime edge
+    # (the vc-rtz Secret doesn't exist until that HR is Ready). Same pattern as
+    # loki/mimir/tempo declaring bp-mgmt-vcluster.
+    depends_on: [bp-rtz-vcluster]
     wave: W2.K4
   - slot: 40
     name: bp-llm-gateway

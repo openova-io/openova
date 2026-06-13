@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-2-control-plane-isolation
     catalyst.openova.io/category: platform
 spec:
-  version: 0.2.10
+  version: 0.2.11
   card:
     title: RTZ vCluster
     summary: |
