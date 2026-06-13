@@ -35,3 +35,31 @@ spec:
     defaults:
       multi-region: active-passive
       single-region: singleton
+    perTopology:
+      # Stateless oauth2-proxy instance set — no PG, no PVC, no
+      # StatefulSet. The per-cluster cookie secret is local; nothing
+      # cross-region to replicate (replication.backend: none). Failover
+      # is a bp-continuum DNS flip of the gated app's hostname to the
+      # mgmt-B instance, identical to the bp-sso-bridge peer. Completes
+      # the contract the topology declaration owed (#3375 DoD-3): an
+      # HA-supported topology must carry a populated perTopology block.
+      active-passive:
+        replication:
+          backend: none
+          mode: none
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton

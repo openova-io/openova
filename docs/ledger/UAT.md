@@ -91,6 +91,19 @@ hw130 console cannot carry these changes until the founder merges; each row re-w
 | region-kill survives, 0 loss | ✅ | [hw128 walk](../sessions/2026-06-11/hw128-region-kill-walk-PASS.md) |
 | gitea/openbao/etc per-app multi-region | ❌ | not executed — [#2745](https://github.com/openova-io/openova/issues/2745) |
 
+### 4a. Topology / DR convergence — [#3375](https://github.com/openova-io/openova/issues/3375), measured live on hw130 2026-06-13
+
+| DoD box | Now | Proof (hw130, same-day) |
+|---|---|---|
+| Schema reconciliation — `spec.topology` canonical, orphan flagged, CRD CEL | ✅ | [topology-matrix §canonical-shape](../topology-matrix.md) (#3395) |
+| `docs/topology-matrix.md` — 90 rows + convergence cols, amendments flagged | ✅ | [topology-matrix](../topology-matrix.md) (#3395 + oidc-gate row this PR) |
+| CI lint + red-proof + G116 admission gate | ✅ | `scripts/test-topology-admission-gate.sh` → ALL CASES PASS (91 green + 4 red) |
+| Cluster-ID registry → real per-region kubeconfig Secrets; `KubeConfigSecretFor` wired | ✅ | unit tests green; [live Secrets proof](../sessions/2026-06-13/evidence/3375-LIVE-cluster-id-registry-proof.txt) (vc-mgmt/vc-rtz/vc-dmz, valid kubeconfig) |
+| cnpg-pair both regions healthy (intra-cluster HA; #3322/#3400) | ✅ | [both regions 3/3](../sessions/2026-06-13/evidence/3375-LIVE-cnpg-pair-both-regions.txt) |
+| cnpg-pair **continuum-driven switchover** machinery walked | ✅ machinery | [continuum dry-run plan](../sessions/2026-06-13/evidence/3375-LIVE-continuum-driven-switchover-dryrun.json) — 7-step plan, lease+swap compute |
+| cnpg-pair **full region-kill** (replica streaming, promote, 0 loss) | ⏸ DEFERRED to fresh-prov | continuum step-2 BLOCKS: pair incomplete (replica not streaming). [cross-VPC WAL dead](../sessions/2026-06-13/evidence/3375-LIVE-cross-vpc-wal-receiver.txt) (`lsn=0/5000000`, 0 receivers) — gated on VPC peering [#3307](https://github.com/openova-io/openova/issues/3307). [verdict](../sessions/2026-06-13/evidence/3375-LIVE-walk-verdict.md) |
+| gitea/openbao/valkey/harbor row mechanisms (CLASS-B) | ⏸ DEFERRED | matrix CLASS-B checklist; same cross-VPC gate |
+
 ## 5. Jobs
 
 | Check | Try it | Now | Proof |

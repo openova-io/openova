@@ -1,0 +1,39 @@
+spec:
+  applicationRef: catalyst-platform
+  autoFailover: false
+  cnpgPair:
+    name: cnpg-pair-bp-cnpg-pair
+    namespace: cnpg
+  hotStandbyRegions:
+  - hw-me-east-215-b-rtz-prod
+  leaseClient:
+    config:
+      renewSeconds: 10
+      resolvers:
+      - 10.43.0.10
+      - 10.43.0.11
+      - 10.43.0.12
+      ttlSeconds: 30
+    kind: dns-quorum
+  primaryRegion: hw-me-east-215-a-rtz-prod
+  rpo: 0s
+  rpoSeconds: 0
+  rto: 30s
+  rtoSeconds: 30
+status:
+  conditions:
+  - lastTransitionTime: "2026-06-13T06:31:09Z"
+    message: ""
+    reason: Reconciled
+    status: "False"
+    type: LeaseHeld
+  - lastTransitionTime: "2026-06-13T06:31:09Z"
+    message: ""
+    reason: Reconciled
+    status: "False"
+    type: Ready
+  observedGeneration: 1
+  phase: Degraded
+  primaryRegion: hw-me-east-215-a-rtz-prod
+  replicationLagSeconds: 0
+  switchoverInProgress: false
