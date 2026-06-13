@@ -71,6 +71,7 @@ fields sourced from the agreement row + chart citations (never invented):
 | bp-k8s-ws-proxy | active-passive: mgmt-A,mgmt-B | matches-row + orphan-placementSchema→remove | n/a-singleton | stateless; DNS-flip only, no state IaC owed | pending |
 | bp-newapi | active-passive: mgmt-A,mgmt-B | matches-row + orphan-placementSchema→remove | implements-row(cited:cnpg-pair) | cnpg-pair sync (hw128 PASS pattern) | pending |
 | bp-sso-bridge | active-passive: mgmt-A,mgmt-B | matches-row | n/a-singleton | stateless; DNS-flip only, no state IaC owed | pending |
+| bp-oidc-gate | active-passive: mgmt-A,mgmt-B | fixed-this-ticket (perTopology completed; amendment-proposed — post-2026-06-02 #3374 addition) | n/a-singleton | stateless oauth2-proxy; DNS-flip only, no state IaC owed (peer of bp-sso-bridge) | pending |
 | bp-self-sovereign-cutover | singleton: mgmt-A | matches-row | n/a-singleton | per-cluster infra; Flux-reconciled from Git | pending |
 | bp-cilium | singleton: mgmt-A,mgmt-B,dmz-A,dmz-B,rtz-A,rtz-B | matches-row + orphan-placementSchema→remove | n/a-singleton | per-cluster infra; Flux-reconciled from Git | pending |
 | bp-cilium-policies | singleton: mgmt-A,mgmt-B,dmz-A,dmz-B,rtz-A,rtz-B | matches-row | n/a-singleton | per-cluster infra; Flux-reconciled from Git | pending |
@@ -183,6 +184,7 @@ adjudicates. No silent deviation.
 | bp-openclaw | TBD (scaffold; all cells TBD) | `supported: [singleton]`, `singleton.placement: {tier: rtz, clusters: [rtz-A]}` (scaffold default until the app defines state) | declares no real workload yet; `supported[]` currently empty -> fails the canonical-enum gate. Singleton-rtz is the safe scaffold default matching bp-qa-app. |
 | bp-qa-app | rtz-A / rtz-B `singleton` (test scaffold) | keep `singleton`; mark **non-pillar test scaffold** (no DR contract owed) | "no (test scaffold)" in the row — intentionally cluster-scoped; no cross-region mechanism. Row stands; flagged so the lint exempts it from the HA-contract requirement. |
 | bp-stalwart-sovereign | external — runs on OpenOva mothership (mail.openova.io), not on this Sovereign | keep external; declare `supported: [singleton]` with **empty clusters** + an `external: true` marker so the console shows it as mothership-hosted, not as a deployable Sovereign workload | row says "external (mothership)"; the empty-clusters declaration currently trips the EMPTY-CLUSTERS gate. The amendment makes "external" a first-class declared state. |
+| bp-oidc-gate | no agreement row (#3374 addition, post-dates the 2026-06-02 audit) | `active-passive: {mgmt-A active, mgmt-B passive}, replication none, switchover bp-continuum` + `singleton: mgmt-A` — the stateless-oauth2-proxy peer of bp-sso-bridge (the ONE generic OIDC gate, slot 13c mandatory infra) | the blueprint declared `supported: [active-passive, singleton]` but shipped NO `perTopology` contract — an HA-supported topology with no replication/switchover/placement. Completed this ticket to match bp-sso-bridge (stateless, mgmt-tier, DNS-flip). |
 
 ---
 

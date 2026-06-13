@@ -1,0 +1,17 @@
+# DoD-4 cluster-ID registry live proof — per-region vCluster kubeconfig Secrets — Sat Jun 13 06:31:46 AM UTC 2026
+# Refs #3375 DoD-4. registry.SecretFor(<id>) resolves same-region IDs to the local tier vCluster Secret.
+
+=== mgmt ns: vc-mgmt (resolves mgmt-A same-region) ===
+NAME      TYPE     DATA   AGE
+vc-mgmt   Opaque   5      36h
+=== rtz ns: vc-rtz (resolves rtz-A same-region; the cnpg-pair tier) ===
+NAME     TYPE     DATA   AGE
+vc-rtz   Opaque   5      36h
+=== dmz ns: vc-dmz (resolves dmz-A same-region) ===
+NAME     TYPE     DATA   AGE
+vc-dmz   Opaque   5      36h
+
+=== vc-rtz 'config' key (KubeConfigSecretKey) decodes to a valid kubeconfig ===
+apiVersion: v1
+clusters:
+current-context: vcluster
