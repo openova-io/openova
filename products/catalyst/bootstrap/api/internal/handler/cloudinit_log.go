@@ -129,19 +129,63 @@ func (h *Handler) PutCloudInitLog(w http.ResponseWriter, r *http.Request) {
 // GetCloudInitLog — GET /api/v1/deployments/{id}/cloudinit-log.
 //
 // Returns the last-uploaded cloud-init log as text/plain for
-// post-mortem diagnosis of a Phase-1 failure. Ownership-checked like
-// GetKubeconfig. 404 when no log has been uploaded yet.
+// post-mortem diagnosis of a Phase-1 failure.
+//
+// FALSE-NEGATIVE FIX (#3380 row D / post-mortem-survives-the-wipe): the
+// log file is written to OUTLIVE the deployment record — its entire
+// reason to exist is "the log survives the wipe regardless of operator
+// discipline" (see the PUT-side header above). But the original
+// implementation gated the GET on `h.deployments.Load(id)` first and
+// returned 404 "deployment not found" the moment the in-memory record
+// was gone (wiped, GC'd, or simply not restored after a mothership
+// roll) — EVEN WHEN `<id>-cloudinit.log` was sitting right there on the
+// PVC. That defeated the only Phase-1 forensic path on kom4dc (no
+// console-output API, no reachable sshd). The contract the founder
+// asked for is: if the log file exists, serve it.
+//
+// So we DECOUPLE the file lookup from the record lookup:
+//   - `id` is sanitised with safeIDPattern (defense-in-depth — the
+//     filename is composed from it and read off a shared PVC, so a
+//     traversal attempt like `../../etc/...` must never reach ReadFile,
+//     even for an authenticated caller).
+//   - If the record IS still in the map, we run the ownership check so
+//     a live deployment's log stays scoped to its creator (unchanged).
+//   - If the record is GONE, we fall through to the file directly —
+//     this is the post-mortem case the endpoint exists for. The route
+//     already sits behind RequireSession, so only authenticated
+//     operators reach here; a wiped deployment has no OwnerEmail left to
+//     scope against, and the log is pure diagnostics (no secrets — the
+//     PUT-side strips nothing but also logs only byte-length).
+//
+// 404 fires ONLY when the file genuinely does not exist on disk.
 func (h *Handler) GetCloudInitLog(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	val, ok := h.deployments.Load(id)
-	if !ok {
-		http.Error(w, "deployment not found", http.StatusNotFound)
+
+	// Sanitise BEFORE composing any filesystem path. The deployment id
+	// is 16 lowercase-hex chars (newID = hex of 8 random bytes), which
+	// safeIDPattern accepts; anything carrying `/`, `.` or `..` is
+	// rejected outright so the fall-through file read below can never
+	// escape kubeconfigsDir.
+	if !safeIDPattern.MatchString(id) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error":  "invalid-id",
+			"detail": "deployment id must match ^[a-z0-9][a-z0-9-]{0,62}$",
+		})
 		return
 	}
-	dep := val.(*Deployment)
-	if !h.checkOwnership(w, r, dep) {
-		return
+
+	// Ownership scoping applies ONLY while the record is live. A wiped
+	// deployment whose log survived has no record to scope against — the
+	// post-mortem read is the whole point. (RequireSession still gates
+	// the route, so this is an authenticated-operator surface either
+	// way.)
+	if val, ok := h.deployments.Load(id); ok {
+		dep := val.(*Deployment)
+		if !h.checkOwnership(w, r, dep) {
+			return
+		}
 	}
+
 	if h.kubeconfigsDir == "" {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error":  "kubeconfigs-dir-unconfigured",
