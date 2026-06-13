@@ -115,7 +115,7 @@ name: bp-guacamole
 # an SSO user in sovereign-admins auto-creates a JDBC record, binds into the
 # group, and lands as guacamole admin. New `guacamole.database.*` values.
 # Lockstep: 52-bp-guacamole.yaml pin → 0.2.9. Refs #3374.
-version: 0.2.9
+version: 0.2.10
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
