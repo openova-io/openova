@@ -186,6 +186,24 @@ database:
   # (the contabo path historically did this via Crossplane).
   existingSecret: "" # operator-supplied (e.g. "newapi-db-dsn")
   existingSecretKey: "SQL_DSN"
+
+# ─── SQL_DSN readiness gate (#3374) ──────────────────────────────────────
+# An initContainer (wait-for-sql-dsn) that blocks the NewAPI container from
+# booting until the chart-emitted DSN Secret has a NON-EMPTY SQL_DSN. Without
+# it, the app boots on the placeholder empty DSN, silently falls back to an
+# EPHEMERAL SQLite DB (`SQL_DSN not set, using SQLite as database`), and never
+# reconnects to the correctly-seeded Postgres (the live #3374 newapi gap:
+# stuck at /setup because the SSO-seeded admin lives in PG, not the pod's
+# SQLite). Only renders when cnpg.enabled (operators wiring an external DB via
+# database.existingSecret populate the DSN up-front, so no gate is needed —
+# but it still passes immediately if they leave it on). Set enabled=false to
+# opt out entirely.
+databaseDsnGate:
+  enabled: true
+  image: "" # default harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1
+  timeoutSeconds: 300
+  intervalSeconds: 5
+
 # ─── CNPG-backed auto-provisioned Postgres (issue #943) ──────────────────
 # When enabled (DEFAULT true), the chart renders templates/cnpg-cluster.yaml:
 #   - postgresql.cnpg.io/v1.Cluster `<release>-newapi-pg`

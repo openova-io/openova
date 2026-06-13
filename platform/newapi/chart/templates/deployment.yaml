@@ -100,6 +100,75 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.newapi.securityContext | nindent 8 }}
+      {{- /*
+        #3374 (2026-06-14) — SQL_DSN readiness gate. The chart-emitted
+        DSN Secret renders SQL_DSN: "" as a placeholder; the
+        database-secret-sync-job PATCHes the real Postgres DSN into it
+        AFTER CNPG is ready (see cnpg-cluster.yaml). The original design
+        assumed the app Pod would CrashLoop on the empty DSN and recover on
+        the next kubelet restart once the DSN populated — but NewAPI does NOT
+        crash on an empty SQL_DSN: it silently FALLS BACK TO SQLITE
+        (`SQL_DSN not set, using SQLite as database`), a valid happy path, so
+        the Pod stays Running on an EPHEMERAL SQLite DB forever, disconnected
+        from the correctly-seeded Postgres (the live #3374 newapi gap on
+        hw133: bare URL stuck at the /setup wizard because the SSO-seeded
+        admin lives in PG, not the pod's SQLite). This initContainer blocks
+        the main container from EVER booting until SQL_DSN is non-empty, so
+        NewAPI always initialises against Postgres. Event-deterministic,
+        fresh-prov-safe, zero-touch. Gated on cnpg.enabled (operators wiring
+        an external DB via database.existingSecret populate it up-front, so
+        the gate passes immediately). databaseDsnGate.enabled=false opts out.
+      */}}
+      {{- $dsnGate := .Values.databaseDsnGate | default dict -}}
+      {{- if and (default true $dsnGate.enabled) .Values.cnpg.enabled }}
+      initContainers:
+        - name: wait-for-sql-dsn
+          image: {{ $dsnGate.image | default "harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1" | quote }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DSN_GATE_TIMEOUT_SECONDS
+              value: {{ $dsnGate.timeoutSeconds | default 300 | quote }}
+            - name: DSN_GATE_INTERVAL_SECONDS
+              value: {{ $dsnGate.intervalSeconds | default 5 | quote }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              # The DSN Secret is projected at /dsn/SQL_DSN. Wait until the
+              # database-secret-sync-job has PATCHed a NON-EMPTY value (the
+              # placeholder is ""). Kubernetes refreshes a mounted Secret in
+              # place within ~60s of the PATCH, so this initContainer sees the
+              # populated value without a Pod restart.
+              echo "[dsn-gate] waiting for a non-empty SQL_DSN at /dsn/SQL_DSN (budget ${DSN_GATE_TIMEOUT_SECONDS}s)"
+              deadline=$(( $(date +%s) + DSN_GATE_TIMEOUT_SECONDS ))
+              while [ "$(date +%s)" -lt "${deadline}" ]; do
+                if [ -s /dsn/SQL_DSN ]; then
+                  echo "[dsn-gate] SQL_DSN populated — NewAPI will initialise against Postgres"
+                  exit 0
+                fi
+                sleep "${DSN_GATE_INTERVAL_SECONDS}"
+              done
+              echo "[dsn-gate] FATAL: SQL_DSN still empty after ${DSN_GATE_TIMEOUT_SECONDS}s — the database-secret-sync-job did not populate it; refusing to boot on SQLite" >&2
+              exit 1
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: sql-dsn-gate
+              mountPath: /dsn
+              readOnly: true
+      {{- end }}
       containers:
         - name: newapi
           image: "{{ .Values.newapi.image.repository }}:{{ .Values.newapi.image.tag }}"
@@ -367,5 +436,15 @@ spec:
         - name: metering-spool
           emptyDir:
             sizeLimit: 64Mi
+        {{- end }}
+        {{- /* #3374: DSN Secret projected for the wait-for-sql-dsn initContainer. */ -}}
+        {{- $dsnGate := .Values.databaseDsnGate | default dict -}}
+        {{- if and (default true $dsnGate.enabled) .Values.cnpg.enabled }}
+        - name: sql-dsn-gate
+          secret:
+            secretName: {{ $effDbSecret }}
+            items:
+              - key: {{ $effDbKey }}
+                path: SQL_DSN
         {{- end }}
 {{- end }}
