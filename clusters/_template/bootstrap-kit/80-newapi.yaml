@@ -215,7 +215,7 @@ spec:
       # token-exchange redirect_uri matches the authorize one; without it the
       # exchange failed `invalid_grant - Incorrect redirect_uri` and the owner
       # never got a session (measured live hw133 2026-06-14, #3475).
-      version: 1.4.79
+      version: 1.4.80
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
@@ -437,7 +437,15 @@ spec:
         # _helpers.tpl fullname template), and slot 39's HR sets
         # targetNamespace=vllm + releaseName=vllm. Port 8000 matches
         # the chart's service.port.
-        endpoint: "http://vllm-bp-vllm.vllm.svc.cluster.local:8000/v1"
+        # #3373 Batch A (2026-06-14): bp-vllm moved INSIDE the rtz vCluster
+        # (placement.yaml). The bp-rtz-vcluster syncer reflects the
+        # in-vCluster `vllm-bp-vllm` Service to the HOST under the
+        # syncer-mangled name below, so the old `vllm-bp-vllm.vllm.svc`
+        # resolves NXDOMAIN. newapi is host-placed in Batch A and this
+        # channel is default-OFF (lockstep ${SOVEREIGN_VLLM_ENABLED:-false}
+        # with slot 39) — this endpoint applies only when an operator opts
+        # in; align it to the synced name now.
+        endpoint: "http://vllm-bp-vllm-x-vllm-x-rtz-vcluster.rtz.svc.cluster.local:8000/v1"
         models:
           - qwen3-coder
           # Underlying upstream model id served by the bp-vllm chart's

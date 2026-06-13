@@ -100,6 +100,14 @@ rtzVcluster:
       - catalyst-system
       - mgmt
       - velero
+      # REQUIRED (#3373 Batch A, 2026-06-14): the host `newapi` namespace runs
+      # the LLM gateway, whose `vllm` channel consumes bp-vllm. #3373 placement
+      # moved bp-vllm INTO this RTZ vCluster, so its host-synced Service
+      # (vllm-bp-vllm-x-vllm-x-rtz-vcluster.rtz.svc:8000) now sits behind this
+      # isolation policy. The vllm channel is default-OFF; this carve-out admits
+      # the wire once an operator enables it (SOVEREIGN_VLLM_ENABLED=true).
+      # Mirrors the #3423 sme→NATS carve-out on bp-mgmt-vcluster.
+      - newapi
     allowWorldIngress: false   # tenant pods never face world directly
 
 vcluster:
