@@ -131,7 +131,8 @@ spec:
       # + gateway /user/login -> OIDC entry redirect.
       # 1.2.30: explicit port 443 on the SSO redirect (the #3310 class).
       # 1.2.31: LANDING_PAGE=login — anon root funnels into OIDC.
-      version: 1.2.34
+      # 1.2.35 (#3373 Batch A): objectStorage S3+filer endpoint defaults → rtz-vCluster synced name (seaweedfs moved into rtz).
+      version: 1.2.35
       sourceRef:
         kind: HelmRepository
         name: bp-gitea

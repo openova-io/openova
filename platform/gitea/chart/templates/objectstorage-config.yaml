@@ -51,7 +51,7 @@ data:
   # credential entries as secretKeyRef against {{ $secret }}). Gitea reads
   # GITEA__storage__* at init and writes the [storage] app.ini section.
   GITEA__storage__STORAGE_TYPE: {{ $os.storageType | default "minio" | quote }}
-  GITEA__storage__MINIO_ENDPOINT: {{ $os.endpoint | default "seaweedfs-s3.seaweedfs.svc.cluster.local:8333" | quote }}
+  GITEA__storage__MINIO_ENDPOINT: {{ $os.endpoint | default "seaweedfs-s3-x-seaweedfs-x-rtz-vcluster.rtz.svc.cluster.local:8333" | quote }}
   GITEA__storage__MINIO_BUCKET: {{ $os.bucket | default "gitea-blobs" | quote }}
   GITEA__storage__MINIO_BASE_PATH: {{ $os.basePath | default "gitea" | quote }}
   GITEA__storage__MINIO_LOCATION: {{ $os.location | default "us-east-1" | quote }}

@@ -46,7 +46,13 @@ name: bp-rtz-vcluster
 # VALKEY_ADDR — without this carve-out they fail to reach the synced
 # Service. Additive; mirrors the #3423 sme→NATS carve-out on
 # bp-mgmt-vcluster.
-version: 0.2.9
+# 0.2.10 — Refs #3373 Batch A (2026-06-14): add gitea/harbor/catalyst-system/
+# mgmt/velero to networkPolicy.allowedIngressNamespaces. bp-seaweedfs moved
+# INTO this RTZ vCluster; its host-synced S3 Service now sits behind the
+# `-isolation` NetworkPolicy. These host namespaces run seaweedfs S3 consumers
+# (all default-OFF on a fresh prov; the carve-out admits the wire once an
+# operator enables S3 post-move). Additive; mirrors the #3423 carve-out.
+version: 0.2.10
 appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign RTZ

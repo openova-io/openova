@@ -19,7 +19,8 @@
 #   1. default: NO object-storage env, NO reflected Secret, NO config ConfigMap,
 #      NO mirror Deployment.
 #   2. enabled (objectStorage.enabled=true): config ConfigMap has
-#      STORAGE_TYPE=minio pointing at seaweedfs-s3.seaweedfs.svc:8333 +
+#      STORAGE_TYPE=minio pointing at the rtz-vCluster synced
+#      seaweedfs-s3-x-seaweedfs-x-rtz-vcluster.rtz.svc:8333 (#3373 Batch A) +
 #      reflected Secret renders; mirror still OFF (its own gate).
 #   3. enabled + mirror (primary side, remoteEndpoint set): mirror Deployment
 #      renders with weed filer.remote.sync.
@@ -54,7 +55,9 @@ grep -q 'name: gitea-objectstorage-mirror' "$tmp/default.yaml" \
 echo "  PASS"
 
 # ── Case 2: object storage ENABLED (mirror still off) ───────────────────
-echo "[objectstorage-dr] Case 2: enabled → STORAGE_TYPE=minio @ seaweedfs-s3:8333 + reflected Secret"
+# #3373 Batch A: seaweedfs moved INTO the rtz vCluster, so the canonical S3
+# endpoint is the syncer-mangled host Service name.
+echo "[objectstorage-dr] Case 2: enabled → STORAGE_TYPE=minio @ rtz-vCluster synced seaweedfs-s3:8333 + reflected Secret"
 "$helm" template smoke "$chart_dir" \
   --set objectStorage.enabled=true \
   --api-versions postgresql.cnpg.io/v1 \
@@ -63,8 +66,8 @@ echo "[objectstorage-dr] Case 2: enabled → STORAGE_TYPE=minio @ seaweedfs-s3:8
 # config ConfigMap: STORAGE_TYPE=minio pointing at the canonical S3 endpoint
 grep -q 'GITEA__storage__STORAGE_TYPE: "minio"' "$tmp/on.yaml" \
   || fail "enabled: STORAGE_TYPE must be minio"
-grep -q 'GITEA__storage__MINIO_ENDPOINT: "seaweedfs-s3.seaweedfs.svc.cluster.local:8333"' "$tmp/on.yaml" \
-  || fail "enabled: MINIO_ENDPOINT must be the canonical seaweedfs-s3:8333 Service"
+grep -q 'GITEA__storage__MINIO_ENDPOINT: "seaweedfs-s3-x-seaweedfs-x-rtz-vcluster.rtz.svc.cluster.local:8333"' "$tmp/on.yaml" \
+  || fail "enabled: MINIO_ENDPOINT must be the rtz-vCluster synced seaweedfs-s3:8333 Service (#3373 Batch A)"
 grep -q 'GITEA__storage__MINIO_BUCKET: "gitea-blobs"' "$tmp/on.yaml" \
   || fail "enabled: MINIO_BUCKET must be gitea-blobs"
 # reflected Secret bridges the cross-namespace seaweedfs-s3-secret

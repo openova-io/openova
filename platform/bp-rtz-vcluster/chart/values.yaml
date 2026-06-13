@@ -83,6 +83,23 @@ rtzVcluster:
       # Endpoints are healthy; the policy is the wall. Mirrors the #3423
       # sme→NATS carve-out on bp-mgmt-vcluster.
       - sme
+      # REQUIRED (#3373 Batch A, 2026-06-14): bp-seaweedfs moved INTO this
+      # RTZ vCluster. Its host-synced S3 Service
+      # (seaweedfs-s3-x-seaweedfs-x-rtz-vcluster.rtz.svc:8333) now sits
+      # behind this isolation policy. These host namespaces run seaweedfs
+      # S3 consumers (all DEFAULT-OFF on a fresh prov; the carve-out admits
+      # the wire once an operator enables S3 post-move):
+      #   - gitea           → Git LFS/attachment blob storage (objectStorage)
+      #   - harbor          → registry image/chart blob storage (imageChartStorage s3)
+      #   - catalyst-system → guacamole session recordings; cnpg barman backups
+      #   - mgmt            → loki/mimir/tempo S3 chunk/block storage (already in mgmt vCluster)
+      #   - velero          → cluster backup target
+      # Mirrors the #3423 sme→NATS carve-out on bp-mgmt-vcluster.
+      - gitea
+      - harbor
+      - catalyst-system
+      - mgmt
+      - velero
     allowWorldIngress: false   # tenant pods never face world directly
 
 vcluster:

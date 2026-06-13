@@ -266,7 +266,7 @@ spec:
   backup:
     barmanObjectStore:
       destinationPath: {{ printf "s3://%s/cluster-primary" (.Values.qaFixtures.cnpgBackupBucket | default "qa-fixtures") | quote }}
-      endpointURL: {{ .Values.qaFixtures.cnpgBackupEndpointURL | default "http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333" | quote }}
+      endpointURL: {{ .Values.qaFixtures.cnpgBackupEndpointURL | default "http://seaweedfs-s3-x-seaweedfs-x-rtz-vcluster.rtz.svc.cluster.local:8333" | quote }}
       s3Credentials:
         accessKeyId:
           name: {{ .Values.qaFixtures.cnpgBackupS3SecretName | default "qa-cnpg-backup-s3" | quote }}

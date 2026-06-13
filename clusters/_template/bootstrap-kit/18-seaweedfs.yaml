@@ -15,14 +15,37 @@
 # Wrapper chart: platform/seaweedfs/chart/
 # Catalyst-curated values: platform/seaweedfs/chart/values.yaml
 # Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# ── #3373 Batch A — RTZ vCluster placement (every instance in its
+#    vCluster by data) ────────────────────────────────────────────────
+# seaweedfs is a clean pure-OSS migration: no HTTPRoute, no
+# ExternalSecret, no CNPG Cluster CR — none of the Free-tier
+# `customResources` toHost-sync coupling. Its S3 wire is plain Service
+# DNS, which the OSS `services` toHost sync already mirrors. Critically,
+# EVERY seaweedfs S3 consumer is DEFAULT-OFF / overlay-injected on a
+# fresh prov: gitea objectStorage.enabled=false (blobs on local PVC),
+# harbor imageChartStorage.type=filesystem, loki/mimir/tempo default to
+# filesystem storage (S3 is per-Sovereign overlay), velero
+# provider/bucket/s3Url empty, openbao snapshot-replication off. So the
+# base render breaks no active wire — the move is byte-clean.
+#
+# The HR CR lives in host ns `rtz` (where bp-rtz-vcluster slot 59 exports
+# the vc-rtz kubeconfig Secret); helm-controller installs the chart INSIDE
+# the rtz vCluster. targetNamespace/storageNamespace = the inner
+# `seaweedfs` namespace (storageNamespace pinned per the hw92 lesson).
+# Host-side Namespace YAML dropped — createNamespace:true provisions the
+# inner ns. PVCs (master/volume/filer) sync host-side via the OSS
+# persistentVolumeClaims toHost sync (already enabled in rtz values).
+#
+# Consumer DEFAULT endpoint strings rewired to the syncer-mangled host
+# Service name `seaweedfs-s3-x-seaweedfs-x-rtz-vcluster.rtz.svc:8333`
+# (+ filer `seaweedfs-filer-x-seaweedfs-x-rtz-vcluster.rtz.svc:8888`) in
+# gitea + openbao + catalyst qa-fixtures, so an operator flipping those
+# consumers ON post-move points at the right place. The rtz isolation
+# netpol gains carve-outs (gitea, harbor, catalyst-system, mgmt, velero)
+# so those host consumers reach the synced Service after the move
+# (mirrors the #3423 sme→NATS carve-out).
 
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: seaweedfs
-  labels:
-    catalyst.openova.io/sovereign: SOVEREIGN_FQDN_PLACEHOLDER
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
@@ -40,20 +63,33 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-seaweedfs
-  namespace: flux-system
+  namespace: rtz  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
+    catalyst.openova.io/vcluster: rtz
     catalyst.openova.io/slot: "18"
 spec:
   interval: 15m
   releaseName: seaweedfs
   targetNamespace: seaweedfs
+  storageNamespace: seaweedfs
+  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
+  kubeConfig:
+    secretRef:
+      name: vc-rtz
+      key: config
   # SeaweedFS depends on:
   #   - bp-flux(03): standard GitOps prerequisite.
   #   - bp-cert-manager(02): the S3 Filer endpoint terminates TLS via a
   #     Certificate the chart requests from the cluster ClusterIssuer.
   dependsOn:
+    # bp-rtz-vcluster MUST be Ready first — the vc-rtz
+    # Secret doesn't exist until then. placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+    - name: bp-rtz-vcluster
+      namespace: flux-system
     - name: bp-flux
+      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-cert-manager
+      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   chart:
     spec:
       chart: bp-seaweedfs
@@ -69,6 +105,7 @@ spec:
         namespace: flux-system
   # Event-driven install per docs/INVIOLABLE-PRINCIPLES.md #3.
   install:
+    createNamespace: true  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     timeout: 15m
     disableWait: true
     remediation:
