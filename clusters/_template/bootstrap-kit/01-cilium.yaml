@@ -95,7 +95,11 @@ spec:
       # `catalyst.openova.io/hubble-ui-auth: oidc` annotation and flipped
       # default `catalystOverlay.hubbleUI.auth` from `oidc` → `none`
       # (no enforcement filter shipped yet). Refs #2744.
-      version: 1.4.2
+      # 1.4.3 (#3374 admin-tier): oidc-audience-mapper on the hubble-ui
+      # AppRegistration client — oauth2-proxy callback was 500ing on hw133
+      # (aud=[realm-management account], never hubble-ui). Same fix class as
+      # the bp-oidc-gate openova-flow audience-mapper (#3447).
+      version: 1.4.3
       sourceRef:
         kind: HelmRepository
         name: bp-cilium
