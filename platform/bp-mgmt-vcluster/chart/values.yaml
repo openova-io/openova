@@ -153,6 +153,43 @@ vcluster:
     distro:
       k8s:
         enabled: true
+        # #3380-D Pillar-5 anti-tether (2026-06-13): pin the k8s distro
+        # control-plane images (apiServer / controllerManager / scheduler)
+        # off upstream `registry.k8s.io` and onto the Sovereign-local Harbor
+        # `proxy-k8s` cache. WITHOUT this, the loft-sh subchart defaults all
+        # three to `registry.k8s.io/kube-{apiserver,controller-manager,
+        # scheduler}` — confirmed LIVE on hw130 (`mgmt-vcluster-0`
+        # initContainers `registry.k8s.io/kube-apiserver:v1.31.4` +
+        # `registry.k8s.io/kube-controller-manager:v1.31.4`). Under the
+        # `harbor-proxy-pull` ClusterPolicy (Enforce — every image must match
+        # `*/proxy-*/*` or `*/openova-io/*`), the NEXT image roll of these
+        # control-plane pods would be DENIED at admission — a self-inflicted
+        # wound the moment the vCluster reschedules. `registry.k8s.io` is
+        # proxied by Harbor's `proxy-k8s` project (chart 0.1.x proxyProjects),
+        # so `harbor.openova.io/proxy-k8s/kube-apiserver:<tag>` resolves the
+        # identical upstream digest through the cache.
+        #
+        # The `harbor.openova.io` host is kept as the bootstrap default for
+        # the same reason as the syncer image below — subchart values can't
+        # self-template `global.registryMirror`; bootstrap-kit slot 58 flips
+        # the host via `${REGISTRY_MIRROR:=harbor.openova.io}` postBuild
+        # substitution and bp-self-sovereign-cutover Step-04 re-points it
+        # post-handover. `tag` is left to the subchart default (the upstream
+        # k8s version pin) so a vcluster subchart bump carries the matching
+        # control-plane version automatically. Default `helm template` renders
+        # the proxy path identically across all three distro components.
+        apiServer:
+          image:
+            registry: harbor.openova.io
+            repository: proxy-k8s/kube-apiserver
+        controllerManager:
+          image:
+            registry: harbor.openova.io
+            repository: proxy-k8s/kube-controller-manager
+        scheduler:
+          image:
+            registry: harbor.openova.io
+            repository: proxy-k8s/kube-scheduler
     backingStore:
       database:
         embedded:

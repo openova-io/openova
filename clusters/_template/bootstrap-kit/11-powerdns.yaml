@@ -137,7 +137,10 @@ spec:
       # Gateway-API default copied the cilium listener port (30443) into
       # the Location header, landing browsers on a port nothing serves
       # externally (proven live hw129).
-      version: 1.2.12
+      # 1.2.13 (#3380-D): REST-API Ingress gated off on the Gateway path so
+      # no orphaned powerdns-api-tls Certificate (Ready=False) is spawned;
+      # dnsdist + pdns-auth images routed through Harbor proxy-docker.
+      version: 1.2.13
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns

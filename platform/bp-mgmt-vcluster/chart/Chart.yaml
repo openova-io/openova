@@ -51,7 +51,18 @@ name: bp-mgmt-vcluster
 # httproutes.gateway.networking.k8s.io +
 # externalsecrets.external-secrets.io (coupling fix (b) — re-homed
 # charts' routes/secrets mirror toHost).
-version: 0.2.7
+# 0.2.8 — Refs #3380-D (2026-06-13): pin the k8s distro control-plane
+# images (apiServer / controllerManager / scheduler) off upstream
+# `registry.k8s.io` onto the Sovereign-local Harbor `proxy-k8s` cache.
+# The loft-sh subchart defaulted all three to `registry.k8s.io/kube-*`
+# (confirmed LIVE on hw130 `mgmt-vcluster-0` initContainers) — which the
+# `harbor-proxy-pull` Enforce ClusterPolicy DENIES on the next image roll
+# (a self-inflicted wound the moment the vCluster reschedules). Additive
+# values only; `helm template` renders the proxy path. `harbor.openova.io`
+# kept as the bootstrap default (slot 58 `${REGISTRY_MIRROR}` + cutover
+# Step-04 re-point the host). Sibling to bp-dmz-vcluster 0.2.7 +
+# bp-rtz-vcluster 0.2.8.
+version: 0.2.8
 appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT

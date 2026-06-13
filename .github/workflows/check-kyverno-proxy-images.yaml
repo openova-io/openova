@@ -1,0 +1,70 @@
+name: Kyverno admission drift-guard (proxy-images)
+
+# #3380-D admission-test CI gate.
+#
+# Renders the registry-sensitive bootstrap-kit charts and asserts every
+# container/initContainer image satisfies the live `harbor-proxy-pull`
+# Kyverno ClusterPolicy's allowed-image globs (read verbatim from
+# platform/kyverno-policies/chart/values.yaml). That policy runs
+# `validationFailureAction: Enforce` on every Sovereign, so an image that
+# matches none of its globs is DENIED at admission the moment its pod is
+# (re)scheduled.
+#
+# WHY THIS EXISTS
+#   Charts that wrap an upstream subchart routinely leak an upstream
+#   registry through a field the umbrella forgot to override (the loft-sh
+#   vcluster k8s-distro images defaulting to registry.k8s.io; the powerdns
+#   subchart defaulting to docker.io/powerdns/*). `helm lint` + smoke-render
+#   never catch this — the YAML is valid; only matching every image against
+#   the Enforce policy's own globs catches it. This gate moves the proof
+#   from "discovered live on a Sovereign after the next image roll" to
+#   "blocked at PR time" — the admission-test gate #3380-D asks for, in a
+#   fast (<1m) flake-free form (no kind cluster, no live kyverno).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/bp-mgmt-vcluster/chart/**'
+      - 'platform/bp-dmz-vcluster/chart/**'
+      - 'platform/bp-rtz-vcluster/chart/**'
+      - 'platform/powerdns/chart/**'
+      - 'platform/kyverno-policies/chart/values.yaml'
+      - 'scripts/check-kyverno-proxy-images.sh'
+      - '.github/workflows/check-kyverno-proxy-images.yaml'
+  pull_request:
+    paths:
+      - 'platform/bp-mgmt-vcluster/chart/**'
+      - 'platform/bp-dmz-vcluster/chart/**'
+      - 'platform/bp-rtz-vcluster/chart/**'
+      - 'platform/powerdns/chart/**'
+      - 'platform/kyverno-policies/chart/values.yaml'
+      - 'scripts/check-kyverno-proxy-images.sh'
+      - '.github/workflows/check-kyverno-proxy-images.yaml'
+  workflow_dispatch:
+
+jobs:
+  proxy-images:
+    name: harbor-proxy-pull image conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.0
+
+      - name: Add upstream subchart repos
+        # The vcluster + powerdns charts vendor their subchart .tgz under
+        # charts/ when present; on a clean CI checkout those are absent, so
+        # `helm dependency build` must resolve them from the upstream repos.
+        # The guard skips the build when a .tgz is already vendored.
+        run: |
+          helm repo add loft https://charts.loft.sh
+          helm repo add schich https://schich.tel/helm-charts
+          helm repo update
+
+      - name: Run proxy-images admission drift-guard
+        run: bash scripts/check-kyverno-proxy-images.sh
