@@ -2652,7 +2652,13 @@ name: bp-catalyst-platform
 # bootstrap-job.yaml) seeds the org/repo/sme-tenants branch via the Gitea API so
 # the chain is live from first convergence; cutover Step 01 mirrors full content
 # later (idempotent). Gated on global.sovereignFQDN + ingress.marketplace.enabled.
-version: 1.4.613
+# 1.4.613 (#3454, 2026-06-14): the 1.4.612 hook Job was denied by the kyverno
+# `flux-managed` Enforce policy on converged Sovereigns (release ns catalyst-system
+# is NOT namespace-excluded). Add `app.kubernetes.io/managed-by: flux` to the Job +
+# SA + Role + RoleBinding (canonical idiom — gitea sso-configure-oauth-job, openbao
+# init-job). Verified via server-side dry-run against live hw133 (all kyverno
+# Enforce policies pass).
+version: 1.4.614
 # 1.4.597 — #3373 (2026-06-13) — coupling fix (a) placement-as-data:
 # templates/httproute.yaml backendRefs honor new
 # ingress.gateway.backendServiceApi / backendServiceUi overrides. When
