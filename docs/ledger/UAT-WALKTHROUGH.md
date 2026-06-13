@@ -10,6 +10,25 @@
 
 ---
 
+## 🔴 WALK RESULTS — live on hw133.omani.works, 2026-06-14 (browser walk, 188 screenshots)
+
+Each ticket walked in a real browser per its section; evidence under `docs/sessions/2026-06-14/evidence/<ticket>/`.
+
+| Ticket | ✅ | ❌ | Headline finding |
+|---|---|---|---|
+| **#3370** CONTEXTS | 7 | 12 | Contexts table works; but **PostgreSQL has no catalog card**, the **3 shared-PG have no Deployment cards**, the **new-instance backing/reuse wizard is absent**, gitea Dependencies doesn't show the binding, valkey Contexts empty |
+| **#3373** PLACEMENT | 43 | 20 | Proven on the treemap: **only 6 of 26 vCluster-targeted apps are actually in their vCluster** — keycloak/gitea/harbor/grafana/openbao/3×shared-PG/valkey/seaweedfs are **still on host** (migration incomplete) |
+| **#3374** SSO | 11 | 11 | console/grafana/gitea/harbor/guacamole/keycloak/marketplace land signed-in; **openbao (postMessage), pdns-admin (500), openova-flow (500 — NEW regression), hubble (503), newapi (uninitialized) all broken**; gitea admin = 404; guacamole no admin |
+| **#3375** TOPOLOGY/DR | 0 | 87 | **The "Topology" tab is a generic placement EDITOR, not a declaration/DR display** — it never reads back any app's matrix topology; **there is no Switchover button at all**; many apps "not part of this deployment". No row is user-verifiable |
+| **#3376** FUNNEL | 6 | 11 | Wizard front + email-code send work; **`/api/billing/vouchers/redeem-preview` → 502** (billing down) kills the funnel; voucher invalid, tenant never created, `walmart.omani.homes` connection-refused |
+| **#3378** ORGANIZATIONS | 13 | 3 | Menu/parent/showback/internal-door/redirects work; **mis-badge confirmed live** (Internal org persists as customer/real/vcluster); **Enter-org lands blank** (sub-org not deployed); console plans table 404 |
+| **#3379** SOVEREIGNTY | 4 | 2 | Console + apps work (baseline holds); **no cutover UI/indicator exists**; cutover has never run on this env |
+| **#3380** ROBUSTNESS | 2 | 2 (+2 ☐) | 49/49 show INSTALLED, but that's the install-record, not runtime; **grafana login "Account disabled" (400)**, SME/billing back-half crash-loop a user feels; wipe row destructive (not walked) |
+
+**Net: ≈ 86 ✅ / 148 ❌.** The walk confirmed the founder's read — most of the headline delivery is broken or unbuilt on the live env, with #3375 (no topology UI at all) and #3376 (funnel dead at billing) the worst.
+
+---
+
 ## ⚠️ CROSS-TICKET GAP SUMMARY — read this first (the honest "not-delivered" state)
 
 The code-read authoring surfaced these genuine gaps. Each is a row in its section that will FAIL the walk. This is the real delivery state, not the optimistic one.
