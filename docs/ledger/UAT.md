@@ -46,7 +46,7 @@ postMessage) and pdns-admin (500) remain broken — these are the two hard apps 
 
 | Item | State on hw133 | Pending |
 |---|---|---|
-| #3376 FUNNEL (voucher→tenant→signed-in) | SME stack running in `sme` ns | the end-to-end redeem walk |
+| #3376 FUNNEL (voucher→tenant→signed-in) | **front-half walked** — storefront "Build your cloud tenant" → 6-step wizard → [Plans](../sessions/2026-06-13/evidence/hw133-walk/hw133-09-funnel-plans.png) → [Checkout sign-in prompt](../sessions/2026-06-13/evidence/hw133-walk/hw133-10-funnel-checkout-signin.png) all render | back-half: email magic-code → voucher → tenant provision → land-signed-in (NOT yet walked) |
 | #3375 region-kill DR | cnpg-pair primary present, #3307 peering at boot | continuum-driven kill + promote walk |
 | #3379 cutover | dormant at slot-06a | post-handover 8-tether pivot + 10-min egress hold |
 | #3373 vCluster re-home | mgmt/dmz/rtz vclusters live | founder decision: OSS Pro-gating (license / host-bridge / host-side) |
