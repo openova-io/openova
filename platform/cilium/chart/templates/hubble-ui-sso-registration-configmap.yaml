@@ -25,6 +25,20 @@ not clobbered.
 
 data.realm = "sovereign": the watcher only requires the realm to EXIST
 (GET /admin/realms/<realm> == 200); the sovereign realm always does.
+
+#3374 admin-tier (2026-06-14): client.json now seeds an oidc-audience-mapper.
+After the secret-convergence fix (1.4.2) the 503 cleared but the OIDC callback
+500'd on hw133 — oauth2-proxy's keycloak-oidc provider VERIFIES the ID token's
+`aud` contains its own --client-id, and a vanilla confidential client only puts
+a client into `aud` when the user holds a client role for it. emrah.baysal holds
+none on hubble-ui, so `aud` was [realm-management account] and never hubble-ui
+(oauthproxy.go:888 "audience ... does not match ... map[hubble-ui:{}]"). The
+oidc-audience-mapper injects hubble-ui into the ID-token aud (id.token.claim=true
+because oauth2-proxy checks the ID token) — the netbird realm-config idiom,
+identical to the bp-oidc-gate openova-flow fix (#3447). bp-sso-bridge PUTs
+client.json template-wins, so the mapper lands on the live hubble-ui client
+zero-touch (the hubble-ui realm-import client carries no protocolMappers, so the
+template array doesn't clobber anything).
 */ -}}
 {{- $ov := .Values.catalystOverlay.hubbleUI -}}
 {{- $hostname := $ov.hostname -}}
@@ -60,6 +74,18 @@ data:
         "https://{{ $hostname }}"
       ],
       "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "email", "groups"],
+      "protocolMappers": [
+        {
+          "name": "audience-hubble-ui",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "hubble-ui",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ],
       "attributes": {
         "access.token.lifespan": "900"
       }
