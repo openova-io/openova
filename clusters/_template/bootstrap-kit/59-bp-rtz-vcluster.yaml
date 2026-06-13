@@ -71,7 +71,9 @@ spec:
       # so SME services reach the now-rtz-vCluster bp-valkey synced Service.
       # 0.2.10 (#3373 Batch A): gitea/harbor/catalyst-system/mgmt/velero carve-outs
       # in allowedIngressNamespaces so seaweedfs S3 consumers reach the now-rtz-vCluster synced Service.
-      version: 0.2.10
+      # 0.2.11 (#3373 Batch A): `newapi` carve-out in allowedIngressNamespaces
+      # so the LLM gateway reaches the now-rtz-vCluster bp-vllm synced Service.
+      version: 0.2.11
       sourceRef:
         kind: HelmRepository
         name: bp-rtz-vcluster

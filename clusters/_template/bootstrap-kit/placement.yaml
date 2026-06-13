@@ -258,7 +258,7 @@ spec:
     - {file: 18-seaweedfs.yaml, hr: bp-seaweedfs, vcluster: rtz, target: rtz, namespace: seaweedfs}   # Batch A (#3373) — PROMOTED: pure-OSS clean (no route/secret/CNPG); S3 wire is plain Service DNS via OSS services-sync; all consumers S3-default-OFF on a fresh prov
     - {file: 19-harbor.yaml, hr: bp-harbor, vcluster: host, target: mgmt, namespace: harbor}
     - {file: 25-grafana.yaml, hr: bp-grafana, vcluster: host, target: mgmt, namespace: grafana}
-    - {file: 39-bp-vllm.yaml, hr: bp-vllm, vcluster: host, target: rtz, namespace: vllm}
+    - {file: 39-bp-vllm.yaml, hr: bp-vllm, vcluster: rtz, target: rtz, namespace: vllm}   # Batch A (#3373) — PROMOTED: pure-OSS clean (no route/secret/CNPG); plain Service DNS via OSS services-sync; vllm + its newapi channel both default-OFF on a fresh prov
     - {file: 51-bp-k8s-ws-proxy.yaml, hr: bp-k8s-ws-proxy, vcluster: host, target: mgmt,
        namespace: catalyst-system}   # recipe proven, draft PR #3350
     - {file: 52-bp-guacamole.yaml, hr: bp-guacamole, vcluster: host, target: mgmt, namespace: catalyst-system}

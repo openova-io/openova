@@ -52,7 +52,12 @@ name: bp-rtz-vcluster
 # `-isolation` NetworkPolicy. These host namespaces run seaweedfs S3 consumers
 # (all default-OFF on a fresh prov; the carve-out admits the wire once an
 # operator enables S3 post-move). Additive; mirrors the #3423 carve-out.
-version: 0.2.10
+# 0.2.11 — Refs #3373 Batch A (2026-06-14): add `newapi` to
+# networkPolicy.allowedIngressNamespaces. bp-vllm moved INTO this RTZ
+# vCluster; the host `newapi` namespace runs the LLM gateway whose vllm
+# channel consumes bp-vllm — without this carve-out it cannot reach the
+# synced Service. Additive; mirrors the #3423 carve-out.
+version: 0.2.11
 appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign RTZ
