@@ -1,5 +1,23 @@
 apiVersion: v2
 name: bp-guacamole
+# 0.2.17 (#3374, 2026-06-14): admin group-enrollment fix. After 0.2.16 landed
+# the JDBC permission store (sovereign-admins USER_GROUP with ADMINISTER + the
+# scheduling/POSTGRESQL_USER fixes), the owner STILL got no admin menu —
+# `guacamole_user_group_member` was EMPTY (#3475 re-walk). ROOT CAUSE: Guacamole
+# resolves a USER_GROUP's permissions via EITHER a membership row OR a runtime
+# name-match against the OIDC `groups` claim (EntityMapper.xml
+# selectEffectiveGroupIdentifiers); the runtime name-match did NOT reach the
+# owner live even though the id_token carried groups:[sovereign-admins,...]. FIX:
+# make admin DETERMINISTIC via the membership row — jdbc-schema-seed-job.yaml now
+# enrolls every SSO-auto-created JDBC USER into <adminGroup> (POSTGRESQL_AUTO_
+# CREATE_ACCOUNTS creates the USER on first login; an enroll writes the
+# guacamole_user_group_member row). A per-minute admin-enroll CronJob covers
+# first-login users; the post-upgrade seed Job runs a catch-up. Proven live on
+# hw133: with the row, emrah resolves sovereign-admins → ADMINISTER (admin menu).
+# The sovereign realm's catalyst-pin IdP already gates WHO authenticates, so
+# enrolling SSO users as admin matches the chart intent (same model as
+# bp-newapi's promote CronJob). New `database.promoteSchedule` knob. Lockstep:
+# 52-bp-guacamole.yaml pin → 0.2.17. Refs #3374.
 # 0.1.1 (qa-loop iter-7 Fix #39): canonical short resource names
 # (`guacd`, `guacamole-server`, `guacamole-recordings`); GHCR-mirrored
 # upstream images so every Sovereign pulls from a registry we own;
@@ -153,7 +171,7 @@ name: bp-guacamole
 # connected → the permission store was unreachable → still no admin. Renamed to
 # the upstream-canonical POSTGRESQL_USER. Lockstep: 52-bp-guacamole.yaml pin →
 # 0.2.15. Refs #3374.
-version: 0.2.16
+version: 0.2.17
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless

@@ -1,5 +1,22 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.79 (#3374, 2026-06-14): SSO token-exchange redirect_uri fix. After
+# 1.4.78 booted newapi on Postgres + loaded the sovereign OIDC provider, the
+# in-app "Continue with OpenOva SSO" round-tripped Keycloak but the back-channel
+# token-exchange FAILED `invalid_grant - Incorrect redirect_uri` → no session →
+# /api/user/self 401 → bounce to /login?expired=true (measured live hw133
+# 2026-06-14, #3475 re-walk). ROOT CAUSE: NewAPI's generic-OAuth provider builds
+# the token-exchange redirect_uri as `${ServerAddress}/oauth/<slug>` (upstream
+# oauth/generic.go:97) which must byte-match the frontend authorize redirect_uri
+# `${window.origin}/oauth/<slug>` (use-oauth-login.ts:204) per RFC-6749 §4.1.3,
+# but the `options` table shipped with 0 rows so ServerAddress was "" → the
+# exchange sent the relative `/oauth/sovereign` ≠ the absolute authorize URI.
+# FIX: admin-sso-seed-job.yaml seed.sh now upserts options.ServerAddress =
+# https://newapi.<sovereignFQDN> (new adminSeed.serverAddress knob, derived by
+# default); newapi's SyncOptions loop (60s) picks it up on the running pod with
+# no restart. sso-app-registration.yaml also registers the exact
+# /oauth/<providerSlug> redirectUri on the KC newapi-admin client (was relying on
+# the /* wildcard alone). Lockstep: 80-newapi.yaml pin → 1.4.79. Refs #3374.
 # 1.4.67 (#3374, 2026-06-14): admin-init + SSO-provider seed. NewAPI 0.13.x
 # showed the "uninitialized" setup wizard and granted NO admin on a fresh
 # Sovereign — `GET /api/setup` = {status:false,root_init:false}, every newapi
@@ -499,7 +516,7 @@ name: bp-newapi
 # class as bp-guacamole #3461). Default the gate image to the NewAPI image
 # itself (has /bin/sh; same openova-io glob as the main container). Lockstep:
 # 80-newapi.yaml pin → 1.4.77.
-version: 1.4.78
+version: 1.4.79
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
