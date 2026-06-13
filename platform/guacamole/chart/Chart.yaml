@@ -145,7 +145,7 @@ name: bp-guacamole
 # recordings are not required for core function or the admin walk; operators with
 # real distributed SeaweedFS RWX set recordings.persistence=true. Lockstep:
 # 52-bp-guacamole.yaml pin → 0.2.13. Refs #3374.
-version: 0.2.13
+version: 0.2.14
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
