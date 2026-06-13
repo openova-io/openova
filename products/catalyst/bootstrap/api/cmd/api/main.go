@@ -1712,8 +1712,13 @@ func main() {
 		// on the in-cluster SME commerce catalog. NOT new business
 		// endpoints (§6) — the same mintSMEBridgeToken → smeCatalog proxy
 		// hop HandleSovereignAppPublish uses, generalized to full CRUD so
-		// console.<sovereign>/api/* can reach the admin paths. Reads use
-		// the existing public /catalog/{kind} list endpoints (SME gateway).
+		// console.<sovereign>/api/* can reach the admin paths. Reads proxy
+		// the EXISTING public /catalog/{kind} list endpoints through
+		// catalyst-api too (HandleSMECommerceList) — on the console host
+		// /api/catalog/* doesn't route to the catalog service the way the
+		// SME gateway does, so a bare GET /api/catalog/plans 404'd even
+		// though the plan existed (issue #3378 plans-table 404).
+		rg.Get("/api/v1/sme/commerce/{kind}", h.HandleSMECommerceList)
 		rg.Post("/api/v1/sme/commerce/{kind}", h.HandleSMECommerceCreate)
 		rg.Put("/api/v1/sme/commerce/{kind}/{id}", h.HandleSMECommerceUpdate)
 		rg.Delete("/api/v1/sme/commerce/{kind}/{id}", h.HandleSMECommerceDelete)

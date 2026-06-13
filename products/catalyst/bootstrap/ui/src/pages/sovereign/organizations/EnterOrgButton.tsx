@@ -33,6 +33,35 @@ export function EnterOrgButton({ org, onEnterOverride, openOverride }: EnterOrgB
   // Defensive: never offer the support session for the parent (§5).
   if (org.isParent) return null
 
+  // The support session lands in the org's OWN console. That console only
+  // exists once the org's deployment is live — until then a handover URL
+  // would open a blank tab (the sub-org console isn't serving yet, the
+  // documented #3378 enter-org gap). Gate the button on a live org so the
+  // operator gets a clear "not live yet" state instead of a blank tab.
+  const live = org.status === 'active'
+  if (!live) {
+    return (
+      <div className="flex flex-col items-end gap-1" data-testid="enter-org-not-live">
+        <button
+          type="button"
+          data-testid="enter-org-button"
+          disabled
+          aria-disabled="true"
+          title="The org console isn’t live until provisioning finishes."
+          className="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-dim)] opacity-60"
+        >
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14M3 4v16" />
+          </svg>
+          Enter org
+        </button>
+        <span className="text-[10px] text-[var(--color-text-dim)]">
+          Console not live yet — {org.status}. Available once provisioning completes.
+        </span>
+      </div>
+    )
+  }
+
   async function onClick() {
     setBusy(true)
     setError(null)

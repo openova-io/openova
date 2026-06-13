@@ -45,6 +45,46 @@ var commerceKinds = map[string]bool{
 	"apps":       true,
 }
 
+// HandleSMECommerceList — GET /api/v1/sme/commerce/{kind}.
+//
+// Reads the PUBLIC catalog list endpoint (/catalog/{kind}) through
+// catalyst-api so the Sovereign console's commerce tables render the rows
+// that exist in the catalog store. On the console host (console.<sovereign>)
+// /api/* proxies to catalyst-api, which — unlike the SME/marketplace
+// gateway — does not route /api/catalog/* to the catalog service, so the
+// console's old direct GET /api/catalog/plans 404'd even though the
+// storefront showed the plan. This read hop closes that gap (issue #3378
+// — the plans-table 404). No bearer: the catalog list endpoints are public.
+func (h *Handler) HandleSMECommerceList(w http.ResponseWriter, r *http.Request) {
+	kind := strings.ToLower(strings.TrimSpace(chi.URLParam(r, "kind")))
+	if !commerceKinds[kind] {
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error":  "unknown-commerce-kind",
+			"detail": "kind must be one of plans, addons, bundles, industries, apps",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), smeCatalogProbeBudget)
+	defer cancel()
+	upstreamStatus, respBody, ct, err := smeCatalog().PublicProxy(ctx, "/"+kind)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "sme-catalog-unreachable",
+			"detail": err.Error(),
+		})
+		return
+	}
+	if ct == "" {
+		ct = "application/json"
+	}
+	w.Header().Set("Content-Type", ct)
+	w.WriteHeader(upstreamStatus)
+	if len(respBody) > 0 {
+		_, _ = w.Write(respBody)
+	}
+}
+
 // HandleSMECommerceCreate — POST /api/v1/sme/commerce/{kind}.
 func (h *Handler) HandleSMECommerceCreate(w http.ResponseWriter, r *http.Request) {
 	h.proxyCommerce(w, r, http.MethodPost, "")

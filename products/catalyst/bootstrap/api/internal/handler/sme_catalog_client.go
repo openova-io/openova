@@ -185,6 +185,44 @@ func (c *smeCatalogClient) SetPublished(ctx context.Context, slug string, publis
 	return resp.StatusCode, nil
 }
 
+// PublicProxy forwards a GET to the SME commerce catalog's PUBLIC list
+// endpoint ("<baseURL>/catalog/{sub}") and returns (status, body,
+// contentType, error). It is the read counterpart of AdminProxy for the
+// Organizations commerce editors (issue #3378 DoD 7/8): the editors read
+// the EXISTING public /catalog/{kind} list endpoints (no new business
+// endpoint, §6).
+//
+// On the Sovereign console (served at console.<sovereign>), /api/* proxies
+// through catalyst-api, which does NOT route /api/catalog/* to the catalog
+// service the way the SME/marketplace gateway does — so a bare
+// GET /api/catalog/plans 404s on the console host. Routing the console's
+// reads through catalyst-api (which CAN reach catalog.sme.svc) closes that
+// gap so the console plans/addons/bundles/industries/apps tables render the
+// same rows the marketplace storefront shows.
+//
+// The public list endpoints carry no auth (core/services/catalog/main.go
+// applies JWT only to /catalog/admin/*), so no bearer is sent.
+func (c *smeCatalogClient) PublicProxy(
+	ctx context.Context,
+	subPath string,
+) (int, []byte, string, error) {
+	sub := "/" + strings.TrimLeft(strings.TrimSpace(subPath), "/")
+	url := c.baseURL + "/catalog" + sub
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, nil, "", err
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0, nil, "", err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, respBody, resp.Header.Get("Content-Type"), nil
+}
+
 // AdminProxy forwards an arbitrary method + sub-path + JSON body to the
 // SME commerce catalog (services/catalog) and returns (status, body,
 // contentType, error). It is the generic transport for the Organizations
