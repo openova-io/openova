@@ -10,8 +10,27 @@ NEVER lives in values.yaml or this chart.
 Per docs/INVIOLABLE-PRINCIPLES.md #10 (credentials never appear in source
 or commits) the basicAuth Secret is created out-of-band by the
 private-repo cluster manifest at clusters/contabo-mkt/apps/powerdns/.
+
+#3380-D (2026-06-13): the Ingress is now rendered ONLY when the Gateway
+path is OFF. Previously this template rendered ALONGSIDE the HTTPRoute on
+Sovereigns ("+ Ingress, harmless on Sovereigns without Traefik") — but it
+is NOT harmless: the Ingress carries the cert-manager.io/cluster-issuer
+annotation, so cert-manager's Ingress-shim spawns a standalone
+`powerdns-api-tls` Certificate. On a Cilium-Gateway Sovereign that
+Certificate is BOTH redundant (the cilium-gateway https/apex-https
+listeners already serve `*.<sov-fqdn>` via `sovereign-wildcard-tls`, which
+covers `pdns.<sov-fqdn>` — verified live hw130) AND broken: the chart
+default `api.tls.issuer: letsencrypt-prod` names a ClusterIssuer that does
+NOT exist on Sovereigns (they issue via `wildcard-issuer`), so the
+CertificateRequest sits "Referenced ClusterIssuer not found" / Ready=False
+forever — a self-inflicted noise wound that pollutes `kubectl get
+certificate` and burns a pointless LE attempt. Gating the Ingress off when
+api.gateway.enabled=true removes the shim trigger at source; the HTTPRoute
++ Gateway wildcard fully serve `pdns.<sov-fqdn>` on Cilium Sovereigns.
+Contabo (api.gateway.enabled=false, real Traefik) is unaffected — it still
+gets the Ingress + its standalone cert.
 */}}
-{{- if .Values.api.enabled }}
+{{- if and .Values.api.enabled (not (and .Values.api.gateway .Values.api.gateway.enabled)) }}
 {{- /*
 Capabilities gate (issue #190): the `traefik.io/v1alpha1` Middleware CRD
 ships with the Traefik ingress controller. k3s ships Traefik by default

@@ -33,7 +33,14 @@ name: bp-dmz-vcluster
 # customResources block before (no CNPG precedent here); added with
 # the two #3373 entries. Sibling to bp-mgmt-vcluster 0.2.7 +
 # bp-rtz-vcluster 0.2.7.
-version: 0.2.6
+# 0.2.7 — Refs #3380-D (2026-06-13): pin the k8s distro control-plane
+# images off upstream `registry.k8s.io` onto the Sovereign-local Harbor
+# `proxy-k8s` cache (lockstep with bp-mgmt-vcluster 0.2.8). The loft-sh
+# subchart otherwise defaults apiServer/controllerManager/scheduler to
+# `registry.k8s.io/kube-*` — which the `harbor-proxy-pull` Enforce
+# ClusterPolicy DENIES on the next image roll. Additive values only.
+# Sibling to bp-mgmt-vcluster 0.2.8 + bp-rtz-vcluster 0.2.8.
+version: 0.2.7
 appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign DMZ
