@@ -67,6 +67,12 @@ nothing.
 {{- $rootUsername := $seed.rootUsername | default "catalyst-root" -}}
 {{- $providerName := $seed.providerName | default "OpenOva SSO" -}}
 {{- $providerSlug := $seed.providerSlug | default "sovereign" -}}
+{{- /* #3374: NewAPI's public base URL → options.ServerAddress. The
+   generic-OAuth token-exchange builds redirect_uri = ServerAddress/oauth/<slug>
+   (upstream oauth/generic.go:97); it MUST byte-match the frontend authorize
+   redirect_uri window.origin/oauth/<slug> (use-oauth-login.ts:204), i.e.
+   https://newapi.<fqdn>. Operator override wins; else derive from the FQDN. */ -}}
+{{- $serverAddress := $seed.serverAddress | default (printf "https://newapi.%s" $fqdn) -}}
 {{- $version := .Chart.AppVersion | default "0.13.2" -}}
 {{- $pullPolicy := (default dict $seed.image).pullPolicy | default "IfNotPresent" -}}
 ---
@@ -182,6 +188,24 @@ data:
     . /scripts/common.sh
     echo "[admin-seed] target=${PGHOST}:${PGPORT}/${PGDATABASE} user=${PGUSER}"
     wait_for_users_table
+
+    # (a0) ServerAddress option → newapi's public base URL. #3374 (2026-06-14).
+    #      The generic-OAuth provider builds the token-exchange redirect_uri as
+    #      `${ServerAddress}/oauth/${slug}` (upstream oauth/generic.go:97), which
+    #      MUST byte-match the frontend authorize redirect_uri
+    #      `${window.origin}/oauth/${slug}` (use-oauth-login.ts:204) per
+    #      RFC-6749 §4.1.3. With ServerAddress empty (the newapi default — the
+    #      `options` table ships with 0 rows), the exchange sends the relative
+    #      `/oauth/${slug}`, Keycloak rejects it with `invalid_grant - Incorrect
+    #      redirect_uri`, and the owner never gets a session (bounces to
+    #      /login?expired=true — measured live hw133 2026-06-14, #3475). The
+    #      `options` table is (key text PRIMARY KEY, value text); newapi loads it
+    #      into OptionMap at boot AND re-syncs periodically (model/option.go
+    #      InitOptionMap→loadOptionsFromDatabase + SyncOptions), so this upsert
+    #      takes effect on the running pod without a forced restart. Idempotent.
+    $PSQL -c "INSERT INTO options (key, value) VALUES ('ServerAddress', '{{ $serverAddress }}')
+              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;"
+    echo "[admin-seed] ServerAddress option ensured ({{ $serverAddress }})"
 
     # (a) setups row → status:true (kills the setup wizard). Idempotent.
     $PSQL -c "INSERT INTO setups (version, initialized_at)

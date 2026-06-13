@@ -54,6 +54,11 @@ postgresql.cnpg.io CRD absent.
 {{- $pgImage := printf "%s:%s" ($cl.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql") ($cl.pgVersion | default "16") -}}
 {{- $sj := $db.seedJob | default dict -}}
 {{- $jobName := printf "%s-jdbc-seed" (include "bp-guacamole.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- /* #3374: per-minute CronJob that enrolls SSO-auto-created USERs into the
+   <adminGroup> membership so admin is deterministic (the runtime OIDC-group
+   name-match did not reach the owner live on hw133 — #3475). */ -}}
+{{- $cronName := printf "%s-admin-enroll" (include "bp-guacamole.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- $promoteSchedule := $db.promoteSchedule | default "* * * * *" -}}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -68,7 +73,10 @@ metadata:
     "helm.sh/hook-weight": "5"
     "helm.sh/hook-delete-policy": before-hook-creation
 data:
-  seed.sh: |
+  common.sh: |
+    # Shared: build PSQL from the mounted CNPG -app Secret + wait for db + the
+    # admin-enroll function (#3374). Sourced by seed.sh (one-shot) + promote.sh
+    # (per-minute CronJob).
     set -eu
     CRED=/cnpg
     PGHOST="$(cat "${CRED}/host")"
@@ -78,15 +86,52 @@ data:
     PGPASSWORD="$(cat "${CRED}/password")"
     export PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD
     PSQL="psql -v ON_ERROR_STOP=1 -qtA"
+    ADMIN_GROUP="{{ $adminGroup }}"
+    wait_for_db() {
+      i=0
+      until [ "$i" -ge 60 ]; do
+        if $PSQL -c "SELECT 1;" >/dev/null 2>&1; then echo "[jdbc-seed] db reachable"; return 0; fi
+        i=$((i+1)); echo "[jdbc-seed] waiting for postgres ($i/60)"; sleep 5
+      done
+      echo "[jdbc-seed] FATAL: postgres unreachable after 5min" >&2; return 1
+    }
+    # enroll_admins (#3374): write a guacamole_user_group_member row binding every
+    # JDBC USER into <ADMIN_GROUP>. POSTGRESQL_AUTO_CREATE_ACCOUNTS auto-creates a
+    # USER per SSO principal on first login, but the OIDC-group → permission
+    # name-match (EntityMapper.xml selectEffectiveGroupIdentifiers UNION branch)
+    # did NOT reach the owner live (admin menu absent, membership table empty —
+    # #3475). The membership-CTE branch of that same query DOES grant the group's
+    # ADMINISTER once a row exists (proven live on hw133). Skip if the schema
+    # isn't applied yet. Idempotent (NOT EXISTS guard). The sovereign realm's
+    # catalyst-pin IdP already restricts who can authenticate, so enrolling SSO
+    # users as admin is correct for this Sovereign-level guacamole (same model as
+    # bp-newapi's promote CronJob).
+    enroll_admins() {
+      if ! $PSQL -c "SELECT to_regclass('public.guacamole_user_group_member');" 2>/dev/null | grep -q '^guacamole_user_group_member$'; then
+        echo "[jdbc-seed] schema not yet present — enroll deferred"; return 0
+      fi
+      n="$($PSQL <<SQL
+    INSERT INTO guacamole_user_group_member (user_group_id, member_entity_id)
+    SELECT ug.user_group_id, u.entity_id
+    FROM guacamole_user u
+    JOIN guacamole_entity ue ON ue.entity_id = u.entity_id AND ue.type = 'USER'
+    CROSS JOIN guacamole_user_group ug
+    JOIN guacamole_entity ge ON ge.entity_id = ug.entity_id
+       AND ge.name = '${ADMIN_GROUP}' AND ge.type = 'USER_GROUP'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM guacamole_user_group_member m
+      WHERE m.user_group_id = ug.user_group_id AND m.member_entity_id = u.entity_id
+    )
+    RETURNING member_entity_id;
+    SQL
+    )"
+      cnt="$(printf '%s' "$n" | grep -c . || true)"
+      echo "[jdbc-seed] enrolled ${cnt} user(s) into ${ADMIN_GROUP}"
+    }
+  seed.sh: |
+    . /scripts/common.sh
     echo "[jdbc-seed] target=${PGHOST}:${PGPORT}/${PGDATABASE} user=${PGUSER}"
-
-    # Wait for the CNPG primary to accept connections.
-    i=0
-    until [ "$i" -ge 60 ]; do
-      if $PSQL -c "SELECT 1;" >/dev/null 2>&1; then echo "[jdbc-seed] db reachable"; break; fi
-      i=$((i+1)); echo "[jdbc-seed] waiting for postgres ($i/60)"; sleep 5
-    done
-    if [ "$i" -ge 60 ]; then echo "[jdbc-seed] FATAL: postgres unreachable after 5min" >&2; exit 1; fi
+    wait_for_db
 
     # (1) Apply the guacamole JDBC schema ONCE. The schema SQL (copied out of
     #     the guacamole image by the initContainer) creates the enum TYPEs +
@@ -103,7 +148,7 @@ data:
     #     admin (ADMINISTER) + the CREATE_* system permissions. The openid
     #     extension binds an SSO user into this group when its `groups` claim
     #     contains the name. NO password account is created — SSO-only admin.
-    ADMIN_GROUP="{{ $adminGroup }}"
+    #     ADMIN_GROUP is exported by common.sh.
     $PSQL <<SQL
     INSERT INTO guacamole_entity (name, type)
     SELECT '${ADMIN_GROUP}', 'USER_GROUP'
@@ -134,7 +179,16 @@ data:
     );
     SQL
     echo "[jdbc-seed] admin USER_GROUP '${ADMIN_GROUP}' ensured with ADMINISTER"
+
+    # (3) Enroll any already-present SSO-auto-created USER into the admin group
+    #     (catch-up for owners who logged in before this seed ran). The
+    #     per-minute admin-enroll CronJob covers first-login users going forward.
+    enroll_admins
     echo "[jdbc-seed] done."
+  promote.sh: |
+    . /scripts/common.sh
+    wait_for_db
+    enroll_admins
   # Verbatim Apache Guacamole 1.5.5 PostgreSQL schema, vendored into the chart
   # (files/postgresql/001-create-schema.sql) and pinned to
   # .Values.guacamole.webapp.image.tag. Loaded here so the seed container needs
@@ -223,4 +277,98 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 8Mi
+---
+{{- /* #3374 (2026-06-14): per-minute admin-enroll CronJob. Binds every
+   SSO-auto-created JDBC USER into <adminGroup> membership so the owner's FIRST
+   bare-URL SSO login lands as admin within ~1 min (the runtime OIDC-group
+   name-match did not reach the owner live on hw133 — #3475). Reuses the
+   one-shot seed Job's scripts ConfigMap (promote.sh → enroll_admins). */ -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $cronName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+    catalyst.openova.io/component: admin-enroll
+    # kyverno `flux-managed` Enforce gates helm-hook CronJobs AND their spawned
+    # Jobs (no HR ownerReference) — stamp managed-by=flux on both. Same landmine
+    # that stalled the seed Job (#3374 / #3434 class).
+    app.kubernetes.io/managed-by: flux
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "12"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  schedule: {{ $promoteSchedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  startingDeadlineSeconds: 120
+  jobTemplate:
+    metadata:
+      labels:
+        {{- include "bp-guacamole.labels" . | nindent 8 }}
+        catalyst.openova.io/component: admin-enroll
+        app.kubernetes.io/managed-by: flux
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 120
+      ttlSecondsAfterFinished: 120
+      template:
+        metadata:
+          labels:
+            {{- include "bp-guacamole.selectorLabels" . | nindent 12 }}
+            catalyst.openova.io/component: admin-enroll
+        spec:
+          restartPolicy: OnFailure
+          {{- with .Values.guacamole.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 26
+            runAsGroup: 26
+            fsGroup: 26
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: admin-enroll
+              image: {{ $pgImage | quote }}
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "/scripts/promote.sh"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                - name: cnpg
+                  mountPath: /cnpg
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  cpu: 100m
+                  memory: 128Mi
+          volumes:
+            - name: scripts
+              configMap:
+                name: {{ $jobName }}-scripts
+                defaultMode: 0555
+            - name: cnpg
+              secret:
+                secretName: {{ $appSecret | quote }}
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 8Mi
 {{- end }}
