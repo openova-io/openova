@@ -1021,7 +1021,7 @@ spec:
             # 1.4.612 — #3454: pre-cutover local-Gitea openova/openova@sme-tenants repo bootstrap (SME gitops chain).
             # 1.4.613 — #3454: add managed-by:flux on the repo-bootstrap hook Job (kyverno flux-managed Enforce).
             # 1.4.615 — #3454: secretRef on openova-sme-tenants GitRepo + authed probe (REQUIRE_SIGNIN_VIEW=true → anon clone 401).
-      version: 1.4.615
+      version: 1.4.616
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
