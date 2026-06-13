@@ -490,7 +490,16 @@ name: bp-newapi
 # blocks the main container until SQL_DSN is non-empty → NewAPI always
 # initialises against Postgres. Gated on cnpg.enabled. Lockstep: 80-newapi.yaml
 # pin → 1.4.75.
-version: 1.4.76
+# 1.4.77 (#3374 admin-tier, 2026-06-14): fix the kyverno denial 1.4.75's
+# DSN-gate introduced. The wait-for-sql-dsn initContainer used a
+# proxy-dockerhub/curl image while the main container is ghcr.io/openova-io/*;
+# the harbor-proxy-pull anyPattern needs ONE glob to match BOTH init + main, so
+# the mixed registries were DENIED (`/spec/template/spec/containers/0/image/` +
+# `initContainers/0/image/`) → bp-newapi 1.4.75 stuck Ready=False on hw133 (same
+# class as bp-guacamole #3461). Default the gate image to the NewAPI image
+# itself (has /bin/sh; same openova-io glob as the main container). Lockstep:
+# 80-newapi.yaml pin → 1.4.77.
+version: 1.4.77
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
