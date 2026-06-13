@@ -1534,7 +1534,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "version": "1.2.34",
     "section": "pts-2-3-per-sovereign-supporting-services",
-    "depends": [],
+    "depends": [
+      "bp-postgres"
+    ],
     "shareable": false,
     "contextSchema": null,
     "topology": {
@@ -1728,6 +1730,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-3-5-storage-and-data",
     "depends": [
       "bp-cnpg",
+      "bp-postgres",
       "bp-cert-manager"
     ],
     "shareable": false,
@@ -2013,7 +2016,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "version": "1.4.27",
     "section": "pts-2-3-per-sovereign-supporting-services",
-    "depends": [],
+    "depends": [
+      "bp-postgres"
+    ],
     "shareable": false,
     "contextSchema": null,
     "topology": {
@@ -2737,7 +2742,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.2.8",
+    "version": "0.2.9",
     "section": "pts-3-2-control-plane-isolation",
     "depends": [
       "bp-cilium",
@@ -3705,7 +3710,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.8",
+    "version": "0.1.10",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-cnpg",

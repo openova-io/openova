@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-13T18:40:48.549Z",
+  "generatedAt": "2026-06-13T19:07:17.775Z",
   "blueprints": [
     {
       "id": "bp-alloy",
@@ -1427,7 +1427,9 @@
       "visibility": "unlisted",
       "version": "1.2.34",
       "section": "pts-2-3-per-sovereign-supporting-services",
-      "depends": [],
+      "depends": [
+        "bp-postgres"
+      ],
       "shareable": false,
       "contextSchema": null,
       "topology": {
@@ -1621,6 +1623,7 @@
       "section": "pts-3-5-storage-and-data",
       "depends": [
         "bp-cnpg",
+        "bp-postgres",
         "bp-cert-manager"
       ],
       "shareable": false,
@@ -1906,7 +1909,9 @@
       "visibility": "unlisted",
       "version": "1.4.27",
       "section": "pts-2-3-per-sovereign-supporting-services",
-      "depends": [],
+      "depends": [
+        "bp-postgres"
+      ],
       "shareable": false,
       "contextSchema": null,
       "topology": {
@@ -2630,7 +2635,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.2.8",
+      "version": "0.2.9",
       "section": "pts-3-2-control-plane-isolation",
       "depends": [
         "bp-cilium",
@@ -3598,7 +3603,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.1.8",
+      "version": "0.1.10",
       "section": "pts-4-1-data-services",
       "depends": [
         "bp-cnpg",
