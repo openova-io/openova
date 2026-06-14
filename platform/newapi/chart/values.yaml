@@ -981,6 +981,24 @@ hpa:
 # response: invalid character '<'" failure mode observed on hw01
 # 2026-05-24). Built by .github/workflows/build-bp-newapi-sandbox-
 # bridge.yaml from platform/newapi/internal/handler.
+# ─── Zero-click bare-URL SSO landing (#3374) ─────────────────────────────
+# NewAPI's embedded React SPA (pinned mirror, not a fork) serves a
+# marketing/login homepage at `/` and only fires the OIDC flow on a click.
+# To honour the #3374 zero-click contract, the sandbox-bridge sidecar serves
+# a SAME-ORIGIN init page at the bare root that runs NewAPI's own
+# onCustomOAuthClicked sequence (GET /api/oauth/state → /api/status → redirect
+# to the Keycloak authorize URL with kc_idp_hint=catalyst-pin). The HTTPRoute
+# routes ONLY the bare root (Exact `/`) to the bridge; everything else flows
+# to NewAPI. oauth2-proxy is NOT used here — NewAPI authenticates only via its
+# own DB-backed session cookie and ignores proxy-auth headers, so a front-door
+# proxy would not log the user into NewAPI; and a static gateway 302 fails
+# NewAPI's callback CSRF check (the `state` must be minted same-origin first).
+#
+# Requires sandboxBridge.enabled (the bridge sidecar serves the page). The
+# provider slug is taken from adminSeed.providerSlug (default "sovereign").
+# Set enabled=false to serve NewAPI's own homepage at `/` instead.
+ssoInit:
+  enabled: true
 sandboxBridge:
   enabled: true
   image:

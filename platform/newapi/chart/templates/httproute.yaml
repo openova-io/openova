@@ -61,6 +61,36 @@ spec:
   hostnames:
     - {{ $host | quote }}
   rules:
+{{- /*
+#3374 (2026-06-14) — zero-click bare-URL SSO. NewAPI's embedded React SPA
+(consumed as a pinned mirror, not a fork) serves a marketing/login homepage at
+`/` and only fires the OIDC flow on a "Sign in with <provider>" CLICK, which
+breaks the zero-click contract. oauth2-proxy is the WRONG tool (NewAPI auths
+only via its own session cookie + ignores proxy headers — middleware/auth.go),
+and a static gateway 302 to Keycloak fails NewAPI's callback CSRF check (the
+`state` must first be minted by GET /api/oauth/state, which sets the session
+cookie). So the sandbox-bridge sidecar serves a SAME-ORIGIN init page at the
+bare root that runs NewAPI's own onCustomOAuthClicked sequence (state → status
+→ authorize redirect carrying kc_idp_hint=catalyst-pin). An `Exact /` match
+wins over the `PathPrefix /` rule below (Gateway API prefers the most specific
+match), so ONLY the bare root is intercepted; the SPA, /assets, /api and the
+/oauth/<slug> callback all keep flowing to NewAPI. The full OIDC round-trip
+lands the owner signed-in (verified live on hw136). Gated + overrideable.
+*/}}
+{{- /* default-true gate that respects an explicit `false` (the Helm `default
+   true <bool>` idiom wrongly coerces an explicit false back to true because
+   false is the bool zero-value, so test the key presence + value directly). */ -}}
+{{- $ssoInit := .Values.ssoInit | default dict -}}
+{{- $ssoInitOn := or (not (hasKey $ssoInit "enabled")) $ssoInit.enabled -}}
+{{- if and $ssoInitOn .Values.sandboxBridge.enabled }}
+    - matches:
+        - path:
+            type: Exact
+            value: "/"
+      backendRefs:
+        - name: {{ .Values.gateway.backendService | default (include "bp-newapi.fullname" .) }}
+          port: {{ .Values.sandboxBridge.port }}
+{{- end }}
     - matches:
         - path:
             type: PathPrefix

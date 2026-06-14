@@ -340,6 +340,12 @@ spec:
                 secretKeyRef:
                   name: {{ $effTokenSigningKeySecret }}
                   key: ADMIN_SECRET
+            # #3374 — the OIDC provider slug the zero-click bare-URL landing
+            # page (served by this sidecar at `/`, routed by the HTTPRoute's
+            # Exact `/` rule) initiates. Matches the admin-sso-seed-job's
+            # custom_oauth_providers.slug. Default "sovereign".
+            - name: NEWAPI_SSO_INIT_SLUG
+              value: {{ (.Values.adminSeed | default dict).providerSlug | default "sovereign" | quote }}
           livenessProbe:
             httpGet:
               path: /healthz
