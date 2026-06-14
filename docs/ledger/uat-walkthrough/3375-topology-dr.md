@@ -70,7 +70,7 @@ write-disruption, a Reason field, and **Confirm Switchover** — captured live).
 - **GAP A — cross-region failover EXECUTION (Wave-3, #3375) — ✅ EXECUTED for
   cnpg-pair.** Driven live 2026-06-14 on the 2-region keystone deployment
   `3a2ee904b1d0366a` (region-a primary + region-b cross-region standby streaming
-  async): region-a primary killed → region-b promoted writable in **1.34s** (full RTO
+  async): region-a primary killed → region-b promoted writable in **1.42s** (full RTO
   **22.1s** kill→writable), the pre-kill row survived + a post-kill write was accepted →
   **zero data loss**. See §2a-EXEC for the full timeline + evidence. (The hw136 *base*
   walk's declared-panel rows were captured before this deployment's `-b` region came up;
@@ -160,7 +160,7 @@ delivered on the hw136 base walk. The **actual cross-region failover EXECUTION**
 (create-data → other-region-promotes → data-survives) for **cnpg-pair** is now
 **EXECUTED LIVE** on the 2-region keystone deployment `3a2ee904b1d0366a` (region-a
 primary + region-b cross-region standby, streaming async) — see §2a-EXEC below: RTO
-22.1s kill→writable (1.34s promote latency), **zero data loss**. The remaining ❌ are
+22.1s kill→writable (1.42s promote latency), **zero data loss**. The remaining ❌ are
 the **openbao-raft** promotion (GAP B — a distinct raft-transition mechanism, not
 exercised in this cnpg-pair walk) and the gitea-app-served-from-promoted-region UI
 flow (the cnpg-pair DB layer beneath it is proven; the app-UI-served-from-region-b
@@ -173,7 +173,7 @@ expectation.
 |---|---|---|---|
 | [cnpg-pair · Topology](https://console.hw136.omani.works/app/bp-cnpg-pair) | DR panel shows declared **active-hot-standby**, primary/replica roles, mechanism. **Reality:** "Disaster Recovery (active-hot-standby)" panel renders with an **enabled Switchover…** button + the honest state "No live Continuum record for bp-cnpg-pair yet — the cross-region DR machinery activates once placed active-hot-standby on a 2-region Sovereign. Declared switchover mechanism: bp-continuum" + "No switchover events recorded yet". Honest, not a spinner. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1b-cnpg-pair.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1b-cnpg-pair.png) |
 | [cnpg-pair · Topology](https://console.hw136.omani.works/app/bp-cnpg-pair) | **Switchover** button enabled (owner tier) and **opens a switchover dialog**. **Reality:** the button is **enabled** and clicking it opens **"Switchover — bp-cnpg-pair"** — "Primary will move the current primary → the standby region" with a **7-STEP plan** (validate-lease · cordon-old-primary · drain-http · flip-dns · swap-lease · uncordon-new-primary · audit-emit), "Estimated duration <60s / Write disruption <5s", a Reason field, and **Cancel / Confirm Switchover** buttons. Captured live on hw136. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r2a-cnpgpair-switchover.png)](../../sessions/2026-06-14/evidence/3375-keystone/r2a-cnpgpair-switchover.png) |
-| cnpg-pair · region-kill EXECUTION (live 2-region, deployment `3a2ee904b1d0366a`) | Kill region-a primary → region-b promotes → writable. **Reality (EXECUTED 2026-06-14 08:57–08:58Z):** on the live 2-region cnpg-pair (region-a primary `10.42.x` 3/3 healthy, region-b cross-region standby `10.43.x` 3/3 **streaming async**), region-a primary was killed (3 region-a workers cordoned + the 3 `cnpg-pair-bp-cnpg-pair-primary` pods force-deleted → 0 READY, can't reschedule). Region-b promoted via `patch cluster …-replica '{"spec":{"replica":{"enabled":false}}}'`: **`pg_is_in_recovery()` flipped `t→f` in 1.34s** (patch→writable); **full RTO kill→writable = 22.1s**. Region-b reached "Cluster in healthy state" 3/3 with its own standbys streaming. The actual cross-region promotion IS delivered. | ✅ — executed live on 2-region prov `3a2ee904b1d0366a` | [00-timeline-rto.txt](../../sessions/2026-06-14/evidence/3375-regionkill/00-timeline-rto.txt) · [03-promote-zero-data-loss.txt](../../sessions/2026-06-14/evidence/3375-regionkill/03-promote-zero-data-loss.txt) |
+| cnpg-pair · region-kill EXECUTION (live 2-region, deployment `3a2ee904b1d0366a`) | Kill region-a primary → region-b promotes → writable. **Reality (EXECUTED 2026-06-14 08:57–08:58Z):** on the live 2-region cnpg-pair (region-a primary `10.42.x` 3/3 healthy, region-b cross-region standby `10.43.x` 3/3 **streaming async**), region-a primary was killed (3 region-a workers cordoned + the 3 `cnpg-pair-bp-cnpg-pair-primary` pods force-deleted → 0 READY, can't reschedule). Region-b promoted via `patch cluster …-replica '{"spec":{"replica":{"enabled":false}}}'`: **`pg_is_in_recovery()` flipped `t→f` in 1.42s** (patch→writable); **full RTO kill→writable = 22.1s**. Region-b reached "Cluster in healthy state" 3/3 with its own standbys streaming. The actual cross-region promotion IS delivered. | ✅ — executed live on 2-region prov `3a2ee904b1d0366a` | [00-timeline-rto.txt](../../sessions/2026-06-14/evidence/3375-regionkill/00-timeline-rto.txt) · [03-promote-zero-data-loss.txt](../../sessions/2026-06-14/evidence/3375-regionkill/03-promote-zero-data-loss.txt) |
 | cnpg-pair record · create (region-a) | Write a marker row to the region-a primary before the kill. **Reality:** `INSERT INTO keystone_xregion(note) VALUES('pre-kill region-a')` accepted on region-a primary (`id=2`, `08:56:59Z`). | ✅ — executed live | [01-pre-kill-replication.txt](../../sessions/2026-06-14/evidence/3375-regionkill/01-pre-kill-replication.txt) |
 | cnpg-pair record · replicated-to-region-b (pre-kill) | The marker reaches the region-b standby. **Reality:** `id=2 'pre-kill region-a'` read back on region-b standby within ~2s; region-b was a true read-only standby pre-kill (`INSERT` rejected: `cannot execute INSERT in a read-only transaction`). | ✅ — executed live | [01-pre-kill-replication.txt](../../sessions/2026-06-14/evidence/3375-regionkill/01-pre-kill-replication.txt) |
 | cnpg-pair record · survives + post-kill write (region-b promoted) | The pre-kill record survives the failover — **zero data loss** — and the promoted region accepts new writes. **Reality:** after promotion region-b shows both pre-kill rows present (`id=1` `hw136 cross-region proof`, `id=2` `pre-kill region-a`) AND accepts a NEW post-kill `INSERT` (`id=35` `post-kill region-b (promoted)`). **Data loss = 0 rows.** | ✅ — executed live, zero data loss | [03-promote-zero-data-loss.txt](../../sessions/2026-06-14/evidence/3375-regionkill/03-promote-zero-data-loss.txt) |
@@ -201,7 +201,7 @@ healthy (`10.43.x`) with `spec.replica.enabled=true source=…-primary`; region-
 | `T_KILL` | `08:57:53.981Z` | 3 region-a workers cordoned + 3 cnpg-pair-primary pods force-deleted → region-a primary 0 READY, "Waiting for the instances to become active", recreated pod stuck `Pending` (nodes cordoned, can't reschedule) |
 | `T_PROMOTE_PATCH` | `08:58:14.686Z` | `patch cluster …-replica --type=merge -p '{"spec":{"replica":{"enabled":false}}}'` |
 | `T_WRITABLE` | `08:58:16.101Z` | `pg_is_in_recovery()=f` on region-b (poll #2) |
-| **Promote latency** | **1.34s** | patch → writable |
+| **Promote latency** | **1.42s** | patch → writable |
 | **Full RTO** | **22.1s** | kill → writable (incl. ~20.7s operator reaction kill→patch) |
 
 **Zero-data-loss proof:** the row written to region-a *seconds before the kill*
@@ -259,7 +259,7 @@ is delivered on all six priority apps on hw136 (the dialog enumerates a real 7-s
 cross-region promotion plan with Cancel / Confirm Switchover, captured live), AND the
 **cnpg-pair cross-region failover EXECUTION is now proven live** (§2a-EXEC) on the
 2-region deployment `3a2ee904b1d0366a`: kill region-a primary → region-b promotes
-writable in 1.34s (RTO 22.1s kill→writable), pre-kill row survives + post-kill write
+writable in 1.42s (RTO 22.1s kill→writable), pre-kill row survives + post-kill write
 accepted, **zero data loss** — **GAP A is CLOSED for cnpg-pair**. The remaining 6 ❌:
 **openbao-raft** (GAP B — the distinct `raft-transition` mechanism, not exercised in
 this cnpg-pair Postgres walk; needs its own openbao failover drive) + the
@@ -333,10 +333,10 @@ this base Sovereign (spire, clickhouse) → "App not found", not feature failure
 
 ## WALK RESULT — hw136.omani.works (keystone fresh prov, signed in as emrah.baysal, sovereign-admin / **owner tier** via handover; 100% headless browser)
 
-**Overall: ✅ 48 / ❌ 6 / N/A 7** across the rows walked on the hw136 keystone prov.
+**Overall: ✅ 46 / ❌ 6 / N/A 7** across the rows walked on the hw136 keystone prov.
 **The topology-declaration UI and the DR/Switchover UI REPRODUCE ZERO-TOUCH on the
 fresh prov, AND the cnpg-pair cross-region failover is now EXECUTED LIVE** (§2a-EXEC,
-on the 2-region deployment `3a2ee904b1d0366a`: RTO **22.1s** kill→writable, **1.34s**
+on the 2-region deployment `3a2ee904b1d0366a`: RTO **22.1s** kill→writable, **1.42s**
 promote latency, **zero data loss** — the North-Star-4 cnpg-pair proof). The remaining
 6 ❌ are the **openbao-raft** promotion (GAP B, a distinct `raft-transition` mechanism
 not exercised in the cnpg-pair Postgres walk) + the **gitea-app-served-from-promoted-region
@@ -367,7 +367,7 @@ Sovereign.
   write-disruption, a Reason field, and **Confirm Switchover**. The *actual cross-region
   failover EXECUTION* for **cnpg-pair** is now **driven live** (§2a-EXEC) on the
   2-region deployment `3a2ee904b1d0366a`: kill region-a primary → region-b promotes
-  writable in **1.34s** (RTO **22.1s** kill→writable), pre-kill row survives + post-kill
+  writable in **1.42s** (RTO **22.1s** kill→writable), pre-kill row survives + post-kill
   write accepted, **zero data loss** → the create-data / promoted / survives rows are
   **✅** for cnpg-pair.
 - **§3 bootstrap-HA DR panels: ✅ 5 / 5.** keycloak, gitea, harbor, grafana, openbao
@@ -379,7 +379,7 @@ Sovereign.
 **The genuine remaining ❌ (6 — GAP A is now CLOSED for cnpg-pair):**
 - **GAP A — cnpg-pair region-kill EXECUTION: ✅ CLOSED.** Driven live on the 2-region
   deployment `3a2ee904b1d0366a` (§2a-EXEC): create-data (region-a) → kill region-a
-  primary → region-b promotes writable (1.34s, RTO 22.1s) → pre-kill row survives +
+  primary → region-b promotes writable (1.42s, RTO 22.1s) → pre-kill row survives +
   post-kill write accepted → **zero data loss**. Evidence in
   `docs/sessions/2026-06-14/evidence/3375-regionkill/`.
 - **GAP B — openbao-raft promotion EXECUTION (~3 rows):** the declared `raft-transition`
@@ -395,9 +395,9 @@ Sovereign.
 topology panel** with class + mechanism + RTO/RPO + per-cluster roles, (2) an
 **enabled Switchover** button that opens a real switchover dialog, and (3) an
 **honest DR panel** for declared-HA bootstrap apps — are **all reproduced zero-touch
-on the fresh keystone prov hw136** (✅ 48, with `bp-powerdns-admin` now passing) — and
+on the fresh keystone prov hw136** (✅ 46, with `bp-powerdns-admin` now passing) — and
 the **cnpg-pair cross-region failover EXECUTION is proven live** on the 2-region
-deployment `3a2ee904b1d0366a` (§2a-EXEC: RTO 22.1s kill→writable, 1.34s promote, zero
+deployment `3a2ee904b1d0366a` (§2a-EXEC: RTO 22.1s kill→writable, 1.42s promote, zero
 data loss — the North-Star-4 cnpg-pair proof). The **remaining #3375 ❌ (6)** are the
 **openbao-raft** promotion (a distinct mechanism, its own failover drive) + the
 **gitea-app-served-from-promoted-region UI flow** (DB layer proven). Evidence:
