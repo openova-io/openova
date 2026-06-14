@@ -123,7 +123,22 @@ name: bp-powerdns-admin
 # next Pod picks up the OIDC env and /oidc/login 302s to KC -> owner lands on
 # /dashboard/ signed-in (verified live hw136: full Administration sidebar incl.
 # Users, signed in as emrah.baysal@openova.io).
-version: 0.1.15
+# 0.1.16 (#3374, 2026-06-15): the 0.1.15 Reloader annotation proved UNRELIABLE
+# on a fresh prov — measured live on hw138 (dep 4b5ff7852e33fc15): the
+# `secret.reloader.stakater.com/reload` annotation WAS on the Deployment and
+# bp-reloader WAS Running, yet the PDA Pod was NEVER rolled (108min old, never
+# restarted; the running env had EMPTY OIDC_OAUTH_AUTHORIZE_URL while the
+# synced `pda-sso-oidc-credentials` Secret carried the real URL) -> every
+# bare-URL /oidc/login still 500'd ("Missing authorize_url"). Reloader's
+# annotation strategy is racy on the FIRST secret CREATION (vs a rotation).
+# ROBUST FIX: add a `wait-for-oidc` initContainer that blocks the main
+# container until `pda-sso-oidc-credentials` exists AND
+# OIDC_OAUTH_AUTHORIZE_URL is non-empty, so kubelet evaluates `envFrom` only
+# after the Secret is populated -> the OIDC env is NEVER empty at first serve
+# -> /oidc/login deterministically 302s to Keycloak from t=0. The Reloader
+# annotation is KEPT for live rotations. Event-deterministic, zero-touch,
+# fresh-prov-safe. Gated on sso.oidcReadinessGate.enabled (default true).
+version: 0.1.16
 description: |
   PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI Blueprint for
   per-Sovereign PowerDNS zone + record management. Drives the

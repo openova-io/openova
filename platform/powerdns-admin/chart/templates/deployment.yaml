@@ -63,6 +63,91 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if .Values.sso.enabled }}
+      {{- $oidcGate := .Values.sso.oidcReadinessGate | default dict }}
+      {{- /* default-true gate that RESPECTS an explicit `false`: the Helm
+         `default true <bool>` idiom wrongly coerces an explicit false back to
+         true because false is the bool zero-value. Test key presence + value
+         directly (same idiom as the newapi httproute ssoInit gate). */}}
+      {{- $oidcGateOn := or (not (hasKey $oidcGate "enabled")) $oidcGate.enabled }}
+      {{- if $oidcGateOn }}
+      initContainers:
+        # #3374 (2026-06-14) — OIDC-readiness gate. THE ROBUST FIX for the
+        # fresh-prov HTTP 500. The OIDC env (OIDC_OAUTH_AUTHORIZE_URL/_TOKEN_URL/
+        # _KEY/_SECRET …) is injected into the main container via
+        # `envFrom.secretRef: pda-sso-oidc-credentials` (optional: true), and
+        # kubelet evaluates `envFrom` EXACTLY ONCE at container creation. On a
+        # fresh prov the PDA Pod starts ~3min BEFORE bp-sso-bridge mints the
+        # Keycloak client + projects that ExternalSecret (measured live: Pod
+        # created 15:38:44Z, Secret created 15:41:41Z on hw138), so the main
+        # container boots with EMPTY OIDC_OAUTH_AUTHORIZE_URL → PDA's
+        # Setting().get() returns '' → authlib raises `Missing "authorize_url"
+        # value` (routes/index.py oidc_login) → the bare-URL zero-click 302
+        # lands on PDA's own HTTP 500, never on Keycloak.
+        #
+        # The Stakater Reloader annotation (below, kept for ROTATIONS) was the
+        # prior-only mechanism and is NOT reliable for the FIRST secret
+        # CREATION on a fresh prov — measured live on hw138 the annotation was
+        # present yet Reloader never rolled the Pod (108min old, never
+        # restarted; zero reload activity in its log) → the env stayed empty
+        # and /oidc/login 500'd the whole 108min the env was up. An
+        # init-container is event-deterministic: the main container CANNOT
+        # start until the OIDC Secret exists AND OIDC_OAUTH_AUTHORIZE_URL is
+        # populated, so `envFrom` ALWAYS sees the real values at container
+        # creation and the env is NEVER empty at first serve. Kubernetes
+        # refreshes a mounted Secret in place within ~60s of the ExternalSecret
+        # sync, so this gate clears with NO Pod restart once bp-sso-bridge
+        # publishes. Fresh-prov-safe, zero-touch. Gated on sso.enabled (a
+        # non-SSO Sovereign emits no init-container) and individually opt-out
+        # via sso.oidcReadinessGate.enabled=false.
+        #
+        # Image = the PDA image itself: it has /bin/sh + /bin/cat, and matches
+        # the SAME kyverno harbor-proxy glob (*/proxy-*/*) as the main
+        # container, so kyverno harbor-proxy-pull's anyPattern (which requires
+        # ONE allowed glob to match BOTH initContainers AND containers) passes
+        # — a curl/dockerhub image would be DENIED (the bp-guacamole jdbc-seed
+        # + bp-newapi dsn-gate lesson). Operators override via
+        # sso.oidcReadinessGate.image with any image matching the glob.
+        - name: wait-for-oidc
+          image: {{ $oidcGate.image | default (printf "%s:%s" .Values.image.repository .Values.image.tag) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              # The OIDC Secret is projected at /oidc/OIDC_OAUTH_AUTHORIZE_URL.
+              # Wait until bp-sso-bridge's ExternalSecret has materialised a
+              # NON-EMPTY authorize URL (the key that makes authlib's
+              # register() succeed). `-s` = exists AND non-zero size.
+              TIMEOUT={{ $oidcGate.timeoutSeconds | default 600 }}
+              INTERVAL={{ $oidcGate.intervalSeconds | default 5 }}
+              echo "[oidc-gate] waiting for a non-empty OIDC_OAUTH_AUTHORIZE_URL at /oidc (budget ${TIMEOUT}s)"
+              deadline=$(( $(date +%s) + TIMEOUT ))
+              while [ "$(date +%s)" -lt "${deadline}" ]; do
+                if [ -s /oidc/OIDC_OAUTH_AUTHORIZE_URL ]; then
+                  echo "[oidc-gate] OIDC_OAUTH_AUTHORIZE_URL populated — PDA will register the OIDC provider"
+                  exit 0
+                fi
+                sleep "${INTERVAL}"
+              done
+              echo "[oidc-gate] FATAL: OIDC_OAUTH_AUTHORIZE_URL still empty after ${TIMEOUT}s — bp-sso-bridge did not project pda-sso-oidc-credentials; refusing to boot into a guaranteed /oidc/login HTTP 500" >&2
+              exit 1
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: oidc-credentials
+              mountPath: /oidc
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      {{- end }}
+      {{- end }}
       containers:
         - name: powerdns-admin
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -222,3 +307,18 @@ spec:
         - name: app-upload
           emptyDir:
             sizeLimit: 64Mi
+        {{- if .Values.sso.enabled }}
+        {{- $oidcGate := .Values.sso.oidcReadinessGate | default dict }}
+        {{- $oidcGateOn := or (not (hasKey $oidcGate "enabled")) $oidcGate.enabled }}
+        {{- if $oidcGateOn }}
+        # #3374: the bp-sso-bridge OIDC ExternalSecret, projected so the
+        # wait-for-oidc initContainer can block until OIDC_OAUTH_AUTHORIZE_URL
+        # is populated. optional: true so a non-SSO / pre-sync render still
+        # mounts (the gate then polls until the key appears). Same Secret the
+        # main container reads via envFrom.
+        - name: oidc-credentials
+          secret:
+            secretName: pda-sso-oidc-credentials
+            optional: true
+        {{- end }}
+        {{- end }}
