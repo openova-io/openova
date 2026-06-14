@@ -1,0 +1,12 @@
+## KILL: region-a primary down (3 nodes cordoned, primary pods force-deleted)
+### region-a nodes (3 workers SchedulingDisabled; cp1 + others untouched):
+catalyst-hw136-omani-works-3a2ee904-me-east-215-a-cp1-b1e0ed Ready
+catalyst-hw136-omani-works-3a2ee904-me-east-215-a-w49f9d1 Ready,SchedulingDisabled
+catalyst-hw136-omani-works-3a2ee904-me-east-215-a-w6d1cef Ready,SchedulingDisabled
+catalyst-hw136-omani-works-3a2ee904-me-east-215-a-w814477 Ready,SchedulingDisabled
+
+### region-a primary cluster (0 READY, can't reschedule):
+NAME                             AGE   INSTANCES   READY   STATUS                                       PRIMARY
+cnpg-pair-bp-cnpg-pair-primary   76m   3                   Waiting for the instances to become active   cnpg-pair-bp-cnpg-pair-primary-1
+NAME                               READY   STATUS    RESTARTS   AGE   IP       NODE     NOMINATED NODE   READINESS GATES
+cnpg-pair-bp-cnpg-pair-primary-1   0/1     Pending   0          94s   <none>   <none>   <none>           <none>
