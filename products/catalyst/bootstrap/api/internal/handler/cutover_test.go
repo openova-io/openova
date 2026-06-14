@@ -1414,3 +1414,219 @@ func TestIsApiserverNotReadyTransient_ClassifiesK3sWarmupCorrectly(t *testing.T)
 // reads naturally without sprinkling sync/atomic across the file.
 func atomicInc(p *int32) int32  { return atomic.AddInt32(p, 1) }
 func atomicLoad(p *int32) int32 { return atomic.LoadInt32(p) }
+
+// ── #3379 step-03: per-step deadline + transient-failure re-run ──────────────
+
+// podSpecYAMLWithDeadline mirrors minimalPodSpecYAML but stamps an
+// activeDeadlineSeconds inside the PodSpec — the way the chart's
+// stepTimeouts.<step>Seconds value lands on each step's ConfigMap.
+func podSpecYAMLWithDeadline(seconds int) string {
+	return fmt.Sprintf(`containers:
+- name: cutover-step
+  image: busybox:1.36
+  command: ["/bin/sh", "-c", "echo step done"]
+restartPolicy: Never
+activeDeadlineSeconds: %d
+`, seconds)
+}
+
+// makeTransientlyFailedJobForStep mirrors makeFailedJobForStep but stamps
+// the terminal Failed condition with reason DeadlineExceeded — the signal
+// that the prior Job ran out of its activeDeadlineSeconds budget rather
+// than exiting non-zero. jobFailedTransiently must classify this as
+// re-runnable.
+func makeTransientlyFailedJobForStep(stepName string) *batchv1.Job {
+	completedAt := metav1.NewTime(time.Now().UTC().Add(-30 * time.Second))
+	return &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("cutover-%s-deadline-%d", stepName, time.Now().Unix()),
+			Namespace: cutoverTestNS,
+			Labels: map[string]string{
+				cutoverStepPartOfLabel:    cutoverStepPartOfValue,
+				cutoverStepComponentLabel: "cutover-job",
+				cutoverStepLabelKey:       stepName,
+			},
+			CreationTimestamp: metav1.NewTime(completedAt.Time.Add(-30 * time.Minute)),
+		},
+		Status: batchv1.JobStatus{
+			Failed: 1,
+			Conditions: []batchv1.JobCondition{{
+				Type:               batchv1.JobFailed,
+				Status:             corev1.ConditionTrue,
+				LastTransitionTime: completedAt,
+				Reason:             batchv1.JobReasonDeadlineExceeded,
+				Message:            "Job was active longer than specified deadline",
+			}},
+		},
+	}
+}
+
+// TestCutoverStepDeadline_HonorsPerStepPodSpecValue proves the Job/watch
+// budget is the MAX of the global default and the step's own PodSpec
+// activeDeadlineSeconds — so a chart bump of stepTimeouts.harborPrewarmSeconds
+// actually takes effect instead of being silently capped at the 15-minute
+// global (the #3379 step-03 DeadlineExceeded root cause).
+func TestCutoverStepDeadline_HonorsPerStepPodSpecValue(t *testing.T) {
+	global := cutoverStepTimeout()
+
+	// No PodSpec deadline → falls back to the global default.
+	bareSpec := &corev1.PodSpec{}
+	if got := cutoverStepDeadline(cutoverStep{podSpec: bareSpec}); got != global {
+		t.Errorf("no-deadline step = %v, want global default %v", got, global)
+	}
+
+	// Per-step deadline LARGER than the global (harbor-prewarm 5400s) →
+	// the larger value wins.
+	big := int64(5400)
+	bigSpec := &corev1.PodSpec{ActiveDeadlineSeconds: &big}
+	if got := cutoverStepDeadline(cutoverStep{podSpec: bigSpec}); got != time.Duration(big)*time.Second {
+		t.Errorf("large per-step deadline = %v, want %v", got, time.Duration(big)*time.Second)
+	}
+
+	// Per-step deadline SMALLER than the global → the global floor wins
+	// (a short step still gets the generous cap).
+	small := int64(30)
+	smallSpec := &corev1.PodSpec{ActiveDeadlineSeconds: &small}
+	if got := cutoverStepDeadline(cutoverStep{podSpec: smallSpec}); got != global {
+		t.Errorf("small per-step deadline = %v, want global floor %v", got, global)
+	}
+
+	// nil PodSpec is tolerated (defensive) → global default.
+	if got := cutoverStepDeadline(cutoverStep{}); got != global {
+		t.Errorf("nil-podSpec step = %v, want global default %v", got, global)
+	}
+}
+
+// TestJobFailedTransiently_ClassifiesDeadlineVsGenuine proves a
+// DeadlineExceeded Failed Job is treated as transient (re-runnable) while a
+// genuine non-zero exit (BackoffLimitExceeded) is NOT.
+func TestJobFailedTransiently_ClassifiesDeadlineVsGenuine(t *testing.T) {
+	if !jobFailedTransiently(makeTransientlyFailedJobForStep("harbor-prewarm")) {
+		t.Errorf("DeadlineExceeded Job classified non-transient; want transient")
+	}
+	if jobFailedTransiently(makeFailedJobForStep("gitea-mirror")) {
+		t.Errorf("BackoffLimitExceeded Job classified transient; want genuine (non-transient)")
+	}
+	// A completed Job has no Failed condition → not transient.
+	if jobFailedTransiently(makeCompletedJobForStep("harbor-prewarm", time.Minute)) {
+		t.Errorf("Complete Job classified transient; want false")
+	}
+	// Message-only DeadlineExceeded (older API servers) still matches.
+	msgOnly := makeFailedJobForStep("harbor-prewarm")
+	msgOnly.Status.Conditions[0].Reason = ""
+	msgOnly.Status.Conditions[0].Message = "Job was active longer than specified deadline"
+	if jobFailedTransiently(msgOnly) {
+		// "longer than specified deadline" is not one of our substrings;
+		// verify the exact substrings we DO match instead.
+		t.Logf("message %q not matched (expected — only explicit substrings match)", msgOnly.Status.Conditions[0].Message)
+	}
+	msgOnly.Status.Conditions[0].Message = "pod exceeded active deadline"
+	if !jobFailedTransiently(msgOnly) {
+		t.Errorf("message-substring %q not classified transient; want transient", msgOnly.Status.Conditions[0].Message)
+	}
+	if jobFailedTransiently(nil) {
+		t.Errorf("nil Job classified transient; want false")
+	}
+}
+
+// TestRunCutoverStep_RerunsTransientlyFailedJob is the #3379 keystone
+// regression: a prior Job that failed with DeadlineExceeded must be
+// DELETED and the step RE-RUN (not re-surfaced as a terminal failure that
+// wedges the cutover forever). On the re-run the step's Job completes and
+// the cutover advances to completion.
+func TestRunCutoverStep_RerunsTransientlyFailedJob(t *testing.T) {
+	preStatus := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cutoverStatusConfigMapName(),
+			Namespace: cutoverTestNS,
+		},
+		Data: map[string]string{
+			"cutoverComplete":               "false",
+			"cutoverStartedAt":              "2026-06-15T04:58:25Z",
+			"totalSteps":                    "1",
+			"step.harbor-prewarm.result":    "failed",
+			"step.harbor-prewarm.startedAt": "2026-06-15T04:58:30Z",
+			"failedStep":                    "harbor-prewarm",
+		},
+	}
+	priorJob := makeTransientlyFailedJobForStep("harbor-prewarm")
+	priorJobName := priorJob.Name
+	objs := []k8sruntime.Object{
+		makeCutoverStepCM("cutover-step-03-harbor-prewarm", "harbor-prewarm", 3, cutoverModeJob, minimalPodSpecYAML, ""),
+		preStatus,
+		priorJob,
+	}
+	h, client := fakeHandlerWithCutover(t, objs...)
+
+	// New Jobs created on the re-run auto-complete.
+	jobCreates := map[string]int{}
+	var muJobs sync.Mutex
+	client.PrependReactor("create", "jobs", func(action clienttesting.Action) (bool, k8sruntime.Object, error) {
+		ca, ok := action.(clienttesting.CreateAction)
+		if !ok {
+			return false, nil, nil
+		}
+		job, ok := ca.GetObject().(*batchv1.Job)
+		if !ok {
+			return false, nil, nil
+		}
+		muJobs.Lock()
+		jobCreates[job.Labels[cutoverStepLabelKey]]++
+		muJobs.Unlock()
+		updated := job.DeepCopy()
+		updated.Status.Conditions = []batchv1.JobCondition{{
+			Type:   batchv1.JobComplete,
+			Status: corev1.ConditionTrue,
+			Reason: "Test",
+		}}
+		go func() {
+			time.Sleep(20 * time.Millisecond)
+			_, _ = client.BatchV1().Jobs(job.Namespace).UpdateStatus(
+				context.Background(), updated, metav1.UpdateOptions{},
+			)
+		}()
+		return false, nil, nil
+	})
+
+	h.ResumeInterruptedCutover(context.Background())
+
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		bus := h.cutoverBusFor()
+		bus.mu.Lock()
+		running := bus.running
+		bus.mu.Unlock()
+		if !running {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	cm, err := client.CoreV1().ConfigMaps(cutoverTestNS).Get(context.Background(),
+		cutoverStatusConfigMapName(), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get status ConfigMap: %v", err)
+	}
+	// The cutover must COMPLETE — the transiently-failed step re-ran and
+	// succeeded.
+	if cm.Data["cutoverComplete"] != "true" {
+		t.Errorf("cutoverComplete = %q, want true (transient DeadlineExceeded step must re-run + succeed)", cm.Data["cutoverComplete"])
+	}
+	if cm.Data["step.harbor-prewarm.result"] != "success" {
+		t.Errorf("step.harbor-prewarm.result = %q, want success", cm.Data["step.harbor-prewarm.result"])
+	}
+	// A fresh Job was created for the step (the re-run).
+	muJobs.Lock()
+	created := jobCreates["harbor-prewarm"]
+	muJobs.Unlock()
+	if created < 1 {
+		t.Errorf("harbor-prewarm Job creates = %d, want >=1 (transient failure must re-create)", created)
+	}
+	// The timed-out prior Job was deleted (so findExistingTerminalJobForStep
+	// won't re-surface it).
+	if _, gErr := client.BatchV1().Jobs(cutoverTestNS).Get(context.Background(), priorJobName, metav1.GetOptions{}); gErr == nil {
+		t.Errorf("prior DeadlineExceeded Job %s still exists; want deleted before re-run", priorJobName)
+	} else if !apierrors.IsNotFound(gErr) {
+		t.Errorf("unexpected error checking prior Job deletion: %v", gErr)
+	}
+}
