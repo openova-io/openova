@@ -129,7 +129,11 @@ spec:
       # postgres.cluster.enabled gate + databaseSecret.name flip so PDA
       # adopts the shared-pg-b `pda` Context (one-flag enable_shared_pg
       # contract, the gitea/harbor/keycloak shape).
-      version: 0.1.13
+      # 0.1.14 (#3486): embedded path reads the CNPG pda-pg-app Secret
+      # directly — retires the racy reflects: pull-mirror that left
+      # pda-database-secret empty and looped the install forever (wedged
+      # bootstrap-kit -> sovereign-tls -> wildcard cert -> console 000).
+      version: 0.1.14
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns-admin
