@@ -117,6 +117,14 @@ type ContinuumReconciler struct {
 	// Drainer — HTTPRoute weight flipper. Shared across CRs.
 	Drainer switchover.HTTPRouteDrainer
 
+	// RaftPromoter serves the `raft-transition` switchover mechanism
+	// (bp-openbao): restore the staged snapshot + `bao operator raft
+	// transition-to-primary` via Pod exec on the surviving standby.
+	// Wired in cmd/main.go from a pod-exec backend. Nil = raft-transition
+	// CRs fail at step-2 with a clear error (cnpg-pair CRs unaffected).
+	// (#3492)
+	RaftPromoter switchover.Promoter
+
 	// HealthOpts carries the F-3 post-switchover health-check
 	// dependencies (DNS resolver fanout + audit-tail). Fields nil =
 	// the corresponding check is recorded as deferred.
@@ -363,8 +371,10 @@ func (r *ContinuumReconciler) runSwitchover(
 		ApplicationName:    spec.ApplicationRef,
 		FromRegion:         spec.PrimaryRegion,
 		ToRegion:           toRegion,
+		Mechanism:          spec.Mechanism,
 		CNPGPair:           spec.CNPGPair,
 		CNPGNamespace:      spec.CNPGNamespace,
+		RaftTransition:     spec.RaftTransition,
 		HTTPRouteName:      spec.HTTPRouteName,
 		HTTPRouteNamespace: spec.HTTPRouteNamespace,
 		PDMZone:            spec.PDMZone,
@@ -383,8 +393,9 @@ func (r *ContinuumReconciler) runSwitchover(
 
 	zone := plan.PDMZone
 	seq := &switchover.Sequencer{
-		CNPG:    r.cnpgReader(),
-		Witness: w,
+		CNPG:         r.cnpgReader(),
+		RaftPromoter: r.RaftPromoter,
+		Witness:      w,
 		PDMCommit: func(ctx context.Context, records []dns.Record) error {
 			if r.PDMClient == nil {
 				return errors.New("PDMClient not configured")
@@ -999,7 +1010,7 @@ func (r *ContinuumReconciler) publishLeaseCollision(ctx context.Context, nn type
 // the same as switchover.planFingerprint — that one's input is a
 // SwitchoverPlan, this one's input is a ContinuumSpec.
 func switchoverSpecFingerprint(spec ContinuumSpec) string {
-	return fmt.Sprintf("primary=%s|hot=%v|kind=%s|ttl=%d|renew=%d|rto=%d|auto=%t|pair=%s/%s|hr=%s/%s|zone=%s",
+	return fmt.Sprintf("primary=%s|hot=%v|kind=%s|ttl=%d|renew=%d|rto=%d|auto=%t|mech=%s|pair=%s/%s|raft=%s/%s/%s|hr=%s/%s|zone=%s",
 		spec.PrimaryRegion,
 		spec.HotStandbyRegions,
 		spec.LeaseClientKind,
@@ -1007,7 +1018,9 @@ func switchoverSpecFingerprint(spec ContinuumSpec) string {
 		spec.RenewSeconds,
 		spec.RTOSeconds,
 		spec.AutoFailover,
+		spec.Mechanism,
 		spec.CNPGNamespace, spec.CNPGPair,
+		spec.RaftTransition.Namespace, spec.RaftTransition.Pod, spec.RaftTransition.PodSelector,
 		spec.HTTPRouteNamespace, spec.HTTPRouteName,
 		spec.PDMZone,
 	)

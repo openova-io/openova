@@ -59,3 +59,42 @@ spec:
   rto: 5m
   rpo: 1m
   autoFailover: false
+---
+# #3492 — openbao raft-transition sample. active-passive secret backend;
+# switchover.mechanism=raft-transition drives `bao operator raft snapshot
+# restore` + `transition-to-primary` on the surviving standby Pod. No
+# cnpgPair (raft-transition needs no CNPG cluster-pair).
+apiVersion: dr.openova.io/v1
+kind: Continuum
+metadata:
+  name: cont-openbao
+  namespace: openbao
+spec:
+  applicationRef: openbao
+  primaryRegion: hz-fsn-rtz-prod
+  hotStandbyRegions:
+    - hz-hel-rtz-prod
+  switchover:
+    mechanism: raft-transition
+    raftTransition:
+      namespace: openbao
+      podSelector: app.kubernetes.io/name=openbao
+      container: openbao
+      snapshotPath: /snapshots/latest.snap
+      baoBinary: bao
+  leaseClient:
+    kind: dns-quorum
+    config:
+      resolvers:
+        - 10.43.0.10
+        - 10.43.0.11
+        - 10.43.0.12
+      ttlSeconds: 30
+      renewSeconds: 10
+  luaRecord:
+    selector: ifurlup
+    healthCheck:
+      url: https://bao.t99.omani.works/v1/sys/health
+  rto: 60s
+  rpo: 30s
+  autoFailover: false

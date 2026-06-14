@@ -53,6 +53,19 @@ rules:
   - apiGroups: ["gateway.networking.k8s.io"]
     resources: ["httproutes"]
     verbs: ["get", "list", "watch", "update", "patch"]
+  # #3492 — raft-transition mechanism (bp-openbao). The switchover
+  # sequence's promote step execs `bao operator raft snapshot restore` +
+  # `transition-to-primary` inside the surviving openbao standby Pod, and
+  # resolves a podSelector to a Ready Pod. cnpg-pair switchovers never use
+  # these; the grant ships up-front per Inviolable Principle #1
+  # (target-state shape). pods/exec is the create-verb subresource the
+  # SPDY exec stream requires.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

@@ -39,7 +39,13 @@ type: application
 # 0.1.0 sat in-tree without a bootstrap-kit slot to pin it, so the
 # blueprint-release workflow's `detect changed paths` step never had
 # reason to re-run and the chart was never pushed to GHCR.
-version: 0.1.5
+# 0.1.6 (#3492, 2026-06-14): the switchover sequencer gains a
+# per-mechanism Promoter seam — cnpg-pair (default, byte-identical) +
+# raft-transition (bp-openbao: `bao operator raft snapshot restore` +
+# `transition-to-primary` via Pod exec on the surviving standby). RBAC
+# adds pods + pods/exec for the raft promotion. Slot-62 pin moves to
+# 0.1.6 in lockstep (Inviolable Principle #13).
+version: 0.1.6
 appVersion: "0.1.0"
 home: https://openova.io
 sources:
