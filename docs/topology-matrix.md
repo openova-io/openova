@@ -58,7 +58,7 @@ fields sourced from the agreement row + chart citations (never invented):
 |---|---|---|:---:|---|:---:|
 | bp-catalyst-platform | active-hot-standby: mgmt-A,mgmt-B | matches-row | implements-row(cited:cnpg-pair) | cnpg-pair sync (hw128 PASS pattern) | pending |
 | bp-keycloak | active-hot-standby: mgmt-A,mgmt-B | matches-row | implements-row(cited:cnpg-pair) | cnpg-pair sync (hw128 PASS pattern) | pending |
-| bp-openbao | active-passive: mgmt-A,mgmt-B | matches-row | implements-row(this-ticket) | PRIORITY §6 — openbao-perf-replication | pending |
+| bp-openbao | active-passive: mgmt-A,mgmt-B | matches-row | implements-row(this-ticket) | snapshot-replication (state) + bp-continuum raft-transition promotion (engine, #3492) both wired | pending |
 | bp-gitea | active-hot-standby: mgmt-A,mgmt-B | matches-row | implements-row(this-ticket) | PRIORITY §6 — cnpg-pair | pending |
 | bp-harbor | active-hot-standby: mgmt-A,mgmt-B | matches-row + orphan-placementSchema→remove | implements-row(cited:cnpg-pair) | cnpg-pair sync (hw128 PASS pattern) | pending |
 | bp-grafana | active-hot-standby: mgmt-A,mgmt-B | matches-row | implements-row(cited:cnpg-pair) | cnpg-pair sync (hw128 PASS pattern) | pending |

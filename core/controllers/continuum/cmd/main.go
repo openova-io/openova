@@ -189,6 +189,24 @@ func main() {
 		}
 	}
 
+	// #3492 — raft-transition promotion backend (bp-openbao). The
+	// RaftExecPromoter execs `bao operator raft snapshot restore` +
+	// `transition-to-primary` into the surviving openbao standby Pod via
+	// SPDY exec; the PodLister resolves a podSelector to a Ready Pod.
+	// cnpg-pair CRs never touch this path. A nil executor (clientset
+	// init failure) leaves raft-transition CRs failing at step-2 with a
+	// clear "no RaftPromoter wired" error rather than crashing the
+	// controller — cnpg-pair DR is unaffected.
+	var raftPromoter switchover.Promoter
+	if execBackend, err := newSPDYPodExecutor(ctrl.GetConfigOrDie()); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: raft-transition exec backend init failed (%v); raft-transition switchovers will error until fixed (cnpg-pair unaffected)\n", err)
+	} else {
+		raftPromoter = &switchover.RaftExecPromoter{
+			Exec:   execBackend,
+			Lister: newDynamicPodLister(dyn),
+		}
+	}
+
 	r := &controller.ContinuumReconciler{
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
@@ -198,6 +216,7 @@ func main() {
 		PDMClient:       pdmClient,
 		Audit:           audit,
 		Drainer:         switchover.NewDynamicHTTPRouteDrainer(dyn),
+		RaftPromoter:    raftPromoter,
 		HealthDelay:     healthDelay,
 		HealthOpts: switchover.HealthOptions{
 			// Production: 8.8.8.8 / 1.1.1.1 / 9.9.9.9 multi-vantage

@@ -39,7 +39,13 @@ name: bp-openbao
 # syncer-mangled host Service name. snapshotReplication is default-OFF, so the
 # single-region render is byte-identical (the default applies only when enabled).
 # NOTE: 1.2.38 was never published to ghcr (see 1.2.39 above).
-version: 1.2.39
+# 1.2.40 (#3492, 2026-06-14): ship the openbao DR contract — a Continuum CR
+# (templates/continuum.yaml) declaring switchover.mechanism=raft-transition +
+# the standby Pod target so the bp-continuum engine can promote bp-openbao on
+# a region-kill (`bao operator raft snapshot restore` + `transition-to-primary`).
+# Skip-render gated on continuum.enabled=true AND snapshotReplication.role=
+# secondary, so the default single-region render is byte-identical.
+version: 1.2.40
 # 1.2.37 (#3374, 2026-06-14): fix the sso-landing nginx ImagePullBackOff. The
 # image was `harbor.openova.io/proxy-docker/library/nginx` but the live Harbor
 # DockerHub proxy-cache project is `proxy-dockerhub` (proxy-docker does NOT

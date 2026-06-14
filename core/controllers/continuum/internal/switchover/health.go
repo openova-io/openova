@@ -229,6 +229,20 @@ func (s *Sequencer) PostSwitchoverHealth(ctx context.Context, plan SwitchoverPla
 
 func (s *Sequencer) healthReplicas(ctx context.Context, plan SwitchoverPlan) HealthCheck {
 	c := HealthCheck{Name: CheckReplicasHealthy}
+	// The replicas-healthy check inspects a CNPG cluster-pair, which only
+	// the cnpg-pair mechanism has. For raft-transition (bp-openbao) there
+	// is no Cluster-CR pair — the meaningful post-promotion signal is the
+	// DNS-probe check (traffic lands on the promoted region) — so record
+	// this check as deferred rather than spuriously failing (#3492).
+	mech := plan.Mechanism
+	if mech == "" {
+		mech = DefaultMechanism
+	}
+	if mech != MechanismCNPGPair {
+		c.Deferred = true
+		c.Detail = fmt.Sprintf("deferred: replicas-healthy is cnpg-pair-specific; mechanism=%q has no Cluster-CR pair (DNS-probe check is the post-promotion health signal)", mech)
+		return c
+	}
 	if s.CNPG == nil {
 		c.Detail = "CNPG reader not configured"
 		return c

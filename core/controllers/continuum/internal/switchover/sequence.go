@@ -4,12 +4,20 @@
 // `from` (old primary) to `to` (new primary) goes through:
 //
 //	step-1  validate-lease     — confirm the lease holder is `from` (or that we hold quorum to take it)
-//	step-2  cordon-old         — annotate old CNPG primary so the operator stops accepting writes
+//	step-2  cordon-old         — stop the old primary accepting writes (mechanism-specific)
 //	step-3  drain-traffic      — flip Cilium HTTPRoute weight=0 toward old primary; sleep 10s
 //	step-4  flip-dns           — write the lua-record body via PDM /v1/lua/commit; the new primary's IPs come first
 //	step-5  swap-lease         — release the old lease, acquire the new lease against the witness
-//	step-6  uncordon-new       — clear cordon on old primary's CR; flip CNPG replica.enabled flags
+//	step-6  promote-new        — promote the standby to primary (mechanism-specific)
 //	step-7  audit              — emit `continuum-switchover` on NATS catalyst.audit
+//
+// Steps 2 + 6 are the only MECHANISM-SPECIFIC steps — they dispatch
+// through a per-mechanism Promoter (promoter.go). For the default
+// `cnpg-pair` mechanism they cordon via a `cnpg.io/cluster.primary`
+// annotation + flip `spec.replica.enabled` on the two Cluster CR halves;
+// for `raft-transition` (bp-openbao) they restore the staged Raft snapshot
+// + run `bao operator raft transition-to-primary` on the surviving standby
+// Pod (#3492). The other five steps are mechanism-agnostic.
 //
 // Each step is atomic and registers a rollback hook. On step-N
 // failure, steps {N-1 .. 1} are rolled back in reverse order. Steps
@@ -58,14 +66,28 @@ type SwitchoverPlan struct {
 	// ToRegion is the host-cluster name being promoted to primary.
 	ToRegion string
 
+	// Mechanism selects the state-store-promotion strategy for steps 2 +
+	// 6 (the only mechanism-specific steps). Empty defaults to
+	// `cnpg-pair` so existing Continuum CRs keep their prior behavior.
+	// `raft-transition` drives the bp-openbao promotion instead (#3492).
+	// Mirrors the Blueprint topology declaration's
+	// switchover.mechanism column (docs/topology-matrix.md).
+	Mechanism Mechanism
+
 	// CNPGPair is the pair name (label
 	// catalyst.openova.io/cnpg-pair) Continuum operates on. The
 	// sequencer's CNPG steps look up the (primary, replica) Cluster
-	// CRs by this label.
+	// CRs by this label. Required only for the cnpg-pair mechanism.
 	CNPGPair string
 
 	// CNPGNamespace is the K8s namespace the cluster-pair lives in.
 	CNPGNamespace string
+
+	// RaftTransition carries the openbao standby target for the
+	// `raft-transition` mechanism (namespace / pod / staged snapshot
+	// path). Ignored for cnpg-pair. Filled by the controller from the
+	// Continuum CR's spec.switchover.raftTransition block.
+	RaftTransition RaftTransitionTarget
 
 	// HTTPRouteName + HTTPRouteNamespace are the Gateway-API
 	// HTTPRoute resource the sequencer drains. Empty values make
@@ -151,8 +173,26 @@ func (p SwitchoverPlan) Validate() error {
 	if p.FromRegion == p.ToRegion {
 		return errors.New("plan: FromRegion == ToRegion (no-op)")
 	}
-	if p.CNPGPair == "" || p.CNPGNamespace == "" {
-		return errors.New("plan: CNPGPair + CNPGNamespace are required")
+	// Mechanism-specific required fields. Empty mechanism = cnpg-pair
+	// (the historical default).
+	mech := p.Mechanism
+	if mech == "" {
+		mech = DefaultMechanism
+	}
+	switch mech {
+	case MechanismCNPGPair:
+		if p.CNPGPair == "" || p.CNPGNamespace == "" {
+			return errors.New("plan: CNPGPair + CNPGNamespace are required for cnpg-pair mechanism")
+		}
+	case MechanismRaftTransition:
+		if p.RaftTransition.Namespace == "" {
+			return errors.New("plan: RaftTransition.Namespace is required for raft-transition mechanism")
+		}
+		if p.RaftTransition.Pod == "" && p.RaftTransition.PodSelector == "" {
+			return errors.New("plan: RaftTransition needs pod or podSelector for raft-transition mechanism")
+		}
+	default:
+		return fmt.Errorf("plan: unknown switchover mechanism %q", mech)
 	}
 	return nil
 }
@@ -171,8 +211,15 @@ type Result struct {
 // Sequencer executes a SwitchoverPlan.
 type Sequencer struct {
 	// CNPG is the cluster-CR reader/writer (primary annotation +
-	// replica.enabled flips).
+	// replica.enabled flips). Serves the default cnpg-pair promotion
+	// mechanism (steps 2 + 6).
 	CNPG *cnpg.Reader
+
+	// RaftPromoter serves the `raft-transition` promotion mechanism
+	// (bp-openbao). Nil unless the controller wires a pod-exec backend;
+	// a raft-transition plan with no RaftPromoter fails at step-2 with a
+	// clear "no RaftPromoter wired" error (#3492).
+	RaftPromoter Promoter
 
 	// Witness is the lease backend (in-memory for tests, CF-KV /
 	// dns-quorum in K-Cont-3).
@@ -318,30 +365,19 @@ func (s *Sequencer) steps(plan SwitchoverPlan) []stepFunc {
 			},
 		},
 
-		// Step 2 — cordon old primary writes by annotating its
-		// CNPG Cluster CR.
+		// Step 2 — cordon the old primary's writes. Mechanism-specific:
+		// cnpg-pair annotates the primary Cluster CR; raft-transition is
+		// a no-op (the old primary is in the killed region, nothing to
+		// fence — the survivor keeps serving reads). Dispatched through
+		// the per-mechanism Promoter (#3492).
 		{
 			name: "cordon-old-primary",
 			run: func(ctx context.Context) (func(ctx context.Context) error, error) {
-				if s.CNPG == nil {
-					return nil, errors.New("CNPG reader is required")
-				}
-				primary, _, err := s.CNPG.FindPair(ctx, plan.CNPGNamespace, plan.CNPGPair)
+				promoter, err := s.promoterFor(plan)
 				if err != nil {
-					return nil, fmt.Errorf("find pair: %w", err)
-				}
-				// Annotate primary CR with a marker pointing at the
-				// new target Pod = "<replica-pod-1>". For our purposes
-				// any non-empty string flags the operator that a
-				// switchover is requested. Real deployments coordinate
-				// the value with CNPG's per-instance naming; here we
-				// stamp "switchover-pending".
-				if err := s.CNPG.SetPrimaryAnnotation(ctx, plan.CNPGNamespace, primary.GetName(), "switchover-pending"); err != nil {
 					return nil, err
 				}
-				return func(ctx context.Context) error {
-					return s.CNPG.ClearPrimaryAnnotation(ctx, plan.CNPGNamespace, primary.GetName())
-				}, nil
+				return promoter.Cordon(ctx, plan)
 			},
 		},
 
@@ -420,32 +456,20 @@ func (s *Sequencer) steps(plan SwitchoverPlan) []stepFunc {
 			},
 		},
 
-		// Step 6 — uncordon new primary writes; flip CNPG replica
-		// flags so the new primary stops following WAL and the old
-		// primary starts following.
+		// Step 6 — promote the standby to primary. Mechanism-specific:
+		// cnpg-pair clears the cordon + flips replica.enabled on both
+		// Cluster CR halves; raft-transition restores the staged snapshot
+		// + runs `bao operator raft transition-to-primary` on the
+		// surviving openbao standby. Dispatched through the per-mechanism
+		// Promoter (#3492).
 		{
-			name: "uncordon-new-primary",
+			name: "promote-new-primary",
 			run: func(ctx context.Context) (func(ctx context.Context) error, error) {
-				primary, replica, err := s.CNPG.FindPair(ctx, plan.CNPGNamespace, plan.CNPGPair)
+				promoter, err := s.promoterFor(plan)
 				if err != nil {
-					return nil, fmt.Errorf("find pair (uncordon): %w", err)
-				}
-				// Clear the cordon annotation on what WAS primary
-				// (now replica) and flip replica.enabled on both.
-				if err := s.CNPG.ClearPrimaryAnnotation(ctx, plan.CNPGNamespace, primary.GetName()); err != nil {
 					return nil, err
 				}
-				if err := s.CNPG.SetReplicaEnabled(ctx, plan.CNPGNamespace, primary.GetName(), true); err != nil {
-					return nil, err
-				}
-				if err := s.CNPG.SetReplicaEnabled(ctx, plan.CNPGNamespace, replica.GetName(), false); err != nil {
-					return nil, err
-				}
-				return func(ctx context.Context) error {
-					_ = s.CNPG.SetReplicaEnabled(ctx, plan.CNPGNamespace, replica.GetName(), true)
-					_ = s.CNPG.SetReplicaEnabled(ctx, plan.CNPGNamespace, primary.GetName(), false)
-					return nil
-				}, nil
+				return promoter.Promote(ctx, plan)
 			},
 		},
 

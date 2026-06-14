@@ -77,8 +77,9 @@ func (r *ContinuumReconciler) SequencerFor(ns, name string) (*switchover.Sequenc
 
 	zone := spec.PDMZone
 	seq := &switchover.Sequencer{
-		CNPG:    r.cnpgReader(),
-		Witness: w,
+		CNPG:         r.cnpgReader(),
+		RaftPromoter: r.RaftPromoter,
+		Witness:      w,
 		PDMCommit: func(ctx context.Context, records []dns.Record) error {
 			if r.PDMClient == nil {
 				return errors.New("PDMClient not configured")
@@ -99,8 +100,10 @@ func (r *ContinuumReconciler) SequencerFor(ns, name string) (*switchover.Sequenc
 		ContinuumName:      types.NamespacedName{Namespace: ns, Name: name}.String(),
 		ApplicationName:    spec.ApplicationRef,
 		FromRegion:         spec.PrimaryRegion,
+		Mechanism:          spec.Mechanism,
 		CNPGPair:           spec.CNPGPair,
 		CNPGNamespace:      spec.CNPGNamespace,
+		RaftTransition:     spec.RaftTransition,
 		HTTPRouteName:      spec.HTTPRouteName,
 		HTTPRouteNamespace: spec.HTTPRouteNamespace,
 		PDMZone:            spec.PDMZone,

@@ -192,6 +192,71 @@ spec:
                     quorum confirms primary unreachable. If false,
                     controller surfaces alarm only and waits for manual
                     switchover via the Application page (UI in #1101).
+                switchover:
+                  type: object
+                  description: |
+                    Switchover orchestration knobs. `mechanism` selects the
+                    state-store-promotion strategy for the two
+                    mechanism-specific steps of the switchover sequence
+                    (cordon + promote); the other five steps (lease /
+                    drain-HTTP / flip-DNS / audit) are mechanism-agnostic.
+                    Mirrors the Blueprint topology declaration's
+                    switchover.mechanism column (docs/topology-matrix.md).
+                    Also carries the operator-initiated switchover request
+                    flags (requested / targetRegion / requestedBy / reason)
+                    patched by catalyst-api's POST .../switchover.
+                  properties:
+                    mechanism:
+                      type: string
+                      enum: [cnpg-pair, raft-transition]
+                      default: cnpg-pair
+                      description: |
+                        cnpg-pair (default) = bp-cnpg-pair promotion
+                        (cordon annotation + replica.enabled flip on the two
+                        Cluster CR halves). raft-transition = bp-openbao
+                        promotion (`bao operator raft snapshot restore` of
+                        the staged snapshot + `transition-to-primary` via
+                        Pod exec on the surviving standby; #3492).
+                    raftTransition:
+                      type: object
+                      description: |
+                        Openbao standby target for the raft-transition
+                        mechanism. Filled by the bp-openbao bootstrap-kit
+                        slot from the topology declaration. Ignored for
+                        cnpg-pair.
+                      properties:
+                        namespace:
+                          type: string
+                          description: openbao release namespace on the standby cluster.
+                        pod:
+                          type: string
+                          description: |
+                            Explicit standby Raft member Pod to promote
+                            (e.g. openbao-0). When empty, podSelector is
+                            used to discover the Ready Pod.
+                        podSelector:
+                          type: string
+                          description: |
+                            Label selector to find the standby Pod when pod
+                            is empty (e.g. app.kubernetes.io/name=openbao).
+                            The lexically-first Ready match is promoted.
+                        container:
+                          type: string
+                          default: openbao
+                          description: openbao container name inside the Pod.
+                        snapshotPath:
+                          type: string
+                          description: |
+                            On-Pod path the secondary snapshot-fetch CronJob
+                            staged latest.snap to (chart default
+                            /snapshots/latest.snap). Empty promotes from the
+                            standby's own on-disk Raft state (degraded).
+                        baoBinary:
+                          type: string
+                          default: bao
+                          description: openbao CLI name in the image (bao | vault).
+                      x-kubernetes-preserve-unknown-fields: true
+                  x-kubernetes-preserve-unknown-fields: true
               x-kubernetes-preserve-unknown-fields: true
             status:
               type: object

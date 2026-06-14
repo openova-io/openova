@@ -82,7 +82,11 @@ spec:
       # gate, which #3477 left asserting the pre-move s3 endpoint), wedging
       # `chart pull error: not found` on hw133 + every fresh prov. Test fixed +
       # version bumped so the pinned artifact is fetchable on ghcr.
-      version: 1.2.39
+      # 1.2.40 (#3492): ship the openbao DR contract (Continuum CR,
+      # mechanism=raft-transition) so bp-continuum can promote bp-openbao
+      # on a region-kill. Default-OFF (continuum.enabled + role=secondary),
+      # so the single-region render is byte-identical. Pin in lockstep.
+      version: 1.2.40
       sourceRef:
         kind: HelmRepository
         name: bp-openbao

@@ -131,7 +131,12 @@ spec:
       # fresh-prov walk).
       # 0.1.4 (#3189): prerequisite-check initContainer no longer
       # crashloops on single-region (no cnpg-pair) — exits 0 + idle-Ready.
-      version: 0.1.5
+      # 0.1.6 (#3492): switchover sequencer gains the per-mechanism
+      # Promoter seam — cnpg-pair (default) + raft-transition (bp-openbao
+      # `bao operator raft snapshot restore` + `transition-to-primary`
+      # via Pod exec on the surviving standby). RBAC adds pods +
+      # pods/exec. Pin moves in lockstep (Inviolable Principle #13).
+      version: 0.1.6
       sourceRef:
         kind: HelmRepository
         name: bp-continuum
