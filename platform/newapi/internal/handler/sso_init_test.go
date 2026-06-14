@@ -9,8 +9,19 @@ import (
 	"testing"
 )
 
+// fullConfig is the production shape: slug + authorize URL + client_id seeded
+// by the bp-newapi admin-sso-seed-job.
+func fullConfig() SSOInitConfig {
+	return SSOInitConfig{
+		Slug:         "sovereign",
+		AuthorizeURL: "https://auth.hw138.omani.works/realms/sovereign/protocol/openid-connect/auth?kc_idp_hint=catalyst-pin",
+		ClientID:     "newapi-admin",
+		Scopes:       "openid profile email groups",
+	}
+}
+
 func TestSSOInitHandler_ServesLandingAtRoot(t *testing.T) {
-	h := SSOInitHandler(SSOInitConfig{Slug: "sovereign"})
+	h := SSOInitHandler(fullConfig())
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	h(rec, req)
@@ -22,18 +33,32 @@ func TestSSOInitHandler_ServesLandingAtRoot(t *testing.T) {
 		t.Fatalf("Content-Type = %q, want text/html", ct)
 	}
 	body := rec.Body.String()
-	// The page must run NewAPI's own init sequence: mint state, read the
-	// provider, redirect to the authorize URL.
+	// 0.1.16: the page mints state, then redirects DIRECTLY to the
+	// chart-provided authorize URL — it must NOT read provider discovery from
+	// /api/status (v0.13.2 does not expose custom_oauth_providers there).
 	for _, want := range []string{
-		"/api/oauth/state",
-		"/api/status",
-		"custom_oauth_providers",
-		"/oauth/\" + p.slug", // redirect_uri construction
+		"/api/oauth/state",  // the only runtime dependency (CSRF state + cookie)
+		`"sovereign"`,       // the seeded provider slug, embedded as a JS literal
+		`/realms/sovereign`, // the injected authorize URL is present
+		// kc_idp_hint carried through. html/template JS-escapes `=` to the
+		// unicode escape `=` inside the JS string literal; the browser
+		// decodes it back at parse time, so the runtime URL is correct. Assert
+		// the param name + value (neither is escaped) to prove it's present.
+		`kc_idp_hint`,
+		`catalyst-pin`,
+		`"newapi-admin"`,   // the injected client_id is present
+		`"/oauth/" + SLUG`, // redirect_uri construction matches the SPA
 		"window.location.replace(url)",
-		`"sovereign"`, // the seeded provider slug, embedded as a JS literal
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("landing page missing %q", want)
+		}
+	}
+	// It must NOT depend on the non-existent /api/status custom_oauth_providers
+	// field — that dependency was the #3374 0.1.16 defect.
+	for _, banned := range []string{"/api/status", "custom_oauth_providers"} {
+		if strings.Contains(body, banned) {
+			t.Errorf("landing page still references %q — the unreliable runtime-discovery path", banned)
 		}
 	}
 	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
@@ -41,13 +66,39 @@ func TestSSOInitHandler_ServesLandingAtRoot(t *testing.T) {
 	}
 }
 
-func TestSSOInitHandler_DefaultsSlug(t *testing.T) {
-	// Empty slug must default to "sovereign".
-	h := SSOInitHandler(SSOInitConfig{Slug: ""})
+func TestSSOInitHandler_DefaultsSlugAndScopes(t *testing.T) {
+	// Empty slug must default to "sovereign"; empty scopes to the full set.
+	h := SSOInitHandler(SSOInitConfig{
+		Slug:         "",
+		AuthorizeURL: "https://auth.x/realms/sovereign/protocol/openid-connect/auth",
+		ClientID:     "newapi-admin",
+		Scopes:       "",
+	})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	if !strings.Contains(rec.Body.String(), `"sovereign"`) {
+	body := rec.Body.String()
+	if !strings.Contains(body, `"sovereign"`) {
 		t.Errorf("empty slug did not default to \"sovereign\"")
+	}
+	if !strings.Contains(body, `"openid profile email groups"`) {
+		t.Errorf("empty scopes did not default to the full scope set")
+	}
+}
+
+func TestSSOInitHandler_DegradesWhenAuthorizeURLMissing(t *testing.T) {
+	// Without an authorize URL / client_id the page must degrade to the SPA
+	// /login link, not build a broken redirect (graceful for older overlays).
+	h := SSOInitHandler(SSOInitConfig{Slug: "sovereign"})
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / status = %d, want 200 (still serves the page)", rec.Code)
+	}
+	// The guard `if (!AUTHORIZE_URL || !CLIENT_ID) return fallback();` must be
+	// present so a missing config degrades gracefully.
+	if !strings.Contains(body, "!AUTHORIZE_URL || !CLIENT_ID") {
+		t.Errorf("missing the graceful-degrade guard for an unset authorize URL")
 	}
 }
 
@@ -55,7 +106,7 @@ func TestSSOInitHandler_404sNonRootPath(t *testing.T) {
 	// Belt-and-braces: even though the HTTPRoute only sends the bare root
 	// here, the handler must NOT serve the landing page for any other path
 	// (it would shadow the SPA / API if the route were ever misconfigured).
-	h := SSOInitHandler(SSOInitConfig{Slug: "sovereign"})
+	h := SSOInitHandler(fullConfig())
 	for _, p := range []string{"/console", "/api/status", "/oauth/sovereign", "/assets/x.js"} {
 		rec := httptest.NewRecorder()
 		h(rec, httptest.NewRequest(http.MethodGet, p, nil))
@@ -66,7 +117,7 @@ func TestSSOInitHandler_404sNonRootPath(t *testing.T) {
 }
 
 func TestSSOInitHandler_HeadOK_PostRejected(t *testing.T) {
-	h := SSOInitHandler(SSOInitConfig{Slug: "sovereign"})
+	h := SSOInitHandler(fullConfig())
 
 	recHead := httptest.NewRecorder()
 	h(recHead, httptest.NewRequest(http.MethodHead, "/", nil))
@@ -81,13 +132,21 @@ func TestSSOInitHandler_HeadOK_PostRejected(t *testing.T) {
 	}
 }
 
-func TestSSOInitHandler_SlugIsJSEscaped(t *testing.T) {
-	// A slug with a quote must not break out of the JS string literal.
-	h := SSOInitHandler(SSOInitConfig{Slug: `ev"il`})
+func TestSSOInitHandler_ValuesAreJSEscaped(t *testing.T) {
+	// A slug / client_id with a quote must not break out of the JS string
+	// literal (XSS / break-out risk).
+	h := SSOInitHandler(SSOInitConfig{
+		Slug:         `ev"il`,
+		AuthorizeURL: `https://auth.x/realms/sovereign/auth"`,
+		ClientID:     `cli"ent`,
+	})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 	body := rec.Body.String()
 	if strings.Contains(body, `var SLUG = "ev"il"`) {
 		t.Errorf("slug was not JS-escaped — XSS/break-out risk: %q", body)
+	}
+	if strings.Contains(body, `var CLIENT_ID = "cli"ent"`) {
+		t.Errorf("client_id was not JS-escaped — XSS/break-out risk")
 	}
 }

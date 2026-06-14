@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
 spec:
-  version: 0.1.15
+  version: 0.1.16
   card:
     title: powerdns-admin
     summary: |
