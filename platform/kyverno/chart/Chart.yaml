@@ -24,7 +24,13 @@ type: application
 # gate stays a slow-warm DETECTOR (waits the full budget, logs loudly) but
 # never wedges the cluster; downstream admission-needers gate on their own
 # cert-wait + G50 retries. This is the "DEEPER FIX still owed" from the G54 header.
-version: 1.3.6
+# 1.3.7 (#3499, Refs #3375/#3380): config.webhooks.objectSelector excludes the
+# cilium CNI stack (app.kubernetes.io/part-of=cilium) from the Fail webhooks so
+# a cilium DaemonSet roll can always recreate its own agent — breaks the
+# self-deadlock where the de-CNI'd apiserver node can't receive the webhook
+# response (hw135: cnpg-pair initdb wedged → no region-b standby → region-kill
+# impossible). See chart/values.yaml config.webhooks for the full root cause.
+version: 1.3.7
 appVersion: "v1.18.0"
 keywords: [catalyst, blueprint, kyverno, policy, admission, security]
 maintainers:
