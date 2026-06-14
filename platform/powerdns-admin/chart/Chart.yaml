@@ -90,7 +90,25 @@ name: bp-powerdns-admin
 # pda-shared-database-secret, reflector-PUSHED into this namespace)
 # via the slot-11a databaseSecret.name flip — same one-flag contract
 # as gitea/harbor/keycloak (enable_shared_pg).
-version: 0.1.13
+# 0.1.14 (#3486, 2026-06-14): RETIRE the racy same-namespace reflector
+# PULL-mirror that left `pda-database-secret` empty and looped the
+# embedded-cluster install forever on every fresh prov. The PDA Deployment
+# now reads the CNPG-generated `pda-pg-app` Secret DIRECTLY (default
+# databaseSecret.name flip in values.yaml + slot 11a) — same namespace,
+# always present, already carries uri/username/password. The old empty
+# Secret + its `reflects:` annotation was edge-triggered on the DESTINATION
+# only, so when CNPG regenerated `pda-pg-app` during the HR's
+# uninstall/reinstall remediation churn the mirror never re-ran → DATA=0 →
+# PDA Pod CreateContainerConfigError → 15m install timeout →
+# remediateLastFailure uninstall+retry → pda-pg re-bootstrap → infinite
+# loop. That HR-never-Ready wedged the bootstrap-kit Kustomization, which
+# blocked the sovereign-tls Kustomization (dependsOn bootstrap-kit) that
+# applies the `*.<fqdn>` wildcard Certificate → the Cilium Gateway :443
+# listener stayed `Invalid CertificateRef` → the console served HTTP 000
+# (traced live on hw134, dep 6a189d1b7d8cebc8). database-secret.yaml is
+# now skip-rendered (no consumer); the shared-pg-b path already read a
+# reflector-PUSHED hub directly so it is unchanged.
+version: 0.1.14
 description: |
   PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI Blueprint for
   per-Sovereign PowerDNS zone + record management. Drives the

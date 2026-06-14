@@ -2,10 +2,13 @@
 CNPG Cluster for PowerDNS-Admin metadata (users, RBAC, audit log).
 Mirrors platform/gitea/chart/templates/cnpg-cluster.yaml.
 
-CNPG operator generates a `<cluster>-app` Secret with the postgres-app
-user's password; reflector mirrors it into pda-database-secret (see
-templates/database-secret.yaml) so deployment.yaml can read the password
-via secretKeyRef without a cross-namespace reference.
+CNPG operator generates a `<cluster>-app` Secret (`pda-pg-app`) carrying
+the postgres-app user's `uri`/`username`/`password`. 0.1.14 (#3486):
+deployment.yaml reads `pda-pg-app` DIRECTLY via secretKeyRef (same
+namespace, no cross-namespace ref) — the old empty `pda-database-secret`
+reflector pull-mirror (templates/database-secret.yaml) is retired because
+its same-namespace `reflects:` pull raced the HR remediation churn and
+never converged.
 
 Capabilities gate (0.1.8, Refs #2737): bp-cnpg ships the
 `postgresql.cnpg.io/v1` CRD. On a cold install — before bp-cnpg is
@@ -51,19 +54,21 @@ spec:
     {{- toYaml .Values.postgres.cluster.resources | nindent 4 }}
 
   # inheritedMetadata.annotations: CNPG propagates these onto every Secret
-  # it generates (pda-pg-app, pda-pg-superuser, …). The k8s-reflector
-  # (bp-reflector) requires the SOURCE Secret to carry
-  # `reflection-allowed: "true"` before it will copy data into the
-  # DESTINATION Secret (`pda-database-secret`, templates/database-secret.yaml).
-  # Setting these annotations on the Cluster CR's own metadata does NOT work
-  # — CNPG does not copy `metadata.annotations` onto generated Secrets; the
-  # `inheritedMetadata` stanza is the correct CNPG v1.24+ mechanism.
+  # it generates (pda-pg-app, pda-pg-superuser, …). The `inheritedMetadata`
+  # stanza is the correct CNPG v1.24+ mechanism (CNPG does not copy a
+  # Cluster CR's own `metadata.annotations` onto generated Secrets).
   #
-  # #3150: bp-powerdns-admin only first installed once #3173 listed slot 11a,
-  # which exposed that this block was MISSING — reflector logged
-  # "Source powerdns-admin/pda-pg-app does not permit it" so pda-database-secret
-  # stayed empty → the PDA Pod wedged in CreateContainerConfigError (no
-  # SQLA_DB_USER/PASSWORD). Mirrors the gitea/harbor gold-standard pattern.
+  # 0.1.14 (#3486): the PDA Deployment now reads `pda-pg-app` DIRECTLY
+  # (values.yaml databaseSecret.name), so these reflection-allowed
+  # annotations are no longer load-bearing for THIS chart — the racy
+  # same-namespace `reflects:` pull they enabled is retired (see
+  # templates/database-secret.yaml). They are kept (harmless) so that any
+  # cross-namespace consumer that opts into AUTO-reflection of pda-pg-app
+  # keeps working, mirroring the gitea/harbor gold-standard pattern.
+  #
+  # Historical (#3150): before this block existed, reflector logged
+  # "Source powerdns-admin/pda-pg-app does not permit it" and the old
+  # pda-database-secret mirror stayed empty → CreateContainerConfigError.
   inheritedMetadata:
     annotations:
       reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
