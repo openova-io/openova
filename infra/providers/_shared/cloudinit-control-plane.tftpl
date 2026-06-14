@@ -481,8 +481,18 @@ write_files:
             # sme-pg Cluster; every SME service + FerretDB dials
             # shared-pg-c-rw with credentials from the sme-database-
             # secret hub — one `sme` role across the three databases).
+            #
+            # #3486 — the EMBEDDED path (enable_shared_pg=false) now reads the
+            # CNPG-generated `pda-pg-app` Secret DIRECTLY (same namespace,
+            # always present, carries uri/username/password). The retired
+            # `pda-database-secret` reflector PULL-mirror was edge-triggered on
+            # the destination and raced the HR uninstall/reinstall remediation
+            # churn → stayed empty → PDA CreateContainerConfigError → 15m
+            # install timeout → loop forever → wedged bootstrap-kit →
+            # sovereign-tls → the wildcard cert → console HTTP 000 (hw134). The
+            # shared path still reads the reflector-PUSHED hub directly.
             SOVEREIGN_PDA_PG_OWN_CLUSTER: "${enable_shared_pg == "true" ? "false" : "true"}"
-            SOVEREIGN_PDA_PG_SECRET: "${enable_shared_pg == "true" ? "pda-shared-database-secret" : "pda-database-secret"}"
+            SOVEREIGN_PDA_PG_SECRET: "${enable_shared_pg == "true" ? "pda-shared-database-secret" : "pda-pg-app"}"
             SOVEREIGN_SME_PG_OWN_CLUSTER: "${enable_shared_pg == "true" ? "false" : "true"}"
             SOVEREIGN_SME_PG_HOST: "${enable_shared_pg == "true" ? "shared-pg-c-rw.shared-data.svc.cluster.local" : ""}"
             SOVEREIGN_SME_PG_SECRET: "${enable_shared_pg == "true" ? "sme-database-secret" : ""}"
