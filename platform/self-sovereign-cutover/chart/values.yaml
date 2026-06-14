@@ -382,7 +382,21 @@ egressTest:
   # blockedDomains → public IPs and applies a scoped CiliumNetworkPolicy
   # egressDeny toCIDR for the survival window, catching hidden runtime
   # tethers the declarative assertion can't see.
-  enforceCIDRBlock: false
+  #
+  # 0.1.57 (#3379, 2026-06-14): default flipped false → true. The real
+  # 10-min deny-egress hold was validated live on the hw136 cutover walk
+  # (Pillar-5 proof): all four blockedDomains (github.com, ghcr.io,
+  # harbor.openova.io, xpkg.upbound.io) resolve to PUBLIC IPs that never
+  # overlap a Sovereign's pod (10.42/43.x) or service (10.96/97.x) CIDR,
+  # and the Step-08 Job skips private/loopback IPs + is fail-safe (any
+  # resolve/apply error falls back to assertion-only, the egressDeny
+  # policy is torn down on every pass/fail/abort path). So the egress-
+  # block proof — `cutoverComplete=true` earned ONLY with a real deny-
+  # egress hold, per ADR-0002 — is now the default for every Sovereign,
+  # not just those whose 06a overlay opts in. The 06a slot overlay's
+  # explicit `egressTest.enforceCIDRBlock: true` is now redundant-but-
+  # harmless (overlay still wins; both agree).
+  enforceCIDRBlock: true
   blockedDomains:
     - "github.com"
     - "ghcr.io"

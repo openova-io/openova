@@ -1,5 +1,13 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.57 (#3379, 2026-06-14): default `egressTest.enforceCIDRBlock`
+# flipped false → true after the real 10-min deny-egress hold was
+# validated live on the hw136 cutover walk (Pillar-5 proof). All four
+# blockedDomains resolve to PUBLIC IPs that never overlap a Sovereign's
+# pod/service CIDRs; Step-08 skips private/loopback IPs and is fail-safe.
+# The egress-block proof is now the default for every Sovereign, not just
+# those whose 06a overlay opts in. See values.yaml egressTest comment.
+#
 # 0.1.50 (#2951 / #2940 ATTACK#9, 2026-06-03): Step 10 (vcluster-registry-
 # pivot) now ALSO pivots the bp-sso-bridge HelmRelease's
 # `image.repository` HOST from `harbor.openova.io/proxy-dockerhub/alpine/
@@ -414,7 +422,7 @@ name: bp-self-sovereign-cutover
 # until the tofu-phase0-archive is sealed at handover; this Job treats
 # 425 as the EXPECTED benign pre-handover path (clear log, exit 0). The
 # cutover still auto-fires post-handover (founder rule #933 preserved).
-version: 0.1.56
+version: 0.1.57
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
