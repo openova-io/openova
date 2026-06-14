@@ -1,0 +1,58 @@
+# Region-Kill psql/kubectl transcript — hw139.omani.works (dep c89aa7059556b342)
+# Captured post-walk: 2026-06-14T20:24:10Z
+# Refs #3375 #3492
+
+########################################################################
+## POST-STATE (final, after PASS + recovery) — re-captured for self-contained evidence
+########################################################################
+
+### Region-B is now the WRITABLE primary (was the replica):
+NAME                             AGE   INSTANCES   READY   STATUS                     PRIMARY
+cnpg-pair-bp-cnpg-pair-replica   74m   3           3       Cluster in healthy state   cnpg-pair-bp-cnpg-pair-replica-1
+
+### pg_is_in_recovery() on region-B new primary (expect f):
+ pg_is_in_recovery 
+-------------------
+ f
+(1 row)
+
+
+### keystone_xregion table on the promoted region-B primary (the zero-data-loss artifact):
+###   row id=1 = pre-kill (written on region-A BEFORE the kill, ts 20:21:23.055724)
+###   row id=34 = post-kill (written on region-B AFTER promotion)
+ id |             note              |              ts               
+----+-------------------------------+-------------------------------
+  1 | pre-kill region-a hw139       | 2026-06-14 20:21:23.055724+00
+ 34 | post-kill region-b (promoted) | 2026-06-14 20:22:17.92041+00
+(2 rows)
+
+
+### Region-A workers uncordoned (recovery, non-terminal env):
+catalyst-hw139-omani-works-c89aa705-me-east-215-a-cp1-cedba1 Ready
+catalyst-hw139-omani-works-c89aa705-me-east-215-a-w9b5077 Ready
+catalyst-hw139-omani-works-c89aa705-me-east-215-a-wb1b4e4 Ready
+catalyst-hw139-omani-works-c89aa705-me-east-215-a-wf4b21d Ready
+
+########################################################################
+## openbao raft (#3492) — independent per-region clusters (NOT a cross-region quorum)
+########################################################################
+
+### Region-A openbao status:
+Storage Type            raft
+Cluster Name            vault-cluster-7b00abb4
+Cluster ID              08f944a0-c4db-eb00-d4e1-124ed9eddee6
+HA Enabled              true
+HA Mode                 active
+
+### Region-B openbao status:
+Storage Type            raft
+Cluster Name            vault-cluster-b4883d05
+Cluster ID              d8f4390d-8c0e-362b-77ea-fcfa2ef56429
+HA Enabled              true
+HA Mode                 active
+
+### openbao storage config (no retry_join => no cross-region raft membership):
+storage "raft" {
+  path = "/openbao/data"
+}
+

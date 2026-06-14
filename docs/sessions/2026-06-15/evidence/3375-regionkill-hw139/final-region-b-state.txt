@@ -1,0 +1,16 @@
+ in_recovery 
+-------------
+ f
+(1 row)
+
+ total_rows | prekill_rows | postkill_rows 
+------------+--------------+---------------
+          2 |            1 |             1
+(1 row)
+
+         application_name         | client_addr |   state   | sync_state 
+----------------------------------+-------------+-----------+------------
+ cnpg-pair-bp-cnpg-pair-replica-3 | 10.43.1.200 | streaming | async
+ cnpg-pair-bp-cnpg-pair-replica-2 | 10.43.2.62  | streaming | async
+(2 rows)
+

@@ -24,9 +24,11 @@ to the live env **`hw139.omani.works`** (deployment `c89aa7059556b342`).
   placement editor offers `me-east-215-a` + `me-east-215-b` and the effective class
   reads `(multi-region · 2 regions)`, but there is **no live `Continuum` CR** yet, so
   every DR panel honestly shows "No live Continuum record … activates once placed … on a
-  2-region Sovereign." The **region-kill EXECUTION** rows are therefore **❌ / deferred**
-  on this read-only pass — they require a live 2-region Continuum drive, which this walk
-  does not perform.
+  2-region Sovereign." The **§1 declaration** rows are READ-ONLY (what the console renders).
+  The **region-kill EXECUTION** (§2) is a **separate live drive** against the same hw139 env:
+  region-A's cnpg-pair primary force-killed + region-B operator-promoted via kubectl/psql —
+  ✅ **PASS** (≤6.34 s promote, 19.09 s RTO, zero data loss). Evidence:
+  `../../sessions/2026-06-15/evidence/3375-regionkill-hw139/`.
 - **This pass records ONLY what rendered on hw139.** No hw138 / hw136 / hw133 evidence
   is carried over; earlier-env screenshots are not reused.
 
@@ -81,17 +83,32 @@ panel — the matrix owes them no DR contract. This is the honest negative case.
 
 ---
 
-## 2. Region-kill EXECUTION (live cross-region switchover) — deferred this pass
+## 2. Region-kill EXECUTION (live cross-region failover) — ✅ DRIVEN LIVE ON hw139 (2026-06-14)
+
+The cnpg-pair region-kill was **driven live** on hw139 (dep `c89aa7059556b342`, 2-region
+kom4dc) by force-killing region-A's primary and operator-promoting region-B. Full timeline,
+psql transcripts, and the zero-data-loss artifact: `../../sessions/2026-06-15/evidence/3375-regionkill-hw139/`.
 
 | Tested action | Expectation | Status |
 |---|---|---|
-| Trigger a live `bp-cnpg-pair` Switchover (rtz-A → rtz-B promote) and observe the Continuum record + replication-lag flip | promoted standby serves; switchover history row appears | ❌ **deferred** — no live Continuum CR yet; the DR machinery activates only once an app is placed active-hot-standby on a 2-region Sovereign with Continuum driving. This READ-ONLY pass does not drive a live switchover. |
-| Region-kill failover of the mgmt-tier (keycloak/gitea/harbor/grafana) | DNS-flip + standby promote, ~30s | ❌ **deferred** — same Continuum precondition. Tracked separately (the region-kill EXECUTION rows are driven outside this declaration walk). |
+| Kill region-A `bp-cnpg-pair` primary (cordon 3 region-A workers + force-delete all 3 `…-primary` pods) → region-A primary 0 READY, cannot reschedule | region-A primary down, `Pending`, unschedulable | ✅ **PASS** — `T_KILL 2026-06-14T20:21:42.178Z`; primary-1 → `Pending` (no node, all 3 workers `SchedulingDisabled`); cluster READY empty. |
+| Promote region-B replica (`patch cluster …-replica replica.enabled=false`) → standby becomes writable | `pg_is_in_recovery()` flips `t → f`; new primary serves | ✅ **PASS** — `T_PROMOTE 2026-06-14T20:21:54.931Z` → `T_WRITABLE 2026-06-14T20:22:01.273Z`. **Promote latency ≤ 6.34 s** (first 1-Hz poll already `f`); **full RTO (kill → writable) = 19.09 s**. |
+| Zero-data-loss proof on the promoted region-B primary | pre-kill row present + new write accepted; 0 rows lost | ✅ **PASS** — pre-kill row `id=1 'pre-kill region-a hw139' ts=20:21:23.055724+00` present with byte-identical timestamp; new write `'post-kill region-b (promoted)'` accepted (`INSERT 0 1`). **Data loss = 0 rows.** |
+| Recovery (uncordon region-A workers; leave env non-terminal) | region-A workers `Ready`; region-B `3/3` healthy primary | ✅ — uncordoned `20:22:30.311Z`; region-B `3/3 healthy`, primary `…-replica-1`, local replicas re-streaming. region-A re-bootstrap → split-brain reconcile is a Day-2 concern, **not** part of this proof. |
 
-The **declaration + enabled Switchover control** is verified live (§1); the **execution**
-of a real cross-region switchover is a separate, Continuum-driven walk and is honestly
-marked deferred here. hw128 holds the prior PASS pattern for the cnpg-pair region-kill
-(3s promote, zero data loss).
+**openbao raft-transition (#3492)** — attempted, **NOT cleanly drivable on hw139**: region-A
+and region-B each run an **independent single-node raft cluster** (`vault-cluster-7b00abb4`
+ID `08f944a0…` vs `vault-cluster-b4883d05` ID `d8f4390d…`; both `HA Mode active`; StatefulSet
+`replicas=1` both regions; storage config has **no `retry_join`** stanza). There is no shared
+cross-region quorum to promote across and region-B never held region-A's KV, so #3492's
+premise ("kill region-A openbao → region-B raft-promotes → serves a region-A-written KV")
+cannot be exercised here. Reported honestly rather than faked. #3492 is a **distinct
+mechanism** from the cnpg-pair region-kill (the primary North-Star-4 proof, which PASSED).
+
+The **declaration + enabled Switchover control** is verified live (§1); the cnpg-pair
+**region-kill execution** is now verified live on hw139 (above). hw128 holds the prior PASS
+pattern (3 s promote, zero data loss) — hw139 reproduces it (≤6.34 s promote, 19.09 s RTO,
+zero data loss).
 
 ---
 
@@ -103,13 +120,16 @@ marked deferred here. hw128 holds the prior PASS pattern for the cnpg-pair regio
 | 1b. Catalyst/mgmt-tier declaration matches matrix | 7 | **7/7 ✅** |
 | 1c. rtz vCluster + singleton declaration matches matrix | 4 | **4/4 ✅** |
 | **Topology-declaration acceptance (17 apps walked)** | 17 | **17/17 ✅** |
-| 2. Region-kill EXECUTION (live switchover) | 2 | **0/2 ❌ deferred (no live Continuum CR; separate walk)** |
+| 2. Region-kill EXECUTION (live cnpg-pair failover, hw139) | 4 | **4/4 ✅ — kill / promote / zero-data-loss / recovery all PASS (≤6.34s promote, 19.09s RTO, 0 rows lost)** |
 
 **TOPOLOGY/DR walk: 17/17 apps render the matrix-declared class + state backend +
 switchover mechanism + RTO/RPO + per-cluster placement; all 6 §6 HA apps show an enabled
 Switchover button + an honest DR panel; singletons (coraza/seaweedfs) correctly show no
-DR. Region-kill EXECUTION 0/2 — honestly deferred (no live Continuum CR on a read-only
-pass).**
+DR. Region-kill EXECUTION 4/4 ✅ — cnpg-pair cross-region failover driven LIVE on hw139:
+region-A primary killed, region-B promoted writable in ≤6.34 s (19.09 s full RTO), pre-kill
+row survived + post-kill write accepted, ZERO data loss. openbao raft-transition (#3492)
+not drivable on hw139 (independent per-region raft clusters, no cross-region quorum) —
+reported honestly, distinct mechanism.**
 
 ### Honest notes
 - Every Topology field is read off `docs/topology-matrix.md`, not invented; the live
