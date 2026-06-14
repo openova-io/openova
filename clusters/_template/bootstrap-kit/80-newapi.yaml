@@ -244,7 +244,7 @@ spec:
       # custom-provider upsert so the running pod actually loads the provider
       # (boot-only registry) — fixes the /api/oauth/sovereign "Unknown OAuth
       # provider" callback failure that blocked zero-click SSO on fresh provs.
-      version: 1.4.91
+      version: 1.4.92
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
