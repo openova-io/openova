@@ -967,7 +967,22 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	// bool fields without changing the struct shape). Paired with the
 	// chart-side `${MARKETPLACE_ENABLED:-true}` slot fallback (PR #1967)
 	// and the matching variables.tf default flip.
-	req := provisioner.Request{MarketplaceEnabled: true}
+	//
+	// EnableSharedPostgres=true (Refs #3370) — same default-true idiom:
+	// the ADR-0010 reusable shared-Postgres model (bootstrap-kit slot
+	// 16a/16c/16d) is the founder North-Star-2 target state ('3 shared
+	// PG instances → 3 cards, 6-7 apps many-to-many'). It is ALSO the
+	// only path that lands an Application CR per shared-pg instance on a
+	// fresh prov (the bp-postgres chart self-registers it ONLY when
+	// `enabled != "false"`, the master gate fed by SOVEREIGN_ENABLE_
+	// SHARED_PG); without it `/api/v1/sovereign/apps` projects ZERO
+	// instance cards + ZERO Contexts (the #3370 surface is unreachable).
+	// Leaving the default OFF made #3370 invisible on every fresh prov
+	// (hw138). The deadlock that historically blocked SHARED_PG=true
+	// (#3283) is closed; the chart is at 0.1.10. An explicit
+	// `"enableSharedPostgres": false` in the body still wins for the
+	// byte-identical dedicated-cluster path.
+	req := provisioner.Request{MarketplaceEnabled: true, EnableSharedPostgres: true}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
