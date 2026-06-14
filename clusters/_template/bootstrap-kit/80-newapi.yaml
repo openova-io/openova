@@ -240,7 +240,7 @@ spec:
       # auto-bumps this pin further (-> 1.4.90) when it rebuilds the bridge
       # image on merge, so the slot carries BOTH the env vars AND the new
       # sidecar binary that reads them.
-      version: 1.4.89
+      version: 1.4.90
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
