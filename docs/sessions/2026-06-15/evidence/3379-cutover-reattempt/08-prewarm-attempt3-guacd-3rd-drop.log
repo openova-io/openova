@@ -1,0 +1,6 @@
+[harbor-prewarm] queue ghcr.io/openova-io/openova/guacd:1.5.5 → registry.hw139.omani.works/openova-io/openova/guacd:1.5.5
+  time="2026-06-14T22:20:37Z" level=info msg="Reading blob body from https://ghcr.io/v2/openova-io/openova/guacd/blobs/sha256:0343bcd5caf1ce0fc5b9d4a5ea3653cdcf24153eec4631c23d14c0a9c24f8eb6 failed (unexpected EOF), reconnecting after 31457281 bytes…"
+  time="2026-06-14T22:25:07Z" level=fatal msg="writing blob: Patch \"https://registry.hw139.omani.works/v2/openova-io/openova/guacd/blobs/uploads/bebdb552-e0cb-4f6e-bdf4-b3345e51faf8?_state=DWGOXY1lH-4uWro1bdrwhZsycj9pprejHFH7oB9ZE-B7Ik5hbWUiOiJvcGVub3ZhLWlvL29wZW5vdmEvZ3VhY2QiLCJVVUlEIjoiYmViZGI1NTItZTBjYi00ZjZlLWJkZjQtYjMzNDVlNTFmYWY4IiwiT2Zmc2V0IjowLCJTdGFydGVkQXQiOiIyMDI2LTA2LTE0VDIyOjE0OjQ3Ljg0MjI1ODc2NVoifQ%3D%3D\": use of closed network connection"
+[harbor-prewarm] FAIL ghcr.io/openova-io/openova/guacd:1.5.5 exit=1
+[harbor-prewarm] Phase A complete: push_ok=28 push_fail=1
+[harbor-prewarm] FATAL: 1 openova-io image(s) failed to push — Sovereign cannot survive ghcr.io deny-egress post-cutover

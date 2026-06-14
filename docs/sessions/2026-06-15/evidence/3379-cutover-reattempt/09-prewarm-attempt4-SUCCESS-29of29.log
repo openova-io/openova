@@ -1,0 +1,12 @@
+[harbor-prewarm] OK ghcr.io/openova-io/openova/services-auth:53d5b54
+[harbor-prewarm] OK ghcr.io/openova-io/openova/services-billing:c96f998
+[harbor-prewarm] OK ghcr.io/openova-io/openova/services-catalog:c96f998
+[harbor-prewarm] OK ghcr.io/openova-io/openova/services-domain:c96f998
+[harbor-prewarm] OK ghcr.io/openova-io/openova/services-gateway:c96f998
+[harbor-prewarm] OK ghcr.io/openova-io/openova/services-metering-sidecar:41e02c8
+[harbor-prewarm] OK ghcr.io/openova-io/openova/services-notification:c96f998
+[harbor-prewarm] OK ghcr.io/openova-io/openova/services-provisioning:c96f998
+[harbor-prewarm] OK ghcr.io/openova-io/openova/services-tenant:c96f998
+[harbor-prewarm] OK ghcr.io/openova-io/openova/useraccess-controller:78de06d
+[harbor-prewarm] Phase A complete: push_ok=29 push_fail=0
+[harbor-prewarm] Phase B complete: primed=10 failed=1

@@ -1,0 +1,1 @@
+local-harbor HRs: 61 | ghcr.io HRs: 0 | other: 1

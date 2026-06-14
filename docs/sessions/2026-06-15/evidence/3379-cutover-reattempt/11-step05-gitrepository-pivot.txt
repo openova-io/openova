@@ -1,0 +1,1 @@
+url=http://gitea-http.gitea.svc.cluster.local:3000/openova/openova secretRef=cutover-gitea-git-auth
