@@ -1,0 +1,18 @@
+[harbor-prewarm] Phase A: install skopeo + jq + enumerate openova-io images
+[harbor-prewarm] skopeo not on PATH; downloading static binary
+[harbor-prewarm] skopeo static binary installed: skopeo version 1.15.2
+[harbor-prewarm] ghcr.io auth extracted: user=openova-bot pat=ghp_alaB... (len=40)
+[harbor-prewarm] enumerating openova-io images across cluster
+[harbor-prewarm] found 29 unique openova-io images to native-push
+[harbor-prewarm] pushing 29 image(s) with parallelism=6
+[harbor-prewarm] queue ghcr.io/openova-io/openova/admin:3c2f7e4 → registry.hw139.omani.works/openova-io/openova/admin:3c2f7e4
+[harbor-prewarm] queue ghcr.io/openova-io/openova/application-controller:78de06d → registry.hw139.omani.works/openova-io/openova/application-controller:78de06d
+[harbor-prewarm] queue ghcr.io/openova-io/openova/catalyst-api:9c6f864 → registry.hw139.omani.works/openova-io/openova/catalyst-api:9c6f864
+[harbor-prewarm] queue ghcr.io/openova-io/openova/catalyst-catalog:973094b → registry.hw139.omani.works/openova-io/openova/catalyst-catalog:973094b
+[harbor-prewarm] queue ghcr.io/openova-io/openova/catalyst-ui:9c6f864 → registry.hw139.omani.works/openova-io/openova/catalyst-ui:9c6f864
+[harbor-prewarm] queue ghcr.io/openova-io/openova/console:3c2f7e4 → registry.hw139.omani.works/openova-io/openova/console:3c2f7e4
+[harbor-prewarm] queue ghcr.io/openova-io/openova/continuum-controller:35be7ba → registry.hw139.omani.works/openova-io/openova/continuum-controller:35be7ba
+[harbor-prewarm] queue ghcr.io/openova-io/openova/environment-controller:78de06d → registry.hw139.omani.works/openova-io/openova/environment-controller:78de06d
+[harbor-prewarm] queue ghcr.io/openova-io/openova/guacamole-server:1.5.5 → registry.hw139.omani.works/openova-io/openova/guacamole-server:1.5.5
+[harbor-prewarm] queue ghcr.io/openova-io/openova/guacd:1.5.5 → registry.hw139.omani.works/openova-io/openova/guacd:1.5.5
+[harbor-prewarm] queue ghcr.io/openova-io/openova/k8s-ws-proxy:b32eb9b → registry.hw139.omani.works/openova-io/openova/k8s-ws-proxy:b32eb9b

@@ -1,0 +1,10 @@
+[harbor-prewarm] queue ghcr.io/openova-io/openova/catalyst-api:9c6f864 → registry.hw139.omani.works/openova-io/openova/catalyst-api:9c6f864
+[harbor-prewarm] queue ghcr.io/openova-io/openova/guacd:1.5.5 → registry.hw139.omani.works/openova-io/openova/guacd:1.5.5
+  time="2026-06-14T21:51:16Z" level=info msg="Reading blob body from https://ghcr.io/v2/openova-io/openova/catalyst-api/blobs/sha256:ef444e48e051fea638368d90021b88a06d8662a7eb185b5ec16be8341025f907 failed (unexpected EOF), reconnecting after 52428801 bytes…"
+  time="2026-06-14T21:51:22Z" level=fatal msg="writing blob: Patch \"https://registry.hw139.omani.works/v2/openova-io/openova/catalyst-api/blobs/uploads/9da7bbac-f308-419e-a5d5-add5db052666?_state=QdGnvSIi-lPiJEGQqoBHN_bT6W0VX1PcuGZV597kWzt7Ik5hbWUiOiJvcGVub3ZhLWlvL29wZW5vdmEvY2F0YWx5c3QtYXBpIiwiVVVJRCI6IjlkYTdiYmFjLWYzMDgtNDE5ZS1hNWQ1LWFkZDVkYjA1MjY2NiIsIk9mZnNldCI6MCwiU3RhcnRlZEF0IjoiMjAyNi0wNi0xNFQyMTo0MDoyMC40NDkxMDI3MjNaIn0%3D\": use of closed network connection"
+[harbor-prewarm] FAIL ghcr.io/openova-io/openova/catalyst-api:9c6f864 exit=1
+  time="2026-06-14T21:51:18Z" level=info msg="Reading blob body from https://ghcr.io/v2/openova-io/openova/guacd/blobs/sha256:0343bcd5caf1ce0fc5b9d4a5ea3653cdcf24153eec4631c23d14c0a9c24f8eb6 failed (unexpected EOF), reconnecting after 52428801 bytes…"
+  time="2026-06-14T21:51:22Z" level=fatal msg="writing blob: Patch \"https://registry.hw139.omani.works/v2/openova-io/openova/guacd/blobs/uploads/3f3bf0dc-4e59-4e64-a301-1292c0e37ab0?_state=V4BrQOeNd7mx6jeNrdvXBUijOGd9lmeUXG6LPkWVNcx7Ik5hbWUiOiJvcGVub3ZhLWlvL29wZW5vdmEvZ3VhY2QiLCJVVUlEIjoiM2YzYmYwZGMtNGU1OS00ZTY0LWEzMDEtMTI5MmMwZTM3YWIwIiwiT2Zmc2V0IjowLCJTdGFydGVkQXQiOiIyMDI2LTA2LTE0VDIxOjQwOjI5Ljc1MzAxNTI5OVoifQ%3D%3D\": write tcp 10.42.3.108:43854->212.72.24.36:443: use of closed network connection"
+[harbor-prewarm] FAIL ghcr.io/openova-io/openova/guacd:1.5.5 exit=1
+[harbor-prewarm] Phase A complete: push_ok=27 push_fail=2
+[harbor-prewarm] FATAL: 2 openova-io image(s) failed to push — Sovereign cannot survive ghcr.io deny-egress post-cutover

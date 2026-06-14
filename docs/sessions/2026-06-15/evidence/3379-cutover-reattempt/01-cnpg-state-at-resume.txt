@@ -1,0 +1,10 @@
+=== cnpg clusters at resume time ===
+NAMESPACE         NAME                             AGE    INSTANCES   READY   STATUS                                                       PRIMARY
+catalyst-system   guacamole-pg                     174m   1           1       Instance Status Extraction Error: HTTP communication issue   guacamole-pg-1
+catalyst-system   openova-flow-pg                  179m   2           2       Instance Status Extraction Error: HTTP communication issue   openova-flow-pg-1
+cnpg              cnpg-pair-bp-cnpg-pair-primary   151m   3           3       Cluster in healthy state                                     cnpg-pair-bp-cnpg-pair-primary-1
+newapi            newapi-bp-newapi-newapi-pg       174m   2           2       Cluster in healthy state                                     newapi-bp-newapi-newapi-pg-1
+powerdns          pdns-pg                          178m   2           2       Cluster in healthy state                                     pdns-pg-1
+shared-data       shared-pg                        179m   1           1       Cluster in healthy state                                     shared-pg-1
+shared-data       shared-pg-b                      179m   1           1       Cluster in healthy state                                     shared-pg-b-1
+shared-data       shared-pg-c                      179m   1           1       Cluster in healthy state                                     shared-pg-c-1

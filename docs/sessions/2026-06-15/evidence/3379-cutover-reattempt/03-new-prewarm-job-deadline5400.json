@@ -1,0 +1,172 @@
+{
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+        "creationTimestamp": "2026-06-14T21:40:05Z",
+        "generation": 1,
+        "labels": {
+            "app.kubernetes.io/component": "cutover-job",
+            "app.kubernetes.io/part-of": "self-sovereign-cutover",
+            "cutover.openova.io/step": "harbor-prewarm"
+        },
+        "name": "cutover-harbor-prewarm-1781473205",
+        "namespace": "catalyst",
+        "resourceVersion": "230840",
+        "uid": "82980232-a184-432e-8703-8cd3506a30d2"
+    },
+    "spec": {
+        "activeDeadlineSeconds": 5400,
+        "backoffLimit": 3,
+        "completionMode": "NonIndexed",
+        "completions": 1,
+        "manualSelector": false,
+        "parallelism": 1,
+        "podReplacementPolicy": "TerminatingOrFailed",
+        "selector": {
+            "matchLabels": {
+                "batch.kubernetes.io/controller-uid": "82980232-a184-432e-8703-8cd3506a30d2"
+            }
+        },
+        "suspend": false,
+        "template": {
+            "metadata": {
+                "creationTimestamp": null,
+                "labels": {
+                    "app.kubernetes.io/component": "cutover-job",
+                    "app.kubernetes.io/part-of": "self-sovereign-cutover",
+                    "batch.kubernetes.io/controller-uid": "82980232-a184-432e-8703-8cd3506a30d2",
+                    "batch.kubernetes.io/job-name": "cutover-harbor-prewarm-1781473205",
+                    "controller-uid": "82980232-a184-432e-8703-8cd3506a30d2",
+                    "cutover.openova.io/step": "harbor-prewarm",
+                    "job-name": "cutover-harbor-prewarm-1781473205"
+                }
+            },
+            "spec": {
+                "activeDeadlineSeconds": 5400,
+                "containers": [
+                    {
+                        "args": [
+                            "set -eu\n: \"${HARBOR_USERNAME:=admin}\"\n\n# ─── Phase A: skopeo native push of openova-io images ──────\necho \"[harbor-prewarm] Phase A: install skopeo + jq + enumerate openova-io images\"\n# G69 #2618 (2026-05-31): alpine/k8s:1.31.4 base image's apk\n# repos DO NOT carry community/skopeo → `apk add skopeo`\n# silently no-ops → `command -v skopeo` returns FATAL →\n# cutover chain breaks at Step 03 → Steps 04-08 NEVER RUN →\n# Pillar 5 sovereignty NEVER ACHIEVED. Verified live hw78\n# (de7f6aa8d5ef12b5) post-mandate audit 2026-05-31 04:40Z.\n#\n# Fix: download skopeo static binary from GitHub releases\n# via curl. Falls back to apk if available (image may be\n# rebased onto a distro with skopeo in repos later). jq is\n# typically present in alpine/k8s but we verify + install\n# via apk if not.\napk add --no-cache jq \u003e/dev/null 2\u003e\u00261 || true\nif ! command -v jq \u003e/dev/null 2\u003e\u00261; then\n  echo \"[harbor-prewarm] FATAL: jq missing + apk install failed\"\n  exit 1\nfi\nif ! command -v kubectl \u003e/dev/null 2\u003e\u00261; then\n  echo \"[harbor-prewarm] FATAL: kubectl missing from image\"\n  exit 1\nfi\nif ! command -v skopeo \u003e/dev/null 2\u003e\u00261; then\n  echo \"[harbor-prewarm] skopeo not on PATH; downloading static binary\"\n  # skopeo static binaries published by lework on GitHub releases\n  # (containers/skopeo upstream doesn't ship static; lework's\n  # build is reproducible from upstream sources + signed).\n  # Pinned tag v1.15.2 for determinism. Fallback to apk-installed\n  # path if download fails AND apk works on a future image.\n  # G69-followup #2618 (2026-05-31): bump --max-time 60→600\n  # AND add resume support. Live evidence hw79: HCS bandwidth\n  # to github.com is ~120-360KB/s; 38MB skopeo binary needs\n  # ~3-5min on slow links. Original 60s timeout broke at\n  # 7-22MB partial downloads on all 3 retries. Curl --retry +\n  # -C - resumes partial downloads across retries so we\n  # accumulate progress instead of restarting at 0 each time.\n  SKOPEO_URL=\"https://github.com/lework/skopeo-binary/releases/download/v1.15.2/skopeo-linux-amd64\"\n  for i in 1 2 3; do\n    if curl -fsSL --max-time 600 --retry 3 --retry-delay 5 -C - \"${SKOPEO_URL}\" -o /tmp/skopeo 2\u003e\u00261 \\\n      \u0026\u0026 chmod +x /tmp/skopeo \\\n      \u0026\u0026 /tmp/skopeo --version \u003e/dev/null 2\u003e\u00261; then\n      export PATH=\"/tmp:${PATH}\"\n      echo \"[harbor-prewarm] skopeo static binary installed: $(skopeo --version)\"\n      break\n    fi\n    echo \"[harbor-prewarm] skopeo download attempt ${i}/3 failed; retrying in 5s\"\n    # Keep partial download (do NOT rm) so -C - resumes from\n    # last byte on next attempt; only clear if all 3 fail.\n    sleep 5\n  done\n  # If all 3 retries failed with partial files, clear to avoid\n  # corrupt binary detection.\n  if [ ! -x /tmp/skopeo ] || ! /tmp/skopeo --version \u003e/dev/null 2\u003e\u00261; then\n    rm -f /tmp/skopeo\n  fi\n  if ! command -v skopeo \u003e/dev/null 2\u003e\u00261; then\n    # Last resort: try apk again (in case future image has it)\n    apk add --no-cache skopeo \u003e/dev/null 2\u003e\u00261 || true\n    if ! command -v skopeo \u003e/dev/null 2\u003e\u00261; then\n      echo \"[harbor-prewarm] FATAL: skopeo unavailable via static download AND apk after 3 retries\"\n      exit 1\n    fi\n  fi\nelse\n  echo \"[harbor-prewarm] skopeo already on PATH: $(skopeo --version)\"\nfi\n\n# Extract GHCR PAT from dockerconfigjson.\n# G72 #2618-followup (2026-05-31): Kubernetes env from\n# secretKeyRef ALWAYS passes the DECODED secret value (raw\n# bytes/string as stored under .data after base64 decode).\n# Prior naive `base64 -d 2\u003e/dev/null || raw` fallback fired\n# base64 -d on already-decoded JSON, which produced garbage\n# output (busybox base64 doesn't strictly fail on non-base64\n# input) → jq parse error \"Invalid numeric literal at line 1,\n# column 21\". Live evidence hw84 bf7de50d4b5ca99e Step 03.\n#\n# Fix: detect if input starts with `{` (JSON object) — if so,\n# use as-is (no base64 decode attempt). Otherwise try base64\n# decode then fall back to raw.\nif [ \"${GHCR_DOCKERCONFIG:0:1}\" = \"{\" ]; then\n  dc_decoded=\"${GHCR_DOCKERCONFIG}\"\nelse\n  dc_decoded=$(printf '%s' \"${GHCR_DOCKERCONFIG}\" | base64 -d 2\u003e/dev/null || printf '%s' \"${GHCR_DOCKERCONFIG}\")\nfi\n# Locate the ghcr.io entry's auth (base64 of \"\u003cuser\u003e:\u003cPAT\u003e\").\nghcr_auth_b64=$(printf '%s' \"${dc_decoded}\" | jq -r '.auths[\"ghcr.io\"].auth // empty')\nif [ -z \"${ghcr_auth_b64}\" ]; then\n  echo \"[harbor-prewarm] FATAL: no ghcr.io auth entry in ${GHCR_DOCKERCONFIG_NAMESPACE}/ghcr-pull dockerconfigjson — step 06 phase-0 may have already pivoted (race with cutover order)\"\n  # List what auths ARE present for diagnostic\n  printf '%s' \"${dc_decoded}\" | jq -r '.auths | keys[]' 2\u003e\u00261 | sed 's/^/  auth-host: /'\n  exit 1\nfi\nghcr_user=$(printf '%s' \"${ghcr_auth_b64}\" | base64 -d | awk -F: '{print $1}')\nghcr_pat=$(printf '%s' \"${ghcr_auth_b64}\" | base64 -d | awk -F: '{print $2}')\necho \"[harbor-prewarm] ghcr.io auth extracted: user=${ghcr_user} pat=${ghcr_pat:0:8}... (len=${#ghcr_pat})\"\n\nHARBOR_HOST=$(printf '%s' \"${HARBOR_PUBLIC_URL}\" | sed -e 's,^https\\?://,,' -e 's,/$,,')\n\n# Enumerate openova-io images from all Pods cluster-wide.\n# Capture initContainers + containers + ephemeralContainers.\necho \"[harbor-prewarm] enumerating openova-io images across cluster\"\nopenova_images=$(kubectl get pods -A -o json | \\\n  jq -r '.items[].spec | (.containers // [])[].image, (.initContainers // [])[].image, (.ephemeralContainers // [])[].image' | \\\n  grep '^ghcr.io/openova-io/' | sort -u)\ncount=$(printf '%s\\n' \"${openova_images}\" | grep -c . || true)\necho \"[harbor-prewarm] found ${count} unique openova-io images to native-push\"\n\n# Native push each via skopeo copy, run in PARALLEL with a\n# bounded fan-out.\n#\n# #3379 step-03 DeadlineExceeded (hw139, 2026-06-15): these ~29\n# multi-layer openova-io copies ran STRICTLY SERIAL over kom4dc's\n# throttled ghcr→Harbor egress and blew the step deadline with\n# only 6/29 pushed → local Harbor openova-io project incomplete →\n# post-cutover ImagePullBackOff → Step-08 deny-egress proof never\n# ran. The bytes themselves are unavoidable (the source images are\n# PRIVATE on ghcr, so Harbor's anonymous proxy-cache 404s them —\n# #3534 — this authenticated skopeo push is the only working\n# route), but the WALL-CLOCK is collapsible: copies are\n# independent, so we run PREWARM_PARALLELISM of them at once. Each\n# worker writes its own result sentinel (`.ok`/`.fail`) + captured\n# log under ${cpdir}; the parent `wait`s for all, then prints each\n# log prefix-indented and tallies from the sentinels. POSIX sh has\n# no `wait -n`, so we cap concurrency by counting live background\n# PIDs and pausing the launch loop until one drains.\n#\n# skopeo gains `--retry-times 3` so a single transient ghcr/Harbor\n# 5xx or reset inside a copy self-heals (resumable layer fetch)\n# instead of failing the whole image — independent of the binary-\n# download retry above.\n#\n# Two earlier #3379 keystone catches (hw138, 2026-06-14) stay in\n# force: (1) `--insecure-policy` so skopeo doesn't fatal on the\n# missing /etc/containers/policy.json that alpine/k8s + the lework\n# static binary omit; (2) branch on skopeo's REAL exit status\n# (captured per-worker) rather than a piped `sed` whose status is\n# always 0 under this `set -eu` (no pipefail) shell — the bug that\n# made every fatal copy miscount as success.\n: \"${PREWARM_PARALLELISM:=6}\"\ncpdir=\"/tmp/prewarm-copies\"\nrm -rf \"${cpdir}\"; mkdir -p \"${cpdir}\"\necho \"[harbor-prewarm] pushing ${count} image(s) with parallelism=${PREWARM_PARALLELISM}\"\n\ncopy_one() {\n  up=\"$1\"\n  # Convert ghcr.io/X/Y:tag → HARBOR_HOST/X/Y:tag\n  # (drop ghcr.io/ prefix, keep rest identical)\n  lref=\"${HARBOR_HOST}/${up#ghcr.io/}\"\n  # Slug for the per-image sentinel/log file names.\n  slug=$(printf '%s' \"${up}\" | tr -c 'A-Za-z0-9._-' '_')\n  if skopeo copy \\\n    --insecure-policy \\\n    --retry-times 3 \\\n    --src-creds=\"${ghcr_user}:${ghcr_pat}\" \\\n    --dest-creds=\"${HARBOR_USERNAME}:${HARBOR_PASSWORD}\" \\\n    --dest-tls-verify=true \\\n    --src-tls-verify=true \\\n    \"docker://${up}\" \"docker://${lref}\" \u003e\"${cpdir}/${slug}.log\" 2\u003e\u00261; then\n    printf '%s' \"${up}\" \u003e\"${cpdir}/${slug}.ok\"\n  else\n    rc=$?\n    printf '%s exit=%s' \"${up}\" \"${rc}\" \u003e\"${cpdir}/${slug}.fail\"\n  fi\n}\n\n# Track live worker PIDs explicitly — POSIX sh's `jobs -p` is\n# unreliable in a non-interactive shell, so we count by polling\n# `kill -0 \u003cpid\u003e` against the PIDs we launched.\npids=\"\"\nfor upstream in ${openova_images}; do\n  local_ref=\"${HARBOR_HOST}/${upstream#ghcr.io/}\"\n  echo \"[harbor-prewarm] queue ${upstream} → ${local_ref}\"\n  copy_one \"${upstream}\" \u0026\n  pids=\"${pids} $!\"\n  # Throttle: block launching the next copy while\n  # PREWARM_PARALLELISM workers are still alive.\n  while : ; do\n    live=0\n    newpids=\"\"\n    for p in ${pids}; do\n      if kill -0 \"${p}\" 2\u003e/dev/null; then\n        live=$((live+1))\n        newpids=\"${newpids} ${p}\"\n      fi\n    done\n    pids=\"${newpids}\"\n    [ \"${live}\" -lt \"${PREWARM_PARALLELISM}\" ] \u0026\u0026 break\n    sleep 2\n  done\ndone\n# Drain the final batch.\nwait\n\n# Tally + surface each copy's captured log.\npush_ok=0\npush_fail=0\nfor f in \"${cpdir}\"/*.ok; do\n  [ -e \"${f}\" ] || continue\n  up=$(cat \"${f}\")\n  slug=$(basename \"${f}\" .ok)\n  sed 's/^/  /' \"${cpdir}/${slug}.log\" 2\u003e/dev/null || true\n  push_ok=$((push_ok+1))\n  echo \"[harbor-prewarm] OK ${up}\"\ndone\nfor f in \"${cpdir}\"/*.fail; do\n  [ -e \"${f}\" ] || continue\n  detail=$(cat \"${f}\")\n  slug=$(basename \"${f}\" .fail)\n  sed 's/^/  /' \"${cpdir}/${slug}.log\" 2\u003e/dev/null || true\n  push_fail=$((push_fail+1))\n  echo \"[harbor-prewarm] FAIL ${detail}\"\ndone\necho \"[harbor-prewarm] Phase A complete: push_ok=${push_ok} push_fail=${push_fail}\"\nif [ \"${push_fail}\" -gt 0 ]; then\n  echo \"[harbor-prewarm] FATAL: ${push_fail} openova-io image(s) failed to push — Sovereign cannot survive ghcr.io deny-egress post-cutover\"\n  exit 1\nfi\n\n# ─── Phase B (legacy): HEAD against proxy-cache for non-openova-io ─\necho \"[harbor-prewarm] Phase B: HEAD against proxy-cache for upstream images\"\nbase=\"${HARBOR_INTERNAL_URL}/v2\"\nok=0\nfail=0\nwhile IFS= read -r line; do\n  ref=$(printf '%s' \"${line}\" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')\n  [ -z \"${ref}\" ] \u0026\u0026 continue\n  path=${ref%:*}\n  tag=${ref##*:}\n  code=$(curl -s -o /dev/null -w \"%{http_code}\" \\\n    -u \"${HARBOR_USERNAME}:${HARBOR_PASSWORD}\" \\\n    -H \"Accept: application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json\" \\\n    -I \"${base}/${path}/manifests/${tag}\")\n  case \"${code}\" in\n    200|301|302) ok=$((ok+1)); echo \"[harbor-prewarm] OK ${ref}\" ;;\n    *)           fail=$((fail+1)); echo \"[harbor-prewarm] MISS ${ref} (${code})\" ;;\n  esac\ndone \u003c /work/prewarm.list\necho \"[harbor-prewarm] Phase B complete: primed=${ok} failed=${fail}\"\ntotal=$((ok+fail))\nif [ \"${total}\" -gt 0 ] \u0026\u0026 [ \"${fail}\" -gt $((total/4)) ]; then\n  echo \"[harbor-prewarm] Phase B failure rate exceeds 25% — failing step\"\n  exit 1\nfi\n"
+                        ],
+                        "command": [
+                            "/bin/sh",
+                            "-c"
+                        ],
+                        "env": [
+                            {
+                                "name": "HARBOR_INTERNAL_URL",
+                                "value": "http://harbor-core.harbor.svc.cluster.local"
+                            },
+                            {
+                                "name": "HARBOR_PUBLIC_URL",
+                                "value": "https://registry.hw139.omani.works"
+                            },
+                            {
+                                "name": "HARBOR_USERNAME",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "HARBOR_ADMIN_USERNAME",
+                                        "name": "harbor-admin",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "HARBOR_PASSWORD",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "HARBOR_ADMIN_PASSWORD",
+                                        "name": "harbor-admin"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "GHCR_DOCKERCONFIG",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": ".dockerconfigjson",
+                                        "name": "ghcr-pull"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "GHCR_DOCKERCONFIG_NAMESPACE",
+                                "value": "flux-system"
+                            }
+                        ],
+                        "image": "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "harbor-prewarm",
+                        "resources": {
+                            "limits": {
+                                "memory": "2Gi"
+                            },
+                            "requests": {
+                                "cpu": "500m",
+                                "memory": "512Mi"
+                            }
+                        },
+                        "securityContext": {
+                            "allowPrivilegeEscalation": false,
+                            "capabilities": {
+                                "drop": [
+                                    "ALL"
+                                ]
+                            },
+                            "readOnlyRootFilesystem": true,
+                            "runAsNonRoot": true,
+                            "runAsUser": 1000
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/work",
+                                "name": "prewarm",
+                                "readOnly": true
+                            },
+                            {
+                                "mountPath": "/tmp",
+                                "name": "tmp"
+                            }
+                        ]
+                    }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "restartPolicy": "Never",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "serviceAccount": "bp-self-sovereign-cutover-runner",
+                "serviceAccountName": "bp-self-sovereign-cutover-runner",
+                "terminationGracePeriodSeconds": 30,
+                "volumes": [
+                    {
+                        "configMap": {
+                            "defaultMode": 420,
+                            "items": [
+                                {
+                                    "key": "prewarm.list",
+                                    "path": "prewarm.list"
+                                }
+                            ],
+                            "name": "cutover-step-03-harbor-prewarm"
+                        },
+                        "name": "prewarm"
+                    },
+                    {
+                        "emptyDir": {},
+                        "name": "tmp"
+                    }
+                ]
+            }
+        },
+        "ttlSecondsAfterFinished": 86400
+    },
+    "status": {
+        "active": 1,
+        "ready": 1,
+        "startTime": "2026-06-14T21:40:05Z",
+        "terminating": 0,
+        "uncountedTerminatedPods": {}
+    }
+}

@@ -1,0 +1,3 @@
+{"time":"2026-06-14T21:39:49.399912391Z","level":"INFO","msg":"restored deployments from PVC","count":1,"resumed":0,"clusterMeshReconciles":0,"dir":"/var/lib/catalyst/deployments"}
+{"time":"2026-06-14T21:40:05.130056838Z","level":"INFO","msg":"cutover-resume: in-flight cutover detected on startup","currentStep":"","currentStepIndex":"2","failedStep":"harbor-prewarm"}
+{"time":"2026-06-14T21:40:05.147083345Z","level":"INFO","msg":"cutover-resume: spawning runCutover to resume interrupted cutover","totalSteps":11}
