@@ -1,0 +1,23 @@
+[egress-block-test] verifying post-cutover URLs are local
+  gitrepository.openova.url=http://gitea-http.gitea.svc.cluster.local:3000/openova/openova
+[egress-block-test] #3526: force-reconciling Step-06's durable git-push before asserting HelmRepository pivot
+  reconcile requested: gitrepository/openova
+  reconcile requested: kustomization/bootstrap-kit
+  external HelmRepositories still pointing at ghcr.io/openova-io (excluding slot-managed self-refs): 0
+[egress-block-test] HelmRepository pivot converged — all external HelmRepositories on local Harbor
+  catalyst-api env CATALYST_GITOPS_REPO_URL=http://gitea-http.gitea.svc.cluster.local:3000/openova/openova
+[egress-block-test] enforce mode ON — resolving upstream hosts to CIDRs
+  block github.com -> 20.205.243.166/32
+  block ghcr.io -> 20.233.83.147/32
+  block harbor.openova.io -> 45.151.123.50/32
+  block xpkg.upbound.io -> 34.111.161.63/32
+/bin/sh: can't create /tmp/egress-deny.yaml: Read-only file system
+error: the path "/tmp/egress-deny.yaml" does not exist
+  WARN — egressDeny apply failed; assertion-only fallback (fail-safe)
+[egress-block-test] capturing baseline NotReady set
+[egress-block-test] baseline pre-existing NotReady items (excluded from regression check):
+  baseline KS flux-system/sme-tenants=False
+  baseline KS flux-system/sovereign-tls=False
+[egress-block-test] entering 600s survival window — only NEW NotReady regressions count as failure
+[egress-block-test] window complete; new-regression-cycles=0
+[egress-block-test] no new regressions during 600s window — sovereignty proof PASSED

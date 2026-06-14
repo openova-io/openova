@@ -1630,3 +1630,115 @@ func TestRunCutoverStep_RerunsTransientlyFailedJob(t *testing.T) {
 		t.Errorf("unexpected error checking prior Job deletion: %v", gErr)
 	}
 }
+
+// TestHandleCutoverStart_OperatorRetryRerunsGenuinelyFailedJob is the #3379
+// (hw139) zero-touch re-trigger regression: an OPERATOR-initiated
+// POST /api/v1/sovereign/cutover/start against a step whose prior Job failed
+// GENUINELY (BackoffLimitExceeded — NOT a transient DeadlineExceeded) must
+// DELETE the prior Job and RE-RUN the step, then complete. This is the path
+// that lets a freshly-rolled chart fix (the step-10 registryMirror pivot in
+// 0.1.62) re-drive a step that the timeouts-only auto-resume (#3558) refuses
+// to. It is the operator counterpart to TestRunCutoverStep_SurfacesPriorFailedJob
+// (which proves the unattended auto-resume path STILL fails-closed on the same
+// genuine failure).
+func TestHandleCutoverStart_OperatorRetryRerunsGenuinelyFailedJob(t *testing.T) {
+	preStatus := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cutoverStatusConfigMapName(),
+			Namespace: cutoverTestNS,
+		},
+		Data: map[string]string{
+			"cutoverComplete":                        "false",
+			"cutoverStartedAt":                       "2026-06-15T04:58:25Z",
+			"totalSteps":                             "1",
+			"step.vcluster-registry-pivot.result":    "failed",
+			"step.vcluster-registry-pivot.startedAt": "2026-06-15T04:58:30Z",
+			"failedStep":                             "vcluster-registry-pivot",
+		},
+	}
+	// A GENUINE failure (BackoffLimitExceeded) — exactly the hw139 step-10
+	// residual-tether FATAL shape. jobFailedTransiently classifies this as
+	// non-transient, so ONLY the operatorRetry branch re-runs it.
+	priorJob := makeFailedJobForStep("vcluster-registry-pivot")
+	priorJobName := priorJob.Name
+	objs := []k8sruntime.Object{
+		makeCutoverStepCM("cutover-step-10-vcluster-registry-pivot", "vcluster-registry-pivot", 10, cutoverModeJob, minimalPodSpecYAML, ""),
+		preStatus,
+		priorJob,
+	}
+	h, client := fakeHandlerWithCutover(t, objs...)
+
+	// Newly-created Jobs (the re-run) auto-complete.
+	jobCreates := map[string]int{}
+	var muJobs sync.Mutex
+	client.PrependReactor("create", "jobs", func(action clienttesting.Action) (bool, k8sruntime.Object, error) {
+		ca, ok := action.(clienttesting.CreateAction)
+		if !ok {
+			return false, nil, nil
+		}
+		job, ok := ca.GetObject().(*batchv1.Job)
+		if !ok {
+			return false, nil, nil
+		}
+		muJobs.Lock()
+		jobCreates[job.Labels[cutoverStepLabelKey]]++
+		muJobs.Unlock()
+		updated := job.DeepCopy()
+		updated.Status.Conditions = []batchv1.JobCondition{{
+			Type:   batchv1.JobComplete,
+			Status: corev1.ConditionTrue,
+			Reason: "Test",
+		}}
+		go func() {
+			time.Sleep(20 * time.Millisecond)
+			_, _ = client.BatchV1().Jobs(job.Namespace).UpdateStatus(
+				context.Background(), updated, metav1.UpdateOptions{},
+			)
+		}()
+		return false, nil, nil
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereign/cutover/start", nil)
+	h.HandleCutoverStart(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HandleCutoverStart: status %d, want 200 (engine started); body=%s", rec.Code, rec.Body.String())
+	}
+
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		bus := h.cutoverBusFor()
+		bus.mu.Lock()
+		running := bus.running
+		bus.mu.Unlock()
+		if !running {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	cm, err := client.CoreV1().ConfigMaps(cutoverTestNS).Get(context.Background(),
+		cutoverStatusConfigMapName(), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get status ConfigMap: %v", err)
+	}
+	// The operator retry re-ran the genuinely-failed step → cutover COMPLETES.
+	if cm.Data["cutoverComplete"] != "true" {
+		t.Errorf("cutoverComplete = %q, want true (operator /start must re-run a genuinely-failed step)", cm.Data["cutoverComplete"])
+	}
+	if cm.Data["step.vcluster-registry-pivot.result"] != "success" {
+		t.Errorf("step.vcluster-registry-pivot.result = %q, want success", cm.Data["step.vcluster-registry-pivot.result"])
+	}
+	muJobs.Lock()
+	created := jobCreates["vcluster-registry-pivot"]
+	muJobs.Unlock()
+	if created < 1 {
+		t.Errorf("vcluster-registry-pivot Job creates = %d, want >=1 (operator retry must re-create)", created)
+	}
+	// The prior BackoffLimitExceeded Job was deleted before the re-run.
+	if _, gErr := client.BatchV1().Jobs(cutoverTestNS).Get(context.Background(), priorJobName, metav1.GetOptions{}); gErr == nil {
+		t.Errorf("prior BackoffLimitExceeded Job %s still exists; want deleted before operator re-run", priorJobName)
+	} else if !apierrors.IsNotFound(gErr) {
+		t.Errorf("unexpected error checking prior Job deletion: %v", gErr)
+	}
+}

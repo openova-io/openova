@@ -1,5 +1,42 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.62 (#3379, hw139 step-08 + step-10 catches, 2026-06-15): the cutover
+# reached 9/11 on hw139 (registry + git tethers pivoted) and stalled on TWO
+# residual catches that this version fixes at source:
+#
+#   5th catch — Step-08 deny-egress CCNP never APPLIED (assertion-only hold).
+#   The egress-block-test container runs readOnlyRootFilesystem:true, so the
+#   enforce path's `>/tmp/egress-deny.yaml` redirect failed "Read-only file
+#   system"; the `kubectl apply` was never reached; the `cutover-egress-block`
+#   CiliumClusterwideNetworkPolicy was never created; the 600s window elapsed
+#   as a passive local-URL assertion, NOT the WITNESSED deny-egress hold
+#   ADR-0002 demands ("no cutover claim without the egress-block proof"). FIX:
+#   the CCNP manifest is now written to a WRITABLE emptyDir at /work (the
+#   former read-only `cilium-policy` configMap mount carried only a no-op
+#   placeholder the script never consumed — dropped) so it is genuinely
+#   applied + the hold is real and witnessable. Template
+#   08-egress-block-test-job.yaml.
+#
+#   6th catch — Step-10 vcluster-registry-pivot residual-tether FATAL. The
+#   pivot rewrote each HR's image.{repository,registry} but its Phase-1c
+#   self-check greps the WHOLE spec.values for `harbor.openova.io` and found
+#   the UN-pivoted `spec.values.global.registryMirror: harbor.openova.io` in
+#   4 HRs (bp-mgmt/rtz/dmz-vcluster + bp-sso-bridge) → "FATAL: 4 HelmRelease(s)
+#   still tethered" → BackoffLimitExceeded → cutover wedged at 10. FIX: new
+#   Phase-1d live-patches spec.values.global.registryMirror host
+#   (harbor.openova.io → harbor.<SOVEREIGN_FQDN>) on all 4 HRs BEFORE the
+#   residual check, and new Phase-2c persists the same rewrite into the 4
+#   bootstrap-kit overlay files in Gitea so the Kustomization reconcile can't
+#   revert it. Template 10-vcluster-registry-pivot-job.yaml.
+#
+# Paired catalyst-api change (cutover.go): an OPERATOR-initiated
+# POST /api/v1/sovereign/cutover/start (source="operator", behind
+# RequireSession) now DELETES + RE-RUNS a step whose prior Job failed
+# GENUINELY (BackoffLimitExceeded) — the zero-touch operator-retry path that
+# lets a fixed chart re-drive a step the auto-resume (#3558, timeouts-only)
+# refuses to. The auto-resume + in-cluster auto-trigger keep fail-closed
+# (jobFailedTransiently unchanged), so a real bug never auto-loops. No step
+# count change (still 11 steps).
 # 0.1.61 (#3379 + #3526, hw139 step-03 wedge, 2026-06-15): Step-03
 # harbor-prewarm DeadlineExceeded. The ~29 multi-layer PRIVATE openova-io
 # images are skopeo-native-pushed ghcr.io→local Harbor (the ONLY working
@@ -497,7 +534,7 @@ name: bp-self-sovereign-cutover
 # and wires it into GitRepository.spec.secretRef BEFORE the URL flip — same
 # credential + pattern as #3454's openova-sme-tenants GitRepository. Adds
 # `secrets: create` to the cutover-runner RBAC.
-version: 0.1.61
+version: 0.1.62
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

@@ -470,7 +470,23 @@ spec:
       # makes the Job/watch deadline honor THIS per-step value (was capped at
       # the global 15m) AND re-runs a DeadlineExceeded step instead of
       # wedging on it (transient-failure delete+re-run). No step-count change.
-      version: 0.1.61
+      # 0.1.62 (#3379, hw139 step-08 + step-10 catches): cutover reached 9/11
+      # on hw139 (registry + git tethers pivoted) then stalled on two residual
+      # catches now fixed at source. (5) Step-08 deny-egress CCNP never APPLIED
+      # — readOnlyRootFilesystem:true blocked the `>/tmp/egress-deny.yaml`
+      # write so the cutover-egress-block CCNP was never created + the 600s
+      # window passed as assertion-only (NOT the witnessed hold ADR-0002
+      # demands); FIX writes the manifest to a writable /work emptyDir so it is
+      # genuinely applied. (6) Step-10 vcluster-registry-pivot residual FATAL —
+      # its Phase-1c self-check found the un-pivoted spec.values.global.
+      # registryMirror: harbor.openova.io in 4 HRs (mgmt/rtz/dmz-vcluster +
+      # sso-bridge) → BackoffLimitExceeded; FIX adds Phase-1d (live-patch
+      # registryMirror host → harbor.<fqdn>) + Phase-2c (persist to the 4 Gitea
+      # overlays). Paired catalyst-api change: operator POST /cutover/start now
+      # deletes+re-runs a GENUINELY-failed step (the zero-touch re-trigger the
+      # timeouts-only auto-resume #3558 won't drive); auto-resume stays
+      # fail-closed. No step-count change.
+      version: 0.1.62
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

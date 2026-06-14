@@ -70,9 +70,17 @@ data:
           - name: UPSTREAM_HOSTS
             value: {{ .Values.egressTest.blockedDomains | default (list "github.com" "ghcr.io" "harbor.openova.io") | join " " | quote }}
         volumeMounts:
-          - name: cilium-policy
+          # #3379 (hw139, 2026-06-15): WRITABLE emptyDir at /work. The
+          # container runs readOnlyRootFilesystem:true (securityContext
+          # below), so the egressDeny CCNP manifest the enforce path emits
+          # can NOT be written to /tmp (root FS) — the prior `>/tmp/egress-
+          # deny.yaml` redirect failed with "Read-only file system", the
+          # `kubectl apply` never ran, the cutover-egress-block CCNP was
+          # never created, and the 600s window passed as an assertion-only
+          # hold (NOT the witnessed deny-egress proof ADR-0002 demands).
+          # /work is the one writable path; the manifest is written there.
+          - name: work
             mountPath: /work
-            readOnly: true
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -232,8 +240,11 @@ data:
                   for ip in ${block_ips}; do
                     echo "        - cidr: ${ip}/32"
                   done
-                } >/tmp/egress-deny.yaml
-                if kubectl apply -f /tmp/egress-deny.yaml; then
+                } >/work/egress-deny.yaml
+                # /work is a writable emptyDir (readOnlyRootFilesystem:true
+                # makes /tmp unwritable). Without this the apply below is
+                # never reached and the deny-egress hold is assertion-only.
+                if kubectl apply -f /work/egress-deny.yaml; then
                   POLICY_APPLIED="yes"
                   # Trap teardown so an abnormal exit (activeDeadline SIGTERM,
                   # eviction) can't strand a cluster-wide egressDeny on the
@@ -318,9 +329,11 @@ data:
           capabilities:
             drop: ["ALL"]
     volumes:
-      - name: cilium-policy
-        configMap:
-          name: cutover-step-08-egress-block-test
-          items:
-            - key: cilium-policy.yaml
-              path: cilium-policy.yaml
+      # #3379 (hw139): writable scratch for the egressDeny CCNP manifest the
+      # enforce path emits + applies. readOnlyRootFilesystem:true blocks
+      # writing it under /tmp, so a dedicated emptyDir is the only writable
+      # path. (The former read-only `cilium-policy` configMap mount carried
+      # only a no-op placeholder — the script never consumed it — so it is
+      # dropped: the actual CCNP is generated inline + written here.)
+      - name: work
+        emptyDir: {}
