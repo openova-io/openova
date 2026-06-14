@@ -104,6 +104,51 @@ gitea:
     usernameKey: "username"
     passwordKey: "password"
 
+# GitRepository pivot credential — step 05 (flux-gitrepository-patch). #3536.
+#
+# THE BUG (hw138/hw136 keystone catch, Refs #3379): step 05 repoints
+# GitRepository/openova from public github.com to the local Gitea, but the
+# cloud-init bootstrap GitRepository carries NO secretRef (public GitHub
+# clones anonymously). bp-gitea sets service.REQUIRE_SIGNIN_VIEW=true
+# (platform/gitea/chart/values.yaml) — anonymous clone of the local Gitea
+# 401s "authentication required" even for a PUBLIC repo (PROVEN live on
+# hw133, see products/catalyst/.../sme-tenants-gitrepo-auth-secret.yaml).
+# So after the pivot, source-controller can never fetch the local source →
+# step 06's HelmRepository URL rewrites never reconcile → step 08's bounded
+# pivot-wait can never converge → the 600s deny-egress hold never runs →
+# cutoverComplete=false. The Gitea PAT was only minted at step 09 (after
+# step 08), which is too late.
+#
+# THE FIX: step 05 wires a Flux basic-auth Secret into
+# GitRepository.spec.secretRef BEFORE flipping the URL, using the
+# `catalyst-gitea-token` PAT (key `token`) that bp-catalyst-platform's
+# pre-install hook already minted at BOOTSTRAP — long before cutover fires.
+# This is the identical credential + pattern issue #3454 used for the
+# openova-sme-tenants GitRepository. A Gitea PAT is accepted as the HTTP
+# git password (REQUIRE_SIGNIN_VIEW=true → anonymous 401, PAT → 200).
+#
+# Flux GitRepository.spec.secretRef accepts only `name` (no namespace) and
+# resolves it in the GitRepository's OWN namespace (flux-system). The PAT
+# Secret lives in catalyst-system, so step 05 reads it and materialises a
+# basic-auth Secret in flux-system (keys username/password) that the
+# GitRepository can reference.
+gitRepositorySecretRef:
+  # Destination basic-auth Secret name (created/updated by step 05 in the
+  # GitRepository's namespace = gitopsRepository.namespace). The
+  # GitRepository's spec.secretRef.name is patched to this.
+  destSecretName: "cutover-gitea-git-auth"
+  # Source PAT Secret minted at bootstrap by bp-catalyst-platform
+  # (templates/catalyst-gitea-token-secret.yaml). catalyst-platform's
+  # HelmRelease has targetNamespace: catalyst-system, so the Secret lands
+  # there with key `token`.
+  patSourceNamespace: "catalyst-system"
+  patSourceSecretName: "catalyst-gitea-token"
+  patSourceKey: "token"
+  # Git HTTP username for the basic-auth pair. Matches the Gitea admin
+  # account (CATALYST_GITOPS_USER literal `gitea_admin`, per
+  # api-deployment.yaml + sme-tenants-gitrepo-auth-secret.yaml).
+  username: "gitea_admin"
+
 # Local Harbor target — admin credentials + proxy_cache projects to create.
 harbor:
   # Shape of the admin secret materialised by bp-harbor's templates

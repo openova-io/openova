@@ -458,7 +458,20 @@ name: bp-self-sovereign-cutover
 # code) → local Harbor openova-io stayed EMPTY → post-cutover
 # ImagePullBackOff → Step-08 deny-egress could never run. Fix: --insecure-policy
 # + capture skopeo's true exit status.
-version: 0.1.59
+# 0.1.60 (#3536, Refs #3379): Step-05 (flux-gitrepository-patch) flipped
+# GitRepository/openova to the authenticated local Gitea but with an EMPTY
+# secretRef (the bootstrap GitRepository cloned public github.com
+# anonymously; bp-gitea REQUIRE_SIGNIN_VIEW=true makes anonymous local
+# clone 401) → source-controller froze "authentication required" → step-06
+# HelmRepository rewrites never reconciled → step-08 pivot-wait never
+# converged → the 600s deny-egress hold never ran → cutoverComplete=false.
+# The Gitea PAT was only minted at step-09 (after step-08). Fix: step-05
+# now materialises a flux-system basic-auth Secret from the
+# `catalyst-gitea-token` PAT (minted at BOOTSTRAP by bp-catalyst-platform)
+# and wires it into GitRepository.spec.secretRef BEFORE the URL flip — same
+# credential + pattern as #3454's openova-sme-tenants GitRepository. Adds
+# `secrets: create` to the cutover-runner RBAC.
+version: 0.1.60
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

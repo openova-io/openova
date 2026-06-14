@@ -2,8 +2,29 @@
 Step 05 — flux-gitrepository-patch.
 
 Patches `flux-system/<gitopsRepository.name>` GitRepository.spec.url
-to the local Sovereign Gitea URL. After this patch source-controller
-reconciles against the in-cluster Gitea Service.
+to the local Sovereign Gitea URL AND wires a basic-auth secretRef so
+source-controller can authenticate to the local Gitea. After this patch
+source-controller reconciles against the in-cluster Gitea Service.
+
+#3536 (Refs #3379) — secretRef wiring (load-bearing for step 08)
+────────────────────────────────────────────────────────────────
+The cloud-init bootstrap GitRepository pulls from public github.com with
+NO secretRef (anonymous clone). bp-gitea sets REQUIRE_SIGNIN_VIEW=true,
+so once we flip the URL to the local Gitea, an anonymous clone 401s
+("authentication required") even for a PUBLIC repo. source-controller
+then freezes on the stale pre-cutover artifact, step 06's HelmRepository
+URL rewrites never reconcile, and step 08's bounded pivot-wait can never
+converge → the 600s deny-egress hold never runs → cutoverComplete=false.
+
+Fix: BEFORE flipping the URL, materialise a Flux basic-auth Secret in the
+GitRepository's namespace carrying the `catalyst-gitea-token` PAT (minted
+at BOOTSTRAP by bp-catalyst-platform, in catalyst-system) in
+username/password shape, and set GitRepository.spec.secretRef.name to it.
+A Gitea PAT is accepted as the HTTP git password. This is the same
+credential + pattern issue #3454 used for the openova-sme-tenants
+GitRepository. Flux secretRef takes only a name (no namespace) and
+resolves it in the GitRepository's own namespace, so the Secret is
+created locally from the cross-namespace PAT here.
 
 Image phase: post.
 */ -}}
@@ -44,20 +65,100 @@ data:
           # "kustomization path not found".
           - name: SOVEREIGN_FQDN
             value: {{ .Values.sovereign.fqdn | quote }}
+          # #3536 — secretRef wiring inputs. The destination basic-auth
+          # Secret is created in the GitRepository's namespace; the source
+          # PAT (`catalyst-gitea-token`) is read from catalyst-system where
+          # bp-catalyst-platform's pre-install hook minted it at bootstrap.
+          - name: GIT_AUTH_SECRET_NAME
+            value: {{ .Values.gitRepositorySecretRef.destSecretName | quote }}
+          - name: PAT_SOURCE_NAMESPACE
+            value: {{ .Values.gitRepositorySecretRef.patSourceNamespace | quote }}
+          - name: PAT_SOURCE_SECRET_NAME
+            value: {{ .Values.gitRepositorySecretRef.patSourceSecretName | quote }}
+          - name: PAT_SOURCE_KEY
+            value: {{ .Values.gitRepositorySecretRef.patSourceKey | quote }}
+          - name: GIT_AUTH_USERNAME
+            value: {{ .Values.gitRepositorySecretRef.username | quote }}
         command: ["/bin/sh", "-c"]
         args:
           - |
             set -eu
             echo "[flux-gitrepository-patch] target=${GITREPO_NAMESPACE}/${GITREPO_NAME} -> ${LOCAL_GITEA_URL} (branch=${BRANCH})"
+
+            # ── #3536: wire a basic-auth secretRef BEFORE flipping the URL ──
+            #
+            # bp-gitea sets REQUIRE_SIGNIN_VIEW=true → an anonymous clone of
+            # the local Gitea 401s even for a public repo. The cloud-init
+            # bootstrap GitRepository has NO secretRef (it cloned public
+            # github.com anonymously). So we must give source-controller a
+            # credential, or every reconcile after the URL flip fails
+            # "authentication required" and step 08 can never converge.
+            #
+            # Credential = the `catalyst-gitea-token` PAT minted at BOOTSTRAP
+            # by bp-catalyst-platform (in ${PAT_SOURCE_NAMESPACE}). A Gitea
+            # PAT is accepted as the HTTP git password. Flux secretRef takes
+            # only a name resolved in the GitRepository's own namespace, so
+            # we read the cross-namespace PAT and write a basic-auth Secret
+            # (keys username/password) into ${GITREPO_NAMESPACE}.
+            #
+            # The PAT Secret exists from bootstrap, but its `token` byte may
+            # be momentarily empty if the minter Job is mid-flight; wait
+            # (bounded) for a non-empty value before proceeding — a cutover
+            # that wired an empty password would re-introduce the 401.
+            echo "[flux-gitrepository-patch] reading PAT ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}.${PAT_SOURCE_KEY}"
+            pat=""
+            for i in $(seq 1 30); do
+              pat=$(kubectl -n "${PAT_SOURCE_NAMESPACE}" get secret "${PAT_SOURCE_SECRET_NAME}" \
+                -o "jsonpath={.data.${PAT_SOURCE_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
+              if [ -n "${pat}" ]; then
+                echo "[flux-gitrepository-patch] PAT present (attempt ${i})"
+                break
+              fi
+              echo "[flux-gitrepository-patch] PAT not yet populated in ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME} (attempt ${i}/30) — sleeping 5s"
+              sleep 5
+            done
+            if [ -z "${pat}" ]; then
+              echo "[flux-gitrepository-patch] FATAL: ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}.${PAT_SOURCE_KEY} empty after 150s — bp-catalyst-platform PAT mint did not complete; refusing to pivot the GitRepository to an authenticated Gitea without a credential (would 401 on every reconcile)" >&2
+              exit 1
+            fi
+
+            # Create/update the basic-auth Secret in the GitRepository's
+            # namespace. Apply via stdin manifest so the PAT never lands in
+            # argv (visible to other namespaces' process listings). stringData
+            # lets the apiserver base64-encode for us.
+            echo "[flux-gitrepository-patch] materialising basic-auth Secret ${GITREPO_NAMESPACE}/${GIT_AUTH_SECRET_NAME}"
+            cat >/tmp/git-auth-secret.yaml <<EOF
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: ${GIT_AUTH_SECRET_NAME}
+              namespace: ${GITREPO_NAMESPACE}
+              labels:
+                app.kubernetes.io/managed-by: self-sovereign-cutover
+                app.kubernetes.io/component: cutover-gitrepository-auth
+              annotations:
+                catalyst.openova.io/mirrored-from: ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}
+            type: Opaque
+            stringData:
+              username: ${GIT_AUTH_USERNAME}
+              password: ${pat}
+            EOF
+            kubectl apply -f /tmp/git-auth-secret.yaml
+            echo "[flux-gitrepository-patch] basic-auth Secret applied"
+
             # Issue #891 — apply the patch via a YAML strategic-merge file
             # so the multi-line ignore filter is shipped verbatim. JSON-
             # patching a multi-line string from sh is a rabbit-hole of
             # quoting; YAML lets us write it as a literal block.
+            # #3536 — the patch ALSO sets spec.secretRef.name so the
+            # post-flip GitRepository authenticates to the local Gitea.
             cat >/tmp/patch.yaml <<EOF
             spec:
               url: ${LOCAL_GITEA_URL}
               ref:
                 branch: ${BRANCH}
+              secretRef:
+                name: ${GIT_AUTH_SECRET_NAME}
               ignore: |
                 /*
                 !/clusters/_template
@@ -65,7 +166,7 @@ data:
                 !/platform
                 !/products
             EOF
-            echo "[flux-gitrepository-patch] applying patch (ignore widened to include clusters/${SOVEREIGN_FQDN}/)"
+            echo "[flux-gitrepository-patch] applying patch (URL -> local Gitea, secretRef -> ${GIT_AUTH_SECRET_NAME}, ignore widened to include clusters/${SOVEREIGN_FQDN}/)"
             kubectl patch gitrepository "${GITREPO_NAME}" \
               -n "${GITREPO_NAMESPACE}" \
               --type=merge --patch-file /tmp/patch.yaml
