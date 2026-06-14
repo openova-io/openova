@@ -526,7 +526,19 @@ name: bp-newapi
 # `valkey.url` + blueprint.yaml configSchema default now point at
 # `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc.cluster.local:6379` (mirrors
 # the SME VALKEY_ADDR rewire #3476). Lockstep: 80-newapi.yaml pin → 1.4.81.
-version: 1.4.82
+# 1.4.83 (Refs #3374, 2026-06-14): rewire the NetworkPolicy valkey egress
+# selector to match the #3483 connection-string rewire. #3483 repointed
+# `valkey.url` at the rtz-vCluster syncer-mangled
+# `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc` but LEFT the egress
+# NetworkPolicy rule (`networkPolicy.egress[bp-valkey]`) selecting the now-
+# dead `valkey` namespace (`namespaceSelector: kubernetes.io/metadata.name:
+# valkey`). #3373 Batch A re-homed bp-valkey to the rtz vCluster, so the
+# synced Service lives in the HOST `rtz` namespace — egress to valkey:6379
+# was DENIED → newapi CrashLoop `Redis ping test failed` (keystone #3374
+# walk, live hw135). Flips `networkPolicy.egress[bp-valkey].namespaceLabel`
+# `valkey` → `rtz` so the rendered egress namespaceSelector permits the
+# datapath to the rtz-synced valkey. Lockstep: 80-newapi.yaml pin → 1.4.83.
+version: 1.4.83
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
