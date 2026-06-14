@@ -490,7 +490,26 @@ data:
       local hr="$1" op_email="$2" fqdn="$3"
       local name ns
       name="$(printf '%s' "${hr}" | jq -r '.metadata.name')"
-      ns="$(printf '%s' "${hr}" | jq -r '.metadata.namespace')"
+      # #3374 (2026-06-14) — the ExternalSecret MUST land in the namespace
+      # where the app POD actually runs, which is the HR's `targetNamespace`
+      # when set (every Tier-1 SSO slot installs the HR in `flux-system` but
+      # targets the app's own ns: bp-grafana → grafana, bp-harbor → harbor,
+      # bp-openbao → openbao, bp-gitea → gitea, bp-powerdns-admin →
+      # powerdns-admin). The pre-fix code wrote the ES into the HR's OWN
+      # namespace (.metadata.namespace = flux-system), so the projected
+      # `<cid>-sso-oidc-credentials` Secret materialised in flux-system —
+      # invisible to the app Pod's `envFromSecret`. harbor/openbao/gitea were
+      # masked because their CHART also ships an ES that renders into the
+      # targetNamespace; grafana's chart ES is omitted at install time by the
+      # `.Capabilities` ESO-CRD-race guard (helm-controller never re-evaluates
+      # the install-time capability snapshot on drift), so the ONLY grafana ES
+      # was this one in flux-system → grafana Pod stuck 2/3
+      # CreateContainerConfigError → route 503 "no healthy upstream". Targeting
+      # the runtime namespace fixes grafana directly and makes the projection
+      # correct for every app regardless of whether its chart-side ES rendered.
+      # Falls back to .metadata.namespace when targetNamespace is unset
+      # (byte-identical to the old behaviour for an in-place HR).
+      ns="$(printf '%s' "${hr}" | jq -r '.spec.targetNamespace // .metadata.namespace')"
 
       # The clientId is the HR name (strip a leading "bp-" prefix if present
       # — bp-gitea is the HR, but the natural OIDC clientId is `gitea`).
