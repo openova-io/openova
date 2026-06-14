@@ -284,6 +284,80 @@ func TestCreateDeployment_MarketplaceEnabledDefaultsTrue(t *testing.T) {
 	}
 }
 
+// Refs #3370 — a deployment POST that OMITS `enableSharedPostgres` MUST
+// land with Request.EnableSharedPostgres=true, the founder North-Star-2
+// target state. CreateDeployment pre-initialises the Request before
+// json.Decode (the same default-true bool idiom as MarketplaceEnabled), so
+// the "absent key leaves field untouched" semantics fall through to the
+// pre-init value. This is the only path that fires the bp-postgres chart's
+// shared-pg engines + their self-registered Application CRs on a fresh
+// prov; without the default ON, `/api/v1/sovereign/apps` projected ZERO
+// instance cards + ZERO Contexts (the #3370 surface was invisible on
+// hw138). Asserts the canonical "field omitted → true" case AND the
+// "explicit false → byte-identical dedicated-cluster path survives the
+// decode" case.
+func TestCreateDeployment_EnableSharedPostgresDefaultsTrue(t *testing.T) {
+	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
+	t.Setenv("CATALYST_GHCR_PULL_TOKEN", "ghp_TEST_PLACEHOLDER_NOT_REAL")
+	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
+
+	cases := []struct {
+		name      string
+		sharedKey bool // include enableSharedPostgres in the body
+		sharedVal bool // value when included
+		want      bool // expected dep.Request.EnableSharedPostgres
+	}{
+		{name: "omitted-defaults-true", sharedKey: false, want: true},
+		{name: "explicit-true-passes-through", sharedKey: true, sharedVal: true, want: true},
+		{name: "explicit-false-dedicated-cluster-survives", sharedKey: true, sharedVal: false, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pdm.ResetManagedDomains()
+			fake := &fakePDM{}
+			h := NewWithPDM(slog.Default(), fake)
+
+			body := map[string]any{
+				"sovereignFQDN":          "k8s.acme.io",
+				"sovereignDomainMode":    "byo",
+				"sovereignSubdomain":     "k8s",
+				"hetznerToken":           "tok",
+				"hetznerProjectID":       "proj",
+				"region":                 "fsn1",
+				"orgName":                "Acme",
+				"orgEmail":               "ops@acme.io",
+				"sshPublicKey":           "ssh-ed25519 AAAA test",
+				"objectStorageRegion":    "fsn1",
+				"objectStorageAccessKey": "TESTACCESSKEY1234567",
+				"objectStorageSecretKey": "TESTSECRETKEY1234567890123456789012345678",
+			}
+			if tc.sharedKey {
+				body["enableSharedPostgres"] = tc.sharedVal
+			}
+			raw, _ := json.Marshal(body)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/api/v1/deployments", bytes.NewReader(raw))
+			h.CreateDeployment(w, r)
+			if w.Code != http.StatusCreated {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+			}
+			var resp struct {
+				ID string `json:"id"`
+			}
+			_ = json.Unmarshal(w.Body.Bytes(), &resp)
+			val, ok := h.deployments.Load(resp.ID)
+			if !ok {
+				t.Fatalf("deployment %s missing from sync.Map", resp.ID)
+			}
+			dep := val.(*Deployment)
+			if dep.Request.EnableSharedPostgres != tc.want {
+				t.Fatalf("EnableSharedPostgres = %v, want %v (#3370 default-flip semantics)", dep.Request.EnableSharedPostgres, tc.want)
+			}
+		})
+	}
+}
+
 // Issue #748 — orgEmail must match the authenticated session. A signed-in
 // operator who tries to POST a deployment whose req.OrgEmail belongs to
 // some OTHER identity must receive 403, NEVER 201. The session header
