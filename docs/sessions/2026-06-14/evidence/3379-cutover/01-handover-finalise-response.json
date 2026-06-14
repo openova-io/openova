@@ -1,0 +1,14 @@
+{
+    "deploymentId": "3a2ee904b1d0366a",
+    "sovereignFqdn": "hw136.omani.works",
+    "consoleURL": "https://console.hw136.omani.works",
+    "finalisedAt": "2026-06-14T10:05:11Z",
+    "steps": {
+        "handoverEventEmitted": true,
+        "helmwatchCancelled": false,
+        "tofuArchiveSubmitted": true,
+        "tofuWorkdirRemoved": true,
+        "kubeconfigRemoved": false,
+        "deploymentRecordRemoved": true
+    }
+}
