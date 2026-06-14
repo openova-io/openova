@@ -110,7 +110,12 @@ spec:
       # 1.0.11 (#2745, 2026-06-12): loki/mimir/tempo re-homed into the
       # mgmt vCluster — datasource URLs re-pointed at the syncer-mangled
       # host-side Service names (<svc>-x-<ns>-x-mgmt-vcluster.mgmt.svc).
-      version: 1.0.12
+      # 1.0.13 (#3374, 2026-06-14): sidecar.resources requests/limits so the
+      # dashboard + datasource sidecars (containers[0]/[1]) pass the kyverno
+      # resource-requests Enforce policy — without them every grafana Pod
+      # roll is denied, so grafana can never restart to pick up the corrected
+      # GF_-shaped OIDC envFromSecret (the zero-click fix). Refs #3374.
+      version: 1.0.13
       sourceRef:
         kind: HelmRepository
         name: bp-grafana
