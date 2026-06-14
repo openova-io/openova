@@ -1,0 +1,78 @@
+{
+  "shared-pg": {
+    "tabLabel": "Contexts",
+    "toks": {
+      "Occupied": true,
+      "Credential": true,
+      "Context": true,
+      "harbor": true,
+      "gitea": true,
+      "keycloak": true,
+      "grafana": false,
+      "powerdns": false,
+      "newapi": false,
+      "openova": false,
+      "database-secret": true,
+      "ready": true,
+      "pending": true,
+      "registry": true
+    }
+  },
+  "shared-pg-b": {
+    "tabLabel": "Contexts",
+    "toks": {
+      "Occupied": true,
+      "Credential": true,
+      "Context": true,
+      "harbor": false,
+      "gitea": false,
+      "keycloak": false,
+      "grafana": true,
+      "powerdns": true,
+      "newapi": false,
+      "openova": false,
+      "database-secret": true,
+      "ready": true,
+      "pending": true,
+      "registry": false
+    }
+  },
+  "shared-pg-c": {
+    "tabLabel": "Contexts",
+    "toks": {
+      "Occupied": true,
+      "Credential": true,
+      "Context": true,
+      "harbor": false,
+      "gitea": false,
+      "keycloak": false,
+      "grafana": false,
+      "powerdns": false,
+      "newapi": true,
+      "openova": true,
+      "database-secret": true,
+      "ready": true,
+      "pending": true,
+      "registry": false
+    }
+  },
+  "bp-gitea": {
+    "toks": {
+      "Depends on": true,
+      "shared-pg": true,
+      "db:gitea": true,
+      "Dependencies": true,
+      "PostgreSQL": true
+    }
+  },
+  "reuse-wizard": {
+    "toks": {
+      "Instance name": true,
+      "Organization": true,
+      "Topology": true,
+      "singleton": true,
+      "active-hot-standby": true,
+      "Create instance": true
+    }
+  }
+}
