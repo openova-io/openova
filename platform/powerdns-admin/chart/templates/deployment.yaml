@@ -7,6 +7,34 @@ metadata:
     app.kubernetes.io/name: bp-powerdns-admin
     app.kubernetes.io/instance: {{ .Release.Name }}
     catalyst.openova.io/blueprint: bp-powerdns-admin
+  {{- if .Values.sso.enabled }}
+  annotations:
+    # #3374 (2026-06-14) — roll this Deployment when the bp-sso-bridge
+    # ExternalSecret `pda-sso-oidc-credentials` materialises/rotates.
+    #
+    # ROOT CAUSE measured live on hw136 (dep 3a2ee904b1d0366a): on a fresh
+    # prov the PDA Pod starts BEFORE the sso-bridge mints the Keycloak client
+    # + projects the OIDC ExternalSecret (the Pod was 2m45s older than the
+    # Secret on hw136). The OIDC env is injected via
+    # `envFrom.secretRef: pda-sso-oidc-credentials` (optional: true), and
+    # kubelet evaluates `envFrom` ONLY at container creation — it never
+    # re-injects env when the Secret later appears. So the running Pod boots
+    # with EMPTY OIDC_OAUTH_AUTHORIZE_URL / _TOKEN_URL / _KEY (every
+    # ExternalSecret-sourced key), PDA's Setting().get() returns '' for them,
+    # and authlib raises `RuntimeError: Missing "authorize_url" value` at
+    # routes/index.py:155 oidc_login → the bare-URL zero-click 302 lands on
+    # PDA's own HTTP 500, never on Keycloak. A rolling restart once the
+    # Secret exists makes /oidc/login 302 to KC and the owner lands on
+    # /dashboard/ signed-in (verified live on hw136).
+    #
+    # Stakater Reloader (bp-reloader, --reload-strategy=annotations) watches
+    # the named Secret and triggers a rolling restart on every change — so
+    # the moment the ExternalSecret syncs the OIDC bundle the Pod is rolled
+    # and picks up the env via envFrom. Same idiom catalyst-api uses
+    # (secret.reloader.stakater.com/reload=handover-jwt-public,...). Gated
+    # on sso.enabled so a non-SSO Sovereign emits no annotation.
+    secret.reloader.stakater.com/reload: "pda-sso-oidc-credentials"
+  {{- end }}
 spec:
   replicas: {{ .Values.replicas | default 1 }}
   strategy:

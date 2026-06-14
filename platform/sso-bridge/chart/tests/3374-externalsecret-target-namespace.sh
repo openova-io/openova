@@ -83,11 +83,34 @@ if grep -Eq '"  namespace: flux-system"' "$SCRIPT"; then
   exit 1
 fi
 
-# ── Case 3: bash -n ──────────────────────────────────────────────────────
+# ── Case 3: sso.skipExternalSecret opt-out is honoured ───────────────────
+# Apps whose chart ships its own transformed ExternalSecret (grafana →
+# GF_AUTH_GENERIC_OAUTH_* env-override keys) set sso.skipExternalSecret=true.
+# bp-sso-bridge must still write the OpenBao bundle (so the chart ES has
+# data) but skip the raw-key K8s ExternalSecret so it does not collide with
+# the chart's transformed Secret of the same name.
+if ! grep -q '\.spec\.values\.sso\.skipExternalSecret' "$SCRIPT"; then
+  echo "FAIL: reconcile_one no longer reads .spec.values.sso.skipExternalSecret —" >&2
+  echo "      apps with a chart-side transformed ES (grafana) need this opt-out" >&2
+  echo "      so the raw-key bp-sso-bridge ES doesn't stomp the chart's Secret." >&2
+  exit 1
+fi
+# The opt-out must short-circuit AFTER the OpenBao write (openbao_put) and
+# BEFORE the kubectl apply — i.e. the OpenBao bundle is still persisted so the
+# chart-side ES (which reads sso/<cid> from OpenBao) keeps working.
+if ! awk '/emit_external_secret\(\)/{f=1} f&&/openbao_put "sso\/\$\{cid\}"/{ob=1} f&&ob&&/skip_es.*=.*"true"/{print "OK"; exit}' "$SCRIPT" | grep -q OK; then
+  echo "FAIL: the skipExternalSecret short-circuit must come AFTER openbao_put" >&2
+  echo "      (the OpenBao bundle MUST still be written — the chart-side ES" >&2
+  echo "      reads sso/<cid> from OpenBao)." >&2
+  exit 1
+fi
+
+# ── Case 4: bash -n ──────────────────────────────────────────────────────
 if ! bash -n "$SCRIPT"; then
   echo "FAIL: rendered reconcile.sh is not bash -n clean" >&2
   exit 1
 fi
 
 echo "PASS: bp-sso-bridge emits the per-app OIDC ExternalSecret into the HR" \
-     "targetNamespace (app runtime ns), fixing the #3374 grafana 503."
+     "targetNamespace (app runtime ns) and honours sso.skipExternalSecret for" \
+     "chart-owned transformed Secrets — fixing the #3374 grafana 503."

@@ -1,6 +1,21 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.17
+version: 0.2.18
+# 0.2.18 (#3374, 2026-06-14): add `sso.skipExternalSecret: true` opt-out.
+# Apps that consume their OIDC secret as DIRECT env vars (grafana's
+# `envFromSecret`) need keys named after the app's env-override contract
+# (GF_AUTH_GENERIC_OAUTH_* / GF_SERVER_ROOT_URL), not the raw scalars this
+# reconciler projects — and they ship their OWN chart-side ExternalSecret
+# (with a target.template performing the rename + root_url derivation) that
+# reads the SAME OpenBao `sso/<cid>` bundle. With 0.2.17 emitting into the
+# targetNamespace, the raw-key bp-sso-bridge ES collided with grafana's
+# transformed chart ES over `grafana-sso-oidc-credentials` and the raw win
+# left grafana's generic_oauth unconfigured (empty client_id, redirect_uri →
+# https://localhost/) → zero-click SSO failed. The flag makes the reconciler
+# still WRITE the OpenBao bundle (the chart ES's data source) but SKIP the
+# colliding raw-key K8s ExternalSecret. Default false → every other app
+# (harbor/openbao/gitea/powerdns, all raw-key Job consumers) is byte-identical.
+# Slot 25-grafana sets it. Refs #3374.
 # 0.2.17 (#3374, 2026-06-14): emit the per-app OIDC ExternalSecret into the
 # HR's `targetNamespace` (the namespace where the app POD actually runs),
 # falling back to the HR's own namespace only when targetNamespace is unset.
