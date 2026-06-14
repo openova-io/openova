@@ -1027,7 +1027,7 @@ spec:
             # 1.4.621 — #3373 Batch A: SME valkey consumer + projector addr → rtz-vCluster syncer-mangled name (bp-valkey moved into rtz); valkey-cross-ns CNP disabled (rtz isolation netpol `sme` carve-out governs the wire).
             # 1.4.623 — #3373 Batch A: qa-fixtures CNPG barman backup endpoint default → rtz-vCluster synced seaweedfs-s3 name (seaweedfs moved into rtz; 1.4.622 was a content-free deploy-bot sweep).
             # 1.4.626 — #3492: Continuum CRD gains spec.switchover.{mechanism,raftTransition} (bp-openbao raft-transition DR contract); additive, slot-13 crds:CreateReplace propagates the schema. Render byte-unchanged.
-      version: 1.4.632
+      version: 1.4.633
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
