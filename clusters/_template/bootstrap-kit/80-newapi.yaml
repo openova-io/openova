@@ -223,7 +223,7 @@ spec:
       # the syncer-mangled `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc`
       # (mirrors the SME VALKEY_ADDR rewire #3476). This slot's valkey block
       # sets no `valkey.url` override, so the chart default IS what newapi uses.
-      version: 1.4.81
+      version: 1.4.82
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
