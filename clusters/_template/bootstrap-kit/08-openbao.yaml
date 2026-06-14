@@ -77,8 +77,12 @@ spec:
   chart:
     spec:
       chart: bp-openbao
-      # 1.2.38 (#3373 Batch A): snapshot-replication s3 endpoint default → rtz-vCluster synced name (seaweedfs moved into rtz).
-      version: 1.2.38
+      # 1.2.39 (#3374): republish — 1.2.38's OCI artifact NEVER landed (its
+      # Blueprint Release run failed at the snapshot-replication-toggle.sh test
+      # gate, which #3477 left asserting the pre-move s3 endpoint), wedging
+      # `chart pull error: not found` on hw133 + every fresh prov. Test fixed +
+      # version bumped so the pinned artifact is fetchable on ghcr.
+      version: 1.2.39
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
