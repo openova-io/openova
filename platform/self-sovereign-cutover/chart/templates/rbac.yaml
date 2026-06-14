@@ -20,8 +20,12 @@ The cutover runner needs cluster-scope reach because:
     Secret in `flux-system` so source-controller can pull from the
     per-Sovereign Harbor mirror without manual kubectl patch.
   - Step 07 patches Deployment in `catalyst-platform` namespace.
-  - Step 08 creates+deletes a CiliumNetworkPolicy cluster-wide and
-    queries HelmRelease/Kustomization status across all namespaces.
+  - Step 08 creates+deletes a CiliumNetworkPolicy cluster-wide, queries
+    HelmRelease/Kustomization status across all namespaces, AND (#3526)
+    force-reconciles the GitRepository + bootstrap-kit Kustomization so
+    Step-06's durable git-push lands before the HelmRepository-pivot
+    assertion — needs kustomizations {update,patch} for the reconcile
+    annotation.
   - Registry-pivot DaemonSet writes to /etc/rancher/k3s/registries.yaml
     on the host filesystem (hostPath, no K8s API needed beyond status
     update on the cutover-status ConfigMap).
@@ -115,6 +119,9 @@ rules:
   - apiGroups: ["helm.toolkit.fluxcd.io"]
     resources: ["helmreleases"]
     verbs: ["update", "patch"]   # step 06 phase-1.6 (catalog override) + step 10 vcluster-registry-pivot (TBD-V24 MISS-1)
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["update", "patch"]   # step 08 (#3526) force-reconciles the bootstrap-kit Kustomization so Step-06's durable git-push lands before the pivot assertion (the annotate reconcile.fluxcd.io/requestedAt patch)
   - apiGroups: ["pkg.crossplane.io"]
     resources: ["providers"]
     verbs: ["update", "patch"]   # step 11 crossplane-provider-pivot (TBD-V24 MISS-3)

@@ -514,7 +514,14 @@ stepTimeouts:
   fluxGitRepositoryPatchSeconds: 600
   helmRepositoryPatchesSeconds: 600
   catalystAPIEnvPatchSeconds: 600
-  egressBlockTestSeconds: 900   # 600 deny + buffer for assert sweep
+  # 600s deny survival window + up to 300s #3526 bounded pivot-poll
+  # (force-reconcile GitRepository + bootstrap-kit Kustomization and wait
+  # for Step-06's durable git-push to converge BEFORE the window opens)
+  # + buffer for the assert sweep / policy teardown. Was 900s before
+  # #3526 added the pivot-poll; bumped to 1200s so the worst-case
+  # 300s-poll-then-600s-window run still has headroom under the Job's
+  # activeDeadlineSeconds.
+  egressBlockTestSeconds: 1200
   # Step 09 (gitea-token-mint, TBD-C18) — short-lived: a single
   # Gitea API mint + validate + Secret patch + best-effort rollout.
   # 600s leaves generous headroom for the provisioning Deployment
