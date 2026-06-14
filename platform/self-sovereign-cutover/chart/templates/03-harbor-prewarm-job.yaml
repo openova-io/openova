@@ -207,51 +207,110 @@ data:
             count=$(printf '%s\n' "${openova_images}" | grep -c . || true)
             echo "[harbor-prewarm] found ${count} unique openova-io images to native-push"
 
-            # Native push each via skopeo copy.
-            push_ok=0
-            push_fail=0
-            for upstream in ${openova_images}; do
+            # Native push each via skopeo copy, run in PARALLEL with a
+            # bounded fan-out.
+            #
+            # #3379 step-03 DeadlineExceeded (hw139, 2026-06-15): these ~29
+            # multi-layer openova-io copies ran STRICTLY SERIAL over kom4dc's
+            # throttled ghcr→Harbor egress and blew the step deadline with
+            # only 6/29 pushed → local Harbor openova-io project incomplete →
+            # post-cutover ImagePullBackOff → Step-08 deny-egress proof never
+            # ran. The bytes themselves are unavoidable (the source images are
+            # PRIVATE on ghcr, so Harbor's anonymous proxy-cache 404s them —
+            # #3534 — this authenticated skopeo push is the only working
+            # route), but the WALL-CLOCK is collapsible: copies are
+            # independent, so we run PREWARM_PARALLELISM of them at once. Each
+            # worker writes its own result sentinel (`.ok`/`.fail`) + captured
+            # log under ${cpdir}; the parent `wait`s for all, then prints each
+            # log prefix-indented and tallies from the sentinels. POSIX sh has
+            # no `wait -n`, so we cap concurrency by counting live background
+            # PIDs and pausing the launch loop until one drains.
+            #
+            # skopeo gains `--retry-times 3` so a single transient ghcr/Harbor
+            # 5xx or reset inside a copy self-heals (resumable layer fetch)
+            # instead of failing the whole image — independent of the binary-
+            # download retry above.
+            #
+            # Two earlier #3379 keystone catches (hw138, 2026-06-14) stay in
+            # force: (1) `--insecure-policy` so skopeo doesn't fatal on the
+            # missing /etc/containers/policy.json that alpine/k8s + the lework
+            # static binary omit; (2) branch on skopeo's REAL exit status
+            # (captured per-worker) rather than a piped `sed` whose status is
+            # always 0 under this `set -eu` (no pipefail) shell — the bug that
+            # made every fatal copy miscount as success.
+            : "${PREWARM_PARALLELISM:=6}"
+            cpdir="/tmp/prewarm-copies"
+            rm -rf "${cpdir}"; mkdir -p "${cpdir}"
+            echo "[harbor-prewarm] pushing ${count} image(s) with parallelism=${PREWARM_PARALLELISM}"
+
+            copy_one() {
+              up="$1"
               # Convert ghcr.io/X/Y:tag → HARBOR_HOST/X/Y:tag
               # (drop ghcr.io/ prefix, keep rest identical)
-              local_ref="${HARBOR_HOST}/${upstream#ghcr.io/}"
-              echo "[harbor-prewarm] copy ${upstream} → ${local_ref}"
-              # #3379 keystone catch (hw138, 2026-06-14): this loop was a
-              # SILENT NO-OP — it reported push_ok=N / push_fail=0 while the
-              # local Harbor openova-io project stayed EMPTY (manifest 404),
-              # so post-cutover catalyst-api ImagePullBackOff'd and the
-              # deny-egress proof (Step 08) could never run. TWO defects:
-              #   (1) skopeo aborted with `level=fatal Error loading trust
-              #       policy: open /etc/containers/policy.json: no such file
-              #       or directory` — the alpine/k8s base image + the lework
-              #       static skopeo binary ship NO default signature-trust
-              #       policy, so EVERY copy died before transferring a byte.
-              #       Fix: pass --insecure-policy (skopeo's documented
-              #       no-policy flag). No source signatures are verified here
-              #       regardless; the source is our own authenticated
-              #       ghcr.io and Harbor enforces its own dest-side trust.
-              #   (2) `skopeo copy ... 2>&1 | sed` made the `if` evaluate the
-              #       exit status of `sed` (always 0 under this `set -eu`
-              #       shell, which has no `set -o pipefail`), NOT skopeo — so
-              #       every fatal copy was miscounted as push_ok. Fix:
-              #       capture skopeo's real exit status by writing its output
-              #       to a temp log, then prefix-print the log and branch on
-              #       the true status.
+              lref="${HARBOR_HOST}/${up#ghcr.io/}"
+              # Slug for the per-image sentinel/log file names.
+              slug=$(printf '%s' "${up}" | tr -c 'A-Za-z0-9._-' '_')
               if skopeo copy \
                 --insecure-policy \
+                --retry-times 3 \
                 --src-creds="${ghcr_user}:${ghcr_pat}" \
                 --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
                 --dest-tls-verify=true \
                 --src-tls-verify=true \
-                "docker://${upstream}" "docker://${local_ref}" >/tmp/skopeo.log 2>&1; then
-                sed 's/^/  /' /tmp/skopeo.log
-                push_ok=$((push_ok+1))
-                echo "[harbor-prewarm] OK ${upstream}"
+                "docker://${up}" "docker://${lref}" >"${cpdir}/${slug}.log" 2>&1; then
+                printf '%s' "${up}" >"${cpdir}/${slug}.ok"
               else
                 rc=$?
-                sed 's/^/  /' /tmp/skopeo.log
-                push_fail=$((push_fail+1))
-                echo "[harbor-prewarm] FAIL ${upstream} (skopeo exit ${rc})"
+                printf '%s exit=%s' "${up}" "${rc}" >"${cpdir}/${slug}.fail"
               fi
+            }
+
+            # Track live worker PIDs explicitly — POSIX sh's `jobs -p` is
+            # unreliable in a non-interactive shell, so we count by polling
+            # `kill -0 <pid>` against the PIDs we launched.
+            pids=""
+            for upstream in ${openova_images}; do
+              local_ref="${HARBOR_HOST}/${upstream#ghcr.io/}"
+              echo "[harbor-prewarm] queue ${upstream} → ${local_ref}"
+              copy_one "${upstream}" &
+              pids="${pids} $!"
+              # Throttle: block launching the next copy while
+              # PREWARM_PARALLELISM workers are still alive.
+              while : ; do
+                live=0
+                newpids=""
+                for p in ${pids}; do
+                  if kill -0 "${p}" 2>/dev/null; then
+                    live=$((live+1))
+                    newpids="${newpids} ${p}"
+                  fi
+                done
+                pids="${newpids}"
+                [ "${live}" -lt "${PREWARM_PARALLELISM}" ] && break
+                sleep 2
+              done
+            done
+            # Drain the final batch.
+            wait
+
+            # Tally + surface each copy's captured log.
+            push_ok=0
+            push_fail=0
+            for f in "${cpdir}"/*.ok; do
+              [ -e "${f}" ] || continue
+              up=$(cat "${f}")
+              slug=$(basename "${f}" .ok)
+              sed 's/^/  /' "${cpdir}/${slug}.log" 2>/dev/null || true
+              push_ok=$((push_ok+1))
+              echo "[harbor-prewarm] OK ${up}"
+            done
+            for f in "${cpdir}"/*.fail; do
+              [ -e "${f}" ] || continue
+              detail=$(cat "${f}")
+              slug=$(basename "${f}" .fail)
+              sed 's/^/  /' "${cpdir}/${slug}.log" 2>/dev/null || true
+              push_fail=$((push_fail+1))
+              echo "[harbor-prewarm] FAIL ${detail}"
             done
             echo "[harbor-prewarm] Phase A complete: push_ok=${push_ok} push_fail=${push_fail}"
             if [ "${push_fail}" -gt 0 ]; then

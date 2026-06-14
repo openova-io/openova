@@ -462,7 +462,15 @@ spec:
       # 401'd every post-pivot clone, Step-06's rewrites never reconciled,
       # and Step-08's pivot-wait never converged (hw138 keystone catch).
       # RBAC gains secrets:create. (0.1.59 = PR #3535 Defect-A skopeo fix.)
-      version: 0.1.60
+      # 0.1.61 (#3379 + #3526, hw139 step-03 wedge): Step-03 harbor-prewarm
+      # DeadlineExceeded — ~29 serial private-image skopeo copies over
+      # throttled egress blew 1800s with only 6/29 pushed. Fix: parallelize
+      # Phase-A (PREWARM_PARALLELISM=6 concurrent copies + --retry-times 3)
+      # and raise harborPrewarmSeconds 1800→5400. Paired catalyst-api change
+      # makes the Job/watch deadline honor THIS per-step value (was capped at
+      # the global 15m) AND re-runs a DeadlineExceeded step instead of
+      # wedging on it (transient-failure delete+re-run). No step-count change.
+      version: 0.1.61
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

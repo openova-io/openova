@@ -555,7 +555,22 @@ gateway:
 stepTimeouts:
   giteaMirrorSeconds: 1200
   harborProjectsSeconds: 600
-  harborPrewarmSeconds: 1800
+  # #3379 step-03 DeadlineExceeded (hw139, 2026-06-15): Step-03 skopeo-
+  # native-pushes ~29 multi-layer PRIVATE openova-io images ghcr.io→local
+  # Harbor (the ONLY working route — Harbor's anonymous proxy-cache 404s
+  # these private packages, #3534). On kom4dc's throttled egress the
+  # STRICTLY-SERIAL copies blew the old 1800s and pushed only 6/29 →
+  # incomplete Harbor → post-cutover ImagePullBackOff → Step-08 deny-egress
+  # proof never ran. The template now fans the copies out
+  # (PREWARM_PARALLELISM=6, ~6x wall-clock collapse) AND this ceiling is
+  # raised to 5400s (90m) so a worst-case slow-egress run still finishes
+  # inside budget rather than re-tripping the deadline. The Job stays
+  # event-driven (catalyst-api watches to completion), so a fast run does
+  # NOT wait out the ceiling. Honored end-to-end only because catalyst-api
+  # now stamps the Job/watch deadline from THIS per-step value (cutover.go
+  # createCutoverJob / watchJobToCompletion) rather than the old global
+  # 15m cap that silently bounded every long step.
+  harborPrewarmSeconds: 5400
   fluxGitRepositoryPatchSeconds: 600
   helmRepositoryPatchesSeconds: 600
   catalystAPIEnvPatchSeconds: 600
