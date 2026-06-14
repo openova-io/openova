@@ -1,0 +1,4 @@
+bp-mgmt-vcluster: global.registryMirror=harbor.openova.io | subchart.image.registry=harbor.openova.io
+bp-rtz-vcluster: global.registryMirror=harbor.openova.io | subchart.image.registry=harbor.openova.io
+bp-dmz-vcluster: global.registryMirror=harbor.openova.io | subchart.image.registry=harbor.openova.io
+bp-sso-bridge: global.registryMirror=harbor.openova.io | subchart.image.registry=
