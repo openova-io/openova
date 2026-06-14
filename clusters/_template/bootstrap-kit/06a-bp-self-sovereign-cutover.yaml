@@ -442,7 +442,14 @@ spec:
       # 0.1.57 (#3379): chart default egressTest.enforceCIDRBlock now
       # true (validated on hw136 walk). The explicit overlay below stays
       # for clarity but is redundant-but-harmless — both agree.
-      version: 0.1.57
+      # 0.1.58 (#3526 Refs #3379): Step-08 (egress-block-test) now
+      # force-reconciles the GitRepository + bootstrap-kit Kustomization
+      # and BOUNDED-POLLS (~5 min) the HelmRepository pivot to convergence
+      # BEFORE asserting failure — robust to Step-06's async git-push
+      # window that fail-fast-FAILED the cutover at Step-08 on the hw136
+      # walk (59 HRs caught mid Flux-revert). RBAC gains kustomizations
+      # {update,patch}; egressBlockTestSeconds 900 → 1200 for poll headroom.
+      version: 0.1.58
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

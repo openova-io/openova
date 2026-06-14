@@ -95,20 +95,91 @@ data:
             # data-plane impact is null — the chart they point at is
             # already installed and isn't pulled again until next
             # cutover cycle, which would re-apply the patch first. The
-            # bulk of HelmRepositories (the 38 leaf-bp's) ARE patched
-            # durably because they live in 06a's HelmRelease values
-            # rather than separate slot files.
-            ext_offenders=$(kubectl get helmrepositories.source.toolkit.fluxcd.io -A \
-              -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.spec.url}{"\n"}{end}' \
-              | grep -E '=oci://ghcr\.io/openova-io' \
-              | grep -vE '/(bp-newapi|bp-self-sovereign-cutover)=' || true)
-            ext_count=$(echo "${ext_offenders}" | grep -c '=' || true)
+            # bulk of HelmRepositories ARE patched durably because
+            # Step-06 also git-pushes the rewritten bootstrap-kit YAML.
+            #
+            # #3526 — the pivot assertion MUST tolerate the async-git-push
+            # window. Step-06 (cutover-order 6) does TWO things to pivot
+            # the HelmRepository URLs:
+            #   (a) live `kubectl patch` of the listed HRs (immediate,
+            #       in-memory) — but Flux's bootstrap-kit Kustomization
+            #       re-applies the ORIGINAL ghcr.io manifests from Gitea
+            #       on its next 5-min reconcile, REVERTING those patches;
+            #   (b) a git-push of the sed-rewritten
+            #       clusters/_template/bootstrap-kit/*.yaml to local Gitea
+            #       — the DURABLE rewrite, which only takes effect once
+            #       the `openova` GitRepository pulls the new commit AND
+            #       the bootstrap-kit Kustomization re-applies it.
+            # Step-08 (cutover-order 8) runs ~3 min after Step-06, which
+            # on hw136 (#3379 walk) landed inside the revert window of (a)
+            # BEFORE (b) had reconciled — so a single-shot assertion saw
+            # 59 HRs back at ghcr.io and FAIL-FAST'd (exit 1, ~74s) before
+            # the 600s deny-egress hold ever ran (cutover-egress-block CCNP
+            # never applied, cutoverComplete stayed false).
+            #
+            # Fix: FORCE-RECONCILE the GitRepository + bootstrap-kit
+            # Kustomization so Step-06's durable git commit is pulled and
+            # re-applied NOW, then POLL the pivot to convergence with a
+            # bounded timeout. Only FAIL if the offenders persist after
+            # the full wait — by then the revert window has closed and a
+            # surviving ghcr.io URL is a real un-pivoted HelmRepository,
+            # not the transient Flux-revert race.
+            count_offenders() {
+              # Echoes the current external (non-slot-self-ref) ghcr.io
+              # HelmRepositories, one per line; caller derives the count.
+              kubectl get helmrepositories.source.toolkit.fluxcd.io -A \
+                -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.spec.url}{"\n"}{end}' \
+                | grep -E '=oci://ghcr\.io/openova-io' \
+                | grep -vE '/(bp-newapi|bp-self-sovereign-cutover)=' || true
+            }
+
+            echo "[egress-block-test] #3526: force-reconciling Step-06's durable git-push before asserting HelmRepository pivot"
+            now_ts=$(date +%s)
+            # GitRepository pull (SA has gitrepositories patch). This pulls
+            # Step-06 phase-2's local-Gitea commit immediately rather than
+            # waiting for the 1-min GitRepository interval.
+            kubectl annotate --overwrite gitrepository openova -n flux-system \
+              "reconcile.fluxcd.io/requestedAt=${now_ts}" >/dev/null 2>&1 \
+              && echo "  reconcile requested: gitrepository/openova" \
+              || echo "  WARN — could not annotate gitrepository/openova (continuing; the 1-min interval still converges)"
+            # bootstrap-kit Kustomization re-apply (SA has kustomizations
+            # patch as of chart 0.1.58 #3526). This re-applies the pulled
+            # commit's rewritten HelmRepository manifests immediately
+            # rather than waiting for the 5-min Kustomization interval —
+            # the long interval is exactly what made the revert window wide
+            # enough to catch Step-08 on hw136.
+            kubectl annotate --overwrite kustomization bootstrap-kit -n flux-system \
+              "reconcile.fluxcd.io/requestedAt=${now_ts}" >/dev/null 2>&1 \
+              && echo "  reconcile requested: kustomization/bootstrap-kit" \
+              || echo "  WARN — could not annotate kustomization/bootstrap-kit (continuing; the 5-min interval still converges)"
+
+            # Bounded poll to convergence. Up to ~5 min, re-checking every
+            # 15s, so a slow source-controller pull + helm/kustomize
+            # re-apply has time to land the durable local URLs before we
+            # judge. Re-annotate the GitRepository + Kustomization each
+            # cycle so a missed reconcile-request doesn't strand the poll.
+            pivot_deadline=$(( $(date +%s) + 300 ))
+            ext_offenders="$(count_offenders)"
+            ext_count=$(printf '%s' "${ext_offenders}" | grep -c '=' || true)
             echo "  external HelmRepositories still pointing at ghcr.io/openova-io (excluding slot-managed self-refs): ${ext_count}"
+            while [ "${ext_count}" -gt 0 ] && [ "$(date +%s)" -lt "${pivot_deadline}" ]; do
+              printf '%s\n' "${ext_offenders}" | sed 's/^/    not-yet-pivoted /'
+              echo "  [egress-block-test] #3526: ${ext_count} HelmRepository(ies) not yet pivoted at $(($(date +%s) - now_ts))s; re-poking reconcile, re-checking in 15s (bounded ${pivot_deadline}s)"
+              poke_ts=$(date +%s)
+              kubectl annotate --overwrite gitrepository openova -n flux-system \
+                "reconcile.fluxcd.io/requestedAt=${poke_ts}" >/dev/null 2>&1 || true
+              kubectl annotate --overwrite kustomization bootstrap-kit -n flux-system \
+                "reconcile.fluxcd.io/requestedAt=${poke_ts}" >/dev/null 2>&1 || true
+              sleep 15
+              ext_offenders="$(count_offenders)"
+              ext_count=$(printf '%s' "${ext_offenders}" | grep -c '=' || true)
+            done
             if [ "${ext_count}" -gt 0 ]; then
-              echo "${ext_offenders}" | sed 's/^/    OFFENDER /'
-              echo "  FAIL — at least one HelmRepository did not pivot"
+              printf '%s\n' "${ext_offenders}" | sed 's/^/    OFFENDER /'
+              echo "  FAIL — at least one HelmRepository did not pivot within the bounded reconcile wait (#3526)"
               exit 1
             fi
+            echo "[egress-block-test] HelmRepository pivot converged — all external HelmRepositories on local Harbor"
             api_env=$(kubectl get deploy catalyst-api -n catalyst-system \
               -o jsonpath='{.spec.template.spec.containers[?(@.name=="catalyst-api")].env[?(@.name=="CATALYST_GITOPS_REPO_URL")].value}' || echo "")
             echo "  catalyst-api env CATALYST_GITOPS_REPO_URL=${api_env}"

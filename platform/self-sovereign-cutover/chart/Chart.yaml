@@ -1,5 +1,35 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.58 (#3526 Refs #3379, 2026-06-14): make Step-08 (egress-block-test)
+# pre-flight HelmRepository-pivot assertion ROBUST to Step-06's async
+# git-push window. Step-06 (helmrepository-patches) pivots the OCI
+# HelmRepository URLs two ways: (a) a live `kubectl patch` (immediate,
+# in-memory) that Flux's bootstrap-kit Kustomization reverts on its next
+# 5-min reconcile by re-applying the original ghcr.io manifests from
+# Gitea, and (b) a git-push of the sed-rewritten bootstrap-kit YAML to
+# local Gitea — the DURABLE rewrite, which only lands once the `openova`
+# GitRepository pulls the commit and the bootstrap-kit Kustomization
+# re-applies it. On the hw136 #3379 walk, Step-08 ran ~3 min after
+# Step-06 and asserted ONCE with no wait — it caught the transient
+# revert window (59 HRs back at ghcr.io) and FAIL-FAST'd (exit 1, ~74s)
+# BEFORE the 600s deny-egress hold ran, so the cutover-egress-block CCNP
+# was never applied and cutoverComplete stayed false.
+#
+# Fix (chart-only): before the assertion, Step-08 now FORCE-RECONCILES
+# the GitRepository `openova` + the bootstrap-kit Kustomization (annotate
+# reconcile.fluxcd.io/requestedAt) so Step-06's durable git commit is
+# pulled and re-applied immediately, then POLLS the external-HelmRepository
+# offender count to convergence with a bounded ~5-min timeout (re-poking
+# the reconcile + re-checking every 15s). It only FAILs if a ghcr.io URL
+# survives the full wait — by then the revert window has closed, so a
+# surviving offender is a genuinely un-pivoted HelmRepository, not the
+# Flux-revert race. RBAC ClusterRole gains kustomize.toolkit.fluxcd.io.
+# kustomizations {update,patch} (the reconcile-annotation needs patch;
+# it previously had get/list/watch only). stepTimeouts.egressBlockTest
+# Seconds bumped 900 → 1200 so the worst-case 300s-poll-then-600s-window
+# run keeps headroom under the Job activeDeadlineSeconds. No catalyst-api
+# / code change; no step count change (still 11 steps).
+#
 # 0.1.57 (#3379, 2026-06-14): default `egressTest.enforceCIDRBlock`
 # flipped false → true after the real 10-min deny-egress hold was
 # validated live on the hw136 cutover walk (Pillar-5 proof). All four
@@ -422,7 +452,7 @@ name: bp-self-sovereign-cutover
 # until the tofu-phase0-archive is sealed at handover; this Job treats
 # 425 as the EXPECTED benign pre-handover path (clear log, exit 0). The
 # cutover still auto-fires post-handover (founder rule #933 preserved).
-version: 0.1.57
+version: 0.1.58
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
