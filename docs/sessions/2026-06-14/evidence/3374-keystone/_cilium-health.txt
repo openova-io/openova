@@ -1,0 +1,28 @@
+Cilium:                                                                           Ok   1.16.5 (v1.16.5-ad688277)
+Encryption:                                                                       Wireguard       [NodeEncryption: Enabled, cilium_wg0 (Pubkey: 9ey19PdHfjJG4KDFyz3V7Zz8a/doZ3KNlKFwiyvg6lo=, Port: 51871, Peers: 7)]
+Cluster health:                                                                   3/8 reachable   (2026-06-14T04:48:29Z)
+Cluster health:                                                                      3/8 reachable   (2026-06-14T04:48:29Z)
+  Name                                                                               IP              Node          Endpoints
+  hw135-mesh/catalyst-hw135-omani-works-368c2d9b-me-east-215-a-w3d1be9 (localhost)   10.149.1.60     reachable     reachable
+  hw135-me-east--b/catalyst-hw135-omani-works-368c2d9b-me-east-215-b-cp1-464a58      10.159.1.251    unreachable   unreachable
+  hw135-me-east--b/catalyst-hw135-omani-works-368c2d9b-me-east-215-b-w4990d7         10.159.1.36     unreachable   unreachable
+  hw135-me-east--b/catalyst-hw135-omani-works-368c2d9b-me-east-215-b-w7e786e         10.159.1.173    reachable     reachable
+  hw135-me-east--b/catalyst-hw135-omani-works-368c2d9b-me-east-215-b-wa1e1b1         10.159.1.96     unreachable   unreachable
+  hw135-mesh/catalyst-hw135-omani-works-368c2d9b-me-east-215-a-cp1-029afb            10.149.1.33     unreachable   unreachable
+  hw135-mesh/catalyst-hw135-omani-works-368c2d9b-me-east-215-a-w7b51e0               10.149.1.57     reachable     reachable
+  hw135-mesh/catalyst-hw135-omani-works-368c2d9b-me-east-215-a-wdfac75               10.149.1.89     unreachable   unreachable
+Modules Health:
+--- sso-bridge ESO webhook failures ---
+for: "STDIN": error when patching "STDIN": Internal error occurred: failed calling webhook "validate.externalsecret.external-secrets.io": failed to call webhook: Post "https://external-secrets-webhook.external-secrets-system.svc:443/validate-external-secrets-io-v1beta1-externalsecret?timeout=5s": context deadline exceeded
+2026-06-14T04:48:51Z | ERR : emit-es gitea failed
+for: "STDIN": error when patching "STDIN": Internal error occurred: failed calling webhook "validate.externalsecret.external-secrets.io": failed to call webhook: Post "https://external-secrets-webhook.external-secrets-system.svc:443/validate-external-secrets-io-v1beta1-externalsecret?timeout=5s": context deadline exceeded
+2026-06-14T04:48:59Z | ERR : emit-es grafana failed
+for: "STDIN": error when patching "STDIN": Internal error occurred: failed calling webhook "validate.externalsecret.external-secrets.io": failed to call webhook: Post "https://external-secrets-webhook.external-secrets-system.svc:443/validate-external-secrets-io-v1beta1-externalsecret?timeout=5s": context deadline exceeded
+2026-06-14T04:49:07Z | ERR : emit-es harbor failed
+for: "STDIN": error when patching "STDIN": Internal error occurred: failed calling webhook "validate.externalsecret.external-secrets.io": failed to call webhook: Post "https://external-secrets-webhook.external-secrets-system.svc:443/validate-external-secrets-io-v1beta1-externalsecret?timeout=5s": context deadline exceeded
+2026-06-14T04:49:14Z | ERR : emit-es openbao failed
+for: "STDIN": error when patching "STDIN": Internal error occurred: failed calling webhook "validate.externalsecret.external-secrets.io": failed to call webhook: Post "https://external-secrets-webhook.external-secrets-system.svc:443/validate-external-secrets-io-v1beta1-externalsecret?timeout=5s": context deadline exceeded
+2026-06-14T04:49:22Z | ERR : emit-es powerdns-admin failed
+for: "STDIN": error when patching "STDIN": Internal error occurred: failed calling webhook "validate.externalsecret.external-secrets.io": failed to call webhook: Post "https://external-secrets-webhook.external-secrets-system.svc:443/validate-external-secrets-io-v1beta1-externalsecret?timeout=5s": context deadline exceeded
+2026-06-14T04:49:30Z | ERR : emit-es sandbox failed
+2026-06-14T04:49:37Z | WARN: app-registration[hubble-ui]: ExternalSecret apply kube-system/hubble-ui-oauth2-proxy-oidc failed (CRD not ready yet? retry next tick)
