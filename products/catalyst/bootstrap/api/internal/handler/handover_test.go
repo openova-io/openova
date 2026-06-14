@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
@@ -325,6 +326,75 @@ func TestReceiveTofuArchive_NoOpenBaoReturns503(t *testing.T) {
 	h.ReceiveTofuArchive(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 when openbao client absent; got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestReceiveTofuArchive_IsOutsideRequireSession (#3379) — the handover
+// archive receiver MUST be reachable WITHOUT a catalyst_session cookie.
+//
+// Catalyst-Zero's postTofuArchive POSTs the sealed OpenTofu state to
+// https://api.<sov-fqdn>/api/v1/handover/tofu-archive with ONLY a
+// Content-Type header — it is a server-to-server call, no browser, no
+// cookie. On Catalyst-Zero this slipped through because RequireSession is
+// a nil-cfg passthrough; but on a REAL Sovereign (CATALYST_KC_ADDR set)
+// the active middleware rejected every archive POST with 401
+// {"error":"unauthenticated"} BEFORE ReceiveTofuArchive ever ran — so the
+// tofu-phase0-archive marker never sealed → the cutover engine never fired
+// → cutoverComplete stayed false forever (caught live on the hw136 cutover
+// walk). This test wires an ACTIVE RequireSession and asserts a cookieless
+// archive POST reaches the handler (503 for no-OpenBao, the handler's own
+// content-based gate) rather than being 401'd by the middleware.
+func TestReceiveTofuArchive_IsOutsideRequireSession(t *testing.T) {
+	h := newTestHandler(t) // no OpenBao client → handler's own gate returns 503
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	// A non-nil Config (no cookie secret / no JWKS) makes RequireSession
+	// ENFORCE: ReadSessionToken returns "" for a cookieless request, so the
+	// middleware 401s before any wrapped handler. A nil Config would be a
+	// transparent passthrough and would NOT catch the placement bug.
+	cfg := &auth.Config{Realm: "sovereign", ClientID: "catalyst-zero-ui"}
+
+	r := chi.NewMux()
+	// PUBLIC group — mirrors main.go: the archive receiver lives here,
+	// OUTSIDE RequireSession (next to the kubeconfig PUT + cutover trigger).
+	r.Post("/api/v1/handover/tofu-archive", h.ReceiveTofuArchive)
+	// SESSION-GATED group — mirrors main.go's r.Group(RequireSession). The
+	// finalise route + whoami live here.
+	r.Group(func(rg chi.Router) {
+		rg.Use(auth.RequireSession(cfg, log))
+		rg.Get("/api/v1/whoami", h.HandleWhoami)
+	})
+
+	body, _ := json.Marshal(tofuArchiveRequest{
+		DeploymentID:  "dep-x",
+		SovereignFQDN: "x.example",
+		Files:         map[string]string{"terraform.tfstate": "e30="},
+	})
+
+	// 1) The archive POST must reach the handler WITHOUT a cookie → 503
+	//    (handler's no-OpenBao gate), NEVER 401 (middleware block).
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/handover/tofu-archive", bytes.NewReader(body)))
+	if rec.Code == http.StatusUnauthorized {
+		t.Fatalf("REGRESSION (#3379): cookieless tofu-archive POST got 401 %s — "+
+			"the handover archive receiver is behind RequireSession again; it MUST "+
+			"be registered in the PUBLIC route section of main.go (the mother→child "+
+			"call carries no session cookie, so a 401 here means the cutover can "+
+			"NEVER fire)", rec.Body.String())
+	}
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected the receiver to reach the handler (503 for no-OpenBao) "+
+			"on a cookieless POST, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+
+	// 2) Harness sanity: the RequireSession middleware IS enforcing here, so
+	//    the 503 above is a real "handler ran cookieless", not a passthrough.
+	rec2 := httptest.NewRecorder()
+	r.ServeHTTP(rec2, httptest.NewRequest(http.MethodGet, "/api/v1/whoami", nil))
+	if rec2.Code != http.StatusUnauthorized {
+		t.Fatalf("harness check: a RequireSession route should 401 without a "+
+			"cookie, got %d — the middleware is not enforcing, so this test "+
+			"cannot prove the receiver is genuinely public", rec2.Code)
 	}
 }
 
