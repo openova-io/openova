@@ -119,8 +119,27 @@ vertical-pod-autoscaler:
     # the cilium DaemonSet + operator + envoy + all other CNI/control-plane
     # bootstrap workloads; VPA never right-sizes those, so excluding it costs
     # nothing.
+    #
+    # ─── Webhook-timeout cap — defence-in-depth (Refs #3374, #3375) ──────
+    # `ignored-vpa-object-namespaces` above exempts ONLY kube-system, which
+    # protects the cilium CNI bootstrap. But the same VPA webhook still
+    # intercepts Pod CREATE in EVERY OTHER namespace (cnpg, keycloak, the
+    # tenant vclusters, …) with the upstream-default 30s timeout. If the
+    # single admission-controller replica is ever briefly unroutable while
+    # cilium is otherwise healthy (node reboot, replica reschedule), every
+    # Pod CREATE in those namespaces hangs up to 30s — long enough to time
+    # out a cnpg-pair initdb bootstrap Pod (root-caused live on hw135: the
+    # initdb Pod CREATE returned "context deadline exceeded", #3375). Since
+    # cilium is healthy in that scenario the mesh won't self-heal the way the
+    # kube-system exemption fixes the CNI case, so the exemption alone does
+    # not cover it. Capping the webhook timeout at 2s bounds that blast
+    # radius cluster-wide: failurePolicy=Ignore means the api-server simply
+    # falls through after 2s. 2s is ample for a cluster-internal mutation;
+    # steady state carries zero added CREATE latency. Per-Sovereign overlays
+    # MAY raise it.
     extraArgs:
       ignored-vpa-object-namespaces: kube-system
+      webhook-timeout-seconds: 2
     # The admission controller serves a MutatingWebhookConfiguration over
     # TLS. The upstream chart bootstraps a self-signed CA + cert via an
     # init job, which is fine for Catalyst because the webhook is
