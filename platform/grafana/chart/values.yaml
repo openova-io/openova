@@ -152,15 +152,24 @@ grafana:
     # it must reschedule (e.g. to pick up a changed envFromSecret), the new
     # Pod can never be created and grafana is stuck on the stale spec.
     # Declaring sidecar.resources makes both sidecars kyverno-compliant so
-    # grafana can actually roll. Tiny footprint — the sidecars just watch
-    # ConfigMaps and POST reload hooks.
+    # grafana can actually roll.
+    #
+    # 1.0.14 (#3374): the 1.0.13 memory limit of 64Mi was too low — the
+    # kiwigrid/k8s-sidecar runs with searchNamespace=ALL (it LISTs/WATCHes
+    # ConfigMaps + Secrets across EVERY namespace), and on hw136 both
+    # sidecars were OOMKilled (exitCode 137) in a tight CrashLoopBackOff,
+    # which kept the grafana Pod at 1/3 NotReady → the Service dropped it →
+    # the route flapped back to 503 even though the main grafana container
+    # was healthy and serving SSO. Bump to 64Mi request / 192Mi limit so the
+    # cluster-wide informer cache fits with headroom. Still a modest
+    # footprint for a Pod whose main container is 256Mi/512Mi.
     resources:
       requests:
         cpu: 10m
-        memory: 32Mi
-      limits:
-        cpu: 50m
         memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 192Mi
     datasources:
       enabled: true
       label: grafana_datasource
