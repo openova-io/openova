@@ -1,5 +1,35 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.91 (#3374, 2026-06-15): newapi SSO callback REAL root-cause fix — the
+# running NewAPI pod never loaded the seeded custom OAuth provider. After
+# 1.4.79+ correctly seeded the `sovereign` custom_oauth_providers row (enabled,
+# client_id/secret/endpoints all present) AND the bare-URL zero-click init page
+# (sandbox-bridge 0.1.16) correctly redirected to Keycloak, the in-app callback
+# `/api/oauth/sovereign` STILL hard-failed `{"message":"Unknown OAuth provider"}`
+# → SSO never completed → owner bounced to /login → /setup (measured live hw139
+# dep c89aa7059556b342 2026-06-15). ROOT CAUSE: NewAPI loads custom OAuth
+# providers into its in-memory registry ONLY at boot (LoadCustomProviders /
+# oauth/registry.go); its 60s SYNC_FREQUENCY loop re-syncs ONLY `options` +
+# `channels`, NEVER `custom_oauth_providers` (pod log: "Loaded 0 custom OAuth
+# providers", then only "syncing options"/"syncing channels" forever). Because
+# admin-sso-seed-job runs as a Helm post-install/post-upgrade HOOK, it INSERTs
+# the provider row ~2s AFTER the NewAPI Deployment is already up (live: pod
+# started 18:51:56, row created 18:51:58, restartCount=0) → the process never
+# sees it. (The earlier `oidc_enabled=false` in /api/status is a RED HERRING —
+# that flag is NewAPI's BUILT-IN OIDC, which this Sovereign does not use; the
+# custom provider has no global enabled option, only its per-row `enabled`.)
+# FIX: admin-sso-seed-job.yaml seed.sh adds reload_newapi_provider() — after the
+# provider upsert it PATCHes the NewAPI Deployment's pod-template
+# `kubectl.kubernetes.io/restartedAt` (a rollout-restart, re-running
+# LoadCustomProviders → "Loaded 1 custom OAuth providers"). IDEMPOTENT: it
+# records a hash of the provider's material config in the Deployment annotation
+# `catalyst.openova.io/newapi-provider-reload-hash` and restarts ONLY when that
+# hash is absent/changed (no restart loop; the per-minute promote CronJob never
+# calls it). Mechanism: python3 (present in the postgres seed image) + the
+# mounted SA token; new RBAC grants get+patch on EXACTLY the NewAPI deployment.
+# Proven live on hw139: post-restart `/api/oauth/sovereign` reaches token-
+# exchange instead of "Unknown OAuth provider". Lockstep: 80-newapi.yaml pin →
+# 1.4.91. Refs #3374.
 # 1.4.79 (#3374, 2026-06-14): SSO token-exchange redirect_uri fix. After
 # 1.4.78 booted newapi on Postgres + loaded the sovereign OIDC provider, the
 # in-app "Continue with OpenOva SSO" round-tripped Keycloak but the back-channel
@@ -594,7 +624,7 @@ name: bp-newapi
 # URL/client_id are unset the page degrades to the SPA /login link. The bridge
 # IMAGE TAG + a further chart patch bump are auto-committed by
 # build-bp-newapi-sandbox-bridge.yaml on merge (push to internal/handler/**).
-version: 1.4.90
+version: 1.4.91
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

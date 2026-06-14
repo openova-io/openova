@@ -59,6 +59,12 @@ nothing.
 {{- $cnpgSecretName := printf "%s-app" $clusterName -}}
 {{- $jobName := include "bp-newapi.adminSeedJobName" . -}}
 {{- $cronName := include "bp-newapi.adminPromoteCronName" . -}}
+{{- /* #3374: the NewAPI Deployment the seed rollout-restarts so the running
+   pod reloads custom_oauth_providers from the DB (boot-only registry). */ -}}
+{{- $deployName := include "bp-newapi.fullname" . -}}
+{{- /* #3374: Deployment annotation recording the provider-config hash the
+   running NewAPI was last restarted for — makes the reload idempotent. */ -}}
+{{- $reloadHashAnno := "catalyst.openova.io/newapi-provider-reload-hash" -}}
 {{- $pgImage := .Values.cnpg.cluster.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16.4" -}}
 {{- $fqdn := .Values.sovereignFQDN -}}
 {{- $clientId := .Values.auth.adminUI.keycloak.clientId | default "newapi-admin" -}}
@@ -112,6 +118,21 @@ rules:
       - {{ $cnpgSecretName | quote }}
       - {{ $oidcSecretName | quote }}
     verbs: ["get"]
+  # #3374 (2026-06-15) — provider-reload rollout-restart. After the seed INSERTs
+  # the custom_oauth_providers row, the running NewAPI pod must reload it: NewAPI
+  # loads custom OAuth providers into its in-memory registry ONLY at boot
+  # (LoadCustomProviders / GetEnabledCustomProviders); the 60s SYNC_FREQUENCY
+  # loop re-syncs ONLY options + channels, NEVER custom providers (proven live
+  # hw139, boot log "Loaded 0 custom OAuth providers" while the DB row was
+  # inserted 2s after the pod started → /api/oauth/sovereign returned "Unknown
+  # OAuth provider" → SSO callback dies → owner bounced to /login → /setup). The
+  # seed patches the NewAPI Deployment (standard kubectl.kubernetes.io/restartedAt
+  # annotation) to force a reload. Scoped get+patch on EXACTLY the NewAPI deploy.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames:
+      - {{ $deployName | quote }}
+    verbs: ["get", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -210,6 +231,58 @@ data:
               )
             RETURNING id;" | wc -l | tr -d ' ')"
       echo "[admin-seed] promoted ${n} SSO user(s) to root (oidc_id OR {{ $providerSlug }} binding)"
+    }
+    reload_newapi_provider() {
+      # #3374 (2026-06-15) — make the RUNNING NewAPI pod pick up the
+      # `{{ $providerSlug }}` custom_oauth_providers row this seed just wrote.
+      #
+      # ROOT CAUSE (measured live on hw139, dep c89aa7059556b342): NewAPI loads
+      # custom OAuth providers into an in-memory registry ONLY at boot
+      # (LoadCustomProviders; GetEnabledCustomProviders reads that map). The 60s
+      # SYNC_FREQUENCY loop re-syncs ONLY `options` + `channels` from the DB —
+      # NEVER `custom_oauth_providers` (confirmed in the pod log: repeated
+      # "syncing options"/"syncing channels", no custom-provider sync; upstream
+      # oauth/registry.go has no periodic reload). Because this seed runs as a
+      # Helm post-install/post-upgrade hook, it INSERTs the provider row AFTER
+      # the NewAPI Deployment is already up (live: pod started 18:51:56, row
+      # created 18:51:58, restartCount=0) — so the process boots with "Loaded 0
+      # custom OAuth providers", /api/oauth/{{ $providerSlug }} returns
+      # "Unknown OAuth provider", the SSO callback dies and the owner bounces to
+      # /login → /setup. A rollout-restart re-runs LoadCustomProviders → "Loaded
+      # 1 custom OAuth providers" and the callback works (proven live).
+      #
+      # We trigger the restart by patching the Deployment's pod-template
+      # `kubectl.kubernetes.io/restartedAt` (exactly what `kubectl rollout
+      # restart` does). IDEMPOTENT across reconciles: we record a hash of the
+      # provider's material config in the Deployment's top-level annotation
+      # `{{ $reloadHashAnno }}` and restart ONLY when that hash is absent or
+      # changed — so a re-run with no provider change is a no-op (no restart
+      # loop; the per-minute promote CronJob never calls this). All via the
+      # mounted ServiceAccount token (python3 is present in the postgres image;
+      # curl/wget are not, and an HTTP probe would fight the NetworkPolicy).
+      #
+      # Hash the live provider config (enabled+client_id+secret+endpoints). If
+      # the row is somehow absent (client_secret was not yet published when the
+      # provider INSERT was deferred), skip — the next reconcile reloads.
+      PROVIDER_HASH="$($PSQL -c "SELECT md5(string_agg(
+            coalesce(enabled::text,'')||'|'||coalesce(client_id,'')||'|'||
+            coalesce(client_secret,'')||'|'||coalesce(authorization_endpoint,'')||'|'||
+            coalesce(token_endpoint,'')||'|'||coalesce(user_info_endpoint,''), ''))
+          FROM custom_oauth_providers WHERE slug = '{{ $providerSlug }}';" 2>/dev/null | tr -d ' ')"
+      if [ -z "${PROVIDER_HASH}" ]; then
+        echo "[admin-seed] reload: provider {{ $providerSlug }} not present yet; skipping restart (next reconcile retries)"
+        return 0
+      fi
+      # Hand off to the dedicated reload script (its own ConfigMap key, mounted
+      # at /scripts/reload.py — kept a separate file so the Python lives in a
+      # clean block scalar, not nested in this shell heredoc). python3 ships in
+      # the postgres image; the mounted ServiceAccount token authenticates the
+      # k8s API call. Best-effort: a reload hiccup never fails the seed.
+      NEWAPI_DEPLOY_NAME='{{ $deployName }}' \
+      NEWAPI_RELOAD_ANNO='{{ $reloadHashAnno }}' \
+      NEWAPI_PROVIDER_HASH="${PROVIDER_HASH}" \
+        python3 /scripts/reload.py || \
+        echo "[admin-seed] reload: python step exited non-zero (best-effort; provider still seeded)"
     }
   seed.sh: |
     . /scripts/common.sh
@@ -312,11 +385,75 @@ data:
 
     # (d) promote anyone already signed in (re-run catch-up).
     promote_oidc_users
+
+    # (e) #3374 — reload the running NewAPI so it actually SEES the provider
+    #     row just written. NewAPI's custom-provider registry is boot-only and
+    #     the 60s sync loop never re-reads custom_oauth_providers, so a Helm
+    #     post-install/upgrade DB INSERT is invisible to the live pod until a
+    #     rollout-restart. Idempotent (hash-gated) — only restarts on a genuine
+    #     provider config change. Without this the bare URL completes the KC
+    #     authorize but the /api/oauth/{{ $providerSlug }} callback hard-fails
+    #     "Unknown OAuth provider" and the owner never lands signed-in.
+    reload_newapi_provider
     echo "[admin-seed] done."
   promote.sh: |
     . /scripts/common.sh
     wait_for_users_table
     promote_oidc_users
+  reload.py: |
+    # #3374 (2026-06-15) — rollout-restart NewAPI so the running pod reloads the
+    # seeded custom OAuth provider (boot-only registry; the 60s sync loop never
+    # re-reads custom_oauth_providers). Idempotent: records a hash of the
+    # provider config in the Deployment annotation and restarts ONLY when that
+    # hash is absent/changed. Uses only the stdlib + the mounted SA token.
+    import json, os, ssl, urllib.request, urllib.error, datetime
+    sa = "/var/run/secrets/kubernetes.io/serviceaccount"
+    tok = open(sa + "/token").read().strip()
+    ns = open(sa + "/namespace").read().strip()
+    ca = sa + "/ca.crt"
+    host = os.environ["KUBERNETES_SERVICE_HOST"]
+    port = os.environ.get("KUBERNETES_SERVICE_PORT_HTTPS") or os.environ.get("KUBERNETES_SERVICE_PORT") or "443"
+    name = os.environ["NEWAPI_DEPLOY_NAME"]
+    anno = os.environ["NEWAPI_RELOAD_ANNO"]
+    want = os.environ["NEWAPI_PROVIDER_HASH"]
+    base = "https://%s:%s/apis/apps/v1/namespaces/%s/deployments/%s" % (host, port, ns, name)
+    ctx = ssl.create_default_context(cafile=ca)
+
+
+    def call(method, url, body=None, ctype="application/json"):
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(url, data=data, method=method, headers={
+            "Authorization": "Bearer " + tok,
+            "Accept": "application/json",
+            "Content-Type": ctype,
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
+                return r.status, r.read().decode()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode()
+
+
+    st, body = call("GET", base)
+    if st != 200:
+        print("[admin-seed] reload: GET deployment failed (%s): %s" % (st, body[:200]))
+        raise SystemExit(0)
+    cur = (json.loads(body).get("metadata", {}).get("annotations", {}) or {}).get(anno)
+    if cur == want:
+        print("[admin-seed] reload: NewAPI already restarted for provider hash %s -- no-op" % want[:12])
+        raise SystemExit(0)
+    nowts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    patch = {
+        "metadata": {"annotations": {anno: want}},
+        "spec": {"template": {"metadata": {"annotations": {
+            "kubectl.kubernetes.io/restartedAt": nowts,
+        }}}},
+    }
+    st2, body2 = call("PATCH", base, patch, ctype="application/strategic-merge-patch+json")
+    if st2 == 200:
+        print("[admin-seed] reload: rollout-restart triggered for %s (provider hash %s -> %s)" % (name, (cur or "none")[:12], want[:12]))
+    else:
+        print("[admin-seed] reload: PATCH failed (%s): %s" % (st2, body2[:200]))
 ---
 apiVersion: batch/v1
 kind: Job
