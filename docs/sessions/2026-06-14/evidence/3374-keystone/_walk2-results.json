@@ -1,0 +1,122 @@
+[
+  {
+    "id": "r3",
+    "label": "grafana home",
+    "url": "https://grafana.hw135.omani.works/",
+    "status": null,
+    "fin": "",
+    "body": "NAV-ERR:Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://grafana.hw135.omani.works/ Call log: \u001b[2m - navigating to \"https://grafana.hw135.omani.works/\"",
+    "errs": [
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 404 ()"
+    ]
+  },
+  {
+    "id": "r4",
+    "label": "grafana admin users",
+    "url": "https://grafana.hw135.omani.works/admin/users",
+    "status": null,
+    "fin": "",
+    "body": "NAV-ERR:Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://grafana.hw135.omani.works/admin/users Call log: \u001b[2m - navigating to \"https://grafana.hw135.om",
+    "errs": [
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 404 ()"
+    ]
+  },
+  {
+    "id": "r5",
+    "label": "gitea dashboard",
+    "url": "https://gitea.hw135.omani.works/",
+    "status": null,
+    "fin": "",
+    "body": "NAV-ERR:Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://gitea.hw135.omani.works/ Call log: \u001b[2m - navigating to \"https://gitea.hw135.omani.works/\", wa",
+    "errs": [
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 404 ()"
+    ]
+  },
+  {
+    "id": "r6",
+    "label": "gitea admin -/admin",
+    "url": "https://gitea.hw135.omani.works/-/admin",
+    "status": null,
+    "fin": "",
+    "body": "NAV-ERR:Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://gitea.hw135.omani.works/-/admin Call log: \u001b[2m - navigating to \"https://gitea.hw135.omani.work",
+    "errs": [
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 404 ()"
+    ]
+  },
+  {
+    "id": "r6b",
+    "label": "gitea admin /admin",
+    "url": "https://gitea.hw135.omani.works/admin",
+    "status": null,
+    "fin": "",
+    "body": "NAV-ERR:Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://gitea.hw135.omani.works/admin Call log: \u001b[2m - navigating to \"https://gitea.hw135.omani.works/",
+    "errs": [
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 404 ()"
+    ]
+  },
+  {
+    "id": "r7",
+    "label": "harbor projects",
+    "url": "https://registry.hw135.omani.works/",
+    "status": 200,
+    "fin": "https://registry.hw135.omani.works/c/oidc/login?redirect_url=/harbor/projects",
+    "body": "{\"errors\":[{\"code\":\"UNKNOWN\",\"message\":\"internal server error\"}]} ",
+    "errs": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+    ]
+  },
+  {
+    "id": "r9",
+    "label": "openbao secrets engines",
+    "url": "https://bao.hw135.omani.works/ui/",
+    "status": 200,
+    "fin": "chrome-error://chromewebdata/",
+    "body": "This auth.hw135.omani.works page can’t be found No webpage was found for the web address: https://auth.hw135.omani.works/realms/sovereign/protocol/openid-connect/auth?client_id=openbao&code_challenge=",
+    "errs": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 ()"
+    ]
+  },
+  {
+    "id": "r12",
+    "label": "guacamole home",
+    "url": "https://guacamole.hw135.omani.works/",
+    "status": 200,
+    "fin": "chrome-error://chromewebdata/",
+    "body": "This auth.hw135.omani.works page can’t be found No webpage was found for the web address: https://auth.hw135.omani.works/realms/sovereign/protocol/openid-connect/auth?kc_idp_hint=catalyst-pin&scope=op",
+    "errs": [
+      "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+      "Failed to load resource: the server responded with a status of 404 ()"
+    ]
+  },
+  {
+    "id": "r19",
+    "label": "keycloak master admin console",
+    "url": "https://auth.hw135.omani.works/admin/master/console/",
+    "status": null,
+    "fin": "",
+    "body": "NAV-ERR:Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://auth.hw135.omani.works/admin/master/console/ Call log: \u001b[2m - navigating to \"https://auth.hw13",
+    "errs": [
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 404 ()"
+    ]
+  },
+  {
+    "id": "r20",
+    "label": "keycloak sovereign console",
+    "url": "https://auth.hw135.omani.works/admin/sovereign/console/",
+    "status": null,
+    "fin": "",
+    "body": "NAV-ERR:Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://auth.hw135.omani.works/admin/sovereign/console/ Call log: \u001b[2m - navigating to \"https://auth.h",
+    "errs": [
+      "Failed to load resource: the server responded with a status of 404 ()",
+      "Failed to load resource: the server responded with a status of 404 ()"
+    ]
+  }
+]
