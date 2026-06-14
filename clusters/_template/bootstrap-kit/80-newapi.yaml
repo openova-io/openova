@@ -231,7 +231,7 @@ spec:
       # `rtz` namespace (where the synced `valkey-primary-x-valkey-x-rtz-
       # vcluster` Service lives) for the 6379 egress rule. This slot sets no
       # `networkPolicy.egress` override, so the chart default IS what renders.
-      version: 1.4.87
+      version: 1.4.88
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
