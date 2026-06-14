@@ -50,7 +50,10 @@ spec:
   chart:
     spec:
       chart: bp-vpa
-      version: 1.0.1
+      # 1.0.2 (#3499, Refs #3375/#3380): VPA pod webhook excludes kube-system
+      # (--ignored-vpa-object-namespaces) so its 30s-timeout Ignore call can't
+      # stall the cilium CNI-bootstrap Pod creates during a cilium roll.
+      version: 1.0.2
       sourceRef:
         kind: HelmRepository
         name: bp-vpa

@@ -91,6 +91,36 @@ vertical-pod-autoscaler:
       limits:
         cpu: 200m
         memory: 512Mi
+    # #3499 (Refs #3375, #3380, 2026-06-14) — exclude kube-system from the
+    # VPA pod-mutating webhook so it can never gate the CNI bootstrap.
+    #
+    # The VPA admission-controller SELF-REGISTERS a MutatingWebhookConfiguration
+    # (`vpa-webhook-config`) matching CREATE on `pods` in every namespace. Its
+    # backend Pod can be scheduled onto ANY node — including one whose
+    # cilium-agent a concurrent cilium DaemonSet roll has just deleted. When
+    # that happens the apiserver's call to the VPA webhook (failurePolicy=Ignore,
+    # timeout=30s) hangs against the de-CNI'd backend for the FULL 30s before
+    # being ignored — which exceeds the apiserver's Pod-create request deadline,
+    # so even the replacement cilium-agent Pod create returns "context deadline
+    # exceeded". That stalls CNI self-heal (root-caused live on hw135: VPA
+    # backend 10.42.4.209 sat on the de-CNI'd node, blocking cilium recreation
+    # for 30s/attempt; #3499). The companion bp-kyverno fix exempts cilium from
+    # the Fail webhook; this exempts it from the VPA webhook so the CNI bootstrap
+    # is gated by NO webhook at all.
+    #
+    # VPA 1.5.0 builds the webhook's namespaceSelector from
+    # `--ignored-vpa-object-namespaces` (comma-separated): the binary registers
+    # the webhook with `namespaceSelector: kubernetes.io/metadata.name NotIn
+    # [<here>]` AND skips VPA-object reconciliation in those namespaces (see
+    # autoscaler vertical-pod-autoscaler-1.5.0 pkg/admission-controller
+    # config.go selfRegistration + main.go). Because VPA RE-registers the
+    # webhook on every restart/roll, this exclusion survives — unlike a manual
+    # patch of the webhook config, which VPA would overwrite. kube-system holds
+    # the cilium DaemonSet + operator + envoy + all other CNI/control-plane
+    # bootstrap workloads; VPA never right-sizes those, so excluding it costs
+    # nothing.
+    extraArgs:
+      ignored-vpa-object-namespaces: kube-system
     # The admission controller serves a MutatingWebhookConfiguration over
     # TLS. The upstream chart bootstraps a self-signed CA + cert via an
     # init job, which is fine for Catalyst because the webhook is

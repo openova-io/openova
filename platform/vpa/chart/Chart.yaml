@@ -17,7 +17,12 @@ description: |
   (recommend only) — SREs opt individual workloads into `Auto` via
   VerticalPodAutoscaler CRs.
 type: application
-version: 1.0.1
+# 1.0.2 (#3499, Refs #3375/#3380): admissionController extraArgs
+# --ignored-vpa-object-namespaces=kube-system → the self-registered VPA pod
+# webhook excludes kube-system, so its 30s-timeout Ignore call can never stall
+# the cilium CNI-bootstrap Pod creates during a cilium DaemonSet roll (hw135
+# region-kill blocker). See chart/values.yaml admissionController.extraArgs.
+version: 1.0.2
 appVersion: "1.5.0"
 keywords: [catalyst, blueprint, vpa, autoscaling, vertical-pod-autoscaler, right-sizing]
 maintainers:

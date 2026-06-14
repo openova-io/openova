@@ -237,6 +237,57 @@ kyverno:
   # `config.webhooks.namespaceSelector` and per-controller `failurePolicy`
   # via the upstream chart's controller-scoped settings once 3-replica HA
   # is in place. See upstream `values.yaml` `config:` block for shape.
+  #
+  # #3499 (Refs #3375, #3380, 2026-06-14) — CNI-bootstrap admission exemption.
+  #
+  # ROOT CAUSE (root-caused live on hw135, dep 368c2d9b74d0b71a): kyverno's
+  # resource webhooks run failurePolicy=Fail and match `pods` + `batch/jobs`.
+  # When the cilium DaemonSet rolls (any spec change re-creates its agent
+  # pods), the rolling-update DELETES the old agent on the control-plane /
+  # apiserver node, then must CREATE the replacement — a Pod CREATE that
+  # passes through these very webhooks. With the apiserver node's cilium-agent
+  # momentarily gone, the apiserver->kyverno *request* still arrives but
+  # kyverno's *response* back to the apiserver's pod-network address times out
+  # (no BPF datapath on the de-CNI'd node):
+  #     ERR "read tcp <kyverno-pod>:9443-><apiserver-podIP>: i/o timeout"
+  #         url=/validate/fail?timeout=10s
+  # → admission hits the 10s deadline → "context deadline exceeded" → the
+  # replacement cilium-agent Pod is never admitted → the apiserver node stays
+  # CNI-less permanently → self-perpetuating deadlock that also wedges
+  # cilium-operator and every downstream Pod/Job create (incl. cnpg-pair
+  # initdb → no region-b standby → #3375 region-kill impossible).
+  #
+  # FIX: exempt the cilium CNI stack from the kyverno resource webhooks so a
+  # cilium roll can ALWAYS recreate its own agent and self-heal the datapath,
+  # regardless of admission/datapath state. All three cilium components
+  # (agent, operator, envoy) carry `app.kubernetes.io/part-of: cilium`, so a
+  # single objectSelector covers the whole CNI bootstrap. This does NOT weaken
+  # policy coverage for any tenant/app workload — only the cluster's own CNI
+  # pods bypass admission, and only on the create/update path. The upstream
+  # `kyverno.config.webhooks` helper preserves objectSelector verbatim and
+  # appends the kube-system + kyverno-namespace exclusions to namespaceSelector
+  # (see charts/kyverno/templates/config/_helpers.tpl). Setting config.webhooks
+  # here REPLACES the upstream default block, so the namespaceSelector below
+  # re-states the upstream kube-system exclusion (the helper still appends the
+  # kyverno namespace because excludeKyvernoNamespace stays true).
+  config:
+    webhooks:
+      # Exclude namespaces (re-states the upstream default — kube-system; the
+      # helper also appends the kyverno namespace via excludeKyvernoNamespace).
+      namespaceSelector:
+        matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: NotIn
+            values:
+              - kube-system
+      # Exclude the cilium CNI stack (agent + operator + envoy) so a cilium
+      # DaemonSet roll never deadlocks against the Fail webhook return-path.
+      objectSelector:
+        matchExpressions:
+          - key: app.kubernetes.io/part-of
+            operator: NotIn
+            values:
+              - cilium
 
   # OpenReports CRDs — both flags must agree per upstream schema. Default
   # disabled (matches upstream); per-Sovereign overlays enable BOTH together
