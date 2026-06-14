@@ -340,6 +340,41 @@ func cutoverStepTimeout() time.Duration {
 	return defaultCutoverStepTimeout
 }
 
+// cutoverStepDeadline returns the wall-clock budget for a single step's
+// Job — the larger of the global default (cutoverStepTimeout) and the
+// step's OWN Pod-template activeDeadlineSeconds carried in its PodSpec
+// ConfigMap (the chart's stepTimeouts.<step>Seconds value).
+//
+// #3379 step-03 (hw139, 2026-06-15): the chart ships a deliberately
+// generous per-step deadline for the heavy steps (harbor-prewarm 5400s,
+// gitea-mirror 1200s, egress-block-test 1200s) by stamping
+// `activeDeadlineSeconds` INSIDE each step's embedded PodSpec. But
+// createCutoverJob / watchJobToCompletion previously used ONLY the global
+// 15-minute cutoverStepTimeout for the Job-level deadline + the watch
+// timeout — and the Job-level activeDeadlineSeconds is authoritative over
+// the Pod-template one, so when global (900s) < per-step (e.g. 5400s) the
+// Job was silently killed with reason=DeadlineExceeded at 15 minutes no
+// matter what the chart asked for. harbor-prewarm genuinely needs the
+// longer window (29 multi-layer private-image copies over throttled
+// egress); the latent gitea-mirror/egress-block-test mismatch survived
+// only because their real runtime happened to stay under 900s.
+//
+// Taking the MAX keeps the global default as a floor (a short step still
+// gets the generous 15-minute cap; an env override of
+// CATALYST_CUTOVER_STEP_TIMEOUT still raises every step) while letting a
+// step opt INTO a longer budget via its chart value. The Job stays
+// event-driven — watchJobToCompletion returns the instant the Job reaches
+// a terminal condition — so a fast run never waits out the ceiling.
+func cutoverStepDeadline(step cutoverStep) time.Duration {
+	base := cutoverStepTimeout()
+	if step.podSpec != nil && step.podSpec.ActiveDeadlineSeconds != nil {
+		if d := time.Duration(*step.podSpec.ActiveDeadlineSeconds) * time.Second; d > base {
+			return d
+		}
+	}
+	return base
+}
+
 func cutoverDaemonSetTimeout() time.Duration {
 	if v, _ := time.ParseDuration(os.Getenv(envCutoverDaemonSetWait)); v > 0 {
 		return v
@@ -847,7 +882,12 @@ func createCutoverJob(ctx context.Context, deps *cutoverDeps, step cutoverStep, 
 	// over the activeDeadlineSeconds window).
 	backoffLimit := int32(3)
 	ttl := int32(24 * 60 * 60) // 24h GC so the Job evidence stays around for audit.
-	activeDeadline := int64(cutoverStepTimeout().Seconds())
+	// #3379: honor the step's OWN chart deadline (stepTimeouts.<step>Seconds,
+	// carried on the PodSpec) when it exceeds the global default — otherwise
+	// the Job-level cap silently kills heavy steps (harbor-prewarm) at the
+	// 15-minute global before the chart's generous budget can apply. See
+	// cutoverStepDeadline.
+	activeDeadline := int64(cutoverStepDeadline(step).Seconds())
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -903,8 +943,10 @@ func createCutoverJob(ctx context.Context, deps *cutoverDeps, step cutoverStep, 
 // or an error on watch / context failure. Uses a single Watch call
 // against the Job by name so we get an event-driven completion signal
 // rather than polling.
-func watchJobToCompletion(ctx context.Context, deps *cutoverDeps, jobName string) (batchv1.JobConditionType, error) {
-	timeout := cutoverStepTimeout()
+func watchJobToCompletion(ctx context.Context, deps *cutoverDeps, jobName string, timeout time.Duration) (batchv1.JobConditionType, error) {
+	if timeout <= 0 {
+		timeout = cutoverStepTimeout()
+	}
 	wctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -967,6 +1009,75 @@ func terminalJobCondition(job *batchv1.Job) (batchv1.JobConditionType, bool) {
 		}
 	}
 	return "", false
+}
+
+// jobFailedTransiently reports whether a terminal-Failed Job failed for a
+// TRANSIENT reason that a retry can plausibly clear — specifically the
+// activeDeadlineSeconds timeout (reason "DeadlineExceeded"), as opposed to
+// a genuine non-zero application exit (reason "BackoffLimitExceeded",
+// "PodFailurePolicy", etc.) where re-running the same idempotent PodSpec
+// would just fail the same way and an operator must intervene.
+//
+// #3379 step-03 (hw139, 2026-06-15): Step-03 harbor-prewarm blew its
+// deadline mid-copy (DeadlineExceeded) → the engine recorded the step
+// result=failed → on every re-fire findExistingTerminalJobForStep
+// re-surfaced that Failed Job and runCutoverStep refused to re-create it
+// ("operator intervention required"), so the step NEVER re-executed and
+// the cutover was permanently wedged at 03. A DeadlineExceeded is exactly
+// the kind of failure a longer budget + parallel copies (this same PR)
+// fix on the next attempt — treat it as transient so the resume/re-fire
+// path deletes the timed-out Job and re-runs the step cleanly.
+//
+// We match on the Job's terminal JobFailed condition Reason, falling back
+// to a Message substring scan for older API servers that populate only the
+// message. Anything we don't positively recognise as transient is treated
+// as a genuine failure (fail-closed: we'd rather halt for an operator than
+// loop on a real error).
+func jobFailedTransiently(job *batchv1.Job) bool {
+	if job == nil {
+		return false
+	}
+	for _, c := range job.Status.Conditions {
+		if c.Type != batchv1.JobFailed || c.Status != corev1.ConditionTrue {
+			continue
+		}
+		if c.Reason == batchv1.JobReasonDeadlineExceeded {
+			return true
+		}
+		if strings.Contains(c.Message, "DeadlineExceeded") ||
+			strings.Contains(c.Message, "exceeded active deadline") ||
+			strings.Contains(c.Message, "activeDeadlineSeconds") {
+			return true
+		}
+	}
+	return false
+}
+
+// deleteCutoverJobsForStep removes every existing Job for a step (with
+// background propagation so the Pods go too) so the engine can re-create a
+// fresh Job for an idempotent re-run. Used when a prior Job failed
+// transiently (jobFailedTransiently) — a leftover DeadlineExceeded Job
+// would otherwise be re-discovered by findExistingTerminalJobForStep and
+// re-surfaced as terminal forever. Best-effort: a delete error is logged
+// by the caller but does not by itself abort the re-run attempt (the fresh
+// Create would only fail on a true name collision, which the create path
+// already tolerates via AlreadyExists).
+func deleteCutoverJobsForStep(ctx context.Context, deps *cutoverDeps, stepName string) error {
+	jobs, err := findExistingJobsForStep(ctx, deps, stepName)
+	if err != nil {
+		return err
+	}
+	propagation := metav1.DeletePropagationBackground
+	var firstErr error
+	for i := range jobs {
+		j := &jobs[i]
+		if delErr := deps.core.BatchV1().Jobs(deps.ns).Delete(ctx, j.Name, metav1.DeleteOptions{
+			PropagationPolicy: &propagation,
+		}); delErr != nil && !apierrors.IsNotFound(delErr) && firstErr == nil {
+			firstErr = fmt.Errorf("delete prior Job %s/%s: %w", deps.ns, j.Name, delErr)
+		}
+	}
+	return firstErr
 }
 
 // ── DaemonSet ready wait ────────────────────────────────────────────────────
@@ -1152,20 +1263,63 @@ func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cu
 				})
 				return nil
 			}
-			// cond == batchv1.JobFailed: surface as the step's terminal
-			// failure — the engine halts at this step, identical to a
-			// freshly-failed Job. We DO NOT re-create on Failed because
-			// the chart's PodSpec is idempotent state-ensure logic and
-			// a second attempt usually fails the same way; operator
-			// intervention is required.
-			if err := patchCutoverStatus(ctx, deps, map[string]string{
-				"step." + step.stepName + ".finishedAt": finishedAt.Format(time.RFC3339),
-				"step." + step.stepName + ".result":     "failed",
-				"step." + step.stepName + ".jobName":    job.Name,
-			}); err != nil {
-				return fmt.Errorf("status patch (resume-failed): %w", err)
+			// cond == batchv1.JobFailed.
+			//
+			// #3379 (hw139): a TRANSIENT failure — the Job hit its
+			// activeDeadlineSeconds (reason DeadlineExceeded) — is NOT an
+			// operator-intervention case. The prior run simply ran out of
+			// wall-clock (e.g. step-03 harbor-prewarm's image copies over
+			// throttled egress); a re-run with the now-larger budget +
+			// parallel copies can complete. Delete the timed-out Job (so
+			// findExistingTerminalJobForStep doesn't re-surface it on the
+			// next pass) and fall through to mint a fresh Job. The step's
+			// PodSpec is idempotent state-ensure logic, so re-running is
+			// safe (already-pushed images are no-op skopeo copies).
+			if jobFailedTransiently(job) {
+				h.publishCutoverEvent(bus, cutoverEvent{
+					Time:    time.Now().UTC().Format(time.RFC3339),
+					Phase:   cutoverPhaseStepStarted,
+					Level:   "info",
+					Step:    step.stepName,
+					JobName: job.Name,
+					Message: fmt.Sprintf("step %s prior Job %s failed transiently (deadline exceeded); deleting + re-running", step.stepName, job.Name),
+				})
+				if delErr := deleteCutoverJobsForStep(ctx, deps, step.stepName); delErr != nil {
+					// Non-fatal: log via event and proceed. createCutoverJob
+					// tolerates an AlreadyExists collision; a genuinely stuck
+					// delete surfaces as the fresh watch timing out, not a
+					// silent wedge.
+					h.log.Warn("cutover: failed to delete transiently-failed Job before re-run",
+						"step", step.stepName, "job", job.Name, "err", delErr)
+				}
+				// Clear the step's durable rows so the audit trail shows a
+				// clean re-attempt and the engine doesn't treat it as
+				// already-settled. Fall through to the normal create path.
+				if err := patchCutoverStatus(ctx, deps, map[string]string{
+					"step." + step.stepName + ".result":     "",
+					"step." + step.stepName + ".startedAt":  "",
+					"step." + step.stepName + ".finishedAt": "",
+					"step." + step.stepName + ".jobName":    "",
+				}); err != nil {
+					return fmt.Errorf("status patch (transient-failed reset): %w", err)
+				}
+				// Do not return — drop out of the idempotency block and
+				// create a fresh Job below.
+			} else {
+				// Genuine failure (non-zero application exit, backoff-limit
+				// exhausted, …): surface as the step's terminal failure —
+				// the engine halts at this step. We DO NOT re-create because
+				// a second attempt of an idempotent PodSpec usually fails the
+				// same way; operator intervention is required.
+				if err := patchCutoverStatus(ctx, deps, map[string]string{
+					"step." + step.stepName + ".finishedAt": finishedAt.Format(time.RFC3339),
+					"step." + step.stepName + ".result":     "failed",
+					"step." + step.stepName + ".jobName":    job.Name,
+				}); err != nil {
+					return fmt.Errorf("status patch (resume-failed): %w", err)
+				}
+				return fmt.Errorf("Job %s/%s reported Failed condition (carried over from prior cutover attempt)", deps.ns, job.Name)
 			}
-			return fmt.Errorf("Job %s/%s reported Failed condition (carried over from prior cutover attempt)", deps.ns, job.Name)
 		}
 	}
 
@@ -1216,7 +1370,7 @@ func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cu
 				return err
 			}
 		}
-		cond, err := watchJobToCompletion(ctx, deps, jobOrDS)
+		cond, err := watchJobToCompletion(ctx, deps, jobOrDS, cutoverStepDeadline(step))
 		if err != nil {
 			return err
 		}
@@ -1295,18 +1449,18 @@ func (h *Handler) publishCutoverEvent(bus *cutoverBroadcaster, ev cutoverEvent) 
 //
 // Otherwise — durable state shows a cutover was in progress when this
 // process started — we:
-//   1. Reset every step whose `.result == "running"` back to `""` so the
-//      engine re-runs that step from scratch (the corresponding Job from
-//      the previous attempt may have completed, failed, or still be
-//      running; we don't trust the orphan and create a fresh Job — the
-//      step's PodSpec must be idempotent, which it is by chart design —
-//      every step's PodSpec is "ensure target state X").
-//   2. List the cutover step ConfigMaps. If any are missing (chart
-//      uninstalled mid-flight) we log and bail.
-//   3. Claim the in-process running flag (always succeeds on a fresh Pod
-//      since the broadcaster is freshly constructed).
-//   4. Spawn runCutover with a background context so an init signal or
-//      brief HTTP server hiccup doesn't cancel a multi-step resume.
+//  1. Reset every step whose `.result == "running"` back to `""` so the
+//     engine re-runs that step from scratch (the corresponding Job from
+//     the previous attempt may have completed, failed, or still be
+//     running; we don't trust the orphan and create a fresh Job — the
+//     step's PodSpec must be idempotent, which it is by chart design —
+//     every step's PodSpec is "ensure target state X").
+//  2. List the cutover step ConfigMaps. If any are missing (chart
+//     uninstalled mid-flight) we log and bail.
+//  3. Claim the in-process running flag (always succeeds on a fresh Pod
+//     since the broadcaster is freshly constructed).
+//  4. Spawn runCutover with a background context so an init signal or
+//     brief HTTP server hiccup doesn't cancel a multi-step resume.
 //
 // Idempotency vs the auto-trigger Job
 // ───────────────────────────────────
@@ -1354,11 +1508,21 @@ func (h *Handler) ResumeInterruptedCutover(ctx context.Context) {
 	// In-flight detected: cutoverStartedAt != "" AND cutoverComplete != "true".
 	// If a previous attempt failed terminally (failedStep != ""), we still
 	// resume — the operator/auto-trigger will eventually re-POST anyway,
-	// and resuming after a terminal failure surfaces the same final state
-	// (the failed step re-runs; if it fails again the run terminates again
-	// with the same error; if it passes this time, the cutover proceeds).
-	// This matches the existing engine semantics where /start retries a
-	// failed cutover by re-running from the next not-success step.
+	// and resuming re-enters the failed step (runCutover skips only
+	// result=="success" rows). What happens there now depends on WHY the
+	// step failed (#3379, hw139):
+	//   - TRANSIENT failure (the prior Job hit its activeDeadlineSeconds,
+	//     reason DeadlineExceeded — e.g. step-03 harbor-prewarm running out
+	//     of wall-clock): runCutoverStep's idempotency block deletes the
+	//     timed-out Job and re-runs the step from scratch. With the larger
+	//     budget + parallel copies (same PR) the re-run can complete, so the
+	//     cutover proceeds instead of wedging at the failed step forever.
+	//   - GENUINE failure (non-zero application exit / backoff-limit
+	//     exhausted): runCutoverStep re-surfaces it as terminal and the run
+	//     halts again with the same error — operator intervention required.
+	// Either way the transient/genuine decision is centralized in
+	// runCutoverStep (via jobFailedTransiently), so both the startup-resume
+	// path and an explicit /start re-fire get identical behavior.
 	h.log.Info("cutover-resume: in-flight cutover detected on startup",
 		"currentStep", status["currentStep"],
 		"currentStepIndex", status["currentStepIndex"],
