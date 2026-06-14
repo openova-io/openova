@@ -128,7 +128,15 @@ spec:
       # the hubble oauth2-proxy CreateContainerConfigError (slot-01 install-
       # time .Capabilities snapshot permanently omits the chart's own ES).
       # Lockstep: bp-cilium 1.4.2 ships the hubble-ui declaration. Refs #3374.
-      version: 0.2.16
+      # 0.2.17 (#3374, 2026-06-14): emit the per-app OIDC ExternalSecret into
+      # the HR's targetNamespace (where the app Pod runs) instead of the HR's
+      # own namespace (flux-system). Fixes grafana's 2/3
+      # CreateContainerConfigError → 503: the chart-side grafana ES is omitted
+      # by the install-time .Capabilities ESO-CRD-race guard, so the bp-sso-
+      # bridge ES was the only one — and it landed in flux-system, invisible to
+      # the grafana Pod's envFromSecret. Default (in-place HR) render
+      # byte-identical. Refs #3374.
+      version: 0.2.17
       sourceRef:
         kind: HelmRepository
         name: bp-sso-bridge
