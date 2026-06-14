@@ -71,8 +71,10 @@ if ! grep -qE "sys/storage/raft/snapshot" "$TMP/primary.yaml"; then
   echo "FAIL: primary CronJob missing the raft snapshot save (sys/storage/raft/snapshot)." >&2
   exit 1
 fi
-# The S3 upload must point at the SeaweedFS S3 endpoint.
-if ! grep -qE "seaweedfs-s3\.seaweedfs\.svc\.cluster\.local:8333" "$TMP/primary.yaml"; then
+# The S3 upload must point at the SeaweedFS S3 endpoint. #3373 Batch A
+# (2026-06-14): bp-seaweedfs moved INTO the rtz vCluster, so the default
+# endpoint is now the syncer-mangled host Service name.
+if ! grep -qE "seaweedfs-s3-x-seaweedfs-x-rtz-vcluster\.rtz\.svc\.cluster\.local:8333" "$TMP/primary.yaml"; then
   echo "FAIL: primary CronJob missing the seaweedfs-s3 endpoint." >&2
   exit 1
 fi
@@ -120,7 +122,7 @@ if ! grep -qE "s3api list-objects-v2" "$TMP/secondary.yaml"; then
   echo "FAIL: secondary CronJob missing the S3 list-objects fetch." >&2
   exit 1
 fi
-if ! grep -qE "seaweedfs-s3\.seaweedfs\.svc\.cluster\.local:8333" "$TMP/secondary.yaml"; then
+if ! grep -qE "seaweedfs-s3-x-seaweedfs-x-rtz-vcluster\.rtz\.svc\.cluster\.local:8333" "$TMP/secondary.yaml"; then
   echo "FAIL: secondary CronJob missing the seaweedfs-s3 endpoint." >&2
   exit 1
 fi
