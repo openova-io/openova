@@ -1116,7 +1116,16 @@ func waitForDaemonSetReady(ctx context.Context, deps *cutoverDeps, dsName string
 // background goroutine spawned by HandleCutoverStart. Every state
 // transition (started, finished, failed) is published to the
 // broadcaster AND patched onto the status ConfigMap.
-func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cutoverStep) {
+//
+// operatorRetry (#3379, hw139): when true — set ONLY by an operator-
+// initiated POST /api/v1/sovereign/cutover/start (a deliberate human/CTA
+// "retry" behind RequireSession) — a step whose prior Job failed GENUINELY
+// (non-transient, e.g. BackoffLimitExceeded) is DELETED and RE-RUN rather
+// than re-surfaced as a terminal wedge. This is the zero-touch path that
+// lets a freshly-rolled chart fix re-drive a step the timeouts-only
+// auto-resume (#3558) refuses to. The auto-resume + in-cluster auto-trigger
+// pass false (fail-closed) so a genuinely-broken step never auto-loops.
+func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cutoverStep, operatorRetry bool) {
 	bus := h.cutoverBusFor()
 	defer bus.endRun()
 
@@ -1172,7 +1181,7 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 			continue
 		}
 
-		if err := h.runCutoverStep(ctx, deps, step, runEpoch); err != nil {
+		if err := h.runCutoverStep(ctx, deps, step, runEpoch, operatorRetry); err != nil {
 			finishedAt := time.Now().UTC()
 			_ = patchCutoverStatus(ctx, deps, map[string]string{
 				"currentStep":                           "",
@@ -1209,7 +1218,7 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 	})
 }
 
-func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cutoverStep, runEpoch int64) error {
+func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cutoverStep, runEpoch int64, operatorRetry bool) error {
 	bus := h.cutoverBusFor()
 
 	// ── Idempotency check (TBD-V56 / #2132) ─────────────────────────────
@@ -1265,31 +1274,52 @@ func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cu
 			}
 			// cond == batchv1.JobFailed.
 			//
-			// #3379 (hw139): a TRANSIENT failure — the Job hit its
-			// activeDeadlineSeconds (reason DeadlineExceeded) — is NOT an
-			// operator-intervention case. The prior run simply ran out of
-			// wall-clock (e.g. step-03 harbor-prewarm's image copies over
-			// throttled egress); a re-run with the now-larger budget +
-			// parallel copies can complete. Delete the timed-out Job (so
-			// findExistingTerminalJobForStep doesn't re-surface it on the
-			// next pass) and fall through to mint a fresh Job. The step's
-			// PodSpec is idempotent state-ensure logic, so re-running is
-			// safe (already-pushed images are no-op skopeo copies).
-			if jobFailedTransiently(job) {
+			// #3379 (hw139): re-run the step (delete the prior Job + fall
+			// through to mint a fresh one) when EITHER:
+			//
+			//   (a) the prior Job failed TRANSIENTLY — it hit its
+			//       activeDeadlineSeconds (reason DeadlineExceeded). The prior
+			//       run simply ran out of wall-clock (e.g. step-03
+			//       harbor-prewarm's image copies over throttled egress); a
+			//       re-run with the now-larger budget + parallel copies can
+			//       complete. Fires on BOTH auto-resume and operator /start
+			//       (jobFailedTransiently is source-agnostic).
+			//
+			//   (b) operatorRetry — a human/CTA explicitly re-POSTed
+			//       /cutover/start (behind RequireSession). A deliberate
+			//       operator retry is the signal that the underlying cause was
+			//       addressed out-of-band — typically a freshly-rolled chart
+			//       fix that the timeouts-only auto-resume (#3558) won't
+			//       re-drive on a GENUINE BackoffLimitExceeded. This is the
+			//       zero-touch re-trigger for the hw139 step-10 residual-tether
+			//       FATAL once 0.1.62 lands: the operator (or the BSS "Achieve
+			//       True Sovereignty" CTA) re-fires /start and the now-fixed
+			//       step re-runs clean. The in-cluster auto-trigger + startup
+			//       resume pass operatorRetry=false, so a genuinely-broken step
+			//       still fails-closed for them and never auto-loops.
+			//
+			// Every step's PodSpec is idempotent state-ensure logic, so
+			// re-running is safe (already-pushed images are no-op skopeo
+			// copies; already-pivoted HRs are SKIP patches).
+			if jobFailedTransiently(job) || operatorRetry {
+				reason := "failed transiently (deadline exceeded)"
+				if !jobFailedTransiently(job) {
+					reason = "failed (operator-initiated retry)"
+				}
 				h.publishCutoverEvent(bus, cutoverEvent{
 					Time:    time.Now().UTC().Format(time.RFC3339),
 					Phase:   cutoverPhaseStepStarted,
 					Level:   "info",
 					Step:    step.stepName,
 					JobName: job.Name,
-					Message: fmt.Sprintf("step %s prior Job %s failed transiently (deadline exceeded); deleting + re-running", step.stepName, job.Name),
+					Message: fmt.Sprintf("step %s prior Job %s %s; deleting + re-running", step.stepName, job.Name, reason),
 				})
 				if delErr := deleteCutoverJobsForStep(ctx, deps, step.stepName); delErr != nil {
 					// Non-fatal: log via event and proceed. createCutoverJob
 					// tolerates an AlreadyExists collision; a genuinely stuck
 					// delete surfaces as the fresh watch timing out, not a
 					// silent wedge.
-					h.log.Warn("cutover: failed to delete transiently-failed Job before re-run",
+					h.log.Warn("cutover: failed to delete prior failed Job before re-run",
 						"step", step.stepName, "job", job.Name, "err", delErr)
 				}
 				// Clear the step's durable rows so the audit trail shows a
@@ -1301,16 +1331,19 @@ func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cu
 					"step." + step.stepName + ".finishedAt": "",
 					"step." + step.stepName + ".jobName":    "",
 				}); err != nil {
-					return fmt.Errorf("status patch (transient-failed reset): %w", err)
+					return fmt.Errorf("status patch (failed-job reset): %w", err)
 				}
 				// Do not return — drop out of the idempotency block and
 				// create a fresh Job below.
 			} else {
 				// Genuine failure (non-zero application exit, backoff-limit
-				// exhausted, …): surface as the step's terminal failure —
-				// the engine halts at this step. We DO NOT re-create because
-				// a second attempt of an idempotent PodSpec usually fails the
-				// same way; operator intervention is required.
+				// exhausted, …) on a NON-operator path (auto-resume /
+				// in-cluster auto-trigger, operatorRetry=false): surface as
+				// the step's terminal failure — the engine halts at this step.
+				// We DO NOT re-create because a second unattended attempt of an
+				// idempotent PodSpec usually fails the same way; the operator
+				// must address the cause then re-fire /start (which sets
+				// operatorRetry=true and takes the re-run branch above).
 				if err := patchCutoverStatus(ctx, deps, map[string]string{
 					"step." + step.stepName + ".finishedAt": finishedAt.Format(time.RFC3339),
 					"step." + step.stepName + ".result":     "failed",
@@ -1589,7 +1622,12 @@ func (h *Handler) ResumeInterruptedCutover(ctx context.Context) {
 	h.log.Info("cutover-resume: spawning runCutover to resume interrupted cutover",
 		"totalSteps", len(steps),
 	)
-	go h.runCutover(context.Background(), deps, steps)
+	// operatorRetry=false (#3379): startup-resume is unattended — a GENUINE
+	// prior failure (BackoffLimitExceeded) must fail-closed, not auto-loop.
+	// Only an explicit operator /start re-fire (operatorRetry=true) re-runs a
+	// genuinely-failed step. Transient (DeadlineExceeded) failures still
+	// re-run here via jobFailedTransiently inside runCutoverStep.
+	go h.runCutover(context.Background(), deps, steps, false)
 }
 
 // ── HTTP handlers ───────────────────────────────────────────────────────────
@@ -1710,7 +1748,14 @@ func (h *Handler) HandleCutoverStart(w http.ResponseWriter, r *http.Request) {
 	// Run the engine with a context independent of the request so a
 	// client disconnect doesn't cancel a multi-step cutover. The
 	// cutoverStepTimeout on each step bounds the overall runtime.
-	go h.runCutover(context.Background(), deps, steps)
+	//
+	// operatorRetry=true (#3379): this is the operator-session CTA path
+	// (behind RequireSession). A deliberate human re-POST of /start after a
+	// step failed GENUINELY (e.g. the hw139 step-10 residual-tether FATAL,
+	// now fixed in chart 0.1.62) deletes the prior failed Job + re-runs the
+	// step. The in-cluster auto-trigger + startup-resume keep this false
+	// (fail-closed) so an unattended genuine failure never auto-loops.
+	go h.runCutover(context.Background(), deps, steps, true)
 
 	// Re-read status so the response reflects the freshly-patched
 	// `cutoverStartedAt` from the engine — the goroutine has likely

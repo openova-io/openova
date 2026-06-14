@@ -339,6 +339,72 @@ data:
               skip=$((skip+1))
             fi
 
+            # ---- Phase 1d: live K8s patch of spec.values.global.registryMirror (#3379, hw139) ----
+            #
+            # The 3 bp-*-vcluster HRs AND bp-sso-bridge each carry a
+            # `spec.values.global.registryMirror` knob (single source of truth
+            # for the image HOST — see each chart's
+            # templates/_helpers.tpl `global.registryMirror | default
+            # "harbor.openova.io"`). The bootstrap-kit overlays set it to
+            # `${REGISTRY_MIRROR:=harbor.openova.io}`, which on a Sovereign
+            # (REGISTRY_MIRROR unset) envsubst-resolves to the LITERAL
+            # `harbor.openova.io`. The Phase-1/1b image.repository pivots above
+            # do NOT touch global.registryMirror, so it stays at mothership
+            # Harbor — and the Phase-1c residual-tether check below greps the
+            # WHOLE spec.values for `harbor.openova.io`, so a surviving
+            # registryMirror makes the check FATAL ("N HelmRelease(s) still
+            # tethered") → BackoffLimitExceeded → cutover wedged at step-10.
+            # That is exactly the hw139 #3379 catch (4 HRs flagged:
+            # bp-mgmt/rtz/dmz-vcluster + bp-sso-bridge).
+            #
+            # Fix: pivot the registryMirror HOST here too
+            # (harbor.openova.io → harbor.${SOVEREIGN_FQDN}) so the residual
+            # check passes AND the vCluster/sso-bridge image pulls actually
+            # resolve through the Sovereign-local Harbor mirror. Idempotent:
+            # SKIP when the live value no longer equals harbor.openova.io
+            # (already pivoted, or an operator overlay set a custom mirror).
+            patch_registry_mirror() {
+              # $1 = HR name
+              rm_hr="$1"
+              kubectl get helmrelease "${rm_hr}" -n "${HELMRELEASE_NAMESPACE}" >/dev/null 2>&1 || {
+                echo "[vcluster-registry-pivot] SKIP registryMirror ${rm_hr} (HR not present)"
+                skip=$((skip+1))
+                return 0
+              }
+              cur_rm=$(kubectl get helmrelease "${rm_hr}" -n "${HELMRELEASE_NAMESPACE}" \
+                -o jsonpath='{.spec.values.global.registryMirror}' 2>/dev/null || echo "")
+              case "${cur_rm}" in
+                harbor.openova.io)
+                  rm_patch=$(printf '{"spec":{"values":{"global":{"registryMirror":"%s"}}}}' "${target_host}")
+                  if kubectl patch helmrelease "${rm_hr}" \
+                      -n "${HELMRELEASE_NAMESPACE}" \
+                      --type=merge --patch "${rm_patch}" >/dev/null 2>&1; then
+                    echo "[vcluster-registry-pivot] OK registryMirror ${rm_hr} -> ${target_host}"
+                    kubectl annotate --overwrite helmrelease "${rm_hr}" \
+                      -n "${HELMRELEASE_NAMESPACE}" \
+                      "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null 2>&1 || true
+                    ok=$((ok+1))
+                  else
+                    echo "[vcluster-registry-pivot] FAIL registryMirror ${rm_hr}" >&2
+                    fail=$((fail+1))
+                  fi
+                  ;;
+                "")
+                  echo "[vcluster-registry-pivot] SKIP registryMirror ${rm_hr} (no spec.values.global.registryMirror set)"
+                  skip=$((skip+1))
+                  ;;
+                *)
+                  echo "[vcluster-registry-pivot] SKIP registryMirror ${rm_hr} (registryMirror=${cur_rm} not harbor.openova.io — already pivoted or custom)"
+                  skip=$((skip+1))
+                  ;;
+              esac
+            }
+
+            patch_registry_mirror "bp-mgmt-vcluster"
+            patch_registry_mirror "bp-rtz-vcluster"
+            patch_registry_mirror "bp-dmz-vcluster"
+            patch_registry_mirror "bp-sso-bridge"
+
             echo "[vcluster-registry-pivot] live-K8s ok=${ok} skip=${skip} fail=${fail}"
             [ "${fail}" -eq 0 ] || exit 1
 
@@ -591,6 +657,44 @@ data:
               echo "[vcluster-registry-pivot] SKIP ${sso_file} (not present)"
             fi
 
+            # ---- Phase 2c: persist global.registryMirror pivot to Gitea (#3379, hw139) ----
+            #
+            # Phase-1d live-patched spec.values.global.registryMirror on the
+            # 4 HRs, but the bootstrap-kit Kustomization reconciles those HR
+            # YAMLs from local Gitea every ~1 min and would REVERT the patch
+            # back to the overlay literal `harbor.openova.io` — re-tethering
+            # the Sovereign + re-arming the Phase-1c residual FATAL on the
+            # NEXT cutover. So rewrite the registryMirror host durably in the
+            # 4 overlay files too. The cloud-init-rendered Gitea copy carries
+            # the post-envsubst literal `registryMirror: harbor.openova.io`
+            # (REGISTRY_MIRROR unset on a Sovereign), so a line-anchored sed
+            # off that literal is exact — registryMirror appears once per
+            # overlay (under global:). Idempotent: a re-run finds the value
+            # already at harbor.${SOVEREIGN_FQDN} and the sed is a no-op
+            # (git diff stays empty for that line).
+            for rm_file in \
+              "54-bp-dmz-vcluster.yaml" \
+              "58-bp-mgmt-vcluster.yaml" \
+              "59-bp-rtz-vcluster.yaml" \
+              "13b-bp-sso-bridge.yaml" \
+            ; do
+              rm_path="${target_dir}/${rm_file}"
+              if [ ! -f "${rm_path}" ]; then
+                echo "[vcluster-registry-pivot] SKIP registryMirror persist ${rm_path} (not present)"
+                continue
+              fi
+              if grep -qE "^[[:space:]]*registryMirror:[[:space:]]*harbor\.openova\.io[[:space:]]*$" "${rm_path}"; then
+                if sed -i -E "s,^([[:space:]]*registryMirror:[[:space:]]*)harbor\.openova\.io[[:space:]]*\$,\1harbor.${SOVEREIGN_FQDN}," "${rm_path}" 2>/dev/null; then
+                  echo "[vcluster-registry-pivot] rewrote global.registryMirror in ${rm_path} -> harbor.${SOVEREIGN_FQDN}"
+                  edited=$((edited+1))
+                else
+                  echo "[vcluster-registry-pivot] WARN: registryMirror sed failed for ${rm_path}; Phase-1d K8s patch remains durable for one reconcile cycle"
+                fi
+              else
+                echo "[vcluster-registry-pivot] registryMirror in ${rm_path} already pivoted or absent — no rewrite"
+              fi
+            done
+
             echo "[vcluster-registry-pivot] sed edited ${edited} files"
             if [ "${edited}" -eq 0 ]; then
               echo "[vcluster-registry-pivot] no edits required — already pivoted in Gitea or files absent"
@@ -603,7 +707,7 @@ data:
               echo "[vcluster-registry-pivot] git diff empty after sed — nothing to commit"
               exit 0
             fi
-            git commit -m "cutover: pivot vCluster + sso-bridge image.repository to harbor.${SOVEREIGN_FQDN}" >/dev/null
+            git commit -m "cutover: pivot vCluster + sso-bridge image.repository + global.registryMirror to harbor.${SOVEREIGN_FQDN}" >/dev/null
             push_err=$(git push origin main 2>&1) || {
               echo "[vcluster-registry-pivot] FATAL: git push failed" >&2
               printf '%s\n' "$push_err" >&2

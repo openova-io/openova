@@ -468,7 +468,14 @@ func (h *Handler) spawnCutoverEngine(ctx context.Context, deps *cutoverDeps, sou
 	// Run the engine with a context independent of the request so a
 	// client disconnect doesn't cancel a multi-step cutover. The
 	// cutoverStepTimeout on each step bounds the overall runtime.
-	go h.runCutover(context.Background(), deps, steps)
+	//
+	// operatorRetry=false (#3379): the in-cluster auto-trigger
+	// (source="internal") and the handover-seal path (source="handover") are
+	// unattended — a GENUINE prior step failure must fail-closed, not
+	// auto-loop. Only the operator-session CTA (HandleCutoverStart) sets
+	// operatorRetry=true to re-run a genuinely-failed step. Transient
+	// (DeadlineExceeded) failures still re-run via jobFailedTransiently.
+	go h.runCutover(context.Background(), deps, steps, false)
 
 	freshStatus, _ := readCutoverStatus(ctx, deps)
 	stepNames := make([]string, 0, len(steps))
