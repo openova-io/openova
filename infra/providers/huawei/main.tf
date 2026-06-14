@@ -59,6 +59,36 @@ locals {
     r.code => format("10.%d.1.0/24", local.cidr_base + idx * 10)
   }
 
+  # #3504 (Refs #3375) — per-region k3s pod + service CIDRs.
+  #
+  # The k3s --cluster-cidr (pod CIDR) and --service-cidr MUST be
+  # non-overlapping across ClusterMesh peers (DoD gate D11). Previously
+  # both were hardcoded to 10.42.0.0/16 + 10.96.0.0/16 for EVERY region,
+  # so region-a cp1 and region-b cp1 both advertised 10.42.0.0/24. Across
+  # the mesh the region-a apiserver's pod-network source IP (10.42.0.x)
+  # then resolved AMBIGUOUSLY — a peer's ipcache mapped it to region-b's
+  # cp1 instead of region-a's — so every apiserver→webhook RESPONSE
+  # tunnelled to the wrong region and never returned (10s timeout). That
+  # mis-route broke the cp1 datapath (Cluster health 1/4 reachable),
+  # wedging the cnpg-pair initdb + cert-manager/kyverno webhooks → no
+  # region-b standby → #3375 region-kill impossible (root-caused on hw135).
+  #
+  # Mirror the Hetzner module (infra/providers/hetzner/main.tf
+  # region_cluster_cidr / region_service_cidr): offset each region's /16
+  # by its index. Pod CIDR 10.(42+idx).0.0/16, service CIDR
+  # 10.(96+idx).0.0/16 — primary=10.42/10.96, region-b=10.43/10.97, etc.
+  # These are the k3s overlay's INTERNAL pod/service ranges (independent
+  # of the per-prov region_vpc_cidr above, which addresses the nodes); the
+  # +42/+96 bases match Hetzner so both providers share the same D11 shape.
+  region_cluster_cidr = {
+    for idx, r in var.regions :
+    r.code => format("10.%d.0.0/16", 42 + idx)
+  }
+  region_service_cidr = {
+    for idx, r in var.regions :
+    r.code => format("10.%d.0.0/16", 96 + idx)
+  }
+
   # Effective per-region SKU — operator-supplied wins; module defaults
   # back-fill empty entries (s7n.large.4 / m7n.xlarge.8).
   effective_cp_flavor = {
@@ -377,13 +407,17 @@ resource "huaweicloud_networking_secgroup_rule" "ingress_cilium_health" {
 # any pod-to-pod traffic that escapes encap (e.g. host-gw / native routing
 # fallback) is also permitted. Defence-in-depth alongside source_dest_check=false.
 # HCS rejects "any" protocol — list specific protocols Cilium pod-to-pod uses.
+# #3504 (Refs #3375): the allowed prefix is the region's OWN pod CIDR
+# (was hardcoded 10.42.0.0/16; with per-region pod CIDRs region-b is now
+# 10.43.0.0/16, so a hardcoded 10.42 rule would drop region-b's own
+# pod-to-pod fallback traffic).
 resource "huaweicloud_networking_secgroup_rule" "ingress_pod_cidr_tcp" {
   for_each          = { for r in var.regions : r.code => r }
   security_group_id = huaweicloud_networking_secgroup.region[each.key].id
   direction         = "ingress"
   ethertype         = "IPv4"
   protocol          = "tcp"
-  remote_ip_prefix  = "10.42.0.0/16"
+  remote_ip_prefix  = local.region_cluster_cidr[each.key]
   description       = "Pod CIDR TCP all-ports (Cilium pod-to-pod fallback path)"
 }
 resource "huaweicloud_networking_secgroup_rule" "ingress_pod_cidr_udp" {
@@ -392,7 +426,7 @@ resource "huaweicloud_networking_secgroup_rule" "ingress_pod_cidr_udp" {
   direction         = "ingress"
   ethertype         = "IPv4"
   protocol          = "udp"
-  remote_ip_prefix  = "10.42.0.0/16"
+  remote_ip_prefix  = local.region_cluster_cidr[each.key]
   description       = "Pod CIDR UDP all-ports (Cilium pod-to-pod fallback path)"
 }
 resource "huaweicloud_networking_secgroup_rule" "ingress_pod_cidr_icmp" {
@@ -401,7 +435,7 @@ resource "huaweicloud_networking_secgroup_rule" "ingress_pod_cidr_icmp" {
   direction         = "ingress"
   ethertype         = "IPv4"
   protocol          = "icmp"
-  remote_ip_prefix  = "10.42.0.0/16"
+  remote_ip_prefix  = local.region_cluster_cidr[each.key]
   description       = "Pod CIDR ICMP (Cilium pod-to-pod diagnostics)"
 }
 
@@ -806,8 +840,11 @@ locals {
       k3s_token             = sha256("${var.huawei_project_id}/${var.sovereign_fqdn}/k3s-bootstrap")
       # Per-CP region's own subnet first-IP.
       cp_private_ip = cidrhost(local.region_subnet_cidr[r.code], 2)
-      cluster_cidr  = "10.42.0.0/16"
-      service_cidr  = "10.96.0.0/16"
+      # #3504 (Refs #3375): per-region pod/service CIDRs (was hardcoded
+      # 10.42.0.0/16 + 10.96.0.0/16 for every region → ClusterMesh
+      # PodCIDR collision → cp1 datapath mis-route → region-kill blocked).
+      cluster_cidr = local.region_cluster_cidr[r.code]
+      service_cidr = local.region_service_cidr[r.code]
       # Canonical region labels (G84 #2631: `hw` prefix, NOT `hu`).
       region_canonical_label         = "hw-${r.code}-rtz-prod"
       primary_region_canonical_label = "hw-${var.regions[0].code}-rtz-prod"
