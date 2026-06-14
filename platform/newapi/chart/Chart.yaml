@@ -576,7 +576,7 @@ name: bp-newapi
 # Add the bridge port to the CNP toPorts, gated on ssoInit + sandboxBridge.
 # Verified live on hw136: bare URL https://newapi.<fqdn>/ now serves the init
 # page -> silent KC broker -> lands signed-in in /console (zero-click).
-version: 1.4.87
+version: 1.4.88
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
