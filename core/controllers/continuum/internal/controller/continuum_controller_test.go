@@ -454,6 +454,52 @@ func TestParseSpec_RequiredFields(t *testing.T) {
 	}
 }
 
+// #3492 — mechanism defaults to empty (=cnpg-pair) when not declared, and
+// the raft-transition block is read when present.
+func TestParseSpec_SwitchoverMechanism(t *testing.T) {
+	t.Parallel()
+
+	// Default: no switchover.mechanism → empty Mechanism (cnpg-pair).
+	cr := newTestContinuumCR("ns", "cr1", "fsn", []string{"hel"}, "in-memory")
+	spec, err := parseSpec(cr)
+	if err != nil {
+		t.Fatalf("parseSpec: %v", err)
+	}
+	if spec.Mechanism != "" {
+		t.Errorf("default Mechanism = %q, want empty (cnpg-pair default)", spec.Mechanism)
+	}
+	if spec.RaftTransition.Namespace != "" {
+		t.Errorf("default RaftTransition should be empty, got namespace=%q", spec.RaftTransition.Namespace)
+	}
+
+	// raft-transition declared, with target.
+	cr = newTestContinuumCR("openbao", "cont-openbao", "me-east-215-a-1", []string{"me-east-215-b-1"}, "dns-quorum")
+	_ = unstructured.SetNestedField(cr.Object, "raft-transition", "spec", "switchover", "mechanism")
+	_ = unstructured.SetNestedMap(cr.Object, map[string]interface{}{
+		"namespace":    "openbao",
+		"podSelector":  "app.kubernetes.io/name=openbao",
+		"container":    "openbao",
+		"snapshotPath": "/snapshots/latest.snap",
+	}, "spec", "switchover", "raftTransition")
+
+	spec, err = parseSpec(cr)
+	if err != nil {
+		t.Fatalf("parseSpec (raft): %v", err)
+	}
+	if string(spec.Mechanism) != "raft-transition" {
+		t.Errorf("Mechanism = %q, want raft-transition", spec.Mechanism)
+	}
+	if spec.RaftTransition.Namespace != "openbao" {
+		t.Errorf("RaftTransition.Namespace = %q", spec.RaftTransition.Namespace)
+	}
+	if spec.RaftTransition.PodSelector != "app.kubernetes.io/name=openbao" {
+		t.Errorf("RaftTransition.PodSelector = %q", spec.RaftTransition.PodSelector)
+	}
+	if spec.RaftTransition.SnapshotPath != "/snapshots/latest.snap" {
+		t.Errorf("RaftTransition.SnapshotPath = %q", spec.RaftTransition.SnapshotPath)
+	}
+}
+
 func TestParseSpec_ErrorPaths(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

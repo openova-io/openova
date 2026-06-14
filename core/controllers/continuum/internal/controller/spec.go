@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/openova-io/openova/core/controllers/continuum/internal/dns"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/switchover"
 )
 
 // ContinuumSpec is the parsed view of Continuum.spec used by the
@@ -57,12 +58,25 @@ type ContinuumSpec struct {
 	// operator.
 	AutoFailover bool
 
+	// Mechanism — the switchover state-promotion mechanism
+	// (`cnpg-pair` default | `raft-transition`). Read from
+	// spec.switchover.mechanism; mirrors the Blueprint topology
+	// declaration's switchover.mechanism column. Empty keeps the
+	// cnpg-pair default (#3492).
+	Mechanism switchover.Mechanism
+
 	// CNPGPair + CNPGNamespace — name + namespace of the
 	// bp-cnpg-pair Cluster CR pair this Continuum operates on.
 	// Resolved from the Continuum CR's spec.cnpgPair field (or via
-	// the Application — TBD with C-DB-1's wiring).
+	// the Application — TBD with C-DB-1's wiring). Used by the
+	// cnpg-pair mechanism.
 	CNPGPair      string
 	CNPGNamespace string
+
+	// RaftTransition — the openbao standby target for the
+	// `raft-transition` mechanism. Read from
+	// spec.switchover.raftTransition. Empty for cnpg-pair (#3492).
+	RaftTransition switchover.RaftTransitionTarget
 
 	// HTTPRouteName + HTTPRouteNamespace — Gateway-API HTTPRoute the
 	// drain step targets. Empty = no drain.
@@ -145,6 +159,14 @@ func parseSpec(cr *unstructured.Unstructured) (ContinuumSpec, error) {
 		out.CNPGNamespace = cr.GetNamespace()
 	}
 
+	// #3492 — switchover mechanism + raft-transition target. Empty
+	// mechanism keeps the cnpg-pair default so existing CRs are
+	// unchanged.
+	if m, _, _ := unstructured.NestedString(cr.Object, "spec", "switchover", "mechanism"); m != "" {
+		out.Mechanism = switchover.Mechanism(m)
+	}
+	out.RaftTransition = parseRaftTransition(cr)
+
 	out.HTTPRouteName, _, _ = unstructured.NestedString(cr.Object, "spec", "httpRoute", "name")
 	out.HTTPRouteNamespace, _, _ = unstructured.NestedString(cr.Object, "spec", "httpRoute", "namespace")
 	if out.HTTPRouteNamespace == "" && out.HTTPRouteName != "" {
@@ -194,6 +216,21 @@ func parseSynthParams(cr *unstructured.Unstructured) dns.SynthParams {
 	hns, _, _ := unstructured.NestedStringSlice(cr.Object, "spec", "luaRecord", "hostnames")
 	sp.Hostnames = hns
 	return sp
+}
+
+// parseRaftTransition reads the openbao raft-transition target off the CR
+// (spec.switchover.raftTransition). All fields optional at parse time; the
+// SwitchoverPlan.Validate gate enforces namespace + (pod|podSelector) when
+// the mechanism is actually raft-transition (#3492).
+func parseRaftTransition(cr *unstructured.Unstructured) switchover.RaftTransitionTarget {
+	t := switchover.RaftTransitionTarget{}
+	t.Namespace, _, _ = unstructured.NestedString(cr.Object, "spec", "switchover", "raftTransition", "namespace")
+	t.Pod, _, _ = unstructured.NestedString(cr.Object, "spec", "switchover", "raftTransition", "pod")
+	t.PodSelector, _, _ = unstructured.NestedString(cr.Object, "spec", "switchover", "raftTransition", "podSelector")
+	t.Container, _, _ = unstructured.NestedString(cr.Object, "spec", "switchover", "raftTransition", "container")
+	t.SnapshotPath, _, _ = unstructured.NestedString(cr.Object, "spec", "switchover", "raftTransition", "snapshotPath")
+	t.BaoBinary, _, _ = unstructured.NestedString(cr.Object, "spec", "switchover", "raftTransition", "baoBinary")
+	return t
 }
 
 // parseDurationSeconds parses a `[0-9]+(s|m|h)` duration into

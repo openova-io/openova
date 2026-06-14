@@ -397,3 +397,64 @@ snapshotReplication:
   # stuck OpenBao or S3 endpoint never leaves a Job pending forever.
   activeDeadlineSeconds: 600
   backoffLimit: 3
+
+# ── #3492: openbao DR contract (Continuum CR, raft-transition) ──────────────
+# The bp-continuum engine drives bp-openbao's region-kill promotion. Per
+# docs/topology-matrix.md bp-openbao = active-passive / mechanism
+# `raft-transition`: on a region-kill the surviving standby runs
+# `bao operator raft snapshot restore <staged-snapshot>` +
+# `bao operator raft transition-to-primary`. The snapshot-replication block
+# above stages the snapshot; THIS block ships the Continuum CR that declares
+# the raft-transition mechanism + target so the engine knows HOW to promote
+# this Application.
+#
+# Skip-render (per #402 — never `{{ fail }}`): the Continuum CR renders ONLY
+# when continuum.enabled=true AND snapshotReplication.role=secondary (the CR
+# describes promotion of the STANDBY → primary, so it belongs on the standby
+# cluster). A default `helm template` is byte-identical to origin/main.
+continuum:
+  # Master switch for the openbao Continuum CR. Default-OFF; a per-Sovereign
+  # multi-region overlay flips this true alongside snapshotReplication.enabled
+  # once bp-continuum is installed + the lease witness is configured.
+  enabled: false
+  # Name + namespace of the Continuum CR. Defaults colocate with the openbao
+  # release namespace so bp-continuum's RBAC (pods/exec in the target ns)
+  # covers it.
+  name: cont-openbao
+  # primaryRegion = the ACTIVE region's host-cluster name (the one that dies
+  # in the kill); hotStandbyRegions = the surviving region promoted to primary.
+  # Per-Sovereign overlay sets both to the real cluster names.
+  primaryRegion: ""
+  standbyRegion: ""
+  # RTO/RPO mirror the topology declaration's switchover block
+  # (rtoSeconds: 60, rpoSeconds: 30 — async snapshot interval).
+  rtoSeconds: 60
+  rpoSeconds: 30
+  # autoFailover stays false for openbao: a region-kill promotion restores a
+  # snapshot (potential RPO loss within the async interval) + is
+  # one-directional, so it is an operator-confirmed action (DoD-8 step 8.6),
+  # not an automatic lag-breach flip.
+  autoFailover: false
+  # Lease witness — dns-quorum by default (the same fallback bp-cnpg-pair
+  # uses). Per-Sovereign overlay may switch to cloudflare-kv.
+  leaseClient:
+    kind: dns-quorum
+    config:
+      ttlSeconds: 30
+      renewSeconds: 10
+      resolvers:
+        - "10.43.0.10"
+        - "10.43.0.11"
+        - "10.43.0.12"
+  # PowerDNS zone the lua-record probe target is flipped in (the Sovereign
+  # FQDN). Per-Sovereign overlay sets it.
+  pdmZone: ""
+  # raftTransition target — the surviving standby Pod the promotion execs
+  # into. podSelector discovers the Ready Pod by label; snapshotPath is the
+  # staged-snapshot path the secondary fetch CronJob wrote (matches
+  # snapshotReplication.restoreStaging.path).
+  raftTransition:
+    podSelector: "app.kubernetes.io/name=openbao"
+    container: openbao
+    snapshotPath: /snapshots/latest.snap
+    baoBinary: bao
