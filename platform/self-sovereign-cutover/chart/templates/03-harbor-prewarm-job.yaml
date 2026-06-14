@@ -215,17 +215,42 @@ data:
               # (drop ghcr.io/ prefix, keep rest identical)
               local_ref="${HARBOR_HOST}/${upstream#ghcr.io/}"
               echo "[harbor-prewarm] copy ${upstream} → ${local_ref}"
+              # #3379 keystone catch (hw138, 2026-06-14): this loop was a
+              # SILENT NO-OP — it reported push_ok=N / push_fail=0 while the
+              # local Harbor openova-io project stayed EMPTY (manifest 404),
+              # so post-cutover catalyst-api ImagePullBackOff'd and the
+              # deny-egress proof (Step 08) could never run. TWO defects:
+              #   (1) skopeo aborted with `level=fatal Error loading trust
+              #       policy: open /etc/containers/policy.json: no such file
+              #       or directory` — the alpine/k8s base image + the lework
+              #       static skopeo binary ship NO default signature-trust
+              #       policy, so EVERY copy died before transferring a byte.
+              #       Fix: pass --insecure-policy (skopeo's documented
+              #       no-policy flag). No source signatures are verified here
+              #       regardless; the source is our own authenticated
+              #       ghcr.io and Harbor enforces its own dest-side trust.
+              #   (2) `skopeo copy ... 2>&1 | sed` made the `if` evaluate the
+              #       exit status of `sed` (always 0 under this `set -eu`
+              #       shell, which has no `set -o pipefail`), NOT skopeo — so
+              #       every fatal copy was miscounted as push_ok. Fix:
+              #       capture skopeo's real exit status by writing its output
+              #       to a temp log, then prefix-print the log and branch on
+              #       the true status.
               if skopeo copy \
+                --insecure-policy \
                 --src-creds="${ghcr_user}:${ghcr_pat}" \
                 --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
                 --dest-tls-verify=true \
                 --src-tls-verify=true \
-                "docker://${upstream}" "docker://${local_ref}" 2>&1 | sed 's/^/  /'; then
+                "docker://${upstream}" "docker://${local_ref}" >/tmp/skopeo.log 2>&1; then
+                sed 's/^/  /' /tmp/skopeo.log
                 push_ok=$((push_ok+1))
                 echo "[harbor-prewarm] OK ${upstream}"
               else
+                rc=$?
+                sed 's/^/  /' /tmp/skopeo.log
                 push_fail=$((push_fail+1))
-                echo "[harbor-prewarm] FAIL ${upstream}"
+                echo "[harbor-prewarm] FAIL ${upstream} (skopeo exit ${rc})"
               fi
             done
             echo "[harbor-prewarm] Phase A complete: push_ok=${push_ok} push_fail=${push_fail}"

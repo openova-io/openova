@@ -1,0 +1,5 @@
+# Proof 3 — ghcr-pull dockerconfigjson auths keys POST registry-pivot (step-04)
+# The registry tether IS pivoted: ghcr.io entry stripped, replaced with the local registry.
+auths keys:
+  registry.hw138.omani.works
+# NOTE: the registry is pivoted but EMPTY (harbor-prewarm false-green) — hence catalyst-api ImagePullBackOff.

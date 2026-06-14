@@ -452,7 +452,13 @@ name: bp-self-sovereign-cutover
 # until the tofu-phase0-archive is sealed at handover; this Job treats
 # 425 as the EXPECTED benign pre-handover path (clear log, exit 0). The
 # cutover still auto-fires post-handover (founder rule #933 preserved).
-version: 0.1.58
+# 0.1.59 (#3379, hw138 keystone catch 2026-06-14): Step-03 harbor-prewarm
+# skopeo native-push was a SILENT NO-OP (skopeo `level=fatal` missing
+# /etc/containers/policy.json, AND `skopeo ... | sed` masked the real exit
+# code) → local Harbor openova-io stayed EMPTY → post-cutover
+# ImagePullBackOff → Step-08 deny-egress could never run. Fix: --insecure-policy
+# + capture skopeo's true exit status.
+version: 0.1.59
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

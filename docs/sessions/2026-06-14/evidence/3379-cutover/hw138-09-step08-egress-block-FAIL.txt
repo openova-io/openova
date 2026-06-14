@@ -1,0 +1,22 @@
+# hw138 cutover step-08 (egress-block-test) TERMINAL VERDICT — FAIL
+# The #3526 guard correctly REFUSED to apply the deny-egress CCNP because 61 HelmRepositories
+# never pivoted off ghcr.io (GitRepository auth-failure, root cause hw138-07). The deny-egress
+# hold therefore NEVER executed; cutoverComplete stays false.
+# CCNP cutover-egress-block: NOT present (never applied).
+
+## step-08 pod log (head: GitRepository PASS, then bounded HelmRepository wait → FAIL):
+  gitrepository.openova.url=http://gitea-http.gitea.svc.cluster.local:3000/openova/openova
+[egress-block-test] #3526: force-reconciling Step-06's durable git-push before asserting HelmRepository pivot
+  [egress-block-test] #3526: 59 HelmRepository(ies) not yet pivoted at 1s; re-poking reconcile, re-checking in 15s (bounded 1781454606s)
+  [egress-block-test] #3526: 59 HelmRepository(ies) not yet pivoted at 16s; re-poking reconcile, re-checking in 15s (bounded 1781454606s)
+  [egress-block-test] #3526: 59 HelmRepository(ies) not yet pivoted at 31s; re-poking reconcile, re-checking in 15s (bounded 1781454606s)
+  [egress-block-test] #3526: 59 HelmRepository(ies) not yet pivoted at 46s; re-poking reconcile, re-checking in 15s (bounded 1781454606s)
+  [egress-block-test] #3526: 59 HelmRepository(ies) not yet pivoted at 61s; re-poking reconcile, re-checking in 15s (bounded 1781454606s)
+  [egress-block-test] #3526: 59 HelmRepository(ies) not yet pivoted at 77s; re-poking reconcile, re-checking in 15s (bounded 1781454606s)
+  [egress-block-test] #3526: 59 HelmRepository(ies) not yet pivoted at 92s; re-poking reconcile, re-checking in 15s (bounded 1781454606s)
+  [egress-block-test] #3526: 59 HelmRepository(ies) not yet pivoted at 107s; re-poking reconcile, re-checking in 15s (bounded 1781454606s)
+  [egress-block-test] #3526: 59 HelmRepository(ies) not yet pivoted at 122s; re-poking reconcile, re-checking in 15s (bounded 1781454606s)
+  [egress-block-test] #3526: 59 HelmRepository(ies) not yet pivoted at 137s; re-poking reconcile, re-checking in 15s (bounded 1781454606s)
+
+## CCNP check:
+Error from server (NotFound): ciliumclusterwidenetworkpolicies.cilium.io "cutover-egress-block" not found

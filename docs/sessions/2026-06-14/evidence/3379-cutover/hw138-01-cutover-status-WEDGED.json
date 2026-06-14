@@ -1,0 +1,23 @@
+# hw138 cutover — AUTHORITATIVE TERMINAL STATE (2026-06-14, ~16:35Z)
+
+## Job-level truth (authoritative):
+cutover-egress-block-test-1781454299: failed=1  (Job Failed condition)
+  step-08 verdict: 'FAIL — at least one HelmRepository did not pivot within the bounded reconcile wait (#3526)'
+  egress-block CCNP cutover-egress-block: NEVER applied (NotFound)
+
+## cutover-status ConfigMap (ORPHANED — stuck at running):
+  currentStepIndex: 7 (=7, catalyst-api-env-patch)
+  step.egress-block-test.result: running <-- stuck, engine died
+  cutoverComplete: false
+  progressPercent: 63
+
+## Why the status CM is orphaned (additional finding):
+  The cutover ENGINE runs inside the catalyst-api process. Step-07
+  (catalyst-api-env-patch) rolls catalyst-api itself; the in-flight
+  engine goroutine dies with the old pod and does NOT resume in the
+  new pod. So after step-07 the status CM is never updated again,
+  even though step-08's Job definitively failed. (On hw136 the env-
+  patch completed in ~7s so the engine survived to record 'failed'.)
+
+## Env survival: console.hw138.omani.works = 200 (deny-egress never applied,
+## catalyst-api reverted to ghcr.io image since Flux can't pull local Gitea).

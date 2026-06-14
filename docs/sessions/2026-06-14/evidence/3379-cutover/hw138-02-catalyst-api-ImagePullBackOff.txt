@@ -1,0 +1,5 @@
+# catalyst-api on hw138 — ImagePullBackOff (cutover step-07 rolled it to a local-Harbor image that does not exist)
+# pod: 
+error: resource name may not be empty
+--- container waiting state ---
+error: resource name may not be empty

@@ -1,0 +1,12 @@
+# Harbor projects on hw138 local registry (registry.hw138.omani.works) — openova-io repo_count=0
+library repo_count=0
+openova-io repo_count=0
+proxy-docker repo_count=0
+proxy-ecr repo_count=0
+proxy-gcr repo_count=0
+proxy-ghcr repo_count=0
+proxy-k8s repo_count=0
+proxy-quay repo_count=0
+proxy-xpkg repo_count=0
+# repositories under openova-io project (direct):
+[]

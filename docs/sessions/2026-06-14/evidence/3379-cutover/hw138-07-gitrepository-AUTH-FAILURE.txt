@@ -1,0 +1,15 @@
+# hw138 Flux GitRepository 'openova' — AUTH FAILURE after step-05 pivot to local Gitea
+# Root cause of the HelmRepository non-pivot: Flux cannot pull step-06's durable edits.
+# Ordering defect: step-05 repoints GitRepository to authenticated local Gitea, but the
+#   Gitea pull credential is only minted at step-09 (gitea-token-mint), which runs AFTER
+#   step-08 (egress-block-test). So Flux loses git access in the window and step-08's
+#   bounded wait for HelmRepository pivot can never succeed.
+
+url=http://gitea-http.gitea.svc.cluster.local:3000/openova/openova
+secretRef=
+interval=1m
+--- conditions ---
+Reconciling=True :: ProgressingWithRetry: processing object: new generation 1 -> 2
+Ready=False :: GitOperationFailed: failed to checkout and determine revision: unable to list remote for 'http://gitea-http.gitea.svc.cluster.local:3000/openova/openova': authentication required
+FetchFailed=True :: GitOperationFailed: failed to checkout and determine revision: unable to list remote for 'http://gitea-http.gitea.svc.cluster.local:3000/openova/openova': authentication required
+ArtifactInStorage=True :: Succeeded: stored artifact for revision 'main@sha1:5e645666422120ea7dec93f58e539ca6a51de5af'
