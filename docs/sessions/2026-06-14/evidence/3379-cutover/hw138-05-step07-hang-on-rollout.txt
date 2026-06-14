@@ -1,0 +1,8 @@
+Waiting for deployment "catalyst-api" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "catalyst-api" rollout to finish: 0 of 1 updated replicas are available...
+deployment "catalyst-api" successfully rolled out
+[catalyst-api-env-patch] Phase 3 OK: sovereign-console-url=https://console.hw138.omani.works
+[catalyst-api-env-patch] Phase 3 OK: sovereign-api-public-url=https://console.hw138.omani.works/sovereign
+[catalyst-api-env-patch] Phase 3 OK: CATALYST_PIN_ISSUER=https://console.hw138.omani.works
+[catalyst-api-env-patch] Phase 3 OK: CATALYST_HANDOVER_JWT_ISSUER=https://console.hw138.omani.works
+[catalyst-api-env-patch] done (Phases 1-3 complete)

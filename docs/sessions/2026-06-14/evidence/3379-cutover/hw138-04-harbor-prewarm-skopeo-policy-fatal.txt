@@ -1,0 +1,5 @@
+[harbor-prewarm] copy ghcr.io/openova-io/openova/catalyst-api:9de0b65 → registry.hw138.omani.works/openova-io/openova/catalyst-api:9de0b65
+  time="2026-06-14T16:19:04Z" level=fatal msg="Error loading trust policy: open /etc/containers/policy.json: no such file or directory"
+--
+[harbor-prewarm] Phase A complete: push_ok=29 push_fail=0
+[harbor-prewarm] Phase B: HEAD against proxy-cache for upstream images
