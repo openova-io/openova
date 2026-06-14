@@ -526,7 +526,7 @@ name: bp-newapi
 # `valkey.url` + blueprint.yaml configSchema default now point at
 # `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc.cluster.local:6379` (mirrors
 # the SME VALKEY_ADDR rewire #3476). Lockstep: 80-newapi.yaml pin → 1.4.81.
-version: 1.4.81
+version: 1.4.82
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
