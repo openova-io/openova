@@ -1,405 +1,184 @@
-# #3375 TOPOLOGY / DR — exhaustive per-app user-acceptance walk (100% web UI)
+# #3375 TOPOLOGY / DR — honest per-app UI re-walk (100% web UI) on hw138
 
 The agreed truth is the per-Blueprint **topology matrix** in
 [`docs/topology-matrix.md`](../../topology-matrix.md) (the durable promotion of the
 `2026-06-02-per-blueprint-topology-audit.md` agreement). **Every row below is read
-off that matrix — never invented.** For each app the user opens its **Topology**
-tab in the operator console and checks that the **declared topology + placement
-match the matrix row** for that app; for the §6 priority HA apps the user then
-exercises the **DR panel** (Switchover button → confirm the dialog enumerates the
-cross-region promotion plan).
+off that matrix — never invented.** For each app the operator opens its **Topology**
+tab in the console and checks that the declared **class + state backend + switchover
+mechanism + RTO/RPO + per-cluster placement roles** match the matrix row; for the §6
+priority HA apps the operator confirms an **enabled Switchover** button that opens the
+cross-region promotion dialog, plus an honest DR panel.
 
-This is **100% web UI** — no terminal, no `kubectl`, no `psql` to judge a row
-(kubectl used only to mint the handover sign-in token + read ground-truth install
-state). Every **Tested page** is a clickable link to the live keystone fresh-prov
-**`hw136.omani.works`** (deployment `3a2ee904b1d0366a`).
+This is a **READ-ONLY** walk: kubectl/psql are not used to judge any row — the verdict
+is what the **operator console renders live**. Every **Tested page** is a clickable link
+to the live env **`hw138.omani.works`** (deployment `4b5ff7852e33fc15`).
 
-## Keystone re-walk — hw136 fresh prov (2026-06-14, zero-touch)
+## Walk facts — hw138.omani.works (2026-06-14, signed in via handover)
 
-This is an **independent read-only re-walk on the fresh keystone prov `hw136`** — a
-clean zero-touch Sovereign provisioned from the current `main` build
-(`bp-catalyst-platform@1.4.628`). Earlier passes ran on hw133 / hw135; this pass
-re-verifies the same UI reproduces on a freshly provisioned env with **zero manual
-touch**, and on a **healthier env** than hw135 (the WireGuard-mesh flap that masked
-one row on hw135 is gone — all 60 catalog `bp-*` HelmReleases are `Ready=True`, the
-only non-Ready being the three Hetzner-only suspended HRs `bp-cluster-autoscaler-hcloud`
-/ `bp-hcloud-ccm` / `bp-velero`, which are `n/a (Hetzner)` per the matrix).
+- **Sign-in**: the handover URL signs the operator straight in — lands on `/dashboard`
+  as `emrah.baysal`, **Tenant** tier, **no login form**; the dashboard header reads
+  `OpenOva Sovereign · hw138.omani.works` and shows a **111-item** treemap. Captured:
+  [`r0-dashboard.png`](../../sessions/2026-06-14/evidence/3375-hw138/r0-dashboard.png).
+- **Build**: `bp-catalyst-platform@1.4.629` (read off the catalyst-platform detail header).
+- **hw138 is single-region for the live walk.** The placement editor offers
+  `me-east-215-a` + `me-east-215-b` and the effective class reads `(multi-region · 2
+  regions)`, but there is **no live `Continuum` CR**, so every DR panel honestly shows
+  "No live Continuum record … activates once placed … on a 2-region Sovereign." The
+  **region-kill EXECUTION** rows are therefore **❌ on this single live walk** — they
+  require a live 2-region Continuum drive, which this read-only pass does not perform.
+- **This pass records ONLY what rendered on hw138.** No hw136 / hw133 / hw135 evidence
+  is carried over; earlier-env screenshots are not reused.
 
-**What reproduces zero-touch on hw136 — the topology-declaration + DR/Switchover UI
-is DELIVERED.** The handover URL signs the operator in (lands on `/dashboard` as
-`emrah.baysal`, owner tier, no login form; the dashboard renders the 100-item treemap
-with zero console errors). For every catalog app, the app-detail **Topology tab
-renders a per-app "Declared topology" panel** that reads back the matrix-declared
-class + state backend/mode + switchover mechanism + RTO/RPO + per-cluster placement
-roles. `singleton`, `active-passive`, `active-hot-standby`, and `active-active` are
-all correctly surfaced. The **Switchover button is ENABLED for owner tier and opens a
-real switchover dialog** ("Switchover — bp-cnpg-pair" with a 7-step cross-region
-promotion plan: validate-lease · cordon-old-primary · drain-http · flip-dns ·
-swap-lease · uncordon-new-primary · audit-emit, plus estimated-duration /
-write-disruption, a Reason field, and **Confirm Switchover** — captured live). The
-**DR panel renders an honest state** for declared-HA apps — declared mechanism +
-"activates on 2-region / no live Continuum CR" + "No switchover events recorded yet"
-— never a spinner, never a fake promotion. The `active-active` apps correctly show
-"Both regions serve — no switchover".
-
-**hw136-specific facts (recorded honestly):**
-
-- **hw136 is single-region.** Only `me-east-215-a` nodes exist (one control-plane +
-  three workers; the secondary `-b` VPC is not provisioned for this base walk — kom4dc
-  VPC quota forces a separate 2-region prov for the region-kill EXECUTION). Placement
-  resolves `single-region`; there is no live `Continuum` CR. So the region-kill
-  EXECUTION rows are **❌, genuine** exactly as on every single-region prov — they need
-  a live 2-region Continuum CR (the Wave-3 region-kill op).
-- **The declared-topology panel is catalog-driven, not install-gated.** The Topology
-  tab lifts each blueprint's `spec.topology` from the build-time generated catalog
-  (`TOPOLOGY_BY_ID`), so it reads back the correct matrix variant **for any catalog
-  slug regardless of whether the app is installed on this base Sovereign**. This is a
-  *stronger* result for #3375's declared-read-back deliverable: it reproduces
-  zero-touch even for apps that aren't deployed here (e.g. netbird, strimzi).
-- **A slug not in the deployable catalog → "App not found — not part of this
-  deployment"** → N/A (e.g. `bp-spire`, `bp-clickhouse`, `bp-openova-flow`).
-- **`bp-powerdns-admin` PASSES on hw136** (it was a single ❌ env-flap on hw135). Its
-  detail route loads a heavier multi-instance grid than the other singletons (an extra
-  `/catalyst/v1/catalog/powerdns-admin/instances` call); with a `networkidle` settle it
-  renders the full `singleton` panel (all-tiers SINGLETON) on the first attempt. HR
-  `Ready`, app-data API returns 200 `phase:Ready`. The hw135 ❌ was the WireGuard-mesh
-  datapath flap, which does **not** reproduce on hw136's healthy single-node mesh.
-
-**GAP A is now CLOSED for cnpg-pair (executed live), GAP B remains:**
-
-- **GAP A — cross-region failover EXECUTION (Wave-3, #3375) — ✅ EXECUTED for
-  cnpg-pair.** Driven live 2026-06-14 on the 2-region keystone deployment
-  `3a2ee904b1d0366a` (region-a primary + region-b cross-region standby streaming
-  async): region-a primary killed → region-b promoted writable in **1.42s** (full RTO
-  **22.1s** kill→writable), the pre-kill row survived + a post-kill write was accepted →
-  **zero data loss**. See §2a-EXEC for the full timeline + evidence. (The hw136 *base*
-  walk's declared-panel rows were captured before this deployment's `-b` region came up;
-  the EXECUTION is now proven on the live 2-region prov.) The web-UI Switchover dialog
-  claim (enabled + 7-step plan) remains met on the base walk.
-- **GAP B — openbao-raft promotion EXECUTION (Wave-3, #3375).** The UI surfaces the
-  **declared** mechanism (`raft-transition`) honestly; an actual openbao failover
-  execution is not driveable on hw136 (single-region, no live Continuum CR). The
-  promotion engine wiring landed on `main` (#3492/#3498) and needs a 2-region prov to
-  execute against.
-
-These are the North-Star-4 (multi-region failover) proof — the only genuine
-remaining #3375 ❌.
+Every app below was opened at `/app/<bp-name>`, the **Topology** tab clicked, and the
+panel text + button enabled/disabled state captured headlessly. Each row's screenshot
+is the live hw138 render.
 
 ---
 
-## 1. Per-app topology declaration — one row per app
-
-For each app: open its **Topology** tab → confirm the **declared topology +
-placement match its matrix row**. All web UI.
+## 1. Per-app topology declaration — Topology tab matches the matrix row
 
 ### 1a. Catalyst control-plane tier (mgmt clusters)
 
-| Tested page | Description | Status | Evidence |
+| Tested page | Matrix row → what rendered live on hw138 | Status | Evidence |
 |---|---|---|---|
-| [catalyst-platform · Topology](https://console.hw136.omani.works/app/bp-catalyst-platform) | **active-hot-standby (mgmt-A active / mgmt-B passive)** — matches matrix. Class **cnpg-pair · sync**. **Reality (hw136):** Topology tab renders "Declared topology **active-hot-standby**" — Effective class `active-hot-standby (multi-region · 2 regions)`, Supported `active-hot-standby · singleton`, Tier `mgmt`, State `cnpg-pair · sync`, Switchover `bp-continuum`, RTO/RPO `30s / 0s`, per-cluster mgmt-A ACTIVE / mgmt-B PASSIVE. Exactly the matrix row. (HR Ready; `bp-catalyst-platform@1.4.628`.) | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1a-catalyst-platform.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1a-catalyst-platform.png) |
-| [keycloak · Topology](https://console.hw136.omani.works/app/bp-keycloak) | **active-hot-standby (mgmt-A / mgmt-B)** — matches matrix. Class **cnpg-pair · sync**. **Reality:** declared panel = `active-hot-standby`, `cnpg-pair · sync`, `bp-continuum`, mgmt-A ACTIVE / mgmt-B PASSIVE. HR Ready. §6 DR panel renders (see §3). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1a-keycloak.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1a-keycloak.png) |
-| [gitea · Topology](https://console.hw136.omani.works/app/bp-gitea) | **active-hot-standby (mgmt-A / mgmt-B)** — matches matrix. Class **cnpg-pair · sync**. **Reality:** declared panel = `active-hot-standby`, `cnpg-pair · sync`, `bp-continuum`, mgmt-A/mgmt-B. HR Ready (source: Application CR). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1a-gitea.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1a-gitea.png) |
-| [harbor · Topology](https://console.hw136.omani.works/app/bp-harbor) | **active-hot-standby (mgmt-A / mgmt-B)** — matches matrix. Class **cnpg-pair · sync**. **Reality:** declared panel = `active-hot-standby`, `cnpg-pair · sync`, `bp-continuum`, mgmt-A/mgmt-B. HR Ready. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1a-harbor.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1a-harbor.png) |
-| [grafana · Topology](https://console.hw136.omani.works/app/bp-grafana) | **active-hot-standby (mgmt-A / mgmt-B)** — matches matrix. Class **cnpg-pair · sync**. **Reality:** declared panel = `active-hot-standby`, `cnpg-pair · sync`, `bp-continuum`, mgmt-A/mgmt-B. HR Ready. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1a-grafana.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1a-grafana.png) |
-| [openbao · Topology](https://console.hw136.omani.works/app/bp-openbao) | **active-passive (mgmt-A active / mgmt-B passive)** — matches matrix. Class **openbao perf-replication**. **Reality:** declared panel reads back **`active-passive`** — Effective `active-passive (multi-region · 2 regions)`, State `openbao-perf-replication · async`, Switchover `raft-transition`, RTO/RPO `60s / 30s`, mgmt-A ACTIVE / mgmt-B PASSIVE. Matches the matrix. (Actual raft promotion = GAP B; see §2c.) | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1a-openbao.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1a-openbao.png) |
-| [newapi · Topology](https://console.hw136.omani.works/app/bp-newapi) | **active-passive (mgmt-A / mgmt-B)** — matches matrix. **Reality:** declared panel = `active-passive`, `bp-continuum`, mgmt-A ACTIVE / mgmt-B PASSIVE. HR Ready. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1a-newapi.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1a-newapi.png) |
-| [guacamole · Topology](https://console.hw136.omani.works/app/bp-guacamole) | **active-hot-standby (mgmt-A / mgmt-B)** — matches matrix. Class **cnpg-pair · sync**. **Reality:** declared panel = `active-hot-standby`, `cnpg-pair · sync`, `bp-continuum`, mgmt-A/mgmt-B. HR Ready (source: Application CR). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1a-guacamole.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1a-guacamole.png) |
-| [k8s-ws-proxy · Topology](https://console.hw136.omani.works/app/bp-k8s-ws-proxy) | **active-passive (mgmt-A / mgmt-B)** — matches matrix. Class **stateless DNS-flip only**. **Reality:** declared panel = `active-passive`, mgmt-A ACTIVE / mgmt-B PASSIVE. HR Ready. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1a-k8s-ws-proxy.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1a-k8s-ws-proxy.png) |
-| [sso-bridge · Topology](https://console.hw136.omani.works/app/bp-sso-bridge) | **active-passive (mgmt-A / mgmt-B)** — matches matrix. Class **stateless DNS-flip only**. **Reality:** declared panel = `active-passive`, `bp-continuum`, mgmt-A/mgmt-B. HR Ready. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1a-sso-bridge.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1a-sso-bridge.png) |
-| [oidc-gate · Topology](https://console.hw136.omani.works/app/bp-oidc-gate) | **active-passive (mgmt-A active / mgmt-B passive)** — matches matrix. Class **stateless DNS-flip only**. **Reality:** declared panel = `active-passive`, `bp-continuum`, mgmt-A/mgmt-B. HR Ready. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1a-oidc-gate.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1a-oidc-gate.png) |
-| [loki · Topology](https://console.hw136.omani.works/app/bp-loki) | **active-passive (mgmt-A / mgmt-B)** — matches matrix. Class **gap(CLASS-B)** `s3-bucket-replication`. **Reality:** declared panel reads back **`active-passive`**, `bp-continuum`, mgmt-A/mgmt-B — the **declared variant is shown correctly** (live DR is the CLASS-B chart gap, expected). HR Ready. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1a-loki.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1a-loki.png) |
-| [mimir · Topology](https://console.hw136.omani.works/app/bp-mimir) | **active-passive (mgmt-A / mgmt-B)** — matches matrix. Class **gap(CLASS-B)** `s3-bucket-replication`. **Reality:** declared panel = `active-passive`, `bp-continuum`, mgmt-A/mgmt-B. Declared variant correct. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1a-mimir.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1a-mimir.png) |
-| [tempo · Topology](https://console.hw136.omani.works/app/bp-tempo) | **active-passive (mgmt-A / mgmt-B)** — matches matrix. Class **gap(CLASS-B)** `s3-bucket-replication`. **Reality:** declared panel = `active-passive`, `bp-continuum`, mgmt-A/mgmt-B. Declared variant correct. HR Ready. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1a-tempo.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1a-tempo.png) |
-| [nats-jetstream · Topology](https://console.hw136.omani.works/app/bp-nats-jetstream) | **active-passive (mgmt-A / mgmt-B)** — matches matrix. Class **gap(CLASS-B)** `raft`. **Reality:** declared panel = `active-passive`, `bp-continuum`, mgmt-A/mgmt-B. Declared variant correct. HR Ready. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1a-nats-jetstream.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1a-nats-jetstream.png) |
-| [openova-flow · Topology](https://console.hw136.omani.works/app/bp-openova-flow) | Control-plane component of catalyst-platform. **Reality:** `…/app/bp-openova-flow` returns "App not found — bp-openova-flow is not part of this deployment" — **not a standalone Application slug** (the flow-server is a sub-component of catalyst-platform, which IS walked above ✅). No topology row owed. | N/A — control-plane sub-component, not a standalone Application slug (catalyst-platform walked ✅ above) | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1a-openova-flow.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1a-openova-flow.png) |
+| [catalyst-platform · Topology](https://console.hw138.omani.works/app/bp-catalyst-platform) | **active-hot-standby (mgmt-A active / mgmt-B passive)**, cnpg-pair · sync. **Rendered:** Declared `active-hot-standby`; Effective `active-hot-standby (multi-region · 2 regions)`; Supported `active-hot-standby · singleton`; Tier `mgmt`; State `cnpg-pair · sync`; Switchover `bp-continuum`; RTO/RPO `30s / 0s`; mgmt-A ACTIVE / mgmt-B PASSIVE. HR `Ready` (`@1.4.629`). Exactly the matrix row. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-catalyst-platform.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-catalyst-platform.png) |
+| [keycloak · Topology](https://console.hw138.omani.works/app/bp-keycloak) | **active-hot-standby (mgmt-A / mgmt-B)**, cnpg-pair · sync. **Rendered:** `active-hot-standby`, `cnpg-pair · sync`, `bp-continuum`, RTO/RPO `30s / 0s`, mgmt-A ACTIVE / mgmt-B PASSIVE. HR `Ready` (`@1.4.28`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-keycloak.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-keycloak.png) |
+| [gitea · Topology](https://console.hw138.omani.works/app/bp-gitea) | **active-hot-standby (mgmt-A / mgmt-B)**, cnpg-pair · sync. **Rendered:** `active-hot-standby`, `cnpg-pair · sync`, `bp-continuum`, `30s / 0s`, mgmt-A/mgmt-B. HR `Ready` (`@1.2.35`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-gitea.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-gitea.png) |
+| [harbor · Topology](https://console.hw138.omani.works/app/bp-harbor) | **active-hot-standby (mgmt-A / mgmt-B)**, cnpg-pair · sync. **Rendered:** `active-hot-standby`, `cnpg-pair · sync`, `bp-continuum`, `30s / 0s`, mgmt-A/mgmt-B. HR `Ready` (`@1.2.30`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-harbor.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-harbor.png) |
+| [grafana · Topology](https://console.hw138.omani.works/app/bp-grafana) | **active-hot-standby (mgmt-A / mgmt-B)**, cnpg-pair · sync. **Rendered:** `active-hot-standby`, `cnpg-pair · sync`, `bp-continuum`, `30s / 0s`, mgmt-A/mgmt-B. HR `Ready` (`@1.0.14`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-grafana.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-grafana.png) |
+| [openbao · Topology](https://console.hw138.omani.works/app/bp-openbao) | **active-passive (mgmt-A active / mgmt-B passive)**, openbao perf-replication. **Rendered:** Declared `active-passive`; State `openbao-perf-replication · async`; Switchover `raft-transition`; RTO/RPO `60s / 30s`; mgmt-A ACTIVE / mgmt-B PASSIVE. Matches the matrix (the actual raft promotion EXECUTION is not driven here). HR `Ready` (`@1.2.40`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-openbao.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-openbao.png) |
+| [newapi · Topology](https://console.hw138.omani.works/app/bp-newapi) | **active-passive (mgmt-A / mgmt-B)**. **Rendered:** `active-passive`, State `cnpg-pair · sync`, `bp-continuum`, `30s / 0s`, mgmt-A ACTIVE / mgmt-B PASSIVE. HR `Ready` (`@1.4.88`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-newapi.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-newapi.png) |
+| [loki · Topology](https://console.hw138.omani.works/app/bp-loki) | **active-passive (mgmt-A / mgmt-B)**, gap(CLASS-B) `s3-bucket-replication`. **Rendered:** `active-passive`, State `s3-bucket-replication · async`, `bp-continuum`, RTO/RPO `60s / 60s`, mgmt-A/mgmt-B — the declared CLASS-B variant + mechanism shown correctly. HR `Ready` (`@1.0.0`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-loki.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-loki.png) |
+| [mimir · Topology](https://console.hw138.omani.works/app/bp-mimir) | **active-passive (mgmt-A / mgmt-B)**, gap(CLASS-B) `s3-bucket-replication`. **Rendered:** `active-passive`, `s3-bucket-replication · async`, `bp-continuum`, `60s / 60s`, mgmt-A/mgmt-B. HR `Ready` (`@1.0.5`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-mimir.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-mimir.png) |
+| [tempo · Topology](https://console.hw138.omani.works/app/bp-tempo) | **active-passive (mgmt-A / mgmt-B)**, gap(CLASS-B) `s3-bucket-replication`. **Rendered:** `active-passive`, `s3-bucket-replication · async`, `bp-continuum`, `60s / 60s`, mgmt-A/mgmt-B. HR `Ready` (`@1.0.0`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-tempo.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-tempo.png) |
+| [nats-jetstream · Topology](https://console.hw138.omani.works/app/bp-nats-jetstream) | **active-passive (mgmt-A / mgmt-B)**, gap(CLASS-B) `raft`. **Rendered:** `active-passive`, State `raft · sync`, `bp-continuum`, RTO/RPO `30s / 60s`, mgmt-A/mgmt-B. Declared variant + mechanism correct. HR `Ready` (`@1.3.3`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-nats-jetstream.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-nats-jetstream.png) |
+| [k8s-ws-proxy · Topology](https://console.hw138.omani.works/app/bp-k8s-ws-proxy) | **active-passive (mgmt-A / mgmt-B)**, stateless DNS-flip only. **Rendered:** `active-passive`, State `none · none`, `bp-continuum`, RTO/RPO `5s / 0s`, mgmt-A ACTIVE / mgmt-B PASSIVE. HR `Ready` (`@0.1.14`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-k8s-ws-proxy.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-k8s-ws-proxy.png) |
+| [sso-bridge · Topology](https://console.hw138.omani.works/app/bp-sso-bridge) | **active-passive (mgmt-A / mgmt-B)**, stateless DNS-flip only. **Rendered:** `active-passive`, State `none · none`, `bp-continuum`, `30s / 0s`, mgmt-A/mgmt-B. HR `Ready` (`@0.2.18`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-sso-bridge.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-sso-bridge.png) |
+| [oidc-gate · Topology](https://console.hw138.omani.works/app/bp-oidc-gate) | **active-passive (mgmt-A active / mgmt-B passive)**, stateless DNS-flip only. **Rendered:** `active-passive`, State `none · none`, `bp-continuum`, `30s / 0s`, mgmt-A/mgmt-B. HR `Ready` (`@0.1.1`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-oidc-gate.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-oidc-gate.png) |
 
-**Result (§1a): ✅ 15 / N/A 1.** Every catalyst-tier app's Topology tab renders a
-per-app **"Declared topology"** panel that reads back the matrix-declared
-class + state backend/mode + switchover mechanism + RTO/RPO + per-cluster
-placement roles. `active-passive`, `active-hot-standby`, and `singleton` are all
-correctly surfaced. The single non-✅ row is **N/A**: `bp-openova-flow` is not a
-standalone Application slug (catalyst-platform itself is walked ✅).
+**Result (§1a): ✅ 14 / ❌ 0.** Every catalyst-tier app's Topology tab renders a
+per-app "Declared topology" panel that reads back the matrix-declared class + state
+backend/mode + switchover mechanism + RTO/RPO + per-cluster placement roles.
+`active-passive`, `active-hot-standby` are both correctly surfaced.
 
 ### 1b. Per-host-cluster infrastructure tier
 
-| Tested page | Description | Status | Evidence |
+| Tested page | Matrix row → what rendered live on hw138 | Status | Evidence |
 |---|---|---|---|
-| [cnpg · Topology](https://console.hw136.omani.works/app/bp-cnpg) | **singleton (all 6 tiers)** — matches matrix. **Reality:** declared panel reads back **`singleton`** ("One instance in one region; no cross-region failover"), Supported `singleton`, per-cluster placement all-tiers SINGLETON. No DR panel (correct — singleton owes no DR). HR Ready. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1b-cnpg.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1b-cnpg.png) |
-| [cnpg-pair · Topology](https://console.hw136.omani.works/app/bp-cnpg-pair) | **active-hot-standby (rtz-A active / rtz-B standby)** — matches matrix. Class **cnpg-pair sync**. **Reality:** declared panel = `active-hot-standby`, `cnpg-pair · sync`, `bp-continuum`, RTO/RPO `10s / 0s`, **rtz-A ACTIVE / rtz-B PASSIVE**. DR panel + enabled Switchover dialog — see §2a. (HR phase Failed — the cnpg-pair webhook is the Wave-3 in-flight fix; the declared panel reproduces regardless.) | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1b-cnpg-pair.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1b-cnpg-pair.png) |
-| [shared-pg (instance 1) · Topology](https://console.hw136.omani.works/app/bp-postgres) | **bp-postgres** data-instance, `active-hot-standby / cnpg-pair sync` (ADR-0004). **Reality:** `…/app/bp-postgres` DOES render (the PostgreSQL shareable data-instance, with a **Contexts** tab + declared `active-hot-standby` panel) — but the 3 shared-pg instances are **shared backing services walked under the #3370 shared-contexts surface**, not standalone topology Application slugs. Recorded N/A here per the #3370 split. | N/A — shared-pg backing service, see #3370 | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1b-postgres.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1b-postgres.png) |
-| [shared-pg (instance 2) · Topology](https://console.hw136.omani.works/app/bp-postgres) | Second **bp-postgres** data-instance. **Reality:** shared-pg backing service (walked under #3370), not a standalone topology slug. | N/A — shared-pg backing service, see #3370 | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1b-postgres.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1b-postgres.png) |
-| [shared-pg (instance 3) · Topology](https://console.hw136.omani.works/app/bp-postgres) | Third **bp-postgres** data-instance. **Reality:** shared-pg backing service (walked under #3370), not a standalone topology slug. | N/A — shared-pg backing service, see #3370 | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1b-postgres.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1b-postgres.png) |
-| [seaweedfs · Topology](https://console.hw136.omani.works/app/bp-seaweedfs) | **singleton (all 6 tiers)** — matches matrix. **Reality:** declared panel = `singleton`, all-tiers SINGLETON. HR Ready. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1b-seaweedfs.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1b-seaweedfs.png) |
-| [powerdns · Topology](https://console.hw136.omani.works/app/bp-powerdns) | **singleton (all 6 tiers)** — matches matrix. **Reality:** declared panel = `singleton`, all-tiers SINGLETON. HR Ready. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1b-powerdns.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1b-powerdns.png) |
-| [powerdns-admin · Topology](https://console.hw136.omani.works/app/bp-powerdns-admin) | **singleton (all 6 tiers)** — matches matrix. **Reality (hw136):** declared panel = `singleton` ("One instance in one region; no cross-region failover"), Effective class `singleton (multi-region · 2 regions)`, Supported `singleton`, **full PER-CLUSTER PLACEMENT all-tiers SINGLETON** (mgmt-A · mgmt-B · dmz-A · dmz-B · rtz-A · rtz-B). HR `Ready` (`bp-powerdns-admin@0.1.14`); app-data API returns 200 `phase:Ready`. The detail route loads a heavier multi-instance grid than other singletons (extra `/catalyst/v1/catalog/powerdns-admin/instances` call) so it needs a `networkidle` settle, then renders the full panel on the first attempt. The hw135 ❌ (detail-route 503 on the in-flight WireGuard mesh) does **not** reproduce on hw136's healthy single-node mesh. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1b-powerdns-admin.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1b-powerdns-admin.png) |
-| [coraza · Topology](https://console.hw136.omani.works/app/bp-coraza) | **singleton (all 6 tiers)** — matches matrix. **Reality:** declared panel = `singleton`, all-tiers SINGLETON. HR Ready. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1b-coraza.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1b-coraza.png) |
-| [sandbox · Topology](https://console.hw136.omani.works/app/bp-sandbox) | Sandbox / Pillar-4 surface. **Reality (hw136):** Sandbox is **out of scope for this topology track** (Pillar-4 owned by a separate project) AND it is not deployed on this base Sovereign (no `bp-sandbox` HR, no sandbox pods) so the detail route stays "Loading bp-sandbox…". Not a topology Application row owed here. | N/A — Sandbox/Pillar-4 out of scope (separate project); not deployed on hw136 | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1b-sandbox.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1b-sandbox.png) |
+| [cnpg · Topology](https://console.hw138.omani.works/app/bp-cnpg) | **singleton (all 6 tiers)**. **Rendered:** Declared `singleton` ("One instance in one region; no cross-region failover"), Supported `singleton`, per-cluster all-tiers SINGLETON (mgmt-A · mgmt-B · dmz-A · dmz-B · rtz-A · rtz-B). No DR panel (correct — singleton owes none). HR `Ready` (`@1.0.9`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-cnpg.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-cnpg.png) |
+| [cnpg-pair · Topology](https://console.hw138.omani.works/app/bp-cnpg-pair) | **active-hot-standby (rtz-A active / rtz-B standby)**, cnpg-pair · sync. **Rendered:** `active-hot-standby`, Tier `rtz`, State `cnpg-pair · sync`, Switchover `bp-continuum`, RTO/RPO `10s / 0s`, **rtz-A ACTIVE / rtz-B PASSIVE**. DR panel + enabled Switchover dialog — see §2a. HR `Ready` (`@0.2.4`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-cnpg-pair.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-cnpg-pair.png) |
+| [powerdns · Topology](https://console.hw138.omani.works/app/bp-powerdns) | **singleton (all 6 tiers)**. **Rendered:** `singleton`, all-tiers SINGLETON. HR `Ready` (`@1.2.14`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-powerdns.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-powerdns.png) |
+| [powerdns-admin · Topology](https://console.hw138.omani.works/app/bp-powerdns-admin) | **singleton (all 6 tiers)**. **Rendered:** `singleton` ("One instance in one region; no cross-region failover"), Effective `singleton (multi-region · 2 regions)`, full all-tiers SINGLETON panel (mgmt-A · mgmt-B · dmz-A · dmz-B · rtz-A · rtz-B). HR `Ready` (`@0.1.15`). Renders fully on the first attempt with the `networkidle` settle. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-powerdns-admin.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-powerdns-admin.png) |
+| [coraza · Topology](https://console.hw138.omani.works/app/bp-coraza) | **singleton (all 6 tiers)**. **Rendered:** `singleton`, State `flux-git · async`, all-tiers SINGLETON. HR `Ready` (`@1.0.0`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-coraza.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-coraza.png) |
+| [seaweedfs · Topology](https://console.hw138.omani.works/app/bp-seaweedfs) | **singleton (all 6 tiers)**. **Rendered:** `singleton`, State `filer-remote-storage · async`, all-tiers SINGLETON. HR `Ready` (`@1.2.1`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-seaweedfs.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-seaweedfs.png) |
+| [valkey · Topology](https://console.hw138.omani.works/app/bp-valkey) | **active-passive (rtz-A active / rtz-B passive)**, gap(CLASS-B) `sentinel`. **Rendered:** `active-passive`, Tier `rtz`, State `sentinel · async`, Switchover `sentinel-failover`, RTO/RPO `30s / —`, rtz-A ACTIVE / rtz-B PASSIVE; declared variant + `sentinel-failover` mechanism correct. Has a **Contexts** tab. HR `Ready` (`@1.1.2`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-valkey.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-valkey.png) |
+| [vllm · Topology](https://console.hw138.omani.works/app/bp-vllm) | **active-active (rtz-A / rtz-B)**, stateless DNS-flip only. **Rendered:** `active-active` ("Both regions serve live traffic; data syncs between them"), State `none · none`, Switchover `none`, **rtz-A ACTIVE / rtz-B ACTIVE**; DR panel honestly says "**Both regions serve — no switchover**". HR `Ready` (`@1.0.1`). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-vllm.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-vllm.png) |
 
-### 1c. Application Blueprints installed on the base Sovereign (per-Org / rtz tier)
-
-| Tested page | Description | Status | Evidence |
-|---|---|---|---|
-| [valkey · Topology](https://console.hw136.omani.works/app/bp-valkey) | **active-passive (rtz-A active / rtz-B passive)** — matches matrix. Class **gap(CLASS-B)** `sentinel`. **Reality:** declared panel = `active-passive`, rtz-A ACTIVE / rtz-B PASSIVE — **declared variant correct** (live DR is the CLASS-B gap, expected). HR Ready + a **Contexts** tab. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1c-valkey.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1c-valkey.png) |
-| [vllm · Topology](https://console.hw136.omani.works/app/bp-vllm) | **active-active (rtz-A / rtz-B)** — matches matrix. Class **stateless DNS-flip only**. **Reality:** declared panel = `active-active` ("Both regions serve live traffic; data syncs between them"), State `none · none`, Switchover `none`, **rtz-A ACTIVE / rtz-B ACTIVE**; DR panel honestly says **"Both regions serve — no switchover"**. Matches the matrix. HR Ready. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1c-vllm.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1c-vllm.png) |
-
-**Result (§1b + §1c): ✅ 10 / ❌ 0 / N/A 4.** Singleton infra rows
-(cnpg · seaweedfs · powerdns · powerdns-admin · coraza) read back **`singleton`**
-with full per-tier placement; cnpg-pair / valkey / vllm read back their exact matrix
-variant. **`bp-powerdns-admin` PASSES on hw136** (the hw135 detail-route 503 flap does
-not reproduce — HR Ready, full all-tiers SINGLETON panel renders). The 4 N/A are
-`bp-postgres` ×3 (shared-pg backing services, walked under #3370) + `bp-sandbox`
-(Pillar-4 out of scope; not deployed on hw136).
+**Result (§1b infra): ✅ 8 / ❌ 0.** Singleton infra rows (cnpg · powerdns ·
+powerdns-admin · coraza · seaweedfs) read back `singleton` with full per-tier
+placement; cnpg-pair / valkey / vllm read back their exact matrix variant
+(active-hot-standby / active-passive · sentinel / active-active).
 
 ---
 
-## 2. §6 priority HA apps — DR panel + region-kill walk
+## 2. §6 priority HA apps — enabled Switchover + honest DR panel
 
 The matrix names six **§6 priority** HA apps: **cnpg-pair, keycloak, gitea, harbor,
-grafana, openbao**. The **DR panel + enabled Switchover dialog** (the UI half) is
-delivered on the hw136 base walk. The **actual cross-region failover EXECUTION**
-(create-data → other-region-promotes → data-survives) for **cnpg-pair** is now
-**EXECUTED LIVE** on the 2-region keystone deployment `3a2ee904b1d0366a` (region-a
-primary + region-b cross-region standby, streaming async) — see §2a-EXEC below: RTO
-22.1s kill→writable (1.42s promote latency), **zero data loss**. The remaining ❌ are
-the **openbao-raft** promotion (GAP B — a distinct raft-transition mechanism, not
-exercised in this cnpg-pair walk) and the gitea-app-served-from-promoted-region UI
-flow (the cnpg-pair DB layer beneath it is proven; the app-UI-served-from-region-b
-walk is the funnel-side follow-up). Rows judged on their stated user-visible
-expectation.
+grafana, openbao**. Each must show an **enabled Switchover** button that opens the
+cross-region promotion dialog, plus an honest DR panel. All six rendered the enabled
+button + honest DR state live on hw138; the dialog was opened (and **cancelled — never
+confirmed**) on cnpg-pair and openbao to capture its content.
 
-### 2a. cnpg-pair (the reference active-hot-standby — sync, zero-loss)
+### 2a. cnpg-pair — Switchover dialog (the reference active-hot-standby)
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [cnpg-pair · Topology](https://console.hw136.omani.works/app/bp-cnpg-pair) | DR panel shows declared **active-hot-standby**, primary/replica roles, mechanism. **Reality:** "Disaster Recovery (active-hot-standby)" panel renders with an **enabled Switchover…** button + the honest state "No live Continuum record for bp-cnpg-pair yet — the cross-region DR machinery activates once placed active-hot-standby on a 2-region Sovereign. Declared switchover mechanism: bp-continuum" + "No switchover events recorded yet". Honest, not a spinner. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r1b-cnpg-pair.png)](../../sessions/2026-06-14/evidence/3375-keystone/r1b-cnpg-pair.png) |
-| [cnpg-pair · Topology](https://console.hw136.omani.works/app/bp-cnpg-pair) | **Switchover** button enabled (owner tier) and **opens a switchover dialog**. **Reality:** the button is **enabled** and clicking it opens **"Switchover — bp-cnpg-pair"** — "Primary will move the current primary → the standby region" with a **7-STEP plan** (validate-lease · cordon-old-primary · drain-http · flip-dns · swap-lease · uncordon-new-primary · audit-emit), "Estimated duration <60s / Write disruption <5s", a Reason field, and **Cancel / Confirm Switchover** buttons. Captured live on hw136. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r2a-cnpgpair-switchover.png)](../../sessions/2026-06-14/evidence/3375-keystone/r2a-cnpgpair-switchover.png) |
-| cnpg-pair · region-kill EXECUTION (live 2-region, deployment `3a2ee904b1d0366a`) | Kill region-a primary → region-b promotes → writable. **Reality (EXECUTED 2026-06-14 08:57–08:58Z):** on the live 2-region cnpg-pair (region-a primary `10.42.x` 3/3 healthy, region-b cross-region standby `10.43.x` 3/3 **streaming async**), region-a primary was killed (3 region-a workers cordoned + the 3 `cnpg-pair-bp-cnpg-pair-primary` pods force-deleted → 0 READY, can't reschedule). Region-b promoted via `patch cluster …-replica '{"spec":{"replica":{"enabled":false}}}'`: **`pg_is_in_recovery()` flipped `t→f` in 1.42s** (patch→writable); **full RTO kill→writable = 22.1s**. Region-b reached "Cluster in healthy state" 3/3 with its own standbys streaming. The actual cross-region promotion IS delivered. | ✅ — executed live on 2-region prov `3a2ee904b1d0366a` | [00-timeline-rto.txt](../../sessions/2026-06-14/evidence/3375-regionkill/00-timeline-rto.txt) · [03-promote-zero-data-loss.txt](../../sessions/2026-06-14/evidence/3375-regionkill/03-promote-zero-data-loss.txt) |
-| cnpg-pair record · create (region-a) | Write a marker row to the region-a primary before the kill. **Reality:** `INSERT INTO keystone_xregion(note) VALUES('pre-kill region-a')` accepted on region-a primary (`id=2`, `08:56:59Z`). | ✅ — executed live | [01-pre-kill-replication.txt](../../sessions/2026-06-14/evidence/3375-regionkill/01-pre-kill-replication.txt) |
-| cnpg-pair record · replicated-to-region-b (pre-kill) | The marker reaches the region-b standby. **Reality:** `id=2 'pre-kill region-a'` read back on region-b standby within ~2s; region-b was a true read-only standby pre-kill (`INSERT` rejected: `cannot execute INSERT in a read-only transaction`). | ✅ — executed live | [01-pre-kill-replication.txt](../../sessions/2026-06-14/evidence/3375-regionkill/01-pre-kill-replication.txt) |
-| cnpg-pair record · survives + post-kill write (region-b promoted) | The pre-kill record survives the failover — **zero data loss** — and the promoted region accepts new writes. **Reality:** after promotion region-b shows both pre-kill rows present (`id=1` `hw136 cross-region proof`, `id=2` `pre-kill region-a`) AND accepts a NEW post-kill `INSERT` (`id=35` `post-kill region-b (promoted)`). **Data loss = 0 rows.** | ✅ — executed live, zero data loss | [03-promote-zero-data-loss.txt](../../sessions/2026-06-14/evidence/3375-regionkill/03-promote-zero-data-loss.txt) |
+| [cnpg-pair · Topology](https://console.hw138.omani.works/app/bp-cnpg-pair) | DR panel: declared **active-hot-standby**, honest state, no spinner. **Rendered:** "Disaster Recovery (active-hot-standby)" + **enabled Switchover…** button + honest "No live Continuum record for bp-cnpg-pair yet — the cross-region DR machinery activates once placed active-hot-standby on a 2-region Sovereign. Declared switchover mechanism: bp-continuum" + "No switchover events recorded yet". | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-cnpg-pair.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-cnpg-pair.png) |
+| [cnpg-pair · Switchover dialog](https://console.hw138.omani.works/app/bp-cnpg-pair) | **Switchover** button enabled (Tenant tier) → opens the promotion dialog. **Rendered:** clicking it opens **"Switchover — bp-cnpg-pair"** — "Primary will move the current primary → the standby region" with a **7-step plan** (1 validate-lease · 2 cordon-old-primary · 3 drain-http · 4 flip-dns · 5 swap-lease · 6 uncordon-new-primary · 7 audit-emit), "Estimated duration: <60s / Write disruption: <5s", a Reason field, and **Cancel / Confirm Switchover**. Cancelled (never confirmed). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/dialog-bp-cnpg-pair.png)](../../sessions/2026-06-14/evidence/3375-hw138/dialog-bp-cnpg-pair.png) |
+| cnpg-pair · region-kill EXECUTION | Kill region-a primary → region-b promotes → data survives. **Reality (hw138):** single-region live walk, no live Continuum CR — no drivable promotion. Not driven in this read-only pass. | ❌ — region-kill EXECUTION not driven (single live walk) | — |
 
-### 2a-EXEC. cnpg-pair region-kill EXECUTION — live 2-region proof (North Star 4)
+### 2b. keycloak / harbor / grafana / gitea — enabled Switchover + honest DR
 
-**Driven 2026-06-14 ~08:57–08:59Z on the live 2-region keystone deployment
-`3a2ee904b1d0366a` (hw136.omani.works).** This is the actual cross-region failover
-EXECUTION the base walk above deferred — the deployment's secondary region
-`me-east-215-b` is live and the cnpg-pair is streaming, so the kill→promote→survives
-walk runs end-to-end. (This is a `kubectl`/`psql` ground-truth proof of the data
-layer, complementary to the web-UI Switchover-dialog rows above.)
+| Tested page | Description | Status | Evidence |
+|---|---|---|---|
+| [keycloak · DR panel](https://console.hw138.omani.works/app/bp-keycloak) | DR panel renders honest state + **enabled** Switchover. **Rendered:** "Disaster Recovery (active-hot-standby)" + enabled Switchover… + honest "No live Continuum record … bp-continuum" + no-events. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-keycloak.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-keycloak.png) |
+| [harbor · DR panel](https://console.hw138.omani.works/app/bp-harbor) | DR panel honest + **enabled** Switchover. **Rendered:** "Disaster Recovery (active-hot-standby)" + enabled Switchover… + honest no-live-CR text + no-events. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-harbor.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-harbor.png) |
+| [grafana · DR panel](https://console.hw138.omani.works/app/bp-grafana) | DR panel honest + **enabled** Switchover. **Rendered:** "Disaster Recovery (active-hot-standby)" + enabled Switchover… + honest no-live-CR text + no-events. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-grafana.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-grafana.png) |
+| [gitea · DR panel](https://console.hw138.omani.works/app/bp-gitea) | DR panel honest + **enabled** Switchover. **Rendered:** "Disaster Recovery (active-hot-standby)" + enabled Switchover… + honest "No live Continuum record … bp-continuum" + no-events. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-gitea.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-gitea.png) |
+| gitea · app-served-from-promoted-region | Sign in to gitea served from the promoted region after failover; repo survives. **Reality (hw138):** no drivable promotion on a single-region live walk. Not driven. | ❌ — region-kill EXECUTION not driven (single live walk) | — |
 
-**Pre-state (verified live):** region-a primary `cnpg-pair-bp-cnpg-pair-primary` 3/3
-"Cluster in healthy state" (`10.42.x`); region-b `cnpg-pair-bp-cnpg-pair-replica` 3/3
-healthy (`10.43.x`) with `spec.replica.enabled=true source=…-primary`; region-a
-`pg_stat_replication` shows the region-b standby `10.43.3.165` **streaming async**
-(plus 2 in-region sync/potential standbys); region-b `pg_is_in_recovery()=t` and
-**rejects writes** (`cannot execute INSERT in a read-only transaction`).
+### 2c. openbao — declared raft-transition + Switchover dialog
 
-**Timeline / RTO:**
+| Tested page | Description | Status | Evidence |
+|---|---|---|---|
+| [openbao · DR panel](https://console.hw138.omani.works/app/bp-openbao) | DR panel declares **active-passive** with mechanism `raft-transition`; honest, not faked. **Rendered:** "Disaster Recovery (active-passive)" + **enabled Switchover…** + honest "No live Continuum record for bp-openbao yet … Declared switchover mechanism: **raft-transition**" + no-events. The declared raft mechanism is surfaced honestly in the panel. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-openbao.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-openbao.png) |
+| [openbao · Switchover dialog](https://console.hw138.omani.works/app/bp-openbao) | **Switchover** enabled → opens the promotion dialog. **Rendered:** "Switchover — bp-openbao" with the same generic **7-step** cross-region plan + Cancel / Confirm Switchover (cancelled, never confirmed). **Honest note:** the panel header declares `raft-transition` as openbao's mechanism, but the dialog body reuses the generic CNPG-worded 7-step template (cordon CNPG Cluster CR, flip CNPG replica.enabled) rather than openbao-raft-specific steps — the dialog copy is mechanism-agnostic. | ✅ — dialog opens enabled; copy is the generic CNPG template | [![](../../sessions/2026-06-14/evidence/3375-hw138/dialog-bp-openbao.png)](../../sessions/2026-06-14/evidence/3375-hw138/dialog-bp-openbao.png) |
+| openbao · raft-transition EXECUTION | Drive the raft-transition promotion; KV reads stay up. **Reality (hw138):** no drivable openbao failover on a single-region live walk (no `-b` region, no live Continuum CR). Not driven. | ❌ — raft-transition EXECUTION not driven (single live walk) | — |
 
-| Marker | Wall-clock (UTC) | Note |
+**Result (§2 + §6): ✅ 9 / ❌ 3.** All six §6 priority apps render an **enabled
+Switchover** button + an honest DR panel on hw138; the promotion dialog opens with a
+real 7-step cross-region plan and Cancel / Confirm Switchover (captured on cnpg-pair +
+openbao, both cancelled). The **3 ❌** are the cross-region **EXECUTION** rows
+(cnpg-pair region-kill, gitea-app-served-from-promoted-region, openbao raft-transition)
+— not driven on this single-region read-only walk; they need a live 2-region Continuum
+drive.
+
+---
+
+## 3. DR panel honesty for bootstrap-HA apps (no spinner, no fake promotion)
+
+§3 acceptance: open keycloak / gitea / harbor / grafana / openbao → Topology → the DR
+panel renders an **honest** state (declared mechanism + "activates on 2-region / no
+live CR"), not a spinner, not a fake "promoted" claim.
+
+| Tested page | Status | Evidence |
 |---|---|---|
-| `T_KILL` | `08:57:53.981Z` | 3 region-a workers cordoned + 3 cnpg-pair-primary pods force-deleted → region-a primary 0 READY, "Waiting for the instances to become active", recreated pod stuck `Pending` (nodes cordoned, can't reschedule) |
-| `T_PROMOTE_PATCH` | `08:58:14.686Z` | `patch cluster …-replica --type=merge -p '{"spec":{"replica":{"enabled":false}}}'` |
-| `T_WRITABLE` | `08:58:16.101Z` | `pg_is_in_recovery()=f` on region-b (poll #2) |
-| **Promote latency** | **1.42s** | patch → writable |
-| **Full RTO** | **22.1s** | kill → writable (incl. ~20.7s operator reaction kill→patch) |
+| [keycloak · DR panel](https://console.hw138.omani.works/app/bp-keycloak) — "Disaster Recovery (active-hot-standby)" + enabled Switchover + honest no-live-CR + no-events. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-keycloak.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-keycloak.png) |
+| [gitea · DR panel](https://console.hw138.omani.works/app/bp-gitea) — "Disaster Recovery (active-hot-standby)" + honest no-live-CR + bp-continuum + no-events. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-gitea.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-gitea.png) |
+| [harbor · DR panel](https://console.hw138.omani.works/app/bp-harbor) — "Disaster Recovery (active-hot-standby)" + honest no-live-CR + bp-continuum + no-events. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-harbor.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-harbor.png) |
+| [grafana · DR panel](https://console.hw138.omani.works/app/bp-grafana) — "Disaster Recovery (active-hot-standby)" + honest no-live-CR + bp-continuum + no-events. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-grafana.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-grafana.png) |
+| [openbao · DR panel](https://console.hw138.omani.works/app/bp-openbao) — "Disaster Recovery (active-passive)" + enabled Switchover + declared `raft-transition` (not faked) + no-events. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-hw138/bp-openbao.png)](../../sessions/2026-06-14/evidence/3375-hw138/bp-openbao.png) |
 
-**Zero-data-loss proof:** the row written to region-a *seconds before the kill*
-(`id=2 'pre-kill region-a'`, `08:56:59Z`) is present on the promoted region-b, along
-with `id=1`; region-b (read-only before) then **accepts a NEW post-kill write**
-(`id=35 'post-kill region-b (promoted)'`). **Data loss = 0 rows.** Region-b settled to
-"Cluster in healthy state" 3/3 with its own region-b standbys streaming.
-
-**Recovery / Day-2 split-brain:** region-a nodes uncordoned (env left non-terminal);
-critical region-a apps stayed healthy **throughout** the kill — `keycloak-0`,
-`console`, `catalyst-api`, `catalyst-ui` all `1/1 Running`, never restarted (cordon
-blocks new scheduling, does **not** evict running pods, so only the cnpg-pair primary
-was isolated). After uncordon, region-a's cnpg-pair-primary cluster re-bootstrapped as
-its own writable primary from local data while region-b is the promoted authoritative
-primary → classic post-failover split-brain; the rejoin (rebuild region-a as a standby
-of the promoted region-b) is a Day-2 reconciliation action (operator /
-continuum-controller), **not** part of the failover proof.
-
-**Evidence:** `docs/sessions/2026-06-14/evidence/3375-regionkill/`
-([00-timeline-rto.txt](../../sessions/2026-06-14/evidence/3375-regionkill/00-timeline-rto.txt) ·
-[01-pre-kill-replication.txt](../../sessions/2026-06-14/evidence/3375-regionkill/01-pre-kill-replication.txt) ·
-[02-kill-state.txt](../../sessions/2026-06-14/evidence/3375-regionkill/02-kill-state.txt) ·
-[03-promote-zero-data-loss.txt](../../sessions/2026-06-14/evidence/3375-regionkill/03-promote-zero-data-loss.txt) ·
-[04-recover-split-brain.txt](../../sessions/2026-06-14/evidence/3375-regionkill/04-recover-split-brain.txt)).
-
-### 2b. gitea (active-hot-standby — PG via cnpg-pair + Git blobs on SeaweedFS S3)
-
-| Tested page | Description | Status | Evidence |
-|---|---|---|---|
-| [gitea · Topology](https://console.hw136.omani.works/app/bp-gitea) | DR panel shows declared **active-hot-standby**, mgmt primary/replica, mechanism. **Reality:** "Disaster Recovery (active-hot-standby)" panel renders with **enabled Switchover…** + honest "No live Continuum record for bp-gitea yet … Declared switchover mechanism: bp-continuum". Honest state. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r3-gitea-dr.png)](../../sessions/2026-06-14/evidence/3375-keystone/r3-gitea-dr.png) |
-| gitea · sign-in + create | Sign in (silent SSO) → create repo `dr-gitea-proof`, then validate across failover. **Reality (GAP A):** no drivable promotion to validate against on a single-region prov. | ❌ — Wave-3 region-kill operation, #3375 | [![](../../sessions/2026-06-14/evidence/3375-keystone/r3-gitea-dr.png)](../../sessions/2026-06-14/evidence/3375-keystone/r3-gitea-dr.png) |
-| [gitea · Topology](https://console.hw136.omani.works/app/bp-gitea) | **Switchover** enabled + opens dialog. **Reality:** matches the cnpg-pair shape — enabled Switchover button opens the 7-step switchover dialog. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r3-gitea-dr.png)](../../sessions/2026-06-14/evidence/3375-keystone/r3-gitea-dr.png) |
-| gitea · promoted | Panel shows **mgmt-B now primary**, switchover **Success**. **Reality (GAP A):** no live Continuum CR → no promotion observable. | ❌ — Wave-3 region-kill operation, #3375 | [![](../../sessions/2026-06-14/evidence/3375-keystone/r3-gitea-dr.png)](../../sessions/2026-06-14/evidence/3375-keystone/r3-gitea-dr.png) |
-| gitea · survives | Re-open Gitea → repo + file survive. **Reality (GAP A):** no record/promotion → cannot prove survival. | ❌ — Wave-3 region-kill operation, #3375 | [![](../../sessions/2026-06-14/evidence/3375-keystone/r3-gitea-dr.png)](../../sessions/2026-06-14/evidence/3375-keystone/r3-gitea-dr.png) |
-
-### 2c. openbao (active-passive — Raft store + perf-replication)
-
-| Tested page | Description | Status | Evidence |
-|---|---|---|---|
-| [openbao · Topology](https://console.hw136.omani.works/app/bp-openbao) | DR panel shows declared **active-passive (mgmt-A active / mgmt-B passive)**; mechanism **perf-replication / raft-transition**. **Reality:** "Disaster Recovery (active-passive)" panel renders with **enabled Switchover…** + honest "No live Continuum record for bp-openbao yet … Declared switchover mechanism: **raft-transition**". The declared mechanism is surfaced honestly. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r3-openbao-dr.png)](../../sessions/2026-06-14/evidence/3375-keystone/r3-openbao-dr.png) |
-| openbao · write KV | Sign in to Vault UI → write KV `secret/dr-proof`, then validate across failover. **Reality:** not driven — there is no drivable openbao failover to validate against on a single-region prov. | ❌ — Wave-3 region-kill operation + openbao-raft, #3375 | [![](../../sessions/2026-06-14/evidence/3375-keystone/r3-openbao-dr.png)](../../sessions/2026-06-14/evidence/3375-keystone/r3-openbao-dr.png) |
-| [openbao · Topology](https://console.hw136.omani.works/app/bp-openbao) | Drive the **raft-transition** promotion; reads stay up. **Reality (GAP B):** the UI surfaces the declared `raft-transition` mechanism honestly; the promotion engine wiring landed on `main` (#3492/#3498) and needs a **live 2-region prov** to execute against — no actual openbao failover is driveable on this single-region build (no `-b` region, no live Continuum CR). | ❌ — Wave-3 region-kill operation + openbao-raft, #3375 | [![](../../sessions/2026-06-14/evidence/3375-keystone/r3-openbao-dr.png)](../../sessions/2026-06-14/evidence/3375-keystone/r3-openbao-dr.png) |
-| openbao · read-through-switchover | Reading `secret/dr-proof` stays available through the switchover. **Reality (GAP B):** no openbao promotion is driveable on this single-region prov → not demonstrable. | ❌ — Wave-3 region-kill operation + openbao-raft, #3375 | [![](../../sessions/2026-06-14/evidence/3375-keystone/r3-openbao-dr.png)](../../sessions/2026-06-14/evidence/3375-keystone/r3-openbao-dr.png) |
-
-### 2d. keycloak / harbor / grafana — DR panel (identical cnpg-pair shape)
-
-| Tested page | Description | Status | Evidence |
-|---|---|---|---|
-| [keycloak · Topology](https://console.hw136.omani.works/app/bp-keycloak) | DR panel renders honest state + **enabled** Switchover. **Reality:** "Disaster Recovery (active-hot-standby)" + enabled Switchover… + honest "No live Continuum record … bp-continuum". (Actual promotion = GAP A.) | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r3-keycloak-dr.png)](../../sessions/2026-06-14/evidence/3375-keystone/r3-keycloak-dr.png) |
-| [harbor · Topology](https://console.hw136.omani.works/app/bp-harbor) | DR panel renders honest state + **enabled** Switchover. **Reality:** "Disaster Recovery (active-hot-standby)" + enabled Switchover… + honest no-live-CR state. (Actual promotion = GAP A.) | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r3-harbor-dr.png)](../../sessions/2026-06-14/evidence/3375-keystone/r3-harbor-dr.png) |
-| [grafana · Topology](https://console.hw136.omani.works/app/bp-grafana) | DR panel renders honest state + **enabled** Switchover. **Reality:** "Disaster Recovery (active-hot-standby)" + enabled Switchover… + honest no-live-CR state. (Actual promotion = GAP A.) | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r3-grafana-dr.png)](../../sessions/2026-06-14/evidence/3375-keystone/r3-grafana-dr.png) |
-
-**Result (§2 + §6): ✅ 12 / ❌ 6.** The **DR-panel + enabled-Switchover-dialog** half
-is delivered on all six priority apps on hw136 (the dialog enumerates a real 7-step
-cross-region promotion plan with Cancel / Confirm Switchover, captured live), AND the
-**cnpg-pair cross-region failover EXECUTION is now proven live** (§2a-EXEC) on the
-2-region deployment `3a2ee904b1d0366a`: kill region-a primary → region-b promotes
-writable in 1.42s (RTO 22.1s kill→writable), pre-kill row survives + post-kill write
-accepted, **zero data loss** — **GAP A is CLOSED for cnpg-pair**. The remaining 6 ❌:
-**openbao-raft** (GAP B — the distinct `raft-transition` mechanism, not exercised in
-this cnpg-pair Postgres walk; needs its own openbao failover drive) + the
-**gitea-app-served-from-promoted-region UI flow** (the cnpg-pair DB layer beneath gitea
-IS proven by §2a-EXEC; the app-UI-served-from-region-b walk is the funnel-side
-follow-up). These are the genuine North-Star-4 remainders, not topology-feature
-failures.
+**Result (§3): ✅ 5 / ❌ 0.** All five render an honest DR state on hw138 — declared
+mechanism + "activates on 2-region / no live Continuum CR" + "No switchover events
+recorded yet". None spins; none fakes a promotion.
 
 ---
 
-## 3. DR panel for bootstrap-HA apps (honest state, no spinner, no fake promotion)
+## WALK RESULT — hw138.omani.works (deployment `4b5ff7852e33fc15`, signed in as emrah.baysal via handover, 100% headless browser, READ-ONLY)
 
-This is the §3 acceptance: open gitea / harbor / openbao / grafana / keycloak →
-Topology → confirm the DR panel renders an **honest** state (declared mechanism +
-"activates on 2-region / no live CR"), not a spinner, not a fake "promoted" claim.
+**Result: ✅ 33 / ❌ 6 (passed 33 / total 39).**
 
-| Tested page | Description | Status | Evidence |
-|---|---|---|---|
-| [keycloak · DR panel](https://console.hw136.omani.works/app/bp-keycloak) | Honest DR state, no spinner/fake. **Reality:** "Disaster Recovery (active-hot-standby)" + enabled Switchover + "No live Continuum record … activates once placed active-hot-standby on a 2-region Sovereign. Declared switchover mechanism: bp-continuum" + "No switchover events recorded yet". | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r3-keycloak-dr.png)](../../sessions/2026-06-14/evidence/3375-keystone/r3-keycloak-dr.png) |
-| [gitea · DR panel](https://console.hw136.omani.works/app/bp-gitea) | Honest DR state. **Reality:** "Disaster Recovery (active-hot-standby)" + honest no-live-CR text + bp-continuum + no-events. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r3-gitea-dr.png)](../../sessions/2026-06-14/evidence/3375-keystone/r3-gitea-dr.png) |
-| [harbor · DR panel](https://console.hw136.omani.works/app/bp-harbor) | Honest DR state. **Reality:** "Disaster Recovery (active-hot-standby)" + honest no-live-CR text + bp-continuum + no-events. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r3-harbor-dr.png)](../../sessions/2026-06-14/evidence/3375-keystone/r3-harbor-dr.png) |
-| [grafana · DR panel](https://console.hw136.omani.works/app/bp-grafana) | Honest DR state. **Reality:** "Disaster Recovery (active-hot-standby)" + honest no-live-CR text + bp-continuum + no-events. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r3-grafana-dr.png)](../../sessions/2026-06-14/evidence/3375-keystone/r3-grafana-dr.png) |
-| [openbao · DR panel](https://console.hw136.omani.works/app/bp-openbao) | Honest DR state, declared `raft-transition` shown (not faked). **Reality:** "Disaster Recovery (active-passive)" + enabled Switchover + "No live Continuum record … Declared switchover mechanism: **raft-transition**" + no-events. The builder-declared raft mechanism is surfaced honestly (not a fake promotion). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r3-openbao-dr.png)](../../sessions/2026-06-14/evidence/3375-keystone/r3-openbao-dr.png) |
+- **§1a catalyst-tier declaration read-back: ✅ 14 / ❌ 0** — every app's Topology tab
+  reads back the exact matrix class + state + mechanism + RTO/RPO + per-cluster roles.
+- **§1b infra declaration read-back: ✅ 8 / ❌ 0** — singletons (cnpg, powerdns,
+  powerdns-admin, coraza, seaweedfs) show all-tiers SINGLETON; cnpg-pair / valkey / vllm
+  show active-hot-standby / active-passive·sentinel / active-active.
+- **§2 §6 HA Switchover + DR panel: ✅ 9 / ❌ 3** — all six priority apps show an enabled
+  Switchover button + honest DR panel; the dialog opens with a real 7-step cross-region
+  plan (captured on cnpg-pair + openbao, cancelled). The 3 ❌ are EXECUTION rows.
+- **§3 bootstrap-HA DR-panel honesty: ✅ 5 / ❌ 0.**
 
-**Result (§3 bootstrap-HA DR panels): ✅ 5 / ❌ 0.** All five render an **honest**
-DR state on hw136 — declared mechanism + "activates on 2-region / no live Continuum
-CR" + "No switchover events recorded yet" — exactly the §3 acceptance. None spins,
-none fakes a promotion.
+**The 6 genuine ❌ (all cross-region EXECUTION, not driven on this single live walk):**
 
----
+1. cnpg-pair region-kill EXECUTION — no live 2-region Continuum CR on hw138.
+2. gitea-app-served-from-promoted-region — same; no drivable promotion.
+3. openbao raft-transition EXECUTION — no drivable openbao failover (single region).
 
-## 4. Optional catalog apps — declared topology read-back
+(The §2 table renders 3 EXECUTION ❌ rows; §2 + §6 narrative counts them once each.) hw138
+is single-region for this read-only walk — every region-kill / promotion EXECUTION row
+is ❌ exactly as expected, because the verdict is "what rendered / was drivable live",
+and no failover was driven. The declared-topology + Switchover-dialog + honest-DR-panel
+UI — the three #3375 deliverables — **all render correctly live on hw138**.
 
-The Topology declared-panel is **catalog-driven** (lifts `spec.topology` from the
-build-time generated catalog), so it reads back the correct matrix variant for any
-catalog slug — **independent of whether the app is installed on this base
-Sovereign**. Slugs not in the deployable catalog return "App not found". A broad
-representative sample was walked.
+**One honesty note recorded:** the openbao Switchover dialog body reuses the generic
+CNPG-worded 7-step template (it talks about cordoning the CNPG Cluster CR and flipping
+CNPG `replica.enabled`) even though openbao's declared mechanism is `raft-transition`.
+The panel header declares `raft-transition` correctly; the dialog step copy is
+mechanism-agnostic. Recorded as ✅ (dialog opens, enabled) with the caveat noted, not as
+a separate ❌.
 
-### 4a. Control-plane / infra candidates
-
-| Tested page | Description | Status | Evidence |
-|---|---|---|---|
-| [netbird](https://console.hw136.omani.works/app/bp-netbird) | **active-hot-standby (mgmt-A/mgmt-B)** · cnpg-pair sync. **Reality (hw136):** the declared panel renders = `active-hot-standby`, `cnpg-pair · sync`, `bp-continuum`, mgmt-A ACTIVE / mgmt-B PASSIVE + honest DR panel. Matches matrix. (Catalog-driven — not actually deployed on this base Sovereign, yet the declared read-back reproduces correctly.) | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r4a-netbird.png)](../../sessions/2026-06-14/evidence/3375-keystone/r4a-netbird.png) |
-| [spire](https://console.hw136.omani.works/app/bp-spire) | **active-hot-standby (mgmt-A/mgmt-B)** · cnpg-pair sync — matrix says "not currently installed". **Reality:** "App not found — bp-spire is not part of this deployment" — not in the deployable catalog set on this base Sovereign, so it owes no topology row. | N/A — not in deployable catalog on base Sovereign | [![](../../sessions/2026-06-14/evidence/3375-keystone/r4a-spire.png)](../../sessions/2026-06-14/evidence/3375-keystone/r4a-spire.png) |
-| [alloy](https://console.hw136.omani.works/app/bp-alloy) | **singleton (all 6 tiers)** · stateless telemetry. **Reality:** INSTALLED (HR Ready) — declared panel = `singleton`, all-tiers SINGLETON. Matches matrix. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r4a-alloy.png)](../../sessions/2026-06-14/evidence/3375-keystone/r4a-alloy.png) |
-| [self-sovereign-cutover](https://console.hw136.omani.works/app/bp-self-sovereign-cutover) | **singleton (mgmt-A)** · one-shot handover Jobs. **Reality:** INSTALLED (HR Ready) — declared panel = `singleton`, Tier `mgmt`, mgmt-A SINGLETON only. Matches matrix. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r4a-self-sovereign-cutover.png)](../../sessions/2026-06-14/evidence/3375-keystone/r4a-self-sovereign-cutover.png) |
-
-### 4b. App Blueprints (per-Org catalog)
-
-| Tested page | Description | Status | Evidence |
-|---|---|---|---|
-| [strimzi](https://console.hw136.omani.works/app/bp-strimzi) | **active-active (rtz-A/rtz-B)** · gap(CLASS-B) `mirrormaker2`. **Reality:** the declared panel renders = `active-active`, State `mirrormaker2 · async`, rtz-A/rtz-B ACTIVE. **Declared variant + CLASS-B mechanism shown correctly** (catalog-driven; not actually deployed here). | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r4b-strimzi.png)](../../sessions/2026-06-14/evidence/3375-keystone/r4b-strimzi.png) |
-| [clickhouse](https://console.hw136.omani.works/app/bp-clickhouse) | **active-active (rtz-A/rtz-B)** — not in deployable catalog here. **Reality:** "App not found — bp-clickhouse is not part of this deployment." | N/A — not in deployable catalog on base Sovereign | [![](../../sessions/2026-06-14/evidence/3375-keystone/r4b-clickhouse.png)](../../sessions/2026-06-14/evidence/3375-keystone/r4b-clickhouse.png) |
-
-### 4c. Per-cluster singleton infra (matrix `singleton`, representative sample)
-
-| Tested page | Description | Status | Evidence |
-|---|---|---|---|
-| [trivy · Topology](https://console.hw136.omani.works/app/bp-trivy) | **singleton (all 6 tiers)** · per-cluster security infra. **Reality:** INSTALLED (HR Ready) — declared panel = `singleton`, all-tiers SINGLETON. Matches matrix. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r4c-trivy.png)](../../sessions/2026-06-14/evidence/3375-keystone/r4c-trivy.png) |
-| [sealed-secrets · Topology](https://console.hw136.omani.works/app/bp-sealed-secrets) | **singleton (all 6 tiers)** · per-cluster infra. **Reality:** INSTALLED (HR Ready) — declared panel = `singleton`, all-tiers SINGLETON. Matches matrix. | ✅ | [![](../../sessions/2026-06-14/evidence/3375-keystone/r4c-sealed-secrets.png)](../../sessions/2026-06-14/evidence/3375-keystone/r4c-sealed-secrets.png) |
-
-**Result (§4): ✅ 6 / N/A 2.** On hw136 the topology read-back reproduces for every
-catalog slug regardless of install state — netbird, alloy, self-sovereign-cutover,
-strimzi, trivy, sealed-secrets all read back their **exact matrix variant**
-(including the CLASS-B mechanism mirrormaker2, shown but not live-wired — the
-intended honest behavior). The 2 **N/A** are slugs not in the deployable catalog on
-this base Sovereign (spire, clickhouse) → "App not found", not feature failures.
-
----
-
-## WALK RESULT — hw136.omani.works (keystone fresh prov, signed in as emrah.baysal, sovereign-admin / **owner tier** via handover; 100% headless browser)
-
-**Overall: ✅ 46 / ❌ 6 / N/A 7** across the rows walked on the hw136 keystone prov.
-**The topology-declaration UI and the DR/Switchover UI REPRODUCE ZERO-TOUCH on the
-fresh prov, AND the cnpg-pair cross-region failover is now EXECUTED LIVE** (§2a-EXEC,
-on the 2-region deployment `3a2ee904b1d0366a`: RTO **22.1s** kill→writable, **1.42s**
-promote latency, **zero data loss** — the North-Star-4 cnpg-pair proof). The remaining
-6 ❌ are the **openbao-raft** promotion (GAP B, a distinct `raft-transition` mechanism
-not exercised in the cnpg-pair Postgres walk) + the **gitea-app-served-from-promoted-region
-UI flow** (the cnpg-pair DB layer beneath gitea IS proven by §2a-EXEC). There is **no
-env-flap ❌ on hw136** — `bp-powerdns-admin` PASSES here (the hw135 detail-route 503 was
-a WireGuard-mesh datapath flap that does not reproduce on hw136's healthy mesh).
-
-**Does the topology UI reproduce zero-touch on hw136? — YES.** Every catalog app's
-**Topology tab renders a per-app "Declared topology" panel** that reads back the
-matrix-declared class + state backend/mode + switchover mechanism + RTO/RPO +
-per-cluster placement roles. `singleton`, `active-passive`, `active-hot-standby`,
-and `active-active` are all correctly surfaced. The **Switchover button is ENABLED
-for owner tier and opens a real switchover dialog** (captured live: "Switchover —
-bp-cnpg-pair", 7-step cross-region promotion plan, Cancel / Confirm Switchover). The
-**DR panel renders an honest state** for declared-HA apps — never a spinner, never a
-fake promotion. This is a clean zero-touch reproduction on a freshly provisioned
-Sovereign.
-
-- **§1 declaration read-back: ✅ 25 / ❌ 0 / N/A 5.** 25 catalog apps show the
-  **correct declared topology + placement** matching the matrix — including
-  `bp-powerdns-admin` (the single ❌ on hw135, now ✅ on hw136's healthy mesh). The 5
-  N/A: `bp-openova-flow` (catalyst-platform sub-component) + `bp-postgres` ×3
-  (shared-pg, #3370) + `bp-sandbox` (Pillar-4 out of scope; not deployed on hw136).
-- **§2 Switchover button: ENABLED + functional, AND cnpg-pair EXECUTION proven.**
-  Confirmed live — clicking it opens **"Switchover — bp-cnpg-pair"** with a real 7-step
-  promotion plan (validate-lease · cordon-old-primary · drain-http · flip-dns ·
-  swap-lease · uncordon-new-primary · audit-emit), estimated-duration /
-  write-disruption, a Reason field, and **Confirm Switchover**. The *actual cross-region
-  failover EXECUTION* for **cnpg-pair** is now **driven live** (§2a-EXEC) on the
-  2-region deployment `3a2ee904b1d0366a`: kill region-a primary → region-b promotes
-  writable in **1.42s** (RTO **22.1s** kill→writable), pre-kill row survives + post-kill
-  write accepted, **zero data loss** → the create-data / promoted / survives rows are
-  **✅** for cnpg-pair.
-- **§3 bootstrap-HA DR panels: ✅ 5 / 5.** keycloak, gitea, harbor, grafana, openbao
-  all render an **honest** DR state — exactly the §3 acceptance.
-- **§4 optional catalog: ✅ 6 / N/A 2.** The catalog-driven declared read-back
-  reproduces for netbird, alloy, self-sovereign-cutover, strimzi, trivy,
-  sealed-secrets; spire + clickhouse are not in the deployable catalog here (N/A).
-
-**The genuine remaining ❌ (6 — GAP A is now CLOSED for cnpg-pair):**
-- **GAP A — cnpg-pair region-kill EXECUTION: ✅ CLOSED.** Driven live on the 2-region
-  deployment `3a2ee904b1d0366a` (§2a-EXEC): create-data (region-a) → kill region-a
-  primary → region-b promotes writable (1.42s, RTO 22.1s) → pre-kill row survives +
-  post-kill write accepted → **zero data loss**. Evidence in
-  `docs/sessions/2026-06-14/evidence/3375-regionkill/`.
-- **GAP B — openbao-raft promotion EXECUTION (~3 rows):** the declared `raft-transition`
-  mechanism is surfaced honestly; the promotion engine wiring landed on `main`
-  (#3492/#3498) but is a **distinct mechanism not exercised by the cnpg-pair Postgres
-  walk** — it needs its own openbao failover drive. Not driven here.
-- **gitea-app-served-from-promoted-region UI flow (~3 rows):** the cnpg-pair DB layer
-  beneath gitea IS proven by §2a-EXEC (gitea's PG is a cnpg-pair); the
-  app-UI-served-from-region-b walk (sign in to gitea served from the promoted region,
-  see the repo) is the funnel-side follow-up, not driven in this DB-layer proof.
-
-**Bottom line:** #3375's three claimed deliverables — (1) per-app **Declared
-topology panel** with class + mechanism + RTO/RPO + per-cluster roles, (2) an
-**enabled Switchover** button that opens a real switchover dialog, and (3) an
-**honest DR panel** for declared-HA bootstrap apps — are **all reproduced zero-touch
-on the fresh keystone prov hw136** (✅ 46, with `bp-powerdns-admin` now passing) — and
-the **cnpg-pair cross-region failover EXECUTION is proven live** on the 2-region
-deployment `3a2ee904b1d0366a` (§2a-EXEC: RTO 22.1s kill→writable, 1.42s promote, zero
-data loss — the North-Star-4 cnpg-pair proof). The **remaining #3375 ❌ (6)** are the
-**openbao-raft** promotion (a distinct mechanism, its own failover drive) + the
-**gitea-app-served-from-promoted-region UI flow** (DB layer proven). Evidence:
-region-kill transcripts in `docs/sessions/2026-06-14/evidence/3375-regionkill/`;
-declared-panel screenshots in `docs/sessions/2026-06-14/evidence/3375-keystone/`.
+**Evidence:** `docs/sessions/2026-06-14/evidence/3375-hw138/` — 22 per-app Topology
+screenshots + the dashboard (`r0-dashboard.png`) + two Switchover-dialog screenshots
+(`dialog-bp-cnpg-pair.png`, `dialog-bp-openbao.png`), all captured live on hw138 in this
+pass (no earlier-env carryover).
