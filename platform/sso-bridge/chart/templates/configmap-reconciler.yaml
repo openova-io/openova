@@ -437,8 +437,8 @@ data:
     }
 
     emit_external_secret() {
-      # $1 = clientId, $2 = HR namespace
-      local cid="$1" hrns="$2"
+      # $1 = clientId, $2 = HR namespace, $3 = skip-K8s-ExternalSecret (bool)
+      local cid="$1" hrns="$2" skip_es="${3:-false}"
       local secret
       secret="$(cat "/tmp/${cid}.secret")"
       local issuer
@@ -456,6 +456,25 @@ data:
           userinfo_url:($issuer+"/protocol/openid-connect/userinfo"),
           end_session_url:($issuer+"/protocol/openid-connect/logout")}')"
       openbao_put "sso/${cid}" "${bundle}" || return 1
+
+      # #3374 (2026-06-14) — `sso.skipExternalSecret: true` opt-out. Some
+      # apps consume their OIDC secret as DIRECT env vars (grafana's
+      # `envFromSecret`) and therefore need keys named after the app's
+      # env-override contract (GF_AUTH_GENERIC_OAUTH_* / GF_SERVER_ROOT_URL),
+      # NOT the raw `client_id`/`client_secret`/`authorize_url` scalars this
+      # reconciler projects. Those apps ship their OWN chart-side
+      # ExternalSecret with a `target.template` that performs the rename +
+      # root_url derivation, reading the SAME OpenBao `sso/<cid>` bundle we
+      # just wrote. For them we must persist the bundle to OpenBao (done
+      # above) but NOT apply a raw-key K8s ExternalSecret of the same name —
+      # it would fight the chart's transformed ES for ownership of
+      # `<cid>-sso-oidc-credentials` and a raw-key win leaves the app's env
+      # unconfigured (empty client_id, redirect_uri → https://localhost/).
+      # Default false → every other app keeps the raw-key projection.
+      if [ "${skip_es}" = "true" ]; then
+        log "skip K8s ExternalSecret for ${cid} (sso.skipExternalSecret=true; OpenBao bundle written, chart-side ES owns the Secret)"
+        return 0
+      fi
 
       # Apply ExternalSecret CR in HR's namespace.
       # Render via printf with embedded newlines so every line has a leading
@@ -538,11 +557,18 @@ data:
       local skip_upsert
       skip_upsert="$(printf '%s' "${hr}" | jq -r '.spec.values.sso.skipClientUpsert // false')"
 
-      log "reconcile ${name} (ns=${ns} clientId=${cid} realmRoles='${realm_roles}' skipUpsert=${skip_upsert})"
+      # #3374 — apps whose chart ships its own transformed ExternalSecret
+      # (grafana: GF_AUTH_GENERIC_OAUTH_* env-override keys + GF_SERVER_ROOT_URL)
+      # set sso.skipExternalSecret=true so this reconciler writes the OpenBao
+      # bundle but does NOT apply a colliding raw-key K8s ExternalSecret.
+      local skip_es
+      skip_es="$(printf '%s' "${hr}" | jq -r '.spec.values.sso.skipExternalSecret // false')"
+
+      log "reconcile ${name} (ns=${ns} clientId=${cid} realmRoles='${realm_roles}' skipUpsert=${skip_upsert} skipES=${skip_es})"
 
       if [ "${skip_upsert}" != "true" ]; then
         upsert_client "${cid}" "${fqdn}" || { err "upsert ${cid} failed"; return 1; }
-        emit_external_secret "${cid}" "${ns}" || { err "emit-es ${cid} failed"; return 1; }
+        emit_external_secret "${cid}" "${ns}" "${skip_es}" || { err "emit-es ${cid} failed"; return 1; }
         grant_operator_admin "${cid}" "${op_email}" || warn "grant-admin ${cid} non-fatal"
       else
         log "skipping client upsert + ExternalSecret for ${cid} (sso.skipClientUpsert=true)"
