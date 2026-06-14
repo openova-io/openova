@@ -1,0 +1,3 @@
+  WARN — egressDeny apply failed; assertion-only fallback (fail-safe)
+[egress-block-test] window complete; new-regression-cycles=0
+[egress-block-test] no new regressions during 600s window — sovereignty proof PASSED

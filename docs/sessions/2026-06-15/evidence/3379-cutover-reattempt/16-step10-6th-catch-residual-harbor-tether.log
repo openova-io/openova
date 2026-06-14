@@ -1,0 +1,18 @@
+[vcluster-registry-pivot] target host: harbor.hw139.omani.works
+[vcluster-registry-pivot] wrapper image.repository: harbor.hw139.omani.works/proxy-ghcr/loft-sh/vcluster
+[vcluster-registry-pivot] subchart image.registry: harbor.hw139.omani.works repository: proxy-ghcr/loft-sh/vcluster
+[vcluster-registry-pivot] SKIP bp-mgmt-vcluster (already pivoted: wrapper=harbor.hw139.omani.works/proxy-ghcr/loft-sh/vcluster sub-registry=harbor.hw139.omani.works)
+[vcluster-registry-pivot] SKIP bp-rtz-vcluster (already pivoted: wrapper=harbor.hw139.omani.works/proxy-ghcr/loft-sh/vcluster sub-registry=harbor.hw139.omani.works)
+[vcluster-registry-pivot] SKIP bp-dmz-vcluster (already pivoted: wrapper=harbor.hw139.omani.works/proxy-ghcr/loft-sh/vcluster sub-registry=harbor.hw139.omani.works)
+[vcluster-registry-pivot] SKIP bp-sso-bridge (image.repository=harbor.hw139.omani.works/proxy-dockerhub/alpine/k8s not on harbor.openova.io — already pivoted or custom)
+[vcluster-registry-pivot] live-K8s ok=0 skip=4 fail=0
+[vcluster-registry-pivot] RESIDUAL-TETHER bp-mgmt-vcluster: spec.values still references harbor.openova.io
+[vcluster-registry-pivot] RESIDUAL-TETHER bp-rtz-vcluster: spec.values still references harbor.openova.io
+[vcluster-registry-pivot] RESIDUAL-TETHER bp-dmz-vcluster: spec.values still references harbor.openova.io
+[vcluster-registry-pivot] RESIDUAL-TETHER bp-sso-bridge: spec.values still references harbor.openova.io
+[vcluster-registry-pivot] FATAL: 4 HelmRelease(s) still tethered to mothership Harbor after pivot — Pillar 5 independence not met
+  >>> "registryMirror": "harbor.openova.io"
+  bp-mgmt-vcluster: registryMirror=harbor.openova.io
+  bp-rtz-vcluster: registryMirror=harbor.openova.io
+  bp-dmz-vcluster: registryMirror=harbor.openova.io
+  bp-sso-bridge: registryMirror=harbor.openova.io
