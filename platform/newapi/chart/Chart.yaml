@@ -516,7 +516,17 @@ name: bp-newapi
 # class as bp-guacamole #3461). Default the gate image to the NewAPI image
 # itself (has /bin/sh; same openova-io glob as the main container). Lockstep:
 # 80-newapi.yaml pin → 1.4.77.
-version: 1.4.80
+# 1.4.81 (#3482 / Refs #3373 Batch A, 2026-06-14): rewire newapi→valkey to the
+# rtz-vCluster syncer-mangled Service name. #3373 Batch A moved bp-valkey INTO
+# the rtz vCluster but MISSED this consumer (the migration rewired SME, the
+# projector, gitea→seaweedfs, newapi→vLLM — but not newapi→valkey). newapi's
+# valkey default-ON URL still pointed at the OLD `valkey-primary.valkey.svc`
+# which is now NXDOMAIN → FATAL `Redis ping test failed: ... no such host` →
+# CrashLoopBackOff (observed live on hw133, 10+ restarts). values.yaml
+# `valkey.url` + blueprint.yaml configSchema default now point at
+# `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc.cluster.local:6379` (mirrors
+# the SME VALKEY_ADDR rewire #3476). Lockstep: 80-newapi.yaml pin → 1.4.81.
+version: 1.4.81
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

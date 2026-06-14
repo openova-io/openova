@@ -215,7 +215,15 @@ spec:
       # token-exchange redirect_uri matches the authorize one; without it the
       # exchange failed `invalid_grant - Incorrect redirect_uri` and the owner
       # never got a session (measured live hw133 2026-06-14, #3475).
-      version: 1.4.80
+      # 1.4.81 — #3482 / Refs #3373 Batch A: newapi→valkey rewire. #3373 Batch A
+      # moved bp-valkey INTO the rtz vCluster but MISSED this default-ON
+      # consumer; newapi's valkey URL still pointed at the now-NXDOMAIN
+      # `valkey-primary.valkey.svc` → FATAL Redis-ping no-such-host →
+      # CrashLoopBackOff (live hw133, 10+ restarts). Chart default now targets
+      # the syncer-mangled `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc`
+      # (mirrors the SME VALKEY_ADDR rewire #3476). This slot's valkey block
+      # sets no `valkey.url` override, so the chart default IS what newapi uses.
+      version: 1.4.81
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

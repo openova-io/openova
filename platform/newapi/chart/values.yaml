@@ -259,13 +259,25 @@ valkey:
   enabled: true
   # bp-valkey installs the upstream bitnami chart with
   # architecture=replication; the writeable Service is named
-  # `<release>-primary` (release = `valkey`), so the in-cluster DNS is
-  # `valkey-primary.valkey.svc.cluster.local`. There is NO plain `valkey`
+  # `<release>-primary` (release = `valkey`). There is NO plain `valkey`
   # Service — pointing at `valkey.valkey.svc.cluster.local` resolves to
   # NXDOMAIN and the NewAPI pod CrashLoops on the Redis ping probe (issue
   # #1944 — t34 newapi pod 31x CrashLoopBackOff with
   # `lookup valkey.valkey.svc.cluster.local: no such host`).
-  url: "redis://valkey-primary.valkey.svc.cluster.local:6379"
+  #
+  # #3373 Batch A (2026-06-14): bp-valkey moved INSIDE the rtz vCluster
+  # (placement.yaml: `bp-valkey → vcluster: rtz, namespace: valkey`). The
+  # bp-rtz-vcluster syncer reflects the in-vCluster `valkey-primary` Service
+  # to the HOST under the syncer-mangled name
+  # `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc`, so the host `valkey`
+  # namespace no longer carries a `valkey-primary` Service — the old
+  # `valkey-primary.valkey.svc` now resolves NXDOMAIN (same FATAL Redis-ping
+  # CrashLoop, observed live on hw133). newapi is host-placed in Batch A and
+  # this consumer is default-ON (`valkey.enabled: true`), so this default
+  # must point at the synced name. Mirrors the SME `VALKEY_ADDR` /
+  # projector `valkey.addr` rewire (#3476). Override `url` for a host-placed
+  # valkey.
+  url: "redis://valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc.cluster.local:6379"
   # If the operator's Valkey requires auth, supply via ExternalSecret.
   # Required key: REDIS_CONN_STRING (full URL with credentials).
   existingSecret: "" # e.g. "newapi-valkey-conn"
