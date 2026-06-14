@@ -377,6 +377,95 @@ func TestSovereignApps_EnvironmentChipFromApplicationCR(t *testing.T) {
 	}
 }
 
+// makeShareableHR builds a bootstrap-kit HelmRelease for a SHAREABLE
+// blueprint (e.g. bp-postgres) with a spec.releaseName (the instance
+// identity) and spec.values.databases[] (the declared Contexts). Mirrors
+// the shape Flux installs on a zero-touch prov: the shared-pg / -b / -c
+// HRs that have NO companion Application CR. Used by
+// TestSovereignApps_BootstrapHRShareableInstanceCards (#3370 #3537).
+func makeShareableHR(hrName, releaseName string, ready string, dbs []map[string]interface{}) *unstructured.Unstructured {
+	u := makeHR(hrName, "flux-system", ready)
+	_ = unstructured.SetNestedField(u.Object, "bp-postgres", "spec", "chart", "spec", "chart")
+	_ = unstructured.SetNestedField(u.Object, releaseName, "spec", "releaseName")
+	dbAny := make([]interface{}, len(dbs))
+	for i, d := range dbs {
+		dbAny[i] = d
+	}
+	_ = unstructured.SetNestedSlice(u.Object, dbAny, "spec", "values", "databases")
+	return u
+}
+
+// TestSovereignApps_BootstrapHRShareableInstanceCards is the #3537
+// regression: on a zero-touch converged prov the shared-pg / -b / -c
+// instances exist ONLY as bootstrap Flux HelmReleases (0 Application
+// CRs). The /api/v1/sovereign/apps handler must still project them as
+// instance:true cards WITH the ⛓ Contexts count — the exact gap the
+// founder hit live on hw138 (instance rows = 0, contextCount = 0) while
+// /catalyst/v1/catalog/postgres/instances correctly rendered them.
+func TestSovereignApps_BootstrapHRShareableInstanceCards(t *testing.T) {
+	// THREE shareable HRs, ZERO Application CRs — the hw138 shape.
+	dynObjs := []runtime.Object{
+		makeShareableHR("bp-postgres-shared", "shared-pg", "True", []map[string]interface{}{
+			{"name": "registry", "owner": "harbor", "consumer": map[string]interface{}{"blueprint": "bp-harbor"}},
+			{"name": "gitea", "owner": "gitea", "consumer": map[string]interface{}{"blueprint": "bp-gitea"}},
+			{"name": "keycloak", "owner": "keycloak", "consumer": map[string]interface{}{"blueprint": "bp-keycloak"}},
+		}),
+		makeShareableHR("bp-postgres-shared-c", "shared-pg-c", "True", []map[string]interface{}{
+			{"name": "newapi", "owner": "newapi"},
+			{"name": "openova_flow", "owner": "openova-flow"},
+		}),
+		// A non-shareable bootstrap HR must NOT become an instance card.
+		makeHR("bp-cilium", "flux-system", "True"),
+	}
+	h := newSovereignHandler(t, nil, dynObjs)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/apps", nil)
+	w := httptest.NewRecorder()
+	h.HandleSovereignApps(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", w.Code, w.Body.String())
+	}
+	var got sovereignAppsResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	byID := map[string]sovereignAppItem{}
+	for _, a := range got.Apps {
+		byID[a.ID] = a
+	}
+
+	// shared-pg → instance card with 3 Contexts.
+	sp, ok := byID["shared-pg"]
+	if !ok {
+		t.Fatalf("instance card for HR shared-pg missing — bootstrap shareable HR not projected (the #3537 gap)")
+	}
+	if !sp.Instance {
+		t.Errorf("shared-pg row should be marked instance=true")
+	}
+	if sp.ContextCount != 3 {
+		t.Errorf("shared-pg ContextCount = %d; want 3 (databases[])", sp.ContextCount)
+	}
+	if sp.Blueprint != "bp-postgres" {
+		t.Errorf("shared-pg Blueprint = %q; want bp-postgres", sp.Blueprint)
+	}
+	if sp.Status != "installed" {
+		t.Errorf("shared-pg Status = %q; want installed (HR Ready=True)", sp.Status)
+	}
+
+	// shared-pg-c → instance card with 2 Contexts.
+	spc, ok := byID["shared-pg-c"]
+	if !ok {
+		t.Fatalf("instance card for HR shared-pg-c missing")
+	}
+	if spc.ContextCount != 2 {
+		t.Errorf("shared-pg-c ContextCount = %d; want 2", spc.ContextCount)
+	}
+
+	// The non-shareable bp-cilium HR must NOT be an instance card.
+	if c, ok := byID["cilium"]; ok && c.Instance {
+		t.Errorf("non-shareable bp-cilium must not project an instance card")
+	}
+}
+
 // TestResolveAppEnvironment_FallbackOrder unit-tests the helper in
 // isolation so the fallback semantics are explicit.
 func TestResolveAppEnvironment_FallbackOrder(t *testing.T) {
