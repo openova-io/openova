@@ -1,0 +1,32 @@
+# hw138 live HelmRepository pivot state during cutover step-08 (egress-block-test)
+# Expected post-step-06: all openova-io HelmRepositories pivoted to oci://registry.hw138.omani.works/openova-io
+# ACTUAL: 61 HelmRepositories still oci://ghcr.io/openova-io — step-06 durable-pivot did NOT reconcile to live CRs
+# (HelmRepositories are managed by Kustomization bootstrap-kit; applied rev 5e645666 lacks the URL rewrites)
+
+bp-alloy                           oci://ghcr.io/openova-io
+bp-catalyst-platform               oci://ghcr.io/openova-io
+bp-cert-manager                    oci://ghcr.io/openova-io
+bp-cert-manager-powerdns-webhook   oci://ghcr.io/openova-io
+bp-cilium                          oci://ghcr.io/openova-io
+bp-cluster-autoscaler-hcloud       oci://ghcr.io/openova-io
+bp-cnpg                            oci://ghcr.io/openova-io
+bp-cnpg-pair                       oci://ghcr.io/openova-io
+bp-continuum                       oci://ghcr.io/openova-io
+bp-coraza                          oci://ghcr.io/openova-io
+bp-crossplane                      oci://ghcr.io/openova-io
+bp-crossplane-claims               oci://ghcr.io/openova-io
+bp-dmz-vcluster                    oci://ghcr.io/openova-io
+bp-external-dns                    oci://ghcr.io/openova-io
+bp-external-secrets                oci://ghcr.io/openova-io
+bp-external-secrets-stores         oci://ghcr.io/openova-io
+bp-falco                           oci://ghcr.io/openova-io
+bp-flux                            oci://ghcr.io/openova-io
+bp-gateway-api                     oci://ghcr.io/openova-io
+bp-gitea                           oci://ghcr.io/openova-io
+...
+TOTAL still on ghcr.io/openova-io:
+61
+
+# GitRepository openova (step-05 DID pivot this to local Gitea — PASS):
+url=http://gitea-http.gitea.svc.cluster.local:3000/openova/openova
+rev=main@sha1:5e645666422120ea7dec93f58e539ca6a51de5af

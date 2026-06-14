@@ -449,7 +449,13 @@ spec:
       # window that fail-fast-FAILED the cutover at Step-08 on the hw136
       # walk (59 HRs caught mid Flux-revert). RBAC gains kustomizations
       # {update,patch}; egressBlockTestSeconds 900 → 1200 for poll headroom.
-      version: 0.1.58
+      # 0.1.59 (#3379, hw138 keystone catch): Step-03 harbor-prewarm skopeo
+      # native-push was a SILENT NO-OP (skopeo level=fatal missing
+      # /etc/containers/policy.json + `skopeo … | sed` masked the exit code)
+      # → local Harbor openova-io stayed EMPTY → post-cutover catalyst-api
+      # ImagePullBackOff at Step-07 → Step-08 deny-egress never ran. Fixed:
+      # --insecure-policy + capture skopeo's true exit status.
+      version: 0.1.59
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
