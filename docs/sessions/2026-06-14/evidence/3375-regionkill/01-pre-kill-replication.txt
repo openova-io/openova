@@ -1,0 +1,9 @@
+## PRE-KILL: streaming replication region-a -> region-b (captured during walk)
+### region-a primary pg_stat_replication (10.43.3.165 = region-b cross-region standby, async)
+{"enabled":false,"source":"cnpg-pair-bp-cnpg-pair-primary"}
+(replica.enabled was true, source cnpg-pair-bp-cnpg-pair-primary before the walk)
+
+### pre-kill marker row written to region-a primary, read back on region-b standby:
+  id=2 'pre-kill region-a' replicated to region-b within ~2s (proven live during walk)
+### region-b was read-only standby pre-kill (write rejected):
+  ERROR:  cannot execute INSERT in a read-only transaction
