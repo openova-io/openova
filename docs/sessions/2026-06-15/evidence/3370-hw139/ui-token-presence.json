@@ -1,0 +1,19 @@
+{
+  "shared-pg": false,
+  "shared-pg-b": false,
+  "shared-pg-c": false,
+  "Contexts": false,
+  "context": false,
+  "Consumers": false,
+  "Data instances": false,
+  "reflector": true,
+  "reuse": false,
+  "Reuse": false,
+  "PostgreSQL": true,
+  "harbor": false,
+  "gitea": false,
+  "keycloak": true,
+  "newapi": true,
+  "Deployments": true,
+  "Catalog": true
+}
