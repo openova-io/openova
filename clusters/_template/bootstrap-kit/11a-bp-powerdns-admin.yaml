@@ -147,16 +147,21 @@ spec:
     sso:
       sovereignFqdn: "${SOVEREIGN_FQDN}"
     # ── Shared-instance flip (#3370 — the gitea/harbor/keycloak shape) ──
-    # Default OWN_CLUSTER=true → the bundled pda-pg Cluster + its
-    # pda-database-secret mirror render exactly as today (single-region
-    # render byte-identical; envs provisioned before these vars existed
-    # resolve the `:=` defaults). Cloud-init computes OWN_CLUSTER=false
-    # + the secret flip from the SAME enable_shared_pg var that turns
-    # slot 16c ON: PDA then reads username/password/uri straight from
-    # the reflector-PUSHED pda-shared-database-secret hub (shared-pg-b's
-    # `pda` Context) — no mirror hop, no reflects: pull.
+    # Default OWN_CLUSTER=true → the bundled pda-pg CNPG Cluster renders and
+    # PDA reads its generated `pda-pg-app` Secret DIRECTLY (same namespace,
+    # always present, carries uri/username/password). #3486: the default
+    # secret name is now `pda-pg-app`, NOT the retired empty
+    # `pda-database-secret` reflector mirror — that same-namespace
+    # `reflects:` pull was edge-triggered and raced the HR
+    # uninstall/reinstall remediation churn, leaving the mirror empty and
+    # looping the install forever (which wedged bootstrap-kit → sovereign-tls
+    # → the wildcard cert → console HTTP 000 on hw134). Cloud-init computes
+    # OWN_CLUSTER=false + the secret flip from the SAME enable_shared_pg var
+    # that turns slot 16c ON: PDA then reads username/password/uri straight
+    # from the reflector-PUSHED pda-shared-database-secret hub (shared-pg-b's
+    # `pda` Context) — also a direct read, no mirror hop, no reflects: pull.
     postgres:
       cluster:
         enabled: ${SOVEREIGN_PDA_PG_OWN_CLUSTER:=true}
     databaseSecret:
-      name: ${SOVEREIGN_PDA_PG_SECRET:=pda-database-secret}
+      name: ${SOVEREIGN_PDA_PG_SECRET:=pda-pg-app}

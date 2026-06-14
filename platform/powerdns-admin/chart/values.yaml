@@ -93,10 +93,10 @@ gateway:
 postgres:
   cluster:
     # 0.1.12 (#3370): embedded-cluster gate. false → the bundled pda-pg
-    # Cluster (and its pda-database-secret mirror) are skipped; PDA runs
-    # against the shared-pg-b instance's `pda` Context via the reflected
-    # pda-shared-database-secret hub (slot 11a flips databaseSecret.name
-    # in lockstep). Default true = byte-identical 1:1 embedded render.
+    # Cluster is skipped; PDA runs against the shared-pg-b instance's `pda`
+    # Context via the reflector-PUSHED pda-shared-database-secret hub (slot
+    # 11a flips databaseSecret.name in lockstep). true → PDA reads the
+    # bundled cluster's CNPG-generated pda-pg-app Secret directly (#3486).
     enabled: true
     name: pda-pg
     namespace: ""                  # defaults to .Release.Namespace
@@ -121,11 +121,35 @@ postgres:
         cpu: 500m
         memory: 512Mi
 
-# Reflector — mirrors the CNPG-generated `pda-pg-app` Secret into
-# `pda-database-secret` so the deployment.yaml secretKeyRef resolves
-# regardless of CNPG operator's own naming scheme.
+# Database credential Secret the deployment.yaml secretKeyRefs read
+# (uri/username/password).
+#
+# 0.1.14 (#3486): the embedded-cluster path reads the CNPG-generated
+# `pda-pg-app` Secret DIRECTLY (same namespace as the Deployment, always
+# present once bp-cnpg materialises the pda-pg Cluster, already carries
+# `uri`/`username`/`password`). The previous indirection — an empty
+# `pda-database-secret` carrying a `reflector .../reflects: pda-pg-app`
+# annotation that bp-reflector PULL-mirrored — wedged every fresh prov:
+# the same-namespace `reflects:` pull is edge-triggered on the DESTINATION,
+# so when CNPG regenerated `pda-pg-app` during the HR's
+# uninstall/reinstall remediation churn the mirror never re-ran →
+# `pda-database-secret` stayed empty (DATA=0) → the PDA Pod hung in
+# CreateContainerConfigError ("couldn't find key uri") → the 15m HR
+# install timed out → remediateLastFailure uninstalled + restarted → the
+# pda-pg Cluster re-bootstrapped → infinite loop. That HR-never-Ready
+# wedged the bootstrap-kit Kustomization's health-check loop, blocking the
+# `sovereign-tls` Kustomization (dependsOn bootstrap-kit) that applies the
+# `*.<fqdn>` wildcard Certificate → the Cilium Gateway :443 listener stayed
+# `Invalid CertificateRef` → the console served HTTP 000 (traced live on
+# hw134, dep 6a189d1b7d8cebc8). Reading the CNPG Secret directly removes
+# the empty-secret window entirely; the install converges first attempt.
+#
+# The shared-pg-b path (slot 11a flips this to `pda-shared-database-secret`,
+# #3370) already reads a reflector-PUSHED hub directly with the same key
+# contract — so deployment.yaml stays generic via `databaseSecret.name`.
 databaseSecret:
-  name: pda-database-secret
+  # cnpg cluster's generated `<cluster>-app` Secret (pda-pg → pda-pg-app).
+  name: pda-pg-app
   cnpgSecretName: pda-pg-app
   passwordKey: password
   usernameKey: username
