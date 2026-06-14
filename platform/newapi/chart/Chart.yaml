@@ -567,7 +567,7 @@ name: bp-newapi
 # Bridge image rebuilds via build-bp-newapi-sandbox-bridge.yaml (push to
 # internal/handler/**); the Exact `/` route serves the landing once the new
 # bridge image rolls.
-version: 1.4.85
+version: 1.4.86
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
