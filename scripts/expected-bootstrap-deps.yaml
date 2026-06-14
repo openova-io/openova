@@ -373,7 +373,11 @@ slots:
     # grafana-database-env hub Secret exists before grafana's Deployment
     # references it (envFromSecrets, optional=false in shared mode).
     # Harmless in the default path (empty-Ready release).
-    depends_on: [bp-cnpg, bp-loki, bp-mimir, bp-tempo, bp-keycloak, bp-gateway-api, bp-postgres-shared-b]
+    # bp-external-secrets dep (#3374, 2026-06-14): grafana's chart guards on
+    # the ESO CRD (.Capabilities .Has "external-secrets.io/v1beta1") and gates
+    # on bp-external-secrets so the ESO webhook is serving before grafana's
+    # ExternalSecret applies — lockstep with the live 25-grafana.yaml edge.
+    depends_on: [bp-cnpg, bp-loki, bp-mimir, bp-tempo, bp-keycloak, bp-gateway-api, bp-external-secrets, bp-postgres-shared-b]
     wave: W2.K2
   - slot: 26
     name: bp-network-policies
