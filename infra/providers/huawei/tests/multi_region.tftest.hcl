@@ -109,6 +109,28 @@ run "tier_b_two_regions_poc" {
     error_message = "Tier-B must create one security group per region (expected 2)."
   }
 
+  # #3504 (Refs #3375): per-region pod + service CIDRs must be DISTINCT
+  # across regions (DoD gate D11 — non-overlapping ClusterMesh pod CIDRs).
+  # Regression guard for the hardcoded 10.42.0.0/16 / 10.96.0.0/16 that
+  # made both regions' cp1 advertise 10.42.0.0/24 → ClusterMesh PodCIDR
+  # collision → cp1 datapath mis-route → region-kill blocked on hw135.
+  assert {
+    condition     = local.region_cluster_cidr["me-east-215-a"] == "10.42.0.0/16"
+    error_message = "Primary region pod CIDR must be 10.42.0.0/16."
+  }
+  assert {
+    condition     = local.region_cluster_cidr["me-east-215-b"] == "10.43.0.0/16"
+    error_message = "Secondary region pod CIDR must be 10.43.0.0/16 (offset by region index — must NOT collide with the primary's 10.42.0.0/16)."
+  }
+  assert {
+    condition     = local.region_cluster_cidr["me-east-215-a"] != local.region_cluster_cidr["me-east-215-b"]
+    error_message = "Per-region pod CIDRs MUST be distinct across ClusterMesh peers (D11) — a collision mis-routes the cp1 apiserver→webhook datapath."
+  }
+  assert {
+    condition     = local.region_service_cidr["me-east-215-a"] == "10.96.0.0/16" && local.region_service_cidr["me-east-215-b"] == "10.97.0.0/16"
+    error_message = "Per-region service CIDRs must be 10.96.0.0/16 (primary) and 10.97.0.0/16 (secondary) — offset by region index."
+  }
+
   # Wave 5.7: 2 EIPs (one per region) — was 6 (3 CP × 2 regions) in the
   # historical Hetzner-style fixed-3 design. The new per-region EIP keys
   # by region code (`cp["me-east-215-a"]`) rather than CP index.
