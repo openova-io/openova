@@ -882,9 +882,10 @@ gateway:
   backendService: ""
 # ─── NetworkPolicy ───────────────────────────────────────────────────────
 # Default-allow ingress from the platform's gateway namespace; egress
-# to Postgres, Valkey, Keycloak, in-cluster vLLM, DNS, and the operator-
-# configured commercial-provider endpoints (egress for those is
-# enforced by the cluster's egress gateway, not this NetworkPolicy).
+# to Postgres, Valkey (now in the rtz host namespace — #3373 Batch A),
+# Keycloak, in-cluster vLLM, DNS, and the operator-configured
+# commercial-provider endpoints (egress for those is enforced by the
+# cluster's egress gateway, not this NetworkPolicy).
 networkPolicy:
   enabled: true
   ingress:
@@ -912,8 +913,17 @@ networkPolicy:
     # actual Postgres Pods reconcile into `.Release.Namespace` (this
     # blueprint's namespace), which `cnpg-system` namespaceSelector
     # could never reach.
-    # bp-valkey
-    - namespaceLabel: valkey
+    # bp-valkey — #3373 Batch A (2026-06-14) moved bp-valkey INTO the rtz
+    # vCluster (placement.yaml: `bp-valkey → vcluster: rtz, namespace:
+    # valkey`). The bp-rtz-vcluster syncer reflects the in-vCluster
+    # `valkey-primary` Service to the HOST `rtz` namespace under the
+    # syncer-mangled name `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc`
+    # — matching the rewired REDIS_CONN_STRING (#3483). The `valkey` host
+    # namespace no longer exists, so this egress rule MUST select the `rtz`
+    # namespace where the synced Service actually lives; otherwise newapi's
+    # egress to valkey:6379 is denied and the Pod CrashLoops on the Redis
+    # ping probe (`Redis ping test failed`, measured live hw135 #3374).
+    - namespaceLabel: rtz
       port: 6379
     # bp-keycloak (OIDC discovery + token)
     - namespaceLabel: keycloak
