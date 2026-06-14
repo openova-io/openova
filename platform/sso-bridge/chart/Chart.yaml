@@ -1,6 +1,22 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.16
+version: 0.2.17
+# 0.2.17 (#3374, 2026-06-14): emit the per-app OIDC ExternalSecret into the
+# HR's `targetNamespace` (the namespace where the app POD actually runs),
+# falling back to the HR's own namespace only when targetNamespace is unset.
+# Every Tier-1 SSO slot installs its HR in flux-system but targets the app's
+# own namespace (bp-grafana→grafana, bp-harbor→harbor, bp-openbao→openbao,
+# bp-gitea→gitea, bp-powerdns-admin→powerdns-admin); the pre-fix code wrote
+# the ES into the HR namespace (flux-system), so the projected
+# `<cid>-sso-oidc-credentials` Secret landed in flux-system — invisible to
+# the app Pod's `envFromSecret`. harbor/openbao/gitea were masked because
+# their chart ALSO ships an ES rendering into the targetNamespace; grafana's
+# chart ES is omitted by the install-time `.Capabilities` ESO-CRD-race guard,
+# so grafana had NO ES in its own namespace → Pod stuck 2/3
+# CreateContainerConfigError → grafana route 503 "no healthy upstream". This
+# makes bp-sso-bridge deliver the OIDC secret to the correct namespace for
+# every app regardless of whether the chart-side ES rendered. The default
+# (in-place HR with no targetNamespace) render is byte-identical. Refs #3374.
 # 0.2.16 (#3374, 2026-06-14): the AppRegistration watcher (upsert_per_org_
 # client) now applies an OPTIONAL chart-declared ExternalSecret when the
 # AppRegistration ConfigMap carries a `data["externalSecret.json"]` block
