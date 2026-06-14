@@ -30,6 +30,39 @@ catalystBlueprint:
 # `helm dependency build` resolves the upstream as a subchart; values here
 # under the `external-secrets:` key flow into that subchart unchanged.
 external-secrets:
+  # #3532 — proxy-glob all three ESO component images through the Sovereign-
+  # local Harbor proxy-cache. The upstream subchart defaults every image
+  # (controller + webhook + certController) to
+  # `oci.external-secrets.io/external-secrets/external-secrets`, a registry
+  # that is in NONE of the Huawei containerd proxy-mirrors (#2842 lists 7:
+  # ghcr.io, docker.io, registry.k8s.io, gcr.io, quay.io, xpkg.upbound.io,
+  # public.ecr.aws). On the IPv4-only kom4dc/Huawei VPC that raw registry
+  # resolves DIRECT through the kom4dc NAT blocklist the bastion mirror exists
+  # to bypass → `dial tcp: lookup oci.external-secrets.io: Try again` DNS
+  # SERVFAIL loops for 10-15 min. During that window certController is
+  # ImagePullBackOff → it never mints the webhook serving cert → the ESO
+  # admission webhook stays 0/1 with EMPTY endpoints → every dependent
+  # ExternalSecret install (bp-openbao first) fails "no endpoints available
+  # for service external-secrets-webhook" → openbao install-fail/remediate
+  # loop → keycloak/gitea/harbor/catalyst-platform chain wedged → no wildcard
+  # cert → console 000 → Phase-1 watch budget can blow (hw137/hw138). Verified
+  # live on hw138 (dep 4b5ff7852e33fc15) 2026-06-14: the pull DID succeed
+  # after 10m25s — recoverable but races the watch budget on slow-DNS provs.
+  #
+  # The image is public on ghcr.io/external-secrets/external-secrets (the
+  # subchart's OWN ghcr fallback layer proves it), so `proxy-ghcr` serves it
+  # cred-free — the identical path CNPG uses
+  # (harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql, #3058) which
+  # converges on EVERY Huawei prov. Also satisfies the kyverno
+  # `harbor-proxy-pull` Enforce glob (`*/proxy-*/*`) for converged-env rolls.
+  # The tag stays empty → subchart derives it from the chart appVersion
+  # (v0.10.7), same as upstream. Same fix class + convention as #3375
+  # (openbao) and #3296 (harbor). The webhook + certController image overrides
+  # live in their existing blocks below (one YAML key per component — no
+  # duplicate keys).
+  image:
+    repository: harbor.openova.io/proxy-ghcr/external-secrets/external-secrets
+
   # Install CRDs as part of this chart. ESO ships its own CRDs
   # (external-secrets.io/v1beta1, generators.external-secrets.io/v1alpha1)
   # — they MUST be installed as part of the same Helm release so the
@@ -52,6 +85,11 @@ external-secrets:
   # ESO webhook — needs a TLS cert from the cluster's ClusterIssuer
   # (bp-cert-manager). Webhook resources/replicas tuned for solo Sovereign.
   webhook:
+    # #3532 — proxy-ghcr (see the controller `image:` block above for the
+    # full RCA). The webhook is the component whose empty endpoints stall
+    # every dependent ExternalSecret install, so its image MUST resolve fast.
+    image:
+      repository: harbor.openova.io/proxy-ghcr/external-secrets/external-secrets
     replicaCount: 1
     resources:
       requests:
@@ -69,6 +107,12 @@ external-secrets:
 
   # Cert controller — manages ESO's own webhook TLS via cert-manager.
   certController:
+    # #3532 — proxy-ghcr (see the controller `image:` block above for the
+    # full RCA). certController is the component that was ImagePullBackOff
+    # for 10m25s on hw138 → no webhook serving cert → webhook 0/1 → the
+    # whole openbao cascade; routing it through the Harbor cache is the fix.
+    image:
+      repository: harbor.openova.io/proxy-ghcr/external-secrets/external-secrets
     replicaCount: 1
     resources:
       requests:
