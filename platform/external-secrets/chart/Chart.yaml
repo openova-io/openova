@@ -1,11 +1,22 @@
 apiVersion: v2
 name: bp-external-secrets
-version: 1.1.3
+version: 1.1.4
 description: |
   Catalyst-curated Blueprint umbrella chart for External Secrets Operator
   (ESO) — controller-only as of 1.1.0. Depends on the upstream
   `external-secrets` chart as a Helm subchart so `helm dependency build`
   pulls the upstream payload into this artifact.
+
+  1.1.4 (#3532): proxy-glob all three component images (controller,
+  webhook, certController) through `harbor.openova.io/proxy-ghcr/
+  external-secrets/external-secrets`. The upstream subchart defaults to
+  `oci.external-secrets.io/...`, a registry in NONE of the Huawei
+  containerd proxy-mirrors (#2842), so on the IPv4-only kom4dc VPC it
+  resolves direct through the NAT blocklist → `dial tcp: lookup
+  oci.external-secrets.io: Try again` for 10-15 min → certController
+  ImagePullBackOff → webhook 0/1 no-endpoints → bp-openbao install-fail
+  cascade → console 000 → Phase-1 watch can fail (hw137/hw138). proxy-ghcr
+  serves the public image cred-free (same path CNPG uses, #3058).
 
   1.1.0 (issue #331): the default ClusterSecretStore CR was extracted
   into a separate chart `bp-external-secrets-stores@1.0.0`. Reason:
