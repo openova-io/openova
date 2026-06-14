@@ -108,7 +108,22 @@ name: bp-powerdns-admin
 # (traced live on hw134, dep 6a189d1b7d8cebc8). database-secret.yaml is
 # now skip-rendered (no consumer); the shared-pg-b path already read a
 # reflector-PUSHED hub directly so it is unchanged.
-version: 0.1.14
+# 0.1.15 (#3374, 2026-06-14): zero-click bare-URL SSO lands signed-in. Add the
+# `secret.reloader.stakater.com/reload: pda-sso-oidc-credentials` annotation to
+# the Deployment so Stakater Reloader (bp-reloader) rolls the Pod when the
+# bp-sso-bridge OIDC ExternalSecret materialises/rotates. ROOT CAUSE measured
+# live on hw136 (dep 3a2ee904b1d0366a): on a fresh prov the PDA Pod starts
+# ~3min BEFORE the sso-bridge projects `pda-sso-oidc-credentials`; the OIDC env
+# is injected via `envFrom.secretRef` (optional), which kubelet evaluates ONLY
+# at container creation, so the running Pod boots with EMPTY
+# OIDC_OAUTH_AUTHORIZE_URL/_TOKEN_URL/_KEY -> PDA's Setting().get() returns ''
+# -> authlib raises `Missing "authorize_url" value` (routes/index.py:155) ->
+# the bare-URL 302 lands on PDA's own HTTP 500, never on Keycloak. The Reloader
+# annotation triggers a rolling restart the moment the Secret appears, so the
+# next Pod picks up the OIDC env and /oidc/login 302s to KC -> owner lands on
+# /dashboard/ signed-in (verified live hw136: full Administration sidebar incl.
+# Users, signed in as emrah.baysal@openova.io).
+version: 0.1.15
 description: |
   PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI Blueprint for
   per-Sovereign PowerDNS zone + record management. Drives the

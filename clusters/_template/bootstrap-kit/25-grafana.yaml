@@ -73,6 +73,23 @@ spec:
     # bp-gateway-api (issue #503): chart ships an HTTPRoute template;
     # gateway.networking.k8s.io/v1 CRDs must be registered first.
     - name: bp-gateway-api
+    # bp-external-secrets (#3374, 2026-06-14 — #2988 gold-standard pattern,
+    # mirrors bp-harbor slot 19): the chart ships
+    # templates/sso-oauth-source-externalsecret.yaml which renders grafana's
+    # OIDC env-override Secret (GF_AUTH_GENERIC_OAUTH_* + GF_SERVER_ROOT_URL)
+    # that grafana consumes via envFromSecret. That template is guarded by
+    # `.Capabilities.APIVersions.Has "external-secrets.io/v1beta1"`, and
+    # helm-controller snapshots capabilities at INSTALL time and never
+    # re-evaluates on drift. Without this edge grafana installs ~2s before
+    # bp-external-secrets registers the ESO CRD (observed live on hw136:
+    # ESO CRD created 07:08:06, grafana release.v1 07:08:04) → the ES is
+    # permanently omitted → the GF_-shaped Secret never materialises →
+    # grafana's generic_oauth is unconfigured (empty client_id, redirect_uri
+    # falls back to https://localhost/) → zero-click SSO fails with the route
+    # serving 503 "no healthy upstream". Gating on bp-external-secrets makes
+    # grafana wait for the ESO webhook to be Ready so its chart-side ES
+    # renders into the grafana namespace at install time.
+    - name: bp-external-secrets
     # bp-postgres-shared-b (#3188 three-instance model): when grafana
     # SHARES the shared-pg-b instance, gate on it so the grafana Database
     # + role + reflector-pushed `grafana-database-env` hub Secret exist
@@ -123,6 +140,20 @@ spec:
     # fresh Sovereign.
     sso:
       sovereignFqdn: ${SOVEREIGN_FQDN}
+      # #3374 (2026-06-14): grafana consumes its OIDC secret as DIRECT env
+      # vars via `grafana.envFromSecret: grafana-sso-oidc-credentials`, so it
+      # needs the GF_AUTH_GENERIC_OAUTH_* + GF_SERVER_ROOT_URL keys that ONLY
+      # the chart-side ExternalSecret produces (its target.template renames
+      # the raw OpenBao scalars + derives root_url). bp-sso-bridge projects
+      # RAW keys (client_id/client_secret/authorize_url/...), which grafana
+      # ignores. skipExternalSecret tells bp-sso-bridge to still write the
+      # OpenBao `sso/grafana` bundle (the chart ES's data source) but NOT
+      # apply its own raw-key ES, which would otherwise fight the chart's
+      # transformed ES for ownership of grafana-sso-oidc-credentials and, on a
+      # raw win, leave generic_oauth unconfigured (empty client_id,
+      # redirect_uri https://localhost/). Paired with the bp-external-secrets
+      # dependsOn above (which lets the chart ES actually render at install).
+      skipExternalSecret: true
     # ── Shared-instance flip (#3188 three-instance model) ───────────────
     # The upstream grafana subchart appends this envFrom secretRef to the
     # Deployment. The hub Secret `grafana-database-env` (slot 16c, chart

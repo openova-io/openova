@@ -133,7 +133,15 @@ spec:
       # directly — retires the racy reflects: pull-mirror that left
       # pda-database-secret empty and looped the install forever (wedged
       # bootstrap-kit -> sovereign-tls -> wildcard cert -> console 000).
-      version: 0.1.14
+      # 0.1.15 (#3374, 2026-06-14): secret.reloader.stakater.com/reload
+      # annotation on the Deployment so Reloader rolls the Pod when the
+      # bp-sso-bridge OIDC ExternalSecret materialises — the Pod boots before
+      # the Secret exists on a fresh prov, and envFrom is start-time-only, so
+      # without the roll the OIDC env stays empty -> authlib `Missing
+      # authorize_url` -> bare-URL 302 lands on PDA's own HTTP 500 (measured
+      # live hw136). Reloader roll -> /oidc/login 302s to KC -> owner lands
+      # on /dashboard/ signed-in.
+      version: 0.1.15
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns-admin

@@ -136,7 +136,15 @@ spec:
       # bridge ES was the only one — and it landed in flux-system, invisible to
       # the grafana Pod's envFromSecret. Default (in-place HR) render
       # byte-identical. Refs #3374.
-      version: 0.2.17
+      # 0.2.18 (#3374, 2026-06-14): add sso.skipExternalSecret opt-out so apps
+      # with a chart-side transformed ES (grafana: GF_AUTH_GENERIC_OAUTH_* +
+      # GF_SERVER_ROOT_URL) get the OpenBao bundle written but NOT a colliding
+      # raw-key K8s ExternalSecret. 0.2.17's targetNamespace move made the raw
+      # bp-sso-bridge ES fight grafana's chart ES over grafana-sso-oidc-
+      # credentials → raw win left generic_oauth unconfigured (empty client_id,
+      # redirect_uri https://localhost/). Slot 25-grafana sets the flag.
+      # Default false → harbor/openbao/gitea/powerdns byte-identical. Refs #3374.
+      version: 0.2.18
       sourceRef:
         kind: HelmRepository
         name: bp-sso-bridge
