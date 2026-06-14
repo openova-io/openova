@@ -455,7 +455,14 @@ spec:
       # → local Harbor openova-io stayed EMPTY → post-cutover catalyst-api
       # ImagePullBackOff at Step-07 → Step-08 deny-egress never ran. Fixed:
       # --insecure-policy + capture skopeo's true exit status.
-      version: 0.1.59
+      # 0.1.60 (#3536 Refs #3379): Step-05 (flux-gitrepository-patch) now
+      # wires a flux-system basic-auth secretRef (from the bootstrap-minted
+      # catalyst-gitea-token PAT) into GitRepository/openova BEFORE flipping
+      # the URL to the local Gitea — without it, REQUIRE_SIGNIN_VIEW=true
+      # 401'd every post-pivot clone, Step-06's rewrites never reconciled,
+      # and Step-08's pivot-wait never converged (hw138 keystone catch).
+      # RBAC gains secrets:create. (0.1.59 = PR #3535 Defect-A skopeo fix.)
+      version: 0.1.60
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
