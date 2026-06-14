@@ -1,0 +1,10 @@
+# hw139 Harbor openova-io project — only 6 of ~29 openova-io repos pushed before DeadlineExceeded
+# Proves the harbor-prewarm failure was a TIMEOUT mid-Phase-A, not a logical/deterministic failure.
+
+=== openova-io repos in hw139 Harbor (repo_count from project = 6) ===
+  openova-io/openova/console tags= 1
+  openova-io/openova/catalyst-ui tags= 1
+  openova-io/openova/catalyst-catalog tags= 1
+  openova-io/openova/catalyst-api tags= 1
+  openova-io/openova/application-controller tags= 1
+  openova-io/openova/admin tags= 1

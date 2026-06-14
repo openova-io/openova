@@ -1,0 +1,17 @@
+# hw139 — THE 4 CUTOVER COMPLETION PROOFS (live, 2026-06-14T20:10:11Z)
+# Cutover did NOT complete; each proof documented in its actual incomplete state.
+
+=== PROOF 1: cutoverComplete ===
+cutoverComplete=false  progressPercent=18  failedStep=harbor-prewarm
+
+=== PROOF 2: deny-egress CCNP cutover-egress-block (expect ABSENT — step-08 never reached) ===
+Error from server (NotFound): ciliumclusterwidenetworkpolicies.cilium.io "cutover-egress-block" not found
+
+=== PROOF 3: ghcr-pull dockerconfigjson auths keys (expect ghcr.io — registry-pivot Secret rewrite never ran) ===
+  ns=flux-system  auths=['ghcr.io']
+  ns=catalyst-system  auths=['ghcr.io']
+  ns=catalyst  auths=['ghcr.io']
+  ns=dmz  auths=['ghcr.io']
+
+=== PROOF 4: Flux GitRepository source (expect github.com — step-05 flux-gitrepository-patch never reached) ===
+url=https://github.com/openova-io/openova  secretRef=  ready=True  rev=main@sha1:5e11c4488c9b05586fc4f841ffc6d29ad1655a71

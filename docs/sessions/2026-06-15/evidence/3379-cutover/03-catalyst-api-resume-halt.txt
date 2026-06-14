@@ -1,0 +1,8 @@
+# hw139 catalyst-api (catalyst-system/catalyst-api-776567b56b-gltxb, image eaab0b3) startup resume log
+# DEFECT: cutover-resume finds the stale Failed Job and INSTANTLY re-fails step-03 without re-running it.
+
+{"time":"2026-06-14T19:55:23.358972429Z","level":"INFO","msg":"openbao: kubernetes login succeeded — handover-archive receiver enabled","addr":"http://openbao.openbao.svc.cluster.local:8200","role":"catalyst-api","leaseTTLSeconds":3600}
+{"time":"2026-06-14T19:55:23.359000706Z","level":"INFO","msg":"openbao: handover-archive receiver + SSO auth_url enabled","addr":"http://openbao.openbao.svc.cluster.local:8200"}
+{"time":"2026-06-14T19:55:38.933728745Z","level":"INFO","msg":"cutover-resume: in-flight cutover detected on startup","currentStep":"","currentStepIndex":"2","failedStep":"harbor-prewarm"}
+{"time":"2026-06-14T19:55:38.945426806Z","level":"INFO","msg":"cutover-resume: spawning runCutover to resume interrupted cutover","totalSteps":11}
+{"time":"2026-06-14T19:55:39.07154257Z","level":"ERROR","msg":"cutover: step failed","step":"harbor-prewarm","err":"Job catalyst/cutover-harbor-prewarm-1781464129 reported Failed condition (carried over from prior cutover attempt)"}

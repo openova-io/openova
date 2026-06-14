@@ -1,0 +1,12 @@
+# hw139 harbor-prewarm Job — ROOT CAUSE: DeadlineExceeded (activeDeadlineSeconds=1800)
+# The Job timed out pushing openova-io images via skopeo (slow github/ghcr egress on kom4dc).
+# Only 6 of ~29 openova-io repos landed in Harbor before the 30-min deadline killed it.
+
+=== Job conditions ===
+3
+[{"lastProbeTime":"2026-06-14T19:30:37Z","lastTransitionTime":"2026-06-14T19:30:37Z","message":"Job was active longer than specified deadline","reason":"DeadlineExceeded","status":"True","type":"FailureTarget"},{"lastProbeTime":"2026-06-14T19:31:08Z","lastTransitionTime":"2026-06-14T19:31:08Z","message":"Job was active longer than specified deadline","reason":"DeadlineExceeded","status":"True","type":"Failed"}]
+=== Jobs (cutover-*) ===
+NAME                                 STATUS     COMPLETIONS   DURATION   AGE
+cutover-gitea-mirror-1781464129      Complete   1/1           6m28s      61m
+cutover-harbor-prewarm-1781464129    Failed     0/1           54m        54m
+cutover-harbor-projects-1781464129   Complete   1/1           19s        54m

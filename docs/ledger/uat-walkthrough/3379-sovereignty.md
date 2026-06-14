@@ -2,6 +2,40 @@
 
 **Honest framing:** the cutover (cutting the cord to the mothership) is a behind-the-scenes process the user never drives, so there is **almost no end-user UI**. The user-facing acceptance is the **negative** one — after the Sovereign goes independent, **nothing they touch breaks**. The cutover engine itself is verified from the operator side (handover finalise → 11-step engine → `cutoverComplete`).
 
+## 2026-06-15 — hw139 (`c89aa7059556b342`, kom4dc 2-VPC, chart 0.1.60) — cutover wedged EARLIER, at step-03 harbor-prewarm (NEW keystone catch; NOT the hw136 step-08 wedge)
+
+**Verdict: cutover did NOT complete zero-touch. Wedged at step-03 `harbor-prewarm` (18%).** This is an *earlier* wedge than the hw136 step-08 egress-block one — and the #3535 (skopeo `--insecure-policy`) + #3536 (step-05 `secretRef`) fixes in 0.1.60 are **both present and correct in the live ConfigMaps**, but the engine never reaches step-05/step-08 to exercise them.
+
+The cutover was already fired on hw139 (handover done — operator session established as emrah.baysal@openova.io; tofu-phase0-archive sealed; `cutoverStartedAt 2026-06-14T19:08:49Z`). It ran step-01 → step-02 cleanly, then **harbor-prewarm timed out** and the engine has been permanently stuck there since. ZERO-TOUCH discipline observed — hw139 was **not** hand-patched to force the step.
+
+| Step | Job | Result | One line |
+|---|---|---|---|
+| 01 gitea-mirror | `cutover-gitea-mirror-1781464129` | success | catalog mirrored to local Gitea (19:08:49 → 19:15:18) |
+| 02 harbor-projects | `cutover-harbor-projects-1781464129` | success | openova-io/proxy-* projects created in local Harbor |
+| 03 harbor-prewarm | `cutover-harbor-prewarm-1781464129` | **FAILED** | **DeadlineExceeded** (`activeDeadlineSeconds:1800`) — pushed only **6 of ~29** openova-io images via skopeo before the 30-min deadline killed it; slow github/ghcr egress on kom4dc |
+| 04 registry-pivot | — | not started | engine halted at 03 |
+| 05 flux-gitrepository-patch | — | not started | (#3536 secretRef fix present in the live CM but never executed) |
+| 06 helmrepository-patches | — | not started | — |
+| 07 catalyst-api-env-patch | — | not started | — |
+| 08 egress-block-test | — | not started | **the 600s deny-egress hold never ran** |
+| 09 gitea-token-mint | — | not started | — |
+| 10 vcluster-registry-pivot | — | not started | — |
+| 11 crossplane-provider-pivot | — | not started | — |
+
+**The 4 completion proofs — all in their honest INCOMPLETE state (live kubectl):**
+1. `cutoverComplete = false` (`self-sovereign-cutover-status` CM, `progressPercent=18 failedStep=harbor-prewarm`).
+2. deny-egress CCNP `cutover-egress-block`: **absent** (`NotFound` — step-08 never reached).
+3. `ghcr-pull` dockerconfigjson `auths` still keys **`ghcr.io`** in every ns (flux-system/catalyst-system/catalyst/dmz) — the registry-pivot Secret rewrite never ran.
+4. Flux GitRepository `openova`: still `url=https://github.com/openova-io/openova` (not local Gitea), `secretRef=` empty — step-05 never reached.
+
+**Root cause — two stacked defects (code-cited in `docs/sessions/2026-06-15/evidence/3379-cutover/06-ROOT-CAUSE-code-citations.txt`):**
+- **CAUSE 1 (trigger):** `platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml:52` `activeDeadlineSeconds: {{ .Values.stepTimeouts.harborPrewarmSeconds }}` = `1800` (values.yaml:513), `restartPolicy: Never`. Phase A enumerates every `ghcr.io/openova-io/*` image cluster-wide, downloads a 38MB skopeo binary from github (~120-360KB/s on kom4dc), then skopeo-copies ~29 multi-layer images ghcr.io→local Harbor. That does not fit in 30 min on this link → `reason: DeadlineExceeded`. (6 of 29 repos landed — proof it timed out mid-push, not a logical failure.)
+- **CAUSE 2 (makes it unrecoverable zero-touch):** the resume-on-startup logic (`products/catalyst/bootstrap/api/internal/handler/cutover.go:1355-1388`) *intends* to re-run a failed step ("the failed step re-runs; if it passes this time, the cutover proceeds") but only resets `.result=="running"` rows — a `.result=="failed"` row is left as-is. `runCutover` (`:1053`) then doesn't skip it (not "success") and calls `runCutoverStep`, which via `findExistingTerminalJobForStep` (`:1121-1169`) **finds the stale Failed Job and refuses to re-create it** ("We DO NOT re-create on Failed … operator intervention is required"). The two functions contradict each other: resume wants to re-run, the idempotency check forbids it. The step is **never re-executed**, so EVERY zero-touch re-fire path (engine resume, handover re-POST `source="handover"`, operator CTA `source="operator"`) re-fails at step-03 identically. Witnessed live in the hw139 catalyst-api startup log: `cutover-resume: in-flight cutover detected` → `spawning runCutover to resume` → `cutover: step failed … carried over from prior cutover attempt`.
+
+**Fix direction (follow-up issue, NOT a live patch):** (a) raise `harborPrewarmSeconds` for slow-egress provs and/or chunk the skopeo push; AND (b) make the resume/idempotency path treat a `DeadlineExceeded` Job as transient — delete it and re-run — while still halting on a genuine non-zero logical exit. Both 0.1.60 fixes (#3535/#3536) are correct; this is a distinct, earlier defect they do not cover.
+
+Evidence: `docs/sessions/2026-06-15/evidence/3379-cutover/01..08`.
+
 ## 2026-06-14 — hw136 (`3a2ee904b1d0366a`, kom4dc 2-VPC) — cutover FIRED for the first time on a real Sovereign; halted at the egress-block fail-safe (NO half-pivot)
 
 This is the first execution of the sovereignty cutover on a handed-over Sovereign. PR #3521 (catalyst-api `9de0b65`, in chart `bp-catalyst-platform` 1.4.629) fixed the root cause that previously made it **impossible** — the handover `tofu-archive` receiver was behind `RequireSession`, so on a real Sovereign the mother→child archive POST was 401'd before the handler and the cutover never auto-fired. #3519 flipped `egressTest.enforceCIDRBlock` default→true (bp-self-sovereign-cutover 0.1.57).

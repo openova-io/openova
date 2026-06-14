@@ -1,0 +1,17 @@
+# hw139 (dep c89aa7059556b342) env context — converged 2-region prov, cutover chart 0.1.60 dormant->fired->wedged
+
+=== region-a nodes ===
+NAME                                                           STATUS   ROLES                       AGE    VERSION
+catalyst-hw139-omani-works-c89aa705-me-east-215-a-cp1-cedba1   Ready    control-plane,etcd,master   121m   v1.31.4+k3s1
+catalyst-hw139-omani-works-c89aa705-me-east-215-a-w9b5077      Ready    <none>                      105m   v1.31.4+k3s1
+catalyst-hw139-omani-works-c89aa705-me-east-215-a-wb1b4e4      Ready    <none>                      119m   v1.31.4+k3s1
+catalyst-hw139-omani-works-c89aa705-me-east-215-a-wf4b21d      Ready    <none>                      103m   v1.31.4+k3s1
+
+=== bp-self-sovereign-cutover HR ===
+chart=  ready=True  msg=Helm install succeeded for release catalyst/self-sovereign-cutover.v1 with chart bp-self-sovereign-cutover@0.1.60
+=== HR readiness (54 total; 3 non-Ready are hcloud-only charts non-applicable on Huawei) ===
+total=54 ready=51
+non-Ready:
+  bp-cluster-autoscaler-hcloud
+  bp-hcloud-ccm
+  bp-velero

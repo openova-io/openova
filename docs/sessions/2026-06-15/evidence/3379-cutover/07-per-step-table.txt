@@ -1,0 +1,13 @@
+# hw139 cutover-step-01..11 per-step result (from self-sovereign-cutover-status ConfigMap)
+# step | result | jobName | startedAt -> finishedAt
+step-01 gitea-mirror                   success        cutover-gitea-mirror-1781464129        2026-06-14T19:08:49Z -> 2026-06-14T19:15:18Z
+step-02 harbor-projects                success        cutover-harbor-projects-1781464129     2026-06-14T19:15:18Z -> 2026-06-14T19:15:37Z
+step-03 harbor-prewarm                 failed         cutover-harbor-prewarm-1781464129      2026-06-14T19:15:37Z -> 2026-06-14T19:55:39Z
+step-04 registry-pivot                 (not started)  -                                      - -> -
+step-05 flux-gitrepository-patch       (not started)  -                                      - -> -
+step-06 helmrepository-patches         (not started)  -                                      - -> -
+step-07 catalyst-api-env-patch         (not started)  -                                      - -> -
+step-08 egress-block-test              (not started)  -                                      - -> -
+step-09 gitea-token-mint               (not started)  -                                      - -> -
+step-10 vcluster-registry-pivot        (not started)  -                                      - -> -
+step-11 crossplane-provider-pivot      (not started)  -                                      - -> -

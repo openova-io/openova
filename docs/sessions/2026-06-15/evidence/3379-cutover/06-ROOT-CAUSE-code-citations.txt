@@ -1,0 +1,71 @@
+# hw139 cutover ZERO-TOUCH WEDGE — two stacked root causes (code-cited)
+
+## CAUSE 1 (the trigger): harbor-prewarm DeadlineExceeded on slow egress
+File: platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml:52
+  activeDeadlineSeconds: {{ .Values.stepTimeouts.harborPrewarmSeconds }}
+File: platform/self-sovereign-cutover/chart/values.yaml:513
+  harborPrewarmSeconds: 1800   # 30 min, restartPolicy: Never
+
+Phase A of harbor-prewarm enumerates every ghcr.io/openova-io/* image cluster-wide,
+downloads a 38MB skopeo static binary from github.com (~120-360KB/s on kom4dc), then
+skopeo-copies each multi-layer image ghcr.io -> local Harbor. On hw139 this exceeded
+1800s after pushing only 6 of ~29 openova-io repos. Live Job condition:
+  reason: DeadlineExceeded
+  message: "Job was active longer than specified deadline"
+DeadlineExceeded is terminal regardless of backoffLimit:3 — the Job is marked Failed.
+
+## CAUSE 2 (makes it unrecoverable zero-touch): resume halts on the stale Failed Job
+File: products/catalyst/bootstrap/api/internal/handler/cutover.go:1121-1169 (runCutoverStep)
+  if job, cond, terminal := findExistingTerminalJobForStep(ctx, deps, step.stepName); terminal {
+      ...
+      // cond == batchv1.JobFailed: surface as the step's terminal failure — the
+      // engine halts at this step. We DO NOT re-create on Failed because the
+      // chart's PodSpec is idempotent state-ensure logic and a second attempt
+      // usually fails the same way; operator intervention is required.
+      return fmt.Errorf("Job %s/%s reported Failed condition (carried over from prior cutover attempt)", ...)
+  }
+
+Because the stale Failed Job (cutover-harbor-prewarm-1781464129) is NEVER deleted,
+EVERY re-fire path re-finds it and instantly re-fails step-03 WITHOUT re-running:
+  - engine resume on catalyst-api restart  -> re-fails (witnessed in catalyst-api log)
+  - handover re-POST (source="handover")   -> spawnCutoverEngine -> runCutover -> runCutoverStep -> same halt
+  - operator CTA (source="operator")        -> identical path, same halt
+
+Live catalyst-api (catalyst-system/catalyst-api-776567b56b-gltxb, image eaab0b3) startup:
+  "cutover-resume: in-flight cutover detected on startup" currentStepIndex="2" failedStep="harbor-prewarm"
+  "cutover-resume: spawning runCutover to resume interrupted cutover" totalSteps=11
+  "cutover: step failed" step="harbor-prewarm" err="... reported Failed condition (carried over from prior cutover attempt)"
+
+## NET: cutover is permanently wedged at step-03 (18%); zero-touch recovery is impossible.
+## The fix-at-source belongs in a follow-up — NOT a live hand-patch (ZERO-TOUCH discipline):
+##   (a) make harbor-prewarm robust to a transient timeout (raise harborPrewarmSeconds on
+##       slow-egress provs AND/OR have the resume path DELETE a DeadlineExceeded Job and
+##       re-run, since a timeout is NOT a deterministic logical failure), and/or
+##   (b) findExistingTerminalJobForStep should distinguish DeadlineExceeded (transient,
+##       retryable) from a real non-zero exit (deterministic, halt).
+##
+## NOTE: the #3535 skopeo --insecure-policy fix AND the #3536 step-05 secretRef fix are
+## BOTH present & correct in the live 0.1.60 ConfigMaps on hw139 — but the engine never
+## reaches step-05/step-08 because step-03 wedges first. This is an EARLIER wedge than the
+## hw138 step-05/step-08 GitRepository-auth wedge those fixes addressed.
+
+## CAUSE 2 — the EXACT logic contradiction (two functions disagree)
+File: products/catalyst/bootstrap/api/internal/handler/cutover.go:1355-1388 (resume-on-startup)
+  Comment (1355-1360): "If a previous attempt failed terminally (failedStep != ""), we still
+  resume — ... the failed step re-runs; if it fails again the run terminates again ...;
+  if it passes this time, the cutover proceeds."
+  BUT the reset loop (1368-1388) only resets steps whose .result == "running" to "".
+  A .result == "failed" step is LEFT AS "failed" — never reset.
+
+File: products/catalyst/bootstrap/api/internal/handler/cutover.go:1053 (runCutover loop)
+  if priorStatus["step."+step.stepName+".result"] == "success" { ...skip... }
+  harbor-prewarm result is "failed" (not "success") -> does NOT skip -> calls runCutoverStep.
+
+File: products/catalyst/bootstrap/api/internal/handler/cutover.go:1121-1169 (runCutoverStep)
+  findExistingTerminalJobForStep finds the stale Failed Job -> returns JobFailed ->
+  "We DO NOT re-create on Failed" -> returns the "carried over" error -> HALT.
+
+CONTRADICTION: resume-on-startup INTENDS to re-run a failed step, but runCutoverStep
+REFUSES to re-run while a Failed Job for that step still exists. The step is never
+actually re-executed. Net effect: a transient harbor-prewarm timeout permanently
+wedges the cutover at step-03 with no zero-touch escape.
