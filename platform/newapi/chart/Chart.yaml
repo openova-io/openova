@@ -538,7 +538,36 @@ name: bp-newapi
 # walk, live hw135). Flips `networkPolicy.egress[bp-valkey].namespaceLabel`
 # `valkey` → `rtz` so the rendered egress namespaceSelector permits the
 # datapath to the rtz-synced valkey. Lockstep: 80-newapi.yaml pin → 1.4.83.
-version: 1.4.84
+# 1.4.85 (#3374, 2026-06-14): zero-click bare-URL SSO — auto-redirect on
+# load + custom-provider admin promote. TWO fixes, both root-caused live on
+# hw136 (dep 3a2ee904b1d0366a):
+#   (1) AUTO-REDIRECT. NewAPI's embedded React SPA (pinned mirror, not a fork)
+#       serves a marketing/login homepage at `/` and only fires OIDC on a
+#       "Sign in" CLICK → the zero-click contract was unmet (bare URL showed
+#       the marketing page). oauth2-proxy is the WRONG tool (NewAPI auths only
+#       via its own session cookie + ignores proxy headers — middleware/auth.go)
+#       and a static gateway 302 fails NewAPI's callback CSRF check (the `state`
+#       must be minted same-origin by GET /api/oauth/state first). FIX: the
+#       sandbox-bridge sidecar now serves a SAME-ORIGIN init page at the bare
+#       root (handler/sso_init.go) that runs NewAPI's own onCustomOAuthClicked
+#       sequence (state → /api/status provider → authorize redirect with
+#       kc_idp_hint=catalyst-pin); the HTTPRoute steers ONLY the bare root
+#       (Exact `/`) to the bridge, everything else to NewAPI. The full OIDC
+#       round-trip lands the owner signed-in (proven live on hw136).
+#   (2) ADMIN PROMOTE. NewAPI's CUSTOM (generic) OAuth provider persists the
+#       SSO subject in the `user_oauth_bindings` table, NOT the legacy
+#       `users.oidc_id` column (the comment at model/custom_oauth_provider.go:126
+#       is explicit; oidc_id is only written by the BUILT-IN oidc provider we do
+#       NOT use). The admin-sso-seed-job promote keyed on `oidc_id <> ''`, so
+#       the SSO owner (oidc_id='') was NEVER promoted → stayed role=1 → every
+#       admin route 302'd to /forbidden (live hw136: user `sovereign_2` had a
+#       user_oauth_bindings row but oidc_id=''). FIX: promote on EITHER a
+#       non-empty oidc_id OR a binding to the sovereign custom provider —
+#       verified live, /console/setting now reachable post-SSO.
+# Bridge image rebuilds via build-bp-newapi-sandbox-bridge.yaml (push to
+# internal/handler/**); the Exact `/` route serves the landing once the new
+# bridge image rolls.
+version: 1.4.85
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

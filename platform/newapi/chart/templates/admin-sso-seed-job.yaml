@@ -180,9 +180,36 @@ data:
     promote_oidc_users() {
       # Any SSO-authenticated, active user that is not yet root → root (100).
       # access_policy on the provider gates login to the admin group, so only
-      # authorised owners ever own an oidc_id row.
-      n="$($PSQL -c "UPDATE users SET role=100 WHERE oidc_id IS NOT NULL AND oidc_id <> '' AND role < 100 AND status = 1 RETURNING id;" | wc -l | tr -d ' ')"
-      echo "[admin-seed] promoted ${n} OIDC user(s) to root"
+      # authorised owners ever own an SSO identity row.
+      #
+      # #3374 (2026-06-14) — CUSTOM-PROVIDER identity lives in
+      # `user_oauth_bindings`, NOT `users.oidc_id`. NewAPI's generic
+      # (custom) OAuth provider persists the SSO subject in the
+      # `user_oauth_bindings` table (controller/oauth.go findOrCreateOAuthUser
+      # → model.UpdateUserOAuthBinding; the comment at
+      # model/custom_oauth_provider.go:126 is explicit: "Custom provider: use
+      # user_oauth_bindings table"). The legacy `users.oidc_id` column is only
+      # written by the BUILT-IN `oidc` provider, which this Sovereign does NOT
+      # use (we seed a custom provider, slug `{{ $providerSlug }}`). So an
+      # SSO user created through the sovereign provider has oidc_id='' and the
+      # old `oidc_id <> ''` predicate NEVER matched it → the owner signed in
+      # via SSO but stayed role=1 (common) forever and every admin route
+      # 302'd to /forbidden (measured live on hw136: user `sovereign_2` had a
+      # `user_oauth_bindings` row but oidc_id='' → never promoted). Promote on
+      # EITHER signal: a non-empty legacy oidc_id (built-in provider, kept for
+      # back-compat) OR a binding to the sovereign custom provider.
+      n="$($PSQL -c "UPDATE users SET role=100
+            WHERE status = 1 AND role < 100
+              AND (
+                (oidc_id IS NOT NULL AND oidc_id <> '')
+                OR id IN (
+                  SELECT b.user_id FROM user_oauth_bindings b
+                  JOIN custom_oauth_providers p ON p.id = b.provider_id
+                  WHERE p.slug = '{{ $providerSlug }}'
+                )
+              )
+            RETURNING id;" | wc -l | tr -d ' ')"
+      echo "[admin-seed] promoted ${n} SSO user(s) to root (oidc_id OR {{ $providerSlug }} binding)"
     }
   seed.sh: |
     . /scripts/common.sh

@@ -15,6 +15,12 @@
 //	:8080  POST /admin/tokens/sandbox  → handler.Handler.SandboxToken
 //	:8080  GET  /metrics               → promhttp.Handler (scrape target)
 //	:8080  GET  /healthz               → 200 OK (kubelet probe)
+//	:8080  GET  /                      → handler.SSOInitHandler (#3374
+//	                                     zero-click bare-URL SSO landing page).
+//	                                     The bp-newapi HTTPRoute sends ONLY the
+//	                                     bare root (Exact `/`) here; every other
+//	                                     path goes to NewAPI, so this never
+//	                                     shadows the SPA / API / OIDC callback.
 //
 // Env contract
 //
@@ -23,8 +29,12 @@
 //	NEWAPI_ADMIN_SECRET       required — bearer the sandbox-controller
 //	                          presents. Same Secret, `ADMIN_SECRET` key.
 //	BRIDGE_LISTEN             optional — listen address, default ":8080".
+//	NEWAPI_SSO_INIT_SLUG      optional — custom_oauth_providers.slug the
+//	                          #3374 landing page initiates (default
+//	                          "sovereign"). The bp-newapi admin-sso-seed-job
+//	                          seeds the provider under this slug.
 //
-// Refs #2303, Wave 5.57.
+// Refs #2303, Wave 5.57; #3374 (2026-06-14) zero-click SSO landing.
 package main
 
 import (
@@ -61,6 +71,14 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	// #3374 zero-click bare-URL SSO landing page. Registered LAST and on the
+	// most-specific bare-root path; the bp-newapi HTTPRoute Exact `/` rule is
+	// what actually steers only the bare root to this sidecar (the SPA, API,
+	// and OIDC callback keep flowing to NewAPI). SSOInitHandler itself 404s
+	// any path other than "/" as a belt-and-braces guard.
+	mux.HandleFunc("/", handler.SSOInitHandler(handler.SSOInitConfig{
+		Slug: os.Getenv("NEWAPI_SSO_INIT_SLUG"),
+	}))
 
 	srv := &http.Server{
 		Addr:              addr,
