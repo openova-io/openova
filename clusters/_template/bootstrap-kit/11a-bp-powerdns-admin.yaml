@@ -141,7 +141,13 @@ spec:
       # authorize_url` -> bare-URL 302 lands on PDA's own HTTP 500 (measured
       # live hw136). Reloader roll -> /oidc/login 302s to KC -> owner lands
       # on /dashboard/ signed-in.
-      version: 0.1.15
+      # 0.1.16 (#3374): the Reloader annotation proved UNRELIABLE on a fresh
+      # prov (measured live hw138: annotation present, Pod NEVER rolled, OIDC
+      # env empty 108min -> /oidc/login 500). Added a `wait-for-oidc`
+      # initContainer that blocks the main container until
+      # pda-sso-oidc-credentials is populated, so `envFrom` is never empty at
+      # first serve and /oidc/login deterministically 302s to KC from t=0.
+      version: 0.1.16
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns-admin

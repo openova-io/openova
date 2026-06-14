@@ -346,6 +346,28 @@ spec:
             # custom_oauth_providers.slug. Default "sovereign".
             - name: NEWAPI_SSO_INIT_SLUG
               value: {{ (.Values.adminSeed | default dict).providerSlug | default "sovereign" | quote }}
+            {{- /*
+            #3374 0.1.16 (2026-06-15) — the landing page builds the authorize
+            redirect DIRECTLY from these values instead of discovering them at
+            runtime from GET /api/status. ROOT CAUSE (measured live hw138, dep
+            4b5ff7852e33fc15): NewAPI v0.13.2's /api/status payload has NO
+            `custom_oauth_providers` field, so the old discovery returned [] →
+            the page fell through to /login → the SPA bounced the owner to the
+            /setup wizard (even though the DB was correctly seeded). These are
+            the IDENTICAL values the admin-sso-seed-job seeds into
+            custom_oauth_providers (authorization_endpoint + client_id +
+            scopes). When sovereignFQDN is unset the seed/landing are no-ops
+            anyway (the page degrades to the SPA /login link). */}}
+            {{- $sk := .Values.adminSeed | default dict }}
+            {{- if .Values.sovereignFQDN }}
+            {{- $slug := $sk.providerSlug | default "sovereign" }}
+            - name: NEWAPI_SSO_AUTHORIZE_URL
+              value: {{ printf "https://auth.%s/realms/%s/protocol/openid-connect/auth?kc_idp_hint=catalyst-pin" .Values.sovereignFQDN $slug | quote }}
+            - name: NEWAPI_SSO_CLIENT_ID
+              value: {{ .Values.auth.adminUI.keycloak.clientId | default "newapi-admin" | quote }}
+            - name: NEWAPI_SSO_SCOPES
+              value: {{ $sk.scopes | default "openid profile email groups" | quote }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

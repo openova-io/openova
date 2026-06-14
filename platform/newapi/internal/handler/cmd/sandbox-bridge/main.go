@@ -33,8 +33,20 @@
 //	                          #3374 landing page initiates (default
 //	                          "sovereign"). The bp-newapi admin-sso-seed-job
 //	                          seeds the provider under this slug.
+//	NEWAPI_SSO_AUTHORIZE_URL  optional — the Keycloak authorize endpoint the
+//	                          #3374 landing page redirects to (carries
+//	                          ?kc_idp_hint=catalyst-pin). 0.1.16: the page
+//	                          builds the redirect DIRECTLY from this instead of
+//	                          discovering it from /api/status (v0.13.2 does NOT
+//	                          expose custom_oauth_providers there). Empty ⇒ the
+//	                          page degrades to the SPA /login link.
+//	NEWAPI_SSO_CLIENT_ID      optional — the Keycloak client_id (default
+//	                          "newapi-admin"). Empty ⇒ degrade to /login.
+//	NEWAPI_SSO_SCOPES         optional — OAuth scope string (default
+//	                          "openid profile email groups").
 //
-// Refs #2303, Wave 5.57; #3374 (2026-06-14) zero-click SSO landing.
+// Refs #2303, Wave 5.57; #3374 (2026-06-14) zero-click SSO landing;
+// #3374 0.1.16 (2026-06-15) deterministic redirect (no /api/status discovery).
 package main
 
 import (
@@ -77,7 +89,10 @@ func main() {
 	// and OIDC callback keep flowing to NewAPI). SSOInitHandler itself 404s
 	// any path other than "/" as a belt-and-braces guard.
 	mux.HandleFunc("/", handler.SSOInitHandler(handler.SSOInitConfig{
-		Slug: os.Getenv("NEWAPI_SSO_INIT_SLUG"),
+		Slug:         os.Getenv("NEWAPI_SSO_INIT_SLUG"),
+		AuthorizeURL: os.Getenv("NEWAPI_SSO_AUTHORIZE_URL"),
+		ClientID:     os.Getenv("NEWAPI_SSO_CLIENT_ID"),
+		Scopes:       os.Getenv("NEWAPI_SSO_SCOPES"),
 	}))
 
 	srv := &http.Server{

@@ -231,7 +231,16 @@ spec:
       # `rtz` namespace (where the synced `valkey-primary-x-valkey-x-rtz-
       # vcluster` Service lives) for the 6379 egress rule. This slot sets no
       # `networkPolicy.egress` override, so the chart default IS what renders.
-      version: 1.4.88
+      # 1.4.89 (#3374): zero-click bridge init page no longer DISCOVERS the
+      # authorize endpoint from /api/status (v0.13.2 omits
+      # custom_oauth_providers there → it fell through to /login → the SPA
+      # bounced to /setup). The chart injects NEWAPI_SSO_AUTHORIZE_URL /
+      # NEWAPI_SSO_CLIENT_ID / NEWAPI_SSO_SCOPES so the page redirects
+      # deterministically. NOTE: build-bp-newapi-sandbox-bridge.yaml
+      # auto-bumps this pin further (-> 1.4.90) when it rebuilds the bridge
+      # image on merge, so the slot carries BOTH the env vars AND the new
+      # sidecar binary that reads them.
+      version: 1.4.89
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

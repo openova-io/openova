@@ -224,6 +224,26 @@ sso:
   # exchange; see the loop forensics in templates/httproute.yaml).
   bareURL:
     enabled: true
+  # ── OIDC-readiness gate (#3374, 0.1.16) ────────────────────────────
+  # An initContainer that blocks the main PDA container from starting until
+  # the bp-sso-bridge `pda-sso-oidc-credentials` ExternalSecret exists AND
+  # OIDC_OAUTH_AUTHORIZE_URL is non-empty. This is the ROBUST replacement for
+  # relying on Stakater Reloader to roll the Pod after the Secret syncs:
+  # measured live on hw138 the Reloader annotation was present yet the Pod
+  # was never rolled (108min old), so the OIDC env stayed empty and
+  # /oidc/login HTTP-500'd the whole time. With the gate, `envFrom` always
+  # sees the populated Secret at container creation — the env is NEVER empty
+  # at first serve. See templates/deployment.yaml for the full forensics.
+  oidcReadinessGate:
+    enabled: true
+    # Defaults to the PDA image (has /bin/sh + matches the kyverno harbor
+    # proxy glob). Override only if a smaller glob-compliant image is wanted.
+    image: ""
+    # Phase-1 budget for bp-sso-bridge to project the OIDC Secret. The
+    # sso-bridge client-mint + ExternalSecret sync is a few minutes after the
+    # PDA Pod schedules on a fresh prov; 600s leaves generous headroom.
+    timeoutSeconds: 600
+    intervalSeconds: 5
 
 # Misc PDA settings.
 config:
