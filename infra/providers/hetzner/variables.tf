@@ -112,8 +112,8 @@ variable "enable_hot_standby" {
 # the reuse model was unreachable even on a fresh prov.
 variable "enable_shared_pg" {
   type        = string
-  description = "When 'true', bootstrap-kit slot 16a renders the shared CNPG engine (ADR-0010 #3188 reusable backing-services). Opt-in; default 'false' keeps slot 16a an empty-but-Ready release. Set from catalyst-api Request.EnableSharedPostgres."
-  default     = "false"
+  description = "When 'true' (the default, Refs #3370), bootstrap-kit slots 16a/16c/16d render the shared CNPG engines (ADR-0010 #3188 reusable backing-services) plus each instance's self-registered Application CR — the founder North-Star-2 target and the only path that makes the #3370 instance-cards + Contexts surface render on a fresh prov. Set 'false' for the byte-identical dedicated-cluster path. Set from catalyst-api Request.EnableSharedPostgres."
+  default     = "true"
   validation {
     condition     = contains(["true", "false"], var.enable_shared_pg)
     error_message = "enable_shared_pg must be the string 'true' or 'false'."

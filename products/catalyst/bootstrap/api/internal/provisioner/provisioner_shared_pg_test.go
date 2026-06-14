@@ -65,12 +65,19 @@ func TestWriteTfvars_EnableSharedPostgres_OptInResolvesTrue(t *testing.T) {
 // 2. Absent (the default) keeps the gate OFF — safe-by-default preserved.
 func TestWriteTfvars_EnableSharedPostgres_DefaultResolvesFalse(t *testing.T) {
 	req := tfvarsRequest(t)
-	// EnableSharedPostgres left at its zero value (false) — exactly the
-	// shape every non-opt-in fire-body has today.
+	// EnableSharedPostgres left at its zero value (false) — this is now the
+	// EXPLICIT opt-out shape (an operator who sets `"enableSharedPostgres":
+	// false` in the body for the byte-identical dedicated-cluster path).
+	// As of #3370 the CreateDeployment handler pre-seeds the field to TRUE
+	// before json.Decode, so an OMITTED body provisions shared-pg by
+	// default (covered by handler test TestCreateDeployment_
+	// EnableSharedPostgresDefaultsTrue). This provisioner-layer test pins
+	// that a zero-value Request still stringifies to "false" so the opt-out
+	// path keeps slot 16a an empty-but-Ready release.
 
 	out := writeTfvarsSharedPG(t, req)
 
 	if got := out["enable_shared_pg"]; got != "false" {
-		t.Errorf("enable_shared_pg = %v, want %q (default OFF → slot 16a is an empty-but-Ready release)", got, "false")
+		t.Errorf("enable_shared_pg = %v, want %q (explicit opt-out → slot 16a is an empty-but-Ready release)", got, "false")
 	}
 }
