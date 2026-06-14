@@ -140,6 +140,27 @@ grafana:
     image:
       registry: harbor.openova.io
       repository: proxy-quay/kiwigrid/k8s-sidecar
+    # #3374 (2026-06-14) — the dashboard + datasource sidecars are
+    # `containers[0]`/`[1]` of the grafana Pod (the main grafana container
+    # is last). On a kyverno-Enforce Sovereign the `resource-requests`
+    # ClusterPolicy denies any Pod whose containers omit
+    # resources.requests.cpu/memory — and the upstream chart ships these
+    # sidecars with NO requests, so EVERY grafana Pod roll is blocked
+    # (`Pod ... blocked ... rule requests-pod failed at path
+    # /spec/containers/0/resources/requests/`). The original Pod survives
+    # only because it was admitted before kyverno started enforcing; once
+    # it must reschedule (e.g. to pick up a changed envFromSecret), the new
+    # Pod can never be created and grafana is stuck on the stale spec.
+    # Declaring sidecar.resources makes both sidecars kyverno-compliant so
+    # grafana can actually roll. Tiny footprint — the sidecars just watch
+    # ConfigMaps and POST reload hooks.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 50m
+        memory: 64Mi
     datasources:
       enabled: true
       label: grafana_datasource
