@@ -14,7 +14,10 @@ The cutover runner needs cluster-scope reach because:
   - Step 02 reads bp-harbor admin Secret in `harbor` namespace.
   - Step 02 reads ghcr-pull Secret in `flux-system` namespace.
   - Step 03 only writes to local Harbor over HTTP (no K8s API).
-  - Step 05 patches GitRepository in `flux-system` namespace.
+  - Step 05 reads the `catalyst-gitea-token` PAT in `catalyst-system`,
+    CREATES the basic-auth Secret `cutover-gitea-git-auth` in
+    `flux-system`, and patches GitRepository (URL + secretRef) in
+    `flux-system` so the post-pivot local-Gitea clone authenticates (#3536).
   - Step 06 patches HelmRepositories in `flux-system` namespace, AND
     (phase-0, #1184) merges harbor.<sov-fqdn> auth into the ghcr-pull
     Secret in `flux-system` so source-controller can pull from the
@@ -47,6 +50,9 @@ rules:
   # ───────────────────────────────────────────────────────────────
   - apiGroups: [""]
     resources: ["configmaps"]   # cutover-status ConfigMap is created+updated by every step
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]   # step 05 (#3536) creates the flux-system basic-auth Secret (cutover-gitea-git-auth) wired into GitRepository.spec.secretRef so the post-pivot local-Gitea clone authenticates
     verbs: ["create"]
   - apiGroups: ["cilium.io"]
     resources: ["ciliumnetworkpolicies", "ciliumclusterwidenetworkpolicies"]   # step 08 creates + tears down the cluster-wide egress-block policy (#2940)
