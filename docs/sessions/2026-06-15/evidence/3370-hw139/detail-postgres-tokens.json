@@ -1,0 +1,15 @@
+{
+  "url": "https://console.hw139.omani.works/apps",
+  "tokens": {
+    "Contexts": false,
+    "Dependencies": false,
+    "Backing": false,
+    "binding": false,
+    "shared-pg": false,
+    "database": false,
+    "Database": false,
+    "PostgreSQL": true,
+    "role": false,
+    "secret": true
+  }
+}

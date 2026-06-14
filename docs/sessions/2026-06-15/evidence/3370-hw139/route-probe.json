@@ -1,0 +1,68 @@
+{
+  "/catalog/bp-postgres": {
+    "finalUrl": "https://console.hw139.omani.works/catalog/bp-postgres",
+    "redirected": false,
+    "bodyLen": 5797,
+    "toks": {
+      "Contexts": false,
+      "shareable": true,
+      "shared-pg": true,
+      "Occupied": false,
+      "Credential": false,
+      "New instance": true,
+      "reflector": false,
+      "Not Found": false,
+      "Depends on": false,
+      "keyspace": false,
+      "database": true,
+      "harbor": false,
+      "gitea": false,
+      "keycloak": false,
+      "newapi": false
+    }
+  },
+  "/app/shared-pg": {
+    "finalUrl": "https://console.hw139.omani.works/app/shared-pg",
+    "redirected": false,
+    "bodyLen": 10420,
+    "toks": {
+      "Contexts": true,
+      "shareable": false,
+      "shared-pg": true,
+      "Occupied": false,
+      "Credential": false,
+      "New instance": false,
+      "reflector": true,
+      "Not Found": false,
+      "Depends on": false,
+      "keyspace": false,
+      "database": false,
+      "harbor": false,
+      "gitea": false,
+      "keycloak": false,
+      "newapi": false
+    }
+  },
+  "/app/shared-pg-c": {
+    "finalUrl": "https://console.hw139.omani.works/app/shared-pg-c",
+    "redirected": false,
+    "bodyLen": 10424,
+    "toks": {
+      "Contexts": true,
+      "shareable": false,
+      "shared-pg": true,
+      "Occupied": false,
+      "Credential": false,
+      "New instance": false,
+      "reflector": true,
+      "Not Found": false,
+      "Depends on": false,
+      "keyspace": false,
+      "database": false,
+      "harbor": false,
+      "gitea": false,
+      "keycloak": false,
+      "newapi": false
+    }
+  }
+}

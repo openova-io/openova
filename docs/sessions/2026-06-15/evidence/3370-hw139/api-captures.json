@@ -1,0 +1,14 @@
+{
+  "https://console.hw139.omani.works/api/v1/sovereign/apps": {
+    "status": 401,
+    "body": {
+      "error": "unauthenticated"
+    }
+  },
+  "https://console.hw139.omani.works/catalyst/v1/catalog/postgres/instances": {
+    "status": 401,
+    "body": {
+      "error": "unauthenticated"
+    }
+  }
+}
