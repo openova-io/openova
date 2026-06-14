@@ -1,0 +1,13 @@
+# hw136 #3375 REGION-KILL — execution evidence
+# deployment 3a2ee904b1d0366a / hw136.omani.works / 2-region me-east-215-a (primary) + -b (standby)
+# captured 2026-06-14T08:59:06Z
+
+## Timeline
+T_KILL          (region-a primary cordon+delete) = 2026-06-14T08:57:53.981Z
+T_PROMOTE_PATCH (replica.enabled=false issued)    = 2026-06-14T08:58:14.686Z
+T_WRITABLE      (pg_is_in_recovery=f on region-b) = 2026-06-14T08:58:16.101Z
+
+FULL RTO (kill -> writable)            = 22.12s
+Promotion latency (patch -> writable)  = 1.42s
+(Operator reaction kill -> patch       = 20.70s)
+DATA LOSS = 0 rows (both pre-kill rows id=1,2 survived on promoted region-b)

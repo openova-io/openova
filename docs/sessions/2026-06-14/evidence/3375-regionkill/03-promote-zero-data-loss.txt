@@ -1,0 +1,23 @@
+## PROMOTE + ZERO-DATA-LOSS (region-b)
+### region-b cluster after promote (healthy, new primary established):
+NAME                             AGE   INSTANCES   READY   STATUS                     PRIMARY
+cnpg-pair-bp-cnpg-pair-replica   75m   3           3       Cluster in healthy state   cnpg-pair-bp-cnpg-pair-replica-1
+
+### region-b pg_is_in_recovery() = f (writable) + full table (pre-kill rows survived + post-kill insert):
+ in_recovery 
+-------------
+ f
+(1 row)
+
+ id |               t               |             note              
+----+-------------------------------+-------------------------------
+  1 | 2026-06-14 07:55:21.704402+00 | hw136 cross-region proof
+  2 | 2026-06-14 08:56:59.727468+00 | pre-kill region-a
+ 35 | 2026-06-14 08:58:28.905575+00 | post-kill region-b (promoted)
+(3 rows)
+
+
+### new primary's region-b standbys streaming:
+ 10.43.2.245 | streaming | async
+ 10.43.0.69  | streaming | async
+

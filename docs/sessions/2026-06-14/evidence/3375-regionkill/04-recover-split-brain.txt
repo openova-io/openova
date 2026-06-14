@@ -1,0 +1,22 @@
+## RECOVER + Day-2 split-brain caveat
+
+### region-a nodes uncordoned (all Ready, env non-terminal):
+catalyst-hw136-omani-works-3a2ee904-me-east-215-a-cp1-b1e0ed Ready
+catalyst-hw136-omani-works-3a2ee904-me-east-215-a-w49f9d1 Ready
+catalyst-hw136-omani-works-3a2ee904-me-east-215-a-w6d1cef Ready
+catalyst-hw136-omani-works-3a2ee904-me-east-215-a-w814477 Ready
+
+### critical region-a apps stayed healthy THROUGHOUT the kill (cordon does not evict running pods):
+  keycloak-0      : 1/1 Running age=117m
+  console         : 1/1 Running age=87m
+  catalyst-api    : 1/1 Running age=87m
+  catalyst-ui     : 1/1 Running age=87m
+
+### Day-2 split-brain caveat (per hw128 runbook / docs/sessions/2026-06-11/hw128-region-kill-walk-PASS.md):
+  After uncordon, region-a's cnpg-pair-primary cluster re-bootstrapped as its OWN writable primary
+  from local data, while region-b is the promoted authoritative primary. BOTH now see themselves as
+  primary -> classic post-failover split-brain. The rejoin (rebuild region-a as a standby of the
+  promoted region-b) is a Day-2 reconciliation action (operator / continuum-controller), NOT part of
+  the failover proof. The failover proof (kill -> promote -> zero-data-loss) is complete; the env is
+  left non-terminal with all control-plane apps healthy for the downstream cutover/funnel walks.
+  region-b remains writable (pg_is_in_recovery=f); region-a recovered its primary pod independently.
