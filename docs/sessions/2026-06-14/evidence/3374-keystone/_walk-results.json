@@ -1,296 +1,218 @@
-[
-  {
-    "id": "r1",
-    "label": "console dashboard",
-    "url": "https://console.hw135.omani.works/",
-    "httpStatus": 200,
-    "finalUrl": "https://console.hw135.omani.works/dashboard",
-    "title": "OpenOva Corporate",
-    "verdict": "OK?",
-    "console": [],
-    "page": [],
-    "snippet": "OpenOva Sovereign hw135.omani.works Dashboard Cloud Apps Sandbox Jobs Compliance Users Organizations Settings T Tenant hw135.omani.works Dashboard 96 items Decommission E Dashboard SIZE CPU request Memory request CPU usa"
-  },
-  {
-    "id": "r2",
-    "label": "console admin nav (orgs)",
-    "url": "https://console.hw135.omani.works/organizations",
-    "httpStatus": 200,
-    "finalUrl": "https://console.hw135.omani.works/organizations",
-    "title": "OpenOva Corporate",
-    "verdict": "OK?",
-    "console": [],
-    "page": [],
-    "snippet": "OpenOva Sovereign hw135.omani.works Dashboard Cloud Apps Sandbox Jobs Compliance Users Organizations Settings T Tenant hw135.omani.works Organizations Create organization E Every organization on this Sovereign. The paren"
-  },
-  {
-    "id": "r3",
-    "label": "grafana home",
-    "url": "https://grafana.hw135.omani.works/",
-    "httpStatus": null,
-    "finalUrl": "",
-    "title": "",
-    "verdict": "OK?",
-    "console": [
-      "[console] Failed to load resource: the server responded with a status of 404 ()"
-    ],
-    "page": [],
-    "snippet": "NAV-ERROR: Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://grafana.hw135.omani.works/ Call log: \u001b[2m - navigating to \"https://grafana.hw135.omani.works/\", waiting until \"domcontentloaded\"\u001b[22m "
-  },
-  {
-    "id": "r4",
-    "label": "grafana server admin users",
-    "url": "https://grafana.hw135.omani.works/admin/users",
-    "httpStatus": null,
-    "finalUrl": "",
-    "title": "",
-    "verdict": "OK?",
-    "console": [
-      "[console] Failed to load resource: the server responded with a status of 404 ()"
-    ],
-    "page": [],
-    "snippet": "NAV-ERROR: Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://grafana.hw135.omani.works/admin/users Call log: \u001b[2m - navigating to \"https://grafana.hw135.omani.works/admin/users\", waiting until \"d"
-  },
-  {
-    "id": "r5",
-    "label": "gitea dashboard",
-    "url": "https://gitea.hw135.omani.works/",
-    "httpStatus": null,
-    "finalUrl": "",
-    "title": "",
-    "verdict": "OK?",
-    "console": [
-      "[console] Failed to load resource: the server responded with a status of 404 ()"
-    ],
-    "page": [],
-    "snippet": "NAV-ERROR: Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://gitea.hw135.omani.works/ Call log: \u001b[2m - navigating to \"https://gitea.hw135.omani.works/\", waiting until \"domcontentloaded\"\u001b[22m "
-  },
-  {
-    "id": "r6",
-    "label": "gitea admin (1.22 path -/admin)",
-    "url": "https://gitea.hw135.omani.works/-/admin",
-    "httpStatus": null,
-    "finalUrl": "",
-    "title": "",
-    "verdict": "OK?",
-    "console": [
-      "[console] Failed to load resource: the server responded with a status of 404 ()"
-    ],
-    "page": [],
-    "snippet": "NAV-ERROR: Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://gitea.hw135.omani.works/-/admin Call log: \u001b[2m - navigating to \"https://gitea.hw135.omani.works/-/admin\", waiting until \"domcontentloa"
-  },
-  {
-    "id": "r6b",
-    "label": "gitea admin (/admin fallback)",
-    "url": "https://gitea.hw135.omani.works/admin",
-    "httpStatus": null,
-    "finalUrl": "",
-    "title": "",
-    "verdict": "OK?",
-    "console": [
-      "[console] Failed to load resource: the server responded with a status of 404 ()"
-    ],
-    "page": [],
-    "snippet": "NAV-ERROR: Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://gitea.hw135.omani.works/admin Call log: \u001b[2m - navigating to \"https://gitea.hw135.omani.works/admin\", waiting until \"domcontentloaded\""
-  },
-  {
-    "id": "r7",
-    "label": "harbor projects",
-    "url": "https://registry.hw135.omani.works/",
-    "httpStatus": 200,
-    "finalUrl": "https://registry.hw135.omani.works/c/oidc/login?redirect_url=/harbor/projects",
-    "title": "",
-    "verdict": "OK?",
-    "console": [
-      "[console] Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-      "[console] Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
-    ],
-    "page": [],
-    "snippet": "{\"errors\":[{\"code\":\"UNKNOWN\",\"message\":\"internal server error\"}]} "
-  },
-  {
-    "id": "r8",
-    "label": "harbor admin users",
-    "url": "https://registry.hw135.omani.works/harbor/users",
-    "httpStatus": 200,
-    "finalUrl": "https://registry.hw135.omani.works/c/oidc/login?redirect_url=/harbor/users",
-    "title": "",
-    "verdict": "OK?",
-    "console": [
-      "[console] Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-      "[console] Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
-    ],
-    "page": [],
-    "snippet": "{\"errors\":[{\"code\":\"UNKNOWN\",\"message\":\"internal server error\"}]} "
-  },
-  {
-    "id": "r9",
-    "label": "openbao secrets engines",
-    "url": "https://bao.hw135.omani.works/ui/",
-    "httpStatus": 200,
-    "finalUrl": "chrome-error://chromewebdata/",
-    "title": "auth.hw135.omani.works",
-    "verdict": "ERROR",
-    "console": [
-      "[console] Failed to load resource: the server responded with a status of 404 (Not Found)",
-      "[console] Failed to load resource: the server responded with a status of 404 ()"
-    ],
-    "page": [],
-    "snippet": "This auth.hw135.omani.works page can’t be found No webpage was found for the web address: https://auth.hw135.omani.works/realms/sovereign/protocol/openid-connect/auth?client_id=openbao&code_challenge=PqbrmSNvespQDzAW55iq"
-  },
-  {
-    "id": "r10",
-    "label": "openbao access (auth methods)",
-    "url": "https://bao.hw135.omani.works/ui/vault/access",
-    "httpStatus": 200,
-    "finalUrl": "https://bao.hw135.omani.works/ui/vault/auth?redirect_to=%2Fvault%2Faccess&with=oidc%2F",
-    "title": "OpenBao",
-    "verdict": "LOGIN-FORM",
-    "console": [],
-    "page": [],
-    "snippet": "Sign in to OpenBao Namespace oidc Other oidc/ openova-sso Role Leave blank to sign in with the default role if one is configured Sign in with OIDC Provider Contact your administrator for login credentials © 2026 OpenBao "
-  },
-  {
-    "id": "r11",
-    "label": "pdns-admin dashboard",
-    "url": "https://pdns-admin.hw135.omani.works/",
-    "httpStatus": 500,
-    "finalUrl": "https://pdns-admin.hw135.omani.works/oidc/login",
-    "title": "HTTP 500 Error - PowerDNS-Admin",
-    "verdict": "ERROR",
-    "console": [
-      "[console] Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
-    ],
-    "page": [],
-    "snippet": "PowerDNS-Admin HTTP 500 Error Dashboard HTTP 500 Error HTTP 500 Error Oops! Something went wrong. Try again later. You may return to the dashboard. PowerDNS-Admin - A PowerDNS web interface with advanced features. Versio"
-  },
-  {
-    "id": "r12",
-    "label": "guacamole connections home",
-    "url": "https://guacamole.hw135.omani.works/",
-    "httpStatus": 200,
-    "finalUrl": "chrome-error://chromewebdata/",
-    "title": "auth.hw135.omani.works",
-    "verdict": "ERROR",
-    "console": [
-      "[console] Failed to load resource: the server responded with a status of 403 (Forbidden)",
-      "[console] Failed to load resource: the server responded with a status of 404 ()"
-    ],
-    "page": [],
-    "snippet": "This auth.hw135.omani.works page can’t be found No webpage was found for the web address: https://auth.hw135.omani.works/realms/sovereign/protocol/openid-connect/auth?kc_idp_hint=catalyst-pin&scope=openid+email+profile&r"
-  },
-  {
-    "id": "r13",
-    "label": "guacamole admin settings users",
-    "url": "https://guacamole.hw135.omani.works/#/settings/users",
-    "httpStatus": 200,
-    "finalUrl": "chrome-error://chromewebdata/",
-    "title": "auth.hw135.omani.works",
-    "verdict": "ERROR",
-    "console": [
-      "[console] Failed to load resource: the server responded with a status of 403 (Forbidden)",
-      "[console] Failed to load resource: the server responded with a status of 404 ()"
-    ],
-    "page": [],
-    "snippet": "This auth.hw135.omani.works page can’t be found No webpage was found for the web address: https://auth.hw135.omani.works/realms/sovereign/protocol/openid-connect/auth?kc_idp_hint=catalyst-pin&scope=openid+email+profile&r"
-  },
-  {
-    "id": "r14",
-    "label": "newapi landing",
-    "url": "https://newapi.hw135.omani.works/",
-    "httpStatus": 503,
-    "finalUrl": "https://newapi.hw135.omani.works/",
-    "title": "",
-    "verdict": "ERROR",
-    "console": [
-      "[console] Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-      "[console] Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
-    ],
-    "page": [],
-    "snippet": "no healthy upstream"
-  },
-  {
-    "id": "r15",
-    "label": "newapi admin settings",
-    "url": "https://newapi.hw135.omani.works/setting",
-    "httpStatus": 503,
-    "finalUrl": "https://newapi.hw135.omani.works/setting",
-    "title": "",
-    "verdict": "ERROR",
-    "console": [
-      "[console] Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-      "[console] Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
-    ],
-    "page": [],
-    "snippet": "no healthy upstream"
-  },
-  {
-    "id": "r16",
-    "label": "openova-flow authenticated",
-    "url": "https://openova-flow.hw135.omani.works/",
-    "httpStatus": null,
-    "finalUrl": "",
-    "title": "",
-    "verdict": "OK?",
-    "console": [
-      "[console] Failed to load resource: the server responded with a status of 404 ()"
-    ],
-    "page": [],
-    "snippet": "NAV-ERROR: Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://openova-flow.hw135.omani.works/ Call log: \u001b[2m - navigating to \"https://openova-flow.hw135.omani.works/\", waiting until \"domcontentloa"
-  },
-  {
-    "id": "r17",
-    "label": "hubble service map",
-    "url": "https://hubble.hw135.omani.works/",
-    "httpStatus": 503,
-    "finalUrl": "https://hubble.hw135.omani.works/",
-    "title": "",
-    "verdict": "ERROR",
-    "console": [
-      "[console] Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-      "[console] Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
-    ],
-    "page": [],
-    "snippet": "no healthy upstream"
-  },
-  {
-    "id": "r19",
-    "label": "keycloak realm",
-    "url": "https://auth.hw135.omani.works/",
-    "httpStatus": null,
-    "finalUrl": "",
-    "title": "",
-    "verdict": "OK?",
-    "console": [
-      "[console] Failed to load resource: the server responded with a status of 404 ()"
-    ],
-    "page": [],
-    "snippet": "NAV-ERROR: Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://auth.hw135.omani.works/ Call log: \u001b[2m - navigating to \"https://auth.hw135.omani.works/\", waiting until \"domcontentloaded\"\u001b[22m "
-  },
-  {
-    "id": "r20",
-    "label": "keycloak sovereign admin console",
-    "url": "https://auth.hw135.omani.works/admin/sovereign/console/",
-    "httpStatus": null,
-    "finalUrl": "",
-    "title": "",
-    "verdict": "OK?",
-    "console": [
-      "[console] Failed to load resource: the server responded with a status of 404 ()"
-    ],
-    "page": [],
-    "snippet": "NAV-ERROR: Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://auth.hw135.omani.works/admin/sovereign/console/ Call log: \u001b[2m - navigating to \"https://auth.hw135.omani.works/admin/sovereign/console"
-  },
-  {
-    "id": "r21",
-    "label": "marketplace storefront",
-    "url": "https://marketplace.hw135.omani.works/",
-    "httpStatus": 200,
-    "finalUrl": "https://marketplace.hw135.omani.works/",
-    "title": "Build Your Tenant — OpenOva SME",
-    "verdict": "LOGIN-FORM",
-    "console": [],
-    "page": [],
-    "snippet": "OpenOva 1 Plan · 2 Stack · 3 Add-ons · 4 Topology · 5 Review · 6 Checkout Sign in Build your cloud tenant in under 5 minutes Choose a plan, pick your apps, set up your domain, and launch. Every app is FREE — you only pay"
-  }
-]
+{
+  "results": [
+    {
+      "id": "r1",
+      "url": "https://console.hw136.omani.works/",
+      "label": "console dashboard",
+      "status": 200,
+      "finalUrl": "https://console.hw136.omani.works/dashboard",
+      "title": "OpenOva Corporate",
+      "verdict": "ok-render(status=200)",
+      "body": "OpenOva Sovereign hw136.omani.works Dashboard Cloud Apps Sandbox Jobs Compliance Users Organizations Settings T  Tenant  hw136.omani.works  Dashboard 101 items "
+    },
+    {
+      "id": "r2",
+      "url": "https://console.hw136.omani.works/organizations",
+      "label": "console orgs admin",
+      "status": 200,
+      "finalUrl": "https://console.hw136.omani.works/organizations",
+      "title": "OpenOva Corporate",
+      "verdict": "ok-render(status=200)",
+      "body": "OpenOva Sovereign hw136.omani.works Dashboard Cloud Apps Sandbox Jobs Compliance Users Organizations Settings T  Tenant  hw136.omani.works  Organizations Create"
+    },
+    {
+      "id": "r3",
+      "url": "https://grafana.hw136.omani.works/",
+      "label": "grafana home",
+      "status": 503,
+      "finalUrl": "https://grafana.hw136.omani.works/",
+      "title": "",
+      "verdict": "503/no-upstream",
+      "body": "no healthy upstream"
+    },
+    {
+      "id": "r4",
+      "url": "https://grafana.hw136.omani.works/admin/users",
+      "label": "grafana admin users",
+      "status": 503,
+      "finalUrl": "https://grafana.hw136.omani.works/admin/users",
+      "title": "",
+      "verdict": "503/no-upstream",
+      "body": "no healthy upstream"
+    },
+    {
+      "id": "r5",
+      "url": "https://gitea.hw136.omani.works/",
+      "label": "gitea dashboard",
+      "status": 200,
+      "finalUrl": "https://gitea.hw136.omani.works/",
+      "title": "emrah.baysal - Dashboard - Catalyst Gitea",
+      "verdict": "ok-render(status=200)",
+      "body": "Issues Pull Requests Milestones Explore   emrah.baysal Repository Organization Repositories ? All 0 Sources Forks Mirrors Powered by Gitea Version: 1.22.3 Page:"
+    },
+    {
+      "id": "r6b",
+      "url": "https://gitea.hw136.omani.works/-/admin",
+      "label": "gitea admin",
+      "status": 404,
+      "finalUrl": "https://gitea.hw136.omani.works/-/admin",
+      "title": "Page Not Found - Catalyst Gitea",
+      "verdict": "404",
+      "body": "Issues Pull Requests Milestones Explore    The page you are trying to reach either does not exist or you are not authorized to view it.  Powered by Gitea Versio"
+    },
+    {
+      "id": "r7",
+      "url": "https://registry.hw136.omani.works/",
+      "label": "harbor projects",
+      "status": 200,
+      "finalUrl": "https://registry.hw136.omani.works/harbor/projects",
+      "title": "Harbor",
+      "verdict": "ok-render(status=200)",
+      "body": "Harbor emrah.baysal@openova.io Projects Projects Private 0 Public 1 Total 1 Repositories Private 0 Public 0 Total 0 Quota used 0Byte All Projects Private Projec"
+    },
+    {
+      "id": "r8",
+      "url": "https://registry.hw136.omani.works/harbor/users",
+      "label": "harbor admin users",
+      "status": 200,
+      "finalUrl": "https://registry.hw136.omani.works/harbor/users",
+      "title": "Harbor",
+      "verdict": "ok-render(status=200)",
+      "body": "Harbor emrah.baysal@openova.io Users  NEW USER  SET AS ADMINACTIONS Select All Name Use left or right key to resize the column Administrator Use left or right k"
+    },
+    {
+      "id": "r9",
+      "url": "https://bao.hw136.omani.works/ui/",
+      "label": "openbao secrets engines",
+      "status": 200,
+      "finalUrl": "https://bao.hw136.omani.works/ui/vault/secrets",
+      "title": "OpenBao",
+      "verdict": "ok-render(status=200)",
+      "body": "The page navigation is complete. You may now navigate the page content as you wish. Skip to main content OpenBao Secrets engines Access Policies Tools Monitorin"
+    },
+    {
+      "id": "r10",
+      "url": "https://bao.hw136.omani.works/ui/vault/access",
+      "label": "openbao auth methods",
+      "status": 200,
+      "finalUrl": "https://bao.hw136.omani.works/ui/vault/access",
+      "title": "OpenBao",
+      "verdict": "ok-render(status=200)",
+      "body": "The page navigation is complete. You may now navigate the page content as you wish. Skip to main content Back to main navigation Authentication Authentication m"
+    },
+    {
+      "id": "r11",
+      "url": "https://pdns-admin.hw136.omani.works/",
+      "label": "pdns-admin dashboard",
+      "status": 500,
+      "finalUrl": "https://pdns-admin.hw136.omani.works/oidc/login",
+      "title": "HTTP 500 Error - PowerDNS-Admin",
+      "verdict": "ok-render(status=500)",
+      "body": "PowerDNS-Admin HTTP 500 Error Dashboard HTTP 500 Error HTTP 500 Error  Oops! Something went wrong.  Try again later. You may return to the dashboard.  PowerDNS-"
+    },
+    {
+      "id": "r12",
+      "url": "https://guacamole.hw136.omani.works/",
+      "label": "guacamole connections",
+      "status": 200,
+      "finalUrl": "https://guacamole.hw136.omani.works/guacamole/#/?session_state=d735d41f-e66d-4820-8efc-a8b4072ee98b&iss=https:%2F%2Fauth.hw136.omani.works%2Frealms%2Fsovereign&id_token=eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICIteDk4aHd0N0pHLWpvNnpLRE9MWDFoZFgwcm9kLUwycE52THU0WGNSeWZNIn0.eyJleHAiOjE3ODE0MjQ1NzYsImlhdCI6MTc4MTQyMzY3NiwianRpIjoiMzRiZmY3ZjMtNmMyOS1jMDIwLTM4NzAtMGM2ZmVhODBkNGE2IiwiaXNzIjoiaHR0cHM6Ly9hdXRoLmh3MTM2Lm9tYW5pLndvcmtzL3JlYWxtcy9zb3ZlcmVpZ24iLCJhdWQiOiJndWFjYW1vbGUiLCJzdWIiOiJiNGU2ZDYyOS1mYzdlLTRhNDctYjZlYS02NWIzMGVlOWNiNTIiLCJ0eXAiOiJJRCIsImF6cCI6Imd1YWNhbW9sZSIsIm5vbmNlIjoiZ2QzYjZia3JhcXVmMTA5M3NrYTl2NjQ0dGkiLCJzaWQiOiJkNzM1ZDQxZi1lNjZkLTQ4MjAtOGVmYy1hOGI0MDcyZWU5OGIiLCJhY3IiOiIwIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImdyb3VwcyI6WyJzb3ZlcmVpZ24tYWRtaW5zIiwic292ZXJlaWduLXZpZXdlcnMiXSwicHJlZmVycmVkX3VzZXJuYW1lIjoiZW1yYWguYmF5c2FsQG9wZW5vdmEuaW8iLCJlbWFpbCI6ImVtcmFoLmJheXNhbEBvcGVub3ZhLmlvIn0.caBANy4bNRZuqnX8fNYyX9SvmjO5-_1ZtqibP30tJjoESeRSzzV2H_LvLSFQQmDUFi0IVLdgtuthQm2C4pgKUjSDmgQIWfd7cl3QUBpGPTCdCwxYPXDt36Fk0VozGdPogmMqdqcUrgZLtBsQV_L5QMc2nzJp1UsMuMKy2tyymr1dmu9SFesxGpmUOhnTArspaiCLKigm_ZXRDYqniJlbOHRw-8eZiggzWjVROj7Rk9zXoW8r61EVlIBVu28RM9Yrn7qXxmf2XvvLuCdDF_KLiB7smR5kZGSZ8u_dJAtLe1d717UPbYjC6Z1kvzPOzTWG8n1QLllAW7nw3vdvc683LQ",
+      "title": "Apache Guacamole",
+      "verdict": "ok-render(status=200)",
+      "body": "RECENT CONNECTIONS emrah.baysal@openova.io  No recent connections.  ALL CONNECTIONS"
+    },
+    {
+      "id": "r13",
+      "url": "https://guacamole.hw136.omani.works/#/settings/users",
+      "label": "guacamole admin users",
+      "status": 200,
+      "finalUrl": "https://guacamole.hw136.omani.works/guacamole/#/settings/users",
+      "title": "Apache Guacamole",
+      "verdict": "LOGIN-FORM?",
+      "body": "SETTINGS emrah.baysal@openova.io Active Sessions History Users Groups Connections Preferences  Click or tap on a user below to manage that user. Depending on yo"
+    },
+    {
+      "id": "r14",
+      "url": "https://newapi.hw136.omani.works/",
+      "label": "newapi admin",
+      "status": 200,
+      "finalUrl": "https://newapi.hw136.omani.works/",
+      "title": "New API",
+      "verdict": "LOGIN-FORM?",
+      "body": "New API Home Console Model Marketplace Documentation About Sign in Sign up The Unified LLM API Gateway  Better price, better stability, no subscription required"
+    },
+    {
+      "id": "r15",
+      "url": "https://newapi.hw136.omani.works/setting",
+      "label": "newapi settings",
+      "status": 200,
+      "finalUrl": "https://newapi.hw136.omani.works/setting",
+      "title": "New API",
+      "verdict": "LOGIN-FORM?",
+      "body": "New API Home Console Model Marketplace Documentation About Sign in Sign up Page not found, please check if your browser address is correct © 2026 New API. All r"
+    },
+    {
+      "id": "r16",
+      "url": "https://openova-flow.hw136.omani.works/",
+      "label": "openova-flow authenticated",
+      "status": 200,
+      "finalUrl": "https://openova-flow.hw136.omani.works/",
+      "title": "",
+      "verdict": "ok-render(status=200)",
+      "body": "{\"service\":\"openova-flow-server\",\"description\":\"OpenovaFlow HTTP+SSE event router. No UI is served from this binary — the React canvas library is consumed by th"
+    },
+    {
+      "id": "r17",
+      "url": "https://hubble.hw136.omani.works/",
+      "label": "hubble service map",
+      "status": 200,
+      "finalUrl": "https://hubble.hw136.omani.works/",
+      "title": "Hubble UI",
+      "verdict": "ok-render(status=200)",
+      "body": "Choose namespace Idle Welcome!  To begin select one of the namespaces:  alloy catalyst catalyst-system cert-manager cilium-secrets cluster-autoscaler cnpg cnpg-"
+    },
+    {
+      "id": "r19",
+      "url": "https://auth.hw136.omani.works/",
+      "label": "keycloak realm console",
+      "status": 200,
+      "finalUrl": "https://auth.hw136.omani.works/admin/sovereign/console/",
+      "title": "Keycloak Administration Console",
+      "verdict": "ok-render(status=200)",
+      "body": "emrah.baysal@openova.io Sovereign  Current realm Manage Clients Client scopes Realm roles Users Groups Sessions Events Configure Realm settings Authentication I"
+    },
+    {
+      "id": "r20",
+      "url": "https://auth.hw136.omani.works/admin/sovereign/console/",
+      "label": "keycloak sovereign console",
+      "status": 200,
+      "finalUrl": "https://auth.hw136.omani.works/admin/sovereign/console/",
+      "title": "Keycloak Administration Console",
+      "verdict": "ok-render(status=200)",
+      "body": "emrah.baysal@openova.io Sovereign  Current realm Manage Clients Client scopes Realm roles Users Groups Sessions Events Configure Realm settings Authentication I"
+    },
+    {
+      "id": "r21",
+      "url": "https://marketplace.hw136.omani.works/",
+      "label": "marketplace storefront",
+      "status": 200,
+      "finalUrl": "https://marketplace.hw136.omani.works/",
+      "title": "Build Your Tenant — OpenOva SME",
+      "verdict": "LOGIN-FORM?",
+      "body": "OpenOva 1 Plan · 2 Stack · 3 Add-ons · 4 Topology · 5 Review · 6 Checkout Sign in Build your cloud tenant in under 5 minutes  Choose a plan, pick your apps, set"
+    }
+  ],
+  "pageErrors": [],
+  "consoleErrors": [
+    "https://grafana.hw136.omani.works/ :: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    "https://grafana.hw136.omani.works/admin/users :: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    "https://gitea.hw136.omani.works/ :: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "https://gitea.hw136.omani.works/ :: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "https://gitea.hw136.omani.works/ :: worker error Event",
+    "https://gitea.hw136.omani.works/-/admin :: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "https://registry.hw136.omani.works/ :: Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "https://pdns-admin.hw136.omani.works/oidc/login :: Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "https://guacamole.hw136.omani.works/guacamole/#/ :: Failed to load resource: the server responded with a status of 403 (Forbidden)",
+    "https://guacamole.hw136.omani.works/guacamole/#/?session_state=d735d41f-e66d-4820-8efc-a8b4072ee98b&iss=https:%2F%2Fauth.hw136.omani.works%2Frealms%2Fsovereign&id_token=eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICIteDk4aHd0N0pHLWpvNnpLRE9MWDFoZFgwcm9kLUwycE52THU0WGNSeWZNIn0.eyJleHAiOjE3ODE0MjQ1NzYsImlhdCI6MTc4MTQyMzY3NiwianRpIjoiMzRiZmY3ZjMtNmMyOS1jMDIwLTM4NzAtMGM2ZmVhODBkNGE2IiwiaXNzIjoiaHR0cHM6Ly9hdXRoLmh3MTM2Lm9tYW5pLndvcmtzL3JlYWxtcy9zb3ZlcmVpZ24iLCJhdWQiOiJndWFjYW1vbGUiLCJzdWIiOiJiNGU2ZDYyOS1mYzdlLTRhNDctYjZlYS02NWIzMGVlOWNiNTIiLCJ0eXAiOiJJRCIsImF6cCI6Imd1YWNhbW9sZSIsIm5vbmNlIjoiZ2QzYjZia3JhcXVmMTA5M3NrYTl2NjQ0dGkiLCJzaWQiOiJkNzM1ZDQxZi1lNjZkLTQ4MjAtOGVmYy1hOGI0MDcyZWU5OGIiLCJhY3IiOiIwIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImdyb3VwcyI6WyJzb3ZlcmVpZ24tYWRtaW5zIiwic292ZXJlaWduLXZpZXdlcnMiXSwicHJlZmVycmVkX3VzZXJuYW1lIjoiZW1yYWguYmF5c2FsQG9wZW5vdmEuaW8iLCJlbWFpbCI6ImVtcmFoLmJheXNhbEBvcGVub3ZhLmlvIn0.caBANy4bNRZuqnX8fNYyX9SvmjO5-_1ZtqibP30tJjoESeRSzzV2H_LvLSFQQmDUFi0IVLdgtuthQm2C4pgKUjSDmgQIWfd7cl3QUBpGPTCdCwxYPXDt36Fk0VozGdPogmMqdqcUrgZLtBsQV_L5QMc2nzJp1UsMuMKy2tyymr1dmu9SFesxGpmUOhnTArspaiCLKigm_ZXRDYqniJlbOHRw-8eZiggzWjVROj7Rk9zXoW8r61EVlIBVu28RM9Yrn7qXxmf2XvvLuCdDF_KLiB7smR5kZGSZ8u_dJAtLe1d717UPbYjC6Z1kvzPOzTWG8n1QLllAW7nw3vdvc683LQ :: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "https://guacamole.hw136.omani.works/guacamole/#/settings/users :: Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ]
+}
