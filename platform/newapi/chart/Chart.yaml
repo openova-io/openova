@@ -624,7 +624,7 @@ name: bp-newapi
 # URL/client_id are unset the page degrades to the SPA /login link. The bridge
 # IMAGE TAG + a further chart patch bump are auto-committed by
 # build-bp-newapi-sandbox-bridge.yaml on merge (push to internal/handler/**).
-version: 1.4.91
+version: 1.4.92
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
