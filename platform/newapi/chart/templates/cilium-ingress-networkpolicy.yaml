@@ -42,4 +42,18 @@ spec:
             - port: {{ .Values.meteringSidecar.port | quote }}
               protocol: TCP
             {{- end }}
+            {{- /* #3374 — the zero-click bare-URL SSO landing page is served by
+              the sandbox-bridge sidecar on its own port; the HTTPRoute's
+              Exact `/` rule sends the gateway straight to it. Without this
+              carve-out the gateway→bridge:8080 hop is default-denied and the
+              bare URL returns "upstream connect error ... connection timeout"
+              (measured live on hw136 after the Exact `/` route landed). Gated
+              on ssoInit + sandboxBridge so a Sovereign that disables either
+              never opens the port. */}}
+            {{- $ssoInit := .Values.ssoInit | default dict }}
+            {{- $ssoInitOn := or (not (hasKey $ssoInit "enabled")) $ssoInit.enabled }}
+            {{- if and $ssoInitOn .Values.sandboxBridge.enabled }}
+            - port: {{ .Values.sandboxBridge.port | quote }}
+              protocol: TCP
+            {{- end }}
 {{- end }}

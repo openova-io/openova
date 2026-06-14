@@ -567,7 +567,16 @@ name: bp-newapi
 # Bridge image rebuilds via build-bp-newapi-sandbox-bridge.yaml (push to
 # internal/handler/**); the Exact `/` route serves the landing once the new
 # bridge image rolls.
-version: 1.4.86
+# 1.4.87 (#3374, 2026-06-14): open the gateway->sandbox-bridge:8080 hop in the
+# gateway-ingress CiliumNetworkPolicy. The 1.4.85 Exact `/` HTTPRoute steers the
+# bare root to the bridge sidecar, but the gateway-ingress CNP (fromEntities:
+# ingress) only allowed newapi:3000 + metering:8086 — so the gateway->bridge:8080
+# hop was default-denied and the bare URL returned "upstream connect error ...
+# connection timeout" (measured live on hw136 after the bridge image rolled).
+# Add the bridge port to the CNP toPorts, gated on ssoInit + sandboxBridge.
+# Verified live on hw136: bare URL https://newapi.<fqdn>/ now serves the init
+# page -> silent KC broker -> lands signed-in in /console (zero-click).
+version: 1.4.87
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
