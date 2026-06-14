@@ -1,5 +1,31 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.61 (#3379 + #3526, hw139 step-03 wedge, 2026-06-15): Step-03
+# harbor-prewarm DeadlineExceeded. The ~29 multi-layer PRIVATE openova-io
+# images are skopeo-native-pushed ghcr.io→local Harbor (the ONLY working
+# route — Harbor's anonymous proxy-cache 404s these private packages,
+# #3534). They ran STRICTLY SERIAL over kom4dc's throttled egress and blew
+# the deadline with only 6/29 pushed → incomplete local Harbor →
+# post-cutover ImagePullBackOff → Step-08 deny-egress proof never ran.
+# TWO fixes here (chart side) + a paired catalyst-api change:
+#   (1) PARALLELIZE Phase-A: the copy loop now fans out PREWARM_PARALLELISM
+#       (default 6) concurrent `skopeo copy` workers (each writes its own
+#       .ok/.fail sentinel + log; the parent waits + tallies), collapsing
+#       wall-clock ~6x. Each copy also gains `--retry-times 3` so a single
+#       transient ghcr/Harbor 5xx self-heals. POSIX-clean (dash/sh/busybox
+#       -n verified): live-PID counting throttle (no `wait -n`/arrays).
+#   (2) RAISE stepTimeouts.harborPrewarmSeconds 1800 → 5400 (90m) so a
+#       worst-case slow-egress run finishes inside budget. Event-driven
+#       watch means a fast run never waits out the ceiling.
+# The deadline bump only takes effect because catalyst-api now stamps the
+# Job/watch deadline from THIS per-step value (cutover.go cutoverStepDeadline
+# → createCutoverJob + watchJobToCompletion) instead of the old global 15m
+# cap that silently bounded every long step. And catalyst-api's resume/
+# re-fire path now treats a DeadlineExceeded Failed Job as TRANSIENT
+# (delete + re-run) rather than terminal — so a timed-out step-03 no longer
+# wedges the cutover forever. No step-count change (still 11 steps); the
+# two earlier #3379 hw138 catches (--insecure-policy + real-exit-status
+# branch) stay in force.
 # 0.1.58 (#3526 Refs #3379, 2026-06-14): make Step-08 (egress-block-test)
 # pre-flight HelmRepository-pivot assertion ROBUST to Step-06's async
 # git-push window. Step-06 (helmrepository-patches) pivots the OCI
@@ -471,7 +497,7 @@ name: bp-self-sovereign-cutover
 # and wires it into GitRepository.spec.secretRef BEFORE the URL flip — same
 # credential + pattern as #3454's openova-sme-tenants GitRepository. Adds
 # `secrets: create` to the cutover-runner RBAC.
-version: 0.1.60
+version: 0.1.61
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
