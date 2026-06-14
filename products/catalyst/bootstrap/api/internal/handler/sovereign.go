@@ -630,6 +630,13 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 	// CR (spec.helmRelease) are suppressed so one running instance is
 	// exactly one card.
 	var appCRs []unstructured.Unstructured
+	// #3370 — the full HelmRelease list is retained so bootstrap-kit
+	// shareable instances (shared-pg / -b / -c on a zero-touch prov, which
+	// have NO companion Application CR) can ALSO project as instance cards
+	// below. Mirrors HandleListBlueprintInstances' bootstrapHRInstances
+	// fallback — without it, /apps shows zero instance cards on a converged
+	// prov even though /catalyst/v1/catalog/<bp>/instances renders them.
+	var hrItems []unstructured.Unstructured
 	instanceRows := []sovereignAppItem{}
 	adoptedHRs := map[string]bool{}
 	deps, depsErr := h.sovereignDepsFor()
@@ -637,6 +644,7 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 		if hrList, err := deps.dyn.Resource(helmReleaseGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
+			hrItems = hrList.Items
 			for _, hr := range hrList.Items {
 				name := hr.GetName()
 				if helmReleaseReady(&hr) {
@@ -785,6 +793,87 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 				Topology:     topology,
 				ContextCount: contextCount,
 			})
+		}
+
+		// #3370 — project bootstrap-kit SHAREABLE HelmReleases as instance
+		// cards too. On a zero-touch converged prov the shared-pg / -b / -c
+		// instances exist ONLY as Flux HelmReleases (no companion
+		// Application CR yet — the self-registered CR materialises on the
+		// first post-bootstrap upgrade after the Application CRD lands), so
+		// the Application-CR pass above projects zero instance rows. Without
+		// this fallback /apps shows no shared-pg cards + no ⛓ Contexts badge
+		// even though /catalyst/v1/catalog/<bp>/instances already renders
+		// them (the bootstrapHRInstances fallback in HandleListBlueprintInstances).
+		// This is the GENERIC mechanism — any shareable Blueprint (postgres,
+		// valkey, kafka, seaweedfs) whose HR declares Contexts under its
+		// contextSchema valuesKey projects here with zero per-service code.
+		//
+		// Dedup: a shareable HR ADOPTED by a self-registered Application CR
+		// (adoptedHRs, keyed by spec.helmRelease.name) is already projected
+		// above — skip it so one running instance is exactly one card. We
+		// also skip when an Application-CR instance row already carries the
+		// HR's releaseName (the instance identity the self-registered CR is
+		// named after).
+		seenInstanceName := map[string]bool{}
+		for _, ir := range instanceRows {
+			seenInstanceName[strings.ToLower(ir.ID)] = true
+		}
+		for i := range hrItems {
+			hr := &hrItems[i]
+			hrName := hr.GetName()
+			if adoptedHRs[hrName] {
+				continue
+			}
+			chart, _, _ := unstructured.NestedString(hr.Object, "spec", "chart", "spec", "chart")
+			ctxSchema := h.contextSchemaFor(ctx, chart)
+			if ctxSchema == nil || ctxSchema.ValuesKey == "" {
+				// non-shareable chart → not an instance card (it stays a
+				// regular installed/bootstrap row below).
+				continue
+			}
+			// Instance identity = spec.releaseName (the Helm release IS the
+			// instance — shared-pg). Fall back to the HR name with bp-
+			// stripped (Flux default: release name = HR name).
+			instName, _, _ := unstructured.NestedString(hr.Object, "spec", "releaseName")
+			if instName == "" {
+				instName = strings.TrimPrefix(hrName, "bp-")
+			}
+			if seenInstanceName[strings.ToLower(instName)] {
+				continue
+			}
+			seenInstanceName[strings.ToLower(instName)] = true
+			bpFull := chart
+			if !strings.HasPrefix(bpFull, "bp-") {
+				bpFull = "bp-" + bpFull
+			}
+			slug := strings.TrimPrefix(bpFull, "bp-")
+			values, _, _ := unstructured.NestedMap(hr.Object, "spec", "values")
+			contextCount := 0
+			if entries, ok := values[ctxSchema.ValuesKey].([]interface{}); ok {
+				contextCount = len(entries)
+			}
+			status := "installing"
+			if helmReleaseReady(hr) {
+				status = "installed"
+			}
+			instanceRows = append(instanceRows, sovereignAppItem{
+				ID:           instName,
+				Slug:         slug,
+				Title:        instName,
+				Status:       status,
+				BootstrapKit: true,
+				Environment:  resolveAppEnvironment(envBySlug, instName),
+				ExternalURL:  urlByHRName[hrName],
+				Instance:     true,
+				Blueprint:    bpFull,
+				Topology:     readTopologyFromValues(values),
+				ContextCount: contextCount,
+			})
+			// Suppress the bootstrap SLOT row for this HR below — it is now
+			// represented by its instance card (one physical instance = one
+			// card). The slot row keys off the HR's catalog id (bp-<slug>),
+			// which is the HR name for bootstrap-kit installs.
+			adoptedHRs[hrName] = true
 		}
 	}
 
