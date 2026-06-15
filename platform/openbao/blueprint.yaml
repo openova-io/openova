@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.40
+  version: 1.2.41
   card:
     title: openbao
     summary: OpenBao secret backend. 3-node Raft per region (independent quorum, async perf-replication across regions). MPL 2.0 — drop-in Vault replacement.
@@ -27,13 +27,19 @@ spec:
   depends: []
 
   # ── G117.1: Topology declaration ────────────────────────────────────────
-  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
-  #   mgmt-A=Active, mgmt-B=Passive. Within cluster: Raft consensus
-  #   (3-5 replicas). Cross-cluster: async perf-replication (OSS uses
-  #   snapshot+restore). Switchover: `bao operator raft transition-to-primary`
-  #   on the standby; KV reads continue uninterrupted on replica throughout.
-  #   Active-hot-standby disallowed by schema (requires sync mode); OpenBao
-  #   OSS perf-replication is async-only.
+  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md +
+  # CORRECTION #3492 (2026-06-15): mgmt-A=Active, mgmt-B=Passive. Within
+  # cluster: Raft consensus. Cross-cluster: OpenBao OSS has NO perf-replication
+  # (Enterprise-only); the real mechanism is a single STRETCHED RAFT cluster —
+  # mgmt-B joins mgmt-A as a NON-VOTER via retry_join_as_non_voter (openbao
+  # discussion #1842), so mgmt-B holds mgmt-A's LIVE KV (RPO≈0) over the same
+  # Cilium ClusterMesh bp-cnpg-pair uses. Switchover (raft-transition): on a
+  # region-kill bp-continuum runs the OSS peers.json recovery (write a single-
+  # voter peers.json on the survivor + restart its Pod) — `transition-to-primary`
+  # is Enterprise-only and absent in OSS (openbao PR #996). KV reads continue
+  # uninterrupted on the replica until the single restart. Active-hot-standby
+  # disallowed by schema (requires sync mode); the raft replication stream is
+  # async.
   topology:
     supported:
       - active-passive
@@ -44,7 +50,9 @@ spec:
     perTopology:
       active-passive:
         replication:
-          backend: openbao-perf-replication
+          # `raft` = the OSS stretched-raft non-voter replication stream (NOT
+          # the Enterprise-only `openbao-perf-replication`). #3492.
+          backend: raft
           mode: async
           lagSloSeconds: 30
         switchover:

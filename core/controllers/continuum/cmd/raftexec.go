@@ -22,6 +22,7 @@ import (
 	"sort"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -85,6 +86,22 @@ func (e *spdyPodExecutor) Exec(ctx context.Context, namespace, pod, container st
 		return out, streamErr
 	}
 	return out, nil
+}
+
+// RestartPod implements switchover.PodRestarter — deletes (namespace/pod); the
+// owning StatefulSet recreates it with the same name + PVC. Used by the
+// raft-transition peers.json recovery (#3492): after the peers.json write the
+// survivor Pod must restart so openbao re-reads peers.json on boot and
+// self-elects as the sole leader (peers.json is consumed at process start, not
+// live). A not-found delete is treated as success (already gone → will be
+// recreated). bp-continuum's ServiceAccount needs pods/delete RBAC in the
+// target namespace.
+func (e *spdyPodExecutor) RestartPod(ctx context.Context, namespace, pod string) error {
+	err := e.clientset.CoreV1().Pods(namespace).Delete(ctx, pod, metav1.DeleteOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("raftexec: delete pod %s/%s: %w", namespace, pod, err)
+	}
+	return nil
 }
 
 // dynamicPodLister implements switchover.PodLister via the dynamic client.

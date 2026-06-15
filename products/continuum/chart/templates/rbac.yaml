@@ -54,15 +54,18 @@ rules:
     resources: ["httproutes"]
     verbs: ["get", "list", "watch", "update", "patch"]
   # #3492 — raft-transition mechanism (bp-openbao). The switchover
-  # sequence's promote step execs `bao operator raft snapshot restore` +
-  # `transition-to-primary` inside the surviving openbao standby Pod, and
-  # resolves a podSelector to a Ready Pod. cnpg-pair switchovers never use
-  # these; the grant ships up-front per Inviolable Principle #1
-  # (target-state shape). pods/exec is the create-verb subresource the
-  # SPDY exec stream requires.
+  # sequence's promote step is OpenBao OSS peers.json RECOVERY: it execs
+  # (optionally `bao operator raft snapshot restore`, then) a peers.json
+  # rewrite inside the surviving openbao standby Pod, resolves a podSelector
+  # to a Ready Pod, then DELETEs the Pod so openbao re-reads peers.json on
+  # boot and self-elects as the sole leader. cnpg-pair switchovers never use
+  # these; the grant ships up-front per Inviolable Principle #1 (target-state
+  # shape). pods/exec is the create-verb subresource the SPDY exec stream
+  # requires; `delete` on pods restarts the survivor for the peers.json
+  # recovery (transition-to-primary is NOT an OSS command — openbao PR #996).
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "delete"]
   - apiGroups: [""]
     resources: ["pods/exec"]
     verbs: ["create"]

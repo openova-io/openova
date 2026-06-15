@@ -82,11 +82,14 @@ spec:
       # gate, which #3477 left asserting the pre-move s3 endpoint), wedging
       # `chart pull error: not found` on hw133 + every fresh prov. Test fixed +
       # version bumped so the pinned artifact is fetchable on ghcr.
-      # 1.2.40 (#3492): ship the openbao DR contract (Continuum CR,
-      # mechanism=raft-transition) so bp-continuum can promote bp-openbao
-      # on a region-kill. Default-OFF (continuum.enabled + role=secondary),
-      # so the single-region render is byte-identical. Pin in lockstep.
-      version: 1.2.40
+      # 1.2.41 (#3492): CORRECT the cross-region DR to the real OSS mechanism —
+      # region-B joins region-A's raft as a NON-VOTER via retry_join (stretched
+      # cluster, holds region-A's live KV) instead of the unbuildable
+      # snapshot-restore + transition-to-primary (which is not an OSS command).
+      # Adds crossRegion + cross-region mesh Service + ConfigMap; Continuum CR
+      # promote step is OSS peers.json recovery. Default-OFF, single-region
+      # byte-identical. Pin in lockstep.
+      version: 1.2.41
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
@@ -176,3 +179,48 @@ spec:
         ha:
           replicas: 1
         affinity: ""
+    # ── #3492 cross-region DR (the real OSS stretched-raft mechanism) ────────
+    # 🛑 SECONDARY raft.config NOTE: the one runtime wiring NOT set here is the
+    # secondary's `openbao.server.ha.raft.config` retry_join override (region-B
+    # joins region-A as a non-voter). It is NOT inlined in this overlay on
+    # purpose: a per-region `raft.config` value can't be conditionally included
+    # via Flux postBuild.substitute without either (a) drifting from the upstream
+    # chart default and breaking the single-region byte-identical render, or
+    # (b) emptying the config on the primary. The EXACT secondary HCL is instead
+    # version-controlled + render-tested in the chart, emitted into the
+    # `openbao-cross-region-raft-config` ConfigMap (secondary-only) by
+    # platform/openbao/chart/templates/cross-region-raft-config.yaml. On a
+    # 2-region prov cloud-init copies that ConfigMap's `raft-config.hcl` into
+    # the secondary region's `SOVEREIGN_OPENBAO_RAFT_CONFIG` substitute (empty on
+    # the primary + single-region → upstream default, byte-identical). That
+    # cloud-init substitute is the documented activation step; the chart + engine
+    # + the DR-contract values below are all in place and render-/unit-tested.
+    # All default-OFF; flipped by the ClusterMesh-ready controller on a
+    # 2-region prov the SAME way bp-cnpg-pair is (the multi-region substitutes
+    # below are the cnpg-pair ones — SOVEREIGN_REGION_ROLE / _PRIMARY_REGION /
+    # _REPLICA_REGION / _ENABLE_HOT_STANDBY — so openbao DR activates in
+    # lockstep with the cnpg-pair WAL stream over the same ClusterMesh).
+    # A single-region prov has these unset → enabled:false everywhere →
+    # byte-identical render.
+    crossRegion:
+      # region-B joins region-A's raft as a non-voter; region-A renders the
+      # leader-target mesh Service. Gate on the same hot-standby flag cnpg-pair
+      # uses so both DR halves light up together.
+      enabled: ${SOVEREIGN_ENABLE_HOT_STANDBY:-false}
+      role: ${SOVEREIGN_REGION_ROLE:-primary}
+      # leaderApiAddr — region-B's retry_join target. Empty → the chart helper
+      # defaults to the in-namespace ClusterMesh-global Service (resolves
+      # cluster-locally, routes across the mesh to region-A's active Pod).
+      leaderApiAddr: '${SOVEREIGN_OPENBAO_LEADER_API_ADDR:-}'
+    # Cross-cluster snapshot floor (RPO backup + forensic). Default-OFF.
+    snapshotReplication:
+      enabled: ${SOVEREIGN_ENABLE_HOT_STANDBY:-false}
+      role: ${SOVEREIGN_REGION_ROLE:-primary}
+    # The Continuum DR contract — bp-continuum reconciles it to drive the
+    # region-kill peers.json promotion. Renders only on the secondary
+    # (chart-gated on continuum.enabled + snapshotReplication.role=secondary).
+    continuum:
+      enabled: ${SOVEREIGN_ENABLE_HOT_STANDBY:-false}
+      primaryRegion: '${SOVEREIGN_PRIMARY_REGION:-}'
+      standbyRegion: '${SOVEREIGN_REPLICA_REGION:-}'
+      pdmZone: ${SOVEREIGN_FQDN}

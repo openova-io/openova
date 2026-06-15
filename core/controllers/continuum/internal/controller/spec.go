@@ -228,6 +228,7 @@ func parseRaftTransition(cr *unstructured.Unstructured) switchover.RaftTransitio
 	t.Pod, _, _ = unstructured.NestedString(cr.Object, "spec", "switchover", "raftTransition", "pod")
 	t.PodSelector, _, _ = unstructured.NestedString(cr.Object, "spec", "switchover", "raftTransition", "podSelector")
 	t.Container, _, _ = unstructured.NestedString(cr.Object, "spec", "switchover", "raftTransition", "container")
+	t.RaftDataPath, _, _ = unstructured.NestedString(cr.Object, "spec", "switchover", "raftTransition", "raftDataPath")
 	t.SnapshotPath, _, _ = unstructured.NestedString(cr.Object, "spec", "switchover", "raftTransition", "snapshotPath")
 	t.BaoBinary, _, _ = unstructured.NestedString(cr.Object, "spec", "switchover", "raftTransition", "baoBinary")
 	return t
