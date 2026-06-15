@@ -500,7 +500,19 @@ spec:
       # ghcr.io auth intact, recoverable). Invariant: ghcr.io creds never
       # stripped until every HR pulls Ready from registry.<fqdn>.
       # helmRepositoryPatchesSeconds 600→2400 + new stripReadinessSeconds 600.
-      version: 0.1.63
+      # 0.1.64 (#3584 Refs #3379, hw144 step-01 gitea-mirror 401): Step-01
+      # authenticated to the Gitea API with the admin password as BasicAuth.
+      # bp-gitea's `openova-sso` OAuth2 login source makes Gitea's apiAuth
+      # consult that EXTERNAL source for password creds, so during the cutover
+      # window (Keycloak still converging) every step-01 API call hung ~130s
+      # then 401'd (proven live hw144: repo-create POST `401 in 131042ms` →
+      # `FATAL: repo create failed`). FIX (chart-only): step-01 now uses the
+      # bootstrap-minted `catalyst-gitea-token` PAT via `Authorization: token`
+      # (curl) for the API + `gitea_admin:<PAT>@` for the git push — a direct
+      # local sha1 lookup that never touches the external OAuth2 source. Same
+      # credential + pattern as step-05 #3536; image flips images.git →
+      # images.kubectl (alpine/k8s has kubectl+curl+git). No RBAC change.
+      version: 0.1.64
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
