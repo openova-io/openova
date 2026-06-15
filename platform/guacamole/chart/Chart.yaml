@@ -171,7 +171,15 @@ name: bp-guacamole
 # connected → the permission store was unreachable → still no admin. Renamed to
 # the upstream-canonical POSTGRESQL_USER. Lockstep: 52-bp-guacamole.yaml pin →
 # 0.2.15. Refs #3374.
-version: 0.2.18
+# 0.2.19 (#3629, 2026-06-16): guacd PVC-mount fallback. #3374 made the WEBAPP
+# `recordings` volume an emptyDir when recordings.persistence=false (the
+# default) but MISSED guacd-deployment.yaml, whose volume block still
+# hard-referenced the gated-off `guacamole-recordings` PVC unconditionally.
+# guacd therefore FailedScheduling forever on the default path
+# (`persistentvolumeclaim "guacamole-recordings" not found`) — Pending in both
+# regions on hw146. Mirror the webapp's emptyDir/PVC `if` into guacd. Lockstep:
+# 52-bp-guacamole.yaml pin → 0.2.19. Refs #3629.
+version: 0.2.19
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
