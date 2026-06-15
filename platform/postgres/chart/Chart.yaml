@@ -1,5 +1,22 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.1 — #3577 (Refs #3572 #3322): the active-hot-standby PRIMARY-side
+#   NetworkPolicy (shared-pg-allow-replication-to-primary) was COPIED from
+#   bp-cnpg-pair, a DEDICATED cluster with no external consumers — so it never
+#   carried a consumer-ingress rule. But shared-pg is a SHARED data instance:
+#   its consumers (keycloak, gitea, harbor, grafana, powerdns, newapi,
+#   openova-flow, catalyst-api, …) live in MANY namespaces and all dial the
+#   primary's `<instance>-rw:5432`. A pod-selecting NetworkPolicy default-denies
+#   EVERY ingress it does not list, so on hw144 (the comprehensive prov) every
+#   consumer's 5432 connection timed out (keycloak JDBC Acquisition timeout, the
+#   handover EnsureUser 400, the entire SSO chain down) the instant crossRegion
+#   flipped on. The pre-0.2.0 singleton carried NO netpol → unrestricted
+#   consumer reach. FIX: add a consumer-ingress rule on the PRIMARY side
+#   allowing TCP 5432 from any in-cluster Pod (`namespaceSelector: {}`, the
+#   established repo idiom — harbor/guacamole/vpa) so no real consumer is missed.
+#   The replication + #3322 own-cluster + cross-region + CNPG-operator carve-outs
+#   stay intact; the replica side renders no consumer rule (consumers only hit
+#   the primary's `-rw`). singleton render stays byte-identical (still NO netpol).
 # 0.2.0 — #3571 (Refs #3375 North-Star-4): active-hot-standby now renders the
 #   PROVEN bp-cnpg-pair SPLIT-SIDE cross-region shape (primary Cluster keeps the
 #   instance name so the consumer host `<instance>-rw` is unchanged + a
@@ -37,7 +54,7 @@ name: bp-postgres
 #   regions so it admits under BOTH the pre-#3370 CRD (hard-required) and the
 #   #3370 CRD (CEL-waived) — breaks the live upgrade-rollback deadlock that
 #   blocked keycloak->gitea->catalyst-platform on hw130.
-version: 0.2.0
+version: 0.2.1
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
@@ -67,6 +84,25 @@ description: |
 
   Changelog
   ─────────
+  0.2.1 (2026-06-15, Refs #3572 #3322 — shared-pg consumer-ingress carve-out)
+    - networkpolicy.yaml PRIMARY side: add an ingress rule allowing TCP 5432
+      from any in-cluster Pod (`namespaceSelector: {}`). The 0.2.0 policy was
+      lifted from bp-cnpg-pair (a DEDICATED cluster — no external consumers) so
+      it only opened the replication + own-cluster + operator paths. shared-pg
+      is SHARED: keycloak/gitea/harbor/grafana/powerdns/newapi/openova-flow/
+      catalyst-api all dial the primary's `<instance>-rw:5432` from their own
+      namespaces, and a pod-selecting NetworkPolicy default-denies every ingress
+      it does not list — so on hw144 every consumer's 5432 connection timed out
+      (keycloak JDBC Acquisition timeout, the handover EnsureUser 400, the whole
+      SSO chain down) the moment crossRegion flipped on. The pre-0.2.0 singleton
+      had NO netpol → unrestricted consumer reach; this restores that reach
+      under the platform default-deny CCNP. `namespaceSelector: {}` is the
+      established repo idiom (harbor/guacamole/vpa) for broad in-cluster consumer
+      reachability — chosen so no real consumer is missed (the #3572 regression
+      was OVER-restriction). The replication + #3322 own-cluster + cross-region +
+      CNPG-operator carve-outs are unchanged; the replica side renders no
+      consumer rule (consumers only hit the primary's `-rw`). singleton render
+      stays byte-identical (still emits NO NetworkPolicy object).
   0.2.0 (2026-06-15, Refs #3375 / #3571 — active-hot-standby = REAL cnpg-pair)
     - topology.mode=active-hot-standby now renders the PROVEN bp-cnpg-pair
       SPLIT-SIDE cross-region shape, replacing the old single multi-instance
