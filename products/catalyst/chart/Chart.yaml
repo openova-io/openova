@@ -2712,7 +2712,7 @@ name: bp-catalyst-platform
 # (qaFixtures.cnpgBackupEndpointURL + cnpg-clusters-qa.yaml) to the
 # syncer-mangled host Service name. qa-fixtures only; Catalyst-Zero render
 # byte-unchanged. (1.4.622 was a content-free deploy-bot image sweep.)
-version: 1.4.645
+version: 1.4.646
 # 1.4.645 — #3626 (2026-06-16) — catalog-seed: repoint bp-openbao's launch
 # endpoint ssoInitPath at the on-origin /sso/landing page (was
 # /ui/vault/auth?with=oidc). The console "Open" button window.open()s
