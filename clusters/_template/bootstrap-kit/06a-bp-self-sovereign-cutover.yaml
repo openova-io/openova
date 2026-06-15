@@ -532,7 +532,12 @@ spec:
       # the severance — template 11 renders nothing, Principle 14) + the G75
       # block becomes idempotent/fast-path (skip the hold when no CronJob
       # exists). Chart-only.
-      version: 0.1.66
+      # 0.1.67 (#3608, Refs #3568): step-03 harbor-prewarm requested 500m CPU,
+      # unschedulable on a tight Sovereign (every node 89–99% CPU-requested →
+      # Pending 22+ min, FailedScheduling Insufficient cpu — live hw145). It is
+      # a skopeo image-copy Job (I/O-bound, not CPU-bound); right-sized the CPU
+      # request 500m → 100m. Memory stays 512Mi. Chart-only.
+      version: 0.1.67
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
