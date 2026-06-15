@@ -344,8 +344,15 @@ data:
               exit 1
             fi
         resources:
-          # G66: bump for skopeo image-copy work (downloads layers).
-          requests: { cpu: 500m, memory: 512Mi }
+          # G66: bump MEMORY for skopeo image-copy work (downloads layers).
+          # #3608 (Refs #3568): the 500m CPU request was unschedulable on a
+          # tight Sovereign (every node 89–99% CPU-requested → Pending 22+ min,
+          # FailedScheduling Insufficient cpu — live hw145). harbor-prewarm is a
+          # skopeo image-copy Job (I/O-bound, not CPU-bound); right-size the CPU
+          # request to 100m (in line with every other cutover step Job, which
+          # request 25–100m). Memory stays 512Mi — skopeo needs the RAM for
+          # layer buffers.
+          requests: { cpu: 100m, memory: 512Mi }
           limits:   { memory: 2Gi }
         securityContext:
           runAsNonRoot: true
