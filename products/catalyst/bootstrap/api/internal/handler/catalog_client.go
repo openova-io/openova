@@ -80,6 +80,14 @@ type CatalogBlueprint struct {
 	// walking the Versions array. Same value as Versions[0].ChartRef
 	// when populated.
 	ChartRef string `json:"chartRef,omitempty"`
+
+	// SupportedTopologies — #3602 (EPIC #3597) admin-curated placement
+	// modes for this catalog entry, surfaced by the editable-catalog
+	// overlay. Empty on a pure-seed entry (the console then falls back to
+	// PlacementSchema.Modes / the Blueprint's own spec.topology.supported);
+	// populated when a sovereign-admin edits the entry's supported set.
+	// Additive — only set when an admin edit carries it.
+	SupportedTopologies []string `json:"supportedTopologies,omitempty"`
 }
 
 // CatalogDefaultPlacement mirrors `spec.defaultPlacement` (#3373) —
@@ -149,6 +157,15 @@ type CatalogBlueprintCard struct {
 	Description string   `json:"description,omitempty"`
 	Tagline     string   `json:"tagline,omitempty"`
 	Icon        string   `json:"icon,omitempty"`
+	// IconLight / IconDark — #3602 (EPIC #3597) theme-specific icon
+	// overrides surfaced by the admin-editable catalog overlay. Empty on
+	// a pure-seed entry; populated when a sovereign-admin edits the entry
+	// and uploads/links per-theme icons. The console renders IconLight in
+	// the light theme and IconDark in the dark theme, falling back to the
+	// single `Icon` (then the build-time logo) when a theme icon is
+	// absent. Additive — never set unless an admin edit carries them.
+	IconLight   string   `json:"iconLight,omitempty"`
+	IconDark    string   `json:"iconDark,omitempty"`
 	Category    string   `json:"category,omitempty"`
 	Family      string   `json:"family,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
