@@ -90,6 +90,13 @@ objects). The primary vs secondary CronJob is selected by
 {{- $credNs := $credSecret.namespace | default .Release.Namespace -}}
 {{- $accessKeyKey := $credSecret.accessKeyKey | default "admin_access_key_id" -}}
 {{- $secretKeyKey := $credSecret.secretKeyKey | default "admin_secret_access_key" -}}
+{{- /* #3629: credential-seeder source (host-synced rtz-vCluster Secret). */ -}}
+{{- $seeder := $s3.credentialsSeeder | default dict -}}
+{{- $seederImage := $seeder.image | default "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.29.3" -}}
+{{- if $registry }}{{- $seederImage = printf "%s/%s" $registry ($seeder.image | default "bitnamilegacy/kubectl:1.29.3") -}}{{- end -}}
+{{- $seederSrcNs := $seeder.sourceNamespace | default "rtz" -}}
+{{- $seederSrcName := $seeder.sourceName | default "seaweedfs-s3-secret-x-seaweedfs-x-rtz-vcluster" -}}
+{{- $seederWait := $seeder.waitIterations | default 900 -}}
 {{- $staging := $sr.restoreStaging | default dict -}}
 {{- $stagingPath := $staging.path | default "/snapshots/latest.snap" -}}
 {{- $stagingPvc := $staging.pvc | default dict -}}
@@ -149,6 +156,163 @@ subjects:
   - kind: ServiceAccount
     name: openbao-snapshot
     namespace: {{ .Release.Namespace | quote }}
+---
+# #3629: S3-credential SEEDER (both roles). bp-seaweedfs creates the source
+# `seaweedfs-s3-secret` INSIDE the rtz vCluster; the syncer mirrors it to the
+# HOST as $seederSrcName in ns $seederSrcNs. The snapshot CronJob reads its S3
+# creds via secretKeyRef, which K8s resolves ONLY in the Pod's own namespace —
+# so this Job copies the admin access/secret keys from the host-synced source
+# into the openbao ns as `$credName`. Same proven shape as the catalyst
+# qa-fixtures `qa-cnpg-backup-s3-seed` Job. Regular release resource (NOT a
+# Helm hook) so it can wait the full bootstrap-kit window for bp-seaweedfs
+# (a later slot) without wedging the openbao install (the qa-fixtures Fix #138
+# circular-dependency lesson). Renders only under snapshotReplication.enabled.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openbao-snapshot-s3-seeder
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-snapshot-replication
+---
+# Cross-namespace READ of the single host-synced source Secret (cluster-scoped,
+# resourceNames-pinned so it is least-privilege — no broad Secret read).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Namespace }}-openbao-snapshot-s3-seeder-read
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-snapshot-replication
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - {{ $seederSrcName | quote }}
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Namespace }}-openbao-snapshot-s3-seeder-read
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-snapshot-replication
+subjects:
+  - kind: ServiceAccount
+    name: openbao-snapshot-s3-seeder
+    namespace: {{ .Release.Namespace | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Namespace }}-openbao-snapshot-s3-seeder-read
+---
+# WRITE the seeded Secret in the openbao ($credNs) namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: openbao-snapshot-s3-seeder-write
+  namespace: {{ $credNs | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-snapshot-replication
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: openbao-snapshot-s3-seeder-write
+  namespace: {{ $credNs | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-snapshot-replication
+subjects:
+  - kind: ServiceAccount
+    name: openbao-snapshot-s3-seeder
+    namespace: {{ .Release.Namespace | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: openbao-snapshot-s3-seeder-write
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: openbao-snapshot-s3-seed
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-snapshot-replication
+    # kyverno flux-managed Enforce gates Jobs in the openbao ns.
+    app.kubernetes.io/managed-by: flux
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 8
+  template:
+    metadata:
+      labels:
+        catalyst.openova.io/blueprint: bp-openbao
+        catalyst.openova.io/component: openbao-snapshot-replication
+        app.kubernetes.io/managed-by: flux
+    spec:
+      serviceAccountName: openbao-snapshot-s3-seeder
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: seed
+          image: {{ $seederImage | quote }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              SRC_NS="{{ $seederSrcNs }}"
+              SRC_NAME="{{ $seederSrcName }}"
+              DST_NS="{{ $credNs }}"
+              DST_NAME="{{ $credName }}"
+              AK_KEY="{{ $accessKeyKey }}"
+              SK_KEY="{{ $secretKeyKey }}"
+              # bp-seaweedfs is a later bootstrap-kit slot — wait for the
+              # host-synced source Secret to materialise (default 900×2s=30m).
+              for _ in $(seq 1 {{ $seederWait }}); do
+                kubectl -n "$SRC_NS" get secret "$SRC_NAME" >/dev/null 2>&1 && break
+                sleep 2
+              done
+              AKID=$(kubectl -n "$SRC_NS" get secret "$SRC_NAME" -o jsonpath="{.data.$AK_KEY}")
+              SAKB=$(kubectl -n "$SRC_NS" get secret "$SRC_NAME" -o jsonpath="{.data.$SK_KEY}")
+              if [ -z "$AKID" ] || [ -z "$SAKB" ]; then
+                echo "FATAL: source S3 admin keys empty at $SRC_NS/$SRC_NAME — cannot seed openbao snapshot creds"
+                exit 1
+              fi
+              cat > /tmp/secret.json <<EOF
+              {"apiVersion":"v1","kind":"Secret","metadata":{"name":"$DST_NAME","namespace":"$DST_NS","labels":{"catalyst.openova.io/blueprint":"bp-openbao","app.kubernetes.io/managed-by":"flux"}},"type":"Opaque","data":{"$AK_KEY":"$AKID","$SK_KEY":"$SAKB"}}
+              EOF
+              if kubectl -n "$DST_NS" get secret "$DST_NAME" >/dev/null 2>&1; then
+                kubectl -n "$DST_NS" patch secret "$DST_NAME" --type=merge --patch-file=/tmp/secret.json
+              else
+                kubectl -n "$DST_NS" apply -f /tmp/secret.json
+              fi
+              echo "seeded $DST_NS/$DST_NAME from $SRC_NS/$SRC_NAME (keys $AK_KEY,$SK_KEY)"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
 {{- if eq $role "secondary" }}
 ---
 # Restore-staging PVC — only on the SECONDARY. The fetch CronJob writes the
