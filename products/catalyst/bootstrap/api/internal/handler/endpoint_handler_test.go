@@ -627,6 +627,55 @@ func TestCreateInstance_HappyPath(t *testing.T) {
 	}
 }
 
+// #3599 (EPIC #3597) — the create-from-catalog wizard writes the chosen
+// placement (mode + regions + vcluster) onto the Application CR so the
+// post-create Topology tab reflects it. Asserts the OBJECT form of
+// spec.placement + spec.regions land verbatim.
+func TestCreateInstance_PlacementStampedOnCR(t *testing.T) {
+	h, _, dyn := newTestHandlerWithEndpoint(t)
+	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress",
+		[]map[string]interface{}{}, true, []string{"singleton", "active-hot-standby"}))
+	r := newTestRouter(h)
+
+	body := []byte(`{"blueprint":"wordpress","org":"acme","name":"wp-ha",` +
+		`"topology":"active-hot-standby",` +
+		`"placement":{"vcluster":"rtz","regions":["rgn-a","rgn-b"]}}`)
+	req := httptest.NewRequest("POST", "/catalyst/v1/apps/instances", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+
+	got, err := dyn.Resource(ApplicationGVR()).Namespace("acme").Get(context.Background(), "wp-ha", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("expected CR landed; got %v", err)
+	}
+
+	// spec.placement is the OBJECT form: {mode, vcluster, regions}.
+	pl, ok, _ := unstructured.NestedMap(got.Object, "spec", "placement")
+	if !ok {
+		t.Fatalf("spec.placement not an object: %+v", got.Object["spec"])
+	}
+	if pl["mode"] != "active-hot-standby" {
+		t.Fatalf("spec.placement.mode = %v, want active-hot-standby", pl["mode"])
+	}
+	if pl["vcluster"] != "rtz" {
+		t.Fatalf("spec.placement.vcluster = %v, want rtz", pl["vcluster"])
+	}
+	plRegions, _, _ := unstructured.NestedStringSlice(got.Object, "spec", "placement", "regions")
+	if len(plRegions) != 2 || plRegions[0] != "rgn-a" || plRegions[1] != "rgn-b" {
+		t.Fatalf("spec.placement.regions = %v, want [rgn-a rgn-b]", plRegions)
+	}
+	// spec.regions mirrors the placement regions (what the Topology tab
+	// + the application-controller fan-out read).
+	regions, _, _ := unstructured.NestedStringSlice(got.Object, "spec", "regions")
+	if len(regions) != 2 || regions[0] != "rgn-a" || regions[1] != "rgn-b" {
+		t.Fatalf("spec.regions = %v, want [rgn-a rgn-b]", regions)
+	}
+}
+
 func TestCreateInstance_TopologyNotSupported(t *testing.T) {
 	h, _, _ := newTestHandlerWithEndpoint(t)
 	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress",

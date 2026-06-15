@@ -26,7 +26,20 @@ import {
   type BackingSelection,
   type CreateApplicationInstanceRequest,
 } from '@/lib/catalog.api'
+import { listOrganizations, type OrgRow } from '@/lib/organizations.api'
+import { getHierarchicalInfrastructure } from '@/lib/infrastructure.types'
+import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
+import { ALL_MODES, describeMode } from '@/widgets/topology/TopologyEditor'
 import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
+
+// #3599 / #3600 — the vCluster/zone options the catalyst-api backend
+// validates (`placement.vcluster ∈ {host, mgmt, dmz, rtz}`,
+// instances/create.go ValidateShape). Rendered as a dropdown (never
+// free-text) so an install can't be typo'd into an invalid zone.
+const VCLUSTER_OPTIONS = ['host', 'mgmt', 'dmz', 'rtz'] as const
+
+/** Modes that require ≥2 regions (the create-flow validation rule). */
+const MULTI_REGION_MODES = new Set(['active-active', 'active-hotstandby'])
 
 /**
  * InstancesSection — renders the per-Blueprint instances list (one row
@@ -386,22 +399,38 @@ export function PerClusterTable({
 }
 
 /**
- * NewInstanceDialog — G117.2 #2741 topology-picker dialog. Opens on
- * "+ New instance" click. Fields:
+ * NewInstanceDialog — the create-from-catalog wizard (#2741, extended by
+ * EPIC #3597 / #3599 / #3600). Opens on "+ New instance" click.
  *
- *  - name (string, lowercase k8s-name)
- *  - org (string, free-text; defaults to "" — operator types the Org
- *    slug they're installing into. TBD-followup: replace with a real
- *    Org picker once the OrgList endpoint is wired into the FE).
- *  - topology (radio: singleton / active-hot-standby / active-active /
- *    active-passive, gated by Blueprint.spec.topology.supported[] from
- *    getCatalogItemVersion). Defaults to the Blueprint's preferred
- *    default if exposed.
+ * Every fixed-set input is a dropdown / multiselect from LIVE data
+ * (#3600) — free-text remains ONLY for the instance name:
+ *
+ *  - name        — free-text (lowercase k8s-name; the only free field).
+ *  - org         — <select> from listOrganizations() (live Orgs).
+ *  - topology    — <select> from the canonical editor mode set
+ *                  (single-region / active-active / active-hotstandby),
+ *                  constrained to the Blueprint's supported modes when
+ *                  declared. REUSES the post-create Topology editor's
+ *                  ALL_MODES option set (#3599 — no divergent vocab).
+ *  - region(s)   — checkbox multiselect from the Sovereign's live cluster
+ *                  regions (getHierarchicalInfrastructure topology tree).
+ *  - vCluster    — <select> from {host, mgmt, dmz, rtz} (the backend's
+ *                  validated zone set), enriched with the live vcluster
+ *                  names when present.
+ *  - backing     — the #3370 Create new / Reuse existing selectors.
+ *
+ * Placement (#3599) is written onto the Application CR: the submit sends
+ * `topology` = the chosen mode + `placement = {vcluster, regions}`, which
+ * the backend stamps as `spec.placement = {mode, vcluster, regions}` +
+ * `spec.regions`. The post-create Topology tab reads those fields back, so
+ * it reflects the placement chosen here.
+ *
+ * Validation (#3599): active-active / active-hotstandby require ≥2
+ * regions; the Create button stays disabled until that holds.
  *
  * On submit POSTs to /catalyst/v1/apps/instances via
- * createApplicationInstance. On 4xx error message renders inline; on
- * 201 the dialog closes and the parent invalidates the instances
- * cache.
+ * createApplicationInstance. On 4xx the error renders inline; on 201 the
+ * dialog closes and the parent invalidates the instances cache.
  */
 export function NewInstanceDialog({
   blueprint,
@@ -415,27 +444,65 @@ export function NewInstanceDialog({
   const [name, setName] = useState('')
   const [org, setOrg] = useState('')
   const [topology, setTopology] = useState<string>('')
+  const [regions, setRegions] = useState<string[]>([])
+  const [vcluster, setVcluster] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // #3370 — per-backing-service selection: "" = Create new (default),
   // any other value = the existing instance name to reuse.
   const [backingChoice, setBackingChoice] = useState<Record<string, string>>({})
 
+  const { deploymentId } = useResolvedDeploymentId()
+
+  // #3600 — live Organizations for the Org dropdown.
+  const orgsQuery = useQuery<OrgRow[]>({
+    queryKey: ['organizations-directory', deploymentId ?? ''],
+    queryFn: listOrganizations,
+    staleTime: 60_000,
+    retry: 1,
+  })
+  const orgs = orgsQuery.data ?? []
+
+  // #3599 / #3600 — live cluster regions + vclusters from the Sovereign's
+  // infrastructure topology (the SAME source the post-create Topology tab
+  // reads its available regions from). Regions use the catalyst id
+  // (RegionSpec.name), which is what Application.spec.regions stores.
+  const infraQuery = useQuery({
+    queryKey: ['infrastructure-topology', deploymentId ?? ''],
+    queryFn: () => getHierarchicalInfrastructure(deploymentId ?? ''),
+    enabled: !!deploymentId,
+    staleTime: 60_000,
+    retry: 1,
+  })
+  const availableRegions = useMemo<string[]>(() => {
+    const set = new Set<string>()
+    for (const r of infraQuery.data?.topology?.regions ?? []) {
+      if (r.name) set.add(r.name)
+    }
+    return Array.from(set).sort()
+  }, [infraQuery.data])
+  // Live vcluster names (enrich the fixed zone set so the operator can
+  // pick the actual vcluster when the topology reports them).
+  const liveVclusters = useMemo<string[]>(() => {
+    const set = new Set<string>()
+    for (const region of infraQuery.data?.topology?.regions ?? []) {
+      for (const cluster of region.clusters ?? []) {
+        for (const vc of cluster.vclusters ?? []) {
+          if (vc.name) set.add(vc.name)
+        }
+      }
+    }
+    return Array.from(set).sort()
+  }, [infraQuery.data])
+
   // Resolve the Blueprint's supported topologies via the catalog
-  // version endpoint. We don't have a fixed version pin from the
-  // AppDetail context, so call `getCatalogItem` first to read the
-  // latest version and then re-fetch with that version for the
-  // configSchema. For the dialog we only need `raw.spec.topology`, so
-  // a single getCatalogItemVersion call against the latest version is
-  // sufficient.
+  // version endpoint (latest pin → full raw spec).
   const bpName = blueprint.replace(/^bp-/, '')
   const bpQuery = useQuery({
     queryKey: ['catalog-item-latest', bpName],
     queryFn: async () => {
-      // First fetch — get the latest version pin.
       const { getCatalogItem } = await import('@/lib/catalog.api')
       const latest = await getCatalogItem(bpName)
-      // Second fetch — get the full raw spec (topology, configSchema).
       const full = await getCatalogItemVersion(bpName, latest.version)
       return full
     },
@@ -443,45 +510,58 @@ export function NewInstanceDialog({
     retry: 1,
   })
 
-  const supportedTopologies = useMemo<string[]>(() => {
+  // The blueprint's declared supported topologies, normalised to the
+  // editor mode vocab so they intersect with ALL_MODES. When the
+  // blueprint declares none, every editor mode is offered.
+  const supportedModes = useMemo<string[]>(() => {
     const raw = bpQuery.data?.raw as
-      | { spec?: { topology?: { supported?: string[]; defaults?: Record<string, string> } } }
+      | { spec?: { topology?: { supported?: string[] } } }
       | undefined
-    const list = raw?.spec?.topology?.supported ?? []
-    if (!Array.isArray(list)) return []
-    return list.filter((s) => typeof s === 'string')
+    const declared = (raw?.spec?.topology?.supported ?? [])
+      .filter((s): s is string => typeof s === 'string')
+      .map(canonicalEditorMode)
+    const allowed = declared.length > 0 ? new Set(declared) : null
+    return ALL_MODES.filter((m) => (allowed ? allowed.has(m) : true))
   }, [bpQuery.data])
 
-  const defaultTopology = useMemo<string>(() => {
+  const defaultMode = useMemo<string>(() => {
     const raw = bpQuery.data?.raw as
       | { spec?: { topology?: { defaults?: Record<string, string> } } }
       | undefined
     const defs = raw?.spec?.topology?.defaults
-    // Prefer multi-region default if set; else single-region; else
-    // first supported entry.
-    return defs?.['multi-region'] ?? defs?.['single-region'] ?? supportedTopologies[0] ?? ''
-  }, [bpQuery.data, supportedTopologies])
+    const declaredDefault = defs
+      ? canonicalEditorMode(defs['multi-region'] ?? defs['single-region'] ?? '')
+      : ''
+    if (declaredDefault && supportedModes.includes(declaredDefault)) return declaredDefault
+    return supportedModes.includes('single-region') ? 'single-region' : supportedModes[0] ?? 'single-region'
+  }, [bpQuery.data, supportedModes])
 
   useEffect(() => {
-    if (!topology && defaultTopology) {
-      setTopology(defaultTopology)
-    }
-  }, [defaultTopology, topology])
+    if (!topology && defaultMode) setTopology(defaultMode)
+  }, [defaultMode, topology])
 
-  // #3370 — required backing services: the blueprint's declared
-  // dependencies that are themselves SHAREABLE (declare a
-  // contextSchema). Each renders ONE generic selector: Create new
-  // (default) / Reuse existing — the same mechanism for every
-  // blueprint, driven purely by the declarations.
+  const requiresMultiRegion = MULTI_REGION_MODES.has(topology)
+
+  // #3370 — required backing services (declared depends[] that are
+  // themselves shareable). One generic selector each.
   const backingBlueprints = useMemo<string[]>(() => {
     const self = BLUEPRINT_BY_ID[`bp-${bpName}`]
     const depends = self?.depends ?? []
     return depends.filter((d) => BLUEPRINT_BY_ID[d]?.shareable === true)
   }, [bpName])
 
+  const toggleRegion = (region: string) =>
+    setRegions((prev) =>
+      prev.includes(region) ? prev.filter((r) => r !== region) : [...prev, region],
+    )
+
+  // #3599 validation — multi-region modes need ≥2 regions.
+  const placementValid = !requiresMultiRegion || regions.length >= 2
+  const canSubmit = !submitting && !!name && !!org && placementValid
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (submitting) return
+    if (!canSubmit) return
     setError(null)
     setSubmitting(true)
     try {
@@ -491,6 +571,15 @@ export function NewInstanceDialog({
         name: name.trim(),
       }
       if (topology) body.topology = topology
+      // #3599 — write the placement onto the Application CR. Only send
+      // fields the operator set, so a silent single-region install with
+      // no region/vcluster choice still falls back to the Blueprint
+      // defaults server-side.
+      if (regions.length > 0 || vcluster) {
+        body.placement = {}
+        if (vcluster) body.placement.vcluster = vcluster
+        if (regions.length > 0) body.placement.regions = regions
+      }
       if (backingBlueprints.length > 0) {
         body.backing = backingBlueprints.map((bp): BackingSelection => {
           const chosen = backingChoice[bp] ?? ''
@@ -508,6 +597,16 @@ export function NewInstanceDialog({
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const fieldStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '0.4rem 0.6rem',
+    background: 'var(--color-bg)',
+    color: 'var(--color-text)',
+    border: '1px solid var(--color-border)',
+    borderRadius: '4px',
+    fontSize: '0.85rem',
   }
 
   return (
@@ -537,8 +636,10 @@ export function NewInstanceDialog({
           border: '1px solid var(--color-border)',
           borderRadius: '8px',
           padding: '1.2rem',
-          minWidth: '420px',
-          maxWidth: '520px',
+          minWidth: '440px',
+          maxWidth: '560px',
+          maxHeight: '88vh',
+          overflowY: 'auto',
           boxShadow: '0 10px 40px rgba(0,0,0,0.3)',
         }}
       >
@@ -549,12 +650,9 @@ export function NewInstanceDialog({
           New instance of {bpName}
         </h3>
 
-        <label
-          style={{ display: 'block', marginBottom: '0.6rem', fontSize: '0.85rem' }}
-        >
-          <span style={{ display: 'block', marginBottom: '0.2rem' }}>
-            Instance name
-          </span>
+        {/* Instance name — the ONLY free-text field (#3600). */}
+        <label style={{ display: 'block', marginBottom: '0.6rem', fontSize: '0.85rem' }}>
+          <span style={{ display: 'block', marginBottom: '0.2rem' }}>Instance name</span>
           <input
             type="text"
             data-testid="input-instance-name"
@@ -564,44 +662,69 @@ export function NewInstanceDialog({
             pattern="^[a-z0-9][a-z0-9-]{0,40}[a-z0-9]$"
             title="Lowercase letters, digits, and dashes; 2-42 chars; no leading/trailing dash"
             placeholder="my-instance"
-            style={{
-              width: '100%',
-              padding: '0.4rem 0.6rem',
-              background: 'var(--color-bg)',
-              color: 'var(--color-text)',
-              border: '1px solid var(--color-border)',
-              borderRadius: '4px',
-              fontSize: '0.85rem',
-            }}
+            style={fieldStyle}
           />
         </label>
 
-        <label
-          style={{ display: 'block', marginBottom: '0.6rem', fontSize: '0.85rem' }}
-        >
-          <span style={{ display: 'block', marginBottom: '0.2rem' }}>
-            Organization
-          </span>
-          <input
-            type="text"
-            data-testid="input-instance-org"
+        {/* Organization — dropdown from live Orgs (#3600). */}
+        <label style={{ display: 'block', marginBottom: '0.6rem', fontSize: '0.85rem' }}>
+          <span style={{ display: 'block', marginBottom: '0.2rem' }}>Organization</span>
+          <select
+            data-testid="select-instance-org"
             value={org}
             onChange={(e) => setOrg(e.target.value)}
             required
-            placeholder="acme"
-            style={{
-              width: '100%',
-              padding: '0.4rem 0.6rem',
-              background: 'var(--color-bg)',
-              color: 'var(--color-text)',
-              border: '1px solid var(--color-border)',
-              borderRadius: '4px',
-              fontSize: '0.85rem',
-            }}
-          />
+            style={fieldStyle}
+          >
+            <option value="" disabled>
+              {orgsQuery.isPending ? 'Loading organizations…' : 'Select an organization…'}
+            </option>
+            {orgs.map((o) => (
+              <option key={o.id} value={o.slug}>
+                {o.displayName ? `${o.displayName} (${o.slug})` : o.slug}
+              </option>
+            ))}
+          </select>
+          {/* Environment is derived server-side as <org>-prod; surfaced
+              read-only so the operator sees WHERE it lands (#3599). No
+              free-text — there is no environments list to choose from. */}
+          {org ? (
+            <span
+              data-testid="instance-environment-derived"
+              style={{
+                display: 'block',
+                marginTop: '0.3rem',
+                fontSize: '0.74rem',
+                color: 'var(--color-text-dim)',
+              }}
+            >
+              Environment: <code>{org}-prod</code>
+            </span>
+          ) : null}
         </label>
 
+        {/* Topology mode — dropdown reusing the editor's ALL_MODES set,
+            constrained to the Blueprint's supported modes (#3599/#3600). */}
+        <label style={{ display: 'block', marginBottom: '0.6rem', fontSize: '0.85rem' }}>
+          <span style={{ display: 'block', marginBottom: '0.2rem' }}>Topology mode</span>
+          <select
+            data-testid="select-instance-topology"
+            value={topology}
+            onChange={(e) => setTopology(e.target.value)}
+            disabled={bpQuery.isPending}
+            style={fieldStyle}
+          >
+            {supportedModes.map((m) => (
+              <option key={m} value={m}>
+                {m} — {describeMode(m)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {/* Region(s) — multiselect from live cluster regions (#3599/#3600). */}
         <fieldset
+          data-testid="instance-regions"
           style={{
             border: '1px solid var(--color-border)',
             borderRadius: '4px',
@@ -610,53 +733,78 @@ export function NewInstanceDialog({
           }}
         >
           <legend style={{ fontSize: '0.8rem', padding: '0 0.3rem' }}>
-            Topology
+            Region(s){requiresMultiRegion ? ' — pick at least 2' : ''}
           </legend>
-          {bpQuery.isPending ? (
+          {infraQuery.isPending ? (
             <p style={{ fontSize: '0.78rem', margin: 0, color: 'var(--color-text-dim)' }}>
-              Loading…
+              Loading regions…
             </p>
-          ) : supportedTopologies.length === 0 ? (
+          ) : availableRegions.length === 0 ? (
             <p
+              data-testid="instance-regions-empty"
               style={{ fontSize: '0.78rem', margin: 0, color: 'var(--color-text-dim)' }}
-              data-testid="topology-radio-empty"
             >
-              Blueprint does not declare supported topologies — server will
-              pick the default.
+              No cluster regions reported for this Sovereign — the server will
+              place the instance in its default region.
             </p>
           ) : (
-            supportedTopologies.map((t) => (
+            availableRegions.map((region) => (
               <label
-                key={t}
-                style={{
-                  display: 'block',
-                  fontSize: '0.82rem',
-                  padding: '0.15rem 0',
-                  cursor: 'pointer',
-                }}
+                key={region}
+                style={{ display: 'block', fontSize: '0.82rem', padding: '0.12rem 0', cursor: 'pointer' }}
               >
                 <input
-                  type="radio"
-                  name="topology"
-                  value={t}
-                  checked={topology === t}
-                  onChange={() => setTopology(t)}
-                  data-testid={`topology-radio-${t}`}
+                  type="checkbox"
+                  checked={regions.includes(region)}
+                  onChange={() => toggleRegion(region)}
+                  data-testid={`region-checkbox-${region}`}
                   style={{ marginRight: '0.4rem' }}
                 />
-                {t}
+                <code>{region}</code>
               </label>
             ))
           )}
+          {requiresMultiRegion && regions.length < 2 ? (
+            <p
+              data-testid="instance-regions-validation"
+              style={{ margin: '0.3rem 0 0', fontSize: '0.74rem', color: 'var(--color-danger)' }}
+            >
+              {topology} needs at least 2 regions.
+            </p>
+          ) : null}
         </fieldset>
+
+        {/* vCluster / zone — dropdown from the backend's validated zone
+            set, enriched with live vcluster names (#3599/#3600). */}
+        <label style={{ display: 'block', marginBottom: '0.6rem', fontSize: '0.85rem' }}>
+          <span style={{ display: 'block', marginBottom: '0.2rem' }}>vCluster / zone</span>
+          <select
+            data-testid="select-instance-vcluster"
+            value={vcluster}
+            onChange={(e) => setVcluster(e.target.value)}
+            style={fieldStyle}
+          >
+            <option value="">Default (server picks)</option>
+            {VCLUSTER_OPTIONS.map((z) => (
+              <option key={z} value={z}>
+                {z}
+              </option>
+            ))}
+            {liveVclusters
+              .filter((v) => !VCLUSTER_OPTIONS.includes(v as (typeof VCLUSTER_OPTIONS)[number]))
+              .map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+          </select>
+        </label>
 
         {/*
           #3370 — backing services. EVERY required backing service of
           this blueprint (declared depends[] whose target is shareable)
           renders ONE generic selector: Create new (default) / Reuse
-          existing. The dropdown lists existing instances of that
-          blueprint with topology + context count. No per-service UI —
-          the SAME selector for postgres, valkey, kafka, seaweedfs.
+          existing.
         */}
         {backingBlueprints.length > 0 ? (
           <fieldset
@@ -685,23 +833,13 @@ export function NewInstanceDialog({
         {error ? (
           <p
             data-testid="dialog-error"
-            style={{
-              color: 'var(--color-danger)',
-              fontSize: '0.8rem',
-              margin: '0 0 0.6rem',
-            }}
+            style={{ color: 'var(--color-danger)', fontSize: '0.8rem', margin: '0 0 0.6rem' }}
           >
             {error}
           </p>
         ) : null}
 
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: '0.5rem',
-          }}
-        >
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
           <button
             type="button"
             data-testid="btn-cancel-instance"
@@ -722,7 +860,7 @@ export function NewInstanceDialog({
           <button
             type="submit"
             data-testid="btn-submit-instance"
-            disabled={submitting || !name || !org}
+            disabled={!canSubmit}
             style={{
               padding: '0.35rem 0.8rem',
               background: 'var(--color-accent)',
@@ -730,7 +868,7 @@ export function NewInstanceDialog({
               border: '0',
               borderRadius: '4px',
               fontSize: '0.82rem',
-              cursor: submitting ? 'not-allowed' : 'pointer',
+              cursor: canSubmit ? 'pointer' : 'not-allowed',
               fontWeight: 600,
             }}
           >
@@ -740,6 +878,37 @@ export function NewInstanceDialog({
       </form>
     </div>
   )
+}
+
+/**
+ * canonicalEditorMode — normalise a Blueprint topology token (which may
+ * use the hyphenated `active-hot-standby` / `singleton` / `multi-region`
+ * dialect) onto the editor mode vocabulary
+ * (single-region | active-active | active-hotstandby) so the create-flow
+ * dropdown intersects cleanly with ALL_MODES (#3599).
+ */
+function canonicalEditorMode(raw: string): string {
+  const s = (raw ?? '').trim().toLowerCase()
+  switch (s) {
+    case 'active-active':
+    case 'active_active':
+      return 'active-active'
+    case 'active-hot-standby':
+    case 'active-hotstandby':
+    case 'active_hot_standby':
+    case 'active-passive':
+    case 'active_passive':
+      return 'active-hotstandby'
+    case 'singleton':
+    case 'single-region':
+    case 'single_region':
+    case 'multi-region':
+    default:
+      // multi-region is a deployment posture, not an editor mode; map it
+      // (and anything unknown) to single-region so the dropdown still
+      // offers a valid editor option.
+      return 'single-region'
+  }
 }
 
 /**

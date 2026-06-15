@@ -62,6 +62,7 @@ import { MarketplaceFamilyPage } from '@/pages/marketplace/MarketplaceFamilyPage
 import { MarketplaceProductPage } from '@/pages/marketplace/MarketplaceProductPage'
 import { ProvisionPage } from '@/pages/provision/ProvisionPage'
 import { AppsPage } from '@/pages/sovereign/AppsPage'
+import { CatalogPage } from '@/pages/sovereign/CatalogPage'
 import { AppDetail } from '@/pages/sovereign/AppDetail'
 import { CatalogDetail } from '@/pages/sovereign/CatalogDetail'
 import { InstallPage } from '@/pages/sovereign/InstallPage'
@@ -708,11 +709,23 @@ const provisionAppRoute = createRoute({
   beforeLoad: provisionAuthGuard,
 })
 
+// #3601 (EPIC #3597) — Catalog page in the mothership provision tree.
+// Mirrors the chroot `/catalog`; renders the catalog grid as its own
+// surface. Registered (and added to the tree) BEFORE the dynamic
+// `/catalog/$blueprintName` so the static index wins on a bare
+// `/provision/$id/catalog` visit.
+const provisionCatalogRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/catalog',
+  component: CatalogPage,
+  beforeLoad: provisionAuthGuard,
+})
+
 // #3090 — CATALOG / class page in the mothership provision tree. Mirrors
 // provisionAppRoute but renders CatalogDetail (instances list + "+ New
-// instance"). AppsPage's Catalog-tab cards on the provision monitor
-// surface build `/provision/$deploymentId/catalog/$blueprintName`; the
-// chroot equivalent is consoleCatalogDetailRoute at `/catalog/$blueprintName`.
+// instance"). The Catalog page's cards on the provision monitor surface
+// build `/provision/$deploymentId/catalog/$blueprintName`; the chroot
+// equivalent is consoleCatalogDetailRoute at `/catalog/$blueprintName`.
 const provisionCatalogDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/catalog/$blueprintName',
@@ -1306,6 +1319,16 @@ const consoleJobsRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/jobs',
   component: JobsPage,
+})
+// #3601 (EPIC #3597) — Catalog as its OWN left-nav page (chroot Sovereign
+// Console). `/catalog` renders the catalog grid that used to be the
+// "Catalog" tab on /apps. Registered BEFORE the dynamic
+// `/catalog/$blueprintName` so the static index wins on a bare /catalog
+// visit (TanStack matches the literal segment ahead of the $param).
+const consoleCatalogRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/catalog',
+  component: CatalogPage,
 })
 // G117.2 #2741 — Catalog class drill-down (chroot Sovereign Console).
 // `/catalog/$blueprintName` renders the CLASS page: header + topology
@@ -2207,6 +2230,8 @@ const routeTree = rootRoute.addChildren([
   deploymentsListRoute,
   provisionRoute,
   provisionAppRoute,
+  // #3601 — static /catalog index BEFORE /catalog/$blueprintName.
+  provisionCatalogRoute,
   provisionCatalogDetailRoute,
   provisionInstallRoute,
   provisionInstallBlueprintRoute,
@@ -2257,6 +2282,9 @@ const routeTree = rootRoute.addChildren([
     consoleAppsRoute,
     consoleAppDetailRoute,
     consoleAppDetailTabRoute,
+    // #3601 — static /catalog index BEFORE /catalog/$blueprintName so the
+    // literal segment wins on a bare /catalog visit.
+    consoleCatalogRoute,
     consoleCatalogDetailRoute,
     consoleInstallRoute,
     consoleInstallBlueprintRoute,

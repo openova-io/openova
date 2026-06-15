@@ -1,14 +1,18 @@
 /**
- * AppsPage.test.tsx — pixel-port lock-in for the Sovereign Apps surface.
+ * AppsPage.test.tsx — lock-in for the Sovereign Apps surface.
  *
- *   • Page heading + tagline render
- *   • Both tabs render with counts pulled from the resolved catalog
- *     (Deployments + Catalog), the canonical .tab/.active class string
- *   • Card grid renders one .app-card per Application descriptor on
- *     first paint (waterfall — no spinner state)
- *   • Search filter narrows the visible cards by title / description /
- *     family
- *   • Sidebar nav surfaces are present (PortalShell wiring)
+ * #3601 (EPIC #3597): /apps is now TAB-LESS — it renders ONLY the
+ * installed-deployments grid. The catalog moved to its own left-nav page
+ * (/catalog → CatalogPage, covered by CatalogPage.test.tsx). This spec
+ * asserts:
+ *   • Page heading renders
+ *   • NO Deployments/Catalog tabs render
+ *   • Card grid renders one .app-card per INSTALLED descriptor on first
+ *     paint (bootstrap-kit apps always count as installed)
+ *   • Installed-tab cards link to the INSTANCE page /app/$id
+ *   • Search narrows the visible cards
+ *   • The empty-state "Open catalog" affordance links to /catalog
+ *   • PortalShell wiring (sidebar present)
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -45,11 +49,11 @@ function renderProvision(deploymentId: string) {
     path: '/provision/$deploymentId/app/$componentId',
     component: () => <div data-testid="app-detail-target" />,
   })
-  // #3090 — Catalog-tab cards must link to the CLASS page.
-  const catalogDetailRoute = createRoute({
+  // #3601 — the catalog is its own page now.
+  const catalogRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/provision/$deploymentId/catalog/$blueprintName',
-    component: () => <div data-testid="catalog-detail-target" />,
+    path: '/catalog',
+    component: () => <div data-testid="catalog-page-target" />,
   })
   const jobsRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -64,7 +68,7 @@ function renderProvision(deploymentId: string) {
   const tree = rootRoute.addChildren([
     provisionRoute,
     detailRoute,
-    catalogDetailRoute,
+    catalogRoute,
     jobsRoute,
     wizardRoute,
   ])
@@ -72,8 +76,6 @@ function renderProvision(deploymentId: string) {
     routeTree: tree,
     history: createMemoryHistory({ initialEntries: [`/provision/${deploymentId}`] }),
   })
-  // AppsPage's liveAppsQuery (useQuery, enabled on Sovereign mode) needs a
-  // QueryClient in context even when disabled — mirror AppsPage.handover.test.
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
@@ -86,8 +88,6 @@ function renderProvision(deploymentId: string) {
 
 beforeEach(() => {
   useWizardStore.setState({ ...INITIAL_WIZARD_STATE })
-  // Stub fetch so useDeploymentEvents history-replay path resolves
-  // synchronously without making real network calls.
   globalThis.fetch = (() =>
     Promise.resolve({
       ok: true,
@@ -110,48 +110,20 @@ describe('AppsPage — header', () => {
   })
 })
 
-describe('AppsPage — tabs', () => {
-  it('renders Deployments + Catalog tabs', async () => {
+describe('AppsPage — tab-less (#3601)', () => {
+  it('renders NO Deployments/Catalog tabs', async () => {
     renderProvision('d-1')
-    const tabs = await screen.findByTestId('sov-tabs')
-    expect(within(tabs).getByTestId('sov-tab-installed')).toBeTruthy()
-    expect(within(tabs).getByTestId('sov-tab-catalog')).toBeTruthy()
-  })
-
-  it('Deployments tab is active by default', async () => {
-    renderProvision('d-1')
-    const installed = await screen.findByTestId('sov-tab-installed')
-    expect(installed.className).toContain('active')
-  })
-
-  it('clicking Catalog flips active to Catalog', async () => {
-    renderProvision('d-1')
-    const catalog = await screen.findByTestId('sov-tab-catalog')
-    fireEvent.click(catalog)
-    expect(catalog.className).toContain('active')
-    const installed = screen.getByTestId('sov-tab-installed')
-    expect(installed.className).not.toContain('active')
-  })
-
-  it('tabs render counts that mirror the catalog', async () => {
-    renderProvision('d-1')
-    const tabs = await screen.findByTestId('sov-tabs')
-    // Catalog count > 0 because BOOTSTRAP_KIT (11+) is always present.
-    const catalog = within(tabs).getByTestId('sov-tab-catalog')
-    const countSpan = catalog.querySelector('.tab-count')
-    expect(countSpan).toBeTruthy()
-    const n = Number((countSpan!.textContent ?? '').trim())
-    expect(n).toBeGreaterThan(0)
+    await screen.findByText('Applications')
+    expect(screen.queryByTestId('sov-tabs')).toBeNull()
+    expect(screen.queryByTestId('sov-tab-installed')).toBeNull()
+    expect(screen.queryByTestId('sov-tab-catalog')).toBeNull()
   })
 })
 
 describe('AppsPage — banner pollution gate (founder #475)', () => {
   it('renders no role="alert" or role="status" inside main on first paint', async () => {
     renderProvision('d-1')
-    // Wait for the page to settle.
     await screen.findByText('Applications')
-    // The Apps page main surface must be free of inline banners. Toasts
-    // (which would render inside the global tray, not main) are allowed.
     const main = document.querySelector('main')
     expect(main).toBeTruthy()
     expect(main!.querySelector('[role="alert"]')).toBeNull()
@@ -161,19 +133,16 @@ describe('AppsPage — banner pollution gate (founder #475)', () => {
   it('does not import or render the legacy FailureCard test ids', async () => {
     renderProvision('d-1')
     await screen.findByText('Applications')
-    // These test ids were the inline banner anchors. They must not paint
-    // anywhere on the Apps surface; the failure UX moves to global toasts.
     expect(screen.queryByTestId('sov-failure-card')).toBeNull()
     expect(screen.queryByTestId('sov-phase1-unavailable-banner')).toBeNull()
   })
 })
 
-describe('AppsPage — card grid', () => {
-  it('renders one .app-card per Application from first paint', async () => {
+describe('AppsPage — card grid (installed only)', () => {
+  it('renders one .app-card per INSTALLED Application from first paint', async () => {
     renderProvision('d-1')
-    // Deployments tab is active — bootstrap-kit cards are always
-    // counted as deployed, so the grid is non-empty.
-    fireEvent.click(await screen.findByTestId('sov-tab-catalog'))
+    // Bootstrap-kit apps always count as installed, so the grid is
+    // non-empty without flipping any tab.
     const grid = await screen.findByTestId('sov-apps-grid')
     const cards = within(grid).getAllByTestId(/^sov-app-card-bp-/)
     expect(cards.length).toBeGreaterThan(0)
@@ -181,52 +150,22 @@ describe('AppsPage — card grid', () => {
 
   it('grid uses the canonical .apps-grid class (auto-fit minmax 360px)', async () => {
     renderProvision('d-1')
-    fireEvent.click(await screen.findByTestId('sov-tab-catalog'))
     const grid = await screen.findByTestId('sov-apps-grid')
     expect(grid.className).toContain('apps-grid')
   })
 
   it('search filter narrows the visible cards', async () => {
     renderProvision('d-1')
-    fireEvent.click(await screen.findByTestId('sov-tab-catalog'))
     const before = within(await screen.findByTestId('sov-apps-grid')).getAllByTestId(/^sov-app-card-bp-/)
     fireEvent.change(screen.getByTestId('sov-search'), { target: { value: 'cilium' } })
     const after = within(await screen.findByTestId('sov-apps-grid')).getAllByTestId(/^sov-app-card-bp-/)
     expect(after.length).toBeLessThan(before.length)
-    // Still see Cilium.
     expect(after.some((c) => c.getAttribute('data-testid') === 'sov-app-card-bp-cilium')).toBe(true)
   })
-})
 
-describe('AppsPage — #3090 per-tab card link target (class vs instance)', () => {
-  it('Deployments-tab card links to the INSTANCE page /app/$id', async () => {
+  it('installed card links to the INSTANCE page /app/$id', async () => {
     renderProvision('d-1')
-    // Deployments tab is active by default; bootstrap-kit apps (cilium)
-    // always count as deployed so the card is present.
     const card = await screen.findByTestId('sov-app-card-bp-cilium')
     expect(card.getAttribute('href')).toBe('/provision/d-1/app/bp-cilium')
-  })
-
-  it('Catalog-tab card links to the CLASS page /catalog/$blueprint', async () => {
-    renderProvision('d-1')
-    fireEvent.click(await screen.findByTestId('sov-tab-catalog'))
-    const card = await screen.findByTestId('sov-app-card-bp-cilium')
-    expect(card.getAttribute('href')).toBe('/provision/d-1/catalog/bp-cilium')
-  })
-
-  it('the SAME blueprint card resolves to DIFFERENT targets per tab', async () => {
-    renderProvision('d-1')
-    // Deployments first.
-    const onDeployments = (
-      await screen.findByTestId('sov-app-card-bp-cilium')
-    ).getAttribute('href')
-    // Flip to Catalog.
-    fireEvent.click(screen.getByTestId('sov-tab-catalog'))
-    const onCatalog = (
-      await screen.findByTestId('sov-app-card-bp-cilium')
-    ).getAttribute('href')
-    expect(onDeployments).not.toBe(onCatalog)
-    expect(onDeployments).toContain('/app/bp-cilium')
-    expect(onCatalog).toContain('/catalog/bp-cilium')
   })
 })

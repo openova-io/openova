@@ -261,6 +261,23 @@ type applicationStatusResponse struct {
 	// shape. Added qa-loop iter-7 Cluster-C (#1227).
 	Conditions     []map[string]interface{} `json:"conditions,omitempty"`
 	LastReconciled string                   `json:"lastReconciled,omitempty"`
+	// Spec surfaces the create-time placement so the AppDetail Topology
+	// tab reflects the placement chosen at install/create time WITHOUT
+	// waiting for the controller to populate status.placement (#3599,
+	// EPIC #3597). The FE TopologyTab reads `app.spec.placement` (the
+	// editor-posture mode string) + `app.spec.regions`.
+	Spec *applicationStatusSpec `json:"spec,omitempty"`
+}
+
+// applicationStatusSpec is the spec subset the Topology tab consumes.
+// Placement is normalised to the editor posture string
+// (single-region | active-active | active-hotstandby) regardless of
+// whether the CR stored the legacy string form or the #3373 object form.
+type applicationStatusSpec struct {
+	Placement      string                 `json:"placement,omitempty"`
+	Regions        []string               `json:"regions,omitempty"`
+	EnvironmentRef string                 `json:"environmentRef,omitempty"`
+	BlueprintRef   map[string]interface{} `json:"blueprintRef,omitempty"`
 }
 
 // ── HTTP handler — install ───────────────────────────────────────────
@@ -418,6 +435,24 @@ func (h *Handler) HandleApplicationInstall(w http.ResponseWriter, r *http.Reques
 	client, err := h.sovereignDynamicClient(dep)
 	if err != nil {
 		writeUserAccessUnavailable(w, err)
+		return
+	}
+
+	// #3598 (EPIC #3597) — ensure the Org/Environment namespace exists
+	// before creating the Application CR, so an install never fails with
+	// `namespaces "<org>" not found` when the organization controller's
+	// GitOps namespace reconcile hasn't landed yet. Idempotent.
+	if nsErr := ensureOrgNamespace(r.Context(), client, body.OrganizationRef); nsErr != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"kind":       "Application",
+			"name":       body.Name,
+			"namespace":  body.OrganizationRef,
+			"error":      "namespace-ensure-failed",
+			"status":     "503",
+			"httpStatus": 503,
+			"applied":    false,
+			"detail":     fmt.Sprintf("could not ensure namespace %q: %v", body.OrganizationRef, nsErr),
+		})
 		return
 	}
 
@@ -606,7 +641,35 @@ func (h *Handler) HandleApplicationStatus(w http.ResponseWriter, r *http.Request
 	if resp.Conditions == nil {
 		resp.Conditions = []map[string]interface{}{}
 	}
+	// #3599 — surface the create-time placement from spec so the Topology
+	// tab reflects it immediately (no wait for status.placement).
+	resp.Spec = applicationStatusSpecFromCR(obj)
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// applicationStatusSpecFromCR projects the Application CR's spec subset
+// the Topology tab reads. Placement is normalised to the editor posture
+// string via placementForTopology so the editor's mode pre-select works
+// whether the CR stored the legacy string (`single-region`) or the
+// #3373 object form (`{mode: active-hotstandby, regions: [...]}`).
+func applicationStatusSpecFromCR(obj *unstructured.Unstructured) *applicationStatusSpec {
+	if obj == nil {
+		return nil
+	}
+	spec := &applicationStatusSpec{}
+	// Placement: readTopology already handles string + object(mode) +
+	// label fallback; map its result onto the editor posture enum.
+	spec.Placement = placementForTopology(readTopology(obj))
+	if regions, ok, _ := unstructured.NestedStringSlice(obj.Object, "spec", "regions"); ok {
+		spec.Regions = regions
+	}
+	if env, ok, _ := unstructured.NestedString(obj.Object, "spec", "environmentRef"); ok && env != "" {
+		spec.EnvironmentRef = env
+	}
+	if br, ok, _ := unstructured.NestedMap(obj.Object, "spec", "blueprintRef"); ok {
+		spec.BlueprintRef = br
+	}
+	return spec
 }
 
 // ── HTTP handler — SSE status stream ────────────────────────────────

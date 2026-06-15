@@ -48,10 +48,11 @@ interface SidebarProps {
 /* ── Top-level (flat) nav items ─────────────────────────────────── */
 
 interface FlatNavItem {
-  id: 'apps' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'settings'
+  id: 'apps' | 'catalog' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'settings'
   label: string
   to:
     | '/provision/$deploymentId'
+    | '/provision/$deploymentId/catalog'
     | '/provision/$deploymentId/jobs'
     | '/provision/$deploymentId/dashboard'
     | '/provision/$deploymentId/cloud'
@@ -77,6 +78,14 @@ const FLAT_NAV: FlatNavItem[] = [
     label: 'Apps',
     to: '/provision/$deploymentId',
     icon: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z',
+  },
+  // Catalog (#3601) — the catalog grid as its own page in the provision
+  // tree (parity with the chroot SovereignSidebar Catalog entry).
+  {
+    id: 'catalog',
+    label: 'Catalog',
+    to: '/provision/$deploymentId/catalog',
+    icon: 'M4 7a2 2 0 012-2h8a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V7zm14 1a2 2 0 012 2v7a2 2 0 01-2 2M8 9h6M8 13h6',
   },
   {
     id: 'jobs',
@@ -114,7 +123,7 @@ const SETTINGS_ITEM: FlatNavItem = {
 
 /* ── Active-state derivation ────────────────────────────────────── */
 
-type ActiveSection = 'apps' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'settings'
+type ActiveSection = 'apps' | 'catalog' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'settings'
 
 // Cloud section is active when the path matches any of the
 // `/cloud[/...]` or legacy `/infrastructure[/...]` segments. We use a
@@ -126,6 +135,8 @@ const CLOUD_PATH_RE = /\/(cloud|infrastructure)(\/|$)/
 function deriveActiveSection(pathname: string): ActiveSection {
   if (CLOUD_PATH_RE.test(pathname)) return 'cloud'
   if (pathname.endsWith('/dashboard')) return 'dashboard'
+  // Catalog (#3601) — /catalog and /catalog/<blueprint> both count.
+  if (/\/catalog(\/|$)/.test(pathname)) return 'catalog'
   if (pathname.endsWith('/jobs')) return 'jobs'
   // Users surface — list, /new, and /<name> all count.
   if (/\/users(\/|$)/.test(pathname)) return 'users'
