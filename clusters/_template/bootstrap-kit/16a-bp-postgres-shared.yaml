@@ -129,7 +129,15 @@ spec:
       # secondary cluster) instead of the hw126 stretched-cluster antiAffinity.
       # Gated by topology.crossRegion below (the SOVEREIGN_ENABLE_CNPG_PAIR
       # post-mesh signal) so single-region provs stay byte-identical singletons.
-      version: 0.2.0
+      # 0.2.1 (#3577, Refs #3572 #3322): the 0.2.0 active-hot-standby primary
+      # NetworkPolicy (lifted from bp-cnpg-pair, a dedicated cluster) default-
+      # denied EVERY consumer's shared-pg-rw:5432 — on hw144 keycloak/gitea/
+      # harbor/grafana/catalyst-api all timed out (JDBC Acquisition timeout, the
+      # whole SSO chain down) the moment crossRegion flipped. Adds a consumer-
+      # ingress rule (TCP 5432 from any in-cluster Pod) so the SHARED engine's
+      # consumers reach it again; replication/own-cluster/operator carve-outs
+      # unchanged; singleton stays byte-identical. Lockstep bump with 16c/16d.
+      version: 0.2.1
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

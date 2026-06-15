@@ -78,7 +78,11 @@ spec:
       # global Service + shared-pg-b-replica follower). Gated by
       # topology.crossRegion below (SOVEREIGN_ENABLE_CNPG_PAIR). Single-region
       # stays a byte-identical singleton. Lockstep bump with 16a/16d.
-      version: 0.2.0
+      # 0.2.1 (#3577, Refs #3572 #3322): consumer-ingress carve-out — the 0.2.0
+      # primary NetworkPolicy default-denied every consumer's shared-pg-b-rw:5432
+      # (grafana/powerdns hub on hw144). Adds TCP 5432 from any in-cluster Pod;
+      # replication/own-cluster/operator carve-outs unchanged. Lockstep 16a/16d.
+      version: 0.2.1
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
