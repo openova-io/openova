@@ -1,5 +1,40 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.64 (#3584 Refs #3379, hw144 step-01 gitea-mirror 401, 2026-06-15):
+# Step-01 (gitea-mirror) authenticated to the Gitea REST API with the admin
+# username+password as BasicAuth (`Authorization: Basic base64(user:pwd)`).
+# bp-gitea configures an `openova-sso` OAuth2 login source + REQUIRE_SIGNIN_VIEW
+# =true; Gitea's apiAuth (v1/api.go:748) consults that EXTERNAL OAuth2 source
+# when validating a BasicAuth PASSWORD. During the cutover window (Keycloak
+# still converging) the external lookup BLOCKS ~130s then returns 401 — proven
+# live on hw144: every step-01 API call (`GET /orgs/openova`, `POST /orgs`,
+# `POST /orgs/openova/repos`) logged `401 Unauthorized in ~130000ms @
+# v1/api.go:748` while an authenticated TOKEN call returned 200 in <30ms. The
+# repo-create POST 401'd → `FATAL: repo create failed — not visible after POST`
+# → cutover wedged at step-01 (steps 02-11 never reached). Same root-cause
+# family as #3536 (step-05): bp-gitea's SSO config breaks the naive credential
+# path; the canonical remedy is the bootstrap-minted `catalyst-gitea-token` PAT.
+#
+# THE FIX (chart-only, template 01-gitea-mirror-job.yaml):
+#   (1) All Gitea API calls switch from BasicAuth → `Authorization: token
+#       <PAT>` (curl). A PAT is a direct local sha1 lookup that NEVER touches
+#       the external OAuth2 source → fast + immune to the convergence-window
+#       hang.
+#   (2) The git push embeds `gitea_admin:<PAT>@` in the URL (a Gitea PAT is
+#       accepted as the HTTP git password).
+#   (3) The PAT (`catalyst-gitea-token`, minted at BOOTSTRAP by bp-catalyst-
+#       platform in catalyst-system) is read cross-namespace via kubectl with
+#       a bounded 150s wait — identical pattern + values block (gitRepository
+#       SecretRef.{patSourceNamespace,patSourceSecretName,patSourceKey,username})
+#       to step-05's #3536 fix.
+#   (4) Step image flips images.git (alpine/git, wget-only) → images.kubectl
+#       (alpine/k8s — bundles kubectl+curl+git; steps 05/06/07/09/10 already
+#       git clone/push from it).
+# No RBAC change (the runner SA already has `secrets get/list/watch`
+# cluster-wide). No step-count change (still 11 steps). The git clone+push
+# (step 3) + the G75 tether-severance finalize block are unchanged. Live
+# 11-step→cutoverComplete=true validation remains DEFERRED to the next clean
+# fresh prov (the operator drives the cutover; this PR is the chart fix only).
 # 0.1.63 (Refs #3379 #3526, hw139 strip-before-pivot half-pivot, 2026-06-15):
 # THE ROOT-CAUSE FIX for the cutover half-pivot that froze 8 HRs on the live
 # hw139 for 10h (and blocked the unrelated merged bp-newapi #3564 from
@@ -585,7 +620,7 @@ name: bp-self-sovereign-cutover
 # and wires it into GitRepository.spec.secretRef BEFORE the URL flip — same
 # credential + pattern as #3454's openova-sme-tenants GitRepository. Adds
 # `secrets: create` to the cutover-runner RBAC.
-version: 0.1.63
+version: 0.1.64
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
