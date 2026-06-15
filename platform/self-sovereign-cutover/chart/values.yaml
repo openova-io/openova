@@ -572,7 +572,40 @@ stepTimeouts:
   # 15m cap that silently bounded every long step.
   harborPrewarmSeconds: 5400
   fluxGitRepositoryPatchSeconds: 600
-  helmRepositoryPatchesSeconds: 600
+  # Step 06 (helmrepository-patches) activeDeadlineSeconds. This step now
+  # has FOUR potentially-slow waits inside one Job and the deadline must
+  # cover their SUM in the worst case:
+  #   Phase -1  gateway-wait        up to gateway.waitTimeoutSeconds (1800s/30m)
+  #   Phase 0/1/2  auth-add + URL pivot + Gitea push   (seconds)
+  #   Phase 3a  strip-readiness wait up to stripReadinessSeconds (600s/10m)
+  # Raised 600 → 2400 (40m) by the strip-before-pivot fix (Refs #3379
+  # #3526) so the new Phase-3 readiness gate can run to convergence
+  # without the Job-level deadline killing it mid-wait (which would be a
+  # DeadlineExceeded = transient, so the engine re-runs — but a clean
+  # 40m ceiling avoids needless churn). Honored end-to-end because
+  # catalyst-api stamps the Job/watch deadline from this per-step value
+  # (cutover.go cutoverStepDeadline → createCutoverJob /
+  # watchJobToCompletion), taking the MAX of it and the global default.
+  # Event-driven: a fast run (gateway already Programmed, HRs reconcile
+  # in seconds) returns immediately and never waits out the ceiling.
+  helmRepositoryPatchesSeconds: 2400
+  # Step 06 Phase-3a (strip-before-pivot fix, Refs #3379 #3526). After the
+  # Phase-1 URL pivot + Phase-2 durable Gitea push, Step-06 waits up to
+  # this long for EVERY HelmRepository now pointing at local Harbor to
+  # report Ready=True (source-controller fetched + verified the OCI
+  # artifact — proving registry.<fqdn> serves the chart AND the Phase-0
+  # Harbor auth works) BEFORE it strips the ghcr.io / harbor.openova.io
+  # fallback from ghcr-pull. If the pivot does not converge within this
+  # budget the strip is REFUSED and the Job exits non-zero with the
+  # mothership auth INTACT — the cluster keeps pulling from ghcr.io and
+  # the step is recoverable on the next engine re-run (the prior fail is a
+  # genuine exit, so an operator /cutover/start re-fire re-drives it; a
+  # DeadlineExceeded variant re-runs automatically). 600s (10m) is
+  # generous: the charts were skopeo-prewarmed into local Harbor at
+  # Step-03, so a pivoted HR's first authenticated pull is typically
+  # seconds. The re-poke-reconcile inside the loop means a fast converge
+  # returns well under the ceiling.
+  stripReadinessSeconds: 600
   catalystAPIEnvPatchSeconds: 600
   # 600s deny survival window + up to 300s #3526 bounded pivot-poll
   # (force-reconcile GitRepository + bootstrap-kit Kustomization and wait

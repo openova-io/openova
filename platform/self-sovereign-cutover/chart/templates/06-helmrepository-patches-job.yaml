@@ -134,6 +134,15 @@ data:
             value: {{ .Values.gateway.name | quote }}
           - name: GATEWAY_WAIT_TIMEOUT_SECONDS
             value: {{ .Values.gateway.waitTimeoutSeconds | quote }}
+          # Phase-3 strip-before-pivot fix (Refs #3379 #3526). The
+          # mothership-auth strip (ghcr.io / harbor.openova.io) waits up to
+          # this long for every local-Harbor HelmRepository to reach
+          # Ready=True before removing the ghcr.io fallback. If the pivot
+          # never converges, the strip is SKIPPED (Job exits non-zero with
+          # ghcr.io auth intact → recoverable). See
+          # .Values.stepTimeouts.stripReadinessSeconds.
+          - name: STRIP_READINESS_TIMEOUT_SECONDS
+            value: {{ .Values.stepTimeouts.stripReadinessSeconds | quote }}
         volumeMounts:
           - name: helmrepository-list
             mountPath: /work
@@ -219,7 +228,7 @@ data:
               exit 1
             fi
 
-            # ---- Phase 0: merge harbor.<sov-fqdn> auth into ghcr-pull (#1184) ----
+            # ---- Phase 0: ADD harbor.<sov-fqdn> auth to ghcr-pull (#1184) ----
             #
             # source-controller pulls Helm OCI charts from
             # oci://harbor.<sov-fqdn>/openova-io using the imagePullSecret
@@ -229,6 +238,25 @@ data:
             # harbor.openova.io auth only — it has NO entry for
             # harbor.<sov-fqdn>. Once Phase-1 below pivots HelmRepository
             # URLs, every reconcile against the local Harbor 401s.
+            #
+            # ── STRIP-BEFORE-PIVOT FIX (Refs #3379 #3526, hw139 half-pivot) ──
+            # Phase-0 is now PURELY ADDITIVE — it merges the local Harbor
+            # auth and NOTHING ELSE. The DESTRUCTIVE removal of the
+            # mothership-side ghcr.io / harbor.openova.io auth entries
+            # (TBD-V24 MISS-2 credential hygiene) was MOVED to the new
+            # Phase 3 at the END of this Job — see that block for the full
+            # rationale. The invariant the move enforces: NEVER strip
+            # ghcr.io creds until every HelmRepository is already pivoted to
+            # local Harbor AND reconciling Ready from it. On hw139 the strip
+            # ran in Phase-0 (BEFORE the Phase-1 URL pivot); a later step
+            # wedged, leaving ghcr.io creds gone while the on-disk Gitea
+            # YAML / live HR sources still pointed at ghcr.io → every
+            # reconcile failed "no auth config for 'ghcr.io' in the
+            # docker-registry Secret 'ghcr-pull'" and the half-pivot was
+            # permanent + unrecoverable zero-touch (8 HRs wedged 10h,
+            # blocking the unrelated bp-newapi #3564 roll). Adding Harbor
+            # auth early is safe (purely additive, idempotent); removing
+            # ghcr.io auth is the irreversible act that MUST come last.
             #
             # Manual fix done on omantel 2026-05-10 (session 5c468708):
             #   HARBOR_AUTH=$(echo -n "admin:${HADMIN_PW}" | base64 -w0)
@@ -299,113 +327,42 @@ data:
 
             existing_json=$(printf '%s' "${existing_b64}" | base64 -d)
 
-            # Idempotency guard: a re-run is a no-op when BOTH conditions
-            # hold simultaneously —
-            #   (a) harbor.<sov-fqdn> already maps to the expected auth
-            #   (b) every entry listed in MOTHERSHIP_AUTHS_TO_STRIP is
-            #       already absent from .auths
-            # Re-runs of step-06 (catalyst-api may retry) MUST NOT churn
-            # the Secret resourceVersion when there's nothing to do —
-            # that triggers a noisy reflector cascade.
+            # Idempotency guard: the ADD is a no-op when harbor.<sov-fqdn>
+            # already maps to the expected auth. Re-runs of step-06
+            # (catalyst-api may retry / the engine may re-fire) MUST NOT
+            # churn the Secret resourceVersion when there's nothing to add
+            # — that triggers a noisy reflector cascade.
+            #
+            # NOTE (Refs #3379 #3526): Phase-0 NO LONGER strips the
+            # mothership ghcr.io / harbor.openova.io auth — that is deferred
+            # to Phase 3 (end of Job, gated on the pivot being Ready). So
+            # the idempotency check here is the simple "is the Harbor auth
+            # already present" test; the strip's own idempotency lives in
+            # Phase 3.
             already=$(printf '%s' "${existing_json}" | jq -r --arg h "${harbor_host}" \
               '.auths[$h].auth // empty')
             harbor_auth=$(printf '%s:%s' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}" | base64 -w0)
 
-            # Check whether any of the strip targets is still present.
-            # `MOTHERSHIP_AUTHS_TO_STRIP` is a comma-separated list rendered
-            # from .Values.harbor.mothershipAuthsToStrip — see the chart's
-            # values.yaml for the canonical hosts and rationale (TBD-V24
-            # MISS-2). Empty list → strip_remaining is empty → behaviour is
-            # identical to chart < 0.1.35.
-            strip_remaining=""
-            if [ -n "${MOTHERSHIP_AUTHS_TO_STRIP:-}" ]; then
-              # IFS-split on comma; iterate; collect hosts that still
-              # have an auth entry in existing_json.
-              old_ifs="$IFS"
-              IFS=','
-              for strip_host in ${MOTHERSHIP_AUTHS_TO_STRIP}; do
-                # Strip whitespace defensively (operator-edited overlays
-                # sometimes carry trailing spaces around commas).
-                strip_host=$(printf '%s' "${strip_host}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-                [ -z "${strip_host}" ] && continue
-                # Skip the local harbor host even if an operator
-                # accidentally listed it — stripping the entry we just
-                # merged in would deadlock Phase 1.
-                if [ "${strip_host}" = "${harbor_host}" ]; then
-                  echo "[helmrepository-patches] Phase-0 WARN: refusing to strip ${strip_host} (matches local harbor host); check .Values.harbor.mothershipAuthsToStrip overlay"
-                  continue
-                fi
-                present=$(printf '%s' "${existing_json}" | jq -r --arg h "${strip_host}" \
-                  '.auths | has($h)')
-                if [ "${present}" = "true" ]; then
-                  strip_remaining="${strip_remaining}${strip_host} "
-                fi
-              done
-              IFS="$old_ifs"
-            fi
-
-            if [ -n "${already}" ] && [ "${already}" = "${harbor_auth}" ] && [ -z "${strip_remaining}" ]; then
-              echo "[helmrepository-patches] Phase-0 skip: ghcr-pull already carries auth for ${harbor_host} and mothership entries already stripped"
+            if [ -n "${already}" ] && [ "${already}" = "${harbor_auth}" ]; then
+              echo "[helmrepository-patches] Phase-0 skip: ghcr-pull already carries auth for ${harbor_host} (strip deferred to Phase 3)"
             else
-              # Single jq pipeline: ADD harbor.<sov-fqdn> auth AND
-              # DELETE every host in MOTHERSHIP_AUTHS_TO_STRIP. Both
-              # mutations happen in one pass so the Secret takes a
-              # single resourceVersion bump regardless of which side
-              # was stale. Per CLAUDE.md §3 Principle #11 the post-
-              # cutover cluster MUST NOT carry standing auth for any
-              # `openova-io`-rooted registry — leaving the ghcr.io or
-              # harbor.openova.io entries in place would let a
-              # regression silently re-authenticate against upstream
-              # (the credential-hygiene gap flagged by TBD-V24 MISS-2).
-              #
-              # `del(.auths[$h])` is idempotent — deleting a missing
-              # key is a no-op in jq, so re-runs after the initial
-              # strip just no-op the strip arms.
-              # Build the jq invocation as a single argv-shell-quoted
-              # string so we can use POSIX-sh `set --` semantics without
-              # bash-only arrays. Each entry in MOTHERSHIP_AUTHS_TO_STRIP
-              # contributes one `--arg s<N> <host>` pair + one
-              # ` | del(.auths[$s<N>])` filter stage.
+              # Single jq pass: ADD harbor.<sov-fqdn> auth. This is the
+              # PURELY ADDITIVE half of the old combined pipeline — the
+              # destructive `del(.auths[...])` arms were moved to Phase 3
+              # (see the strip-before-pivot fix). Adding Harbor auth early
+              # is the precondition that lets Phase-1's pivoted
+              # HelmRepositories pull from local Harbor; it leaves the
+              # ghcr.io fallback intact so a wedge before Phase 3 is
+              # recoverable.
               #
               # `--arg` ALWAYS treats its value as a string (no shell
-              # interpolation), so even a maliciously crafted host like
-              # `"; rm -rf /` would land verbatim as a JSON-string
-              # operand to `del()` — never executed.
-              jq_filter='.auths[$h] = {"username":$user,"auth":$auth}'
-              strip_idx=0
-              # Reset positional params so `set --` below builds a clean
-              # `--arg s<N> <host>` list. The Job's args[] passes only the
-              # script body to `sh -c`, so $@ is normally empty — this is
-              # belt-and-braces against future operator overlays adding
-              # extra args.
-              set --
-              if [ -n "${MOTHERSHIP_AUTHS_TO_STRIP:-}" ]; then
-                # POSIX-safe comma-iteration via parameter expansion.
-                rem="${MOTHERSHIP_AUTHS_TO_STRIP},"
-                while [ -n "${rem}" ] && [ "${rem}" != "," ]; do
-                  strip_host="${rem%%,*}"
-                  rem="${rem#*,}"
-                  strip_host=$(printf '%s' "${strip_host}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-                  [ -z "${strip_host}" ] && continue
-                  # Defence-in-depth: never delete the local harbor
-                  # entry even if listed (matches the earlier idempotency
-                  # check that also skips it).
-                  if [ "${strip_host}" = "${harbor_host}" ]; then
-                    continue
-                  fi
-                  jq_filter="${jq_filter} | del(.auths[\$s${strip_idx}])"
-                  # Append `--arg s<N> <host>` to the positional params
-                  # so we can invoke jq with "$@" below.
-                  set -- "$@" --arg "s${strip_idx}" "${strip_host}"
-                  strip_idx=$((strip_idx+1))
-                done
-              fi
+              # interpolation), so the Harbor password is never re-parsed
+              # by the shell.
               new_json=$(printf '%s' "${existing_json}" | jq \
                 --arg h "${harbor_host}" \
                 --arg user "${HARBOR_USERNAME}" \
                 --arg auth "${harbor_auth}" \
-                "$@" \
-                "${jq_filter}")
+                '.auths[$h] = {"username":$user,"auth":$auth}')
               new_b64=$(printf '%s' "${new_json}" | base64 -w0)
               # Merge-patch the data field. Quoting note: ${GHCR_PULL_SECRET_KEY}
               # is `.dockerconfigjson` which is a literal key (the leading
@@ -415,7 +372,7 @@ data:
               if kubectl patch secret "${GHCR_PULL_SECRET_NAME}" \
                   -n "${GHCR_PULL_SECRET_NAMESPACE}" \
                   --type=merge --patch "${patch_payload}" >/dev/null; then
-                echo "[helmrepository-patches] Phase-0 OK: merged ${harbor_host} auth into ${GHCR_PULL_SECRET_NAMESPACE}/${GHCR_PULL_SECRET_NAME}"
+                echo "[helmrepository-patches] Phase-0 OK: added ${harbor_host} auth to ${GHCR_PULL_SECRET_NAMESPACE}/${GHCR_PULL_SECRET_NAME} (ghcr.io fallback retained until Phase 3)"
               else
                 echo "[helmrepository-patches] FATAL: kubectl patch ${GHCR_PULL_SECRET_NAME} failed" >&2
                 exit 1
@@ -689,35 +646,210 @@ data:
               echo "[helmrepository-patches] Phase-2.5 SKIP: ${catalyst_yaml} not present in local mirror"
             fi
 
+            # NOTE (Refs #3379 #3526): the two "nothing to push" paths below
+            # must FALL THROUGH to Phase 3 (the readiness-gated strip), NOT
+            # `exit 0` early — even when there is no Gitea edit to commit,
+            # the live HelmRepository pivot (Phase-1) may have happened and
+            # the ghcr.io strip still has to run AFTER the pivot is Ready. So
+            # they only skip the commit/push, then continue.
             if [ "${edited}" -eq 0 ]; then
-              echo "[helmrepository-patches] no edits — already pivoted in Gitea or upstream prefix not present"
-              # Don't fail; phase-1 already succeeded.
+              echo "[helmrepository-patches] no edits — already pivoted in Gitea or upstream prefix not present (continuing to Phase 3)"
+            else
+              git add "${target_dir}"
+              if git diff --staged --quiet; then
+                echo "[helmrepository-patches] git diff empty after sed — nothing to commit (continuing to Phase 3)"
+              else
+                git commit -m "cutover: pivot ${edited} HelmRepository URLs to local Harbor" >/dev/null
+                push_err=$(git push origin main 2>&1) || {
+                  echo "[helmrepository-patches] FATAL: git push failed" >&2
+                  # Surface the actual git stderr so operators can diagnose
+                  # auth / branch-protection / hook rejections without re-
+                  # running the Job. The output is git's own stderr — does
+                  # NOT contain the embedded credential (those live in the
+                  # remote URL only and git redacts them in error messages).
+                  printf '%s\n' "$push_err" >&2
+                  exit 1
+                }
+                echo "[helmrepository-patches] pushed to ${redacted} (commit will reconcile via bootstrap-kit Kustomization)"
+
+                # Trigger an immediate Flux reconciliation so the new YAML
+                # lands without waiting for the polling interval.
+                kubectl annotate --overwrite gitrepository openova \
+                  -n flux-system \
+                  "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null || true
+              fi
+            fi
+
+            # ====================================================================
+            # Phase 3 — readiness-gated mothership-auth STRIP (Refs #3379 #3526)
+            # ====================================================================
+            #
+            # THE STRIP-BEFORE-PIVOT FIX. This block performs the destructive
+            # credential-hygiene removal (TBD-V24 MISS-2) that USED to live in
+            # Phase-0. It is the LAST thing Step-06 does, and it runs ONLY
+            # after a bounded wait that PROVES every pivoted HelmRepository
+            # actually reconciles Ready from local Harbor.
+            #
+            # WHY THE MOVE (hw139 half-pivot, 8 HRs wedged 10h):
+            #   Phase-0 ran the strip BEFORE the Phase-1 URL pivot. Between
+            #   those two acts — and any time a LATER cutover step wedged
+            #   (step-05/08/10 have all wedged at various points; see Chart.yaml
+            #   changelog) — the cluster was in the lethal intermediate state:
+            #   ghcr.io creds GONE, but the live HR sources + the on-disk Gitea
+            #   YAML still `oci://ghcr.io/openova-io`. Every reconcile then
+            #   failed `no auth config for 'ghcr.io' in the docker-registry
+            #   Secret 'ghcr-pull'`, the half-pivot was permanent, and the
+            #   cutover engine (which strips again on every re-run because the
+            #   ADD+strip were one jq pass) could never recover zero-touch.
+            #
+            # THE INVARIANT THIS ENFORCES:
+            #   ghcr.io / harbor.openova.io auth is removed from ghcr-pull ONLY
+            #   when every HelmRepository this Job pivoted is already Ready=True
+            #   pulling from registry.<sov-fqdn>. If readiness does not converge
+            #   within the budget, this block EXITS NON-ZERO with the mothership
+            #   auth STILL INTACT — so the HRs keep pulling from ghcr.io and the
+            #   step is cleanly recoverable (the engine deletes the timed-out /
+            #   failed Job and re-runs; Phase-0's ADD + Phase-1's pivot are
+            #   idempotent, and this Phase-3 strip is idempotent too).
+            #
+            # Idempotency: if every strip target is already absent, the block
+            # is a pure no-op (no Secret churn). A re-run after a partial strip
+            # (jq del of a missing key is a no-op) re-converges cleanly.
+            if [ -z "${MOTHERSHIP_AUTHS_TO_STRIP:-}" ]; then
+              echo "[helmrepository-patches] Phase-3 skip: MOTHERSHIP_AUTHS_TO_STRIP empty — nothing to strip"
+              echo "[helmrepository-patches] step complete"
               exit 0
             fi
 
-            git add "${target_dir}"
-            if git diff --staged --quiet; then
-              echo "[helmrepository-patches] git diff empty after sed — nothing to commit"
-              exit 0
-            fi
-            git commit -m "cutover: pivot ${edited} HelmRepository URLs to local Harbor" >/dev/null
-            push_err=$(git push origin main 2>&1) || {
-              echo "[helmrepository-patches] FATAL: git push failed" >&2
-              # Surface the actual git stderr so operators can diagnose
-              # auth / branch-protection / hook rejections without re-
-              # running the Job. The output is git's own stderr — does
-              # NOT contain the embedded credential (those live in the
-              # remote URL only and git redacts them in error messages).
-              printf '%s\n' "$push_err" >&2
+            # ---- Phase 3a: bounded wait for the pivoted HRs to be Ready ----
+            #
+            # We only gate on the HelmRepositories whose URL now points at the
+            # LOCAL Harbor host (harbor_host) — i.e. the ones this cutover
+            # pivoted. An HR still on ghcr.io is either intentionally external
+            # or not-yet-reverted-by-Flux; gating on it would deadlock. A
+            # local-Harbor HR that is Ready=True PROVES (a) registry.<fqdn>
+            # serves the chart and (b) the Phase-0 Harbor auth works — exactly
+            # the precondition for safely dropping ghcr.io.
+            #
+            # Ready is read from the Flux source-controller condition
+            # (.status.conditions[type==Ready].status). source-controller sets
+            # Ready=True once it has FETCHED + verified the OCI artifact, which
+            # for an OCI HelmRepository means a successful authenticated pull —
+            # the very operation that 401s if Harbor auth is wrong.
+            strip_wait_deadline=$(( $(date +%s) + STRIP_READINESS_TIMEOUT_SECONDS ))
+            echo "[helmrepository-patches] Phase-3a: waiting up to ${STRIP_READINESS_TIMEOUT_SECONDS}s for local-Harbor HelmRepositories to be Ready before stripping mothership auth"
+            ready_ok="false"
+            # Snapshot file (writable /tmp emptyDir) holding one line per HR:
+            # "<ns> <name> <spec.url> <Ready-status>". Re-written each poll.
+            # Using a file (not a heredoc) keeps the whole block correctly
+            # indented inside the YAML block scalar.
+            hr_snapshot=/tmp/.hr-readiness.txt
+            while [ "$(date +%s)" -lt "${strip_wait_deadline}" ]; do
+              # Re-poke a reconcile so we don't wait out the 15m interval.
+              now_ts=$(date +%s)
+              total=0
+              not_ready=0
+              not_ready_names=""
+              kubectl get helmrepositories -A \
+                -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.spec.url}{" "}{range .status.conditions[?(@.type=="Ready")]}{.status}{end}{"\n"}{end}' \
+                2>/dev/null > "${hr_snapshot}" || : > "${hr_snapshot}"
+              # Enumerate every HelmRepository cluster-wide; select those whose
+              # spec.url host is the local Harbor host.
+              while read -r ns name url ready; do
+                [ -z "${ns}" ] && continue
+                case "${url}" in
+                  *"//${harbor_host}/"*|*"//${harbor_host}") : ;;  # local-Harbor HR — gate on it
+                  *) continue ;;                                    # not pivoted to local Harbor — skip
+                esac
+                total=$((total+1))
+                if [ "${ready}" != "True" ]; then
+                  not_ready=$((not_ready+1))
+                  not_ready_names="${not_ready_names}${ns}/${name}(${ready:-<none>}) "
+                  kubectl annotate --overwrite -n "${ns}" "helmrepository/${name}" \
+                    "reconcile.fluxcd.io/requestedAt=${now_ts}" >/dev/null 2>&1 || true
+                fi
+              done < "${hr_snapshot}"
+              if [ "${total}" -gt 0 ] && [ "${not_ready}" -eq 0 ]; then
+                ready_ok="true"
+                echo "[helmrepository-patches] Phase-3a OK: all ${total} local-Harbor HelmRepository(ies) Ready=True"
+                break
+              fi
+              echo "[helmrepository-patches] Phase-3a: ${not_ready}/${total} local-Harbor HelmRepository(ies) not yet Ready: ${not_ready_names:-<none>}; retrying in 15s"
+              sleep 15
+            done
+
+            if [ "${ready_ok}" != "true" ]; then
+              echo "[helmrepository-patches] FATAL: local-Harbor HelmRepositories did not all reach Ready=True within ${STRIP_READINESS_TIMEOUT_SECONDS}s — REFUSING to strip ghcr.io / harbor.openova.io auth (leaving mothership auth intact so the cluster keeps pulling from ghcr.io and this step is recoverable on re-run)" >&2
+              kubectl get helmrepositories -A 2>&1 >&2 || true
               exit 1
-            }
-            echo "[helmrepository-patches] pushed to ${redacted} (commit will reconcile via bootstrap-kit Kustomization)"
+            fi
 
-            # Trigger an immediate Flux reconciliation so the new YAML
-            # lands without waiting for the polling interval.
-            kubectl annotate --overwrite gitrepository openova \
-              -n flux-system \
-              "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null || true
+            # ---- Phase 3b: strip the mothership auth (now safe) ----
+            #
+            # Re-read the Secret fresh (Phase-0's ADD + reflector may have
+            # bumped its resourceVersion) and del() every strip target. The
+            # local harbor host is NEVER stripped (defence-in-depth, even if an
+            # operator overlay erroneously lists it). `--arg` keeps every host
+            # a verbatim JSON string (no shell interpolation / injection).
+            strip_b64=$(read_secret_key "${target_ns}")
+            if [ -z "${strip_b64}" ]; then
+              echo "[helmrepository-patches] FATAL: Phase-3b cannot re-read ${target_ns}/${GHCR_PULL_SECRET_NAME} ${GHCR_PULL_SECRET_KEY}" >&2
+              exit 1
+            fi
+            strip_json=$(printf '%s' "${strip_b64}" | base64 -d)
+
+            # Determine which targets are still present (no-op if none).
+            strip_remaining=""
+            rem="${MOTHERSHIP_AUTHS_TO_STRIP},"
+            while [ -n "${rem}" ] && [ "${rem}" != "," ]; do
+              strip_host="${rem%%,*}"
+              rem="${rem#*,}"
+              strip_host=$(printf '%s' "${strip_host}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+              [ -z "${strip_host}" ] && continue
+              if [ "${strip_host}" = "${harbor_host}" ]; then
+                echo "[helmrepository-patches] Phase-3b WARN: refusing to strip ${strip_host} (matches local harbor host); check .Values.harbor.mothershipAuthsToStrip overlay"
+                continue
+              fi
+              present=$(printf '%s' "${strip_json}" | jq -r --arg h "${strip_host}" '.auths | has($h)')
+              [ "${present}" = "true" ] && strip_remaining="${strip_remaining}${strip_host} "
+            done
+
+            if [ -z "${strip_remaining}" ]; then
+              echo "[helmrepository-patches] Phase-3b skip: mothership auth entries already absent from ghcr-pull"
+              echo "[helmrepository-patches] step complete"
+              exit 0
+            fi
+
+            # Build the `del(.auths[$sN])` jq filter + matching --arg list via
+            # POSIX positional params (no bash arrays).
+            jq_filter='.'
+            strip_idx=0
+            set --
+            rem="${MOTHERSHIP_AUTHS_TO_STRIP},"
+            while [ -n "${rem}" ] && [ "${rem}" != "," ]; do
+              strip_host="${rem%%,*}"
+              rem="${rem#*,}"
+              strip_host=$(printf '%s' "${strip_host}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+              [ -z "${strip_host}" ] && continue
+              if [ "${strip_host}" = "${harbor_host}" ]; then
+                continue
+              fi
+              jq_filter="${jq_filter} | del(.auths[\$s${strip_idx}])"
+              set -- "$@" --arg "s${strip_idx}" "${strip_host}"
+              strip_idx=$((strip_idx+1))
+            done
+
+            stripped_json=$(printf '%s' "${strip_json}" | jq "$@" "${jq_filter}")
+            stripped_b64=$(printf '%s' "${stripped_json}" | base64 -w0)
+            strip_patch=$(printf '{"data":{"%s":"%s"}}' "${GHCR_PULL_SECRET_KEY}" "${stripped_b64}")
+            if kubectl patch secret "${GHCR_PULL_SECRET_NAME}" \
+                -n "${GHCR_PULL_SECRET_NAMESPACE}" \
+                --type=merge --patch "${strip_patch}" >/dev/null; then
+              echo "[helmrepository-patches] Phase-3b OK: stripped mothership auth (${strip_remaining}) from ${GHCR_PULL_SECRET_NAMESPACE}/${GHCR_PULL_SECRET_NAME} — Sovereign now pulls EXCLUSIVELY from ${harbor_host}"
+            else
+              echo "[helmrepository-patches] FATAL: Phase-3b kubectl patch ${GHCR_PULL_SECRET_NAME} (strip) failed" >&2
+              exit 1
+            fi
 
             echo "[helmrepository-patches] step complete"
         resources:
