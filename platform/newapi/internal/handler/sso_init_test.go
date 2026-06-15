@@ -37,6 +37,9 @@ func TestSSOInitHandler_ServesLandingAtRoot(t *testing.T) {
 	// chart-provided authorize URL — it must NOT read provider discovery from
 	// /api/status (v0.13.2 does not expose custom_oauth_providers there).
 	for _, want := range []string{
+		"/api/user/self",    // #3563 — idempotent re-login: already-signed-in check
+		"/console",          // #3563 — a valid session redirects straight to the app
+		"/api/user/logout",  // #3563 — clear stale session so re-auth = login (not bind)
 		"/api/oauth/state",  // the only runtime dependency (CSRF state + cookie)
 		`"sovereign"`,       // the seeded provider slug, embedded as a JS literal
 		`/realms/sovereign`, // the injected authorize URL is present
