@@ -85,7 +85,30 @@ name: bp-openbao
 # render is byte-identical; the only enabled-path change is the RBAC namespace.
 # tests/snapshot-replication-toggle.sh Case 2 gains a no-orphan-namespace +
 # Role-present assertion. No upstream subchart change.
-version: 1.2.42
+# 1.2.43 (#3612 / #3568, 2026-06-16): Capabilities-guard the Continuum CR so
+# `helm install bp-openbao` no longer FAILS in the SECONDARY region of a
+# 2-region prov. templates/continuum.yaml renders the `cont-openbao`
+# Continuum CR (dr.openova.io/v1) when continuum.enabled=true AND
+# snapshotReplication.role=secondary — i.e. ON the standby (region-B). But the
+# `continuums.dr.openova.io` CRD ships ONLY with bp-catalyst-platform
+# (products/catalyst/chart/crds/continuum.yaml, slot 13) — NOT with
+# bp-continuum (its crds/ is intentionally empty) — and slot 13 is
+# region-role=primary + SUSPENDED on every secondary CP (SECONDARY_HR_SUSPEND),
+# so the CRD is NEVER installed in region-B. Result on hw145 region-b: `helm
+# install bp-openbao` failed `no matches for kind "Continuum" in version
+# "dr.openova.io/v1"`, cascading into external-secrets-stores → sso-bridge /
+# gitea / harbor / oidc-gate / newapi / powerdns-admin. The render is now
+# gated on `.Capabilities.APIVersions.Has "dr.openova.io/v1"` (gold-standard
+# CRD-race pattern, cf bp-external-dns / #2988 / #3102): openbao installs
+# WITHOUT the CR when the CRD is absent; the CR is added on the next Flux
+# reconcile if/when the CRD lands. A `dependsOn bp-catalyst-platform` was NOT
+# used — that dep is deliberately suspended in region-B and would deadlock
+# region-B openbao forever; the Capabilities guard is the only correct fix.
+# Default + single-region render stays byte-identical (the gated keys still
+# render nothing). tests/continuum-render.sh Case 3 now passes
+# `--api-versions dr.openova.io/v1`; new Case 4 proves the guard skips the CR
+# (no install failure) when the CRD is absent. No upstream subchart change.
+version: 1.2.43
 # 1.2.37 (#3374, 2026-06-14): fix the sso-landing nginx ImagePullBackOff. The
 # image was `harbor.openova.io/proxy-docker/library/nginx` but the live Harbor
 # DockerHub proxy-cache project is `proxy-dockerhub` (proxy-docker does NOT
