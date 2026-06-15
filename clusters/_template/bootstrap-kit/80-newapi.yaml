@@ -252,7 +252,7 @@ spec:
       # errored "already bound" on every 2nd bare-URL visit (live hw139). NOTE:
       # build-bp-newapi-sandbox-bridge.yaml re-tags the sidecar + may auto-bump
       # this pin further on merge (it rebuilds the bridge that carries this fix).
-      version: 1.4.93
+      version: 1.4.94
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
