@@ -96,7 +96,15 @@ spec:
       # gitea hang → catalyst-platform ✗ → console 000 (hw144). $credNs now
       # defaults to the release ns (where the CronJob's secretKeyRef reads the
       # creds anyway). Default-OFF path unchanged; pin in lockstep.
-      version: 1.2.42
+      # 1.2.43 (#3612 #3568): Capabilities-guard the Continuum CR so `helm
+      # install bp-openbao` no longer FAILS in the SECONDARY region. The CR
+      # (dr.openova.io/v1) renders on role=secondary, but its CRD ships with
+      # bp-catalyst-platform (slot 13), which is primary-suspended in region-B
+      # → CRD absent → `no matches for kind "Continuum"` (hw145 region-b),
+      # cascading into sso-bridge/gitea/harbor/oidc-gate/newapi/powerdns-admin.
+      # Render now gated on .Capabilities.APIVersions.Has "dr.openova.io/v1"
+      # (gold-standard pattern). Single-region byte-identical; pin in lockstep.
+      version: 1.2.43
       sourceRef:
         kind: HelmRepository
         name: bp-openbao

@@ -20,21 +20,45 @@ case. THIS Continuum CR tells the engine HOW to promote bp-openbao (the
 mechanism) and WHERE (the standby Pod target + raft data dir).
 
 🛑 Skip-render (per #402 — never `{{ fail }}`): the CR renders ONLY when
-BOTH `.Values.continuum.enabled=true` AND
-`.Values.snapshotReplication.role=secondary`. The Continuum CR describes
-promotion of the STANDBY → primary, so it belongs on the standby (region-B)
-cluster; the active (region-A) cluster does not host it. A default `helm
-template` is byte-identical to origin/main (gated keys render nothing).
+ALL THREE hold — `.Values.continuum.enabled=true`,
+`.Values.snapshotReplication.role=secondary`, AND the `dr.openova.io/v1`
+CRD is registered in the target cluster (`.Capabilities.APIVersions.Has`).
+The Continuum CR describes promotion of the STANDBY → primary, so it belongs
+on the standby (region-B) cluster; the active (region-A) cluster does not
+host it. A default `helm template` is byte-identical to origin/main (gated
+keys render nothing).
+
+🛑 CRD-RACE GUARD (#3612 / #3568 — gold-standard pattern, cf bp-external-dns
+/ #2988 / #3102 harbor-ESO `.Capabilities` guard): the
+`continuums.dr.openova.io` CRD ships with bp-catalyst-platform
+(products/catalyst/chart/crds/continuum.yaml, slot 13) — NOT with
+bp-continuum (whose crds/ is intentionally empty). But slot 13 is
+region-role=primary and is SUSPENDED on every secondary control plane
+(`suspend: ${SECONDARY_HR_SUSPEND}`), so the Continuum CRD is NEVER
+installed in region-B. Yet THIS CR renders on the SECONDARY
+(role=secondary). Without the Capabilities guard, `helm install bp-openbao`
+in region-B FAILS with `no matches for kind "Continuum" in version
+"dr.openova.io/v1"` (verified live on hw145 region-b), cascading into
+external-secrets-stores → sso-bridge / gitea / harbor / oidc-gate / newapi
+/ powerdns-admin (all need openbao-backed secrets). The guard lets openbao
+install WITHOUT the CR when the CRD is absent; the CR is added on the next
+Flux reconcile if/when the CRD ever lands. NOTE: a `dependsOn
+bp-catalyst-platform` is NOT a viable alternative — that dep is deliberately
+suspended in region-B, so it would deadlock region-B openbao forever; the
+Capabilities guard is the only correct fix.
 
 The mechanism-agnostic lua-record / regions / hostnames blocks mirror the
 shape the bp-cnpg-pair Continuum CR uses (the working reference) so the
 flip-DNS step has a probe target + IP-set to write; per-Sovereign overlays
-fill the real region names + IPs.
+fill the real region names + IPs. (bp-cnpg-pair sidesteps this same race a
+different way — it renders its CR only on the PRIMARY side, where the CRD is
+present; openbao's DR contract genuinely belongs on the secondary, so it
+needs the Capabilities guard instead.)
 */}}
 {{- $c := .Values.continuum | default dict -}}
 {{- $sr := .Values.snapshotReplication | default dict -}}
 {{- $srRole := $sr.role | default "primary" -}}
-{{- if and $c.enabled (eq $srRole "secondary") -}}
+{{- if and $c.enabled (eq $srRole "secondary") (.Capabilities.APIVersions.Has "dr.openova.io/v1") -}}
 {{- $rt := $c.raftTransition | default dict -}}
 {{- $lease := $c.leaseClient | default dict -}}
 {{- $leaseCfg := $lease.config | default dict -}}
