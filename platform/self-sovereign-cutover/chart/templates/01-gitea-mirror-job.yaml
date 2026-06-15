@@ -36,7 +36,13 @@ data:
     activeDeadlineSeconds: {{ .Values.stepTimeouts.giteaMirrorSeconds }}
     containers:
       - name: gitea-mirror
-        image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.git.repository "tag" .Values.images.git.tag "cutoverPhase" "pre" "Values" .Values) }}
+        # #3584 — image is now the alpine/k8s (images.kubectl) image, NOT
+        # alpine/git. We need `kubectl` to read the cross-namespace
+        # `catalyst-gitea-token` PAT from catalyst-system (same as step-05
+        # #3536) + `curl` for token-auth API calls; alpine/k8s bundles
+        # kubectl + curl + git (steps 05/06/07/09/10 already git clone/push
+        # from this image). The git clone/push below is unchanged.
+        image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.kubectl.repository "tag" .Values.images.kubectl.tag "cutoverPhase" "pre" "Values" .Values) }}
         imagePullPolicy: IfNotPresent
         env:
           - name: UPSTREAM_REPO_URL
@@ -51,26 +57,38 @@ data:
             value: {{ .Values.gitea.repo | quote }}
           - name: MIRROR_INTERVAL
             value: {{ .Values.upstream.mirrorInterval | quote }}
+          # #3584 — Gitea git-push username. A Gitea PAT is accepted as the
+          # HTTP git password under ANY existing username; we use the admin
+          # login (`gitea_admin`) for auditability. The git push embeds
+          # ${GITEA_USERNAME}:${GITEA_PAT}@ in the URL.
           - name: GITEA_USERNAME
-            valueFrom:
-              secretKeyRef:
-                name: {{ .Values.gitea.adminSecretRef.name }}
-                key: {{ .Values.gitea.adminSecretRef.usernameKey }}
-          - name: GITEA_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: {{ .Values.gitea.adminSecretRef.name }}
-                key: {{ .Values.gitea.adminSecretRef.passwordKey }}
+            value: {{ .Values.gitRepositorySecretRef.username | quote }}
+          # #3584 — PAT source coordinates (reuses the step-05 #3536 values
+          # block). The `catalyst-gitea-token` PAT is minted at BOOTSTRAP by
+          # bp-catalyst-platform's pre-install hook in catalyst-system. We
+          # read it cross-namespace here. WHY token auth (not the admin
+          # password): bp-gitea configures an `openova-sso` OAuth2 login
+          # source; Gitea's apiAuth consults that EXTERNAL source when
+          # validating a BasicAuth PASSWORD, so during the cutover window
+          # (Keycloak still converging) every BasicAuth API call hangs
+          # ~130s then 401s (v1/api.go:748). A PAT is a direct local sha1
+          # lookup that never touches the external source → fast + immune.
+          - name: PAT_SOURCE_NAMESPACE
+            value: {{ .Values.gitRepositorySecretRef.patSourceNamespace | quote }}
+          - name: PAT_SOURCE_SECRET_NAME
+            value: {{ .Values.gitRepositorySecretRef.patSourceSecretName | quote }}
+          - name: PAT_SOURCE_KEY
+            value: {{ .Values.gitRepositorySecretRef.patSourceKey | quote }}
         command: ["/bin/sh", "-c"]
         args:
           - |
             set -eu
-            # Credential hygiene: never echo $GITEA_PASSWORD. We feed it
-            # to git via URL embedding only inside the redirected http
-            # call below; stdout shows just the redacted form. The HTTP
-            # API calls use a base64'd Authorization: Basic header (the
-            # alpine/git image's BusyBox wget does NOT support --user/
-            # --password flags — caught live on otech103 2026-05-04).
+            # Credential hygiene: never echo $GITEA_PAT. We feed it to git
+            # via URL embedding only inside the redirected http call below;
+            # stdout shows just the redacted form. The HTTP API calls use
+            # an `Authorization: token <PAT>` header (#3584 — was BasicAuth,
+            # which hangs ~130s then 401s because Gitea's apiAuth consults
+            # the external openova-sso OAuth2 source for password creds).
             redacted_url="${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git"
             echo "[gitea-mirror] upstream=${UPSTREAM_REPO_URL} branch=${UPSTREAM_BRANCH}"
             echo "[gitea-mirror] target=${redacted_url}"
@@ -110,28 +128,53 @@ data:
               fi
             fi
 
-            # Build BusyBox-wget-compatible Basic auth header. printf -n
-            # avoids the trailing newline that would otherwise corrupt
-            # the base64 encoding (and thus the credential).
-            basic_auth=$(printf '%s' "${GITEA_USERNAME}:${GITEA_PASSWORD}" | base64 -w0 2>/dev/null || printf '%s' "${GITEA_USERNAME}:${GITEA_PASSWORD}" | base64 | tr -d '\n')
+            # #3584 — read the `catalyst-gitea-token` PAT (minted at BOOTSTRAP
+            # by bp-catalyst-platform in ${PAT_SOURCE_NAMESPACE}). All Gitea
+            # API calls below send `Authorization: token ${GITEA_PAT}`; the
+            # git push embeds ${GITEA_USERNAME}:${GITEA_PAT}@ in the URL. This
+            # replaces the admin-password BasicAuth that hung ~130s then 401s
+            # during the cutover window (Keycloak still converging — apiAuth
+            # consults the external openova-sso OAuth2 source for password
+            # creds; token auth is a direct local sha1 lookup, immune).
+            # Bounded wait: the PAT Secret exists from bootstrap but its
+            # `token` byte may be momentarily empty if the minter is mid-flight.
+            echo "[gitea-mirror] reading PAT ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}.${PAT_SOURCE_KEY}"
+            GITEA_PAT=""
+            for i in $(seq 1 30); do
+              GITEA_PAT=$(kubectl -n "${PAT_SOURCE_NAMESPACE}" get secret "${PAT_SOURCE_SECRET_NAME}" \
+                -o "jsonpath={.data.${PAT_SOURCE_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
+              if [ -n "${GITEA_PAT}" ]; then
+                echo "[gitea-mirror] PAT present (attempt ${i})"
+                break
+              fi
+              echo "[gitea-mirror] PAT not yet populated in ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME} (attempt ${i}/30) — sleeping 5s"
+              sleep 5
+            done
+            if [ -z "${GITEA_PAT}" ]; then
+              echo "[gitea-mirror] FATAL: ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}.${PAT_SOURCE_KEY} empty after 150s — bp-catalyst-platform PAT mint did not complete; refusing to mirror with no usable credential (BasicAuth fallback would hang ~130s then 401 during the cutover window)" >&2
+              exit 1
+            fi
 
             # 1. Ensure the org exists in Gitea (idempotent — POST /orgs
             #    returns 422 if a same-named user exists, 422 if org
             #    exists, 201 on create). We swallow non-201 because the
-            #    "already exists" surface is the steady-state path.
+            #    "already exists" surface is the steady-state path. curl -f
+            #    makes the existence GET return non-zero on any 4xx so the
+            #    "missing" branch fires only when the org truly absent.
             api_url="${GITEA_INTERNAL_URL}/api/v1"
-            org_check=$(wget -q -O - \
-              --header="Authorization: Basic ${basic_auth}" \
-              --header="Content-Type: application/json" \
-              "${api_url}/orgs/${GITEA_ORG}" 2>/dev/null || echo "missing")
-            if [ "${org_check}" = "missing" ]; then
-              echo "[gitea-mirror] creating org ${GITEA_ORG}"
-              wget -q -O /dev/null --post-data="{\"username\":\"${GITEA_ORG}\",\"visibility\":\"public\"}" \
-                --header="Authorization: Basic ${basic_auth}" \
-                --header="Content-Type: application/json" \
-                "${api_url}/orgs" 2>/dev/null || true
-            else
+            if curl -fsS -o /dev/null \
+              -H "Authorization: token ${GITEA_PAT}" \
+              -H "Accept: application/json" \
+              "${api_url}/orgs/${GITEA_ORG}" 2>/dev/null; then
               echo "[gitea-mirror] org already present"
+            else
+              echo "[gitea-mirror] creating org ${GITEA_ORG}"
+              curl -fsS -o /dev/null \
+                -X POST \
+                -H "Authorization: token ${GITEA_PAT}" \
+                -H "Content-Type: application/json" \
+                -d "{\"username\":\"${GITEA_ORG}\",\"visibility\":\"public\"}" \
+                "${api_url}/orgs" 2>/dev/null || true
             fi
 
             # 2. Ensure the repo exists in Gitea as a REGULAR (non-mirror)
@@ -150,30 +193,29 @@ data:
             #    operator wants a chart rollout post-cutover they
             #    re-run this Job (idempotent: rebases local main on
             #    upstream main and force-pushes any new commits).
-            repo_check=$(wget -q -O - \
-              --header="Authorization: Basic ${basic_auth}" \
-              --header="Content-Type: application/json" \
-              "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null || echo "missing")
-
-            if [ "${repo_check}" = "missing" ]; then
+            if curl -fsS -o /dev/null \
+              -H "Authorization: token ${GITEA_PAT}" \
+              -H "Accept: application/json" \
+              "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null; then
+              echo "[gitea-mirror] repo already present (idempotent re-run); refreshing content"
+            else
               echo "[gitea-mirror] creating empty repo ${GITEA_ORG}/${GITEA_REPO}"
               create_payload=$(printf '{"name":"%s","auto_init":false,"private":false,"description":"Self-hosted clone of %s (post-cutover, standalone)"}' \
                 "${GITEA_REPO}" "${UPSTREAM_REPO_URL}")
-              wget -q -O /dev/null \
-                --post-data="${create_payload}" \
-                --header="Authorization: Basic ${basic_auth}" \
-                --header="Content-Type: application/json" \
+              curl -fsS -o /dev/null \
+                -X POST \
+                -H "Authorization: token ${GITEA_PAT}" \
+                -H "Content-Type: application/json" \
+                -d "${create_payload}" \
                 "${api_url}/orgs/${GITEA_ORG}/repos" 2>&1 || true
-              if ! wget -q -O - \
-                --header="Authorization: Basic ${basic_auth}" \
-                --header="Content-Type: application/json" \
-                "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" >/dev/null 2>&1; then
+              if ! curl -fsS -o /dev/null \
+                -H "Authorization: token ${GITEA_PAT}" \
+                -H "Accept: application/json" \
+                "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null; then
                 echo "[gitea-mirror] FATAL: repo create failed — not visible after POST" >&2
                 exit 1
               fi
               echo "[gitea-mirror] empty repo created"
-            else
-              echo "[gitea-mirror] repo already present (idempotent re-run); refreshing content"
             fi
 
             # 3. Bare-clone upstream and push to local Gitea. --mirror
@@ -185,7 +227,7 @@ data:
             git config --global user.email "cutover@${gitea_host}"
             git config --global advice.detachedHead false
 
-            local_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
+            local_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PAT}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
             workdir=$(mktemp -d)
             cd "${workdir}"
             echo "[gitea-mirror] cloning ${UPSTREAM_REPO_URL} (bare)"
@@ -196,7 +238,7 @@ data:
               echo "[gitea-mirror] FATAL: git push to local Gitea failed" >&2
               # Surface git stderr WITHOUT the embedded credential — git
               # redacts URLs in error messages by default but be defensive.
-              printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PASSWORD}+,REDACTED,g" >&2
+              printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2
               exit 1
             }
             echo "[gitea-mirror] pushed all refs successfully"
@@ -204,8 +246,9 @@ data:
             # 4. Verify by reading back the default branch SHA and
             #    confirming non-empty (auto_init=false means a missing
             #    push leaves the repo "empty: true").
-            repo_meta=$(wget -q -O - \
-              --header="Authorization: Basic ${basic_auth}" \
+            repo_meta=$(curl -fsS \
+              -H "Authorization: token ${GITEA_PAT}" \
+              -H "Accept: application/json" \
               "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null || echo "{}")
             if printf '%s' "${repo_meta}" | grep -q '"empty":false'; then
               echo "[gitea-mirror] verified: repo has content (empty=false)"
