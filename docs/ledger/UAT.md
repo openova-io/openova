@@ -25,7 +25,7 @@
 | 1 | **Every app runs IN a vCluster** (placement law §4) | **✅ conformant** — 9 apps in their target vClusters (`loki`/`mimir`/`tempo`/`nats`→mgmt, `valkey`/`seaweedfs`/`vllm`→rtz, `coraza`→dmz); the 5 route/secret apps (`keycloak`/`gitea`/`grafana`/`harbor`/`openbao`) held on `host` BY ratified #3373 Batch-A design (loft.sh-Free CR-sync would need a permanent tether — incompatible with Pillar-5 cutover); `audit-placement-conformance.py live` exit 0; treemap LAYER1=vCluster renders host/mgmt/rtz/dmz | [3373-placement.md](uat-walkthrough/3373-placement.md) |
 | 2 | **3 shared-PG instances → 3 cards; 6–7 apps many-to-many** | **✅ 3 cards + 11 contexts / 9 apps** — `/catalog/bp-postgres` Instances table = `shared-pg`/`shared-pg-b`/`shared-pg-c` (all active-hotstandby + Ready); consumption many-to-many (`shared-pg`←harbor/gitea/keycloak, `-b`←grafana/powerdns/powerdns-admin, `-c`←catalyst-platform×3/newapi/openova-flow) | [3370-contexts.md](uat-walkthrough/3370-contexts.md) · [3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md) |
 | 3 | **NO login UI anywhere — URL → signed in as emrah.baysal as ADMIN** | **✅** — handover URL → `/dashboard` signed-in (avatar **E**, "Signed in as emrah.baysal@openova.io"); grafana / harbor / openbao / gitea all land signed-in zero-click at their bare URL; admin proven by surfing Server Admin / Administration / Secrets Engines / owner-dashboard. **Q6: Open buttons RESTORED (#3570)** (`↗ Open <App>` + `Open →`) | [3374-sso.md](uat-walkthrough/3374-sso.md) |
-| 4 | **Agreed apps actually multi-region** | **⏳ VERIFICATION IN PROGRESS (this session)** — `/cloud` reports Region 2/2 + Cluster 2/2 and the Topology picker is editable (single-region / active-active / active-hotstandby × me-east-215-a/-b, Preview+Apply), but the live region-kill (kill→promote→zero-loss) has **not** been demonstrated on hw144; cross-region cnpg replication + region-b cluster health under live verification | [3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md) |
+| 4 | **Agreed apps actually multi-region** | **✅** — `/cloud` reports Region 2/2 + Cluster 2/2, the Topology picker is editable (single-region / active-active / active-hotstandby × me-east-215-a/-b, Preview+Apply), and the **live region-kill PASSED** on hw144: region-a killed (cordon 3 workers + delete `shared-pg-1/2/3`) → region-b `shared-pg-replica` promoted in **RTO ≈ 4s** (`pg_is_in_recovery` t→f, 12:23:39→12:23:43Z) → consumer keycloak realms (master+sovereign) + 3 users identical post-kill → **RPO = 0** | [3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md) |
 
 ---
 
@@ -37,13 +37,13 @@
 | **Contexts** (#3370) | ✅ — 3 instance cards + ⛓ shareable catalog + 11 contexts across 3 instances / 9 distinct apps | [3370-contexts.md](uat-walkthrough/3370-contexts.md) |
 | **SSO** (#3374) | ✅ — handover + grafana + harbor + openbao + gitea land signed-in zero-click; Open buttons (Q6) present | [3374-sso.md](uat-walkthrough/3374-sso.md) |
 | **Topology Q1 / Q2** (#3375) | ✅ — 3 active-hotstandby cards; Q1 declared-singleton honesty render; Q2 truly-editable Topology picker | [3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md) |
-| **Region-kill** (#3375 / NS#4) | ⏳ VERIFICATION IN PROGRESS (this session) — `/cloud` Region 2/2 + Cluster 2/2, but live kill→promote not yet driven on hw144 | [3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md) |
+| **Region-kill** (#3375 / NS#4) | ✅ — live kill→promote driven on hw144: region-a killed → region-b promoted RTO ≈ 4s → consumer keycloak data identical (RPO = 0) | [3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md) |
 | **Cutover** (#3379) | ⏳ PENDING — `cutoverComplete=true` + the 600s deny-egress hold walk on hw144 not yet witnessed this session | [3379-cutover.md](uat-walkthrough/3379-cutover.md) · [3379-sovereignty.md](uat-walkthrough/3379-sovereignty.md) |
 
-**Honesty line:** the two open items on hw144 are the **region-kill EXECUTION** (NS#4 — `/cloud`
-shows Region 2/2 but the live kill→promote walk has not run) and the **Pillar-5 cutover** (the
-witnessed deny-egress hold + `cutoverComplete=true`). Both are marked **⏳ VERIFICATION IN PROGRESS
-(this session)** and will be filled in after the live runs — they are NOT claimed green.
+**Honesty line:** the **region-kill EXECUTION** (NS#4) is now **✅** — the live kill→promote walk ran
+on hw144 (RTO ≈ 4s, RPO = 0). The one remaining open item on hw144 is the **Pillar-5 cutover** (the
+witnessed deny-egress hold + `cutoverComplete=true`), marked **⏳ PENDING** — it will be filled in
+after the live run and is NOT claimed green.
 
 ---
 
@@ -79,8 +79,8 @@ Full evidence: [3370-contexts.md](uat-walkthrough/3370-contexts.md) · `docs/ses
 | shared-PG cards = active-hotstandby | `/catalog/bp-postgres` | ✅ | 3 instances, all active-hotstandby + Ready (hw144-04) |
 | Q1 declared-singleton honesty | `/app/shared-pg` Topology | ✅ | "Declared topology · singleton … no cross-region failover"; Live status "No per-region status yet … Replication lag n/a" (hw144-15) |
 | Q2 editable Topology picker | `/app/shared-pg` Topology | ✅ | radios single-region / active-active / active-hotstandby × regions me-east-215-a/-b + Preview + Apply (truly editable, not cosmetic) (hw144-15) |
-| 2-region substrate | `/cloud` | ⏳ | Region 2/2 + Cluster 2/2 graph renders (hw144-16); region-b cluster health + cnpg replication under live verification |
-| Region-kill EXECUTION (live promote) | continuum switchover | ⏳ | **VERIFICATION IN PROGRESS (this session)** — live kill→promote not yet driven on hw144; no hw128 carryover |
+| 2-region substrate | `/cloud` | ✅ | Region 2/2 + Cluster 2/2 graph renders (hw144-16); region-b `shared-pg-replica` confirmed streaming (`pg_is_in_recovery=t`, wal_receiver=streaming) at the gate |
+| Region-kill EXECUTION (live promote) | kubectl kill→promote | ✅ | **PASS on hw144** — region-a killed (cordon 3 workers + delete `shared-pg-1/2/3`) → region-b promoted RTO ≈ 4s (12:23:39→12:23:43Z) → keycloak realms+3 users identical, RPO = 0; no hw128 carryover ([proof txt](../sessions/2026-06-15/evidence/hw144-ns4-region-kill-proof.txt)) |
 
 Full evidence: [3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md) · `docs/sessions/2026-06-15/evidence/`.
 
@@ -88,11 +88,12 @@ Full evidence: [3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md) · `do
 
 ## What is NOT yet green on hw144 (honest open list)
 
-1. **Region-kill EXECUTION** (#3375 / NS#4) — `/cloud` shows Region 2/2 + Cluster 2/2 and the
-   Topology picker is editable, but the live **kill → promote → zero-data-loss** walk has not been
-   driven on hw144. Marked **⏳ VERIFICATION IN PROGRESS (this session)**.
-2. **Cutover completion** (#3379) — the witnessed 600s deny-egress hold + `cutoverComplete=true`
+1. **Cutover completion** (#3379) — the witnessed 600s deny-egress hold + `cutoverComplete=true`
    have not yet been walked on hw144. Marked **⏳ PENDING**.
-3. **harbor admin-group mapping** (#3374, minor) — harbor login lands signed-in, but
+2. **harbor admin-group mapping** (#3374, minor) — harbor login lands signed-in, but
    `/api/v2.0/users/current` reports `sysadmin:false`; the OIDC admin-group → Harbor-sysadmin
    mapping is a small follow-up (login itself is ✅).
+
+*(Resolved this session: **Region-kill EXECUTION** (#3375 / NS#4) — the live kill → promote →
+zero-data-loss walk PASSED on hw144 (RTO ≈ 4s, RPO = 0). See the NS#4 table in
+[3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md).)*
