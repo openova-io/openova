@@ -89,7 +89,14 @@ spec:
       # Adds crossRegion + cross-region mesh Service + ConfigMap; Continuum CR
       # promote step is OSS peers.json recovery. Default-OFF, single-region
       # byte-identical. Pin in lockstep.
-      version: 1.2.41
+      # 1.2.42 (#3562 #3373): unwedge the install — snapshot-replication.yaml
+      # defaulted the S3-creds Role/RoleBinding namespace to `seaweedfs`, which
+      # #3477 re-homed INTO the rtz vCluster (host ns gone), so `helm install`
+      # FAILED `namespaces "seaweedfs" not found` → openbao ✗ → sso-bridge ✗ →
+      # gitea hang → catalyst-platform ✗ → console 000 (hw144). $credNs now
+      # defaults to the release ns (where the CronJob's secretKeyRef reads the
+      # creds anyway). Default-OFF path unchanged; pin in lockstep.
+      version: 1.2.42
       sourceRef:
         kind: HelmRepository
         name: bp-openbao

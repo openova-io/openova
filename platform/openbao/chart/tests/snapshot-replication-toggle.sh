@@ -97,6 +97,22 @@ if grep -qE "^  name: openbao-snapshot-restore-staging$" "$TMP/primary.yaml"; th
   echo "FAIL: primary render unexpectedly contains the restore-staging PVC." >&2
   exit 1
 fi
+# #3373/#3477 re-homed bp-seaweedfs INTO the rtz vCluster, so the host
+# `seaweedfs` namespace no longer exists; a Role/RoleBinding targeting it
+# fails the whole openbao helm install with `namespaces "seaweedfs" not
+# found` (#3562). The S3-creds RBAC must land in an EXISTING namespace
+# (the release ns), and NO rendered object may target a `seaweedfs` ns.
+if grep -qE '^[[:space:]]*namespace:[[:space:]]*"?seaweedfs"?[[:space:]]*$' "$TMP/primary.yaml"; then
+  echo "FAIL: primary render places a resource in the non-existent 'seaweedfs' namespace — openbao install would fail with 'namespaces \"seaweedfs\" not found'." >&2
+  grep -nE '^[[:space:]]*namespace:[[:space:]]*"?seaweedfs"?[[:space:]]*$' "$TMP/primary.yaml" >&2
+  exit 1
+fi
+# The S3-creds Role + RoleBinding must render in the release namespace
+# (helm template defaults .Release.Namespace to "default").
+if ! grep -qE "^  name: openbao-snapshot-s3-creds$" "$TMP/primary.yaml"; then
+  echo "FAIL: primary render missing the openbao-snapshot-s3-creds Role/RoleBinding." >&2
+  exit 1
+fi
 echo "  PASS"
 
 echo "[snapshot-replication-toggle] Case 3: enabled + role=secondary emits the snapshot-FETCH CronJob + restore PVC"
