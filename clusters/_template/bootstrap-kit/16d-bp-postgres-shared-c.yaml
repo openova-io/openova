@@ -70,7 +70,7 @@ spec:
       # (SME mesh / newapi / openova-flow on hw144). Adds TCP 5432 from any
       # in-cluster Pod; replication/own-cluster/operator carve-outs unchanged.
       # Lockstep bump with 16a/16c.
-      version: 0.2.1
+      version: 0.2.2
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

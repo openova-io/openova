@@ -58,9 +58,23 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 5
       volumes:
+        # #3629: mirror the webapp's #3374 fallback — when
+        # recordings.persistence is false (the default), the `recordings`
+        # volume is an emptyDir, NOT the `guacamole-recordings` PVC. The
+        # guacd-deployment.yaml volume block previously hard-referenced the
+        # PVC unconditionally while seaweedfs-pvc.yaml only renders it under
+        # `persistence: true`, so guacd FailedScheduling
+        # (`persistentvolumeclaim "guacamole-recordings" not found`) forever
+        # on the default path. Operators who run real distributed SeaweedFS
+        # RWX flip recordings.persistence=true and both Pods bind the PVC.
         - name: recordings
+          {{- if .Values.guacamole.recordings.persistence }}
           persistentVolumeClaim:
             claimName: {{ include "bp-guacamole.recordingsName" . }}
+          {{- else }}
+          emptyDir:
+            sizeLimit: {{ .Values.guacamole.recordings.emptyDirSizeLimit | default "2Gi" | quote }}
+          {{- end }}
         - name: tmp
           emptyDir: {}
 {{- end }}

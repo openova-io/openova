@@ -1,5 +1,23 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.2 — #3629 (Refs #3571 #3572 North-Star-4): cross-region CONSUMER write
+#   host. 0.2.0 promised "the consumer host `<instance>-rw` is unchanged across
+#   regions", but never delivered it: CNPG's `<instance>-rw` Service is
+#   region-LOCAL (it exists only where the named primary Cluster runs), and the
+#   only ClusterMesh-global Service (`<instance>-mesh`) is `selectorType: r`
+#   (READ-only). So an agreed-multi-region consumer scheduled in the REPLICA
+#   region (grafana, powerdns-admin, keycloak — all on the #3572 active-hot-
+#   standby list) dialed `<instance>-rw.shared-data` and got NXDOMAIN
+#   (hw146 region-B: grafana/powerdns-admin CrashLoopBackOff + keycloak-0
+#   JGroups `UnknownHostException shared-pg-rw`). FIX: a SECOND managed Service
+#   `<instance>-mesh-rw` (`selectorType: rw` → the current primary instance,
+#   `service.cilium.io/global: "true"`) on the primary + a same-named replica
+#   stub (replica-mesh-service.yaml), so the write host resolves in BOTH regions
+#   and routes WRITES to whichever region is primary (follows bp-continuum
+#   promotion). The hub Secret's `host`/`uri` keys + a new reflect.hostKeys/
+#   hostPortKeys mechanism (grafana's GF_DATABASE_HOST) render this topology-
+#   aware `$consumerHost`. singleton render stays byte-identical (still
+#   `<instance>-rw`, no `-mesh-rw` Service — gated on activeHotStandby).
 # 0.2.1 — #3577 (Refs #3572 #3322): the active-hot-standby PRIMARY-side
 #   NetworkPolicy (shared-pg-allow-replication-to-primary) was COPIED from
 #   bp-cnpg-pair, a DEDICATED cluster with no external consumers — so it never
@@ -54,7 +72,7 @@ name: bp-postgres
 #   regions so it admits under BOTH the pre-#3370 CRD (hard-required) and the
 #   #3370 CRD (CEL-waived) — breaks the live upgrade-rollback deadlock that
 #   blocked keycloak->gitea->catalyst-platform on hw130.
-version: 0.2.1
+version: 0.2.2
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable

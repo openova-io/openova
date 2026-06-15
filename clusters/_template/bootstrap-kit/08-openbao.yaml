@@ -104,12 +104,15 @@ spec:
       # cascading into sso-bridge/gitea/harbor/oidc-gate/newapi/powerdns-admin.
       # Render now gated on .Capabilities.APIVersions.Has "dr.openova.io/v1"
       # (gold-standard pattern). Single-region byte-identical; pin in lockstep.
+      # 1.2.45 (#3626 + #3629): reconcile two concurrent 1.2.44 bumps — the
+      # #3626 console "Open" → /sso/landing repoint AND the #3629 snapshot-
+      # replication S3 seeder (independent files; pure version-line union).
       # 1.2.44 (#3626): repoint the console "Open" button's launch-url at the
       # on-origin /sso/landing page (drop ssoShim + the /ui/vault/auth?with=oidc
       # deep-link) so OpenBao lands signed-in instead of the popup-only Vault
       # OIDC callback's window.opener=null error. blueprint.yaml/Chart.yaml
       # lockstep; no chart-template change (landing page already shipped 1.2.35).
-      version: 1.2.44
+      version: 1.2.45
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
