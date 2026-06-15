@@ -46,6 +46,11 @@ if grep -qE "name: openbao-snapshot-restore-staging$" "$TMP/default.yaml"; then
   echo "FAIL: default render contains the restore-staging PVC — skip-render is broken." >&2
   exit 1
 fi
+# #3629: the S3-credential seeder is also gated OFF by default.
+if grep -qE "name: openbao-snapshot-s3-seed$" "$TMP/default.yaml"; then
+  echo "FAIL: default render contains the S3-credential seeder Job — skip-render is broken (#3629)." >&2
+  exit 1
+fi
 echo "  PASS"
 
 echo "[snapshot-replication-toggle] Case 2: enabled + role=primary emits the snapshot-SAVE CronJob + S3 upload + auth login"
@@ -111,6 +116,31 @@ fi
 # (helm template defaults .Release.Namespace to "default").
 if ! grep -qE "^  name: openbao-snapshot-s3-creds$" "$TMP/primary.yaml"; then
   echo "FAIL: primary render missing the openbao-snapshot-s3-creds Role/RoleBinding." >&2
+  exit 1
+fi
+# #3629: the S3-credential SEEDER Job + RBAC must render so seaweedfs-s3-secret
+# lands in the openbao ns (the source lives in the rtz vCluster, the syncer
+# mirrors it host-side as seaweedfs-s3-secret-x-seaweedfs-x-rtz-vcluster). The
+# snapshot CronJob's secretKeyRef resolves ONLY in its own ns, so the seeder is
+# what makes the save/fetch Jobs schedulable (hw146 CreateContainerConfigError).
+if ! grep -qE "^  name: openbao-snapshot-s3-seed$" "$TMP/primary.yaml"; then
+  echo "FAIL: primary render missing the openbao-snapshot-s3-seed seeder Job (#3629)." >&2
+  exit 1
+fi
+if ! grep -qE "^  name: openbao-snapshot-s3-seeder$" "$TMP/primary.yaml"; then
+  echo "FAIL: primary render missing the seeder ServiceAccount (#3629)." >&2
+  exit 1
+fi
+# The seeder reads the HOST-synced rtz-vCluster source Secret (NOT a bare
+# `seaweedfs-s3-secret` in a non-existent ns) and writes the openbao-ns copy.
+if ! grep -q "seaweedfs-s3-secret-x-seaweedfs-x-rtz-vcluster" "$TMP/primary.yaml"; then
+  echo "FAIL: seeder does not source from the rtz-vCluster-synced Secret (#3629)." >&2
+  exit 1
+fi
+# The seeder's cross-ns read ClusterRole must be resourceNames-pinned (least
+# privilege — no broad cluster-wide Secret read).
+if ! grep -qE "^  name: default-openbao-snapshot-s3-seeder-read$" "$TMP/primary.yaml"; then
+  echo "FAIL: primary render missing the seeder cross-ns read ClusterRole (#3629)." >&2
   exit 1
 fi
 echo "  PASS"

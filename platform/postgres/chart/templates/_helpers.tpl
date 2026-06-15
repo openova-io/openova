@@ -109,6 +109,34 @@ into one global service so the host resolves and traffic crosses the mesh.
 {{- end -}}
 
 {{/*
+ClusterMesh-global WRITE Service alias the cross-region CONSUMER apps
+(grafana/keycloak/powerdns-admin) dial so their DB host resolves identically
+in BOTH regions and always routes to the CURRENT primary's write endpoint.
+
+The design's repeated promise — "the consumer host `<instance>-rw` is
+unchanged across regions" (16a/16c headers, cluster.yaml) — was never met:
+CNPG's auto-created `<instance>-rw` Service is region-LOCAL (it exists only
+where the named primary Cluster runs), and the existing `<instance>-mesh`
+global Service is `selectorType: r` (READ-only), so a consumer in the replica
+region that points at `<instance>-rw` gets NXDOMAIN (#3629: grafana/keycloak/
+powerdns-admin crashlooped on `shared-pg-*-rw.shared-data` in region-B).
+
+Named `<instance>-mesh-rw` (NOT `<instance>-rw`, which collides with CNPG's
+auto-created `-rw` Service — the bp-cnpg-pair "refusing to reconcile service,
+not owned by the cluster" incident). On the primary side it is declared via
+the primary Cluster CR's `spec.managed.services.additional[]` with
+`selectorType: rw` (CNPG ≥1.22), annotated `service.cilium.io/global: "true"`;
+on the replica side a same-named stub (zero local backends) lets Cilium merge
+the two into one global service so the host resolves and WRITES cross the mesh
+to the primary's primary instance. Promotion (bp-continuum flips the CR sides)
+re-homes the `rw` selector to whichever region is primary, so the consumer
+host needs no change on failover.
+*/}}
+{{- define "bp-postgres.writeServiceName" -}}
+{{- printf "%s-mesh-rw" (include "bp-postgres.instanceName" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
 Sanitise an arbitrary string into an RFC 1123 DNS-subdomain-safe name
 fragment so it can be used in a k8s resource name. PostgreSQL identifiers
 (role/database names) legally contain underscores (e.g. `openova_flow`),

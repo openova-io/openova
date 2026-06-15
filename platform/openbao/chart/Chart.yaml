@@ -108,7 +108,12 @@ name: bp-openbao
 # render nothing). tests/continuum-render.sh Case 3 now passes
 # `--api-versions dr.openova.io/v1`; new Case 4 proves the guard skips the CR
 # (no install failure) when the CRD is absent. No upstream subchart change.
-version: 1.2.44
+version: 1.2.45
+# 1.2.45 (#3626 + #3629, 2026-06-16): reconcile two concurrently-shipped 1.2.44
+# branches that both bumped bp-openbao. The changes live in independent files
+# (blueprint.yaml endpoint repoint vs snapshot-replication.yaml seeder), so this
+# is a pure version-line union — both #3626 and #3629 behaviour is present. The
+# two 1.2.44 changelog blocks below are kept as history.
 # 1.2.44 (#3626, 2026-06-16): make the console "Open" button land signed-in.
 # The Open button (AppDetail + AppsPage card) window.open()s catalyst-api's
 # launch-url as a TOP-LEVEL tab. blueprint.yaml's endpoint pointed that launch
@@ -125,6 +130,22 @@ version: 1.2.44
 # route + OIDC redirect-uri allowlist already exist); version bumped in
 # lockstep with blueprint.yaml + the bootstrap-kit slot pin so the new
 # blueprint OCI artifact (which carries the repointed endpoint) publishes.
+# 1.2.44 (#3629, 2026-06-16): snapshot-replication S3-credential SEEDER. The
+# snapshot save/fetch CronJobs read their S3 admin creds from `seaweedfs-s3-
+# secret` via secretKeyRef (resolves ONLY in the Pod's OWN ns), but
+# bp-seaweedfs creates that Secret INSIDE the rtz vCluster — the syncer mirrors
+# it to the HOST as `seaweedfs-s3-secret-x-seaweedfs-x-rtz-vcluster` in ns rtz,
+# NOT into the openbao ns. So on hw146 openbao-snapshot-save/fetch wedged
+# CreateContainerConfigError on the missing Secret. snapshot-replication.yaml
+# now ships a seeder Job (+ SA + cross-ns read ClusterRole + write Role) that
+# copies the admin access/secret keys from the host-synced source into the
+# openbao ns as `seaweedfs-s3-secret` — the SAME shape catalyst qa-fixtures'
+# `qa-cnpg-backup-s3-seed` Job uses, as a regular release resource (waits the
+# bootstrap-kit window, never a hook → no circular-dep wedge). Source location
+# is values-overridable (s3.credentialsSeeder.{sourceNamespace,sourceName}).
+# Renders ONLY under snapshotReplication.enabled (DoD-8 opt-in) so default +
+# single-region convergence is byte-identical. tests/snapshot-replication-
+# toggle.sh gains seeder assertions. No upstream subchart change.
 # 1.2.37 (#3374, 2026-06-14): fix the sso-landing nginx ImagePullBackOff. The
 # image was `harbor.openova.io/proxy-docker/library/nginx` but the live Harbor
 # DockerHub proxy-cache project is `proxy-dockerhub` (proxy-docker does NOT
