@@ -519,12 +519,28 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             </Link>
           </div>
         ) : streamStatus === 'completed' ? (
-          <Link
-            to={`/jobs` as never}
-            className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
-          >
-            View install history
-          </Link>
+          <div className="flex items-center gap-2">
+            {/* #3611 — a ready multi-region Sovereign whose secondary
+                region is degraded surfaces an amber badge here instead of
+                only the bare "View install history" link, so the operator
+                sees the secondary lag at the deployment level. Surface-
+                only: the Sovereign IS ready (the primary converged). */}
+            {snapshot?.secondaryDegraded ? (
+              <span
+                data-testid="sov-secondary-degraded-pill"
+                title="Secondary region is significantly behind the primary in HelmRelease convergence"
+                className="rounded-lg border border-[#F59E0B]/40 bg-[#F59E0B]/10 px-2 py-1 text-[11px] font-semibold text-[#F59E0B]"
+              >
+                Secondary degraded
+              </span>
+            ) : null}
+            <Link
+              to={`/jobs` as never}
+              className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
+            >
+              View install history
+            </Link>
+          </div>
         ) : null
       }
     >

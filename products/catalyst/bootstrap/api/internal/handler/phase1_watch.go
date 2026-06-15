@@ -645,6 +645,24 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 	// Status pill alone once Phase1Substate is empty.
 	dep.Result.Phase1Substate = ""
 
+	// Per-region HelmRelease health (#3611). The primary region's terminal
+	// states are finalStates; the secondaries are snapshotted from their
+	// still-attached watchers (runPhase1Watch's deferred stopSecondaries
+	// has not run yet — markPhase1Done is called inline before it). We
+	// compute the census + the surface-only secondaryDegraded roll-up and
+	// stamp them onto Result so a multi-region "ready" stops hiding a
+	// degraded secondary. This does NOT change the Status decision below —
+	// it is surface-only by design (a slow secondary must never hang the
+	// prov). Computed under dep.mu so a racing State() reads a consistent
+	// snapshot. snapshotSecondaryStatesLocked calls SnapshotComponents()
+	// on each secondary watcher, which takes only the watcher's own lock
+	// (never dep.mu), so there is no lock-ordering hazard.
+	dep.Result.Regions, dep.Result.SecondaryDegraded = provisioner.ComputeRegionHealth(
+		primaryRegionKey(&dep.Request),
+		finalStates,
+		snapshotSecondaryStatesLocked(dep),
+	)
+
 	failed := 0
 	for _, s := range finalStates {
 		if s == helmwatch.StateFailed {
@@ -713,6 +731,10 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 	}
 
 	finalStatus := dep.Status
+	// Capture the #3611 region-health summary under the lock for the
+	// terminal log line + the secondary-degraded warn below.
+	regionHealth := dep.Result.Regions
+	secondaryDegraded := dep.Result.SecondaryDegraded
 	dep.mu.Unlock()
 
 	// Persist the deployment record after the status flip so a
@@ -733,7 +755,24 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		"failedCount", failed,
 		"finalStatus", finalStatus,
 		"phase1Outcome", outcome,
+		"regions", formatRegionHealth(regionHealth),
+		"secondaryDegraded", secondaryDegraded,
 	)
+
+	// #3611 — make a "ready" deployment HONEST about a degraded secondary.
+	// Status stays "ready" by design (surface-not-gate, so a slow secondary
+	// never hangs the prov), but a degraded secondary is overclaiming if it
+	// is invisible. Emit a loud warn so the condition is greppable in the
+	// catalyst-api logs even when the operator only ever sees the green
+	// "ready" pill. The per-region breakdown rides on Result.Regions for
+	// the console/jobs view.
+	if secondaryDegraded {
+		h.log.Warn("phase 1 ready but a SECONDARY region is degraded — surfaced via Result.Regions, status intentionally left ready (surface-not-gate, #3611)",
+			"id", dep.ID,
+			"finalStatus", finalStatus,
+			"regions", formatRegionHealth(regionHealth),
+		)
+	}
 
 	// Issues #764 + #768 — auto-fire the handover JWT mint immediately
 	// after Phase-1 reaches OutcomeReady. Until this landed, the
@@ -857,6 +896,74 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// markPhase1Done returns.
 		h.runSecondaryBridgeBackfill(dep)
 	}
+}
+
+// primaryRegionKey returns the declared primary region's key for the
+// #3611 per-region health census — Regions[0].CloudRegion, falling back
+// to the legacy singular Request.Region. Empty when neither is set (a
+// pre-Regions hand-crafted payload); ComputeRegionHealth then labels the
+// primary entry "primary".
+func primaryRegionKey(req *provisioner.Request) string {
+	if req == nil {
+		return ""
+	}
+	if len(req.Regions) > 0 && req.Regions[0].CloudRegion != "" {
+		return req.Regions[0].CloudRegion
+	}
+	return req.Region
+}
+
+// snapshotSecondaryStatesLocked builds region-key → (component-id →
+// helmwatch state) for every currently-attached secondary watcher, by
+// calling SnapshotComponents() on each (#3611). The CALLER MUST hold
+// dep.mu — this reads dep.secondaryWatchers. SnapshotComponents itself
+// takes only the watcher's own lock, never dep.mu, so calling it under
+// dep.mu is safe (no inverse acquisition path exists).
+//
+// Returns nil for a single-region deployment (no secondary watchers),
+// which ComputeRegionHealth treats as "primary only".
+func snapshotSecondaryStatesLocked(dep *Deployment) map[string]map[string]string {
+	if len(dep.secondaryWatchers) == 0 {
+		return nil
+	}
+	out := make(map[string]map[string]string, len(dep.secondaryWatchers))
+	for region, w := range dep.secondaryWatchers {
+		if w == nil {
+			// Emit an empty map so the region still shows up as 0/0 in
+			// the census (its kubeconfig landed + a watcher slot was
+			// allocated, but the watcher object is gone) rather than
+			// silently vanishing from the breakdown.
+			out[region] = map[string]string{}
+			continue
+		}
+		states := make(map[string]string)
+		for _, cs := range w.SnapshotComponents() {
+			states[cs.AppID] = cs.Status
+		}
+		out[region] = states
+	}
+	return out
+}
+
+// formatRegionHealth renders the #3611 per-region census as a compact
+// log-friendly string, e.g. "me-east-215-a=60/63(primary)
+// me-east-215-b=48/63(DEGRADED)". Used only for structured-log values.
+func formatRegionHealth(regions []provisioner.RegionHealth) string {
+	if len(regions) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(regions))
+	for _, r := range regions {
+		tag := ""
+		switch {
+		case r.Primary:
+			tag = "(primary)"
+		case r.Degraded:
+			tag = "(DEGRADED)"
+		}
+		parts = append(parts, fmt.Sprintf("%s=%d/%d%s", r.Region, r.HRReady, r.HRTotal, tag))
+	}
+	return strings.Join(parts, " ")
 }
 
 // runSecondaryBridgeBackfill walks every secondary watcher attached to
