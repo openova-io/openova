@@ -59,4 +59,40 @@ spec:
       port: 5432
       targetPort: 5432
       protocol: TCP
+---
+{{- /*
+Replica-side stub for the ClusterMesh-global WRITE alias `<instance>-mesh-rw`
+(#3629). The primary side declares it `selectorType: rw` via the primary
+Cluster CR's managed.services (cluster.yaml); this same-named stub (zero local
+backends) lets Cilium merge the two into one global service so the cross-region
+CONSUMER apps' write host resolves on cluster-B and routes across the mesh to
+the primary region's primary instance. Selector adds the CNPG primary-role
+label so a same-cluster match would only ever be the local primary (none on the
+replica side) — identical merge semantics to the `-mesh` read stub above.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-postgres.writeServiceName" . }}
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+    catalyst.openova.io/role: write-endpoint
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/affinity: {{ .Values.topology.clusterMesh.affinity | quote }}
+    catalyst.openova.io/blueprint: bp-postgres
+spec:
+  type: ClusterIP
+  selector:
+    # CNPG `-rw` selector shape (primary instance of the PRIMARY Cluster) —
+    # matches zero Pods on the replica cluster by construction.
+    cnpg.io/cluster: {{ include "bp-postgres.instanceName" . }}
+    cnpg.io/instanceRole: primary
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP
 {{- end }}

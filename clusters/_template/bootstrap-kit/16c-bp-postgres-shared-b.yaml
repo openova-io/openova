@@ -82,7 +82,7 @@ spec:
       # primary NetworkPolicy default-denied every consumer's shared-pg-b-rw:5432
       # (grafana/powerdns hub on hw144). Adds TCP 5432 from any in-cluster Pod;
       # replication/own-cluster/operator carve-outs unchanged. Lockstep 16a/16d.
-      version: 0.2.1
+      version: 0.2.2
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -138,10 +138,16 @@ spec:
           namespaces: [grafana]
           extraData:
             GF_DATABASE_TYPE: postgres
-            GF_DATABASE_HOST: shared-pg-b-rw.shared-data.svc.cluster.local:5432
             GF_DATABASE_NAME: grafana
             GF_DATABASE_USER: grafana
             GF_DATABASE_SSL_MODE: disable
+          # GF_DATABASE_HOST carries host:port in one var (grafana's
+          # [database].host convention). #3629: declared as a hostPortKey so
+          # the chart renders the topology-aware $consumerHost
+          # (shared-pg-b-rw singleton, or the ClusterMesh-global
+          # shared-pg-b-mesh-rw write alias under active-hot-standby) instead
+          # of a region-local literal that NXDOMAIN'd grafana in region-B.
+          hostPortKeys: [GF_DATABASE_HOST]
           passwordAliases: [GF_DATABASE_PASSWORD]
       # pdns — READY-TO-ADOPT (schema-bootstrap follow-up, see header).
       - name: pdns

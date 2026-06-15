@@ -270,7 +270,18 @@ spec:
       postgresql:
         enabled: ${SOVEREIGN_KEYCLOAK_PG_OWN_CLUSTER:=true}
       externalDatabase:
-        host: shared-pg-rw.shared-data.svc.cluster.local
+        # #3629: host is a substitution var (the SAME pattern bp-gitea slot 10
+        # `${SOVEREIGN_GITEA_PG_HOST:=…}` + bp-harbor slot 19
+        # `${SOVEREIGN_HARBOR_PG_HOST:=…}` already use) instead of a hardcoded
+        # literal. Default `shared-pg-rw.shared-data…` keeps single-region
+        # byte-identical, but bitnami's externalDatabase.host is a scalar (no
+        # secretKeyRef), so the cross-region overlay must flip it to the
+        # ClusterMesh-global WRITE alias `shared-pg-mesh-rw.shared-data…` —
+        # the region-local `-rw` Service NXDOMAINs keycloak in the replica
+        # region (hw146: keycloak-0 JGroups JDBC `UnknownHostException
+        # shared-pg-rw`). bp-postgres 0.2.2 publishes the `-mesh-rw` alias on
+        # the primary + a replica stub so the value resolves in BOTH regions.
+        host: ${SOVEREIGN_KEYCLOAK_PG_HOST:=shared-pg-rw.shared-data.svc.cluster.local}
         port: 5432
         user: keycloak
         database: keycloak

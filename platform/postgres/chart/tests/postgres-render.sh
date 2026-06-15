@@ -175,6 +175,18 @@ grep -q 'dataDurability: required' "$TMP/ahs.yaml" || fail "ahs primary synchron
 grep -q 'name: shared-pg-mesh' "$TMP/ahs.yaml" || fail "ahs primary missing -mesh global Service"
 grep -q 'service.cilium.io/global: "true"' "$TMP/ahs.yaml" || fail "ahs primary -mesh Service missing global annotation"
 grep -qE '^      additional:$' "$TMP/ahs.yaml" || fail "ahs primary mesh Service not under managed.services.additional"
+# #3629: the ClusterMesh-global WRITE alias -mesh-rw (selectorType: rw) so the
+# cross-region consumer host resolves in BOTH regions + routes writes to the
+# current primary. Must sit alongside the read -mesh service.
+grep -q 'name: shared-pg-mesh-rw' "$TMP/ahs.yaml" || fail "#3629: ahs primary missing -mesh-rw global WRITE Service"
+grep -qE '^        - selectorType: rw$' "$TMP/ahs.yaml" || fail "#3629: ahs primary -mesh-rw not selectorType rw"
+grep -q 'role: write-endpoint' "$TMP/ahs.yaml" || fail "#3629: ahs primary -mesh-rw missing write-endpoint role label"
+# #3629: the consumer hub host/uri must point at the -mesh-rw alias (NOT the
+# region-local -rw) under active-hot-standby so the replica region resolves it.
+grep -q 'host: "shared-pg-mesh-rw.shared-data.svc.cluster.local"' "$TMP/ahs.yaml" \
+  || fail "#3629: ahs primary hub Secret host != shared-pg-mesh-rw (region-local -rw would NXDOMAIN in region-B)"
+grep -q '@shared-pg-mesh-rw.shared-data.svc.cluster.local:5432/' "$TMP/ahs.yaml" \
+  || fail "#3629: ahs primary hub Secret uri not on the -mesh-rw write alias"
 # Region node-affinity (NOT the old topologyKey antiAffinity).
 grep -q 'key: openova.io/region' "$TMP/ahs.yaml" || fail "ahs primary missing region node-affinity"
 if grep -q 'topologyKey: topology.kubernetes.io/region' "$TMP/ahs.yaml"; then
@@ -210,6 +222,11 @@ grep -q 'name: shared-pg-ca' "$TMP/ahs-replica.yaml" || fail "ahs replica missin
 # The -mesh Service STUB renders on the replica side (same name, NXDOMAIN guard).
 grep -qE '^kind: Service$' "$TMP/ahs-replica.yaml" || fail "ahs replica missing -mesh Service stub"
 grep -q 'name: shared-pg-mesh' "$TMP/ahs-replica.yaml" || fail "ahs replica -mesh stub name mismatch"
+# #3629: the -mesh-rw WRITE stub also renders on the replica side so the
+# cross-region consumer write host resolves on cluster-B (zero local backends →
+# traffic crosses the mesh to the primary).
+grep -q 'name: shared-pg-mesh-rw' "$TMP/ahs-replica.yaml" || fail "#3629: ahs replica missing -mesh-rw WRITE stub"
+grep -q 'cnpg.io/instanceRole: primary' "$TMP/ahs-replica.yaml" || fail "#3629: ahs replica -mesh-rw stub missing primary-role selector"
 # NO Database CRs / role-password / hub Secrets on the replica side.
 if grep -qE '^kind: Database$' "$TMP/ahs-replica.yaml"; then
   fail "ahs replica side leaked a Database CR (primary-side only)"
@@ -264,6 +281,14 @@ fi
 if grep -qE '^  name: [a-z0-9-]+-mesh$|^        host: [a-z0-9-]+-mesh$' "$TMP/shared.yaml"; then
   fail "singleton render leaked a -mesh ClusterMesh Service (active-hot-standby only)"
 fi
+# #3629: the -mesh-rw WRITE alias is ALSO active-hot-standby-only; singleton
+# must not leak it, and the singleton consumer host must stay the region-local
+# -rw (byte-identical to pre-0.2.2).
+if grep -qE '^  name: [a-z0-9-]+-mesh-rw$' "$TMP/shared.yaml"; then
+  fail "#3629: singleton render leaked the -mesh-rw WRITE Service (active-hot-standby only)"
+fi
+grep -q 'host: "shared-pg-rw.shared-data.svc.cluster.local"' "$TMP/shared.yaml" \
+  || fail "#3629: singleton consumer host changed away from shared-pg-rw (must stay byte-identical)"
 if grep -q 'service.cilium.io/global' "$TMP/shared.yaml"; then
   fail "singleton render leaked the ClusterMesh global annotation (active-hot-standby only)"
 fi
@@ -331,10 +356,12 @@ databases:
       namespaces: [grafana]
       extraData:
         GF_DATABASE_TYPE: postgres
-        GF_DATABASE_HOST: shared-pg-b-rw.shared-data.svc.cluster.local:5432
         GF_DATABASE_NAME: grafana
         GF_DATABASE_USER: grafana
         GF_DATABASE_SSL_MODE: disable
+      # #3629: GF_DATABASE_HOST is now a hostPortKey (topology-aware host:port)
+      # not a static extraData literal — mirrors the real slot 16c.
+      hostPortKeys: [GF_DATABASE_HOST]
       passwordAliases: [GF_DATABASE_PASSWORD]
   - name: pdns
     owner: pdns
@@ -356,8 +383,11 @@ b_secret=$(grep -cE '^kind: Secret$' "$TMP/shared-b.yaml" || true)
 [ "$b_secret" -eq 6 ]  || fail "instance-B expected 6 Secrets (3 role + 3 hub), got $b_secret"
 grep -q 'GF_DATABASE_TYPE: "postgres"' "$TMP/shared-b.yaml" \
   || fail "instance-B grafana hub missing GF_DATABASE_TYPE extraData"
+# #3629: GF_DATABASE_HOST now comes from hostPortKeys (host:port). In singleton
+# it renders the region-local shared-pg-b-rw — byte-identical to the old
+# extraData literal. Under active-hot-standby it would render shared-pg-b-mesh-rw.
 grep -q 'GF_DATABASE_HOST: "shared-pg-b-rw.shared-data.svc.cluster.local:5432"' "$TMP/shared-b.yaml" \
-  || fail "instance-B grafana hub missing GF_DATABASE_HOST extraData"
+  || fail "instance-B grafana hub missing GF_DATABASE_HOST hostPortKey (singleton host:port)"
 grep -qE '^  GF_DATABASE_PASSWORD: ' "$TMP/shared-b.yaml" \
   || fail "instance-B grafana hub missing GF_DATABASE_PASSWORD alias"
 # The alias must carry the SAME password as the grafana role Secret.

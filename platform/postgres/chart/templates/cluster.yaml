@@ -142,6 +142,34 @@ spec:
                   port: 5432
                   targetPort: 5432
                   protocol: TCP
+        # ClusterMesh-global WRITE alias (#3629). selectorType: rw → the
+        # PRIMARY instance only, so the cross-region CONSUMER apps
+        # (grafana/keycloak/powerdns-admin) get a host that resolves in BOTH
+        # regions and always routes WRITES to the current primary. The
+        # replica region has zero local backends matching this selector, so
+        # Cilium's affinity routing falls through to this primary region; a
+        # same-named stub (replica-mesh-service.yaml) keeps the host from
+        # NXDOMAIN-ing on the replica cluster. (The `<instance>-rw` name is
+        # reserved by CNPG, hence the `-mesh-rw` alias.)
+        - selectorType: rw
+          serviceTemplate:
+            metadata:
+              name: {{ include "bp-postgres.writeServiceName" . }}
+              labels:
+                {{- include "bp-postgres.labels" . | nindent 16 }}
+                catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+                catalyst.openova.io/role: write-endpoint
+              annotations:
+                service.cilium.io/global: "true"
+                service.cilium.io/affinity: {{ .Values.topology.clusterMesh.affinity | quote }}
+                catalyst.openova.io/blueprint: bp-postgres
+            spec:
+              type: ClusterIP
+              ports:
+                - name: postgres
+                  port: 5432
+                  targetPort: 5432
+                  protocol: TCP
     {{- end }}
   {{- end }}
   # inheritedMetadata: CNPG propagates these onto every Secret it generates
