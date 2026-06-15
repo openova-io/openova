@@ -59,6 +59,43 @@
 // (Exact `/`) to the bridge; every other path (the SPA, /assets, /api,
 // /oauth/<slug> callback, /console) continues to NewAPI, so this page never
 // shadows the app. Refs #3374.
+//
+// ── #3563 0.1.17 (2026-06-15): zero-click RE-login (the "already bound" loop) ──
+// The prior page ALWAYS ran the OAuth flow on every bare-URL hit. That works on
+// the FIRST visit (binds the SSO identity to a NewAPI user + logs in) but FAILS
+// on every subsequent visit with "This OpenOva SSO account has already been
+// bound" — measured live on hw139 (dep c89aa7059556b342). ROOT CAUSE is in
+// upstream NewAPI v0.13.2 controller/oauth.go HandleOAuth, which picks bind-vs-
+// login purely off the session:
+//
+//	username := session.Get("username")
+//	if username != nil { handleOAuthBind(c, provider); return } // BIND mode
+//	// else: findOrCreateOAuthUser → logs the EXISTING binding's user in
+//
+// handleOAuthBind rejects with MsgOAuthAlreadyBound when the identity is already
+// taken (provider.IsUserIDTaken). GenerateOAuthCode (/api/oauth/state) sets
+// `oauth_state` but NEVER clears `username`. So on the 2nd visit the browser
+// still carries the 1st visit's valid session cookie (username set) → the
+// callback lands in BIND mode → "already bound" → NewAPI mints no NEW session
+// relative to /console → the SPA bounces to /login?expired=true. NewAPI is a
+// pinned MIRROR (not a fork), so the binary cannot be patched; the fix lives
+// here, the only OpenOva-owned seam.
+//
+// FIX — make the bare-URL contract idempotent:
+//  1. GET /api/user/self first. If it returns success:true the owner ALREADY
+//     has a valid session (they ARE signed in) → redirect straight to /console.
+//     This is the common re-visit path: instant, NO Keycloak round-trip, the
+//     literal "URL → signed in as admin".
+//  2. Else (401 / not authenticated) GET /api/user/logout (upstream Logout does
+//     session.Clear()+Save()) to wipe any stale `username`, THEN run the OAuth
+//     flow. With `username` cleared, HandleOAuth takes the LOGIN branch
+//     (findOrCreateOAuthUser logs the existing user in) instead of the BIND
+//     branch — so a re-auth after a session expiry also lands signed-in instead
+//     of looping on "already bound".
+//
+// Both calls are same-origin (the page is served at newapi.<fqdn>/), so the
+// session cookie is in scope. The logout is best-effort: a failure still falls
+// through to the OAuth flow (no worse than before). Refs #3563, #3374.
 package handler
 
 import (
@@ -67,14 +104,19 @@ import (
 	"strings"
 )
 
-// ssoInitTemplate is the zero-click landing page. It mints NewAPI's CSRF
-// state via /api/oauth/state, then redirects to the chart-provided Keycloak
-// authorize URL — no runtime provider discovery. Kept dependency-free
-// (vanilla fetch + a <noscript> fallback link to the SPA login) so it works
-// in any browser and degrades safely. All operationally-meaningful values are
-// injected by the handler as JS string literals (html/template JS-context
-// escaped). When AuthorizeURL/ClientID are empty the script logs and falls
-// back to /login rather than building a broken redirect.
+// ssoInitTemplate is the zero-click landing page. On each hit it first checks
+// whether the visitor already has a valid NewAPI session (GET /api/user/self)
+// and, if so, redirects straight to /console — the idempotent re-login path
+// (#3563). Otherwise it clears any stale session (GET /api/user/logout, so the
+// callback takes NewAPI's login branch rather than the bind branch that errors
+// "already bound"), mints NewAPI's CSRF state via /api/oauth/state, then
+// redirects to the chart-provided Keycloak authorize URL — no runtime provider
+// discovery. Kept dependency-free (vanilla fetch + a <noscript> fallback link
+// to the SPA login) so it works in any browser and degrades safely. All
+// operationally-meaningful values are injected by the handler as JS string
+// literals (html/template JS-context escaped). When AuthorizeURL/ClientID are
+// empty the script logs and falls back to /login rather than building a broken
+// redirect.
 var ssoInitTemplate = template.Must(template.New("sso-init").Parse(`<!doctype html>
 <html lang="en">
 <head>
@@ -106,11 +148,30 @@ var ssoInitTemplate = template.Must(template.New("sso-init").Parse(`<!doctype ht
   var CLIENT_ID = {{ .ClientID }};
   var SCOPES = {{ .Scopes }};
   function fallback(){ window.location.replace("/login"); }
+  // #3563 — idempotent re-login. If the visitor ALREADY holds a valid NewAPI
+  // session they ARE signed in; send them straight to the app. This is the
+  // common re-visit path and avoids the Keycloak round-trip entirely. Only
+  // GET /api/user/self with a live session returns success:true (it is behind
+  // UserAuth → 401 when unauthenticated), so this never false-positives.
+  try {
+    var me = await fetch("/api/user/self", { credentials: "include" });
+    if (me.ok) {
+      var mj = await me.json();
+      if (mj && mj.success) { window.location.replace("/console"); return; }
+    }
+  } catch (e) { /* not signed in / unreachable — fall through to OAuth */ }
   // The chart must inject the authorize URL + client_id (the bp-newapi
   // admin-sso-seed-job seeds the identical values). Without them we cannot
   // build a valid redirect — degrade to the SPA login rather than loop.
   if (!AUTHORIZE_URL || !CLIENT_ID) return fallback();
   try {
+    // #3563 — clear any STALE session before re-authenticating. NewAPI's
+    // HandleOAuth routes to the BIND path (which errors "already bound") when
+    // session.Get("username") is set, and /api/oauth/state never clears it. A
+    // best-effort logout (upstream Logout = session.Clear()+Save()) guarantees
+    // the callback takes the LOGIN branch (findOrCreateOAuthUser logs the
+    // existing user in). Errors are ignored — worst case is the prior behaviour.
+    try { await fetch("/api/user/logout", { credentials: "include" }); } catch (e) {}
     // 1. Mint the CSRF state (also sets the same-origin session cookie that
     //    NewAPI's /api/oauth/<slug> callback checks). This is the ONLY
     //    runtime dependency and is structurally required.
