@@ -1,0 +1,11 @@
+ id | provider_id |           provider_user_id           |  username   | role |          email          
+----+-------------+--------------------------------------+-------------+------+-------------------------
+  1 |           1 | c60bcd85-01e9-41db-8726-268ea270856c | sovereign_2 |  100 | emrah.baysal@openova.io
+(1 row)
+
+ id |   username    | role |              email              
+----+---------------+------+---------------------------------
+  1 | catalyst-root |  100 | catalyst-root@hw139.omani.works
+  2 | sovereign_2   |  100 | emrah.baysal@openova.io
+(2 rows)
+
