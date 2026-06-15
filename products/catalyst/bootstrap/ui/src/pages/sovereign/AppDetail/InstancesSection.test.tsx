@@ -1,0 +1,223 @@
+/**
+ * InstancesSection.test.tsx — #3599 + #3600 (EPIC #3597) lock-in for the
+ * create-from-catalog wizard (NewInstanceDialog).
+ *
+ *   • Every fixed-set input is a dropdown / multiselect from LIVE data;
+ *     only the instance name is free-text (#3600):
+ *       - Organization → <select> populated from listOrganizations()
+ *       - Topology mode → <select> from the editor ALL_MODES set
+ *       - Region(s) → checkboxes from the live infrastructure topology
+ *       - vCluster → <select>
+ *   • Placement is written onto the create request (#3599): the POST body
+ *     carries placement {vcluster, regions} + topology.
+ *   • active-active / active-hotstandby require ≥2 regions; Create stays
+ *     disabled until satisfied (#3599 validation).
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import {
+  RouterProvider,
+  createRouter,
+  createRootRoute,
+  createRoute,
+  createMemoryHistory,
+  Outlet,
+} from '@tanstack/react-router'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { InstancesSection } from './InstancesSection'
+
+// One blueprint with two supported topologies + no shareable backing deps.
+const WP_CATALOG = {
+  name: 'wordpress',
+  version: '2.0.0',
+  card: { title: 'WordPress' },
+  origin: 'upstream',
+  source: 'gitea',
+  raw: {
+    spec: {
+      multiInstance: { enabled: true },
+      topology: {
+        supported: ['single-region', 'active-hot-standby'],
+        defaults: { 'single-region': 'single-region', 'multi-region': 'active-hot-standby' },
+      },
+    },
+  },
+}
+
+// /sovereign/self parent-org payload (the directory's first row).
+const SELF = { deploymentId: 'd-1', sovereignFQDN: 't01.omani.works' }
+// /sme/tenants sub-org feed — RawTenant wire shape (snake_case). The
+// dialog's Org dropdown value is the subdomain slug.
+const TENANTS = {
+  items: [
+    { sme_tenant_id: 't-acme', subdomain: 'acme', company_name: 'Acme', tenant_namespace: 'acme', state: 'ready' },
+  ],
+}
+
+const TOPOLOGY = {
+  topology: {
+    pattern: 'multi-region',
+    regions: [
+      { id: 'r-a', name: 'rgn-a', provider: 'huawei', providerRegion: 'me-east-215-a', clusters: [
+        { id: 'c-a', name: 'cl-a', vclusters: [{ id: 'v1', name: 'acme-rtz', isolationMode: 'rtz', status: 'healthy' }] },
+      ] },
+      { id: 'r-b', name: 'rgn-b', provider: 'huawei', providerRegion: 'me-east-215-b', clusters: [] },
+    ],
+  },
+  cloud: [],
+  storage: { pvcs: [], buckets: [], volumes: [] },
+}
+
+// Captured create-instance POST bodies.
+let captured: Array<Record<string, unknown>> = []
+
+function installFetch() {
+  captured = []
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input.toString()
+    // Create-instance POST.
+    if (url.includes('/catalyst/v1/apps/instances') && init?.method === 'POST') {
+      captured.push(JSON.parse(String(init.body)))
+      return json({ id: 'new-uid', name: 'wp-1', blueprint: 'wordpress', org: 'acme', topology: 'single-region', status: 'Pending' }, 201)
+    }
+    // Instances list (the section body).
+    if (url.includes('/instances')) return json({ items: [] })
+    // Org sources: /sovereign/self (parent) + /sme/tenants (sub-orgs).
+    if (url.includes('/sovereign/self')) return json(SELF)
+    if (url.includes('/sme/tenants')) return json(TENANTS)
+    // Infra topology (regions + vclusters).
+    if (url.includes('/infrastructure/topology')) return json(TOPOLOGY)
+    // Catalog item + version (topology supported list).
+    if (url.includes('/catalog/')) return json(WP_CATALOG)
+    return json({})
+  }) as typeof fetch
+}
+
+function json(body: unknown, status = 200) {
+  return Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) } as unknown as Response)
+}
+
+function renderSection() {
+  const rootRoute = createRootRoute({ component: () => <Outlet /> })
+  // Mount under a deploymentId-bearing route so useResolvedDeploymentId
+  // resolves from the URL (no /sovereign/self round-trip needed for the id).
+  const route = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/provision/$deploymentId/catalog/$blueprintName',
+    component: () => <InstancesSection blueprint="bp-wordpress" />,
+  })
+  const appRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/app/$componentId',
+    component: () => <div data-testid="app-detail-target" />,
+  })
+  const tree = rootRoute.addChildren([route, appRoute])
+  const router = createRouter({
+    routeTree: tree,
+    history: createMemoryHistory({ initialEntries: ['/provision/d-1/catalog/bp-wordpress'] }),
+  })
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={qc}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
+}
+
+async function openDialog() {
+  renderSection()
+  fireEvent.click(await screen.findByTestId('btn-new-instance'))
+  return screen.findByTestId('dialog-new-instance')
+}
+
+beforeEach(() => installFetch())
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
+
+describe('NewInstanceDialog — dropdowns (#3600)', () => {
+  it('Organization is a <select> populated from live orgs', async () => {
+    await openDialog()
+    const sel = (await screen.findByTestId('select-instance-org')) as HTMLSelectElement
+    expect(sel.tagName).toBe('SELECT')
+    // The Acme sub-org option resolves once listOrganizations settles.
+    await waitFor(() => {
+      expect(sel.querySelector('option[value="acme"]')).toBeTruthy()
+    })
+  })
+
+  it('Topology mode is a <select> from the editor mode set', async () => {
+    await openDialog()
+    const sel = (await screen.findByTestId('select-instance-topology')) as HTMLSelectElement
+    expect(sel.tagName).toBe('SELECT')
+    // Constrained to the blueprint's supported modes (single-region +
+    // active-hot-standby → active-hotstandby).
+    const values = Array.from(sel.querySelectorAll('option')).map((o) => o.getAttribute('value'))
+    expect(values).toContain('single-region')
+    expect(values).toContain('active-hotstandby')
+  })
+
+  it('vCluster is a <select>', async () => {
+    await openDialog()
+    expect(((await screen.findByTestId('select-instance-vcluster')) as HTMLSelectElement).tagName).toBe('SELECT')
+  })
+
+  it('Region(s) render as checkboxes from the live topology', async () => {
+    await openDialog()
+    expect(await screen.findByTestId('region-checkbox-rgn-a')).toBeTruthy()
+    expect(await screen.findByTestId('region-checkbox-rgn-b')).toBeTruthy()
+  })
+
+  it('the only free-text input is the instance name', async () => {
+    await openDialog()
+    const dialog = await screen.findByTestId('dialog-new-instance')
+    const textInputs = Array.from(dialog.querySelectorAll('input[type="text"]'))
+    expect(textInputs).toHaveLength(1)
+    expect((textInputs[0] as HTMLInputElement).getAttribute('data-testid')).toBe('input-instance-name')
+  })
+})
+
+describe('NewInstanceDialog — placement (#3599)', () => {
+  it('multi-region modes require ≥2 regions before Create enables', async () => {
+    await openDialog()
+    const name = await screen.findByTestId('input-instance-name')
+    fireEvent.change(name, { target: { value: 'wp-1' } })
+    fireEvent.change(await screen.findByTestId('select-instance-org'), { target: { value: 'acme' } })
+    fireEvent.change(await screen.findByTestId('select-instance-topology'), { target: { value: 'active-hotstandby' } })
+
+    const submit = (await screen.findByTestId('btn-submit-instance')) as HTMLButtonElement
+    // No regions yet → disabled + validation hint visible.
+    expect(submit.disabled).toBe(true)
+    expect(await screen.findByTestId('instance-regions-validation')).toBeTruthy()
+
+    // One region — still short of 2.
+    fireEvent.click(await screen.findByTestId('region-checkbox-rgn-a'))
+    expect(submit.disabled).toBe(true)
+
+    // Second region — now valid.
+    fireEvent.click(await screen.findByTestId('region-checkbox-rgn-b'))
+    await waitFor(() => expect(submit.disabled).toBe(false))
+  })
+
+  it('submit writes placement {vcluster, regions} + topology onto the request', async () => {
+    await openDialog()
+    fireEvent.change(await screen.findByTestId('input-instance-name'), { target: { value: 'wp-1' } })
+    fireEvent.change(await screen.findByTestId('select-instance-org'), { target: { value: 'acme' } })
+    fireEvent.change(await screen.findByTestId('select-instance-topology'), { target: { value: 'active-hotstandby' } })
+    fireEvent.click(await screen.findByTestId('region-checkbox-rgn-a'))
+    fireEvent.click(await screen.findByTestId('region-checkbox-rgn-b'))
+    fireEvent.change(await screen.findByTestId('select-instance-vcluster'), { target: { value: 'rtz' } })
+
+    fireEvent.click(await screen.findByTestId('btn-submit-instance'))
+
+    await waitFor(() => expect(captured.length).toBe(1))
+    const body = captured[0]
+    expect(body.blueprint).toBe('wordpress')
+    expect(body.org).toBe('acme')
+    expect(body.name).toBe('wp-1')
+    expect(body.topology).toBe('active-hotstandby')
+    expect(body.placement).toEqual({ vcluster: 'rtz', regions: ['rgn-a', 'rgn-b'] })
+  })
+})

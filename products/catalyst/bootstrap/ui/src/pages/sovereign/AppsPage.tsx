@@ -4,10 +4,11 @@
  * Layout (top-down, byte-identical to canonical class names):
  *   • Header row: <h1>Applications</h1> + tagline + (provisioning pill
  *     OR install-history link) right-aligned.
- *   • Tabs: "Deployments" | "Catalog" — same `.tabs / .tab / .tab-count`
- *     CSS the canonical surface uses, with the `.active` state on the
- *     selected tab. Counts read from `installedApps.length` /
- *     `catalogApps.length`.
+ *   • #3601 (EPIC #3597): the page is TAB-LESS. The old
+ *     "Deployments | Catalog" tab strip is gone — /apps shows only the
+ *     installed-deployments grid, and the catalog moved to its own
+ *     left-nav page (`/catalog` → CatalogPage). No Deployments/Catalog
+ *     tabs render here any more.
  *   • Search row: `.apps-toolbar > .search-wrap > .search-icon +
  *     .search-input` — visually identical to canonical AppsPage.
  *   • Card grid: `.apps-grid` (`grid-template-columns: repeat(auto-fit,
@@ -53,8 +54,6 @@ interface AppsPageProps {
   /** Test seam — disables the live SSE EventSource attach. */
   disableStream?: boolean
 }
-
-type TabId = 'installed' | 'catalog'
 
 export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   const params = useResolvedDeploymentId() as {
@@ -453,10 +452,11 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
     }
   }, [isHandoverReady, sovereignFQDN])
 
-  // Catalog = every Application this deployment knows about (canonical
-  // calls this "every app in the org's catalog"; for the wizard surface
-  // it's the union of bootstrap-kit + transitive deps + selected). Same
-  // descriptor shape, so the card markup is shared between tabs.
+  // #3601 (EPIC #3597) — /apps is now TAB-LESS and shows ONLY installed
+  // deployments. The catalog grid moved to its own left-nav page
+  // (`/catalog` → CatalogPage). `catalogApps` is still the full
+  // `resolveApplications` union; here we only use it to derive the
+  // installed subset (it remains the source of truth CatalogPage renders).
   const catalogApps = applications
   // Deployments = every catalog entry that has at least one event
   // attributed to it OR was explicitly selected by the operator
@@ -478,13 +478,12 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
     [catalogApps, deployedIds],
   )
 
-  const [tab, setTab] = useState<TabId>('installed')
   const [query, setQuery] = useState<string>('')
 
+  // #3601 — the grid is the installed-deployments set only; no tab switch.
   const visibleApps = useMemo<ApplicationDescriptor[]>(() => {
-    const list = tab === 'installed' ? installedApps : catalogApps
     const filtered = query
-      ? list.filter((a) => {
+      ? installedApps.filter((a) => {
           const q = query.toLowerCase()
           return (
             a.title.toLowerCase().includes(q) ||
@@ -492,16 +491,9 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             (a.familyName ?? '').toLowerCase().includes(q)
           )
         })
-      : list
-    return [...filtered].sort((a, b) => {
-      if (tab === 'catalog') {
-        const aIn = deployedIds.has(a.id) ? 0 : 1
-        const bIn = deployedIds.has(b.id) ? 0 : 1
-        if (aIn !== bIn) return aIn - bIn
-      }
-      return a.title.localeCompare(b.title)
-    })
-  }, [tab, installedApps, catalogApps, query, deployedIds])
+      : installedApps
+    return [...filtered].sort((a, b) => a.title.localeCompare(b.title))
+  }, [installedApps, query])
 
   const isProvisioning = streamStatus === 'connecting' || streamStatus === 'streaming'
 
@@ -598,29 +590,8 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         </div>
       ) : null}
 
-      {/* Tabs */}
-      <div className="tabs" role="tablist" data-testid="sov-tabs">
-        <button
-          type="button"
-          className={`tab${tab === 'installed' ? ' active' : ''}`}
-          onClick={() => setTab('installed')}
-          role="tab"
-          aria-selected={tab === 'installed'}
-          data-testid="sov-tab-installed"
-        >
-          Deployments <span className="tab-count">{installedApps.length}</span>
-        </button>
-        <button
-          type="button"
-          className={`tab${tab === 'catalog' ? ' active' : ''}`}
-          onClick={() => setTab('catalog')}
-          role="tab"
-          aria-selected={tab === 'catalog'}
-          data-testid="sov-tab-catalog"
-        >
-          Catalog <span className="tab-count">{catalogApps.length}</span>
-        </button>
-      </div>
+      {/* #3601 — Deployments/Catalog tabs removed: /apps is the installed
+          grid only; the catalog lives at /catalog (left-nav CatalogPage). */}
 
       {/* Search + Environment filter */}
       <div className="apps-toolbar">
@@ -631,11 +602,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           </svg>
           <input
             type="text"
-            placeholder={
-              tab === 'installed'
-                ? `Search your ${installedApps.length} apps…`
-                : `Search ${catalogApps.length} apps…`
-            }
+            placeholder={`Search your ${installedApps.length} apps…`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="search-input"
@@ -659,13 +626,13 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         </div>
       </div>
 
-      {tab === 'installed' && installedApps.length === 0 && liveInstances.length === 0 ? (
+      {installedApps.length === 0 && liveInstances.length === 0 ? (
         <div className="empty-state" data-testid="sov-empty-deployments">
           <p className="empty-title">No applications installed yet.</p>
           <p className="empty-sub">Provisioning has not produced any deployments — open the catalog to see what will install.</p>
-          <button type="button" className="btn btn-primary" onClick={() => setTab('catalog')}>
+          <Link to={'/catalog' as never} className="btn btn-primary" data-testid="sov-empty-open-catalog">
             Open catalog →
-          </button>
+          </Link>
         </div>
       ) : (
         <div className="apps-grid" data-testid="sov-apps-grid">
@@ -674,55 +641,52 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             (Application CR). `shared-pg · PostgreSQL · singleton ·
             ● Ready · ⛓ 3 contexts`. The ⛓ badge deep-links to the
             instance's Contexts tab; the breakup never renders on
-            tiles. Deployments tab only — the Catalog tab is the
-            class view.
+            tiles. #3601 — /apps is installed-only, so these always
+            render (no tab gate).
           */}
-          {tab === 'installed'
-            ? liveInstances
-                .filter((inst) =>
-                  query
-                    ? inst.id.toLowerCase().includes(query.toLowerCase()) ||
-                      inst.slug.toLowerCase().includes(query.toLowerCase())
-                    : true,
-                )
-                .map((inst) => {
-                  const comp = findComponent(inst.slug)
-                  const descriptor: ApplicationDescriptor = {
-                    id: inst.id,
-                    bareId: inst.slug,
-                    title: inst.id,
-                    description: `${comp?.name ?? inst.slug} instance`,
-                    familyId: comp?.product ?? 'platform',
-                    familyName: comp?.name ?? inst.slug,
-                    tier: comp?.tier ?? 'mandatory',
-                    logoUrl: comp?.logoUrl ?? null,
-                    dependencies: [],
-                    bootstrapKit: inst.bootstrapKit,
-                  }
-                  return (
-                    <AppCard
-                      key={`instance-${inst.id}`}
-                      app={descriptor}
-                      isCatalog={false}
-                      environment={inst.environment}
-                      externalURL={inst.externalURL}
-                      status={inst.status}
-                      isService={false}
-                      marketplacePublished={null}
-                      slug={inst.slug}
-                      topology={inst.topology}
-                      contextCount={inst.contextCount}
-                    />
-                  )
-                })
-            : null}
+          {liveInstances
+            .filter((inst) =>
+              query
+                ? inst.id.toLowerCase().includes(query.toLowerCase()) ||
+                  inst.slug.toLowerCase().includes(query.toLowerCase())
+                : true,
+            )
+            .map((inst) => {
+              const comp = findComponent(inst.slug)
+              const descriptor: ApplicationDescriptor = {
+                id: inst.id,
+                bareId: inst.slug,
+                title: inst.id,
+                description: `${comp?.name ?? inst.slug} instance`,
+                familyId: comp?.product ?? 'platform',
+                familyName: comp?.name ?? inst.slug,
+                tier: comp?.tier ?? 'mandatory',
+                logoUrl: comp?.logoUrl ?? null,
+                dependencies: [],
+                bootstrapKit: inst.bootstrapKit,
+              }
+              return (
+                <AppCard
+                  key={`instance-${inst.id}`}
+                  app={descriptor}
+                  isCatalog={false}
+                  environment={inst.environment}
+                  externalURL={inst.externalURL}
+                  status={inst.status}
+                  isService={false}
+                  marketplacePublished={null}
+                  slug={inst.slug}
+                  topology={inst.topology}
+                  contextCount={inst.contextCount}
+                />
+              )
+            })}
           {visibleApps
             .filter(
               (app) =>
                 // #3370 — a blueprint whose instances render their own
                 // cards must not ALSO render a blueprint-level card on
-                // the Deployments tab (N instances ⇒ exactly N cards).
-                tab !== 'installed' ||
+                // the Deployments grid (N instances ⇒ exactly N cards).
                 !liveInstances.some((inst) => inst.blueprint === app.id),
             )
             .map((app) => {
@@ -736,7 +700,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
               <AppCard
                 key={app.id}
                 app={app}
-                isCatalog={tab === 'catalog'}
+                isCatalog={false}
                 environment={environment}
                 externalURL={externalURL}
                 status={(() => {
@@ -1180,46 +1144,6 @@ const APPS_PAGE_CSS = `
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
   gap: 0.65rem;
-}
-
-.tabs {
-  display: flex;
-  gap: 0.25rem;
-  margin: 1rem 0 0.5rem;
-  border-bottom: 1px solid var(--color-border);
-}
-.tab {
-  background: transparent;
-  border: none;
-  padding: 0.6rem 0.9rem;
-  color: var(--color-text-dim);
-  font: inherit;
-  font-size: 0.88rem;
-  font-weight: 500;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-.tab:hover { color: var(--color-text); }
-.tab.active {
-  color: var(--color-text-strong);
-  border-bottom-color: var(--color-accent);
-  font-weight: 600;
-}
-.tab-count {
-  font-size: 0.7rem;
-  padding: 0.08rem 0.4rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-border) 60%, transparent);
-  color: var(--color-text-dim);
-  font-weight: 600;
-}
-.tab.active .tab-count {
-  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
-  color: var(--color-accent);
 }
 
 .empty-state { margin-top: 3rem; text-align: center; color: var(--color-text-dim); }

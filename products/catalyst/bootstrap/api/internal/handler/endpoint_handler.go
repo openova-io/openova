@@ -856,6 +856,20 @@ func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// #3598 (EPIC #3597) — ensure the Org/Environment namespace exists
+	// BEFORE creating any Application CR. Without this the create races the
+	// organization controller's GitOps namespace reconcile and fails with
+	// `namespaces "<org>" not found` (the founder-reported "namespace not
+	// found"). Ensured here so BOTH the backing-service CRs below and the
+	// consumer CR land in a present namespace.
+	if nsErr := ensureOrgNamespace(r.Context(), client, body.Org); nsErr != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"code":    "namespace-ensure-failed",
+			"message": fmt.Sprintf("could not ensure namespace for Organization %q: %v", body.Org, nsErr),
+		})
+		return
+	}
+
 	// #3370 — backing-service journey. BEFORE creating the consumer:
 	// for each selection, either auto-create the backing service as its
 	// OWN instance-application (own card; default) or append a Context

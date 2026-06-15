@@ -53,7 +53,16 @@ export interface TopologyEditorProps {
   disableNetwork?: boolean
 }
 
-const ALL_MODES = ['single-region', 'active-active', 'active-hotstandby'] as const
+/**
+ * ALL_MODES — the canonical topology-mode option set for the placement
+ * picker. Exported (#3599, EPIC #3597) so the create-from-catalog
+ * placement step reuses the SAME option set the post-create Topology
+ * editor offers, instead of reinventing it. Editor dialect:
+ * `single-region` / `active-active` / `active-hotstandby`.
+ */
+export const ALL_MODES = ['single-region', 'active-active', 'active-hotstandby'] as const
+
+export type TopologyMode = (typeof ALL_MODES)[number]
 
 export function TopologyEditor({
   sovereignId,
@@ -325,7 +334,12 @@ export function TopologyEditor({
   )
 }
 
-function describeMode(mode: string): string {
+/**
+ * describeMode — one-line human description per topology mode. Exported
+ * (#3599) so the create-flow placement step shows the same helper text
+ * the post-create editor shows for each mode.
+ */
+export function describeMode(mode: string): string {
   switch (mode) {
     case 'single-region':
       return 'one cluster; lowest cost; no failover'

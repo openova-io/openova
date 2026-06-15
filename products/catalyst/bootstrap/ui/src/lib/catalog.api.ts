@@ -206,6 +206,18 @@ export interface ApplicationStatusResponse {
   namespace: string
   phase?: string
   status?: Record<string, unknown>
+  /**
+   * #3599 — the create-time placement projected from the Application
+   * CR's spec so the Topology tab reflects it without waiting for the
+   * controller to populate status.placement. `placement` is the editor
+   * posture string (single-region | active-active | active-hotstandby).
+   */
+  spec?: {
+    placement?: string
+    regions?: string[]
+    environmentRef?: string
+    blueprintRef?: { name?: string; version?: string }
+  }
 }
 
 /**
@@ -824,10 +836,28 @@ export interface CreateApplicationInstanceRequest {
   isolationLevel?: 'namespace' | 'vcluster'
   values?: Record<string, unknown>
   /**
+   * #3373 / #3599 — instance placement (WHERE the instance runs). Maps to
+   * the OBJECT form of the Application CR's `spec.placement`. When set,
+   * the backend stamps `spec.placement = {mode: topology, vcluster,
+   * regions, clusters}` + `spec.regions = regions`, which the post-create
+   * Topology tab reads back. `vcluster` ∈ {host, mgmt, dmz, rtz}.
+   */
+  placement?: InstancePlacement
+  /**
    * #3370 — backing-service selections, one per required backing
    * service (the generic Create new / Reuse existing selector).
    */
   backing?: BackingSelection[]
+}
+
+/** Mirrors the Go `instances.InstancePlacementRequest` (#3373). */
+export interface InstancePlacement {
+  /** Target vCluster/zone: "" | host | mgmt | dmz | rtz. */
+  vcluster?: string
+  /** Catalyst region ids the instance runs in (spec.regions). */
+  regions?: string[]
+  /** Explicit cluster ids (advanced; usually derived from regions). */
+  clusters?: string[]
 }
 
 /** Mirrors `instances.BackingSelection` (#3370). */
