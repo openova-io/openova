@@ -53,8 +53,13 @@ if grep -qE "^kind: Continuum$" "$TMP/primary.yaml"; then
 fi
 echo "  PASS"
 
-echo "[continuum-render] Case 3: continuum.enabled=true + role=secondary emits the raft-transition Continuum CR"
+echo "[continuum-render] Case 3: continuum.enabled=true + role=secondary + CRD registered emits the raft-transition Continuum CR"
+# --api-versions dr.openova.io/v1 simulates the CRD being present in the
+# target cluster (#3612 Capabilities guard). On a real secondary CP the CRD
+# is ABSENT (bp-catalyst-platform is primary-suspended there) — Case 4 below
+# proves the guard then skips the CR so the install still succeeds.
 helm template smoke-bao . \
+  --api-versions dr.openova.io/v1 \
   --set continuum.enabled=true \
   --set snapshotReplication.enabled=true \
   --set snapshotReplication.role=secondary \
@@ -99,6 +104,26 @@ if ! echo "$cr_block" | grep -q "applicationRef: openbao"; then
 fi
 if ! echo "$cr_block" | grep -q "hz-fsn-rtz-prod"; then
   echo "FAIL: Continuum CR did not wire the primaryRegion." >&2
+  exit 1
+fi
+echo "  PASS"
+
+echo "[continuum-render] Case 4 (#3612 CRD-race guard): role=secondary but the dr.openova.io/v1 CRD ABSENT emits NO CR (install must not fail)"
+# This is the live hw145-region-b condition: bp-openbao installs on a
+# secondary CP where bp-catalyst-platform (the Continuum CRD owner, slot 13)
+# is primary-suspended, so the CRD is not registered. WITHOUT --api-versions,
+# helm's default capabilities do NOT include dr.openova.io/v1 — the
+# Capabilities guard MUST skip the CR so `helm install` renders clean and
+# succeeds (the CR is added on the next reconcile once/if the CRD lands).
+helm template smoke-bao . \
+  --set continuum.enabled=true \
+  --set snapshotReplication.enabled=true \
+  --set snapshotReplication.role=secondary \
+  --set continuum.primaryRegion=hz-fsn-rtz-prod \
+  --set continuum.standbyRegion=hz-hel-rtz-prod \
+  --set continuum.pdmZone=t99.omani.works > "$TMP/secondary-no-crd.yaml"
+if grep -qE "^kind: Continuum$" "$TMP/secondary-no-crd.yaml"; then
+  echo "FAIL: role=secondary rendered a Continuum CR even though the dr.openova.io/v1 CRD is absent — the install would fail with 'no matches for kind Continuum' (the #3612 region-b regression)." >&2
   exit 1
 fi
 echo "  PASS"
