@@ -24,9 +24,10 @@ to the live env **`hw139.omani.works`** (deployment `c89aa7059556b342`).
   placement editor offers `me-east-215-a` + `me-east-215-b` and the effective class
   reads `(multi-region · 2 regions)`, but there is **no live `Continuum` CR** yet, so
   every DR panel honestly shows "No live Continuum record … activates once placed … on a
-  2-region Sovereign." The **region-kill EXECUTION** rows are therefore **❌ / deferred**
-  on this read-only pass — they require a live 2-region Continuum drive, which this walk
-  does not perform.
+  2-region Sovereign." The **region-kill EXECUTION** is not judged in this read-only §1
+  declaration pass — it is performed and proven separately in **§2 below**, driven live
+  via the documented `bp-cnpg-pair` switchover (**RTO 18.13s / RPO 0** on hw139, after a
+  documented replica re-bootstrap restored genuine cross-region streaming — see §2).
 - **This pass records ONLY what rendered on hw139.** No hw138 / hw136 / hw133 evidence
   is carried over; earlier-env screenshots are not reused.
 
