@@ -1,0 +1,41 @@
+# hw139 #3375 REGION-KILL — AS-FOUND STATE (before any action)
+# deployment c89aa7059556b342 / hw139.omani.works
+# 2-region: me-east-215-a (primary region) + me-east-215-b (standby region)
+# captured 2026-06-15T04:54:13Z
+
+## FINDING: the cnpg-pair was NOT cross-region streaming when found.
+## A PRIOR region-kill rehearsal (~2026-06-14 20:21-20:22Z, ~8h before this walk)
+## promoted region-b and left the pair in Day-2 SPLIT-BRAIN that never rejoined.
+
+### Evidence of the prior rehearsal — keystone_xregion table contents:
+# REGION-A primary (timeline 1, the original write):
+#   id=1 'pre-kill region-a hw139'  ts=2026-06-14 20:21:23+00
+# REGION-B replica (timeline 2 — was promoted in the prior rehearsal, took a post-kill write):
+#   id=1  'pre-kill region-a hw139'        ts=2026-06-14 20:21:23+00
+#   id=34 'post-kill region-b (promoted)'  ts=2026-06-14 20:22:17+00   <-- prior promotion artifact
+
+### Timeline divergence (the root cause the streams are dead):
+#   region-a primary-1 timeline_id = 1
+#   region-b replica-1  timeline_id = 2
+#   region-b walreceiver FATAL since 2026-06-14T20:35:24Z (~8.3h):
+#     "highest timeline 1 of the primary is behind recovery timeline 2"
+#   region-b pg_stat_wal_receiver = 0 rows (NOT streaming)
+#   region-a pg_replication_slots = only 2 in-region slots (primary_2, primary_3); NO cross-region slot
+
+### Platform's OWN promotability gate agrees it is broken:
+#   pod cnpg-pair-bp-cnpg-pair-failover-readiness = 0/1 NOT READY for ~9h
+#   log: "replica lag=999999s >= threshold=30s — NOT promotable"
+
+### Live connectivity probe (this walk, 2026-06-15T04:54:13Z):
+#   wrote regionkill_sentinel(id=1,'connectivity-probe-hw139') to region-a primary
+#   after 6s region-b still: relation "regionkill_sentinel" does not exist  -> NO replication
+
+### Infra/datapath is HEALTHY (this is a PG-level split-brain, not a mesh break):
+#   region-b -> region-a primary-mesh:5432 TCP = MESH-TCP-OK (ClusterMesh global svc works)
+#   both regions: 1 cp + 3 workers Ready (10h old); cnpg-pair-primary 3/3, cnpg-pair-replica 3/3 (locally healthy)
+
+## CONCLUSION (as-found): cross-region streaming is DEAD by timeline divergence from a
+## prior rehearsal. A kill-now would NOT prove RPO=0 (region-b data is a stale prior-promotion
+## copy, not a live replica of the current region-a primary). PRECONDITION: re-establish a
+## genuine live cross-region standby via the documented cnpg replica re-bootstrap, then run a
+## clean kill. The re-bootstrap is recorded transparently below (01-*).

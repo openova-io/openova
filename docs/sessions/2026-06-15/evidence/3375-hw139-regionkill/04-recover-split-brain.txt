@@ -1,0 +1,29 @@
+## RECOVER + Day-2 split-brain caveat
+# captured 2026-06-15T05:00:47Z
+
+### region-a nodes uncordoned (all Ready, env non-terminal):
+NAME                                                           STATUS   ROLES                       AGE   VERSION
+catalyst-hw139-omani-works-c89aa705-me-east-215-a-cp1-cedba1   Ready    control-plane,etcd,master   10h   v1.31.4+k3s1
+catalyst-hw139-omani-works-c89aa705-me-east-215-a-w9b5077      Ready    <none>                      10h   v1.31.4+k3s1
+catalyst-hw139-omani-works-c89aa705-me-east-215-a-wb1b4e4      Ready    <none>                      10h   v1.31.4+k3s1
+catalyst-hw139-omani-works-c89aa705-me-east-215-a-wf4b21d      Ready    <none>                      10h   v1.31.4+k3s1
+
+### critical region-a control-plane apps stayed healthy THROUGHOUT (cordon does not evict running pods):
+keycloak-0   1/1     Running   1 (10h ago)   10h
+
+### region-b remains the authoritative writable primary (pg_is_in_recovery=f):
+f
+
+### Day-2 split-brain caveat (per hw128/hw136 runbook):
+  After uncordon, region-a's cnpg-pair-primary pods reschedule and the cluster re-bootstraps as its
+  OWN writable primary from local data on timeline 1, while region-b is the promoted authoritative
+  primary on timeline 2 -> classic post-failover split-brain. Rebuilding region-a as a standby of the
+  promoted region-b is a Day-2 reconciliation action (operator / continuum-controller), NOT part of the
+  failover proof. The failover proof (kill -> promote -> zero-data-loss, RTO 18.13s / RPO 0) is COMPLETE.
+  The env is left non-terminal with all control-plane apps healthy for downstream walks.
+
+### (correction) full control-plane app health on region-a — all 1/1 Running through the kill (ages predate T_KILL=04:59, 0 restarts):
+catalyst-api-97c9dccc6-924wp                         1/1     Running            0             6h29m
+catalyst-ui-65889f6f7b-4m7nn                         1/1     Running            0             7h27m
+console-d6478b77c-sphjz         1/1     Running            0                6h33m
+keycloak-0   1/1     Running   1 (10h ago)   10h
