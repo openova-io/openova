@@ -617,6 +617,14 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 	type hrTarget struct {
 		targetNamespace string
 		releaseName     string
+		// blueprint — the chart name (bp-<slug>) backing this HR, captured
+		// so the externalURL projection can run the SAME user-UI gate the
+		// per-app detail endpoint uses (externalURLIfUserUI →
+		// blueprintHasUserUIEndpoint, #3224 / #3374). Without the gate the
+		// grid Open button would render for any app that merely owns an
+		// HTTPRoute, including API/protocol-only backends (the dead-button
+		// shape). Empty when the HR declares no chart name.
+		blueprint string
 	}
 	hrInfo := map[string]hrTarget{}
 	// urlByHRName — front-door URL for each installed HR, populated by
@@ -664,7 +672,15 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 				if rn == "" {
 					rn = name
 				}
-				hrInfo[name] = hrTarget{targetNamespace: tn, releaseName: rn}
+				// Chart name backs the user-UI gate below. Flux stores it at
+				// spec.chart.spec.chart; bootstrap-kit HR names are bp-<slug>
+				// so we fall back to the HR name when the chart field is
+				// absent.
+				chart, _, _ := unstructured.NestedString(hr.Object, "spec", "chart", "spec", "chart")
+				if chart == "" {
+					chart = name
+				}
+				hrInfo[name] = hrTarget{targetNamespace: tn, releaseName: rn, blueprint: chart}
 			}
 		}
 		// Build the HTTPRoute index: (namespace, name) → "https://<host>"
@@ -712,9 +728,23 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		for hrName, info := range hrInfo {
-			if url, ok := hrURL[[2]string{info.targetNamespace, info.releaseName}]; ok {
-				urlByHRName[hrName] = url
+			url, ok := hrURL[[2]string{info.targetNamespace, info.releaseName}]
+			if !ok {
+				continue
 			}
+			// #3374 — gate the grid Open button on the SAME user-UI signal
+			// the AppDetail launch button uses (userUIGatePasses →
+			// blueprintHasUserUIEndpoint, #3224). An HTTPRoute existing for
+			// an HR is necessary but NOT sufficient: API/protocol-only
+			// backends (bp-newapi, bp-openova-flow-server) also own routes,
+			// and projecting their externalURL here would render a dead Open
+			// button that dumps the operator on a login form / 404. The gate
+			// fails OPEN when the catalog is unwired (chroot/CI) so working
+			// buttons are never suppressed fleet-wide.
+			if !h.userUIGatePasses(ctx, info.blueprint) {
+				continue
+			}
+			urlByHRName[hrName] = url
 		}
 		// Application CR pass — separate List so a missing CRD or
 		// RBAC denial on apps.openova.io doesn't break the HR pass

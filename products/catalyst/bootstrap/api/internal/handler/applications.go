@@ -1718,37 +1718,50 @@ func (h *Handler) externalURLIfUserUI(ctx context.Context, depID, blueprint, tar
 	if u == "" {
 		return ""
 	}
-	bpName := strings.TrimPrefix(strings.TrimSpace(blueprint), "bp-")
-	if bpName == "" {
-		// No blueprint name — no UI signal can ever exist for this app.
-		// FAIL CLOSED (#3224 round-1 fix).
-		return ""
-	}
-	if h.catalogClient == nil {
-		// Catalog client not configured AT ALL (chroot config gap, CI) —
-		// the gate cannot distinguish any app from any other, so
-		// suppressing here would kill every WORKING Launch button
-		// fleet-wide. This is the single deliberate fail-OPEN branch.
-		return u
-	}
-	bp, err := h.resolveBlueprintMeta(ctx, bpName, "")
-	if err != nil || bp == nil || len(bp.Endpoints) == 0 {
-		// FAIL CLOSED (#3224 round-1): transport error, blueprint
-		// NotFound in the catalog, malformed spec, or a genuine
-		// `endpoints: []` declaration (bp-newapi's shape) — in every
-		// case there is NO evidence of a user UI. The old fail-open
-		// here is exactly what rendered dead Open buttons on live
-		// hw130 (the catalog 404'd bp-newapi → button showed anyway).
-		// A suppressed button self-corrects on the next render if the
-		// catalog recovers; a dead button never does.
-		return ""
-	}
-	if !blueprintHasUserUIEndpoint(bp) {
-		// Resolved, endpoints present, but none is a user UI (API/protocol
-		// only) → suppress the dead Open button.
+	if !h.userUIGatePasses(ctx, blueprint) {
 		return ""
 	}
 	return u
+}
+
+// userUIGatePasses decides whether an app with the given Blueprint qualifies
+// for a user-facing "Open" / Launch button (#3224 / #3374). It is the SINGLE
+// SOURCE OF TRUTH shared by:
+//
+//   - externalURLIfUserUI — the per-app detail endpoint's externalURL gate
+//     (GET /sovereigns/{id}/applications/{name}).
+//   - HandleSovereignApps — the /v1/sovereign/apps LIST projection, so the
+//     AppsPage grid Open button is scoped to exactly the same apps as the
+//     AppDetail one (no asymmetry where the grid shows a button the detail
+//     page suppresses, or vice-versa).
+//
+// Policy (#3224):
+//
+//	bp empty                → FAIL CLOSED (no UI signal can exist)
+//	catalogClient unwired   → FAIL OPEN  (chroot config gap / CI — the gate
+//	                          can't distinguish any app, so suppressing would
+//	                          kill every working Launch button fleet-wide)
+//	resolve err / NotFound  → FAIL CLOSED (no evidence of a user UI; a
+//	  / empty endpoints[]      suppressed button self-corrects once the
+//	                          catalog recovers — a dead button never does;
+//	                          the hw130 regression)
+//	endpoints[] present,    → FAIL CLOSED (API/protocol only)
+//	  none is a user UI
+//	a user-UI endpoint      → PASS
+//	  (ssoEnabled || launchDefault || name=="ui")
+func (h *Handler) userUIGatePasses(ctx context.Context, blueprint string) bool {
+	bpName := strings.TrimPrefix(strings.TrimSpace(blueprint), "bp-")
+	if bpName == "" {
+		return false
+	}
+	if h.catalogClient == nil {
+		return true
+	}
+	bp, err := h.resolveBlueprintMeta(ctx, bpName, "")
+	if err != nil || bp == nil || len(bp.Endpoints) == 0 {
+		return false
+	}
+	return blueprintHasUserUIEndpoint(bp)
 }
 
 // ── HTTP handler — list (GET /sovereigns/{id}/applications) ──────────

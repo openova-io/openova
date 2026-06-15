@@ -42,6 +42,7 @@ import { PortalShell } from './PortalShell'
 import { resolveApplications, type ApplicationDescriptor } from './applicationCatalog'
 import { findComponent } from '@/pages/wizard/steps/componentGroups'
 import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
+import { getLaunchURL } from '@/lib/catalog.api'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import type { ApplicationStatus } from './eventReducer'
 import { WipeDeploymentModal } from '@/components/CrudModals/WipeDeploymentModal'
@@ -793,6 +794,34 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   )
 }
 
+/**
+ * launchAppViaSSO — #3374. The ONE silent-SSO launch path for the
+ * per-card Open button. Mirrors AppDetail's launchAppViaSSO: resolve a
+ * one-shot launch-url via GET /catalyst/v1/apps/{key}/launch-url (the BE
+ * appends `prompt=none&kc_idp_hint=catalyst-pin`) and open it in a new
+ * tab. Falls back to the raw `externalURL` ONLY when no launch key is
+ * resolvable or the endpoint errors — so the DEFAULT is zero-click SSO,
+ * never the app's own login form.
+ *
+ * The launch key is the Application CR uid when known, else the blueprint
+ * /release name (bootstrap-kit HelmRelease apps — grafana, harbor,
+ * openbao, gitea, keycloak, guacamole — carry no Application CR; the BE's
+ * launch-url resolver strips the `bp-` prefix and matches the HR). This
+ * is the same resolution AppDetail.launchKey performs.
+ */
+async function launchAppViaSSO(launchKey: string, fallbackURL: string): Promise<void> {
+  if (!launchKey) {
+    window.open(fallbackURL, '_blank', 'noopener,noreferrer')
+    return
+  }
+  try {
+    const resp = await getLaunchURL(launchKey)
+    window.open(resp?.url ?? fallbackURL, '_blank', 'noopener,noreferrer')
+  } catch {
+    window.open(fallbackURL, '_blank', 'noopener,noreferrer')
+  }
+}
+
 interface AppCardProps {
   app: ApplicationDescriptor
   status: ApplicationStatus
@@ -851,9 +880,18 @@ interface AppCardProps {
   contextCount?: number
 }
 
-function AppCard({ app, status, isCatalog, isService, environment, marketplacePublished, slug, onPublishedChange, topology, contextCount }: AppCardProps) {
+// Exported for the #3374 render test (AppsPage.open-button.test.tsx) — the
+// per-card Open button gate + silent-SSO click routing are leaf behaviour
+// best asserted directly on the card, without the live-apps query plumbing.
+export function AppCard({ app, status, isCatalog, isService, environment, marketplacePublished, slug, onPublishedChange, topology, contextCount, externalURL }: AppCardProps) {
   const stateClass = `state-${status}`
   const navigate = useNavigate()
+  // #3374 — the per-card Open button resolves a silent-SSO launch via the
+  // app's CR uid when known, else the bootstrap-kit blueprint/release name
+  // (the BE launch-url resolver strips `bp-` and matches the HR). Mirrors
+  // AppDetail.launchKey. Empty externalURL ⇒ no front door ⇒ no button.
+  const launchKey = app.id.replace(/^bp-/, '')
+  const [launching, setLaunching] = useState(false)
   // #3370 — class-level shareable badge on Catalog-tab cards, from the
   // build-time blueprint.yaml declaration.
   const shareable = isCatalog && BLUEPRINT_BY_ID[app.id]?.shareable === true
@@ -955,14 +993,55 @@ function AppCard({ app, status, isCatalog, isService, environment, marketplacePu
       </div>
 
       <div className="status-corner">
-        {/* G117.4 #2743 V4 verdict (2026-06-03): per-card "Open" button
-         * REMOVED. It opened the raw externalURL with no
-         * prompt=none&kc_idp_hint=catalyst-pin appended, bypassing
-         * silent-SSO. Launch flows now happen exclusively from the
-         * AppDetail page Launch button, which calls
-         * /catalyst/v1/apps/{uid}/launch-url and gets a signed URL with
-         * the silent-SSO query string. Click the card to navigate to
-         * AppDetail, then use Launch. */}
+        {/* #3374 — per-card "Open" button RESTORED (founder flagged its
+         * disappearance as "very important"). The #2743 "V4 verdict"
+         * deleted it because it opened the RAW externalURL with no
+         * prompt=none&kc_idp_hint=catalyst-pin, bypassing silent-SSO. The
+         * fix keeps the one-click affordance but routes it through
+         * launchAppViaSSO → GET /catalyst/v1/apps/{key}/launch-url, which
+         * returns the signed silent-SSO URL — so the operator lands in the
+         * app already signed in, never on a login form. Only rendered when
+         * externalURL is non-empty: the BE projects externalURL ONLY for
+         * apps whose Blueprint declares a user-UI endpoint
+         * (externalURLIfUserUI + blueprintHasUserUIEndpoint, #3224), so
+         * headless services (openova-flow, shared-pg, controllers) never
+         * get a dead button. */}
+        {externalURL ? (
+          <button
+            type="button"
+            className="open-chip"
+            data-testid={`sov-app-open-${app.id}`}
+            data-external-url={externalURL}
+            disabled={launching}
+            title={`Open ${app.title} — single sign-in, no second login`}
+            aria-label={`Open ${app.title} — single-click silent sign-in, opens in a new tab`}
+            onClick={(e) => {
+              // The whole card is a Link — keep the click on the button.
+              e.preventDefault()
+              e.stopPropagation()
+              if (launching) return
+              setLaunching(true)
+              void launchAppViaSSO(launchKey, externalURL).finally(() => setLaunching(false))
+            }}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width={11}
+              height={11}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2.2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M14 3h7v7" />
+              <path d="M10 14L21 3" />
+              <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+            </svg>
+            {launching ? 'Opening…' : 'Open'}
+          </button>
+        ) : null}
         {marketplacePublished !== null && marketplacePublished !== undefined && slug ? (
           <button
             type="button"
@@ -1244,6 +1323,36 @@ const APPS_PAGE_CSS = `
 }
 
 .status-corner { position: absolute; bottom: 0.5rem; right: 0.55rem; display: flex; gap: 0.4rem; align-items: center; }
+/*
+ * #3374 — per-card "Open" launch button. Accent-filled so it reads as the
+ * primary call-to-action on the card (the founder flagged the prior
+ * removal as losing the one-click launch affordance). Sits leftmost in the
+ * status-corner, ahead of the publish + status chips. pointer-events:auto
+ * so it stays clickable even though the whole card is an <a> Link.
+ */
+.open-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  font-family: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  background: var(--color-accent);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
+  transition: filter 120ms ease, transform 120ms ease;
+}
+.open-chip:hover { filter: brightness(0.92); transform: translateY(-1px); }
+.open-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.open-chip:disabled { opacity: 0.6; cursor: wait; }
+.open-chip svg { display: block; }
 .publish-chip {
   display: inline-flex;
   align-items: center;
