@@ -1605,3 +1605,45 @@ func TestCallerInOrg_AcceptsOrgMembershipCallback(t *testing.T) {
 		t.Fatal("expected callback to reject non-member")
 	}
 }
+
+// TestFindApplicationByUID_NameFallback — #3374. The AppsPage grid INSTANCE
+// card keys its silent-SSO launch on the Application CR's NAME (the instance
+// identity it projects), not the uid the AppDetail page carries. The
+// launch-url resolver must match BOTH so the grid Open button resolves the
+// real CR (correct org + blueprint) instead of falling through to the
+// HR-backed branch with an empty org → wrong hostname → login form.
+func TestFindApplicationByUID_NameFallback(t *testing.T) {
+	app := seedApp("uid-qa-wp-123", "qa-wp", "qa-omantel", "wordpress")
+	_, client := fakeEndpointDynamic(app)
+
+	t.Run("resolves by uid (primary)", func(t *testing.T) {
+		got, err := findApplicationByUID(context.Background(), client, "uid-qa-wp-123")
+		if err != nil {
+			t.Fatalf("uid lookup: unexpected error %v", err)
+		}
+		if got.GetName() != "qa-wp" {
+			t.Fatalf("uid lookup: got name %q, want qa-wp", got.GetName())
+		}
+	})
+
+	t.Run("resolves by name (fallback — the grid instance-card key)", func(t *testing.T) {
+		got, err := findApplicationByUID(context.Background(), client, "qa-wp")
+		if err != nil {
+			t.Fatalf("name lookup: unexpected error %v — grid Open button would bypass SSO", err)
+		}
+		if string(got.GetUID()) != "uid-qa-wp-123" {
+			t.Fatalf("name lookup: got uid %q, want uid-qa-wp-123", got.GetUID())
+		}
+		// The resolved CR must carry the org label so the launch-url builds
+		// the correct org-scoped hostname (not the empty-org HR fallback).
+		if org := extractOrgFromApp(got); org != "qa-omantel" {
+			t.Fatalf("name lookup: org %q, want qa-omantel", org)
+		}
+	})
+
+	t.Run("unknown key still errors", func(t *testing.T) {
+		if _, err := findApplicationByUID(context.Background(), client, "does-not-exist"); err == nil {
+			t.Fatal("expected errAppNotFound for an unknown uid/name")
+		}
+	})
+}

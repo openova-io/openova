@@ -354,17 +354,35 @@ func (h *Handler) endpointSovereignFQDN() string {
 // returns the one whose .metadata.uid matches. Returns ErrAppNotFound
 // when no match.
 func findApplicationByUID(ctx context.Context, c dynamic.Interface, uid string) (*unstructured.Unstructured, error) {
-	if strings.TrimSpace(uid) == "" {
+	key := strings.TrimSpace(uid)
+	if key == "" {
 		return nil, errAppNotFound
 	}
 	list, err := c.Resource(ApplicationGVR()).Namespace("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
+	// Primary match: metadata.uid (the canonical launch-url key for
+	// Org-scoped apps the FE learned from a GET-Application response).
 	for i := range list.Items {
-		if string(list.Items[i].GetUID()) == uid {
-			out := list.Items[i].DeepCopy()
-			return out, nil
+		if string(list.Items[i].GetUID()) == key {
+			return list.Items[i].DeepCopy(), nil
+		}
+	}
+	// #3374 — fallback match on metadata.name. The AppsPage grid INSTANCE
+	// card keys its launch on the Application CR's NAME (the instance
+	// identity it projects: sovereignAppItem.ID = app.GetName()), not the
+	// uid the AppDetail page carries. Without this fallback, a grid Open
+	// click on an Org-scoped instance (e.g. "qa-wp") missed the uid match,
+	// fell through to the HR-backed branch with an EMPTY org, and produced a
+	// wrong hostname → the operator landed on a login form (the exact
+	// silent-SSO bypass #3374 closes). Matching by name resolves the real CR
+	// so the correct org + blueprint flow through. uid (a 36-char UUID) and
+	// name (a DNS label) never collide, and uid is tried first, so this is a
+	// strict superset that only ever resolves MORE valid apps.
+	for i := range list.Items {
+		if list.Items[i].GetName() == key {
+			return list.Items[i].DeepCopy(), nil
 		}
 	}
 	return nil, errAppNotFound

@@ -202,6 +202,64 @@ func TestExternalURLIfUserUI_GatesOnBlueprint(t *testing.T) {
 	})
 }
 
+// TestUserUIGatePasses locks in the extracted #3374 gate predicate that the
+// AppsPage grid Open button (HandleSovereignApps → urlByHRName) and the
+// AppDetail Open button (externalURLIfUserUI) BOTH consult, so the two
+// surfaces can never disagree about which apps are launchable. Mirrors the
+// externalURLIfUserUI cases but on the pure blueprint→bool decision (no
+// HTTPRoute needed — the URL resolution is orthogonal).
+func TestUserUIGatePasses(t *testing.T) {
+	uiBP := catalogBPWithEndpoints("grafana", []map[string]interface{}{
+		{"name": "web", "protocol": "https", "ssoEnabled": true, "launchDefault": true},
+	})
+	apiOnly := catalogBPWithEndpoints("newapi", []map[string]interface{}{
+		{"name": "api", "protocol": "https", "ssoEnabled": false, "launchDefault": false},
+	})
+
+	t.Run("ui blueprint passes", func(t *testing.T) {
+		h := &Handler{log: quietLog()}
+		h.SetCatalogClient(newFakeCatalog(uiBP))
+		if !h.userUIGatePasses(context.Background(), "bp-grafana") {
+			t.Fatal("ui blueprint must pass the gate (Open button renders)")
+		}
+	})
+
+	t.Run("api-only blueprint fails", func(t *testing.T) {
+		h := &Handler{log: quietLog()}
+		h.SetCatalogClient(newFakeCatalog(apiOnly))
+		if h.userUIGatePasses(context.Background(), "bp-newapi") {
+			t.Fatal("api-only blueprint must fail the gate (no dead Open button)")
+		}
+	})
+
+	t.Run("empty blueprint fails closed", func(t *testing.T) {
+		h := &Handler{log: quietLog()}
+		h.SetCatalogClient(newFakeCatalog(uiBP))
+		if h.userUIGatePasses(context.Background(), "") {
+			t.Fatal("empty blueprint name must fail closed")
+		}
+	})
+
+	t.Run("catalog unwired fails open", func(t *testing.T) {
+		// No SetCatalogClient → the gate cannot distinguish apps, so it must
+		// fail OPEN (else every working button is suppressed on chroot/CI).
+		h := &Handler{log: quietLog()}
+		if !h.userUIGatePasses(context.Background(), "bp-grafana") {
+			t.Fatal("catalog-unwired must fail open (keep the button)")
+		}
+	})
+
+	t.Run("catalog 404 fails closed", func(t *testing.T) {
+		// Catalog wired but EMPTY (Get → ErrBlueprintNotFound) — no evidence
+		// of a user UI → suppress (the hw130 dead-button shape).
+		h := &Handler{log: quietLog()}
+		h.SetCatalogClient(newFakeCatalog())
+		if h.userUIGatePasses(context.Background(), "bp-newapi") {
+			t.Fatal("catalog-404 must fail closed (#3224)")
+		}
+	})
+}
+
 // TestExternalURLIfUserUI_NotFoundFailsClosed locks in the hw130
 // round-1 regression fix: the catalog is WIRED but 404s the blueprint
 // (NotFound → resolveBlueprintMeta returns empty meta). The old gate
