@@ -305,6 +305,33 @@ export function DeploymentsList() {
                     >
                       {d.status}
                     </span>
+                    {/* #3611 — a "ready" multi-region prov whose secondary
+                        region is degraded gets an amber sub-badge so the
+                        status column stops claiming a flat green "ready".
+                        Surface-only: the deployment is still operationally
+                        ready (the primary converged); this flags that the
+                        secondary lags. */}
+                    {d.secondaryDegraded ? (
+                      <span
+                        data-testid={`deployments-list-secondary-degraded-${d.id}`}
+                        title="Secondary region is significantly behind the primary in HelmRelease convergence"
+                        style={{
+                          display: 'inline-block',
+                          marginLeft: 6,
+                          padding: '2px 8px',
+                          borderRadius: 999,
+                          background: 'rgba(245,158,11,0.10)',
+                          border: '1px solid rgba(245,158,11,0.35)',
+                          color: '#F59E0B',
+                          fontWeight: 600,
+                          fontSize: 11,
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.4,
+                        }}
+                      >
+                        Secondary degraded
+                      </span>
+                    ) : null}
                   </td>
                   <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--wiz-border)' }}>
                     {formatDate(d.startedAt)}
