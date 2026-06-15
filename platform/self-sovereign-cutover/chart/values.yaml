@@ -481,20 +481,27 @@ status:
 # are no-ops (the script detects the local repo is missing and exits
 # 0). Post-cutover fires close the upstream → local Gitea loop.
 mirrorResync:
-  # G75 #2622 (2026-05-31): MASTER SEVERANCE SWITCH. When `enabled:
-  # false`, the entire 11-mirror-resync-cronjob.yaml template renders
-  # to nothing — Flux won't recreate the CronJob after cutover Step 01
-  # deletes the live resource. This is the IaC half of the B' shape:
-  # IaC removal (this flag flips false via HR patch from Step 01) +
-  # live DELETE (Step 01) + post-verify hold (Step 01). Suspend is NOT
-  # equivalent per Principle 14 — a suspended cronjob is a future drift
-  # trap, severance must be irreversible at the IaC layer.
+  # G75 #2622 / #3606 (2026-06-16): MASTER SEVERANCE SWITCH. When
+  # `enabled: false`, the entire 11-mirror-resync-cronjob.yaml template
+  # renders to nothing — no `gitea-mirror-resync` CronJob ever exists on
+  # the Sovereign. THE IaC DEFAULT `false` IS THE SEVERANCE: per
+  # Principle 14 severance must live in git and be irreversible, and a
+  # CronJob that is never rendered cannot drift back. There is nothing
+  # for Flux to revert.
   #
-  # The chart default stays `true` because pre-cutover Sovereigns need
-  # the resync loop to pick up chart-bumps from upstream. Step 01 of
-  # bp-self-sovereign-cutover flips it to `false` via HR patch on the
-  # post-handover pivot.
-  enabled: true
+  # #3606 root-cause: the old default was `true` and cutover Step 01's
+  # G75 finalize block ran an IMPERATIVE `kubectl patch hr ... mirror
+  # Resync.enabled=false`. Flux OWNS this HelmRelease from git (where the
+  # value was `true`), so it REVERTED the patch on its very next
+  # reconcile (~4 min) and re-rendered the CronJob → Step 01's 6-min
+  # post-verify hold then saw the CronJob present again → G75 FATAL →
+  # step-01 looped forever and the cutover never advanced past step-01.
+  # A 5-min github re-clone CronJob is ALSO fundamentally incompatible
+  # with Pillar 5 — it would breach the Step-08 600s deny-egress hold.
+  # So the resync CronJob is now OFF by default; a pre-cutover Sovereign
+  # that wants the upstream-resync loop opts IN via an operator overlay
+  # (`mirrorResync.enabled: true`), and Step 01 no longer patches the HR.
+  enabled: false
   # Cron schedule. */5 = every 5 minutes. Short enough that chart-bump
   # → upstream-merge → Sovereign-reconcile completes in ~10 min end-
   # to-end (5 min for this CronJob to fire + the bp-* HelmRepository's
