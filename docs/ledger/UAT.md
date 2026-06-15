@@ -1,5 +1,11 @@
 # UAT — ground reality on `hw139.omani.works` (live 2-region prov, 2026-06-15)
 
+> **⚠️ STATE CHANGE 2026-06-15 — `hw139` WIPED** to free kom4dc quota for the **comprehensive prov `hw144`**, fired with **all five remaining fixes baked** into catalyst `c7cde4d`: cutover half-pivot (#3568), newapi idempotent re-login (#3564), openbao cross-region raft (#3562), Open-button grid restore (#3570), shared-PG real cross-region DR (#3572). **This ledger RESETS and re-walks on `hw144` convergence** (per the wipe-and-rewalk contract). The hw139 evidence below is preserved (git history + [`uat-walkthrough/`](uat-walkthrough/) + `docs/sessions/2026-06-15/evidence/`). The open rows are **fixed-in-code** and close on the hw144 walk:
+> - **newapi `❌` → fix MERGED (#3564, bp-newapi 1.4.94)**; live re-walk **`⛔` blocked until hw144** — hw139 wiped, both Sovereign consoles `000`, no live surface exists to walk today.
+> - **funnel back-half `❌`** — re-walks on hw144 (voucher→org-active completion).
+> - **cutover `⚠️ 9/11` → half-pivot fix MERGED (#3568)**; `cutoverComplete=true` + the 600s deny-egress hold walk on hw144.
+> - **Open buttons** (NS#3 grid restore, #3570) + **shared-PG region-kill preserving keycloak's realm** (NS#4 *data* DR, #3572) — first walkable on hw144.
+
 **Last verified live: 2026-06-15 on `hw139.omani.works`** (deployment `c89aa7059556b342`, 2-region
 kom4dc prov — zones `me-east-215-a` / `-b`, SHARED_PG=true, catalyst-api `sha=9c6f864` / console
 `bp-catalyst-platform@1.4.6xx`). The env is **converged and STILL WALKABLE post-cutover** (console 200,
