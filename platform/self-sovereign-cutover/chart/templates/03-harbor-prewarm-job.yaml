@@ -46,6 +46,15 @@ data:
     {{- range .Values.prewarm.images }}
     {{ . }}
     {{- end }}
+  # Phase A2 (Refs #3627): the openova-io HelmRepository pivot set — the
+  # SAME list step-06 repoints to local Harbor. Phase A2 mirrors the helm
+  # CHART OCI artifact (not just the container images) for every HelmRelease
+  # whose sourceRef.name is one of these, so the charts are present + pullable
+  # in local Harbor BEFORE step-06 strips the ghcr.io fallback.
+  chart-mirror-names.txt: |
+    {{- range .Values.helmRepositories.names }}
+    {{ . }}
+    {{- end }}
   podSpec: |
     serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
     restartPolicy: Never
@@ -86,9 +95,25 @@ data:
                 key: {{ .Values.harbor.ghcrSecretRef.dockerConfigKey }}
           - name: GHCR_DOCKERCONFIG_NAMESPACE
             value: {{ .Values.harbor.ghcrSecretRef.namespace | quote }}
+          # Phase A2 (Refs #3627 #3379): the cutover pivot set — the
+          # namespace holding the Flux HelmRepositories that step-06 repoints
+          # to local Harbor, and the names of those openova-io HelmRepositories.
+          # Phase A2 reads the chart+version off every HelmRelease whose
+          # sourceRef.kind=HelmRepository and whose sourceRef.name is in this
+          # set, then skopeo-mirrors the chart OCI artifact into local Harbor
+          # so the charts are PULLABLE post-cutover (without this, step-06
+          # only pivots the URL — the chart artifacts themselves never reach
+          # local Harbor, so the first post-strip (re)pull 404s).
+          - name: HELMREPO_NAMESPACE
+            value: {{ .Values.helmRepositories.namespace | quote }}
+          - name: UPSTREAM_PREFIX
+            value: {{ .Values.helmRepositories.upstreamPrefix | quote }}
         volumeMounts:
           - name: prewarm
             mountPath: /work
+            readOnly: true
+          - name: chart-mirror-names
+            mountPath: /chart-mirror
             readOnly: true
           - name: tmp
             mountPath: /tmp
@@ -366,6 +391,163 @@ data:
               exit 1
             fi
 
+            # ─── Phase A2: skopeo native push of openova-io HELM CHARTS ────────
+            #
+            # #3627 (Refs #3379, root-caused live on hw146): Phase A above
+            # mirrors the openova-io CONTAINER images, but NO cutover step ever
+            # mirrors the helm CHART OCI artifacts. Step-06 Phase-1 repoints
+            # every Flux HelmRepository from oci://ghcr.io/openova-io/<chart>
+            # to oci://registry.<sov-fqdn>/openova-io/<chart>, and step-06
+            # Phase-3 then strips the ghcr.io fallback from ghcr-pull. If the
+            # chart artifacts are NOT in local Harbor at that point, the first
+            # post-strip (re)pull 404s and the HelmRelease wedges. The
+            # HelmReleases survive on hw146 ONLY because they were installed
+            # from ghcr.io at bootstrap and the strip has not yet run; local
+            # Harbor's openova-io project held 29 container repos and ZERO
+            # chart repos. A true sovereignty cutover MUST carry every
+            # openova-io chart in local Harbor BEFORE egress is cut.
+            #
+            # The chart NAME + VERSION are NOT on the HelmRepository (its
+            # spec.url is only the project pointer oci://ghcr.io/openova-io);
+            # they live on each consuming HelmRelease's
+            # spec.chart.spec.{chart,version,sourceRef.{kind,name}}. We
+            # enumerate those tuples, select the ones whose sourceRef.kind is
+            # HelmRepository and whose sourceRef.name is in the cutover pivot
+            # set (.Values.helmRepositories.names, mounted at /chart-mirror),
+            # dedupe by chart:version, then skopeo-copy each chart OCI artifact
+            # ghcr.io/openova-io/<chart>:<version> → ${HARBOR_HOST}/openova-io/
+            # <chart>:<version>. Helm OCI charts are plain OCI artifacts, so
+            # `skopeo copy` handles them regardless of media type. Same retry
+            # discipline as Phase A (--insecure-policy + --retry-times 3 +
+            # captured real exit status + parallel fan-out via sentinels).
+            #
+            # `openova-catalog` is in the pivot set but is a project POINTER
+            # for per-Application HelmReleases (rendered by bp-catalyst-platform
+            # from .Values.catalog.helmRepository.url), not a single bootstrap
+            # chart artifact — it has no HelmRelease of its own to read a
+            # chart:version off, so the sourceRef-driven enumeration below
+            # naturally excludes it (no bootstrap HR sources from it). Any
+            # per-Application charts an operator later installs are mirrored by
+            # the ongoing gitea-mirror-resync + Harbor's own pull-through, not
+            # by this one-shot cutover prewarm.
+            echo "[harbor-prewarm] Phase A2: mirror openova-io helm charts into local Harbor"
+
+            # Build the pivot-set lookup (one HR name per line, mounted RO).
+            pivot_set_file=/tmp/.chart-pivot-set.txt
+            : > "${pivot_set_file}"
+            while IFS= read -r pl; do
+              pn=$(printf '%s' "${pl}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+              [ -z "${pn}" ] && continue
+              printf '%s\n' "${pn}" >> "${pivot_set_file}"
+            done < /chart-mirror/chart-mirror-names.txt
+
+            in_pivot_set() {
+              # $1 = HelmRepository name; 0 if present in the pivot set.
+              grep -Fxq "$1" "${pivot_set_file}"
+            }
+
+            # Enumerate (chart, version, sourceRef.kind, sourceRef.name) from
+            # every HelmRelease cluster-wide. Tab-separated; a HR with no
+            # explicit chart.spec is skipped (empty fields).
+            chart_tuples=$(kubectl get helmreleases -A -o json | \
+              jq -r '.items[].spec.chart.spec
+                | select(.chart != null and .sourceRef != null)
+                | [ .chart, (.version // ""), (.sourceRef.kind // ""), (.sourceRef.name // "") ]
+                | @tsv' 2>/dev/null | sort -u || true)
+
+            # Resolve the UPSTREAM chart-OCI host/project prefix from the same
+            # value step-06 pivots FROM (oci://ghcr.io/openova-io → host
+            # ghcr.io, project path openova-io). Strip the oci:// scheme.
+            up_chart_prefix=$(printf '%s' "${UPSTREAM_PREFIX}" | sed -e 's,^oci://,,' -e 's,/$,,')
+
+            # Dedupe the work list to chart:version pairs we actually mirror.
+            chart_work=/tmp/.chart-work.txt
+            : > "${chart_work}"
+            printf '%s\n' "${chart_tuples}" | while IFS="$(printf '\t')" read -r c_chart c_ver c_kind c_name; do
+              [ -z "${c_chart}" ] && continue
+              [ "${c_kind}" = "HelmRepository" ] || continue
+              in_pivot_set "${c_name}" || continue
+              if [ -z "${c_ver}" ]; then
+                echo "[harbor-prewarm] Phase A2 WARN: HelmRelease chart ${c_chart} (source ${c_name}) has no pinned version — skipping (cannot mirror a floating tag deterministically)"
+                continue
+              fi
+              printf '%s\t%s\n' "${c_chart}" "${c_ver}" >> "${chart_work}"
+            done
+            sort -u "${chart_work}" -o "${chart_work}"
+            chart_count=$(grep -c . "${chart_work}" || true)
+            echo "[harbor-prewarm] Phase A2: ${chart_count} unique openova-io chart(s) to mirror"
+
+            # Per-chart copy worker — same sentinel pattern as copy_one.
+            chart_cpdir=/tmp/chart-mirror-copies
+            rm -rf "${chart_cpdir}"; mkdir -p "${chart_cpdir}"
+            copy_chart() {
+              cchart="$1"; cver="$2"
+              csrc="docker://${up_chart_prefix}/${cchart}:${cver}"
+              cdst="docker://${HARBOR_HOST}/openova-io/${cchart}:${cver}"
+              cslug=$(printf '%s_%s' "${cchart}" "${cver}" | tr -c 'A-Za-z0-9._-' '_')
+              if skopeo copy \
+                --insecure-policy \
+                --retry-times 3 \
+                --src-creds="${ghcr_user}:${ghcr_pat}" \
+                --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                --dest-tls-verify=true \
+                --src-tls-verify=true \
+                "${csrc}" "${cdst}" >"${chart_cpdir}/${cslug}.log" 2>&1; then
+                printf '%s:%s' "${cchart}" "${cver}" >"${chart_cpdir}/${cslug}.ok"
+              else
+                crc=$?
+                printf '%s:%s exit=%s' "${cchart}" "${cver}" "${crc}" >"${chart_cpdir}/${cslug}.fail"
+              fi
+            }
+
+            chart_pids=""
+            while IFS="$(printf '\t')" read -r w_chart w_ver; do
+              [ -z "${w_chart}" ] && continue
+              echo "[harbor-prewarm] queue chart ${up_chart_prefix}/${w_chart}:${w_ver} → ${HARBOR_HOST}/openova-io/${w_chart}:${w_ver}"
+              copy_chart "${w_chart}" "${w_ver}" &
+              chart_pids="${chart_pids} $!"
+              # Throttle to PREWARM_PARALLELISM live workers (POSIX sh, no wait -n).
+              while : ; do
+                clive=0
+                cnewpids=""
+                for cp in ${chart_pids}; do
+                  if kill -0 "${cp}" 2>/dev/null; then
+                    clive=$((clive+1))
+                    cnewpids="${cnewpids} ${cp}"
+                  fi
+                done
+                chart_pids="${cnewpids}"
+                [ "${clive}" -lt "${PREWARM_PARALLELISM}" ] && break
+                sleep 2
+              done
+            done < "${chart_work}"
+            # Drain.
+            wait
+
+            chart_ok=0
+            chart_fail=0
+            for f in "${chart_cpdir}"/*.ok; do
+              [ -e "${f}" ] || continue
+              cup=$(cat "${f}")
+              cslug=$(basename "${f}" .ok)
+              sed 's/^/  /' "${chart_cpdir}/${cslug}.log" 2>/dev/null || true
+              chart_ok=$((chart_ok+1))
+              echo "[harbor-prewarm] OK chart ${cup}"
+            done
+            for f in "${chart_cpdir}"/*.fail; do
+              [ -e "${f}" ] || continue
+              cdetail=$(cat "${f}")
+              cslug=$(basename "${f}" .fail)
+              sed 's/^/  /' "${chart_cpdir}/${cslug}.log" 2>/dev/null || true
+              chart_fail=$((chart_fail+1))
+              echo "[harbor-prewarm] FAIL chart ${cdetail}"
+            done
+            echo "[harbor-prewarm] Phase A2 complete: chart_ok=${chart_ok} chart_fail=${chart_fail}"
+            if [ "${chart_fail}" -gt 0 ]; then
+              echo "[harbor-prewarm] FATAL: ${chart_fail} openova-io chart(s) failed to mirror — step-06 cannot strip ghcr.io safely (post-cutover chart (re)pulls would 404)"
+              exit 1
+            fi
+
             # ─── Phase B (legacy): HEAD against proxy-cache for non-openova-io ─
             echo "[harbor-prewarm] Phase B: HEAD against proxy-cache for upstream images"
             base="${HARBOR_INTERNAL_URL}/v2"
@@ -418,5 +600,11 @@ data:
           items:
             - key: prewarm.list
               path: prewarm.list
+      - name: chart-mirror-names
+        configMap:
+          name: cutover-step-03-harbor-prewarm
+          items:
+            - key: chart-mirror-names.txt
+              path: chart-mirror-names.txt
       - name: tmp
         emptyDir: {}

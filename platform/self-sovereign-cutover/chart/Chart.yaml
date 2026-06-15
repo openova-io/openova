@@ -1,5 +1,57 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.69 (#3627 Refs #3379, hw146 missing-chart-mirror + wrong-Ready gate,
+# 2026-06-16): TWO stacked defects that wedged the Pillar-5 cutover at
+# step-06, both root-caused live on hw146 (531e6908e606d11d).
+#
+#   DEFECT A — no step ever mirrored the openova-io helm CHART OCI artifacts
+#   into local Harbor. Step-06 Phase-1 repoints every HelmRepository to
+#   oci://registry.<sov-fqdn>/openova-io and Phase-3 strips the ghcr.io
+#   fallback, but step-03 (harbor-prewarm) only skopeo-pushed the CONTAINER
+#   images enumerated from running Pods — NOT the charts. On hw146 the local
+#   Harbor openova-io project held 29 container repos and ZERO chart repos;
+#   the HelmReleases survived only because they were installed from ghcr.io
+#   at bootstrap and the strip had not yet run. The moment Phase-3 strips
+#   ghcr.io, any HR needing a (re)pull 404s. FIX: step-03 gains Phase A2 —
+#   it reads (chart,version,sourceRef) off every HelmRelease whose
+#   sourceRef.kind=HelmRepository and whose sourceRef.name is in the cutover
+#   pivot set (.Values.helmRepositories.names), then skopeo-copies each chart
+#   OCI artifact ghcr.io/openova-io/<chart>:<ver> → local Harbor BEFORE
+#   egress is cut. Same retry discipline as Phase A (--insecure-policy +
+#   --retry-times 3 + captured real exit status + parallel fan-out). The
+#   chart name+version come from the consuming HelmRelease's
+#   spec.chart.spec, NOT the HelmRepository (whose spec.url is only the
+#   project pointer). Template 03-harbor-prewarm-job.yaml.
+#
+#   DEFECT B — step-06 Phase-3a gated the strip on each pivoted
+#   HelmRepository reporting .status.conditions[Ready]==True. But for
+#   spec.type=oci HelmRepositories Flux source-controller does NOT reconcile
+#   them and sets NO conditions at all (they are static pointers consumed
+#   lazily by HelmReleases; no HelmChart/OCIRepository is ever created). On
+#   hw146 (source-controller v1.4.1) all 61 pivoted HRs were type=oci with
+#   EMPTY conditions (Ready=<none>), so the gate's Ready could never become
+#   True → it FATAL-refused the strip every run → cutover wedged at step-06
+#   forever (also the hw144 "loops at 0/0" shape, #3588 — same wrong-object
+#   read; this supersedes #3568's seen_local_ready latch). FIX: Phase-3a now
+#   performs a DIRECT authenticated `helm pull` of a representative sample of
+#   the pivoted charts from registry.<fqdn> (helm 3.16.3 ships in
+#   alpine/k8s:1.31.4; HOME + HELM_*_HOME point at the writable /tmp
+#   emptyDir). A successful pull proves Harbor serves the chart AND the
+#   Phase-0 auth works — the exact precondition for stripping ghcr.io. The
+#   strip-before-pivot INVARIANT is preserved: if the probe does not succeed
+#   within STRIP_READINESS_TIMEOUT_SECONDS the strip is REFUSED and the Job
+#   exits non-zero with mothership auth INTACT (recoverable). Phase-3b strip
+#   + idempotency unchanged. New value helmReadinessProbe.sampleSize (5) +
+#   HELM_PROBE_SAMPLE_SIZE env. Template 06-helmrepository-patches-job.yaml.
+#
+# No catalyst-api change, no step-count change (still 11 steps — step-03 is
+# extended, step-06's gate is replaced). Contract test Case 17b stays green
+# (the strip remains in Phase 3, fail-closed, after the pivot) + is extended
+# to assert the helm-pull probe replaces the .status.Ready read. New Case 26
+# locks the step-03 chart-mirror. Live 11-step→cutoverComplete=true + 600s
+# deny-egress validation DEFERRED to the next clean fresh prov (hw146 is
+# post-step-05 + pulls this chart from its own local Harbor OCI, so it cannot
+# receive a GitHub-main fix).
 # 0.1.64 (#3584 Refs #3379, hw144 step-01 gitea-mirror 401, 2026-06-15):
 # Step-01 (gitea-mirror) authenticated to the Gitea REST API with the admin
 # username+password as BasicAuth (`Authorization: Basic base64(user:pwd)`).
@@ -695,7 +747,7 @@ name: bp-self-sovereign-cutover
 # FATAL-on-failure contract is PRESERVED (Pillar 5 requires ALL openova-io
 # images local for the deny-egress hold) — the step only FATALs once BOTH retry
 # layers are exhausted. No step-count / RBAC / timeout change.
-version: 0.1.68
+version: 0.1.69
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

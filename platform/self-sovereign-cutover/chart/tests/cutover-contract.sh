@@ -365,7 +365,40 @@ if [ -z "${phase3_line}" ] || [ "${del_exec_line}" -lt "${phase3_line}" ]; then
   echo "FAIL: Step-06 executable strip del(.auths[...]) at line ${del_exec_line} runs BEFORE the Phase-3 header at line ${phase3_line:-<none>} — strip-before-pivot regression (Refs #3379 #3526)" >&2
   exit 1
 fi
-echo "  PASS (strip is in Phase 3, readiness-gated + fail-closed, after the pivot)"
+# (e) The Phase-3a readiness signal MUST be a DIRECT authenticated `helm pull`
+#     of the pivoted charts from local Harbor, NOT a read of the pivoted
+#     HelmRepository's .status.conditions[Ready] (Refs #3627). For
+#     spec.type=oci HelmRepositories Flux source-controller sets NO conditions
+#     at all (static pointers consumed lazily by HelmReleases), so the old
+#     Ready read could never become True → the strip was FATAL-refused every
+#     run and the cutover wedged at step-06 (hw146; also the hw144 0/0 shape,
+#     #3588). Guard against a regression back to the status-Ready read.
+if ! grep -Eq 'helm pull "oci://\$\{harbor_host\}/openova-io/' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase-3a does not prove pullability via 'helm pull oci://\${harbor_host}/openova-io/<chart>' — the strip readiness gate is not a real authenticated pull (Refs #3627)" >&2
+  exit 1
+fi
+if ! grep -q 'helm registry login' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase-3a does not 'helm registry login' the local Harbor before the pull probe (Refs #3627)" >&2
+  exit 1
+fi
+# The probe MUST run from a writable helm home (the Pod is
+# readOnlyRootFilesystem:true) — assert the HELM_*_HOME redirect to /tmp.
+if ! grep -q 'HELM_CACHE_HOME=/tmp' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase-3a does not point HELM_CACHE_HOME at the writable /tmp emptyDir — helm pull would fail on the read-only root FS (Refs #3627)" >&2
+  exit 1
+fi
+# And the gate MUST NOT have regressed to gating on the HelmRepository Ready
+# condition (the wrong-object read this fix removed).
+if grep -q 'local-Harbor HelmRepository(ies) not yet Ready' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase-3a still reads HelmRepository .status.conditions[Ready] — type:oci HRs carry no status; regression to the wrong-object gate (Refs #3627)" >&2
+  exit 1
+fi
+# HELM_PROBE_SAMPLE_SIZE env MUST render with a concrete positive integer.
+if ! grep -A1 'name: HELM_PROBE_SAMPLE_SIZE' "$TMP/render.yaml" | grep -Eq 'value: "[0-9]+"'; then
+  echo "FAIL: HELM_PROBE_SAMPLE_SIZE rendered with no/empty value — the Phase-3a probe sample size is unset (Refs #3627)" >&2
+  exit 1
+fi
+echo "  PASS (strip is in Phase 3, fail-closed; readiness proven via authenticated helm pull, not a non-existent HelmRepository Ready)"
 
 echo "[cutover-contract] Case 16: Step-06 helmrepository-patches pushes YAML edit to local Gitea (#970)"
 # 0.1.19 Step-06 only ran kubectl patch against live HelmRepository
@@ -775,5 +808,42 @@ if [ -f "$OVERLAY_06A" ]; then
 else
   echo "  SKIP (slot-06a overlay not present — chart consumed standalone)"
 fi
+
+echo "[cutover-contract] Case 26: Step-03 harbor-prewarm mirrors openova-io helm CHARTS into local Harbor (Refs #3627)"
+# hw146: step-03 Phase A skopeo-pushed only the CONTAINER images enumerated
+# from running Pods; NO step ever mirrored the helm CHART OCI artifacts. So
+# local Harbor's openova-io project held 0 chart repos and the moment step-06
+# Phase-3 stripped ghcr.io any HelmRelease (re)pull 404'd. Phase A2 reads
+# (chart,version) off every HelmRelease whose sourceRef.kind=HelmRepository +
+# sourceRef.name is in the pivot set, then skopeo-copies the chart OCI
+# artifact into local Harbor BEFORE egress is cut. Guard the wiring.
+if ! grep -q 'Phase A2: mirror openova-io helm charts into local Harbor' "$TMP/render.yaml"; then
+  echo "FAIL: Step-03 missing the Phase A2 helm-chart mirror — the charts never reach local Harbor; step-06's ghcr.io strip would 404 every (re)pull (Refs #3627)" >&2
+  exit 1
+fi
+# The chart name+version MUST be read off the consuming HelmRelease's
+# spec.chart.spec (NOT the HelmRepository, whose spec.url is only the pointer).
+if ! grep -q '.items\[\].spec.chart.spec' "$TMP/render.yaml"; then
+  echo "FAIL: Step-03 Phase A2 does not enumerate chart+version from HelmRelease spec.chart.spec (Refs #3627)" >&2
+  exit 1
+fi
+# It MUST select only sourceRef.kind=HelmRepository entries (skip OCIRepository/
+# GitRepository sources) so it mirrors exactly the charts step-06 pivots.
+if ! grep -q '"HelmRepository"' "$TMP/render.yaml"; then
+  echo "FAIL: Step-03 Phase A2 does not gate on sourceRef.kind==HelmRepository (Refs #3627)" >&2
+  exit 1
+fi
+# And it MUST skopeo-copy into the openova-io project of local Harbor.
+if ! grep -q 'docker://${HARBOR_HOST}/openova-io/' "$TMP/render.yaml"; then
+  echo "FAIL: Step-03 Phase A2 does not skopeo-copy charts into \${HARBOR_HOST}/openova-io/ (Refs #3627)" >&2
+  exit 1
+fi
+# The chart-mirror pivot-set MUST be projected as a ConfigMap data key driven
+# off the same .Values.helmRepositories.names step-06 uses.
+if ! grep -q 'chart-mirror-names.txt' "$TMP/render.yaml"; then
+  echo "FAIL: Step-03 missing the chart-mirror-names.txt projection (the pivot-set the chart mirror iterates) (Refs #3627)" >&2
+  exit 1
+fi
+echo "  PASS (Step-03 Phase A2 mirrors openova-io helm charts into local Harbor before egress is cut)"
 
 echo "[cutover-contract] All gates green."
