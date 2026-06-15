@@ -523,7 +523,16 @@ spec:
       # seen_local_ready)` so the post-convergence 0/0 terminates-success while
       # a first-poll 0/0 (pivot never happened) still waits — preserving the
       # 0.1.63 strip-before-pivot half-pivot guard.
-      version: 0.1.65
+      # 0.1.66 (#3606): step-01 G75 wedged in a retry loop — its imperative
+      # `kubectl patch hr ... mirrorResync.enabled=false` was reverted by Flux
+      # every reconcile (the HR is git-owned, values default was `true`),
+      # re-rendering the gitea-mirror-resync CronJob → G75's 6-min post-verify
+      # FATAL'd on the reappeared CronJob → step-01 never advanced. Fix:
+      # mirrorResync.enabled default flips `true` → `false` (the IaC default IS
+      # the severance — template 11 renders nothing, Principle 14) + the G75
+      # block becomes idempotent/fast-path (skip the hold when no CronJob
+      # exists). Chart-only.
+      version: 0.1.66
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

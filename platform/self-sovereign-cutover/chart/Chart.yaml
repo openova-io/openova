@@ -639,7 +639,33 @@ name: bp-self-sovereign-cutover
 # strip-before-pivot fix exists to prevent). A genuine half-pivot (HRs stuck
 # not-Ready, latch never set) still spins to the deadline and correctly REFUSES
 # the strip. Smallest correct fix; no step-count / RBAC / timeout change.
-version: 0.1.65
+# 0.1.66 (#3606, Refs #3568 #3379, hw144 step-01 loops-forever at G75 2026-06-16):
+# Cutover step-01 (gitea-mirror) wedged in a retry loop at sub-step G75 (sever
+# upstream git tether). The G75 finalize block ran an IMPERATIVE
+# `kubectl patch hr -n flux-system bp-self-sovereign-cutover ...
+# mirrorResync.enabled=false`. Flux OWNS that HelmRelease from git, where
+# values.yaml mirrorResync.enabled defaulted to `true`, so Flux REVERTED the
+# patch on its next reconcile (~4 min) and re-rendered the gitea-mirror-resync
+# CronJob (gated `{{- if .Values.mirrorResync.enabled }}` in template
+# 11-mirror-resync-cronjob.yaml). G75's 6-min post-verify hold then saw the
+# CronJob present again → "G75 FATAL: cronjob reappeared" → step-01 failed and
+# auto-retried forever; steps 02-11 never ran. A 5-min github re-clone CronJob
+# is ALSO fundamentally incompatible with Pillar 5 — it would breach the
+# step-08 600s deny-egress hold.
+# FIX (chart-only, no step-count / RBAC / timeout change):
+#   (1) values.yaml mirrorResync.enabled default flips `true` → `false`. The
+#       IaC default `false` IS the severance — template 11 renders nothing, so
+#       there is no CronJob for Flux to revert (Principle 14: severance lives
+#       in git, irreversible). A pre-cutover Sovereign that wants the
+#       upstream-resync loop opts IN via an operator overlay.
+#   (2) Step-01 G75 block (template 01-gitea-mirror-job.yaml) becomes
+#       idempotent/fast-path: if the gitea-mirror-resync CronJob does not
+#       exist it logs "already severed at IaC layer" and skips the wasteful
+#       6-min hold; the imperative patch + live-delete + post-verify dance is
+#       preserved INSIDE the else branch for any rendered remnant (overlay
+#       opt-in). Step-01 no longer self-defeatingly patches the Flux-owned HR
+#       on the default path.
+version: 0.1.66
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
