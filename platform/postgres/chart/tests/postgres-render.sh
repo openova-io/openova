@@ -125,28 +125,158 @@ hub_pw_count=$(grep -cE '^  password: ' "$TMP/shared.yaml" || true)
 hub_host_count=$(grep -cE '^  host: "shared-pg-rw.shared-data.svc.cluster.local"$' "$TMP/shared.yaml" || true)
 [ "$hub_host_count" -eq 2 ] || fail "#3285: expected 2 hub Secrets with the shared-pg-rw host, got $hub_host_count"
 
-# ── Case 4: active-hot-standby + sync → sync GUCs present ─────────
-echo "[render] Case 4: active-hot-standby + sync → synchronous-replication GUCs"
+# ── Case 4: active-hot-standby PRIMARY side → cnpg-pair primary shape ─────
+# (#3375/#3571) active-hot-standby renders the bp-cnpg-pair SPLIT-SIDE shape,
+# NOT a single multi-instance Cluster with region antiAffinity (the hw126
+# fallacy). The PRIMARY half: a Cluster that KEEPS the instance name (so the
+# consumer host `<instance>-rw` is unchanged) + region node-affinity + the
+# CNPG-NATIVE `synchronous` block (NOT a raw synchronous_standby_names
+# parameter — the CNPG webhook rejects that as a fixed param, the #3195 trap)
+# + the ClusterMesh-global `<instance>-mesh` Service via
+# managed.services.additional. The Database CRs/roles still render here.
+echo "[render] Case 4: active-hot-standby PRIMARY → named primary Cluster + native sync block + -mesh global Service"
 cat > "$TMP/ahs.values.yaml" <<'YAML'
-instance: { name: harbor-pg }
+instance: { name: shared-pg }
 topology:
   mode: active-hot-standby
-  instances: 2
+  side: primary
+  instances: 3
+  primary: { region: hz-fsn-rtz-prod }
+  replica: { region: hz-hel-rtz-prod }
   replication: { mode: sync, sync: { commit: remote_apply, numSync: 1 } }
 databases:
-  - { name: registry, owner: harbor }
+  - name: registry
+    owner: harbor
+    reflect: { secretName: harbor-database-secret, namespaces: [harbor] }
 YAML
-helm template harbor-pg . -f "$TMP/ahs.values.yaml" \
-  --api-versions postgresql.cnpg.io/v1 > "$TMP/ahs.yaml" 2>&1 || fail "ahs render errored"
+helm template shared-pg . -f "$TMP/ahs.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/ahs.yaml" 2>&1 || fail "ahs primary render errored"
+# The named primary Cluster (consumer host <instance>-rw resolves to it).
+grep -qE '^  name: shared-pg$' "$TMP/ahs.yaml" || fail "ahs primary: named primary Cluster shared-pg missing"
+# No replica follower on the primary side (it lives on cluster-B).
+if grep -qE '^  name: shared-pg-replica$' "$TMP/ahs.yaml"; then
+  fail "ahs primary side leaked the replica Cluster (must be replica-side only)"
+fi
+# synchronous_commit raw GUC (settable) present; synchronous_standby_names
+# MUST NOT be a raw parameter (CNPG-fixed → webhook reject).
 grep -q 'synchronous_commit: "remote_apply"' "$TMP/ahs.yaml" \
-  || fail "active-hot-standby missing synchronous_commit"
-grep -q 'synchronous_standby_names: "FIRST 1 (harbor-pg-r)"' "$TMP/ahs.yaml" \
-  || fail "active-hot-standby missing synchronous_standby_names"
+  || fail "ahs primary missing synchronous_commit"
+# synchronous_standby_names must NOT be a rendered raw PARAMETER (CNPG-fixed →
+# webhook reject). Match only an actual GUC line (key: value), not the `#` doc
+# comment that names the field while explaining the native-block rationale.
+if grep -qE '^      synchronous_standby_names:' "$TMP/ahs.yaml"; then
+  fail "ahs primary leaked synchronous_standby_names as a raw parameter (#3195 fixed-param trap)"
+fi
+# CNPG-native synchronous block (the operator derives standby_names from it).
+grep -qE '^    synchronous:$' "$TMP/ahs.yaml" || fail "ahs primary missing native spec.postgresql.synchronous block"
+grep -q 'method: first' "$TMP/ahs.yaml" || fail "ahs primary synchronous.method != first"
+grep -q 'dataDurability: required' "$TMP/ahs.yaml" || fail "ahs primary synchronous.dataDurability != required"
+# ClusterMesh-global -mesh Service via managed.services.additional.
+grep -q 'name: shared-pg-mesh' "$TMP/ahs.yaml" || fail "ahs primary missing -mesh global Service"
+grep -q 'service.cilium.io/global: "true"' "$TMP/ahs.yaml" || fail "ahs primary -mesh Service missing global annotation"
+grep -qE '^      additional:$' "$TMP/ahs.yaml" || fail "ahs primary mesh Service not under managed.services.additional"
+# Region node-affinity (NOT the old topologyKey antiAffinity).
+grep -q 'key: openova.io/region' "$TMP/ahs.yaml" || fail "ahs primary missing region node-affinity"
+if grep -q 'topologyKey: topology.kubernetes.io/region' "$TMP/ahs.yaml"; then
+  fail "ahs primary leaked the old stretched-cluster topologyKey antiAffinity (hw126 fallacy)"
+fi
+# Database CR + role still render on the primary side.
+grep -cE '^kind: Database$' "$TMP/ahs.yaml" | grep -q '^1$' || fail "ahs primary expected 1 Database CR"
+# NetworkPolicy carve-out renders (replication path + own-cluster + operator).
+grep -q 'allow-replication-to-primary' "$TMP/ahs.yaml" || fail "ahs primary missing replication NetworkPolicy"
 
-# ── Case 5: singleton → NO sync GUCs ─────────────────────────────
-echo "[render] Case 5: singleton → no synchronous-replication GUCs"
+# ── Case 4b: active-hot-standby REPLICA side → follower Cluster + mesh stub ──
+# The REPLICA half (side=replica): a `<instance>-replica` follower Cluster
+# (replica.enabled + pg_basebackup + externalClusters streaming from the
+# named primary over the -mesh Service) + the local -mesh Service stub. NO
+# Database CRs / roles / hub Secrets (the replica inherits the catalog via WAL).
+echo "[render] Case 4b: active-hot-standby REPLICA → follower Cluster + -mesh stub, NO Database/role Secrets"
+helm template shared-pg . -f "$TMP/ahs.values.yaml" --namespace shared-data \
+  --set topology.side=secondary \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/ahs-replica.yaml" 2>&1 || fail "ahs replica render errored"
+grep -qE '^  name: shared-pg-replica$' "$TMP/ahs-replica.yaml" || fail "ahs replica: follower Cluster shared-pg-replica missing"
+# The primary/singleton Cluster MUST NOT render on the replica side.
+if grep -qE '^kind: Cluster$' "$TMP/ahs-replica.yaml" && grep -qE '^  name: shared-pg$' "$TMP/ahs-replica.yaml"; then
+  fail "ahs replica side leaked the primary Cluster shared-pg (must be primary-side only)"
+fi
+replica_clusters=$(grep -cE '^kind: Cluster$' "$TMP/ahs-replica.yaml" || true)
+[ "$replica_clusters" -eq 1 ] || fail "ahs replica expected EXACTLY 1 (follower) Cluster, got $replica_clusters"
+grep -q 'replica:' "$TMP/ahs-replica.yaml" || fail "ahs replica missing spec.replica block"
+grep -q 'pg_basebackup:' "$TMP/ahs-replica.yaml" || fail "ahs replica missing bootstrap.pg_basebackup"
+grep -q 'user: streaming_replica' "$TMP/ahs-replica.yaml" || fail "ahs replica missing streaming_replica externalCluster"
+grep -q 'host: shared-pg-mesh' "$TMP/ahs-replica.yaml" || fail "ahs replica externalCluster host != shared-pg-mesh"
+grep -q 'name: shared-pg-replication' "$TMP/ahs-replica.yaml" || fail "ahs replica missing primary -replication TLS ref"
+grep -q 'name: shared-pg-ca' "$TMP/ahs-replica.yaml" || fail "ahs replica missing primary -ca TLS ref"
+# The -mesh Service STUB renders on the replica side (same name, NXDOMAIN guard).
+grep -qE '^kind: Service$' "$TMP/ahs-replica.yaml" || fail "ahs replica missing -mesh Service stub"
+grep -q 'name: shared-pg-mesh' "$TMP/ahs-replica.yaml" || fail "ahs replica -mesh stub name mismatch"
+# NO Database CRs / role-password / hub Secrets on the replica side.
+if grep -qE '^kind: Database$' "$TMP/ahs-replica.yaml"; then
+  fail "ahs replica side leaked a Database CR (primary-side only)"
+fi
+if grep -qE '^type: kubernetes.io/basic-auth$' "$TMP/ahs-replica.yaml"; then
+  fail "ahs replica side leaked a role-password Secret (primary-side only)"
+fi
+# Replica-side NetworkPolicy carve-out (own-cluster join + operator).
+grep -q 'allow-replication-to-replica' "$TMP/ahs-replica.yaml" || fail "ahs replica missing replication NetworkPolicy"
+
+# ── Case 4c: crossRegion boolean (the SLOT wiring) → same pair shape ──────
+# The bootstrap-kit slots leave mode=singleton and flip topology.crossRegion to
+# ${SOVEREIGN_ENABLE_CNPG_PAIR}. Prove the boolean alone (mode still singleton)
+# renders the cnpg-pair PRIMARY shape — same as mode=active-hot-standby — so the
+# slot does NOT need to turn the bool into the mode STRING (impossible in
+# envsubst). And prove side=secondary + crossRegion=true renders the follower.
+echo "[render] Case 4c: topology.crossRegion=true (slot signal) → cnpg-pair shape with mode=singleton"
+cat > "$TMP/xr.values.yaml" <<'YAML'
+instance: { name: shared-pg }
+topology:
+  mode: singleton
+  crossRegion: true
+  side: primary
+  instances: 3
+  primary: { region: hz-fsn-rtz-prod }
+  replica: { region: hz-hel-rtz-prod }
+  replication: { mode: sync, sync: { commit: remote_apply, numSync: 1 } }
+databases:
+  - { name: registry, owner: harbor, reflect: { secretName: harbor-database-secret, namespaces: [harbor] } }
+YAML
+helm template shared-pg . -f "$TMP/xr.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/xr.yaml" 2>&1 || fail "crossRegion primary render errored"
+grep -qE '^    synchronous:$' "$TMP/xr.yaml" || fail "crossRegion=true (mode singleton) did NOT activate the synchronous block"
+grep -q 'name: shared-pg-mesh' "$TMP/xr.yaml" || fail "crossRegion=true did NOT render the -mesh Service"
+grep -q 'key: openova.io/region' "$TMP/xr.yaml" || fail "crossRegion=true did NOT render region node-affinity"
+# Replica half via crossRegion + side=secondary.
+helm template shared-pg . -f "$TMP/xr.values.yaml" --namespace shared-data \
+  --set topology.side=secondary \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/xr-replica.yaml" 2>&1 || fail "crossRegion replica render errored"
+grep -qE '^  name: shared-pg-replica$' "$TMP/xr-replica.yaml" || fail "crossRegion=true + side=secondary did NOT render the follower Cluster"
+
+# ── Case 5: singleton → byte-identical (NO sync, NO mesh, NO netpol) ──────
+echo "[render] Case 5: singleton → no synchronous block, no -mesh Service, no NetworkPolicy"
 if grep -q 'synchronous_commit' "$TMP/shared.yaml"; then
   fail "singleton render leaked synchronous_commit"
+fi
+if grep -qE '^    synchronous:$' "$TMP/shared.yaml"; then
+  fail "singleton render leaked the native synchronous block"
+fi
+# Match an actual -mesh Service object (metadata.name / service host), not the
+# prose comments (singleton render emits neither).
+if grep -qE '^  name: [a-z0-9-]+-mesh$|^        host: [a-z0-9-]+-mesh$' "$TMP/shared.yaml"; then
+  fail "singleton render leaked a -mesh ClusterMesh Service (active-hot-standby only)"
+fi
+if grep -q 'service.cilium.io/global' "$TMP/shared.yaml"; then
+  fail "singleton render leaked the ClusterMesh global annotation (active-hot-standby only)"
+fi
+if grep -qE '^kind: NetworkPolicy$' "$TMP/shared.yaml"; then
+  fail "singleton render leaked a NetworkPolicy (active-hot-standby only)"
+fi
+if grep -qE '^kind: Cluster$' "$TMP/shared.yaml" && grep -qE '^  name: shared-pg-replica$' "$TMP/shared.yaml"; then
+  fail "singleton render leaked a replica follower Cluster"
+fi
+# The singleton Cluster is single-instance (instances: 1), no node-affinity.
+grep -qE '^  instances: 1$' "$TMP/shared.yaml" || fail "singleton expected instances: 1"
+if grep -q 'key: openova.io/region' "$TMP/shared.yaml"; then
+  fail "singleton render leaked region node-affinity (active-hot-standby only)"
 fi
 
 # ── Case 6: master gate OFF → ZERO resources (#3188 safe-by-default) ──

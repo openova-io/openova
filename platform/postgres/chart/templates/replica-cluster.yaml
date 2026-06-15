@@ -1,0 +1,137 @@
+{{- /*
+Replica CNPG Cluster CR — the active-hot-standby cross-region follower
+half of the data instance (#3375 / #3571).
+
+CNPG's "replica cluster" pattern (`replica.enabled: true` +
+`bootstrap.pg_basebackup` + `externalClusters[]`) lets this Cluster CR
+follow the primary instance's WAL stream while staying a regular CNPG
+Cluster locally. It cannot be written to until promoted; promotion is
+driven by bp-continuum's switchover sequencer (it flips
+`spec.replica.enabled` on this CR and the primary CR atomically) — NOT
+by CNPG itself. This is the EXACT bp-cnpg-pair replica shape, with the
+streaming source pointed at THIS data instance's primary Cluster
+(`<instance>`, which keeps the instance name so the consumer host
+`<instance>-rw` is unchanged) rather than bp-cnpg-pair's `<fullname>-primary`.
+
+Replication source-discovery: the replica resolves the primary via the
+Cilium ClusterMesh-global `<instance>-mesh` Service the primary Cluster CR
+exposes through `spec.managed.services.additional[]` (cluster.yaml). The
+`service.cilium.io/global: "true"` annotation makes it visible across every
+mesh peer; ClusterMesh's local-affinity routing falls through to the remote
+(primary) region because the replica region has zero local backends matching
+the selector. (A local same-named stub Service — replica-mesh-service.yaml —
+prevents NXDOMAIN on this cluster.)
+
+Side-gating: renders ONLY on the active-hot-standby REPLICA half. It must
+be APPLIED ON the region-B cluster (where its region-B node-affinity matches
+the local nodes). The primary/singleton Cluster (cluster.yaml) is skipped on
+this side; this follower is skipped on the primary side. The two halves live
+on SEPARATE ClusterMesh-joined clusters — the hw126 split-side lesson.
+
+Cross-cluster auth (#3254 analogue): the replica's externalCluster mounts
+the PRIMARY Cluster's CNPG-generated `<instance>-replication` /
+`<instance>-ca` TLS Secrets, which CNPG mints only on the primary cluster.
+catalyst-api copies them primary → replica in namespace `<release-ns>` before
+flipping SOVEREIGN_ENABLE_CNPG_PAIR on (handler/clustermesh.go), exactly as
+it does for the bp-cnpg-pair `-primary-replication` / `-primary-ca` Secrets.
+*/ -}}
+{{- if and (ne (toString .Values.enabled) "false") (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") (include "bp-postgres.renderReplicaHalf" .) }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "bp-postgres.replicaName" . }}
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    openova.io/cnpg-role: replica
+    openova.io/region: {{ .Values.topology.replica.region | quote }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+spec:
+  instances: {{ .Values.topology.haInstances | default 3 }}
+  imageName: {{ include "bp-postgres.imageRef" . | quote }}
+
+  storage:
+    size: {{ .Values.instance.storageSize | default "5Gi" }}
+    storageClass: {{ .Values.instance.storageClass | default "local-path" | quote }}
+
+  resources:
+    {{- toYaml .Values.instance.resources | nindent 4 }}
+
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: openova.io/region
+                operator: In
+                values: [{{ .Values.topology.replica.region | quote }}]
+    podAntiAffinityType: preferred
+
+  # ── Replica-cluster mode ─────────────────────────────────────────
+  # `replica.enabled: true` configures this Cluster as a CNPG replica
+  # cluster: instances bootstrap via streaming replication from the named
+  # externalCluster source. bp-continuum's switchover path patches
+  # `replica.enabled: false` here (and flips the primary CR to the inverse)
+  # to promote/demote atomically.
+  replica:
+    enabled: true
+    source: {{ include "bp-postgres.instanceName" . }}
+
+  # ── Bootstrap from primary ──────────────────────────────────────
+  # CNPG REQUIRES an explicit bootstrap stanza on a replica Cluster:
+  # `replica.enabled: true` alone leaves the phase stuck at "Setting up
+  # primary" (bp-cnpg-pair caught this live). pg_basebackup pulls the
+  # initial heap from the named externalCluster (resolved via the
+  # ClusterMesh-global `-mesh` Service), then the replica streams WAL
+  # continuously over the same connection. database+owner MUST match the
+  # primary's bootstrap.initdb (the FIRST binding, or neutral `app`).
+  {{- $first := first .Values.databases }}
+  {{- $bootDb := (default (dict) $first).name | default "app" }}
+  {{- $bootOwner := (default (dict) $first).owner | default "app" }}
+  bootstrap:
+    pg_basebackup:
+      source: {{ include "bp-postgres.instanceName" . }}
+      database: {{ $bootDb | quote }}
+      owner:    {{ $bootOwner | quote }}
+
+  externalClusters:
+    - name: {{ include "bp-postgres.instanceName" . }}
+      connectionParameters:
+        # Cilium ClusterMesh-global Service alias — managed by CNPG via the
+        # primary Cluster's `spec.managed.services.additional` entry
+        # (selectorType: r, name: <instance>-mesh, annotated
+        # service.cilium.io/global: "true"). Resolves locally; ClusterMesh's
+        # affinity routing reaches the primary region's read endpoint over
+        # the private mesh (zero local backends on this cluster).
+        host: {{ include "bp-postgres.replicationServiceName" . }}
+        port: "5432"
+        user: streaming_replica
+        sslmode: require
+        dbname: {{ $bootDb | quote }}
+      # streaming_replica auth: CNPG provisions a TLS client cert for the
+      # streaming_replica role on every Cluster CR; the replica mounts it
+      # from the primary's `-replication` Secret. catalyst-api copies these
+      # Secrets primary → replica cluster before the cnpg-pair flip (#3254
+      # analogue) since they live on separate clusters.
+      sslKey:
+        name: {{ include "bp-postgres.instanceName" . }}-replication
+        key: tls.key
+      sslCert:
+        name: {{ include "bp-postgres.instanceName" . }}-replication
+        key: tls.crt
+      sslRootCert:
+        name: {{ include "bp-postgres.instanceName" . }}-ca
+        key: ca.crt
+
+  # `hot_standby` is intentionally OMITTED — PostgreSQL 16 hard-pins it to
+  # `on` for any Cluster running with `replica.enabled: true`, and CNPG
+  # rejects the explicit set with phase "Unable to create required cluster
+  # objects" (bp-cnpg-pair caught this live on omantel-hel 2026-05-09).
+  postgresql:
+    parameters:
+      max_wal_senders: "10"
+      max_replication_slots: "10"
+      wal_level: "logical"
+
+  enableSuperuserAccess: {{ .Values.instance.enableSuperuserAccess | default false }}
+{{- end }}

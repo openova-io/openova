@@ -1,0 +1,115 @@
+{{- /*
+NetworkPolicy carve-out for active-hot-standby cross-region replication
+(#3375 / #3571).
+
+The platform default-deny CCNP (bp-network-policies) denies all pod-to-pod
+traffic by default. In active-hot-standby mode this NetworkPolicy opens the
+minimum required paths so the cnpg-pair shape can stream WAL + the CNPG
+operator can extract instance status. It is the bp-cnpg-pair networkpolicy.yaml
+shape, keyed off this data instance's Cluster names, side-gated per the
+split-side topology (a podSelector is evaluated against LOCAL endpoints, so
+each side renders only the policies selecting its own Cluster's Pods).
+
+Singleton mode renders NOTHING here — single-region instances have no
+cross-region replication path to open, so the default render is byte-identical
+to today (no NetworkPolicy object at all).
+*/ -}}
+{{- if and (ne (toString .Values.enabled) "false") (include "bp-postgres.activeHotStandby" .) .Values.topology.networkPolicy.enabled }}
+{{- $isReplica := include "bp-postgres.renderReplicaHalf" . }}
+{{- if not $isReplica }}
+---
+# PRIMARY side: allow the primary Cluster's Pods to accept replication
+# connections from the replica Cluster's Pods (delivered into this region by
+# ClusterMesh) AND from their OWN cluster (instance-to-instance streaming +
+# the multi-instance pg_basebackup join — the #3322 own-cluster gap that sat
+# >1h "Creating" on hw130) AND from the CNPG operator's status/metrics probe.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-allow-replication-to-primary
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ include "bp-postgres.instanceName" . }}
+  policyTypes: [Ingress]
+  ingress:
+    # The replica Cluster's Pods (cross-cluster via ClusterMesh — the
+    # selector matches by Pod label regardless of source cluster).
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ include "bp-postgres.replicaName" . }}
+      ports:
+        - port: 5432
+          protocol: TCP
+    # OWN-cluster pods (#3322 carve-out): this policy selects ALL primary-CR
+    # Pods, default-denying the cluster's OWN internal 5432 (instance-2's
+    # pg_basebackup join, instance-to-instance streaming, switchover rejoin).
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ include "bp-postgres.instanceName" . }}
+      ports:
+        - port: 5432
+          protocol: TCP
+    # CNPG operator status + metrics probe — without this the operator cannot
+    # extract instance status and the Cluster phase stalls at "Instance Status
+    # Extraction Error" (hw126 symptom).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.topology.networkPolicy.operatorNamespace }}
+      ports:
+        - port: {{ .Values.topology.networkPolicy.operatorStatusPort }}
+          protocol: TCP
+        - port: {{ .Values.topology.networkPolicy.operatorMetricsPort }}
+          protocol: TCP
+{{- end }}
+{{- if $isReplica }}
+---
+# REPLICA side: allow the replica Cluster's Pods to accept connections from
+# their OWN cluster (instance-2 joins instance-1 via the replica's -rw
+# Service on 5432 — the #3322 own-cluster gap) AND from the CNPG operator's
+# status/metrics probe.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-allow-replication-to-replica
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ include "bp-postgres.replicaName" . }}
+  policyTypes: [Ingress]
+  ingress:
+    # OWN-cluster pods (#3322 carve-out): the replica Cluster's instance-2
+    # joins instance-1 via the replica's -rw Service on 5432; without an
+    # explicit allow for the replica's OWN cnpg.io/cluster label it
+    # default-denies that join (hw130 24h wedge).
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ include "bp-postgres.replicaName" . }}
+      ports:
+        - port: 5432
+          protocol: TCP
+    # CNPG operator status + metrics probe — the replica side selects its own
+    # instance CR Pods, so it needs the same operator carve-out as the primary.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.topology.networkPolicy.operatorNamespace }}
+      ports:
+        - port: {{ .Values.topology.networkPolicy.operatorStatusPort }}
+          protocol: TCP
+        - port: {{ .Values.topology.networkPolicy.operatorMetricsPort }}
+          protocol: TCP
+{{- end }}
+{{- end }}

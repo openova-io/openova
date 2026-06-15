@@ -196,10 +196,11 @@ adjudicates. No silent deviation.
 | (b) the two regions run as independent full stacks | tracked; ClusterMesh + cnpg-pair pair the stateful tiers (hw128 PASS) | #3241/#3307/#3322 |
 | (c) 0 Application CRs | **#3370** (creating them now) | #3370 |
 | (d) G115 — grafana ships no datasource/dashboard provisioning | **this ticket DoD-5** | #3375 |
+| (e) the SHARED-PG data tier (shared-pg/-b/-c) was a HOLLOW singleton — its consumers (keycloak/gitea/harbor ← shared-pg; grafana/powerdns ← -b; newapi/openova-flow/sme_* ← -c) declared active-hot-standby but lost data on a region-kill | **#3571 (this fix)**: bp-postgres 0.2.0 makes active-hot-standby render the PROVEN bp-cnpg-pair split-side shape (primary keeps `<instance>` so the `<instance>-rw` consumer host is unchanged + ClusterMesh-global `<instance>-mesh` Service + native synchronous block; `<instance>-replica` follower streams WAL on the secondary cluster). Gated on `topology.crossRegion`=`SOVEREIGN_ENABLE_CNPG_PAIR` (the post-mesh-confirm signal cnpg-pair rides); catalyst-api syncs the shared instances' `-replication`/`-ca` Secrets primary→replica (clustermesh.go #3254 extended to shared-data). bp-continuum drives the switchover (same cnpgPromoter as hw128). Single-region stays a byte-identical singleton. **Deferred validation**: region-kill must preserve a consumer's data (keycloak realm survives a region-A kill) on the next clean 2-region fresh prov | #3571 (Refs #3375) |
 
 ---
 
-_Refreshed by #3375. The agreement doc (2026-06-02) + `docs/ARCHITECTURE.md` §3/§8
+_Refreshed by #3375 / #3571. The agreement doc (2026-06-02) + `docs/ARCHITECTURE.md` §3/§8
 + `docs/DOD.md` Pillars 2-3 are the canon this matrix converges to._
 
 ---

@@ -16,8 +16,19 @@ Master gate (.Values.enabled, default true): when the slot disables sharing
 the HR is an empty Ready release. Sprig-safe `ne (toString …) "false"` —
 a literal `false` is not "empty", so a plain `if` would misfire (memory
 feedback_sprig_default_bool_unsafe).
+
+active-hot-standby split-side (#3375 / #3571): a 2-region Sovereign is two
+SEPARATE ClusterMesh-joined clusters, so the data instance renders the
+proven bp-cnpg-pair split-side shape rather than a single stretched Cluster
+(the hw126 fallacy: one Cluster CR's region-B pods can never schedule on
+cluster-A). This file renders the PRIMARY half — the Cluster KEEPS the
+instance name (so the consumer host `<instance>-rw` is unchanged) plus the
+ClusterMesh-global `-mesh` Service. The REPLICA half is replica-cluster.yaml
+(gated to side=replica), which this template skips entirely.
 */ -}}
-{{- if and (ne (toString .Values.enabled) "false") (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
+{{- if and (ne (toString .Values.enabled) "false") (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") (not (include "bp-postgres.renderReplicaHalf" .)) }}
+{{- $ahs := eq (include "bp-postgres.activeHotStandby" .) "true" }}
+{{- $sync := and $ahs (eq (default "sync" .Values.topology.replication.mode) "sync") }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -25,20 +36,38 @@ metadata:
   namespace: {{ include "bp-postgres.namespace" . }}
   labels:
     {{- include "bp-postgres.labels" . | nindent 4 }}
+    {{- if $ahs }}
+    # bp-continuum's switchover sequencer + the Catalyst projector locate
+    # the pair via these labels (mirrors bp-cnpg-pair's primary CR). The
+    # `-rw` Service of THIS named Cluster is the consumer-facing write
+    # endpoint; the cnpg-pair label ties it to the replica half for DR.
+    openova.io/cnpg-role: primary
+    openova.io/region: {{ .Values.topology.primary.region | quote }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+    {{- end }}
 spec:
+  {{- if $ahs }}
+  {{- /* active-hot-standby PRIMARY half — the cnpg-pair primary shape.
+       instances = haInstances (the pair canonical 3, decoupled from the
+       singleton `instances` so a crossRegion flip never perturbs singleton).
+       Region-pinning via node-affinity (the operator's idiomatic region
+       seam) — NOT the old `affinity.topologyKey` antiAffinity, which only
+       spread within ONE stretched cluster (the hw126 fallacy). */}}
+  instances: {{ .Values.topology.haInstances | default 3 }}
+  primaryUpdateMethod: switchover
+  imageName: {{ include "bp-postgres.imageRef" . | quote }}
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: openova.io/region
+                operator: In
+                values: [{{ .Values.topology.primary.region | quote }}]
+    podAntiAffinityType: preferred
+  {{- else }}
   instances: {{ .Values.topology.instances | default 1 }}
   imageName: {{ include "bp-postgres.imageRef" . | quote }}
-
-  {{- /*
-  active-hot-standby with instances >= 2: default affinity.topologyKey
-  to topology.kubernetes.io/region so the CNPG operator spreads replicas
-  across regions on Cilium ClusterMesh peers (Pillar 3 zero-tx-loss),
-  mirroring the G93.3 #2668 rationale in the legacy consumer charts.
-  */ -}}
-  {{- if and (eq .Values.topology.mode "active-hot-standby") (ge (int (.Values.topology.instances | default 1)) 2) }}
-  affinity:
-    topologyKey: topology.kubernetes.io/region
-    podAntiAffinityType: preferred
   {{- end }}
 
   bootstrap:
@@ -62,9 +91,21 @@ spec:
   (the SME mesh's sme_auth/sme_billing/sme_documents all owned by `sme`),
   which is N Database CRs on ONE role. The passwordSecret is taken from
   the FIRST binding declaring the owner, matching role-secrets.yaml.
+
+  managed.services (active-hot-standby only): the ClusterMesh-global
+  `-mesh` Service the replica region streams WAL from. Declared via CNPG's
+  `spec.managed.services.additional[]` (CNPG ≥1.22) so CNPG owns the
+  Service and applies the `service.cilium.io/global` annotation to the
+  right object (the bp-cnpg-pair 0.1.1 fix for "refusing to reconcile
+  service: <name>-r, not owned by the cluster"). selectorType: r =
+  read-replica endpoint; the replica region has zero local backends
+  matching it, so Cilium's local-affinity routing falls through to this
+  primary region.
   */ -}}
-  {{- if .Values.databases }}
+  {{- $meshSvc := and $ahs .Values.topology.clusterMesh.enabled }}
+  {{- if or .Values.databases $meshSvc }}
   managed:
+    {{- if .Values.databases }}
     roles:
       {{- $seenOwners := dict }}
       {{- range .Values.databases }}
@@ -77,6 +118,31 @@ spec:
           name: {{ include "bp-postgres.roleSecretName" (dict "ctx" $ "db" .) | quote }}
       {{- end }}
       {{- end }}
+    {{- end }}
+    {{- if $meshSvc }}
+    services:
+      additional:
+        - selectorType: r
+          serviceTemplate:
+            metadata:
+              name: {{ include "bp-postgres.replicationServiceName" . }}
+              labels:
+                {{- include "bp-postgres.labels" . | nindent 16 }}
+                catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+                catalyst.openova.io/role: replication-source
+              annotations:
+                # Cilium ClusterMesh — publish this Service across every peer.
+                service.cilium.io/global: "true"
+                service.cilium.io/affinity: {{ .Values.topology.clusterMesh.affinity | quote }}
+                catalyst.openova.io/blueprint: bp-postgres
+            spec:
+              type: ClusterIP
+              ports:
+                - name: postgres
+                  port: 5432
+                  targetPort: 5432
+                  protocol: TCP
+    {{- end }}
   {{- end }}
   # inheritedMetadata: CNPG propagates these onto every Secret it generates
   # (<instance>-app, <instance>-<role>, <instance>-superuser). bp-reflector
@@ -96,18 +162,42 @@ spec:
       {{- end }}
       {{- /*
       active-hot-standby + sync: append the synchronous-replication GUCs
-      (ADR-0004). remote_apply blocks COMMIT until the replica replays the
-      WAL — the Pillar-3 zero-tx-loss bar. async mode omits them.
+      (ADR-0004). The replica region's externalCluster connects via the
+      `streaming_replica` user CNPG provisions automatically.
+      `synchronous_commit = remote_apply` blocks COMMIT until the replica
+      has REPLAYED the WAL — the Pillar-3 zero-tx-loss bar. It is a
+      SETTABLE GUC so it stays a raw parameter.
+
+      `synchronous_standby_names` is NOT settable as a raw parameter — CNPG
+      marks it a FIXED configuration parameter and the admission webhook
+      REJECTS any explicit set ("Can't set fixed configuration parameter",
+      verified live CNPG 1.29.0 hw124 #3195). We therefore declare it via
+      CNPG's NATIVE `spec.postgresql.synchronous` block below (CNPG ≥1.24);
+      the operator derives `synchronous_standby_names` from it, matching the
+      replica Cluster CR's name as the standby application_name. This is the
+      exact bp-cnpg-pair primary shape (the old raw-parameter form was the
+      pre-#3195 trap that wedged hw124).
       */ -}}
-      {{- if eq .Values.topology.mode "active-hot-standby" }}
+      {{- if $ahs }}
       max_wal_senders: "10"
       max_replication_slots: "10"
       wal_level: "logical"
-      {{- if eq (default "sync" .Values.topology.replication.mode) "sync" }}
+      {{- if $sync }}
       synchronous_commit: {{ default "remote_apply" .Values.topology.replication.sync.commit | quote }}
-      synchronous_standby_names: {{ printf "FIRST %d (%s-r)" (int (default 1 .Values.topology.replication.sync.numSync)) (include "bp-postgres.instanceName" .) | quote }}
       {{- end }}
       {{- end }}
+    {{- if $sync }}
+    # ── Synchronous replication — CNPG-native (NOT a raw parameter) ────
+    # method=first + number=N renders `synchronous_standby_names =
+    # FIRST N (...)`; CNPG fills the standby application_name from the
+    # connected replica Cluster (<instance>-replica). dataDurability=required
+    # strictly enforces the zero-tx-loss bar: COMMIT blocks when fewer than
+    # `number` healthy synchronous standbys are connected (Pillar-3).
+    synchronous:
+      method: first
+      number: {{ int (default 1 .Values.topology.replication.sync.numSync) }}
+      dataDurability: required
+    {{- end }}
 
   resources:
     {{- toYaml .Values.instance.resources | nindent 4 }}

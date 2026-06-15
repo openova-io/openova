@@ -72,7 +72,13 @@ spec:
       # finally renders on already-converged Sovereigns.
       # 0.1.10 (#3375): role-Secret name RFC-1123 sanitization (lockstep
       # bump with 16a/16d — underscore-owner fix, see chart changelog).
-      version: 0.1.10
+      # 0.2.0 (#3571, Refs #3375 North-Star-4): active-hot-standby = REAL
+      # bp-cnpg-pair split-side cross-region shape (shared-pg-b primary keeps
+      # its name so grafana/powerdns hosts are unchanged + shared-pg-b-mesh
+      # global Service + shared-pg-b-replica follower). Gated by
+      # topology.crossRegion below (SOVEREIGN_ENABLE_CNPG_PAIR). Single-region
+      # stays a byte-identical singleton. Lockstep bump with 16a/16d.
+      version: 0.2.0
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -98,9 +104,22 @@ spec:
       name: shared-pg-b
       namespace: shared-data
       storageSize: 10Gi
+    # Cross-region active-hot-standby (#3571) — see 16a for the full design.
+    # crossRegion rides SOVEREIGN_ENABLE_CNPG_PAIR (catalyst-api post-mesh
+    # flip); OFF/single-region renders a byte-identical singleton. side from
+    # SOVEREIGN_REGION_ROLE; regions from the canonical node labels. When ON:
+    # side=primary → named shared-pg-b Cluster (grafana/powerdns host
+    # shared-pg-b-rw unchanged) + shared-pg-b-mesh; side=secondary →
+    # shared-pg-b-replica follower streaming WAL over the mesh.
     topology:
       mode: singleton
+      crossRegion: ${SOVEREIGN_ENABLE_CNPG_PAIR:-false}
+      side: ${SOVEREIGN_REGION_ROLE:-primary}
       instances: 1
+      primary:
+        region: '${SOVEREIGN_PRIMARY_REGION:-}'
+      replica:
+        region: '${SOVEREIGN_REPLICA_REGION:-}'
     databases:
       # grafana — FLIPPED (see header). The extraData keys are grafana's
       # native GF_DATABASE_* env contract; GF_DATABASE_HOST carries
