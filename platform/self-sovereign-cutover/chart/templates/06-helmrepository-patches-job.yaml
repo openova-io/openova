@@ -739,6 +739,33 @@ data:
             strip_wait_deadline=$(( $(date +%s) + STRIP_READINESS_TIMEOUT_SECONDS ))
             echo "[helmrepository-patches] Phase-3a: waiting up to ${STRIP_READINESS_TIMEOUT_SECONDS}s for local-Harbor HelmRepositories to be Ready before stripping mothership auth"
             ready_ok="false"
+            # `seen_local_ready` latches TRUE the first poll in which every
+            # observed local-Harbor HR is Ready=True AND at least one local-
+            # Harbor HR was present (total>0). It is what lets the loop
+            # terminate-success in the `0/0` case WITHOUT reintroducing the
+            # strip-before-pivot half-pivot.
+            #
+            # WHY THE LATCH (the hw144 step-06 loops-forever bug, Refs #3568):
+            #   The original success test was `total>0 && not_ready==0`. On
+            #   hw144 the local-Harbor HR set converged `61/61 not-Ready → …
+            #   → 1/1 (openova-catalog) → 0/0 not-Ready: <none>` and then
+            #   LOOPED FOREVER at `0/0`: once the tracked set emptied to
+            #   total=0 (every pivoted HR Ready, then a Flux re-render /
+            #   churn window transiently dropped the local-Harbor match count
+            #   to zero) the `total>0` guard could never be satisfied again,
+            #   so the loop spun out the full deadline and then FATAL-refused
+            #   the strip → cutover wedged at step-06.
+            #
+            #   The fix is NOT "treat any 0/0 as done" — that would let the
+            #   VERY FIRST poll (before Flux has pivoted any HR to local
+            #   Harbor) strip ghcr.io with total=0, which is precisely the
+            #   half-pivot the #3379/#3526 strip-before-pivot fix prevents.
+            #   Instead we require that the pivot was OBSERVED CONVERGED at
+            #   least once: success is `not_ready==0` AND (`total>0` this poll
+            #   OR we have previously latched a fully-Ready local-Harbor set).
+            #   A genuine half-pivot (HRs stuck not-Ready, latch never set)
+            #   still spins to the deadline and correctly REFUSES the strip.
+            seen_local_ready="false"
             # Snapshot file (writable /tmp emptyDir) holding one line per HR:
             # "<ns> <name> <spec.url> <Ready-status>". Re-written each poll.
             # Using a file (not a heredoc) keeps the whole block correctly
@@ -769,12 +796,24 @@ data:
                     "reconcile.fluxcd.io/requestedAt=${now_ts}" >/dev/null 2>&1 || true
                 fi
               done < "${hr_snapshot}"
+              # Latch: at least one local-Harbor HR present this poll AND all
+              # of them Ready — the proof that registry.<fqdn> + Phase-0 auth
+              # work. Once latched it stays latched, so a later poll that finds
+              # the tracked set emptied (total=0) still counts as converged.
               if [ "${total}" -gt 0 ] && [ "${not_ready}" -eq 0 ]; then
+                seen_local_ready="true"
+              fi
+              # Success when NOTHING is not-ready AND we have ever observed the
+              # pivot fully converged. Covers both the steady all-Ready case
+              # (total>0, not_ready=0) and the post-convergence 0/0 case (the
+              # tracked set emptied after a clean pass) — without ever
+              # succeeding on a first-poll 0/0 where the pivot never happened.
+              if [ "${not_ready}" -eq 0 ] && { [ "${total}" -gt 0 ] || [ "${seen_local_ready}" = "true" ]; }; then
                 ready_ok="true"
-                echo "[helmrepository-patches] Phase-3a OK: all ${total} local-Harbor HelmRepository(ies) Ready=True"
+                echo "[helmrepository-patches] Phase-3a OK: local-Harbor HelmRepository pivot converged Ready=True (this poll total=${total}, seen_local_ready=${seen_local_ready})"
                 break
               fi
-              echo "[helmrepository-patches] Phase-3a: ${not_ready}/${total} local-Harbor HelmRepository(ies) not yet Ready: ${not_ready_names:-<none>}; retrying in 15s"
+              echo "[helmrepository-patches] Phase-3a: ${not_ready}/${total} local-Harbor HelmRepository(ies) not yet Ready: ${not_ready_names:-<none>} (seen_local_ready=${seen_local_ready}); retrying in 15s"
               sleep 15
             done
 

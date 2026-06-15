@@ -620,7 +620,26 @@ name: bp-self-sovereign-cutover
 # and wires it into GitRepository.spec.secretRef BEFORE the URL flip — same
 # credential + pattern as #3454's openova-sme-tenants GitRepository. Adds
 # `secrets: create` to the cutover-runner RBAC.
-version: 0.1.64
+# 0.1.65 (#3588, Refs #3568 #3379 #3526, hw144 step-06 loops-forever 2026-06-15;
+# rebased over 0.1.64's step-01 PAT fix #3584):
+# Step-06 Phase-3a (the readiness-gated mothership-auth strip, 0.1.63) waited
+# FOREVER at `0/0` and FATAL-refused the strip → cutover wedged at step-06.
+# ROOT CAUSE: the Phase-3a success test was `total>0 && not_ready==0`. On hw144
+# the local-Harbor HelmRepository set converged `61/61 not-Ready → … → 1/1
+# (openova-catalog) → 0/0 not-Ready: <none>` and then looped forever: once the
+# tracked set emptied to total=0 (every pivoted HR Ready, then a Flux re-render
+# window transiently dropped the local-Harbor match count to zero) the `total>0`
+# guard could never be satisfied again, so the loop spun out the full
+# stripReadinessSeconds deadline and then exited non-zero (REFUSING the strip).
+# FIX: introduce a `seen_local_ready` latch (set the first poll in which a
+# non-empty local-Harbor set is fully Ready) and change the success test to
+# `not_ready==0 && (total>0 || seen_local_ready)`. This terminates-success on
+# the post-convergence 0/0 case while NEVER succeeding on a first-poll 0/0 where
+# the pivot never happened (which would reintroduce the 0.1.63 half-pivot the
+# strip-before-pivot fix exists to prevent). A genuine half-pivot (HRs stuck
+# not-Ready, latch never set) still spins to the deadline and correctly REFUSES
+# the strip. Smallest correct fix; no step-count / RBAC / timeout change.
+version: 0.1.65
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
