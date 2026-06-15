@@ -226,10 +226,30 @@ data:
             # no `wait -n`, so we cap concurrency by counting live background
             # PIDs and pausing the launch loop until one drains.
             #
-            # skopeo gains `--retry-times 3` so a single transient ghcr/Harbor
+            # skopeo gains `--retry-times 5` so a single transient ghcr/Harbor
             # 5xx or reset inside a copy self-heals (resumable layer fetch)
             # instead of failing the whole image — independent of the binary-
             # download retry above.
+            #
+            # #3608-followup (hw146 step-03 FATAL, 2026-06-16): even with
+            # `--retry-times`, the two LARGE guacamole images
+            # (guacamole-server:1.5.5 + guacd:1.5.5, ~50MB blobs) still FATAL'd
+            # the whole step on TRANSIENT mid-blob connection resets over a
+            # freshly-bootstrapped network — skopeo logged
+            # `Reading blob ... failed (unexpected EOF), reconnecting ...` then
+            # `writing blob ... use of closed network connection`, and 2/29
+            # copies failed -> push_fail>0 -> `FATAL: 2 openova-io image(s)
+            # failed to push` -> cutover never reached step-04+. `--retry-times`
+            # retries the individual blob fetch INSIDE one `skopeo copy`, but a
+            # Harbor-side reset that closes the dest connection can still abort
+            # the copy as a whole. So copy_one ALSO wraps the `skopeo copy` in an
+            # OUTER per-image retry loop (PREWARM_COPY_ATTEMPTS, default 3): if a
+            # full copy fails after exhausting `--retry-times`, the whole copy is
+            # re-attempted up to N times with a short backoff sleep before the
+            # image is counted as `push_fail`. The FATAL-on-failure contract is
+            # PRESERVED (Pillar 5 requires ALL openova-io images local for the
+            # deny-egress hold) — the step only FATALs once BOTH retry layers are
+            # exhausted for an image. Each outer attempt is logged.
             #
             # Two earlier #3379 keystone catches (hw138, 2026-06-14) stay in
             # force: (1) `--insecure-policy` so skopeo doesn't fatal on the
@@ -239,6 +259,7 @@ data:
             # always 0 under this `set -eu` (no pipefail) shell — the bug that
             # made every fatal copy miscount as success.
             : "${PREWARM_PARALLELISM:=6}"
+            : "${PREWARM_COPY_ATTEMPTS:=3}"
             cpdir="/tmp/prewarm-copies"
             rm -rf "${cpdir}"; mkdir -p "${cpdir}"
             echo "[harbor-prewarm] pushing ${count} image(s) with parallelism=${PREWARM_PARALLELISM}"
@@ -250,17 +271,44 @@ data:
               lref="${HARBOR_HOST}/${up#ghcr.io/}"
               # Slug for the per-image sentinel/log file names.
               slug=$(printf '%s' "${up}" | tr -c 'A-Za-z0-9._-' '_')
-              if skopeo copy \
-                --insecure-policy \
-                --retry-times 3 \
-                --src-creds="${ghcr_user}:${ghcr_pat}" \
-                --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-                --dest-tls-verify=true \
-                --src-tls-verify=true \
-                "docker://${up}" "docker://${lref}" >"${cpdir}/${slug}.log" 2>&1; then
+              # OUTER per-image retry loop: `--retry-times 5` self-heals a
+              # transient blob fetch inside ONE copy, but a Harbor-side reset
+              # that closes the dest connection can abort the whole copy (hw146
+              # large-image FATAL, see comment above). Re-attempt the full
+              # `skopeo copy` up to PREWARM_COPY_ATTEMPTS times before counting a
+              # push_fail. The per-attempt log is APPENDED so the final captured
+              # log shows every try.
+              attempt=1
+              rc=1
+              : >"${cpdir}/${slug}.log"
+              while [ "${attempt}" -le "${PREWARM_COPY_ATTEMPTS}" ]; do
+                echo "[harbor-prewarm] copy ${up} attempt ${attempt}/${PREWARM_COPY_ATTEMPTS}" >>"${cpdir}/${slug}.log"
+                if skopeo copy \
+                  --insecure-policy \
+                  --retry-times 5 \
+                  --src-creds="${ghcr_user}:${ghcr_pat}" \
+                  --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                  --dest-tls-verify=true \
+                  --src-tls-verify=true \
+                  "docker://${up}" "docker://${lref}" >>"${cpdir}/${slug}.log" 2>&1; then
+                  rc=0
+                  break
+                else
+                  # Capture skopeo's REAL exit status INSIDE the else branch —
+                  # `rc=$?` placed AFTER the `fi` would read the if-construct's
+                  # status (0 when the condition is false with no else), the same
+                  # always-0 trap the #3379 hw138 real-exit-status fix called out.
+                  rc=$?
+                fi
+                echo "[harbor-prewarm] copy ${up} attempt ${attempt} failed (exit=${rc}); retrying after backoff" >>"${cpdir}/${slug}.log"
+                attempt=$((attempt+1))
+                # Short backoff lets a Harbor-side reset settle before the
+                # next full copy; skip the sleep after the final attempt.
+                [ "${attempt}" -le "${PREWARM_COPY_ATTEMPTS}" ] && sleep 5
+              done
+              if [ "${rc}" -eq 0 ]; then
                 printf '%s' "${up}" >"${cpdir}/${slug}.ok"
               else
-                rc=$?
                 printf '%s exit=%s' "${up}" "${rc}" >"${cpdir}/${slug}.fail"
               fi
             }
