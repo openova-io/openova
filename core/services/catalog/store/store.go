@@ -22,7 +22,27 @@ type App struct {
 	Category        string    `bson:"category" json:"category"`
 	Tags            []string  `bson:"tags" json:"tags"`
 	Icon            string    `bson:"icon" json:"icon"`
+	// IconLight / IconDark are theme-specific icon overrides (#3602,
+	// EPIC #3597). The console renders IconLight in the light theme and
+	// IconDark in the dark theme; each may be a URL or an inline data:
+	// URI (the admin-edit form supports both upload and URL). Both are
+	// optional and ADDITIVE over the legacy single `Icon`: an empty
+	// theme-icon falls back to `Icon`, so existing catalog rows that only
+	// carry `Icon` keep rendering unchanged. `Icon` stays the canonical
+	// default — these two are kept alongside it for back-compat.
+	IconLight       string    `bson:"icon_light,omitempty" json:"icon_light,omitempty"`
+	IconDark        string    `bson:"icon_dark,omitempty" json:"icon_dark,omitempty"`
 	IconBg          string    `bson:"icon_bg" json:"icon_bg"`
+	// SupportedTopologies is the admin-editable set of placement modes
+	// this catalog entry advertises (e.g. ["single-region",
+	// "active-active", "active-hotstandby"]) — #3602, EPIC #3597. The
+	// canonical topology declaration still lives on the Blueprint
+	// (spec.topology.supported); this field lets the sovereign-admin
+	// curate which of those modes the catalog surfaces per entry without
+	// editing the Blueprint. Empty = no admin override; the catalog read
+	// API keeps the Blueprint/seed's own placement set. Additive — never
+	// overwrites the seed when unset.
+	SupportedTopologies []string `bson:"supported_topologies,omitempty" json:"supported_topologies,omitempty"`
 	MinimumSize     string    `bson:"minimum_size" json:"minimum_size"`
 	RecommendedSize string    `bson:"recommended_size" json:"recommended_size"`
 	Website         string    `bson:"website" json:"website"`
@@ -278,6 +298,13 @@ func (s *Store) UpdateApp(ctx context.Context, id string, app *App) error {
 		{Key: "description", Value: app.Description},
 		{Key: "category", Value: app.Category},
 		{Key: "icon", Value: app.Icon},
+		// #3602 — theme icons + admin-curated topology set. Persisted on
+		// every UpdateApp so an admin edit survives a service restart
+		// (FerretDB is durable). Empty values are written too, so the
+		// admin can clear a theme-icon override and fall back to `Icon`.
+		{Key: "icon_light", Value: app.IconLight},
+		{Key: "icon_dark", Value: app.IconDark},
+		{Key: "supported_topologies", Value: app.SupportedTopologies},
 		{Key: "icon_bg", Value: app.IconBg},
 		{Key: "free", Value: app.Free},
 		{Key: "featured", Value: app.Featured},

@@ -54,9 +54,19 @@ type smeCatalogClient struct {
 var smeCatalogSingleton *smeCatalogClient
 var smeCatalogOnce sync.Once
 
+// smeCatalogTestOverride lets tests point smeCatalog() at an httptest
+// server WITHOUT racing the sync.Once (which would otherwise pin the first
+// caller's baseURL for the rest of the process). nil in production — the
+// override is only ever set by the in-package test helper. Checked first in
+// smeCatalog() so a test can swap + restore deterministically.
+var smeCatalogTestOverride *smeCatalogClient
+
 // smeCatalog returns the package-level SME catalog client, lazily
 // constructed on first use.
 func smeCatalog() *smeCatalogClient {
+	if smeCatalogTestOverride != nil {
+		return smeCatalogTestOverride
+	}
 	smeCatalogOnce.Do(func() {
 		base := strings.TrimSpace(os.Getenv(smeCatalogURLEnv))
 		if base == "" {
