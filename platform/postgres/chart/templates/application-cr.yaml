@@ -42,8 +42,16 @@ Contexts: `spec.parameters.databases` carries this instance's Context
 declarations (blueprint contextSchema: kind=db, valuesKey=databases)
 verbatim from the slot's Git-committed values — the generic console
 Contexts projection reads them from there.
+
+Split-side (#3375 / #3571): the Application CR is the data instance's ONE
+card — render it on the PRIMARY side only. In active-hot-standby the same HR
+applies on both control planes; rendering the CR on the replica side too
+would create a duplicate card on cluster-B (violating "N instances ⇒ exactly
+N cards") and a status-only adoption CR with no consumer Contexts. The
+renderReplicaHalf gate keeps the card primary-side; its placement reflects
+active-hotstandby so the console shows the cross-region topology.
 */ -}}
-{{- if and (ne (toString .Values.enabled) "false") .Values.bootstrapOwned.enabled (.Capabilities.APIVersions.Has "apps.openova.io/v1") }}
+{{- if and (ne (toString .Values.enabled) "false") .Values.bootstrapOwned.enabled (.Capabilities.APIVersions.Has "apps.openova.io/v1") (not (include "bp-postgres.renderReplicaHalf" .)) }}
 apiVersion: apps.openova.io/v1
 kind: Application
 metadata:
@@ -71,8 +79,10 @@ spec:
   blueprintRef:
     name: bp-postgres
     version: {{ .Chart.Version | quote }}
-  {{- /* placement = the canonical topology surface (G117). */}}
-  {{- if eq (.Values.topology.mode | default "singleton") "active-hot-standby" }}
+  {{- /* placement = the canonical topology surface (G117). Reflects the
+       EFFECTIVE mode so the card shows active-hotstandby once the slot's
+       crossRegion flag (SOVEREIGN_ENABLE_CNPG_PAIR) flips the pair on. */}}
+  {{- if eq (include "bp-postgres.activeHotStandby" .) "true" }}
   placement: active-hotstandby
   {{- else }}
   placement: single-region
@@ -91,7 +101,7 @@ spec:
   releaseName: {{ .Release.Name }}
   parameters:
     topology:
-      mode: {{ .Values.topology.mode | default "singleton" | quote }}
+      mode: {{ if eq (include "bp-postgres.activeHotStandby" .) "true" }}{{ "active-hot-standby" | quote }}{{ else }}{{ "singleton" | quote }}{{ end }}
     {{- with .Values.databases }}
     databases:
       {{- toYaml . | nindent 6 }}

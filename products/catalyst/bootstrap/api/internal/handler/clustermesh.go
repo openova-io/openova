@@ -268,6 +268,60 @@ var cnpgPairReplicaAuthSecrets = []string{
 	cnpgPairReplicationCA,
 }
 
+// Cross-cluster CNPG replica-auth Secret sync for the SHARED-PG instances
+// (#3571, Refs #3375 North-Star-4). bp-postgres 0.2.0 makes the 3 shared
+// data instances (shared-pg / -b / -c) render the SAME bp-cnpg-pair
+// split-side shape when topology.crossRegion flips on — and crossRegion is
+// wired to the SAME SOVEREIGN_ENABLE_CNPG_PAIR substitute this flip patches.
+// So when the gate flips, each shared instance's REPLICA half (rendered on
+// the secondary cluster) streams WAL from its primary and authenticates with
+// the primary's CNPG-generated `<instance>-replication` / `<instance>-ca`
+// TLS Secrets — created by CNPG only on the PRIMARY cluster, in namespace
+// `shared-data`. Exactly like the bp-cnpg-pair pair, those Secrets must also
+// exist on the replica cluster (the replica chart references them by name
+// from externalClusters.sslKey/sslCert/sslRootCert), so this flip copies
+// them primary → every replica BEFORE enabling the gate.
+//
+// Names are DERIVED THE SAME WAY THE CHART DOES: a CNPG Cluster named
+// `<instance>` generates `<instance>-replication` (streaming_replica client
+// cert) + `<instance>-ca` (the cluster CA). The instance names are the slot
+// releaseNames (16a→shared-pg, 16c→shared-pg-b, 16d→shared-pg-c) and the
+// namespace is shared-data (the shared-pg slots' targetNamespace) — all
+// stable; if any ever changes, these constants move in lockstep.
+//
+// CONDITIONAL: the shared-pg instances exist only when shared-pg is enabled
+// (SOVEREIGN_ENABLE_SHARED_PG=true). When it is OFF the slots render empty
+// releases, CNPG never mints these Secrets, and the sync SKIPS the whole
+// group (so a non-shared-pg Sovereign's cnpg-pair flip is never blocked by
+// absent shared-pg Secrets). Detected from the substitute map already
+// gathered for the region precondition (clusterMeshSharedPGSubstituteKey).
+const (
+	clusterMeshSharedPGSubstituteKey = "SOVEREIGN_ENABLE_SHARED_PG"
+	sharedPGNamespace                = "shared-data"
+)
+
+// sharedPGInstanceNames — the 3 shared data-instance Cluster names (= the
+// slot releaseNames). Each contributes a `<name>-replication` + `<name>-ca`
+// Secret pair to copy primary → every replica when crossRegion flips on.
+var sharedPGInstanceNames = []string{
+	"shared-pg",   // slot 16a — gitea / harbor / keycloak
+	"shared-pg-b", // slot 16c — grafana / powerdns / powerdns-admin
+	"shared-pg-c", // slot 16d — the SME mesh / newapi / openova-flow
+}
+
+// sharedPGReplicaAuthSecrets — the per-instance `-replication` + `-ca` Secret
+// names the bp-postgres replica-cluster.yaml externalClusters block
+// references (sslKey/sslCert → `<instance>-replication`, sslRootCert →
+// `<instance>-ca`). Built from sharedPGInstanceNames so the set stays in
+// lockstep with the slot releaseNames.
+var sharedPGReplicaAuthSecrets = func() []string {
+	out := make([]string, 0, len(sharedPGInstanceNames)*2)
+	for _, n := range sharedPGInstanceNames {
+		out = append(out, n+"-replication", n+"-ca")
+	}
+	return out
+}()
+
 // fluxKustomizationGVR — kustomize.toolkit.fluxcd.io/v1 Kustomizations,
 // addressed via the dynamic client (no Flux Go types vendored here).
 var fluxKustomizationGVR = schema.GroupVersionResource{
@@ -842,6 +896,12 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 		regionKey   string
 		dyn         dynamic.Interface
 		primarySide bool
+		// sharedPGEnabled — the region's SOVEREIGN_ENABLE_SHARED_PG
+		// substitute (#3571). When true the bp-postgres shared instances
+		// (shared-pg/-b/-c) ALSO render the cnpg-pair split-side shape on
+		// this crossRegion flip, so their `<instance>-replication`/`-ca`
+		// Secrets must be synced primary → replica alongside bp-cnpg-pair's.
+		sharedPGEnabled bool
 	}
 	targets := make([]flipTarget, 0, len(slots))
 	for i := range slots {
@@ -914,7 +974,8 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 				role = "secondary"
 			}
 		}
-		targets = append(targets, flipTarget{regionKey: regionLabel, dyn: dyn, primarySide: role == "primary"})
+		sharedPGEnabled := strings.EqualFold(strings.TrimSpace(substitute[clusterMeshSharedPGSubstituteKey]), "true")
+		targets = append(targets, flipTarget{regionKey: regionLabel, dyn: dyn, primarySide: role == "primary", sharedPGEnabled: sharedPGEnabled})
 	}
 
 	// ── Patch phase: TWO-STAGE (#3241 first-flip deadlock) ──────────
@@ -1006,6 +1067,29 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 			)
 			h.emitClusterMeshProgress(dep, "info",
 				fmt.Sprintf("ClusterMesh: cnpg-pair primary side enabled (%d region(s)); replica side waits for the primary postgres to mint its replication Secrets — re-run converges", primaryTotal))
+			return false
+		}
+		// #3571: the bp-postgres SHARED instances (shared-pg/-b/-c) ride the
+		// SAME crossRegion flip, so their replicas also need the primary's
+		// `<instance>-replication`/`-ca` Secrets on the replica cluster. Sync
+		// them too — but ONLY when shared-pg is enabled (else those Secrets
+		// never exist and would falsely block the cnpg-pair flip). The
+		// primary region's substitute is authoritative for the gate.
+		sharedPGOn := false
+		for _, t := range targets {
+			if t.primarySide && t.sharedPGEnabled {
+				sharedPGOn = true
+				break
+			}
+		}
+		if sharedPGOn && !h.syncSharedPGReplicaAuthSecrets(ctx, dep, slots) {
+			h.log.Info("clustermesh: shared-pg two-stage flip — cnpg-pair replica-auth synced, shared-pg instances awaiting their primary replica-auth Secrets (initdb in progress); level-trigger re-run converges",
+				"id", dep.ID,
+				"primaryRegions", primaryTotal,
+				"replicaRegions", replicaTotal,
+			)
+			h.emitClusterMeshProgress(dep, "info",
+				fmt.Sprintf("ClusterMesh: shared-pg cross-region replicas wait for the shared engines' primary postgres to mint their replication Secrets (%d instance(s)) — re-run converges", len(sharedPGInstanceNames)))
 			return false
 		}
 		for _, t := range targets {
@@ -1125,6 +1209,93 @@ func (h *Handler) syncCNPGPairReplicaAuthSecrets(ctx context.Context, dep *Deplo
 	h.emitClusterMeshProgress(dep, "info",
 		fmt.Sprintf("ClusterMesh: synced cnpg-pair replica-auth Secrets (%s) primary → %d replica region(s) for WAL-stream auth",
 			strings.Join(cnpgPairReplicaAuthSecrets, ", "), len(slots)-1))
+	return true
+}
+
+// syncSharedPGReplicaAuthSecrets copies the primary cluster's CNPG
+// replication-auth Secrets for the 3 SHARED data instances
+// (sharedPGReplicaAuthSecrets, namespace sharedPGNamespace=shared-data) onto
+// EVERY replica region's cluster, so each shared instance's replica-side
+// Cluster CR (bp-postgres 0.2.0 split-side, #3571) can authenticate its
+// pg_basebackup/WAL stream against its primary. Same contract +
+// all-or-nothing semantics as syncCNPGPairReplicaAuthSecrets (the bp-cnpg-pair
+// analogue), only the namespace + Secret-name set differ.
+//
+// Called ONLY when shared-pg is enabled (the caller gates on the primary
+// region's SOVEREIGN_ENABLE_SHARED_PG substitute) — when OFF the shared
+// instances render empty releases, CNPG never mints these Secrets, and this
+// function is never reached, so a non-shared-pg Sovereign's cnpg-pair flip is
+// never blocked by absent shared-pg Secrets.
+//
+// A missing SOURCE Secret on the primary (the shared engine's postgres is
+// still bootstrapping — CNPG mints `<instance>-replication`/`-ca` only after
+// initdb) or ANY per-replica copy failure refuses the whole flip and leaves
+// the gate OFF everywhere (safe: empty Ready releases). The #3241
+// level-trigger + post-handover finalisation re-run AutoEstablishClusterMesh
+// and converge once the primaries' Secrets exist.
+func (h *Handler) syncSharedPGReplicaAuthSecrets(ctx context.Context, dep *Deployment, slots []regionSlot) bool {
+	if len(slots) < 2 {
+		return true // no replica region — nothing to sync (guard, not live path)
+	}
+	primary := &slots[0]
+	if primary.clientset == nil {
+		h.log.Warn("clustermesh: shared-pg replica-auth sync: primary clientset nil — refusing flip",
+			"id", dep.ID)
+		h.emitClusterMeshProgress(dep, "warn",
+			"ClusterMesh: shared-pg cross-region enable refused — primary cluster client unavailable for replica-auth Secret sync; re-run converges")
+		return false
+	}
+
+	// Read the source Secrets from the primary ONCE. A missing source = the
+	// shared engine's postgres has not initialised yet → refuse + converge.
+	sources := make([]*corev1.Secret, 0, len(sharedPGReplicaAuthSecrets))
+	for _, name := range sharedPGReplicaAuthSecrets {
+		getCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+		src, err := primary.clientset.CoreV1().Secrets(sharedPGNamespace).Get(getCtx, name, metav1.GetOptions{})
+		cancel()
+		if err != nil {
+			h.log.Warn("clustermesh: shared-pg replica-auth sync: source Secret unavailable on primary — refusing flip (shared engine postgres likely still bootstrapping)",
+				"id", dep.ID, "namespace", sharedPGNamespace, "secret", name, "err", err)
+			h.emitClusterMeshProgress(dep, "warn",
+				fmt.Sprintf("ClusterMesh: shared-pg cross-region enable refused — primary Secret %s/%s not ready (%v); the replica needs it for WAL-stream auth — re-run converges once the shared engine postgres initialises",
+					sharedPGNamespace, name, err))
+			return false
+		}
+		sources = append(sources, src)
+	}
+
+	// Copy every source Secret onto every replica region. Any failure refuses
+	// the whole flip (no partial state).
+	for i := 1; i < len(slots); i++ {
+		replica := &slots[i]
+		regionLabel := replica.key
+		if regionLabel == "" {
+			regionLabel = "secondary"
+		}
+		if replica.clientset == nil {
+			h.log.Warn("clustermesh: shared-pg replica-auth sync: replica clientset nil — refusing flip",
+				"id", dep.ID, "region", regionLabel)
+			h.emitClusterMeshProgress(dep, "warn",
+				fmt.Sprintf("ClusterMesh: shared-pg cross-region enable refused — replica region %q cluster client unavailable for replica-auth Secret sync; re-run converges", regionLabel))
+			return false
+		}
+		for _, src := range sources {
+			if err := h.copySecretAcrossClusters(ctx, src, replica.clientset, sharedPGNamespace); err != nil {
+				h.log.Warn("clustermesh: shared-pg replica-auth sync: copy to replica failed — refusing flip",
+					"id", dep.ID, "region", regionLabel, "namespace", sharedPGNamespace, "secret", src.Name, "err", err)
+				h.emitClusterMeshProgress(dep, "warn",
+					fmt.Sprintf("ClusterMesh: shared-pg cross-region enable refused — copying Secret %s/%s to replica region %q failed (%v); re-run converges",
+						sharedPGNamespace, src.Name, regionLabel, err))
+				return false
+			}
+		}
+		h.log.Info("clustermesh: shared-pg replica-auth Secrets synced to replica region",
+			"id", dep.ID, "region", regionLabel, "namespace", sharedPGNamespace, "secrets", sharedPGReplicaAuthSecrets)
+	}
+
+	h.emitClusterMeshProgress(dep, "info",
+		fmt.Sprintf("ClusterMesh: synced shared-pg replica-auth Secrets (%s) primary → %d replica region(s) for WAL-stream auth",
+			strings.Join(sharedPGReplicaAuthSecrets, ", "), len(slots)-1))
 	return true
 }
 

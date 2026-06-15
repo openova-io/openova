@@ -121,7 +121,15 @@ spec:
       # bootstrap INSTALL, before the umbrella shipped the CRD).
       # 0.1.10 (#3375): role-Secret name RFC-1123 sanitization (lockstep
       # bump with 16c/16d — underscore-owner fix, see chart changelog).
-      version: 0.1.10
+      # 0.2.0 (#3571, Refs #3375 North-Star-4): active-hot-standby now renders
+      # the PROVEN bp-cnpg-pair SPLIT-SIDE cross-region shape (primary Cluster
+      # keeps the `shared-pg` name so the consumer host shared-pg-rw is
+      # unchanged + ClusterMesh-global shared-pg-mesh Service + native
+      # synchronous block; shared-pg-replica follower streams WAL on the
+      # secondary cluster) instead of the hw126 stretched-cluster antiAffinity.
+      # Gated by topology.crossRegion below (the SOVEREIGN_ENABLE_CNPG_PAIR
+      # post-mesh signal) so single-region provs stay byte-identical singletons.
+      version: 0.2.0
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -165,14 +173,37 @@ spec:
     instance:
       name: shared-pg
       namespace: shared-data
-      # Multi-region Sovereigns spread CNPG across regions; single-region
-      # falls back to 1. (Same envsubst seam as bp-gitea/bp-harbor.)
-      # Topology is singleton here for the Phase-2 reuse proof; flip to
-      # active-hot-standby for the Pillar-3 shape.
       storageSize: 10Gi
+    # ── Topology — cross-region active-hot-standby (#3571, Refs #3375) ───
+    # mode stays `singleton` so a single-region prov (or a 2-region prov
+    # BEFORE catalyst-api confirms the mesh) renders the byte-identical
+    # singleton shared-pg Cluster. crossRegion is wired to the SAME
+    # SOVEREIGN_ENABLE_CNPG_PAIR post-mesh-confirm substitute bp-cnpg-pair
+    # (slot 16b) rides — catalyst-api patches it true onto EVERY region's
+    # bootstrap-kit Kustomization (handler/clustermesh.go) only after
+    # ClusterMesh is established + the primary's replica-auth Secrets sync.
+    # When it flips true the chart renders the PROVEN bp-cnpg-pair split-side
+    # shape: side=primary (region-A) → the named `shared-pg` Cluster (so the
+    # keycloak/gitea/harbor host shared-pg-rw is unchanged) + the
+    # ClusterMesh-global shared-pg-mesh Service; side=secondary (region-B) →
+    # the shared-pg-replica follower streaming WAL over the mesh. side is
+    # stamped from the per-region SOVEREIGN_REGION_ROLE (primary|secondary).
+    # primary/replica.region carry the canonical openova.io/region node
+    # labels. A region-kill then preserves the consumers' data (keycloak
+    # realm survives a region-A kill) via bp-continuum's cnpg-pair switchover.
     topology:
       mode: singleton
+      crossRegion: ${SOVEREIGN_ENABLE_CNPG_PAIR:-false}
+      side: ${SOVEREIGN_REGION_ROLE:-primary}
+      # singleton instance count — UNCHANGED at 1 (byte-identical). The pair's
+      # per-side instance count is the SEPARATE chart default haInstances (3,
+      # the bp-cnpg-pair canonical), so flipping crossRegion never perturbs
+      # the singleton render's instances field.
       instances: 1
+      primary:
+        region: '${SOVEREIGN_PRIMARY_REGION:-}'
+      replica:
+        region: '${SOVEREIGN_REPLICA_REGION:-}'
     # The three bindings — the reuse proof. Three isolated databases +
     # three roles on ONE Cluster; each reflected into its consumer's
     # namespace.
