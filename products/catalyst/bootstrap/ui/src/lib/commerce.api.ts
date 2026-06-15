@@ -89,6 +89,18 @@ export interface CommerceApp {
   tagline?: string
   category?: string
   published?: boolean
+  /**
+   * #3603 (EPIC #3597) — the admin-editable catalog fields. Mirror the
+   * store.App JSON tags VERBATIM (core/services/catalog/store.go): the
+   * legacy single `icon` plus the per-theme `icon_light` / `icon_dark`
+   * overrides and the admin-curated `supported_topologies` set. All
+   * optional + additive over the seed.
+   */
+  description?: string
+  icon?: string
+  icon_light?: string
+  icon_dark?: string
+  supported_topologies?: string[]
 }
 
 export type CommerceKind = 'plans' | 'addons' | 'bundles' | 'industries' | 'apps'
@@ -157,3 +169,68 @@ export const updateCommerce = <T>(kind: CommerceKind, id: string, body: T) =>
   writeCommerce<T>('PUT', kind, id, body)
 export const deleteCommerce = (kind: CommerceKind, id: string) =>
   writeCommerce<undefined>('DELETE', kind, id, undefined)
+
+/* ── #3603 (EPIC #3597) — catalog entry edit ───────────────────────── */
+
+/** The mutable subset of a catalog entry the #3603 edit form changes. */
+export interface CatalogEntryEdit {
+  name: string
+  tagline: string
+  supported_topologies: string[]
+  icon_light: string
+  icon_dark: string
+}
+
+/**
+ * saveCatalogEdit persists an admin's catalog-entry edit to the SME
+ * commerce catalog store.
+ *
+ * The store's UpdateApp does a FULL `$set` of every column from the decoded
+ * row, so a partial PUT would zero the untouched columns (deployable,
+ * published, helm_chart, …). To stay additive we therefore:
+ *
+ *   1. list every store App and find the row whose slug matches this
+ *      catalog entry (slugs are bare — the catalog id's `bp-` prefix is
+ *      stripped by the caller);
+ *   2. if it exists, MERGE the edited fields onto the FULL existing row
+ *      (the runtime object still carries every store column even though the
+ *      CommerceApp type only declares a few) and PUT it back by its `_id`,
+ *      so no column is lost;
+ *   3. if no row exists yet (a seed-only catalog entry the commerce store
+ *      never had), POST a new minimal row (slug + the edited fields) so the
+ *      edit still persists and overlays the seed on the next catalog read.
+ *
+ * Returns the slug it wrote, for the caller's optimistic cache update.
+ */
+export async function saveCatalogEdit(slug: string, edit: CatalogEntryEdit): Promise<string> {
+  const bare = slug.replace(/^bp-/, '')
+  const apps = await listApps()
+  const existing = apps.find((a) => (a.slug ?? '').replace(/^bp-/, '') === bare)
+
+  // The edited fields, with the legacy `icon` kept in sync to the light
+  // icon when the admin set one (so a single-icon consumer still updates).
+  const patch: Partial<CommerceApp> = {
+    name: edit.name,
+    tagline: edit.tagline,
+    supported_topologies: edit.supported_topologies,
+    icon_light: edit.icon_light,
+    icon_dark: edit.icon_dark,
+  }
+
+  if (existing && existing.id) {
+    // Merge onto the full runtime row so untouched columns survive the
+    // full-$set UpdateApp.
+    const merged = { ...existing, ...patch }
+    await updateCommerce('apps', existing.id, merged)
+    return bare
+  }
+
+  // No store row yet — create one carrying the edit. slug is required by
+  // the store; name falls back to the slug when the admin left it blank.
+  await createCommerce<CommerceApp>('apps', {
+    slug: bare,
+    name: edit.name || bare,
+    ...patch,
+  })
+  return bare
+}

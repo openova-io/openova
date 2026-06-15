@@ -28,10 +28,27 @@ import { authedFetch } from '@/shared/lib/authedFetch'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
 import { AppCard } from './AppsPage'
+import { CatalogEditDialog } from './CatalogEditDialog'
 import { resolveApplications, type ApplicationDescriptor } from './applicationCatalog'
 import type { ApplicationStatus } from './eventReducer'
+import { useCatalogAdmin } from '@/shared/lib/useCatalogAdmin'
+import { listApps, type CommerceApp } from '@/lib/commerce.api'
 
 const DEFAULT_APP_ENVIRONMENT = 'dev'
+
+/**
+ * #3603 (EPIC #3597) — the admin-editable overlay for one catalog entry,
+ * read from the SME commerce store (the same rows the #3602 read API
+ * overlays onto the seed). Keyed by bare slug; drives the card's live name
+ * + theme icons and the edit form's initial values.
+ */
+interface CatalogEditOverlay {
+  name: string
+  summary: string
+  supportedTopologies: string[]
+  iconLight: string
+  iconDark: string
+}
 
 interface CatalogLiveData {
   statusById: Record<string, ApplicationStatus>
@@ -121,6 +138,42 @@ export function CatalogPage() {
   const externalURLById = liveQuery.data?.externalURLById ?? {}
   const refetchLive = liveQuery.refetch
 
+  // #3603 (EPIC #3597) — admin gate for the per-card Edit affordance. The
+  // write path is gated server-side too; this is the matching UI gate.
+  const isAdmin = useCatalogAdmin()
+
+  // #3603 — the admin-editable overlay (name / summary / topologies / theme
+  // icons) per bare slug, read from the SME commerce store. Drives the
+  // card's live name + icon and the edit form's initial values. Refetched
+  // after a save so the card updates without a full reload. Best-effort:
+  // when the SME catalog isn't deployed the list 404s/throws and the map is
+  // empty — cards then render their build-time logo + seed name.
+  const editsQuery = useQuery<Record<string, CatalogEditOverlay>>({
+    queryKey: ['catalog-admin-edits'],
+    retry: false,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const apps = await listApps()
+      const bySlug: Record<string, CatalogEditOverlay> = {}
+      for (const a of apps as CommerceApp[]) {
+        const slug = (a.slug ?? '').replace(/^bp-/, '')
+        if (!slug) continue
+        bySlug[slug] = {
+          name: a.name ?? '',
+          summary: a.tagline ?? '',
+          supportedTopologies: a.supported_topologies ?? [],
+          iconLight: a.icon_light ?? '',
+          iconDark: a.icon_dark ?? '',
+        }
+      }
+      return bySlug
+    },
+  })
+  const editsBySlug = editsQuery.data ?? {}
+
+  // The catalog entry currently open in the edit dialog (null = closed).
+  const [editing, setEditing] = useState<ApplicationDescriptor | null>(null)
+
   const [query, setQuery] = useState('')
 
   const visibleApps = useMemo<ApplicationDescriptor[]>(() => {
@@ -173,10 +226,22 @@ export function CatalogPage() {
               : null
             const environment = environmentById[app.id] ?? DEFAULT_APP_ENVIRONMENT
             const externalURL = externalURLById[app.id] ?? ''
+            // #3603 — apply the admin edit (name + summary) onto the card
+            // descriptor so a saved rename shows live; the theme icons flow
+            // through the dedicated AppCard props below.
+            const edit = editsBySlug[slug]
+            const cardApp =
+              edit && (edit.name || edit.summary)
+                ? {
+                    ...app,
+                    title: edit.name || app.title,
+                    description: edit.summary || app.description,
+                  }
+                : app
             return (
               <AppCard
                 key={app.id}
-                app={app}
+                app={cardApp}
                 isCatalog
                 environment={environment}
                 externalURL={externalURL}
@@ -189,6 +254,9 @@ export function CatalogPage() {
                 isService={false}
                 marketplacePublished={published}
                 slug={slug}
+                iconLight={edit?.iconLight}
+                iconDark={edit?.iconDark}
+                onEdit={isAdmin ? () => setEditing(app) : undefined}
                 onPublishedChange={async (next) => {
                   const r = await authedFetch(
                     `${API_BASE}/v1/sovereign/apps/${encodeURIComponent(slug)}/publish`,
@@ -209,6 +277,31 @@ export function CatalogPage() {
           })}
         </div>
       )}
+
+      {/* #3603 — the admin edit form. Mounted only while an entry is being
+       * edited; saving persists via the #3602 API and refetches the edits
+       * map so the card reflects the new name + icon live. */}
+      {editing ? (
+        <CatalogEditDialog
+          blueprintId={editing.id}
+          initial={(() => {
+            const slug = editing.id.replace(/^bp-/, '')
+            const e = editsBySlug[slug]
+            return {
+              name: e?.name || editing.title,
+              summary: e?.summary || editing.description || '',
+              supportedTopologies: e?.supportedTopologies ?? [],
+              iconLight: e?.iconLight ?? '',
+              iconDark: e?.iconDark ?? '',
+            }
+          })()}
+          onClose={() => setEditing(null)}
+          onSaved={async () => {
+            setEditing(null)
+            await editsQuery.refetch()
+          }}
+        />
+      ) : null}
     </PortalShell>
   )
 }
@@ -363,6 +456,28 @@ const CATALOG_PAGE_CSS = `
 .open-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .open-chip:disabled { opacity: 0.6; cursor: wait; }
 .open-chip svg { display: block; }
+/* #3603 — admin "Edit" pill on the catalog card (sovereign-admin only). */
+.edit-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  font-family: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  background: color-mix(in srgb, var(--color-text-strong) 8%, transparent);
+  color: var(--color-text-strong);
+  transition: filter 120ms ease, transform 120ms ease, border-color 120ms ease;
+}
+.edit-chip:hover { border-color: var(--color-accent); transform: translateY(-1px); }
+.edit-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.edit-chip svg { display: block; }
 .publish-chip {
   display: inline-flex;
   align-items: center;
