@@ -676,7 +676,26 @@ name: bp-self-sovereign-cutover
 # 03-harbor-prewarm-job.yaml): right-size requests.cpu 500m → 100m. Memory
 # stays 512Mi (skopeo needs the RAM for layer buffers) and the limits block is
 # unchanged. No step-count / RBAC / timeout change.
-version: 0.1.67
+# 0.1.68 (#TBD, Refs #3568 #3379, hw146 step-03 FATAL on transient large-image
+# copy resets 2026-06-16): Step-03 (harbor-prewarm) skopeo-copies every
+# ghcr.io/openova-io/* image into local Harbor. On hw146's cutover, 27/29 copies
+# succeeded but the two LARGE guacamole images (guacamole-server:1.5.5 +
+# guacd:1.5.5, ~50MB blobs) FAILED on TRANSIENT mid-blob connection resets over
+# the freshly-bootstrapped network — skopeo logged `Reading blob ... failed
+# (unexpected EOF), reconnecting ...` then `writing blob ... use of closed
+# network connection`. 2/29 failed -> push_fail>0 -> `FATAL: 2 openova-io
+# image(s) failed to push` -> cutover never reached step-04+. The single
+# `skopeo copy` per image carried only `--retry-times 3` (retries the blob fetch
+# INSIDE one copy) and FATALd if ANY image failed. FIX (chart-only, template
+# 03-harbor-prewarm-job.yaml): (1) bump `--retry-times 3` -> `--retry-times 5`
+# on the copy; (2) wrap each `skopeo copy` in an OUTER per-image retry loop
+# (PREWARM_COPY_ATTEMPTS, default 3) — if a full copy still fails after
+# `--retry-times`, the whole copy is re-attempted up to 3 times with a 5s
+# backoff before the image counts as push_fail; each attempt is logged. The
+# FATAL-on-failure contract is PRESERVED (Pillar 5 requires ALL openova-io
+# images local for the deny-egress hold) — the step only FATALs once BOTH retry
+# layers are exhausted. No step-count / RBAC / timeout change.
+version: 0.1.68
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
