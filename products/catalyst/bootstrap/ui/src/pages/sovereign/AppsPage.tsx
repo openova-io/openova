@@ -49,6 +49,7 @@ import type { ApplicationStatus } from './eventReducer'
 import { WipeDeploymentModal } from '@/components/CrudModals/WipeDeploymentModal'
 import { useNotifications } from '@/shared/ui/notifications'
 import { isDeploymentID } from '@/shared/types/deployment'
+import { useTheme } from '@/shared/lib/useTheme'
 
 interface AppsPageProps {
   /** Test seam — disables the live SSE EventSource attach. */
@@ -842,14 +843,41 @@ interface AppCardProps {
    */
   topology?: string
   contextCount?: number
+  /**
+   * #3603 (EPIC #3597) — admin-editable catalog icons. When set, the card
+   * renders the theme-correct override (iconLight in the light theme,
+   * iconDark in the dark theme) in place of the build-time logo, falling
+   * back: theme icon → the other theme's icon → app.logoUrl → initial.
+   * Empty on un-edited entries (the card keeps its build-time logo).
+   */
+  iconLight?: string
+  iconDark?: string
+  /**
+   * #3603 — admin Edit affordance. When provided, the card renders an
+   * "Edit" button in the status-corner (the Catalog page passes this only
+   * for sovereign-admins). Clicking opens the edit form; the button stops
+   * the card-link navigation. Absent ⇒ no Edit button (non-admins, the
+   * Deployments grid).
+   */
+  onEdit?: () => void
 }
 
 // Exported for the #3374 render test (AppsPage.open-button.test.tsx) — the
 // per-card Open button gate + silent-SSO click routing are leaf behaviour
 // best asserted directly on the card, without the live-apps query plumbing.
-export function AppCard({ app, status, isCatalog, isService, environment, marketplacePublished, slug, onPublishedChange, topology, contextCount, externalURL }: AppCardProps) {
+export function AppCard({ app, status, isCatalog, isService, environment, marketplacePublished, slug, onPublishedChange, topology, contextCount, externalURL, iconLight, iconDark, onEdit }: AppCardProps) {
   const stateClass = `state-${status}`
   const navigate = useNavigate()
+  // #3603 — render the theme-correct admin icon override when present:
+  // light icon in the light theme, dark icon in the dark theme. Fall back
+  // to the other theme's icon, then the build-time logo. Empty on
+  // un-edited entries → keeps app.logoUrl.
+  const { theme } = useTheme()
+  const themeIcon =
+    theme === 'light'
+      ? (iconLight || iconDark || '')
+      : (iconDark || iconLight || '')
+  const resolvedIcon = themeIcon || app.logoUrl || ''
   // #3374 — the per-card Open button resolves a silent-SSO launch via the
   // app's CR uid when known, else the bootstrap-kit blueprint/release name
   // (the BE launch-url resolver strips `bp-` and matches the HR). Mirrors
@@ -884,8 +912,15 @@ export function AppCard({ app, status, isCatalog, isService, environment, market
       data-testid={`sov-app-card-${app.id}`}
       data-status={status}
     >
-      {app.logoUrl ? (
-        <img src={app.logoUrl} alt={app.title} className="app-logo" loading="lazy" />
+      {resolvedIcon ? (
+        <img
+          src={resolvedIcon}
+          alt={app.title}
+          className="app-logo"
+          loading="lazy"
+          data-testid={`sov-app-icon-${app.id}`}
+          data-icon-theme={theme}
+        />
       ) : (
         <span className="app-icon" style={{ background: '#1f2937' }}>
           {app.title[0] ?? '?'}
@@ -957,6 +992,41 @@ export function AppCard({ app, status, isCatalog, isService, environment, market
       </div>
 
       <div className="status-corner">
+        {/* #3603 (EPIC #3597) — admin Edit affordance. Only rendered when
+         * onEdit is provided (the Catalog page passes it for
+         * sovereign-admins). The whole card is a Link, so the button stops
+         * the navigation and opens the edit form instead. Non-admins and
+         * the Deployments grid pass no onEdit ⇒ no button. */}
+        {onEdit ? (
+          <button
+            type="button"
+            className="edit-chip"
+            data-testid={`sov-app-edit-${app.id}`}
+            title={`Edit ${app.title} catalog entry`}
+            aria-label={`Edit ${app.title} catalog entry`}
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onEdit()
+            }}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width={11}
+              height={11}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2.2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+            </svg>
+            Edit
+          </button>
+        ) : null}
         {/* #3374 — per-card "Open" button RESTORED (founder flagged its
          * disappearance as "very important"). The #2743 "V4 verdict"
          * deleted it because it opened the RAW externalURL with no
@@ -1277,6 +1347,31 @@ const APPS_PAGE_CSS = `
 .open-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .open-chip:disabled { opacity: 0.6; cursor: wait; }
 .open-chip svg { display: block; }
+/* #3603 — admin "Edit" pill (Catalog page, sovereign-admin only). Muted
+ * surface tone so it reads as a secondary affordance next to the accent
+ * Open button. pointer-events:auto so it stays clickable inside the card
+ * <a> Link. */
+.edit-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  font-family: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  background: color-mix(in srgb, var(--color-text-strong) 8%, transparent);
+  color: var(--color-text-strong);
+  transition: filter 120ms ease, transform 120ms ease, border-color 120ms ease;
+}
+.edit-chip:hover { border-color: var(--color-accent); transform: translateY(-1px); }
+.edit-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.edit-chip svg { display: block; }
 .publish-chip {
   display: inline-flex;
   align-items: center;
