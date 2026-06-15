@@ -1,5 +1,56 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.63 (Refs #3379 #3526, hw139 strip-before-pivot half-pivot, 2026-06-15):
+# THE ROOT-CAUSE FIX for the cutover half-pivot that froze 8 HRs on the live
+# hw139 for 10h (and blocked the unrelated merged bp-newapi #3564 from
+# rolling). Verified live: every namespace's `ghcr-pull` Secret held ONLY
+# `registry.hw139.omani.works` (the `ghcr.io` key was stripped) while the
+# HelmRepository sources still resolved to `ghcr.io` — so 8 HRs
+# (bp-catalyst-platform, bp-openbao, bp-self-sovereign-cutover itself,
+# bp-continuum, bp-external-secrets-stores, bp-newapi, bp-sso-bridge,
+# bp-sandbox) wedged on `failed to configure login options: no auth config
+# for 'ghcr.io' in the docker-registry Secret 'ghcr-pull'`.
+#
+# ROOT CAUSE: Step-06 (helmrepository-patches) ran the DESTRUCTIVE
+# `ghcr.io` / `harbor.openova.io` auth STRIP in Phase-0 — which executes
+# BEFORE Phase-1's live HelmRepository URL pivot and Phase-2's durable Gitea
+# push. The instant Phase-0 stripped the creds, the cluster entered a lethal
+# intermediate state (ghcr.io creds GONE, HR sources still ghcr.io). If ANY
+# later cutover step wedged (step-05/08/10 have all wedged at points across
+# the #3379 saga), the half-pivot was permanent and unrecoverable zero-touch:
+# every reconcile failed for lack of ghcr.io auth, and because the strip + add
+# were one jq pass the engine re-stripped on every re-run.
+#
+# THE FIX (chart 06-helmrepository-patches-job.yaml):
+#   (1) Phase-0 is now PURELY ADDITIVE — it MERGES the local Harbor auth into
+#       ghcr-pull and nothing else. The ghcr.io fallback stays intact through
+#       the whole pivot.
+#   (2) The destructive strip MOVED to a NEW Phase 3 at the END of Step-06,
+#       AFTER Phase-1 (live URL pivot) + Phase-2 (durable Gitea push). The two
+#       former "nothing to push" early `exit 0`s now FALL THROUGH to Phase 3
+#       (the live pivot may have happened even with no Gitea edit).
+#   (3) Phase 3 is GATED: Phase-3a bounded-waits (stripReadinessSeconds, 600s)
+#       for EVERY HelmRepository now pointing at local Harbor to report
+#       Ready=True (source-controller fetched + verified the OCI artifact —
+#       proving registry.<fqdn> serves the chart AND the Phase-0 Harbor auth
+#       works). Only THEN does Phase-3b run the `del(.auths[ghcr.io,...])`
+#       strip. If the pivot does NOT converge, Phase-3a EXITS NON-ZERO with the
+#       mothership auth INTACT — the cluster keeps pulling from ghcr.io and the
+#       step is recoverable on the next engine re-run.
+# INVARIANT: ghcr.io creds are never stripped until every HR is already
+# pulling Ready from registry.<fqdn>. A strip-before-pivot wedge is now
+# structurally impossible.
+#
+# Lockstep: stepTimeouts.helmRepositoryPatchesSeconds raised 600 → 2400 (40m)
+# so the Job-level deadline covers the SUM of the in-Job waits (Phase -1
+# gateway-wait up to 1800s + Phase-3a strip-readiness up to 600s + buffer) —
+# catalyst-api honors this per-step value (cutover.go cutoverStepDeadline). New
+# stepTimeouts.stripReadinessSeconds (600s) + STRIP_READINESS_TIMEOUT_SECONDS
+# env. Contract test Case 17 renamed (merge→ADD) + new Case 17b locks the
+# strip into Phase 3 (readiness-gated, fail-closed, after the pivot). No
+# catalyst-api code change, no step-count change (still 11 steps). Live
+# 11-step→cutoverComplete=true validation DEFERRED to the next clean fresh prov
+# (kom4dc infra-gated; hw139 is already half-pivoted + must NOT be hand-patched).
 # 0.1.62 (#3379, hw139 step-08 + step-10 catches, 2026-06-15): the cutover
 # reached 9/11 on hw139 (registry + git tethers pivoted) and stalled on TWO
 # residual catches that this version fixes at source:
@@ -534,7 +585,7 @@ name: bp-self-sovereign-cutover
 # and wires it into GitRepository.spec.secretRef BEFORE the URL flip — same
 # credential + pattern as #3454's openova-sme-tenants GitRepository. Adds
 # `secrets: create` to the cutover-runner RBAC.
-version: 0.1.62
+version: 0.1.63
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

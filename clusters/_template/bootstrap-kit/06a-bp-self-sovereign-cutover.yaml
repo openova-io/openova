@@ -486,7 +486,21 @@ spec:
       # deletes+re-runs a GENUINELY-failed step (the zero-touch re-trigger the
       # timeouts-only auto-resume #3558 won't drive); auto-resume stays
       # fail-closed. No step-count change.
-      version: 0.1.62
+      # 0.1.63 (Refs #3379 #3526, hw139 strip-before-pivot half-pivot): the
+      # ROOT-CAUSE fix for the half-pivot that froze 8 HRs on hw139 for 10h.
+      # Step-06 used to STRIP ghcr.io/harbor.openova.io auth from ghcr-pull in
+      # Phase-0 — BEFORE the Phase-1 HelmRepository URL pivot. Any later-step
+      # wedge then left ghcr.io creds gone while HR sources still pointed at
+      # ghcr.io → every reconcile failed "no auth config for 'ghcr.io'",
+      # unrecoverable zero-touch. FIX: Phase-0 is now purely ADDITIVE (merge
+      # Harbor auth, keep ghcr.io fallback); the destructive strip moved to a
+      # NEW Phase 3 at the END of Step-06, gated behind a bounded wait that
+      # proves every local-Harbor HelmRepository is Ready=True FIRST. If the
+      # pivot doesn't converge, the strip is REFUSED (Job exits non-zero,
+      # ghcr.io auth intact, recoverable). Invariant: ghcr.io creds never
+      # stripped until every HR pulls Ready from registry.<fqdn>.
+      # helmRepositoryPatchesSeconds 600→2400 + new stripReadinessSeconds 600.
+      version: 0.1.63
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

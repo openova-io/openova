@@ -279,13 +279,19 @@ if ! grep -q 'gitea_host=' "$TMP/render.yaml"; then
 fi
 echo "  PASS (Step-01 has DNS readiness probe)"
 
-echo "[cutover-contract] Case 17: Step-06 phase-0 merges harbor.<sov-fqdn> auth into ghcr-pull (#1184)"
+echo "[cutover-contract] Case 17: Step-06 phase-0 ADDS harbor.<sov-fqdn> auth to ghcr-pull (#1184)"
 # 0.1.23 only patched HelmRepository URLs; the pivoted URLs 401 on
 # first reconcile because ghcr-pull lacks auth for harbor.<sov-fqdn>.
 # 0.1.24 adds Phase-0 to Step-06 that merges admin:<password> into the
 # Secret. Guard against future regressions that drop the merge.
-if ! grep -q 'Phase 0: merge harbor' "$TMP/render.yaml"; then
-  echo "FAIL: Step-06 missing Phase 0 (harbor.<sov-fqdn> auth merge into ghcr-pull) (#1184)" >&2
+#
+# Strip-before-pivot fix (Refs #3379 #3526): Phase-0 is now PURELY
+# ADDITIVE ("Phase 0: ADD harbor...") — the destructive mothership-auth
+# strip moved to Phase 3 (see Case 17b). The harbor-auth ADD itself MUST
+# still be wired here (it's the precondition for the pivot to pull from
+# local Harbor).
+if ! grep -q 'Phase 0: ADD harbor' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 missing Phase 0 (harbor.<sov-fqdn> auth ADD into ghcr-pull) (#1184)" >&2
   exit 1
 fi
 if ! grep -q 'GHCR_PULL_SECRET_NAME' "$TMP/render.yaml"; then
@@ -307,6 +313,59 @@ if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" \
   exit 1
 fi
 echo "  PASS (Step-06 Phase-0 ghcr-pull merge wired)"
+
+echo "[cutover-contract] Case 17b: Step-06 strips mothership auth in Phase 3 (AFTER pivot+readiness), NOT in Phase-0 (strip-before-pivot fix, Refs #3379 #3526)"
+# THE STRIP-BEFORE-PIVOT GUARD. hw139: Phase-0 stripped ghcr.io/harbor.
+# openova.io BEFORE the Phase-1 URL pivot; a later step wedged → ghcr.io
+# creds gone while HR sources still pointed at ghcr.io → 8 HRs wedged on
+# "no auth config for 'ghcr.io'", unrecoverable zero-touch. The fix moves
+# the destructive `del(.auths[...])` strip to a NEW Phase 3 at the END of
+# Step-06, gated behind a bounded wait that proves every local-Harbor
+# HelmRepository is Ready=True FIRST. This case locks that ordering in.
+#
+# (a) The strip must exist and be labelled Phase-3 (not Phase-0).
+if ! grep -q 'Phase 3 — readiness-gated mothership-auth STRIP' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 missing the Phase-3 readiness-gated strip block (strip-before-pivot fix, Refs #3379 #3526)" >&2
+  exit 1
+fi
+# (b) A readiness wait MUST gate the strip: the strip-readiness timeout
+#     env + the Ready=True wait loop + the fail-closed REFUSE message.
+if ! grep -q 'STRIP_READINESS_TIMEOUT_SECONDS' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 missing STRIP_READINESS_TIMEOUT_SECONDS env — the strip is not readiness-gated (Refs #3379 #3526)" >&2
+  exit 1
+fi
+if ! grep -q 'REFUSING to strip ghcr.io' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 strip is not fail-closed — must REFUSE the strip (exit non-zero, ghcr.io auth intact) when the pivot does not reach Ready (Refs #3379 #3526)" >&2
+  exit 1
+fi
+# (c) The strip env timeout MUST be backed by a chart value (the test
+#     runs from CHART_DIR, so values.yaml is CWD-relative). Belt-and-
+#     braces with (b): the rendered env carrying a non-empty value below
+#     already proves it flows, but assert the source knob exists too.
+if ! grep -q 'stripReadinessSeconds' values.yaml; then
+  echo "FAIL: chart values.yaml missing stepTimeouts.stripReadinessSeconds (backs STRIP_READINESS_TIMEOUT_SECONDS) (Refs #3379 #3526)" >&2
+  exit 1
+fi
+# The rendered env MUST carry a concrete positive integer (not empty).
+if ! grep -A1 'name: STRIP_READINESS_TIMEOUT_SECONDS' "$TMP/render.yaml" | grep -Eq 'value: "[0-9]+"'; then
+  echo "FAIL: STRIP_READINESS_TIMEOUT_SECONDS rendered with no/empty value (Refs #3379 #3526)" >&2
+  exit 1
+fi
+# (d) Phase-0 MUST NOT carry the destructive del() — verify the ONLY
+#     non-comment `del(.auths[` occurrence sits AFTER the Phase-3 header.
+#     (Comment lines mentioning del() are fine; the executable jq filter
+#     line `jq_filter="... | del(.auths[$s...` is the one that matters.)
+phase3_line=$(grep -n 'Phase 3 — readiness-gated mothership-auth STRIP' "$TMP/render.yaml" | head -1 | cut -d: -f1)
+del_exec_line=$(grep -n 'jq_filter=.*del(.auths\[' "$TMP/render.yaml" | head -1 | cut -d: -f1)
+if [ -z "${del_exec_line}" ]; then
+  echo "FAIL: Step-06 has no executable del(.auths[...]) jq filter — the strip was dropped entirely (Refs #3379 #3526)" >&2
+  exit 1
+fi
+if [ -z "${phase3_line}" ] || [ "${del_exec_line}" -lt "${phase3_line}" ]; then
+  echo "FAIL: Step-06 executable strip del(.auths[...]) at line ${del_exec_line} runs BEFORE the Phase-3 header at line ${phase3_line:-<none>} — strip-before-pivot regression (Refs #3379 #3526)" >&2
+  exit 1
+fi
+echo "  PASS (strip is in Phase 3, readiness-gated + fail-closed, after the pivot)"
 
 echo "[cutover-contract] Case 16: Step-06 helmrepository-patches pushes YAML edit to local Gitea (#970)"
 # 0.1.19 Step-06 only ran kubectl patch against live HelmRepository
