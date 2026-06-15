@@ -278,27 +278,42 @@ data:
             # after live delete), THEN live delete, THEN post-verify
             # waits ≥1 mirror-resync interval to confirm the tether stays
             # severed.
-            echo "[gitea-mirror] G75: severing upstream git tether (delete mirror-resync CronJob)"
-            kubectl patch hr -n flux-system bp-self-sovereign-cutover \
-              --type=merge \
-              -p '{"spec":{"values":{"mirrorResync":{"enabled":false}}}}' 2>&1 || \
-              echo "[gitea-mirror] G75 WARN: HR patch failed (cronjob will recreate after delete unless chart conditional gates it)"
+            # G75 #3606 fast-path: with mirrorResync.enabled defaulting to
+            # false (values.yaml), template 11-mirror-resync-cronjob.yaml
+            # renders NOTHING — the gitea-mirror-resync CronJob never exists
+            # on a default Sovereign, so the tether is already severed at the
+            # IaC (git) layer. The old imperative `kubectl patch hr ...
+            # mirrorResync.enabled=false` was the #3606 bug: Flux owns this
+            # HR from git and REVERTED the patch every reconcile, re-rendering
+            # the CronJob → this 6-min post-verify FATAL'd → step-01 looped.
+            # We no longer patch the HR. We only DELETE + post-verify a
+            # rendered remnant when one actually exists (an operator overlay
+            # may have opted IN to mirrorResync pre-cutover).
+            if ! kubectl get cronjob -n {{ .Release.Namespace }} gitea-mirror-resync >/dev/null 2>&1; then
+              echo "[gitea-mirror] G75 OK: mirror-resync already severed at IaC layer (mirrorResync.enabled=false default) — skipping live-delete + post-verify hold"
+            else
+              echo "[gitea-mirror] G75: severing upstream git tether (delete mirror-resync CronJob)"
+              kubectl patch hr -n flux-system bp-self-sovereign-cutover \
+                --type=merge \
+                -p '{"spec":{"values":{"mirrorResync":{"enabled":false}}}}' 2>&1 || \
+                echo "[gitea-mirror] G75 WARN: HR patch failed (cronjob will recreate after delete unless chart conditional gates it)"
 
-            kubectl delete cronjob -n {{ .Release.Namespace }} gitea-mirror-resync --ignore-not-found=true 2>&1 || \
-              echo "[gitea-mirror] G75 WARN: cronjob delete failed (RBAC?)"
+              kubectl delete cronjob -n {{ .Release.Namespace }} gitea-mirror-resync --ignore-not-found=true 2>&1 || \
+                echo "[gitea-mirror] G75 WARN: cronjob delete failed (RBAC?)"
 
-            # Post-verify: wait 6min (>1 mirror-resync interval) + confirm
-            # CronJob still absent + confirm local Gitea HEAD unchanged.
-            CRONJOB_NS={{ .Release.Namespace }}
-            for i in $(seq 1 6); do
-              sleep 60
-              if kubectl get cronjob -n "${CRONJOB_NS}" gitea-mirror-resync >/dev/null 2>&1; then
-                echo "[gitea-mirror] G75 FATAL: cronjob reappeared at ${i}min — Flux re-reconciled despite HR patch (template not conditional?)"
-                exit 1
-              fi
-              echo "[gitea-mirror] G75 post-verify (${i}/6): cronjob still absent"
-            done
-            echo "[gitea-mirror] G75 OK: upstream git tether severed (cronjob deleted + HR patched + 6min hold confirmed no recreate)"
+              # Post-verify: wait 6min (>1 mirror-resync interval) + confirm
+              # CronJob still absent + confirm local Gitea HEAD unchanged.
+              CRONJOB_NS={{ .Release.Namespace }}
+              for i in $(seq 1 6); do
+                sleep 60
+                if kubectl get cronjob -n "${CRONJOB_NS}" gitea-mirror-resync >/dev/null 2>&1; then
+                  echo "[gitea-mirror] G75 FATAL: cronjob reappeared at ${i}min — Flux re-reconciled despite HR patch (template not conditional?)"
+                  exit 1
+                fi
+                echo "[gitea-mirror] G75 post-verify (${i}/6): cronjob still absent"
+              done
+              echo "[gitea-mirror] G75 OK: upstream git tether severed (cronjob deleted + HR patched + 6min hold confirmed no recreate)"
+            fi
 
             echo "[gitea-mirror] step complete"
         resources:
