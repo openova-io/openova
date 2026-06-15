@@ -1,0 +1,14 @@
+## KILL: region-a primary down (3 workers cordoned + primary pods force-deleted)
+T_KILL = 2026-06-15T04:59:00.486Z
+
+### region-a nodes (workers SchedulingDisabled, cp1 untouched):
+NAME                                                           STATUS                     ROLES                       AGE   VERSION
+catalyst-hw139-omani-works-c89aa705-me-east-215-a-cp1-cedba1   Ready                      control-plane,etcd,master   10h   v1.31.4+k3s1
+catalyst-hw139-omani-works-c89aa705-me-east-215-a-w9b5077      Ready,SchedulingDisabled   <none>                      10h   v1.31.4+k3s1
+catalyst-hw139-omani-works-c89aa705-me-east-215-a-wb1b4e4      Ready,SchedulingDisabled   <none>                      10h   v1.31.4+k3s1
+catalyst-hw139-omani-works-c89aa705-me-east-215-a-wf4b21d      Ready,SchedulingDisabled   <none>                      10h   v1.31.4+k3s1
+
+### region-a primary cluster (pods can't reschedule — region is 'dead'):
+NAME                             AGE   INSTANCES   READY   STATUS                     PRIMARY
+cnpg-pair-bp-cnpg-pair-primary   9h    3                   Cluster in healthy state   cnpg-pair-bp-cnpg-pair-primary-1
+No resources found in cnpg namespace.

@@ -1,0 +1,18 @@
+# hw139 #3375 REGION-KILL — execution evidence (LIVE, North Star 4)
+# deployment c89aa7059556b342 / hw139.omani.works
+# 2-region me-east-215-a (primary) + me-east-215-b (standby), ClusterMesh cross-region streaming
+# captured 2026-06-15T05:00:22Z
+#
+# NOTE: the cnpg-pair was found in Day-2 split-brain from a PRIOR rehearsal (see 00-as-found-split-brain.txt);
+# a documented cnpg replica re-bootstrap restored GENUINE live cross-region streaming (region-b re-cloned
+# from region-a primary on timeline 1, streaming async, verified by a propagated probe row) BEFORE this kill.
+
+## Timeline
+T_KILL          (region-a primary cordon+delete) = 2026-06-15T04:59:00.486Z
+T_PROMOTE_PATCH (replica.enabled=false issued)    = 2026-06-15T04:59:17.707Z
+T_WRITABLE      (pg_is_in_recovery=f on region-b) = 2026-06-15T04:59:18.612Z
+
+FULL RTO (kill -> writable)            = 18.13s
+Promotion latency (patch -> writable)  = 0.90s
+(Operator reaction kill -> patch       = 17.22s)
+DATA LOSS = 0 rows (pre-kill sentinel id=2 'regionkill-hw139' survived on promoted region-b; post-kill write id=35 accepted)
