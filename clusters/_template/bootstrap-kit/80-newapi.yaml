@@ -244,7 +244,15 @@ spec:
       # custom-provider upsert so the running pod actually loads the provider
       # (boot-only registry) — fixes the /api/oauth/sovereign "Unknown OAuth
       # provider" callback failure that blocked zero-click SSO on fresh provs.
-      version: 1.4.92
+      # 1.4.93 (#3563, 2026-06-15): idempotent zero-click RE-login — the bare-URL
+      # landing page (sandbox-bridge sso_init.go 0.1.17) now checks /api/user/self
+      # first (already signed-in → straight to /console) and otherwise clears any
+      # stale session via /api/user/logout before re-authenticating, so the
+      # callback takes NewAPI's login branch instead of the bind branch that
+      # errored "already bound" on every 2nd bare-URL visit (live hw139). NOTE:
+      # build-bp-newapi-sandbox-bridge.yaml re-tags the sidecar + may auto-bump
+      # this pin further on merge (it rebuilds the bridge that carries this fix).
+      version: 1.4.93
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
