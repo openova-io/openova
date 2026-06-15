@@ -1,0 +1,7 @@
+NS#4 REGION-KILL PROOF — hw144 (d8e798bdf1b4256b) — 2026-06-15
+Gate: region-b shared-pg-replica streaming (pg_is_in_recovery=t, wal_receiver=streaming), keycloak DB present with realms master+sovereign + 3 users.
+T0 kill (cordon 3 region-a workers + delete shared-pg-1/2/3): 12:23:00Z
+T1 promote (patch shared-pg-replica replica.enabled=false): 12:23:39Z
+Promoted (pg_is_in_recovery=f): 12:23:43Z  -> cnpg promotion RTO ~4s
+POST-KILL region-b (now primary): realms=master,sovereign ; users=admin,emrah.baysal@openova.io,service-account-catalyst-api-server (count=3)
+RPO=0 (identical to pre-kill baseline). North Star #4: region-kill preserves the consumer's keycloak data. PASS.
