@@ -171,7 +171,7 @@ spec:
       # SSO users into sovereign-admins → admin DETERMINISTIC. 0.2.16 had the
       # USER_GROUP+ADMINISTER but the membership table stayed empty so the owner
       # got no admin menu (#3475). Proven live on hw133.
-      version: 0.2.19
+      version: 0.2.20
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
