@@ -194,6 +194,19 @@ const (
 	// case is ~15 min; pad to 20 min for the per-peer cert mint +
 	// Patch stack.
 	clusterMeshAttemptTimeoutDefault = 20 * time.Minute
+
+	// Steady-state heal cadence (#3583). After the retry loop first
+	// converges (mesh fully established + #3236 cnpg-pair flip landed),
+	// runAutoEstablishClusterMesh does NOT exit — it keeps re-running the
+	// idempotent establish at this low frequency for as long as the
+	// deployment stays status=ready, so a replica-auth Secret that gets
+	// collaterally deleted from the replica's namespace (hw144: convergence
+	// churn's gitea/harbor uninstall-remediation loops wiped the freshly
+	// copied shared-pg `<name>-replication`/`-ca` Secrets out of shared-data,
+	// and nothing re-copied because the loop had already exited) is re-copied
+	// on the next pass. The Handler field clusterMeshSteadyStateInterval
+	// overrides this for tests; zero falls back to the default below.
+	clusterMeshSteadyStateIntervalDefault = 5 * time.Minute
 )
 
 // ClusterMesh-gated cnpg-pair enable (#3236) — names of the Flux
@@ -1305,9 +1318,12 @@ func (h *Handler) syncSharedPGReplicaAuthSecrets(ctx context.Context, dep *Deplo
 // managedFields / creationTimestamp / generation / selfLink) are
 // stripped so the object is admissible on the destination; Data, Type,
 // Labels, and (non-Kustomize) Annotations carry over. Idempotent: a
-// re-run overwrites the destination's Data/Type with the current source
-// bytes (which is what makes the #3241 level-trigger re-run refresh the
-// copy). The destination namespace is assumed to exist (slot 16b ships
+// re-run refreshes the destination's Data/Type from the current source
+// bytes (which is what makes the #3241 level-trigger / #3583 steady-state
+// re-run heal the copy). When the destination already matches the source
+// (the common steady-state pass — nothing drifted) the Update is SKIPPED
+// (#3583), so a heal pass is a cheap Get+compare that writes only on
+// drift. The destination namespace is assumed to exist (slot 16b ships
 // the `cnpg` Namespace unconditionally on every region).
 func (h *Handler) copySecretAcrossClusters(ctx context.Context, src *corev1.Secret, dst kubernetes.Interface, namespace string) error {
 	if src == nil {
@@ -1341,6 +1357,14 @@ func (h *Handler) copySecretAcrossClusters(ctx context.Context, src *corev1.Secr
 		}
 		return nil
 	}
+	// #3583: the destination already exists. On the common steady-state pass
+	// the bytes match (nothing drifted) — skip the Update entirely so the
+	// heal phase stays a cheap Get+compare and only writes when it is
+	// genuinely re-healing. An Update on every pass would churn
+	// resourceVersions for no reason and add needless apiserver load.
+	if secretContentMatches(existing, desired) {
+		return nil
+	}
 	// Update in place — preserve the destination's resourceVersion so the
 	// Update is accepted, overwrite Data/Type/Labels/Annotations.
 	existing.Data = desired.Data
@@ -1354,6 +1378,41 @@ func (h *Handler) copySecretAcrossClusters(ctx context.Context, src *corev1.Secr
 	return nil
 }
 
+// secretContentMatches reports whether the destination Secret already
+// carries the desired content, so copySecretAcrossClusters /
+// updateCopiedSecret can skip a redundant Update on a steady-state heal
+// pass (#3583). It compares Type and the EFFECTIVE data — Data overlaid
+// with StringData — because the apiserver folds StringData into Data on
+// write, so a destination that was created from `desired` reports the
+// merged bytes under .Data with .StringData cleared. Labels/Annotations
+// are intentionally NOT part of the match: the replica-auth Secrets this
+// path copies carry no meaningful labels, and the heal contract is about
+// the WAL-stream auth material (Data/Type), not cosmetic metadata.
+func secretContentMatches(existing, desired *corev1.Secret) bool {
+	if existing == nil || desired == nil {
+		return false
+	}
+	if existing.Type != desired.Type {
+		return false
+	}
+	return reflect.DeepEqual(effectiveSecretData(existing), effectiveSecretData(desired))
+}
+
+// effectiveSecretData returns Data overlaid with StringData (StringData
+// wins, matching apiserver semantics), as a fresh map so callers never
+// mutate the Secret. Empty values normalise to a non-nil empty map so a
+// nil-Data and empty-Data Secret compare equal.
+func effectiveSecretData(s *corev1.Secret) map[string][]byte {
+	out := make(map[string][]byte, len(s.Data)+len(s.StringData))
+	for k, v := range s.Data {
+		out[k] = v
+	}
+	for k, v := range s.StringData {
+		out[k] = []byte(v)
+	}
+	return out
+}
+
 // updateCopiedSecret is the create-raced-update fallback for
 // copySecretAcrossClusters: re-Get to pick up the live resourceVersion,
 // then Update with the desired Data/Type/Labels/Annotations.
@@ -1361,6 +1420,11 @@ func (h *Handler) updateCopiedSecret(ctx context.Context, desired *corev1.Secret
 	existing, err := dst.CoreV1().Secrets(namespace).Get(ctx, desired.Name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("Get Secret %s/%s on replica (race fallback): %w", namespace, desired.Name, err)
+	}
+	// #3583: the racing creator may have already written the desired bytes —
+	// skip the redundant Update if so.
+	if secretContentMatches(existing, desired) {
+		return nil
 	}
 	existing.Data = desired.Data
 	existing.StringData = desired.StringData
