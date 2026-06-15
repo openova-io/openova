@@ -727,21 +727,41 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		// #3374 — gate the grid Open button on the SAME user-UI signal the
+		// AppDetail launch button uses (userUIGatePasses →
+		// blueprintHasUserUIEndpoint, #3224). An HTTPRoute existing for an HR
+		// is necessary but NOT sufficient: API/protocol-only backends
+		// (bp-newapi, bp-openova-flow-server) also own routes, and projecting
+		// their externalURL here would render a dead Open button that dumps
+		// the operator on a login form / 404. The gate fails OPEN when the
+		// catalog is unwired (chroot/CI) so working buttons are never
+		// suppressed fleet-wide.
+		//
+		// Memoize the decision per BLUEPRINT so this hot list path (the FE
+		// polls /apps every 5s) issues at most ONE catalog round-trip per
+		// UNIQUE chart — not one per HR. Without the memo, N bootstrap HRs
+		// (+ the shared-pg/-b/-c instances that share a chart) would each
+		// re-fetch under the single shared ctx deadline; whichever HRs were
+		// iterated last when a slow catalog exhausted the budget would
+		// non-deterministically lose their Open button (Go map order is
+		// random). The unique-chart set is tiny (grafana, harbor, openbao,
+		// gitea, keycloak, guacamole, powerdns-admin) so this stays well
+		// inside the 10s budget.
+		gateMemo := map[string]bool{}
+		gatePasses := func(blueprint string) bool {
+			if v, seen := gateMemo[blueprint]; seen {
+				return v
+			}
+			v := h.userUIGatePasses(ctx, blueprint)
+			gateMemo[blueprint] = v
+			return v
+		}
 		for hrName, info := range hrInfo {
 			url, ok := hrURL[[2]string{info.targetNamespace, info.releaseName}]
 			if !ok {
 				continue
 			}
-			// #3374 — gate the grid Open button on the SAME user-UI signal
-			// the AppDetail launch button uses (userUIGatePasses →
-			// blueprintHasUserUIEndpoint, #3224). An HTTPRoute existing for
-			// an HR is necessary but NOT sufficient: API/protocol-only
-			// backends (bp-newapi, bp-openova-flow-server) also own routes,
-			// and projecting their externalURL here would render a dead Open
-			// button that dumps the operator on a login form / 404. The gate
-			// fails OPEN when the catalog is unwired (chroot/CI) so working
-			// buttons are never suppressed fleet-wide.
-			if !h.userUIGatePasses(ctx, info.blueprint) {
+			if !gatePasses(info.blueprint) {
 				continue
 			}
 			urlByHRName[hrName] = url
