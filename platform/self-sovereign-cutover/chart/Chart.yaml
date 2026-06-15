@@ -665,7 +665,18 @@ name: bp-self-sovereign-cutover
 #       preserved INSIDE the else branch for any rendered remnant (overlay
 #       opt-in). Step-01 no longer self-defeatingly patches the Flux-owned HR
 #       on the default path.
-version: 0.1.66
+# 0.1.67 (#3608, Refs #3568 #3379, hw145 step-03 unschedulable 2026-06-16):
+# Step-03 (harbor-prewarm) could not schedule. Its Pod requested 500m CPU
+# (G66, when the step gained skopeo image-copy work), but on a tight Sovereign
+# every node ran 89–99% CPU-requested (only ~424m free on the best node) → the
+# Pod sat Pending 22+ min with FailedScheduling "Insufficient cpu" and the
+# cutover stalled at step-03. harbor-prewarm is a skopeo image-copy Job —
+# I/O-bound (streaming image layers), NOT CPU-bound; every OTHER cutover step
+# Job requests only 25–100m CPU. FIX (chart-only, template
+# 03-harbor-prewarm-job.yaml): right-size requests.cpu 500m → 100m. Memory
+# stays 512Mi (skopeo needs the RAM for layer buffers) and the limits block is
+# unchanged. No step-count / RBAC / timeout change.
+version: 0.1.67
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
