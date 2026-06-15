@@ -995,14 +995,34 @@ func (h *Handler) runHandoverJobSweep(dep *Deployment) {
 // re-running until fully meshed converges instead of thrashing.
 //
 // Loop shape: run the establish; when every region reports ReadyAt
-// (fully meshed) stop with a final success event. Otherwise sleep an
-// exponential backoff (clusterMeshRetryInitialBackoff doubling to
-// clusterMeshRetryMaxBackoff) and re-run, bounded by the
-// clusterMeshRetryBudget total and by the deployment staying
-// status=ready (a wipe mid-loop stops the retries — the kubeconfigs
-// are gone or going). Each retry emits a clustermesh-progress event
-// (attempt N, fullyMeshed X/Y) so the operator watches convergence,
-// not silence.
+// (fully meshed) AND the #3236 cnpg-pair flip has landed, emit the final
+// success event ONCE and transition into the steady-state heal phase
+// (below) — it does NOT exit. Otherwise sleep an exponential backoff
+// (clusterMeshRetryInitialBackoff doubling to clusterMeshRetryMaxBackoff)
+// and re-run, bounded by the clusterMeshRetryBudget total and by the
+// deployment staying status=ready (a wipe mid-loop stops the retries —
+// the kubeconfigs are gone or going). Each retry emits a
+// clustermesh-progress event (attempt N, fullyMeshed X/Y) so the operator
+// watches convergence, not silence.
+//
+// Steady-state heal phase (#3583): after first convergence the goroutine
+// keeps re-running the SAME idempotent establish at the much slower
+// clusterMeshSteadyStateInterval, bounded ONLY by the deployment staying
+// status=ready (its own context.Background()-derived ctx, NOT the retry
+// budget — the budget only governs the bounded convergence phase). hw144
+// proved why a permanent exit was wrong: the 6 shared-pg replica-auth
+// `<name>-replication`/`-ca` Secrets were copied primary→replica at
+// convergence, the loop converged + exited, then convergence churn
+// (gitea/harbor uninstall-remediation loops) collaterally DELETED them
+// from the replica's shared-data namespace and NOTHING re-copied (the loop
+// was gone, the next trigger is a catalyst-api restart) → the shared-pg
+// replicas could never pg_basebackup → cross-region DR went hollow. Every
+// step inside AutoEstablishClusterMesh is idempotent and the
+// copySecretAcrossClusters write is now skipped when the destination
+// already matches (#3583), so a steady-state pass is a cheap Get+compare
+// that writes ONLY when it is actually healing a drift. The first-
+// convergence success event still fires exactly once (operator signal);
+// the status!=ready check ends the goroutine on wipe.
 func (h *Handler) runAutoEstablishClusterMesh(dep *Deployment) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -1078,6 +1098,13 @@ func (h *Handler) runAutoEstablishClusterMesh(dep *Deployment) {
 				"attempt", attempt,
 				"regions", len(statuses),
 			)
+			// #3583: do NOT exit on first convergence — transition into the
+			// steady-state heal phase so a collaterally-deleted replica-auth
+			// Secret is re-copied on the next pass (hw144). The success event
+			// above fires exactly once (the operator's "converged" signal);
+			// the heal phase runs on its own long-lived ctx (not the retry
+			// budget) and ends only when the deployment leaves status=ready.
+			h.runClusterMeshSteadyStateHeal(dep)
 			return
 		}
 		if err != nil {
@@ -1135,6 +1162,127 @@ func (h *Handler) runAutoEstablishClusterMesh(dep *Deployment) {
 		if backoff > maxBackoff {
 			backoff = maxBackoff
 		}
+	}
+}
+
+// runClusterMeshSteadyStateHeal is the post-convergence phase of
+// runAutoEstablishClusterMesh (#3583). Once the bounded retry loop has
+// reached full convergence (mesh established + #3236 cnpg-pair flip
+// landed) it does NOT exit; it re-runs the idempotent
+// autoEstablishClusterMesh at the slow clusterMeshSteadyStateInterval for
+// as long as the deployment stays status=ready, so a replica-auth Secret
+// that gets collaterally deleted out of the replica's namespace (hw144:
+// the shared-pg `<name>-replication`/`-ca` Secrets, deleted by convergence
+// churn's gitea/harbor uninstall-remediation loops) is re-copied on the
+// next pass instead of dangling until the next catalyst-api restart.
+//
+// Lifecycle contract (do NOT widen):
+//   - Its own ctx is derived from context.Background(), NOT the retry
+//     budget — the budget bounds only the convergence phase; steady-state
+//     is unbounded in time and ends solely on status != "ready".
+//   - status is re-checked before AND after every pass (a wipe that lands
+//     mid-sleep or mid-pass exits the goroutine promptly — the kubeconfigs
+//     are gone or going, same rationale as the convergence loop's check).
+//   - Each pass is bounded by clusterMeshAttemptTimeout, mirroring the
+//     convergence loop's per-attempt bound.
+//   - Reads dep.Status / dep.Request under dep.mu only; writes NOTHING to
+//     dep.Result (the package's -race rule: dep.Result is stamped at
+//     startup only). The success event already fired exactly once in the
+//     caller; steady-state stays quiet (debug-level log) on the common
+//     no-drift pass and only emits a clustermesh-progress event when a
+//     pass actually re-heals or regresses.
+func (h *Handler) runClusterMeshSteadyStateHeal(dep *Deployment) {
+	interval := h.clusterMeshSteadyStateInterval
+	if interval <= 0 {
+		interval = clusterMeshSteadyStateIntervalDefault
+	}
+	attemptTimeout := h.clusterMeshAttemptTimeout
+	if attemptTimeout <= 0 {
+		attemptTimeout = clusterMeshAttemptTimeoutDefault
+	}
+
+	// Long-lived ctx: lives until the deployment leaves status=ready (the
+	// status check below cancels the work), independent of the convergence
+	// budget that bounded the caller's retry loop.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h.log.Info("clustermesh: steady-state heal phase started — re-reconciling on interval until the deployment leaves status=ready",
+		"id", dep.ID,
+		"interval", interval,
+	)
+
+	for {
+		dep.mu.Lock()
+		status := dep.Status
+		dep.mu.Unlock()
+		if status != "ready" {
+			h.log.Info("clustermesh: steady-state heal phase stopped — deployment no longer ready",
+				"id", dep.ID,
+				"status", status,
+			)
+			return
+		}
+
+		if sleepErr := sleepCtx(ctx, interval); sleepErr != nil {
+			// ctx cancelled (process shutdown) — stop quietly.
+			h.log.Info("clustermesh: steady-state heal phase stopped — context cancelled",
+				"id", dep.ID,
+				"err", sleepErr,
+			)
+			return
+		}
+
+		// Re-check after the sleep: a wipe that landed during the interval
+		// must not get an establish attempt hurled at a tearing-down cluster.
+		dep.mu.Lock()
+		status = dep.Status
+		dep.mu.Unlock()
+		if status != "ready" {
+			h.log.Info("clustermesh: steady-state heal phase stopped — deployment no longer ready",
+				"id", dep.ID,
+				"status", status,
+			)
+			return
+		}
+
+		attemptCtx, cancelAttempt := context.WithTimeout(ctx, attemptTimeout)
+		statuses, cnpgPairConverged, err := h.autoEstablishClusterMesh(attemptCtx, dep)
+		cancelAttempt()
+
+		fullyMeshed := countFullyMeshedRegions(statuses)
+		meshConverged := len(statuses) >= 2 && fullyMeshed == len(statuses)
+		if err != nil {
+			// A transient error on a steady-state pass is not fatal — the
+			// next pass retries. Surface it so a persistent drift is visible.
+			h.emitClusterMeshProgress(dep, "warn",
+				fmt.Sprintf("ClusterMesh steady-state heal: reconcile pass returned an error (%v) — retrying on the next %s interval", err, interval))
+			h.log.Warn("clustermesh: steady-state heal pass returned error",
+				"id", dep.ID,
+				"err", err,
+			)
+			continue
+		}
+		if meshConverged && cnpgPairConverged {
+			// Common case: still fully converged, the copy was a no-op
+			// (destination already matched). Stay quiet — debug-level only.
+			h.log.Debug("clustermesh: steady-state heal pass — still fully converged, no drift",
+				"id", dep.ID,
+				"regions", len(statuses),
+			)
+			continue
+		}
+		// A drift was found and (idempotently) re-healed by this pass — the
+		// copy re-created the deleted Secret(s) / the flip was re-applied.
+		// Surface it so the operator sees the self-heal fire (hw144 shape).
+		h.emitClusterMeshProgress(dep, "info",
+			fmt.Sprintf("ClusterMesh steady-state heal: re-reconciled a drift (%d/%d regions meshed, cnpg-pair flip landed=%t) — replica-auth Secrets / gate re-applied", fullyMeshed, len(statuses), cnpgPairConverged))
+		h.log.Info("clustermesh: steady-state heal pass re-reconciled a drift",
+			"id", dep.ID,
+			"fullyMeshed", fullyMeshed,
+			"regions", len(statuses),
+			"cnpgPairConverged", cnpgPairConverged,
+		)
 	}
 }
 

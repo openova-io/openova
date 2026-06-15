@@ -177,6 +177,17 @@ type Handler struct {
 	clusterMeshRetryBudget         time.Duration
 	clusterMeshAttemptTimeout      time.Duration
 
+	// clusterMeshSteadyStateInterval (#3583) — cadence of the
+	// post-convergence steady-state heal phase. Once the retry loop
+	// converges, runAutoEstablishClusterMesh re-runs the idempotent
+	// establish at this interval (on a long-lived ctx, bounded only by the
+	// deployment staying status=ready) so a collaterally-deleted
+	// replica-auth Secret self-heals. Zero falls back to
+	// clusterMeshSteadyStateIntervalDefault. Tests inject a sub-second
+	// value so the steady-state pass is exercised in milliseconds;
+	// production leaves it at zero.
+	clusterMeshSteadyStateInterval time.Duration
+
 	// handoverCertWaitTimeout / handoverCertPollInterval — runtime knobs
 	// for the loop that waits for the sovereign-wildcard-tls Certificate
 	// Ready=True before the handover auto-fire mints the JWT. Zero falls
