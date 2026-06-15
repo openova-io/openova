@@ -15,9 +15,11 @@
 // through a per-mechanism Promoter (promoter.go). For the default
 // `cnpg-pair` mechanism they cordon via a `cnpg.io/cluster.primary`
 // annotation + flip `spec.replica.enabled` on the two Cluster CR halves;
-// for `raft-transition` (bp-openbao) they restore the staged Raft snapshot
-// + run `bao operator raft transition-to-primary` on the surviving standby
-// Pod (#3492). The other five steps are mechanism-agnostic.
+// for `raft-transition` (bp-openbao) they run the OpenBao OSS peers.json
+// recovery (optional snapshot restore → write a single-voter peers.json on
+// the surviving standby → restart its Pod so it self-elects as leader;
+// `transition-to-primary` is Enterprise-only and absent in OSS — #3492).
+// The other five steps are mechanism-agnostic.
 //
 // Each step is atomic and registers a rollback hook. On step-N
 // failure, steps {N-1 .. 1} are rolled back in reverse order. Steps
@@ -458,10 +460,10 @@ func (s *Sequencer) steps(plan SwitchoverPlan) []stepFunc {
 
 		// Step 6 — promote the standby to primary. Mechanism-specific:
 		// cnpg-pair clears the cordon + flips replica.enabled on both
-		// Cluster CR halves; raft-transition restores the staged snapshot
-		// + runs `bao operator raft transition-to-primary` on the
-		// surviving openbao standby. Dispatched through the per-mechanism
-		// Promoter (#3492).
+		// Cluster CR halves; raft-transition runs the OSS peers.json
+		// recovery (optional snapshot restore → single-voter peers.json
+		// write → Pod restart) on the surviving openbao standby.
+		// Dispatched through the per-mechanism Promoter (#3492).
 		{
 			name: "promote-new-primary",
 			run: func(ctx context.Context) (func(ctx context.Context) error, error) {

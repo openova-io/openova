@@ -118,11 +118,11 @@ type ContinuumReconciler struct {
 	Drainer switchover.HTTPRouteDrainer
 
 	// RaftPromoter serves the `raft-transition` switchover mechanism
-	// (bp-openbao): restore the staged snapshot + `bao operator raft
-	// transition-to-primary` via Pod exec on the surviving standby.
-	// Wired in cmd/main.go from a pod-exec backend. Nil = raft-transition
-	// CRs fail at step-2 with a clear error (cnpg-pair CRs unaffected).
-	// (#3492)
+	// (bp-openbao): the OSS peers.json recovery (optional snapshot restore →
+	// single-voter peers.json write via Pod exec → Pod restart) on the
+	// surviving standby. Wired in cmd/main.go from a pod-exec + pod-delete
+	// backend. Nil = raft-transition CRs fail at step-2 with a clear error
+	// (cnpg-pair CRs unaffected). (#3492)
 	RaftPromoter switchover.Promoter
 
 	// HealthOpts carries the F-3 post-switchover health-check

@@ -39,13 +39,23 @@ type: application
 # 0.1.0 sat in-tree without a bootstrap-kit slot to pin it, so the
 # blueprint-release workflow's `detect changed paths` step never had
 # reason to re-run and the chart was never pushed to GHCR.
+# 0.1.7 (#3492, 2026-06-15): CORRECT the raft-transition promote step to the
+# real OpenBao OSS mechanism. `bao operator raft transition-to-primary` does
+# NOT exist in OSS (openbao PR #996 — OSS raft has only promote/demote
+# voter-state, useless when all voters are dead), so the 0.1.6 RaftExecPromoter
+# would have failed on a real region-kill. Replaced with OSS peers.json
+# RECOVERY: (optional snapshot restore →) write a single-voter peers.json into
+# <raftDataPath>/raft/ on the survivor → RESTART the Pod (new PodRestarter
+# seam; openbao re-reads peers.json on boot and self-elects as sole leader).
+# RBAC adds pods `delete` (the restart). The chart-side cross-region replication
+# (region-B as a retry_join non-voter holding region-A's live KV) ships in
+# bp-openbao 1.2.41. Slot-62 pin moves to 0.1.7 in lockstep (Principle #13).
 # 0.1.6 (#3492, 2026-06-14): the switchover sequencer gains a
 # per-mechanism Promoter seam — cnpg-pair (default, byte-identical) +
-# raft-transition (bp-openbao: `bao operator raft snapshot restore` +
-# `transition-to-primary` via Pod exec on the surviving standby). RBAC
-# adds pods + pods/exec for the raft promotion. Slot-62 pin moves to
-# 0.1.6 in lockstep (Inviolable Principle #13).
-version: 0.1.6
+# raft-transition (bp-openbao). (Promote step corrected in 0.1.7 —
+# transition-to-primary is not an OSS command.) RBAC adds pods + pods/exec for
+# the raft promotion. Slot-62 pin moves to 0.1.6 in lockstep (Principle #13).
+version: 0.1.7
 appVersion: "0.1.0"
 home: https://openova.io
 sources:

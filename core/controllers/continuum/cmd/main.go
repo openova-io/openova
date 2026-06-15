@@ -189,21 +189,25 @@ func main() {
 		}
 	}
 
-	// #3492 — raft-transition promotion backend (bp-openbao). The
-	// RaftExecPromoter execs `bao operator raft snapshot restore` +
-	// `transition-to-primary` into the surviving openbao standby Pod via
-	// SPDY exec; the PodLister resolves a podSelector to a Ready Pod.
-	// cnpg-pair CRs never touch this path. A nil executor (clientset
-	// init failure) leaves raft-transition CRs failing at step-2 with a
-	// clear "no RaftPromoter wired" error rather than crashing the
-	// controller — cnpg-pair DR is unaffected.
+	// #3492 — raft-transition promotion backend (bp-openbao). OpenBao OSS
+	// peers.json recovery: the RaftExecPromoter (optionally) execs `bao
+	// operator raft snapshot restore`, then writes a single-voter peers.json
+	// into the surviving openbao standby's raft data dir via SPDY exec, then
+	// RESTARTS the Pod (Restarter — same spdyPodExecutor backend, which holds
+	// pods/delete) so openbao re-reads peers.json on boot and self-elects as
+	// the sole leader. (transition-to-primary does NOT exist in OSS — openbao
+	// PR #996.) The PodLister resolves a podSelector to a Ready Pod. cnpg-pair
+	// CRs never touch this path. A nil executor (clientset init failure)
+	// leaves raft-transition CRs failing at step-2 with a clear error rather
+	// than crashing the controller — cnpg-pair DR is unaffected.
 	var raftPromoter switchover.Promoter
 	if execBackend, err := newSPDYPodExecutor(ctrl.GetConfigOrDie()); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: raft-transition exec backend init failed (%v); raft-transition switchovers will error until fixed (cnpg-pair unaffected)\n", err)
 	} else {
 		raftPromoter = &switchover.RaftExecPromoter{
-			Exec:   execBackend,
-			Lister: newDynamicPodLister(dyn),
+			Exec:      execBackend,
+			Restarter: execBackend,
+			Lister:    newDynamicPodLister(dyn),
 		}
 	}
 

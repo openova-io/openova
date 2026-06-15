@@ -13,10 +13,11 @@
 // steps are: annotate `cnpg.io/cluster.primary` on the primary Cluster CR
 // (cordon) and flip `spec.replica.enabled` on the two cluster-pair halves
 // (promote). For the raft-transition mechanism (bp-openbao, per
-// docs/topology-matrix.md) the promotion is instead a `bao operator raft
-// snapshot restore` of the staged snapshot followed by `bao operator raft
-// transition-to-primary` on the surviving-region standby pod — with NO
-// CNPG cluster-pair involved at all.
+// docs/topology-matrix.md) the promotion is instead the OpenBao OSS
+// peers.json recovery — an optional `bao operator raft snapshot restore`
+// followed by a single-voter peers.json write + Pod restart on the
+// surviving-region standby pod (`transition-to-primary` is Enterprise-only,
+// absent in OSS) — with NO CNPG cluster-pair involved at all.
 //
 // The Promoter interface is the seam. The sequencer selects the active
 // Promoter by `SwitchoverPlan.Mechanism`; cnpgPromoter is the default so
@@ -50,9 +51,10 @@ const (
 	MechanismCNPGPair Mechanism = "cnpg-pair"
 
 	// MechanismRaftTransition — the bp-openbao active-passive promotion:
-	// restore the staged Raft snapshot + `bao operator raft
-	// transition-to-primary` on the surviving-region standby pod. KV reads
-	// continue uninterrupted on the replica throughout (the row invariant).
+	// OpenBao OSS peers.json recovery on the surviving-region standby pod
+	// (optional snapshot restore → single-voter peers.json write → Pod
+	// restart). KV reads continue uninterrupted on the replica until the
+	// restart (the row invariant; the restart is a single Pod recreate).
 	MechanismRaftTransition Mechanism = "raft-transition"
 )
 

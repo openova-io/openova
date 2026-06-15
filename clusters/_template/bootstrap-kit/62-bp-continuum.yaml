@@ -131,12 +131,13 @@ spec:
       # fresh-prov walk).
       # 0.1.4 (#3189): prerequisite-check initContainer no longer
       # crashloops on single-region (no cnpg-pair) — exits 0 + idle-Ready.
-      # 0.1.6 (#3492): switchover sequencer gains the per-mechanism
-      # Promoter seam — cnpg-pair (default) + raft-transition (bp-openbao
-      # `bao operator raft snapshot restore` + `transition-to-primary`
-      # via Pod exec on the surviving standby). RBAC adds pods +
-      # pods/exec. Pin moves in lockstep (Inviolable Principle #13).
-      version: 0.1.6
+      # 0.1.7 (#3492): raft-transition promote step CORRECTED to OpenBao OSS
+      # peers.json recovery (write single-voter peers.json + restart the
+      # survivor Pod) — transition-to-primary is NOT an OSS command (openbao
+      # PR #996), the 0.1.6 promoter would have failed on a real region-kill.
+      # RBAC adds pods `delete` (the restart). Pin moves in lockstep
+      # (Inviolable Principle #13).
+      version: 0.1.7
       sourceRef:
         kind: HelmRepository
         name: bp-continuum
