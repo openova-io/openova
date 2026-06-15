@@ -535,7 +535,7 @@ controllers:
       # (2026-06-02). enabled remains false until the bp-controller
       # surfaces are wired end-to-end; the pin matches the latest
       # successful push-on-main build per Inviolable Principle #4a.
-      tag: "78de06d"
+      tag: "6e0d02b"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
