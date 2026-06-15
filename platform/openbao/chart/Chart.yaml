@@ -69,7 +69,23 @@ name: bp-openbao
 # an OSS command; the design was unbuildable as written.)
 # Skip-render gated on continuum.enabled=true AND snapshotReplication.role=
 # secondary, so the default single-region render is byte-identical.
-version: 1.2.41
+# 1.2.42 (Refs #3562 #3373, 2026-06-15): FIX the install-wedging orphan
+# namespace. snapshot-replication.yaml defaulted the S3-creds Role/RoleBinding
+# namespace ($credNs) to `seaweedfs`, but #3373 Batch A (#3477) re-homed
+# bp-seaweedfs INTO the rtz vCluster, so the host `seaweedfs` namespace no
+# longer exists → `helm install bp-openbao` FAILED with `namespaces
+# "seaweedfs" not found` (×2), wedging the whole convergence chain
+# (openbao→sso-bridge→gitea→catalyst-platform→console 000) on hw144. The
+# CronJob already consumes the creds via secretKeyRef, which K8s resolves ONLY
+# in the Pod's OWN (release) namespace — so the Secret + its RBAC belong there,
+# never in seaweedfs. $credNs default flipped to .Release.Namespace
+# (values credentialsSecret.namespace: "" → release ns); the reflected/seeded
+# seaweedfs-s3-secret lands in the openbao ns (same bridge bp-gitea + catalyst
+# qa-fixtures use). snapshotReplication stays default-OFF so the single-region
+# render is byte-identical; the only enabled-path change is the RBAC namespace.
+# tests/snapshot-replication-toggle.sh Case 2 gains a no-orphan-namespace +
+# Role-present assertion. No upstream subchart change.
+version: 1.2.42
 # 1.2.37 (#3374, 2026-06-14): fix the sso-landing nginx ImagePullBackOff. The
 # image was `harbor.openova.io/proxy-docker/library/nginx` but the live Harbor
 # DockerHub proxy-cache project is `proxy-dockerhub` (proxy-docker does NOT
