@@ -1,5 +1,27 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.93 (#3563, 2026-06-15): zero-click RE-login fix — the bare-URL SSO landing
+# page (sandbox-bridge sso_init.go 0.1.17) is now IDEMPOTENT. After 1.4.92 the
+# FIRST bare-URL visit bound the SSO identity to a NewAPI user (role=100) and
+# landed signed-in, but EVERY SUBSEQUENT visit dead-ended at "This OpenOva SSO
+# account has already been bound" and minted no /console session (/console →
+# /login?expired=true) — measured live hw139 (dep c89aa7059556b342). ROOT CAUSE
+# is upstream NewAPI v0.13.2 controller/oauth.go HandleOAuth, which picks bind-
+# vs-login purely off the session: `if session.Get("username") != nil →
+# handleOAuthBind` (which errors MsgOAuthAlreadyBound via provider.IsUserIDTaken),
+# else the LOGIN branch (findOrCreateOAuthUser logs the existing user in).
+# GenerateOAuthCode (/api/oauth/state) sets `oauth_state` but NEVER clears
+# `username`, so on a re-visit the browser still carries the prior visit's valid
+# session cookie → the flow lands in BIND mode → "already bound". NewAPI is a
+# pinned MIRROR (not a fork), so the binary cannot be patched. FIX in the
+# OpenOva-owned landing page: (1) GET /api/user/self first — if the session is
+# valid the owner IS signed in → redirect straight to /console (no Keycloak
+# round-trip, the literal "URL → signed in as admin"); (2) else GET
+# /api/user/logout (upstream session.Clear()+Save()) to wipe the stale username,
+# THEN run the OAuth flow so the callback takes the LOGIN branch instead of BIND.
+# Both calls are same-origin; the logout is best-effort. Build-bp-newapi-sandbox-
+# bridge CI re-tags the sidecar; blueprint-release auto-bumps the 80-newapi.yaml
+# pin in lockstep. Refs #3563, #3374.
 # 1.4.91 (#3374, 2026-06-15): newapi SSO callback REAL root-cause fix — the
 # running NewAPI pod never loaded the seeded custom OAuth provider. After
 # 1.4.79+ correctly seeded the `sovereign` custom_oauth_providers row (enabled,
@@ -624,7 +646,7 @@ name: bp-newapi
 # URL/client_id are unset the page degrades to the SPA /login link. The bridge
 # IMAGE TAG + a further chart patch bump are auto-committed by
 # build-bp-newapi-sandbox-bridge.yaml on merge (push to internal/handler/**).
-version: 1.4.92
+version: 1.4.93
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
