@@ -38,19 +38,39 @@ maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
 
-# The vendored subchart at chart/charts/seaweedfs/ is not auto-pulled at
-# build time — it's committed bytes. The blueprint-release workflow's
-# hollow-chart guard (issue #181) requires either a `dependencies:` block
-# OR this annotation; we use the annotation because re-pulling at build
-# time would re-introduce the broken `security-configmap.yaml` (mutable
-# upstream Helm repo). To bump SeaweedFS:
+# The vendored subchart at chart/charts/seaweedfs/ is committed bytes — it
+# is NEVER re-pulled from the mutable upstream Helm repo (doing so would
+# re-introduce the broken `security-configmap.yaml`, issue #340). We still
+# DECLARE it under `dependencies:` below so the umbrella is a well-formed
+# Helm chart: `helm lint` rejects any chart that carries a subchart under
+# charts/ with no matching `dependencies:` entry ("chart metadata is
+# missing these dependencies: seaweedfs"), and the blueprint-release
+# hollow-chart guard (issue #181) is satisfied by the declared dep (so the
+# former `no-upstream: "true"` opt-out annotation is no longer needed).
+#
+# The dependency `repository:` is a `file://` URL pointing at the vendored
+# copy, NOT the upstream `seaweedfs.github.io` repo. This is the load-
+# bearing part: `helm dependency build` (run by blueprint-release.yaml and
+# the chart-annotations GUARD 2) resolves the dep from the LOCAL committed
+# bytes — verified to succeed with the network fully unreachable — so it
+# can never reach upstream and never re-introduce the fromToml template. It
+# re-packs the local dir into charts/seaweedfs-<ver>.tgz and leaves the
+# unpacked dir (and the deleted security-configmap.yaml) untouched.
+#
+# To bump SeaweedFS:
 #   1. helm pull seaweedfs --version <X.Y.Z> --repo https://seaweedfs.github.io/seaweedfs/helm
 #   2. tar -xzf seaweedfs-<X.Y.Z>.tgz -C chart/charts/ (replacing seaweedfs/)
 #   3. rm chart/charts/seaweedfs/templates/shared/security-configmap.yaml
 #      (until upstream stops using fromToml or we move to Helm 3.13+ in
 #      helm-controller — track via fluxcd/helm-controller releases)
-#   4. Bump version: in this Chart.yaml + open PR
+#   4. Bump the dependencies[0].version + the version: field here + open PR
+dependencies:
+  - name: seaweedfs
+    version: "4.22.0"
+    # Local vendored copy (see note above) — NEVER the upstream repo, so
+    # `helm dependency build` resolves offline and the deleted
+    # security-configmap.yaml (issue #340) is never re-pulled.
+    repository: "file://charts/seaweedfs"
 annotations:
-  catalyst.openova.io/no-upstream: "true"
   catalyst.openova.io/vendored-subchart: "seaweedfs@4.22.0"
   catalyst.openova.io/vendored-reason: "issue #340 — upstream uses fromToml (Helm 3.13+)"
