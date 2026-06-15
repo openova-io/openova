@@ -93,12 +93,12 @@ spec:
   chart:
     spec:
       chart: bp-seaweedfs
-      # 1.2.0 — qa-loop Wave 5 Fix #79 Gap B: ships
-      # `seaweedfs-storage` StorageClass (chart-rendered) so PVCs that
-      # default to it (bp-guacamole recordings, future
-      # bp-loki/mimir/tempo cache) bind day-1 on bare-k3s Sovereigns
-      # without waiting for bp-hcloud-csi or the SeaweedFS CSI driver.
-      version: 1.2.1
+      # 1.2.2 (#3579) — logs volumes hostPath→emptyDir so the rtz-vCluster
+      # host-ns baseline PodSecurity stops rejecting every seaweedfs pod
+      # ("violates PodSecurity baseline: hostPath volumes"). 1.2.0 shipped
+      # the `seaweedfs-storage` StorageClass (qa-loop Wave 5 Fix #79 Gap B)
+      # so PVCs that default to it bind day-1 on bare-k3s Sovereigns.
+      version: 1.2.2
       sourceRef:
         kind: HelmRepository
         name: bp-seaweedfs

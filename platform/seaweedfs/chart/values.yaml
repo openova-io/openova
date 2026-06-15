@@ -78,8 +78,14 @@ seaweedfs:
       type: "persistentVolumeClaim"
       size: "10Gi"
       storageClass: ""
+    # logs.type=emptyDir (#3579): bp-seaweedfs runs INSIDE the rtz vCluster
+    # (#3373 Batch A) whose host `rtz` namespace enforces baseline
+    # PodSecurity — baseline FORBIDS hostPath volumes, so the vcluster
+    # pod-syncer rejected every seaweedfs pod ("violates PodSecurity
+    # baseline: hostPath volumes") leaving them Pending forever. glog
+    # logdir files are ephemeral, so emptyDir is the correct shape.
     logs:
-      type: "hostPath"
+      type: "emptyDir"
       size: ""
       storageClass: ""
       hostPathPrefix: /storage
@@ -145,8 +151,10 @@ seaweedfs:
         size: "100Gi"
         storageClass: ""
         maxVolumes: 0
+    # logs.type=emptyDir (#3579) — see master.logs note; baseline
+    # PodSecurity in the host rtz ns forbids hostPath.
     logs:
-      type: "hostPath"
+      type: "emptyDir"
       size: ""
       storageClass: ""
       hostPathPrefix: /storage
@@ -205,8 +213,10 @@ seaweedfs:
       type: "persistentVolumeClaim"
       size: "8Gi"
       storageClass: ""
+    # logs.type=emptyDir (#3579) — see master.logs note; baseline
+    # PodSecurity in the host rtz ns forbids hostPath.
     logs:
-      type: "hostPath"
+      type: "emptyDir"
       size: ""
       storageClass: ""
       hostPathPrefix: /storage
@@ -278,6 +288,16 @@ seaweedfs:
     #   seaweedfs-s3.seaweedfs.svc.cluster.local:8333
     # (matches docs/PLATFORM-TECH-STACK.md §3.5 endpoint contract).
     serviceType: "ClusterIP"
+    # logs.type=emptyDir (#3579) — the umbrella did NOT override s3.logs
+    # so it inherited the vendored subchart default `hostPath`, which the
+    # host rtz ns baseline PodSecurity rejected (the s3 Deployment pod has
+    # NO PVC yet still failed to sync — proving hostPath, not storage, was
+    # the blocker). emptyDir is baseline-compliant; the vendored
+    # s3-deployment.yaml already renders the logdir mount + -logdir flag
+    # for emptyDir.
+    logs:
+      type: "emptyDir"
+      hostPathPrefix: /storage
     nodeSelector: null
     affinity: null
     tolerations: null
