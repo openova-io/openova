@@ -72,7 +72,24 @@ name: bp-mgmt-vcluster
 # on hw133: all 4 SME pods, endpoints healthy, policy is the wall) → the
 # voucher/billing funnel back-half (#3376) was dead. Additive allow-list
 # entry only; no other behaviour changes.
-version: 0.2.9
+# 0.2.10 — Refs #3373 (hw130 2026-06-13): EMPIRICAL FIX of the
+# in-vCluster CRD-registration gap. Live on hw130's vc-mgmt the 0.2.7
+# `sync.toHost.customResources` block did NOT register the CRD
+# definitions inside the vCluster apiserver — an in-vcluster
+# `kubectl apply` of an HTTPRoute returned `no matches for kind
+# "HTTPRoute"`, and the OSS vCluster 0.21.0 syncer created ZERO
+# custom-resource syncer controllers at boot (the toHost CR sync + its
+# CRD auto-import are vCluster Pro/Platform-gated, inert on OSS). This
+# release registers the three app-needed CRDs (HTTPRoute, ExternalSecret,
+# CNPG Cluster) INSIDE the vCluster via the OSS-native init-manifests
+# deployer (`experimental.deploy.vcluster.manifests`) using lean
+# structural CRDs. Empirically (hw130) a structural CRD is enough for the
+# vCluster apiserver to register the kind and accept a fully-specified CR
+# round-tripped byte-for-byte; host operators hold the authoritative full
+# schemas. The 0.2.7 customResources block is kept verbatim (Pro-license
+# activation + declarative record). Additive subchart-values change only;
+# default `helm template` gains the init-manifest CRDs.
+version: 0.2.10
 appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT

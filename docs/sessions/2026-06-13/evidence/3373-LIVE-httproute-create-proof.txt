@@ -1,0 +1,23 @@
+# #3373 LIVE PROOF — hw130 throwaway vcluster (crdproof ns), 2026-06-13
+# Deployed via production Flux HelmRelease path with the bp-mgmt-vcluster 0.2.8
+# experimental.deploy.vcluster.manifests config (structural CRDs).
+
+## BEFORE (live vc-mgmt, 0.2.7 toHost.customResources only): the bug
+error: no matches for kind "HTTPRoute" in version "gateway.networking.k8s.io/v1"
+
+## AFTER (init-manifests controller registered CRDs at boot):
+NAME                                   CREATED AT
+httproutes.gateway.networking.k8s.io   2026-06-13T06:37:12Z
+externalsecrets.external-secrets.io    2026-06-13T06:37:12Z
+
+## App inside vcluster (demoapp ns) creates a full HTTPRoute — SUCCEEDS:
+spec:
+  hostnames:
+  - demoapp.hw130.omantel.biz
+  parentRefs:
+  - name: catalyst-gateway
+    namespace: gateway
+  rules:
+  - backendRefs:
+    - name: demoapp-svc
+      port: 8080
