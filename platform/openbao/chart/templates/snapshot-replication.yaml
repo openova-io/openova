@@ -73,7 +73,21 @@ objects). The primary vs secondary CronJob is selected by
 {{- $s3Region := $s3.region | default "us-east-1" -}}
 {{- $credSecret := $s3.credentialsSecret | default dict -}}
 {{- $credName := $credSecret.name | default "seaweedfs-s3-secret" -}}
-{{- $credNs := $credSecret.namespace | default "seaweedfs" -}}
+{{- /*
+  #3373 Batch A (#3477) re-homed bp-seaweedfs INTO the rtz vCluster, so the
+  host `seaweedfs` namespace NO LONGER EXISTS. The CronJob consumes the S3
+  admin creds via `secretKeyRef` (below), which K8s resolves ONLY in the Pod's
+  OWN namespace (.Release.Namespace) — a Pod can never read a Secret from
+  another namespace via secretKeyRef. So the credential Secret + its RBAC
+  belong in the release namespace, NOT in seaweedfs. Defaulting $credNs to the
+  stale `seaweedfs` value templated a Role/RoleBinding into a missing namespace
+  and FAILED the whole openbao helm install with `namespaces "seaweedfs" not
+  found` (#3562). Default now = .Release.Namespace; the reflected/seeded
+  seaweedfs-s3-secret lands here (same bridge pattern bp-gitea + the catalyst
+  qa-fixtures use to copy the source Secret out of the vCluster). Override
+  `s3.credentialsSecret.namespace` only for a host-placed seaweedfs.
+*/ -}}
+{{- $credNs := $credSecret.namespace | default .Release.Namespace -}}
 {{- $accessKeyKey := $credSecret.accessKeyKey | default "admin_access_key_id" -}}
 {{- $secretKeyKey := $credSecret.secretKeyKey | default "admin_secret_access_key" -}}
 {{- $staging := $sr.restoreStaging | default dict -}}
@@ -95,10 +109,15 @@ metadata:
     catalyst.openova.io/component: openbao-snapshot-replication
     app.kubernetes.io/name: openbao-snapshot
 ---
-# Role: read the S3 credentials Secret (the only K8s object the CronJob
-# reads). Scoped to the single credential Secret name. Lives in the S3
-# creds Secret's namespace so the SA can read it cross-namespace via a
-# RoleBinding there.
+# Role/RoleBinding: a defence-in-depth `get` grant on the single S3
+# credential Secret, scoped to its name, in the namespace where that
+# Secret actually lives ($credNs — the release namespace by default, since
+# the CronJob reads the keys via secretKeyRef from its OWN namespace). The
+# Secret is consumed through secretKeyRef (a kubelet projection, no API
+# read), so this RBAC is not on the hot path; it exists so a future
+# explicit-API consumer in $credNs is least-privilege ready. $credNs MUST
+# be an existing namespace — defaulting it to the re-homed `seaweedfs` ns
+# is what broke the install (#3562).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

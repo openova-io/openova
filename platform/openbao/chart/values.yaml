@@ -375,12 +375,22 @@ snapshotReplication:
     bucket: openbao-snapshots
     # Region label (SeaweedFS ignores it but the AWS CLI requires one).
     region: us-east-1
-    # Secret holding the S3 admin access/secret keys. Default matches the
-    # bp-seaweedfs-generated cluster-wide Secret. Its keys:
+    # Secret holding the S3 admin access/secret keys. Keys:
     #   admin_access_key_id / admin_secret_access_key.
+    # The CronJob reads these via secretKeyRef, which K8s resolves ONLY in the
+    # Pod's own (release) namespace — a Pod cannot read a Secret from another
+    # namespace this way. #3373 Batch A (#3477) re-homed bp-seaweedfs INTO the
+    # rtz vCluster, dropping the host `seaweedfs` namespace; this Secret +
+    # its RBAC must therefore live in the release namespace (empty namespace =
+    # .Release.Namespace), where bp-reflector/a seeder Job copies the source
+    # seaweedfs-s3-secret out of the vCluster (same bridge bp-gitea +
+    # catalyst qa-fixtures use). Setting namespace to the (missing) `seaweedfs`
+    # ns failed the openbao install with `namespaces "seaweedfs" not found`
+    # (#3562). Override only for a host-placed seaweedfs.
     credentialsSecret:
       name: seaweedfs-s3-secret
-      namespace: seaweedfs
+      # Empty → templates resolve to .Release.Namespace (the openbao ns).
+      namespace: ""
       accessKeyKey: admin_access_key_id
       secretKeyKey: admin_secret_access_key
   # Restore-staging PVC on the secondary — where the FETCH CronJob writes
