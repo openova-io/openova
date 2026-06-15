@@ -18,11 +18,13 @@ to today (no NetworkPolicy object at all).
 {{- $isReplica := include "bp-postgres.renderReplicaHalf" . }}
 {{- if not $isReplica }}
 ---
-# PRIMARY side: allow the primary Cluster's Pods to accept replication
-# connections from the replica Cluster's Pods (delivered into this region by
-# ClusterMesh) AND from their OWN cluster (instance-to-instance streaming +
-# the multi-instance pg_basebackup join — the #3322 own-cluster gap that sat
-# >1h "Creating" on hw130) AND from the CNPG operator's status/metrics probe.
+# PRIMARY side: allow the primary Cluster's Pods to accept connections from
+# the cluster's SHARED-PG CONSUMERS (keycloak, gitea, harbor, grafana,
+# powerdns, newapi, openova-flow, catalyst-api … → <instance>-rw:5432) AND
+# the replica Cluster's Pods (delivered into this region by ClusterMesh) AND
+# their OWN cluster (instance-to-instance streaming + the multi-instance
+# pg_basebackup join — the #3322 own-cluster gap that sat >1h "Creating" on
+# hw130) AND the CNPG operator's status/metrics probe.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -37,6 +39,27 @@ spec:
       cnpg.io/cluster: {{ include "bp-postgres.instanceName" . }}
   policyTypes: [Ingress]
   ingress:
+    # SHARED-PG CONSUMERS (#3577): the data instance is SHARED — its consumers
+    # live in MANY namespaces (keycloak, gitea, harbor, grafana, powerdns,
+    # powerdns-admin, sme, newapi, catalyst-system, …) and every one dials the
+    # primary's `<instance>-rw` Service on 5432. This NetworkPolicy selects ALL
+    # primary-CR Pods, so it default-denies EVERY ingress it does not list —
+    # including all of those consumer connections (on hw144 keycloak-0 →
+    # shared-pg-rw timed out, JDBC Acquisition timeout, the whole SSO chain
+    # down). The pre-0.2.0 singleton shared-pg carried NO NetworkPolicy at all,
+    # so consumers reached 5432 unrestricted; this rule restores that reach
+    # under the platform default-deny CCNP. `namespaceSelector: {}` matches
+    # Pods in EVERY namespace (the established repo idiom — harbor/guacamole/vpa
+    # use it for the same broad in-cluster consumer reachability) so no real
+    # consumer is missed — the #3572 regression was OVER-restriction, not under.
+    # This is a data-tier engine (consumers only WRITE app SQL on 5432), so the
+    # broad allow is scoped to a single port; the replication / own-cluster /
+    # operator carve-outs below remain intact.
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - port: 5432
+          protocol: TCP
     # The replica Cluster's Pods (cross-cluster via ClusterMesh — the
     # selector matches by Pod label regardless of source cluster).
     - from:
