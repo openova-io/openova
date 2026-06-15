@@ -3,8 +3,10 @@
 #
 # Verifies the openbao DR contract (templates/continuum.yaml) — the
 # Continuum CR that tells the bp-continuum engine to promote bp-openbao via
-# `raft-transition` (`bao operator raft snapshot restore` +
-# `transition-to-primary` on the surviving standby) on a region-kill.
+# `raft-transition`. For OpenBao OSS the promote step is a peers.json recovery
+# (NOT the Enterprise-only transition-to-primary — openbao PR #996): the
+# RaftExecPromoter rewrites <raftDataPath>/raft/peers.json on the survivor +
+# restarts the Pod. The CR carries raftDataPath (where peers.json is written).
 #
 #   Case 1 — default render: NO Continuum CR (skip-render, never `{{ fail }}`
 #            per #402). The default single-region render is byte-identical.
@@ -13,7 +15,9 @@
 #            secondary (region-B) cluster.
 #   Case 3 — continuum.enabled=true + role=secondary: the Continuum CR
 #            renders with switchover.mechanism=raft-transition + the
-#            raftTransition target (namespace / podSelector / snapshotPath).
+#            raftTransition target (namespace / podSelector / raftDataPath),
+#            and does NOT carry a snapshotPath by default (the common
+#            stretched-raft case promotes from live replicated state).
 #
 # Usage: bash tests/continuum-render.sh [CHART_DIR]
 
@@ -69,13 +73,23 @@ if ! echo "$cr_block" | grep -q "mechanism: raft-transition"; then
   echo "$cr_block" >&2
   exit 1
 fi
-# The raftTransition target must carry the standby Pod selector + snapshot path.
+# The raftTransition target must carry the standby Pod selector + raft data path.
 if ! echo "$cr_block" | grep -q 'podSelector: "app.kubernetes.io/name=openbao"'; then
   echo "FAIL: Continuum CR raftTransition.podSelector is wrong/missing." >&2
   exit 1
 fi
-if ! echo "$cr_block" | grep -q 'snapshotPath: "/snapshots/latest.snap"'; then
-  echo "FAIL: Continuum CR raftTransition.snapshotPath is wrong/missing (must match the snapshot-replication restore-staging path)." >&2
+# raftDataPath is where the OSS peers.json recovery file is written.
+if ! echo "$cr_block" | grep -q 'raftDataPath: "/openbao/data"'; then
+  echo "FAIL: Continuum CR raftTransition.raftDataPath is wrong/missing (peers.json recovery target)." >&2
+  echo "$cr_block" >&2
+  exit 1
+fi
+# The DEFAULT CR must NOT carry a snapshotPath — the common stretched-raft case
+# promotes from the survivor's live replicated state (region-B already holds
+# region-A's KV as a retry_join non-voter), so no snapshot restore is needed.
+if echo "$cr_block" | grep -q 'snapshotPath:'; then
+  echo "FAIL: Continuum CR carries a snapshotPath by default — it must be empty (stretched-raft promotes from live state, not a snapshot restore)." >&2
+  echo "$cr_block" >&2
   exit 1
 fi
 # applicationRef must be openbao, and the regions wired through.

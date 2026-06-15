@@ -6,12 +6,18 @@ Per docs/topology-matrix.md, bp-openbao = active-passive / switchover
 mechanism `raft-transition`. The bp-continuum engine
 (core/controllers/continuum) drives the region-kill promotion: on a kill
 it runs the mechanism-agnostic steps (lease / drain-HTTP / flip-DNS /
-audit) PLUS the raft-transition promote step — `bao operator raft snapshot
-restore <staged>` + `bao operator raft transition-to-primary` via Pod exec
-on the surviving openbao standby (sequence.go step-6 dispatched through the
-RaftExecPromoter). The snapshot-replication.yaml block stages the snapshot;
-THIS Continuum CR tells the engine HOW to promote bp-openbao (the
-mechanism) and WHERE (the standby Pod target).
+audit) PLUS the raft-transition promote step. For OpenBao OSS that promote
+step is a `peers.json` RECOVERY (NOT the Enterprise-only
+`transition-to-primary`, which OSS does not have — openbao PR #996): the
+RaftExecPromoter execs a peers.json rewrite naming ONLY the surviving
+region-B node as a voter into <raftDataPath>/raft/peers.json, then restarts
+the standby Pod; on restart raft reads peers.json and the survivor
+self-elects as the sole writable leader (sequence.go step-6 via the
+RaftExecPromoter). The cross-region stretched-raft (retry_join non-voter,
+cross-region-raft-config.yaml) keeps region-B holding region-A's live KV so
+the promotion has current data — no snapshot restore needed in the common
+case. THIS Continuum CR tells the engine HOW to promote bp-openbao (the
+mechanism) and WHERE (the standby Pod target + raft data dir).
 
 🛑 Skip-render (per #402 — never `{{ fail }}`): the CR renders ONLY when
 BOTH `.Values.continuum.enabled=true` AND
@@ -56,9 +62,11 @@ spec:
   rtoSeconds: {{ int ($c.rtoSeconds | default 60) }}
   rpoSeconds: {{ int ($c.rpoSeconds | default 30) }}
   autoFailover: {{ $c.autoFailover | default false }}
-  # ── #3492: raft-transition switchover mechanism ──────────────────────────
+  # ── #3492: raft-transition switchover mechanism (OSS peers.json recovery) ──
   # The engine dispatches the cordon + promote steps through the
-  # RaftExecPromoter instead of the cnpg-pair cordon/replica-flip.
+  # RaftExecPromoter instead of the cnpg-pair cordon/replica-flip. The promote
+  # step rewrites <raftDataPath>/raft/peers.json to name only the survivor as a
+  # voter + restarts the Pod (OSS-correct; transition-to-primary is Enterprise).
   switchover:
     mechanism: raft-transition
     raftTransition:
@@ -68,7 +76,16 @@ spec:
       {{- end }}
       podSelector: {{ $rt.podSelector | default "app.kubernetes.io/name=openbao" | quote }}
       container: {{ $rt.container | default "openbao" | quote }}
-      snapshotPath: {{ $rt.snapshotPath | default "/snapshots/latest.snap" | quote }}
+      # raftDataPath — the openbao raft store dir (upstream default
+      # /openbao/data). peers.json recovery is written to <raftDataPath>/raft/.
+      raftDataPath: {{ $rt.raftDataPath | default "/openbao/data" | quote }}
+      {{- /* snapshotPath is the OPTIONAL last-resort restore for the
+             degenerate non-stretched topology. Emitted ONLY when set — with
+             cross-region stretched raft region-B already holds region-A's live
+             KV, so the common case promotes from live state (no restore). */}}
+      {{- with $rt.snapshotPath }}
+      snapshotPath: {{ . | quote }}
+      {{- end }}
       baoBinary: {{ $rt.baoBinary | default "bao" | quote }}
   pdmZone: {{ $c.pdmZone | quote }}
   leaseClient:

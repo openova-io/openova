@@ -1,20 +1,23 @@
 {{- /*
 Catalyst cross-cluster snapshot-replication — bp-openbao (DR / #3375 DoD-8).
 
+🛑 ROLE (CORRECTION #3492, 2026-06-15): this snapshot CronJob is the
+RPO-FLOOR / forensic backup, NOT the primary cross-region mechanism. The real
+cross-region replication that makes "mgmt-B holds mgmt-A's KV" true is the
+STRETCHED RAFT cluster (templates/cross-region-raft-config.yaml: mgmt-B joins
+mgmt-A as a retry_join non-voter, RPO≈0, sharing the barrier key). Periodic
+snapshots ship to S3 as a point-in-time DR-of-last-resort (e.g. for the
+degenerate non-stretched topology, or off-cluster archival).
+
 Implements the bp-openbao state-preservation row of
 docs/sessions/2026-06-02-per-blueprint-topology-audit.md (bp-openbao):
 
   mgmt-A = Active, mgmt-B = Passive. Stateful (Raft store on PVC).
-  State preservation: "Within cluster: Raft consensus. Cross-cluster:
-  async perf-replication (OSS uses snapshot+restore; Enterprise has
-  native primary→replica)."
-  Switchover: "bp-continuum runs `bao operator raft transition-to-primary`
-  on the standby; KV reads continue uninterrupted on replica throughout."
-
-OpenBao OSS has NO Enterprise perf-replication license, so the row's
-state-preservation mechanism is the OSS primitive named in the row:
-PERIODIC RAFT SNAPSHOTS shipped to the platform S3 surface (SeaweedFS),
-restored on the standby for promotion. This file renders that primitive.
+  State preservation: cross-cluster live replication via stretched raft
+  (non-voter); periodic snapshots are the RPO floor.
+  Switchover (raft-transition): bp-continuum runs the OSS peers.json recovery
+  (single-voter peers.json write + Pod restart) on the surviving standby —
+  `transition-to-primary` is Enterprise-only, absent in OSS (openbao PR #996).
 
 🛑 "KV reads continue uninterrupted on replica throughout" — INVARIANT.
 `bao operator raft snapshot save` is a READ against the Raft leader's
@@ -23,7 +26,7 @@ KV reads AND writes continue on the leader and on every replica while the
 snapshot is taken and shipped. The save runs on the PRIMARY (active)
 cluster; the SECONDARY's KV reads are never touched by either the save or
 the fetch (the fetch only writes a file onto a staging PVC — it does NOT
-call any OpenBao mutating API). The actual restore + `transition-to-primary`
+call any OpenBao mutating API). The actual restore + peers.json recovery
 is a bp-continuum switchover step (CLASS-B controller follow-on), NOT
 performed here.
 
@@ -130,9 +133,10 @@ subjects:
 {{- if eq $role "secondary" }}
 ---
 # Restore-staging PVC — only on the SECONDARY. The fetch CronJob writes the
-# latest snapshot here so bp-continuum's `transition-to-primary` step finds
-# the data already present for restore. Not a Helm hook — persists across
-# upgrades so a fetched snapshot survives chart bumps.
+# latest snapshot here so bp-continuum's peers.json-recovery step (when run
+# in the degenerate non-stretched/snapshot-fallback topology) finds the data
+# already present for restore. Not a Helm hook — persists across upgrades so
+# a fetched snapshot survives chart bumps.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -265,7 +269,7 @@ spec:
                   # Pull the most recent snapshot object from S3 to the
                   # restore-staging path. This does NOT touch any OpenBao
                   # mutating API — KV reads on this standby replica are
-                  # uninterrupted. The restore + transition-to-primary is a
+                  # uninterrupted. The restore + peers.json recovery is a
                   # bp-continuum step; this only stages the data.
                   log "fetching latest snapshot from s3://${S3_BUCKET} to ${STAGING_PATH}"
                   LATEST="$(aws --endpoint-url "${S3_ENDPOINT}" s3api list-objects-v2 \

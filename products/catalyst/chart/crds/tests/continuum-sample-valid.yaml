@@ -61,9 +61,12 @@ spec:
   autoFailover: false
 ---
 # #3492 — openbao raft-transition sample. active-passive secret backend;
-# switchover.mechanism=raft-transition drives `bao operator raft snapshot
-# restore` + `transition-to-primary` on the surviving standby Pod. No
-# cnpgPair (raft-transition needs no CNPG cluster-pair).
+# switchover.mechanism=raft-transition drives the OpenBao OSS peers.json
+# recovery on the surviving standby Pod: bp-continuum writes a single-voter
+# <raftDataPath>/raft/peers.json + restarts the Pod (transition-to-primary is
+# Enterprise-only, absent in OSS). No snapshotPath in the common stretched-raft
+# case (region-B already holds region-A's live KV as a retry_join non-voter).
+# No cnpgPair (raft-transition needs no CNPG cluster-pair).
 apiVersion: dr.openova.io/v1
 kind: Continuum
 metadata:
@@ -80,7 +83,7 @@ spec:
       namespace: openbao
       podSelector: app.kubernetes.io/name=openbao
       container: openbao
-      snapshotPath: /snapshots/latest.snap
+      raftDataPath: /openbao/data
       baoBinary: bao
   leaseClient:
     kind: dns-quorum

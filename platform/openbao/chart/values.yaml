@@ -398,15 +398,94 @@ snapshotReplication:
   activeDeadlineSeconds: 600
   backoffLimit: 3
 
+# ─── #3492: cross-region STRETCHED-RAFT replication (the real OSS mechanism) ─
+# CORRECTION (2026-06-15, #3492): the snapshot-replication block above is an
+# RPO-floor DR-of-last-resort (point-in-time copy every `schedule`), NOT the
+# mechanism that makes "region-B holds region-A's KV" true. OpenBao OSS has NO
+# Enterprise performance-replication; the upstream-recommended cross-region
+# primitive (openbao discussion #1842, confirmed by maintainers) is a SINGLE
+# STRETCHED RAFT CLUSTER: region-B's openbao node joins region-A's raft cluster
+# as a NON-VOTER via `retry_join` + `retry_join_as_non_voter = true`. A
+# non-voter "will still receive the data replication stream"
+# (openbao.org/docs/configuration/storage/raft), so region-B holds region-A's
+# live KV (RPO≈0) AND shares region-A's barrier/encryption key — which a
+# snapshot-restore onto an independently-initialised region-B can NOT do (the
+# restored data would be undecryptable under region-B's own Shamir key).
+#
+# Cross-cluster raft requires:
+#   1. IP-based cluster_addr — DNS names resolve ONLY within their own cluster,
+#      so region-B can't resolve region-A's pod FQDN (openbao issue #2275). The
+#      upstream chart already sets BAO_CLUSTER_ADDR="https://$(POD_IP):8201" /
+#      BAO_API_ADDR="https://$(POD_IP):8200" (server-statefulset.yaml), so each
+#      member advertises its routable POD_IP — exactly what cross-cluster needs.
+#   2. Pod-to-pod connectivity across the regions — the SAME Cilium ClusterMesh
+#      + pod-routing the bp-cnpg-pair WAL stream already rides. region-B reaches
+#      region-A's active node via a ClusterMesh-global Service
+#      (templates/cross-region-mesh-service.yaml, mirroring bp-cnpg-pair's
+#      replica-mesh-service.yaml): zero local backends on region-B → every dial
+#      crosses the mesh to region-A's leader.
+#
+# DEFAULT-OFF: a default `helm template` renders the upstream raft.config
+# unchanged (NO retry_join, NO mesh Service), so single-region output is
+# byte-identical to origin/main. The per-Sovereign multi-region overlay
+# (clusters/_template/bootstrap-kit/08-openbao.yaml) flips
+# `crossRegion.enabled: true` and sets `role` per cluster.
+crossRegion:
+  # Master switch. When false: NO retry_join injected into raft.config, NO
+  # ClusterMesh Service rendered (skip-render, never `{{ fail }}` per #402).
+  enabled: false
+  # This cluster's role in the stretched raft cluster:
+  #   primary   → region-A: the voter(s). Renders the leader-target mesh
+  #               Service (so region-B's retry_join resolves it) and leaves
+  #               its own raft.config without a retry_join (it IS the seed).
+  #   secondary → region-B: joins region-A as a NON-VOTER. Its raft.config
+  #               gains a `retry_join { leader_api_addr = <mesh> }` stanza +
+  #               `retry_join_as_non_voter = true`.
+  # Per-Sovereign overlay sets this per cluster (from SOVEREIGN_REGION_ROLE,
+  # the same cloud-init substitute bp-cnpg-pair keys `side` off).
+  role: primary
+  # leaderApiAddr — the address region-B's retry_join dials to find region-A's
+  # active node. Defaults to the ClusterMesh-global Service this chart renders
+  # on the PRIMARY side (cross-region-mesh-service.yaml). The Service has zero
+  # local backends on region-B, so ClusterMesh routes the dial across the mesh
+  # to region-A's openbao Pod. http (not https) — the upstream raft.config sets
+  # `tls_disable = 1` on the listener (in-mesh traffic is Cilium-encrypted).
+  leaderApiAddr: ""
+  # joinAsNonVoter — region-B joins as a non-voter (receives the replication
+  # stream, never participates in region-A's quorum, so a region-B network
+  # blip can never destabilise region-A's voter quorum). Promotion to a
+  # writable voter on a region-A kill is bp-continuum's peers.json recovery
+  # (see the continuum block below + core/controllers/continuum raft.go).
+  joinAsNonVoter: true
+  # ClusterMesh-global Service rendered on the PRIMARY side so region-B's
+  # retry_join target resolves cluster-locally and routes across the mesh.
+  meshService:
+    # Service name region-B's leaderApiAddr points at. MUST be identical on
+    # both sides for Cilium to merge them into one global service (the
+    # bp-cnpg-pair name+namespace merge contract).
+    name: openbao-active-mesh
+    # Cilium ClusterMesh affinity hint. `local` = prefer same-cluster
+    # backends, fall through to remote when none exist (the bp-cnpg-pair
+    # idiom). On region-B there are zero local backends matching the active
+    # selector, so the dial crosses to region-A.
+    affinity: local
+    # API port the global Service forwards (8200 — the openbao HTTP listener).
+    port: 8200
+
 # ── #3492: openbao DR contract (Continuum CR, raft-transition) ──────────────
 # The bp-continuum engine drives bp-openbao's region-kill promotion. Per
 # docs/topology-matrix.md bp-openbao = active-passive / mechanism
-# `raft-transition`: on a region-kill the surviving standby runs
-# `bao operator raft snapshot restore <staged-snapshot>` +
-# `bao operator raft transition-to-primary`. The snapshot-replication block
-# above stages the snapshot; THIS block ships the Continuum CR that declares
-# the raft-transition mechanism + target so the engine knows HOW to promote
-# this Application.
+# `raft-transition`: on a region-kill the surviving standby (region-B, which
+# the cross-region block above kept fed with region-A's live KV as a non-voter)
+# is promoted to a writable single-node voter via OpenBao OSS's `peers.json`
+# RECOVERY — NOT the Enterprise-only `transition-to-primary` (OSS raft has only
+# promote/demote voter-state, and those need an active leader, useless when all
+# voters are dead — openbao PR #996). bp-continuum execs a peers.json rewrite
+# onto the survivor's raft data dir naming ONLY the survivor as a voter, then
+# restarts its Pod; on restart raft reads peers.json and the survivor
+# self-elects as the sole leader (openbao integrated-storage recovery docs).
+# THIS block ships the Continuum CR that declares the raft-transition mechanism
+# + target so the engine knows HOW to promote this Application.
 #
 # Skip-render (per #402 — never `{{ fail }}`): the Continuum CR renders ONLY
 # when continuum.enabled=true AND snapshotReplication.role=secondary (the CR
@@ -449,12 +528,24 @@ continuum:
   # PowerDNS zone the lua-record probe target is flipped in (the Sovereign
   # FQDN). Per-Sovereign overlay sets it.
   pdmZone: ""
-  # raftTransition target — the surviving standby Pod the promotion execs
-  # into. podSelector discovers the Ready Pod by label; snapshotPath is the
-  # staged-snapshot path the secondary fetch CronJob wrote (matches
-  # snapshotReplication.restoreStaging.path).
+  # raftTransition target — the surviving standby Pod the promotion drives.
+  # podSelector discovers the Ready Pod by label; the engine execs a
+  # peers.json rewrite into the openbao container then restarts the Pod
+  # (peers.json recovery — the OSS-correct promotion; transition-to-primary
+  # does NOT exist in OpenBao OSS, see the block above).
   raftTransition:
     podSelector: "app.kubernetes.io/name=openbao"
     container: openbao
-    snapshotPath: /snapshots/latest.snap
     baoBinary: bao
+    # raftDataPath — the directory the openbao raft store lives in (matches
+    # the upstream chart's `storage "raft" { path = "/openbao/data" }`). The
+    # peers.json recovery file is written to <raftDataPath>/raft/peers.json.
+    raftDataPath: /openbao/data
+    # snapshotPath — OPTIONAL last-resort fallback ONLY for the degenerate
+    # topology where region-B was NOT a live stretched-raft non-voter (no
+    # crossRegion). When set, the engine restores this staged snapshot BEFORE
+    # the peers.json recovery. Empty (the default now that crossRegion makes
+    # region-B already hold region-A's live KV) → promote from the live
+    # replicated state, no restore. Wire it back to
+    # snapshotReplication.restoreStaging.path only if running snapshot-mode DR.
+    snapshotPath: ""

@@ -244,13 +244,24 @@ spec:
                           type: string
                           default: openbao
                           description: openbao container name inside the Pod.
+                        raftDataPath:
+                          type: string
+                          default: /openbao/data
+                          description: |
+                            openbao raft store directory inside the container
+                            (upstream chart default /openbao/data). The OSS
+                            peers.json recovery file is written to
+                            <raftDataPath>/raft/peers.json on the survivor.
                         snapshotPath:
                           type: string
                           description: |
-                            On-Pod path the secondary snapshot-fetch CronJob
-                            staged latest.snap to (chart default
-                            /snapshots/latest.snap). Empty promotes from the
-                            standby's own on-disk Raft state (degraded).
+                            OPTIONAL last-resort staged snapshot to restore
+                            BEFORE the peers.json recovery — only for the
+                            degenerate non-stretched topology where region-B was
+                            fed periodic snapshots instead of being a live
+                            retry_join non-voter. Empty (the common stretched-
+                            raft case) promotes from the survivor's live
+                            replicated state (no restore).
                         baoBinary:
                           type: string
                           default: bao

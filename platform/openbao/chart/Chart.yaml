@@ -39,13 +39,37 @@ name: bp-openbao
 # syncer-mangled host Service name. snapshotReplication is default-OFF, so the
 # single-region render is byte-identical (the default applies only when enabled).
 # NOTE: 1.2.38 was never published to ghcr (see 1.2.39 above).
+# 1.2.41 (#3492, 2026-06-15): CORRECT the cross-region DR to the real OpenBao
+# OSS mechanism. The 1.2.40 design (snapshot-restore + `transition-to-primary`)
+# could not actually work: `transition-to-primary` does NOT exist in OpenBao
+# OSS (only promote/demote voter-state, useless when all voters are dead —
+# openbao PR #996), and a cross-cluster snapshot-restore onto an independently
+# Shamir-initialised region-B yields undecryptable data (different barrier key)
+# at only RPO=snapshot-interval. The OSS-correct mechanism (openbao discussion
+# #1842) is a single STRETCHED RAFT cluster: region-B joins region-A as a
+# NON-VOTER via retry_join + retry_join_as_non_voter=true (so it holds
+# region-A's LIVE KV, RPO≈0, sharing region-A's barrier key over the same
+# Cilium ClusterMesh bp-cnpg-pair uses). Adds: a top-level `crossRegion` block
+# + templates/_helpers.tpl `openbao.crossRegionRaftConfig` (the retry_join
+# non-voter raft.config) + templates/cross-region-raft-config.yaml (renders it
+# into a ConfigMap on the secondary) + templates/cross-region-mesh-service.yaml
+# (the ClusterMesh-global Service region-B's retry_join resolves, mirroring
+# bp-cnpg-pair's replica-mesh-service). The Continuum CR's promote step is now
+# OSS peers.json RECOVERY (raftTransition.raftDataPath; bp-continuum rewrites
+# <raftDataPath>/raft/peers.json + restarts the survivor Pod) — NOT
+# transition-to-primary; snapshotPath demoted to an OPTIONAL non-stretched
+# fallback (default empty → promote from live replicated state). All
+# crossRegion + snapshot + continuum keys default-OFF, so the single-region
+# render stays byte-identical. tests/cross-region-render.sh added;
+# tests/continuum-render.sh updated to the peers.json/raftDataPath shape.
 # 1.2.40 (#3492, 2026-06-14): ship the openbao DR contract — a Continuum CR
 # (templates/continuum.yaml) declaring switchover.mechanism=raft-transition +
 # the standby Pod target so the bp-continuum engine can promote bp-openbao on
-# a region-kill (`bao operator raft snapshot restore` + `transition-to-primary`).
+# a region-kill. (Mechanism corrected in 1.2.41 — transition-to-primary is not
+# an OSS command; the design was unbuildable as written.)
 # Skip-render gated on continuum.enabled=true AND snapshotReplication.role=
 # secondary, so the default single-region render is byte-identical.
-version: 1.2.40
+version: 1.2.41
 # 1.2.37 (#3374, 2026-06-14): fix the sso-landing nginx ImagePullBackOff. The
 # image was `harbor.openova.io/proxy-docker/library/nginx` but the live Harbor
 # DockerHub proxy-cache project is `proxy-dockerhub` (proxy-docker does NOT
