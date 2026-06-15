@@ -143,6 +143,14 @@ data:
           # .Values.stepTimeouts.stripReadinessSeconds.
           - name: STRIP_READINESS_TIMEOUT_SECONDS
             value: {{ .Values.stepTimeouts.stripReadinessSeconds | quote }}
+          # Phase-3a pull-probe sample size (Refs #3627). The strip is gated on
+          # a successful authenticated `helm pull` of a representative sample of
+          # the pivoted local-Harbor charts (NOT on a non-existent
+          # HelmRepository .status.Ready). bp-catalyst-platform is always probed
+          # when present; this caps the rest of the sample so the gate stays
+          # fast while still proving Harbor serves charts + auth works.
+          - name: HELM_PROBE_SAMPLE_SIZE
+            value: {{ .Values.helmReadinessProbe.sampleSize | quote }}
         volumeMounts:
           - name: helmrepository-list
             mountPath: /work
@@ -721,99 +729,165 @@ data:
               exit 0
             fi
 
-            # ---- Phase 3a: bounded wait for the pivoted HRs to be Ready ----
+            # ---- Phase 3a: prove pivoted charts are PULLABLE from local Harbor ----
             #
-            # We only gate on the HelmRepositories whose URL now points at the
-            # LOCAL Harbor host (harbor_host) — i.e. the ones this cutover
-            # pivoted. An HR still on ghcr.io is either intentionally external
-            # or not-yet-reverted-by-Flux; gating on it would deadlock. A
-            # local-Harbor HR that is Ready=True PROVES (a) registry.<fqdn>
-            # serves the chart and (b) the Phase-0 Harbor auth works — exactly
-            # the precondition for safely dropping ghcr.io.
+            # We gate the strip on the HelmRepositories whose URL now points at
+            # the LOCAL Harbor host (harbor_host) — the ones this cutover
+            # pivoted. The proof that it is SAFE to drop the ghcr.io fallback is
+            # a successful AUTHENTICATED OCI PULL of a representative set of the
+            # pivoted charts from registry.<fqdn>: that proves (a) Harbor serves
+            # the chart artifact (Phase A2 of step-03 mirrored it) and (b) the
+            # Phase-0 Harbor auth works — exactly the precondition for stripping
+            # ghcr.io. If the probe does NOT succeed within the budget, this
+            # block leaves ready_ok=false → the FATAL/REFUSE path below exits
+            # non-zero with mothership auth INTACT (recoverable on re-run).
             #
-            # Ready is read from the Flux source-controller condition
-            # (.status.conditions[type==Ready].status). source-controller sets
-            # Ready=True once it has FETCHED + verified the OCI artifact, which
-            # for an OCI HelmRepository means a successful authenticated pull —
-            # the very operation that 401s if Harbor auth is wrong.
+            # WHY NOT read the HelmRepository .status Ready condition (the
+            # PREVIOUS gate, Refs #3568): for spec.type=oci HelmRepositories
+            # Flux source-controller does NOT reconcile them and sets NO
+            # .status.conditions AT ALL — they are static pointers consumed
+            # lazily by the consuming HelmReleases (no HelmChart / OCIRepository
+            # object is ever created for them). On hw146 (source-controller
+            # v1.4.1) all 61 pivoted HelmRepositories were type=oci with EMPTY
+            # .status.conditions (Ready=<none>), so the old gate's Ready could
+            # NEVER become True → it FATAL-refused the strip every run and the
+            # cutover wedged at step-06 forever (also the hw144 "loops at 0/0"
+            # shape, Refs #3588 — the same wrong-object read). The real proof is
+            # an actual authenticated pull, NOT a non-existent status field.
+            #
+            # The probe runs from the writable /tmp emptyDir (the Pod is
+            # readOnlyRootFilesystem:true) by pointing HOME + the HELM_*_HOME
+            # vars there before `helm registry login` / `helm pull`.
             strip_wait_deadline=$(( $(date +%s) + STRIP_READINESS_TIMEOUT_SECONDS ))
-            echo "[helmrepository-patches] Phase-3a: waiting up to ${STRIP_READINESS_TIMEOUT_SECONDS}s for local-Harbor HelmRepositories to be Ready before stripping mothership auth"
+            echo "[helmrepository-patches] Phase-3a: proving pivoted charts are pullable from ${harbor_host} (up to ${STRIP_READINESS_TIMEOUT_SECONDS}s) before stripping mothership auth"
             ready_ok="false"
-            # `seen_local_ready` latches TRUE the first poll in which every
-            # observed local-Harbor HR is Ready=True AND at least one local-
-            # Harbor HR was present (total>0). It is what lets the loop
-            # terminate-success in the `0/0` case WITHOUT reintroducing the
-            # strip-before-pivot half-pivot.
-            #
-            # WHY THE LATCH (the hw144 step-06 loops-forever bug, Refs #3568):
-            #   The original success test was `total>0 && not_ready==0`. On
-            #   hw144 the local-Harbor HR set converged `61/61 not-Ready → …
-            #   → 1/1 (openova-catalog) → 0/0 not-Ready: <none>` and then
-            #   LOOPED FOREVER at `0/0`: once the tracked set emptied to
-            #   total=0 (every pivoted HR Ready, then a Flux re-render /
-            #   churn window transiently dropped the local-Harbor match count
-            #   to zero) the `total>0` guard could never be satisfied again,
-            #   so the loop spun out the full deadline and then FATAL-refused
-            #   the strip → cutover wedged at step-06.
-            #
-            #   The fix is NOT "treat any 0/0 as done" — that would let the
-            #   VERY FIRST poll (before Flux has pivoted any HR to local
-            #   Harbor) strip ghcr.io with total=0, which is precisely the
-            #   half-pivot the #3379/#3526 strip-before-pivot fix prevents.
-            #   Instead we require that the pivot was OBSERVED CONVERGED at
-            #   least once: success is `not_ready==0` AND (`total>0` this poll
-            #   OR we have previously latched a fully-Ready local-Harbor set).
-            #   A genuine half-pivot (HRs stuck not-Ready, latch never set)
-            #   still spins to the deadline and correctly REFUSES the strip.
-            seen_local_ready="false"
-            # Snapshot file (writable /tmp emptyDir) holding one line per HR:
-            # "<ns> <name> <spec.url> <Ready-status>". Re-written each poll.
-            # Using a file (not a heredoc) keeps the whole block correctly
-            # indented inside the YAML block scalar.
-            hr_snapshot=/tmp/.hr-readiness.txt
-            while [ "$(date +%s)" -lt "${strip_wait_deadline}" ]; do
-              # Re-poke a reconcile so we don't wait out the 15m interval.
-              now_ts=$(date +%s)
-              total=0
-              not_ready=0
-              not_ready_names=""
-              kubectl get helmrepositories -A \
-                -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.spec.url}{" "}{range .status.conditions[?(@.type=="Ready")]}{.status}{end}{"\n"}{end}' \
-                2>/dev/null > "${hr_snapshot}" || : > "${hr_snapshot}"
-              # Enumerate every HelmRepository cluster-wide; select those whose
-              # spec.url host is the local Harbor host.
-              while read -r ns name url ready; do
-                [ -z "${ns}" ] && continue
-                case "${url}" in
-                  *"//${harbor_host}/"*|*"//${harbor_host}") : ;;  # local-Harbor HR — gate on it
-                  *) continue ;;                                    # not pivoted to local Harbor — skip
+
+            # Writable helm home (root FS is read-only).
+            export HOME=/tmp/helm-home
+            export HELM_CACHE_HOME=/tmp/helm-home/cache
+            export HELM_CONFIG_HOME=/tmp/helm-home/config
+            export HELM_DATA_HOME=/tmp/helm-home/data
+            export HELM_REGISTRY_CONFIG=/tmp/helm-home/config/registry.json
+            mkdir -p "${HELM_CACHE_HOME}" "${HELM_CONFIG_HOME}" "${HELM_DATA_HOME}" /tmp/helm-pull
+
+            if ! command -v helm >/dev/null 2>&1; then
+              echo "[helmrepository-patches] FATAL: helm not found on PATH — cannot prove local-Harbor pullability (alpine/k8s is expected to ship helm 3.x)" >&2
+              exit 1
+            fi
+            echo "[helmrepository-patches] Phase-3a: helm $(helm version --short 2>/dev/null || echo '?')"
+
+            # Build the probe list: (chart, version) for every HelmRelease whose
+            # sourceRef.kind=HelmRepository and whose referenced HelmRepository's
+            # LIVE spec.url host is harbor_host (i.e. already pivoted to local
+            # Harbor). This mirrors step-03 Phase A2's enumeration (the charts it
+            # mirrored) and the old gate's "only local-Harbor HRs" selection.
+            local_hr_file=/tmp/.local-harbor-hrs.txt
+            kubectl get helmrepositories -A \
+              -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.url}{"\n"}{end}' \
+              2>/dev/null | while read -r hrname hrurl; do
+                [ -z "${hrname}" ] && continue
+                case "${hrurl}" in
+                  *"//${harbor_host}/"*|*"//${harbor_host}") printf '%s\n' "${hrname}" ;;
+                  *) : ;;
                 esac
-                total=$((total+1))
-                if [ "${ready}" != "True" ]; then
-                  not_ready=$((not_ready+1))
-                  not_ready_names="${not_ready_names}${ns}/${name}(${ready:-<none>}) "
-                  kubectl annotate --overwrite -n "${ns}" "helmrepository/${name}" \
-                    "reconcile.fluxcd.io/requestedAt=${now_ts}" >/dev/null 2>&1 || true
-                fi
-              done < "${hr_snapshot}"
-              # Latch: at least one local-Harbor HR present this poll AND all
-              # of them Ready — the proof that registry.<fqdn> + Phase-0 auth
-              # work. Once latched it stays latched, so a later poll that finds
-              # the tracked set emptied (total=0) still counts as converged.
-              if [ "${total}" -gt 0 ] && [ "${not_ready}" -eq 0 ]; then
-                seen_local_ready="true"
+              done | sort -u > "${local_hr_file}" || : > "${local_hr_file}"
+
+            probe_file=/tmp/.chart-probe.txt
+            kubectl get helmreleases -A -o json 2>/dev/null | \
+              jq -r '.items[].spec.chart.spec
+                | select(.chart != null and .sourceRef != null and (.sourceRef.kind // "") == "HelmRepository")
+                | [ (.sourceRef.name // ""), .chart, (.version // "") ]
+                | @tsv' 2>/dev/null | \
+              while IFS="$(printf '\t')" read -r src chart ver; do
+                [ -z "${chart}" ] && continue
+                [ -z "${ver}" ] && continue
+                grep -Fxq "${src}" "${local_hr_file}" || continue
+                printf '%s\t%s\n' "${chart}" "${ver}"
+              done | sort -u > "${probe_file}" || : > "${probe_file}"
+
+            probe_total=$(grep -c . "${probe_file}" || true)
+            # Probe a REPRESENTATIVE sample (cap to keep the gate fast) — a
+            # successful pull of any pivoted chart proves Harbor serves charts
+            # + the auth works; always include bp-catalyst-platform (the
+            # keystone HR) when present so the probe is never trivially small.
+            sample_file=/tmp/.chart-probe-sample.txt
+            : > "${sample_file}"
+            grep -E '^bp-catalyst-platform[[:space:]]' "${probe_file}" >> "${sample_file}" 2>/dev/null || true
+            grep -vE '^bp-catalyst-platform[[:space:]]' "${probe_file}" 2>/dev/null \
+              | head -n "${HELM_PROBE_SAMPLE_SIZE}" >> "${sample_file}" || true
+            sort -u "${sample_file}" -o "${sample_file}"
+            sample_total=$(grep -c . "${sample_file}" || true)
+            echo "[helmrepository-patches] Phase-3a: ${probe_total} pivoted chart(s) on ${harbor_host}; probing a sample of ${sample_total}"
+
+            helm registry login "${harbor_host}" \
+              -u "${HARBOR_USERNAME:-admin}" -p "${HARBOR_PASSWORD}" >/dev/null 2>&1 \
+              && echo "[helmrepository-patches] Phase-3a: helm registry login ${harbor_host} OK" \
+              || echo "[helmrepository-patches] Phase-3a WARN: helm registry login ${harbor_host} returned non-zero (will retry inside the pull loop)"
+
+            while [ "$(date +%s)" -lt "${strip_wait_deadline}" ]; do
+              if [ "${sample_total}" -eq 0 ]; then
+                # No pivoted-chart HelmRelease found yet — Phase-1's URL pivot
+                # may not have rendered onto the consuming HRs. Re-poke the HR
+                # reconciles + re-derive the sample; never strip on an empty
+                # sample (that is the half-pivot guard).
+                echo "[helmrepository-patches] Phase-3a: no pivoted-chart HelmRelease observed yet; re-poking reconciles + retrying in 15s"
+                kubectl get helmrepositories -A \
+                  -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null \
+                  | while read -r rns rname; do
+                      [ -z "${rns}" ] && continue
+                      kubectl annotate --overwrite -n "${rns}" "helmrepository/${rname}" \
+                        "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null 2>&1 || true
+                    done || true
+                # Re-derive on the next loop (cheap): recompute local HRs + sample.
+                kubectl get helmrepositories -A \
+                  -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.url}{"\n"}{end}' 2>/dev/null \
+                  | while read -r hrname hrurl; do
+                      [ -z "${hrname}" ] && continue
+                      case "${hrurl}" in
+                        *"//${harbor_host}/"*|*"//${harbor_host}") printf '%s\n' "${hrname}" ;;
+                        *) : ;;
+                      esac
+                    done | sort -u > "${local_hr_file}" || : > "${local_hr_file}"
+                kubectl get helmreleases -A -o json 2>/dev/null | \
+                  jq -r '.items[].spec.chart.spec
+                    | select(.chart != null and .sourceRef != null and (.sourceRef.kind // "") == "HelmRepository")
+                    | [ (.sourceRef.name // ""), .chart, (.version // "") ]
+                    | @tsv' 2>/dev/null | \
+                  while IFS="$(printf '\t')" read -r src chart ver; do
+                    [ -z "${chart}" ] && continue
+                    [ -z "${ver}" ] && continue
+                    grep -Fxq "${src}" "${local_hr_file}" || continue
+                    printf '%s\t%s\n' "${chart}" "${ver}"
+                  done | sort -u > "${probe_file}" || : > "${probe_file}"
+                : > "${sample_file}"
+                grep -E '^bp-catalyst-platform[[:space:]]' "${probe_file}" >> "${sample_file}" 2>/dev/null || true
+                grep -vE '^bp-catalyst-platform[[:space:]]' "${probe_file}" 2>/dev/null \
+                  | head -n "${HELM_PROBE_SAMPLE_SIZE}" >> "${sample_file}" || true
+                sort -u "${sample_file}" -o "${sample_file}"
+                sample_total=$(grep -c . "${sample_file}" || true)
+                sleep 15
+                continue
               fi
-              # Success when NOTHING is not-ready AND we have ever observed the
-              # pivot fully converged. Covers both the steady all-Ready case
-              # (total>0, not_ready=0) and the post-convergence 0/0 case (the
-              # tracked set emptied after a clean pass) — without ever
-              # succeeding on a first-poll 0/0 where the pivot never happened.
-              if [ "${not_ready}" -eq 0 ] && { [ "${total}" -gt 0 ] || [ "${seen_local_ready}" = "true" ]; }; then
+              pull_ok=0
+              pull_fail=0
+              pull_fail_names=""
+              while IFS="$(printf '\t')" read -r p_chart p_ver; do
+                [ -z "${p_chart}" ] && continue
+                if helm pull "oci://${harbor_host}/openova-io/${p_chart}" \
+                     --version "${p_ver}" -d /tmp/helm-pull >/tmp/.helm-pull.log 2>&1; then
+                  pull_ok=$((pull_ok+1))
+                else
+                  pull_fail=$((pull_fail+1))
+                  pull_fail_names="${pull_fail_names}${p_chart}:${p_ver} "
+                fi
+              done < "${sample_file}"
+              if [ "${pull_ok}" -gt 0 ] && [ "${pull_fail}" -eq 0 ]; then
                 ready_ok="true"
-                echo "[helmrepository-patches] Phase-3a OK: local-Harbor HelmRepository pivot converged Ready=True (this poll total=${total}, seen_local_ready=${seen_local_ready})"
+                echo "[helmrepository-patches] Phase-3a OK: all ${pull_ok} sampled chart(s) pulled from ${harbor_host}/openova-io — local Harbor serves the charts + auth works"
                 break
               fi
-              echo "[helmrepository-patches] Phase-3a: ${not_ready}/${total} local-Harbor HelmRepository(ies) not yet Ready: ${not_ready_names:-<none>} (seen_local_ready=${seen_local_ready}); retrying in 15s"
+              echo "[helmrepository-patches] Phase-3a: ${pull_fail}/${sample_total} sampled chart(s) not yet pullable from ${harbor_host}: ${pull_fail_names:-<none>} (last error below); retrying in 15s"
+              sed 's/^/    /' /tmp/.helm-pull.log 2>/dev/null | tail -5 || true
               sleep 15
             done
 

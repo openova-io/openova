@@ -557,6 +557,29 @@ gateway:
   # answer.
   waitTimeoutSeconds: 1800
 
+# Step-06 Phase-3a chart-pullability probe (Refs #3627 #3379, root-caused
+# live on hw146). The strip-before-pivot fix (#3568) gates the destructive
+# ghcr.io / harbor.openova.io auth strip behind a proof that the pivoted
+# charts reconcile from local Harbor. The ORIGINAL gate read each pivoted
+# HelmRepository's `.status.conditions[Ready]` — but for spec.type=oci
+# HelmRepositories Flux source-controller sets NO conditions at all (they are
+# static pointers consumed lazily by HelmReleases; no HelmChart/OCIRepository
+# is ever created). On hw146 all 61 pivoted HRs were type=oci with EMPTY
+# conditions, so the gate's Ready could never become True and the strip was
+# FATAL-refused on every run → cutover wedged at step-06. The corrected gate
+# performs a DIRECT authenticated `helm pull` of a representative sample of
+# the pivoted charts from registry.<fqdn>; success proves Harbor serves the
+# chart artifact (step-03 Phase A2 mirrored it) AND the Phase-0 Harbor auth
+# works. The charts are skopeo-prewarmed into local Harbor at step-03, so a
+# pull is typically seconds.
+helmReadinessProbe:
+  # Number of pivoted charts (besides bp-catalyst-platform, which is always
+  # probed when present) to pull in the Phase-3a proof. A successful pull of
+  # any pivoted chart already proves Harbor + auth; a small sample keeps the
+  # gate fast while remaining a genuine end-to-end pull. Operators may raise
+  # this to probe more charts.
+  sampleSize: 5
+
 # Per-step Job-stamp tuning. Each value lands inside the corresponding
 # PodSpec ConfigMap; catalyst-api copies it onto the stamped Job.
 stepTimeouts:
