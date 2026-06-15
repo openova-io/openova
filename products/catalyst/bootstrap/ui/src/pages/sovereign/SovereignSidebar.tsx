@@ -38,7 +38,7 @@ const CLOUD_ICON =
   'M6.657 18c-2.572 0 -4.657 -2.007 -4.657 -4.483c0 -2.475 2.085 -4.482 4.657 -4.482c.393 -1.762 1.794 -3.2 3.675 -3.773c1.88 -.572 3.956 -.193 5.444 1c1.488 1.19 2.162 3.007 1.77 4.769h.99c1.913 0 3.464 1.56 3.464 3.486c0 1.927 -1.551 3.487 -3.465 3.487h-11.878'
 
 interface FlatNavItem {
-  id: 'apps' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'settings'
+  id: 'apps' | 'catalog' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'settings'
   label: string
   to: string
   icon: string
@@ -67,6 +67,19 @@ const FLAT_NAV: FlatNavItem[] = [
     label: 'Apps',
     to: '/apps',
     icon: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z',
+  },
+  // Catalog (#3601, EPIC #3597). Founder point 2 (2026-06-15): the
+  // catalog is its OWN left-nav page now, no longer a tab on /apps.
+  // `/catalog` → CatalogPage (the catalog grid). Sits right after Apps:
+  // Apps is "what's installed", Catalog is "what you can install".
+  //
+  // Icon: a stacked-cards / catalog glyph (single-stroke, matching the
+  // icon family used by the other entries).
+  {
+    id: 'catalog',
+    label: 'Catalog',
+    to: '/catalog',
+    icon: 'M4 7a2 2 0 012-2h8a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V7zm14 1a2 2 0 012 2v7a2 2 0 01-2 2M8 9h6M8 13h6',
   },
   // Sandbox (Wave 3, 2026-05-18 — issue: sandbox-wave3-ui-scaffold).
   // Per-Org agent-coding workspace — each session runs a chosen agent
@@ -172,13 +185,17 @@ const SETTINGS_SUB_NAV: SubNavItem[] = [
 
 // ── Active-state derivation ───────────────────────────────────────────────────
 
-type ActiveSection = 'apps' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'settings'
+type ActiveSection = 'apps' | 'catalog' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'settings'
 
 const CLOUD_PATH_RE = /^\/(cloud|infrastructure)(\/|$)/
 
 function deriveActiveSection(pathname: string): ActiveSection {
   if (CLOUD_PATH_RE.test(pathname)) return 'cloud'
   if (/^\/dashboard(\/|$)/.test(pathname)) return 'dashboard'
+  // /catalog(/*) → 'catalog' (#3601) so the Catalog nav item highlights
+  // for the catalog grid AND the per-Blueprint class page
+  // (/catalog/$blueprintName → CatalogDetail).
+  if (/^\/catalog(\/|$)/.test(pathname)) return 'catalog'
   // /sandbox(/*) → 'sandbox' so the nav highlight covers the landing,
   // /sandbox/$id, and /sandbox/settings (Wave 3).
   if (/^\/sandbox(\/|$)/.test(pathname)) return 'sandbox'
