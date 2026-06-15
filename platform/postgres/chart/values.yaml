@@ -75,21 +75,81 @@ instance:
 
 # ── Topology (multi-region BCP) ─────────────────────────────────────────
 # singleton          → one single-instance Cluster (no cross-region HA).
-# active-hot-standby → multi-instance Cluster with synchronous replication
-#                      across regions (ADR-0004 Pillar-3 zero-tx-loss). The
-#                      operator spreads instances via topology.kubernetes.io/
-#                      region antiAffinity when instances >= 2.
+# active-hot-standby → the bp-cnpg-pair SPLIT-SIDE cross-region shape
+#                      (#3375 / #3571). A 2-region Sovereign is two SEPARATE
+#                      ClusterMesh-joined clusters, so the data instance
+#                      renders a PRIMARY Cluster (keeps the instance name so
+#                      the consumer host `<instance>-rw` is unchanged) on
+#                      region A and a REPLICA follower Cluster on region B
+#                      streaming WAL over the ClusterMesh-global `-mesh`
+#                      Service with synchronous_commit=remote_apply (ADR-0004
+#                      Pillar-3 zero-tx-loss). bp-continuum drives switchover.
+#                      This is the PROVEN mechanism (hw128 region-kill PASS,
+#                      RTO 18s / RPO 0) — NOT the old single-Cluster region
+#                      antiAffinity, which only spread within ONE stretched
+#                      cluster (the hw126 fallacy that could never schedule
+#                      region-B pods on cluster-A).
 topology:
   mode: singleton
-  # Instance count. singleton ignores >1; active-hot-standby uses it to
-  # spread Pods across regions (canonical 2 for a single-replica pair).
+  # crossRegion (boolean, default false) — the bootstrap-kit slots wire this to
+  # ${SOVEREIGN_ENABLE_CNPG_PAIR:-false}, the SAME post-mesh-confirm signal
+  # bp-cnpg-pair's cnpgPair.enabled rides (catalyst-api patches it onto every
+  # region's Kustomization ONLY after ClusterMesh is established + the primary's
+  # replica-auth Secrets sync). When true it renders the active-hot-standby
+  # (cnpg-pair split-side) shape EVEN with mode left at singleton — the boolean
+  # seam exists because envsubst can substitute a plain true/false but cannot
+  # turn it into the `active-hot-standby` mode STRING (that needs tofu template
+  # logic, unavailable for a RUNTIME catalyst-api substitute patch). Either
+  # `mode: active-hot-standby` OR `crossRegion: true` activates the pair.
+  # Default false → singleton, byte-identical to pre-0.2.0.
+  crossRegion: false
+  # Instance count for the SINGLETON Cluster. Default 1 keeps the singleton
+  # render unchanged. (active-hot-standby uses haInstances instead, so a slot
+  # can flip crossRegion without ever touching this singleton field.)
   instances: 1
+  # Per-side instance count for the active-hot-standby pair (primary half AND
+  # replica half each get this many). Canonical 3 per bp-cnpg-pair. Decoupled
+  # from `instances` so the singleton render's instance count is never
+  # perturbed by the crossRegion flip.
+  haInstances: 3
+  # ── Split-side — WHICH HALF of the cross-region pair this install renders.
+  # primary|replica|secondary (secondary aliases replica so the bootstrap-kit
+  # substitutes the per-region SOVEREIGN_REGION_ROLE verbatim). Empty/unset →
+  # primary, so a singleton install (where the split never applies) is
+  # unchanged. ONLY consulted in active-hot-standby mode.
+  side: primary
+  # ── Region pinning (active-hot-standby only). Canonical openova.io/region
+  # node labels the primary / replica Cluster CRs pin on. Stamped from the
+  # cloud-init SOVEREIGN_PRIMARY_REGION / SOVEREIGN_REPLICA_REGION substitutes.
+  primary:
+    region: ""
+  replica:
+    region: ""
   # Synchronous replication knobs (only consulted in active-hot-standby).
   replication:
     mode: sync           # sync (Pillar-3 default) | async (forensic/lab)
     sync:
       commit: remote_apply  # on | remote_write | remote_apply
       numSync: 1
+  # ── Cilium ClusterMesh — the canonical inter-region replication transport
+  # (ADR-0001 §9). The primary's `-mesh` global Service publishes its read
+  # endpoint across the mesh; the replica's externalCluster dials it. OFF
+  # would force an out-of-band public endpoint, which is NOT supported.
+  # Only consulted in active-hot-standby.
+  clusterMesh:
+    enabled: true
+    # affinity: local → primary region keeps reads local; the replica region
+    # (zero local backends with cnpg-role=primary) falls through to remote.
+    affinity: local
+  # ── NetworkPolicy carve-out (active-hot-standby only). The platform
+  # default-deny CCNP (bp-network-policies) covers shared-data; these knobs
+  # open the cross-region + own-cluster replication path + the CNPG operator
+  # status probe (the #3322 + hw126 carve-outs bp-cnpg-pair proved).
+  networkPolicy:
+    enabled: true
+    operatorNamespace: cnpg-system
+    operatorStatusPort: 8000
+    operatorMetricsPort: 9187
 
 # ── Bindings (the shareable part) ───────────────────────────────────────
 # Each entry binds ONE consumer to this instance. The chart renders a

@@ -18,8 +18,14 @@ a no-op in practice.
 
 Master gate (.Values.enabled, default true): OFF → render ZERO resources
 so the slot 16a HR is an empty Ready release when sharing is disabled.
+
+Split-side (#3375 / #3571): the Database CRs are PRIMARY-side only. In
+active-hot-standby the replica half is a streaming follower that inherits
+every database via the WAL stream (CNPG forbids writes there until promoted),
+so a Database CR on the replica cluster would be rejected / meaningless. The
+renderReplicaHalf gate skips this whole template on side=replica.
 */ -}}
-{{- if and (ne (toString .Values.enabled) "false") (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
+{{- if and (ne (toString .Values.enabled) "false") (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") (not (include "bp-postgres.renderReplicaHalf" .)) }}
 {{- $ctx := . }}
 {{- range .Values.databases }}
 ---

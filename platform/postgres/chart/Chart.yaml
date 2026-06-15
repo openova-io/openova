@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.0 — #3571 (Refs #3375 North-Star-4): active-hot-standby now renders the
+#   PROVEN bp-cnpg-pair SPLIT-SIDE cross-region shape (primary Cluster keeps the
+#   instance name so the consumer host `<instance>-rw` is unchanged + a
+#   ClusterMesh-global `<instance>-mesh` Service via managed.services.additional
+#   + the CNPG-native `synchronous` block; a `<instance>-replica` follower on
+#   side=replica streams WAL over the mesh) INSTEAD of the old single-Cluster
+#   region antiAffinity (the hw126 stretched-cluster fallacy that could never
+#   schedule region-B pods on cluster-A). This makes the 3 shared-pg engines'
+#   declared active-hot-standby REAL at the data layer — a region-kill preserves
+#   a consumer's data (e.g. keycloak realm survives a region-A kill) via
+#   bp-continuum's cnpg-pair switchover. singleton render is STRUCTURALLY
+#   byte-identical (proven: only per-render randAlphaNum passwords differ).
+#   New topology knobs: side/primary.region/replica.region/clusterMesh/
+#   networkPolicy — ALL active-hot-standby-only; singleton ignores them.
 # 0.1.10 — #3375: sanitize the per-OWNER role-Secret name (roleSecretName
 #   helper) so an owner with a legal-Postgres underscore (e.g. `openova_flow`)
 #   renders the valid k8s Secret name `<instance>-openova-flow` instead of the
@@ -23,7 +37,7 @@ name: bp-postgres
 #   regions so it admits under BOTH the pre-#3370 CRD (hard-required) and the
 #   #3370 CRD (CEL-waived) — breaks the live upgrade-rollback deadlock that
 #   blocked keycloak->gitea->catalyst-platform on hw130.
-version: 0.1.10
+version: 0.2.0
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
@@ -53,6 +67,48 @@ description: |
 
   Changelog
   ─────────
+  0.2.0 (2026-06-15, Refs #3375 / #3571 — active-hot-standby = REAL cnpg-pair)
+    - topology.mode=active-hot-standby now renders the PROVEN bp-cnpg-pair
+      SPLIT-SIDE cross-region shape, replacing the old single multi-instance
+      Cluster + `topology.kubernetes.io/region` antiAffinity (the hw126
+      stretched-cluster fallacy: a 2-region Sovereign is two SEPARATE
+      ClusterMesh-joined clusters, so one Cluster CR's region-B pods can NEVER
+      schedule on cluster-A). Each region's control plane applies the same HR;
+      `topology.side` (primary|replica|secondary, from SOVEREIGN_REGION_ROLE)
+      selects which half it renders:
+        side=primary (cluster.yaml): a Cluster that KEEPS the instance name —
+          so the consumer host `<instance>-rw.<ns>.svc.cluster.local` is
+          UNCHANGED (keycloak/gitea/harbor/grafana/... bind it as today) —
+          with region node-affinity + primaryUpdateMethod:switchover + the
+          CNPG-native `spec.postgresql.synchronous` block (method=first,
+          dataDurability=required — NOT a raw synchronous_standby_names
+          parameter, which the CNPG webhook rejects as fixed, the #3195 trap)
+          + a ClusterMesh-global `<instance>-mesh` Service via
+          `managed.services.additional`. The Database CRs + managed roles +
+          hub Secrets + the Application card render here only.
+        side=replica (replica-cluster.yaml + replica-mesh-service.yaml): a
+          `<instance>-replica` follower Cluster (replica.enabled +
+          pg_basebackup + externalClusters streaming the primary's WAL over
+          the `-mesh` global Service) + a same-named local `-mesh` Service
+          stub (Cilium merges global services by name+namespace; zero local
+          backends → traffic crosses the mesh) + the #3322 own-cluster +
+          hw126 operator-status NetworkPolicy carve-outs. NO Database CRs /
+          roles / hub Secrets (the replica inherits the catalog via WAL).
+    - bp-continuum drives the cross-region switchover (its cnpgPromoter flips
+      `spec.replica.enabled` on the `<instance>` + `<instance>-replica` CR
+      halves — the SAME mechanism the hw128 region-kill walk PASSED, RTO 18s /
+      RPO 0). catalyst-api copies the primary's `<instance>-replication` /
+      `<instance>-ca` TLS Secrets primary→replica before the cnpg-pair flip
+      (handler/clustermesh.go, the #3254 sync extended to shared-data).
+    - New topology knobs (ALL active-hot-standby-only; singleton ignores them):
+      side, primary.region, replica.region, clusterMesh.{enabled,affinity},
+      networkPolicy.{enabled,operatorNamespace,operatorStatusPort,
+      operatorMetricsPort}.
+    - SAFE-BY-DEFAULT: singleton (the default) render is STRUCTURALLY
+      byte-identical to 0.1.10 (proven by the chart-render diff: only the
+      per-render randAlphaNum passwords differ). active-hot-standby is gated
+      by the bootstrap-kit slots on SOVEREIGN_ENABLE_CNPG_PAIR (the post-mesh
+      confirm signal bp-cnpg-pair uses) so single-region provs are unchanged.
   0.1.10 (2026-06-14, Refs #3375 — role-Secret name RFC-1123 sanitization)
     - _helpers.tpl: new `bp-postgres.k8sName` sanitizer; `roleSecretName`
       now sanitizes the owner segment so an owner like `openova_flow` yields
@@ -174,5 +230,9 @@ annotations:
   # `--api-versions postgresql.cnpg.io/v1`) is fully covered by the unit test
   # chart/tests/postgres-render.sh, which CI runs via the `tests/*.sh` gate.
   catalyst.openova.io/smoke-render-mode: "default-off"
-  catalyst.openova.io/depends-on: "bp-cnpg,bp-reflector"
+  # bp-cilium is added for the active-hot-standby split-side path: the
+  # replica's WAL stream rides Cilium ClusterMesh (the `-mesh` global Service).
+  # Implicit via bootstrap-kit ordering (cilium is slot 01, always Ready first)
+  # — listed here for the dependency graph. singleton needs neither.
+  catalyst.openova.io/depends-on: "bp-cnpg,bp-reflector,bp-cilium"
   catalyst.openova.io/issue: "3188"

@@ -188,6 +188,71 @@ func seedCNPGPairReplicaNamespace(t *testing.T, cs kubernetes.Interface) {
 	}
 }
 
+// seedSharedPGSourceSecrets seeds the 3 shared data instances'
+// `<instance>-replication` + `<instance>-ca` Secrets on the PRIMARY (#3571)
+// in the shared-data namespace, so the crossRegion flip's cross-cluster copy
+// succeeds. Mirrors what CNPG mints once each shared engine's postgres
+// initdb's.
+func seedSharedPGSourceSecrets(t *testing.T, cs kubernetes.Interface) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := cs.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: sharedPGNamespace},
+	}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatalf("create shared-data namespace: %v", err)
+	}
+	for _, name := range sharedPGReplicaAuthSecrets {
+		typ := corev1.SecretTypeTLS
+		data := map[string][]byte{"tls.crt": []byte("SPG-" + name + "-CRT"), "tls.key": []byte("SPG-" + name + "-KEY")}
+		if strings.HasSuffix(name, "-ca") {
+			typ = corev1.SecretTypeOpaque
+			data = map[string][]byte{"ca.crt": []byte("SPG-" + name + "-CA")}
+		}
+		if _, err := cs.CoreV1().Secrets(sharedPGNamespace).Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: sharedPGNamespace},
+			Type:       typ,
+			Data:       data,
+		}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+			t.Fatalf("create shared-pg source Secret %s: %v", name, err)
+		}
+	}
+}
+
+// seedSharedPGReplicaNamespace pre-creates `shared-data` on a replica fake
+// clientset (slot 16a ships the Namespace unconditionally on every region).
+func seedSharedPGReplicaNamespace(t *testing.T, cs kubernetes.Interface) {
+	t.Helper()
+	if _, err := cs.CoreV1().Namespaces().Create(context.Background(), &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: sharedPGNamespace},
+	}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatalf("create shared-data namespace on replica: %v", err)
+	}
+}
+
+// enableSharedPGInFixture flips SOVEREIGN_ENABLE_SHARED_PG=true on every
+// region's bootstrap-kit Kustomization substitute AND seeds the shared-pg
+// source Secrets on the primary + the shared-data namespace on each replica,
+// so the #3571 shared-pg replica-auth sync runs on the crossRegion flip.
+func enableSharedPGInFixture(t *testing.T, fx *testFixture) {
+	t.Helper()
+	// Re-seed each region's dynamic client with a substitute map that adds
+	// the shared-pg flag.
+	for kcPath := range fx.dynClients {
+		sub := defaultBootstrapKitSubstitute()
+		sub[clusterMeshSharedPGSubstituteKey] = "true"
+		fx.dynClients[kcPath] = newFakeKustomizationDynClient(t, buildBootstrapKitKustomization(sub))
+	}
+	// Seed the shared-pg source Secrets on the primary, the namespace on
+	// replicas.
+	primaryCS := fx.clients[fx.primaryKubeconfigPath]
+	seedSharedPGSourceSecrets(t, primaryCS)
+	for kcPath, cs := range fx.clients {
+		if kcPath != fx.primaryKubeconfigPath {
+			seedSharedPGReplicaNamespace(t, cs)
+		}
+	}
+}
+
 // writeFakeKubeconfig drops a stub kubeconfig YAML into the directory
 // at the path AutoEstablishClusterMesh expects. The content is parsed
 // by helmwatch.NewKubernetesClientFromKubeconfig — but our test path
@@ -1543,6 +1608,126 @@ func TestAutoEstablishClusterMesh_FullMeshSyncsReplicaAuthSecretsThenFlips(t *te
 	// AND the gate flipped on BOTH regions.
 	assertGateFlipped(t, fx.dynClients[fx.primaryKubeconfigPath], "primary")
 	assertGateFlipped(t, fx.dynClients[fx.secondaryKubeconfigPath], "secondary")
+}
+
+// TestAutoEstablishClusterMesh_SharedPGEnabled_SyncsSharedReplicaAuthThenFlips
+// (#3571) — when SOVEREIGN_ENABLE_SHARED_PG=true the bp-postgres shared
+// instances (shared-pg/-b/-c) ride the SAME crossRegion flip, so their
+// `<instance>-replication`/`-ca` Secrets (namespace shared-data) must also be
+// copied primary → replica before the gate flips. Assert all 6 land on the
+// replica byte-identical AND the gate flips on both regions.
+func TestAutoEstablishClusterMesh_SharedPGEnabled_SyncsSharedReplicaAuthThenFlips(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
+	enableSharedPGInFixture(t, fx)
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+
+	// Sanity: the replica starts WITHOUT the shared-pg source Secrets.
+	replicaCS := fx.clients[fx.secondaryKubeconfigPath]
+	for _, name := range sharedPGReplicaAuthSecrets {
+		if _, err := replicaCS.CoreV1().Secrets(sharedPGNamespace).Get(context.Background(), name, metav1.GetOptions{}); err == nil {
+			t.Fatalf("precondition: replica unexpectedly already has shared-pg Secret %s", name)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	statuses, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep)
+	if err != nil {
+		t.Fatalf("AutoEstablishClusterMesh returned error: %v", err)
+	}
+	requireFullyMeshed(t, statuses)
+
+	// All 6 shared-pg source Secrets must now exist on the replica, byte-identical.
+	primaryCS := fx.clients[fx.primaryKubeconfigPath]
+	for _, name := range sharedPGReplicaAuthSecrets {
+		got, err := replicaCS.CoreV1().Secrets(sharedPGNamespace).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("replica missing copied shared-pg Secret %s — replica WAL-stream auth would dangle: %v", name, err)
+		}
+		src, _ := primaryCS.CoreV1().Secrets(sharedPGNamespace).Get(ctx, name, metav1.GetOptions{})
+		for k, v := range src.Data {
+			if string(got.Data[k]) != string(v) {
+				t.Errorf("shared-pg Secret %s key %q: replica=%q want %q (copy not byte-identical)", name, k, got.Data[k], v)
+			}
+		}
+	}
+
+	// AND the gate flipped on BOTH regions (so the shared-pg replica halves render).
+	assertGateFlipped(t, fx.dynClients[fx.primaryKubeconfigPath], "primary")
+	assertGateFlipped(t, fx.dynClients[fx.secondaryKubeconfigPath], "secondary")
+}
+
+// TestAutoEstablishClusterMesh_SharedPGEnabled_MissingSourceRefusesReplicaFlip
+// (#3571) — shared-pg ON but one shared engine's source Secret not yet minted
+// (its postgres mid-bootstrap) → the replica side is refused (its gate stays
+// OFF) while the primary side flips (stage 1). Mirrors the cnpg-pair
+// missing-source guard, extended to the shared-pg secret set.
+func TestAutoEstablishClusterMesh_SharedPGEnabled_MissingSourceRefusesReplicaFlip(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
+	enableSharedPGInFixture(t, fx)
+	// Remove ONE shared-pg source Secret from the primary.
+	primaryCS := fx.clients[fx.primaryKubeconfigPath]
+	if err := primaryCS.CoreV1().Secrets(sharedPGNamespace).Delete(context.Background(), "shared-pg-b-replication", metav1.DeleteOptions{}); err != nil {
+		t.Fatalf("delete shared-pg source Secret: %v", err)
+	}
+	var logBuf bytes.Buffer
+	fx.handler.log = slog.New(slog.NewTextHandler(&logBuf, nil))
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	statuses, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep)
+	if err != nil {
+		t.Fatalf("AutoEstablishClusterMesh returned error: %v", err)
+	}
+	requireFullyMeshed(t, statuses)
+
+	// Two-stage: primary flips, replica refused until the shared-pg auth lands.
+	assertGateFlipped(t, fx.dynClients[fx.primaryKubeconfigPath], "primary")
+	assertGateNotFlipped(t, fx.dynClients[fx.secondaryKubeconfigPath], "secondary")
+	if !strings.Contains(logBuf.String(), "shared-pg replica-auth sync: source Secret unavailable on primary") {
+		t.Errorf("expected a loud warning about the missing shared-pg source Secret, got:\n%s", logBuf.String())
+	}
+}
+
+// TestAutoEstablishClusterMesh_SharedPGDisabled_DoesNotBlockFlip (#3571) —
+// when SOVEREIGN_ENABLE_SHARED_PG is absent/false the shared instances render
+// empty releases, CNPG never mints their Secrets, and the shared-pg sync must
+// be SKIPPED entirely — the cnpg-pair flip proceeds even with NO shared-pg
+// source Secrets present. This is the default-shape regression-lock.
+func TestAutoEstablishClusterMesh_SharedPGDisabled_DoesNotBlockFlip(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
+	// Deliberately do NOT enable shared-pg and do NOT seed any shared-pg
+	// Secret (the default fixture). The cnpg-pair sync still has its own
+	// secrets seeded by newTestFixture.
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	statuses, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep)
+	if err != nil {
+		t.Fatalf("AutoEstablishClusterMesh returned error: %v", err)
+	}
+	requireFullyMeshed(t, statuses)
+
+	// The gate flips on BOTH regions despite ZERO shared-pg Secrets present —
+	// the shared-pg sync was skipped (flag off), not refused.
+	assertGateFlipped(t, fx.dynClients[fx.primaryKubeconfigPath], "primary")
+	assertGateFlipped(t, fx.dynClients[fx.secondaryKubeconfigPath], "secondary")
+	// And no shared-pg Secret was conjured onto the replica.
+	replicaCS := fx.clients[fx.secondaryKubeconfigPath]
+	if _, err := replicaCS.CoreV1().Secrets(sharedPGNamespace).Get(ctx, "shared-pg-replication", metav1.GetOptions{}); err == nil {
+		t.Errorf("shared-pg Secret appeared on the replica despite shared-pg being disabled")
+	}
 }
 
 // TestAutoEstablishClusterMesh_MissingSourceSecretRefusesFlip — when the
