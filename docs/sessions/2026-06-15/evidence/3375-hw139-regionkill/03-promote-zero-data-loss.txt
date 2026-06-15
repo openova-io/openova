@@ -1,0 +1,46 @@
+## PROMOTE + ZERO-DATA-LOSS (region-b, newly promoted primary)
+# captured 2026-06-15T04:59:34Z
+
+### region-b cluster after promote:
+NAME                             AGE     INSTANCES   READY   STATUS                                       PRIMARY
+cnpg-pair-bp-cnpg-pair-replica   2m40s   3           2       Waiting for the instances to become active   cnpg-pair-bp-cnpg-pair-replica-1
+
+### region-b is now WRITABLE (pg_is_in_recovery = f):
+f
+
+### RPO PROOF — the PRE-KILL sentinel row 'regionkill-hw139' (id=2) SURVIVED the failover:
+ id |          marker          |              ts               
+----+--------------------------+-------------------------------
+  1 | connectivity-probe-hw139 | 2026-06-15 04:51:59.0641+00
+  2 | regionkill-hw139         | 2026-06-15 04:58:23.833267+00
+(2 rows)
+
+
+### region-b accepts a NEW post-promotion write (proves it is a live writable primary):
+ id |               marker                |              ts               
+----+-------------------------------------+-------------------------------
+ 35 | post-kill region-b (promoted) hw139 | 2026-06-15 04:59:35.419567+00
+(1 row)
+
+INSERT 0 1
+
+### final table on promoted region-b (pre-kill rows + post-kill write):
+ id |               marker                |              ts               
+----+-------------------------------------+-------------------------------
+  1 | connectivity-probe-hw139            | 2026-06-15 04:51:59.0641+00
+  2 | regionkill-hw139                    | 2026-06-15 04:58:23.833267+00
+ 35 | post-kill region-b (promoted) hw139 | 2026-06-15 04:59:35.419567+00
+(3 rows)
+
+### region-b new-primary standbys streaming (post-promotion, rebuilt):
+ client_addr |   state   | sync_state 
+-------------+-----------+------------
+ 10.43.1.71  | streaming | async
+ 10.43.2.152 | streaming | async
+(2 rows)
+
+### region-b cluster final (promoted primary, healthy):
+NAME                             AGE     INSTANCES   READY   STATUS                     PRIMARY
+cnpg-pair-bp-cnpg-pair-replica   3m27s   3           3       Cluster in healthy state   cnpg-pair-bp-cnpg-pair-replica-1
+### region-b timeline after promotion (incremented to 2 = real promotion):
+2

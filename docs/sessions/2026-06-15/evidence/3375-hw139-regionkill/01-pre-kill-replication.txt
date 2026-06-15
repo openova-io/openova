@@ -1,0 +1,38 @@
+## PRE-KILL: live cross-region streaming + sentinel row written to region-a, replicated to region-b
+# captured 2026-06-15T04:58:23Z
+
+### region-a primary pg_stat_replication (10.43.x = region-b cross-region standby, async):
+ client_addr |   state   | sync_state |         application_name         
+-------------+-----------+------------+----------------------------------
+ 10.42.1.133 | streaming | potential  | cnpg-pair-bp-cnpg-pair-primary-3
+ 10.42.2.90  | streaming | sync       | cnpg-pair-bp-cnpg-pair-primary-2
+ 10.43.3.106 | streaming | async      | cnpg-pair-bp-cnpg-pair-replica
+(3 rows)
+
+
+### region-a is the writable primary (pg_is_in_recovery=f); region-b is read-only standby (=t):
+region-a pg_is_in_recovery = f
+region-b pg_is_in_recovery = t
+
+### write the PRE-KILL sentinel marker row to region-a primary:
+ id |      marker      |              ts               
+----+------------------+-------------------------------
+  2 | regionkill-hw139 | 2026-06-15 04:58:23.833267+00
+(1 row)
+
+INSERT 0 1
+### region-a current WAL LSN after sentinel write:
+0/D002418
+
+### PRE-KILL verify: sentinel row 'regionkill-hw139' (id=2) replicated to region-b standby BEFORE the kill:
+ id |          marker          |              ts               
+----+--------------------------+-------------------------------
+  1 | connectivity-probe-hw139 | 2026-06-15 04:51:59.0641+00
+  2 | regionkill-hw139         | 2026-06-15 04:58:23.833267+00
+(2 rows)
+
+### region-b replay LSN (caught up to region-a's sentinel write at 0/D002418):
+0/D002450|0/D002450
+### region-b is a true read-only standby pre-kill — write is REJECTED:
+ERROR:  cannot execute INSERT in a read-only transaction
+command terminated with exit code 1
