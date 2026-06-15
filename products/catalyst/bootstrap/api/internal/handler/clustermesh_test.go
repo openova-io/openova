@@ -692,6 +692,40 @@ func waitForClusterMeshEvent(t *testing.T, dep *Deployment, timeout time.Duratio
 		level, substrs, timeout, dumpClusterMeshEvents(dep))
 }
 
+// watchAndStopSteadyStateOnConverged spawns a background watcher that, the
+// moment the reconcile loop emits its final "reconcile loop complete"
+// success event, flips the deployment out of "ready". #3583 changed
+// runAutoEstablishClusterMesh so first-convergence hands off to the
+// (blocking) steady-state heal phase instead of returning; tests that
+// assert the bounded CONVERGENCE path (not the steady-state heal) use this
+// to release the heal goroutine so runAutoEstablishClusterMesh returns.
+// Returns a stop func that ends the watcher. The status flip happens AFTER
+// convergence (the success event fires only once the retry loop converged),
+// so it never short-circuits the convergence the test is exercising.
+func watchAndStopSteadyStateOnConverged(fx *testFixture) func() {
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(5 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if hasClusterMeshEvent(fx.dep, "info", "reconcile loop complete") {
+					fx.dep.mu.Lock()
+					if fx.dep.Status == "ready" {
+						fx.dep.Status = "wiped"
+					}
+					fx.dep.mu.Unlock()
+					return
+				}
+			}
+		}
+	}()
+	return func() { close(stop) }
+}
+
 // TestAutoEstablishClusterMesh_RegionSlotFailureEmitsEventWithRegionKey
 // — the hw126 silence shape (#3241): a region whose slot fails during
 // buildRegionSlots (kubeconfig path empty / unreadable) used to enter
@@ -770,6 +804,17 @@ func TestRunAutoEstablishClusterMesh_RetryConvergesAfterLBAppears(t *testing.T) 
 	fx.handler.clusterMeshRetryMaxBackoff = 60 * time.Millisecond
 	fx.handler.clusterMeshRetryBudget = 20 * time.Second
 	fx.handler.clusterMeshAttemptTimeout = 5 * time.Second
+	// #3583: convergence now hands off to the steady-state heal phase rather
+	// than returning. Fast interval so the heal goroutine notices the
+	// post-convergence status flip (below) and releases runAutoEstablish.
+	fx.handler.clusterMeshSteadyStateInterval = 20 * time.Millisecond
+
+	// #3583: once the loop reaches convergence (final success event) flip the
+	// deployment out of "ready" so the steady-state heal phase exits and
+	// runAutoEstablishClusterMesh returns — this test asserts the convergence
+	// path, not the (separately-tested) steady-state heal.
+	stopSteady := watchAndStopSteadyStateOnConverged(fx)
+	defer stopSteady()
 
 	// Once attempt 1 reports partial mesh, stamp the missing LB IP —
 	// the level-trigger's whole point is that a later-arriving IP
@@ -1850,6 +1895,11 @@ func TestAutoEstablishClusterMesh_ReRunAfterSecretsAppearConverges(t *testing.T)
 	fx.handler.clusterMeshRetryMaxBackoff = 60 * time.Millisecond
 	fx.handler.clusterMeshRetryBudget = 20 * time.Second
 	fx.handler.clusterMeshAttemptTimeout = 5 * time.Second
+	// #3583: release the post-convergence steady-state heal phase so the loop
+	// returns (this test asserts the convergence path).
+	fx.handler.clusterMeshSteadyStateInterval = 20 * time.Millisecond
+	stopSteady := watchAndStopSteadyStateOnConverged(fx)
+	defer stopSteady()
 
 	// Once attempt 1 reports "meshed but the cnpg-pair flip has not landed"
 	// (the new retry shape), the primary postgres finishes initdb → CNPG
@@ -2149,5 +2199,236 @@ func TestShouldStartupClusterMeshReconcile_RescuesTimeoutRecords(t *testing.T) {
 	}
 	if !h.shouldStartupClusterMeshReconcile(mk("ready", helmwatch.OutcomeReady)) {
 		t.Errorf("ready record must still pass")
+	}
+}
+
+// ── #3583 steady-state self-heal + copy-skip-on-match ───────────────────
+
+// TestCopySecretAcrossClusters_SkipsUpdateWhenUnchanged locks in the
+// #3583 write-elision: copying a Secret that already matches the source on
+// the destination must NOT issue an Update (so a steady-state heal pass
+// stays a cheap Get+compare). A fake-clientset "update" reactor counts the
+// Update calls: zero across an unchanged re-copy proves the write was
+// elided; one more after the source drifts proves the heal write still
+// fires.
+func TestCopySecretAcrossClusters_SkipsUpdateWhenUnchanged(t *testing.T) {
+	h := &Handler{log: silentLogger()}
+	dst := kfake.NewSimpleClientset()
+	var updates int
+	dst.PrependReactor("update", "secrets", func(action ktesting.Action) (bool, runtime.Object, error) {
+		updates++
+		return false, nil, nil // fall through to the default tracker
+	})
+	ctx := context.Background()
+	if _, err := dst.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: sharedPGNamespace},
+	}, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	src := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "shared-pg-replication", Namespace: sharedPGNamespace},
+		Type:       corev1.SecretTypeTLS,
+		Data:       map[string][]byte{"tls.crt": []byte("CRT-1"), "tls.key": []byte("KEY-1")},
+	}
+
+	// First copy creates the Secret (a Create, not an Update).
+	if err := h.copySecretAcrossClusters(ctx, src, dst, sharedPGNamespace); err != nil {
+		t.Fatalf("first copy (create): %v", err)
+	}
+	if updates != 0 {
+		t.Fatalf("create path issued %d Update(s), want 0", updates)
+	}
+
+	// Second copy with an IDENTICAL source must be a no-op — no Update.
+	if err := h.copySecretAcrossClusters(ctx, src, dst, sharedPGNamespace); err != nil {
+		t.Fatalf("second copy (unchanged): %v", err)
+	}
+	if updates != 0 {
+		t.Errorf("unchanged re-copy issued %d Update(s), want 0 — write-elision regressed (a heal pass would churn the apiserver every interval)", updates)
+	}
+
+	// Now drift the source — the next copy MUST write (exactly one Update)
+	// so a genuine heal still lands.
+	drifted := src.DeepCopy()
+	drifted.Data["tls.crt"] = []byte("CRT-2-HEALED")
+	if err := h.copySecretAcrossClusters(ctx, drifted, dst, sharedPGNamespace); err != nil {
+		t.Fatalf("third copy (drifted): %v", err)
+	}
+	if updates != 1 {
+		t.Errorf("drifted re-copy issued %d Update(s), want exactly 1 — the heal Update never fired", updates)
+	}
+	afterHeal, err := dst.CoreV1().Secrets(sharedPGNamespace).Get(ctx, src.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get after heal copy: %v", err)
+	}
+	if string(afterHeal.Data["tls.crt"]) != "CRT-2-HEALED" {
+		t.Errorf("drifted re-copy left stale bytes %q, want %q", afterHeal.Data["tls.crt"], "CRT-2-HEALED")
+	}
+}
+
+// TestSecretContentMatches covers the StringData/Type-aware comparison the
+// write-elision relies on, including the apiserver's StringData→Data fold.
+func TestSecretContentMatches(t *testing.T) {
+	base := func() *corev1.Secret {
+		return &corev1.Secret{
+			Type: corev1.SecretTypeTLS,
+			Data: map[string][]byte{"tls.crt": []byte("A"), "tls.key": []byte("B")},
+		}
+	}
+	if !secretContentMatches(base(), base()) {
+		t.Errorf("identical Secrets must match")
+	}
+	// Type drift → no match.
+	a, b := base(), base()
+	b.Type = corev1.SecretTypeOpaque
+	if secretContentMatches(a, b) {
+		t.Errorf("Type drift must NOT match")
+	}
+	// Data drift → no match.
+	a, b = base(), base()
+	b.Data["tls.crt"] = []byte("Z")
+	if secretContentMatches(a, b) {
+		t.Errorf("Data drift must NOT match")
+	}
+	// StringData on the desired side folds into the effective data and must
+	// compare equal to a destination that already carries it under .Data.
+	desired := &corev1.Secret{Type: corev1.SecretTypeOpaque, StringData: map[string]string{"k": "v"}}
+	existing := &corev1.Secret{Type: corev1.SecretTypeOpaque, Data: map[string][]byte{"k": []byte("v")}}
+	if !secretContentMatches(existing, desired) {
+		t.Errorf("StringData(desired) vs folded Data(existing) must match (apiserver fold semantics)")
+	}
+	// nil guard.
+	if secretContentMatches(nil, base()) || secretContentMatches(base(), nil) {
+		t.Errorf("nil operand must never match")
+	}
+}
+
+// TestRunClusterMeshSteadyStateHeal_ReCopiesDeletedReplicaSecret is the
+// heart of #3583: after first convergence the steady-state heal phase
+// keeps re-running the idempotent establish, so a replica-auth Secret that
+// gets collaterally deleted out of the replica's namespace (the hw144
+// shared-pg case, and the cnpg-pair case) is re-copied on the next pass —
+// no catalyst-api restart required. Drives runClusterMeshSteadyStateHeal
+// directly with a sub-second interval; deletes BOTH a shared-pg and a
+// cnpg-pair replica Secret; asserts both reappear; then flips status away
+// from "ready" to terminate the goroutine (the wipe path).
+func TestRunClusterMeshSteadyStateHeal_ReCopiesDeletedReplicaSecret(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
+	enableSharedPGInFixture(t, fx)
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+
+	// Land first convergence: one establish copies every replica-auth Secret
+	// and flips the gate. (This is the state the retry loop reaches right
+	// before it hands off to the steady-state heal phase.)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep); err != nil {
+		t.Fatalf("initial establish: %v", err)
+	}
+	replicaCS := fx.clients[fx.secondaryKubeconfigPath]
+	// Sanity: both a shared-pg and a cnpg-pair replica Secret are present.
+	sharedVictim := sharedPGReplicaAuthSecrets[0]
+	cnpgVictim := cnpgPairReplicaAuthSecrets[0]
+	if _, err := replicaCS.CoreV1().Secrets(sharedPGNamespace).Get(ctx, sharedVictim, metav1.GetOptions{}); err != nil {
+		t.Fatalf("precondition: shared-pg replica Secret %s should exist after first establish: %v", sharedVictim, err)
+	}
+	if _, ok := getCNPGSecret(t, replicaCS, cnpgVictim); !ok {
+		t.Fatalf("precondition: cnpg-pair replica Secret %s should exist after first establish", cnpgVictim)
+	}
+
+	// hw144 shape: convergence churn collaterally deletes the replica-auth
+	// Secrets out of the replica's namespaces.
+	if err := replicaCS.CoreV1().Secrets(sharedPGNamespace).Delete(ctx, sharedVictim, metav1.DeleteOptions{}); err != nil {
+		t.Fatalf("delete shared-pg replica Secret: %v", err)
+	}
+	if err := replicaCS.CoreV1().Secrets(cnpgPairNamespace).Delete(ctx, cnpgVictim, metav1.DeleteOptions{}); err != nil {
+		t.Fatalf("delete cnpg-pair replica Secret: %v", err)
+	}
+
+	// Sub-second heal cadence so the next pass fires in milliseconds.
+	fx.handler.clusterMeshSteadyStateInterval = 20 * time.Millisecond
+	fx.handler.clusterMeshAttemptTimeout = 5 * time.Second
+
+	healDone := make(chan struct{})
+	go func() {
+		fx.handler.runClusterMeshSteadyStateHeal(fx.dep)
+		close(healDone)
+	}()
+
+	// Poll for both Secrets to reappear — the steady-state pass self-heals.
+	deadline := time.Now().Add(10 * time.Second)
+	healed := false
+	for time.Now().Before(deadline) {
+		_, sErr := replicaCS.CoreV1().Secrets(sharedPGNamespace).Get(context.Background(), sharedVictim, metav1.GetOptions{})
+		_, cOK := getCNPGSecret(t, replicaCS, cnpgVictim)
+		if sErr == nil && cOK {
+			healed = true
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !healed {
+		t.Fatalf("steady-state heal did not re-copy the deleted replica Secrets;\nevents:\n%s", dumpClusterMeshEvents(fx.dep))
+	}
+
+	// The re-copied Secrets must be byte-identical to the primary source —
+	// a hollow placeholder would not authenticate the WAL stream.
+	primaryCS := fx.clients[fx.primaryKubeconfigPath]
+	srcShared, err := primaryCS.CoreV1().Secrets(sharedPGNamespace).Get(context.Background(), sharedVictim, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get primary shared-pg source %s: %v", sharedVictim, err)
+	}
+	gotShared, err := replicaCS.CoreV1().Secrets(sharedPGNamespace).Get(context.Background(), sharedVictim, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get re-healed shared-pg replica %s: %v", sharedVictim, err)
+	}
+	for k, v := range srcShared.Data {
+		if string(gotShared.Data[k]) != string(v) {
+			t.Errorf("re-healed shared-pg Secret %s key %q: replica=%q want %q (heal copy not byte-identical)", sharedVictim, k, gotShared.Data[k], v)
+		}
+	}
+
+	// Flip status away from ready (the wipe path) — the heal goroutine must
+	// observe it and terminate promptly.
+	fx.dep.mu.Lock()
+	fx.dep.Status = "wiped"
+	fx.dep.mu.Unlock()
+	select {
+	case <-healDone:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("steady-state heal goroutine did not stop after status left ready")
+	}
+}
+
+// TestRunClusterMeshSteadyStateHeal_StopsImmediatelyWhenNotReady proves the
+// heal goroutine exits at once if the deployment already left status=ready
+// before the first pass (a wipe that lands in the convergence→steady-state
+// handoff window) — it must never hurl an establish at a tearing-down
+// cluster.
+func TestRunClusterMeshSteadyStateHeal_StopsImmediatelyWhenNotReady(t *testing.T) {
+	fx := newTestFixture(t, []string{"203.0.113.10", "203.0.113.20"})
+	restore := installClusterMeshClientFactory(fx.clients)
+	defer restore()
+	restoreDyn := installClusterMeshDynamicClientFactory(fx.dynClients)
+	defer restoreDyn()
+
+	fx.dep.mu.Lock()
+	fx.dep.Status = "wiping"
+	fx.dep.mu.Unlock()
+	fx.handler.clusterMeshSteadyStateInterval = 1 * time.Hour // would block forever if entered
+
+	done := make(chan struct{})
+	go func() {
+		fx.handler.runClusterMeshSteadyStateHeal(fx.dep)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("steady-state heal did not return immediately when status != ready at entry")
 	}
 }
