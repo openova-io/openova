@@ -1165,6 +1165,35 @@ type Result struct {
 	// "Open Sovereign console" path (POST
 	// /deployments/{id}/mint-handover-token).
 	HandoverURL string `json:"handoverURL,omitempty"`
+
+	// Regions — per-region HelmRelease health census (#3611). For a
+	// multi-region deployment this is the ONLY honest read of how each
+	// region actually converged: the flat ComponentStates map above
+	// collapses every region together, and dep.Status="ready" is driven
+	// solely by the PRIMARY region's Phase-1 watch. A degraded secondary
+	// (hw145: region-a 60/63 HRs, region-b 48/63) would otherwise hide
+	// behind a bare green "ready" — this slice surfaces "region-b 48/63,
+	// degraded" instead. Computed at Phase-1 termination (a snapshot of
+	// the secondary watchers taken while they are still attached) and
+	// recomputed live in Deployment.State() while the watchers remain up,
+	// so the console/jobs view tracks convergence and then freezes on the
+	// handover picture. Empty for a single-region prov; for a multi-
+	// region prov the primary entry is emitted even before any secondary
+	// kubeconfig lands. Primary first, secondaries in sorted region-key
+	// order. See internal/provisioner/region_health.go for the gate.
+	Regions []RegionHealth `json:"regions,omitempty"`
+
+	// SecondaryDegraded — surface-only roll-up of Regions: true when ANY
+	// secondary region is significantly short of the primary's Ready-HR
+	// count (#3611). This is intentionally NOT a gate — markPhase1Done
+	// keeps flipping Status="ready" off the primary watcher alone so a
+	// legitimately-slow secondary never hangs the prov (Flux keeps
+	// reconciling long past the watch budget and the doctrine forbids
+	// wiping such envs). It exists so the operator console can badge a
+	// "ready" deployment as "secondary degraded" and so catalyst-api logs
+	// the condition at Phase-1 termination. Always false for a single-
+	// region prov.
+	SecondaryDegraded bool `json:"secondaryDegraded,omitempty"`
 }
 
 // PartialRegionMaterialisationError is returned by Provision when

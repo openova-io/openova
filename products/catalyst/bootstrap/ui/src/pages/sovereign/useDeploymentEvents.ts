@@ -68,6 +68,25 @@ const IN_FLIGHT_STATUSES: ReadonlySet<string> = new Set([
   'phase1-watching',
 ])
 
+/**
+ * #3611 — per-region HelmRelease health, mirroring the Go `RegionHealth`
+ * struct in api/internal/provisioner/region_health.go. One entry per
+ * region observed in a multi-region deployment.
+ */
+export interface RegionHealth {
+  /** Region key — declared primary region (e.g. "me-east-215-a") or the
+   * cloud-init ?region= key a secondary control-plane PUT under. */
+  region: string
+  /** Exactly one entry is the primary (drives the deployment "ready"). */
+  primary: boolean
+  /** bp-* HelmReleases observed in the terminal "installed" state. */
+  hrReady: number
+  /** bp-* HelmReleases observed in this region. */
+  hrTotal: number
+  /** Secondary-only: significantly short of the primary's Ready count. */
+  degraded: boolean
+}
+
 export interface DeploymentSnapshot {
   id?: string
   status?: 'pending' | 'provisioning' | 'ready' | 'failed' | string
@@ -142,6 +161,28 @@ export interface DeploymentSnapshot {
    * poll-after-SSE-reconnect.
    */
   handoverFiredAt?: string
+  /**
+   * #3611 — per-region HelmRelease health census. For a multi-region
+   * deployment this is the only honest read of how each region actually
+   * converged: `componentStates` above collapses every region together,
+   * and `status: "ready"` is driven solely by the PRIMARY region's
+   * Phase-1 watch. A degraded secondary (hw145: region-a 60/63 HRs,
+   * region-b 48/63) would otherwise hide behind a bare green "ready" —
+   * this array surfaces "region-b 48/63, degraded" instead. Primary
+   * first, secondaries sorted by region key. Absent for single-region
+   * provs. Lifted to the top level by deployments.go (mirror of the Go
+   * `RegionHealth` struct in api/internal/provisioner/region_health.go).
+   */
+  regions?: RegionHealth[]
+  /**
+   * #3611 — surface-only roll-up of `regions`: true when any secondary
+   * region is significantly behind the primary's Ready-HR count. NOT a
+   * gate (catalyst-api keeps flipping `status: "ready"` off the primary
+   * watcher alone so a slow secondary never hangs the prov); it exists so
+   * the console can badge a "ready" deployment as "secondary degraded".
+   * Absent/false for single-region and fully-converged provs.
+   */
+  secondaryDegraded?: boolean
   result?: {
     sovereignFQDN: string
     controlPlaneIP: string

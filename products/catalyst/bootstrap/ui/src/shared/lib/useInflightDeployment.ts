@@ -53,6 +53,14 @@ export interface DeploymentListEntry {
   ownerEmail?: string
   adoptedAt?: string | null
   error?: string
+  /**
+   * #3611 — surface-only flag: true when a "ready" multi-region prov's
+   * secondary region is significantly behind the primary. Lets the
+   * deployments list badge it "secondary degraded" instead of a flat
+   * green pill. The full per-region breakdown lives on the detail
+   * response (GET /deployments/{id}); the list carries just this roll-up.
+   */
+  secondaryDegraded?: boolean
 }
 
 interface ListDeploymentsResponse {

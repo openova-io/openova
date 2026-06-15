@@ -933,6 +933,20 @@ func (d *Deployment) State() map[string]any {
 		if d.Result.HandoverFiredAt != nil {
 			out["handoverFiredAt"] = d.Result.HandoverFiredAt.UTC().Format(time.RFC3339)
 		}
+		// #3611 — per-region HelmRelease health, lifted to the top level
+		// so the operator-console deployments/jobs view can badge a
+		// degraded secondary on a "ready" deployment without unwrapping
+		// result. While the Phase-1 watchers are still attached (the
+		// pre-handover polling window) we RECOMPUTE the census live off
+		// the in-memory informer caches so the counts track convergence;
+		// once the watchers are torn down at handover we fall back to the
+		// snapshot markPhase1Done persisted onto Result.Regions. Both
+		// paths are surface-only — neither changes d.Status.
+		regions, secondaryDegraded := d.regionHealthForStateLocked()
+		if len(regions) > 0 {
+			out["regions"] = regions
+			out["secondaryDegraded"] = secondaryDegraded
+		}
 	}
 	// adoptedAt — handover-finalisation flag (issue #317) lifted to the
 	// top level so the UI's beforeLoad redirect (issue #319) reads it
@@ -954,6 +968,48 @@ func (d *Deployment) State() map[string]any {
 	// running degrade gracefully (the bridge still renders).
 	out["openovaFlowEnabled"] = true
 	return out
+}
+
+// regionHealthForStateLocked returns the per-region HelmRelease health
+// census + the secondaryDegraded roll-up for State() (#3611). The CALLER
+// MUST hold d.mu.
+//
+// While the Phase-1 watchers are still attached (liveWatcher for the
+// primary, secondaryWatchers for the rest) it recomputes the census LIVE
+// off the in-memory informer caches so a poll during convergence tracks
+// the real counts. Once the watchers are torn down (handover, or a record
+// restored from disk where no watcher is attached) it returns the snapshot
+// markPhase1Done persisted onto Result.Regions. Both paths are surface-
+// only — this never touches d.Status.
+//
+// SnapshotComponents() on each watcher takes only that watcher's own lock,
+// never d.mu, so calling it under d.mu is safe.
+func (d *Deployment) regionHealthForStateLocked() (regions []provisioner.RegionHealth, secondaryDegraded bool) {
+	primaryAttached := d.liveWatcher != nil
+	secondariesAttached := len(d.secondaryWatchers) > 0
+	if !primaryAttached && !secondariesAttached {
+		// No live watchers — surface the persisted snapshot verbatim.
+		if d.Result == nil {
+			return nil, false
+		}
+		return d.Result.Regions, d.Result.SecondaryDegraded
+	}
+
+	// Primary states: prefer the live informer cache; fall back to the
+	// persisted terminal map when only secondaries are attached (a state
+	// that does not normally occur but keeps the census honest).
+	var primaryStates map[string]string
+	if primaryAttached {
+		primaryStates = make(map[string]string)
+		for _, cs := range d.liveWatcher.SnapshotComponents() {
+			primaryStates[cs.AppID] = cs.Status
+		}
+	} else if d.Result != nil {
+		primaryStates = d.Result.ComponentStates
+	}
+
+	primaryRegion := primaryRegionKey(&d.Request)
+	return provisioner.ComputeRegionHealth(primaryRegion, primaryStates, snapshotSecondaryStatesLocked(d))
 }
 
 func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
@@ -1416,6 +1472,14 @@ func (h *Handler) ListDeployments(w http.ResponseWriter, r *http.Request) {
 		OwnerEmail    string  `json:"ownerEmail,omitempty"`
 		AdoptedAt     *string `json:"adoptedAt,omitempty"`
 		Error         string  `json:"error,omitempty"`
+		// SecondaryDegraded (#3611) — surface-only flag so the
+		// deployments list can badge a "ready" multi-region prov whose
+		// secondary region is significantly behind the primary, instead
+		// of a flat green pill. Omitted (false) for single-region and
+		// fully-converged provs. The per-region HR breakdown lives on the
+		// GET /deployments/{id} response (Result.Regions); the list keeps
+		// just the roll-up to stay lightweight.
+		SecondaryDegraded bool `json:"secondaryDegraded,omitempty"`
 	}
 
 	out := make([]listEntry, 0)
@@ -1433,6 +1497,10 @@ func (h *Handler) ListDeployments(w http.ResponseWriter, r *http.Request) {
 			OwnerEmail:    dep.OwnerEmail,
 			Error:         dep.Error,
 		}
+		// #3611 — roll-up the per-region census so the list can badge a
+		// degraded secondary on a "ready" deployment. Same live-or-
+		// persisted source as State(); surface-only.
+		_, entry.SecondaryDegraded = dep.regionHealthForStateLocked()
 		if !dep.StartedAt.IsZero() {
 			entry.StartedAt = dep.StartedAt.UTC().Format(time.RFC3339)
 		}
