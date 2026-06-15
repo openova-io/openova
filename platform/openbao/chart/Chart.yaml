@@ -108,7 +108,23 @@ name: bp-openbao
 # render nothing). tests/continuum-render.sh Case 3 now passes
 # `--api-versions dr.openova.io/v1`; new Case 4 proves the guard skips the CR
 # (no install failure) when the CRD is absent. No upstream subchart change.
-version: 1.2.43
+version: 1.2.44
+# 1.2.44 (#3626, 2026-06-16): make the console "Open" button land signed-in.
+# The Open button (AppDetail + AppsPage card) window.open()s catalyst-api's
+# launch-url as a TOP-LEVEL tab. blueprint.yaml's endpoint pointed that launch
+# at the Vault-UI OIDC flow (ssoShim → the #3226 server-side shim 302'd into
+# /ui/vault/auth/oidc/oidc/callback; the non-shim ssoInitPath /ui/vault/auth
+# ?with=oidc auto-initiated the same flow) — but Vault-UI's OIDC callback is
+# POPUP-ONLY (unconditional window.opener.postMessage), so a top-level tab hit
+# window.opener=null → "Cannot read properties of null (reading 'postMessage')"
+# and the token form, never signed-in (measured live hw146). FIX: repoint the
+# endpoint ssoInitPath at the on-origin /sso/landing page (already shipped at
+# 1.2.35 for the bare-URL contract) + drop ssoShim, so launch-url returns
+# https://bao.<fqdn>/sso/landing — the SAME popup-free top-level flow the bare
+# `/` HTTPRoute redirect uses. No chart-TEMPLATE change (the landing page +
+# route + OIDC redirect-uri allowlist already exist); version bumped in
+# lockstep with blueprint.yaml + the bootstrap-kit slot pin so the new
+# blueprint OCI artifact (which carries the repointed endpoint) publishes.
 # 1.2.37 (#3374, 2026-06-14): fix the sso-landing nginx ImagePullBackOff. The
 # image was `harbor.openova.io/proxy-docker/library/nginx` but the live Harbor
 # DockerHub proxy-cache project is `proxy-dockerhub` (proxy-docker does NOT
