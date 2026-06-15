@@ -48,6 +48,11 @@ func (h *Handler) InstallApp(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Slug       string            `json:"slug"`
 		DepChoices map[string]string `json:"dep_choices"`
+		// Placement (#3591) — the catalog create flow's topology + region(s)
+		// + vCluster picks. All fixed-set SELECT values; no free-text. We
+		// translate it to the canonical app_configs.postgres contract the
+		// provisioning gitops generator already consumes.
+		Placement *installPlacement `json:"placement"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		respond.Error(w, http.StatusBadRequest, "invalid JSON body")
@@ -57,10 +62,37 @@ func (h *Handler) InstallApp(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "slug is required")
 		return
 	}
+	if perr := validatePlacement(body.Placement); perr != "" {
+		respond.Error(w, http.StatusBadRequest, perr)
+		return
+	}
 
 	tenant, err := h.Store.GetTenant(r.Context(), tenantID)
 	if err != nil || tenant == nil {
 		respond.Error(w, http.StatusNotFound, "organization not found")
+		return
+	}
+
+	// Namespace-readiness precondition (#3591). The Application install lands
+	// its HelmRelease in the tenant's namespace (tenant-<slug>). If the tenant
+	// hasn't finished provisioning, that namespace does not exist yet and the
+	// HR would fail with "namespace not found". Refuse with a clear message
+	// instead of dispatching an install that's doomed to land in a missing ns.
+	if tenant.Subdomain == "" {
+		respond.Error(w, http.StatusConflict,
+			"organization has no namespace yet — finish provisioning before installing apps")
+		return
+	}
+	switch tenant.Status {
+	case "active", "":
+		// ready — namespace exists (initial provision created tenant-<slug>).
+	case "provisioning":
+		respond.Error(w, http.StatusConflict,
+			"organization is still provisioning — its namespace is not ready yet, try again shortly")
+		return
+	default:
+		respond.Error(w, http.StatusConflict,
+			"organization is not active (status: "+tenant.Status+") — cannot install apps")
 		return
 	}
 
@@ -173,6 +205,19 @@ func (h *Handler) InstallApp(w http.ResponseWriter, r *http.Request) {
 			deploySlugs = append(deploySlugs, a.Slug)
 		}
 	}
+	// Translate the placement picks (#3591) into the canonical
+	// app_configs.postgres contract the provisioning gitops generator
+	// consumes (active_hot_standby + primary_region + replica_region). For
+	// single-region this leaves active_hot_standby=false (the legacy
+	// single-cluster path). Persist onto the tenant so a re-provision /
+	// regeneration keeps the same placement, and forward it on the payload.
+	appConfigs := placementToAppConfigs(body.Placement)
+	if len(appConfigs) > 0 {
+		if err := h.Store.MergeAppConfigs(r.Context(), tenantID, appConfigs); err != nil {
+			slog.Warn("install: persist app_configs failed (continuing)", "tenant_id", tenantID, "error", err)
+		}
+	}
+
 	// One idempotency key per user click, shared between HTTP + event so the
 	// provisioning service can dedup the two transports into a single run.
 	// See issue #71.
@@ -188,6 +233,9 @@ func (h *Handler) InstallApp(w http.ResponseWriter, r *http.Request) {
 		"deploy_slugs":    deploySlugs,
 		"dep_choices":     body.DepChoices,
 		"apps":            tenant.Apps,
+	}
+	if len(appConfigs) > 0 {
+		payload["app_configs"] = appConfigs
 	}
 	if err := h.callProvisioning(r.Context(), "/provisioning/apps/install", payload); err != nil {
 		slog.Error("install: provisioning HTTP call", "error", err, "tenant_id", tenantID)
@@ -501,4 +549,70 @@ func contains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// installPlacement is the create-flow placement payload (#3591). Every field
+// is a fixed-set SELECT value on the console (no free-text). topology is one
+// of single-region / active-active / active-hotstandby; regions are Sovereign
+// region keys; vcluster is the tenant's vCluster (one per Organization).
+type installPlacement struct {
+	Topology      string `json:"topology"`
+	PrimaryRegion string `json:"primary_region"`
+	ReplicaRegion string `json:"replica_region"`
+	VCluster      string `json:"vcluster"`
+}
+
+var validTopologyMode = map[string]bool{
+	"single-region":     true,
+	"active-active":     true,
+	"active-hotstandby": true,
+}
+
+// validatePlacement returns "" when the placement is valid (or absent), else a
+// user-facing error string. Mirrors the gitops InvalidRegionPair guard so the
+// console can't ship a config the provisioning generator would silently
+// degrade: active-* modes require two distinct regions.
+func validatePlacement(p *installPlacement) string {
+	if p == nil {
+		return "" // placement is optional — legacy single-region default applies.
+	}
+	if !validTopologyMode[p.Topology] {
+		return "invalid placement.topology: must be single-region, active-active, or active-hotstandby"
+	}
+	if p.PrimaryRegion == "" {
+		return "placement.primary_region is required"
+	}
+	if p.Topology != "single-region" {
+		if p.ReplicaRegion == "" {
+			return "placement.replica_region is required for active-active / active-hotstandby"
+		}
+		if p.ReplicaRegion == p.PrimaryRegion {
+			return "placement primary and replica regions must differ"
+		}
+	}
+	return ""
+}
+
+// placementToAppConfigs translates the placement into the canonical
+// app_configs.postgres contract the provisioning gitops generator consumes
+// (core/services/provisioning/gitops/gitops.go reads active_hot_standby +
+// primary_region + replica_region). single-region → active_hot_standby=false
+// (legacy single-cluster path). Returns nil when there's nothing to set.
+func placementToAppConfigs(p *installPlacement) map[string]map[string]any {
+	if p == nil || p.Topology == "" {
+		return nil
+	}
+	pg := map[string]any{}
+	if p.Topology == "single-region" {
+		pg["active_hot_standby"] = false
+	} else {
+		// active-active and active-hotstandby both pin two regions; the
+		// generator's cnpg-pair path keys off active_hot_standby + the
+		// region pair (active-active is rendered as the same two-region
+		// shape today — a follow-up can specialise it).
+		pg["active_hot_standby"] = true
+		pg["primary_region"] = p.PrimaryRegion
+		pg["replica_region"] = p.ReplicaRegion
+	}
+	return map[string]map[string]any{"postgres": pg}
 }

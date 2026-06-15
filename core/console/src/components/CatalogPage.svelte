@@ -6,21 +6,44 @@
   import PortalShell from './PortalShell.svelte';
   import {
     getApps, getMyOrgs, installApp,
-    type User, type Org, type CatalogApp,
+    type User, type Org, type CatalogApp, type TopologyMode, type Placement,
   } from '../lib/api';
   import { path } from '../lib/config';
   import { getAppStateStore } from '../lib/stores/appState.svelte';
 
   const ACTIVE_ORG_KEY = 'sme-active-org';
 
+  // Canonical Sovereign region keys — mirrors the marketplace signup BCP
+  // picker (core/marketplace/src/components/BCPStep.svelte) and the values
+  // the provisioning gitops appconfigs path expects. Kept as a fixed list
+  // (no live regions endpoint yet); the catalog/regions endpoint is the
+  // right injection point when it exists.
+  const REGIONS: { key: string; label: string }[] = [
+    { key: 'hz-fsn-rtz-prod', label: 'Falkenstein (hz-fsn)' },
+    { key: 'hz-hel-rtz-prod', label: 'Helsinki (hz-hel)' },
+    { key: 'hz-nbg-rtz-prod', label: 'Nuremberg (hz-nbg)' },
+  ];
+
+  // Topology modes the create flow offers. We constrain the offered set to
+  // what the Blueprint declares it supports when that metadata is present
+  // (catalog topology field); otherwise all three are offered.
+  const TOPOLOGY_LABELS: Record<TopologyMode, string> = {
+    'single-region': 'Single-region (one region)',
+    'active-active': 'Active-active (two regions, both serving)',
+    'active-hotstandby': 'Active-hot-standby (primary + standby region)',
+  };
+  const ALL_TOPOLOGIES: TopologyMode[] = ['single-region', 'active-active', 'active-hotstandby'];
+
   let catalog = $state<CatalogApp[]>([]);
+  let orgs = $state<Org[]>([]);
   let loading = $state(true);
   let activeOrg = $state<Org | null>(null);
   let query = $state('');
   // Shared store — source of truth for tenant apps + app_states + jobs. #64
   let store = $state<ReturnType<typeof getAppStateStore> | null>(null);
 
-  // Add modal state.
+  // Add modal state. Placement (#3591) is captured here via SELECT inputs:
+  // target Organization, its vCluster, topology mode, and region(s).
   let modal = $state<null | {
     app: CatalogApp;
     mode: 'add' | 'capacity';
@@ -30,6 +53,11 @@
     // Advanced: per-dependency "dedicated" (new instance) vs "reuse" (existing instance slug/id).
     depChoices?: Record<string, 'dedicated' | string>;
     advancedOpen?: boolean;
+    // Placement selections.
+    orgId?: string;
+    topology?: TopologyMode;
+    primaryRegion?: string;
+    replicaRegion?: string;
   }>(null);
   let toasts = $state<Array<{ id: number; text: string; kind: 'ok' | 'info' | 'error' }>>([]);
   let toastId = 0;
@@ -48,6 +76,7 @@
 
   $effect(() => {
     getMyOrgs().then(list => {
+      orgs = list || [];
       const picked = pickActiveOrg(list || []);
       activeOrg = picked;
       if (picked) {
@@ -115,6 +144,22 @@
     setTimeout(() => { toasts = toasts.filter(t => t.id !== id); }, 3500);
   }
 
+  // The topology modes this app may be placed with. The SME catalog does
+  // not yet carry a per-app topology field (tracked by #3593), so today we
+  // offer the full set; once the catalog exposes supported_topologies this
+  // narrows to the app's real capability. Always includes single-region.
+  function supportedTopologies(_app: CatalogApp): TopologyMode[] {
+    return ALL_TOPOLOGIES;
+  }
+
+  // One vCluster per Organization in the SME model — the tenant's vCluster
+  // is addressed by the Org slug (host namespace tenant-<slug>). The SELECT
+  // is therefore a single, deterministic option keyed off the chosen Org.
+  function vclusterFor(orgId: string | undefined): string {
+    const o = orgs.find((x) => x.id === orgId);
+    return o ? o.slug : '';
+  }
+
   function requestAdd(app: CatalogApp) {
     // Default every dependency to a dedicated new instance; the user can flip
     // to "reuse" in the Advanced drawer if an existing shareable instance is
@@ -123,7 +168,25 @@
     for (const depSlug of app.dependencies ?? []) {
       depChoices[depSlug] = 'dedicated';
     }
-    modal = { mode: 'add', app, depChoices, advancedOpen: false };
+    // Seed placement defaults: active Org, its vCluster, single-region in the
+    // primary region. All editable via the SELECTs in the modal.
+    modal = {
+      mode: 'add', app, depChoices, advancedOpen: false,
+      orgId: activeOrg?.id,
+      topology: 'single-region',
+      primaryRegion: REGIONS[0].key,
+      replicaRegion: REGIONS[1].key,
+    };
+  }
+
+  // Placement is valid when: an Org is chosen, a primary region is chosen,
+  // and (for active-* modes) the replica region differs from the primary.
+  // Mirrors the gitops InvalidRegionPair guard so the user can't ship a
+  // config the provisioning generator would silently degrade.
+  function placementValid(m: NonNullable<typeof modal>): boolean {
+    if (!m.orgId || !m.primaryRegion) return false;
+    if (m.topology === 'single-region') return true;
+    return !!m.replicaRegion && m.replicaRegion !== m.primaryRegion;
   }
 
   // Only shareable deps are offered a reuse option. Non-shareable deps (none
@@ -146,10 +209,20 @@
   }
 
   async function confirmAdd() {
-    if (!modal || !activeOrg) return;
+    if (!modal) return;
+    const targetOrgId = modal.orgId ?? activeOrg?.id;
+    if (!targetOrgId || !placementValid(modal)) return;
     modal.pending = true;
+    const placement: Placement = {
+      topology: modal.topology ?? 'single-region',
+      primary_region: modal.primaryRegion ?? REGIONS[0].key,
+      vcluster: vclusterFor(targetOrgId),
+      ...(modal.topology && modal.topology !== 'single-region'
+        ? { replica_region: modal.replicaRegion }
+        : {}),
+    };
     try {
-      await installApp(activeOrg.id, modal.app.slug, modal.depChoices);
+      await installApp(targetOrgId, modal.app.slug, modal.depChoices, placement);
       showToast(`${modal.app.name} queued for install`, 'ok');
       modal = null;
       // Kick the shared store so this page and any sibling tab flip to
@@ -284,7 +357,61 @@
                 {/each}
               </p>
             {/if}
-            <p class="modal-body muted">Current tenant: {installedIds.length} apps installed on {org?.name ?? 'your plan'}.</p>
+            <p class="modal-body muted">Current tenant: {installedIds.length} apps installed.</p>
+
+            <!-- Placement step (#3591) — every input is a SELECT (no free-text). -->
+            <div class="placement">
+              <div class="place-field">
+                <label for="place-org">Organization</label>
+                <select id="place-org" bind:value={modal.orgId}>
+                  {#each orgs as o (o.id)}
+                    <option value={o.id}>{o.name}</option>
+                  {/each}
+                </select>
+              </div>
+
+              <div class="place-field">
+                <label for="place-vcluster">vCluster</label>
+                <select id="place-vcluster" disabled>
+                  <option value={vclusterFor(modal.orgId)}>{vclusterFor(modal.orgId) || '—'}</option>
+                </select>
+                <span class="place-hint">One vCluster per Organization — the app lands here.</span>
+              </div>
+
+              <div class="place-field">
+                <label for="place-topology">Topology</label>
+                <select id="place-topology" bind:value={modal.topology}>
+                  {#each supportedTopologies(modal.app) as t}
+                    <option value={t}>{TOPOLOGY_LABELS[t]}</option>
+                  {/each}
+                </select>
+              </div>
+
+              <div class="place-regions">
+                <div class="place-field">
+                  <label for="place-primary">{modal.topology === 'single-region' ? 'Region' : 'Primary region'}</label>
+                  <select id="place-primary" bind:value={modal.primaryRegion}>
+                    {#each REGIONS as r}
+                      <option value={r.key}>{r.label}</option>
+                    {/each}
+                  </select>
+                </div>
+                {#if modal.topology && modal.topology !== 'single-region'}
+                  <div class="place-field">
+                    <label for="place-replica">{modal.topology === 'active-active' ? 'Second region' : 'Standby region'}</label>
+                    <select id="place-replica" bind:value={modal.replicaRegion}>
+                      {#each REGIONS as r}
+                        <option value={r.key}>{r.label}</option>
+                      {/each}
+                    </select>
+                  </div>
+                {/if}
+              </div>
+
+              {#if modal.topology !== 'single-region' && modal.replicaRegion === modal.primaryRegion}
+                <p class="place-error" role="alert">Primary and {modal.topology === 'active-active' ? 'second' : 'standby'} regions must differ.</p>
+              {/if}
+            </div>
 
             {#if shareableDeps(modal.app).length > 0}
               <button
@@ -361,7 +488,7 @@
             {/if}
             <div class="modal-actions">
               <button class="btn btn-secondary" onclick={closeModal} disabled={modal.pending}>Cancel</button>
-              <button class="btn btn-primary" onclick={confirmAdd} disabled={modal.pending}>
+              <button class="btn btn-primary" onclick={confirmAdd} disabled={modal.pending || !placementValid(modal)}>
                 {modal.pending ? 'Installing…' : 'Install'}
               </button>
             </div>
@@ -581,6 +708,32 @@
     display: flex; gap: 0.5rem; justify-content: flex-end;
     margin-top: 1rem;
   }
+
+  /* Placement step (#3591) — SELECT-only inputs. */
+  .placement {
+    margin-top: 0.85rem;
+    display: flex; flex-direction: column; gap: 0.7rem;
+  }
+  .place-field { display: flex; flex-direction: column; gap: 0.25rem; }
+  .place-field label {
+    font-size: 0.78rem; font-weight: 600; color: var(--color-text-strong);
+  }
+  .place-field select {
+    width: 100%; padding: 0.45rem 0.6rem;
+    border: 1px solid var(--color-border); border-radius: 8px;
+    background: var(--color-bg, var(--color-surface)); color: var(--color-text);
+    font: inherit; font-size: 0.85rem; appearance: auto;
+  }
+  .place-field select:focus { outline: 2px solid var(--color-accent); border-color: transparent; }
+  .place-field select:disabled { opacity: 0.7; cursor: not-allowed; }
+  .place-hint { font-size: 0.72rem; color: var(--color-text-dim); }
+  .place-regions { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
+  @media (max-width: 480px) { .place-regions { grid-template-columns: 1fr; } }
+  .place-error {
+    margin: 0; color: var(--color-danger, #ef4444);
+    font-size: 0.78rem; font-weight: 500;
+  }
+
   .adv-toggle {
     margin-top: 0.75rem; padding: 0.35rem 0;
     background: none; border: none; color: var(--color-text-dim);

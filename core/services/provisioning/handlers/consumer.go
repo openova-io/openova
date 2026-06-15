@@ -106,6 +106,13 @@ type appChangeData struct {
 	DeploySlugs    []string          `json:"deploy_slugs"`
 	DepChoices     map[string]string `json:"dep_choices"`
 	Apps           []string          `json:"apps"` // final tenant.Apps IDs after the change
+	// AppConfigs carries the create-flow placement (#3591) translated to the
+	// canonical configSchema contract keyed by app slug (e.g. {"postgres":
+	// {"active_hot_standby": true, "primary_region": "...", "replica_region":
+	// "..."}}). Threaded into the manifest generator so day-2 installs honour
+	// the chosen topology/regions. Nil/empty preserves the legacy
+	// single-region default.
+	AppConfigs map[string]map[string]any `json:"app_configs,omitempty"`
 }
 
 func (h *Handler) handleAppInstallRequested(ctx context.Context, event *events.Event) error {
@@ -420,7 +427,11 @@ func (h *Handler) applyTenantChange(ctx context.Context, data appChangeData, act
 			"tenant", data.TenantSlug, "action", action)
 	}
 
-	manifests := h.Generator.GenerateAllWithPassword(data.TenantSlug, planSlug, appSlugs, dbPassword)
+	// Thread the create-flow placement (#3591) into the generator via the
+	// canonical app_configs contract. Empty/nil preserves the legacy
+	// single-region default (GenerateAllWithAppConfigs treats absence as a
+	// no-op, identical to the old GenerateAllWithPassword path).
+	manifests := h.Generator.GenerateAllWithAppConfigs(data.TenantSlug, planSlug, appSlugs, dbPassword, data.AppConfigs)
 	if len(manifests) == 0 {
 		return fmt.Errorf("manifest generation produced no files")
 	}

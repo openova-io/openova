@@ -158,6 +158,33 @@ func (s *Store) SetAppState(ctx context.Context, tenantID, appID, state string) 
 	return nil
 }
 
+// MergeAppConfigs merges per-app configSchema values into tenant.AppConfigs
+// without clobbering sibling apps or sibling fields. Used by the day-2
+// install path (#3591) to persist the placement picks (keyed by app slug,
+// e.g. "postgres") so a later regeneration keeps the same topology/regions.
+// Uses dotted $set keys (app_configs.<slug>.<field>) so concurrent writers
+// to different apps/fields don't overwrite each other.
+func (s *Store) MergeAppConfigs(ctx context.Context, tenantID string, cfgs map[string]map[string]any) error {
+	if tenantID == "" || len(cfgs) == 0 {
+		return nil
+	}
+	set := bson.D{{Key: "updated_at", Value: time.Now().UTC()}}
+	for slug, fields := range cfgs {
+		for k, v := range fields {
+			set = append(set, bson.E{Key: "app_configs." + slug + "." + k, Value: v})
+		}
+	}
+	update := bson.D{{Key: "$set", Value: set}}
+	res, err := s.tenants().UpdateOne(ctx, bson.D{{Key: "_id", Value: tenantID}}, update)
+	if err != nil {
+		return fmt.Errorf("store: merge app configs %s: %w", tenantID, err)
+	}
+	if res.MatchedCount == 0 {
+		return fmt.Errorf("store: tenant %s not found", tenantID)
+	}
+	return nil
+}
+
 // ClearAppState removes AppStates[appID] from the given tenant.
 func (s *Store) ClearAppState(ctx context.Context, tenantID, appID string) error {
 	if tenantID == "" || appID == "" {

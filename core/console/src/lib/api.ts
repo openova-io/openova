@@ -250,12 +250,31 @@ export const getJobs = (tenantId: string) =>
 export const getUninstallPreview = (orgId: string, slug: string) =>
   request<UninstallPreview>(`/tenant/orgs/${orgId}/apps/${slug}/uninstall-preview`);
 
+// Placement captured by the catalog create flow (#3591). topology is the
+// BCP mode; region(s) and vcluster pin where the Application lands. All
+// fields come from SELECT/DROPDOWN inputs — no free-text (founder rule).
+//   - 'single-region'      → one region, no replica.
+//   - 'active-active'      → two regions, both serving.
+//   - 'active-hotstandby'  → primary + hot-standby replica region.
+// The backend translates this to the canonical app_configs.postgres
+// {active_hot_standby, primary_region, replica_region} contract the
+// provisioning gitops generator already consumes, and ensures the target
+// tenant namespace exists before the install lands.
+export type TopologyMode = 'single-region' | 'active-active' | 'active-hotstandby';
+export interface Placement {
+  topology: TopologyMode;
+  primary_region: string;
+  replica_region?: string;
+  vcluster: string;
+}
+
 // Day-2 app management (backend: task #134 — returns 501 until shipped)
 // dep_choices maps dependency slug -> 'dedicated' | existing instance slug/id.
 export const installApp = (
   orgId: string,
   slug: string,
   depChoices?: Record<string, string>,
+  placement?: Placement,
 ) =>
   request<{ status: string; message?: string; upgrade_suggestion?: string }>(
     `/tenant/orgs/${orgId}/apps`,
@@ -264,6 +283,7 @@ export const installApp = (
       body: JSON.stringify({
         slug,
         ...(depChoices && Object.keys(depChoices).length ? { dep_choices: depChoices } : {}),
+        ...(placement ? { placement } : {}),
       }),
     },
   );
