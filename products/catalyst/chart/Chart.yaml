@@ -2712,7 +2712,18 @@ name: bp-catalyst-platform
 # (qaFixtures.cnpgBackupEndpointURL + cnpg-clusters-qa.yaml) to the
 # syncer-mangled host Service name. qa-fixtures only; Catalyst-Zero render
 # byte-unchanged. (1.4.622 was a content-free deploy-bot image sweep.)
-version: 1.4.644
+version: 1.4.645
+# 1.4.645 — #3626 (2026-06-16) — catalog-seed: repoint bp-openbao's launch
+# endpoint ssoInitPath at the on-origin /sso/landing page (was
+# /ui/vault/auth?with=oidc). The console "Open" button window.open()s
+# catalyst-api's launch-url as a top-level tab; the old target drove Vault-UI's
+# POPUP-ONLY OIDC callback (window.opener.postMessage) on a top-level tab →
+# window.opener=null → "Cannot read properties of null (reading 'postMessage')"
+# + the token form, never signed-in (live hw146). The catalog-seed CR is the
+# launch-url's in-cluster source-of-truth (catalog_client_cluster_fallback.go),
+# so it MUST match platform/openbao/blueprint.yaml's repointed endpoint
+# (check-catalog-seed-lockstep.sh). Template-only; default render otherwise
+# byte-identical. Refs #3626.
 # 1.4.597 — #3373 (2026-06-13) — coupling fix (a) placement-as-data:
 # templates/httproute.yaml backendRefs honor new
 # ingress.gateway.backendServiceApi / backendServiceUi overrides. When
