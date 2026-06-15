@@ -512,7 +512,18 @@ spec:
       # local sha1 lookup that never touches the external OAuth2 source. Same
       # credential + pattern as step-05 #3536; image flips images.git →
       # images.kubectl (alpine/k8s has kubectl+curl+git). No RBAC change.
-      version: 0.1.64
+      # 0.1.65 (#3588, Refs #3568 #3379 #3526, hw144 step-06 loops-forever;
+      # rebased over 0.1.64's step-01 PAT fix #3584):
+      # 0.1.63's Phase-3a readiness wait used the success test `total>0 &&
+      # not_ready==0`. On hw144 the local-Harbor HR set converged then emptied
+      # (`61/61 → 1/1 → 0/0 not-Ready: <none>`) and the `total>0` guard meant
+      # `0/0` never succeeded — the loop spun out stripReadinessSeconds and then
+      # FATAL-refused the strip, wedging cutover at step-06. Fix: add a
+      # `seen_local_ready` latch + success test `not_ready==0 && (total>0 ||
+      # seen_local_ready)` so the post-convergence 0/0 terminates-success while
+      # a first-poll 0/0 (pivot never happened) still waits — preserving the
+      # 0.1.63 strip-before-pivot half-pivot guard.
+      version: 0.1.65
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
