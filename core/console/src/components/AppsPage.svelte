@@ -1,7 +1,7 @@
 <script lang="ts">
   import PortalShell from './PortalShell.svelte';
   import {
-    getApps, getProvisionStatus, getMyOrgs, installApp, uninstallApp,
+    getApps, getProvisionStatus, getMyOrgs, uninstallApp,
     type User, type Org, type CatalogApp, type Provision, type ProvisionStep,
   } from '../lib/api';
   import { path } from '../lib/config';
@@ -17,20 +17,16 @@
   let provPollTimer: ReturnType<typeof setInterval> | null = null;
   let activeOrg = $state<Org | null>(null);
   let query = $state('');
-  let tab = $state<'installed' | 'catalog'>('installed');
   // Shared store — source of truth for tenant apps + app_states + jobs. #64
   let store = $state<ReturnType<typeof getAppStateStore> | null>(null);
 
-  // Add/Remove modal state
+  // Remove modal state. The ADD flow now lives on the Catalog page (#3592) —
+  // /apps is the installed-deployments view only.
   let modal = $state<null | {
-    mode: 'add' | 'remove' | 'capacity';
+    mode: 'remove';
     app: CatalogApp;
     message?: string;
-    upgrade?: string;
     pending?: boolean;
-    // Advanced: per-dependency "dedicated" (new instance) vs "reuse" (existing instance slug/id).
-    depChoices?: Record<string, 'dedicated' | string>;
-    advancedOpen?: boolean;
   }>(null);
   let toasts = $state<Array<{ id: number; text: string; kind: 'ok' | 'info' | 'error' }>>([]);
   let toastId = 0;
@@ -158,9 +154,7 @@
   // see #112. Users pick business apps; backing services ride along as
   // dependencies but are browsable for connection info.
   const isServiceApp = (a: CatalogApp) => a.kind === 'service' || a.system;
-  const catalogApps = $derived(catalog); // all apps, business + service
-  const installedApps = $derived(catalogApps.filter(a => installedIds.includes(a.id)));
-  const installedServices = $derived(catalog.filter(a => isServiceApp(a) && installedIds.includes(a.id)));
+  const installedApps = $derived(catalog.filter(a => installedIds.includes(a.id)));
 
   // Data-instance bindings (ADR-0010). Each installed app that declares a
   // postgres backing dependency surfaces as a binding on a data-instance.
@@ -198,7 +192,7 @@
   });
 
   const visibleApps = $derived.by(() => {
-    let list = tab === 'installed' ? installedApps : catalogApps;
+    let list = installedApps;
     if (query) {
       const q = query.toLowerCase();
       list = list.filter(a =>
@@ -207,14 +201,7 @@
         a.category.toLowerCase().includes(q),
       );
     }
-    return [...list].sort((a, b) => {
-      if (tab === 'catalog') {
-        const aIn = installedIds.includes(a.id) ? 0 : 1;
-        const bIn = installedIds.includes(b.id) ? 0 : 1;
-        if (aIn !== bIn) return aIn - bIn;
-      }
-      return a.name.localeCompare(b.name);
-    });
+    return [...list].sort((a, b) => a.name.localeCompare(b.name));
   });
 
   function showToast(text: string, kind: 'ok' | 'info' | 'error' = 'info') {
@@ -223,65 +210,8 @@
     setTimeout(() => { toasts = toasts.filter(t => t.id !== id); }, 3500);
   }
 
-  function requestAdd(app: CatalogApp) {
-    // Default every dependency to a dedicated new instance; the user can flip
-    // to "reuse" in the Advanced drawer if an existing shareable instance is
-    // available.
-    const depChoices: Record<string, 'dedicated' | string> = {};
-    for (const depSlug of app.dependencies ?? []) {
-      depChoices[depSlug] = 'dedicated';
-    }
-    modal = { mode: 'add', app, depChoices, advancedOpen: false };
-  }
-
-  // Only shareable deps are offered a reuse option. Non-shareable deps (none
-  // today, but future-proof) stay locked to "dedicated".
-  function shareableDeps(app: CatalogApp): CatalogApp[] {
-    return (app.dependencies ?? [])
-      .map((slug) => catalog.find((c) => c.slug === slug))
-      .filter((c): c is CatalogApp => !!c && c.shareable === true);
-  }
-
-  // Existing instances of a service that the user can reuse. For v1 an org has
-  // at most one instance per service slug — once multi-instance lands we'll
-  // enumerate them here.
-  function reusableInstances(depSlug: string): CatalogApp[] {
-    return installedServices.filter((s) => s.slug === depSlug);
-  }
-
   function requestRemove(app: CatalogApp) {
     modal = { mode: 'remove', app };
-  }
-
-  async function confirmAdd() {
-    if (!modal || !activeOrg) return;
-    modal.pending = true;
-    try {
-      const res = await installApp(activeOrg.id, modal.app.slug, modal.depChoices);
-      showToast(`${modal.app.name} queued for install`, 'ok');
-      modal = null;
-      loadProvision(activeOrg.id);
-      // Kick the shared store so this tab and any sibling tab flip to
-      // "installing" within the same tick, not on the next poll. #64
-      void store?.refreshNow();
-    } catch (e: any) {
-      const msg = e?.message ?? '';
-      // Backend returns 409 with upgrade_suggestion when over capacity
-      if (msg.startsWith('409')) {
-        try {
-          const body = JSON.parse(msg.slice(msg.indexOf(':') + 1).trim());
-          modal = { mode: 'capacity', app: modal.app, upgrade: body.upgrade_suggestion, message: body.message };
-          return;
-        } catch {}
-      }
-      if (msg.startsWith('501')) {
-        modal = { mode: 'add', app: modal.app, message: 'Day-2 installs are launching soon — we will email you when live.' };
-        modal.pending = false;
-        return;
-      }
-      showToast(`Install failed: ${msg}`, 'error');
-      modal = null;
-    }
   }
 
   async function confirmRemove() {
@@ -314,8 +244,8 @@
   {#snippet children(user: User, org: Org | null)}
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h1 class="text-2xl font-bold text-[var(--color-text-strong)]">Applications</h1>
-        <p class="mt-1 text-sm text-[var(--color-text-dim)]">Manage your tenant — add, remove, and open apps.</p>
+        <h1 class="text-2xl font-bold text-[var(--color-text-strong)]">Apps</h1>
+        <p class="mt-1 text-sm text-[var(--color-text-dim)]">The apps installed in your tenant — open or remove them. Add new apps from the <a href={path('catalog')} class="text-[var(--color-accent)] hover:underline">Catalog</a>.</p>
       </div>
       {#if provision && provision.status === 'provisioning'}
         <div class="flex items-center gap-2 rounded-lg border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-3 py-1.5 text-xs text-[var(--color-accent)]">
@@ -333,31 +263,22 @@
         <div class="h-6 w-6 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent"></div>
       </div>
     {:else}
-      <!-- Tabs: "Deployments" covers installing+installed+failed (anything
-           recorded in tenant.Apps, regardless of state); "Catalog" is the
-           full library including backing services. Issue #113. -->
-      <div class="tabs">
-        <button class="tab" class:active={tab === 'installed'} onclick={() => (tab = 'installed')}>
-          Deployments <span class="tab-count">{installedApps.length}</span>
-        </button>
-        <button class="tab" class:active={tab === 'catalog'} onclick={() => (tab = 'catalog')}>
-          Catalog <span class="tab-count">{catalogApps.length}</span>
-        </button>
-      </div>
+      <!-- /apps is the installed-deployments view only (#3592). The full
+           installable library + add flow lives on the separate /catalog page. -->
 
       <!-- Search -->
       <div class="apps-toolbar">
         <div class="search-wrap">
           <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-          <input type="text" placeholder={tab === 'installed' ? `Search your ${installedApps.length} apps…` : `Search ${catalogApps.length} apps…`} bind:value={query} class="search-input" />
+          <input type="text" placeholder={`Search your ${installedApps.length} apps…`} bind:value={query} class="search-input" />
         </div>
       </div>
 
-      {#if tab === 'installed' && installedApps.length === 0}
+      {#if installedApps.length === 0}
         <div class="empty-state">
           <p class="empty-title">No applications installed yet.</p>
           <p class="empty-sub">Browse the catalog to add your first app.</p>
-          <button class="btn btn-primary" onclick={() => (tab = 'catalog')}>Open catalog →</button>
+          <a class="btn btn-primary" href={path('catalog')}>Open catalog →</a>
         </div>
       {:else}
       <div class="apps-grid">
@@ -415,7 +336,7 @@
               {/if}
             </div>
 
-            <!-- Hover actions: Open + Remove for installed; Add for not-installed -->
+            <!-- Hover actions: Open + Remove (this view is installed-only). -->
             <div class="actions-corner">
               {#if st.state === 'installed'}
                 <button class="icon-btn open" onclick={(e) => { e.preventDefault(); e.stopPropagation(); openApp(app.slug); }} title="Open">
@@ -423,10 +344,6 @@
                 </button>
                 <button class="icon-btn del" onclick={(e) => { e.preventDefault(); e.stopPropagation(); requestRemove(app); }} title="Remove">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
-                </button>
-              {:else if st.state === 'not-installed'}
-                <button class="icon-btn add" onclick={(e) => { e.preventDefault(); e.stopPropagation(); requestAdd(app); }} title="Add to tenant">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                 </button>
               {/if}
             </div>
@@ -438,130 +355,28 @@
 
       <!-- Data instances (ADR-0010): the reusable, shareable backing-services
            model. Renders the PostgreSQL engine-class card + each data-instance
-           App card with its Consumers (bindings) table. Only on the
-           Deployments tab where the installed apps (the consumers) live. -->
-      {#if tab === 'installed' && dataInstances.length > 0}
+           App card with its Consumers (bindings) table, alongside the installed
+           apps (the consumers) that live on this page. -->
+      {#if dataInstances.length > 0}
         <DataInstances instances={dataInstances} />
       {/if}
     {/if}
 
-    <!-- Add / Remove / Capacity modal -->
+    <!-- Remove modal (the add flow lives on the Catalog page, #3592). -->
     {#if modal}
       <div class="modal-backdrop" onclick={closeModal} role="presentation">
         <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog">
-          {#if modal.mode === 'capacity'}
-            <h3 class="modal-title">Plan upgrade required</h3>
-            <p class="modal-body">Installing <strong>{modal.app.name}</strong> exceeds the capacity of your current plan.</p>
-            {#if modal.message}<p class="modal-body muted">{modal.message}</p>{/if}
-            <div class="modal-actions">
-              <button class="btn btn-secondary" onclick={closeModal}>Cancel</button>
-              <a class="btn btn-primary" href={path('billing')}>{modal.upgrade ? `Upgrade to ${modal.upgrade}` : 'Upgrade plan'} →</a>
-            </div>
-          {:else if modal.mode === 'add'}
-            <h3 class="modal-title">Add {modal.app.name}</h3>
-            <p class="modal-body">{modal.app.description || modal.app.tagline}</p>
-            {#if modal.app.dependencies && modal.app.dependencies.length > 0}
-              <p class="modal-body muted">
-                Includes:
-                {#each modal.app.dependencies as dep, i}
-                  {#if i > 0}, {/if}{catalog.find(c => c.slug === dep)?.name ?? dep}
-                {/each}
-              </p>
-            {/if}
-            <p class="modal-body muted">Current tenant: {installedIds.length} apps installed on {org?.name ?? 'your plan'}.</p>
-
-            {#if shareableDeps(modal.app).length > 0}
-              <button
-                type="button"
-                class="adv-toggle"
-                onclick={() => modal && (modal.advancedOpen = !modal.advancedOpen)}
-                aria-expanded={!!modal.advancedOpen}
-              >
-                <span class="caret" class:open={modal.advancedOpen}>▸</span>
-                {modal.advancedOpen ? 'Hide advanced' : 'Advanced: database & backing services'}
-              </button>
-              {#if modal.advancedOpen}
-                <div class="adv-panel">
-                  <p class="adv-hint">
-                    Each app gets its own isolated database by default — safest and easiest.
-                    If you already run one, pick <strong>Reuse</strong> to save resources.
-                  </p>
-                  {#each shareableDeps(modal.app) as dep}
-                    {@const instances = reusableInstances(dep.slug)}
-                    <div class="dep-picker">
-                      <div class="dep-picker-head">
-                        {#if dep.logo}<img src={dep.logo} alt="" class="dep-logo" />{:else}<span class="dep-dot" style="background: {dep.color}"></span>{/if}
-                        <div>
-                          <div class="dep-name">{dep.name}</div>
-                          <div class="dep-tagline">{dep.tagline}</div>
-                        </div>
-                      </div>
-                      <div class="dep-options">
-                        <label class="dep-option">
-                          <input
-                            type="radio"
-                            name={`dep-${dep.slug}`}
-                            value="dedicated"
-                            checked={modal.depChoices?.[dep.slug] === 'dedicated'}
-                            onchange={() => modal && modal.depChoices && (modal.depChoices[dep.slug] = 'dedicated')}
-                          />
-                          <span>
-                            <strong>Dedicated</strong>
-                            <span class="dep-sub">New {dep.name.toLowerCase()} just for {modal.app.name}</span>
-                          </span>
-                        </label>
-                        {#if instances.length > 0}
-                          <label class="dep-option">
-                            <input
-                              type="radio"
-                              name={`dep-${dep.slug}`}
-                              value={instances[0].slug}
-                              checked={modal.depChoices?.[dep.slug] === instances[0].slug}
-                              onchange={() => modal && modal.depChoices && (modal.depChoices[dep.slug] = instances[0].slug)}
-                            />
-                            <span>
-                              <strong>Reuse existing</strong>
-                              <span class="dep-sub">Share the {dep.name.toLowerCase()} already running in this tenant</span>
-                            </span>
-                          </label>
-                        {:else}
-                          <div class="dep-option disabled">
-                            <input type="radio" disabled />
-                            <span>
-                              <strong>Reuse existing</strong>
-                              <span class="dep-sub">No {dep.name.toLowerCase()} instance running yet</span>
-                            </span>
-                          </div>
-                        {/if}
-                      </div>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-            {/if}
-
-            {#if modal.message}
-              <div class="info-banner">{modal.message}</div>
-            {/if}
-            <div class="modal-actions">
-              <button class="btn btn-secondary" onclick={closeModal} disabled={modal.pending}>Cancel</button>
-              <button class="btn btn-primary" onclick={confirmAdd} disabled={modal.pending}>
-                {modal.pending ? 'Installing…' : 'Install'}
-              </button>
-            </div>
-          {:else if modal.mode === 'remove'}
-            <h3 class="modal-title">Remove {modal.app.name}?</h3>
-            <p class="modal-body">This will stop <strong>{modal.app.name}</strong> and delete its data. Other apps in your tenant are unaffected.</p>
-            {#if modal.message}
-              <div class="info-banner">{modal.message}</div>
-            {/if}
-            <div class="modal-actions">
-              <button class="btn btn-secondary" onclick={closeModal} disabled={modal.pending}>Cancel</button>
-              <button class="btn btn-danger" onclick={confirmRemove} disabled={modal.pending}>
-                {modal.pending ? 'Removing…' : 'Remove'}
-              </button>
-            </div>
+          <h3 class="modal-title">Remove {modal.app.name}?</h3>
+          <p class="modal-body">This will stop <strong>{modal.app.name}</strong> and delete its data. Other apps in your tenant are unaffected.</p>
+          {#if modal.message}
+            <div class="info-banner">{modal.message}</div>
           {/if}
+          <div class="modal-actions">
+            <button class="btn btn-secondary" onclick={closeModal} disabled={modal.pending}>Cancel</button>
+            <button class="btn btn-danger" onclick={confirmRemove} disabled={modal.pending}>
+              {modal.pending ? 'Removing…' : 'Remove'}
+            </button>
+          </div>
         </div>
       </div>
     {/if}
@@ -598,15 +413,6 @@
     font-size: 0.88rem;
   }
   .search-input:focus { outline: 2px solid var(--color-accent); border-color: transparent; }
-  .installed-pill {
-    padding: 0.45rem 0.85rem;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--color-success) 10%, transparent);
-    color: var(--color-success);
-    font-size: 0.8rem;
-    font-weight: 600;
-    white-space: nowrap;
-  }
 
   /* Auto-fit: pack as many cards as fit, then stretch remaining width across them.
      min = 360px mirrors the marketplace 3-col width at ~1100px container, so console
@@ -615,47 +421,6 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
     gap: 0.65rem;
-  }
-
-  /* Tabs */
-  .tabs {
-    display: flex;
-    gap: 0.25rem;
-    margin: 1rem 0 0.5rem;
-    border-bottom: 1px solid var(--color-border);
-  }
-  .tab {
-    background: transparent;
-    border: none;
-    padding: 0.6rem 0.9rem;
-    color: var(--color-text-dim);
-    font: inherit;
-    font-size: 0.88rem;
-    font-weight: 500;
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
-  .tab:hover { color: var(--color-text); }
-  .tab.active {
-    color: var(--color-text-strong);
-    border-bottom-color: var(--color-accent);
-    font-weight: 600;
-  }
-  .tab-count {
-    font-size: 0.7rem;
-    padding: 0.08rem 0.4rem;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--color-border) 60%, transparent);
-    color: var(--color-text-dim);
-    font-weight: 600;
-  }
-  .tab.active .tab-count {
-    background: color-mix(in srgb, var(--color-accent) 18%, transparent);
-    color: var(--color-accent);
   }
 
   /* Empty state */
@@ -837,8 +602,6 @@
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
   }
   .icon-btn svg { width: 14px; height: 14px; }
-  .icon-btn.add { background: var(--color-accent); color: #fff; }
-  .icon-btn.add:hover { filter: brightness(0.88); }
   .icon-btn.open:hover { color: var(--color-accent); }
   .icon-btn.del:hover { color: #EF4444; }
 
@@ -873,41 +636,6 @@
     display: flex; gap: 0.5rem; justify-content: flex-end;
     margin-top: 1rem;
   }
-  .adv-toggle {
-    margin-top: 0.75rem; padding: 0.35rem 0;
-    background: none; border: none; color: var(--color-text-dim);
-    font: inherit; font-size: 0.82rem; cursor: pointer;
-    display: inline-flex; align-items: center; gap: 0.4rem;
-  }
-  .adv-toggle:hover { color: var(--color-text); }
-  .adv-toggle .caret { display: inline-block; transition: transform 0.15s ease; font-size: 0.7rem; }
-  .adv-toggle .caret.open { transform: rotate(90deg); }
-  .adv-panel {
-    margin-top: 0.5rem; padding: 0.85rem;
-    background: color-mix(in srgb, var(--color-border) 25%, transparent);
-    border: 1px dashed var(--color-border);
-    border-radius: 10px;
-  }
-  .adv-hint { margin: 0 0 0.75rem; font-size: 0.8rem; color: var(--color-text-dim); line-height: 1.5; }
-  .dep-picker { padding: 0.6rem 0; border-top: 1px solid var(--color-border); }
-  .dep-picker:first-child { border-top: none; padding-top: 0; }
-  .dep-picker-head { display: flex; gap: 0.6rem; align-items: center; margin-bottom: 0.5rem; }
-  .dep-logo { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; }
-  .dep-dot { width: 28px; height: 28px; border-radius: 6px; display: inline-block; }
-  .dep-name { font-size: 0.88rem; font-weight: 600; color: var(--color-text-strong); }
-  .dep-tagline { font-size: 0.75rem; color: var(--color-text-dim); }
-  .dep-options { display: flex; flex-direction: column; gap: 0.45rem; }
-  .dep-option {
-    display: flex; gap: 0.55rem; padding: 0.5rem 0.6rem;
-    border: 1px solid var(--color-border); border-radius: 8px;
-    cursor: pointer; font-size: 0.82rem;
-    background: var(--color-bg, var(--color-surface));
-  }
-  .dep-option:hover:not(.disabled) { border-color: var(--color-accent); }
-  .dep-option input[type="radio"] { margin-top: 0.15rem; flex-shrink: 0; }
-  .dep-option strong { color: var(--color-text-strong); font-weight: 600; display: block; }
-  .dep-sub { font-size: 0.75rem; color: var(--color-text-dim); display: block; }
-  .dep-option.disabled { opacity: 0.55; cursor: not-allowed; }
   .btn {
     padding: 0.5rem 1rem; border-radius: 8px; border: none;
     font: inherit; font-size: 0.85rem; font-weight: 600; cursor: pointer;
