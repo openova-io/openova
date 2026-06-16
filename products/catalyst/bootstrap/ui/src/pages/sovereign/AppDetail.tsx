@@ -790,7 +790,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
           </div>
         ) : appTab === 'jobs' ? (
           <div role="tabpanel" data-testid="app-tab-jobs-panel" className="app-tabpanel">
-            <JobsTable jobs={flatJobs} appIdFilter={componentId} />
+            <JobsTable jobs={flatJobs} appIdFilter={componentId} deploymentId={deploymentId} />
           </div>
         ) : (
           <div role="tabpanel" data-testid="app-tab-dependencies-panel" className="app-tabpanel">

@@ -1,6 +1,10 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.18
+version: 0.2.19
+# 0.2.19 (#3646, 2026-06-17): stamp the `catalyst.openova.io/reconciler`
+# marker label on the sso-bridge-reconciler Deployment so the jobs canvas's
+# generic §5a reconciler ingestion surfaces it as a kind=reconciler leaf
+# with a HEALTH status (healthy/degraded/failing), never a one-shot row.
 # 0.2.18 (#3374, 2026-06-14): add `sso.skipExternalSecret: true` opt-out.
 # Apps that consume their OIDC secret as DIRECT env vars (grafana's
 # `envFromSecret`) need keys named after the app's env-override contract

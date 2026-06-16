@@ -1276,6 +1276,16 @@ func main() {
 		// any batch-specific endpoint (issue #351).
 		rg.Get("/api/v1/deployments/{depId}/jobs", h.ListJobs)
 		rg.Get("/api/v1/deployments/{depId}/jobs/{jobId}", h.GetJob)
+		// Generic Flux-native remediation (issue #3646 §5c). ONE write
+		// route dispatching on the leaf's typed Kind re-drives ANY stuck
+		// reconcile (HelmRelease / Kustomization / CronJob / reconciler
+		// Deployment / batch Job) from the console — the operator never
+		// drops to kubectl. Owner-checked (404 cross-tenant) + RBAC-gated
+		// to operator tier (403 otherwise); writes a new Execution with
+		// the operator identity; NEVER shells out (annotation via the
+		// in-cluster dynamic client only). Inside RequireSession so the
+		// operator's claims are populated for the RBAC gate + audit line.
+		rg.Post("/api/v1/deployments/{depId}/jobs/{jobId}/retry", h.RetryJob)
 		rg.Get("/api/v1/actions/executions/{execId}/logs", h.GetExecutionLogs)
 		// Backfill endpoints — give the FE an explicit handshake to
 		// re-attach the helmwatch goroutine after a Pod restart and to

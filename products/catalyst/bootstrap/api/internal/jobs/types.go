@@ -85,6 +85,114 @@ const (
 	JobTypeGroup   = "group"
 )
 
+// Job kinds — the typed discriminator (issue #3646 §4b). Replaces the
+// three disjoint JobName-prefix vocabularies (`install-`, `<group>-step-`,
+// `mutation-<verb>-<kind>`) a consumer used to string-match. Every leaf
+// Job carries exactly one Kind, populated at write time by the bridge
+// that mints it; deriveTreeView back-fills it on read for legacy rows
+// (kindForLeaf) so an index persisted before this field landed still
+// renders honestly. Group Jobs carry KindGroup.
+//
+//   - KindInstall    — a HelmRelease install leaf ("install-<chart>").
+//   - KindReconcile  — a Flux Kustomization reconcile leaf
+//     ("reconcile-<name>"). Status from Ready condition.
+//   - KindStep       — one step of a projected activity ("<group>-step-
+//     <slug>"), e.g. the cutover / DR-switchover steps.
+//   - KindMutation   — a Day-2 Crossplane XRC submission
+//     ("mutation-<verb>-<kind>").
+//   - KindCron       — a recurring CronJob ("cron-<name>"); each spawned
+//     Job is an Execution. Status from last-N runs.
+//   - KindTask       — a standalone / owned batch Job ("task-<name>")
+//     that is NOT an install-hook of a tracked HR.
+//   - KindReconciler — a long-running reconciler Deployment carrying the
+//     catalyst.openova.io/reconciler marker
+//     ("reconciler-<name>"); reports a HEALTH axis
+//     (healthy/degraded/failing), never a one-shot
+//     "succeeded".
+//   - KindLifecycle  — a Phase-0 / lifecycle leaf (tofu-init etc.) or a
+//     synthetic lifecycle phase with no other kind.
+//   - KindGroup      — a synthesised parent group Job.
+const (
+	KindInstall    = "install"
+	KindReconcile  = "reconcile"
+	KindStep       = "step"
+	KindMutation   = "mutation"
+	KindCron       = "cron"
+	KindTask       = "task"
+	KindReconciler = "reconciler"
+	KindLifecycle  = "lifecycle"
+	KindGroup      = "group"
+)
+
+// JobName prefixes for the §5a ingestion kinds. Kept disjoint from the
+// helmwatch "install-" leaves and the activity "<group>-step-" leaves so
+// the source bridges can never mint colliding Job ids under one
+// deployment.
+const (
+	// ReconcileJobPrefix — Flux Kustomization reconcile leaf.
+	ReconcileJobPrefix = "reconcile-"
+	// CronJobPrefix — recurring CronJob leaf.
+	CronJobPrefix = "cron-"
+	// TaskJobPrefix — standalone / owned batch Job leaf.
+	TaskJobPrefix = "task-"
+	// ReconcilerJobPrefix — long-running reconciler Deployment leaf.
+	ReconcilerJobPrefix = "reconciler-"
+)
+
+// HealthStatus — the extra status tone recurring/reconciler kinds report
+// in addition to the one-shot pending/running/succeeded/failed set. A
+// never-terminating reconciler that is "running forever and that's
+// correct" reports StatusHealthy; "running forever and that's a hang"
+// reports StatusDegraded/StatusFailing. This keeps the
+// sso-bridge-shows-Running-forever kind-confusion (issue #3646 §4c)
+// distinct from a genuine hang. On the wire these reuse the Status field;
+// deriveTreeView treats a degraded/failing recurring leaf as a surfaced
+// failure on its group rather than averaging it away.
+const (
+	StatusHealthy  = "healthy"
+	StatusDegraded = "degraded"
+	StatusFailing  = "failing"
+)
+
+// IsHealthAxisStatus reports whether a status string is one of the
+// recurring/reconciler HEALTH-axis values (healthy/degraded/failing) as
+// opposed to the one-shot lifecycle axis. The rollup uses this to fold a
+// degraded/failing health leaf into its group's surfaced state.
+func IsHealthAxisStatus(status string) bool {
+	switch status {
+	case StatusHealthy, StatusDegraded, StatusFailing:
+		return true
+	}
+	return false
+}
+
+// kindForLeaf infers a leaf Job's Kind from its JobName when the
+// persisted Kind is empty (legacy rows written before the field existed).
+// Group Jobs are handled by the caller (KindGroup). The order matters:
+// the "<group>-step-<slug>" infix is checked before the bare prefixes so
+// a "cutover-step-..." leaf is a step, not mis-tagged.
+func kindForLeaf(jobName string) string {
+	switch {
+	case strings.Contains(jobName, ActivityStepInfix):
+		return KindStep
+	case strings.HasPrefix(jobName, MutationJobNamePrefix):
+		return KindMutation
+	case strings.HasPrefix(jobName, JobNamePrefix):
+		return KindInstall
+	case strings.HasPrefix(jobName, ReconcileJobPrefix):
+		return KindReconcile
+	case strings.HasPrefix(jobName, CronJobPrefix):
+		return KindCron
+	case strings.HasPrefix(jobName, TaskJobPrefix):
+		return KindTask
+	case strings.HasPrefix(jobName, ReconcilerJobPrefix):
+		return KindReconciler
+	default:
+		// Phase-0 lifecycle slugs (tofu-init, …) + any other leaf.
+		return KindLifecycle
+	}
+}
+
 // Group slugs — used as the JobName for synthesised parent group
 // Jobs. The full Job ID is JobID(deploymentID, slug).
 const (
@@ -94,6 +202,14 @@ const (
 	GroupCutover       = "cutover"
 	GroupHandover      = "handover"
 	GroupApps          = "apps"
+	// GroupReconcilers — top-level group for the §5a non-install
+	// reconciler activities (Kustomizations, CronJobs, standalone Jobs,
+	// reconciler Deployments). Kept distinct from bootstrap-kit so a
+	// failing recurring activity (a Failed openbao-snapshot CronJob)
+	// surfaces RED at the top even while its `install-openbao` leaf stays
+	// green under bootstrap-kit — the operator sees the truth (issue
+	// #3646 §3a/§6).
+	GroupReconcilers = "reconcilers"
 )
 
 // Group display names — user-visible labels for the synthesised
@@ -106,6 +222,7 @@ const (
 	GroupCutoverDisplay       = "Cutover"
 	GroupHandoverDisplay      = "Handover"
 	GroupAppsDisplay          = "Apps"
+	GroupReconcilersDisplay   = "Reconcilers"
 )
 
 // Phase-0 lifecycle phase slugs — durable Job rows the bridge writes
@@ -168,6 +285,16 @@ type Job struct {
 
 	// Type — JobTypeInstall (leaf) or JobTypeGroup (parent).
 	Type string `json:"type"`
+
+	// Kind — the typed activity discriminator (issue #3646 §4b): one of
+	// install|reconcile|step|mutation|cron|task|reconciler|lifecycle for
+	// leaves, group for parents. Replaces the JobName-prefix string-match
+	// every consumer used to do. Populated at write time by each bridge;
+	// deriveTreeView back-fills it on read (kindForLeaf / KindGroup) so a
+	// row persisted before this field existed still carries an honest
+	// kind on the wire. omitempty so an all-zero test Job marshals
+	// without a stray "" — the read path always stamps it.
+	Kind string `json:"kind,omitempty"`
 
 	// AppID — the Sovereign component id (e.g. "cilium") for leaf
 	// install jobs. Empty for group jobs and Day-2 mutation jobs that

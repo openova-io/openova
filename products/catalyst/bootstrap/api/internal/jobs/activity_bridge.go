@@ -273,6 +273,7 @@ func (a *ActivityBridge) SeedSteps(steps []ActivityStep) error {
 			JobName:      ActivityStepJobName(a.groupSlug, s.Slug),
 			DisplayName:  display,
 			Type:         JobTypeInstall,
+			Kind:         KindStep,
 			ParentID:     parent,
 			DependsOn:    a.dependsOnForStepLocked(s.Slug),
 			Status:       StatusPending,

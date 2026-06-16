@@ -39,6 +39,7 @@
 | **Topology Q1 / Q2** (#3375) | ✅ — 3 active-hotstandby cards; Q1 declared-singleton honesty render; Q2 truly-editable Topology picker | [3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md) |
 | **Region-kill** (#3375 / NS#4) | ✅ — live kill→promote driven on hw144: region-a killed → region-b promoted RTO ≈ 4s → consumer keycloak data identical (RPO = 0) | [3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md) |
 | **Cutover** (#3379) | ⏳ PENDING — `cutoverComplete=true` + the 600s deny-egress hold walk on hw144 not yet witnessed this session | [3379-cutover.md](uat-walkthrough/3379-cutover.md) · [3379-sovereignty.md](uat-walkthrough/3379-sovereignty.md) |
+| **Jobs one-honest-canvas** (#3646) | ⏳ UNVERIFIED — PR open (not merged); the generic reconciler ingestion + typed-Kind de-merge + Flux-native per-row Retry awaits the live 14-step walk on hw150 (RED cron alongside green install · reconciler health flip · Retry annotates the HR · 403 for non-operator). NOT claimed green until the walk lands a screenshot. | [jobs-one-honest-canvas-no-fabrication-with-remediation.md](uat-walkthrough/jobs-one-honest-canvas-no-fabrication-with-remediation.md) |
 
 **Honesty line:** the **region-kill EXECUTION** (NS#4) is now **✅** — the live kill→promote walk ran
 on hw144 (RTO ≈ 4s, RPO = 0). The one remaining open item on hw144 is the **Pillar-5 cutover** (the

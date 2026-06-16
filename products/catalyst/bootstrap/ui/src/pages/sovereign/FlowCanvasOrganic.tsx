@@ -106,6 +106,36 @@ const STATUS_TONE: Record<JobStatus, StatusTone> = {
     arrow: 'var(--bubble-arrow-pending)',
     label: 'Pending',
   },
+  // HEALTH axis (issue #3646) — recurring/reconciler kinds reuse the
+  // closest one-shot visual tone: healthy≈succeeded, degraded≈pending
+  // (amber), failing≈failed, with health-specific labels.
+  healthy: {
+    fill: 'var(--bubble-fill-succeeded)',
+    ring: 'var(--bubble-ring-succeeded)',
+    glyph: 'var(--bubble-glyph-succeeded)',
+    glow: 'var(--bubble-glow-succeeded)',
+    edge: 'var(--bubble-edge-succeeded)',
+    arrow: 'var(--bubble-arrow-succeeded)',
+    label: 'Healthy',
+  },
+  degraded: {
+    fill: 'var(--bubble-fill-pending)',
+    ring: 'var(--bubble-ring-pending)',
+    glyph: 'var(--bubble-glyph-pending)',
+    glow: 'var(--bubble-glow-pending)',
+    edge: 'var(--bubble-edge-pending)',
+    arrow: 'var(--bubble-arrow-pending)',
+    label: 'Degraded',
+  },
+  failing: {
+    fill: 'var(--bubble-fill-failed)',
+    ring: 'var(--bubble-ring-failed)',
+    glyph: 'var(--bubble-glyph-failed)',
+    glow: 'var(--bubble-glow-failed)',
+    edge: 'var(--bubble-edge-failed)',
+    arrow: 'var(--bubble-arrow-failed)',
+    label: 'Failing',
+  },
 }
 
 /** SVG `<marker>` elements cannot read CSS variables directly inside
@@ -120,6 +150,10 @@ const ARROW_FALLBACK: Record<JobStatus, string> = {
   running:   '#38BDF8',
   failed:    '#B91C1C',
   pending:   '#94A3B8',
+  // HEALTH axis (issue #3646) — reuse the nearest one-shot fallback.
+  healthy:   '#16A34A',
+  degraded:  '#94A3B8',
+  failing:   '#B91C1C',
 }
 
 /** Issue #669 — bubble sizing decoupled from canvas size.

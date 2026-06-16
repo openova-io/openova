@@ -22,7 +22,21 @@
  * so the operator never sees a status they have to translate from a
  * different surface.
  */
-export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed'
+/**
+ * Lifecycle status of a Job. The first four are the one-shot axis
+ * (pending → running → succeeded/failed); the last three are the HEALTH
+ * axis (issue #3646 §4c) carried by recurring/reconciler kinds so
+ * "running forever and that's correct" (`healthy`) is distinct from
+ * "running forever and that's a hang" (`degraded`/`failing`).
+ */
+export type JobStatus =
+  | 'pending'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'healthy'
+  | 'degraded'
+  | 'failing'
 
 /**
  * `'install'` — a leaf Job: one HelmRelease watch attempt, one Day-2
@@ -35,6 +49,37 @@ export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed'
  * `childIds` and link back via `parentId`.
  */
 export type JobType = 'install' | 'group'
+
+/**
+ * The typed activity discriminator (issue #3646 §4b) the backend stamps
+ * on every Job — replaces the JobName-prefix string-matching the FE used
+ * to do (`startsWith('install-')`, the `-step-` infix, the cutover
+ * URL-strip). A consumer reads `job.kind` to know what a row IS:
+ *
+ *   install     — a HelmRelease install leaf.
+ *   reconcile   — a Flux Kustomization reconcile leaf.
+ *   step        — one step of a projected activity (cutover / DR switchover).
+ *   mutation    — a Day-2 Crossplane XRC submission.
+ *   cron        — a recurring CronJob (each spawned run is an Execution).
+ *   task        — a standalone / owned batch Job.
+ *   reconciler  — a long-running reconciler Deployment (HEALTH status).
+ *   lifecycle   — a Phase-0 / lifecycle leaf.
+ *   group       — a synthesised parent group.
+ *
+ * Optional on the wire (`omitempty`) — the backend always stamps it, but
+ * a legacy row read before the field existed back-fills on read, so the
+ * FE treats an absent kind as falling back to the type.
+ */
+export type JobKind =
+  | 'install'
+  | 'reconcile'
+  | 'step'
+  | 'mutation'
+  | 'cron'
+  | 'task'
+  | 'reconciler'
+  | 'lifecycle'
+  | 'group'
 
 /**
  * One node in the recursive Job tree. The catalyst-api emits exactly
@@ -85,6 +130,13 @@ export interface Job {
   jobName: string
   displayName?: string
   type: JobType
+  /**
+   * The typed activity discriminator (issue #3646 §4b). Drives the Kind
+   * column + the region/type derivation + the Retry affordance. Optional
+   * because a legacy wire row may omit it; consumers fall back to deriving
+   * from `type`/`jobName` via {@link jobKind}.
+   */
+  kind?: JobKind
   appId: string
   region?: string
   parentId: string
@@ -109,4 +161,46 @@ export interface Job {
    * by default so every backend-sourced row is non-provisional.
    */
   provisional?: boolean
+}
+
+/**
+ * jobKind — the canonical "read the kind, not the prefix" accessor
+ * (issue #3646 §4b). Returns the backend-stamped `job.kind` when present;
+ * otherwise derives it from `type`/`jobName` for a legacy row that
+ * predates the field. This is the ONLY place the FE infers a kind — every
+ * consumer (the Kind column, the region derivation, the Retry gate) calls
+ * this instead of string-matching a JobName prefix.
+ */
+export function jobKind(job: Pick<Job, 'kind' | 'type' | 'jobName'>): JobKind {
+  if (job.kind) return job.kind
+  if (job.type === 'group') return 'group'
+  const n = job.jobName
+  if (n.includes('-step-')) return 'step'
+  if (n.startsWith('mutation-')) return 'mutation'
+  if (n.startsWith('install-')) return 'install'
+  if (n.startsWith('reconcile-')) return 'reconcile'
+  if (n.startsWith('cron-')) return 'cron'
+  if (n.startsWith('task-')) return 'task'
+  if (n.startsWith('reconciler-')) return 'reconciler'
+  return 'lifecycle'
+}
+
+/**
+ * isHealthAxisStatus — true when a status is on the HEALTH axis
+ * (healthy/degraded/failing), as opposed to the one-shot lifecycle axis.
+ * Recurring/reconciler kinds report this so the badge can render a health
+ * tone distinct from `succeeded`.
+ */
+export function isHealthAxisStatus(s: JobStatus): boolean {
+  return s === 'healthy' || s === 'degraded' || s === 'failing'
+}
+
+/**
+ * isJobRetryable — a row offers the Retry affordance when it is a one-shot
+ * `failed` or a HEALTH-axis `degraded`/`failing`. A `succeeded`/`running`/
+ * `healthy` row has nothing to re-drive, so no control is shown (the
+ * backend rejects a retry on those with 409 too).
+ */
+export function isJobRetryable(status: JobStatus): boolean {
+  return status === 'failed' || status === 'degraded' || status === 'failing'
 }
