@@ -87,9 +87,14 @@ if ! grep -qE "aws --endpoint-url .* s3 cp .* \"s3://" "$TMP/primary.yaml"; then
   echo "FAIL: primary CronJob missing the 'aws s3 cp' upload to the bucket." >&2
   exit 1
 fi
-# The K8s-auth login (same pattern as sso-configure / ESO).
-if ! grep -qE "/v1/auth/.*/login" "$TMP/primary.yaml"; then
-  echo "FAIL: primary CronJob missing the OpenBao K8s-auth login." >&2
+# The K8s-auth login (same pattern as sso-configure / ESO). #3629: assert the
+# SNAPSHOT-SAVE login specifically (its payload `"jwt":"${SA_TOKEN}"` with
+# uppercase SA_TOKEN — distinct from the lowercase sso-configure login) so the
+# test locks the per-role split: the save KEEPS the login (it reads BAO_TOKEN
+# for GET sys/storage/raft/snapshot), the fetch DROPS it (Case 3).
+if ! grep -qF '"jwt\":\"${SA_TOKEN}' "$TMP/primary.yaml" \
+   && ! grep -qF '"jwt":"${SA_TOKEN}' "$TMP/primary.yaml"; then
+  echo "FAIL (#3629): primary SAVE CronJob missing the OpenBao K8s-auth login (SA_TOKEN payload) — the save needs BAO_TOKEN for the raft snapshot." >&2
   exit 1
 fi
 # S3 creds sourced from the cluster-wide seaweedfs-s3-secret.
@@ -175,6 +180,18 @@ fi
 # Secondary must NOT emit the save CronJob.
 if grep -qE "^  name: openbao-snapshot-save$" "$TMP/secondary.yaml"; then
   echo "FAIL: secondary render unexpectedly contains the snapshot-save CronJob." >&2
+  exit 1
+fi
+# #3629: the secondary FETCH must NOT perform an OpenBao k8s-auth login — it
+# does pure S3 I/O and never reads BAO_TOKEN. The earlier unconditional login
+# crashlooped the fetch (`Could not resolve host openbao-openbao` →
+# `bao login returned no client_token`) on hw147 region-B while openbao-0 was
+# Running. The snapshot-save login payload is `"jwt":"${SA_TOKEN}"` (uppercase
+# SA_TOKEN, distinct from the lowercase sso-configure login); assert it is
+# absent from the secondary render.
+if grep -qF '"jwt\":\"${SA_TOKEN}' "$TMP/secondary.yaml" \
+   || grep -qF '"jwt":"${SA_TOKEN}' "$TMP/secondary.yaml"; then
+  echo "FAIL (#3629): secondary FETCH CronJob still performs an OpenBao login (snapshot-save SA_TOKEN payload present) — the fetch must do pure S3 I/O." >&2
   exit 1
 fi
 echo "  PASS"

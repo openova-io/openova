@@ -108,7 +108,21 @@ name: bp-openbao
 # render nothing). tests/continuum-render.sh Case 3 now passes
 # `--api-versions dr.openova.io/v1`; new Case 4 proves the guard skips the CR
 # (no install failure) when the CRD is absent. No upstream subchart change.
-version: 1.2.45
+version: 1.2.46
+# 1.2.46 (#3629, 2026-06-16): the SECONDARY (fetch) snapshot CronJob no longer
+# performs an OpenBao k8s-auth login. The fetch path is PURE S3 I/O
+# (list-objects-v2 + `s3 cp` to the restore-staging PVC) and NEVER reads
+# BAO_TOKEN — but the login ran UNCONDITIONALLY before the role branch, so on
+# hw147 region-B the fetch crashlooped `curl: (6) Could not resolve host
+# openbao-openbao.openbao.svc.cluster.local` → `FATAL: bao login returned no
+# client_token` (every CronJob tick Error) while openbao-0 itself was Running —
+# the openbao DR-snapshot floor (region-kill-relevant) was dead. The login is
+# now ONLY on the PRIMARY/save branch (it genuinely needs BAO_TOKEN for
+# `GET sys/storage/raft/snapshot`); the fetch goes straight to the S3 staging.
+# snapshot-replication stays default-OFF (DoD-8 opt-in) so default + single-
+# region render is byte-identical; tests/snapshot-replication-toggle.sh Case 2
+# asserts the save KEEPS the login + Case 3 asserts the fetch DROPS it. No
+# upstream subchart change.
 # 1.2.45 (#3626 + #3629, 2026-06-16): reconcile two concurrently-shipped 1.2.44
 # branches that both bumped bp-openbao. The changes live in independent files
 # (blueprint.yaml endpoint repoint vs snapshot-replication.yaml seeder), so this
