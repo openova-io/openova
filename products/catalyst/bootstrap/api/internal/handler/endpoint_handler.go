@@ -1852,6 +1852,13 @@ func buildSSOShimURL(fqdn, id string) string {
 // per-call decision is now computed by Handler.detectMultiRegion and
 // passed in here so this helper stays pure + table-test-friendly.
 func chooseTopology(bp *blueprintMeta, override string, multiRegion bool) (string, error) {
+	// #3648 — the catalyst-ui posts the placement-editor dialect
+	// (single-region / active-active / active-hotstandby); Blueprint
+	// SupportedTopologies use the canonical vocabulary (singleton /
+	// active-active / active-hot-standby / active-passive). Canonicalise the
+	// operator override so either spelling resolves against Supported. Empty
+	// stays empty (the default-selection path below).
+	override = canonicalizeTopology(override)
 	if bp == nil || bp.Topology == nil || len(bp.Topology.Supported) == 0 {
 		// Permissive fallback — no topology declared → singleton.
 		if override != "" && override != "singleton" && override != "active-hot-standby" &&
@@ -1878,6 +1885,29 @@ func chooseTopology(bp *blueprintMeta, override string, multiRegion bool) (strin
 		return bp.Topology.Defaults.SingleRegion, nil
 	}
 	return bp.Topology.Supported[0], nil
+}
+
+// canonicalizeTopology maps the catalyst-ui placement-editor dialect
+// (single-region / active-active / active-hotstandby) onto the canonical
+// Blueprint topology vocabulary (singleton / active-active /
+// active-hot-standby / active-passive) so a create or placement-change
+// posted with either spelling resolves against bp.Topology.Supported
+// (#3648). Empty input returns empty (preserves the default-selection
+// path); an unknown non-empty value is returned trimmed so the caller
+// still rejects it as unsupported with its original spelling.
+func canonicalizeTopology(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "active-hot-standby", "active-hotstandby", "active_hot_standby":
+		return "active-hot-standby"
+	case "active-passive", "active_passive":
+		return "active-passive"
+	case "active-active", "active_active":
+		return "active-active"
+	case "singleton", "single-region", "single_region":
+		return "singleton"
+	default:
+		return strings.TrimSpace(raw)
+	}
 }
 
 // detectMultiRegion computes whether the active Sovereign is

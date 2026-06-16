@@ -52,6 +52,32 @@ describe('TopologyEditor — mode picker', () => {
     const apply = screen.getByTestId('topology-editor-apply-btn') as HTMLButtonElement
     expect(apply.disabled).toBe(false)
   })
+
+  it('constrains the picker to the Blueprint supported topologies (#3648)', () => {
+    render(
+      withProviders(
+        <TopologyEditor
+          sovereignId="dep-1"
+          applicationName="grafana"
+          currentMode="active-hotstandby"
+          currentRegions={['hz-fsn-rtz-prod']}
+          availableRegions={['hz-fsn-rtz-prod', 'hz-hel-rtz-prod']}
+          supportedCanonical={['singleton', 'active-hot-standby']}
+          disableNetwork
+        />,
+      ),
+    )
+    // active-hotstandby canonicalises to active-hot-standby → supported → enabled
+    const hot = screen.getByTestId('topology-editor-mode-active-hotstandby-radio') as HTMLInputElement
+    expect(hot.disabled).toBe(false)
+    // single-region canonicalises to singleton → supported → enabled
+    const single = screen.getByTestId('topology-editor-mode-single-region-radio') as HTMLInputElement
+    expect(single.disabled).toBe(false)
+    // active-active is NOT in the Blueprint's supported set → disabled (the
+    // contradiction the operator flagged 3×: never offer an unsupported mode).
+    const aa = screen.getByTestId('topology-editor-mode-active-active-radio') as HTMLInputElement
+    expect(aa.disabled).toBe(true)
+  })
 })
 
 describe('TopologyEditor — destructive transitions', () => {

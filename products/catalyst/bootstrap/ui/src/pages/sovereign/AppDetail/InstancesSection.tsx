@@ -61,10 +61,18 @@ export function InstancesSection({
   blueprint,
   appUID,
   perCluster,
+  multiInstance,
 }: {
   blueprint: string
   appUID?: string
   perCluster?: Array<Record<string, unknown>>
+  /**
+   * #3648 (founder #6) — whether this Blueprint allows >1 instance per Org.
+   * When false (singleton-per-Org) and an instance already exists, the
+   * "+ New instance" button is hidden — you can't create a second. Undefined
+   * is treated as multi-instance (button shows once the list resolves).
+   */
+  multiInstance?: boolean
 }) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const qc = useQueryClient()
@@ -95,25 +103,31 @@ export function InstancesSection({
         }}
       >
         <h2 style={{ margin: 0 }}>Instances</h2>
-        <button
-          type="button"
-          data-testid="btn-new-instance"
-          onClick={() => setDialogOpen(true)}
-          className="btn btn-primary"
-          style={{
-            padding: '0.3rem 0.8rem',
-            fontSize: '0.82rem',
-            background: 'var(--color-accent)',
-            color: 'white',
-            border: '0',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontWeight: 600,
-          }}
-          aria-label="Create a new instance of this Blueprint"
-        >
-          + New instance
-        </button>
+        {/* #3648 (founder #6) — never flash a definitive action before the
+            data resolves, and never offer "New instance" for a singleton that
+            already has its one instance. Show only once the list has loaded
+            AND another instance is actually creatable. */}
+        {!instancesQuery.isPending && (multiInstance !== false || items.length === 0) ? (
+          <button
+            type="button"
+            data-testid="btn-new-instance"
+            onClick={() => setDialogOpen(true)}
+            className="btn btn-primary"
+            style={{
+              padding: '0.3rem 0.8rem',
+              fontSize: '0.82rem',
+              background: 'var(--color-accent)',
+              color: 'white',
+              border: '0',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontWeight: 600,
+            }}
+            aria-label="Create a new instance of this Blueprint"
+          >
+            + New instance
+          </button>
+        ) : null}
       </div>
 
       {instancesQuery.isPending ? (
