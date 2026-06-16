@@ -82,6 +82,16 @@ type Blueprint struct {
 	// (catalog badge, Contexts tab, reuse selector) renders from this.
 	ContextSchema *ContextSchema `json:"contextSchema"`
 
+	// ProducesInstances (#3648) — the DECLARED operator→instance edge.
+	// Set on an OPERATOR Blueprint (e.g. bp-cnpg) that produces shareable
+	// instances of another (instance) Blueprint. The platform reads
+	// kind + instanceBlueprint instead of inferring the pairing from a
+	// "postgres" literal: the engine-class card, the instance-creation
+	// affordance, and the backing-service dependsOn target all derive
+	// from this declaration. nil unless this is an instance-producing
+	// operator.
+	ProducesInstances *ProducesInstances `json:"producesInstances,omitempty"`
+
 	// Topology (#3375) — the declared topology + DR contract lifted from
 	// the Blueprint's spec.topology (the source docs/topology-matrix.md
 	// promotes). nil when the Blueprint ships no topology block. The
@@ -140,6 +150,17 @@ type ContextSchema struct {
 	Produces  []string `json:"produces"`
 }
 
+// ProducesInstances (#3648) is the operator→instance declaration lifted
+// from a Blueprint's `spec.producesInstances`. Kind is the engine-class id
+// a consumer names in `backingServices[].type` (e.g. "postgres");
+// InstanceBlueprint is the instance Blueprint id this operator provisions
+// (e.g. "bp-postgres") — the dependsOn HR prefix. The DECLARED replacement
+// for the hardcoded "postgres operator" pairing.
+type ProducesInstances struct {
+	Kind              string `json:"kind"`
+	InstanceBlueprint string `json:"instanceBlueprint"`
+}
+
 // BootstrapKitEntry mirrors the wizard's BOOTSTRAP_KIT shape. These
 // are the always-installed platform components the Sovereign
 // already has — the Console marks them "Installed (bootstrap)" so
@@ -154,9 +175,9 @@ type BootstrapKitEntry struct {
 
 // catalogFile mirrors the JSON wrapper emitted by build-catalog.mjs.
 type catalogFile struct {
-	GeneratedAt   string              `json:"generatedAt"`
-	Blueprints    []Blueprint         `json:"blueprints"`
-	BootstrapKit  []BootstrapKitEntry `json:"bootstrapKit"`
+	GeneratedAt  string              `json:"generatedAt"`
+	Blueprints   []Blueprint         `json:"blueprints"`
+	BootstrapKit []BootstrapKitEntry `json:"bootstrapKit"`
 }
 
 var (

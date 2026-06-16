@@ -268,6 +268,68 @@ type SSOSpec struct {
 	// through KC. Default true on Tier-1/2; false on Tier-3 until
 	// per-Org realm federation is verified.
 	SilentLogin *bool `json:"silentLogin,omitempty"`
+
+	// AdminGroup — the Sovereign-realm GROUP whose members are elevated
+	// to the application's admin role. This is the STANDARD, app-agnostic
+	// admin-bootstrap declaration (#3648): every Blueprint that needs a
+	// first admin seeded via the Sovereign SSO names the group HERE,
+	// instead of burying it in a chart-bespoke values key (newapi's
+	// `adminSeed.adminGroup`, harbor's `sso.adminGroup`, gitea's
+	// `sso.adminGroup`, …). Elevation ALWAYS keys on the group, never on
+	// a per-user identity (#3374 law §5). Default `sovereign-admins`.
+	//
+	// HOW each Blueprint honours it is the chart's business and varies by
+	// the upstream app's admin model — Pattern A apps map the OIDC
+	// `groups` claim → admin role natively (grafana `role_attribute_path`,
+	// harbor `oidc_admin_group`); Pattern B apps with no group→role
+	// mechanism seed/promote DB-direct (newapi, guacamole). The PLATFORM
+	// contract is the uniform DECLARATION of the group; the seeding
+	// mechanism is the chart's, never keyed on the app name in the engine.
+	AdminGroup string `json:"adminGroup,omitempty"`
+
+	// Bootstrap — optional standard sso-bootstrap stanza: when set, the
+	// Blueprint declares that the platform should seed its FIRST admin via
+	// the Sovereign SSO (Pattern B — apps whose upstream has no
+	// group→role config knob). See SSOBootstrapSpec. Absent → no admin
+	// seed (Pattern A apps, or apps that don't need a seeded admin).
+	Bootstrap *SSOBootstrapSpec `json:"bootstrap,omitempty"`
+}
+
+// SSOBootstrapSpec — the STANDARD, app-agnostic "seed the first admin via
+// the Sovereign SSO" contract (#3648). It generalises the formerly
+// newapi-specific `adminSeed` stanza into a declaration ANY Blueprint can
+// carry. The platform honours the SAME fields uniformly; the chart
+// supplies the engine-specific seeding mechanism (a DB-direct Job for
+// apps like newapi/guacamole whose upstream has no group→role config, or
+// a native config map for apps like grafana/harbor that map the group
+// claim themselves) — there is NO app-name literal in how the platform
+// interprets these fields.
+//
+// The declaration answers three app-agnostic questions:
+//
+//	sso:
+//	  adminGroup: sovereign-admins   # WHO becomes admin (the group)
+//	  bootstrap:
+//	    enabled: true                # seed a first admin at all?
+//	    providerSlug: sovereign      # the OIDC provider id the app trusts
+//	    enforceAdminGroup: false     # also DENY non-members at the app edge?
+type SSOBootstrapSpec struct {
+	// Enabled — seed a first admin for this app via the Sovereign SSO.
+	// Default true when the Bootstrap stanza is present at all.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// ProviderSlug — the in-app OIDC provider identifier the seeded admin
+	// authenticates through (e.g. `sovereign`). Maps to the app's OIDC
+	// client/provider id and the KC realm segment. Default `sovereign`.
+	ProviderSlug string `json:"providerSlug,omitempty"`
+
+	// EnforceAdminGroup — when true, also GATE the app's OIDC login on
+	// AdminGroup membership (deny non-members at the app boundary).
+	// Default false: the Sovereign realm's catalyst-pin IdP already
+	// restricts WHO can authenticate, and a strict claim-format gate must
+	// never break the owner's first landing (the #3150 wire-proof≠walk
+	// lesson).
+	EnforceAdminGroup bool `json:"enforceAdminGroup,omitempty"`
 }
 
 // MultiInstanceSpec — when present, a Blueprint may have >1
@@ -289,6 +351,52 @@ type MultiInstanceSpec struct {
 	// `vcluster`, each instance gets its own vCluster under the Org's
 	// tier-cluster (rtz or dmz).
 	IsolationLevel string `json:"isolationLevel,omitempty"`
+}
+
+// ProducesInstancesSpec — declares that THIS Blueprint is an OPERATOR /
+// engine that PRODUCES shareable data-instances of another Blueprint. It
+// is the DECLARED, app-agnostic replacement for the former hardcoded
+// "postgres operator" knowledge: any operator Blueprint (CNPG, a future
+// Redis/Valkey operator, a Kafka operator, …) that carries this stanza
+// gets the engine-card / instance-creation treatment uniformly — NO
+// engine-name literal anywhere in the platform engine.
+//
+// The contract pairs an OPERATOR Blueprint (this one, typically
+// `visibility: unlisted`) with the INSTANCE Blueprint it provisions:
+//
+//	# platform/cnpg/blueprint.yaml (the OPERATOR / engine):
+//	spec:
+//	  visibility: unlisted
+//	  producesInstances:
+//	    kind: postgres            # the engine-class id (db engine kind)
+//	    instanceBlueprint: bp-postgres   # the listed instance card
+//
+// The instance Blueprint (bp-postgres) keeps declaring `multiInstance`
+// + `contextSchema` (the per-instance + per-Context machinery). What
+// `producesInstances` adds is the explicit operator→instance edge the
+// engine reads instead of inferring it from a `card.family: postgres`
+// label or a `Type == "postgres"` string check.
+//
+// Consumed by:
+//   - the backing-service generator (core/controllers/pkg/backingservice):
+//     it resolves a consumer's `backingServices[].type: <kind>` to the
+//     instance Blueprint HR prefix via the producer registry built from
+//     these declarations, instead of the hardcoded `bp-postgres-` literal.
+//   - the catalog projector / console engine-card surface: an operator
+//     Blueprint with this stanza is the "engine class" shown once; the
+//     `instanceBlueprint`'s installs are the data-instance cards.
+type ProducesInstancesSpec struct {
+	// Kind — the engine-class identifier the instances are OF
+	// (e.g. `postgres`, `redis`, `kafka`). This is the value a consumer
+	// Blueprint names in `backingServices[].type` and the label the
+	// console renders on the engine-class card. REQUIRED.
+	Kind string `json:"kind"`
+
+	// InstanceBlueprint — the id of the INSTANCE Blueprint this operator
+	// provisions (e.g. `bp-postgres`). Each install of that Blueprint is
+	// one shareable data-instance; the Flux HR a consumer `dependsOn` is
+	// `<instanceBlueprint>-<instanceName>`. REQUIRED.
+	InstanceBlueprint string `json:"instanceBlueprint"`
 }
 
 // BackingServiceMode is the binding mode a consumer requests for a
@@ -446,6 +554,14 @@ type BlueprintSpecExtension struct {
 	SSO             *SSOSpec             `json:"sso,omitempty"`
 	MultiInstance   *MultiInstanceSpec   `json:"multiInstance,omitempty"`
 	BackingServices []BackingServiceSpec `json:"backingServices,omitempty"`
+
+	// ProducesInstances — when set, declares this Blueprint is the
+	// OPERATOR/engine that provisions shareable instances of another
+	// (instance) Blueprint. The DECLARED replacement for the hardcoded
+	// "postgres operator" knowledge: any operator Blueprint that sets it
+	// gets the engine-card / instance-creation treatment uniformly. See
+	// ProducesInstancesSpec.
+	ProducesInstances *ProducesInstancesSpec `json:"producesInstances,omitempty"`
 
 	// DefaultPlacement — #3373: the class-level placement SUGGESTION
 	// every instance of this Blueprint inherits unless its own

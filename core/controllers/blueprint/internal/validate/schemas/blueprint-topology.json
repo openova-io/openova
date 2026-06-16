@@ -190,7 +190,19 @@
           "type": "object",
           "patternProperties": { "^[A-Za-z][A-Za-z0-9_-]*$": { "type": "string" } }
         },
-        "silentLogin": { "type": "boolean" }
+        "silentLogin": { "type": "boolean" },
+        "adminGroup": { "type": "string", "description": "#3648 — the STANDARD, app-agnostic Sovereign-realm group whose members are elevated to the app's admin role. Every Blueprint that seeds a first admin via the Sovereign SSO names the group HERE instead of a chart-bespoke values key. Default sovereign-admins." },
+        "bootstrap": { "$ref": "#/definitions/SSOBootstrapSpec" }
+      },
+      "additionalProperties": false
+    },
+    "SSOBootstrapSpec": {
+      "type": "object",
+      "description": "#3648 — the STANDARD sso-bootstrap stanza: when set, the platform seeds the app's FIRST admin via the Sovereign SSO (Pattern B — apps with no group->role config knob, honoured by the chart's own seeding mechanism, never keyed on the app name in the engine).",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "providerSlug": { "type": "string" },
+        "enforceAdminGroup": { "type": "boolean" }
       },
       "additionalProperties": false
     },

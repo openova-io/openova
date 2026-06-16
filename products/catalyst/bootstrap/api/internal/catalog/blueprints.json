@@ -628,6 +628,10 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": {
+        "kind": "postgres",
+        "instanceBlueprint": "bp-postgres"
+      },
       "topology": {
         "supported": [
           "singleton"

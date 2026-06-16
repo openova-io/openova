@@ -26,8 +26,9 @@ data.realm = "sovereign": the watcher only requires the realm to EXIST
    https://newapi.<fqdn>/oauth/<providerSlug> (frontend window.origin/oauth/slug,
    backend ServerAddress/oauth/slug). Register that EXACT path on the KC client
    so the token-exchange match never relies on the `/*` wildcard alone (some KC
-   hardening disables wildcard redirectUris). providerSlug == adminSeed.providerSlug. */ -}}
-{{- $providerSlug := (.Values.adminSeed | default dict).providerSlug | default "sovereign" -}}
+   hardening disables wildcard redirectUris). providerSlug == sso.bootstrap.providerSlug. */ -}}
+{{- /* #3648 — standard sso.bootstrap.providerSlug first, then legacy adminSeed. */ -}}
+{{- $providerSlug := ((.Values.sso | default dict).bootstrap | default dict).providerSlug | default (.Values.adminSeed | default dict).providerSlug | default "sovereign" -}}
 {{- if and .Values.newapi.enabled $kcMode $sync.enabled .Values.sovereignFQDN }}
 apiVersion: v1
 kind: ConfigMap

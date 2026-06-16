@@ -18,7 +18,9 @@ name: bp-cnpg
 # upstream ghcr.io ref violated the harbor-proxy baseline + flaky-ghcr-DNS
 # ImagePullBackOff killed the cnpg-pair replica basebackup on hw126 region-B.
 # webhookGate Job image proxied to proxy-dockerhub in the same pass.
-version: 1.0.9
+# #3648 — bumped in lockstep with blueprint.yaml spec.version (producesInstances
+# declaration) + the 16-cnpg.yaml bootstrap-kit pin.
+version: 1.0.10
 description: |
   Catalyst-curated Blueprint umbrella chart for CloudNativePG. Depends on
   the upstream `cloudnative-pg` chart as a Helm subchart so
