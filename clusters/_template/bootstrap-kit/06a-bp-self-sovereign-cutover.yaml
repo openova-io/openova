@@ -545,7 +545,12 @@ spec:
       # so cutoverComplete never flipped. Fixed with POSIX `grep -vxF -f` on the
       # writable /work emptyDir. Found auditing the never-run steps 08-11 to
       # pre-empt hw147's cutover wedge. Chart-only.
-      version: 0.1.74
+      # 0.1.75 — #3376 FUNNEL: step-08 egress-block-test ALSO asserts flux-system/sme-tenants
+      # Ready BEFORE the 600s hold (woven with #3695's host-GitOps-loop gate; no longer
+      # swallows its NotReady as baseline noise — hw150 declared cutoverComplete while the
+      # customer path was dead, PRINCIPLES A1/A2); step-09 mint stamps the token-source
+      # annotation on the no-op path too. Refs #3689 #3379.
+      version: 0.1.75
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

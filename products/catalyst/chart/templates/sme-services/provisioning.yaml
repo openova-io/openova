@@ -190,16 +190,57 @@ spec:
       # annotation), not on a proxy.
       {{- if .Values.smeServices.provisioning.waitForCutoverToken.enabled }}
       initContainers:
-        - name: wait-for-cutover-token
+        # ── wait-for-gitea-token — #3376 (Refs #3689) ─────────────────────
+        # Gate the provisioning Pod on the GITHUB_TOKEN in the
+        # provisioning-github-token Secret being a Gitea token Gitea
+        # actually ACCEPTS, rather than on a brittle annotation.
+        #
+        # WHY the contract is now a DATA probe, not an annotation probe:
+        #   The previous gate polled for the annotation
+        #   `catalyst.openova.io/token-source=self-sovereign-cutover-step-09`
+        #   that bp-self-sovereign-cutover Step 09 was supposed to stamp.
+        #   That contract was SPLIT three ways and the Pod stuck Init:0/1
+        #   forever on a fully cut-over Sovereign (hw150):
+        #     1. Step 09's re-run no-op probe (09-gitea-token-mint-job.yaml)
+        #        exits 0 as soon as the existing token is valid — BEFORE it
+        #        reaches the annotation-stamp patch. Since #3122 the bootstrap
+        #        GITHUB_TOKEN IS a valid catalyst-gitea-token PAT, so the
+        #        no-op path always wins and the annotation is never written.
+        #     2. provisioning-github-token.yaml only re-emits the annotation
+        #        inside its `$cutoverOwned` branch, which needs the LIVE
+        #        Secret to ALREADY carry the annotation at lookup time
+        #        (chicken-and-egg); any reconcile without it re-emits the
+        #        bootstrap branch.
+        #     3. this init hard-required that exact annotation.
+        #   The init's STATED intent (provisioning.yaml header / #2002) is
+        #   "don't serve 401s with a non-working token" — which a DATA probe
+        #   satisfies directly: GET ${GITEA_INTERNAL_URL}/api/v1/user with
+        #   the token and proceed only on HTTP 200. This is immune to the
+        #   mint-Job no-op path AND the chart's bootstrap-branch annotation
+        #   strip, because the bootstrap token (the catalyst-gitea-token PAT)
+        #   is ITSELF a 200-valid Gitea token — so the Pod boots on a fresh
+        #   prov AND a cut-over Sovereign, with no manual touch.
+        - name: wait-for-gitea-token
           image: {{ .Values.smeServices.provisioning.waitForCutoverToken.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" | quote }}
           imagePullPolicy: IfNotPresent
           env:
-            - name: TARGET_NAMESPACE
-              value: {{ .Values.smeServices.provisioning.gitToken.destNamespace | default "sme" | quote }}
-            - name: SECRET_NAME
-              value: {{ .Values.smeServices.provisioning.githubToken.secretName | default "provisioning-github-token" | quote }}
-            - name: TOKEN_SOURCE_ANNOTATION_VALUE
-              value: "self-sovereign-cutover-step-09"
+            # The token bytes the main container will use — read from the
+            # SAME Secret/key via secretKeyRef so the probe validates exactly
+            # what the workload runs with (no kubectl get of the Secret, so
+            # no extra RBAC; the kubelet resolves it same-namespace).
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.smeServices.provisioning.githubToken.secretName | default "provisioning-github-token" | quote }}
+                  key: {{ .Values.smeServices.provisioning.githubToken.secretKey | default "GITHUB_TOKEN" | quote }}
+                  # optional:true — on the very first reconcile the Secret may
+                  # not exist yet (provisioning-github-token.yaml renders it
+                  # only once the bootstrap PAT is populated). An absent token
+                  # reads as empty and the probe keeps waiting rather than
+                  # crash-looping the init on a missing key.
+                  optional: true
+            - name: GITEA_INTERNAL_URL
+              value: {{ .Values.smeServices.provisioning.waitForCutoverToken.giteaInternalURL | default "http://gitea-http.gitea.svc.cluster.local:3000" | quote }}
             - name: INTERVAL_SECONDS
               value: {{ .Values.smeServices.provisioning.waitForCutoverToken.intervalSeconds | default 10 | quote }}
             - name: TIMEOUT_SECONDS
@@ -208,25 +249,33 @@ spec:
           args:
             - |
               set -eu
-              echo "[wait-for-cutover-token] gating on Secret ${TARGET_NAMESPACE}/${SECRET_NAME} carrying annotation catalyst.openova.io/token-source=${TOKEN_SOURCE_ANNOTATION_VALUE}"
+              echo "[wait-for-gitea-token] gating on a Gitea token Gitea accepts (GET ${GITEA_INTERNAL_URL}/api/v1/user → 200)"
               deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
               while [ "$(date +%s)" -lt "${deadline}" ]; do
-                # `kubectl get ... -o jsonpath` returns the empty string
-                # (not an error) if the annotation is missing — exactly
-                # the placeholder state we want to wait through.
-                token_source=$(kubectl -n "${TARGET_NAMESPACE}" get secret "${SECRET_NAME}" \
-                  -o "jsonpath={.metadata.annotations.catalyst\.openova\.io/token-source}" 2>/dev/null || true)
-                if [ "${token_source}" = "${TOKEN_SOURCE_ANNOTATION_VALUE}" ]; then
-                  echo "[wait-for-cutover-token] cutover annotation present — Step 09 has minted the real Gitea API token; proceeding"
+                if [ -z "${GITHUB_TOKEN:-}" ]; then
+                  echo "[wait-for-gitea-token] GITHUB_TOKEN not yet populated (Secret absent/empty); retrying in ${INTERVAL_SECONDS}s"
+                  sleep "${INTERVAL_SECONDS}"
+                  continue
+                fi
+                # Probe what the mint step actually GUARANTEES: a token that
+                # authenticates. 200 → the token is live (bootstrap PAT or the
+                # cutover-minted token — both are real Gitea tokens). Anything
+                # else (401 placeholder / 000 Gitea not up yet) → keep waiting.
+                code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
+                  -H "Authorization: token ${GITHUB_TOKEN}" \
+                  -H "Accept: application/json" \
+                  "${GITEA_INTERNAL_URL}/api/v1/user" 2>/dev/null || echo "000")
+                if [ "${code}" = "200" ]; then
+                  echo "[wait-for-gitea-token] token validates (GET /api/v1/user=200) — proceeding"
                   exit 0
                 fi
-                echo "[wait-for-cutover-token] annotation not yet set (current: '${token_source}'); retrying in ${INTERVAL_SECONDS}s"
+                echo "[wait-for-gitea-token] token not yet accepted (GET /api/v1/user=${code}); retrying in ${INTERVAL_SECONDS}s"
                 sleep "${INTERVAL_SECONDS}"
               done
-              # Timeout is a HARD FAIL — provisioning with the placeholder
-              # admin password as GITHUB_TOKEN cannot satisfy ANY tenant
-              # request. Better to keep the Pod in Init: than to serve 401s.
-              echo "[wait-for-cutover-token] FATAL: timed out after ${TIMEOUT_SECONDS}s waiting for cutover Step 09 to patch ${TARGET_NAMESPACE}/${SECRET_NAME}" >&2
+              # Timeout is a HARD FAIL — provisioning with a token Gitea
+              # rejects cannot satisfy ANY tenant request. Better to keep the
+              # Pod in Init: than to serve 401s downstream.
+              echo "[wait-for-gitea-token] FATAL: timed out after ${TIMEOUT_SECONDS}s — no accepted Gitea token in the provisioning Secret" >&2
               exit 1
           resources:
             requests: { cpu: 10m, memory: 32Mi }
