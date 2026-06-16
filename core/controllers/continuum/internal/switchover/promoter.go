@@ -56,6 +56,29 @@ const (
 	// restart). KV reads continue uninterrupted on the replica until the
 	// restart (the row invariant; the restart is a single Pod recreate).
 	MechanismRaftTransition Mechanism = "raft-transition"
+
+	// MechanismStateless — the GENERIC switchover for any blueprint that
+	// keeps NO cross-region state to promote (the "DNS-flip only" row in
+	// docs/topology-matrix.md). #3375 §5.1: the switchover engine already
+	// does the real work in its FIVE mechanism-agnostic steps —
+	// validate-lease (1), drain-http (3), flip-dns (4), swap-lease (5),
+	// audit (7). The two STATE-STORE steps (cordon=2, promote=6) are
+	// genuine no-ops for a stateless app: there is no primary write-cordon
+	// to set and no replica data-store to promote — the standby Pods in
+	// the surviving region simply begin serving once DNS + the lease point
+	// at them. This is the SMALLEST change that makes the matrix's
+	// "stateless; DNS-flip only" promise REAL for the 12 DR-capable apps
+	// that declare it (bp-sso-bridge, bp-livekit, bp-stunner, bp-vllm,
+	// bp-kserve, bp-knative, bp-librechat, bp-bge, bp-llm-gateway,
+	// bp-anthropic-adapter, bp-clickhouse, bp-k8s-ws-proxy) — and for ANY
+	// future stateless app, with ZERO app-name literal in the engine.
+	//
+	// The mechanism is selected by a Blueprint declaring
+	// `switchover.mechanism: stateless` (or `bp-continuum` resolving to it
+	// when the variant carries no state backend). It requires NO
+	// CNPGPair, NO RaftTransition target — only the FromRegion/ToRegion +
+	// the HTTPRoute/DNS knobs the agnostic steps already consume.
+	MechanismStateless Mechanism = "stateless"
 )
 
 // DefaultMechanism is applied when SwitchoverPlan.Mechanism is empty. The
@@ -66,7 +89,7 @@ const DefaultMechanism = MechanismCNPGPair
 // IsValid reports whether m is a mechanism this engine can execute.
 func (m Mechanism) IsValid() bool {
 	switch m {
-	case MechanismCNPGPair, MechanismRaftTransition:
+	case MechanismCNPGPair, MechanismRaftTransition, MechanismStateless:
 		return true
 	}
 	return false
@@ -117,9 +140,38 @@ func (s *Sequencer) promoterFor(plan SwitchoverPlan) (Promoter, error) {
 			return nil, errors.New("raft-transition mechanism: no RaftPromoter wired (controller must set Sequencer.RaftPromoter)")
 		}
 		return s.RaftPromoter, nil
+	case MechanismStateless:
+		// No backend wiring required — the stateless promoter's
+		// state-store steps are no-ops; the five agnostic steps
+		// (lease/drain/dns/swap/audit) carry the whole switchover.
+		return statelessPromoter{}, nil
 	default:
-		return nil, fmt.Errorf("unknown switchover mechanism %q (want one of cnpg-pair, raft-transition)", m)
+		return nil, fmt.Errorf("unknown switchover mechanism %q (want one of cnpg-pair, raft-transition, stateless)", m)
 	}
+}
+
+// statelessPromoter is the GENERIC Promoter for blueprints with no
+// cross-region state store (#3375 §5.1). Both state-store steps are
+// no-ops: a stateless app has no write-cordon to set (step-2) and no
+// replica data store to promote (step-6) — the surviving region's Pods
+// begin serving the moment DNS (step-4) + the witness lease (step-5)
+// point at them. It holds NO per-app reference and carries NO app-name
+// literal: the SAME implementation drives sso-bridge, livekit, vllm, and
+// any future stateless blueprint. The nil rollback hooks are correct —
+// there is nothing to reverse for a no-op.
+type statelessPromoter struct{}
+
+// Cordon is a no-op for a stateless app (nothing to fence). Returns a nil
+// rollback hook because there is nothing to un-cordon.
+func (statelessPromoter) Cordon(_ context.Context, _ SwitchoverPlan) (func(ctx context.Context) error, error) {
+	return nil, nil
+}
+
+// Promote is a no-op for a stateless app (no data store to flip). The
+// standby Pods already run; DNS (step-4) + lease (step-5) have moved
+// traffic to them. Returns a nil rollback hook.
+func (statelessPromoter) Promote(_ context.Context, _ SwitchoverPlan) (func(ctx context.Context) error, error) {
+	return nil, nil
 }
 
 // cnpgPromoter is the default Promoter — it reproduces, byte-for-byte, the

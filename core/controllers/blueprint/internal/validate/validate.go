@@ -537,6 +537,9 @@ func validateAgainstTopologySchema(bp *unstructured.Unstructured) []Finding {
 	// hostname, not a URL. Anything containing "://" or starting with
 	// "http:" / "https:" is a finding.
 	findings = append(findings, validateEndpointHostnameTemplate(bp)...)
+	// #3375 §5.3 — a stateful replication.backend that nothing
+	// materialises is a decorative declaration. Advisory finding.
+	findings = append(findings, validateReplicationBackendWired(bp)...)
 	return dedupFindings(findings)
 }
 
@@ -645,6 +648,138 @@ func validateEndpointVariantMembership(bp *unstructured.Unstructured) []Finding 
 				Message: fmt.Sprintf("endpoint variant %q is not in spec.topology.supported %v", variant, supportedSlice),
 			})
 		}
+	}
+	return out
+}
+
+// statefulReplicationBackends is the set of `replication.backend` values
+// that name a CROSS-REGION STATE store the platform must actually
+// materialise. A blueprint declaring one of these but providing NO way
+// to materialise it (no `backingServices[]` binding, and not itself a
+// data-instance provider) has a DECORATIVE declaration — it names a pair
+// that nothing builds (#3375 §3(a): grafana declares `cnpg-pair` but
+// ships no pair and binds no postgres instance). `none` and `flux-git`
+// are NOT here — they carry no cross-region state to promote.
+//
+// This set is data, not app-name logic: the check keys on the declared
+// backend string + the declared provider/consumer signals, never on a
+// blueprint's name.
+var statefulReplicationBackends = map[string]struct{}{
+	"cnpg-pair":                {},
+	"raft":                     {},
+	"ccr":                      {},
+	"sentinel":                 {},
+	"mirrormaker2":             {},
+	"openbao-perf-replication": {},
+	"s3-bucket-replication":    {},
+	"velero":                   {},
+	"filer-remote-storage":     {},
+}
+
+// DecorativeReplicationBackendCode flags a `replication.backend` that
+// names a stateful store the blueprint provides no mechanism to
+// materialise. Advisory (surfaced on status.conditions, does NOT block
+// publish) — the same gradient as TopologySchemaViolationCode — so the
+// existing corpus's decorative declarations become VISIBLE without
+// breaking publication. It becomes the hard gate once the per-app pair
+// producer lands (#3375 §5 item 2/5).
+const DecorativeReplicationBackendCode = "decorative-replication-backend"
+
+// blueprintProvidesStateBacking reports whether the blueprint is itself a
+// data-instance PROVIDER that ships its own state backing (and so may
+// legitimately declare a stateful `replication.backend` for its own
+// pair). The signals are all DECLARED, app-agnostic:
+//   - shareable: true            — it IS a shareable data-instance (bp-postgres)
+//   - producesInstances          — it is the operator/engine (bp-cnpg)
+//   - contextSchema              — it materialises Contexts (a data-instance)
+//   - multiInstance + card.category=data — the data-instance pair itself
+//     (bp-cnpg-pair: ships primary+replica Cluster templates)
+//
+// None of these is a blueprint-name literal.
+func blueprintProvidesStateBacking(spec map[string]interface{}) bool {
+	if b, _, _ := unstructured.NestedBool(spec, "shareable"); b {
+		return true
+	}
+	if _, ok := nestedAsMap(spec, "producesInstances"); ok {
+		return true
+	}
+	if _, ok := nestedAsMap(spec, "contextSchema"); ok {
+		return true
+	}
+	if _, ok := nestedAsMap(spec, "multiInstance"); ok {
+		category, _, _ := unstructured.NestedString(spec, "card", "category")
+		if category == "data" {
+			return true
+		}
+	}
+	return false
+}
+
+// blueprintBindsBackingOfType reports whether the blueprint declares a
+// `backingServices[]` entry — i.e. it binds a real (shared or private)
+// data-instance that the journey materialises, giving its stateful
+// `replication.backend` something concrete behind it. Type-agnostic on
+// purpose: any declared backing closes the decorative hole (the journey
+// wires the dependsOn + Context for it).
+func blueprintBindsBacking(spec map[string]interface{}) bool {
+	bs, _, _ := unstructured.NestedSlice(spec, "backingServices")
+	return len(bs) > 0
+}
+
+// validateReplicationBackendWired emits an advisory Finding for every
+// `perTopology.<variant>.replication.backend` that names a stateful
+// store (statefulReplicationBackends) when the blueprint neither PROVIDES
+// its own state backing nor BINDS a backing instance. This closes the
+// "decorative cnpg-pair" hole (#3375 §3(a)/§5.3): the declaration must be
+// wired to something real, or the blueprint must not claim the topology.
+//
+// Generic by construction: it keys on the declared backend string + the
+// declared provider/consumer signals. ZERO blueprint-name literal.
+func validateReplicationBackendWired(bp *unstructured.Unstructured) []Finding {
+	if bp == nil {
+		return nil
+	}
+	spec, found, _ := unstructured.NestedMap(bp.Object, "spec")
+	if !found {
+		return nil
+	}
+	perTopology, found, _ := unstructured.NestedMap(spec, "topology", "perTopology")
+	if !found || len(perTopology) == 0 {
+		return nil
+	}
+	// A provider of its own state backing, or a consumer that binds a
+	// real backing, satisfies the contract for ALL its variants.
+	if blueprintProvidesStateBacking(spec) || blueprintBindsBacking(spec) {
+		return nil
+	}
+
+	// Deterministic iteration order for stable findings.
+	variants := make([]string, 0, len(perTopology))
+	for k := range perTopology {
+		variants = append(variants, k)
+	}
+	sort.Strings(variants)
+
+	var out []Finding
+	for _, variant := range variants {
+		vmap, ok := perTopology[variant].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		backend, _, _ := unstructured.NestedString(vmap, "replication", "backend")
+		if backend == "" {
+			continue
+		}
+		if _, stateful := statefulReplicationBackends[backend]; !stateful {
+			continue
+		}
+		out = append(out, Finding{
+			Code: DecorativeReplicationBackendCode,
+			Path: fmt.Sprintf("#/spec/topology/perTopology/%s/replication/backend", variant),
+			Message: fmt.Sprintf(
+				"replication.backend %q for variant %q names a cross-region state store, but the blueprint neither declares a backingServices[] binding nor is itself a data-instance provider (shareable/producesInstances/contextSchema). The declaration is decorative — nothing materialises the pair. Declare a backingServices[] entry (the journey builds the replicated backing + Continuum CR) or change the backend.",
+				backend, variant),
+		})
 	}
 	return out
 }

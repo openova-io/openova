@@ -21,6 +21,7 @@ import type {
   SovereignDetail,
   ApplicationsResponse,
 } from './fleet.api'
+import { canonicalizeTopologyMode } from './fleet.api'
 
 function makeWrapper() {
   const qc = new QueryClient({
@@ -204,6 +205,9 @@ describe('useFleetApplications', () => {
       () =>
         useFleetApplications({
           org: 'acme',
+          // #3375 §3(f) — a legacy-dialect input is canonicalised on the
+          // wire so it matches the backend's canonical vocabulary instead
+          // of silently filtering nothing.
           topology: 'active-hotstandby',
           drPosture: 'DR active',
         }),
@@ -211,9 +215,47 @@ describe('useFleetApplications', () => {
     )
     await waitFor(() => expect(result.current.data).toBeDefined())
     expect(lastURL).toContain('org=acme')
-    expect(lastURL).toContain('topology=active-hotstandby')
+    // The legacy `active-hotstandby` dialect is posted as the canonical
+    // `active-hot-standby` (URL-encoded), never raw.
+    expect(lastURL).toContain('topology=active-hot-standby')
+    expect(lastURL).not.toContain('topology=active-hotstandby')
     // 'DR active' contains a space — encoded as DR+active or DR%20active.
     expect(/(DR\+active|DR%20active)/.test(lastURL)).toBe(true)
     expect(result.current.data?.total).toBe(1)
+  })
+
+  // #3375 §3(f) — an already-canonical topology filter passes through
+  // unchanged (no double-mangling).
+  it('passes a canonical topology filter through unchanged', async () => {
+    let lastURL = ''
+    globalThis.fetch = (async (url: RequestInfo | URL) => {
+      lastURL = String(url)
+      return jsonResponse({ ...SAMPLE_APPS, total: 1, applications: [SAMPLE_APPS.applications[1]] })
+    }) as never
+    const { result } = renderHook(
+      () => useFleetApplications({ topology: 'active-hot-standby' }),
+      { wrapper: makeWrapper() },
+    )
+    await waitFor(() => expect(result.current.data).toBeDefined())
+    expect(lastURL).toContain('topology=active-hot-standby')
+  })
+})
+
+// #3375 §3(f) — the one-vocabulary canonicaliser. BOTH the legacy editor
+// dialect and the canonical vocabulary map onto the single canonical
+// token the backend validates.
+describe('canonicalizeTopologyMode', () => {
+  it('maps the legacy editor dialect to canonical', () => {
+    expect(canonicalizeTopologyMode('single-region')).toBe('singleton')
+    expect(canonicalizeTopologyMode('active-hotstandby')).toBe('active-hot-standby')
+  })
+  it('passes already-canonical values through unchanged', () => {
+    expect(canonicalizeTopologyMode('singleton')).toBe('singleton')
+    expect(canonicalizeTopologyMode('active-hot-standby')).toBe('active-hot-standby')
+    expect(canonicalizeTopologyMode('active-active')).toBe('active-active')
+    expect(canonicalizeTopologyMode('active-passive')).toBe('active-passive')
+  })
+  it('is case- and whitespace-insensitive', () => {
+    expect(canonicalizeTopologyMode('  Active-HotStandby ')).toBe('active-hot-standby')
   })
 })
