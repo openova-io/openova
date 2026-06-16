@@ -1029,7 +1029,7 @@ spec:
             # 1.4.626 — #3492: Continuum CRD gains spec.switchover.{mechanism,raftTransition} (bp-openbao raft-transition DR contract); additive, slot-13 crds:CreateReplace propagates the schema. Render byte-unchanged.
             # 1.4.645 — #3626: catalog-seed repoints bp-openbao launch ssoInitPath → /sso/landing (was /ui/vault/auth?with=oidc) so the console "Open" button lands signed-in instead of the popup-only Vault OIDC callback's window.opener=null error. Lockstep with platform/openbao/blueprint.yaml; template-only, default render byte-unchanged.
             # 1.4.648 — #3638 (Refs #3379): catalyst-runtime-config ConfigMap DERIVES sovereign-console-url + sovereign-api-public-url from global.sovereignFQDN on a Sovereign (was always the mothership runtime.sovereignConsoleURL default, never overridden here) — so Flux render == bp-self-sovereign-cutover step-07 Phase-3a's patch → step-07 is idempotent (no revert → no FATAL re-run → no catalyst-api re-roll → cutover engine reaches step-08). Catalyst-Zero (empty FQDN) render byte-unchanged.
-      version: 1.4.650
+      version: 1.4.651
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
