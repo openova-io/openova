@@ -25,10 +25,17 @@
 // budget, and it eliminates a major source of false-failure perception
 // for operators.
 //
-// Operators can extend hwBlocklistedEIPs without a code change by
-// setting CATALYST_HUAWEI_NAT_EIP_BLOCKLIST=ip1,ip2,... at catalyst-
-// api startup. The list is read once at New(); a fresh blocklist
-// requires a catalyst-api restart.
+// Operators can extend the blocklist without a code change by setting
+// CATALYST_HUAWEI_NAT_EIP_BLOCKLIST=ip1,ip2,... — but as of Wave 5.157
+// (#3722) they SHOULDN'T NEED TO for the common poisoned-pool case. The
+// rotation now LEARNS: every EIP it rotates away from is persisted to an
+// on-PVC store (eip_blocklist_store.go) and merged back into the
+// blocklist on the next prov, with a TTL so a recovered EIP ages out.
+// This replaces the brittle manual escape hatch (set ROTATE_ALL=true +
+// flux suspend the catalyst-platform kustomization, which the non-durable
+// env defeated within ~5 min) with zero-touch self-heal. ROTATE_ALL
+// remains an explicit force-override but is no longer required for
+// correctness. See eip_blocklist_store.go for the persistence design.
 
 package huawei
 
@@ -52,7 +59,18 @@ var hwBlocklistedEIPs = map[string]bool{
 	"212.72.24.14": true, // hw01 b-region NAT, hw03 b-region NAT
 }
 
-// blocklist returns the merged set of seed + env-supplied blocklist.
+// blocklist returns the merged set of seed + env-supplied + persisted
+// (learned) blocklist.
+//
+// Wave 5.157 (#3722): the third source is the zero-touch fix. The static
+// seed only knows .48/.14; the kom4dc free-pool gets poisoned by repeated
+// wipe→re-prov cycles (released EIPs stay un-routable to harbor for
+// hours), so a fresh prov draws a poisoned IP that ISN'T in the seed and
+// the default self-heal misses it → wedge. RotateBlocklistedNATEIPs now
+// RECORDS every EIP it rotated away from to an on-PVC store
+// (eip_blocklist_store.go); merging that store here means prov N's poison
+// becomes prov N+1's auto-avoid set — no operator env var, no flux
+// suspend. TTL-pruned on load so a recovered EIP ages back in.
 func blocklist() map[string]bool {
 	out := map[string]bool{}
 	for k := range hwBlocklistedEIPs {
@@ -65,6 +83,10 @@ func blocklist() map[string]bool {
 				out[ip] = true
 			}
 		}
+	}
+	// Learned poison persisted across provs on the catalyst-api PVC.
+	for ip := range loadPersistedBlocklist(time.Now()) {
+		out[ip] = true
 	}
 	return out
 }
@@ -185,7 +207,7 @@ func RotateBlocklistedNATEIPs(ctx context.Context, _provider, deploymentID, sove
 		// never hands the same poisoned address straight back (Huawei
 		// recycles a just-released EIP into the very next allocate()).
 		bl[r.FloatingIPAddress] = true
-		newEIPID, newAddr, held, err := allocateCleanEIP(ctx, client, hw, region, deploymentID, bl, 8)
+		newEIPID, newAddr, held, heldAddrs, err := allocateCleanEIP(ctx, client, hw, region, deploymentID, bl, 8)
 		if err != nil {
 			return rotated, fmt.Errorf("allocate clean EIP: %w", err)
 		}
@@ -204,6 +226,22 @@ func RotateBlocklistedNATEIPs(ctx context.Context, _provider, deploymentID, sove
 		if _, st, err := doSignedRequest(client, hw, http.MethodPost, newSNATURL, []byte(newSNATBody)); err != nil || st >= 400 {
 			return rotated, fmt.Errorf("create new snat: status %d err %v", st, err)
 		}
+		// Wave 5.157 (#3722) — PERSIST the poison BEFORE releasing it.
+		// Releasing a blocklisted EIP returns it to the HCS free-pool
+		// where it stays un-routable to harbor for hours; without this
+		// record the NEXT prov re-draws it, finds it's not in the static
+		// seed, and wedges. We record the rotated-away SNAT address
+		// (r.FloatingIPAddress) + every held reject's address (heldAddrs,
+		// returned by allocateCleanEIP) so blocklist() auto-avoids the
+		// whole set on the next prov — the zero-touch loop.
+		poisonAddrs := append([]string{r.FloatingIPAddress}, heldAddrs...)
+		if rerr := recordPoisonedEIPs(poisonAddrs, deploymentID, time.Now()); rerr != nil {
+			// Non-fatal: losing cross-prov memory for this address is a
+			// degradation, not a provisioning failure.
+			progress(fmt.Sprintf("Wave 5.157: could not persist learned poison %v (non-fatal): %v", poisonAddrs, rerr))
+		} else {
+			progress(fmt.Sprintf("Wave 5.157 (#3722): recorded %d poisoned EIP(s) to the learned blocklist (next prov auto-avoids them)", len(poisonAddrs)))
+		}
 		// Release the OLD (blocklisted) EIP — held EIPs are released too
 		_ = deleteEIP(ctx, client, hw, region, r.FloatingIPID)
 		for _, h := range held {
@@ -216,18 +254,21 @@ func RotateBlocklistedNATEIPs(ctx context.Context, _provider, deploymentID, sove
 }
 
 // allocateCleanEIP allocates EIPs until one is NOT on the blocklist.
-// Returns (cleanEIPID, cleanEIPAddress, heldEIPIDs, error).
+// Returns (cleanEIPID, cleanEIPAddress, heldEIPIDs, heldEIPAddresses, error).
 // Held EIPs are blocklisted EIPs that we keep allocated to drain the
-// Huawei free-pool past their recycle.
-func allocateCleanEIP(ctx context.Context, client *http.Client, hw hwCreds, region, deploymentID string, bl map[string]bool, maxAttempts int) (string, string, []string, error) {
+// Huawei free-pool past their recycle. heldEIPAddresses mirrors
+// heldEIPIDs by index — the caller persists those addresses to the
+// learned blocklist (#3722) so the next prov auto-avoids them.
+func allocateCleanEIP(ctx context.Context, client *http.Client, hw hwCreds, region, deploymentID string, bl map[string]bool, maxAttempts int) (string, string, []string, []string, error) {
 	held := []string{}
+	heldAddrs := []string{}
 	for i := 0; i < maxAttempts; i++ {
 		body := fmt.Sprintf(`{"publicip":{"type":"5_bgp"},"bandwidth":{"name":"catalyst-%s-nat-preflight-%d","size":300,"share_type":"PER","charge_mode":"traffic"}}`,
 			deploymentID[:8], i+1)
 		url := fmt.Sprintf("%s/v1/%s/publicips", endpointFor("vpc", region), hw.ProjectID)
 		resp, status, err := doSignedRequest(client, hw, http.MethodPost, url, []byte(body))
 		if err != nil || status >= 400 {
-			return "", "", held, fmt.Errorf("alloc EIP attempt %d: status %d err %v", i+1, status, err)
+			return "", "", held, heldAddrs, fmt.Errorf("alloc EIP attempt %d: status %d err %v", i+1, status, err)
 		}
 		var decoded struct {
 			PublicIP struct {
@@ -236,15 +277,17 @@ func allocateCleanEIP(ctx context.Context, client *http.Client, hw hwCreds, regi
 			} `json:"publicip"`
 		}
 		if err := json.Unmarshal(resp, &decoded); err != nil {
-			return "", "", held, fmt.Errorf("decode alloc EIP: %w", err)
+			return "", "", held, heldAddrs, fmt.Errorf("decode alloc EIP: %w", err)
 		}
 		if !bl[decoded.PublicIP.Address] {
-			return decoded.PublicIP.ID, decoded.PublicIP.Address, held, nil
+			return decoded.PublicIP.ID, decoded.PublicIP.Address, held, heldAddrs, nil
 		}
-		// Blocklisted — hold to drain pool
+		// Blocklisted — hold to drain pool, and remember the address so
+		// the caller can persist it to the learned blocklist (#3722).
 		held = append(held, decoded.PublicIP.ID)
+		heldAddrs = append(heldAddrs, decoded.PublicIP.Address)
 	}
-	return "", "", held, fmt.Errorf("exhausted %d attempts; all allocated EIPs were blocklisted", maxAttempts)
+	return "", "", held, heldAddrs, fmt.Errorf("exhausted %d attempts; all allocated EIPs were blocklisted", maxAttempts)
 }
 
 // natGatewayBelongsToDeployment matches NAT gateway name against the
