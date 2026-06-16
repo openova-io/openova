@@ -347,6 +347,69 @@ func (h *Handler) chrootSeedJobsStoreIfEmpty(ctx context.Context, dep *Deploymen
 	// fixed here was caused exactly by this branch being unreachable on
 	// a hasBootstrapKit=true chroot.
 	h.chrootSeedSecondaryRegions(ctx, dep, bridge)
+
+	// Cutover EXECUTION projection (issue #3646). The helmwatch seed above
+	// only surfaces the DORMANT bp-self-sovereign-cutover chart install as
+	// an "install-self-sovereign-cutover" leaf — which reads "Succeeded"
+	// the instant the chart lands, regardless of whether the 11-step
+	// cutover ever ran. Project the real execution state from the cutover
+	// status ConfigMap into a distinct `Cutover` group so an operator
+	// opening /jobs long after handover (when the engine goroutine is gone)
+	// still sees the true per-step progress + cutoverComplete, never a
+	// misleading "Succeeded". Keyed under dep.ID so it joins the same tree.
+	h.chrootSeedCutoverActivity(ctx, dep)
+}
+
+// chrootSeedCutoverActivity reads the self-sovereign-cutover-status
+// ConfigMap from the chroot's own cluster and replays its per-step
+// results into the jobs/activity store as the `Cutover` group (issue
+// #3646). No-op when not on a Sovereign (cutover deps unavailable), when
+// the status ConfigMap is absent (cutover never installed), or when the
+// jobs store / activity bridge can't resolve. Best-effort: every failure
+// path logs at debug/warn and returns — a /jobs read never fails because
+// the cutover projection couldn't run.
+//
+// This is the read-path counterpart to the engine-driven projection in
+// runCutover: the engine projects live transitions while it runs; this
+// replays the durable record on demand so the Cutover group is present
+// even on a fresh Pod with no active cutover goroutine.
+func (h *Handler) chrootSeedCutoverActivity(ctx context.Context, dep *Deployment) {
+	if h.jobs == nil {
+		return
+	}
+	// Pin the activity bridge to THIS deployment id so the projection
+	// joins the same tree the /jobs read returns (resolution-by-scan
+	// would also find it, but the read already knows the id).
+	if strings.TrimSpace(h.cutoverActivityDepID) == "" && h.cutoverActivityProj.bridge == nil {
+		h.cutoverActivityDepID = dep.ID
+	}
+	deps, err := h.cutoverDepsFor()
+	if err != nil {
+		h.log.Debug("chroot seed: cutover deps unavailable; skipping activity projection",
+			"depId", dep.ID, "err", err)
+		return
+	}
+	status, err := readCutoverStatus(ctx, deps)
+	if err != nil {
+		h.log.Debug("chroot seed: cutover status read failed; skipping activity projection",
+			"depId", dep.ID, "err", err)
+		return
+	}
+	// Nothing to project until the cutover has at least been discovered.
+	// Prefer the durable per-step keys; fall back to live step discovery
+	// so a cutover that's installed-but-never-run still shows its pending
+	// steps (the honest "tethered, 0/N" picture).
+	stepNames := listStepNamesFromStatus(status)
+	if len(stepNames) == 0 {
+		if steps, derr := listCutoverSteps(ctx, deps); derr == nil {
+			stepNames = stepNamesFromSteps(steps)
+		}
+	}
+	if len(stepNames) == 0 {
+		// Cutover chart not installed / no steps — nothing to surface.
+		return
+	}
+	h.projectCutoverResumeSeed(stepNames, status)
 }
 
 // regionFromSecondaryClusterID — pure helper: given a k8sCache cluster ID
