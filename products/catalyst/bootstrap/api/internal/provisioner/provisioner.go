@@ -183,9 +183,15 @@ const (
 )
 
 // validBcpTopologies is the wire-allowed set the validator checks
-// against. Kept in sync with the chart-side enum in
-// products/catalyst/chart/crds/cnpgpair.yaml (`spec.topology`) and the
-// applications_update.go placement.mode set.
+// against. This is the operator-signup PLACEMENT-EDITOR DIALECT — kept in
+// sync with the Sovereign CRD enum (`spec.bcpTopology` in
+// products/catalyst/chart/crds/sovereign.yaml) and the
+// applications_update.go placement.mode set. NOTE (#3648): the separate
+// cnpg-pair DR CRD (`cnpgpairs.dr.openova.io` spec.topology) uses the
+// CANONICAL hyphenated vocabulary (`active-hot-standby`); do NOT "resync"
+// this dialect set to it — they are intentionally different axes (signup
+// dialect vs canonical DR-contract). The dialect→canonical mapping lives
+// in endpoint_handler.go::canonicalizeTopology.
 var validBcpTopologies = map[string]struct{}{
 	BcpTopologySingleRegion:     {},
 	BcpTopologyActiveHotStandby: {},

@@ -45,7 +45,7 @@ spec:
   replicaRegion: {{ .Values.qaFixtures.cnpgPairReplicaRegion | default (.Values.qaFixtures.standbyRegion | default "hz-hel-rtz-prod") }}
   rpoSeconds: 30
   rtoSeconds: 60
-  topology: active-hotstandby
+  topology: active-hot-standby
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -201,5 +201,5 @@ spec:
   replicaRegion: {{ .Values.qaFixtures.cnpgPairReplicaRegion | default (.Values.qaFixtures.standbyRegion | default "hz-hel-rtz-prod") }}
   rpoSeconds: 30
   rtoSeconds: 60
-  topology: active-hotstandby
+  topology: active-hot-standby
 {{- end }}

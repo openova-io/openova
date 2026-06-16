@@ -70,8 +70,11 @@ func TestMergeCatalogEditIntoBlueprintYAML_FreshCR(t *testing.T) {
 	if got.IconLight != "https://cdn/light.svg" || got.IconDark != "https://cdn/dark.svg" {
 		t.Errorf("icon round-trip: light=%q dark=%q", got.IconLight, got.IconDark)
 	}
-	if len(got.SupportedTopologies) != 2 || got.SupportedTopologies[0] != "single-region" {
-		t.Errorf("topology round-trip: %v", got.SupportedTopologies)
+	// #3648 — the write path canonicalizes the placement-editor dialect onto
+	// the canonical spec.topology.supported vocabulary, so single-region is
+	// stored (and read back) as singleton; active-active is already canonical.
+	if len(got.SupportedTopologies) != 2 || got.SupportedTopologies[0] != "singleton" || got.SupportedTopologies[1] != "active-active" {
+		t.Errorf("topology round-trip: got %v want [singleton active-active]", got.SupportedTopologies)
 	}
 }
 
@@ -290,8 +293,38 @@ func TestCommitCatalogAppEditToGit_DecodesCommerceAppBody(t *testing.T) {
 	if got.IconLight != "l.svg" || got.IconDark != "d.svg" {
 		t.Errorf("theme icons not committed: %+v", got)
 	}
-	if len(got.SupportedTopologies) != 1 || got.SupportedTopologies[0] != "single-region" {
-		t.Errorf("topologies not committed: %v", got.SupportedTopologies)
+	// #3648 — single-region (placement-editor dialect) canonicalizes to
+	// singleton on the canonical spec.topology.supported.
+	if len(got.SupportedTopologies) != 1 || got.SupportedTopologies[0] != "singleton" {
+		t.Errorf("topologies not committed canonically: got %v want [singleton]", got.SupportedTopologies)
+	}
+}
+
+// TestCommitCatalogAppEditToGit_CanonicalizesHotStandby (#3648) — the
+// founder's failing case: the catalog UI posts the un-hyphenated
+// placement-editor dialect `active-hotstandby`, which MUST land in the
+// canonical spec.topology.supported as `active-hot-standby` so a later
+// instance create resolves against the Blueprint instead of failing
+// `topology "active-hotstandby" not in supported [...]`.
+func TestCommitCatalogAppEditToGit_CanonicalizesHotStandby(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+
+	body := []byte(`{"slug":"postgres","name":"Postgres","published":true,"supported_topologies":["active-active","active-hotstandby"]}`)
+	h.commitCatalogAppEditToGit(context.Background(), body)
+
+	key := giteaKey(catalogSovereignOrg, "bp-postgres", catalogEditGitBranch, catalogEditBlueprintPath)
+	raw, ok := fg.files[key]
+	if !ok {
+		t.Fatalf("expected committed blueprint.yaml at %s; keys=%v", key, fileKeys(fg))
+	}
+	got, ok := catalogEditFromBlueprintYAML("bp-postgres", raw)
+	if !ok {
+		t.Fatal("committed CR did not parse")
+	}
+	if len(got.SupportedTopologies) != 2 || got.SupportedTopologies[1] != "active-hot-standby" {
+		t.Errorf("active-hotstandby must canonicalize to active-hot-standby: got %v", got.SupportedTopologies)
 	}
 }
 
