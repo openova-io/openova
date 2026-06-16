@@ -104,6 +104,12 @@ spec:
       # cascading into sso-bridge/gitea/harbor/oidc-gate/newapi/powerdns-admin.
       # Render now gated on .Capabilities.APIVersions.Has "dr.openova.io/v1"
       # (gold-standard pattern). Single-region byte-identical; pin in lockstep.
+      # 1.2.46 (#3629): the SECONDARY (fetch) snapshot CronJob drops its OpenBao
+      # k8s-auth login — the fetch is pure S3 I/O and never reads BAO_TOKEN, but
+      # the unconditional login crashlooped it on hw147 region-B (`Could not
+      # resolve host openbao-openbao…` → `bao login returned no client_token`)
+      # while openbao-0 was Running. Login now PRIMARY/save-only. Single-region
+      # byte-identical (snapshotReplication default-OFF); pin in lockstep.
       # 1.2.45 (#3626 + #3629): reconcile two concurrent 1.2.44 bumps — the
       # #3626 console "Open" → /sso/landing repoint AND the #3629 snapshot-
       # replication S3 seeder (independent files; pure version-line union).
@@ -112,7 +118,7 @@ spec:
       # deep-link) so OpenBao lands signed-in instead of the popup-only Vault
       # OIDC callback's window.opener=null error. blueprint.yaml/Chart.yaml
       # lockstep; no chart-template change (landing page already shipped 1.2.35).
-      version: 1.2.45
+      version: 1.2.46
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
