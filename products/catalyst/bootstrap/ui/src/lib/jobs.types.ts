@@ -94,4 +94,19 @@ export interface Job {
   startedAt: string | null
   finishedAt: string | null
   durationMs: number
+  /**
+   * #3656 (founder #6) — FE-only provisional flag. The Jobs canvas merges
+   * reducer-derived rows (folded from the SSE replay buffer) with the live
+   * /jobs query, and the live source wins on conflict. Before the live
+   * fetch lands, a reducer-derived row's non-terminal status (pending /
+   * running) is UNCONFIRMED — a job that actually completed long ago can
+   * still read "Pending" until the live source corrects it, then flip. To
+   * stop that assert-then-retract the merge marks such a row `provisional`
+   * and the StatusBadge renders a distinct "Confirming…" state instead of a
+   * definitive Pending/Running. NEVER set on the wire — the catalyst-api
+   * Job shape has no such field; it is stamped purely in the FE merge and
+   * cleared the moment the live source confirms the row. Optional + absent
+   * by default so every backend-sourced row is non-provisional.
+   */
+  provisional?: boolean
 }

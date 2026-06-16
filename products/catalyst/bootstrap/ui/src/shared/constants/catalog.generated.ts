@@ -43,6 +43,14 @@ export interface BlueprintCardEntry {
   /** #3370 — the Context declaration (null when not shareable). */
   contextSchema: BlueprintContextSchema | null
   /**
+   * #3648 — the DECLARED operator→instance edge. Set on an OPERATOR
+   * Blueprint (e.g. bp-cnpg) that produces shareable instances of another
+   * (instance) Blueprint; the platform reads kind + instanceBlueprint
+   * instead of inferring the pairing from a "postgres" literal. null
+   * unless this is an instance-producing operator.
+   */
+  producesInstances: BlueprintProducesInstances | null
+  /**
    * #3375 — declared topology + DR contract, lifted verbatim from the
    * Blueprint's `spec.topology` (the same source docs/topology-matrix.md
    * promotes). Read back by the AppDetail Topology tab for every app so
@@ -51,6 +59,26 @@ export interface BlueprintCardEntry {
    * ships no topology block.
    */
   topology: BlueprintTopology | null
+  /**
+   * #3656 (founder #6) — whether this Blueprint declares a user-facing UI
+   * endpoint (ssoEnabled / launchDefault / name="ui" in spec.endpoints[]),
+   * mirroring the BE's blueprintHasUserUIEndpoint. The AppCard reads this
+   * to show a confident disabled "Open…" placeholder for a front-door app
+   * while its live externalURL resolves (no late pop-in), and to suppress
+   * any placeholder for a headless app (no transient chip).
+   */
+  hasUserUIEndpoint: boolean
+}
+
+/**
+ * #3648 — the operator→instance declaration. `kind` is the engine-class
+ * id a consumer names in `backingServices[].type` (e.g. "postgres");
+ * `instanceBlueprint` is the instance Blueprint id this operator
+ * provisions (e.g. "bp-postgres") — the dependsOn HR prefix.
+ */
+export interface BlueprintProducesInstances {
+  kind: string
+  instanceBlueprint: string
 }
 
 /**
@@ -123,6 +151,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -158,7 +187,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-anthropic-adapter",
@@ -177,6 +207,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -222,7 +253,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-bge",
@@ -241,6 +273,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -286,7 +319,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-catalyst-platform",
@@ -309,6 +343,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -354,7 +389,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-cert-manager",
@@ -371,6 +407,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -406,7 +443,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-cert-manager-dynadot-webhook",
@@ -425,6 +463,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -456,7 +495,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-cert-manager-powerdns-webhook",
@@ -475,6 +515,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -506,7 +547,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-cilium",
@@ -518,11 +560,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.4.1",
+    "version": "1.4.3",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -554,7 +597,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-cilium-policies",
@@ -571,6 +615,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -606,7 +651,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-clickhouse",
@@ -623,6 +669,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -668,7 +715,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-cluster-autoscaler-hcloud",
@@ -685,6 +733,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -716,7 +765,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-cnpg",
@@ -728,13 +778,17 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-flux"
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": {
+      "kind": "postgres",
+      "instanceBlueprint": "bp-postgres"
+    },
     "topology": {
       "supported": [
         "singleton"
@@ -766,7 +820,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-cnpg-pair",
@@ -787,6 +842,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby"
@@ -818,7 +874,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-coraza",
@@ -835,6 +892,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -870,7 +928,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-crossplane",
@@ -887,6 +946,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -922,7 +982,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-crossplane-claims",
@@ -941,6 +1002,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -976,7 +1038,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-debezium",
@@ -993,6 +1056,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -1038,7 +1102,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-dmz-vcluster",
@@ -1058,6 +1123,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1085,7 +1151,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-external-dns",
@@ -1102,6 +1169,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1137,7 +1205,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-external-secrets",
@@ -1149,7 +1218,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.3",
+    "version": "1.1.4",
     "section": "pts-3-3-security-and-policy",
     "depends": [
       "bp-openbao",
@@ -1157,6 +1226,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1192,7 +1262,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-external-secrets-stores",
@@ -1209,6 +1280,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1244,7 +1316,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-falco",
@@ -1261,6 +1334,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1292,7 +1366,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-ferretdb",
@@ -1309,6 +1384,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -1354,7 +1430,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-flink",
@@ -1371,6 +1448,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -1416,7 +1494,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-flux",
@@ -1433,6 +1512,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1468,7 +1548,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-gateway-api",
@@ -1485,6 +1566,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1520,7 +1602,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-gitea",
@@ -1532,13 +1615,14 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.34",
+    "version": "1.2.35",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-postgres"
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -1584,7 +1668,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-grafana",
@@ -1596,11 +1681,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.12",
+    "version": "1.0.14",
     "section": "pts-3-observability",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -1646,7 +1732,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-guacamole",
@@ -1658,7 +1745,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.8",
+    "version": "0.2.20",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-keycloak",
@@ -1669,6 +1756,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -1714,7 +1802,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-harbor",
@@ -1735,6 +1824,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -1780,7 +1870,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-hcloud-ccm",
@@ -1797,6 +1888,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1828,7 +1920,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-hcloud-csi",
@@ -1845,6 +1938,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1876,7 +1970,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-iceberg",
@@ -1893,6 +1988,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -1938,7 +2034,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-k8s-ws-proxy",
@@ -1957,6 +2054,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -2002,7 +2100,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-keycloak",
@@ -2014,13 +2113,14 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.4.27",
+    "version": "1.4.28",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-postgres"
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -2066,7 +2166,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-knative",
@@ -2086,6 +2187,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -2131,7 +2233,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-kserve",
@@ -2152,6 +2255,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -2197,7 +2301,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-kyverno",
@@ -2209,11 +2314,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.3.6",
+    "version": "1.3.7",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -2249,7 +2355,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-kyverno-policies",
@@ -2261,11 +2368,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.33",
+    "version": "1.0.35",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -2301,7 +2409,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-langfuse",
@@ -2318,6 +2427,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -2363,7 +2473,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-librechat",
@@ -2385,6 +2496,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -2430,7 +2542,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-litmus",
@@ -2447,6 +2560,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -2470,7 +2584,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-livekit",
@@ -2491,6 +2606,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -2536,7 +2652,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-llm-gateway",
@@ -2557,6 +2674,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -2602,7 +2720,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-loki",
@@ -2619,6 +2738,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -2664,7 +2784,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-matrix",
@@ -2685,6 +2806,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -2730,7 +2852,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-mgmt-vcluster",
@@ -2742,7 +2865,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.2.9",
+    "version": "0.2.10",
     "section": "pts-3-2-control-plane-isolation",
     "depends": [
       "bp-cilium",
@@ -2750,6 +2873,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -2777,7 +2901,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-milvus",
@@ -2794,6 +2919,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -2839,7 +2965,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-mimir",
@@ -2856,6 +2983,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -2901,7 +3029,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-nats-jetstream",
@@ -2918,6 +3047,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -2963,7 +3093,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-nemo-guardrails",
@@ -2982,6 +3113,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -3027,7 +3159,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-neo4j",
@@ -3044,6 +3177,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -3089,7 +3223,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-netbird",
@@ -3110,6 +3245,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -3155,7 +3291,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-network-policies",
@@ -3174,6 +3311,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -3209,7 +3347,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-newapi",
@@ -3221,7 +3360,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.4.66",
+    "version": "1.4.95",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",
@@ -3232,6 +3371,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -3277,7 +3417,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-oidc-gate",
@@ -3289,7 +3430,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-cilium",
@@ -3298,6 +3439,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -3343,7 +3485,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-openbao",
@@ -3355,11 +3498,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.31",
+    "version": "1.2.46",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -3370,7 +3514,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "perTopology": {
         "active-passive": {
           "replication": {
-            "backend": "openbao-perf-replication",
+            "backend": "raft",
             "mode": "async",
             "lagSloSeconds": 30
           },
@@ -3405,7 +3549,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-openclaw",
@@ -3426,6 +3571,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -3447,7 +3593,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-openmeter",
@@ -3468,6 +3615,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -3513,7 +3661,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-opensearch",
@@ -3530,6 +3679,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -3599,7 +3749,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-opentelemetry",
@@ -3616,6 +3767,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -3647,7 +3799,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-opentelemetry-operator",
@@ -3667,6 +3820,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -3698,7 +3852,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-postgres",
@@ -3710,7 +3865,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.10",
+    "version": "0.2.2",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-cnpg",
@@ -3728,6 +3883,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
         "credentialSecret"
       ]
     },
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton",
@@ -3773,7 +3929,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-powerdns",
@@ -3792,6 +3949,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -3823,7 +3981,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-powerdns-admin",
@@ -3835,7 +3994,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.13",
+    "version": "0.1.16",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-powerdns",
@@ -3848,6 +4007,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -3879,7 +4039,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-qa-app",
@@ -3896,6 +4057,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -3919,7 +4081,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-reflector",
@@ -3936,6 +4099,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -3971,7 +4135,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-reloader",
@@ -3988,6 +4153,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4019,7 +4185,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-rtz-vcluster",
@@ -4031,7 +4198,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.2.8",
+    "version": "0.2.11",
     "section": "pts-3-2-control-plane-isolation",
     "depends": [
       "bp-cilium",
@@ -4039,6 +4206,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4066,7 +4234,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-sandbox",
@@ -4088,6 +4257,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -4133,7 +4303,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-sealed-secrets",
@@ -4150,6 +4321,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4181,7 +4353,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-seaweedfs",
@@ -4193,13 +4366,14 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.1",
+    "version": "1.2.2",
     "section": "pts-3-5-storage-and-data",
     "depends": [
       "bp-cert-manager"
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4235,7 +4409,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-self-sovereign-cutover",
@@ -4247,7 +4422,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.56",
+    "version": "0.1.73",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-gitea",
@@ -4255,6 +4430,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4280,7 +4456,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-sigstore",
@@ -4297,6 +4474,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4328,7 +4506,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-spire",
@@ -4345,6 +4524,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -4390,7 +4570,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-sso-bridge",
@@ -4402,7 +4583,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.2.15",
+    "version": "0.2.18",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-keycloak",
@@ -4411,6 +4592,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -4456,7 +4638,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-stalwart-sovereign",
@@ -4477,6 +4660,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4494,7 +4678,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-stalwart-tenant",
@@ -4516,6 +4701,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -4561,7 +4747,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-strimzi",
@@ -4578,6 +4765,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -4647,7 +4835,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-stunner",
@@ -4667,6 +4856,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -4712,7 +4902,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-syft-grype",
@@ -4729,6 +4920,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4760,7 +4952,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-tempo",
@@ -4777,6 +4970,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -4822,7 +5016,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-temporal",
@@ -4842,6 +5037,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -4887,7 +5083,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-trivy",
@@ -4904,6 +5101,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4935,7 +5133,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-valkey",
@@ -4964,6 +5163,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
         "credentialSecret"
       ]
     },
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -5009,7 +5209,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-vcluster-helmrepo",
@@ -5028,6 +5229,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -5059,7 +5261,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-velero",
@@ -5076,6 +5279,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -5111,7 +5315,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-velero-hcs",
@@ -5128,6 +5333,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -5163,7 +5369,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-vllm",
@@ -5175,13 +5382,14 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-kserve"
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -5227,7 +5435,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-vpa",
@@ -5239,11 +5448,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.1",
+    "version": "1.0.3",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -5275,7 +5485,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-wordpress-tenant",
@@ -5298,6 +5509,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -5343,7 +5555,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           }
         }
       }
-    }
+    },
+    "hasUserUIEndpoint": true
   }
 ] as const
 
