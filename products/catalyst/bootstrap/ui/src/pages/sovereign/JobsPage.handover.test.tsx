@@ -1,28 +1,20 @@
 /**
- * JobsPage.handover.test.tsx — lock-in for Gap C + Gap D fixes (see
- * memory: session_2026_05_16_t117_dod_partial.md).
+ * JobsPage.handover.test.tsx — post-#3646 lock-in.
  *
- * Gap C — synthetic Apps / Handover stages must render as 'succeeded'
- * once the deployment record signals handover has fired (status=ready
- * OR handoverFiredAt non-null). Before this fix the JobsPage showed
- * 8 phantom "Pending" rows per multi-region Sovereign even after the
- * deployment was fully ready, breaking DoD gates D6 (0 pending) and
- * D7 (mothership ≡ child).
+ * Gap C (the `applyHandoverStageOverride` client-side coercion) is GONE:
+ * after the #3646 de-merge the JobsPage renders ONE backend list and no
+ * longer ingests the openova-flow snapshot's synthetic Apps/Handover/
+ * Cutover phantom groups as a list source — so there is nothing to coerce.
+ * The honest replacement assertion lives in
+ * `JobsPage — #3646 honest list (no phantom lifecycle rows)`: a backend
+ * `/jobs` payload that carries NO Apps/Handover phantom rows produces a
+ * table with NO Apps/Handover rows (the client never fabricates them).
  *
- * Gap D — once handover fires the operator should see a visible 3-2-1
- * countdown banner with an "Open your Sovereign console →" CTA and a
- * "Stay on mothership" Cancel button. The redirect timer auto-fires
- * window.location.assign(handoverURL) once when the countdown reaches
- * 0; clicking Cancel suppresses both the banner and the timer for the
- * rest of the page lifetime.
- *
- * The auto-redirect timer is stubbed via the JobsPage's
- * `disableHandoverAutoRedirect` prop so we can assert banner DOM +
- * Cancel button behavior without faking timers / window.location.
- * The unit-test suite handoverStageOverride.test.ts covers the
- * synthetic-stage status coercion in isolation; this file is the
- * end-to-end integration test that proves JobsPage wires both pieces
- * correctly.
+ * Gap D — the handover redirect banner — is UNCHANGED and still covered:
+ * once handover fires (status=ready / handoverFiredAt non-null) the
+ * operator sees a 3-2-1 countdown banner with an "Open your Sovereign
+ * console →" CTA + a Cancel button; the timer auto-fires
+ * window.location.assign(handoverURL) once when the countdown reaches 0.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -36,28 +28,8 @@ import {
   Outlet,
 } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { FlowNode, FlowInstance } from '@openova/flow-core'
 import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
-
-/* ────────────────────────────────────────────────────────────────────
- * Module-level mock for useFlowStream — mirrors the pattern used in
- * JobsPage.flow-merge.test.tsx. Each test seeds mockStreamState.nodes
- * with the synthetic lifecycle-phase group nodes the catalyst-api
- * openova-flow snapshot emits in production.
- * ──────────────────────────────────────────────────────────────────── */
-
-const mockStreamState = {
-  flow: null as FlowInstance | null,
-  nodes: new Map<string, FlowNode>(),
-  relationships: new Map(),
-  streamStatus: 'completed' as const,
-  streamError: null as string | null,
-}
-
-vi.mock('@/lib/openflow-adapter-sse', () => ({
-  useFlowStream: () => mockStreamState,
-}))
 
 // eslint-disable-next-line import/first
 import { JobsPage } from './JobsPage'
@@ -66,38 +38,7 @@ const DEP_ID = 'f9472ed4d2b9cc2d'
 const HANDOVER_URL =
   'https://console.t120.omani.works/auth/handover?token=eyJ.AAA.BBB'
 
-/**
- * Seed mockStreamState.nodes with the 8 lifecycle-stage group nodes
- * the catalyst-api flow_snapshot_local.go emits at line ~542+ on a
- * fully-converged multi-region Sovereign (1 primary + 3 secondary
- * regions, like t120.omani.works on 2026-05-16). Status="pending"
- * because these groups have no leaf descendants and the bottom-up
- * rollup leaves them as the emitted placeholder.
- */
-function seedSyntheticLifecycleStageNodes() {
-  const stages = [
-    // Top-level — flow_snapshot_local.go extraPhases block
-    { id: `${DEP_ID}:apps`, label: 'Apps' },
-    { id: `${DEP_ID}:handover`, label: 'Handover' },
-    // Per-region — flow_snapshot_local.go regionsFromJobs loop
-    { id: `${DEP_ID}:hel1-2:apps`, label: 'Apps (hel1-2)' },
-    { id: `${DEP_ID}:hel1-2:handover`, label: 'Handover (hel1-2)' },
-    { id: `${DEP_ID}:nbg1-1:apps`, label: 'Apps (nbg1-1)' },
-    { id: `${DEP_ID}:nbg1-1:handover`, label: 'Handover (nbg1-1)' },
-    { id: `${DEP_ID}:sin-2:apps`, label: 'Apps (sin-2)' },
-    { id: `${DEP_ID}:sin-2:handover`, label: 'Handover (sin-2)' },
-  ]
-  for (const s of stages) {
-    mockStreamState.nodes.set(s.id, {
-      id: s.id,
-      flowId: DEP_ID,
-      label: s.label,
-      status: 'pending',
-    })
-  }
-}
-
-function renderJobs(opts: { disableHandoverAutoRedirect?: boolean } = {}) {
+function renderJobs(opts: { disableHandoverAutoRedirect?: boolean; disableJobsBackfill?: boolean } = {}) {
   const rootRoute = createRootRoute({ component: () => <Outlet /> })
   const jobsRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -105,7 +46,7 @@ function renderJobs(opts: { disableHandoverAutoRedirect?: boolean } = {}) {
     component: () => (
       <JobsPage
         disableStream
-        disableJobsBackfill
+        disableJobsBackfill={opts.disableJobsBackfill ?? true}
         disableHandoverAutoRedirect={opts.disableHandoverAutoRedirect ?? true}
       />
     ),
@@ -161,11 +102,6 @@ function renderJobs(opts: { disableHandoverAutoRedirect?: boolean } = {}) {
 
 beforeEach(() => {
   useWizardStore.setState({ ...INITIAL_WIZARD_STATE })
-  mockStreamState.flow = null
-  mockStreamState.nodes = new Map()
-  mockStreamState.relationships = new Map()
-  mockStreamState.streamStatus = 'completed'
-  mockStreamState.streamError = null
 
   // Stub the deployment events fetch — returns a 'ready' snapshot with
   // handoverURL + handoverFiredAt populated. Mirrors the wire shape
@@ -194,44 +130,21 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('JobsPage — Gap C: synthetic stage status (handover fired)', () => {
-  it('renders Apps / Handover synthetic stages as succeeded (not pending) when handoverFiredAt is set', async () => {
-    seedSyntheticLifecycleStageNodes()
+describe('JobsPage — #3646 honest list (no phantom lifecycle rows)', () => {
+  it('renders no Apps/Handover rows when the backend list carries none — the client never fabricates them', async () => {
     renderJobs()
-
-    // Each row's status pill carries a status data-attribute via
-    // JobsTable; the cell text contains "Succeeded"/"Pending"/etc per
-    // statusBadge(). We assert by reading the row's status cell text.
-    const appsRow = await screen.findByTestId(`jobs-table-row-${DEP_ID}:apps`)
-    expect(appsRow.textContent).toContain('Succeeded')
-    expect(appsRow.textContent).not.toContain('Pending')
-
-    const handoverRow = await screen.findByTestId(`jobs-table-row-${DEP_ID}:handover`)
-    expect(handoverRow.textContent).toContain('Succeeded')
-    expect(handoverRow.textContent).not.toContain('Pending')
-  })
-
-  it('coerces per-region Apps / Handover stages to succeeded as well', async () => {
-    seedSyntheticLifecycleStageNodes()
-    renderJobs()
-
-    for (const region of ['hel1-2', 'nbg1-1', 'sin-2']) {
-      const appsRow = await screen.findByTestId(
-        `jobs-table-row-${DEP_ID}:${region}:apps`,
-      )
-      expect(appsRow.textContent).toContain('Succeeded')
-
-      const handoverRow = await screen.findByTestId(
-        `jobs-table-row-${DEP_ID}:${region}:handover`,
-      )
-      expect(handoverRow.textContent).toContain('Succeeded')
-    }
+    // The banner proves the page mounted + handover snapshot loaded.
+    await screen.findByTestId('sov-jobs-handover-redirect-banner')
+    // With the de-merge the client no longer synthesizes the openova-flow
+    // Apps/Handover phantom groups; the backend list (empty here) is the
+    // sole source, so NO phantom lifecycle rows appear.
+    expect(screen.queryByTestId(`jobs-table-row-${DEP_ID}:apps`)).toBeNull()
+    expect(screen.queryByTestId(`jobs-table-row-${DEP_ID}:handover`)).toBeNull()
   })
 })
 
 describe('JobsPage — Gap D: handover redirect banner', () => {
   it('renders the 3-2-1 countdown banner with the canonical handoverURL when handover has fired', async () => {
-    seedSyntheticLifecycleStageNodes()
     renderJobs({ disableHandoverAutoRedirect: true })
 
     const banner = await screen.findByTestId('sov-jobs-handover-redirect-banner')
@@ -251,7 +164,6 @@ describe('JobsPage — Gap D: handover redirect banner', () => {
   })
 
   it('Cancel button suppresses the banner for the rest of the page lifetime', async () => {
-    seedSyntheticLifecycleStageNodes()
     renderJobs({ disableHandoverAutoRedirect: true })
 
     const cancel = await screen.findByTestId('sov-jobs-handover-redirect-cancel')
@@ -266,8 +178,6 @@ describe('JobsPage — Gap D: handover redirect banner', () => {
   })
 
   it('auto-redirect fires window.location.assign(handoverURL) once when the countdown reaches 0', async () => {
-    seedSyntheticLifecycleStageNodes()
-
     // Stub window.location.assign — production code performs a real
     // top-level navigation, which jsdom can't follow. Replace
     // window.location with a writeable proxy whose `assign` is a spy.
@@ -290,60 +200,16 @@ describe('JobsPage — Gap D: handover redirect banner', () => {
       )
       expect(banner).toBeTruthy()
 
-      // Poll up to 6 seconds for the timer to drain. We use real timers
-      // because the JobsPage's effect chain (useDeploymentEvents fetch
-      // + state update + banner mount + interval scheduling) is async-
-      // sensitive; mixing vi.useFakeTimers() with @testing-library
-      // waitFor produced a hang in the parallel AppsPage test.
       await waitFor(
         () => {
           expect(assignSpy).toHaveBeenCalledWith(HANDOVER_URL)
         },
         { timeout: 6000, interval: 200 },
       )
-      // The redirect MUST fire exactly once across the countdown
-      // lifecycle — the redirectFiredRef guards a second navigate
-      // even if a stray tick fires after 0.
+      // The redirect MUST fire exactly once across the countdown lifecycle.
       expect(assignSpy).toHaveBeenCalledTimes(1)
     } finally {
       ;(window as unknown as { location: Location }).location = original
     }
   }, 10000)
-})
-
-describe('JobsPage — Gap C: still-installing snapshot leaves stages pending', () => {
-  it('leaves Apps / Handover stages as pending when handover has NOT fired', async () => {
-    // Override the fetch stub: snapshot has no handoverFiredAt + status
-    // is still installing.
-    globalThis.fetch = (() =>
-      Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            events: [],
-            state: {
-              id: DEP_ID,
-              status: 'phase1-installing',
-              sovereignFQDN: 't120.omani.works',
-            },
-            done: false,
-          }),
-      } as unknown as Response)) as typeof fetch
-
-    seedSyntheticLifecycleStageNodes()
-    renderJobs()
-
-    const appsRow = await screen.findByTestId(`jobs-table-row-${DEP_ID}:apps`)
-    expect(appsRow.textContent).toContain('Pending')
-
-    const handoverRow = await screen.findByTestId(
-      `jobs-table-row-${DEP_ID}:handover`,
-    )
-    expect(handoverRow.textContent).toContain('Pending')
-
-    // And the banner is NOT rendered.
-    expect(
-      screen.queryByTestId('sov-jobs-handover-redirect-banner'),
-    ).toBeNull()
-  })
 })

@@ -273,13 +273,16 @@ describe('JobsTable — render', () => {
     expect(screen.queryByTestId('jobs-filter-app')).toBeNull()
   })
 
-  it('renders all seven canonical columns', async () => {
+  it('renders the canonical columns including the Kind column (issue #3646)', async () => {
     renderTable({ jobs: FIXTURE_JOBS })
     await screen.findByTestId('jobs-table')
     const headers = screen
       .getAllByRole('columnheader')
       .map((h) => (h.textContent ?? '').toLowerCase().trim())
-    expect(headers).toEqual(['name', 'app', 'deps', 'parent', 'status', 'started', 'duration'])
+    // Kind is inserted after Name (#3646 typed activity discriminator).
+    // The Actions column appears only when a deploymentId is threaded,
+    // which this no-deploymentId render does not, so it's absent here.
+    expect(headers).toEqual(['name', 'kind', 'app', 'deps', 'parent', 'status', 'started', 'duration'])
   })
 
   it('row link stays scoped under /provision/$deploymentId on the mother surface (prov #59)', async () => {

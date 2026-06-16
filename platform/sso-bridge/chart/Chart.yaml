@@ -1,6 +1,10 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.19
+version: 0.2.20
+# 0.2.20 (#3646, 2026-06-17): stamp the `catalyst.openova.io/reconciler`
+# marker label on the sso-bridge-reconciler Deployment so the jobs canvas's
+# generic §5a reconciler ingestion surfaces it as a kind=reconciler leaf
+# with a HEALTH status (healthy/degraded/failing), never a one-shot row.
 # 0.2.19 (#3374 Layer-C, 2026-06-17): DELETE the dead admin-by-default
 # theater (#3685). grant_operator_admin (minted a per-Client `admin` role
 # NO app reads — every app keys admin on the `groups` claim) and
