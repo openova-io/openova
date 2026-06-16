@@ -545,7 +545,7 @@ spec:
       # so cutoverComplete never flipped. Fixed with POSIX `grep -vxF -f` on the
       # writable /work emptyDir. Found auditing the never-run steps 08-11 to
       # pre-empt hw147's cutover wedge. Chart-only.
-      version: 0.1.71
+      version: 0.1.72
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
