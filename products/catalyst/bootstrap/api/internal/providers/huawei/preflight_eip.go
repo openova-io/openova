@@ -70,12 +70,12 @@ func blocklist() map[string]bool {
 }
 
 type hwSNATRule struct {
-	ID                  string `json:"id"`
-	NATGatewayID        string `json:"nat_gateway_id"`
-	NetworkID           string `json:"network_id"`
-	FloatingIPID        string `json:"floating_ip_id"`
-	FloatingIPAddress   string `json:"floating_ip_address"`
-	Status              string `json:"status"`
+	ID                string `json:"id"`
+	NATGatewayID      string `json:"nat_gateway_id"`
+	NetworkID         string `json:"network_id"`
+	FloatingIPID      string `json:"floating_ip_id"`
+	FloatingIPAddress string `json:"floating_ip_address"`
+	Status            string `json:"status"`
 }
 
 // RotateBlocklistedNATEIPs runs the pre-flight check for one deployment.
@@ -89,21 +89,57 @@ func RotateBlocklistedNATEIPs(ctx context.Context, _provider, deploymentID, sove
 	if progress == nil {
 		progress = func(string) {}
 	}
-	creds := providers.ProviderCreds{Raw: map[string]string{
-		"huawei_access_key": accessKey,
-		"huawei_secret_key": secretKey,
-		"huawei_project_id": projectID,
-		"huawei_region":     region,
-	}}
-	hw, err := credsFromProviderCreds(creds)
-	if err != nil {
-		return 0, fmt.Errorf("creds: %w", err)
+	// Wave 5.156 (#3716) — build hwCreds DIRECTLY from the AK/SK/project
+	// args, mirroring (*Provider).VPCQuota (provider.go). The previous
+	// implementation round-tripped through a providers.ProviderCreds{Raw}
+	// map keyed with the OpenTofu *tfvars* names (`huawei_access_key`
+	// etc.) and then handed it to credsFromProviderCreds(), which reads
+	// the BARE signing-layer keys (`access_key`/`secret_key`/`project_id`,
+	// see provider_test.go). The key-name mismatch meant every lookup
+	// returned "" → credsFromProviderCreds() failed with
+	// "huawei: access_key is required" on EVERY Huawei prov, so the
+	// poisoned-EIP self-heal NEVER ran. The access_key was always
+	// present (handler stamp deployments.go:1130 → req.HuaweiAccessKey,
+	// the same field the working VPCQuota pre-flight consumes); it was
+	// simply stuffed into the creds bag under a key credsFromProviderCreds
+	// doesn't read. There was no unit test exercising this path, which is
+	// how the mismatch shipped silently.
+	hw := hwCreds{AccessKey: accessKey, SecretKey: secretKey, ProjectID: projectID}
+	if hw.AccessKey == "" {
+		return 0, fmt.Errorf("huawei: access_key is required (CATALYST_HUAWEI_ACCESS_KEY missing on catalyst-api — see secret huawei-operator-creds)")
+	}
+	if hw.SecretKey == "" {
+		return 0, fmt.Errorf("huawei: secret_key is required (CATALYST_HUAWEI_SECRET_KEY missing on catalyst-api)")
+	}
+	if hw.ProjectID == "" {
+		return 0, fmt.Errorf("huawei: project_id is required (CATALYST_HUAWEI_PROJECT_ID missing on catalyst-api)")
 	}
 	if region == "" {
-		region = regionFromCreds(creds)
+		region = defaultRegion
 	}
-	client := httpClientFor(creds)
+	// httpClientFor only consumes the `insecure` knob (default true for
+	// on-prem HCS); the signing creds come from `hw` above, not the map.
+	client := httpClientFor(providers.ProviderCreds{Raw: map[string]string{"region": region}})
 	bl := blocklist()
+	// Wave 5.156 (#3716) — aggressive pool-drain mode. The static seed
+	// blocklist only knows .48/.14; when the Huawei free-pool gets
+	// poisoned by repeated wipe→re-prov cycles (released EIPs stay
+	// reputation-blocklisted for Contabo 45.151.123.0/24 for hours), a
+	// FRESH allocation can draw a poisoned IP that isn't in the seed
+	// list — exactly the hw151–154 wedge (0 HRs, kubeconfig never PUT,
+	// no egress to harbor.openova.io 45.151.123.50). Since catalyst-api
+	// runs on Contabo it cannot reachability-probe a Huawei EIP's egress
+	// directly (the chicken-and-egg the file header documents), so the
+	// operator escape hatch is CATALYST_HUAWEI_NAT_EIP_ROTATE_ALL=true:
+	// when set, treat EVERY deployment-owned SNAT EIP as rotate-worthy.
+	// allocateCleanEIP already HOLDS rejected EIPs (drains them from the
+	// pool) before returning a clean one, so flipping this forces a
+	// re-roll that walks past the poisoned addresses and self-heals the
+	// pool. Default (unset) preserves the seed+env blocklist behaviour.
+	rotateAll := strings.EqualFold(strings.TrimSpace(os.Getenv("CATALYST_HUAWEI_NAT_EIP_ROTATE_ALL")), "true")
+	if rotateAll {
+		progress("Wave 5.156 (#3716): CATALYST_HUAWEI_NAT_EIP_ROTATE_ALL=true — re-rolling every deployment-owned SNAT EIP to drain a poisoned free-pool")
+	}
 
 	// List SNAT rules
 	url := fmt.Sprintf("%s/v2/%s/snat_rules", endpointFor("nat", region), hw.ProjectID)
@@ -123,7 +159,12 @@ func RotateBlocklistedNATEIPs(ctx context.Context, _provider, deploymentID, sove
 
 	rotated := 0
 	for _, r := range decoded.SNATRules {
-		if !bl[r.FloatingIPAddress] {
+		seedBlocked := bl[r.FloatingIPAddress]
+		// Wave 5.156 (#3716): in rotateAll mode every deployment-owned
+		// SNAT EIP is rotate-worthy even if absent from the seed/env
+		// blocklist (a freshly-poisoned free-pool address). Otherwise the
+		// historical behaviour holds: only static-blocklisted EIPs rotate.
+		if !seedBlocked && !rotateAll {
 			continue
 		}
 		// Only rotate SNAT rules whose NAT gateway is tagged for this
@@ -133,8 +174,17 @@ func RotateBlocklistedNATEIPs(ctx context.Context, _provider, deploymentID, sove
 		if !natGatewayBelongsToDeployment(ctx, client, hw, region, r.NATGatewayID, deploymentID) {
 			continue
 		}
-		progress(fmt.Sprintf("Wave 5.93: SNAT %s EIP %s is blocklisted, rotating",
-			r.ID[:8], r.FloatingIPAddress))
+		if seedBlocked {
+			progress(fmt.Sprintf("Wave 5.93: SNAT %s EIP %s is blocklisted, rotating",
+				r.ID[:8], r.FloatingIPAddress))
+		} else {
+			progress(fmt.Sprintf("Wave 5.156: SNAT %s EIP %s force-rotating (ROTATE_ALL pool-drain)",
+				r.ID[:8], r.FloatingIPAddress))
+		}
+		// Add the current EIP to the working blocklist so allocateCleanEIP
+		// never hands the same poisoned address straight back (Huawei
+		// recycles a just-released EIP into the very next allocate()).
+		bl[r.FloatingIPAddress] = true
 		newEIPID, newAddr, held, err := allocateCleanEIP(ctx, client, hw, region, deploymentID, bl, 8)
 		if err != nil {
 			return rotated, fmt.Errorf("allocate clean EIP: %w", err)
