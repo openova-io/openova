@@ -2735,7 +2735,24 @@ name: bp-catalyst-platform
 # (qaFixtures.cnpgBackupEndpointURL + cnpg-clusters-qa.yaml) to the
 # syncer-mangled host Service name. qa-fixtures only; Catalyst-Zero render
 # byte-unchanged. (1.4.622 was a content-free deploy-bot image sweep.)
-version: 1.4.656
+version: 1.4.657
+# 1.4.656 — #3668 (Refs #3702): the LOAD-BEARING half PR #3702 deferred —
+# a Flux GitRepository (openova-catalog-sovereign) + Kustomization
+# (catalog-sovereign) that reconcile the catalog-sovereign aggregator tree
+# (openova/openova @ catalog-sovereign : clusters/<fqdn>/catalog-sovereign/
+# <bp>.yaml) into LIVE blueprints.catalyst.openova.io CRs. catalyst-api
+# (writeCatalogSovereignAggregator, internal/handler/catalog_edit_git.go +
+# blueprints.go curate) mirrors each edited/curated full ownership-stripped
+# CR there; the Kustomization directory-sweeps it with force:true SSA so a
+# console edit reaches the in-cluster CR and SURVIVES `helm upgrade` (the CR
+# becomes Flux-owned). catalog-seed CRs gain helm.sh/resource-policy:keep so
+# helm cannot claw back a Flux-adopted CR (the Helm→Flux ownership handoff,
+# DoD §9.4). New templates/catalog-sovereign-flux/ (GitRepository +
+# Kustomization + basic-auth Secret + pre-cutover branch/dir bootstrap hook),
+# mirroring the SME-tenants 4-file family; rendered only on a Sovereign
+# (global.sovereignFQDN) + ingress.marketplace.enabled — Catalyst-Zero render
+# byte-unchanged (the new files emit nothing without an FQDN). New
+# values.catalogSovereign block.
 # 1.4.648 — #3638 (2026-06-16, Refs #3379; rebased over main's 1.4.647 deploy-bot bump) — fix the cutover step-07 re-run
 # loop at its source. templates/configmap-catalyst-runtime-config.yaml now
 # DERIVES sovereign-console-url + sovereign-api-public-url from
