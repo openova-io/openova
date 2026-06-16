@@ -335,6 +335,56 @@ var sharedPGReplicaAuthSecrets = func() []string {
 	return out
 }()
 
+// sharedPGConsumerHubSecrets — the per-consumer HUB CONNECTION Secret names
+// (bp-postgres role-secrets.yaml `reflect.secretName`, namespace shared-data)
+// that the cross-region CONSUMER apps read for their DB host + password
+// (#3629). Unlike the replica-auth TLS Secrets above, these carry CONSUMER
+// credentials, and they DIVERGE across regions: bp-postgres mints a fresh
+// random password per region during each region's pre-crossRegion-flip
+// SINGLETON phase (role-secrets.yaml is primary/singleton-side only) and
+// freezes it via `helm.sh/resource-policy: keep`. After the flip, region-B's
+// `<instance>-replica` follower streams region-A's catalog via pg_basebackup —
+// so the AUTHORITATIVE role password is region-A's — but region-B's consumer
+// namespaces still carry region-B's STALE, DIVERGENT hub Secret (its OWN random
+// password + the region-LOCAL `<instance>-rw` host that NXDOMAINs on the replica
+// cluster). Measured live on hw147 region-B: grafana + powerdns-admin
+// CrashLoopBackOff (`lookup shared-pg-b-rw…: no such host`), and even the host
+// aside the region-B password (`RXq1…`/`CmXM…`) did not match the region-A
+// catalog password (`E5WJ…`/`OB0h…`). The emberstack reflector copies a Secret
+// only WITHIN a cluster (never across the ClusterMesh), so the only fix is to
+// copy region-A's authoritative hub Secrets (correct password + the
+// topology-aware `<instance>-mesh-rw` host bp-postgres 0.2.2 renders on the
+// active-hot-standby primary) primary → replica into shared-data; region-B's
+// reflector then re-pushes the corrected Secret into each consumer namespace,
+// overwriting the divergent copy. Same names the slots 16a/16c/16d declare.
+//
+// Sourced from the slot `reflect.secretName` values — keep in lockstep with
+// clusters/_template/bootstrap-kit/16{a,c,d}-bp-postgres-shared*.yaml.
+var sharedPGConsumerHubSecrets = []string{
+	// instance A (shared-pg, slot 16a)
+	"harbor-database-secret",
+	"gitea-database-secret",
+	"keycloak-database-secret",
+	// instance B (shared-pg-b, slot 16c)
+	"grafana-database-env",
+	"pdns-database-secret",
+	"pda-shared-database-secret",
+	// instance C (shared-pg-c, slot 16d)
+	"sme-database-secret",
+	"newapi-database-secret",
+	"openova-flow-database-secret",
+}
+
+// sharedPGMeshRWHostMarker — the substring a hub Secret's `host` key carries
+// ONLY once bp-postgres has rendered the active-hot-standby topology-aware write
+// alias (`<instance>-mesh-rw`). The consumer-hub sync uses this as a readiness
+// gate: it propagates region-A's hub Secret to the replicas ONLY after region-A
+// has reconciled crossRegion=true (so its `host`/`uri` point at `-mesh-rw`), to
+// avoid ever pushing the region-LOCAL `-rw` host (which would NXDOMAIN on the
+// replica) during the brief window before region-A's own slot-16{a,c,d} upgrade
+// lands. Single-region / pre-flip hubs carry `-rw` and are correctly skipped.
+const sharedPGMeshRWHostMarker = "-mesh-rw."
+
 // fluxKustomizationGVR — kustomize.toolkit.fluxcd.io/v1 Kustomizations,
 // addressed via the dynamic client (no Flux Go types vendored here).
 var fluxKustomizationGVR = schema.GroupVersionResource{
@@ -1110,6 +1160,18 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 				patched++
 			}
 		}
+		// #3629 (best-effort, never blocks): once the flip has landed, region-A
+		// reconciles crossRegion=true and its bp-postgres hubs gain the
+		// topology-aware `-mesh-rw` host. Copy those hubs (correct password +
+		// host) primary → replica so the cross-region consumers (grafana,
+		// powerdns-admin, …) stop reading the divergent region-local hub each
+		// region minted in its singleton phase. The readiness gate inside the
+		// call defers any hub whose host is not yet `-mesh-rw`, so a first pass
+		// (before region-A's slot upgrade lands) is a harmless no-op and the
+		// #3241/#3583 level-trigger re-run converges it. NEVER gates the flip.
+		if sharedPGOn {
+			h.syncSharedPGConsumerHubSecrets(ctx, dep, slots)
+		}
 	}
 	if patched == 0 {
 		return false
@@ -1310,6 +1372,91 @@ func (h *Handler) syncSharedPGReplicaAuthSecrets(ctx context.Context, dep *Deplo
 		fmt.Sprintf("ClusterMesh: synced shared-pg replica-auth Secrets (%s) primary → %d replica region(s) for WAL-stream auth",
 			strings.Join(sharedPGReplicaAuthSecrets, ", "), len(slots)-1))
 	return true
+}
+
+// syncSharedPGConsumerHubSecrets copies the primary cluster's per-consumer HUB
+// CONNECTION Secrets (sharedPGConsumerHubSecrets, namespace shared-data) onto
+// every replica region's cluster so the cross-region consumer apps (grafana,
+// powerdns-admin, …) read the AUTHORITATIVE region-A password + the
+// topology-aware `<instance>-mesh-rw` write host instead of the divergent,
+// region-LOCAL hub Secret each region minted during its own singleton phase
+// (#3629 — see the sharedPGConsumerHubSecrets doc for the full divergence
+// analysis + the hw147 region-B evidence). Once copied into the replica's
+// shared-data, the replica's own emberstack reflector re-pushes the corrected
+// Secret into each consumer namespace (the source carries the reflection-auto
+// annotations), overwriting the stale copy.
+//
+// BEST-EFFORT — UNLIKE the replica-auth sync this NEVER blocks/refuses the
+// cnpg-pair flip: the hub Secrets are not needed for the WAL stream, only for
+// the consumers, so a missing/not-yet-`-mesh-rw` source or a per-replica copy
+// failure is logged and SKIPPED, and the #3241/#3583 level-trigger re-run
+// converges it on a later pass. It returns nothing (the caller ignores the
+// outcome) precisely so it can never wedge convergence.
+//
+// READINESS GATE: a hub Secret is propagated ONLY once its `host` key carries
+// the `-mesh-rw` marker — i.e. region-A has reconciled crossRegion=true and its
+// bp-postgres slot upgrade has rendered the topology-aware host. Before that the
+// source still carries the region-LOCAL `<instance>-rw` (which NXDOMAINs on the
+// replica), so pushing it would make things WORSE; skipping waits for the next
+// pass. Single-region (len(slots)<2) is a no-op.
+func (h *Handler) syncSharedPGConsumerHubSecrets(ctx context.Context, dep *Deployment, slots []regionSlot) {
+	if len(slots) < 2 {
+		return // single-region — no replica to sync to
+	}
+	primary := &slots[0]
+	if primary.clientset == nil {
+		h.log.Warn("clustermesh: shared-pg consumer-hub sync: primary clientset nil — skipping (best-effort, re-run converges)",
+			"id", dep.ID)
+		return
+	}
+
+	synced := make([]string, 0, len(sharedPGConsumerHubSecrets))
+	for _, name := range sharedPGConsumerHubSecrets {
+		getCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+		src, err := primary.clientset.CoreV1().Secrets(sharedPGNamespace).Get(getCtx, name, metav1.GetOptions{})
+		cancel()
+		if err != nil {
+			// A consumer that isn't wired on this Sovereign (its slot binding
+			// is absent) simply has no hub Secret — skip quietly. Best-effort.
+			h.log.Info("clustermesh: shared-pg consumer-hub sync: source hub Secret not present on primary — skipping (consumer may be unconfigured; best-effort)",
+				"id", dep.ID, "namespace", sharedPGNamespace, "secret", name)
+			continue
+		}
+		// READINESS GATE: only propagate once region-A has rendered the
+		// `-mesh-rw` write host. A `-rw`-only host means region-A hasn't
+		// reconciled crossRegion yet — pushing it would NXDOMAIN on the
+		// replica, so wait for the next level-trigger pass.
+		if host := string(src.Data["host"]); !strings.Contains(host, sharedPGMeshRWHostMarker) {
+			h.log.Info("clustermesh: shared-pg consumer-hub sync: source host not yet topology-aware (-mesh-rw) — deferring (region-A crossRegion upgrade still landing; best-effort, re-run converges)",
+				"id", dep.ID, "secret", name, "host", host)
+			continue
+		}
+		copied := true
+		for i := 1; i < len(slots); i++ {
+			replica := &slots[i]
+			if replica.clientset == nil {
+				copied = false
+				continue
+			}
+			if err := h.copySecretAcrossClusters(ctx, src, replica.clientset, sharedPGNamespace); err != nil {
+				h.log.Warn("clustermesh: shared-pg consumer-hub sync: copy to replica failed — skipping this Secret/region (best-effort, re-run converges)",
+					"id", dep.ID, "region", replica.key, "namespace", sharedPGNamespace, "secret", name, "err", err)
+				copied = false
+				continue
+			}
+		}
+		if copied {
+			synced = append(synced, name)
+		}
+	}
+
+	if len(synced) > 0 {
+		h.log.Info("clustermesh: shared-pg consumer-hub Secrets synced primary → replica region(s) (#3629 cross-region consumer DB host/password)",
+			"id", dep.ID, "namespace", sharedPGNamespace, "secrets", synced, "replicaRegions", len(slots)-1)
+		h.emitClusterMeshProgress(dep, "info",
+			fmt.Sprintf("ClusterMesh: synced %d shared-pg consumer-hub Secret(s) (%s) primary → %d replica region(s) — cross-region consumer DB host/password (#3629)",
+				len(synced), strings.Join(synced, ", "), len(slots)-1))
+	}
 }
 
 // copySecretAcrossClusters create-or-updates a copy of src into the dst
