@@ -1,5 +1,33 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.71 (#3640 Refs #3379, hw148 step-08 egress-block CCNP cluster-wide
+# default-deny 2026-06-16): the cutover reached step-08 (egress-block-test) for
+# the FIRST time on hw148 (27b443cca00a0fab) — furthest in the #3379 saga (hw146
+# wedged 06, hw147 07; step-07 catalyst-api-env-patch PASSED here via the #3638
+# console-url derive). step-08 then WEDGED: the Job applied the
+# cutover-egress-block CiliumClusterwideNetworkPolicy, then its own kubectl
+# (capturing the baseline NotReady set) hung on `dial tcp 10.96.0.1:443: i/o
+# timeout` repeating to the deadline -> no cutoverComplete.
+#
+# ROOT CAUSE: the emitted CCNP is `endpointSelector: {}` (ALL pods cluster-wide)
+# + ONE egressDeny rule (the 4 tether CIDRs) but NO `enableDefaultDeny` field and
+# ZERO egress(allow) rules. Cilium defaults enableDefaultDeny.egress=true for any
+# policy carrying egress rules, so the empty-selector policy flipped EVERY pod
+# into default-deny egress with nothing allowed -> TOTAL cluster-wide egress loss
+# (apiserver 10.96.0.1, DNS, inter-pod), NOT the intended deny-only-the-4-tethers.
+# The step-08 Job is itself a pod, so its own apiserver dials died. (#3201-class
+# Cilium apiserver-entity bug — a deny-egress that doesn't preserve control-plane
+# reachability strands the cluster.)
+#
+# THE FIX (chart-only, template 08-egress-block-test-job.yaml): emit
+# `enableDefaultDeny: { egress: false }` on the CCNP so the egressDeny is purely
+# SUBTRACTIVE — it denies ONLY the 4 resolved tether /32s (the sovereignty proof
+# ADR-0002 demands) while leaving all other egress (apiserver/DNS/inter-pod)
+# intact. The "hidden runtime tethers surface as NotReady" semantics are
+# unchanged (the github/ghcr/harbor.openova.io/xpkg dials are still denied). No
+# step-count / RBAC / timeout change. Live 11-step -> cutoverComplete=true + 600s
+# deny-egress validation lands on the next fresh prov (hw149) — hw148 is
+# mid-step-08 on this buggy chart and cannot receive the fix.
 # 0.1.70 (#3634 Refs #3379, step-08 bashism under busybox-ash /bin/sh,
 # 2026-06-16): the cutoverComplete gate (step-08 egress-block-test) would die
 # on a PARSE-time syntax error the FIRST time it is reached. Found auditing the
@@ -779,7 +807,7 @@ name: bp-self-sovereign-cutover
 # FATAL-on-failure contract is PRESERVED (Pillar 5 requires ALL openova-io
 # images local for the deny-egress hold) — the step only FATALs once BOTH retry
 # layers are exhausted. No step-count / RBAC / timeout change.
-version: 0.1.70
+version: 0.1.71
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
