@@ -12,20 +12,26 @@ RENDER="$(helm template sso-bridge "$CHART_DIR" --set enabled=true)"
 
 fail() { echo "[3646-reconciler-marker] FAIL: $1" >&2; exit 1; }
 
+# Use here-strings (<<<), NOT `echo "$RENDER" | grep -q`. Under `set -o pipefail`,
+# grep -q exits on the first match and closes the pipe, SIGPIPE-ing echo on a
+# large (>64KB / 1439-line) render → spurious "echo: write error: Broken pipe"
+# whose occurrence depends on the match position in helm's output ordering
+# (flaked the CI publish gate for bp-sso-bridge:0.2.20 while passing locally).
+
 # 1. The reconciler Deployment renders.
-echo "$RENDER" | grep -q "name: sso-bridge-reconciler" \
+grep -q "name: sso-bridge-reconciler" <<<"$RENDER" \
   || fail "sso-bridge-reconciler Deployment did not render"
 
 # 2. The metadata.labels carry the §5a marker (value "true").
-echo "$RENDER" | grep -q 'catalyst.openova.io/reconciler: "true"' \
+grep -q 'catalyst.openova.io/reconciler: "true"' <<<"$RENDER" \
   || fail "marker label catalyst.openova.io/reconciler not present"
 
 # 3. The marker is on the Deployment metadata (top-level labels block),
 #    not only the pod template — the §5a reader lists Deployments and
-#    reads metadata.labels. Assert the marker appears within ~12 lines
-#    after the Deployment kind line.
-DEPLOY_BLOCK="$(echo "$RENDER" | awk '/^kind: Deployment$/{c=1} c{print} c&&/^spec:/{c=0}')"
-echo "$DEPLOY_BLOCK" | grep -q 'catalyst.openova.io/reconciler: "true"' \
+#    reads metadata.labels. Assert the marker appears within the
+#    Deployment kind block.
+DEPLOY_BLOCK="$(awk '/^kind: Deployment$/{c=1} c{print} c&&/^spec:/{c=0}' <<<"$RENDER")"
+grep -q 'catalyst.openova.io/reconciler: "true"' <<<"$DEPLOY_BLOCK" \
   || fail "marker label not on the Deployment metadata block"
 
 echo "[3646-reconciler-marker] PASS"
