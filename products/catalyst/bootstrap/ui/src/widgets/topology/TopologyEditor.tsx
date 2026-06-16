@@ -47,6 +47,14 @@ export interface TopologyEditorProps {
   namespace?: string
   /** Blueprint card backing this Application — used to constrain modes. */
   blueprint?: CatalogItem
+  /**
+   * #3648 — the Blueprint's canonical SupportedTopologies (singleton /
+   * active-active / active-hot-standby / active-passive). When provided, the
+   * picker offers ONLY the modes the Blueprint supports, never one it
+   * doesn't (the AppDetail "active-active on a hot-standby-only app"
+   * contradiction). Falls back to placementSchema.modes / ALL_MODES.
+   */
+  supportedCanonical?: string[]
   /** Fired after a successful Apply. */
   onApplied?: () => void
   /** Test seam — bypass the network call for snapshot testing. */
@@ -64,6 +72,30 @@ export const ALL_MODES = ['single-region', 'active-active', 'active-hotstandby']
 
 export type TopologyMode = (typeof ALL_MODES)[number]
 
+/**
+ * canonicalizeMode (#3648) maps BOTH the editor dialect (single-region /
+ * active-hotstandby) AND the canonical matrix vocabulary (singleton /
+ * active-hot-standby / active-passive) onto one token, so the
+ * supported-constraint can compare an ALL_MODES entry against a Blueprint's
+ * canonical SupportedTopologies regardless of spelling.
+ */
+export function canonicalizeMode(raw: string): string {
+  switch (raw.trim().toLowerCase()) {
+    case 'active-hot-standby':
+    case 'active-hotstandby':
+      return 'active-hot-standby'
+    case 'active-passive':
+      return 'active-passive'
+    case 'active-active':
+      return 'active-active'
+    case 'singleton':
+    case 'single-region':
+      return 'singleton'
+    default:
+      return raw.trim().toLowerCase()
+  }
+}
+
 export function TopologyEditor({
   sovereignId,
   applicationName,
@@ -72,6 +104,7 @@ export function TopologyEditor({
   availableRegions,
   namespace,
   blueprint,
+  supportedCanonical,
   onApplied,
   disableNetwork = false,
 }: TopologyEditorProps) {
@@ -94,12 +127,22 @@ export function TopologyEditor({
   }, [currentMode, applicationName, currentRegions])
 
   const allowedModes = useMemo(() => {
+    // #3648 — prefer the Blueprint's canonical SupportedTopologies (the
+    // topology-matrix truth) so the picker never offers a mode the Blueprint
+    // doesn't support (e.g. active-active on a hot-standby-only app — the
+    // AppDetail contradiction the operator flagged 3×). Compare canonically
+    // so the editor dialect (active-hotstandby) matches the canonical form
+    // (active-hot-standby).
+    if (Array.isArray(supportedCanonical) && supportedCanonical.length > 0) {
+      const canon = new Set(supportedCanonical.map(canonicalizeMode))
+      return new Set<string>(ALL_MODES.filter((m) => canon.has(canonicalizeMode(m))))
+    }
     const fromSchema = blueprint?.placementSchema?.modes
     if (Array.isArray(fromSchema) && fromSchema.length > 0) {
       return new Set(fromSchema)
     }
     return new Set<string>(ALL_MODES)
-  }, [blueprint])
+  }, [supportedCanonical, blueprint])
 
   const isDirty = mode !== currentMode || !sameRegionSet(regions, currentRegions)
 

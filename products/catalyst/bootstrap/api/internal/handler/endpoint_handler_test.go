@@ -1179,6 +1179,35 @@ func TestChooseTopology_OverrideRejectedWhenUnsupported(t *testing.T) {
 	}
 }
 
+// TestChooseTopology_CanonicalisesEditorDialect (#3648) — the catalyst-ui
+// posts the placement-editor dialect (single-region / active-hotstandby)
+// while the Blueprint declares the canonical vocabulary (singleton /
+// active-hot-standby). chooseTopology must canonicalise the override so the
+// create / placement-change resolves instead of failing "not in supported"
+// (the founder's live postgres-create failure).
+func TestChooseTopology_CanonicalisesEditorDialect(t *testing.T) {
+	bp := &blueprintMeta{Topology: &topologyDecl{Supported: []string{"singleton", "active-hot-standby"}}}
+	cases := []struct {
+		override string
+		want     string
+	}{
+		{"active-hotstandby", "active-hot-standby"},  // the founder's failing case
+		{"active-hot-standby", "active-hot-standby"}, // already canonical
+		{"single-region", "singleton"},               // editor dialect → singleton
+		{"singleton", "singleton"},                   // already canonical
+	}
+	for _, c := range cases {
+		got, err := chooseTopology(bp, c.override, true)
+		if err != nil || got != c.want {
+			t.Fatalf("override %q: expected %q, got %q err=%v", c.override, c.want, got, err)
+		}
+	}
+	// An unknown value is still rejected against Supported.
+	if _, err := chooseTopology(bp, "active-active", true); err == nil {
+		t.Fatal("expected error: active-active not in [singleton active-hot-standby]")
+	}
+}
+
 // ── G117 W2.C2 — multi-instance admission gate integration tests ───
 
 // TestCreateInstance_MultiInstanceEnabled_3Instances exercises the
