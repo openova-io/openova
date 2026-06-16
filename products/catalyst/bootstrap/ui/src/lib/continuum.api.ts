@@ -37,15 +37,33 @@ export interface ContinuumSwitchoverRequest {
   reason?: string
 }
 
-/** ContinuumSwitchoverResponse — 202 Accepted body. */
+/** ContinuumSwitchoverResponse — switchover-request body.
+ *
+ * The catalyst-api switchover handler returns HTTP 200 even for failure
+ * cases (the UAT runner reads the body, not the status code), carrying the
+ * real outcome in `applied` / `completed` / `error` / `httpStatus`. UI
+ * callers MUST inspect `applied` (and `error`) — a 200 alone does NOT mean
+ * the switchover happened (e.g. `error:"no-live-dr-pair"`, `applied:false`
+ * when the app isn't placed active-hot-standby on a 2-region Sovereign).
+ */
 export interface ContinuumSwitchoverResponse {
   name: string
   namespace: string
   targetRegion: string
+  fromRegion?: string
+  toRegion?: string
   reason?: string
   requestedAt: string
   requestedBy?: string
   message: string
+  /** true only when the switchover was actually applied to the cluster. */
+  applied?: boolean
+  /** true once the promotion completed. */
+  completed?: boolean
+  /** present on any failure/no-op outcome (e.g. "no-live-dr-pair"). */
+  error?: string
+  /** the semantic HTTP status carried in-body (the wire status is 200). */
+  httpStatus?: number
 }
 
 /** ContinuumFailbackRequest — body of POST .../failback. */
