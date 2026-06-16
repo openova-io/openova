@@ -297,6 +297,17 @@ func parseBlueprintCRToCatalog(u *unstructured.Unstructured) (*CatalogBlueprint,
 		if v, ok := cardRaw["icon"].(string); ok {
 			card.Icon = v
 		}
+		// #3668 §3B(d) — the theme-aware icons MUST survive into the wire
+		// shape from a CR/Gitea-sourced Blueprint, not only via the
+		// commerce-store overlay. Without these reads an out-of-band
+		// `card.iconLight` edit in Gitea (or a reconciled CR) would never
+		// reach the console's icon resolver.
+		if v, ok := cardRaw["iconLight"].(string); ok {
+			card.IconLight = v
+		}
+		if v, ok := cardRaw["iconDark"].(string); ok {
+			card.IconDark = v
+		}
 		if v, ok := cardRaw["category"].(string); ok {
 			card.Category = v
 		}

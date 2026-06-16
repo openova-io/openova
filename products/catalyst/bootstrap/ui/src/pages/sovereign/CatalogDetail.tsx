@@ -1,12 +1,21 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { useParams, Link } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { getCatalogItem, getApplication, type CatalogItem } from '@/lib/catalog.api'
+import {
+  getCatalogItem,
+  getApplication,
+  saveCatalogBlueprintIaC,
+  type CatalogItem,
+} from '@/lib/catalog.api'
 import { findComponent } from '@/pages/wizard/steps/componentGroups'
 import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
+import { useTheme } from '@/shared/lib/useTheme'
+import { resolveCatalogIcon } from '@/shared/lib/resolveCatalogIcon'
+import { YamlEditor } from '@/widgets/cloud-list/YamlEditor'
+import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
 import { InstancesSection } from './AppDetail/InstancesSection'
 import { useCatalogAdmin } from '@/shared/lib/useCatalogAdmin'
 import { CatalogEditForm } from './CatalogEditForm'
@@ -61,10 +70,16 @@ export function CatalogDetail() {
   const name = (params.blueprintName ?? '').replace(/^bp-/, '')
   const { deploymentId } = useResolvedDeploymentId()
   const isAdmin = useCatalogAdmin()
+  const { theme } = useTheme()
   const qc = useQueryClient()
   // #3648 (founder item #1) — inline edit-in-place on the detail page,
   // replacing the separate edit chip + modal on the catalog grid.
   const [editing, setEditing] = useState(false)
+  // #3668 §5D — the full-CR "Edit IaC" mode: mounts the shipping YamlEditor
+  // on the WHOLE blueprint.yaml so spec.source / manifests / sso / placement
+  // / endpoints / shareable / contextSchema (fields the 7-field card form
+  // can't touch) are editable, committing to the SAME catalog-sovereign file.
+  const [editingIaC, setEditingIaC] = useState(false)
 
   // Chroot-aware "back to Catalog" target. On the mothership provision
   // monitor (`/provision/$deploymentId/...`) the apps grid is at
@@ -166,12 +181,15 @@ export function CatalogDetail() {
       ?.contextSchema?.kind ??
     ''
 
-  // Icon: reuse the same resolution as AppDetail / AppsPage — the
-  // component-catalog `logoUrl` (a real public/ asset URL) keyed by the
-  // bare blueprint id. `card.icon` from the API is only a bare SVG
-  // filename with no console-resolvable base, so we don't render it as a
-  // src; the letter-mark fallback covers components without a logo.
-  const logoUrl = findComponent(name)?.logoUrl ?? null
+  // Icon (#3668 §5B): resolve the IaC icon FIRST (theme-aware
+  // `card.iconLight` / `iconDark`), falling back to the build-time vendored
+  // asset (`componentGroups.logoUrl`) only when the IaC carries none, and the
+  // letter-mark last. Before #3668 this read the build-time map and DISCARDED
+  // the API's `card.iconLight`/`iconDark`, so an admin's icon edit landed in
+  // IaC + the API response and was thrown away at the last render step. One
+  // shared resolution path (resolveCatalogIcon) — no per-blueprint branch.
+  const bundledLogo = findComponent(name)?.logoUrl ?? null
+  const logoUrl = resolveCatalogIcon(card, theme, bundledLogo)
 
   const bootstrapApp = bootstrapQuery.data
   const isBootstrapSingleton = !!bootstrapApp?.bootstrap
@@ -206,27 +224,30 @@ export function CatalogDetail() {
           <h1>
             <span data-testid="catalog-title">{title}</span>
           </h1>
-          {isAdmin && !editing ? (
-            <button
-              type="button"
-              data-testid="catalog-detail-edit"
-              onClick={() => setEditing(true)}
-              title="Edit this catalog entry"
-              style={{
-                alignSelf: 'flex-start',
-                marginTop: '0.15rem',
-                padding: '0.3rem 0.8rem',
-                borderRadius: '8px',
-                border: '1px solid var(--color-border)',
-                background: 'transparent',
-                color: 'var(--color-text)',
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              Edit
-            </button>
+          {isAdmin && !editing && !editingIaC ? (
+            <div style={{ display: 'flex', gap: '0.5rem', alignSelf: 'flex-start', marginTop: '0.15rem' }}>
+              <button
+                type="button"
+                data-testid="catalog-detail-edit"
+                onClick={() => setEditing(true)}
+                title="Edit this catalog entry's card fields"
+                style={CATALOG_EDIT_BTN_STYLE}
+              >
+                Edit
+              </button>
+              {/* #3668 §5D — open the full-CR IaC editor on the whole
+                  blueprint.yaml (spec.source / manifests / sso / placement /
+                  endpoints / shareable / contextSchema). */}
+              <button
+                type="button"
+                data-testid="catalog-detail-edit-iac"
+                onClick={() => setEditingIaC(true)}
+                title="Edit the full blueprint IaC (advanced)"
+                style={CATALOG_EDIT_BTN_STYLE}
+              >
+                Edit IaC ⟩
+              </button>
+            </div>
           ) : null}
           {card.tagline || card.summary ? (
             <p className="hero-tagline">{card.tagline || card.summary}</p>
@@ -333,8 +354,14 @@ export function CatalogDetail() {
               name: title,
               summary: card.tagline || card.summary || '',
               supportedTopologies: topologies.map(toEditorMode),
-              iconLight: logoUrl ?? '',
-              iconDark: '',
+              // #3668 §5B(b) — pre-fill from the CURRENT IaC icon
+              // (`card.iconLight` / `iconDark`), NOT the build-time bundled
+              // asset, so opening the form on an already-edited blueprint
+              // shows the edited value and dark is not permanently blank.
+              // The bundled asset is only a fallback when the IaC carries no
+              // light icon (so the admin starts from the rendered default).
+              iconLight: card.iconLight || bundledLogo || '',
+              iconDark: card.iconDark || '',
             }}
             onSaved={() => {
               setEditing(false)
@@ -342,6 +369,49 @@ export function CatalogDetail() {
             }}
             onCancel={() => setEditing(false)}
           />
+        </section>
+      ) : null}
+
+      {/* #3668 §5D — full-CR IaC editor. Reuses the shipping YamlEditor
+          (the same widget the cloud-list uses) on the blueprint's full CR,
+          committing the WHOLE blueprint.yaml to the SAME catalog-sovereign
+          Gitea file the card edit writes. This is where source / manifests /
+          sso / placement / endpoints / contextSchema are edited. */}
+      {editingIaC ? (
+        <section className="section" data-testid="catalog-edit-iac-section">
+          <h2>Edit IaC — full blueprint</h2>
+          <p className="section-hint">
+            Editing the complete <code>blueprint.yaml</code> in Gitea
+            (catalog-sovereign). Commit writes the IaC source of truth; Flux
+            reconciles it into the in-cluster Blueprint. Both this editor and
+            the card form above write the same file.
+          </p>
+          <YamlEditor
+            deploymentId={deploymentId ?? ''}
+            kind="Blueprint"
+            ns={undefined}
+            name={`bp-${name}`}
+            obj={(cat.raw as K8sObject | undefined) ?? null}
+            commitLabel="Commit IaC"
+            onCommit={async (yaml) => {
+              const resp = await saveCatalogBlueprintIaC(`bp-${name}`, yaml)
+              if (!resp.committed) {
+                throw new Error(resp.reason || 'IaC commit did not land')
+              }
+              void qc.invalidateQueries({ queryKey: ['catalog-item', name] })
+              return `Committed to IaC ✓ (${resp.path || 'catalog-sovereign'})`
+            }}
+          />
+          <div style={{ marginTop: '0.8rem' }}>
+            <button
+              type="button"
+              data-testid="catalog-edit-iac-close"
+              onClick={() => setEditingIaC(false)}
+              style={CATALOG_EDIT_BTN_STYLE}
+            >
+              Close
+            </button>
+          </div>
         </section>
       ) : null}
 
@@ -476,6 +546,21 @@ export function CatalogDetail() {
       ) : null}
     </section>
   )
+}
+
+/* ─── shared inline styles ───────────────────────────────────────── */
+
+// #3668 — shared button style for the catalog detail-page edit affordances
+// (Edit / Edit IaC / Close), matching the prior single Edit button.
+const CATALOG_EDIT_BTN_STYLE: CSSProperties = {
+  padding: '0.3rem 0.8rem',
+  borderRadius: '8px',
+  border: '1px solid var(--color-border)',
+  background: 'transparent',
+  color: 'var(--color-text)',
+  fontSize: '0.8rem',
+  fontWeight: 600,
+  cursor: 'pointer',
 }
 
 /* ─── spec readers ───────────────────────────────────────────────── */
