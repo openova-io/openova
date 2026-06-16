@@ -90,6 +90,10 @@ spec:
       # host-MINTED DB/SSO Secret INTO vc-mgmt (GOVERNING CONSTRAINT #2; the
       # #3737 keycloak SHARED_PG `secret not found` blocker). OSS-native, no
       # admin.loft.sh tether → cutover deny-egress hold still passes.
+      # 0.2.12 (#3642 follow-on): the remaining 5 host→mgmt moves (openbao/
+      # harbor/gitea/newapi/guacamole) add harbor/gitea/velero/rtz to
+      # allowedIngressNamespaces (their host-bridged CNPG -rw Services + velero
+      # registry backup + the cross-vCluster shared-pg wire).
       version: 0.2.12
       sourceRef:
         kind: HelmRepository

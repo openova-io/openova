@@ -105,9 +105,13 @@ slots:
     # bp-mgmt-vcluster as a new edge — REVERTED by G105-followup
     # PR #2697/#2715/#2717/#2719/#2720 (vCluster lacks Gateway API +
     # ExternalSecret CRDs + mgmt namespace inside itself). App installs
-    # on HOST until vCluster CRD sync ships. bp-mgmt-vcluster edge
-    # dropped to match the live slot 08-openbao.yaml.
-    depends_on: [bp-gateway-api, bp-cnpg]
+    # on HOST until vCluster CRD sync ships.
+    # #3642 (2026-06-17): RE-ADDED via the OSS host-bridge — openbao re-homes
+    # into the mgmt vCluster (placement.yaml vcluster:mgmt + hostBridge:), so
+    # the runtime edge is back (the vc-mgmt Secret must be Ready first). The
+    # route + SSO ExternalSecret are HOST-rendered by the host-bridge, so no
+    # loft.sh license is needed.
+    depends_on: [bp-gateway-api, bp-cnpg, bp-mgmt-vcluster]
     wave: present
   - slot: 9
     name: bp-keycloak
@@ -610,6 +614,12 @@ slots:
       # postgresql.cnpg.io/v1 CRD first or the Cluster CR's Capabilities gate
       # skips on a fresh prov → no admin.
       - bp-cnpg
+      # #3642 (2026-06-17): bp-mgmt-vcluster edge added — guacamole re-homes
+      # into the mgmt vCluster via the OSS host-bridge (placement.yaml
+      # vcluster:mgmt + hostBridge:); the route + CNPG Cluster are HOST-rendered
+      # (the OIDC client secret is a chart-managed lookup Secret that stays
+      # in-vCluster). The runtime edge gates on the vc-mgmt Secret Ready first.
+      - bp-mgmt-vcluster
     wave: present
 
   # ---- Slot 53 — bp-netbird WireGuard zero-trust mesh + remote-access overlay.
@@ -802,9 +812,14 @@ slots:
   #     consumed by unified-rbac (ADR-0003 §3.2 + §6).
   #   - bp-keycloak: OIDC issuer for the ops-staff admin UI.
   #   - bp-cnpg: Postgres for users/credits/channels/audit (claim-driven).
+  # #3642 (2026-06-17): bp-mgmt-vcluster edge added — newapi re-homes into the
+  # mgmt vCluster via the OSS host-bridge (placement.yaml vcluster:mgmt +
+  # hostBridge:); the route + 2 ExternalSecrets + CNPG Cluster are HOST-rendered
+  # so no loft.sh license is needed. The runtime edge gates on the vc-mgmt
+  # Secret being Ready first.
   - slot: 80
     name: bp-newapi
-    depends_on: [bp-openbao, bp-keycloak, bp-cnpg]
+    depends_on: [bp-openbao, bp-keycloak, bp-cnpg, bp-mgmt-vcluster]
     wave: present
 
   # ---- Slot 95 — bp-stalwart-sovereign REMOVED 2026-05-05.

@@ -178,6 +178,26 @@ mgmtVcluster:
       #   oidc-gate — host slot 13c auth proxy on the gateway datapath →
       #     the moved keycloak realm.
       - oidc-gate
+      # ── #3642 follow-on host-bridge carve-outs ────────────────────────
+      # The remaining 5 host→mgmt moves (openbao auth., harbor registry.,
+      # gitea gitea., newapi newapi., guacamole guacamole.) re-home behind this
+      # isolation netpol. The gateway-system/kube-system + catalyst-system/
+      # newapi/sso-bridge/oidc-gate entries above already cover the host Cilium
+      # Gateway dialing every host-bridged route's mangled backendRef + the
+      # openbao/newapi SSO consumers. Per docs/sessions/2026-06-14/
+      # 3373-migration-plan §7 batch-D set, the additional consumer namespaces:
+      #   harbor + gitea — their host-rendered CNPG `-rw` Services (harbor-pg-rw,
+      #     gitea-pg-rw) are reached cross-cluster by their now-in-vCluster Pods;
+      #     and velero (registry backup) → harbor. Allow-list both host ns.
+      - harbor
+      - gitea
+      #   velero — host slot 34 backs up harbor (registry) + the CNPG WAL/cluster
+      #     backup of the host-rendered Clusters.
+      - velero
+      #   rtz — when a moved app SHARES the rtz shared-pg/cnpg-pair (the
+      #     cross-vCluster DB wire) instead of owning its host-bridged Cluster,
+      #     its in-mgmt Pod must reach rtz. Required once batch-C moves shared-pg.
+      - rtz
 
 # ─── Upstream chart values (subchart key: vcluster) ────────────────
 # `helm dependency build` resolves the upstream loft-sh/vcluster
