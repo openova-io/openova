@@ -144,7 +144,8 @@ spec:
       # credentials → raw win left generic_oauth unconfigured (empty client_id,
       # redirect_uri https://localhost/). Slot 25-grafana sets the flag.
       # Default false → harbor/openbao/gitea/powerdns byte-identical. Refs #3374.
-      version: 0.2.18
+      # 0.2.19: reconciler configmap generic gate coverage (#3374).
+      version: 0.2.19
       sourceRef:
         kind: HelmRepository
         name: bp-sso-bridge
