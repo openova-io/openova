@@ -429,25 +429,20 @@ spec:
                 - |
                   set -eu
                   log() { printf '%s | %s\n' "$(date -u +%FT%TZ)" "$*"; }
-
-                  # ─── K8s-auth login to OpenBao ─────────────────────────
-                  # SAME pattern as sso-configure-deployment.yaml:113 and
-                  # ESO: present the projected SA token to
-                  # auth/<path>/login, extract client_token. The init-time
-                  # root token was revoked by auth-bootstrap, so this is the
-                  # only valid ongoing auth path.
-                  SA_TOKEN="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
-                  BAO_TOKEN="$(curl -sS -k \
-                    -H 'Content-Type: application/json' \
-                    --data "{\"role\":\"${BAO_K8S_AUTH_ROLE}\",\"jwt\":\"${SA_TOKEN}\"}" \
-                    "${BAO_ADDR%/}/v1/auth/${BAO_K8S_AUTH_PATH}/login" \
-                    | sed -n 's/.*"client_token":"\([^"]*\)".*/\1/p')"
-                  if [ -z "${BAO_TOKEN}" ]; then
-                    log "FATAL: bao login returned no client_token — the ${BAO_K8S_AUTH_ROLE} role may not yet be bound by auth-bootstrap"
-                    exit 1
-                  fi
-                  log "authenticated to OpenBao via k8s auth role ${BAO_K8S_AUTH_ROLE}"
 {{- if eq $role "secondary" }}
+                  # ─── SECONDARY (fetch): NO OpenBao login ───────────────
+                  # #3629: the fetch path does PURE S3 I/O (list-objects-v2 +
+                  # s3 cp to the staging PVC) and NEVER touches an OpenBao API
+                  # — it does not read BAO_TOKEN at all. The earlier
+                  # unconditional `bao login` made the fetch FATAL on its OWN
+                  # region's OpenBao auth being reachable + the openbao-snapshot
+                  # role being bound by auth-bootstrap, even though the token is
+                  # unused: on hw147 region-B the fetch crashlooped on
+                  # `curl: (6) Could not resolve host openbao-openbao…` →
+                  # `bao login returned no client_token` while openbao-0 itself
+                  # was Running. The save (primary) genuinely needs the token
+                  # (GET sys/storage/raft/snapshot), so the login stays on that
+                  # branch only.
                   # ─── SECONDARY: fetch latest snapshot to staging PVC ────
                   # Pull the most recent snapshot object from S3 to the
                   # restore-staging path. This does NOT touch any OpenBao
@@ -468,6 +463,26 @@ spec:
                     "s3://${S3_BUCKET}/${LATEST}" "${STAGING_PATH}"
                   log "staged ${LATEST} -> ${STAGING_PATH} (restore-ready for bp-continuum promotion)"
 {{- else }}
+                  # ─── K8s-auth login to OpenBao (PRIMARY/save only) ─────
+                  # SAME pattern as sso-configure-deployment.yaml:113 and
+                  # ESO: present the projected SA token to
+                  # auth/<path>/login, extract client_token. The init-time
+                  # root token was revoked by auth-bootstrap, so this is the
+                  # only valid ongoing auth path. The save genuinely needs this
+                  # token (GET sys/storage/raft/snapshot below); the fetch
+                  # (secondary) does not, so the login lives ONLY on this branch
+                  # (#3629 — the fetch crashloop fix).
+                  SA_TOKEN="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+                  BAO_TOKEN="$(curl -sS -k \
+                    -H 'Content-Type: application/json' \
+                    --data "{\"role\":\"${BAO_K8S_AUTH_ROLE}\",\"jwt\":\"${SA_TOKEN}\"}" \
+                    "${BAO_ADDR%/}/v1/auth/${BAO_K8S_AUTH_PATH}/login" \
+                    | sed -n 's/.*"client_token":"\([^"]*\)".*/\1/p')"
+                  if [ -z "${BAO_TOKEN}" ]; then
+                    log "FATAL: bao login returned no client_token — the ${BAO_K8S_AUTH_ROLE} role may not yet be bound by auth-bootstrap"
+                    exit 1
+                  fi
+                  log "authenticated to OpenBao via k8s auth role ${BAO_K8S_AUTH_ROLE}"
                   # ─── PRIMARY: snapshot save + ship to S3 ────────────────
                   # GET /v1/sys/storage/raft/snapshot is the HTTP form of
                   # `bao operator raft snapshot save` — a READ on the Raft
