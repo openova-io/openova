@@ -68,4 +68,21 @@ rules:
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["get", "list", "watch"]
+  # PR #3700 §4.3 (deferred half of #3687): the controller now
+  # find-or-creates the host-cluster Flux GitRepository + Kustomization
+  # that reconcile the per-Org `catalyst-tenant` repo's ./vcluster tree
+  # onto the host cluster — so the vCluster HelmRelease it authored in
+  # Gitea actually gets APPLIED (previously assumed a manual one-off
+  # Kustomization that never ran on a fresh prov, leaving the manifest as
+  # orphaned bytes / phase=Pending forever). These CRs live in
+  # flux-system; the controller create/update/delete-s them (delete on Org
+  # teardown — they carry no cross-namespace ownerRef per the Fix #42
+  # GC-trap idiom). source-controller + kustomize-controller own the
+  # spec.*.status writes.
+  - apiGroups: ["source.toolkit.fluxcd.io"]
+    resources: ["gitrepositories"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 {{- end }}

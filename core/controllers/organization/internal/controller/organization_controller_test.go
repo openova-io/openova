@@ -402,6 +402,13 @@ func makeReconciler(t *testing.T, objs ...client.Object) (*Reconciler, *giteaSer
 	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
 		Group: "helm.toolkit.fluxcd.io", Version: "v2", Kind: "HelmReleaseList",
 	}, &unstructured.UnstructuredList{})
+	// PR #3700 §4.3: register the Flux v1 GitRepository + Kustomization
+	// GVKs so the per-Org vCluster Flux loop (step 3b / per_org_flux.go) can
+	// find-or-create them when a test sets GiteaInClusterURL.
+	for _, gvk := range []schema.GroupVersionKind{fluxGitRepositoryGVK, fluxKustomizationGVK} {
+		scheme.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
+		scheme.AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
+	}
 
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme).

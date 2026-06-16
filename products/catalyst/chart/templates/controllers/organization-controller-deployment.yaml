@@ -113,6 +113,28 @@ spec:
                   name: catalyst-gitea-token
                   key: token
                   optional: true
+            # PR #3700 §4.3 (deferred half of #3687) — per-Org vCluster Flux
+            # loop. The in-cluster Gitea URL the per-Org Flux GitRepository
+            # clones from (same Service the application-controller's
+            # GiteaInClusterURL uses). Drives per_org_flux.go: on Org
+            # creation the controller find-or-creates a Flux GitRepository +
+            # Kustomization that reconcile the per-Org `catalyst-tenant`
+            # repo's ./vcluster tree onto the host cluster, so the vCluster
+            # HelmRelease authored in Gitea actually gets APPLIED (no longer
+            # orphaned bytes / phase=Pending). MUST NOT include `/api/v1`
+            # (this is the git clone URL, not the Gitea REST base).
+            - name: CATALYST_GITEA_INCLUSTER_URL
+              value: {{ .Values.controllers.organization.giteaInClusterURL | default "http://gitea-http.gitea.svc.cluster.local:3000" | quote }}
+            - name: CATALYST_FLUX_NAMESPACE
+              value: {{ .Values.controllers.organization.fluxNamespace | default "flux-system" | quote }}
+            - name: CATALYST_FLUX_INTERVAL_SECONDS
+              value: {{ .Values.controllers.organization.fluxIntervalSeconds | default 60 | quote }}
+            # Flux basic-auth Secret (in CATALYST_FLUX_NAMESPACE) holding the
+            # Gitea PAT the per-Org GitRepository uses to clone — bp-gitea
+            # REQUIRE_SIGNIN_VIEW=true makes anonymous clone 401. Empty ==
+            # anonymous (parity with application-controller FLUX_GITEA_SECRET_REF).
+            - name: CATALYST_FLUX_GITEA_SECRET_REF
+              value: {{ .Values.controllers.organization.fluxGiteaSecretRef | default "" | quote }}
             # Per-Org UserAccess Claim CRs are namespace-scoped on the
             # live API server (qa-loop iter-8 Fix #42 root cause: the
             # controller previously called Get/Create with an empty
