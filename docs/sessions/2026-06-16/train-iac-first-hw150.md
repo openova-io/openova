@@ -46,3 +46,24 @@ acceptance of every car: topology create + placement (T0); pod-roll-under-deny-e
 "no app-name in code" spot-checks (T2); one activity feed incl. a switchover job (T3); zero
 flash/stale (T4); a real DR switchover with a live Continuum record (T5); a catalog edit that
 lands as a git commit + an out-of-band git edit that shows in the UI (T6).
+
+## T4 (UI faithfulness) — implementation status
+
+- **new-instance flash → DONE** (commit `839a0844c`, in #3649): `InstancesSection`'s "+ New instance"
+  renders only once the list resolves AND another instance is creatable
+  (`!isPending && (multiInstance !== false || items.length === 0)`); 3 tests lock the singleton case.
+- **Open-button-late → root-caused; needs a static user-UI signal.** `AppsPage.tsx:1059` renders the
+  Open chip only when `externalURL` is non-empty, and `externalURL` arrives async via `liveAppsQuery`,
+  so a real front-door app (harbor/gitea) shows nothing then pops in. A blanket placeholder is NOT the
+  fix — the BE projects `externalURL` ONLY for UI apps (`:1054-1058`), so it would flash a transient
+  chip on headless apps (the same assert-then-retract). The faithful fix exposes the Blueprint's
+  `hasUserUIEndpoint` to the UI (generated constant / BE field) so the card shows a confident disabled
+  placeholder for UI apps only. Folds into **T2** (Blueprint-declared capabilities) or a focused
+  follow-up; **validate on hw150**.
+- **jobs-stale → root-caused; needs live validation with T3.** JobsPage merges reducer-derived rows
+  with the live-jobs query (`useLiveJobsBackfill`, 5s poll, `placeholderData: prev`); on open, stale
+  reducer rows (pending/running) show until the live fetch (which wins on conflict) lands — the
+  "succeeded after a while". refetch-on-mount/focus are already RQ defaults, so the real fix is to
+  **not render reducer-derived status as definitive** (a "confirming…" state until the live source
+  confirms). This sits on top of **T3's** new activity model (#3652) → fix + walk on the live hw150
+  jobs canvas, not blind.
