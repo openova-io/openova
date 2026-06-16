@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.72 (#3643 Refs #3584 #3379, step-09 gitea-token-mint BasicAuth resilience
+# 2026-06-16): step-09 (gitea-token-mint) is the FIRST never-run step after the
+# #3640 step-08 fix lets the engine reach it. It mints the provisioning token via
+# POST /api/v1/users/gitea_admin/tokens. Gitea MANDATES BasicAuth for token
+# creation (a token cannot mint a token), so the #3584 PAT remedy can't apply —
+# but Gitea's apiAuth consults the openova-sso OAuth2 source on BasicAuth password
+# validation, which BLOCKS ~130s then 401s while Keycloak is still re-converging
+# in the cutover window (step-07 just rolled catalyst-api + pivoted the issuer).
+# The bare `curl -fsS -u` mint (no --max-time, no retry, FATAL on fail) would
+# wedge step-09. FIX (template 09-gitea-token-mint-job.yaml): wrap the mint in a
+# 6-attempt retry loop with --max-time 40 (under the ~130s hang) + 15s backoff
+# (~5.5min, within the 600s giteaTokenMintSeconds deadline) so it survives the
+# transient slowness until the OAuth2 lookup is fast. Idempotent existing-token
+# probe + validation unchanged. No step-count / RBAC / deadline change.
 # 0.1.71 (#3640 Refs #3379, hw148 step-08 egress-block CCNP cluster-wide
 # default-deny 2026-06-16): the cutover reached step-08 (egress-block-test) for
 # the FIRST time on hw148 (27b443cca00a0fab) — furthest in the #3379 saga (hw146
@@ -807,7 +821,7 @@ name: bp-self-sovereign-cutover
 # FATAL-on-failure contract is PRESERVED (Pillar 5 requires ALL openova-io
 # images local for the deny-egress hold) — the step only FATALs once BOTH retry
 # layers are exhausted. No step-count / RBAC / timeout change.
-version: 0.1.71
+version: 0.1.72
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
