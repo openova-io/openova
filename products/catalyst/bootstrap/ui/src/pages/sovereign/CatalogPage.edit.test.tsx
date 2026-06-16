@@ -116,10 +116,12 @@ describe('CatalogPage admin edit (#3603)', () => {
   })
 
   // #3648 (founder item #1) — the popup editor was removed; the Edit chip now
-  // navigates to the catalog DETAIL page, which edits in place. The form
-  // fields + save + topology multiselect are covered by the CatalogEditDialog
-  // + CatalogDetail tests; here we lock in that the chip navigates and that
-  // NO popup is mounted on the grid page anymore.
+  // navigates to the catalog DETAIL page, which edits in place. #3668 §5A then
+  // replaced the detail page's single global "Edit" button + monolithic form
+  // with PER-FIELD inline editors; the per-field fields + save + topology
+  // multiselect + visual icon picker are covered by the CatalogDetail tests.
+  // Here we lock in that the chip navigates and that NO popup is mounted on the
+  // grid page anymore.
   it('navigates to the catalog detail page on Edit click (no popup)', async () => {
     renderCatalog()
     fireEvent.click(await screen.findByTestId('sov-app-edit-bp-cilium'))
@@ -128,8 +130,8 @@ describe('CatalogPage admin edit (#3603)', () => {
   })
 
   // (The save itself — the #3602 API call with the typed body — now happens in
-  // the inline CatalogEditForm on the detail page; it is covered by the
-  // CatalogEditDialog + CatalogDetail tests, not on the grid page.)
+  // the per-field CatalogInlineField editors on the detail page; it is covered
+  // by the CatalogDetail tests, not on the grid page.)
 
   it('reflects a saved name on the card from the edits overlay', async () => {
     // The edits overlay (listApps) carries a renamed cilium row; the grid card
