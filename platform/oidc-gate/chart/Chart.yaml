@@ -22,7 +22,17 @@ name: bp-oidc-gate
 # signed-in. client.json now seeds an oidc-audience-mapper injecting the
 # clientId into the ID-token aud; bp-sso-bridge PUT (template-wins) lands
 # it on the live pre-existing client zero-touch.
-version: 0.1.1
+#
+# 0.1.2 (#3374 Layer-A, 2026-06-17): COVERAGE — the generic gate now
+# fronts powerdns-admin (slot 13c), replacing its structurally-fragile
+# bespoke root-redirect (the OIDC callback shares /login, so the redirect
+# looped + was reverted in pda 0.1.11). No chart-template change: the
+# coverage is purely additional `instances:` entries + the per-app chart
+# disabling its own HTTPRoute (slot 11a gateway.enabled=false) so the
+# gate is the single hostname owner. Adding the gate to a NEW app is now
+# one `instances:` entry — proven by the disabled `sso-generality-probe`
+# instance in the slot (#3374 DoD box 10a generality proof).
+version: 0.1.2
 appVersion: "7.6.0"
 description: |
   Catalyst generic OIDC gate — a per-app oauth2-proxy instance set that

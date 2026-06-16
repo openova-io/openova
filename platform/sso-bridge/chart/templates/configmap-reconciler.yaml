@@ -347,94 +347,25 @@ data:
       printf '%s\n' "${issuer}" > "/tmp/${cid}.issuer"
     }
 
-    grant_operator_admin() {
-      # $1 = clientId, $2 = operator email
-      local cid="$1" email="$2"
-      [ -z "${email}" ] && { warn "no operator email; skipping admin grant for ${cid}"; return 0; }
-
-      local user_id
-      user_id="$(curl --max-time 20 --connect-timeout 7 -fsS \
-        -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
-        "${KC_ADDR%/}/admin/realms/${KC_REALM}/users?email=${email}&exact=true" \
-        | jq -r '.[0].id // empty')"
-
-      if [ -z "${user_id}" ]; then
-        warn "operator user '${email}' not yet provisioned in realm ${KC_REALM}; admin grant deferred until first sign-in"
-        return 0
-      fi
-
-      local kc_id
-      kc_id="$(cat "/tmp/${cid}.kc-id")"
-
-      # Ensure client-role 'admin' exists on this Client.
-      local has_admin
-      has_admin="$(curl --max-time 20 --connect-timeout 7 -fsS \
-        -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
-        "${KC_ADDR%/}/admin/realms/${KC_REALM}/clients/${kc_id}/roles/admin" \
-        -o /dev/null -w '%{http_code}')"
-      if [ "${has_admin}" = "404" ]; then
-        curl --max-time 20 --connect-timeout 7 -fsS -X POST \
-          -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
-          -H "Content-Type: application/json" \
-          -d '{"name":"admin","description":"Application admin (auto by bp-sso-bridge)"}' \
-          "${KC_ADDR%/}/admin/realms/${KC_REALM}/clients/${kc_id}/roles" >/dev/null
-      fi
-
-      # Look up the role representation (id + name).
-      local role_rep
-      role_rep="$(curl --max-time 20 --connect-timeout 7 -fsS \
-        -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
-        "${KC_ADDR%/}/admin/realms/${KC_REALM}/clients/${kc_id}/roles/admin")"
-
-      # POST role-mapping for the user. Idempotent — Keycloak swallows duplicates.
-      curl --max-time 20 --connect-timeout 7 -fsS -X POST \
-        -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
-        -H "Content-Type: application/json" \
-        -d "[${role_rep}]" \
-        "${KC_ADDR%/}/admin/realms/${KC_REALM}/users/${user_id}/role-mappings/clients/${kc_id}" >/dev/null || true
-    }
-
-    grant_operator_realm_roles() {
-      # $1 = operator email, $2 = space-separated list of realm-role names
-      # Some apps (e.g. catalyst-console, which has a pre-existing
-      # catalyst-ui Client in the realm import) need the operator granted
-      # REALM-level roles rather than per-Client roles. The realm-role
-      # 'catalyst-admin' grants full operator-console privileges via the
-      # realm's catalyst-{viewer,developer,operator,admin,owner} composite
-      # chain (configmap-sovereign-realm.yaml).
-      local email="$1" roles="$2"
-      [ -z "${email}" ] && { warn "no operator email; skipping realm-role grant"; return 0; }
-      [ -z "${roles}" ] && return 0
-
-      local user_id
-      user_id="$(curl --max-time 20 --connect-timeout 7 -fsS \
-        -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
-        "${KC_ADDR%/}/admin/realms/${KC_REALM}/users?email=${email}&exact=true" \
-        | jq -r '.[0].id // empty')"
-      if [ -z "${user_id}" ]; then
-        warn "operator user '${email}' not yet provisioned; realm-role grant deferred"
-        return 0
-      fi
-
-      for role_name in ${roles}; do
-        local role_rep
-        role_rep="$(curl --max-time 20 --connect-timeout 7 -fsS \
-          -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
-          "${KC_ADDR%/}/admin/realms/${KC_REALM}/roles/${role_name}" 2>/dev/null)"
-        if [ -z "${role_rep}" ] || ! printf '%s' "${role_rep}" | jq -e '.id' >/dev/null 2>&1; then
-          warn "realm-role '${role_name}' not found in realm ${KC_REALM}; skipping grant"
-          continue
-        fi
-        # POST role-mapping for the user (realm-level). Idempotent.
-        curl --max-time 20 --connect-timeout 7 -fsS -X POST \
-          -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
-          -H "Content-Type: application/json" \
-          -d "[${role_rep}]" \
-          "${KC_ADDR%/}/admin/realms/${KC_REALM}/users/${user_id}/role-mappings/realm" >/dev/null \
-          && log "granted realm-role '${role_name}' to ${email}" \
-          || warn "POST realm role-mapping '${role_name}' for ${email} failed"
-      done
-    }
+    # #3374 Layer-C (2026-06-17): grant_operator_admin + grant_operator_realm_roles
+    # DELETED. They were the dead admin-by-default theater the founder
+    # flagged (#3685 / #3374 §3-c):
+    #
+    #   - grant_operator_admin minted a per-Client `admin` role that NO app
+    #     reads — every app keys admin on the `groups` claim
+    #     (`sovereign-admins`), so the per-Client role was pure orphaned
+    #     overhead. On hw150 with orgEmail="" it logged "skipping admin
+    #     grant" every 60s tick and NEVER granted anything.
+    #   - grant_operator_realm_roles granted the `catalyst-admin` realm role
+    #     per-email — now SUPERSEDED by the realm-import group composite:
+    #     `/sovereign-admins` carries `realmRoles: ["catalyst-admin"]`
+    #     (configmap-sovereign-realm.yaml), so ANY member of the group gets
+    #     catalyst-admin generically, conferred at realm import + reconciled
+    #     by keycloak-config-cli — no per-email grant, no dependence on the
+    #     empty `orgEmail` ConfigMap key.
+    #
+    # ONE admin authority remains: membership in /sovereign-admins. The
+    # reconciler's job is now purely client-upsert + secret publication.
 
     emit_external_secret() {
       # $1 = clientId, $2 = HR namespace, $3 = skip-K8s-ExternalSecret (bool)
@@ -534,26 +465,21 @@ data:
       # — bp-gitea is the HR, but the natural OIDC clientId is `gitea`).
       local cid="${name#bp-}"
 
-      # G91.catalyst-console-admin-self-grant (#2659) — pull per-HR
-      # `.spec.values.sso.realmRolesGranted` (list of strings). Some apps
-      # need REALM-level role grants on the operator rather than (or in
-      # addition to) the per-Client `admin` role — most notably
-      # bp-catalyst-platform, whose operator console uses a pre-existing
-      # `catalyst-ui` Client from the realm import and is gated by
-      # realm-roles `catalyst-{viewer,developer,operator,admin,owner}`
-      # rather than a per-Client role. Empty/missing = legacy
-      # per-Client-only grant.
-      local realm_roles
-      realm_roles="$(printf '%s' "${hr}" | jq -r '(.spec.values.sso.realmRolesGranted // []) | join(" ")')"
-
       # G91.catalyst-console-admin-self-grant (#2659) — opt-out of
-      # per-Client upsert + per-Client-`admin` grant. Apps that ship
-      # their own pre-existing Keycloak Client via realm-import (e.g.
-      # `catalyst-ui` in the sovereign realm JSON) can declare
-      # `.spec.values.sso.skipClientUpsert: true` to mark themselves
-      # opt-in for the realm-role-grant path only — bp-sso-bridge then
-      # skips both upsert_client and emit_external_secret (no
-      # client_secret to materialise) and ONLY runs realm-role grant.
+      # per-Client upsert. Apps that ship their own pre-existing Keycloak
+      # Client via realm-import (e.g. `catalyst-ui` in the sovereign realm
+      # JSON) can declare `.spec.values.sso.skipClientUpsert: true` so
+      # bp-sso-bridge skips both upsert_client and emit_external_secret
+      # (no client_secret to materialise).
+      #
+      # #3374 Layer-C (2026-06-17): the former per-HR
+      # `sso.realmRolesGranted` -> grant_operator_realm_roles path is GONE.
+      # Admin is now conferred ONLY by /sovereign-admins group membership
+      # (the group composites catalyst-admin at realm import) — no per-app
+      # realm-role grant, no dependence on the operator email. An app that
+      # set skipClientUpsert=true purely to ride the realm-role grant (i.e.
+      # bp-catalyst-platform) is now a no-op here and that is CORRECT: its
+      # operator gets catalyst-admin from the group, not from this loop.
       local skip_upsert
       skip_upsert="$(printf '%s' "${hr}" | jq -r '.spec.values.sso.skipClientUpsert // false')"
 
@@ -564,18 +490,13 @@ data:
       local skip_es
       skip_es="$(printf '%s' "${hr}" | jq -r '.spec.values.sso.skipExternalSecret // false')"
 
-      log "reconcile ${name} (ns=${ns} clientId=${cid} realmRoles='${realm_roles}' skipUpsert=${skip_upsert} skipES=${skip_es})"
+      log "reconcile ${name} (ns=${ns} clientId=${cid} skipUpsert=${skip_upsert} skipES=${skip_es})"
 
       if [ "${skip_upsert}" != "true" ]; then
         upsert_client "${cid}" "${fqdn}" || { err "upsert ${cid} failed"; return 1; }
         emit_external_secret "${cid}" "${ns}" "${skip_es}" || { err "emit-es ${cid} failed"; return 1; }
-        grant_operator_admin "${cid}" "${op_email}" || warn "grant-admin ${cid} non-fatal"
       else
         log "skipping client upsert + ExternalSecret for ${cid} (sso.skipClientUpsert=true)"
-      fi
-
-      if [ -n "${realm_roles}" ]; then
-        grant_operator_realm_roles "${op_email}" "${realm_roles}" || warn "grant-realm-roles ${realm_roles} non-fatal"
       fi
     }
 

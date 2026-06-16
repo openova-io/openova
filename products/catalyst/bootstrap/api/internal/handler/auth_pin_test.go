@@ -337,12 +337,18 @@ func TestPinVerify_HappyPath(t *testing.T) {
 // policy_mode, continuum audit) thus returned 403 even for the Sovereign
 // owner authenticated via PIN-IMAP. This test pins the contract:
 //
-//  1. tier = pinSessionTier ("owner")
-//  2. realm_access.roles contains pinSessionRealmRole ("catalyst-owner")
+//  1. tier = admin (group-derived, #3374 Layer-C)
+//  2. realm_access.roles contains catalyst-admin
 //
 // Either claim alone unlocks the gates (HasRealmRole walk OR Tier check).
 // Stamping both keeps the contract idempotent across the gate variants.
+//
+// #3374 Layer-C: the tier is now DERIVED, not a hard `owner` constant. In
+// this test there is no live Keycloak client wired (h.kc nil), so
+// pinSessionAuthority hits the OPERATOR_EMAIL fallback — set here to the
+// authenticating email, the chroot-owner case, which confers admin.
 func TestPinVerify_StampsTierAndRealmRoleClaims(t *testing.T) {
+	t.Setenv("OPERATOR_EMAIL", "op@example.com")
 	h := testPinSetup(t)
 	h.pinStore.put("op@example.com", "123456", "req-1")
 
@@ -380,18 +386,18 @@ func TestPinVerify_StampsTierAndRealmRoleClaims(t *testing.T) {
 		t.Fatalf("unmarshal claims: %v", err)
 	}
 
-	// (1) tier claim must equal pinSessionTier so policyModeCallerAuthorized
+	// (1) tier claim must be admin so policyModeCallerAuthorized
 	// (the strict admin/owner gate) accepts the PIN-derived session.
-	if claims.Tier != pinSessionTier {
-		t.Errorf("tier: got %q want %q", claims.Tier, pinSessionTier)
+	if claims.Tier != pinSessionAdminTier {
+		t.Errorf("tier: got %q want %q", claims.Tier, pinSessionAdminTier)
 	}
 
-	// (2) realm_access.roles must contain pinSessionRealmRole so
+	// (2) realm_access.roles must contain catalyst-admin so
 	// rbacAssignCallerAuthorized's HasRealmRole walk also accepts it
 	// (matches the legacy Keycloak-issued token contract).
-	if !claims.HasRealmRole(pinSessionRealmRole) {
+	if !claims.HasRealmRole("catalyst-admin") {
 		t.Errorf("realm_access.roles missing %q (got: %v)",
-			pinSessionRealmRole, claims.RealmAccess.Roles)
+			"catalyst-admin", claims.RealmAccess.Roles)
 	}
 
 	// (3) Sanity: feeding the parsed claims through the actual gate
@@ -403,6 +409,60 @@ func TestPinVerify_StampsTierAndRealmRoleClaims(t *testing.T) {
 	}
 	if !policyModeCallerAuthorized(&claims) {
 		t.Error("policyModeCallerAuthorized: PIN-derived claims should authorize sovereign-admin gate")
+	}
+}
+
+// TestPinVerify_NonAdminGetsViewerNotOwner is the #3374 Layer-C law #4
+// regression guard (DoD box 6): a user NOT in /sovereign-admins (here:
+// not matching OPERATOR_EMAIL, no live KC group) who PIN-authenticates
+// is stamped tier=viewer — NEVER silently granted owner/admin. This kills
+// the System-A self-signed-owner-for-everyone defect.
+func TestPinVerify_NonAdminGetsViewerNotOwner(t *testing.T) {
+	// OPERATOR_EMAIL is a DIFFERENT email — the authenticating user is
+	// not the configured operator and (no KC wired) not in any group.
+	t.Setenv("OPERATOR_EMAIL", "owner@example.com")
+	h := testPinSetup(t)
+	h.pinStore.put("stranger@example.com", "123456", "req-1")
+
+	body := `{"email":"stranger@example.com","pin":"123456","requestId":"req-1"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/pin/verify",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.HandlePinVerify(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d want 200 (body: %s)", resp.StatusCode, w.Body.String())
+	}
+	cookie := findCookie(resp.Cookies(), "catalyst_session")
+	if cookie == nil || cookie.Value == "" {
+		t.Fatal("catalyst_session cookie not set")
+	}
+	parts := strings.Split(cookie.Value, ".")
+	if len(parts) != 3 {
+		t.Fatalf("cookie value: got %d JWT parts want 3", len(parts))
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("decode JWT payload: %v", err)
+	}
+	var claims auth.Claims
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		t.Fatalf("unmarshal claims: %v", err)
+	}
+
+	if claims.Tier != pinSessionDefaultTier {
+		t.Errorf("non-admin tier: got %q want %q (must NOT be owner/admin)",
+			claims.Tier, pinSessionDefaultTier)
+	}
+	if claims.HasRealmRole("catalyst-owner") || claims.HasRealmRole("catalyst-admin") {
+		t.Errorf("non-admin must NOT carry catalyst-owner/admin (got: %v)",
+			claims.RealmAccess.Roles)
+	}
+	// And the privileged gates must REJECT this session.
+	if policyModeCallerAuthorized(&claims) {
+		t.Error("policyModeCallerAuthorized: a non-admin PIN session must NOT pass the sovereign-admin gate")
 	}
 }
 
