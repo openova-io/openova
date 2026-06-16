@@ -641,6 +641,32 @@ spec:
                         type: string
                     silentLogin:
                       type: boolean
+                    adminGroup:
+                      type: string
+                      description: |
+                        #3648 — the STANDARD, app-agnostic Sovereign-realm
+                        GROUP whose members are elevated to the app's admin
+                        role. Every Blueprint that needs a first admin
+                        seeded via the Sovereign SSO names the group HERE
+                        instead of in a chart-bespoke values key. Elevation
+                        always keys on the group, never a per-user identity
+                        (#3374 §5). Default `sovereign-admins`.
+                    bootstrap:
+                      type: object
+                      description: |
+                        #3648 — the STANDARD sso-bootstrap stanza: when set,
+                        the platform seeds the app's FIRST admin via the
+                        Sovereign SSO (Pattern B — apps with no group→role
+                        config knob, honoured by the chart's own seeding
+                        mechanism, never keyed on the app name in the
+                        engine).
+                      properties:
+                        enabled:
+                          type: boolean
+                        providerSlug:
+                          type: string
+                        enforceAdminGroup:
+                          type: boolean
                 multiInstance:
                   type: object
                   description: |
@@ -662,6 +688,32 @@ spec:
                     isolationLevel:
                       type: string
                       enum: [namespace, vcluster]
+                producesInstances:
+                  type: object
+                  description: |
+                    #3648 — declares this Blueprint is an OPERATOR/engine
+                    that PRODUCES shareable data-instances of another
+                    (instance) Blueprint. The DECLARED, app-agnostic
+                    replacement for hardcoded "postgres operator"
+                    knowledge: any operator Blueprint that sets this gets
+                    the engine-class-card / instance-creation treatment and
+                    the backing-service generator resolves a consumer's
+                    `backingServices[].type: <kind>` to
+                    `<instanceBlueprint>-<instance>` — no engine-name
+                    literal in the platform engine.
+                  required: [kind, instanceBlueprint]
+                  properties:
+                    kind:
+                      type: string
+                      description: |
+                        The engine-class id the instances are OF (e.g.
+                        `postgres`) — the value a consumer Blueprint names
+                        in backingServices[].type.
+                    instanceBlueprint:
+                      type: string
+                      description: |
+                        The instance Blueprint id this operator provisions
+                        (e.g. `bp-postgres`); the dependsOn HR prefix.
               x-kubernetes-preserve-unknown-fields: true
             status:
               type: object

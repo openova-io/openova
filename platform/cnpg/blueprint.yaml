@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-4-1-data-services
 spec:
-  version: 1.0.9
+  version: 1.0.10
   card:
     title: CloudNativePG
     summary: |
@@ -18,6 +18,18 @@ spec:
     icon: cnpg.svg
     category: data
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  # ── producesInstances (#3648) ───────────────────────────────────────
+  # bp-cnpg is the OPERATOR / engine; it PRODUCES shareable data-instances
+  # of bp-postgres (each install of bp-postgres = one CNPG Cluster = one
+  # data-instance card). This DECLARED edge is what the platform engine
+  # reads to give bp-cnpg the engine-class-card treatment and to resolve a
+  # consumer's `backingServices[].type: postgres` to the bp-postgres
+  # instance HR — NO "postgres" string is hardcoded in the engine. A
+  # future Redis/Valkey or Kafka operator declares the same stanza and
+  # gets the identical treatment with zero engine code changes.
+  producesInstances:
+    kind: postgres                  # the engine-class id consumers name in backingServices[].type
+    instanceBlueprint: bp-postgres  # each install of this Blueprint is one shareable data-instance
   configSchema:
     type: object
     properties:
