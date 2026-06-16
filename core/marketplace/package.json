@@ -4,6 +4,8 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
+    "postbuild": "node scripts/check-served-domain-hygiene.mjs",
+    "check:domain-hygiene": "node scripts/check-served-domain-hygiene.mjs",
     "preview": "astro preview",
     "test:e2e": "playwright test --config=./playwright.config.ts"
   },

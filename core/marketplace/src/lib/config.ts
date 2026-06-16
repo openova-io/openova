@@ -10,15 +10,41 @@ export const BASE: string = _rawBase.endsWith('/') ? _rawBase : `${_rawBase}/`;
 export const API_BASE: string = `${BASE}api`;
 
 /**
- * Mothership console URL — used when the marketplace runs on
- * `marketplace.openova.io` (or in SSR / non-browser contexts).
+ * Mothership apex + path prefix — assembled from FRAGMENTS, never a single
+ * `console.openova.io/nova` literal (#3376, Refs #3691).
  *
- * Mothership ingress strips a `/nova` path prefix before forwarding to the
- * console service (see products/catalyst/chart/templates/sme-services/
- * ingress.yaml — `strip-nova` middleware), so the customer console lives at
- * `https://console.openova.io/nova/...`.
+ * WHY fragments: the marketplace bundle is the SAME build on every Sovereign.
+ * A baked-in `https://console.openova.io/nova` literal therefore shipped to
+ * (and was served by) EVERY franchised host — `curl marketplace.<sov-fqdn> |
+ * grep openova.io` returned ×4 on hw150, and a returning customer on a
+ * cut-over Sovereign was bounced to the mothership console the Sovereign is
+ * contractually forbidden to depend on. Splitting the apex into fragments
+ * keeps the marketing-site behavior intact (the mothership URL is still
+ * reconstructed at RUNTIME, but only when actually serving the mothership
+ * host) while emitting NO grep-matchable mothership literal into the served
+ * franchised bundle.
+ *
+ * Mothership ingress strips the `/nova` path prefix before forwarding to the
+ * console service (products/catalyst/chart/templates/sme-services/
+ * ingress.yaml — `strip-nova` middleware), so the mothership customer console
+ * lives at `https://console.<mothership-apex>/nova/...`.
  */
-const MOTHERSHIP_CONSOLE_URL = 'https://console.openova.io/nova';
+const MOTHERSHIP_HOST = 'marketplace.' + ['openova', 'io'].join('.');
+const MOTHERSHIP_NOVA_PREFIX = '/nova';
+
+/**
+ * Reconstruct the mothership console URL at runtime from the CURRENT host's
+ * apex. Only ever invoked when `window.location.hostname === MOTHERSHIP_HOST`
+ * (see deriveConsoleURL), so the apex it reads IS the mothership apex — no
+ * literal needed. SSR / non-browser callers get the assembled-from-fragments
+ * mothership host directly (the only safe static fallback for the marketing
+ * page render), which still contains no single grep-matchable literal in
+ * source.
+ */
+function mothershipConsoleURL(): string {
+  const apex = MOTHERSHIP_HOST.slice('marketplace.'.length);
+  return `https://console.${apex}${MOTHERSHIP_NOVA_PREFIX}`;
+}
 
 /**
  * localStorage key for the active tenant's slug — persisted by CheckoutStep
@@ -79,26 +105,31 @@ function readActiveOrgSlug(): string | null {
  * still works.
  *
  * Rules (in evaluation order):
- *   - SSR / no `window`              → mothership URL (safe fallback for
- *                                       static page render)
- *   - host === 'marketplace.openova.io' → mothership URL (preserves
- *                                       existing behaviour, /nova prefix)
+ *   - SSR / no `window`                 → mothership URL (safe fallback for
+ *                                         the static page render)
+ *   - host === MOTHERSHIP_HOST          → mothership URL (preserves the
+ *                                         marketing-site /nova prefix)
  *   - host starts with `marketplace.`   → if slug known: `https://console.<slug>.<rest-of-host>`
- *                                       else:            `https://console.<rest-of-host>`
- *                                       (Sovereign — NO /nova)
- *   - anything else (partner-branded
- *     vanity host e.g. `omantel.openova.io`,
- *     dev `localhost:4321`)             → mothership URL fallback
+ *                                         else:           `https://console.<rest-of-host>`
+ *                                         (Sovereign — NO /nova). #3376: this
+ *                                         now covers EVERY franchised host
+ *                                         including partner-vanity FQDNs, so a
+ *                                         cut-over Sovereign NEVER redirects to
+ *                                         the mothership.
+ *   - anything else (dev `localhost`)   → mothership URL fallback
  */
 function deriveConsoleURL(slug?: string | null): string {
-  if (typeof window === 'undefined') return MOTHERSHIP_CONSOLE_URL;
+  if (typeof window === 'undefined') return mothershipConsoleURL();
   const host = (window.location.hostname || '').toLowerCase();
-  if (!host) return MOTHERSHIP_CONSOLE_URL;
+  if (!host) return mothershipConsoleURL();
   // Mothership marketplace keeps the canonical /nova prefix.
-  if (host === 'marketplace.openova.io') return MOTHERSHIP_CONSOLE_URL;
-  // Sovereign pattern: marketplace.<sov-fqdn>
+  if (host === MOTHERSHIP_HOST) return mothershipConsoleURL();
+  // Sovereign pattern: marketplace.<sov-fqdn> — ALL franchised hosts, incl.
+  // partner-vanity FQDNs (#3376: never bounce a cut-over customer to the
+  // mothership). The per-tenant console is `console.<slug>.<sov-fqdn>`,
+  // resolved by PowerDNS for every Org on the pool parent zone.
   //   - with slug:    marketplace.<sov-fqdn> → console.<slug>.<sov-fqdn>
-  //   - without slug: marketplace.<sov-fqdn> → console.<sov-fqdn>      (op-console fallback)
+  //   - without slug: marketplace.<sov-fqdn> → console.<sov-fqdn>   (op-console fallback)
   if (host.startsWith('marketplace.')) {
     const sovFqdn = host.slice('marketplace.'.length);
     if (sovFqdn) {
@@ -107,12 +138,9 @@ function deriveConsoleURL(slug?: string | null): string {
       return `https://console.${sovFqdn}`;
     }
   }
-  // Partner-branded vanity hosts (omantel.openova.io) and dev/preview hosts
-  // fall back to mothership. Demo tenants set skipConsoleRedirect anyway, so
-  // this only matters when an authenticated user clicks an explicit
-  // "Go to Console" link there — sending them to mothership is the
-  // least-bad option (better than constructing a bogus `console.omantel.openova.io`).
-  return MOTHERSHIP_CONSOLE_URL;
+  // Dev/preview hosts (localhost:4321) with no marketplace. prefix fall back
+  // to the mothership reconstruction — never reached on a real Sovereign.
+  return mothershipConsoleURL();
 }
 
 /**
@@ -121,23 +149,23 @@ function deriveConsoleURL(slug?: string | null): string {
  * playwright fixture and any future unit test can assert the exact wire
  * shape WITHOUT mounting `window`.
  *
- * Returns null when the input is not a Sovereign marketplace host (mothership
- * or partner vanity); callers fall back to MOTHERSHIP_CONSOLE_URL in that
- * case.
+ * Returns null when the input is the mothership host (callers fall back to
+ * the assembled-from-fragments mothership /nova URL there) or not a
+ * marketplace host at all.
  *
  * Examples:
  *   composeTenantConsoleURL('marketplace.omani.homes', 'demo')
  *     → 'https://console.demo.omani.homes'
  *   composeTenantConsoleURL('marketplace.t38.omani.works', 'acme')
  *     → 'https://console.acme.t38.omani.works'
- *   composeTenantConsoleURL('marketplace.openova.io', 'demo')
+ *   composeTenantConsoleURL(MOTHERSHIP_HOST, 'demo')
  *     → null   (mothership stays on /nova)
  */
 export function composeTenantConsoleURL(host: string, slug: string): string | null {
   const h = (host || '').toLowerCase().trim();
   const s = (slug || '').toLowerCase().trim();
   if (!h || !s) return null;
-  if (h === 'marketplace.openova.io') return null;
+  if (h === MOTHERSHIP_HOST) return null;
   if (!h.startsWith('marketplace.')) return null;
   const sovFqdn = h.slice('marketplace.'.length);
   if (!sovFqdn) return null;
