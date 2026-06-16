@@ -477,6 +477,30 @@ controllers:
     # validates it on a live env and flips this in the per-Sovereign values
     # overlay. Stays runtime-overridable per Inviolable Principle #4.
     perOrgRealmEnabled: false
+    # PR #3700 §4.3 (deferred half of #3687) — per-Org vCluster Flux loop.
+    # On Organization-CR creation the org-controller now find-or-creates a
+    # host-cluster Flux GitRepository + Kustomization that reconcile the
+    # per-Org `catalyst-tenant` repo's ./vcluster tree onto the host
+    # cluster, so the vCluster HelmRelease the controller authored in Gitea
+    # actually gets APPLIED (previously assumed a manual one-off
+    # Kustomization that never ran on a fresh prov → orphaned bytes /
+    # phase=Pending). Per Inviolable Principle #4 every knob is overridable.
+    #
+    # giteaInClusterURL: the git clone URL the per-Org Flux GitRepository
+    # uses. Empty here = in-cluster default (the bp-gitea Service). MUST NOT
+    # carry `/api/v1` (that's the REST base, this is the clone URL).
+    giteaInClusterURL: ""
+    # Namespace the per-Org Flux GitRepository + Kustomization land in.
+    # Empty = flux-system (matches the chart's other Flux sources).
+    fluxNamespace: ""
+    # Reconcile interval (seconds) stamped on the per-Org Flux CRs. Empty/0
+    # = 60s default.
+    fluxIntervalSeconds: ""
+    # Name of a Flux basic-auth Secret (in fluxNamespace) holding the Gitea
+    # PAT the per-Org GitRepository clones with — bp-gitea
+    # REQUIRE_SIGNIN_VIEW=true makes anonymous clone 401. Empty = anonymous
+    # (parity with controllers.application.fluxGiteaSecretRef).
+    fluxGiteaSecretRef: ""
     # Free-form extra env vars threaded into the Pod (advanced; for one-off
     # operator-side knobs not yet promoted to a top-level value).
     env: {}

@@ -2735,7 +2735,24 @@ name: bp-catalyst-platform
 # (qaFixtures.cnpgBackupEndpointURL + cnpg-clusters-qa.yaml) to the
 # syncer-mangled host Service name. qa-fixtures only; Catalyst-Zero render
 # byte-unchanged. (1.4.622 was a content-free deploy-bot image sweep.)
-version: 1.4.656
+version: 1.4.657
+# 1.4.657 — PR #3700 §4.3 (Refs #3687, 2026-06-17): close the per-Org
+# vCluster Flux loop — the deferred half of the object-model-LIVE master.
+# The organization-controller already PUT the vCluster Namespace + HelmRelease
+# into the per-Org `<slug>/catalyst-tenant` Gitea repo, but NOTHING on the
+# host cluster watched it (the design assumed a manual one-off
+# `clusters/<host>/tenants/<slug>/` Kustomization that never ran on a fresh
+# prov) — so the manifest sat as orphaned bytes and vclusterReadiness()
+# reported phase=Pending forever. The controller now find-or-creates a
+# host-cluster Flux GitRepository (catalyst-tenant-<slug>) + Kustomization
+# (catalyst-tenant-<slug>-vcluster, path ./vcluster, prune:true, no
+# cross-namespace ownerRef per the Fix #42 GC-trap idiom) that reconcile that
+# repo's ./vcluster tree onto the host cluster, so the vCluster HR is actually
+# APPLIED and the Org walks Pending → Provisioning → Ready. New
+# organization-controller env (CATALYST_GITEA_INCLUSTER_URL / CATALYST_FLUX_*)
+# + ClusterRole grants for gitrepositories + kustomizations (create/update/
+# delete). Templates-only chart delta is the deployment env block + the
+# ClusterRole rules; rendered identically on Catalyst-Zero + Sovereign.
 # 1.4.648 — #3638 (2026-06-16, Refs #3379; rebased over main's 1.4.647 deploy-bot bump) — fix the cutover step-07 re-run
 # loop at its source. templates/configmap-catalyst-runtime-config.yaml now
 # DERIVES sovereign-console-url + sovereign-api-public-url from
