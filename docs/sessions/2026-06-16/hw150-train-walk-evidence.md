@@ -30,6 +30,7 @@ not a path-level green. `✅ met · 🟡 partial · ❌ not met`.
 | #4 | No per-app hardcoding — concepts generic for all | 🟡 | Topology editor's region picker uses **live** `me-east-215-a/-b` ✅. BUT the Overview's "Available regions" is **hardcoded to Hetzner** `hz-fsn-rtz-prod / hz-hel-rtz-prod` on a Huawei prov ❌ — localized stale placeholder. `hw150-appdetail-hardcoded-hetzner-regions.png`. |
 | #6/#7 | UI faithfulness / live DR-switchover (Continuum) status | 🟡 | AppDetail "Live status" polls `GET …/applications/bp-alloy/status` → **404 in a loop (17×)** because bp-alloy is a bootstrap HelmRelease (no Application CR); "Loading status…" never resolves. No tenant Application exists on hw150 → #7 (Continuum record) not positively walkable here; the 404-loop is a real no-CR-handling bug. |
 | #5 | Flux-first activities; DR-as-flux-job | ✅ | `/jobs` → ~225 activities grouped by parent (**Phase 0 — Infrastructure** · **Cluster Bootstrap** · **Applications**), 531 Succeeded / 66 Running / 3 Failed; 218 flux/HelmRelease/reconcile refs; cutover steps surface as jobs (**Crossplane Provider Pivot**, **Egress Block Test**). Every activity is a flux job in the unified view. `hw150-jobs-fluxfirst.png`. |
+| **NS#5 / cutover** | Pillar-5 sovereignty cutover (11 steps → 600 s deny-egress) | ✅ | **AUTO-FIRED + PASSED.** All cutover Jobs Complete (incl. `crossplane-provider-pivot`, `vcluster-registry-pivot`, `egress-block-test`). The egress-block log: egressDeny applied (`harbor.openova.io`/`xpkg`/ghcr blocked) → fresh pull from **local Harbor** in 11 s under denied egress (#3647) → **"no new regressions during 600 s window — sovereignty proof PASSED."** Per memory the wedge had only reached **step-08** (hw148); hw150 ran the FULL set. A Continuum CR exists (`cnpg-pair-…-continuum`) — addresses #7's "no record" — but **Degraded** (cnpg-pair 2/3, 3rd replica still "Creating" → no lease yet). |
 
 ## Open follow-ups (surfaced by this walk)
 
@@ -39,12 +40,14 @@ not a path-level green. `✅ met · 🟡 partial · ❌ not met`.
 4. **AppDetail Live-status 404-loop** — `/api/v1/sovereigns/{id}/applications/{app}/status` 404s for bootstrap HelmReleases (no Application CR); the topology "Live status" poller should handle the no-CR case instead of spamming 404 + sticking on "Loading…" (17 console errors on the bp-alloy Topology tab).
 5. **Overview "Available regions" hardcoded** to Hetzner examples (`hz-fsn-rtz-prod`/`hz-hel-rtz-prod`) — derive from live infra like the Topology editor already does (`me-east-215-a/-b`).
 
-## Still to walk (this env, pre-wipe)
+## Walk complete — every car walked
 
-**Cutover (T1)** only — installed dormant pre-handover; the 8-step pivot + 600 s deny-egress hold needs the handover trigger (a separate phase). All other cars walked.
+**7 fully green** — #1 (catalog inline edit), #2 (topology strip coherent), #5 (flux-first activities), **NS#5 / cutover (600 s deny-egress sovereignty proof PASSED)**, NS#3 (SSO signed-in), NS#4 (multi-region WAL streaming), + jobs-fresh within #6.
+**5 partial** — #3 (topology-canonical backend), #4 (Overview hardcoded regions), #6 (status-404 loop), #7 (Continuum exists but Degraded — cnpg 2/3), #8 (catalog→IaC commit times out), NS#1 (platform on host).
+**1 not-met** — NS#2 (shared-PG disabled this prov).
 
-## Tally
+**Headline:** the cutover **auto-fired** and its **600 s deny-egress sovereignty proof PASSED** — Pillar-5 landed on a fresh zero-touch prov (first full 11-step run; prior best was step-08 on hw148).
 
-6 fully green (#1, #2, #5, NS#3, NS#4 — and jobs-fresh within #6) · 5 partial (#3, #4, #6, #7, #8, NS#1) · 1 not-met (NS#2, shared-PG disabled this prov) · 1 pending (cutover). 3 fixes dispatched (404-loop, hardcoded-regions, topology-canonical).
+Fixes for the partials: **PR #3660** (404-loop ✅), **PR #3661** (hardcoded-regions ✅), C topology-canonical (building).
 
 _Evidence images live alongside this file under `evidence/` once exported from the Playwright run dir._
