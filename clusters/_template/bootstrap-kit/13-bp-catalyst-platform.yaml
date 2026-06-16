@@ -1127,25 +1127,26 @@ spec:
     # pre-existing definition. The opt-out shipped in
     # bp-sso-bridge 0.1.1 (G91-fu, Refs #2659, edc55c08) gates exactly
     # this case — `skipClientUpsert: true` makes bp-sso-bridge skip the
-    # per-Client upsert + ExternalSecret + per-Client `admin` grant path
-    # and ONLY run grant_operator_realm_roles.
+    # per-Client upsert + ExternalSecret path.
     #
-    # clientId is set to `catalyst-ui` to match the realm-import Client.
-    # bp-sso-bridge does not consult clientId when skipClientUpsert=true
-    # (it only feeds the labels/logs); the realm-role grant is per-user
-    # not per-client.
+    # #3374 Layer-C (2026-06-17): `realmRolesGranted` REMOVED. The
+    # console-admin realm role (`catalyst-admin`) is now conferred by
+    # membership in the `/sovereign-admins` group — the realm import
+    # composites `realmRoles: ["catalyst-admin"]` onto that group
+    # (configmap-sovereign-realm.yaml), and the owner is placed in the
+    # group at handover (auth_handover.go EnsureUser). ONE membership
+    # lights up console + KC console + every app. The former per-email
+    # grant_operator_realm_roles path (the dead admin-by-default theater,
+    # #3685) is deleted from bp-sso-bridge, so this slot no longer needs
+    # to declare the role — admin follows the group, generically.
     #
-    # realm-role `catalyst-admin` exists in the realm import (see
-    # configmap-sovereign-realm.yaml composite-role chain). If a future
-    # realm re-architecture drops the role, the grant is a no-op (the
-    # framework's lookup returns 404 and logs a WARN — non-fatal).
+    # clientId is set to `catalyst-ui` to match the realm-import Client
+    # (feeds bp-sso-bridge labels/logs only when skipClientUpsert=true).
     sso:
       enabled: true
       realm: sovereign
       clientId: catalyst-ui
       skipClientUpsert: true
-      realmRolesGranted:
-        - catalyst-admin
     # G87 #2634: multi-region CNPG instances default (1 single-region, 2 multi).
     # Applies to sme-services' CNPG cluster (sme-pg).
     # #2840-followup (2026-06-03): the chart reads `.Values.smePostgres.

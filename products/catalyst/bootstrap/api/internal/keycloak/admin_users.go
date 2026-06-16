@@ -128,6 +128,85 @@ func (c *Client) ListRealmRoleMembers(ctx context.Context, name string) ([]User,
 	return users, nil
 }
 
+// UserGroupPaths returns the full group paths (e.g. "/sovereign-admins")
+// a user belongs to, looked up by exact email.
+//
+// #3374 Layer-C (2026-06-17): the PIN-mint admin-authority fix
+// (auth.go) needs to know whether a PIN-authenticated user is in
+// /sovereign-admins — the ONE decision point for admin (#3374 §2 law
+// #4). It resolves the user by exact email, then reads
+// GET /admin/realms/{realm}/users/{id}/groups.
+//
+// Returns:
+//   - ([], nil) when the email has no realm user yet (the realm-import
+//     owner seed + EnsureUser create it; a brand-new PIN-only email
+//     simply isn't admin) — callers treat empty as "no admin group".
+//   - the slice of group `path` strings on success.
+//
+// The catalyst-api SA already holds view-users/query-users on the
+// sovereign realm (configmap-sovereign-realm.yaml clientScopeMappings),
+// so this read needs no extra grant.
+func (c *Client) UserGroupPaths(ctx context.Context, email string) ([]string, error) {
+	saToken, err := c.serviceAccountToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("keycloak.UserGroupPaths: service account token: %w", err)
+	}
+	// 1. Resolve the user id by exact email.
+	uq := fmt.Sprintf("%s/admin/realms/%s/users?email=%s&exact=true&max=1",
+		c.addr, c.realm, url.QueryEscape(email))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, uq, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+saToken)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("keycloak: GET user by email: %w", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("keycloak: GET user by email %d: %s", resp.StatusCode, body)
+	}
+	var users []User
+	if err := json.Unmarshal(body, &users); err != nil {
+		return nil, fmt.Errorf("keycloak: decode user by email: %w", err)
+	}
+	if len(users) == 0 || users[0].ID == "" {
+		return []string{}, nil
+	}
+	// 2. Read the user's groups.
+	gq := fmt.Sprintf("%s/admin/realms/%s/users/%s/groups?first=0&max=1000",
+		c.addr, c.realm, url.PathEscape(users[0].ID))
+	greq, err := http.NewRequestWithContext(ctx, http.MethodGet, gq, nil)
+	if err != nil {
+		return nil, err
+	}
+	greq.Header.Set("Authorization", "Bearer "+saToken)
+	gresp, err := c.http.Do(greq)
+	if err != nil {
+		return nil, fmt.Errorf("keycloak: GET user groups: %w", err)
+	}
+	gbody, _ := io.ReadAll(gresp.Body)
+	gresp.Body.Close()
+	if gresp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("keycloak: GET user groups %d: %s", gresp.StatusCode, gbody)
+	}
+	var groups []Group
+	if err := json.Unmarshal(gbody, &groups); err != nil {
+		return nil, fmt.Errorf("keycloak: decode user groups: %w", err)
+	}
+	paths := make([]string, 0, len(groups))
+	for _, g := range groups {
+		if g.Path != "" {
+			paths = append(paths, g.Path)
+		} else if g.Name != "" {
+			paths = append(paths, "/"+g.Name)
+		}
+	}
+	return paths, nil
+}
+
 // ListClientRoles proxies GET /admin/realms/{realm}/clients/{clientUuid}/roles.
 //
 // `clientUUID` is the Keycloak-internal UUID of the OIDC client (NOT
