@@ -1,0 +1,254 @@
+{{- /*
+Pre-install/pre-upgrade hook that bootstraps the `catalog-sovereign` branch +
+an empty aggregator directory the catalog-sovereign Flux source reconciles —
+issue #3668 (the load-bearing half of PR #3702). Modeled on the proven
+templates/sme-services/gitea-tenants-repo-bootstrap-job.yaml.
+
+WHY THIS FILE EXISTS
+====================
+The catalog-sovereign Flux chain (catalyst-api aggregator write +
+openova-catalog-sovereign GitRepository + catalog-sovereign Kustomization)
+targets the local Gitea repo `openova/openova` on a dedicated
+`catalog-sovereign` branch, under `clusters/<sovereignFQDN>/catalog-
+sovereign/`. PRE-cutover:
+
+  - The `openova/openova` repo + `main` branch ARE created by the SME
+    repo-bootstrap hook (gitea-tenants-repo-bootstrap-job.yaml, weight 12,
+    auto_init=true). THIS job runs at weight 13, AFTER it, so the repo +
+    default branch exist to branch from.
+  - The `catalog-sovereign` branch + the per-Sovereign aggregator directory
+    do NOT exist yet. Without them the openova-catalog-sovereign
+    GitRepository is "authentication required"/NotReady and the
+    catalog-sovereign Kustomization reports `path not found` — a permanent
+    NotReady the cutover egress-proof would silently accept as baseline
+    noise (the exact PRINCIPLES A1/A2 regression the SME job header
+    documents).
+
+A DEDICATED branch (not `main`) keeps the catalog aggregator immune to the
+cutover-gitea-mirror Job's `git push --mirror --force` of `main` (TBD-C18e).
+
+FIX
+===
+Idempotently, via the Gitea REST API (token auth, no kubectl/RBAC):
+  1. wait for the authed Gitea API to be reachable (REQUIRE_SIGNIN_VIEW=true
+     → the probe MUST send the token, else /version 403s, #3454);
+  2. ensure the `catalog-sovereign` branch exists (POST .../branches from the
+     repo's default branch — usually `main`);
+  3. seed an empty aggregator-directory marker
+     `clusters/${SOVEREIGN_FQDN}/catalog-sovereign/README.md` so the Flux
+     Kustomization `path` exists + reconciles Ready from t=0 with zero
+     curated Blueprints. (Flux's directory-sweep only reconciles *.yaml/*.yml
+     manifests, so a Markdown marker is inert — it merely makes the directory
+     non-empty so git can track it.)
+
+The repo + main branch + org are guaranteed by the SME job; this job does NOT
+recreate them — it only adds the catalog-sovereign branch + marker.
+
+GATING
+======
+Rendered ONLY when BOTH:
+  - .Values.global.sovereignFQDN non-empty (Sovereign, not Catalyst-Zero —
+    which has no local Gitea catalog reconcile);
+  - .Values.ingress.marketplace.enabled (the catalog/SME bundle is on).
+
+Per docs/PRINCIPLES.md #3 (no kubectl apply of workloads): a Helm hook Job
+that calls the Gitea REST API. Per #10 (no plaintext creds): the PAT is read
+at pod start from a same-namespace Secret via secretKeyRef (no kubectl, no
+Role, no cross-namespace race — the lesson the SME job header records from
+hw133). Per #4 (never hardcode): org/repo/branch + the in-cluster Gitea URL
+all flow through operator-overridable values.
+
+References:
+  - Issue #3668 (this fix), #3454 (the SME repo-bootstrap + auth precedent)
+  - templates/sme-services/gitea-tenants-repo-bootstrap-job.yaml (weight 12,
+    the repo auto-init this job front-runs to the catalog-sovereign branch)
+  - templates/catalyst-gitea-token-secret.yaml (PAT source, hook-weight 10)
+  - catalog-sovereign-gitrepository.yaml / catalog-sovereign-kustomization.yaml
+*/}}
+{{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
+{{- if .Values.global.sovereignFQDN -}}
+{{- $bs := (.Values.catalogSovereign).repoBootstrap | default dict -}}
+{{- $giteaURL := $bs.giteaInternalURL | default "http://gitea-http.gitea.svc.cluster.local:3000" -}}
+{{- $org := $bs.org | default "openova" -}}
+{{- $repo := $bs.repo | default "openova" -}}
+{{- $branch := $bs.branch | default "catalog-sovereign" -}}
+{{- $patSecret := $bs.patSourceSecretName | default "catalyst-gitea-token" -}}
+{{- $patKey := $bs.patSourceKey | default "token" -}}
+{{- $namespace := .Release.Namespace -}}
+{{- $sovFQDN := .Values.global.sovereignFQDN -}}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: catalyst-catalog-sovereign-repo-bootstrap
+  namespace: {{ $namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+    catalyst.openova.io/component: catalog-sovereign-repo-bootstrap
+    # Required by the kyverno `flux-managed` Enforce policy on converged
+    # Sovereigns (the release ns is NOT namespace-excluded).
+    app.kubernetes.io/managed-by: flux
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    # Weight 13: AFTER the catalyst-gitea-token mint Job (weight 10) so the
+    # PAT is populated, AND AFTER the SME repo-bootstrap Job (weight 12) which
+    # auto-inits the openova/openova repo + main branch this Job branches from.
+    helm.sh/hook-weight: "13"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 8
+  template:
+    metadata:
+      labels:
+        catalyst.openova.io/blueprint: bp-catalyst-platform
+        catalyst.openova.io/component: catalog-sovereign-repo-bootstrap
+    spec:
+      # #3454 pattern — NO ServiceAccount/Role/RoleBinding. The PAT is sourced
+      # via env secretKeyRef from a same-namespace Secret, resolved by the
+      # kubelet at pod start — no kubectl call, no cross-namespace Role race
+      # (the hw133 failure the SME job header records). Uses the default SA.
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          # Explicit harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md
+          # MIRROR-EVERYTHING rule (matches the SME job + mint Job image).
+          image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
+          env:
+            - name: GITEA_URL
+              value: {{ $giteaURL | quote }}
+            - name: GITEA_ORG
+              value: {{ $org | quote }}
+            - name: GITEA_REPO
+              value: {{ $repo | quote }}
+            - name: CATALOG_BRANCH
+              value: {{ $branch | quote }}
+            - name: SOVEREIGN_FQDN
+              value: {{ $sovFQDN | quote }}
+            - name: ITERATIONS
+              value: {{ .Values.giteaWait.iterations | default 168 | quote }}
+            - name: INTERVAL
+              value: {{ .Values.giteaWait.intervalSeconds | default 5 | quote }}
+            # The Gitea admin PAT minted by catalyst-gitea-token-secret.yaml
+            # (hook-weight 10). secretKeyRef with empty .value passes the
+            # kyverno `secret-not-in-env` policy (it only denies plaintext
+            # values). optional:false — the Job MUST have the PAT.
+            - name: GITEA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $patSecret | quote }}
+                  key: {{ $patKey | quote }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              API="${GITEA_URL}/api/v1"
+
+              if [ -z "${GITEA_TOKEN:-}" ]; then
+                echo "[catalog-repo-bootstrap] FATAL: GITEA_TOKEN empty (catalyst-gitea-token PAT not yet minted)" >&2
+                exit 1
+              fi
+              # All calls use Gitea token auth (Authorization: token <PAT>).
+              # NEVER echo the token.
+
+              # Step 1: wait for the authed Gitea API to be reachable.
+              # #3454 — the probe MUST authenticate (REQUIRE_SIGNIN_VIEW=true
+              # → unauthenticated /version is 403, not 200).
+              for i in $(seq 1 "$ITERATIONS"); do
+                code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 \
+                  -H "Authorization: token ${GITEA_TOKEN}" "${API}/version" || echo 000)
+                if [ "$code" = "200" ]; then
+                  echo "[catalog-repo-bootstrap] gitea api reachable (authed /version=200)"
+                  break
+                fi
+                echo "[catalog-repo-bootstrap] waiting for gitea api ($i/$ITERATIONS, /version=${code})"
+                sleep "$INTERVAL"
+              done
+
+              # Step 2: confirm the repo exists (created by the SME job at
+              # weight 12). If it is somehow absent, wait briefly rather than
+              # racing — the SME job's own backoff will create it.
+              for i in $(seq 1 30); do
+                RC=$(curl -sS -o /dev/null -w '%{http_code}' \
+                  -H "Authorization: token ${GITEA_TOKEN}" "${API}/repos/${GITEA_ORG}/${GITEA_REPO}")
+                if [ "$RC" = "200" ]; then
+                  break
+                fi
+                echo "[catalog-repo-bootstrap] waiting for ${GITEA_ORG}/${GITEA_REPO} to exist ($i/30, GET=${RC})"
+                sleep 2
+              done
+
+              # Step 3: ensure the catalog-sovereign branch exists (from the
+              # repo's actual default branch — auto_init names it per the
+              # instance default, usually "main").
+              BR_CODE=$(curl -sS -o /dev/null -w '%{http_code}' \
+                -H "Authorization: token ${GITEA_TOKEN}" \
+                "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/branches/${CATALOG_BRANCH}")
+              if [ "$BR_CODE" = "200" ]; then
+                echo "[catalog-repo-bootstrap] branch ${CATALOG_BRANCH} already present"
+              else
+                DEFAULT_BRANCH=$(curl -sS -H "Authorization: token ${GITEA_TOKEN}" \
+                  "${API}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null \
+                  | grep -oE '"default_branch":"[^"]*"' | head -1 | cut -d'"' -f4)
+                [ -n "$DEFAULT_BRANCH" ] || DEFAULT_BRANCH=main
+                echo "[catalog-repo-bootstrap] creating branch ${CATALOG_BRANCH} from ${DEFAULT_BRANCH} (GET was ${BR_CODE})"
+                curl -sS -o /dev/null -w '[catalog-repo-bootstrap] POST /branches -> %{http_code}\n' \
+                  -H "Authorization: token ${GITEA_TOKEN}" -H "Content-Type: application/json" \
+                  -X POST "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/branches" \
+                  -d "{\"new_branch_name\":\"${CATALOG_BRANCH}\",\"old_branch_name\":\"${DEFAULT_BRANCH}\"}" || true
+                FINAL=$(curl -sS -o /dev/null -w '%{http_code}' \
+                  -H "Authorization: token ${GITEA_TOKEN}" \
+                  "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/branches/${CATALOG_BRANCH}")
+                if [ "$FINAL" != "200" ]; then
+                  echo "[catalog-repo-bootstrap] FATAL: branch ${CATALOG_BRANCH} not present after create (HTTP ${FINAL})" >&2
+                  exit 1
+                fi
+                echo "[catalog-repo-bootstrap] branch ${CATALOG_BRANCH} present"
+              fi
+
+              # Step 4: seed the empty aggregator-directory marker so the Flux
+              # Kustomization path exists + reconciles Ready from t=0 (idempotent
+              # — GET-404-guarded; catalyst-api later PUTs bp-<name>.yaml files
+              # beside it, which Flux's directory-sweep reconciles into CRs).
+              MARKER_PATH="clusters/${SOVEREIGN_FQDN}/catalog-sovereign/README.md"
+              MC=$(curl -sS -o /dev/null -w '%{http_code}' \
+                -H "Authorization: token ${GITEA_TOKEN}" \
+                "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/contents/${MARKER_PATH}?ref=${CATALOG_BRANCH}")
+              if [ "$MC" = "200" ]; then
+                echo "[catalog-repo-bootstrap] aggregator marker already present"
+              else
+                echo "[catalog-repo-bootstrap] seeding aggregator marker ${MARKER_PATH} (GET was ${MC})"
+                # base64 of the marker body (no shell heredoc — keep it literal).
+                CONTENT_B64=$(printf '%s\n' "# catalog-sovereign aggregator (#3668)" \
+                  "" \
+                  "Flux (openova-catalog-sovereign GitRepository + catalog-sovereign" \
+                  "Kustomization) reconciles every bp-<name>.yaml in this directory into a" \
+                  "live blueprints.catalyst.openova.io/v1 CR. catalyst-api writes these on" \
+                  "console catalog edit / curate (writeCatalogSovereignAggregator). This" \
+                  "README is an inert directory marker (Flux sweeps only *.yaml/*.yml)." \
+                  | base64 | tr -d '\n')
+                curl -sS -o /dev/null -w '[catalog-repo-bootstrap] PUT marker -> %{http_code}\n' \
+                  -H "Authorization: token ${GITEA_TOKEN}" -H "Content-Type: application/json" \
+                  -X POST "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/contents/${MARKER_PATH}" \
+                  -d "{\"branch\":\"${CATALOG_BRANCH}\",\"message\":\"catalog-sovereign: seed aggregator directory (#3668)\",\"content\":\"${CONTENT_B64}\"}" || true
+              fi
+
+              echo "[catalog-repo-bootstrap] done — ${GITEA_ORG}/${GITEA_REPO}@${CATALOG_BRANCH} ready for catalog-sovereign reconcile"
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { memory: 256Mi }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}
+{{- end }}

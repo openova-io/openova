@@ -492,6 +492,108 @@ func TestCommitCatalogAppEditToGit_ByteIdenticalIsDurable(t *testing.T) {
 	}
 }
 
+// TestWriteCatalogEditToGit_MirrorsToFluxAggregator — #3668: the load-bearing
+// half PR #3702 deferred. On a Sovereign (SOVEREIGN_FQDN set), a console edit
+// ALSO writes the SAME merged CR bytes into the Flux-reconciled aggregator
+// tree `openova/openova @ catalog-sovereign : clusters/<fqdn>/catalog-
+// sovereign/<bp>.yaml`, so the openova-catalog-sovereign Kustomization can
+// reconcile it into the LIVE in-cluster Blueprint CR. The per-Blueprint repo
+// write (the UI read source) is unchanged; this asserts the SECOND, Flux
+// source-of-truth write lands with byte-identical content.
+func TestWriteCatalogEditToGit_MirrorsToFluxAggregator(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "t99.omani.works")
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+
+	edit := catalogEdit{
+		Slug:    "alloy",
+		Name:    "Alloy (Edited)",
+		Tagline: "RECONCILE-PROOF",
+	}
+	if _, err := h.writeCatalogEditToGit(context.Background(), edit); err != nil {
+		t.Fatalf("writeCatalogEditToGit: %v", err)
+	}
+
+	// The per-Blueprint repo write (UI read source) still lands.
+	perBP := giteaKey(catalogSovereignOrg, "bp-alloy", catalogEditGitBranch, catalogEditBlueprintPath)
+	perBPRaw, ok := fg.files[perBP]
+	if !ok {
+		t.Fatalf("per-Blueprint write missing at %s; keys=%v", perBP, fileKeys(fg))
+	}
+
+	// The Flux aggregator write lands on openova/openova @ catalog-sovereign.
+	aggPath := "clusters/t99.omani.works/catalog-sovereign/bp-alloy.yaml"
+	aggKey := giteaKey(catalogSovereignAggOrg, catalogSovereignAggRepo, catalogSovereignAggBranch, aggPath)
+	aggRaw, ok := fg.files[aggKey]
+	if !ok {
+		t.Fatalf("Flux aggregator write missing at %s; keys=%v", aggKey, fileKeys(fg))
+	}
+	if string(aggRaw) != string(perBPRaw) {
+		t.Errorf("aggregator bytes must equal the per-Blueprint CR bytes (same merged CR drives render+reconcile)\nagg:\n%s\nperBP:\n%s", aggRaw, perBPRaw)
+	}
+	if !strings.Contains(string(aggRaw), "RECONCILE-PROOF") {
+		t.Errorf("aggregator CR must carry the edited summary; got:\n%s", aggRaw)
+	}
+	// The aggregator path is the one the Flux Kustomization sweeps.
+	if got := catalogSovereignAggPath("t99.omani.works", "bp-alloy"); got != aggPath {
+		t.Errorf("catalogSovereignAggPath = %q, want %q", got, aggPath)
+	}
+}
+
+// TestWriteCatalogEditToGit_NoAggregatorOnMothership — #3668: the Catalyst-
+// Zero mothership (SOVEREIGN_FQDN empty) has NO local catalog-sovereign Flux
+// reconcile (it pushes to github.com), so the aggregator write must NOT fire.
+// The per-Blueprint write still lands (it is the read overlay everywhere).
+func TestWriteCatalogEditToGit_NoAggregatorOnMothership(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "")
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+
+	if _, err := h.writeCatalogEditToGit(context.Background(),
+		catalogEdit{Slug: "alloy", Name: "X", Tagline: "y"}); err != nil {
+		t.Fatalf("writeCatalogEditToGit: %v", err)
+	}
+	for k := range fg.files {
+		if strings.Contains(k, "/catalog-sovereign/bp-") && strings.HasPrefix(k, catalogSovereignAggOrg+"/"+catalogSovereignAggRepo+"/") {
+			t.Errorf("mothership must not write the Flux aggregator tree; found key %q", k)
+		}
+	}
+}
+
+// TestWriteCatalogSovereignAggregator_BestEffortGuards — the aggregator
+// mirror no-ops (committed=false, err=nil) when unwired or FQDN-less, and
+// never blocks the edit. Erroring Gitea surfaces an err for the caller to
+// log+swallow (the edit API still returns the per-Blueprint verdict).
+func TestWriteCatalogSovereignAggregator_BestEffortGuards(t *testing.T) {
+	// Unwired client → no-op.
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	if c, err := h.writeCatalogSovereignAggregator(context.Background(), "bp-alloy", []byte("x")); c || err != nil {
+		t.Errorf("unwired: want (false,nil); got (%v,%v)", c, err)
+	}
+
+	// Wired but FQDN empty → no-op.
+	t.Setenv("SOVEREIGN_FQDN", "")
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+	if c, err := h.writeCatalogSovereignAggregator(context.Background(), "bp-alloy", []byte("x")); c || err != nil {
+		t.Errorf("no-FQDN: want (false,nil); got (%v,%v)", c, err)
+	}
+	if len(fg.files) != 0 {
+		t.Errorf("no-FQDN must write nothing; keys=%v", fileKeys(fg))
+	}
+
+	// Wired + FQDN + erroring PutFile → err returned (caller logs+swallows).
+	t.Setenv("SOVEREIGN_FQDN", "t99.omani.works")
+	fgErr := newFakeGitea()
+	fgErr.putFileErr = errors.New("gitea: 500")
+	h.SetGiteaClient(fgErr)
+	if _, err := h.writeCatalogSovereignAggregator(context.Background(), "bp-alloy", []byte("x")); err == nil {
+		t.Errorf("erroring PutFile must return a non-nil err for the caller to log")
+	}
+}
+
 // ── tiny test helpers ────────────────────────────────────────────────
 
 func fileKeys(f *fakeGiteaClient) []string {

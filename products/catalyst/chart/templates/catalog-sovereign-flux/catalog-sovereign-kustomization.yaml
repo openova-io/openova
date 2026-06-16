@@ -1,0 +1,118 @@
+{{- /*
+Flux Kustomization reconciling the catalog-sovereign aggregator tree into
+LIVE Blueprint CRs — the load-bearing half of #3668 (deferred by PR #3702).
+
+WHY THIS FILE EXISTS
+--------------------
+catalyst-api writes every edited/curated Blueprint as a full,
+ownership-stripped Blueprint CR into:
+
+  openova/openova @ catalog-sovereign
+  └── clusters/<sovereignFQDN>/catalog-sovereign/<bp>.yaml
+
+(writeCatalogSovereignAggregator in internal/handler/catalog_edit_git.go).
+This Kustomization sweeps that directory and SERVER-SIDE-APPLIES every
+`*.yaml` as a `blueprints.catalyst.openova.io/v1` CR — so a console edit
+reaches the LIVE in-cluster CR (and the chained catalog client
+`catalog_client_cluster_fallback.go` LISTs it, surfacing the edit to every
+catalog read), surviving `helm upgrade`.
+
+DIRECTORY SWEEP (no kustomization.yaml index)
+---------------------------------------------
+The aggregator directory carries NO `kustomization.yaml`. When the `path`
+has no kustomize index, Flux's kustomize-controller auto-generates one over
+every plain manifest in the directory — so catalyst-api only PUTs one flat
+`<bp>.yaml` per Blueprint and Flux reconciles the whole set, with ZERO
+index-maintenance write. The repo-bootstrap hook seeds an empty directory
+marker so this Kustomization is Ready from first convergence with no curated
+Blueprints (avoiding a permanent `path not found` NotReady the cutover
+egress-proof would otherwise accept as baseline noise).
+
+THE HELM → FLUX OWNERSHIP HANDOFF (DoD §9.4)
+--------------------------------------------
+catalog-seed (templates/catalog-seed/blueprints.yaml) bootstraps all baseline
+Blueprint CRs Helm-owned. Once a Blueprint is edited/curated, THIS
+Kustomization must become the authoritative owner of the same-named CR so a
+chart `helm upgrade` cannot revert the edit. Two coordinated mechanisms:
+
+  1. force: true (below) — SSA with force makes kustomize-controller win
+     field ownership of every field it applies. The Gitea source is
+     ownership-stripped (no app.kubernetes.io/managed-by, no helm.toolkit
+     annotations — stripBlueprintCRMapForGit), so Flux's apply does not
+     re-introduce Helm's field-manager; Flux is the durable owner of the
+     spec.
+
+  2. helm.sh/resource-policy: keep on every catalog-seed CR — so a future
+     helm reconcile that no longer renders / would prune the now-Flux-owned
+     CR leaves it intact instead of clawing it back.
+
+Together: catalog-seed seeds the CR ONCE (the t=0 fallback for un-curated
+Blueprints); Flux ADOPTS it on first edit and helm never reverts it. The two
+controllers do NOT fight — they own disjoint lifecycles keyed on whether a
+Gitea file exists for the Blueprint.
+
+CONTRACT
+--------
+  sourceRef: flux-system/openova-catalog-sovereign  (sibling GitRepository,
+             dedicated catalog-sovereign branch, mirror-clobber-immune)
+  path:      ./clusters/<sovereignFQDN>/catalog-sovereign
+  interval:  1m
+  prune:     true   (deleting a curated Blueprint from Gitea GCs its CR)
+  wait:      false  (Blueprint CRs validate at admission via the CRD schema;
+                     readiness is per-CR, no inter-CR gating)
+  force:     true   (SSA adoption over the Helm-owned catalog-seed CR)
+
+GATING
+------
+Rendered ONLY when .Values.global.sovereignFQDN non-empty AND
+.Values.ingress.marketplace.enabled — the same Sovereign discriminator the
+GitRepository + the SME bundle use.
+
+Per Inviolable Principle #3 the chart templates the resource and Flux owns
+the apply — no `kubectl apply` of CRs. Per #4 every cadence/timeout/ref knob
+is operator-overridable via .Values.catalogSovereign.kustomization.*.
+
+References:
+  - Issue #3668 (this fix), deferred half of PR #3702 / #3648
+  - templates/sme-services/sme-tenants-kustomization.yaml (the exact pattern)
+  - templates/catalog-seed/blueprints.yaml (the seed + resource-policy:keep)
+  - catalog-sovereign-gitrepository.yaml (the source)
+*/}}
+{{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
+{{- $sovFQDN := .Values.global.sovereignFQDN -}}
+{{- if $sovFQDN -}}
+{{- $kt := (.Values.catalogSovereign).kustomization | default dict -}}
+{{- $sourceRef := ($kt.sourceRef | default dict) -}}
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: {{ $kt.name | default "catalog-sovereign" | quote }}
+  namespace: {{ $kt.namespace | default "flux-system" | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+    catalyst.openova.io/component: catalog-sovereign-reconciler
+    app.kubernetes.io/part-of: catalog
+spec:
+  interval: {{ $kt.interval | default "1m" | quote }}
+  retryInterval: {{ $kt.retryInterval | default "1m" | quote }}
+  timeout: {{ $kt.timeout | default "5m" | quote }}
+  path: ./clusters/{{ $sovFQDN }}/catalog-sovereign
+  prune: {{ $kt.prune | default true }}
+  # wait: false — Blueprint CRs are validated at admission by the CRD's
+  # openAPIV3Schema; there is no Ready condition to gate on, and one
+  # invalid CR must not block reconciling the rest.
+  wait: {{ $kt.wait | default false }}
+  # force: true — #3668 §9.4 Helm→Flux ownership adoption. SSA with force
+  # makes kustomize-controller the authoritative field-manager of the
+  # Blueprint CR, so a chart `helm upgrade` (which re-renders the
+  # catalog-seed CR) cannot revert a console edit. The Gitea source is
+  # ownership-stripped so Flux's apply does not re-introduce Helm's
+  # field-manager; combined with helm.sh/resource-policy:keep on the seed
+  # CRs, the edit is durable across upgrades.
+  force: {{ $kt.force | default true }}
+  sourceRef:
+    kind: GitRepository
+    name: {{ $sourceRef.name | default "openova-catalog-sovereign" | quote }}
+    namespace: {{ $sourceRef.namespace | default "flux-system" | quote }}
+{{- end }}
+{{- end }}
