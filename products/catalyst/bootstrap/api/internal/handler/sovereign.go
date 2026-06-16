@@ -1035,7 +1035,7 @@ func resolveAppEnvironment(envBySlug map[string]string, slug string) string {
 // Sovereign's marketplace. Replaces the deleted /catalog page's
 // per-row toggle: the chip lives on each AppsPage card now. The
 // chroot's catalyst-api proxies the PATCH to the in-cluster SME
-// catalog service at http://catalog.sme.svc.cluster.local:8082 —
+// catalog service at http://catalog.org-services.svc.cluster.local:8082 —
 // same data plane the deleted /catalog page used.
 //
 // 503 when the SME catalog is not deployed on this Sovereign

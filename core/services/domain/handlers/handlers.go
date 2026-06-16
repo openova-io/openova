@@ -28,7 +28,7 @@ type Handler struct {
 	Producer    events.BrokerPublisher
 	CNAMETarget string // e.g., sme.openova.io
 	// TenantURL is the internal base URL for the tenant service
-	// (e.g., http://tenant.sme.svc.cluster.local:8083). Used for cross-service
+	// (e.g., http://tenant.org-services.svc.cluster.local:8083). Used for cross-service
 	// membership checks. When empty, authorization helpers fall back to
 	// deny-by-default so we never IDOR silently.
 	TenantURL string

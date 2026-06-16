@@ -18,9 +18,9 @@
 // missing TLD on the picker hits a 422 invalid-parent-domain at SME
 // tenant signup because FindParentDomain doesn't recognise the TLD.
 //
-// PR #1861 widened LoadSMETenantParentDomainsFromEnv() to seed all 4
+// PR #1861 widened LoadOrganizationParentDomainsFromEnv() to seed all 4
 // entries, but that's the *env-stub fallback* path used by the SME
-// tenant create handler's startup wiring (SMETenantDeps.ParentDomains).
+// tenant create handler's startup wiring (OrganizationDeps.ParentDomains).
 // The /api/v1/sovereign/parent-domains HTTP surface reads from the
 // adopted Deployment's persistent Request.ParentDomains slice, NOT
 // the env stub. The mother-written record bypasses the fallback.

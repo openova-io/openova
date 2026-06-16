@@ -1,5 +1,5 @@
 // sovereign_parent_domains_test.go — guards the canonical four-entry
-// sme-pool seed surfaced by LoadSMETenantParentDomainsFromEnv. This is
+// sme-pool seed surfaced by LoadOrganizationParentDomainsFromEnv. This is
 // the regression boundary for DoD D30 (issue #1830 — "free-subdomain
 // selection from operator-curated pool").
 //
@@ -22,7 +22,7 @@ import (
 	"testing"
 )
 
-// TestLoadSMETenantParentDomainsFromEnv_CanonicalFourEntryPool guards
+// TestLoadOrganizationParentDomainsFromEnv_CanonicalFourEntryPool guards
 // the hardcoded fallback path (CATALYST_SME_POOL_DOMAINS unset). The
 // returned slice must carry every .omani.X TLD from
 // core/services/domain/store.AllowedTLDs so the marketplace /addons
@@ -35,13 +35,13 @@ import (
 // already delegated to the Sovereign's PowerDNS at gTLD level — no
 // Day-2 Dynadot flip is needed (pdmFlipNS nsAlreadyMatches
 // short-circuits).
-func TestLoadSMETenantParentDomainsFromEnv_CanonicalFourEntryPool(t *testing.T) {
+func TestLoadOrganizationParentDomainsFromEnv_CanonicalFourEntryPool(t *testing.T) {
 	// Defensively isolate from the caller's env. Tests may run in
 	// parallel; CATALYST_SME_POOL_DOMAINS and CATALYST_OTECH_FQDN
 	// must be unset to exercise the hardcoded fallback path.
 	t.Setenv("CATALYST_SME_POOL_DOMAINS", "")
 	t.Setenv("CATALYST_OTECH_FQDN", "")
-	got := LoadSMETenantParentDomainsFromEnv()
+	got := LoadOrganizationParentDomainsFromEnv()
 
 	want := []string{"omani.homes", "omani.rest", "omani.trade", "omani.works"}
 	names := make([]string, 0, len(got))
@@ -68,16 +68,16 @@ func TestLoadSMETenantParentDomainsFromEnv_CanonicalFourEntryPool(t *testing.T) 
 	}
 }
 
-// TestLoadSMETenantParentDomainsFromEnv_OTECHFQDNPrimary verifies that
+// TestLoadOrganizationParentDomainsFromEnv_OTECHFQDNPrimary verifies that
 // when CATALYST_OTECH_FQDN is set on the hardcoded-fallback path, the
 // otech FQDN is prepended as the role=primary entry. This is the
 // post-handover catalyst-api topology where the Sovereign's own FQDN
 // becomes the implicit primary and the four .omani.X TLDs are the
 // sme-pool offered to SME tenants registering through the marketplace.
-func TestLoadSMETenantParentDomainsFromEnv_OTECHFQDNPrimary(t *testing.T) {
+func TestLoadOrganizationParentDomainsFromEnv_OTECHFQDNPrimary(t *testing.T) {
 	t.Setenv("CATALYST_SME_POOL_DOMAINS", "")
 	t.Setenv("CATALYST_OTECH_FQDN", "t99.example.io")
-	got := LoadSMETenantParentDomainsFromEnv()
+	got := LoadOrganizationParentDomainsFromEnv()
 	if len(got) == 0 || got[0].Name != "t99.example.io" || got[0].Role != "primary" {
 		t.Fatalf("first entry must be the OTECH primary, got %+v", got)
 	}
@@ -93,14 +93,14 @@ func TestLoadSMETenantParentDomainsFromEnv_OTECHFQDNPrimary(t *testing.T) {
 	}
 }
 
-// TestLoadSMETenantParentDomainsFromEnv_EnvOverride checks that the
+// TestLoadOrganizationParentDomainsFromEnv_EnvOverride checks that the
 // CATALYST_SME_POOL_DOMAINS env-var override path still works (operator
 // can swap the pool wholesale on a non-omani Sovereign). The hardcoded
 // fallback only kicks in when this env var is unset.
-func TestLoadSMETenantParentDomainsFromEnv_EnvOverride(t *testing.T) {
+func TestLoadOrganizationParentDomainsFromEnv_EnvOverride(t *testing.T) {
 	t.Setenv("CATALYST_SME_POOL_DOMAINS", "first.example:primary,second.example,third.example")
 	t.Setenv("CATALYST_OTECH_FQDN", "")
-	got := LoadSMETenantParentDomainsFromEnv()
+	got := LoadOrganizationParentDomainsFromEnv()
 	if len(got) != 3 {
 		t.Fatalf("env override should produce 3 entries, got %d (%+v)", len(got), got)
 	}

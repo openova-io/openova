@@ -21,7 +21,7 @@
 // ─────────
 // Wires `POST /api/v1/billing/purchase` and `POST /api/v1/sme/billing/purchase`
 // on catalyst-api to forward to the SME gateway at
-// http://gateway.sme.svc.cluster.local:8080, which strips the `/api`
+// http://gateway.org-services.svc.cluster.local:8080, which strips the `/api`
 // prefix and proxies to the billing service's
 // `POST /billing/purchase` route (a registered alias for `Checkout` —
 // see core/services/billing/handlers/routes.go). The handler is a thin

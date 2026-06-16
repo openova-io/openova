@@ -31,9 +31,10 @@ func TestGenerateProvisioningTenantRBAC(t *testing.T) {
 		t.Fatalf("expected kustomizations rule, got: %s", got)
 	}
 
-	// Must bind the sme/provisioning SA, not some ambient default.
-	if !strings.Contains(got, "name: provisioning") || !strings.Contains(got, "namespace: sme") {
-		t.Fatalf("expected SA binding to sme/provisioning, got: %s", got)
+	// Must bind the org-services/provisioning SA, not some ambient default
+	// (#3383: the mesh namespace was renamed `sme` → `org-services`).
+	if !strings.Contains(got, "name: provisioning") || !strings.Contains(got, "namespace: org-services") {
+		t.Fatalf("expected SA binding to org-services/provisioning, got: %s", got)
 	}
 
 	// Must NOT grant write on secrets in-tenant — only read. Writing tenant

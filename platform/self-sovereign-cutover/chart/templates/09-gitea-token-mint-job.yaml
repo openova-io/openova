@@ -4,7 +4,7 @@ Step 09 — gitea-token-mint.
 Why this step exists (TBD-C18, journey step 16 unblock)
 ───────────────────────────────────────────────────────
 The catalyst-platform chart's
-templates/sme-services/provisioning-github-token.yaml mirrors the Gitea
+templates/org-services/provisioning-github-token.yaml mirrors the Gitea
 admin Secret's `password` byte into Secret `sme/provisioning-github-token`
 under key `GITHUB_TOKEN`. The SME provisioning service then sends
 

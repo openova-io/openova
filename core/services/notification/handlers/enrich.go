@@ -23,8 +23,8 @@ import (
 // these endpoints; the gateway does not expose /tenant/admin or
 // /auth/admin.
 type Enricher struct {
-	TenantURL string // e.g. http://tenant.sme.svc.cluster.local:8083
-	AuthURL   string // e.g. http://auth.sme.svc.cluster.local:8081
+	TenantURL string // e.g. http://tenant.org-services.svc.cluster.local:8083
+	AuthURL   string // e.g. http://auth.org-services.svc.cluster.local:8081
 	// ParentZone is the Sovereign's sme-pool parent domain (e.g.
 	// "omani.homes" / "talents.scope") used to render WorkspaceURL.
 	// TBD-A67 issue #1990 removed the hardcoded `.openova.io` suffix —

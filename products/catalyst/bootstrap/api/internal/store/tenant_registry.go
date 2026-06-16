@@ -60,10 +60,10 @@ type TenantRegistration struct {
 	KeycloakRealmURL string     `json:"keycloak_realm_url"`
 	KeycloakClientID string     `json:"keycloak_client_id"`
 	TenantKind       TenantKind `json:"tenant_kind"`
-	// SMETenantNamespace — for tenant_kind=sme this is the Kubernetes
+	// OrganizationNamespace — for tenant_kind=sme this is the Kubernetes
 	// namespace in the OTECH cluster where ADR-0003 step 3 applies the
 	// `newapi-key-{user-uuid}` Secret. Empty for tenant_kind=otech.
-	SMETenantNamespace string `json:"sme_tenant_namespace,omitempty"`
+	OrganizationNamespace string `json:"sme_tenant_namespace,omitempty"`
 	// SMEKeycloakAdminURL — admin-API base for the SME-vcluster
 	// Keycloak realm (used by ADR-0003 step 1). Different from
 	// KeycloakRealmURL: that's the *issuer* (browser-facing), this is

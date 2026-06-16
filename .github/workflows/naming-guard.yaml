@@ -1,0 +1,47 @@
+name: Naming guard
+
+# Pre-merge guard that keeps the persona word `sme` (and the GLOSSARY-banned
+# `tenant`, docs/GLOSSARY.md:18) out of Catalyst MACHINERY — namespaces,
+# route paths, chart template dirs, and exported Go identifiers (#3383).
+#
+# A persona is a field VALUE (`tier: "sme"`, `TenantKindSME`), never
+# architecture. Those, plus the one-release deprecation aliases (annotated
+# `naming-guard: alias`) and docs/history, are EXEMPT. Companion to
+# banned-words-validate.yaml.
+#
+# The guard PROVES BOTH directions (DoD §9.6 / #3383): a new
+# `/api/v1/sme/*` route fails (RED); a legitimate `Tier: "sme"` value passes.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  naming-guard-self-test:
+    name: Naming guard proves both directions
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Self-test (a new sme route fails; a Tier "sme" value passes)
+        run: |
+          chmod +x scripts/check-no-persona-machinery.sh
+          ./scripts/check-no-persona-machinery.sh --self-test
+
+  naming-guard-working-tree:
+    name: Reject persona-named machinery in the working tree
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Scan working tree for persona-named machinery
+        run: |
+          chmod +x scripts/check-no-persona-machinery.sh
+          ./scripts/check-no-persona-machinery.sh

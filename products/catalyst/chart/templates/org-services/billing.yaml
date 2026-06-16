@@ -1,0 +1,141 @@
+{{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing
+  namespace: org-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sme-billing
+  template:
+    metadata:
+      labels:
+        policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
+        app: sme-billing
+    spec:
+      serviceAccountName: billing
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-pull
+      containers:
+        - name: billing
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-billing:{{ .Values.images.smeTag }}"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8085
+          env:
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.smePostgres.credentialSecret | default "sme-pg-app" }}
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.smePostgres.credentialSecret | default "sme-pg-app" }}
+                  key: password
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: POSTGRES_PORT
+            - name: DATABASE_URL
+              value: "postgres://$(PG_USER):$(PG_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/sme_billing?sslmode=disable"
+            - name: REDPANDA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: REDPANDA_BROKERS
+            # NATS JetStream URL — canonical event bus per ADR-0001 §6.
+            # Used for BOTH (a) the existing catalyst.usage.recorded
+            # metering subscriber (#798) and (b) the new canonical
+            # `catalyst.billing.order.placed` publish path (see
+            # events.MultiPublisher). On Sovereigns the ConfigMap
+            # default resolves to
+            # nats://nats-jetstream.nats-system.svc.cluster.local:4222.
+            - name: NATS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: NATS_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: org-services-secrets
+                  key: JWT_SECRET
+            - name: CORS_ORIGIN
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CORS_ORIGIN_PUBLIC
+            - name: SUCCESS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CHECKOUT_SUCCESS_URL
+            - name: CANCEL_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CHECKOUT_CANCEL_URL
+            - name: CATALOG_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CATALOG_URL
+            - name: TENANT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: TENANT_URL
+            # D28 — voucher gifting email wire. NEVER hardcoded: the
+            # service URL is canonical K8s ClusterIP DNS, and the
+            # sovereign FQDN is piped from `global.sovereignFQDN` (empty
+            # on Catalyst-Zero, populated on every Sovereign install).
+            - name: NOTIFICATION_SERVICE_URL
+              value: "http://notification.org-services.svc.cluster.local:8087/notification/send"
+            - name: SOVEREIGN_FQDN
+              value: {{ .Values.global.sovereignFQDN | default "" | quote }}
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8085
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8085
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: billing
+  namespace: org-services
+spec:
+  selector:
+    app: sme-billing
+  ports:
+    - port: 8085
+      targetPort: 8085
+{{- end }}

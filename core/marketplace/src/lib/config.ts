@@ -25,7 +25,7 @@ export const API_BASE: string = `${BASE}api`;
  * franchised bundle.
  *
  * Mothership ingress strips the `/nova` path prefix before forwarding to the
- * console service (products/catalyst/chart/templates/sme-services/
+ * console service (products/catalyst/chart/templates/org-services/
  * ingress.yaml — `strip-nova` middleware), so the mothership customer console
  * lives at `https://console.<mothership-apex>/nova/...`.
  */

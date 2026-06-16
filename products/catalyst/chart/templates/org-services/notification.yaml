@@ -1,0 +1,141 @@
+{{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification
+  namespace: org-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sme-notification
+  template:
+    metadata:
+      labels:
+        policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
+        app: sme-notification
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      containers:
+        - name: notification
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-notification:{{ .Values.images.smeTag }}"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8087
+          env:
+            # REDPANDA_BROKERS — legacy Kafka-protocol bus. Sourced
+            # from the shared ConfigMap so the per-topology default
+            # (empty on Sovereigns, talentmesh redpanda on Catalyst-
+            # Zero) applies. Pre-#1627 this template hardcoded the
+            # talentmesh service which crashlooped notification on
+            # every Sovereign at NXDOMAIN.
+            - name: REDPANDA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: REDPANDA_BROKERS
+            # NATS JetStream URL — canonical event bus per ADR-0001 §6.
+            # PR #1627 wired notification's full subscriber fan-in
+            # (user.login, order.placed, payment.received, provision.*,
+            # domain.*, member.invited) to NATS subjects so emails
+            # actually go out on Sovereigns.
+            - name: NATS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: NATS_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: org-services-secrets
+                  key: JWT_SECRET
+            - name: SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: org-services-secrets
+                  key: SMTP_HOST
+            - name: SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: org-services-secrets
+                  key: SMTP_PORT
+            - name: SMTP_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: org-services-secrets
+                  key: SMTP_FROM
+            # SMTP_USER / SMTP_PASS — added per TBD-X1 (Refs #1793).
+            # Pre-fix the notification Pod read only HOST/PORT/FROM
+            # which meant the Go net/smtp client dialed Stalwart
+            # without authentication; Stalwart's submission listener
+            # then rejected every message with 503 5.5.1 "You must
+            # authenticate first". The tight retry storm tripped
+            # Stalwart's [5 requests, 1000ms] rate-limiter for every
+            # tenant on the same relay.
+            #
+            # The auth.yaml template has consumed these two keys
+            # from sme-secrets since chart 1.4.20 (issue #934); this
+            # template was an oversight from the same change-set.
+            # The sme-secrets template's source-wins lookup against
+            # catalyst-system/sovereign-smtp-credentials already
+            # populates SMTP_USER + SMTP_PASS with the canonical
+            # mothership-relay credentials (Phase-1) or the
+            # bp-stalwart-sovereign-minted credentials (Phase-2).
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: org-services-secrets
+                  key: SMTP_USER
+            - name: SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: org-services-secrets
+                  key: SMTP_PASS
+            # CORS_ORIGIN — sourced from the shared configmap so per-Sovereign
+            # FQDN substitution (TBD-A68 / #1994, 2026-05-19) flows through
+            # automatically. Pre-fix this value hardcoded `https://sme.openova.io`
+            # which on every franchised Sovereign made the notification SSE /
+            # webhook surface advertise the mothership origin and reject real
+            # tenant requests at the CORS preflight.
+            - name: CORS_ORIGIN
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CORS_ORIGIN_PUBLIC
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8087
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8087
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification
+  namespace: org-services
+spec:
+  selector:
+    app: sme-notification
+  ports:
+    - port: 8087
+      targetPort: 8087
+{{- end }}

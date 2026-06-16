@@ -21,7 +21,7 @@ jobs:
         # `metering-sidecar` (#798) builds on the same Containerfile
         # convention as the SME services but its image is consumed by
         # the bp-newapi chart (chart/values.yaml `meteringSidecar.image`),
-        # NOT by products/catalyst/chart/templates/sme-services. The
+        # NOT by products/catalyst/chart/templates/org-services. The
         # deploy job below skips it for that reason.
         service: [auth, catalog, gateway, tenant, domain, billing, provisioning, notification, metering-sidecar]
     steps:
@@ -75,7 +75,7 @@ jobs:
       # for a chart-version-bumping PR triggers blueprint-release IN
       # PARALLEL with services-build. blueprint-release packages the
       # working tree at the merge SHA — which still has the OLD image
-      # SHA in templates/sme-services/*.yaml because services-build has
+      # SHA in templates/org-services/*.yaml because services-build has
       # not yet committed its deploy update. The chart at that version
       # ships with stale images, and a manual no-op chart bump PR is
       # the only way to republish (PR #865 chasing PR #864 was the live
@@ -91,12 +91,12 @@ jobs:
         id: rewrite
         run: |
           SHA=$(echo $GITHUB_SHA | head -c 7)
-          DEPLOY_DIR="products/catalyst/chart/templates/sme-services"
+          DEPLOY_DIR="products/catalyst/chart/templates/org-services"
           CHART_YAML="products/catalyst/chart/Chart.yaml"
           VALUES_YAML="products/catalyst/chart/values.yaml"
 
           # ──────────────────────────────────────────────────────────
-          # Issue #953: 7 of 8 sme-services templates render their
+          # Issue #953: 7 of 8 org-services templates render their
           # image as `{{ .Values.images.smeTag }}` — the chart's
           # values.yaml `images.smeTag` field is the SINGLE source of
           # truth for those Pods. Only `auth.yaml` keeps a hardcoded
@@ -174,7 +174,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           SHA=$(echo $GITHUB_SHA | head -c 7)
-          DEPLOY_DIR="products/catalyst/chart/templates/sme-services"
+          DEPLOY_DIR="products/catalyst/chart/templates/org-services"
           CHART_YAML="products/catalyst/chart/Chart.yaml"
           VALUES_YAML="products/catalyst/chart/values.yaml"
 

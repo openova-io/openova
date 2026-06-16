@@ -1282,7 +1282,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: provisioning
-    namespace: sme
+    namespace: org-services
 `, ns, ns)
 }
 

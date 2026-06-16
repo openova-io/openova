@@ -252,7 +252,7 @@ func TestIssueVoucher_SendsEmail_WhenRecipientPresent(t *testing.T) {
 	rt := &captureRoundTripper{}
 	h := &Handler{
 		Store:              store.New(db),
-		NotificationURL:    "http://notification.sme.svc.cluster.local:8087/notification/send",
+		NotificationURL:    "http://notification.org-services.svc.cluster.local:8087/notification/send",
 		SovereignFQDN:      "omani.works",
 		NotificationClient: &http.Client{Transport: rt},
 	}
@@ -285,7 +285,7 @@ func TestIssueVoucher_SendsEmail_WhenRecipientPresent(t *testing.T) {
 	if got.Method != "POST" {
 		t.Errorf("notification method: got %q, want POST", got.Method)
 	}
-	if got.URL != "http://notification.sme.svc.cluster.local:8087/notification/send" {
+	if got.URL != "http://notification.org-services.svc.cluster.local:8087/notification/send" {
 		t.Errorf("notification URL: got %q", got.URL)
 	}
 	var payload map[string]any
@@ -341,7 +341,7 @@ func TestIssueVoucher_NoEmail_WhenRecipientAbsent(t *testing.T) {
 	rt := &captureRoundTripper{}
 	h := &Handler{
 		Store:              store.New(db),
-		NotificationURL:    "http://notification.sme.svc.cluster.local:8087/notification/send",
+		NotificationURL:    "http://notification.org-services.svc.cluster.local:8087/notification/send",
 		SovereignFQDN:      "omani.works",
 		NotificationClient: &http.Client{Transport: rt},
 	}
@@ -400,7 +400,7 @@ func TestIssueVoucher_NotificationFailure_DoesNotFailUpsert(t *testing.T) {
 	}
 	h := &Handler{
 		Store:              store.New(db),
-		NotificationURL:    "http://notification.sme.svc.cluster.local:8087/notification/send",
+		NotificationURL:    "http://notification.org-services.svc.cluster.local:8087/notification/send",
 		SovereignFQDN:      "x.test",
 		NotificationClient: &http.Client{Transport: rt},
 	}
@@ -494,7 +494,7 @@ func TestIssueVoucher_SendsAuthorizationHeader(t *testing.T) {
 	rt := &captureRoundTripper{}
 	h := &Handler{
 		Store:              store.New(db),
-		NotificationURL:    "http://notification.sme.svc.cluster.local:8087/notification/send",
+		NotificationURL:    "http://notification.org-services.svc.cluster.local:8087/notification/send",
 		SovereignFQDN:      "omani.works",
 		NotificationClient: &http.Client{Transport: rt},
 		JWTSecret:          secret,
@@ -608,7 +608,7 @@ func TestIssueVoucher_NoAuthHeader_WhenJWTSecretUnset(t *testing.T) {
 	rt := &captureRoundTripper{}
 	h := &Handler{
 		Store:              store.New(db),
-		NotificationURL:    "http://notification.sme.svc.cluster.local:8087/notification/send",
+		NotificationURL:    "http://notification.org-services.svc.cluster.local:8087/notification/send",
 		NotificationClient: &http.Client{Transport: rt},
 		// JWTSecret: nil — legacy chart path.
 	}
@@ -668,7 +668,7 @@ func TestIssueVoucher_DetachesEmailDispatch_DoesNotBlockOnSlowRelay(t *testing.T
 	rt := &blockingRoundTripper{started: make(chan struct{}), release: make(chan struct{})}
 	h := &Handler{
 		Store:              store.New(db),
-		NotificationURL:    "http://notification.sme.svc.cluster.local:8087/notification/send",
+		NotificationURL:    "http://notification.org-services.svc.cluster.local:8087/notification/send",
 		SovereignFQDN:      "omani.works",
 		NotificationClient: &http.Client{Transport: rt},
 	}

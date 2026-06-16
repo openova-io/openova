@@ -54,9 +54,15 @@ func main() {
 		{PathPrefix: "/api/catalog/addons", Upstream: catalogURL, StripPrefix: "/api", Public: true},
 		// Catalog admin (requires auth).
 		{PathPrefix: "/api/catalog/admin/", Upstream: catalogURL, StripPrefix: "/api", Public: false},
-		// Tenant — slug availability is public so the checkout page can check
-		// before auth; everything else requires auth.
+		// Organization directory + CRUD (#3383: canonical `/api/organizations`,
+		// served by the tenant service's `/organizations` mux). slug
+		// availability is public so the checkout page can check before auth;
+		// everything else requires auth.
+		{PathPrefix: "/api/organizations", Upstream: tenantURL, StripPrefix: "/api", Public: false},
+		// naming-guard: alias — legacy `/api/tenant/*` paths, one-release
+		// deprecation (the marketplace SPA stays on these until removal).
 		{PathPrefix: "/api/tenant/check-slug/", Upstream: tenantURL, StripPrefix: "/api", Public: true},
+		// naming-guard: alias — legacy `/api/tenant/*`, one-release deprecation.
 		{PathPrefix: "/api/tenant/", Upstream: tenantURL, StripPrefix: "/api", Public: false},
 		// Provisioning — status polling is public, admin/start require auth.
 		{PathPrefix: "/api/provisioning/status/", Upstream: provisioningURL, StripPrefix: "/api", Public: true},
