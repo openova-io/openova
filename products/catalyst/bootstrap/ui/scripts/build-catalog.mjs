@@ -297,6 +297,39 @@ function extractTopology(topoRaw) {
   return { supported, multiRegion, singleRegion, perTopology }
 }
 
+/**
+ * #3656 (founder #6) — declared user-UI signal.
+ *
+ * The console's AppCard must render a confident, disabled "Open…"
+ * placeholder for a front-door app while its live externalURL is still
+ * resolving — and NOTHING for a headless app — so the Open chip never
+ * pops in late (assert-then-retract). To do that without an app-name
+ * hardcode, the card needs a STATIC, build-time signal of whether a
+ * Blueprint exposes a user UI at all.
+ *
+ * This mirrors the canonical backend predicate `blueprintHasUserUIEndpoint`
+ * (products/catalyst/bootstrap/api/internal/handler/endpoint_handler.go)
+ * EXACTLY so the FE placeholder and the BE-projected externalURL agree:
+ * an endpoint is a user UI when ANY of
+ *   - ssoEnabled === true    (the app fronts an OIDC login the operator uses), OR
+ *   - launchDefault === true (the chart-tagged "open me" front door), OR
+ *   - name === "ui"          (the conventional UI-endpoint name).
+ * API/protocol-only endpoints (an OCI registry, a backend proxy target)
+ * set none of these and do NOT qualify. Returns false when the Blueprint
+ * declares no endpoints — the same fail-closed default the BE uses.
+ */
+function blueprintHasUserUIEndpoint(endpointsRaw) {
+  if (!Array.isArray(endpointsRaw)) return false
+  for (const ep of endpointsRaw) {
+    if (!ep || typeof ep !== 'object') continue
+    const name = typeof ep.name === 'string' ? ep.name : ''
+    if (ep.ssoEnabled === true || ep.launchDefault === true || name.toLowerCase() === 'ui') {
+      return true
+    }
+  }
+  return false
+}
+
 function listBlueprintFiles(dir) {
   if (!existsSync(dir)) return []
   const out = []
@@ -394,6 +427,17 @@ function buildCatalog() {
       // AppDetail Topology tab for EVERY app). null when the Blueprint
       // ships no `spec.topology` block.
       topology: extractTopology(spec.topology),
+      // #3656 (founder #6) — declared user-UI signal. Drives the AppCard
+      // disabled-"Open…" placeholder while the live externalURL resolves,
+      // so a front-door app's Open chip never pops in late and a headless
+      // app never flashes a transient chip. The explicit
+      // spec.hasUserUIEndpoint declaration wins when the author sets it;
+      // otherwise derive it from spec.endpoints[] with the SAME rule the BE
+      // uses (blueprintHasUserUIEndpoint: ssoEnabled / launchDefault / name="ui").
+      hasUserUIEndpoint:
+        typeof spec.hasUserUIEndpoint === 'boolean'
+          ? spec.hasUserUIEndpoint
+          : blueprintHasUserUIEndpoint(spec.endpoints),
     })
   }
 
@@ -512,6 +556,15 @@ export interface BlueprintCardEntry {
    * ships no topology block.
    */
   topology: BlueprintTopology | null
+  /**
+   * #3656 (founder #6) — whether this Blueprint declares a user-facing UI
+   * endpoint (ssoEnabled / launchDefault / name="ui" in spec.endpoints[]),
+   * mirroring the BE's blueprintHasUserUIEndpoint. The AppCard reads this
+   * to show a confident disabled "Open…" placeholder for a front-door app
+   * while its live externalURL resolves (no late pop-in), and to suppress
+   * any placeholder for a headless app (no transient chip).
+   */
+  hasUserUIEndpoint: boolean
 }
 
 /**

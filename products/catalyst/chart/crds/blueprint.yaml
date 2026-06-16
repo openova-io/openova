@@ -641,6 +641,30 @@ spec:
                         type: string
                     silentLogin:
                       type: boolean
+                # #3656 (founder #6) — declared user-UI capability. When a
+                # Blueprint fronts a user-facing UI (an OIDC-login front
+                # door the operator opens), the console's AppCard renders a
+                # confident disabled "Open…" placeholder while the live
+                # externalURL resolves — so the Open chip never pops in late
+                # (the faithful-view law: never assert-then-retract). A
+                # headless Blueprint (controller / operator / OCI registry /
+                # API-only backend) declares false (or omits this) and the
+                # card shows NO transient chip.
+                #
+                # Authoritative source remains spec.endpoints[]: the catalog
+                # projector (build-catalog.mjs) and the BE
+                # (blueprintHasUserUIEndpoint) both derive the signal from
+                # any endpoint with ssoEnabled / launchDefault / name="ui".
+                # This explicit field lets a Blueprint author document /
+                # override the capability at admission time and makes it
+                # visible on the CR.
+                hasUserUIEndpoint:
+                  type: boolean
+                  description: |
+                    True when this Blueprint exposes a user-facing UI front
+                    door (drives the console AppCard's "Open…" placeholder).
+                    Defaults from spec.endpoints[] (ssoEnabled / launchDefault
+                    / name="ui") when omitted.
                 multiInstance:
                   type: object
                   description: |

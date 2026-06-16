@@ -149,9 +149,23 @@ export function useLiveJobsBackfill(
 }
 
 /**
+ * #3656 (founder #6) — a reducer-derived row's status is non-terminal AND
+ * unconfirmed by the live source. The reducer folds the SSE replay buffer,
+ * which can carry a stale `pending`/`running` for a job that actually
+ * finished long ago; until the live /jobs fetch lands and corrects it, the
+ * status is a guess, not ground truth.
+ */
+function isNonTerminal(status: Job['status']): boolean {
+  return status === 'pending' || status === 'running'
+}
+
+/**
  * Pure helper — merges reducer-derived jobs with live-API jobs.
  * Live data wins on conflict (same job.id). Reducer-derived rows that
- * don't appear in the live list pass through unchanged.
+ * don't appear in the live list pass through — but a reducer-derived
+ * non-terminal row is marked PROVISIONAL until the live source confirms
+ * it (#3656), so the table never asserts a definitive "Pending"/"Running"
+ * it then retracts to a terminal status.
  *
  * Stable: re-running on identical inputs produces identical output.
  * No randomness, no cached state. Exported so unit tests can lock in
@@ -169,6 +183,21 @@ export function mergeJobs(
   // navigates to a route the backend can't resolve (→ 404 → "Failed
   // to load log page"). Switch to backend-only the moment it returns
   // ≥1 row; reducer-derived stays as the empty-state fallback.
-  if (liveJobs.length > 0) return [...liveJobs]
-  return [...reducerJobs]
+  //
+  // #3656 (founder #6) — live rows are ground truth: they are NEVER
+  // provisional (clear any stale flag defensively). Their status IS the
+  // confirmed status.
+  if (liveJobs.length > 0) {
+    return liveJobs.map((j) => (j.provisional ? { ...j, provisional: false } : j))
+  }
+
+  // No live data yet (cold open, before the first /jobs fetch). Every
+  // reducer-derived row whose status is non-terminal is UNCONFIRMED —
+  // mark it provisional so the badge renders "Confirming…" rather than a
+  // definitive Pending/Running that a later live fetch may flip to
+  // succeeded/failed. Terminal reducer statuses (succeeded / failed) are
+  // a settled outcome the operator can trust, so they pass through as-is.
+  return reducerJobs.map((j) =>
+    isNonTerminal(j.status) && !j.provisional ? { ...j, provisional: true } : { ...j },
+  )
 }

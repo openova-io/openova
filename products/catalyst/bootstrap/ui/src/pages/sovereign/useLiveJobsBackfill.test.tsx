@@ -33,6 +33,8 @@ function makeJob(partial: Partial<Job>): Job {
     startedAt: partial.startedAt ?? null,
     finishedAt: partial.finishedAt ?? null,
     durationMs: partial.durationMs ?? 0,
+    // #3656 — only set when a test explicitly exercises the provisional flag.
+    ...(partial.provisional !== undefined ? { provisional: partial.provisional } : {}),
   }
 }
 
@@ -75,6 +77,68 @@ describe('mergeJobs — pure helper', () => {
     ]
     const merged = mergeJobs(reducer, live)
     expect(merged).toHaveLength(5)
+  })
+
+  // ──────────────────────────────────────────────────────────────────
+  // #3656 (founder #6) — a reducer-derived row whose status the LIVE
+  // source has not yet confirmed is provisional ("Confirming…"), never a
+  // definitive Pending/Running that a later live fetch flips.
+  // ──────────────────────────────────────────────────────────────────
+  it('marks reducer-derived NON-TERMINAL rows provisional when the live source has not landed', () => {
+    const reducer = [
+      makeJob({ id: 'a', status: 'pending' }),
+      makeJob({ id: 'b', status: 'running' }),
+    ]
+    const merged = mergeJobs(reducer, [])
+    expect(merged.map((j) => j.id)).toEqual(['a', 'b'])
+    // Both non-terminal rows are unconfirmed by the live source → provisional.
+    expect(merged.find((j) => j.id === 'a')!.provisional).toBe(true)
+    expect(merged.find((j) => j.id === 'b')!.provisional).toBe(true)
+    // Status is preserved (the badge swaps the LABEL, not the underlying status).
+    expect(merged.find((j) => j.id === 'a')!.status).toBe('pending')
+  })
+
+  it('does NOT mark reducer-derived TERMINAL rows provisional (a settled outcome is trustworthy)', () => {
+    const reducer = [
+      makeJob({ id: 'done', status: 'succeeded' }),
+      makeJob({ id: 'broke', status: 'failed' }),
+    ]
+    const merged = mergeJobs(reducer, [])
+    expect(merged.find((j) => j.id === 'done')!.provisional).toBeFalsy()
+    expect(merged.find((j) => j.id === 'broke')!.provisional).toBeFalsy()
+  })
+
+  it('live rows are NEVER provisional — once the live source lands its status is confirmed', () => {
+    // A completed-long-ago job: reducer still says pending, live says succeeded.
+    const reducer = [makeJob({ id: 'a', status: 'pending' })]
+    const live = [makeJob({ id: 'a', status: 'succeeded' })]
+    const merged = mergeJobs(reducer, live)
+    expect(merged).toHaveLength(1)
+    expect(merged[0]!.status).toBe('succeeded')
+    expect(merged[0]!.provisional).toBeFalsy()
+  })
+
+  it('clears a stale provisional flag carried on a live row (defensive)', () => {
+    const reducer: Job[] = []
+    const live = [makeJob({ id: 'a', status: 'running', provisional: true })]
+    const merged = mergeJobs(reducer, live)
+    expect(merged[0]!.provisional).toBe(false)
+  })
+
+  it('a completed job is shown provisional-then-confirmed, never non-terminal-then-flipped', () => {
+    // Cold open: reducer (stale) says the job is still running.
+    const reducer = [makeJob({ id: 'install-x', status: 'running' })]
+    const coldOpen = mergeJobs(reducer, [])
+    // The operator must NOT see a definitive "Running" for a job that's done —
+    // it is provisional until the live source confirms.
+    expect(coldOpen[0]!.provisional).toBe(true)
+    expect(coldOpen[0]!.status).toBe('running')
+
+    // Live fetch lands: the job actually finished. Live wins, confirmed.
+    const live = [makeJob({ id: 'install-x', status: 'succeeded' })]
+    const confirmed = mergeJobs(reducer, live)
+    expect(confirmed[0]!.status).toBe('succeeded')
+    expect(confirmed[0]!.provisional).toBeFalsy()
   })
 })
 

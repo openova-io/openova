@@ -698,7 +698,7 @@ function JobRow({ job, parentLabel, showRegion, regionUnionByGroupId }: JobRowPr
         )}
       </td>
       <td className="jobs-cell jobs-cell-status">
-        <StatusBadge status={job.status} jobId={job.id} />
+        <StatusBadge status={job.status} jobId={job.id} provisional={job.provisional === true} />
       </td>
       <td className="jobs-cell jobs-cell-started" title={started.absolute}>
         <span data-testid={`jobs-cell-started-${job.id}`}>{started.display}</span>
@@ -713,9 +713,36 @@ function JobRow({ job, parentLabel, showRegion, regionUnionByGroupId }: JobRowPr
 interface StatusBadgeProps {
   status: JobStatus
   jobId: string
+  /**
+   * #3656 (founder #6) — the row's status is reducer-derived and NOT yet
+   * confirmed by the live source. Render a distinct "Confirming…" badge
+   * instead of a definitive Pending/Running, so a job that actually
+   * completed is never shown non-terminal-then-flipped.
+   */
+  provisional?: boolean
 }
 
-function StatusBadge({ status, jobId }: StatusBadgeProps) {
+function StatusBadge({ status, jobId, provisional = false }: StatusBadgeProps) {
+  // #3656 — a provisional (live-unconfirmed) row never shows a definitive
+  // status. It renders "Confirming…" with its own tone + a spinner so the
+  // operator reads it as "settling", not as a committed state to flip.
+  if (provisional) {
+    return (
+      <span
+        className="jobs-badge jobs-badge-confirming"
+        data-testid={`jobs-cell-status-${jobId}`}
+        data-status="confirming"
+        // Preserve the underlying reducer-derived status for diagnostics +
+        // the sort comparator's transparency — the visible label stays
+        // provisional until the live source confirms.
+        data-underlying-status={status}
+        title="Awaiting confirmation from the live cluster state"
+      >
+        <span className="jobs-badge-spinner" aria-hidden />
+        <span className="jobs-badge-text">Confirming…</span>
+      </span>
+    )
+  }
   const tone = STATUS_TONE[status]
   return (
     <span
@@ -954,6 +981,20 @@ const JOBS_TABLE_CSS = `
 .jobs-badge-running   { background: rgba(56,189,248,0.10);  color: #38BDF8; border-color: rgba(56,189,248,0.35); }
 .jobs-badge-succeeded { background: rgba(74,222,128,0.10);  color: #4ADE80; border-color: rgba(74,222,128,0.35); }
 .jobs-badge-failed    { background: rgba(248,113,113,0.10); color: #F87171; border-color: rgba(248,113,113,0.35); }
+/* #3656 (founder #6) — provisional "Confirming…" badge: a reducer-derived
+ * row the live cluster state has not confirmed yet. Amber + DASHED border so
+ * it reads as a distinct "settling, not committed" state — unmistakable from
+ * the four definitive statuses; it resolves to the confirmed status the
+ * moment the live /jobs fetch lands. text-transform:none keeps the ellipsis
+ * label readable. */
+.jobs-badge-confirming {
+  background: rgba(251,191,36,0.10);
+  color: #FBBF24;
+  border-color: rgba(251,191,36,0.45);
+  border-style: dashed;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
 .jobs-badge-spinner {
   width: 8px;
   height: 8px;

@@ -51,7 +51,10 @@ const GRAFANA: ApplicationDescriptor = {
   bootstrapKit: true,
 }
 
-function renderCard(externalURL: string) {
+function renderCard(
+  externalURL: string,
+  opts: { hasUserUI?: boolean; urlPending?: boolean } = {},
+) {
   const rootRoute = createRootRoute({ component: () => <Outlet /> })
   const homeRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -66,6 +69,8 @@ function renderCard(externalURL: string) {
         marketplacePublished={null}
         slug="grafana"
         externalURL={externalURL}
+        hasUserUI={opts.hasUserUI}
+        urlPending={opts.urlPending}
       />
     ),
   })
@@ -150,5 +155,63 @@ describe('AppsPage card — #3374 per-app Open button', () => {
     // The Link target must NOT have rendered — the click was consumed by the
     // Open button (preventDefault + stopPropagation).
     expect(screen.queryByTestId('app-detail-target')).toBeNull()
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────
+// #3656 (founder #6) — the faithful Open chip: a declared-UI app shows a
+// disabled "Open…" placeholder while its live externalURL is still
+// resolving (no late pop-in), and a headless app shows NO transient chip.
+// The placeholder is driven by the STATIC declared `hasUserUI` signal
+// (projected `hasUserUIEndpoint`), never an app-name hardcode.
+// ────────────────────────────────────────────────────────────────────
+describe('AppsPage card — #3656 faithful Open chip (no flash / pop-in)', () => {
+  it('declared-UI app with the URL still pending shows a disabled "Open…" placeholder (not the enabled Open)', async () => {
+    renderCard('', { hasUserUI: true, urlPending: true })
+    const placeholder = await screen.findByTestId('sov-app-open-pending-bp-grafana')
+    expect(placeholder).toBeTruthy()
+    // It is disabled (no URL to launch yet) and reads as a placeholder…
+    expect((placeholder as HTMLButtonElement).disabled).toBe(true)
+    expect(placeholder.textContent).toContain('Open…')
+    expect(placeholder.className).toContain('is-pending')
+    // …and the ENABLED Open is NOT present while pending.
+    expect(screen.queryByTestId('sov-app-open-bp-grafana')).toBeNull()
+  })
+
+  it('headless app (no declared UI) shows NO placeholder AND no Open chip while pending — never a transient chip', async () => {
+    renderCard('', { hasUserUI: false, urlPending: true })
+    // The card still renders…
+    await screen.findByTestId('sov-app-card-bp-grafana')
+    // …but neither the enabled Open nor the disabled placeholder appears.
+    expect(screen.queryByTestId('sov-app-open-bp-grafana')).toBeNull()
+    expect(screen.queryByTestId('sov-app-open-pending-bp-grafana')).toBeNull()
+  })
+
+  it('declared-UI app once the URL resolves shows the ENABLED Open and drops the placeholder', async () => {
+    renderCard('https://grafana.hw139.omani.works', { hasUserUI: true, urlPending: false })
+    const open = await screen.findByTestId('sov-app-open-bp-grafana')
+    expect(open).toBeTruthy()
+    expect(open.textContent).toContain('Open')
+    // The placeholder must be gone — the enabled Open replaced it in place.
+    expect(screen.queryByTestId('sov-app-open-pending-bp-grafana')).toBeNull()
+  })
+
+  it('a resolved URL wins even while urlPending is still true (no placeholder when we already have the front door)', async () => {
+    // Defensive: if the live query is mid-refetch (urlPending true) but we
+    // already hold a URL, show the real Open — never downgrade to placeholder.
+    renderCard('https://grafana.hw139.omani.works', { hasUserUI: true, urlPending: true })
+    const open = await screen.findByTestId('sov-app-open-bp-grafana')
+    expect(open).toBeTruthy()
+    expect(screen.queryByTestId('sov-app-open-pending-bp-grafana')).toBeNull()
+  })
+
+  it('declared-UI app with NO pending (and no URL) shows nothing — the source has resolved to "no front door"', async () => {
+    // hasUserUI true but the query has resolved (urlPending false) and the
+    // URL is empty → the source genuinely reports no front door; the card
+    // must not assert a placeholder that never resolves.
+    renderCard('', { hasUserUI: true, urlPending: false })
+    await screen.findByTestId('sov-app-card-bp-grafana')
+    expect(screen.queryByTestId('sov-app-open-bp-grafana')).toBeNull()
+    expect(screen.queryByTestId('sov-app-open-pending-bp-grafana')).toBeNull()
   })
 })

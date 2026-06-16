@@ -169,7 +169,10 @@ export function applyHandoverStageOverride(
     const j = jobs[i]!
     const slug = matchLifecycleStageSlug(j.id)
     if (slug !== null && isOverridableStatus(j.status)) {
-      out[i] = { ...j, status: 'succeeded' }
+      // #3656 — coercing to a terminal status SETTLES the row: clear any
+      // provisional flag so the badge shows the confirmed "Succeeded",
+      // never a terminal status still wearing the "Confirming…" label.
+      out[i] = { ...j, status: 'succeeded', provisional: false }
       mutated = true
     } else {
       out[i] = j
