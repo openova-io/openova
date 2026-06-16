@@ -89,13 +89,15 @@ func (h *Handler) HandleCatalogList(w http.ResponseWriter, r *http.Request) {
 	for i := range items {
 		items[i].PopulateVersionsAlias()
 	}
-	// #3602 (EPIC #3597) — overlay the admin-editable catalog edits from
-	// the SME commerce catalog store onto the seed so an edited entry
-	// shows the admin's name / summary / icons / supported-topologies and
-	// an un-edited entry keeps the seed. Additive + best-effort: when the
-	// SME catalog isn't deployed or is unreachable, fetchCatalogEdits
-	// returns an empty map and items pass through unchanged.
-	items = overlayCatalogEdits(items, fetchCatalogEdits(r.Context()))
+	// #3602 (EPIC #3597) / #3648 (train/hw150) — overlay the admin-
+	// editable catalog edits onto the seed so an edited entry shows the
+	// admin's name / summary / icons / supported-topologies and an
+	// un-edited entry keeps the seed. The source of truth is the LOCAL
+	// CATALOG GIT (catalog-sovereign Gitea Org); the commerce store is a
+	// cache fallback (fetchCatalogEditsMerged). Additive + best-effort:
+	// with neither source available the items pass through unchanged, so an
+	// out-of-band `git push` to catalog-sovereign round-trips to the UI.
+	items = overlayCatalogEdits(items, h.fetchCatalogEditsMerged(r.Context()))
 	// `Origin` token presence (qa-loop iter-15 Fix #58, TC-058
 	// must_contain ['origin','bp-']). On a fresh chroot Sovereign the
 	// upstream may legitimately return zero blueprints (no fixtures
@@ -173,11 +175,11 @@ func (h *Handler) HandleCatalogGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bp.PopulateVersionsAlias()
-	// #3602 (EPIC #3597) — overlay the admin edit for this single entry
-	// (same additive, best-effort merge as the list endpoint) so a
-	// renamed / re-iconed entry resolves with the edit on its detail page
-	// too. Reuses the slice merge with a one-element slice.
-	overlaid := overlayCatalogEdits([]CatalogBlueprint{*bp}, fetchCatalogEdits(r.Context()))
+	// #3602 (EPIC #3597) / #3648 (train/hw150) — overlay the admin edit
+	// for this single entry (same additive, best-effort merge as the list
+	// endpoint, git-source-wins) so a renamed / re-iconed entry resolves
+	// with the IaC edit on its detail page too.
+	overlaid := overlayCatalogEdits([]CatalogBlueprint{*bp}, h.fetchCatalogEditsMerged(r.Context()))
 	writeJSON(w, http.StatusOK, &overlaid[0])
 }
 
