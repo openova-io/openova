@@ -1,5 +1,28 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.654 — #3376 FUNNEL (voucher→running-app) — three folded fixes so a
+# stranger with a voucher ends signed-in in their own Org console with the
+# app running, on a cut-over Sovereign, zero-touch:
+#   (a) provisioning init gate is now a token-DATA probe, not a brittle
+#       annotation (templates/sme-services/provisioning.yaml +
+#       provisioning-github-token.yaml). The cutover Step-09 no-op path
+#       skipped the annotation stamp + the chart's bootstrap branch stripped
+#       it, so both `sme/provisioning` replicas stuck Init:0/1 forever on a
+#       fully cut-over Sovereign (hw150). The init now GETs Gitea
+#       /api/v1/user with the token and proceeds on HTTP 200 — immune to
+#       both. The bootstrap branch also no longer strips the token-source
+#       annotation when the live Secret carries it (artifacts stay in sync).
+#   (a2) gitea-tenants-repo-bootstrap-job.yaml seeds an EMPTY parent
+#       kustomization at clusters/<fqdn>/sme-tenants/ so the Flux
+#       Kustomization sme-tenants path exists + reconciles Ready from first
+#       convergence (was NotReady "path not found" → silently excluded from
+#       the cutover egress proof as baseline noise — PRINCIPLES A1/A2).
+#   (b) cutover-driver ClusterRole gains `namespaces: [create]` (folds
+#       PR #3664 / #3663): ensureOrgNamespace (namespace_ensure.go, #3598)
+#       Get-then-Creates the Org namespace; #3598 added the Create call but
+#       not the RBAC, so EVERY Org create 403'd (ZERO tenant Orgs creatable
+#       on a fresh prov — caught live hw150).
+# Refs #3376 #3689 #3663 #3664 #3598 #3379.
 # 1.4.619 — #3374 (2026-06-14) — baseline-default-deny: allow ingress
 # from the `oidc-gate` host namespace. The bp-oidc-gate auth-proxy (slot 13c)
 # reverse-proxies authenticated traffic to its upstream Service in
@@ -2712,7 +2735,7 @@ name: bp-catalyst-platform
 # (qaFixtures.cnpgBackupEndpointURL + cnpg-clusters-qa.yaml) to the
 # syncer-mangled host Service name. qa-fixtures only; Catalyst-Zero render
 # byte-unchanged. (1.4.622 was a content-free deploy-bot image sweep.)
-version: 1.4.652
+version: 1.4.654
 # 1.4.648 — #3638 (2026-06-16, Refs #3379; rebased over main's 1.4.647 deploy-bot bump) — fix the cutover step-07 re-run
 # loop at its source. templates/configmap-catalyst-runtime-config.yaml now
 # DERIVES sovereign-console-url + sovereign-api-public-url from

@@ -1509,32 +1509,43 @@ smeServices:
     githubToken:
       secretName: provisioning-github-token
       secretKey: GITHUB_TOKEN
-    # waitForCutoverToken: gate the provisioning Pod on bp-self-sovereign-
-    # cutover Step 09 having patched the Secret with a REAL Gitea API
-    # token (TBD-V11, issue #2002). Without this gate, the Pod starts with
-    # the chart's first-install bootstrap value (Gitea admin password,
-    # which Gitea rejects as an API token → 401 "user does not exist")
-    # and the FIRST tenant Org CR creation after install fails. The
-    # init container polls the Secret in the same namespace for the
-    # `catalyst.openova.io/token-source: self-sovereign-cutover-step-09`
-    # annotation that Step 09 stamps.
+    # waitForCutoverToken: gate the provisioning Pod on the GITHUB_TOKEN in
+    # provisioning-github-token being a Gitea token Gitea ACCEPTS — a DATA
+    # probe (#3376, Refs #3689), NOT the old annotation probe (#2002/TBD-V11).
+    # Without this gate, the Pod could start with a token Gitea rejects →
+    # 401 on the FIRST tenant Org CR creation. The init container GETs
+    # ${giteaInternalURL}/api/v1/user with the token and proceeds only on
+    # HTTP 200.
     #
-    # On Sovereigns: leave enabled (the cutover Job will mint and
-    # patch within minutes of bp-catalyst-platform reconciling).
-    # On Catalyst-Zero (contabo): set enabled=false in
-    # clusters/contabo-mkt/ overlay — the SealedSecret-provisioned token
-    # carries no cutover annotation and Step 09 never runs there.
+    # WHY a DATA probe and not the annotation: the previous gate polled for
+    # `catalyst.openova.io/token-source: self-sovereign-cutover-step-09`,
+    # but that contract was SPLIT (the cutover Step-09 mint Job's re-run
+    # no-op path exits BEFORE stamping the annotation since #3122 made the
+    # bootstrap token a valid PAT, and the chart's bootstrap branch strips
+    # it) → the Pod stuck Init:0/1 forever on a fully cut-over Sovereign
+    # (hw150). Validating the token directly is immune to both: the
+    # bootstrap catalyst-gitea-token PAT and the cutover-minted token are
+    # BOTH real 200-valid Gitea tokens, so the Pod boots zero-touch on a
+    # fresh prov AND a cut-over Sovereign.
+    #
+    # On Sovereigns: leave enabled. On Catalyst-Zero (contabo): set
+    # enabled=false in clusters/contabo-mkt/ overlay — there the
+    # SealedSecret-provisioned token is already valid, so the gate is a
+    # harmless one-shot 200 either way, but disabling skips the init.
     waitForCutoverToken:
       enabled: true
-      # image: kubectl client used by the init container. Default tracks
+      # image: kubectl/curl client used by the init container. Default tracks
       # platform/self-sovereign-cutover/chart/values.yaml's kubectl image
       # so a platform-wide bump only needs to land in one place at a time.
       image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
+      # giteaInternalURL: the in-cluster Gitea REST base the probe hits.
+      # Same default as the rest of the SME bundle's Gitea coordinates.
+      giteaInternalURL: "http://gitea-http.gitea.svc.cluster.local:3000"
       # intervalSeconds + timeoutSeconds: poll cadence + wall-clock cap.
       # Default 10s × 180 iters = 1800s (30m) — covers the slowest cutover
       # observed on Hetzner cold-start (~18 min) with 12 min safety margin.
-      # The Pod stays in Init: until Step 09 runs; failing closed is the
-      # correct behaviour because serving 401s blocks every tenant journey.
+      # The Pod stays in Init: until a valid token lands; failing closed is
+      # the correct behaviour because serving 401s blocks every tenant journey.
       intervalSeconds: 10
       timeoutSeconds: 1800
     # git.{apiURL,owner,repo,branch}: Git host coordinates. The

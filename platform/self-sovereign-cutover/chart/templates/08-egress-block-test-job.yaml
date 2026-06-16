@@ -397,6 +397,52 @@ data:
               echo "[egress-block-test] #3647: FRESH-PULL proof requested but egressDeny not applied (enforce off / fail-safe fallback) — skipping the fresh pull, survival-poll only"
             fi
 
+            # ── #3376 (Refs #3689): sme-tenants MUST be Ready BEFORE the hold ─
+            # The customer-onboarding Flux Kustomization `flux-system/
+            # sme-tenants` reconciles the per-tenant overlay tree. On hw150 it
+            # was NotReady ("kustomization path not found") and the baseline
+            # capture below silently EXCLUDED it from the regression check —
+            # declaring sovereignty GREEN while the customer journey was dead
+            # (PRINCIPLES A1/A2: a green gate that excludes a broken component
+            # is theater at journey scale). The chart now seeds an empty parent
+            # index so the path exists from first convergence
+            # (gitea-tenants-repo-bootstrap-job.yaml Step 5); here we ASSERT it
+            # is actually Ready, loudly, before the proof — never as "baseline
+            # noise". Bounded poll (the GitRepository may still be pulling the
+            # freshly-seeded index when step-08 starts). Operator-gated so a
+            # non-marketplace Sovereign (no sme-tenants Kustomization) is not
+            # forced to grow one: SKIP when the Kustomization is absent.
+            sme_tenants_ks="${SME_TENANTS_KUSTOMIZATION:-sme-tenants}"
+            sme_tenants_ns="${SME_TENANTS_KUSTOMIZATION_NAMESPACE:-flux-system}"
+            if kubectl -n "${sme_tenants_ns}" get kustomization "${sme_tenants_ks}" >/dev/null 2>&1; then
+              echo "[egress-block-test] #3376: asserting ${sme_tenants_ns}/${sme_tenants_ks} Ready before the sovereignty hold (no baseline exclusion of the customer path)"
+              st_start=$(date +%s)
+              st_deadline=$(( st_start + 300 ))
+              st_ready=""
+              while [ "$(date +%s)" -lt "${st_deadline}" ]; do
+                st_status=$(kubectl -n "${sme_tenants_ns}" get kustomization "${sme_tenants_ks}" \
+                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+                if [ "${st_status}" = "True" ]; then
+                  st_ready="yes"
+                  echo "[egress-block-test] #3376: ${sme_tenants_ns}/${sme_tenants_ks} Ready — customer-onboarding reconciler healthy"
+                  break
+                fi
+                echo "[egress-block-test] #3376: ${sme_tenants_ns}/${sme_tenants_ks} Ready=${st_status:-<none>} at $(($(date +%s) - st_start))s; re-checking in 15s (bounded ${st_deadline}s)"
+                kubectl -n "${sme_tenants_ns}" annotate --overwrite kustomization "${sme_tenants_ks}" \
+                  "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null 2>&1 || true
+                sleep 15
+              done
+              if [ -z "${st_ready}" ]; then
+                st_msg=$(kubectl -n "${sme_tenants_ns}" get kustomization "${sme_tenants_ks}" \
+                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null || echo "")
+                echo "[egress-block-test] FAIL — ${sme_tenants_ns}/${sme_tenants_ks} not Ready before the sovereignty hold: ${st_msg}"
+                echo "[egress-block-test] the customer-onboarding path is dead; refusing to declare cutover sovereignty GREEN (#3376)"
+                exit 1
+              fi
+            else
+              echo "[egress-block-test] #3376: ${sme_tenants_ns}/${sme_tenants_ks} absent (non-marketplace Sovereign) — skipping the customer-path readiness assertion"
+            fi
+
             echo "[egress-block-test] capturing baseline NotReady set"
             baseline_hr=$(kubectl get helmreleases.helm.toolkit.fluxcd.io -A \
               -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' \

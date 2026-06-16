@@ -1,5 +1,22 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.74 (#3376 FUNNEL, Refs #3689/#3379 — the cutover sovereignty proof must
+# stop EXCLUDING the customer-onboarding path, 2026-06-17): two changes.
+#   (1) Step-08 egress-block-test (template 08) now ASSERTS
+#       flux-system/sme-tenants Ready BEFORE the 600s hold (bounded 300s
+#       poll), instead of letting its NotReady be swallowed as "baseline
+#       noise". On hw150 cutoverComplete=true was declared while
+#       sme-tenants=False ("path not found") — i.e. the customer journey was
+#       dead but sovereignty passed (PRINCIPLES A1/A2 theater). The chart now
+#       seeds the sme-tenants path (bp-catalyst-platform #3376) so it IS
+#       Ready; here we refuse to declare GREEN if it is not. Operator-gated:
+#       a non-marketplace Sovereign without the Kustomization is skipped.
+#   (2) Step-09 gitea-token-mint (template 09) stamps the token-source
+#       annotation on the re-run NO-OP path too (before its early exit 0), so
+#       the on-disk Secret never diverges from a full mint. Belt-and-
+#       suspenders with the bp-catalyst-platform init that now DATA-probes
+#       the token rather than reading this annotation.
+# Refs #3376 #3689 #3379.
 # 0.1.73 (#3647 Refs #3379, BULLETPROOF cutover — registry-pivot effective on a
 # RUNNING node + fresh-pull proof under deny-egress, 2026-06-16): two real
 # post-cutover defects, both reproduced live on hw149.
@@ -854,7 +871,7 @@ name: bp-self-sovereign-cutover
 # FATAL-on-failure contract is PRESERVED (Pillar 5 requires ALL openova-io
 # images local for the deny-egress hold) — the step only FATALs once BOTH retry
 # layers are exhausted. No step-count / RBAC / timeout change.
-version: 0.1.73
+version: 0.1.74
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
