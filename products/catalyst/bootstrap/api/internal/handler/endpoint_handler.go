@@ -915,6 +915,24 @@ func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// #3687 (fold #3694) — the Application CR's authoring home is Git.
+	// Commit the desired-state CR into the per-Org `iac` repo at
+	// `applications/<name>.yaml` so Flux reconciles it and a hand
+	// `git push` round-trips (the canonical representation stops being
+	// etcd-only). Best-effort: a missing Gitea backend (chroot/CI) or a
+	// write failure does NOT fail the create — the etcd projection above
+	// already succeeded and keeps the app-list warm while the Flux loop
+	// catches up. We commit `obj` (the clean desired state) rather than
+	// `created` (which carries server-populated status/managedFields).
+	if committed, gErr := h.commitApplicationCRToGit(r.Context(), body.Org, obj); gErr != nil {
+		h.log.Warn("application IaC git commit failed (etcd projection still created)",
+			"org", body.Org, "application", body.Name, "error", gErr)
+	} else if committed {
+		h.log.Info("application IaC committed to Gitea",
+			"org", body.Org, "application", body.Name,
+			"path", applicationManifestPath(body.Name))
+	}
+
 	resp := application{
 		applicationSummary: applicationSummary{
 			ID:        string(created.GetUID()),
@@ -1045,6 +1063,13 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 					return nil, &backingError{status: http.StatusInternalServerError, code: "backing-create-failed", message: cerr.Error()}
 				}
 			}
+			// #3687 (fold #3694) — the auto-created backing instance is its
+			// OWN Application; commit its desired-state CR to the per-Org
+			// `iac` repo so the new card's IaC is Git-resident too.
+			if _, gErr := h.commitApplicationCRToGit(ctx, body.Org, backingObj); gErr != nil {
+				h.log.Warn("backing-service Application IaC git commit failed (etcd projection still created)",
+					"org", body.Org, "application", backingObj.GetName(), "error", gErr)
+			}
 			dependsOn = append(dependsOn, map[string]interface{}{
 				"name":      backingName,
 				"namespace": body.Org,
@@ -1090,6 +1115,14 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 			}
 			if _, uerr := client.Resource(ApplicationGVR()).Namespace(target.GetNamespace()).Update(ctx, target, metav1.UpdateOptions{}); uerr != nil {
 				return nil, &backingError{status: http.StatusInternalServerError, code: "context-write-failed", message: uerr.Error()}
+			}
+			// #3687 (fold #3694) — the appended Context is "the declared
+			// IaC": commit the reused instance's updated CR (now carrying
+			// the new Context in spec.parameters) to its per-Org `iac` repo
+			// so the Context delta lands in Git, not only etcd.
+			if _, gErr := h.commitApplicationCRToGit(ctx, target.GetNamespace(), target); gErr != nil {
+				h.log.Warn("Context-append Application IaC git commit failed (etcd projection still applied)",
+					"org", target.GetNamespace(), "application", target.GetName(), "error", gErr)
 			}
 			dependsOn = append(dependsOn, map[string]interface{}{
 				"name":      target.GetName(),

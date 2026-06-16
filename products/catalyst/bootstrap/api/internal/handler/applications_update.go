@@ -425,6 +425,21 @@ func (h *Handler) HandleApplicationUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// #3687 (fold #3694) — the Application CR's authoring home is Git.
+	// A placement/topology/parameter change (e.g. single → active-active)
+	// commits the patched desired-state CR to the per-Org `iac` repo at
+	// `applications/<name>.yaml` so the fan-out is driven from Git, not an
+	// etcd-only Update. Best-effort: a missing Gitea backend / write
+	// failure does not fail the update (the etcd projection succeeded).
+	if committed, gErr := h.commitApplicationCRToGit(r.Context(), patched.GetNamespace(), patched); gErr != nil {
+		h.log.Warn("application IaC git commit failed on update (etcd projection still applied)",
+			"org", patched.GetNamespace(), "application", patched.GetName(), "error", gErr)
+	} else if committed {
+		h.log.Info("application IaC update committed to Gitea",
+			"org", patched.GetNamespace(), "application", patched.GetName(),
+			"path", applicationManifestPath(patched.GetName()))
+	}
+
 	resp := applicationUpdateResponse{
 		Kind:       "Application",
 		Name:       updated.GetName(),

@@ -860,3 +860,34 @@ func TestDashboardTreemap_FamilyPodLabelOverridesNamespace(t *testing.T) {
 	}
 }
 
+// TestDropEphemeralRows_FiltersJobOwnedPods — #3687 (fold #3692): one-shot
+// Job pods (cutover-*, scan-vulnerabilityreport-*, *-snapshot-save-*) must
+// NEVER survive into the treemap. Durable workloads (Deployment /
+// StatefulSet / DaemonSet / ReplicaSet) are retained.
+func TestDropEphemeralRows_FiltersJobOwnedPods(t *testing.T) {
+	rows := []podRow{
+		{namespace: "harbor", application: "harbor", ownerKind: "StatefulSet", cpuReq: 200},
+		{namespace: "flux-system", application: "cutover-harbor-prewarm", ownerKind: "Job", cpuReq: 50},
+		{namespace: "trivy-system", application: "scan-vulnerabilityreport-abc", ownerKind: "Job", cpuReq: 30},
+		{namespace: "openbao", application: "openbao-snapshot-save", ownerKind: "Job", cpuReq: 20},
+		{namespace: "kube-system", application: "cilium", ownerKind: "DaemonSet", cpuReq: 100},
+	}
+	got := dropEphemeralRows(rows)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 durable rows after dropping Job pods, got %d: %+v", len(got), got)
+	}
+	for _, r := range got {
+		if strings.EqualFold(r.ownerKind, "Job") {
+			t.Errorf("a Job-owned pod survived: %+v", r)
+		}
+	}
+
+	// Integration: a Job pod produces NO treemap cell under group_by=application.
+	out := aggregateRows(dropEphemeralRows([]podRow{
+		{namespace: "trivy-system", application: "scan-vulnerabilityreport-xyz", ownerKind: "Job", cpuReq: 30},
+	}), []string{"application"}, "health", "cpu_request")
+	if len(out.Items) != 0 {
+		t.Errorf("a Job-only estate must yield zero application cells, got %d: %+v", len(out.Items), out.Items)
+	}
+}
+
