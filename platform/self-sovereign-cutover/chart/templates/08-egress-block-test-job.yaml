@@ -276,6 +276,20 @@ data:
             else
               echo "[egress-block-test] baseline clean — no pre-existing NotReady items"
             fi
+            # #3634 — persist the baseline sets to files on the writable /work
+            # emptyDir for the POSIX regression diff in the survival loop below.
+            # The previous diff used `comm -13 <(echo "${baseline_hr}") <(echo
+            # "${hr_not_ready}")` — bash PROCESS SUBSTITUTION. This container
+            # runs `command: ["/bin/sh", ...]` and on the alpine/k8s image
+            # `/bin/sh` is busybox ash, which does NOT support `<(...)`: it is a
+            # PARSE-time syntax error (`syntax error: unexpected "("`) that
+            # aborted the WHOLE step-08 Job before it ran anything — no egress
+            # CCNP applied, no survival window, no PASS, so cutoverComplete
+            # never flipped true. `comm -13 A B` (lines in B not in A) is
+            # exactly `grep -vxF -f A B`, which is POSIX (passes dash -n AND
+            # busybox ash -n) and needs the baseline as a file.
+            printf '%s\n' "${baseline_hr}" > /work/baseline_hr.txt
+            printf '%s\n' "${baseline_ks}" > /work/baseline_ks.txt
             echo "[egress-block-test] entering ${DURATION_SECONDS}s survival window — only NEW NotReady regressions count as failure"
 
             start=$(date +%s)
@@ -292,8 +306,18 @@ data:
                 | grep -E '=False$' | sort -u || true)
 
               # Diff against baseline — only new entries count as a regression.
-              new_hr=$(comm -13 <(echo "${baseline_hr}") <(echo "${hr_not_ready}"))
-              new_ks=$(comm -13 <(echo "${baseline_ks}") <(echo "${ks_not_ready}"))
+              # POSIX-safe (#3634): `grep -vxF -f BASELINE CURRENT` emits the
+              # CURRENT lines absent from BASELINE — byte-identical to the old
+              # `comm -13 <(echo BASELINE) <(echo CURRENT)` but with no bash
+              # process substitution (busybox ash /bin/sh rejects `<(...)`).
+              # `-x` whole-line, `-F` fixed-string so `/` and `=` in the
+              # ns/name=False rows are literal. An empty baseline file makes
+              # grep match no patterns → `-v` returns ALL current lines (every
+              # not-ready item is new) — same as `comm -13` with an empty A.
+              printf '%s\n' "${hr_not_ready}" > /work/hr_not_ready.txt
+              printf '%s\n' "${ks_not_ready}" > /work/ks_not_ready.txt
+              new_hr=$(grep -vxF -f /work/baseline_hr.txt /work/hr_not_ready.txt || true)
+              new_ks=$(grep -vxF -f /work/baseline_ks.txt /work/ks_not_ready.txt || true)
 
               if [ -n "${new_hr}${new_ks}" ]; then
                 echo "[egress-block-test] NEW NotReady at $(($(date +%s) - start))s (regression):"

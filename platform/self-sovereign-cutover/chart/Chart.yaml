@@ -1,5 +1,37 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.70 (#3634 Refs #3379, step-08 bashism under busybox-ash /bin/sh,
+# 2026-06-16): the cutoverComplete gate (step-08 egress-block-test) would die
+# on a PARSE-time syntax error the FIRST time it is reached. Found auditing the
+# NEVER-RUN steps 08-11 (the saga has wedged at 01/03/05/06 every prior prov;
+# steps 04-11 have never executed) to pre-empt hw147's next cutover wedge.
+#
+# THE DEFECT — step-08's survival-window regression diff used bash PROCESS
+# SUBSTITUTION:
+#     new_hr=$(comm -13 <(echo "${baseline_hr}") <(echo "${hr_not_ready}"))
+# The container runs `command: ["/bin/sh", "-c"]` and on the alpine/k8s step
+# image `/bin/sh` is busybox ash, which does NOT support `<(...)`. busybox ash
+# parses the WHOLE script before executing, so `<(` is a parse-time
+# `syntax error: unexpected "("` → the container exits non-zero having run
+# NOTHING: no local-URL assertion, no cutover-egress-block CCNP applied, no
+# 600s survival window, no PASS → cutoverComplete stays false and the cutover
+# wedges at step-08. (busybox ash -n AND dash -n both REJECT `<(...)`; bash -n
+# accepts it — proving a bash-only construct, not a typo. The contract test only
+# `helm template`s; it never sh -n / dash -n-checks the rendered step scripts,
+# so this slipped through. Every OTHER cutover step script is dash -n clean —
+# step-08 was the sole offender, verified across all 11 in this audit.)
+#
+# THE FIX (chart-only, template 08-egress-block-test-job.yaml): `comm -13 A B`
+# (lines in B not in A) is exactly `grep -vxF -f A B`, which is POSIX (passes
+# dash -n AND busybox ash -n) and needs the baseline as a FILE. Persist the two
+# baseline sets to the existing writable /work emptyDir (added #3379 hw139) once
+# before the survival window, write the current sets there each poll, and diff
+# with `grep -vxF -f`. Byte-identical output to the old `comm -13` across every
+# case (empty baseline → all current items count as new; empty current → none),
+# verified. No step-count / RBAC / timeout / value change; contract test stays
+# green (11 steps). Live 11-step → cutoverComplete=true + 600s deny-egress
+# validation DEFERRED to the next clean fresh prov (operator drives the cutover;
+# this is the chart fix only).
 # 0.1.69 (#3627 Refs #3379, hw146 missing-chart-mirror + wrong-Ready gate,
 # 2026-06-16): TWO stacked defects that wedged the Pillar-5 cutover at
 # step-06, both root-caused live on hw146 (531e6908e606d11d).
@@ -747,7 +779,7 @@ name: bp-self-sovereign-cutover
 # FATAL-on-failure contract is PRESERVED (Pillar 5 requires ALL openova-io
 # images local for the deny-egress hold) — the step only FATALs once BOTH retry
 # layers are exhausted. No step-count / RBAC / timeout change.
-version: 0.1.69
+version: 0.1.70
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
