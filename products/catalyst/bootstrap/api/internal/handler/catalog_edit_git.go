@@ -55,6 +55,96 @@ import (
 // live on. Same default branch blueprints.go's publish/curate use.
 const catalogEditGitBranch = blueprintBranch // "main"
 
+// ── #3668 catalog-sovereign Flux reconcile aggregator ──────────────────
+//
+// The merged #3702 edit (and the curate endpoint) writes each Blueprint CR
+// to a PER-BLUEPRINT repo `catalog-sovereign/<bp>/blueprint.yaml`. That is
+// the read source the UI overlay round-trips. But a Flux GitRepository
+// tracks ONE repo + branch — it cannot reconcile a whole Gitea Org of
+// per-Blueprint repos. So #3668 ALSO mirrors the SAME ownership-stripped
+// `merged` bytes into a single AGGREGATOR tree on the already-bootstrapped
+// local Gitea repo `openova/openova`, on a dedicated `catalog-sovereign`
+// branch:
+//
+//	openova/openova @ catalog-sovereign
+//	└── clusters/<sovereignFQDN>/catalog-sovereign/<bp>.yaml   (full CR)
+//
+// The chart's openova-catalog-sovereign GitRepository + catalog-sovereign
+// Kustomization (templates/catalog-sovereign-flux/) reconcile that one tree
+// into LIVE Blueprint CRs — so a console edit reaches the in-cluster CR and
+// SURVIVES `helm upgrade` (the CR becomes Flux/Git-owned, not Helm-owned;
+// see templates/catalog-seed/blueprints.yaml's helm.sh/resource-policy:keep
+// + the Kustomization's force:true SSA adoption). This is the load-bearing
+// half PR #3702 explicitly deferred.
+//
+// The aggregator repo + branch reuse the SAME local Gitea repo the SME
+// tenant gitops chain bootstraps (`openova/openova`, seeded pre-cutover by
+// the chart's repo-bootstrap hook + clonable by Flux via catalyst-gitea-
+// token basic-auth, #3454). A DEDICATED branch is immune to the cutover-
+// gitea-mirror Job's `git push --mirror --force` of `main` (same isolation
+// rationale as the SME `sme-tenants` branch, TBD-C18e).
+const (
+	// catalogSovereignAggOrg/Repo — the local Gitea repo holding the Flux-
+	// reconciled aggregator tree. Reuses the SME gitops repo coordinates so
+	// the chart's repo-bootstrap + Flux clone-auth are already wired.
+	catalogSovereignAggOrg  = "openova"
+	catalogSovereignAggRepo = "openova"
+	// catalogSovereignAggBranch — dedicated branch the chart's repo-
+	// bootstrap hook ensures + the openova-catalog-sovereign GitRepository
+	// tracks. MUST match values.catalogSovereign.{gitRepository,repoBootstrap}
+	// .branch in products/catalyst/chart/values.yaml.
+	catalogSovereignAggBranch = "catalog-sovereign"
+)
+
+// catalogSovereignAggPath returns the aggregator tree path for one
+// Blueprint, matching the Flux Kustomization's
+// `path: ./clusters/<sovereignFQDN>/catalog-sovereign`. The Kustomization
+// directory-sweeps every *.yaml beneath it into Blueprint CRs (no
+// kustomization.yaml index needed — Flux auto-generates one over the
+// directory), so a single flat PUT per Blueprint is all that is required.
+func catalogSovereignAggPath(sovereignFQDN, bpName string) string {
+	return fmt.Sprintf("clusters/%s/catalog-sovereign/%s.yaml", sovereignFQDN, bpName)
+}
+
+// writeCatalogSovereignAggregator mirrors one Blueprint's full, ownership-
+// stripped CR bytes into the Flux-reconciled aggregator tree (#3668). It is
+// best-effort + additive, exactly like the per-Blueprint write: a failure is
+// returned for the caller to log + swallow (the UI round-trip already
+// succeeded via the per-Blueprint repo; the aggregator is what makes the CR
+// reconcile, but its absence must never fail the edit/curate API call).
+//
+// No-ops (returns committed=false, err=nil) when:
+//   - the Gitea client is unwired (chroot pre-cutover / CI), OR
+//   - SOVEREIGN_FQDN is empty — i.e. the Catalyst-Zero mothership, which has
+//     no local Gitea catalog-sovereign Flux reconcile (it pushes to
+//     github.com and renders no openova-catalog-sovereign GitRepository).
+//
+// The branch is ensured by the chart's catalog-sovereign repo-bootstrap
+// hook pre-cutover; PutFile creates the file on first write. The repo
+// (openova/openova) is auto-init'd by the SME repo-bootstrap hook, so the
+// branch always has a base commit to write onto.
+func (h *Handler) writeCatalogSovereignAggregator(ctx context.Context, bpName string, merged []byte) (bool, error) {
+	if h.giteaClient == nil {
+		return false, nil // unwired — best-effort no-op (pre-cutover / CI)
+	}
+	sovereignFQDN := strings.TrimSpace(envOr("SOVEREIGN_FQDN", ""))
+	if sovereignFQDN == "" {
+		return false, nil // Catalyst-Zero mothership — no local catalog Flux
+	}
+	if strings.TrimSpace(bpName) == "" || len(merged) == 0 {
+		return false, nil
+	}
+	path := catalogSovereignAggPath(sovereignFQDN, bpName)
+	msg := fmt.Sprintf("catalog: reconcile %s into Blueprint CR via Flux (#3668)", bpName)
+	_, committed, err := h.giteaClient.PutFile(ctx, catalogSovereignAggOrg, catalogSovereignAggRepo,
+		catalogSovereignAggBranch, path, merged, msg, catalogEditCommitAuthor())
+	if err != nil {
+		return false, fmt.Errorf("put %s/%s@%s/%s: %w",
+			catalogSovereignAggOrg, catalogSovereignAggRepo, catalogSovereignAggBranch, path, err)
+	}
+	return committed, nil
+}
+
 // catalogEditCommitAuthor / Email stamp the commit so a sovereign-admin
 // scanning the catalog-sovereign repo history can tell a UI-originated
 // catalog edit from a hand-authored git push. Per Inviolable Principle #4
@@ -162,6 +252,18 @@ func (h *Handler) writeCatalogEditToGit(ctx context.Context, edit catalogEdit) (
 	if err != nil {
 		return false, fmt.Errorf("put %s/%s/%s: %w", catalogSovereignOrg, bpName, catalogEditBlueprintPath, err)
 	}
+
+	// #3668 — ALSO mirror the SAME merged CR bytes into the Flux-reconciled
+	// aggregator tree so the edit reaches the LIVE in-cluster Blueprint CR
+	// (the per-Blueprint write above is only the UI read source). Best-
+	// effort + additive: an aggregator failure is logged + swallowed so the
+	// edit API call still reports the per-Blueprint commit result (the
+	// reconcile catches up on the next successful write / out-of-band push).
+	if _, aggErr := h.writeCatalogSovereignAggregator(ctx, bpName, merged); aggErr != nil {
+		h.log.Warn("catalog-edit-git: aggregator mirror failed (Blueprint CR will not reconcile until next write)",
+			"blueprint", bpName, "err", aggErr)
+	}
+
 	return committed, nil
 }
 
@@ -240,25 +342,36 @@ func (h *Handler) seedBlueprintYAMLFromLiveCR(ctx context.Context, bpName string
 	if err != nil || bp == nil || len(bp.Raw) == 0 {
 		return nil
 	}
-	doc := deepCopyYAMLMap(bp.Raw)
+	return stripBlueprintCRMapForGit(deepCopyYAMLMap(bp.Raw), bpName)
+}
+
+// stripBlueprintCRMapForGit renders a decoded Blueprint CR map as the
+// ownership-clean YAML source committed to Gitea (the catalog-sovereign
+// per-Blueprint repo AND the Flux aggregator tree). It keeps apiVersion/
+// kind/metadata.name + the full spec, and DROPS every server-managed +
+// ownership field (status + all metadata except name — resourceVersion,
+// uid, generation, creationTimestamp, managedFields, and the Helm/Flux
+// ownership labels+annotations `app.kubernetes.io/managed-by: Helm`,
+// `helm.toolkit.fluxcd.io/*`) so a later `helm upgrade` cannot claim the
+// committed file and the Flux Kustomization can SSA-adopt the live CR
+// (DoD §9.4). Returns nil on a nil/un-marshalable map.
+func stripBlueprintCRMapForGit(doc map[string]interface{}, bpName string) []byte {
 	if doc == nil {
 		return nil
 	}
 
-	// Canonical envelope — the projector requires apiVersion/kind; the
+	// Canonical envelope — the projector requires apiVersion/kind; an
 	// in-cluster CR carries them, but a Gitea-sourced Raw might not.
 	setIfAbsent(doc, "apiVersion", "catalyst.openova.io/v1")
 	setIfAbsent(doc, "kind", "Blueprint")
 
-	// metadata: keep only name; drop server-managed + ownership fields so a
-	// helm upgrade can't claim the committed file (DoD §9.4).
+	// metadata: keep only name; drop server-managed + ownership fields.
 	if meta, ok := doc["metadata"].(map[string]interface{}); ok {
 		name := asString(meta["name"])
 		if strings.TrimSpace(name) == "" {
 			name = bpName
 		}
-		cleanMeta := map[string]interface{}{"name": name}
-		doc["metadata"] = cleanMeta
+		doc["metadata"] = map[string]interface{}{"name": name}
 	} else {
 		doc["metadata"] = map[string]interface{}{"name": bpName}
 	}
@@ -271,6 +384,24 @@ func (h *Handler) seedBlueprintYAMLFromLiveCR(ctx context.Context, bpName string
 		return nil
 	}
 	return out
+}
+
+// stripBlueprintCRBytesForGit is the bytes-in/bytes-out form used by the
+// curate path (blueprints.go), where the source `blueprint.yaml` is read
+// from `<sourceOrg>/shared-blueprints` and may carry ownership labels. It
+// decodes, applies stripBlueprintCRMapForGit, and returns the cleaned
+// bytes; on any decode failure it returns the input unchanged (best-effort
+// — a curate must never be blocked by a strip, and an org-authored source
+// usually carries no Helm ownership labels anyway).
+func stripBlueprintCRBytesForGit(raw []byte, bpName string) []byte {
+	var doc map[string]interface{}
+	if err := yamlv3.Unmarshal(raw, &doc); err != nil || doc == nil {
+		return raw
+	}
+	if out := stripBlueprintCRMapForGit(doc, bpName); len(out) > 0 {
+		return out
+	}
+	return raw
 }
 
 // deepCopyYAMLMap returns a deep copy of a JSON/YAML-decoded map so mutating
