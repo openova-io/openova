@@ -38,7 +38,8 @@
 | **SSO** (#3374) | ✅ — handover + grafana + harbor + openbao + gitea land signed-in zero-click; Open buttons (Q6) present | [3374-sso.md](uat-walkthrough/3374-sso.md) |
 | **Topology Q1 / Q2** (#3375) | ✅ — 3 active-hotstandby cards; Q1 declared-singleton honesty render; Q2 truly-editable Topology picker | [3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md) |
 | **Region-kill** (#3375 / NS#4) | ✅ — live kill→promote driven on hw144: region-a killed → region-b promoted RTO ≈ 4s → consumer keycloak data identical (RPO = 0) | [3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md) |
-| **Cutover** (#3379) | ⏳ PENDING — `cutoverComplete=true` + the 600s deny-egress hold walk on hw144 not yet witnessed this session | [3379-cutover.md](uat-walkthrough/3379-cutover.md) · [3379-sovereignty.md](uat-walkthrough/3379-sovereignty.md) |
+| **Cutover** (#3379) | ⏳ PENDING — `cutoverComplete=true` + the 600s deny-egress hold walk not yet witnessed this session | [3379-cutover.md](uat-walkthrough/3379-cutover.md) · [3379-sovereignty.md](uat-walkthrough/3379-sovereignty.md) |
+| **Cutover PROOF integrity** (#3379 — durable fact · true deny-egress · faithful pivot · audit fidelity · host-loop) | ⏳ PENDING live-walk — chart `bp-self-sovereign-cutover` 0.1.74 built + unit/render/POSIX-verified; the five faces (the seal survives a chart upgrade & doesn't re-fire the hold; default-deny CCNP blocks console.openova.io; registriesYamlActive=v2 + per-node ack; cutoverStartedAt written-once; bootstrap-kit Ready + zero residual tether) are walkable per the linked doc | [cutover-durable-true-deny-egress-and-faithful-pivot.md](uat-walkthrough/cutover-durable-true-deny-egress-and-faithful-pivot.md) |
 
 **Honesty line:** the **region-kill EXECUTION** (NS#4) is now **✅** — the live kill→promote walk ran
 on hw144 (RTO ≈ 4s, RPO = 0). The one remaining open item on hw144 is the **Pillar-5 cutover** (the

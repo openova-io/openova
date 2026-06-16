@@ -263,9 +263,33 @@ async function rootBeforeLoad({ location }: { location: { pathname: string } }) 
   const whoami = await probeWhoamiAndCacheMarker(API_BASE)
   if (whoami === true) return
   if (whoami === null) return // 5xx / network error — fail open
-  // 401 — genuinely unauthenticated. Redirect with deep-link, but
-  // sanitize the `next` so we can never construct an open-redirect
-  // payload (CWE-601). qa-loop iter-4 cluster
+  // 401 — genuinely unauthenticated.
+  //
+  // #3374 Layer-B (north-star #3: "NO login UI anywhere — URL → signed
+  // in"): a sessionless visitor must NOT be bounced to the 6-digit-PIN
+  // wall. Instead, attempt a SILENT OIDC round-trip to the Sovereign
+  // Keycloak first — the realm's browser flow auto-delegates to the
+  // `catalyst-pin` IdP redirector (configmap-sovereign-realm.yaml
+  // identity-provider-redirector + catalyst-pin-redirector), so a
+  // visitor who already has a KC session (the common case after the
+  // handover, or after any app SSO in the same browser) lands straight
+  // back at /auth/callback signed-in, with no PIN form. Only if the
+  // silent attempt cannot be made do we fall back to /login as an
+  // EXPLICIT fallback (never the default).
+  //
+  // Loop-safety: attemptSilentSovereignSSO sets a one-shot sessionStorage
+  // guard so a KC round-trip that returns WITHOUT a session (genuinely
+  // logged-out at the IdP too) lands on /login exactly once rather than
+  // ping-ponging console → KC → console → KC. The guard is cleared by
+  // AuthCallbackPage on a successful exchange.
+  if (await attemptSilentSovereignSSO()) {
+    // Navigation is being handed to Keycloak via window.location.replace
+    // inside initiateLogin — block this route resolution.
+    throw redirect({ to: canonical as never, replace: true })
+  }
+  // Silent SSO not possible (already attempted this cycle, or no FQDN) —
+  // fall back to the explicit /login. Sanitize the `next` so we can never
+  // construct an open-redirect payload (CWE-601). qa-loop iter-4 cluster
   // `users-page-null-map-and-open-redirect`.
   const rawNext = pathname + window.location.search
   const safeNext = sanitizeNextParam(rawNext)
@@ -274,6 +298,57 @@ async function rootBeforeLoad({ location }: { location: { pathname: string } }) 
     search: safeNext ? { next: safeNext } : {},
     replace: true,
   })
+}
+
+/**
+ * attemptSilentSovereignSSO — #3374 Layer-B silent console front door.
+ *
+ * Fires the catalyst-ui PKCE authorization request against the Sovereign
+ * Keycloak (which auto-delegates to the catalyst-pin IdP via the realm's
+ * Identity-Provider-Redirector). Returns:
+ *   - true  → a redirect to Keycloak was initiated (the browser is being
+ *             navigated away); the caller must abort route resolution.
+ *   - false → silent SSO is not available (no Sovereign FQDN, or already
+ *             attempted this navigation cycle); the caller falls back to
+ *             the explicit /login PIN form.
+ *
+ * The one-shot guard (`SILENT_SSO_GUARD_KEY` in sessionStorage) prevents a
+ * console → KC → console → KC loop when the user is logged out at the IdP
+ * too: KC bounces straight back to /auth/callback with no code, the
+ * callback page navigates to /dashboard, the gate re-probes whoami=401,
+ * and WITHOUT this guard would re-initiate the round-trip forever. The
+ * guard is set before the redirect and cleared by AuthCallbackPage on a
+ * successful token exchange (so a later genuine expiry re-arms silent SSO).
+ */
+export const SILENT_SSO_GUARD_KEY = 'catalyst:silent-sso-attempted'
+
+async function attemptSilentSovereignSSO(): Promise<boolean> {
+  if (typeof window === 'undefined') return false
+  const fqdn = DETECTED_MODE.sovereignFQDN
+  if (!fqdn) return false
+  try {
+    if (sessionStorage.getItem(SILENT_SSO_GUARD_KEY) === '1') {
+      // Already tried this cycle and came back unauthenticated — let the
+      // explicit /login fallback take over.
+      return false
+    }
+    sessionStorage.setItem(SILENT_SSO_GUARD_KEY, '1')
+  } catch {
+    // Private browsing may throw — without a usable guard we cannot
+    // safely loop-protect, so decline silent SSO and use /login.
+    return false
+  }
+  try {
+    const { initiateLogin } = await import('@/shared/lib/oidc')
+    // initiateLogin calls window.location.replace(authEndpoint) — the
+    // browser navigates to Keycloak. Control does not return here in
+    // practice; we still return true so the caller aborts the route.
+    await initiateLogin(fqdn)
+    return true
+  } catch {
+    // OIDC module failed to load / build the request — fall back.
+    return false
+  }
 }
 
 // Root

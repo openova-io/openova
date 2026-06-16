@@ -77,8 +77,9 @@ const testSessionEmailDomain = "openova.io"
 //	tier=admin     → role=catalyst-admin
 //	tier=owner     → role=catalyst-owner
 //
-// pinSessionRealmRole (= "catalyst-owner") is the same vocabulary —
-// this map just extends it to all 5 tiers.
+// This is the canonical tier→catalyst-* realm-role vocabulary the
+// PIN-mint authority (pinSessionAuthority, #3374 Layer-C) also stamps —
+// this map extends it to all 5 tiers for the QA test-session endpoint.
 var tierRoleMap = map[string]string{
 	"viewer":    "catalyst-viewer",
 	"developer": "catalyst-developer",

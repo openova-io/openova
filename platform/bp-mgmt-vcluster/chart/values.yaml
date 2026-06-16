@@ -151,6 +151,31 @@ mgmtVcluster:
       # timeout" → the voucher/billing funnel back-half (#3376) is dead.
       # Endpoints are healthy; the policy is the wall. #3376
       - sme
+      # ── #3642 host-bridge carve-outs ──────────────────────────────────
+      # The #3642 host→mgmt move re-homes keycloak (auth.) + grafana into
+      # this vCluster behind the isolation netpol. Their HOST-side
+      # consumers + the host Cilium Gateway that fronts their host-bridged
+      # HTTPRoutes now sit OUTSIDE the vCluster and are denied unless their
+      # namespace is allow-listed (mirrors the #3423 sme→NATS carve-out,
+      # commit cc3a7abcf). Per docs/sessions/2026-06-14/3373-migration-plan
+      # §7 batch-D consumer set:
+      #   gateway-system + kube-system — the host Cilium Gateway dials the
+      #     syncer-mangled Service backendRef (keycloak-x-…, grafana-x-…)
+      #     of every host-bridged HTTPRoute. Without these the public route
+      #     503s "no healthy upstream" even though the in-vCluster Pod is up.
+      - gateway-system
+      - kube-system
+      #   catalyst-system — catalyst-api → keycloak (OIDC admin token, realm
+      #     management); the control-plane reaches the moved IdP.
+      - catalyst-system
+      #   newapi — newapi → keycloak (OIDC client) after newapi's own move.
+      - newapi
+      #   sso-bridge — bp-sso-bridge reconciler → keycloak (realm/client
+      #     bootstrap) while it stays host-side.
+      - sso-bridge
+      #   oidc-gate — host slot 13c auth proxy on the gateway datapath →
+      #     the moved keycloak realm.
+      - oidc-gate
 
 # ─── Upstream chart values (subchart key: vcluster) ────────────────
 # `helm dependency build` resolves the upstream loft-sh/vcluster

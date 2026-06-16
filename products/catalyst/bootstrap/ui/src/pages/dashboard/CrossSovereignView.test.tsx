@@ -152,11 +152,13 @@ describe('CrossSovereignView — filters', () => {
     }) as never
     renderPage()
     await waitFor(() => expect(screen.getByTestId('cross-sov-filter-topology')).toBeTruthy())
+    // #3375 §3(f) — the filter now offers + posts the CANONICAL vocabulary
+    // (active-hot-standby), not the legacy editor dialect.
     fireEvent.change(screen.getByTestId('cross-sov-filter-topology'), {
-      target: { value: 'active-hotstandby' },
+      target: { value: 'active-hot-standby' },
     })
     await waitFor(() =>
-      expect(calls.some((u) => u.includes('topology=active-hotstandby'))).toBe(true),
+      expect(calls.some((u) => u.includes('topology=active-hot-standby'))).toBe(true),
     )
   })
 })

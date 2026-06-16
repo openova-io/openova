@@ -12,6 +12,8 @@ import (
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
@@ -48,6 +50,18 @@ func TestCutoverExecutionProjectsIntoJobsWithEdges(t *testing.T) {
 		makeCutoverStepCM("cutover-step-02-harbor-prewarm", "harbor-prewarm", 2, cutoverModeJob, minimalPodSpecYAML, ""),
 		makeCutoverStepCM("cutover-step-03-registry-pivot", "registry-pivot", 3, cutoverModeDaemonSetWait, "", "registry-pivot"),
 		makeReadyDaemonSet("registry-pivot"),
+		// #3671: harbor-prewarm flips registriesYamlActive=v2; pre-seed the
+		// per-node v2 acks (DesiredNumberScheduled=3) so the registry-pivot
+		// daemonset-wait ack-count passes deterministically in the fake.
+		&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: cutoverStatusConfigMapName(), Namespace: cutoverTestNS},
+			Data: map[string]string{
+				"cutoverComplete":              "false",
+				"node.cp-1.registriesYaml":     "v2",
+				"node.worker-1.registriesYaml": "v2",
+				"node.worker-2.registriesYaml": "v2",
+			},
+		},
 	}
 	h, client := fakeHandlerWithCutover(t, objs...)
 	installJobReactor(t, client, batchv1.JobComplete)

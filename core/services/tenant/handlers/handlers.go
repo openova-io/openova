@@ -257,10 +257,17 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 	// rather than minting a half-populated Organization CR).
 	claims, _ := middleware.ClaimsFromContext(r.Context())
 	ownerEmail, _ := claims["email"].(string)
-	tenantCreatedPayload := struct {
-		*store.Tenant
-		OwnerEmail string `json:"owner_email,omitempty"`
-	}{Tenant: tenant, OwnerEmail: ownerEmail}
+	// #3687 (fold #3690/#3673): emit the ONE canonical
+	// events.TenantCreatedPayload — the same struct the provisioning
+	// consumer decodes into and the bootstrap-API funnel maps onto —
+	// instead of a per-service anonymous struct embedding *store.Tenant
+	// (which flattened a dozen unused fields onto the wire). Tier /
+	// BillingMode / ParentDomain stay empty here (the SME-pool wizard
+	// default); the consumer applies the canonical defaults (tier→"sme",
+	// billing→"real"), so every door defaults identically.
+	tenantCreatedPayload := events.NewTenantCreatedPayload(
+		tenant.ID, tenant.Slug, tenant.Name, tenant.OwnerID, ownerEmail,
+		tenant.PlanID, "", "", "")
 	evt, err := events.NewEvent("tenant.created", "tenant-service", tenant.ID, tenantCreatedPayload)
 	if err == nil {
 		pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)

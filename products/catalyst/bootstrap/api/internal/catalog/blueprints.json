@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-16T12:06:11.834Z",
+  "generatedAt": "2026-06-16T16:49:44.547Z",
   "blueprints": [
     {
       "id": "bp-alloy",
@@ -3225,7 +3225,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "1.4.95",
+      "version": "1.4.96",
       "section": "pts-4-6-llm-serving",
       "depends": [
         "bp-cnpg",
@@ -4287,7 +4287,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.1.73",
+      "version": "0.1.74",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [
         "bp-gitea",

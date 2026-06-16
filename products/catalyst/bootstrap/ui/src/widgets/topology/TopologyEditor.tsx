@@ -62,13 +62,22 @@ export interface TopologyEditorProps {
 }
 
 /**
- * ALL_MODES — the canonical topology-mode option set for the placement
- * picker. Exported (#3599, EPIC #3597) so the create-from-catalog
- * placement step reuses the SAME option set the post-create Topology
- * editor offers, instead of reinventing it. Editor dialect:
- * `single-region` / `active-active` / `active-hotstandby`.
+ * ALL_MODES — the topology-mode option set for the placement picker.
+ * Exported (#3599, EPIC #3597) so the create-from-catalog placement step
+ * reuses the SAME option set the post-create Topology editor offers,
+ * instead of reinventing it.
+ *
+ * #3375 §3(d) — the editor must be able to SELECT all FOUR canonical
+ * classes. It previously offered only `single-region` / `active-active`
+ * / `active-hotstandby`, so `active-passive` could never be chosen even
+ * for a blueprint that supports it (a `supported`-vs-editable
+ * contradiction). `single-region` is the editor's spelling of the
+ * canonical `singleton` (canonicalizeMode maps them together), so the
+ * fourth class — `active-passive` — is added here. The
+ * `allowedModes`/`supportedCanonical` gate still hides any class the
+ * blueprint doesn't declare; this only makes the option REPRESENTABLE.
  */
-export const ALL_MODES = ['single-region', 'active-active', 'active-hotstandby'] as const
+export const ALL_MODES = ['single-region', 'active-active', 'active-hotstandby', 'active-passive'] as const
 
 export type TopologyMode = (typeof ALL_MODES)[number]
 
@@ -149,7 +158,12 @@ export function TopologyEditor({
   // Compute whether the proposed change is destructive (regions drop or
   // mode collapse) — surfaces the force-confirm UI client-side.
   const requiresForce = useMemo(() => {
-    if (mode === 'single-region' && (currentMode === 'active-active' || currentMode === 'active-hotstandby')) {
+    if (
+      mode === 'single-region' &&
+      (currentMode === 'active-active' ||
+        currentMode === 'active-hotstandby' ||
+        currentMode === 'active-passive')
+    ) {
       return true
     }
     if (regions.length < currentRegions.length) {
@@ -390,6 +404,8 @@ export function describeMode(mode: string): string {
       return 'every region serves traffic; horizontal scaling'
     case 'active-hotstandby':
       return 'primary serves; standby ready for switchover'
+    case 'active-passive':
+      return 'primary serves; passive cold/warm standby (backup-restore)'
     default:
       return ''
   }

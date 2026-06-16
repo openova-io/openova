@@ -57,4 +57,15 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list", "watch"]
+  # #3687 (fold #3669): the controller reads back the vCluster
+  # HelmRelease it wrote into the per-Org Gitea repo + the per-Org
+  # Namespace so status.vcluster.phase and the Ready condition derive
+  # from the LIVE reconcile state (never "I PUT the file → Ready=True").
+  # Read-only — the manifests are authored in Git, applied by Flux.
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
 {{- end }}

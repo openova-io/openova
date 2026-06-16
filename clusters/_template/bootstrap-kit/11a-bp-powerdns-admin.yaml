@@ -85,7 +85,7 @@ spec:
       namespace: flux-system
     # G92.2 #2661 (2026-06-01): bp-keycloak HR moved to host ns `mgmt`.
     - name: bp-keycloak
-      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-sso-bridge
       namespace: flux-system
     - name: bp-external-secrets-stores
@@ -159,6 +159,16 @@ spec:
     #   sso.sovereignFqdn      — e.g. ${SOVEREIGN_FQDN}
     # All other defaults inherit from platform/powerdns-admin/chart/values.yaml.
     gateway:
+      # #3374 Layer-A (2026-06-17): the bp-oidc-gate generic gate (slot
+      # 13c) now OWNS pdns-admin.<fqdn> and fronts pda with oauth2-proxy
+      # zero-click SSO — replacing pda's bespoke root-redirect (which was
+      # the structurally-fragile per-app hack: the OIDC callback shares
+      # the /login path, so the redirect approach looped and was reverted
+      # in 0.1.11). Two HTTPRoutes on one hostname is undefined routing,
+      # so this chart's OWN HTTPRoute is DISABLED — the gate's HTTPRoute
+      # is the single owner. The host is still declared so the KC client
+      # redirectUris + catalog-seed hostnameTemplate stay correct.
+      enabled: false
       # #3150 — single-level host (wildcard-cert-covered + matches the KC
       # client redirectUris + the catalog-seed/blueprint hostnameTemplate).
       host: "pdns-admin.${SOVEREIGN_FQDN}"

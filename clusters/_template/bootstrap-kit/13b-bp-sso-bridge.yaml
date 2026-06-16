@@ -72,7 +72,7 @@ spec:
     # reconcile once catalyst-api is up. So sso-bridge runs early, writes
     # sso/<app>, and gitea/catalyst-platform install behind it.
     - name: bp-keycloak
-      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-openbao
   chart:
     spec:
@@ -144,7 +144,8 @@ spec:
       # credentials → raw win left generic_oauth unconfigured (empty client_id,
       # redirect_uri https://localhost/). Slot 25-grafana sets the flag.
       # Default false → harbor/openbao/gitea/powerdns byte-identical. Refs #3374.
-      version: 0.2.18
+      # 0.2.19: reconciler configmap generic gate coverage (#3374).
+      version: 0.2.19
       sourceRef:
         kind: HelmRepository
         name: bp-sso-bridge

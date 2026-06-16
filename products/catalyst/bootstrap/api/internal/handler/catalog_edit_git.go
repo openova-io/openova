@@ -46,6 +46,8 @@ import (
 	"fmt"
 	"strings"
 
+	yamlv3 "gopkg.in/yaml.v3"
+
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 )
 
@@ -134,6 +136,21 @@ func (h *Handler) writeCatalogEditToGit(ctx context.Context, edit catalogEdit) (
 		return false, fmt.Errorf("get %s/%s/%s: %w", catalogSovereignOrg, bpName, catalogEditBlueprintPath, err)
 	}
 
+	// #3668 §5A — the FIRST console edit on a blueprint with no Gitea file
+	// must SEED from the live in-cluster CR's FULL spec, not synthesise a
+	// `version: 0.0.0` stub that drops spec.source / spec.manifests /
+	// spec.sso / spec.placementSchema / spec.endpoints / shareable /
+	// contextSchema (the §3A(b) lossy-stub violation). The seed is the same
+	// full Blueprint the install path reads — fetched via the catalog client
+	// (chainedCatalogClient resolves Gitea → in-cluster CR and returns the
+	// entire object in .Raw). With a full seed the existing setIfAbsent merge
+	// preserves every non-card field; the edit only overlays the card fields.
+	if len(existing) == 0 {
+		if seed := h.seedBlueprintYAMLFromLiveCR(ctx, bpName); len(seed) > 0 {
+			existing = seed
+		}
+	}
+
 	merged, err := mergeCatalogEditIntoBlueprintYAML(existing, bpName, edit)
 	if err != nil {
 		return false, fmt.Errorf("merge blueprint.yaml: %w", err)
@@ -193,3 +210,95 @@ func (h *Handler) fetchCatalogEditsFromGit(ctx context.Context) map[string]catal
 // inside its catalog-sovereign per-Blueprint repo. Matches the path
 // blueprints.go's curate writes ("blueprint.yaml").
 const catalogEditBlueprintPath = "blueprint.yaml"
+
+// seedBlueprintYAMLFromLiveCR resolves a blueprint's FULL definition via the
+// catalog client and renders it as the Blueprint CR YAML to seed the
+// catalog-sovereign Gitea file on the first console edit (#3668 §5A). The
+// catalog client is the chainedCatalogClient — it resolves Gitea →
+// in-cluster CR and returns the entire object in CatalogBlueprint.Raw, which
+// is the same full spec (source / version / manifests / sso / placementSchema
+// / endpoints / shareable / contextSchema) the install path consumes.
+//
+// Returns nil (the caller then falls back to mergeCatalogEditIntoBlueprintYAML
+// synthesising a minimal CR) when the client is unwired, the blueprint cannot
+// be resolved, or Raw is empty — seeding is best-effort: it upgrades the first
+// edit from a lossy stub to a full CR when the source is available, and never
+// fails the edit when it isn't.
+//
+// Server-managed + ownership metadata is stripped so the committed file is a
+// clean, hand-authorable source of truth that a later `helm upgrade` will not
+// fight over: status, resourceVersion, uid, generation, creationTimestamp,
+// managedFields, and the Helm/Flux ownership labels+annotations
+// (`app.kubernetes.io/managed-by: Helm`, `helm.toolkit.fluxcd.io/*`, the
+// release-tracking annotations) — leaving apiVersion/kind/metadata.name + the
+// full spec that the Blueprint projector and validateBlueprintYAML accept.
+func (h *Handler) seedBlueprintYAMLFromLiveCR(ctx context.Context, bpName string) []byte {
+	if h.catalogClient == nil {
+		return nil
+	}
+	bp, err := h.catalogClient.Get(ctx, bpName, "")
+	if err != nil || bp == nil || len(bp.Raw) == 0 {
+		return nil
+	}
+	doc := deepCopyYAMLMap(bp.Raw)
+	if doc == nil {
+		return nil
+	}
+
+	// Canonical envelope — the projector requires apiVersion/kind; the
+	// in-cluster CR carries them, but a Gitea-sourced Raw might not.
+	setIfAbsent(doc, "apiVersion", "catalyst.openova.io/v1")
+	setIfAbsent(doc, "kind", "Blueprint")
+
+	// metadata: keep only name; drop server-managed + ownership fields so a
+	// helm upgrade can't claim the committed file (DoD §9.4).
+	if meta, ok := doc["metadata"].(map[string]interface{}); ok {
+		name := asString(meta["name"])
+		if strings.TrimSpace(name) == "" {
+			name = bpName
+		}
+		cleanMeta := map[string]interface{}{"name": name}
+		doc["metadata"] = cleanMeta
+	} else {
+		doc["metadata"] = map[string]interface{}{"name": bpName}
+	}
+
+	// status is server-derived — never part of the source file.
+	delete(doc, "status")
+
+	out, err := yamlv3.Marshal(doc)
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
+// deepCopyYAMLMap returns a deep copy of a JSON/YAML-decoded map so mutating
+// the seed never aliases the catalog client's cached Raw. Values are scalars,
+// []interface{}, or map[string]interface{} (json.Unmarshal output), so a
+// straightforward recursive copy is exact.
+func deepCopyYAMLMap(in map[string]interface{}) map[string]interface{} {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]interface{}, len(in))
+	for k, v := range in {
+		out[k] = deepCopyYAMLValue(v)
+	}
+	return out
+}
+
+func deepCopyYAMLValue(v interface{}) interface{} {
+	switch t := v.(type) {
+	case map[string]interface{}:
+		return deepCopyYAMLMap(t)
+	case []interface{}:
+		cp := make([]interface{}, len(t))
+		for i := range t {
+			cp[i] = deepCopyYAMLValue(t[i])
+		}
+		return cp
+	default:
+		return t
+	}
+}

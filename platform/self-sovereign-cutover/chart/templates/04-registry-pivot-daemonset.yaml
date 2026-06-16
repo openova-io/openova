@@ -193,6 +193,31 @@ data:
     target=/host/etc/rancher/k3s/registries.yaml
     src_v1=/etc/registry-pivot/registries.yaml.v1
     src_v2=/etc/registry-pivot/registries.yaml.v2
+
+    # #3671: write this node's per-node ack into the status ConfigMap so
+    # catalyst-api's step-04 daemonset-wait can assert acks ==
+    # DesiredNumberScheduled — proving EVERY node actually swapped to the
+    # local-Harbor (v2) file, not merely that the DS Pods are Ready. The
+    # key is node.<NODE_NAME>.registriesYaml. Uses a JSON merge-patch (the
+    # SA already has configmaps patch RBAC via the chart's role). Dots in
+    # the node name are fine — they are part of the ConfigMap DATA KEY, not
+    # a JSONPath. Best-effort: a failed ack just means the wait keeps
+    # polling until the next sweep retries it.
+    write_node_ack() {
+      ack_val="$1"   # "v1" | "v2" | "rollback"
+      ack_key="node.${NODE_NAME}.registriesYaml"
+      patch=$(jq -cn --arg k "${ack_key}" --arg v "${ack_val}" '{data: {($k): $v}}')
+      if curl -fsS -X PATCH \
+        --cacert "${cacert}" \
+        -H "Authorization: Bearer ${token}" \
+        -H "Content-Type: application/merge-patch+json" \
+        --data "${patch}" \
+        "${cm_url}" >/dev/null 2>&1; then
+        echo "[registry-pivot]   acked ${ack_key}=${ack_val}"
+      else
+        echo "[registry-pivot]   WARN failed to ack ${ack_key}=${ack_val} (will retry next sweep)"
+      fi
+    }
     # #3647: the containerd host-mirror dir, mounted from the host. k3s
     # generates these files from registries.yaml at startup and containerd
     # re-reads them per pull, so writing them here makes new pulls hit the
@@ -250,6 +275,8 @@ data:
           # #3647: mirror the pivot into the live containerd host-dir so a
           # pod rolled AFTER cutover pulls from local Harbor, not ghcr.io.
           write_hosts_toml "${harbor_host}"
+          # #3671: ack this node's v2 swap so step-04 can count acks.
+          write_node_ack v2
           ;;
         v1|rollback|*)
           cp "${src_v1}" "${target}.new"
@@ -260,6 +287,8 @@ data:
           # point the live containerd host-dir back at mothership Harbor.
           mothership_host=$(printf '%s' "{{ .Values.upstream.mothershipHarborURL }}" | sed -E 's,^https?://,,; s,/$,,')
           write_hosts_toml "${mothership_host}"
+          # #3671: ack this node back to v1 so a rollback de-counts it.
+          write_node_ack v1
           ;;
       esac
     }

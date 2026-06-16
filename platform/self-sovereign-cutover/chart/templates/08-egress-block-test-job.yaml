@@ -69,6 +69,40 @@ data:
             value: {{ eq (toString .Values.egressTest.enforceCIDRBlock) "true" | quote }}
           - name: UPSTREAM_HOSTS
             value: {{ .Values.egressTest.blockedDomains | default (list "github.com" "ghcr.io" "harbor.openova.io") | join " " | quote }}
+          # #3678 — TRUE deny-egress. DEFAULT_DENY_EGRESS=true emits a
+          # default-deny CCNP with an explicit intra-cluster allow-list
+          # (ALLOW_CIDRS) so EVERYTHING public is denied, not just the 4
+          # enumerated tether CIDRs. The apiserver-strand (#3640) is avoided
+          # by the allow-list (10.96/12 covers 10.96.0.1), not by
+          # enableDefaultDeny.egress:false.
+          - name: DEFAULT_DENY_EGRESS
+            value: {{ eq (toString .Values.egressTest.defaultDenyEgress) "true" | quote }}
+          - name: ALLOW_CIDRS
+            value: {{ .Values.egressTest.allowIntraClusterCIDRs | default (list "10.42.0.0/16" "10.43.0.0/16" "10.96.0.0/12") | join " " | quote }}
+          # #3678 — active call-home assertion knobs. During the hold, curl
+          # each CALL_HOME_HOSTS entry FROM this pod (under the policy); any
+          # that connects fails the proof.
+          - name: CALL_HOME_ENABLED
+            value: {{ eq (toString .Values.egressTest.callHomeAssertion.enabled) "true" | quote }}
+          - name: CALL_HOME_TIMEOUT
+            value: {{ .Values.egressTest.callHomeAssertion.timeoutSeconds | default 5 | quote }}
+          - name: CALL_HOME_HOSTS
+            value: {{ .Values.egressTest.callHomeAssertion.hosts | default (list "https://console.openova.io/healthz") | join " " | quote }}
+          # #3695 — host GitOps loop gate. The root bootstrap-kit Kustomization
+          # (+ sovereign-tls + sme-tenants) MUST be Ready=True at the
+          # post-cutover revision or the proof fails BEFORE the window.
+          - name: HOST_KS_GATE_ENABLED
+            value: {{ eq (toString .Values.egressTest.hostKustomizationGate.enabled) "true" | quote }}
+          - name: HOST_KS_NAMESPACE
+            value: {{ .Values.egressTest.hostKustomizationGate.namespace | default "flux-system" | quote }}
+          - name: HOST_KS_NAMES
+            value: {{ .Values.egressTest.hostKustomizationGate.names | default (list "bootstrap-kit") | join " " | quote }}
+          # #3695 — roll EVERY external-registry workload under deny-egress,
+          # not one hand-picked openova-io Deployment.
+          - name: ROLL_ALL_EXTERNAL
+            value: {{ eq (toString .Values.egressTest.rollAllExternalRegistryWorkloads) "true" | quote }}
+          - name: LOCAL_REGISTRY_SUBSTR
+            value: {{ .Values.egressTest.localRegistryHostSubstr | default "harbor." | quote }}
           # #3647 — fresh-pull-under-deny-egress proof knobs. See the
           # FRESH-PULL phase in the script below + values.yaml egressTest.
           # freshPullProof for the full rationale.
@@ -232,28 +266,78 @@ data:
                   esac
                 done
               done
-              if [ -z "${block_ips}" ]; then
+              if [ -z "${block_ips}" ] && [ "${DEFAULT_DENY_EGRESS}" != "true" ]; then
                 echo "  WARN — zero public upstream IPs resolved; assertion-only fallback (fail-safe)"
-              else
+              elif [ "${DEFAULT_DENY_EGRESS}" = "true" ]; then
+                # ── #3678 TRUE DEFAULT-DENY EGRESS ────────────────────────
+                # The PROOF the founder demands: block EVERY mothership
+                # tether, not 4 hand-picked CIDRs. We emit a cluster-wide
+                # default-deny egress policy (enableDefaultDeny.egress:true —
+                # NOT the #3640 retreat to false) with an explicit allow-list
+                # of the Sovereign's OWN intra-cluster ranges. Result: pods
+                # can reach the apiserver (10.96.0.1, inside 10.96/12), CoreDNS,
+                # each other (10.42/16) and node-local services, but EVERY
+                # public destination — console.openova.io, ghcr.io,
+                # harbor.openova.io, and any host nobody enumerated — is
+                # black-holed. The #3640 apiserver-strand is avoided by the
+                # allow-list, not by making the policy subtractive.
+                #
+                # Cilium semantics: a CCNP with endpointSelector:{} and ANY
+                # egress: rule sets enableDefaultDeny.egress=true implicitly,
+                # so listing only the allow `egress:` toCIDR/toEntities rules
+                # denies everything else. We set it explicitly for clarity and
+                # to be robust against future Cilium default changes.
                 {
-                  # CiliumClusterwideNetworkPolicy (NOT namespaced) — a
-                  # namespaced CNP with endpointSelector:{} only covers the
-                  # cutover namespace, missing the cross-namespace tethers
-                  # this proof targets (flux-system source-controller →
-                  # ghcr.io, harbor → upstream). Cluster-wide has no
-                  # metadata.namespace. (reviewer PR #3072)
                   echo "apiVersion: cilium.io/v2"
                   echo "kind: CiliumClusterwideNetworkPolicy"
                   echo "metadata:"
                   echo "  name: cutover-egress-block"
                   echo "spec:"
                   echo "  endpointSelector: {}"
-                  # enableDefaultDeny.egress:false makes egressDeny SUBTRACTIVE (deny ONLY the 4
-                  # tether CIDRs). Cilium otherwise defaults enableDefaultDeny.egress=true for any
-                  # policy carrying egress rules, so endpointSelector:{} would flip EVERY pod into
-                  # default-deny egress with 0 allow rules -> total cluster-wide egress loss:
-                  # apiserver (10.96.0.1), DNS, inter-pod all blocked, the Job's own kubectl times
-                  # out and step-08 never captures the baseline. (#3640, hw148 step-08 wedge)
+                  echo "  enableDefaultDeny:"
+                  echo "    egress: true"
+                  echo "  egress:"
+                  # Allow the Sovereign's own intra-cluster CIDRs (pods,
+                  # services incl. apiserver ClusterIP, node ranges).
+                  echo "    - toCIDR:"
+                  for cidr in ${ALLOW_CIDRS}; do
+                    echo "        - ${cidr}"
+                  done
+                  # Allow control-plane + DNS + node entities so the apiserver
+                  # (also reachable as the `kube-apiserver` entity when it has a
+                  # non-ClusterIP address), CoreDNS, host and remote-node paths
+                  # stay up. `cluster` covers all in-cluster endpoints; `host`
+                  # + `remote-node` cover node-local + other-node kubelet/proxy.
+                  echo "    - toEntities:"
+                  echo "        - kube-apiserver"
+                  echo "        - host"
+                  echo "        - remote-node"
+                  echo "        - cluster"
+                  # Allow DNS explicitly (CoreDNS ClusterIP is inside 10.96/12,
+                  # but make the intent first-class and tolerate non-default
+                  # DNS service CIDRs): UDP/TCP 53 to world, rules-restricted to
+                  # the DNS ports so this is not a general egress hole.
+                  echo "    - toPorts:"
+                  echo "        - ports:"
+                  echo "            - port: \"53\""
+                  echo "              protocol: UDP"
+                  echo "            - port: \"53\""
+                  echo "              protocol: TCP"
+                } >/work/egress-deny.yaml
+              else
+                {
+                  # Legacy SUBTRACTIVE fallback (DEFAULT_DENY_EGRESS=false) —
+                  # kept only for environments that explicitly opt out of the
+                  # true default-deny. Deny ONLY the resolved tether CIDRs.
+                  # NOTE: this shape leaves console.openova.io + any
+                  # un-enumerated mothership host reachable — it is NOT the
+                  # ADR-0002 proof; #3678 makes default-deny the default.
+                  echo "apiVersion: cilium.io/v2"
+                  echo "kind: CiliumClusterwideNetworkPolicy"
+                  echo "metadata:"
+                  echo "  name: cutover-egress-block"
+                  echo "spec:"
+                  echo "  endpointSelector: {}"
                   echo "  enableDefaultDeny:"
                   echo "    egress: false"
                   echo "  egressDeny:"
@@ -385,8 +469,146 @@ data:
               return 1
             }
 
+            # ── #3695/#3379 §7 GENERALIZED FRESH-PULL ─────────────────────
+            # Roll EVERY workload (Deployment/DaemonSet/StatefulSet, any ns)
+            # whose image host is NOT the local registry, under deny-egress —
+            # not one hand-picked openova-io Deployment. Any that ImagePull-
+            # BackOffs FAILS the proof. This is the cross-cutting guarantee:
+            # the gate is generic across ALL workloads/HRs, so leaving ANY one
+            # on harbor.openova.io / ghcr.io/openova-io fails the proof. We
+            # roll via `kubectl rollout restart` then `rollout status` with a
+            # bounded timeout, and explicitly scan the new Pods for image-pull
+            # errors (rollout status alone would just time out on a BackOff).
+            roll_and_check_workload() {
+              kind="$1"; ns="$2"; name="$3"
+              echo "  rolling ${kind}/${name} -n ${ns} (forces fresh pull from local registry)"
+              kubectl rollout restart "${kind}/${name}" -n "${ns}" >/dev/null 2>&1 || true
+              # Bounded wait; rollout status returns non-zero on timeout.
+              if kubectl rollout status "${kind}/${name}" -n "${ns}" --timeout="${FRESH_PULL_TIMEOUT}s" >/dev/null 2>&1; then
+                echo "    PASS — ${kind}/${name} rolled out (images pulled from local registry under deny-egress)"
+                return 0
+              fi
+              # Timed out — surface WHY. An image-pull error on any Pod of this
+              # workload is the inert-mirror / residual-tether failure (#3695).
+              sel=$(kubectl get "${kind}" "${name}" -n "${ns}" -o json 2>/dev/null \
+                | jq -r '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")' 2>/dev/null || true)
+              reasons=""
+              if [ -n "${sel}" ]; then
+                reasons=$(kubectl get pods -n "${ns}" -l "${sel}" \
+                  -o jsonpath='{range .items[*]}{range .status.containerStatuses[*]}{.state.waiting.reason}{" "}{end}{range .status.initContainerStatuses[*]}{.state.waiting.reason}{" "}{end}{end}' 2>/dev/null || echo "")
+              fi
+              case "${reasons}" in
+                *ImagePullBackOff*|*ErrImagePull*)
+                  echo "    FAIL — ${kind}/${name} has a Pod in image-pull error under deny-egress (${reasons}); residual external-registry tether or inert mirror (#3695)"
+                  return 1 ;;
+              esac
+              echo "    FAIL — ${kind}/${name} did not roll out within ${FRESH_PULL_TIMEOUT}s under deny-egress (reasons:${reasons:-<none>})"
+              return 1
+            }
+
+            run_fresh_pull_all() {
+              echo "[egress-block-test] #3695: rolling EVERY external-registry workload under deny-egress"
+              # Enumerate Deployments/DaemonSets/StatefulSets whose container
+              # images reference a host that is NOT the local registry. The
+              # local registry is identified by LOCAL_REGISTRY_SUBSTR
+              # (harbor.<fqdn>). We also exclude the cutover runner's own
+              # catalyst-api (FRESH_PULL_EXCLUDE) so the engine is never bounced
+              # mid-hold. Rows look like "kind ns name=img1,img2".
+              workloads=$(
+                for kind in deployments daemonsets statefulsets; do
+                  kubectl get "${kind}" -A \
+                    -o jsonpath="{range .items[*]}${kind%s} {.metadata.namespace} {.metadata.name}={.spec.template.spec.containers[*].image} {.spec.template.spec.initContainers[*].image}{\"\n\"}{end}" 2>/dev/null
+                done
+              )
+              # Keep rows whose image list contains a NON-local registry host.
+              # A bare image (docker-library short form) or a localhost/local
+              # Harbor ref is NOT a tether. We treat any image containing a
+              # dotted host (registry) that does NOT include LOCAL_REGISTRY_SUBSTR
+              # as external.
+              targets=$(printf '%s\n' "${workloads}" \
+                | grep -E '=[^ ]*[a-z0-9.-]+\.[a-z]+/' \
+                | grep -vE "[=, ]${LOCAL_REGISTRY_SUBSTR}" \
+                | { [ -n "${FRESH_PULL_EXCLUDE}" ] && grep -vE " ${FRESH_PULL_EXCLUDE}[^ ]*=" || cat; } \
+                || true)
+              if [ -z "${targets}" ]; then
+                echo "  no external-registry workloads found — every workload already pulls from the local registry (PASS)"
+                return 0
+              fi
+              echo "  external-registry workloads to roll:"
+              printf '%s\n' "${targets}" | sed 's/^/    /'
+              rc=0
+              # Roll each; collect the first failure but attempt all so the log
+              # lists every offender.
+              printf '%s\n' "${targets}" | while IFS= read -r row; do
+                [ -z "${row}" ] && continue
+                kind=$(printf '%s' "${row}" | awk '{print $1}')
+                ns=$(printf '%s' "${row}" | awk '{print $2}')
+                name=$(printf '%s' "${row}" | awk '{print $3}' | cut -d= -f1)
+                roll_and_check_workload "${kind}" "${ns}" "${name}" || echo "ROLL_FAIL ${kind}/${name}" >> /work/roll_failures.txt
+              done
+              if [ -s /work/roll_failures.txt ]; then
+                echo "  FAIL — external-registry workload(s) failed to roll under deny-egress:"
+                sed 's/^/    /' /work/roll_failures.txt
+                rc=1
+              else
+                echo "  PASS — every external-registry workload rolled to Running pulling from the local registry under deny-egress (#3695)"
+              fi
+              return "${rc}"
+            }
+
+            # ── #3678 ACTIVE CALL-HOME ASSERTION ──────────────────────────
+            # The survival poll only proves ALREADY-RUNNING HRs stay Ready —
+            # it never makes an outbound call, so a catalyst-api still issuing
+            # tokens with iss=console.openova.io kept every HR green and the
+            # 4-CIDR block left console.openova.io wide open. Here we ACTIVELY
+            # curl each mothership host FROM this pod (which is under the
+            # default-deny CCNP). Under a TRUE default-deny, EVERY one must
+            # FAIL to connect; if ANY connects, the deny-egress is leaky and
+            # the sovereignty proof FAILS. This is what makes the proof catch
+            # an ARBITRARY mothership tether, not the 4 enumerated hosts.
+            run_call_home_assertion() {
+              echo "[egress-block-test] #3678: active call-home — asserting every mothership host is UNREACHABLE under the hold"
+              leaked=""
+              for url in ${CALL_HOME_HOSTS}; do
+                # --max-time bounds each probe; -o /dev/null -s -w "%{http_code}"
+                # yields the HTTP status (000 on connect failure/timeout, which
+                # is the EXPECTED, PASSING outcome under deny-egress). A genuine
+                # 2xx/3xx/4xx/5xx means the TCP+TLS handshake SUCCEEDED → the
+                # host is reachable → LEAK.
+                code=$(curl -ksS -o /dev/null -w '%{http_code}' --max-time "${CALL_HOME_TIMEOUT}" "${url}" 2>/dev/null || echo "000")
+                if [ "${code}" = "000" ]; then
+                  echo "  OK — ${url} unreachable (curl exit/timeout, http_code=000) — denied as required"
+                else
+                  echo "  LEAK — ${url} RESPONDED http_code=${code} under deny-egress — mothership tether still reachable"
+                  leaked="${leaked} ${url}"
+                fi
+              done
+              if [ -n "${leaked}" ]; then
+                echo "  FAIL — deny-egress is leaky; reachable mothership host(s):${leaked} (#3678)"
+                return 1
+              fi
+              echo "  PASS — every mothership host black-holed by the default-deny hold (#3678)"
+              return 0
+            }
+
+            if [ "${CALL_HOME_ENABLED}" = "true" ] && [ "${POLICY_APPLIED}" = "yes" ]; then
+              if ! run_call_home_assertion; then
+                kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true || true
+                echo "[egress-block-test] CALL-HOME assertion FAILED — sovereignty proof FAILED (cutoverComplete stays false)"
+                exit 1
+              fi
+            elif [ "${CALL_HOME_ENABLED}" = "true" ]; then
+              echo "[egress-block-test] #3678: call-home assertion requested but egressDeny not applied — cannot prove unreachability, skipping (survival-poll only)"
+            fi
+
             if [ "${FRESH_PULL_PROOF}" = "true" ] && [ "${POLICY_APPLIED}" = "yes" ]; then
-              if ! run_fresh_pull_proof; then
+              : > /work/roll_failures.txt
+              if [ "${ROLL_ALL_EXTERNAL}" = "true" ]; then
+                fresh_pull_fn=run_fresh_pull_all
+              else
+                fresh_pull_fn=run_fresh_pull_proof
+              fi
+              if ! ${fresh_pull_fn}; then
                 # Tear the deny policy down before failing so we never leave
                 # a cluster-wide egressDeny lingering on the Sovereign.
                 kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true || true
@@ -441,6 +663,41 @@ data:
               fi
             else
               echo "[egress-block-test] #3376: ${sme_tenants_ns}/${sme_tenants_ks} absent (non-marketplace Sovereign) — skipping the customer-path readiness assertion"
+            fi
+
+            # ── #3695 HOST GITOPS LOOP GATE ───────────────────────────────
+            # HARD gate, NOT subject to the baseline-exclude below. The root
+            # bootstrap-kit Kustomization owns all 63 bp-* HRs with prune=true
+            # — if it cannot build (e.g. step-10's awk injector duplicated a
+            # `values:` key on 13b-bp-sso-bridge.yaml, hw150), the Sovereign
+            # can no longer apply ANY git change and is not operable as a
+            # GitOps cluster, even though every already-running pod stays up
+            # and the survival poll would pass. Assert each host Kustomization
+            # is Ready=True NOW; any NotReady fails the proof before the window.
+            if [ "${HOST_KS_GATE_ENABLED}" = "true" ]; then
+              echo "[egress-block-test] #3695: asserting host GitOps Kustomizations are Ready (the loop that reconciles local git)"
+              host_ks_bad=""
+              for ks in ${HOST_KS_NAMES}; do
+                ready=$(kubectl get kustomization "${ks}" -n "${HOST_KS_NAMESPACE}" \
+                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+                if [ "${ready}" = "True" ]; then
+                  rev=$(kubectl get kustomization "${ks}" -n "${HOST_KS_NAMESPACE}" \
+                    -o jsonpath='{.status.lastAppliedRevision}' 2>/dev/null || echo "?")
+                  echo "  OK — kustomization/${ks} Ready=True (lastAppliedRevision=${rev})"
+                else
+                  msg=$(kubectl get kustomization "${ks}" -n "${HOST_KS_NAMESPACE}" \
+                    -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null || echo "")
+                  echo "  FAIL — kustomization/${ks} Ready=${ready:-<missing>}: ${msg}"
+                  host_ks_bad="${host_ks_bad} ${ks}"
+                fi
+              done
+              if [ -n "${host_ks_bad}" ]; then
+                # Tear down any applied policy before failing.
+                [ -n "${POLICY_APPLIED}" ] && kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true || true
+                echo "[egress-block-test] #3695 FAIL — host GitOps loop not reconciling (NotReady:${host_ks_bad}); the cutover corrupted its own git loop — sovereignty proof FAILED"
+                exit 1
+              fi
+              echo "[egress-block-test] #3695: host GitOps loop healthy — bootstrap-kit reconciles local git"
             fi
 
             echo "[egress-block-test] capturing baseline NotReady set"

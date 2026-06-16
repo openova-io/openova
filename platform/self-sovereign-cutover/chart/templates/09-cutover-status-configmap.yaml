@@ -21,12 +21,40 @@ products/catalyst/bootstrap/api/internal/handler/cutover.go):
 Plus this chart's own:
   registriesYamlActive     "v1" | "v2" | "rollback"
                            Read by the registry-pivot DaemonSet's
-                           reconcile loop; written by catalyst-api
-                           between step 03 success and step 05.
+                           reconcile loop to decide WHICH registries.yaml
+                           to write (v1=mothership Harbor, v2=local
+                           harbor.<fqdn>). Flipped to "v2" by catalyst-api
+                           (cutover.go runCutover) the moment the
+                           harbor-prewarm step succeeds — BEFORE the
+                           registry-pivot DaemonSet-wait — so the DS writes
+                           the LOCAL file. Each node then writes a
+                           node.<name>.registriesYaml="v2" ack which the
+                           DaemonSet-wait counts (#3671).
+  node.<nodeName>.registriesYaml
+                           "v2" per-node ack, written by the registry-pivot
+                           DaemonSet after it atomically swaps the file.
+                           Counted by step-04 (acks == DesiredNumberScheduled).
 
 helm.sh/resource-policy: keep ensures Helm leaves this ConfigMap in
 place on chart uninstall so a re-install doesn't lose state mid-cutover.
+
+#3667 — INIT-ONLY guard: the whole ConfigMap is wrapped in a `lookup`
+so Helm authors it ONLY on the FIRST install (when it does not already
+exist in the cluster). On every subsequent `helm upgrade` the `lookup`
+finds the live ConfigMap and the template renders EMPTY, so
+helm-controller's 3-way merge has nothing to re-assert — the live
+`cutoverComplete:"true"` / `cutoverStartedAt:<T0>` / `registriesYamlActive:"v2"`
+written by catalyst-api are never reverted to the template's
+"false"/""/"v1" defaults. Without this, a routine chart-pin bump
+(which lands on running Sovereigns constantly) re-armed the entire
+cutover including the 600s deny-egress hold. `helm.sh/resource-policy:
+keep` only governs uninstall, NOT upgrade — the lookup guard is what
+makes the upgrade non-reverting. catalyst-api's patchCutoverStatus
+create-path (cutover.go) still anchors the keys if the ConfigMap is
+somehow absent at runtime, so a from-scratch install with
+`--no-hooks`/dry-render is also covered.
 */ -}}
+{{- if not (lookup "v1" "ConfigMap" .Release.Namespace .Values.status.configMapName) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -95,3 +123,4 @@ data:
   step.crossplane-provider-pivot.finishedAt: ""
   step.crossplane-provider-pivot.result: ""
   step.crossplane-provider-pivot.jobName: ""
+{{- end }}
