@@ -292,6 +292,21 @@ type podRow struct {
 	cluster     string  // cluster id (single-Sovereign per page today)
 	region      string  // openova.io/region label value (e.g. hz-hel-rtz-prod); empty on single-region
 	vcluster    string  // catalyst.openova.io/vcluster-role label value on the pod's host namespace (mgmt/dmz/rtz); empty for host pods
+	// org is the owning Organization, resolved from the pod's namespace
+	// `openova.io/organization` (or `catalyst.openova.io/organization`)
+	// label — the single join key across compliance/RBAC/billing
+	// (ARCHITECTURE.md:306). The organization-controller stamps it onto
+	// every per-Org namespace (gitops/manifests.go). Empty when the
+	// namespace carries no Org label (host/control-plane namespaces);
+	// showback attribution (#3687 fold #3677) buckets those under the
+	// platform-overhead line rather than mis-attributing them to a tenant.
+	org string
+	// ownerKind is the Kind of the pod's top-level owner (Deployment,
+	// StatefulSet, DaemonSet, Job, ...). showback attribution excludes
+	// `Job`-owned pods (one-shot cutover / scan / snapshot workloads) from
+	// tenant `apps[]` so ephemeral activity never renders as consumption
+	// (#3687 fold #3677).
+	ownerKind   string
 	cpuReq      float64 // millicores summed across containers (resources.requests.cpu)
 	memReq      float64 // bytes (resources.requests.memory)
 	cpuLim      float64 // millicores summed across containers (resources.limits.cpu)
@@ -404,6 +419,23 @@ func buildPodRows(pods, pvcs, podMetrics, namespaces, nodes []*unstructured.Unst
 		if region == "" && clusterCloudRegion != "" {
 			region = clusterCloudRegion
 		}
+		// org: the single billing/RBAC join key. The
+		// organization-controller stamps `openova.io/organization=<slug>`
+		// onto every per-Org namespace (gitops/manifests.go); a few
+		// surfaces also use the `catalyst.openova.io/organization` form.
+		// Host/control-plane namespaces carry neither → org stays "" and
+		// showback rolls the pod into the platform-overhead bucket
+		// instead of mis-attributing it to a tenant (#3687 fold #3677).
+		org := labelOr(nsLabels, "openova.io/organization", "catalyst.openova.io/organization")
+		if org == "" {
+			org = labelOr(p.GetLabels(), "openova.io/organization", "catalyst.openova.io/organization")
+		}
+		// ownerKind: the Kind of the pod's first (top-level) owner. Used
+		// to filter `Job`-owned one-shot pods out of tenant attribution.
+		ownerKind := ""
+		if refs := p.GetOwnerReferences(); len(refs) > 0 {
+			ownerKind = refs[0].Kind
+		}
 		row := podRow{
 			namespace:   p.GetNamespace(),
 			cluster:     clusterID,
@@ -411,6 +443,8 @@ func buildPodRows(pods, pvcs, podMetrics, namespaces, nodes []*unstructured.Unst
 			family:      family,
 			region:      region,
 			vcluster:    vcluster,
+			org:         org,
+			ownerKind:   ownerKind,
 			isReady:     podIsReady(p),
 			createdAt:   p.GetCreationTimestamp().Time,
 		}
