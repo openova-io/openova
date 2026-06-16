@@ -81,7 +81,11 @@ spec:
       # 0.2.10 (#3373): in-vCluster CRD registration via OSS init-manifests
       # (experimental.deploy.vcluster.manifests) — the toHost block alone does NOT
       # register CRDs inside the vCluster on OSS vCluster (Pro-gated). Proven hw130.
-      version: 0.2.10
+      # 0.2.11 (#3642): host-bridge carve-outs (gateway-system/kube-system +
+      # catalyst-system/newapi/sso-bridge/oidc-gate) in allowedIngressNamespaces
+      # so the host Cilium Gateway + keycloak SSO consumers reach the moved
+      # keycloak/grafana through the vCluster isolation netpol.
+      version: 0.2.11
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster
