@@ -2712,7 +2712,25 @@ name: bp-catalyst-platform
 # (qaFixtures.cnpgBackupEndpointURL + cnpg-clusters-qa.yaml) to the
 # syncer-mangled host Service name. qa-fixtures only; Catalyst-Zero render
 # byte-unchanged. (1.4.622 was a content-free deploy-bot image sweep.)
-version: 1.4.647
+version: 1.4.648
+# 1.4.648 — #3638 (2026-06-16, Refs #3379; rebased over main's 1.4.647 deploy-bot bump) — fix the cutover step-07 re-run
+# loop at its source. templates/configmap-catalyst-runtime-config.yaml now
+# DERIVES sovereign-console-url + sovereign-api-public-url from
+# global.sovereignFQDN when set (every Sovereign), keeping the explicit
+# runtime.sovereignConsoleURL / sovereignAPIPublicURL mothership defaults
+# ONLY on Catalyst-Zero (empty FQDN). Before this, the chart always
+# re-rendered the mothership default (runtime.sovereignConsoleURL =
+# https://console.openova.io — never overridden in slot-13), so Flux
+# reverted bp-self-sovereign-cutover step-07 Phase-3a's live ConfigMap
+# patch back to the mothership URL every reconcile → step-07 Phase-3c
+# read-back assert FATAL'd ("still mothership/empty") + re-rolled
+# catalyst-api → the in-memory cutover engine restarted from step-01 →
+# infinite loop, step-08 (600s deny-egress hold) never ran. Now the chart
+# render == step-07's pivot target on a Sovereign → nothing to revert →
+# step-07 is idempotent → engine proceeds to step-08 + cutoverComplete.
+# Same `{{ if .Values.global.sovereignFQDN }}` idiom as sovereign-fqdn-
+# configmap.yaml. Catalyst-Zero (contabo-mkt) render byte-unchanged
+# (empty FQDN → else-branch keeps the runtime.* mothership defaults).
 # 1.4.645 — #3626 (2026-06-16) — catalog-seed: repoint bp-openbao's launch
 # endpoint ssoInitPath at the on-origin /sso/landing page (was
 # /ui/vault/auth?with=oidc). The console "Open" button window.open()s

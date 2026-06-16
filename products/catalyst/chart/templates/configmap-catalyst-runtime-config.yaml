@@ -41,10 +41,53 @@ data:
   # catalyst-api as CORS_ORIGIN + CATALYST_SOVEREIGN_URL via
   # configMapKeyRef. Override via runtime.sovereignConsoleURL in
   # per-Sovereign overlay or bp-self-sovereign-cutover Step 7.
+  #
+  # #3638 (2026-06-16): DERIVE from global.sovereignFQDN on a Sovereign.
+  # Root cause of the cutover step-07 re-run loop: step-07 Phase-3a
+  # (platform/self-sovereign-cutover/chart/templates/07-catalyst-api-env-
+  # patch-job.yaml) `kubectl patch`es this live ConfigMap's two keys to
+  # https://console.<fqdn>, then Phase-3c read-back-asserts no openova.io
+  # residue. But the chart USED to ALWAYS render the mothership default
+  # (runtime.sovereignConsoleURL = https://console.openova.io) — which is
+  # NEVER overridden in the slot-13 bootstrap-kit overlay (verified: no
+  # `runtime:` block in 13-bp-catalyst-platform.yaml, no overlay anywhere
+  # sets runtime.sovereignConsoleURL). So every Flux reconcile reverted
+  # step-07's live patch back to the mothership URL → Phase-3c FATAL'd on
+  # the next re-run ("still mothership/empty") + the env-patch re-rolled
+  # catalyst-api → the in-memory cutover engine restarted from step-01 →
+  # infinite loop; step-08 (the 600s deny-egress hold) never ran (#3638).
+  #
+  # global.sovereignFQDN IS set on every Sovereign (slot-13
+  # 13-bp-catalyst-platform.yaml `sovereignFQDN: ${SOVEREIGN_FQDN}`) and
+  # EMPTY on the mothership / Catalyst-Zero (contabo-mkt sets neither
+  # global.sovereignFQDN nor any runtime.* override). This is the SAME
+  # `if .Values.global.sovereignFQDN` Sovereign-vs-mothership idiom
+  # already used by sovereign-fqdn-configmap.yaml + api-deployment.yaml
+  # (gitea base-path / openbao addr). When the FQDN is set the chart now
+  # renders the SAME https://console.<fqdn> that step-07 pivots to → Flux
+  # render == step-07 patch → nothing to revert → step-07 Phase-3c passes
+  # on every reconcile → step-07 is idempotent (no re-patch, no re-roll,
+  # no engine restart) → the engine proceeds to step-08. The mothership
+  # (empty FQDN) keeps the explicit runtime.sovereignConsoleURL default
+  # unchanged — the branch only re-derives on a Sovereign.
+  {{- if .Values.global.sovereignFQDN }}
+  sovereign-console-url: {{ printf "https://console.%s" .Values.global.sovereignFQDN | quote }}
+  {{- else }}
   sovereign-console-url: {{ .Values.runtime.sovereignConsoleURL | quote }}
+  {{- end }}
   # #2940 (2026-06-03): public origin a provisioning Sovereign's
   # cloud-init PUTs its kubeconfig back to (CATALYST_API_PUBLIC_URL via
   # configMapKeyRef in api-deployment.yaml). Mothership URL is ONLY the
   # back-compat default; bp-self-sovereign-cutover Step 7 Phase 3
   # pivots it to the Sovereign's own console URL post-handover.
+  #
+  # #3638 (2026-06-16): DERIVE from global.sovereignFQDN on a Sovereign
+  # (same rationale + branch as sovereign-console-url above — this is the
+  # second key step-07 Phase-3a patches and Phase-3c asserts). The
+  # `/sovereign` suffix matches step-07's pivot target
+  # (`${CONSOLE_PUBLIC_URL}/sovereign`) and the chart default's suffix.
+  {{- if .Values.global.sovereignFQDN }}
+  sovereign-api-public-url: {{ printf "https://console.%s/sovereign" .Values.global.sovereignFQDN | quote }}
+  {{- else }}
   sovereign-api-public-url: {{ .Values.runtime.sovereignAPIPublicURL | quote }}
+  {{- end }}
