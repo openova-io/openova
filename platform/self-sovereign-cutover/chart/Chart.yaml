@@ -1,5 +1,38 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.73 (#3647 Refs #3379, BULLETPROOF cutover — registry-pivot effective on a
+# RUNNING node + fresh-pull proof under deny-egress, 2026-06-16): two real
+# post-cutover defects, both reproduced live on hw149.
+#   FIX (a) — Step-04 registry-pivot was INERT for new pulls. The DaemonSet
+#   wrote /etc/rancher/k3s/registries.yaml, but k3s reads that file ONLY at
+#   process startup (it generates the containerd certs.d/<host>/hosts.toml
+#   mirror dir from it then). So after cutover a freshly-rolled Pod still
+#   resolved ghcr.io and 401'd (Init:ImagePullBackOff on hw149). The pivot
+#   loop (template 04) now ALSO regenerates the certs.d/<host>/hosts.toml
+#   files itself — exactly what k3s does at boot, but on the live node —
+#   which containerd re-reads PER PULL, so the pivot takes effect with NO
+#   node reboot. registries.yaml is still written (keeps the node correct
+#   across a future genuine restart). New hostPath mount of the certs.d dir
+#   (/var/lib/rancher/k3s/agent/etc/containerd/certs.d, k3s default data-dir).
+#   v1/rollback points the host-dir back at mothership Harbor so rollback is
+#   also effective live.
+#   FIX (b) — Step-08 egress-block gate only watched ALREADY-RUNNING pods stay
+#   Ready; it never exercised a FRESH image pull, the one path that breaks
+#   post-cutover. Now, WHILE the egressDeny CCNP is applied, Step-08
+#   force-deletes ONE openova-io-imaged Pod (auto-discovered, catalyst-api
+#   excluded) and REQUIRES its replacement to reach Running by pulling from
+#   local Harbor; ImagePullBackOff/ErrImagePull or no-Running-within-timeout
+#   FAILS the proof → policy torn down → exit 1 → cutoverComplete stays false.
+#   Fail-safe: only runs when the deny policy is actually up; missing target
+#   Deployment falls back to the survival-poll (never wedges on a tooling gap).
+#   PRESERVES the #3640 apiserver-strand fix: the deny CCNP keeps
+#   enableDefaultDeny.egress:false (subtractive — only the 4 tether CIDRs
+#   blocked; apiserver/DNS/intra-cluster, incl. the in-cluster Harbor pull,
+#   stay reachable). New RBAC: pods{delete} + replicasets{get,list,watch}.
+#   New values: egressTest.freshPullProof.{enabled,namespace,deployment,
+#   excludeDeploymentSubstring,timeoutSeconds}. Step count / labels / modes
+#   unchanged (cutover-contract.sh stays green). Runtime validation pends a
+#   fresh hw150 prov driving all 11 steps to cutoverComplete=true.
 # 0.1.72 (#3643 Refs #3584 #3379, step-09 gitea-token-mint BasicAuth resilience
 # 2026-06-16): step-09 (gitea-token-mint) is the FIRST never-run step after the
 # #3640 step-08 fix lets the engine reach it. It mints the provisioning token via
@@ -821,7 +854,7 @@ name: bp-self-sovereign-cutover
 # FATAL-on-failure contract is PRESERVED (Pillar 5 requires ALL openova-io
 # images local for the deny-egress hold) — the step only FATALs once BOTH retry
 # layers are exhausted. No step-count / RBAC / timeout change.
-version: 0.1.72
+version: 0.1.73
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

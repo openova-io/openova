@@ -148,6 +148,13 @@ metadata:
 spec:
   version: "1.0.0"
   visibility: listed
+  # #3648 — DECLARED operator→instance edge (lockstep with
+  # platform/cnpg/blueprint.yaml). bp-cnpg is the engine that produces
+  # bp-postgres data-instances; the platform reads this instead of
+  # inferring the pairing from a "postgres" literal.
+  producesInstances:
+    kind: postgres
+    instanceBlueprint: bp-postgres
   card:
     title: "CloudNativePG"
     category: database

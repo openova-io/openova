@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-16T10:38:48.979Z",
+  "generatedAt": "2026-06-16T12:06:11.834Z",
   "blueprints": [
     {
       "id": "bp-alloy",
@@ -16,6 +16,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -71,6 +72,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -136,6 +138,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -205,6 +208,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -268,6 +272,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -323,6 +328,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -374,6 +380,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -423,6 +430,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -472,6 +480,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -525,6 +534,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -588,6 +598,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -632,13 +643,17 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.0.9",
+      "version": "1.0.10",
       "section": "pts-4-1-data-services",
       "depends": [
         "bp-flux"
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": {
+        "kind": "postgres",
+        "instanceBlueprint": "bp-postgres"
+      },
       "topology": {
         "supported": [
           "singleton"
@@ -692,6 +707,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby"
@@ -741,6 +757,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -794,6 +811,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -849,6 +867,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -902,6 +921,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -968,6 +988,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -1013,6 +1034,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -1069,6 +1091,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -1122,6 +1145,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -1175,6 +1199,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -1224,6 +1249,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -1287,6 +1313,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -1350,6 +1377,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -1403,6 +1431,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -1458,6 +1487,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -1521,6 +1551,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -1590,6 +1621,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -1657,6 +1689,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -1720,6 +1753,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -1769,6 +1803,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -1818,6 +1853,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -1883,6 +1919,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -1948,6 +1985,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -2014,6 +2052,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -2081,6 +2120,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -2144,6 +2184,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -2197,6 +2238,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -2250,6 +2292,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -2318,6 +2361,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -2381,6 +2425,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -2426,6 +2471,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -2493,6 +2539,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -2556,6 +2603,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -2623,6 +2671,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -2689,6 +2738,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -2734,6 +2784,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -2797,6 +2848,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -2860,6 +2912,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -2925,6 +2978,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -2988,6 +3042,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -3055,6 +3110,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -3120,6 +3176,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3168,7 +3225,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "1.4.94",
+      "version": "1.4.95",
       "section": "pts-4-6-llm-serving",
       "depends": [
         "bp-cnpg",
@@ -3179,6 +3236,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -3246,6 +3304,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -3309,6 +3368,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -3376,6 +3436,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3419,6 +3480,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -3482,6 +3544,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -3569,6 +3632,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3621,6 +3685,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3683,6 +3748,7 @@
           "credentialSecret"
         ]
       },
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton",
@@ -3748,6 +3814,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3805,6 +3872,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3854,6 +3922,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3895,6 +3964,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3948,6 +4018,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -4000,6 +4071,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -4050,6 +4122,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -4113,6 +4186,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -4164,6 +4238,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -4212,7 +4287,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.1.72",
+      "version": "0.1.73",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [
         "bp-gitea",
@@ -4220,6 +4295,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -4263,6 +4339,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -4312,6 +4389,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -4379,6 +4457,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -4446,6 +4525,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -4486,6 +4566,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -4549,6 +4630,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -4639,6 +4721,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -4702,6 +4785,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -4751,6 +4835,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -4817,6 +4902,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -4880,6 +4966,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -4941,6 +5028,7 @@
           "credentialSecret"
         ]
       },
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -5006,6 +5094,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -5055,6 +5144,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -5108,6 +5198,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -5163,6 +5254,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -5226,6 +5318,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -5281,6 +5374,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",

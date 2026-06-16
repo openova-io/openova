@@ -322,6 +322,7 @@ export function TopologyTab({
         availableRegions={availableRegions}
         namespace={namespace}
         blueprint={blueprint}
+        supportedCanonical={declaredTopology?.supported}
         disableNetwork={disableNetwork}
         onApplied={() => {
           setRefreshTick((t) => t + 1)

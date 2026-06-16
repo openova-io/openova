@@ -221,3 +221,50 @@ describe('NewInstanceDialog — placement (#3599)', () => {
     expect(body.placement).toEqual({ vcluster: 'rtz', regions: ['rgn-a', 'rgn-b'] })
   })
 })
+
+// #3648 (founder #6) — the "+ New instance" button must never flash before the
+// instances list resolves, and must not offer a second instance for a
+// singleton-per-Org Blueprint that already has its one instance.
+describe('"+ New instance" gating (#3648, founder #6)', () => {
+  function renderWith(multiInstance: boolean, items: Array<Record<string, unknown>>) {
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      if (url.includes('/instances')) return json({ items })
+      if (url.includes('/catalog/')) return json(WP_CATALOG)
+      return json({})
+    }) as typeof fetch
+    const rootRoute = createRootRoute({ component: () => <Outlet /> })
+    const route = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/provision/$deploymentId/catalog/$blueprintName',
+      component: () => <InstancesSection blueprint="bp-wordpress" multiInstance={multiInstance} />,
+    })
+    const tree = rootRoute.addChildren([route])
+    const router = createRouter({
+      routeTree: tree,
+      history: createMemoryHistory({ initialEntries: ['/provision/d-1/catalog/bp-wordpress'] }),
+    })
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    return render(
+      <QueryClientProvider client={qc}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    )
+  }
+
+  it('hides the button for a singleton that already has an instance', async () => {
+    renderWith(false, [{ id: 'i-1', name: 'wp-only', org: 'acme', topology: 'single-region', status: 'Ready' }])
+    await screen.findByTestId('sov-instance-row-wp-only')
+    expect(screen.queryByTestId('btn-new-instance')).toBeNull()
+  })
+
+  it('shows the button for a multi-instance Blueprint once the list resolves', async () => {
+    renderWith(true, [])
+    expect(await screen.findByTestId('btn-new-instance')).toBeTruthy()
+  })
+
+  it('keeps the button for a singleton with no instance yet (the first is creatable)', async () => {
+    renderWith(false, [])
+    expect(await screen.findByTestId('btn-new-instance')).toBeTruthy()
+  })
+})

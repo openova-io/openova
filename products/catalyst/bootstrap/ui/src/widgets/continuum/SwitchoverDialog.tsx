@@ -92,6 +92,15 @@ export function SwitchoverDialog({
         { targetRegion: toRegion, reason: reason.trim() || undefined },
         { namespace },
       )
+      // The handler returns HTTP 200 even on failure/no-op (the body
+      // carries the truth). A 200 alone is NOT success — surface the error
+      // and keep the dialog open when the switchover was not applied (e.g.
+      // "no-live-dr-pair": the app isn't placed active-hot-standby on a
+      // 2-region Sovereign yet). Only close + invalidate on a real apply.
+      if (resp.error || resp.applied === false) {
+        setError(resp.message || resp.error || 'switchover was not applied')
+        return
+      }
       onConfirmed?.(resp)
       onClose()
     } catch (e) {

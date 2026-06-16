@@ -58,6 +58,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -249,6 +250,21 @@ func (h *Handler) HandleContinuumGet(w http.ResponseWriter, r *http.Request) {
 	cr, getErr := getContinuumCR(r.Context(), client, name, ns)
 	if getErr != nil {
 		if apierrors.IsNotFound(getErr) {
+			// #3492 / #3375 — no reconciled Continuum CR exists for this
+			// app yet (the CR is only chart-seeded for cnpg-pair / openbao,
+			// default-OFF). Before falling to the placeholder, derive a LIVE
+			// DR record from the actual cnpg cluster-pair backing the app —
+			// generically, keyed on topology + the cnpg-pair mechanism, not
+			// the app name. Returns a real record built from live cluster
+			// state when (and only when) a 2-region pair genuinely exists;
+			// otherwise the honest 404 stands and the panel placeholder is
+			// correct (no fabrication).
+			if rec, ok := h.deriveLiveContinuumRecord(
+				r.Context(), client, appNameFromContinuumName(name), ns,
+			); ok {
+				writeJSON(w, http.StatusOK, rec)
+				return
+			}
 			writeJSON(w, http.StatusNotFound, map[string]string{
 				"error":  "continuum-not-found",
 				"detail": fmt.Sprintf("Continuum %q not found", name),
@@ -378,25 +394,14 @@ func (h *Handler) HandleContinuumSwitchoverRequest(w http.ResponseWriter, r *htt
 	cr, getErr := getContinuumCR(r.Context(), client, name, ns)
 	if getErr != nil {
 		if apierrors.IsNotFound(getErr) {
-			// qa-loop iter-15 Fix #63 — synthesize a target-state
-			// "completed" response when the Continuum CR is missing
-			// (production fixture not yet installed). The fleet
-			// fixture chart 1.4.128 installs `cont-omantel`; this
-			// fallback keeps the API contract honoured even before
-			// the chart roll completes (or against pre-fixture
-			// clusters). Returning 200 with the matrix-required
-			// "completed" + duration keywords reflects the same
-			// semantic outcome a real reconciler would publish on
-			// first sight of the patched spec, which is the
-			// architecturally idempotent end-state.
-			synth := synthesizedSwitchoverCompleted(
-				name,
-				body.TargetRegion,
-				body.Reason,
-				actorFromClaims(auth.ClaimsFromContext(r.Context())),
-				h.continuumNow(),
-			)
-			writeJSON(w, http.StatusOK, synth)
+			// #3492 / #3375 — no reconciled Continuum CR exists for this
+			// app yet. Instead of fabricating a "completed in 60s"
+			// response (the anti-theater pattern the brief bans), drive
+			// the REAL region-kill promotion on the live cnpg cluster-pair
+			// backing the app — the SAME spec.replica.enabled flip proven
+			// on hw128. Generic: keyed on the cnpg-pair mechanism, not the
+			// app name.
+			h.handleNoCRSwitchoverViaLivePair(w, r, client, depID, name, ns, body)
 			return
 		}
 		// qa-loop iter-16 Fix #169 — Fix #160/#165 wire-shape parity:
@@ -541,6 +546,113 @@ func (h *Handler) HandleContinuumSwitchoverRequest(w http.ResponseWriter, r *htt
 		Message:                "switchover completed in 60s; reconciler executed the 7-step sequence",
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleNoCRSwitchoverViaLivePair drives a REAL switchover when no
+// reconciled Continuum CR exists for the app but a live 2-region cnpg
+// cluster-pair does (the #3492 / #3375 generic path — the case behind
+// founder review #7's bp-grafana panel). It performs the SAME promotion
+// the region-kill walk proved: flip spec.replica.enabled on the two
+// Cluster halves (+ cordon). On success it returns the resolved from/to
+// regions and an `applied:true` body and emits a switchover audit event.
+//
+// When there is genuinely NO live pair to act on, it returns an honest
+// error body (applied:false) — NOT a fabricated "completed" — so the
+// operator sees the truth. (HTTP 200 wrapper with an httpStatus/error
+// field is kept for wire-shape parity with the rest of this handler /
+// the UAT runner contract; the `applied` + `error` fields carry the real
+// outcome.)
+func (h *Handler) handleNoCRSwitchoverViaLivePair(
+	w http.ResponseWriter,
+	r *http.Request,
+	client dynamic.Interface,
+	depID, name, ns string,
+	body continuumSwitchoverRequest,
+) {
+	appName := appNameFromContinuumName(name)
+	now := h.continuumNow()
+	requestedBy := actorFromClaims(auth.ClaimsFromContext(r.Context()))
+
+	from, to, err := h.liveSwitchoverViaCNPGPair(
+		r.Context(), client, appName, ns, strings.TrimSpace(body.TargetRegion),
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, errNoLivePair):
+			// Honest: nothing to switch over. The app is not (yet) placed
+			// active-hot-standby on a 2-region Sovereign with a live pair.
+			writeJSON(w, http.StatusOK, continuumSwitchoverResponse{
+				Name:       name,
+				Status:     "404",
+				HTTPStatus: 404,
+				Error:      "no-live-dr-pair",
+				Applied:    false,
+				Message: fmt.Sprintf(
+					"no live 2-region cnpg-pair backing %q — switchover requires the app placed active-hot-standby on a 2-region Sovereign",
+					appName,
+				),
+			})
+			return
+		case errors.Is(err, errSwitchoverNoop):
+			writeJSON(w, http.StatusOK, continuumSwitchoverResponse{
+				Name:         name,
+				TargetRegion: body.TargetRegion,
+				FromRegion:   from,
+				ToRegion:     to,
+				Status:       "409",
+				HTTPStatus:   409,
+				Error:        "switchover-noop",
+				Applied:      false,
+				Message:      fmt.Sprintf("targetRegion %q already primary; nothing to switchover", body.TargetRegion),
+			})
+			return
+		default:
+			// A real failure mid-flip — surface it honestly.
+			writeJSON(w, http.StatusOK, continuumSwitchoverResponse{
+				Name:       name,
+				FromRegion: from,
+				ToRegion:   to,
+				Status:     "500",
+				HTTPStatus: 500,
+				Error:      "live-switchover-failed",
+				Applied:    false,
+				Message:    err.Error(),
+			})
+			return
+		}
+	}
+
+	// Real promotion succeeded — the replica is now primary.
+	if h.auditBus != nil {
+		h.auditBus.Publish(r.Context(), audit.Event{
+			AuditType:         "continuum-switchover",
+			SovereignID:       depID,
+			Actor:             requestedBy,
+			TargetApplication: appName,
+			Detail: fmt.Sprintf(
+				"live cnpg-pair switchover: %s → %s (reason: %s; no Continuum CR — drove spec.replica.enabled flip directly)",
+				from, to, displayReason(body.Reason),
+			),
+		})
+	}
+	writeJSON(w, http.StatusOK, continuumSwitchoverResponse{
+		Name:         name,
+		Namespace:    ns,
+		TargetRegion: to,
+		FromRegion:   from,
+		ToRegion:     to,
+		Reason:       body.Reason,
+		RequestedAt:  now.UTC().Format(time.RFC3339),
+		RequestedBy:  requestedBy,
+		Status:       "completed",
+		Completed:    true,
+		HTTPStatus:   200,
+		Applied:      true,
+		Message: fmt.Sprintf(
+			"switchover %s → %s completed; promoted the standby cnpg cluster (spec.replica.enabled flip, the region-kill mechanism)",
+			from, to,
+		),
+	})
 }
 
 // HandleContinuumFailbackRequest — POST

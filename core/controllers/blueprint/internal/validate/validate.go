@@ -7,32 +7,32 @@
 // What this package adds is the union of checks the schema cannot
 // express:
 //
-//   1. spec.placementSchema.modes[] is a non-empty subset of the canonical
-//      mode set [single-region, active-active, active-hotstandby].
-//      (CRD enforces the enum on each item but does not enforce
-//      non-emptiness of the array — minItems: 1 is on the schema, but
-//      the schema also marks placementSchema itself as
-//      x-kubernetes-preserve-unknown-fields, so a hand-authored CR can
-//      slip in `placementSchema: {}`.)
-//   2. spec.manifests.source.kind, when present, is one of the three
-//      legal values. (CRD has the enum, but a Blueprint may use the
-//      v1alpha1 short-form `manifests.chart: ./chart` and have NO
-//      `source` block — that path is legal and must NOT trigger an
-//      error.)
-//   3. spec.upgrades.from[] entries are syntactically-valid semver
-//      ranges per docs/BLUEPRINT-AUTHORING.md §3 and §10.
-//   4. spec.depends[].blueprint references either (a) a known Blueprint
-//      in the catalog or (b) a known dependency in this same set of
-//      Blueprint CRs. Resolution of (a) is the controller's
-//      responsibility — this package returns the *list* of blueprint
-//      names that must be checked; the caller does the lookup and
-//      surfaces a Pending condition if none resolve.
-//   5. metadata.name SHOULD match `bp-<name>` form OR the lower-case
-//      kebab-case of card.title. Returns a *warning* (not error) if it
-//      doesn't, since the existing 61-blueprint corpus has divergent
-//      conventions (e.g. `bp-cilium` vs `bp-wordpress-tenant`). The
-//      controller surfaces warnings as a status.conditions[] entry but
-//      does not block publishing.
+//  1. spec.placementSchema.modes[] is a non-empty subset of the canonical
+//     mode set [single-region, active-active, active-hotstandby].
+//     (CRD enforces the enum on each item but does not enforce
+//     non-emptiness of the array — minItems: 1 is on the schema, but
+//     the schema also marks placementSchema itself as
+//     x-kubernetes-preserve-unknown-fields, so a hand-authored CR can
+//     slip in `placementSchema: {}`.)
+//  2. spec.manifests.source.kind, when present, is one of the three
+//     legal values. (CRD has the enum, but a Blueprint may use the
+//     v1alpha1 short-form `manifests.chart: ./chart` and have NO
+//     `source` block — that path is legal and must NOT trigger an
+//     error.)
+//  3. spec.upgrades.from[] entries are syntactically-valid semver
+//     ranges per docs/BLUEPRINT-AUTHORING.md §3 and §10.
+//  4. spec.depends[].blueprint references either (a) a known Blueprint
+//     in the catalog or (b) a known dependency in this same set of
+//     Blueprint CRs. Resolution of (a) is the controller's
+//     responsibility — this package returns the *list* of blueprint
+//     names that must be checked; the caller does the lookup and
+//     surfaces a Pending condition if none resolve.
+//  5. metadata.name SHOULD match `bp-<name>` form OR the lower-case
+//     kebab-case of card.title. Returns a *warning* (not error) if it
+//     doesn't, since the existing 61-blueprint corpus has divergent
+//     conventions (e.g. `bp-cilium` vs `bp-wordpress-tenant`). The
+//     controller surfaces warnings as a status.conditions[] entry but
+//     does not block publishing.
 //
 // Per slice C3 brief: when a `depends[].blueprint` doesn't resolve,
 // surface a Pending condition rather than rejecting outright. So this
@@ -117,11 +117,11 @@ func compileBlueprintTopologySchema() (*jsonschema.Schema, error) {
 //     DOD.md A4). These are NOT user-selectable; they document which
 //     regions the bootstrap layer auto-installs the chart into:
 //     - primary-only      (installed only in the primary region; e.g.
-//                          bp-mgmt-vcluster, bp-vcluster-helmrepo)
+//     bp-mgmt-vcluster, bp-vcluster-helmrepo)
 //     - secondary-only    (installed only in secondary regions; e.g.
-//                          bp-rtz-vcluster)
+//     bp-rtz-vcluster)
 //     - every-region      (installed in every region — primary +
-//                          all secondaries; e.g. bp-dmz-vcluster)
+//     all secondaries; e.g. bp-dmz-vcluster)
 //
 // Both tiers are validated here so the controller accepts the full
 // 71-blueprint corpus. The CRD's openAPIV3Schema enum
@@ -158,10 +158,11 @@ var kebabPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,61}$`)
 // consecutive hyphens collapsed; leading/trailing hyphens trimmed.
 //
 // Examples:
-//   "WordPress" → "wordpress"
-//   "WordPress Tenant" → "wordpress-tenant"
-//   "Hetzner CSI" → "hetzner-csi"
-//   "kube-prometheus-stack" → "kube-prometheus-stack"
+//
+//	"WordPress" → "wordpress"
+//	"WordPress Tenant" → "wordpress-tenant"
+//	"Hetzner CSI" → "hetzner-csi"
+//	"kube-prometheus-stack" → "kube-prometheus-stack"
 func titleToKebab(title string) string {
 	var sb strings.Builder
 	prevHyphen := true // drop leading hyphens
@@ -427,6 +428,36 @@ func Validate(bp *unstructured.Unstructured, catalog map[string]struct{}) Result
 					continue
 				}
 				res.PendingDeps = append(res.PendingDeps, depName)
+			}
+		}
+	}
+
+	// --- #3648 producesInstances parity — when a Blueprint declares it is
+	// an OPERATOR that produces instances, both kind + instanceBlueprint
+	// MUST be set (the CRD marks them required, but the spec is
+	// preserve-unknown, so a hand-authored CR can omit them), and the
+	// referenced instance Blueprint SHOULD resolve in the catalog (same
+	// non-blocking PendingDeps treatment as depends[] — the engine
+	// resolves the producer→instance edge from this declaration, so a
+	// dangling instanceBlueprint would yield a backing-service binding
+	// pointing at a non-existent HR).
+	if prod, ok := nestedAsMap(spec, "producesInstances"); ok {
+		kind, _, _ := unstructured.NestedString(prod, "kind")
+		instBP, _, _ := unstructured.NestedString(prod, "instanceBlueprint")
+		if strings.TrimSpace(kind) == "" {
+			res.Errors = append(res.Errors, "spec.producesInstances.kind is empty; an operator Blueprint must declare the engine-class kind it produces")
+		}
+		if strings.TrimSpace(instBP) == "" {
+			res.Errors = append(res.Errors, "spec.producesInstances.instanceBlueprint is empty; an operator Blueprint must name the instance Blueprint it provisions")
+		} else if catalog != nil {
+			if _, ok := catalog[instBP]; !ok {
+				alt := strings.TrimPrefix(instBP, "bp-")
+				altPrefixed := "bp-" + instBP
+				if _, ok := catalog[alt]; !ok {
+					if _, ok := catalog[altPrefixed]; !ok {
+						res.PendingDeps = append(res.PendingDeps, instBP)
+					}
+				}
 			}
 		}
 	}

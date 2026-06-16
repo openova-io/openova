@@ -888,6 +888,40 @@ func (s *Store) FindExecutionAcrossDeployments(execID string) (Execution, error)
 	return Execution{}, fmt.Errorf("jobs: FindExecutionAcrossDeployments %q: %w", execID, ErrNotFound)
 }
 
+// DeploymentIDs returns the id of every deployment the store has an
+// on-disk index for (one subdirectory per deployment). Order is the
+// filesystem ReadDir order (lexical on most filesystems). A missing
+// store root is not an error — it returns an empty slice (the store was
+// constructed but no deployment has been written yet).
+//
+// Used by activity sources that run on a Sovereign chroot and need to
+// resolve which deployment id to project under WITHOUT depending on the
+// handler's in-memory deployment map: the chroot's store carries exactly
+// the deployment imported at handover (HandleJobsImport writes it under
+// the mother's id), so the cutover/activity bridge can find its target
+// by scanning for a deployment that already has the imported
+// bootstrap-kit group. The caller does the group-presence check via
+// ListJobs; this method only enumerates.
+func (s *Store) DeploymentIDs() ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("jobs: scan store dir %q: %w", s.dir, err)
+	}
+	out := make([]string, 0, len(entries))
+	for _, ent := range entries {
+		if ent.IsDir() {
+			out = append(out, ent.Name())
+		}
+	}
+	return out, nil
+}
+
 // LogPage is the wire-contract response shape for the /logs endpoint.
 // Defined in the store package so the handler doesn't have to
 // re-declare it.

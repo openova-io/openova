@@ -406,6 +406,23 @@ function buildCatalog() {
           }
         : null
 
+    // #3648 — producesInstances: the DECLARED operator→instance edge. An
+    // operator Blueprint (bp-cnpg) that declares it is the engine class;
+    // the platform reads kind + instanceBlueprint instead of inferring the
+    // pairing from a "postgres" literal. null when the Blueprint is not an
+    // instance-producing operator.
+    const prodRaw = spec.producesInstances
+    const producesInstances =
+      prodRaw &&
+      typeof prodRaw === 'object' &&
+      !Array.isArray(prodRaw) &&
+      typeof prodRaw.kind === 'string' &&
+      prodRaw.kind.trim() !== '' &&
+      typeof prodRaw.instanceBlueprint === 'string' &&
+      prodRaw.instanceBlueprint.trim() !== ''
+        ? { kind: prodRaw.kind, instanceBlueprint: prodRaw.instanceBlueprint }
+        : null
+
     entries.push({
       id: name,
       slug,
@@ -423,6 +440,9 @@ function buildCatalog() {
         : [],
       shareable: spec.shareable === true,
       contextSchema,
+      // #3648 — declared operator→instance edge (null unless this is an
+      // instance-producing operator like bp-cnpg).
+      producesInstances,
       // #3375 — declared topology + DR contract (read back by the
       // AppDetail Topology tab for EVERY app). null when the Blueprint
       // ships no `spec.topology` block.
@@ -548,6 +568,14 @@ export interface BlueprintCardEntry {
   /** #3370 — the Context declaration (null when not shareable). */
   contextSchema: BlueprintContextSchema | null
   /**
+   * #3648 — the DECLARED operator→instance edge. Set on an OPERATOR
+   * Blueprint (e.g. bp-cnpg) that produces shareable instances of another
+   * (instance) Blueprint; the platform reads kind + instanceBlueprint
+   * instead of inferring the pairing from a "postgres" literal. null
+   * unless this is an instance-producing operator.
+   */
+  producesInstances: BlueprintProducesInstances | null
+  /**
    * #3375 — declared topology + DR contract, lifted verbatim from the
    * Blueprint's \`spec.topology\` (the same source docs/topology-matrix.md
    * promotes). Read back by the AppDetail Topology tab for every app so
@@ -565,6 +593,17 @@ export interface BlueprintCardEntry {
    * any placeholder for a headless app (no transient chip).
    */
   hasUserUIEndpoint: boolean
+}
+
+/**
+ * #3648 — the operator→instance declaration. \`kind\` is the engine-class
+ * id a consumer names in \`backingServices[].type\` (e.g. "postgres");
+ * \`instanceBlueprint\` is the instance Blueprint id this operator
+ * provisions (e.g. "bp-postgres") — the dependsOn HR prefix.
+ */
+export interface BlueprintProducesInstances {
+  kind: string
+  instanceBlueprint: string
 }
 
 /**

@@ -43,6 +43,14 @@ export interface BlueprintCardEntry {
   /** #3370 — the Context declaration (null when not shareable). */
   contextSchema: BlueprintContextSchema | null
   /**
+   * #3648 — the DECLARED operator→instance edge. Set on an OPERATOR
+   * Blueprint (e.g. bp-cnpg) that produces shareable instances of another
+   * (instance) Blueprint; the platform reads kind + instanceBlueprint
+   * instead of inferring the pairing from a "postgres" literal. null
+   * unless this is an instance-producing operator.
+   */
+  producesInstances: BlueprintProducesInstances | null
+  /**
    * #3375 — declared topology + DR contract, lifted verbatim from the
    * Blueprint's `spec.topology` (the same source docs/topology-matrix.md
    * promotes). Read back by the AppDetail Topology tab for every app so
@@ -60,6 +68,17 @@ export interface BlueprintCardEntry {
    * any placeholder for a headless app (no transient chip).
    */
   hasUserUIEndpoint: boolean
+}
+
+/**
+ * #3648 — the operator→instance declaration. `kind` is the engine-class
+ * id a consumer names in `backingServices[].type` (e.g. "postgres");
+ * `instanceBlueprint` is the instance Blueprint id this operator
+ * provisions (e.g. "bp-postgres") — the dependsOn HR prefix.
+ */
+export interface BlueprintProducesInstances {
+  kind: string
+  instanceBlueprint: string
 }
 
 /**
@@ -132,6 +151,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -187,6 +207,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -252,6 +273,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -321,6 +343,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -384,6 +407,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -439,6 +463,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -490,6 +515,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -539,6 +565,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -588,6 +615,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -641,6 +669,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -704,6 +733,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -748,13 +778,17 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-flux"
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": {
+      "kind": "postgres",
+      "instanceBlueprint": "bp-postgres"
+    },
     "topology": {
       "supported": [
         "singleton"
@@ -808,6 +842,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby"
@@ -857,6 +892,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -910,6 +946,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -965,6 +1002,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1018,6 +1056,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -1084,6 +1123,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1129,6 +1169,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1185,6 +1226,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1238,6 +1280,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1291,6 +1334,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1340,6 +1384,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -1403,6 +1448,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -1466,6 +1512,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1519,6 +1566,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1574,6 +1622,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -1637,6 +1686,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -1706,6 +1756,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -1773,6 +1824,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -1836,6 +1888,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1885,6 +1938,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -1934,6 +1988,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -1999,6 +2054,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -2064,6 +2120,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -2130,6 +2187,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -2197,6 +2255,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -2260,6 +2319,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -2313,6 +2373,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -2366,6 +2427,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -2434,6 +2496,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -2497,6 +2560,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -2542,6 +2606,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -2609,6 +2674,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -2672,6 +2738,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -2739,6 +2806,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -2805,6 +2873,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -2850,6 +2919,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -2913,6 +2983,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -2976,6 +3047,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -3041,6 +3113,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -3104,6 +3177,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -3171,6 +3245,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -3236,6 +3311,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -3284,7 +3360,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.4.94",
+    "version": "1.4.95",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",
@@ -3295,6 +3371,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -3362,6 +3439,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -3425,6 +3503,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -3492,6 +3571,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -3535,6 +3615,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -3598,6 +3679,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -3685,6 +3767,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -3737,6 +3820,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -3799,6 +3883,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
         "credentialSecret"
       ]
     },
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton",
@@ -3864,6 +3949,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -3921,6 +4007,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -3970,6 +4057,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4011,6 +4099,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4064,6 +4153,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4116,6 +4206,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4166,6 +4257,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -4229,6 +4321,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4280,6 +4373,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4328,7 +4422,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.72",
+    "version": "0.1.73",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-gitea",
@@ -4336,6 +4430,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4379,6 +4474,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4428,6 +4524,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-hot-standby",
@@ -4495,6 +4592,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -4562,6 +4660,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4602,6 +4701,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -4665,6 +4765,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -4755,6 +4856,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -4818,6 +4920,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -4867,6 +4970,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -4933,6 +5037,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -4996,6 +5101,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -5057,6 +5163,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
         "credentialSecret"
       ]
     },
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",
@@ -5122,6 +5229,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -5171,6 +5279,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -5224,6 +5333,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -5279,6 +5389,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-active",
@@ -5342,6 +5453,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": [],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "singleton"
@@ -5397,6 +5509,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ],
     "shareable": false,
     "contextSchema": null,
+    "producesInstances": null,
     "topology": {
       "supported": [
         "active-passive",

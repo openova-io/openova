@@ -46,6 +46,12 @@ func withClaims(ctx context.Context, claims *auth.Claims) context.Context {
 func continuumListKinds() map[schema.GroupVersionResource]string {
 	return map[schema.GroupVersionResource]string{
 		ContinuumGVR(): "ContinuumList",
+		// #3492 / #3375 — HandleContinuumGet + the switchover handler now
+		// also LIST cnpg Cluster CRs (to derive the live DR record / drive
+		// the region-kill flip when no Continuum CR exists). The fake
+		// dynamic client must know the list-kind for every resource the
+		// handlers LIST, else it panics.
+		cnpgClusterGVR: "ClusterList",
 	}
 }
 
@@ -84,6 +90,42 @@ func newContinuumUnstructured(name, namespace, appRef, primaryRegion string, hot
 		"leaseHolder":   primaryRegion,
 	}, "status")
 	return u
+}
+
+// newCNPGPairFixture composes the primary + replica cnpg Cluster CRs of a
+// 2-region active-hot-standby pair, with the canonical labels
+// (catalyst.openova.io/cnpg-pair, openova.io/cnpg-role, openova.io/region),
+// the replica in replica mode (spec.replica.enabled=true), and both halves
+// reporting Ready=True. Mirrors the bp-cnpg-pair chart output the live-DR
+// deriver + switchover flip read (#3492 / #3375).
+func newCNPGPairFixture(pairName, namespace, primaryRegion, replicaRegion string) (primary, replica *unstructured.Unstructured) {
+	mk := func(role, region string, replicaEnabled bool) *unstructured.Unstructured {
+		u := &unstructured.Unstructured{}
+		u.SetAPIVersion("postgresql.cnpg.io/v1")
+		u.SetKind("Cluster")
+		u.SetName(pairName + "-" + role)
+		u.SetNamespace(namespace)
+		u.SetLabels(map[string]string{
+			cnpgPairLabel:   pairName,
+			cnpgRoleLabel:   role,
+			cnpgRegionLabel: region,
+		})
+		_ = unstructured.SetNestedMap(u.Object, map[string]interface{}{
+			"instances": int64(2),
+			"replica": map[string]interface{}{
+				"enabled": replicaEnabled,
+			},
+		}, "spec")
+		_ = unstructured.SetNestedMap(u.Object, map[string]interface{}{
+			"currentPrimary": pairName + "-" + role + "-1",
+			"phase":          "Cluster in healthy state",
+			"conditions": []interface{}{
+				map[string]interface{}{"type": "Ready", "status": "True"},
+			},
+		}, "status")
+		return u
+	}
+	return mk(cnpgRolePrimary, primaryRegion, false), mk(cnpgRoleReplica, replicaRegion, true)
 }
 
 func registerContinuumRoutes(r chi.Router, h *Handler) {
@@ -179,6 +221,81 @@ func TestHandleContinuumGet_404WhenMissing(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status: got %d want 404; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// #3492 / #3375 — GET derives a LIVE DR record from the cnpg cluster-pair
+// when no Continuum CR exists but a real 2-region pair does. This is the
+// fix for founder review #7 (the bp-grafana panel placeholder): the panel
+// now reads a real record (primaryRegion / replicaRegion / phase /
+// replicationHealthy) built from live cluster state instead of 404.
+func TestHandleContinuumGet_DerivesLiveRecordFromCNPGPair(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	primary, replica := newCNPGPairFixture("acme-pg", "acme", "hz-fsn-rtz-prod", "hz-hel-rtz-prod")
+	factory, _ := fakeContinuumDynamicFactory(primary, replica)
+	h.dynamicFactory = factory
+	fixed := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	h.SetContinuumClock(func() time.Time { return fixed })
+	dep := installUserAccessDeployment(t, h, "dep-cont-live-get")
+
+	r := chi.NewRouter()
+	registerContinuumRoutes(r, h)
+	// The UI queries dr-<app>; there is no Continuum CR — only the pair.
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sovereigns/"+dep.ID+"/continuums/dr-grafana?namespace=acme", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200 (live record); body=%s", rec.Code, rec.Body.String())
+	}
+	var resp continuumGetResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Status["primaryRegion"] != "hz-fsn-rtz-prod" {
+		t.Errorf("status.primaryRegion: got %v want hz-fsn-rtz-prod", resp.Status["primaryRegion"])
+	}
+	if resp.Status["replicaRegion"] != "hz-hel-rtz-prod" {
+		t.Errorf("status.replicaRegion: got %v want hz-hel-rtz-prod", resp.Status["replicaRegion"])
+	}
+	if resp.Status["replicationHealthy"] != true {
+		t.Errorf("status.replicationHealthy: got %v want true", resp.Status["replicationHealthy"])
+	}
+	if resp.Status["phase"] != "Healthy" {
+		t.Errorf("status.phase: got %v want Healthy", resp.Status["phase"])
+	}
+	// spec carries the generic mechanism (cnpg-pair) + the app ref, not a
+	// hardcoded app name.
+	sw, _ := resp.Spec["switchover"].(map[string]interface{})
+	if sw == nil || sw["mechanism"] != "cnpg-pair" {
+		t.Errorf("spec.switchover.mechanism: got %v want cnpg-pair", sw)
+	}
+	if resp.Spec["applicationRef"] != "grafana" {
+		t.Errorf("spec.applicationRef: got %v want grafana", resp.Spec["applicationRef"])
+	}
+}
+
+// A live record is only derived for a GENUINE 2-region pair. A single
+// region (both halves same region) must NOT fabricate a cross-region DR
+// record — the honest 404 / placeholder stands.
+func TestHandleContinuumGet_NoLiveRecordForSingleRegion(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	// Both halves pinned to the SAME region — not real DR.
+	primary, replica := newCNPGPairFixture("acme-pg", "acme", "hz-fsn-rtz-prod", "hz-fsn-rtz-prod")
+	factory, _ := fakeContinuumDynamicFactory(primary, replica)
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-cont-single")
+
+	r := chi.NewRouter()
+	registerContinuumRoutes(r, h)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sovereigns/"+dep.ID+"/continuums/dr-grafana?namespace=acme", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d want 404 (no cross-region pair); body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -294,7 +411,13 @@ func TestHandleContinuumSwitchover_403WhenNotOwner(t *testing.T) {
 	}
 }
 
-func TestHandleContinuumSwitchover_404WhenContinuumMissing(t *testing.T) {
+// #3492 / #3375 — when NO Continuum CR exists AND there is no live
+// cnpg-pair backing the app, the switchover handler returns an HONEST
+// "no-live-dr-pair" body (applied:false) — NOT a fabricated "completed".
+// This replaces the prior synthesized-completion theater (the anti-pattern
+// the brief bans). The positive case (a live pair IS present → real flip)
+// is covered by TestHandleContinuumSwitchover_LivePairFlip below.
+func TestHandleContinuumSwitchover_HonestWhenNoCRAndNoPair(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	factory, _ := fakeContinuumDynamicFactory()
 	h.dynamicFactory = factory
@@ -312,14 +435,156 @@ func TestHandleContinuumSwitchover_404WhenContinuumMissing(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
-	// qa-loop iter-16 Fix #63 + #169 — missing CR is synthesized to
-	// 200 + "completed" body so the matrix runner's body-token
-	// assertion is reachable.
+	// Wire-shape: still a 200 envelope (UAT runner reads the body), but the
+	// truth is carried in the body fields — NOT a fake completion.
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	if !bytes.Contains(rec.Body.Bytes(), []byte("completed")) {
-		t.Errorf("body missing %q token; got %s", "completed", rec.Body.String())
+	if bytes.Contains(rec.Body.Bytes(), []byte(`"completed"`)) || bytes.Contains(rec.Body.Bytes(), []byte(`"applied":true`)) {
+		t.Errorf("must NOT fabricate a completion when no live pair exists; got %s", rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("no-live-dr-pair")) {
+		t.Errorf("body missing honest %q error token; got %s", "no-live-dr-pair", rec.Body.String())
+	}
+}
+
+// 🔒 TENANT ISOLATION: a switchover with NO namespace and a pair that is
+// NOT app-labelled must NOT resolve to that pair (it could belong to
+// another Organization) — the handler returns the honest no-live-dr-pair
+// body and touches NOTHING, rather than flipping a foreign tenant's DB.
+func TestHandleContinuumSwitchover_NoCrossOrgFlipWithoutNamespace(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	// A real 2-region pair, but in org "other" and NOT app-labelled for
+	// "grafana". The caller omits ?namespace=.
+	primary, replica := newCNPGPairFixture("other-pg", "other", "hz-fsn-rtz-prod", "hz-hel-rtz-prod")
+	factory, client := fakeContinuumDynamicFactory(primary, replica)
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-cont-xorg")
+
+	r := chi.NewRouter()
+	registerContinuumRoutes(r, h)
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/continuums/dr-grafana/switchover", nil) // no namespace
+	req = req.WithContext(withClaims(req.Context(), &auth.Claims{Email: "owner@acme.io", Tier: "owner"}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("no-live-dr-pair")) {
+		t.Errorf("cross-org pair must NOT resolve without a namespace; got %s", rec.Body.String())
+	}
+	// The foreign tenant's clusters must be UNTOUCHED.
+	gp, _ := client.Resource(cnpgClusterGVR).Namespace("other").Get(context.Background(), "other-pg-primary", metav1.GetOptions{})
+	if en, _, _ := unstructured.NestedBool(gp.Object, "spec", "replica", "enabled"); en {
+		t.Error("foreign primary spec.replica.enabled was flipped (cross-org write!)")
+	}
+	gr, _ := client.Resource(cnpgClusterGVR).Namespace("other").Get(context.Background(), "other-pg-replica", metav1.GetOptions{})
+	if en, _, _ := unstructured.NestedBool(gr.Object, "spec", "replica", "enabled"); !en {
+		t.Error("foreign replica spec.replica.enabled was flipped (cross-org write!)")
+	}
+}
+
+// TestHandleContinuumSwitchover_LivePairFlip proves the generic happy
+// path: with NO Continuum CR but a live 2-region cnpg cluster-pair seeded,
+// POST /switchover drives the REAL region-kill promotion — flipping
+// spec.replica.enabled on the two Cluster halves (the hw128 mechanism) —
+// and returns a genuine completed/applied body reflecting what happened.
+func TestHandleContinuumSwitchover_LivePairFlip(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	primary, replica := newCNPGPairFixture("acme-pg", "acme", "hz-fsn-rtz-prod", "hz-hel-rtz-prod")
+	factory, client := fakeContinuumDynamicFactory(primary, replica)
+	h.dynamicFactory = factory
+	bus := audit.NewBus(audit.BusConfig{RingCapacity: 50})
+	h.SetAuditBus(bus)
+	fixed := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	h.SetContinuumClock(func() time.Time { return fixed })
+	dep := installUserAccessDeployment(t, h, "dep-cont-live-sw")
+
+	// Empty body — handler resolves the standby region from the live pair.
+	r := chi.NewRouter()
+	registerContinuumRoutes(r, h)
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/continuums/dr-grafana/switchover?namespace=acme", nil)
+	req = req.WithContext(withClaims(req.Context(), &auth.Claims{Email: "owner@acme.io", Tier: "owner"}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"applied":true`, "completed", "hz-fsn-rtz-prod", "hz-hel-rtz-prod"} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Errorf("body missing %q; got %s", want, rec.Body.String())
+		}
+	}
+
+	// The REAL state change: replica half promoted (enabled=false), old
+	// primary half demoted to follower (enabled=true).
+	gotReplica, err := client.Resource(cnpgClusterGVR).Namespace("acme").Get(context.Background(), "acme-pg-replica", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("re-fetch replica: %v", err)
+	}
+	if en, _, _ := unstructured.NestedBool(gotReplica.Object, "spec", "replica", "enabled"); en {
+		t.Error("replica half spec.replica.enabled: got true want false (should be promoted)")
+	}
+	gotPrimary, err := client.Resource(cnpgClusterGVR).Namespace("acme").Get(context.Background(), "acme-pg-primary", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("re-fetch primary: %v", err)
+	}
+	if en, _, _ := unstructured.NestedBool(gotPrimary.Object, "spec", "replica", "enabled"); !en {
+		t.Error("old primary half spec.replica.enabled: got false want true (should be demoted to follower)")
+	}
+
+	// One real continuum-switchover audit event.
+	if evs := bus.List(dep.ID, IsContinuumAuditType, 100); len(evs) != 1 {
+		t.Fatalf("audit events: got %d want 1", len(evs))
+	}
+}
+
+// Idempotency: once the replica is promoted (replica.enabled=false), a
+// SECOND bare switchover POST must NOT ping-pong the primary back — it
+// returns a no-op rather than re-flipping. Guards against a double-click
+// silently double-switching (cleanup-review finding).
+func TestHandleContinuumSwitchover_LivePairIdempotentNoPingPong(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	// Replica already promoted: replica half enabled=false, primary half
+	// enabled=true (post-switchover steady state).
+	primary, replica := newCNPGPairFixture("acme-pg", "acme", "hz-fsn-rtz-prod", "hz-hel-rtz-prod")
+	_ = unstructured.SetNestedField(replica.Object, false, "spec", "replica", "enabled")
+	_ = unstructured.SetNestedField(primary.Object, true, "spec", "replica", "enabled")
+	factory, client := fakeContinuumDynamicFactory(primary, replica)
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-cont-live-idem")
+
+	r := chi.NewRouter()
+	registerContinuumRoutes(r, h)
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/continuums/dr-grafana/switchover?namespace=acme", nil)
+	req = req.WithContext(withClaims(req.Context(), &auth.Claims{Email: "owner@acme.io", Tier: "owner"}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	// Must be a no-op — NOT applied, NOT a fresh completion.
+	if bytes.Contains(rec.Body.Bytes(), []byte(`"applied":true`)) {
+		t.Errorf("second switchover must be a no-op, not applied:true; got %s", rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("switchover-noop")) {
+		t.Errorf("body missing %q; got %s", "switchover-noop", rec.Body.String())
+	}
+	// State must be UNCHANGED — primary half still the follower, replica
+	// half still promoted (no ping-pong).
+	gotPrimary, _ := client.Resource(cnpgClusterGVR).Namespace("acme").Get(context.Background(), "acme-pg-primary", metav1.GetOptions{})
+	if en, _, _ := unstructured.NestedBool(gotPrimary.Object, "spec", "replica", "enabled"); !en {
+		t.Error("primary half spec.replica.enabled flipped on a no-op (ping-pong!): got false want true")
+	}
+	gotReplica, _ := client.Resource(cnpgClusterGVR).Namespace("acme").Get(context.Background(), "acme-pg-replica", metav1.GetOptions{})
+	if en, _, _ := unstructured.NestedBool(gotReplica.Object, "spec", "replica", "enabled"); en {
+		t.Error("replica half spec.replica.enabled flipped on a no-op (ping-pong!): got true want false")
 	}
 }
 
@@ -389,7 +654,9 @@ func TestHandleContinuumSwitchover_409WhenTargetEqualsCurrent(t *testing.T) {
 // ── qa-loop iter-16 Fix #169 — wire-shape parity tests (TC-pinning) ─
 
 // TestHandleContinuumSwitchover_TC312_HappyPath60s pins TC-312:
-//   must_contain: ["completed", "60"]
+//
+//	must_contain: ["completed", "60"]
+//
 // Wire-shape contract: 200 OK with body carrying both tokens (Status
 // field = "completed", DurationSeconds = 60, LastSwitchoverDuration =
 // "60s"). Mirrors Fix #160 PR #1364 (rbac_assign) + Fix #165 PR #1368
@@ -428,7 +695,9 @@ func TestHandleContinuumSwitchover_TC312_HappyPath60s(t *testing.T) {
 }
 
 // TestHandleContinuumSwitchover_TC324_FailbackToFsn1 pins TC-324:
-//   must_contain: ["completed", "fsn1"]
+//
+//	must_contain: ["completed", "fsn1"]
+//
 // Wire-shape contract: target=fsn1 surfaces as ToRegion+TargetRegion.
 func TestHandleContinuumSwitchover_TC324_FailbackToFsn1(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
@@ -463,7 +732,9 @@ func TestHandleContinuumSwitchover_TC324_FailbackToFsn1(t *testing.T) {
 }
 
 // TestHandleContinuumSwitchover_TC331_ViewerForbidden pins TC-331:
-//   must_contain: ["403"], must_not_contain: ["completed"]
+//
+//	must_contain: ["403"], must_not_contain: ["completed"]
+//
 // Wire-shape contract: viewer caller → HTTP 200 + body "403" (Fix #160).
 func TestHandleContinuumSwitchover_TC331_ViewerForbidden(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
@@ -495,7 +766,9 @@ func TestHandleContinuumSwitchover_TC331_ViewerForbidden(t *testing.T) {
 }
 
 // TestHandleContinuumSwitchover_TC332_OperatorCanSwitchover pins TC-332:
-//   must_contain: ["completed"], must_not_contain: ["403"]
+//
+//	must_contain: ["completed"], must_not_contain: ["403"]
+//
 // Wire-shape contract: operator-tier caller → HTTP 200 + "completed".
 func TestHandleContinuumSwitchover_TC332_OperatorCanSwitchover(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
@@ -528,8 +801,10 @@ func TestHandleContinuumSwitchover_TC332_OperatorCanSwitchover(t *testing.T) {
 }
 
 // TestHandleContinuumSwitchoverPreview_TC339_DryRunPreflight pins TC-339:
-//   must_contain: ["estimatedDuration", "blockingChecks"]
-//   must_not_contain: ["500"]
+//
+//	must_contain: ["estimatedDuration", "blockingChecks"]
+//	must_not_contain: ["500"]
+//
 // Wire-shape contract: preview returns 200 even when CR is missing.
 func TestHandleContinuumSwitchoverPreview_TC339_DryRunPreflight(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})

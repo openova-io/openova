@@ -28,7 +28,7 @@ import { authedFetch } from '@/shared/lib/authedFetch'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
 import { AppCard } from './AppsPage'
-import { CatalogEditDialog } from './CatalogEditDialog'
+import { useNavigate } from '@tanstack/react-router'
 import { resolveApplications, type ApplicationDescriptor } from './applicationCatalog'
 import type { ApplicationStatus } from './eventReducer'
 import { useCatalogAdmin } from '@/shared/lib/useCatalogAdmin'
@@ -171,8 +171,9 @@ export function CatalogPage() {
   })
   const editsBySlug = editsQuery.data ?? {}
 
-  // The catalog entry currently open in the edit dialog (null = closed).
-  const [editing, setEditing] = useState<ApplicationDescriptor | null>(null)
+  // #3648 (founder item #1) — the popup editor was removed; the admin Edit
+  // chip navigates to the catalog detail page, which edits in place.
+  const navigate = useNavigate()
 
   const [query, setQuery] = useState('')
 
@@ -256,7 +257,19 @@ export function CatalogPage() {
                 slug={slug}
                 iconLight={edit?.iconLight}
                 iconDark={edit?.iconDark}
-                onEdit={isAdmin ? () => setEditing(app) : undefined}
+                onEdit={
+                  isAdmin
+                    ? () => {
+                        // Chroot-aware: on the mothership provision monitor the
+                        // catalog lives under /provision/$deploymentId/…; on the
+                        // Sovereign's own console it is the bare /catalog/….
+                        const detail = deploymentId
+                          ? `/provision/${deploymentId}/catalog/${slug}`
+                          : `/catalog/${slug}`
+                        void navigate({ to: detail as never })
+                      }
+                    : undefined
+                }
                 onPublishedChange={async (next) => {
                   const r = await authedFetch(
                     `${API_BASE}/v1/sovereign/apps/${encodeURIComponent(slug)}/publish`,
@@ -278,30 +291,9 @@ export function CatalogPage() {
         </div>
       )}
 
-      {/* #3603 — the admin edit form. Mounted only while an entry is being
-       * edited; saving persists via the #3602 API and refetches the edits
-       * map so the card reflects the new name + icon live. */}
-      {editing ? (
-        <CatalogEditDialog
-          blueprintId={editing.id}
-          initial={(() => {
-            const slug = editing.id.replace(/^bp-/, '')
-            const e = editsBySlug[slug]
-            return {
-              name: e?.name || editing.title,
-              summary: e?.summary || editing.description || '',
-              supportedTopologies: e?.supportedTopologies ?? [],
-              iconLight: e?.iconLight ?? '',
-              iconDark: e?.iconDark ?? '',
-            }
-          })()}
-          onClose={() => setEditing(null)}
-          onSaved={async () => {
-            setEditing(null)
-            await editsQuery.refetch()
-          }}
-        />
-      ) : null}
+      {/* #3648 (founder item #1) — the popup editor was removed. Editing now
+          happens inline on the catalog detail page (/catalog/$blueprintName);
+          the admin Edit chip above navigates there. */}
     </PortalShell>
   )
 }

@@ -115,52 +115,27 @@ describe('CatalogPage admin edit (#3603)', () => {
     expect(screen.queryByTestId('sov-app-edit-bp-cilium')).toBeNull()
   })
 
-  it('opens the edit form (name / topologies / icons) on Edit click', async () => {
+  // #3648 (founder item #1) — the popup editor was removed; the Edit chip now
+  // navigates to the catalog DETAIL page, which edits in place. The form
+  // fields + save + topology multiselect are covered by the CatalogEditDialog
+  // + CatalogDetail tests; here we lock in that the chip navigates and that
+  // NO popup is mounted on the grid page anymore.
+  it('navigates to the catalog detail page on Edit click (no popup)', async () => {
     renderCatalog()
     fireEvent.click(await screen.findByTestId('sov-app-edit-bp-cilium'))
-    const dialog = await screen.findByTestId('catalog-edit-dialog')
-    expect(within(dialog).getByTestId('catalog-edit-name')).toBeTruthy()
-    expect(within(dialog).getByTestId('catalog-edit-topologies')).toBeTruthy()
-    expect(within(dialog).getByTestId('catalog-edit-icon-light')).toBeTruthy()
-    expect(within(dialog).getByTestId('catalog-edit-icon-dark')).toBeTruthy()
-    // Topology multiselect exposes the canonical ALL_MODES options.
-    expect(within(dialog).getByTestId('catalog-edit-topo-single-region')).toBeTruthy()
-    expect(within(dialog).getByTestId('catalog-edit-topo-active-active')).toBeTruthy()
-    expect(within(dialog).getByTestId('catalog-edit-topo-active-hotstandby')).toBeTruthy()
+    expect(await screen.findByTestId('catalog-detail-target')).toBeTruthy()
+    expect(screen.queryByTestId('catalog-edit-dialog')).toBeNull()
   })
 
-  it('saves the edit via the #3602 API with the typed body', async () => {
-    renderCatalog()
-    fireEvent.click(await screen.findByTestId('sov-app-edit-bp-cilium'))
-    const dialog = await screen.findByTestId('catalog-edit-dialog')
-    fireEvent.change(within(dialog).getByTestId('catalog-edit-name'), {
-      target: { value: 'Cilium (Edited)' },
-    })
-    fireEvent.click(within(dialog).getByTestId('catalog-edit-topo-active-active'))
-    fireEvent.change(within(dialog).getByTestId('catalog-edit-icon-dark'), {
-      target: { value: 'https://cdn/cilium-dark.svg' },
-    })
-    fireEvent.click(within(dialog).getByTestId('catalog-edit-save'))
+  // (The save itself — the #3602 API call with the typed body — now happens in
+  // the inline CatalogEditForm on the detail page; it is covered by the
+  // CatalogEditDialog + CatalogDetail tests, not on the grid page.)
 
-    await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1))
-    const [slugArg, editArg] = saveSpy.mock.calls[0]
-    expect(slugArg).toBe('bp-cilium')
-    expect(editArg).toMatchObject({
-      name: 'Cilium (Edited)',
-      icon_dark: 'https://cdn/cilium-dark.svg',
-    })
-    expect(editArg.supported_topologies).toContain('active-active')
-  })
-
-  it('reflects a saved name on the card after the edits refetch', async () => {
-    renderCatalog()
-    await screen.findByTestId('sov-app-card-bp-cilium')
-    // After a save the edits query refetches; simulate the store now
-    // carrying the renamed cilium row, then trigger the dialog save path.
+  it('reflects a saved name on the card from the edits overlay', async () => {
+    // The edits overlay (listApps) carries a renamed cilium row; the grid card
+    // must render the edited name regardless of where the edit was made.
     listAppsHolder.value = [{ slug: 'cilium', name: 'Cilium (Renamed)' }]
-    fireEvent.click(screen.getByTestId('sov-app-edit-bp-cilium'))
-    fireEvent.click(await screen.findByTestId('catalog-edit-save'))
-    // editsQuery.refetch() re-reads listApps → the card title updates.
+    renderCatalog()
     await waitFor(() => {
       const card = screen.getByTestId('sov-app-card-bp-cilium')
       expect(within(card).getByText('Cilium (Renamed)')).toBeTruthy()
