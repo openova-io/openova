@@ -417,7 +417,7 @@ export function CatalogDetail() {
         // #3090 / #3165 — shared CLASS-page instances list + "+ New
         // instance" (inline topology-picker dialog). Instance rows link
         // to the INSTANCE page `/app/$componentId`.
-        <InstancesSection blueprint={`bp-${name}`} />
+        <InstancesSection blueprint={`bp-${name}`} multiInstance={multiInstance} />
       )}
 
       {/* Supported topologies */}
