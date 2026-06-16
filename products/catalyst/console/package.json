@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@astrojs/svelte": "^8.1.2",
-    "astro": "^6.4.2",
+    "astro": "^6.4.7",
     "js-yaml": "^4.1.0",
     "svelte": "^5.0.0"
   },
