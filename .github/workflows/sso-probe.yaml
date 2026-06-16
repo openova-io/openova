@@ -32,12 +32,35 @@ on:
         required: false
   schedule:
     - cron: "17 2 * * *"
+  # #3374 Layer-C static tripwire — the dead-grant guard needs no live
+  # env, so it gates EVERY PR touching the SSO chain (the per-app live
+  # walk still runs on dispatch/schedule against a Sovereign).
+  pull_request:
+    paths:
+      - "platform/sso-bridge/chart/**"
+      - "platform/keycloak/chart/templates/configmap-sovereign-realm.yaml"
+      - "scripts/check-no-dead-grant-theater.sh"
+      - ".github/workflows/sso-probe.yaml"
 
 permissions:
   contents: read
 
 jobs:
+  # Static regression tripwire (#3374 Layer-C / #3685 / DoD box 7): the
+  # dead admin-by-default grant theater must stay deleted. Runs on every
+  # PR — no live Sovereign needed.
+  dead-grant-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: No dead admin-by-default grant theater
+        run: bash scripts/check-no-dead-grant-theater.sh
+
   probe:
+    # The live per-app walk needs a Sovereign — only on dispatch/schedule,
+    # never on the static pull_request leg.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

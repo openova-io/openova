@@ -76,6 +76,15 @@ function SovereignCallbackPage() {
 
         const params = new URLSearchParams(window.location.search)
         await handleCallback(sovereignFQDN, params)
+        // #3374 Layer-B: clear the silent-SSO one-shot guard now that a
+        // real session exists, so a LATER genuine expiry re-arms the
+        // silent round-trip (router.tsx attemptSilentSovereignSSO) rather
+        // than going straight to the PIN fallback.
+        try {
+          sessionStorage.removeItem('catalyst:silent-sso-attempted')
+        } catch {
+          /* private browsing may throw */
+        }
         // Navigate to the console dashboard — replace so the callback
         // URL doesn't appear in browser history.
         router.navigate({ to: '/dashboard' as never, replace: true })

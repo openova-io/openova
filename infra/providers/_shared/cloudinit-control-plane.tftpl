@@ -422,6 +422,21 @@ write_files:
             # /sovereign-admins at bootstrap so the owner is admin-by-default
             # across grafana/gitea/harbor/openbao on first SSO login.
             SOVEREIGN_OWNER_EMAIL: "${org_email}"
+            # ORG_EMAIL / ORG_NAME (#3374 Layer-B, 2026-06-17) — bp-catalyst-
+            # platform slot 13 reads $${ORG_EMAIL:-} / $${ORG_NAME:-} into
+            # sovereign.{orgEmail,orgName}, which the chart writes to the
+            # sovereign-fqdn ConfigMap orgEmail/orgName keys -> the
+            # catalyst-api OPERATOR_EMAIL/ORG_NAME env. The map previously
+            # only carried SOVEREIGN_OWNER_EMAIL (for bp-keycloak), so
+            # $${ORG_EMAIL:-} resolved to EMPTY -> OPERATOR_EMAIL unset ->
+            # the owner UserAccess seed was skipped (D21: /users rendered
+            # empty) and no privilege outcome could key on the operator
+            # email. Same org_email/org_name tofu values as above — one
+            # source, now threaded to BOTH the realm seed and the
+            # catalyst-api operator-identity envs. Measured root cause on
+            # hw150 (#3374 section 3-b: orgEmail empty).
+            ORG_EMAIL: "${org_email}"
+            ORG_NAME: "${org_name}"
             # SOVEREIGN_REGION_KEY — the bp-openova-flow-emitter REGION_KEY env
             # (slot 57). Provider-supplied: Hetzner passes the raw region key
             # (var.region / secondary each.key); Huawei passes the canonical
