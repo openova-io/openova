@@ -42,6 +42,21 @@ export interface YamlEditorProps {
   /** Test seam — when true, "Apply" produces a PR-mode placeholder
    *  instead of a real Gitea call. */
   fluxOverride?: boolean
+  /**
+   * #3668 §5D — commit-target override. When provided, "Apply" commits the
+   * edited YAML through THIS callback instead of the default
+   * flux→edit-pr / manual→apply branching. The catalog's "Edit IaC" mode
+   * passes a callback that PUTs the full blueprint.yaml to
+   * catalog-sovereign/<bp>/blueprint.yaml (the SAME Gitea file the card edit
+   * writes), so the same shipping editor drives the catalog single source of
+   * truth. The returned string is shown as the success message. A thrown
+   * error surfaces as the apply error (so a non-committed write never reads
+   * as success). The editor UI (diff / validate / dirty-state) is unchanged.
+   */
+  onCommit?: (yaml: string) => Promise<string>
+  /** Optional label for the apply button when onCommit is set (default
+   *  "Commit IaC"). */
+  commitLabel?: string
 }
 
 /** Convert a JS object to canonical YAML — small subset suitable for
@@ -110,7 +125,7 @@ function computeDiff(left: string, right: string): DiffLine[] {
   return out
 }
 
-export function YamlEditor({ deploymentId, kind, ns, name, obj, fluxOverride }: YamlEditorProps) {
+export function YamlEditor({ deploymentId, kind, ns, name, obj, fluxOverride, onCommit, commitLabel }: YamlEditorProps) {
   const initial = useMemo(() => (obj ? objectToYAML(obj) : ''), [obj])
   const [yaml, setYaml] = useState<string>(initial)
   const [showDiff, setShowDiff] = useState(false)
@@ -145,7 +160,13 @@ export function YamlEditor({ deploymentId, kind, ns, name, obj, fluxOverride }: 
     setPRInfo(null)
     setBusy('apply')
     try {
-      if (flux) {
+      if (onCommit) {
+        // #3668 §5D — catalog "Edit IaC" mode: commit through the provided
+        // catalog-sovereign writer instead of the cloud-list edit-pr/apply
+        // branching. A thrown error surfaces below (no false success).
+        const msg = await onCommit(yaml)
+        setApplyMsg(msg)
+      } else if (flux) {
         // Slice Z3 — flux-managed resources route through the unified
         // /blueprints/edit-pr endpoint: branch + commit + PR on the
         // per-Org shared-blueprints repo. The org slug is derived from
@@ -262,7 +283,13 @@ export function YamlEditor({ deploymentId, kind, ns, name, obj, fluxOverride }: 
           data-testid="yaml-editor-apply"
           className="rounded border border-emerald-500 bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-500 disabled:opacity-60"
         >
-          {busy === 'apply' ? 'Applying…' : flux ? 'Open PR' : 'Apply'}
+          {busy === 'apply'
+            ? 'Applying…'
+            : onCommit
+              ? (commitLabel ?? 'Commit IaC')
+              : flux
+                ? 'Open PR'
+                : 'Apply'}
         </button>
         {validateMsg && (
           <span data-testid="yaml-editor-validate-ok" className="text-xs text-emerald-300">

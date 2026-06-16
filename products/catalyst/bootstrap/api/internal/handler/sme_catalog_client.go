@@ -32,7 +32,34 @@ const (
 	smeCatalogURLEnv      = "CATALYST_SME_CATALOG_URL"
 	smeCatalogCacheTTL    = 30 * time.Second
 	smeCatalogProbeBudget = 1500 * time.Millisecond
+
+	// catalogEditGitBudget is the budget for the catalog-edit IaC commit
+	// (#3668). The commit is the SOURCE-OF-TRUTH write — it must NOT share
+	// the 1500ms commerce-store probe budget (smeCatalogProbeBudget), which
+	// is sized for a single in-cluster HTTP probe, not a git round-trip.
+	// writeCatalogEditToGit performs FOUR sequential Gitea API calls
+	// (EnsureOrg, EnsureRepo, GetFile, PutFile) against a Gitea that — on a
+	// cut-over Sovereign — is under Flux + mirror-job load. Sized for that
+	// round-trip so a busy-but-healthy Gitea commits durably instead of the
+	// write silently deadline-ing at 1500ms minus the commerce hop and the
+	// edit evaporating on the next store rebuild (§3C). Overridable via the
+	// canonical env so an operator can widen it on a slow Sovereign without a
+	// code change (Inviolable Principle #4).
+	catalogEditGitBudget    = 15 * time.Second
+	catalogEditGitBudgetEnv = "CATALYST_CATALOG_EDIT_GIT_BUDGET"
 )
+
+// catalogEditGitBudgetDuration returns the catalog-edit git-commit budget,
+// honouring CATALYST_CATALOG_EDIT_GIT_BUDGET (a Go duration string, e.g.
+// "30s") when set + parseable, else the catalogEditGitBudget default.
+func catalogEditGitBudgetDuration() time.Duration {
+	if v := strings.TrimSpace(os.Getenv(catalogEditGitBudgetEnv)); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return catalogEditGitBudget
+}
 
 // smeCatalogApp — minimal projection of the SME catalog's GET /catalog/apps
 // response shape. Only the fields HandleSovereignApps consumes.

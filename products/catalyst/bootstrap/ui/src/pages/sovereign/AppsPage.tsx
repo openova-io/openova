@@ -50,6 +50,7 @@ import { WipeDeploymentModal } from '@/components/CrudModals/WipeDeploymentModal
 import { useNotifications } from '@/shared/ui/notifications'
 import { isDeploymentID } from '@/shared/types/deployment'
 import { useTheme } from '@/shared/lib/useTheme'
+import { resolveCatalogIcon } from '@/shared/lib/resolveCatalogIcon'
 
 interface AppsPageProps {
   /** Test seam — disables the live SSE EventSource attach. */
@@ -916,12 +917,16 @@ export function AppCard({ app, status, isCatalog, isService, environment, market
   // light icon in the light theme, dark icon in the dark theme. Fall back
   // to the other theme's icon, then the build-time logo. Empty on
   // un-edited entries → keeps app.logoUrl.
+  // #3603 / #3668 §5B — render the theme-correct IaC icon override when
+  // present (light icon in the light theme, dark icon in the dark theme),
+  // then the build-time logo, then the letter-mark. Resolved through the
+  // SAME shared resolveCatalogIcon path the catalog detail page uses, so the
+  // grid card and the hero never diverge (one mechanism, no per-blueprint
+  // branch — DoD §9.9). The iconLight/iconDark props carry the IaC edit
+  // (mirrored from Gitea via the read overlay).
   const { theme } = useTheme()
-  const themeIcon =
-    theme === 'light'
-      ? (iconLight || iconDark || '')
-      : (iconDark || iconLight || '')
-  const resolvedIcon = themeIcon || app.logoUrl || ''
+  const resolvedIcon =
+    resolveCatalogIcon({ iconLight, iconDark }, theme, app.logoUrl ?? null) ?? ''
   // #3374 — the per-card Open button resolves a silent-SSO launch via the
   // app's CR uid when known, else the bootstrap-kit blueprint/release name
   // (the BE launch-url resolver strips `bp-` and matches the HR). Mirrors
