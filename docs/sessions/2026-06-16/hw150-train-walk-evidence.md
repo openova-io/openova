@@ -26,15 +26,20 @@ not a path-level green. `✅ met · 🟡 partial · ❌ not met`.
 | NS#1 | Every application runs IN a vCluster (dmz/mgmt/rtz) | 🟡 | 3 vclusters real & functional with **27 workloads inside** (coraza / loki·mimir·nats·tempo / seaweedfs·valkey·vllm). But ~58 platform app pods (gitea/openbao/keycloak/harbor/…) run on the **host**; **no tenant Applications exist yet** to exercise the catalog `tier:` placement. Founder judgment on host-resident shared services. |
 | NS#2 | Provisioning creates 3 shared PG instances → 3 cards, 6-7 apps many-to-many | ❌ | `SOVEREIGN_ENABLE_SHARED_PG` unset this prov → `shared-data` ns empty, the 3 `bp-postgres-shared{,-b,-c}` HRs render `enabled:false` (0 bytes); consumers fell back to per-app embedded CNPG clusters. Feature shipped in code but OFF on hw150. |
 | #3 | postgres create accepts canonical topology (no `active-hotstandby not in supported`) | 🟡 | Blueprint CRD `topology.supported` = canonical `[active-active, active-hot-standby, active-passive, singleton]` ✅; no CR stuck on topology rejection ✅. BUT `cnpgpairs.dr.openova.io` CRD + catalyst-api code (`core/services/catalog/store/store.go:38`, `provisioning/gitops/gitops.go:677`) still carry un-hyphenated `active-hotstandby` → canonicalization **incomplete**. |
+| #2 | AppDetail topology — coherent strip, no contradiction | ✅ | `/app/bp-alloy` → Topology tab: Declared `singleton`, Effective-class + Supported canonical, per-cluster placement (mgmt/dmz/rtz × A/B), topology-mode radios **gated** to the supported mode only. "canonical 7-tab strip" declared + 3 data-driven tabs (Endpoints / Jobs 1 / Dependencies 2). `hw150-appdetail-topology-live-regions.png`. |
+| #4 | No per-app hardcoding — concepts generic for all | 🟡 | Topology editor's region picker uses **live** `me-east-215-a/-b` ✅. BUT the Overview's "Available regions" is **hardcoded to Hetzner** `hz-fsn-rtz-prod / hz-hel-rtz-prod` on a Huawei prov ❌ — localized stale placeholder. `hw150-appdetail-hardcoded-hetzner-regions.png`. |
+| #6/#7 | UI faithfulness / live DR-switchover (Continuum) status | 🟡 | AppDetail "Live status" polls `GET …/applications/bp-alloy/status` → **404 in a loop (17×)** because bp-alloy is a bootstrap HelmRelease (no Application CR); "Loading status…" never resolves. No tenant Application exists on hw150 → #7 (Continuum record) not positively walkable here; the 404-loop is a real no-CR-handling bug. |
 
 ## Open follow-ups (surfaced by this walk)
 
 1. **#8 catalog-edit→IaC commit times out** — verify `catalog-sovereign/<bp>/blueprint.yaml` repo seeding on fresh provs; widen the Gitea write context deadline. (mechanism present; not landing.)
 2. **#3 topology canonicalization incomplete** — canonicalize `cnpgpairs` CRD enum + the `active-hotstandby` literals in `core/services/catalog/store/store.go` + `provisioning/gitops/gitops.go`.
 3. **NS#2 shared-PG OFF** — the 3-instance model needs `SOVEREIGN_ENABLE_SHARED_PG=true` on the fire (prior attempt #3283 deadlocked); needs a clean enablement path.
+4. **AppDetail Live-status 404-loop** — `/api/v1/sovereigns/{id}/applications/{app}/status` 404s for bootstrap HelmReleases (no Application CR); the topology "Live status" poller should handle the no-CR case instead of spamming 404 + sticking on "Loading…" (17 console errors on the bp-alloy Topology tab).
+5. **Overview "Available regions" hardcoded** to Hetzner examples (`hz-fsn-rtz-prod`/`hz-hel-rtz-prod`) — derive from live infra like the Topology editor already does (`me-east-215-a/-b`).
 
 ## Still to walk (this env, pre-wipe)
 
-T2 de-hardcode (generic render across blueprints) · T4 UI faithfulness (Open-button timing, jobs freshness, new-instance no-flash) · T5 DR switchover (Continuum) · T3 flux-first activities · T1 cutover (dormant→post-handover).
+T4 Jobs-tab freshness · T3 flux-first activities · T1 cutover (dormant→post-handover, after handover).
 
 _Evidence images live alongside this file under `evidence/` once exported from the Playwright run dir._
