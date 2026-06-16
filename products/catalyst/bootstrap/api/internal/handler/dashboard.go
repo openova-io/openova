@@ -279,8 +279,31 @@ func (h *Handler) GetDashboardTreemap(w http.ResponseWriter, r *http.Request) {
 		nodes, _, _ := h.k8sCache.List(cid, "node", labels.Everything())
 		rows = append(rows, buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, cid, clusterRegion[cid])...)
 	}
+	// #3687 (fold #3692): one-shot batch/v1 Job pods (cutover-*,
+	// scan-vulnerabilityreport-*, *-snapshot-save-*) are ephemeral
+	// activity, not estate — they must NEVER render as a treemap cell /
+	// "application". Drop them before aggregation so the Application layer
+	// reflects the durable workloads, not the Job/CronJob churn.
+	rows = dropEphemeralRows(rows)
 	resp := aggregateRows(rows, groupBy, colorBy, sizeBy)
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// dropEphemeralRows filters out pods owned by a batch/v1 Job — the
+// one-shot cutover / scan / snapshot workloads that are activity, not a
+// running application. Pods owned by anything else (Deployment,
+// StatefulSet, DaemonSet, ReplicaSet, CronJob-via-Job is still Job-owned)
+// are retained. Keys on the pod's top-level ownerRef Kind (podRow.ownerKind),
+// resolved in buildPodRows — no name-pattern matching (#3687 §7c).
+func dropEphemeralRows(rows []podRow) []podRow {
+	out := rows[:0]
+	for _, r := range rows {
+		if strings.EqualFold(r.ownerKind, "Job") {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // podRow is one pod's contribution to the treemap. Built once,
