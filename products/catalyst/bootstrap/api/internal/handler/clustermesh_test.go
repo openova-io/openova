@@ -2432,3 +2432,143 @@ func TestRunClusterMeshSteadyStateHeal_StopsImmediatelyWhenNotReady(t *testing.T
 		t.Fatalf("steady-state heal did not return immediately when status != ready at entry")
 	}
 }
+
+// ── #3629: cross-region consumer HUB Secret sync ────────────────────────
+
+// getSharedDataSecret reads a Secret from the shared-data namespace of a fake
+// clientset, returning (nil, false) when absent.
+func getSharedDataSecret(t *testing.T, cs kubernetes.Interface, name string) (*corev1.Secret, bool) {
+	t.Helper()
+	s, err := cs.CoreV1().Secrets(sharedPGNamespace).Get(context.Background(), name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil, false
+	}
+	if err != nil {
+		t.Fatalf("get Secret %s/%s: %v", sharedPGNamespace, name, err)
+	}
+	return s, true
+}
+
+// seedHubSecret creates a consumer hub Secret in shared-data on the given
+// clientset with the supplied host + password (mirrors what bp-postgres
+// role-secrets.yaml renders). Carries the reflector-auto annotations so the
+// copy is byte-identical to production.
+func seedHubSecret(t *testing.T, cs kubernetes.Interface, name, host, password string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := cs.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: sharedPGNamespace},
+	}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatalf("create shared-data namespace: %v", err)
+	}
+	if _, err := cs.CoreV1().Secrets(sharedPGNamespace).Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: sharedPGNamespace,
+			Annotations: map[string]string{
+				"reflector.v1.k8s.emberstack.com/reflection-allowed":      "true",
+				"reflector.v1.k8s.emberstack.com/reflection-auto-enabled": "true",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			"host":     []byte(host),
+			"password": []byte(password),
+			"uri":      []byte("postgresql://owner:" + password + "@" + host + ":5432/db"),
+		},
+	}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatalf("create hub Secret %s: %v", name, err)
+	}
+}
+
+// TestSyncSharedPGConsumerHubSecrets covers the #3629 best-effort cross-region
+// consumer-hub Secret sync: (1) a `-mesh-rw` source propagates to the replica
+// (correct host + password, overwriting the replica's divergent copy); (2) a
+// region-local `-rw` source is DEFERRED (not pushed — it would NXDOMAIN on the
+// replica); (3) a missing source is skipped (consumer unconfigured); (4)
+// single-region is a no-op.
+func TestSyncSharedPGConsumerHubSecrets(t *testing.T) {
+	h := &Handler{log: silentLogger()}
+	dep := &Deployment{ID: "dep-3629"}
+
+	t.Run("mesh-rw-source-propagates-to-replica", func(t *testing.T) {
+		primaryCS := kfake.NewSimpleClientset()
+		replicaCS := kfake.NewSimpleClientset()
+		// Primary hub carries the topology-aware -mesh-rw host + the
+		// AUTHORITATIVE region-A password.
+		seedHubSecret(t, primaryCS, "grafana-database-env",
+			"shared-pg-b-mesh-rw.shared-data.svc.cluster.local", "E5WJ-region-A-pw")
+		// Replica starts with the DIVERGENT singleton-phase copy (region-local
+		// host + its OWN random password) — the exact hw147 region-B defect.
+		seedHubSecret(t, replicaCS, "grafana-database-env",
+			"shared-pg-b-rw.shared-data.svc.cluster.local", "RXq1-region-B-pw")
+
+		slots := []regionSlot{
+			{key: "", clientset: primaryCS},
+			{key: "secondary", clientset: replicaCS},
+		}
+		h.syncSharedPGConsumerHubSecrets(context.Background(), dep, slots)
+
+		got, ok := getSharedDataSecret(t, replicaCS, "grafana-database-env")
+		if !ok {
+			t.Fatalf("replica hub Secret missing after sync")
+		}
+		if h := string(got.Data["host"]); h != "shared-pg-b-mesh-rw.shared-data.svc.cluster.local" {
+			t.Errorf("replica host = %q, want the -mesh-rw host (region-local -rw would NXDOMAIN)", h)
+		}
+		if p := string(got.Data["password"]); p != "E5WJ-region-A-pw" {
+			t.Errorf("replica password = %q, want the authoritative region-A password (the replica's catalog has region-A's role pw)", p)
+		}
+		// The reflector-auto annotations carry over so the replica's reflector
+		// re-pushes the corrected Secret into the consumer namespace.
+		if got.Annotations["reflector.v1.k8s.emberstack.com/reflection-auto-enabled"] != "true" {
+			t.Errorf("replica hub Secret lost the reflection-auto annotation — consumer ns would not get the corrected copy")
+		}
+	})
+
+	t.Run("region-local-rw-source-is-deferred", func(t *testing.T) {
+		primaryCS := kfake.NewSimpleClientset()
+		replicaCS := kfake.NewSimpleClientset()
+		// Primary hub still carries the SINGLETON -rw host (region-A has not
+		// reconciled crossRegion=true yet) — must NOT be pushed.
+		seedHubSecret(t, primaryCS, "grafana-database-env",
+			"shared-pg-b-rw.shared-data.svc.cluster.local", "pw-A")
+		// Replica has its own divergent copy; it must be left UNTOUCHED.
+		seedHubSecret(t, replicaCS, "grafana-database-env",
+			"shared-pg-b-rw.shared-data.svc.cluster.local", "pw-B-stale")
+
+		slots := []regionSlot{
+			{key: "", clientset: primaryCS},
+			{key: "secondary", clientset: replicaCS},
+		}
+		h.syncSharedPGConsumerHubSecrets(context.Background(), dep, slots)
+
+		got, _ := getSharedDataSecret(t, replicaCS, "grafana-database-env")
+		if p := string(got.Data["password"]); p != "pw-B-stale" {
+			t.Errorf("replica password = %q, want it UNCHANGED (pw-B-stale) — a -rw source must be deferred, not pushed", p)
+		}
+	})
+
+	t.Run("missing-source-is-skipped", func(t *testing.T) {
+		primaryCS := kfake.NewSimpleClientset() // no hub Secrets at all
+		replicaCS := kfake.NewSimpleClientset()
+		slots := []regionSlot{
+			{key: "", clientset: primaryCS},
+			{key: "secondary", clientset: replicaCS},
+		}
+		// Must not panic / error — best-effort skip of every unconfigured
+		// consumer.
+		h.syncSharedPGConsumerHubSecrets(context.Background(), dep, slots)
+		if _, ok := getSharedDataSecret(t, replicaCS, "grafana-database-env"); ok {
+			t.Errorf("replica unexpectedly gained a hub Secret from an empty primary")
+		}
+	})
+
+	t.Run("single-region-is-noop", func(t *testing.T) {
+		primaryCS := kfake.NewSimpleClientset()
+		seedHubSecret(t, primaryCS, "grafana-database-env",
+			"shared-pg-b-rw.shared-data.svc.cluster.local", "pw")
+		// len(slots) == 1 → no replica → must return immediately, no panic.
+		h.syncSharedPGConsumerHubSecrets(context.Background(), dep, []regionSlot{{key: "", clientset: primaryCS}})
+	})
+}
