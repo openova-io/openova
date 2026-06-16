@@ -158,3 +158,27 @@ func fetchCatalogEdits(ctx context.Context) map[string]catalogEdit {
 	}
 	return edits
 }
+
+// fetchCatalogEditsMerged is the catalog-read overlay source of truth
+// (#3648, train/hw150). It treats the LOCAL CATALOG GIT
+// (catalog-sovereign Gitea Org, read by fetchCatalogEditsFromGit) as the
+// authoritative source and the commerce store (fetchCatalogEdits) as a
+// pure cache that only fills entries git has no opinion on.
+//
+// Merge order: start from the store projection, then OVERLAY the git
+// source so a git-committed edit (whether written by a UI edit via
+// writeCatalogEditToGit OR an out-of-band `git push` to
+// catalog-sovereign/<bp>/blueprint.yaml) WINS. That makes an out-of-band
+// IaC edit round-trip to the UI exactly like a UI edit — IaC is the
+// single source of truth.
+//
+// Both sources degrade to an empty map when unavailable (Gitea unwired
+// pre-cutover, SME catalog absent), so on a Sovereign with neither the
+// catalog read serves the seed unchanged.
+func (h *Handler) fetchCatalogEditsMerged(ctx context.Context) map[string]catalogEdit {
+	merged := fetchCatalogEdits(ctx) // commerce store cache (may be empty)
+	for key, gitEdit := range h.fetchCatalogEditsFromGit(ctx) {
+		merged[key] = gitEdit // git source wins
+	}
+	return merged
+}
