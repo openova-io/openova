@@ -47,22 +47,45 @@ products/catalyst/bootstrap/ui  $ npx vitest run src/lib/useFleet.test.ts \
 | `kubectl get hr -A -l catalyst.openova.io/app=<hot-standby-app>` | Diff the active vs passive HR `spec.values` | The **mgmt-B (passive)** HR carries `replicas: 0` + `_openova_standby: true`; the mgmt-A (active) HR does not | ☐ |
 | Provision active-hot-standby with the standby region capped | Read the deployment record + Sovereign Settings | Record is **`failed`**, reason `standby-region-absent`; **no** green active-hot-standby badge | ☐ |
 
-## Remaining for the live walk (NOT in this spine — follow-on)
+## Increment 2 — the per-app Continuum CR producer (DoD-3) is now BUILT
 
-These are the issue's larger items that need a fresh 2-region prov and/or the
-per-app Continuum producer; they are explicitly **not** claimed by this PR:
+> Follow-on PR `feat: #3375 per-app Continuum producer + install active-passive`.
+> This closes the **DoD-3 producer** the spine enumerated as "the next
+> increment". It does NOT claim the live region-kill (DoD-9) or the
+> cross-region chart wiring (DoD-8).
 
-- **DoD-3 / DoD-4** — the application-controller (or a slot) minting **one
-  `Continuum` CR per DR-capable Application** + the journey building the
-  per-app 2-region cnpg-pair (the backing-service generator emitting a
-  replica Cluster + externalClusters WAL). The spine makes the engine
-  *able* to drive these (stateless promoter + the `replicas:0` model + the
-  enforcement that rejects decorative backends); the producer itself is the
-  next increment.
+| # | DoD box | Delivered in this increment | Evidence |
+|---|---|---|---|
+| 3 | The journey mints **one `Continuum` CR per DR-capable Application** | The application-controller now produces a `Continuum.dr.openova.io/v1` CR (`dr-<app>`) for every DR-capable Application — keyed entirely off the resolved topology variant (active-hot-standby / active-passive + a declared `switchover.mechanism` + ≥1 standby region), **zero app-name literal**. Wired into the topology fan-out persist block; idempotent upsert + cascade-delete (on Application delete AND topology downgrade). So `kubectl get continuums.dr.openova.io -A` shows a per-app roster (`dr-grafana`, `dr-sso-bridge`) — not just the cnpg-pair's own CR. | `continuum.go`; `continuum_test.go` (`TestReconcile_PerAppContinuumCR_*`, `TestResolveSwitchoverMechanism`, `TestBuildContinuumPlan_Gate`, `-race` green) |
+| 3 | The CRD accepts the generic `stateless` mechanism | The #3698 spine added `stateless` to the Go `Mechanism` set but the **CRD enum** still rejected it — so a stateless DR app's produced CR would be denied by the API server. The enum `switchover.mechanism: [cnpg-pair, raft-transition, stateless]` now matches the engine. | `products/catalyst/chart/crds/continuum.yaml`; helm lint + CRD YAML parse green |
+| 1 | One vocabulary at the **install** picker too | The install-flow placement `<select>` now offers the canonical 4th class **`active-passive`** (it previously hardcoded only 3, so a blueprint that supports active-passive could be selected on the editor but never at install). | `InstallPage.tsx`; `InstallPage.placement.test.tsx` (2/2 green) |
+
+## Walkable on a fresh 2-region prov after increment 2 rolls (the producer)
+
+> Every row is one action. Run after a fresh 2-region prov picks up the rolled catalyst-api image.
+
+| Go to / run | Then do | You should see | Result |
+|---|---|---|---|
+| Install a DR blueprint (e.g. bp-sso-bridge) at **active-hotstandby** on a 2-region prov | `kubectl get continuums.dr.openova.io -A` | A **`dr-sso-bridge`** row in the app's namespace (NOT only the cnpg-pair's `<pair>-continuum`) | ☐ |
+| `kubectl get continuum dr-sso-bridge -o yaml` | Read `.spec` | `applicationRef: <ns>/sso-bridge`, `primaryRegion` = the active region, `hotStandbyRegions: [<standby region>]`, `leaseClient.kind: dns-quorum`, `switchover.mechanism: stateless` | ☐ |
+| `/install/bp-grafana` → placement-mode dropdown | Open the dropdown | **Four** options incl. **`active-passive`** | ☐ |
+| Delete the Application (`kubectl delete application sso-bridge`) | `kubectl get continuum dr-sso-bridge` | **NotFound** — the producer cascade-deleted the DR contract | ☐ |
+
+## Remaining for the live walk (NOT in this increment — follow-on)
+
+These are the issue's larger items that need a fresh 2-region prov; they are
+explicitly **not** claimed by this PR:
+
+- **DoD-4** — the journey building the per-app 2-region **cnpg-pair** itself
+  (the backing-service generator emitting a replica Cluster + externalClusters
+  WAL). The producer mints the Continuum *contract*; the data-plane pair for a
+  stateful DR app is the next increment. (A stateless DR app needs no pair —
+  its `dr-<app>` CR is already complete + drivable by the #3698 stateless
+  promoter.)
 - **DoD-6** — the `TopologyTab.tsx` live-DR gate (render the DR section +
   Switchover only when the API reports a live backing; bind live
-  replication lag). Meaningful only once DoD-3 produces per-app Continuum
-  CRs to read.
+  replication lag). Now UNBLOCKED — DoD-3 produces per-app Continuum CRs to
+  read; the tab-binding is a focused UI follow-on.
 - **DoD-8** — the cross-region chart wiring (`<instance>-mesh-rw`, the
   openbao S3 cred mirror, the guacd emptyDir fallback). Chart work,
   walked on a 2-region env.
