@@ -69,7 +69,8 @@ spec:
       # operator pod AND the bootstrap-controller initContainer it injects
       # into every instance pod both pull harbor-proxied — bare ghcr.io ref
       # flaky-DNS ImagePullBackOff'd the cnpg-pair replica on hw126 region-B.
-      version: 1.0.9
+      # #3648 — lockstep with platform/cnpg Chart.yaml + blueprint.yaml 1.0.10.
+      version: 1.0.10
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg
