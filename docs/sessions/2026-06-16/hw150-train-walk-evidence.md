@@ -29,6 +29,7 @@ not a path-level green. `✅ met · 🟡 partial · ❌ not met`.
 | #2 | AppDetail topology — coherent strip, no contradiction | ✅ | `/app/bp-alloy` → Topology tab: Declared `singleton`, Effective-class + Supported canonical, per-cluster placement (mgmt/dmz/rtz × A/B), topology-mode radios **gated** to the supported mode only. "canonical 7-tab strip" declared + 3 data-driven tabs (Endpoints / Jobs 1 / Dependencies 2). `hw150-appdetail-topology-live-regions.png`. |
 | #4 | No per-app hardcoding — concepts generic for all | 🟡 | Topology editor's region picker uses **live** `me-east-215-a/-b` ✅. BUT the Overview's "Available regions" is **hardcoded to Hetzner** `hz-fsn-rtz-prod / hz-hel-rtz-prod` on a Huawei prov ❌ — localized stale placeholder. `hw150-appdetail-hardcoded-hetzner-regions.png`. |
 | #6/#7 | UI faithfulness / live DR-switchover (Continuum) status | 🟡 | AppDetail "Live status" polls `GET …/applications/bp-alloy/status` → **404 in a loop (17×)** because bp-alloy is a bootstrap HelmRelease (no Application CR); "Loading status…" never resolves. No tenant Application exists on hw150 → #7 (Continuum record) not positively walkable here; the 404-loop is a real no-CR-handling bug. |
+| #5 | Flux-first activities; DR-as-flux-job | ✅ | `/jobs` → ~225 activities grouped by parent (**Phase 0 — Infrastructure** · **Cluster Bootstrap** · **Applications**), 531 Succeeded / 66 Running / 3 Failed; 218 flux/HelmRelease/reconcile refs; cutover steps surface as jobs (**Crossplane Provider Pivot**, **Egress Block Test**). Every activity is a flux job in the unified view. `hw150-jobs-fluxfirst.png`. |
 
 ## Open follow-ups (surfaced by this walk)
 
@@ -40,6 +41,10 @@ not a path-level green. `✅ met · 🟡 partial · ❌ not met`.
 
 ## Still to walk (this env, pre-wipe)
 
-T4 Jobs-tab freshness · T3 flux-first activities · T1 cutover (dormant→post-handover, after handover).
+**Cutover (T1)** only — installed dormant pre-handover; the 8-step pivot + 600 s deny-egress hold needs the handover trigger (a separate phase). All other cars walked.
+
+## Tally
+
+6 fully green (#1, #2, #5, NS#3, NS#4 — and jobs-fresh within #6) · 5 partial (#3, #4, #6, #7, #8, NS#1) · 1 not-met (NS#2, shared-PG disabled this prov) · 1 pending (cutover). 3 fixes dispatched (404-loop, hardcoded-regions, topology-canonical).
 
 _Evidence images live alongside this file under `evidence/` once exported from the Playwright run dir._
