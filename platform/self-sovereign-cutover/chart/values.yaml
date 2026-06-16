@@ -477,18 +477,91 @@ egressTest:
     # headroom covers scheduler + container-create. A Pod still not Running
     # at the deadline — or any ImagePull error observed — FAILS the proof.
     timeoutSeconds: 240
+  # #3678 — TRUE deny-egress shape. defaultDenyEgress flips the Step-08
+  # CCNP from a SUBTRACTIVE 4-CIDR block (default-allow, deny only the
+  # listed hosts — which left console.openova.io + every un-enumerated
+  # mothership host reachable, so a residual call-home kept every HR Ready
+  # and the proof passed over a live tether) to a TRUE default-deny:
+  # `enableDefaultDeny.egress: true` + an explicit allow-list of the
+  # Sovereign's OWN intra-cluster CIDRs (pods/services/DNS/node). EVERYTHING
+  # public — incl. console.openova.io and any host NOT in the allow-list —
+  # is denied for the whole survival window. The #3640 apiserver-strand is
+  # avoided by ALLOWING 10.96.0.0/12 (services, covers the 10.96.0.1
+  # apiserver ClusterIP) + 10.42/10.43 (pods) + DNS, NOT by retreating to
+  # enableDefaultDeny.egress:false. blockedDomains is retained only for the
+  # active call-home assertion (the hosts we PROVE are unreachable from a
+  # pod under the policy); the policy itself no longer enumerates them.
+  defaultDenyEgress: true
+  # Intra-cluster CIDRs that stay reachable under the default-deny hold.
+  # These are the standard k3s ranges; a Sovereign on non-default CIDRs
+  # overrides via the 06a overlay. toCIDR allow-rules for these plus a
+  # toEntities allow for DNS/host/remote-node (added inline in the script)
+  # keep the apiserver, CoreDNS, and pod-to-pod paths up so the cluster
+  # keeps reconciling while every PUBLIC destination is black-holed.
+  allowIntraClusterCIDRs:
+    - "10.42.0.0/16"   # k3s pod CIDR (Cilium cluster-pool default)
+    - "10.43.0.0/16"   # k3s service CIDR
+    - "10.96.0.0/12"   # k8s default service CIDR (apiserver 10.96.0.1, CoreDNS)
+  # #3678 — active call-home assertion. During the hold, the Step-08 Job
+  # curls each of these hosts FROM a pod under the policy; if ANY connects,
+  # the deny-egress is leaky and the proof FAILS (cutoverComplete stays
+  # false). This catches an arbitrary mothership tether (e.g. a catalyst-api
+  # still issuing tokens with iss=console.openova.io) that the
+  # HR-readiness-only survival poll never exercises. console.openova.io is
+  # FIRST because #2940 enumerated ~18 openova.io endpoints the subtractive
+  # 4-CIDR block left wide open.
+  callHomeAssertion:
+    enabled: true
+    timeoutSeconds: 5
+    hosts:
+      - "https://console.openova.io/healthz"
+      - "https://github.com/openova-io"
+      - "https://ghcr.io/v2/"
+      - "https://harbor.openova.io/v2/"
+  # #3695 — the host GitOps loop MUST be healthy for cutoverComplete=true.
+  # On hw150 the cutover's OWN step-10 awk injector corrupted
+  # 13b-bp-sso-bridge.yaml (duplicate `values:` key) → bootstrap-kit went
+  # BuildFailed → the root Kustomization that owns all 63 bp-* HRs could no
+  # longer apply ANY git change → the Sovereign was no longer operable as a
+  # GitOps-driven cluster, yet cutoverComplete flipped true. These host
+  # Kustomizations are checked as a HARD pre-window gate (NOT subject to the
+  # baseline-exclude that hid bootstrap-kit's BuildFailed): if any is
+  # NotReady, the proof FAILS before the survival window even starts.
+  hostKustomizationGate:
+    enabled: true
+    namespace: "flux-system"
+    names:
+      - "bootstrap-kit"
+      - "sovereign-tls"
+      - "sme-tenants"
+  # #3695 — the fresh-pull proof must roll EVERY workload whose image host is
+  # NOT the local registry, not one hand-picked openova-io Deployment. When
+  # true, Step-08 enumerates all Deployments/DaemonSets/StatefulSets across
+  # all namespaces whose container images reference a NON-local registry
+  # (ghcr.io/openova-io, harbor.openova.io, etc.) and force-rolls EACH under
+  # deny-egress; any that ImagePullBackOff fails the proof. This generalizes
+  # the #3647 single-workload roll into the cross-cutting guarantee #3379 §7
+  # demands. localRegistryHostSubstr identifies the local registry so a
+  # Sovereign on a non-harbor.<fqdn> registry name overrides via 06a.
+  rollAllExternalRegistryWorkloads: true
+  localRegistryHostSubstr: "harbor."
   blockedDomains:
     - "github.com"
     - "ghcr.io"
     - "harbor.openova.io"
+    # console.openova.io (#3678): the mothership front door. The subtractive
+    # 4-CIDR block NEVER included it, so a catalyst-api still issuing tokens
+    # with iss=console.openova.io survived the hold. Under default-deny it is
+    # blocked by omission from the allow-list; this entry drives the active
+    # call-home assertion that PROVES it is unreachable.
+    - "console.openova.io"
     # TBD-V24 MISS-3 (chart 0.1.37): xpkg.upbound.io is the Crossplane
     # Provider package upstream. Step 11 pivots every Provider's
     # spec.package literal off this host, so the deny-egress hold proof
     # MUST also block xpkg.upbound.io — otherwise a Provider revision
     # reconcile during the hold window could silently fall through to
-    # the upstream xpkg host and break the proof. The deny implementation
-    # is TBD-V23's responsibility; this entry is the contract this list
-    # must carry once TBD-V23's CiliumNetworkPolicy applies.
+    # the upstream xpkg host and break the proof. Under default-deny this
+    # is blocked by omission from the allow-list.
     - "xpkg.upbound.io"
 
 # Status sentinel ConfigMap — initial state machine state. catalyst-api

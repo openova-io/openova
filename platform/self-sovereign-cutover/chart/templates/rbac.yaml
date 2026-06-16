@@ -128,6 +128,9 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["update", "patch"]   # step 07 sets env on catalyst-api deployment
+  - apiGroups: ["apps"]
+    resources: ["daemonsets", "statefulsets"]
+    verbs: ["update", "patch"]   # step 08 (#3695) rolls EVERY external-registry workload under deny-egress to prove fresh-pullability — kubectl rollout restart patches the workload's pod template
   - apiGroups: ["source.toolkit.fluxcd.io"]
     resources: ["gitrepositories", "helmrepositories"]
     verbs: ["update", "patch"]   # steps 05 + 06

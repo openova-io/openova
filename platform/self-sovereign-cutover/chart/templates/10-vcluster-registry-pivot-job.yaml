@@ -192,6 +192,32 @@ data:
             echo "[vcluster-registry-pivot] wrapper image.repository: ${wrapper_repo}"
             echo "[vcluster-registry-pivot] subchart image.registry: ${sub_registry} repository: ${sub_repo_path}"
 
+            # #3695 — a real YAML processor for the Phase-2b/2c git-persist
+            # merges (Principle #15). Line-oriented awk/sed on a multi-document
+            # YAML with an EVOLVING schema is the wrong tool: 13b-bp-sso-bridge.yaml
+            # GAINED a `spec.values` block (the #2940 global.registryMirror
+            # overlay), so the old awk injector's "append a fresh values: under
+            # spec:" produced a SECOND values: key → duplicate-mapping-key →
+            # bootstrap-kit BuildFailed → the root GitOps loop died while
+            # cutoverComplete flipped true. yq MERGES into the existing mapping
+            # and is idempotent against a file that already carries the key.
+            # The alpine/k8s image ships yq (mikefarah/Go yq); if a future image
+            # variant drops it we apk-add it (best-effort; proxied alpine repos),
+            # and fall back to a NO-OP-when-values-exists guard so we can NEVER
+            # re-introduce the duplicate-key corruption.
+            HAVE_YQ=""
+            if command -v yq >/dev/null 2>&1; then
+              HAVE_YQ="yes"
+            else
+              apk add --no-cache yq >/dev/null 2>&1 || true
+              command -v yq >/dev/null 2>&1 && HAVE_YQ="yes"
+            fi
+            if [ -n "${HAVE_YQ}" ]; then
+              echo "[vcluster-registry-pivot] yq available ($(yq --version 2>/dev/null || echo unknown)) — Phase-2 git-persist will MERGE values (#3695)"
+            else
+              echo "[vcluster-registry-pivot] WARN yq unavailable — Phase-2 image.repository merge will NO-OP when a values: block already exists (never injects a duplicate); the durable registry host pivot still rides global.registryMirror (Phase-2c)"
+            fi
+
             # ---- Phase 1: live K8s patch on each of the 3 bp-*-vcluster HelmReleases ----
             #
             # The bp-*-vcluster wrapper charts each expose:
@@ -586,72 +612,55 @@ data:
               fi
             done
 
-            # ---- Phase 2b: inject sso-bridge image override into Gitea (#2951) ----
+            # ---- Phase 2b: persist sso-bridge image override to Gitea (#2951/#3695) ----
             #
-            # 13b-bp-sso-bridge.yaml carries NO spec.values block today, so
-            # Phase-1b's live HR patch is reverted by the bootstrap-kit
-            # Kustomization reconcile within ~1 min unless we persist the
-            # override to Gitea. We inject a minimal
-            #   values:
-            #     image:
-            #       repository: harbor.<SOVEREIGN_FQDN>/proxy-dockerhub/alpine/k8s
-            # block at 2-space indent under the top-level `spec:` key.
-            # Idempotency: sentinel-comment guard; on re-run we rewrite the
-            # repository value in case SOVEREIGN_FQDN changed.
+            # 13b-bp-sso-bridge.yaml is a MULTI-DOCUMENT YAML: doc 1 is the
+            # HelmRepository (its `spec:` carries type/url/secretRef), doc 2 is
+            # the HelmRelease whose `spec.values` takes image.repository. Since
+            # #2940 the HelmRelease ALSO carries a `spec.values` block
+            # (global.registryMirror + sovereign.fqdn). The old awk injector
+            # appended a SECOND `values:` under the HelmRelease spec → duplicate
+            # mapping key → bootstrap-kit BuildFailed (hw150). We now MERGE
+            # `image.repository` INTO the existing values mapping with yq,
+            # anchored to the HelmRelease document only (select by kind), so the
+            # result always has exactly ONE `values:` key. Idempotent: yq
+            # assignment is a no-op when the value already matches.
+            #
+            # The repository is host-LESS (proxy-dockerhub/alpine/k8s): the
+            # sso-bridge chart's `bp-sso-bridge.image` helper prepends
+            # global.registryMirror (pivoted durably to harbor.<fqdn> by
+            # Phase-2c), so the registry host has exactly ONE source of truth.
+            # Writing a host-qualified repository here would FIGHT that single
+            # source — the helper honours a host-qualified repo verbatim and
+            # would ignore the pivoted mirror.
             sso_file="${target_dir}/13b-bp-sso-bridge.yaml"
-            sso_repo="harbor.${SOVEREIGN_FQDN}/proxy-dockerhub/alpine/k8s"
+            sso_repo="proxy-dockerhub/alpine/k8s"
             if [ -f "${sso_file}" ]; then
-              if grep -q "# ─── sso-bridge image registry pivot (#2951) ──" "${sso_file}"; then
-                # Existing override — rewrite the repository value line
-                # (2-space `values:` → 4-space `image:` → 6-space
-                # `repository:`). Bounded to the sentinel-anchored block by
-                # matching the 6-space repository line that follows our
-                # injected image: key.
-                if sed -i -E "s,^([[:space:]]{6}repository:[[:space:]]*)harbor\.[^/]*/proxy-dockerhub/alpine/k8s.*$,\1${sso_repo}," "${sso_file}" 2>/dev/null; then
-                  echo "[vcluster-registry-pivot] rewrote existing sso-bridge image override in ${sso_file}"
+              if [ -n "${HAVE_YQ}" ]; then
+                # MERGE into the HelmRelease document's spec.values.image.repository.
+                # `(select(.kind=="HelmRelease") | .spec.values.image.repository) = $r`
+                # creates the image: child under the EXISTING values: mapping
+                # (or creates values: if somehow absent) WITHOUT ever emitting a
+                # second values: key. Other documents (HelmRepository) are
+                # untouched. yq preserves the ${REGISTRY_MIRROR:=...} envsubst
+                # placeholders verbatim (they are plain scalar strings to yq).
+                if yq eval -i "(select(.kind == \"HelmRelease\") | .spec.values.image.repository) = \"${sso_repo}\"" "${sso_file}" 2>/dev/null; then
+                  echo "[vcluster-registry-pivot] merged sso-bridge image.repository=${sso_repo} into existing values (yq, single values: key) — ${sso_file}"
                   edited=$((edited+1))
                 else
-                  echo "[vcluster-registry-pivot] WARN: sed rewrite of sso-bridge override failed; Phase-1b K8s patch remains durable for one upgrade cycle"
+                  echo "[vcluster-registry-pivot] WARN: yq merge of sso-bridge image.repository failed on ${sso_file}; the durable registry host still rides global.registryMirror (Phase-2c)"
                 fi
+              elif grep -qE "^[[:space:]]+values:[[:space:]]*$" "${sso_file}"; then
+                # No yq AND a values: block already exists → the awk injector
+                # would duplicate the key. NO-OP rather than corrupt the file:
+                # the registry host pivot is fully covered by Phase-2c's
+                # global.registryMirror rewrite (the image host's single source
+                # of truth), so skipping the image.repository merge does NOT
+                # leave a mothership tether. (#3695: never re-introduce the
+                # duplicate-mapping-key BuildFailed.)
+                echo "[vcluster-registry-pivot] NO-OP sso-bridge image.repository merge (no yq + existing values: block) — registry host pivot covered by Phase-2c global.registryMirror"
               else
-                # No existing override. NOTE: 13b-bp-sso-bridge.yaml is a
-                # MULTI-DOCUMENT YAML — doc 1 is the HelmRepository (its
-                # own `spec:` carries `type/url/secretRef`, NOT values), doc
-                # 2 is the HelmRelease whose `spec:` is the one that takes
-                # `values.image.repository`. We MUST anchor the injection to
-                # the HelmRelease spec only, so we track `kind: HelmRelease`
-                # and inject at the NEXT top-level `spec:` after it. Anchoring
-                # on a bare `^spec:` would wrongly land inside the
-                # HelmRepository document.
-                if awk -v repo="${sso_repo}" '
-                  /^kind:[[:space:]]*HelmRelease[[:space:]]*$/ { in_hr=1 }
-                  in_hr && /^spec:[[:space:]]*$/ && !done {
-                    print
-                    print "  # ─── sso-bridge image registry pivot (#2951) ──"
-                    print "  # Injected by self-sovereign-cutover step-10 from"
-                    print "  # harbor.openova.io → harbor.<SOVEREIGN_FQDN> so the"
-                    print "  # bp-sso-bridge reconciler Pod pulls its image from the"
-                    print "  # Sovereign-local Harbor mirror, NOT mothership Harbor."
-                    print "  # Required by Principle #11 (no tether to harbor.openova.io"
-                    print "  # after handover — UAT Wave-2 ATTACK#9, #2940). Without this"
-                    print "  # override the chart default at platform/sso-bridge/chart/"
-                    print "  # values.yaml resolves back to harbor.openova.io."
-                    print "  values:"
-                    print "    image:"
-                    print "      repository: " repo
-                    done = 1
-                    next
-                  }
-                  { print }
-                  END { exit (done ? 0 : 1) }
-                ' "${sso_file}" > "${sso_file}.new"; then
-                  mv "${sso_file}.new" "${sso_file}"
-                  echo "[vcluster-registry-pivot] injected sso-bridge image override into ${sso_file}"
-                  edited=$((edited+1))
-                else
-                  rm -f "${sso_file}.new"
-                  echo "[vcluster-registry-pivot] WARN: ${sso_file} has no HelmRelease spec: anchor — Phase-1b K8s patch remains durable for one upgrade cycle"
-                fi
+                echo "[vcluster-registry-pivot] SKIP sso-bridge image.repository merge (no yq + no values: block) — Phase-1b K8s patch remains durable for one upgrade cycle"
               fi
             else
               echo "[vcluster-registry-pivot] SKIP ${sso_file} (not present)"
@@ -683,9 +692,32 @@ data:
                 echo "[vcluster-registry-pivot] SKIP registryMirror persist ${rm_path} (not present)"
                 continue
               fi
-              if grep -qE "^[[:space:]]*registryMirror:[[:space:]]*harbor\.openova\.io[[:space:]]*$" "${rm_path}"; then
+              # #3695: prefer yq for a structural assignment of the HelmRelease
+              # document's spec.values.global.registryMirror. This is robust to
+              # the overlay carrying the value as a ${REGISTRY_MIRROR:=...}
+              # placeholder OR the post-envsubst literal harbor.openova.io, and
+              # never touches a HelmRepository document in the same file. The
+              # sed fallback (value-replacement on the literal line — safe, it
+              # rewrites a scalar in place and never adds a key) covers a
+              # yq-less image. Idempotent either way.
+              if [ -n "${HAVE_YQ}" ]; then
+                cur=$(yq eval 'select(.kind == "HelmRelease") | .spec.values.global.registryMirror' "${rm_path}" 2>/dev/null | head -1 || true)
+                case "${cur}" in
+                  harbor.${SOVEREIGN_FQDN})
+                    echo "[vcluster-registry-pivot] registryMirror in ${rm_path} already harbor.${SOVEREIGN_FQDN} (yq) — no rewrite" ;;
+                  ""|null)
+                    echo "[vcluster-registry-pivot] registryMirror absent in ${rm_path} (yq) — no rewrite" ;;
+                  *)
+                    if yq eval -i "(select(.kind == \"HelmRelease\") | .spec.values.global.registryMirror) = \"harbor.${SOVEREIGN_FQDN}\"" "${rm_path}" 2>/dev/null; then
+                      echo "[vcluster-registry-pivot] rewrote global.registryMirror in ${rm_path} -> harbor.${SOVEREIGN_FQDN} (yq)"
+                      edited=$((edited+1))
+                    else
+                      echo "[vcluster-registry-pivot] WARN: yq registryMirror rewrite failed for ${rm_path}; Phase-1d K8s patch remains durable for one reconcile cycle"
+                    fi ;;
+                esac
+              elif grep -qE "^[[:space:]]*registryMirror:[[:space:]]*harbor\.openova\.io[[:space:]]*$" "${rm_path}"; then
                 if sed -i -E "s,^([[:space:]]*registryMirror:[[:space:]]*)harbor\.openova\.io[[:space:]]*\$,\1harbor.${SOVEREIGN_FQDN}," "${rm_path}" 2>/dev/null; then
-                  echo "[vcluster-registry-pivot] rewrote global.registryMirror in ${rm_path} -> harbor.${SOVEREIGN_FQDN}"
+                  echo "[vcluster-registry-pivot] rewrote global.registryMirror in ${rm_path} -> harbor.${SOVEREIGN_FQDN} (sed fallback)"
                   edited=$((edited+1))
                 else
                   echo "[vcluster-registry-pivot] WARN: registryMirror sed failed for ${rm_path}; Phase-1d K8s patch remains durable for one reconcile cycle"
@@ -695,7 +727,7 @@ data:
               fi
             done
 
-            echo "[vcluster-registry-pivot] sed edited ${edited} files"
+            echo "[vcluster-registry-pivot] edited ${edited} files (yq merge / sed fallback)"
             if [ "${edited}" -eq 0 ]; then
               echo "[vcluster-registry-pivot] no edits required — already pivoted in Gitea or files absent"
               # Phase 1 already succeeded; nothing to push.

@@ -158,6 +158,16 @@ const (
 	cutoverModeJob           = "job"
 	cutoverModeDaemonSetWait = "daemonset-wait"
 
+	// Well-known step slugs (data.stepName on the step ConfigMaps). Keyed
+	// by NAME — never positional index — because the step count has drifted
+	// (8→11) as gitea-token-mint / vcluster-registry-pivot /
+	// crossplane-provider-pivot were appended, so an index hook would have
+	// silently fired against the wrong step. #3671: the engine flips
+	// registriesYamlActive=v2 the moment harbor-prewarm succeeds and the
+	// registry-pivot DaemonSet-wait then asserts per-node v2 acks.
+	cutoverStepHarborPrewarm = "harbor-prewarm"
+	cutoverStepRegistryPivot = "registry-pivot"
+
 	// SSE phase names.
 	cutoverPhaseStepStarted  = "cutover-step-started"
 	cutoverPhaseStepFinished = "cutover-step-finished"
@@ -1110,6 +1120,80 @@ func waitForDaemonSetReady(ctx context.Context, deps *cutoverDeps, dsName string
 	})
 }
 
+// registryPivotNodeAckPrefix / Suffix bracket the per-node ack key the
+// registry-pivot DaemonSet writes into the status ConfigMap AFTER it
+// atomically swaps /etc/rancher/k3s/registries.yaml on its node. The key
+// is `node.<nodeName>.registriesYaml = "v2"`. A Ready DaemonSet only
+// proves its pods are running — NOT that each pod rewrote the file; this
+// ack closes that gap (#3671 §5).
+const (
+	registryPivotNodeAckPrefix = "node."
+	registryPivotNodeAckSuffix = ".registriesYaml"
+)
+
+// waitForRegistryPivotNodeAcks blocks until the number of per-node v2 acks
+// in the status ConfigMap equals the DaemonSet's DesiredNumberScheduled
+// (#3671). This is the REAL verification step-04 was missing: a Ready
+// DaemonSet whose reconcile loop wrote the v1 (mothership) file — because
+// registriesYamlActive was never flipped — would pass the bare
+// waitForDaemonSetReady. With registriesYamlActive=v2 set before this DS
+// runs (see runCutover), each node's reconcile loop swaps the file to the
+// LOCAL Harbor and writes its ack; we count acks == desired so the cutover
+// fails (rather than greens) if ANY node is still held at v1.
+func waitForRegistryPivotNodeAcks(ctx context.Context, deps *cutoverDeps, dsName string) error {
+	// Only meaningful once the engine has flipped registriesYamlActive=v2 (via
+	// the harbor-prewarm hook). If it is still v1, the DaemonSet has NOT been
+	// instructed to write the local file, so no v2 ack will ever arrive — the
+	// ack-wait would just burn the whole timeout. In that case skip the wait;
+	// the END-of-run invariant gate (#3671) fails the cutover for "v2 never
+	// reached", which is the correct, fast verdict.
+	if st, _ := readCutoverStatus(ctx, deps); st["registriesYamlActive"] != "v2" {
+		return nil
+	}
+	timeout := cutoverDaemonSetTimeout()
+	wctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	return wait.PollUntilContextCancel(wctx, 5*time.Second, true, func(c context.Context) (bool, error) {
+		ds, err := deps.core.AppsV1().DaemonSets(deps.ns).Get(c, dsName, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("get DaemonSet %s/%s: %w", deps.ns, dsName, err)
+		}
+		desired := int(ds.Status.DesiredNumberScheduled)
+		if desired == 0 {
+			return false, nil
+		}
+
+		status, err := readCutoverStatus(c, deps)
+		if err != nil {
+			// Transient read failure — keep polling; the outer timeout bounds it.
+			return false, nil
+		}
+		acks := countRegistryPivotV2Acks(status)
+		if acks >= desired {
+			return true, nil
+		}
+		return false, nil
+	})
+}
+
+// countRegistryPivotV2Acks counts the per-node ack keys in the status map
+// whose value is exactly "v2".
+func countRegistryPivotV2Acks(status map[string]string) int {
+	n := 0
+	for k, v := range status {
+		if strings.HasPrefix(k, registryPivotNodeAckPrefix) &&
+			strings.HasSuffix(k, registryPivotNodeAckSuffix) &&
+			v == "v2" {
+			n++
+		}
+	}
+	return n
+}
+
 // ── Cutover engine ──────────────────────────────────────────────────────────
 
 // runCutover executes the discovered steps in order. It is run in a
@@ -1132,14 +1216,36 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 	runEpoch := time.Now().Unix()
 	totalSteps := len(steps)
 
+	// Read the durable prior status BEFORE seeding so the audit start-time
+	// (#3681) is written ONCE — at the first run — and never re-stamped by
+	// a resume or re-fire. Before this fix the seed unconditionally
+	// overwrote cutoverStartedAt with time.Now() at the TOP of every
+	// runCutover call; a mid-run catalyst-api roll (which triggers
+	// ResumeInterruptedCutover → runCutover) re-stamped it to the resume
+	// moment, making the durable record claim an 11-minute cutover that
+	// really took 35 (hw150: first step at 13:36, cutoverStartedAt rewritten
+	// to 14:00 by the resume). The per-step rows were ground truth; the
+	// top-level start was fiction. Now the FIRST attempt seeds
+	// cutoverStartedAt and every attempt (incl. this one) advances a
+	// separate cutoverLastAttemptStartedAt — the field used as the
+	// resume/re-fire guard keeps its original meaning ("cutover began at
+	// T0") while the new field carries "latest attempt began at Tn".
+	priorStatus, _ := readCutoverStatus(ctx, deps)
+
 	startedAt := time.Now().UTC()
-	if err := patchCutoverStatus(ctx, deps, map[string]string{
-		"cutoverStartedAt": startedAt.Format(time.RFC3339),
-		"totalSteps":       strconv.Itoa(totalSteps),
-		"cutoverComplete":  "false",
-		"failedStep":       "",
-		"lastError":        "",
-	}); err != nil {
+	seed := map[string]string{
+		"cutoverLastAttemptStartedAt": startedAt.Format(time.RFC3339),
+		"totalSteps":                  strconv.Itoa(totalSteps),
+		"cutoverComplete":             "false",
+		"failedStep":                  "",
+		"lastError":                   "",
+	}
+	if priorStatus["cutoverStartedAt"] == "" {
+		// First run only — anchor the true start. On a resume/re-fire the
+		// existing value is preserved (NOT in the seed map ⇒ untouched).
+		seed["cutoverStartedAt"] = startedAt.Format(time.RFC3339)
+	}
+	if err := patchCutoverStatus(ctx, deps, seed); err != nil {
 		h.publishCutoverEvent(bus, cutoverEvent{
 			Time:    time.Now().UTC().Format(time.RFC3339),
 			Phase:   cutoverPhaseStepFailed,
@@ -1156,11 +1262,11 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 		Message: fmt.Sprintf("Self-Sovereignty Cutover started: %d steps", totalSteps),
 	})
 
-	// Skip steps already marked success (resume-after-restart). The
-	// status ConfigMap is the durable record; if a previous run
-	// completed step 1 and 2 then crashed before step 3, a fresh
-	// /start picks up at step 3.
-	priorStatus, _ := readCutoverStatus(ctx, deps)
+	// priorStatus (read above, before the seed) is the durable record used
+	// for resume-after-restart: if a previous run completed step 1 and 2
+	// then crashed before step 3, a fresh /start picks up at step 3. The
+	// seed never touches the per-step rows, so the snapshot read at the top
+	// is the correct skip-success basis.
 
 	// Project the Cutover group + a pending step Job per discovered step
 	// (with the linear dependsOn chain) into the jobs/activity store so
@@ -1217,9 +1323,107 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 			h.log.Error("cutover: step failed", "step", step.stepName, "err", err)
 			return
 		}
+
+		// Faithful registry pivot (#3671). The node-level pivot that points
+		// containerd at harbor.<fqdn> is gated by the registriesYamlActive
+		// status key, which the registry-pivot DaemonSet's reconcile loop
+		// reads to decide WHICH registries.yaml (v1=mothership, v2=local) to
+		// write. Before this fix NOTHING in the engine ever set "v2", so the
+		// DaemonSet dutifully (re)wrote the v1 (mothership) file on every
+		// node — step registry-pivot greened while pivoting nothing. We flip
+		// it to "v2" the moment harbor-prewarm SUCCEEDS (the local Harbor now
+		// serves every bootstrap-kit image) and BEFORE the registry-pivot
+		// DaemonSet-wait step, so the DS writes the LOCAL file. Keyed on the
+		// step NAME, not a positional index (steps are label-ordered and the
+		// numbering has drifted 8→11).
+		if step.stepName == cutoverStepHarborPrewarm {
+			if err := patchCutoverStatus(ctx, deps, map[string]string{
+				"registriesYamlActive": "v2",
+			}); err != nil {
+				h.log.Warn("cutover: failed to flip registriesYamlActive=v2 after harbor-prewarm",
+					"err", err)
+			} else {
+				h.publishCutoverEvent(bus, cutoverEvent{
+					Time:    time.Now().UTC().Format(time.RFC3339),
+					Phase:   cutoverPhaseStepFinished,
+					Level:   "info",
+					Step:    step.stepName,
+					Message: "registriesYamlActive flipped to v2 — registry-pivot DaemonSet will write node containerd to local Harbor",
+				})
+			}
+		}
 	}
 
 	finishedAt := time.Now().UTC()
+
+	// Invariant gate (#3671): the cutover MUST NOT reach
+	// cutoverComplete=true while the node-level registry pivot is still on
+	// v1 (mothership Harbor). registriesYamlActive is flipped to "v2" by the
+	// harbor-prewarm hook above and the registry-pivot DaemonSet acks per
+	// node. If every step ran but the key is still "v1", the pivot silently
+	// pivoted nothing — exactly the hw150 face-2 defect (step registry-pivot
+	// result=success, node containerd still pointed at harbor.openova.io).
+	// Fail the cutover here rather than seal a false sovereignty fact over a
+	// still-tethered node.
+	//
+	// The gate applies ONLY when this chain actually CONTAINS a registry-pivot
+	// step — i.e. the cutover is responsible for the node pivot. A partial /
+	// custom chain that legitimately has no registry-pivot step (and never
+	// flips the key) is not force-failed; there is nothing to assert.
+	chainHasRegistryPivot := false
+	for _, s := range steps {
+		if s.stepName == cutoverStepRegistryPivot {
+			chainHasRegistryPivot = true
+			break
+		}
+	}
+	final, _ := readCutoverStatus(ctx, deps)
+	if active := final["registriesYamlActive"]; chainHasRegistryPivot && active != "v2" {
+		failMsg := fmt.Sprintf("cutover refuses cutoverComplete=true: registriesYamlActive=%q (want v2) — node containerd still on mothership Harbor", active)
+		_ = patchCutoverStatus(ctx, deps, map[string]string{
+			"currentStep": "",
+			"failedStep":  "registry-pivot",
+			"lastError":   failMsg,
+		})
+		h.publishCutoverEvent(bus, cutoverEvent{
+			Time:    finishedAt.Format(time.RFC3339),
+			Phase:   cutoverPhaseStepFailed,
+			Level:   "error",
+			Step:    "registry-pivot",
+			Message: failMsg,
+		})
+		h.log.Error("cutover: registry pivot invariant violated", "registriesYamlActive", active)
+		return
+	}
+
+	// Determine the TRUE first-run start (#3681): if a prior attempt already
+	// anchored cutoverStartedAt, that is the durable start; otherwise this run
+	// was the first and startedAt is the anchor. This is the value the durable
+	// seal records and the UI shows as total elapsed.
+	trueStartedAt := priorStatus["cutoverStartedAt"]
+	if trueStartedAt == "" {
+		trueStartedAt = startedAt.Format(time.RFC3339)
+	}
+
+	// Seal the DURABLE, revert-immune sovereignty fact (#3667) in the SAME
+	// transaction that flips the ConfigMap. The OpenBao seal survives a
+	// `helm upgrade bp-self-sovereign-cutover` that reverts the ConfigMap
+	// key to "false" — the resume hook + auto-trigger then read the seal
+	// FIRST and no-op, so a routine chart pin never re-fires the 600s hold.
+	if err := h.sealCutoverComplete(ctx, trueStartedAt, finishedAt.Format(time.RFC3339)); err != nil {
+		// Non-fatal: the ConfigMap still records cutoverComplete=true so the
+		// run is functionally done, but WITHOUT the seal a chart upgrade
+		// could revert + re-fire. Surface loudly so the operator re-runs (the
+		// re-run is idempotent and will re-attempt the seal).
+		h.log.Error("cutover: durable cutover-complete seal FAILED; flag is chart-revertible until re-sealed", "err", err)
+		h.publishCutoverEvent(bus, cutoverEvent{
+			Time:    finishedAt.Format(time.RFC3339),
+			Phase:   cutoverPhaseStepFailed,
+			Level:   "error",
+			Message: fmt.Sprintf("durable cutover-complete seal failed: %v — re-run /start to seal", err),
+		})
+	}
+
 	_ = patchCutoverStatus(ctx, deps, map[string]string{
 		"cutoverComplete":   "true",
 		"cutoverFinishedAt": finishedAt.Format(time.RFC3339),
@@ -1442,6 +1646,16 @@ func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cu
 			return fmt.Errorf("DaemonSet %s/%s did not reach ready in %s: %w",
 				deps.ns, jobOrDS, cutoverDaemonSetTimeout(), err)
 		}
+		// #3671: for the registry-pivot DaemonSet, Ready is necessary but
+		// NOT sufficient — a Ready DS whose loop wrote the v1 (mothership)
+		// file passes the bare ready-wait. Assert every node ACKED the v2
+		// (local-Harbor) swap; fail the step if any node is still on v1.
+		if step.stepName == cutoverStepRegistryPivot {
+			if err := waitForRegistryPivotNodeAcks(ctx, deps, jobOrDS); err != nil {
+				return fmt.Errorf("registry-pivot DaemonSet %s/%s ready but not all nodes acked v2 registries.yaml in %s: %w",
+					deps.ns, jobOrDS, cutoverDaemonSetTimeout(), err)
+			}
+		}
 	default:
 		return fmt.Errorf("internal error: unknown step mode %q", step.mode)
 	}
@@ -1548,6 +1762,32 @@ func (h *Handler) ResumeInterruptedCutover(ctx context.Context) {
 		h.log.Info("cutover-resume: deps factory unavailable; skipping startup resume",
 			"err", err,
 		)
+		return
+	}
+
+	// Durable, revert-immune sovereignty gate (#3667) — checked FIRST, before
+	// the status ConfigMap. If a `helm upgrade bp-self-sovereign-cutover`
+	// reverted the CM's cutoverComplete to "false" (and cutoverStartedAt to
+	// ""), the CM-only checks below would NOT early-return on
+	// cutoverComplete, but the cutoverStartedAt=="" guard would defer to the
+	// auto-trigger Job — which then re-fires the whole cutover. The sealed
+	// OpenBao fact survives the upgrade, so once it exists we backfill the CM
+	// and return without resuming anything. A seal-read error fails closed
+	// (skip resume) rather than risk a spurious re-fire.
+	if sealed, serr := h.sovereignCutoverComplete(ctx); serr != nil {
+		h.log.Warn("cutover-resume: durable seal check failed; skipping startup resume to avoid spurious re-fire",
+			"err", serr,
+		)
+		return
+	} else if sealed {
+		if deps != nil {
+			if status, rerr := readCutoverStatus(ctx, deps); rerr == nil && status["cutoverComplete"] != "true" {
+				_ = patchCutoverStatus(ctx, deps, map[string]string{"cutoverComplete": "true"})
+				h.log.Info("cutover-resume: already complete (sealed); backfilled reverted status ConfigMap, fired nothing")
+			} else {
+				h.log.Info("cutover-resume: already complete (sealed); nothing to resume")
+			}
+		}
 		return
 	}
 
@@ -1677,18 +1917,23 @@ func (h *Handler) ResumeInterruptedCutover(ctx context.Context) {
 // state — that's what was rendering `invalid CutoverState: <undefined>`
 // on otech113 (issue #933).
 type cutoverStatusResponse struct {
-	State             string              `json:"state"`
-	CutoverComplete   bool                `json:"cutoverComplete"`
-	CutoverStartedAt  string              `json:"cutoverStartedAt,omitempty"`
-	CutoverFinishedAt string              `json:"cutoverFinishedAt,omitempty"`
-	CurrentStep       string              `json:"currentStep,omitempty"`
-	CurrentStepIndex  int                 `json:"currentStepIndex"`
-	TotalSteps        int                 `json:"totalSteps"`
-	ProgressPercent   int                 `json:"progressPercent"`
-	FailedStep        string              `json:"failedStep,omitempty"`
-	LastError         string              `json:"lastError,omitempty"`
-	Steps             []cutoverStepStatus `json:"steps"`
-	Raw               map[string]string   `json:"raw,omitempty"`
+	State             string `json:"state"`
+	CutoverComplete   bool   `json:"cutoverComplete"`
+	CutoverStartedAt  string `json:"cutoverStartedAt,omitempty"`
+	CutoverFinishedAt string `json:"cutoverFinishedAt,omitempty"`
+	// CutoverLastAttemptStartedAt (#3681) carries the most-recent attempt's
+	// start (resume/re-fire), distinct from CutoverStartedAt which is the
+	// TRUE first-run anchor. The UI shows total elapsed from CutoverStartedAt
+	// and "current attempt" from this field.
+	CutoverLastAttemptStartedAt string              `json:"cutoverLastAttemptStartedAt,omitempty"`
+	CurrentStep                 string              `json:"currentStep,omitempty"`
+	CurrentStepIndex            int                 `json:"currentStepIndex"`
+	TotalSteps                  int                 `json:"totalSteps"`
+	ProgressPercent             int                 `json:"progressPercent"`
+	FailedStep                  string              `json:"failedStep,omitempty"`
+	LastError                   string              `json:"lastError,omitempty"`
+	Steps                       []cutoverStepStatus `json:"steps"`
+	Raw                         map[string]string   `json:"raw,omitempty"`
 }
 
 // cutoverStateValue returns the canonical wire string for the overall
@@ -1820,6 +2065,34 @@ func (h *Handler) HandleCutoverStatus(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// Durable-fact backfill (#3667). If a `helm upgrade
+	// bp-self-sovereign-cutover` reverted the status ConfigMap's
+	// cutoverComplete to "false" but the OpenBao seal exists, /status MUST
+	// still answer "sovereign" so the SovereigntyCard never flickers back to
+	// the "Achieve True Sovereignty" CTA. We re-derive from the seal here
+	// (read-only — the spawn/resume paths perform the durable backfill) and
+	// recover cutoverStartedAt/FinishedAt from the seal payload if the CM
+	// lost them too. Best-effort: a seal-read error leaves the CM-derived
+	// answer unchanged.
+	if status["cutoverComplete"] != "true" {
+		if sealed, serr := h.sovereignCutoverComplete(r.Context()); serr == nil && sealed {
+			status["cutoverComplete"] = "true"
+			if h.openbao != nil {
+				if data, derr := h.openbao.GetKVv2(r.Context(), "secret", cutoverCompleteSecretPath); derr == nil {
+					if status["cutoverStartedAt"] == "" {
+						if v, ok := data["cutoverStartedAt"].(string); ok {
+							status["cutoverStartedAt"] = v
+						}
+					}
+					if status["cutoverFinishedAt"] == "" {
+						if v, ok := data["cutoverFinishedAt"].(string); ok {
+							status["cutoverFinishedAt"] = v
+						}
+					}
+				}
+			}
+		}
+	}
 	// Pull step names from the status ConfigMap keys; the chart's
 	// step ConfigMaps may be deleted post-cutover, so /status MUST
 	// reconstruct from the durable status keys.
@@ -1944,6 +2217,7 @@ func buildCutoverStatusResponseFromMap(status map[string]string, stepNames []str
 	resp.State = cutoverStateValue(resp.CutoverComplete)
 	resp.CutoverStartedAt = status["cutoverStartedAt"]
 	resp.CutoverFinishedAt = status["cutoverFinishedAt"]
+	resp.CutoverLastAttemptStartedAt = status["cutoverLastAttemptStartedAt"]
 	resp.CurrentStep = status["currentStep"]
 	if v, err := strconv.Atoi(status["currentStepIndex"]); err == nil {
 		resp.CurrentStepIndex = v
