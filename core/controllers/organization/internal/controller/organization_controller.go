@@ -365,14 +365,35 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			"organization", org.Name)
 	}
 
-	// 6. Status update — Ready=True plus the per-step federation
-	// conditions (always present so the access-matrix UI can render
-	// the federation column without conditional logic).
+	// 6. Status update. #3687 (fold #3669): the vCluster phase + the
+	// Ready condition derive from a LIVE readback of the vCluster
+	// HelmRelease the controller wrote (+ the per-Org Namespace), NOT
+	// from "I PUT the file." The old code hardcoded Phase=Provisioning
+	// and Ready=True the instant the Gitea PutFile returned — reporting a
+	// green Org over orphaned bytes when no Flux source watched the repo.
+	// Now Ready=True requires the HR to actually be Ready AND the
+	// namespace to exist; until then it sits False with a reason naming
+	// what is pending, and the reconcile requeues so the status converges
+	// as Flux brings the vCluster up.
+	vcPhase, vcReady, vcMsg := r.vclusterReadiness(ctx, org.Spec.Slug)
+	readyCond := orgapi.Condition{
+		Type:               "Ready",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	}
+	if vcReady {
+		readyCond.Status = "True"
+		readyCond.Reason = "Reconciled"
+		readyCond.Message = "vCluster HelmRelease Ready + Keycloak group + Gitea Org reconciled"
+	} else {
+		readyCond.Status = "False"
+		readyCond.Reason = "VClusterProvisioning"
+		readyCond.Message = vcMsg
+	}
 	desired := orgapi.OrganizationStatus{
 		VCluster: orgapi.VClusterStatus{
 			Name:        org.Spec.Slug,
 			HostCluster: r.HostCluster,
-			Phase:       "Provisioning", // Flux still has to spin up the HelmRelease
+			Phase:       vcPhase,
 		},
 		KeycloakGroup: orgapi.KeycloakGroupStatus{
 			ID:    kcID,
@@ -386,13 +407,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		},
 		IacBootstrap: iacStatus,
 		Conditions: []orgapi.Condition{
-			{
-				Type:               "Ready",
-				Status:             "True",
-				Reason:             "Reconciled",
-				Message:            "vCluster HelmRelease + Keycloak group + Gitea Org reconciled",
-				LastTransitionTime: metav1.NewTime(time.Now()),
-			},
+			readyCond,
 			idpCond,
 			mappersCond,
 			iacBootstrapCondition(iacStatus),
@@ -407,8 +422,106 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	log.Info("reconcile ok",
 		"keycloak_group", kcID,
 		"gitea_org", gOrg.Username,
-		"vcluster", org.Spec.Slug)
+		"vcluster", org.Spec.Slug,
+		"vcluster_phase", vcPhase,
+		"vcluster_ready", vcReady)
+
+	// Requeue until the vCluster HR is Ready so status.vcluster.phase +
+	// the Ready condition converge as Flux applies the Git-authored
+	// manifest. A steady-state (Ready) Org needs no periodic requeue —
+	// the Organization watch re-triggers on spec changes; the HR's own
+	// Flux reconcile drives the cluster state. While provisioning we poll
+	// the readback every 30s (matching the fail() cadence).
+	if !vcReady {
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
 	return ctrl.Result{}, nil
+}
+
+// vclusterReadiness reads back the vCluster HelmRelease the controller
+// authored (name "vcluster" in namespace <slug>, matching the
+// gitops.vclusterTemplate) plus the per-Org Namespace, and derives the
+// reported phase + a Ready bool + a human message (#3687 fold #3669).
+//
+// Phase ladder:
+//   - "Ready"        — the HR's Ready condition is True AND the namespace
+//                      exists. Only here does the Org go Ready=True.
+//   - "Provisioning" — the HR exists but is not yet Ready (Flux applied it,
+//                      the vCluster pod is still coming up), OR the HR's
+//                      Ready condition is explicitly False/unknown.
+//   - "Pending"      — neither the HR nor the namespace is visible yet:
+//                      the manifest was written to Git but no Flux source
+//                      has applied it (the "orphaned bytes" case the old
+//                      code masked as Ready). Surfaced honestly so the
+//                      operator sees the gap instead of a false green.
+//
+// Keys only off slug + HostCluster (both on the CR) → generic for any
+// Org/host, no per-org-name special-casing (#3687 §7d). Read failures
+// other than NotFound degrade to Provisioning (transient API blips
+// shouldn't flip a healthy Org to Pending) and requeue.
+func (r *Reconciler) vclusterReadiness(ctx context.Context, slug string) (phase string, ready bool, message string) {
+	nsExists := false
+	ns := &corev1.Namespace{}
+	switch err := r.Get(ctx, types.NamespacedName{Name: slug}, ns); {
+	case err == nil:
+		nsExists = true
+	case apierrors.IsNotFound(err):
+		nsExists = false
+	default:
+		return "Provisioning", false,
+			fmt.Sprintf("vCluster namespace readback error (transient): %s", err)
+	}
+
+	hr := &unstructured.Unstructured{}
+	hr.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "helm.toolkit.fluxcd.io",
+		Version: "v2",
+		Kind:    "HelmRelease",
+	})
+	switch err := r.Get(ctx, types.NamespacedName{Namespace: slug, Name: "vcluster"}, hr); {
+	case apierrors.IsNotFound(err):
+		// No HR in the cluster. The manifest was PUT to the per-Org Gitea
+		// repo but nothing applied it yet — orphaned bytes, not deployed.
+		return "Pending", false,
+			"vCluster HelmRelease not yet applied by Flux (manifest authored in Gitea; awaiting a Flux source/Kustomization to reconcile it)"
+	case err != nil:
+		return "Provisioning", false,
+			fmt.Sprintf("vCluster HelmRelease readback error (transient): %s", err)
+	}
+
+	hrReady := helmReleaseReady(hr)
+	if hrReady && nsExists {
+		return "Ready", true, ""
+	}
+	if !nsExists {
+		return "Provisioning", false,
+			"vCluster HelmRelease present but the per-Org namespace is not Active yet"
+	}
+	return "Provisioning", false,
+		"vCluster HelmRelease applied; awaiting its Ready condition (vCluster pod still coming up)"
+}
+
+// helmReleaseReady reports whether a Flux HelmRelease's `Ready` condition
+// is True. Flux v2 sets status.conditions[type=Ready].status to
+// "True"/"False"/"Unknown" once it has attempted a reconcile.
+func helmReleaseReady(hr *unstructured.Unstructured) bool {
+	conds, found, err := unstructured.NestedSlice(hr.Object, "status", "conditions")
+	if err != nil || !found {
+		return false
+	}
+	for _, ci := range conds {
+		c, ok := ci.(map[string]any)
+		if !ok {
+			continue
+		}
+		t, _, _ := unstructured.NestedString(c, "type")
+		if t != "Ready" {
+			continue
+		}
+		s, _, _ := unstructured.NestedString(c, "status")
+		return s == "True"
+	}
+	return false
 }
 
 // fail records a Failed condition + non-zero observedGeneration so the
