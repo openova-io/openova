@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-13T19:07:17.775Z",
+  "generatedAt": "2026-06-16T12:06:11.834Z",
   "blueprints": [
     {
       "id": "bp-alloy",
@@ -16,6 +16,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -51,7 +52,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-anthropic-adapter",
@@ -70,6 +72,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -115,7 +118,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-bge",
@@ -134,6 +138,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -179,7 +184,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-catalyst-platform",
@@ -202,6 +208,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -247,7 +254,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-cert-manager",
@@ -264,6 +272,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -299,7 +308,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-cert-manager-dynadot-webhook",
@@ -318,6 +328,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -349,7 +360,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-cert-manager-powerdns-webhook",
@@ -368,6 +380,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -399,7 +412,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-cilium",
@@ -411,11 +425,12 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.4.1",
+      "version": "1.4.3",
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -447,7 +462,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-cilium-policies",
@@ -464,6 +480,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -499,7 +516,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-clickhouse",
@@ -516,6 +534,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -561,7 +580,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-cluster-autoscaler-hcloud",
@@ -578,6 +598,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -609,7 +630,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-cnpg",
@@ -621,7 +643,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.0.9",
+      "version": "1.0.10",
       "section": "pts-4-1-data-services",
       "depends": [
         "bp-flux"
@@ -663,7 +685,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-cnpg-pair",
@@ -684,6 +707,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby"
@@ -715,7 +739,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-coraza",
@@ -732,6 +757,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -767,7 +793,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-crossplane",
@@ -784,6 +811,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -819,7 +847,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-crossplane-claims",
@@ -838,6 +867,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -873,7 +903,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-debezium",
@@ -890,6 +921,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -935,7 +967,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-dmz-vcluster",
@@ -955,6 +988,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -982,7 +1016,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-external-dns",
@@ -999,6 +1034,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -1034,7 +1070,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-external-secrets",
@@ -1046,7 +1083,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.1.3",
+      "version": "1.1.4",
       "section": "pts-3-3-security-and-policy",
       "depends": [
         "bp-openbao",
@@ -1054,6 +1091,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -1089,7 +1127,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-external-secrets-stores",
@@ -1106,6 +1145,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -1141,7 +1181,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-falco",
@@ -1158,6 +1199,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -1189,7 +1231,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-ferretdb",
@@ -1206,6 +1249,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -1251,7 +1295,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-flink",
@@ -1268,6 +1313,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -1313,7 +1359,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-flux",
@@ -1330,6 +1377,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -1365,7 +1413,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-gateway-api",
@@ -1382,6 +1431,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -1417,7 +1467,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-gitea",
@@ -1429,13 +1480,14 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.2.34",
+      "version": "1.2.35",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [
         "bp-postgres"
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -1481,7 +1533,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-grafana",
@@ -1493,11 +1546,12 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.0.12",
+      "version": "1.0.14",
       "section": "pts-3-observability",
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -1543,7 +1597,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-guacamole",
@@ -1555,7 +1610,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.8",
+      "version": "0.2.20",
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [
         "bp-keycloak",
@@ -1566,6 +1621,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -1611,7 +1667,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-harbor",
@@ -1632,6 +1689,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -1677,7 +1735,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-hcloud-ccm",
@@ -1694,6 +1753,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -1725,7 +1785,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-hcloud-csi",
@@ -1742,6 +1803,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -1773,7 +1835,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-iceberg",
@@ -1790,6 +1853,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -1835,7 +1899,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-k8s-ws-proxy",
@@ -1854,6 +1919,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -1899,7 +1965,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-keycloak",
@@ -1911,13 +1978,14 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.4.27",
+      "version": "1.4.28",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [
         "bp-postgres"
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -1963,7 +2031,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-knative",
@@ -1983,6 +2052,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -2028,7 +2098,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-kserve",
@@ -2049,6 +2120,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -2094,7 +2166,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-kyverno",
@@ -2106,11 +2179,12 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.3.6",
+      "version": "1.3.7",
       "section": "pts-3-3-security-and-policy",
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -2146,7 +2220,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-kyverno-policies",
@@ -2158,11 +2233,12 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.0.33",
+      "version": "1.0.35",
       "section": "pts-3-3-security-and-policy",
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -2198,7 +2274,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-langfuse",
@@ -2215,6 +2292,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -2260,7 +2338,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-librechat",
@@ -2282,6 +2361,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -2327,7 +2407,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-litmus",
@@ -2344,6 +2425,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -2367,7 +2449,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-livekit",
@@ -2388,6 +2471,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -2433,7 +2517,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-llm-gateway",
@@ -2454,6 +2539,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -2499,7 +2585,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-loki",
@@ -2516,6 +2603,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -2561,7 +2649,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-matrix",
@@ -2582,6 +2671,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -2627,7 +2717,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-mgmt-vcluster",
@@ -2639,7 +2730,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.2.9",
+      "version": "0.2.10",
       "section": "pts-3-2-control-plane-isolation",
       "depends": [
         "bp-cilium",
@@ -2647,6 +2738,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -2674,7 +2766,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-milvus",
@@ -2691,6 +2784,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -2736,7 +2830,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-mimir",
@@ -2753,6 +2848,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -2798,7 +2894,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-nats-jetstream",
@@ -2815,6 +2912,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -2860,7 +2958,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-nemo-guardrails",
@@ -2879,6 +2978,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -2924,7 +3024,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-neo4j",
@@ -2941,6 +3042,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -2986,7 +3088,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-netbird",
@@ -3007,6 +3110,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -3052,7 +3156,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-network-policies",
@@ -3071,6 +3176,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3106,7 +3212,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-newapi",
@@ -3118,7 +3225,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "1.4.66",
+      "version": "1.4.95",
       "section": "pts-4-6-llm-serving",
       "depends": [
         "bp-cnpg",
@@ -3129,6 +3236,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -3174,7 +3282,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-oidc-gate",
@@ -3186,7 +3295,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [
         "bp-cilium",
@@ -3195,6 +3304,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -3240,7 +3350,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-openbao",
@@ -3252,11 +3363,12 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.2.31",
+      "version": "1.2.46",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -3267,7 +3379,7 @@
         "perTopology": {
           "active-passive": {
             "replication": {
-              "backend": "openbao-perf-replication",
+              "backend": "raft",
               "mode": "async",
               "lagSloSeconds": 30
             },
@@ -3302,7 +3414,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-openclaw",
@@ -3323,6 +3436,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3344,7 +3458,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-openmeter",
@@ -3365,6 +3480,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -3410,7 +3526,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-opensearch",
@@ -3427,6 +3544,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -3496,7 +3614,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-opentelemetry",
@@ -3513,6 +3632,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3544,7 +3664,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-opentelemetry-operator",
@@ -3564,6 +3685,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3595,7 +3717,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-postgres",
@@ -3607,7 +3730,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.1.10",
+      "version": "0.2.2",
       "section": "pts-4-1-data-services",
       "depends": [
         "bp-cnpg",
@@ -3625,6 +3748,7 @@
           "credentialSecret"
         ]
       },
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton",
@@ -3670,7 +3794,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-powerdns",
@@ -3689,6 +3814,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3720,7 +3846,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-powerdns-admin",
@@ -3732,7 +3859,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.1.13",
+      "version": "0.1.16",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [
         "bp-powerdns",
@@ -3745,6 +3872,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3776,7 +3904,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-qa-app",
@@ -3793,6 +3922,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3816,7 +3946,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-reflector",
@@ -3833,6 +3964,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3868,7 +4000,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-reloader",
@@ -3885,6 +4018,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3916,7 +4050,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-rtz-vcluster",
@@ -3928,7 +4063,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.2.8",
+      "version": "0.2.11",
       "section": "pts-3-2-control-plane-isolation",
       "depends": [
         "bp-cilium",
@@ -3936,6 +4071,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -3963,7 +4099,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-sandbox",
@@ -3985,6 +4122,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -4030,7 +4168,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-sealed-secrets",
@@ -4047,6 +4186,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -4078,7 +4218,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-seaweedfs",
@@ -4090,13 +4231,14 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "section": "pts-3-5-storage-and-data",
       "depends": [
         "bp-cert-manager"
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -4132,7 +4274,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-self-sovereign-cutover",
@@ -4144,7 +4287,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.1.56",
+      "version": "0.1.73",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [
         "bp-gitea",
@@ -4152,6 +4295,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -4177,7 +4321,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-sigstore",
@@ -4194,6 +4339,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -4225,7 +4371,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-spire",
@@ -4242,6 +4389,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-hot-standby",
@@ -4287,7 +4435,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-sso-bridge",
@@ -4299,7 +4448,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.2.15",
+      "version": "0.2.18",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [
         "bp-keycloak",
@@ -4308,6 +4457,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -4353,7 +4503,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-stalwart-sovereign",
@@ -4374,6 +4525,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -4391,7 +4543,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-stalwart-tenant",
@@ -4413,6 +4566,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -4458,7 +4612,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-strimzi",
@@ -4475,6 +4630,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -4544,7 +4700,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-stunner",
@@ -4564,6 +4721,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -4609,7 +4767,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-syft-grype",
@@ -4626,6 +4785,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -4657,7 +4817,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-tempo",
@@ -4674,6 +4835,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -4719,7 +4881,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-temporal",
@@ -4739,6 +4902,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -4784,7 +4948,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-trivy",
@@ -4801,6 +4966,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -4832,7 +4998,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-valkey",
@@ -4861,6 +5028,7 @@
           "credentialSecret"
         ]
       },
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -4906,7 +5074,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-vcluster-helmrepo",
@@ -4925,6 +5094,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -4956,7 +5126,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-velero",
@@ -4973,6 +5144,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -5008,7 +5180,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-velero-hcs",
@@ -5025,6 +5198,7 @@
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -5060,7 +5234,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-vllm",
@@ -5072,13 +5247,14 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "section": "pts-4-6-llm-serving",
       "depends": [
         "bp-kserve"
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-active",
@@ -5124,7 +5300,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-vpa",
@@ -5136,11 +5313,12 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.0.1",
+      "version": "1.0.3",
       "section": "pts-3-3-security-and-policy",
       "depends": [],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "singleton"
@@ -5172,7 +5350,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-wordpress-tenant",
@@ -5195,6 +5374,7 @@
       ],
       "shareable": false,
       "contextSchema": null,
+      "producesInstances": null,
       "topology": {
         "supported": [
           "active-passive",
@@ -5240,7 +5420,8 @@
             }
           }
         }
-      }
+      },
+      "hasUserUIEndpoint": true
     }
   ],
   "bootstrapKit": [

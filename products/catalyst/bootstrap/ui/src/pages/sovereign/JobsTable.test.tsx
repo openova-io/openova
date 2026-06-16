@@ -354,6 +354,61 @@ describe('JobsTable — render', () => {
     expect(screen.getByTestId('jobs-cell-status-bp-crossplane').textContent?.toLowerCase()).toContain('running')
     expect(screen.getByTestId('jobs-cell-status-bp-vault').textContent?.toLowerCase()).toContain('pending')
   })
+
+  // ──────────────────────────────────────────────────────────────────
+  // #3656 (founder #6) — a provisional (live-unconfirmed) reducer-derived
+  // row renders a distinct "Confirming…" badge, NOT a definitive
+  // Pending/Running it would then flip to a terminal status.
+  // ──────────────────────────────────────────────────────────────────
+  const baseLeaf = {
+    type: 'install' as const,
+    parentId: 'applications',
+    childIds: [],
+    dependsOn: [],
+    startedAt: null,
+    finishedAt: null,
+    durationMs: 0,
+  }
+
+  it('a provisional row renders the "Confirming…" badge instead of "Pending"', async () => {
+    const jobs: Job[] = [
+      { ...baseLeaf, id: 'unconfirmed', jobName: 'Install X', appId: 'bp-x', status: 'pending', provisional: true },
+    ]
+    renderTable({ jobs })
+    await screen.findByTestId('jobs-table')
+    const badge = screen.getByTestId('jobs-cell-status-unconfirmed')
+    // Distinct provisional label + data-status, NOT the definitive "Pending".
+    expect(badge.textContent).toContain('Confirming')
+    expect(badge.textContent?.toLowerCase()).not.toContain('pending')
+    expect(badge.getAttribute('data-status')).toBe('confirming')
+    // The underlying reducer-derived status is preserved for diagnostics.
+    expect(badge.getAttribute('data-underlying-status')).toBe('pending')
+    expect(badge.className).toContain('jobs-badge-confirming')
+  })
+
+  it('a running-but-provisional row also shows "Confirming…", never a committed "Running"', async () => {
+    const jobs: Job[] = [
+      { ...baseLeaf, id: 'rp', jobName: 'Install Y', appId: 'bp-y', status: 'running', provisional: true },
+    ]
+    renderTable({ jobs })
+    await screen.findByTestId('jobs-table')
+    const badge = screen.getByTestId('jobs-cell-status-rp')
+    expect(badge.textContent).toContain('Confirming')
+    expect(badge.getAttribute('data-status')).toBe('confirming')
+    expect(badge.getAttribute('data-underlying-status')).toBe('running')
+  })
+
+  it('a NON-provisional row keeps its definitive status label (no false "Confirming…")', async () => {
+    const jobs: Job[] = [
+      { ...baseLeaf, id: 'confirmed', jobName: 'Install Z', appId: 'bp-z', status: 'pending' },
+    ]
+    renderTable({ jobs })
+    await screen.findByTestId('jobs-table')
+    const badge = screen.getByTestId('jobs-cell-status-confirmed')
+    expect(badge.textContent?.toLowerCase()).toContain('pending')
+    expect(badge.textContent).not.toContain('Confirming')
+    expect(badge.getAttribute('data-status')).toBe('pending')
+  })
 })
 
 // ── C8-005 (2026-05-17 t143): region filter helpers + dropdown ───────

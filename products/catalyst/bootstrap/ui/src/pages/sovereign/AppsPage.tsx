@@ -689,6 +689,12 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
                   isCatalog={false}
                   environment={inst.environment}
                   externalURL={inst.externalURL}
+                  // #3656 — declared user-UI signal keyed on the instance's
+                  // Blueprint id; urlPending tracks the live-apps query so a
+                  // declared-UI instance shows a disabled "Open…" placeholder
+                  // until its externalURL lands (no late pop-in).
+                  hasUserUI={BLUEPRINT_BY_ID[inst.blueprint]?.hasUserUIEndpoint === true}
+                  urlPending={liveAppsQuery.isPending}
                   status={inst.status}
                   isService={false}
                   marketplacePublished={null}
@@ -720,6 +726,12 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
                 isCatalog={false}
                 environment={environment}
                 externalURL={externalURL}
+                // #3656 — declared user-UI signal from the generated catalog
+                // (projected from the Blueprint's endpoints[]); urlPending
+                // tracks the live-apps query so a declared-UI app shows a
+                // disabled "Open…" placeholder until its URL resolves.
+                hasUserUI={BLUEPRINT_BY_ID[app.id]?.hasUserUIEndpoint === true}
+                urlPending={liveAppsQuery.isPending}
                 status={(() => {
                   // Live API status wins when present.
                   const live = liveAppStatus[app.id]
@@ -852,6 +864,22 @@ interface AppCardProps {
    */
   externalURL?: string
   /**
+   * #3656 (founder #6) — whether this app's Blueprint declares a
+   * user-facing UI front door (projected `hasUserUIEndpoint`). When true
+   * and `externalURL` is still resolving (`urlPending`), the card shows a
+   * disabled "Open…" placeholder instead of nothing — so the enabled Open
+   * settles in place rather than popping in late. False/undefined ⇒
+   * headless app ⇒ no placeholder (and no transient chip). Default
+   * undefined keeps the legacy behaviour for callers that don't pass it.
+   */
+  hasUserUI?: boolean
+  /**
+   * #3656 — true while the live-apps query (which carries `externalURL`)
+   * has not resolved yet. Drives the disabled "Open…" placeholder window
+   * for a declared-UI app. Ignored entirely once `externalURL` is known.
+   */
+  urlPending?: boolean
+  /**
    * #3370 — instance-card extras. `topology` renders the placement chip
    * (`singleton`, `single-region`, `active-hotstandby`); `contextCount`
    * renders the ⛓ badge that deep-links to the instance's Contexts tab.
@@ -881,7 +909,7 @@ interface AppCardProps {
 // Exported for the #3374 render test (AppsPage.open-button.test.tsx) — the
 // per-card Open button gate + silent-SSO click routing are leaf behaviour
 // best asserted directly on the card, without the live-apps query plumbing.
-export function AppCard({ app, status, isCatalog, isService, environment, marketplacePublished, slug, onPublishedChange, topology, contextCount, externalURL, iconLight, iconDark, onEdit }: AppCardProps) {
+export function AppCard({ app, status, isCatalog, isService, environment, marketplacePublished, slug, onPublishedChange, topology, contextCount, externalURL, hasUserUI, urlPending, iconLight, iconDark, onEdit }: AppCardProps) {
   const stateClass = `state-${status}`
   const navigate = useNavigate()
   // #3603 — render the theme-correct admin icon override when present:
@@ -1050,12 +1078,20 @@ export function AppCard({ app, status, isCatalog, isService, environment, market
          * fix keeps the one-click affordance but routes it through
          * launchAppViaSSO → GET /catalyst/v1/apps/{key}/launch-url, which
          * returns the signed silent-SSO URL — so the operator lands in the
-         * app already signed in, never on a login form. Only rendered when
-         * externalURL is non-empty: the BE projects externalURL ONLY for
-         * apps whose Blueprint declares a user-UI endpoint
-         * (externalURLIfUserUI + blueprintHasUserUIEndpoint, #3224), so
-         * headless services (openova-flow, shared-pg, controllers) never
-         * get a dead button. */}
+         * app already signed in, never on a login form.
+         *
+         * #3656 (founder #6) — faithful Open chip: never assert-then-retract.
+         * The live externalURL arrives async (liveAppsQuery), so a real
+         * front-door app used to render NOTHING then POP the chip in late.
+         * The card now reads the STATIC declared `hasUserUI` signal
+         * (BLUEPRINT_BY_ID[...].hasUserUIEndpoint, projected from the
+         * Blueprint's endpoints[] — the SAME source the BE gates externalURL
+         * on) so it can show a confident disabled "Open…" placeholder for a
+         * declared-UI app WHILE its URL is still resolving. Three faithful
+         * states, no flash / pop-in / retract:
+         *   • externalURL resolved → enabled Open (silent-SSO launch).
+         *   • declared UI + URL still pending → disabled "Open…" placeholder.
+         *   • headless (no declared UI) → NOTHING (no transient chip). */}
         {externalURL ? (
           <button
             type="button"
@@ -1090,6 +1126,41 @@ export function AppCard({ app, status, isCatalog, isService, environment, market
               <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
             </svg>
             {launching ? 'Opening…' : 'Open'}
+          </button>
+        ) : hasUserUI && urlPending ? (
+          // Declared-UI app, URL not resolved yet → confident disabled
+          // placeholder. NOT clickable (no URL to launch). Replaced in
+          // place by the enabled Open the moment liveAppsQuery resolves —
+          // same slot, so the operator sees a settle, never a pop-in.
+          <button
+            type="button"
+            className="open-chip is-pending"
+            data-testid={`sov-app-open-pending-${app.id}`}
+            disabled
+            aria-disabled="true"
+            title={`Open ${app.title} — resolving the front-door URL…`}
+            aria-label={`Open ${app.title} — resolving the front-door URL`}
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+            }}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width={11}
+              height={11}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2.2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M14 3h7v7" />
+              <path d="M10 14L21 3" />
+              <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+            </svg>
+            Open…
           </button>
         ) : null}
         {marketplacePublished !== null && marketplacePublished !== undefined && slug ? (
@@ -1362,6 +1433,21 @@ const APPS_PAGE_CSS = `
 .open-chip:hover { filter: brightness(0.92); transform: translateY(-1px); }
 .open-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .open-chip:disabled { opacity: 0.6; cursor: wait; }
+/* #3656 (founder #6) — the "Open…" placeholder shown for a declared-UI app
+ * while its live front-door URL is still resolving. Rendered MUTED + outlined
+ * (not the solid accent of the live Open) so it reads as "loading, not yet
+ * actionable" rather than a real launch control. Default cursor + no hover
+ * lift make clear it isn't clickable; it is replaced in place by the enabled
+ * Open the moment the URL lands (no flash / pop-in). */
+.open-chip.is-pending {
+  background: transparent;
+  color: var(--color-text-dim);
+  border: 1px dashed var(--color-border);
+  box-shadow: none;
+  cursor: default;
+  opacity: 0.85;
+}
+.open-chip.is-pending:hover { filter: none; transform: none; }
 .open-chip svg { display: block; }
 /* #3603 — admin "Edit" pill (Catalog page, sovereign-admin only). Muted
  * surface tone so it reads as a secondary affordance next to the accent
