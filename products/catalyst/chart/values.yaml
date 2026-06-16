@@ -568,7 +568,7 @@ controllers:
       # — drops cross-namespace ownerRef on the host-side Flux CRs
       # (was being silently GC'd by the K8s collector because
       # Application lives in a different namespace from flux-system).
-      tag: "6dea4c7"
+      tag: "d2e8c02"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -1125,87 +1125,6 @@ smeTenants:
     org: openova
     repo: openova
     branch: sme-tenants
-
-# ─── catalog-sovereign Flux reconcile (#3668) ────────────────────────
-# The load-bearing half PR #3702 deferred: a Flux GitRepository +
-# Kustomization that reconcile the catalog-sovereign aggregator tree into
-# LIVE Blueprint CRs, so a console catalog edit (or curate) reaches the
-# in-cluster `blueprints.catalyst.openova.io/v1` CR and SURVIVES
-# `helm upgrade` (the CR becomes Flux/Git-owned, not Helm-owned).
-#
-# catalyst-api (writeCatalogSovereignAggregator) writes each edited/curated
-# Blueprint as a full, ownership-stripped CR to:
-#   openova/openova @ catalog-sovereign : clusters/<sovereignFQDN>/catalog-sovereign/<bp>.yaml
-# The Kustomization below directory-sweeps that tree into Blueprint CRs.
-#
-# Reuses the SME-tenant gitops repo coordinates (openova/openova) so the
-# chart's repo-bootstrap + Flux clone-auth (#3454) are already wired; a
-# DEDICATED `catalog-sovereign` branch is immune to the cutover-gitea-mirror
-# force-push of `main` (TBD-C18e). Mirrors the smeTenants block above 1:1.
-# Rendered only on a Sovereign (global.sovereignFQDN non-empty) +
-# ingress.marketplace.enabled — the same discriminator the SME bundle uses.
-catalogSovereign:
-  kustomization:
-    # Resource name. Appears in `kubectl get kustomization -n flux-system`.
-    name: catalog-sovereign
-    namespace: flux-system
-    # Consumes the dedicated openova-catalog-sovereign GitRepository
-    # (catalog-sovereign-gitrepository.yaml), tracking the catalog-sovereign
-    # branch the mirror-clobber of main cannot touch.
-    sourceRef:
-      name: openova-catalog-sovereign
-      namespace: flux-system
-    interval: 1m
-    retryInterval: 1m
-    timeout: 5m
-    # A curated Blueprint deleted from Gitea GCs its CR.
-    prune: true
-    # Blueprint CRs validate at admission via the CRD schema; no Ready
-    # condition to gate on, and one invalid CR must not block the rest.
-    wait: false
-    # #3668 §9.4 Helm→Flux ownership adoption: SSA with force makes
-    # kustomize-controller the authoritative field-manager of the Blueprint
-    # CR, so a chart `helm upgrade` (which re-renders the catalog-seed CR)
-    # cannot revert a console edit. The Gitea source is ownership-stripped so
-    # Flux's apply does not re-introduce Helm's field-manager; combined with
-    # helm.sh/resource-policy:keep on the catalog-seed CRs the edit is
-    # durable across upgrades.
-    force: true
-  # ─── Dedicated GitRepository for the catalog-sovereign aggregator ───
-  # Rendered by templates/catalog-sovereign-flux/catalog-sovereign-
-  # gitrepository.yaml. Same shape as openova-sme-tenants (a separate branch
-  # immune to the cutover mirror force-push of main).
-  gitRepository:
-    name: openova-catalog-sovereign
-    namespace: flux-system
-    branch: catalog-sovereign
-    apiURL: "http://gitea-http.gitea.svc.cluster.local:3000"
-    org: openova
-    repo: openova
-    interval: 1m
-    # #3454 — Flux MUST authenticate to clone the local Gitea even though
-    # openova/openova is PUBLIC, because bp-gitea sets
-    # service.REQUIRE_SIGNIN_VIEW=true (anon clone → 401). The secretRef
-    # points at a Flux basic-auth Secret holding the catalyst-gitea-token PAT
-    # (rendered by catalog-sovereign-gitrepo-auth-secret.yaml — the twin of
-    # the SME auth Secret).
-    secretRef:
-      name: openova-catalog-sovereign-git-auth
-      username: gitea_admin
-      patSourceSecretName: catalyst-gitea-token
-      patSourceKey: token
-  # ─── Pre-cutover branch + aggregator-dir bootstrap (#3668) ──────────
-  # Rendered by templates/catalog-sovereign-flux/catalog-sovereign-repo-
-  # bootstrap-job.yaml (hook-weight 13, AFTER the SME repo-bootstrap hook
-  # weight 12 which auto-inits openova/openova). Ensures the catalog-sovereign
-  # branch + an empty aggregator-directory marker so the Flux source is Ready
-  # from first convergence with zero curated Blueprints. MUST stay in sync
-  # with gitRepository.{org,repo,branch} above.
-  repoBootstrap:
-    giteaInternalURL: "http://gitea-http.gitea.svc.cluster.local:3000"
-    org: openova
-    repo: openova
-    branch: catalog-sovereign
 
 # ─── Per-Organization public HTTPRoutes (issue #1629 follow-up) ───────
 # PowerDNS now resolves `<slug>.<parentDomain>` for every Org that maps
