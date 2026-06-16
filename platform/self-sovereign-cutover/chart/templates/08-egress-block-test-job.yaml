@@ -235,6 +235,14 @@ data:
                   echo "  name: cutover-egress-block"
                   echo "spec:"
                   echo "  endpointSelector: {}"
+                  # enableDefaultDeny.egress:false makes egressDeny SUBTRACTIVE (deny ONLY the 4
+                  # tether CIDRs). Cilium otherwise defaults enableDefaultDeny.egress=true for any
+                  # policy carrying egress rules, so endpointSelector:{} would flip EVERY pod into
+                  # default-deny egress with 0 allow rules -> total cluster-wide egress loss:
+                  # apiserver (10.96.0.1), DNS, inter-pod all blocked, the Job's own kubectl times
+                  # out and step-08 never captures the baseline. (#3640, hw148 step-08 wedge)
+                  echo "  enableDefaultDeny:"
+                  echo "    egress: false"
                   echo "  egressDeny:"
                   echo "    - toCIDRSet:"
                   for ip in ${block_ips}; do
