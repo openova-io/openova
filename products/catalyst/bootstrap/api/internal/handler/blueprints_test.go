@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -21,15 +22,22 @@ import (
 
 // fakeGiteaClient is an in-memory stub of GiteaBlueprintClient.
 type fakeGiteaClient struct {
-	mu       sync.Mutex
-	files    map[string][]byte // org/repo/branch/path → bytes
-	repos    map[string]bool   // org/repo → exists
-	orgs     map[string]bool   // org → exists
-	dirs     map[string][]gitea.ContentEntry
-	branches map[string]bool                  // org/repo/branch → exists
-	prs      map[string]gitea.PullRequest     // org/repo/head→base → PR
-	prSeq    int64
+	mu           sync.Mutex
+	files        map[string][]byte // org/repo/branch/path → bytes
+	repos        map[string]bool   // org/repo → exists
+	orgs         map[string]bool   // org → exists
+	dirs         map[string][]gitea.ContentEntry
+	branches     map[string]bool              // org/repo/branch → exists
+	prs          map[string]gitea.PullRequest // org/repo/head→base → PR
+	prSeq        int64
 	failPRCreate bool // when true, CreatePullRequest returns ErrRepoNotFound
+
+	// #3668 — additive PutFile injection so the catalog-edit-git budget +
+	// failure-surfacing tests can simulate a slow / erroring Gitea on
+	// PutFile only (the source-of-truth write). Both default nil/0 →
+	// unchanged behaviour for every existing caller.
+	putFileSleep time.Duration // when >0, PutFile blocks this long (honours ctx cancel)
+	putFileErr   error         // when non-nil, PutFile returns this error
 }
 
 func newFakeGitea() *fakeGiteaClient {
@@ -61,7 +69,25 @@ func (f *fakeGiteaClient) EnsureRepo(_ context.Context, org, name, _ string, _ b
 	return gitea.Repo{Name: name}, nil
 }
 
-func (f *fakeGiteaClient) PutFile(_ context.Context, org, repo, branch, path string, data []byte, _ string, _ ...gitea.PutFileOpts) (gitea.File, bool, error) {
+func (f *fakeGiteaClient) PutFile(ctx context.Context, org, repo, branch, path string, data []byte, _ string, _ ...gitea.PutFileOpts) (gitea.File, bool, error) {
+	// #3668 — simulate a slow Gitea on PutFile (the source write) while
+	// still honouring context cancellation, so the budget test can prove
+	// the commit deadlines under a too-small budget and succeeds under the
+	// dedicated catalogEditGitBudget.
+	f.mu.Lock()
+	sleep := f.putFileSleep
+	putErr := f.putFileErr
+	f.mu.Unlock()
+	if sleep > 0 {
+		select {
+		case <-time.After(sleep):
+		case <-ctx.Done():
+			return gitea.File{}, false, ctx.Err()
+		}
+	}
+	if putErr != nil {
+		return gitea.File{}, false, putErr
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.files[giteaKey(org, repo, branch, path)] = data
