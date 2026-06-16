@@ -100,9 +100,42 @@ export interface SovereignDetail {
 }
 
 /**
- * TopologyMode — mirrors `Application.spec.placement` enum.
+ * TopologyMode — the CANONICAL topology vocabulary the backend validates
+ * (`render/topology.go`): `singleton | active-active | active-hot-standby
+ * | active-passive`. #3375 §3(f) — this type previously carried the
+ * legacy editor dialect (`single-region` / `active-hotstandby`) and the
+ * fleet filter posted it raw, so `active-hotstandby ≠ active-hot-standby`
+ * and `single-region ≠ singleton` silently dropped the filter. Every
+ * topology value sent to the backend now routes through
+ * `canonicalizeTopologyMode` (below).
  */
-export type TopologyMode = 'single-region' | 'active-active' | 'active-hotstandby'
+export type TopologyMode = 'singleton' | 'active-active' | 'active-hot-standby' | 'active-passive'
+
+/**
+ * canonicalizeTopologyMode maps BOTH the legacy editor dialect
+ * (`single-region` / `active-hotstandby`) AND the canonical vocabulary
+ * (`singleton` / `active-hot-standby` / `active-passive`) onto the SINGLE
+ * canonical token the backend understands. #3375 §3(f) — the one
+ * vocabulary, applied at every topology post site. Pass-through for an
+ * already-canonical or unrecognised value (the backend then returns a
+ * clean invalid-topology error rather than the UI silently mangling it).
+ */
+export function canonicalizeTopologyMode(raw: string): string {
+  switch (raw.trim().toLowerCase()) {
+    case 'single-region':
+    case 'singleton':
+      return 'singleton'
+    case 'active-hotstandby':
+    case 'active-hot-standby':
+      return 'active-hot-standby'
+    case 'active-passive':
+      return 'active-passive'
+    case 'active-active':
+      return 'active-active'
+    default:
+      return raw.trim()
+  }
+}
 
 /**
  * DRPosture — 4-way classification surfaced on the cross-Sovereign
@@ -162,7 +195,10 @@ export interface FleetApplicationsFilters {
 function fleetApplicationsURL(filters: FleetApplicationsFilters = {}): string {
   const sp = new URLSearchParams()
   if (filters.org) sp.set('org', filters.org)
-  if (filters.topology) sp.set('topology', filters.topology)
+  // #3375 §3(f) — canonicalise the topology filter so a legacy-dialect
+  // value (`active-hotstandby`) matches the backend's canonical
+  // `active-hot-standby` instead of silently filtering nothing.
+  if (filters.topology) sp.set('topology', canonicalizeTopologyMode(filters.topology))
   if (filters.drPosture) sp.set('drPosture', filters.drPosture)
   const qs = sp.toString()
   return qs ? `${API_BASE}/v1/fleet/applications?${qs}` : `${API_BASE}/v1/fleet/applications`

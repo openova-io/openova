@@ -730,6 +730,36 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		dep.Error = fmt.Sprintf("Phase 1 watch terminated with unhandled outcome %q — catalyst-api is missing a status mapping for it. The deployment is NOT marked ready; please file an issue with the deployment ID and the catalyst-api logs from this run.", outcome)
 	}
 
+	// #3375 DoD-7 — DR INTEGRITY GATE. An otherwise-ready deployment that
+	// REQUESTED active-hot-standby (or active-active) but whose standby
+	// region never came up must NOT claim the topology. The honest
+	// outcome is `failed` with the canonical standby-region-absent reason
+	// — the DR sibling of the "did not PUT kubeconfig" primary failure.
+	//
+	// This re-evaluates ONLY an already-ready deployment (it never
+	// upgrades a failed one) and keys on the OBSERVED secondary-region
+	// count (non-primary entries in the #3611 census). A SLOW-but-present
+	// secondary HAS an observed watcher → it is counted → it does NOT
+	// trip this gate (the surface-not-gate design for slow secondaries is
+	// preserved). Only a GENUINELY-ABSENT region (no cluster, no
+	// kubeconfig, zero observed secondary — the hw150 shape) trips it.
+	// Generic: keys on Request.BcpTopology + region counts, no app name.
+	if dep.Status == "ready" {
+		observedSecondary := 0
+		for _, rh := range dep.Result.Regions {
+			if !rh.Primary {
+				observedSecondary++
+			}
+		}
+		if ok, reason := provisioner.DeclaredDRStandbyIntegrity(
+			dep.Request.BcpTopology, len(dep.Request.Regions), observedSecondary,
+		); !ok {
+			dep.Status = "failed"
+			dep.Error = reason
+			dep.Result.Phase1Outcome = provisioner.ReasonStandbyRegionAbsent
+		}
+	}
+
 	finalStatus := dep.Status
 	// Capture the #3611 region-health summary under the lock for the
 	// terminal log line + the secondary-degraded warn below.

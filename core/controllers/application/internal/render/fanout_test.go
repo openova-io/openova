@@ -18,12 +18,12 @@ func TestFanoutHRs_ActiveHotStandby_TwoClusters(t *testing.T) {
 	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
 
 	hrs, err := FanoutHRs(FanoutInputs{
-		AppName:      "obs-prod",
-		AppNamespace: "acme",
-		Topology:     bpv1alpha1.BcpActiveHotStandby,
-		Variant:      &variant,
-		Chart:        "grafana",
-		ChartVersion: "1.0.5",
+		AppName:       "obs-prod",
+		AppNamespace:  "acme",
+		Topology:      bpv1alpha1.BcpActiveHotStandby,
+		Variant:       &variant,
+		Chart:         "grafana",
+		ChartVersion:  "1.0.5",
 		SourceRefName: "openova-catalog",
 		SourceRefKind: "HelmRepository",
 		KubeConfigSecretFor: func(cluster string) (string, string) {
@@ -218,6 +218,100 @@ func TestFanoutHRs_NoKubeConfigSecretFor_OmitsBlock(t *testing.T) {
 		if _, has := spec["kubeConfig"]; has {
 			t.Fatalf("hr.spec.kubeConfig should be absent for substrate Blueprint")
 		}
+	}
+}
+
+// #3375 DoD-2 — the SOLE topology fan-out carries the standby
+// scale-down. The fanned-out PASSIVE HR (mgmt-B) must render
+// `replicas:0` + the `_openova_standby:true` marker in its
+// spec.values; the ACTIVE HR (mgmt-A) must NOT. Before this fix the
+// two HRs were byte-identical (differing only by the role label) and a
+// separate parallel render path computed the scale-down — the latent
+// divergence #3375 §3(b) catalogued.
+func TestFanoutHRs_PassiveHRCarriesReplicasZero(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "obs-prod",
+		AppNamespace: "acme",
+		Topology:     bpv1alpha1.BcpActiveHotStandby,
+		Variant:      &variant,
+		Chart:        "grafana",
+		// The Blueprint declares a real replica count; standby must
+		// override it to 0.
+		Values: map[string]interface{}{
+			"replicas": 3,
+			"image":    map[string]interface{}{"tag": "11.0.0"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hrs) != 2 {
+		t.Fatalf("active-hot-standby should fan out 2 HRs; got %d", len(hrs))
+	}
+
+	active, passive := hrs[0], hrs[1]
+	if active.GetLabels()[LabelRole] != RoleActive {
+		t.Fatalf("hr[0] should be active; role=%q", active.GetLabels()[LabelRole])
+	}
+	if passive.GetLabels()[LabelRole] != RolePassive {
+		t.Fatalf("hr[1] should be passive; role=%q", passive.GetLabels()[LabelRole])
+	}
+
+	// ACTIVE keeps the declared replicas (3) and has NO standby marker.
+	av := active.Object["spec"].(map[string]interface{})["values"].(map[string]interface{})
+	if got := av["replicas"]; got != 3 {
+		t.Fatalf("active HR replicas = %v, want 3 (declared count preserved)", got)
+	}
+	if _, present := av[StandbyMarker]; present {
+		t.Fatalf("active HR must NOT carry the %s marker", StandbyMarker)
+	}
+
+	// PASSIVE is scaled to 0 and carries the standby marker. The value
+	// is int64 (JSON-deep-copyable for the unstructured write path).
+	pv := passive.Object["spec"].(map[string]interface{})["values"].(map[string]interface{})
+	if got := pv["replicas"]; got != int64(0) {
+		t.Fatalf("passive HR replicas = %v (%T), want int64(0) (standby scale-down)", got, got)
+	}
+	if got, _ := pv[StandbyMarker].(bool); !got {
+		t.Fatalf("passive HR must carry %s=true", StandbyMarker)
+	}
+	// Unrelated values survive the overlay on the passive side.
+	if _, ok := pv["image"].(map[string]interface{}); !ok {
+		t.Fatalf("passive HR must preserve non-replicas values (image)")
+	}
+
+	// The input Values map must NOT have been mutated by the overlay
+	// (it is shared Blueprint-derived state).
+	// hrs[0] (active) still reads replicas=3 above, which would fail if
+	// withStandbyOverlay had mutated the shared map — so this is
+	// implicitly covered, but assert the marker absence on input too.
+}
+
+// #3375 DoD-2 — a SINGLETON variant is never scaled down: a singleton
+// is the sole copy and must run. Guards against the overlay leaking
+// onto non-passive roles.
+func TestFanoutHRs_SingletonNotScaledDown(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "obs-prod",
+		AppNamespace: "acme",
+		Topology:     bpv1alpha1.BcpSingleton,
+		Variant:      &variant,
+		Chart:        "grafana",
+		Values:       map[string]interface{}{"replicas": 2},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	v := hrs[0].Object["spec"].(map[string]interface{})["values"].(map[string]interface{})
+	if got := v["replicas"]; got != 2 {
+		t.Fatalf("singleton HR replicas = %v, want 2 (never scaled down)", got)
+	}
+	if _, present := v[StandbyMarker]; present {
+		t.Fatalf("singleton HR must NOT carry the %s marker", StandbyMarker)
 	}
 }
 

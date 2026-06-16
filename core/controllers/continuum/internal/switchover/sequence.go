@@ -193,6 +193,11 @@ func (p SwitchoverPlan) Validate() error {
 		if p.RaftTransition.Pod == "" && p.RaftTransition.PodSelector == "" {
 			return errors.New("plan: RaftTransition needs pod or podSelector for raft-transition mechanism")
 		}
+	case MechanismStateless:
+		// #3375 §5.1 — the stateless (DNS-flip-only) mechanism needs NO
+		// state-store target. The agnostic steps drive the whole
+		// switchover off FromRegion/ToRegion (already validated above) +
+		// the optional HTTPRoute/DNS knobs. Nothing further to require.
 	default:
 		return fmt.Errorf("plan: unknown switchover mechanism %q", mech)
 	}
