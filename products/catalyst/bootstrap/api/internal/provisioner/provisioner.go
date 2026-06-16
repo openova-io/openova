@@ -1348,6 +1348,72 @@ func detectPartialRegionMaterialisation(declaredRegions []RegionSpec, perRegion 
 	return materialised, missing
 }
 
+// ReasonStandbyRegionAbsent is the canonical Phase-1 failure reason
+// stamped when a deployment requested an active-hot-standby (or
+// active-active) topology but the standby region's cluster never
+// materialised in the watch — no secondary control-plane was ever
+// observed (#3375 §3(e)/DoD-7). It is the DR sibling of the
+// "did not PUT kubeconfig" primary-region failure class: a topology the
+// Sovereign cannot honour must NOT be stamped `ready`.
+const ReasonStandbyRegionAbsent = "standby-region-absent"
+
+// DeclaredDRStandbyIntegrity reports whether a multi-region DR topology's
+// standby half is structurally PRESENT, given:
+//
+//   - bcpTopology: the effective Request.BcpTopology (one of
+//     single-region | active-hotstandby | active-active).
+//   - declaredRegions: len(Request.Regions) — how many regions the
+//     operator chose at signup.
+//   - observedSecondaryRegions: how many SECONDARY regions the Phase-1
+//     watch actually observed (the count of distinct keys in the
+//     secondary-watcher census — a region whose kubeconfig never arrived
+//     is NOT counted, which is exactly the hw150 absent-standby signal).
+//
+// It returns ok=true when the topology's standby requirement is met (or
+// when the topology is single-region, where there is no standby to
+// check). It returns ok=false + a human reason when active-hot-standby /
+// active-active was requested but FEWER than (declaredRegions-1)
+// secondary regions came up — i.e. a declared standby region is missing.
+//
+// This is the INTEGRITY half of #3375's DoD-7: it refuses to let a
+// Sovereign claim active-hot-standby when its standby region is absent.
+// It is DISTINCT from the surface-only "secondary degraded" census
+// (#3611): a SLOW-but-present secondary has an observed watcher and so is
+// counted here (it does not trip this gate — the prov is not hung); only
+// a GENUINELY-ABSENT region (no cluster, no kubeconfig, zero observed
+// secondary) trips it. It is also additive to the tofu-apply-time
+// partial-region post-condition (#2840), which fires earlier when the
+// region's EIP itself never materialised; this gate catches the case
+// where the EIP came up but the region-B cluster never formed.
+//
+// Pure function — no I/O, no locks. Generic by construction: it keys on
+// the declared topology + region counts, never on any app or blueprint
+// name. Refs #3375.
+func DeclaredDRStandbyIntegrity(bcpTopology string, declaredRegions, observedSecondaryRegions int) (ok bool, reason string) {
+	switch strings.ToLower(strings.TrimSpace(bcpTopology)) {
+	case BcpTopologyActiveHotStandby, BcpTopologyActiveActive:
+		// Multi-region DR requested. Need at least (declaredRegions-1)
+		// secondaries observed; a declared 2-region prov needs >=1.
+		wantSecondary := declaredRegions - 1
+		if wantSecondary < 1 {
+			// Defensive: a multi-region topology with <2 declared regions
+			// is rejected at Validate() (provisioner.go ~830); if we ever
+			// reach here, treat the missing standby as absent.
+			wantSecondary = 1
+		}
+		if observedSecondaryRegions < wantSecondary {
+			return false, fmt.Sprintf(
+				"topology %q was requested but %d of %d standby region(s) did not provision — the standby region's cluster never came up (no secondary control-plane observed). Disaster-recovery is INACTIVE; this Sovereign is running single-region. The deployment is NOT ready: a Sovereign cannot claim active-hot-standby when its standby region is absent (Pillar 2/3, #3375).",
+				bcpTopology, wantSecondary-observedSecondaryRegions, declaredRegions-1)
+		}
+		return true, ""
+	default:
+		// single-region (or empty / unknown — Validate() gates those):
+		// no standby to assert.
+		return true, ""
+	}
+}
+
 // Provisioner runs `tofu init && tofu apply` against the canonical
 // infra/hetzner/ module.
 type Provisioner struct {

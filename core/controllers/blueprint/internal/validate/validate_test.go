@@ -535,6 +535,83 @@ func TestValidate_Topology_VariantMismatch(t *testing.T) {
 	}
 }
 
+// #3375 §5.3 — a consumer blueprint declaring replication.backend:
+// cnpg-pair but NOT binding a backingServices[] and NOT being a
+// data-instance provider is DECORATIVE (the grafana hole). Must surface
+// a `decorative-replication-backend` finding (advisory, not a hard
+// error).
+func TestValidate_DecorativeReplicationBackend_Flagged(t *testing.T) {
+	t.Parallel()
+	bp := blueprintWithTopology() // declares cnpg-pair, no backing, not a provider
+	res := Validate(bp, nil)
+	if res.HasErrors() {
+		t.Fatalf("decorative backend must be advisory, not a hard error; got %v", res.Errors)
+	}
+	hits := findingsByPathContaining(res, "replication/backend")
+	if len(hits) == 0 {
+		t.Fatalf("expected ≥1 decorative-replication-backend finding, got findings=%+v", res.Findings)
+	}
+	var found bool
+	for _, h := range hits {
+		if h.Code == DecorativeReplicationBackendCode && strings.Contains(h.Message, "cnpg-pair") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a %q finding naming cnpg-pair, got %+v", DecorativeReplicationBackendCode, hits)
+	}
+}
+
+// #3375 §5.3 — a blueprint that BINDS a real backing (backingServices[])
+// has a concrete pair behind its cnpg-pair declaration; no decorative
+// finding.
+func TestValidate_ReplicationBackend_BoundByBackingService_NotFlagged(t *testing.T) {
+	t.Parallel()
+	bp := blueprintWithTopology()
+	spec := bp.Object["spec"].(map[string]interface{})
+	spec["backingServices"] = []interface{}{
+		map[string]interface{}{"type": "postgres", "mode": "shared", "instanceRef": "shared-pg-b"},
+	}
+	res := Validate(bp, nil)
+	for _, f := range res.Findings {
+		if f.Code == DecorativeReplicationBackendCode {
+			t.Errorf("a blueprint that binds a backingServices[] must NOT be flagged decorative; got %+v", f)
+		}
+	}
+}
+
+// #3375 §5.3 — a data-instance PROVIDER (shareable:true) legitimately
+// declares cnpg-pair for its OWN pair; no decorative finding. Generality:
+// the exemption keys on the declared `shareable` signal, never on a name.
+func TestValidate_ReplicationBackend_ProviderExempt(t *testing.T) {
+	t.Parallel()
+	bp := blueprintWithTopology()
+	spec := bp.Object["spec"].(map[string]interface{})
+	spec["shareable"] = true
+	res := Validate(bp, nil)
+	for _, f := range res.Findings {
+		if f.Code == DecorativeReplicationBackendCode {
+			t.Errorf("a data-instance provider (shareable:true) must NOT be flagged decorative; got %+v", f)
+		}
+	}
+}
+
+// #3375 §5.3 — a `none` / stateless backend never triggers the
+// decorative finding (no cross-region state to materialise).
+func TestValidate_ReplicationBackend_StatelessNotFlagged(t *testing.T) {
+	t.Parallel()
+	bp := blueprintWithTopology()
+	topology := bp.Object["spec"].(map[string]interface{})["topology"].(map[string]interface{})
+	ahs := topology["perTopology"].(map[string]interface{})["active-hot-standby"].(map[string]interface{})
+	ahs["replication"].(map[string]interface{})["backend"] = "none"
+	res := Validate(bp, nil)
+	for _, f := range res.Findings {
+		if f.Code == DecorativeReplicationBackendCode {
+			t.Errorf("a `none` backend must NOT be flagged decorative; got %+v", f)
+		}
+	}
+}
+
 // TestValidate_Topology_InvalidHostname — an endpoint's
 // hostnameTemplate is "https://" (URL-like, not a hostname template).
 // Must surface a topology-schema-violation finding via the

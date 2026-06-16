@@ -189,6 +189,28 @@ func renderOneHR(in FanoutInputs, cluster string) *unstructured.Unstructured {
 		hr.SetNamespace(in.AppNamespace)
 	}
 
+	// #3375 DoD-2 — UNIFY the placement model. Before this, the fan-out
+	// path rendered the passive HR BYTE-IDENTICAL to the active one
+	// (differing only by the LabelRole label) while a SEPARATE,
+	// parallel render path (placement.Resolve → render.mergeValues)
+	// computed the `replicas:0` standby scale-down. Two divergent
+	// manifest sets ran every reconcile (issue §3(b)). The standby
+	// scale-down now lives HERE — the SOLE topology fan-out — so the
+	// fanned-out passive HR carries `replicas:0` + the `_openova_standby`
+	// marker, exactly the semantic placement.go:151's `Standby` flag
+	// carried on the now-removed second path. The Continuum lease
+	// governs whether the passive replica serves; the scale-down ensures
+	// the standby boots cold (replicas:0) so a backend whose chart keys
+	// off `.Values.replicas` does NOT run a hot second copy. The marker
+	// `_openova_standby: true` is the canonical Openova standby signal
+	// (docs/EPICS-1-6-unified-design.md §5) for operators that need a
+	// boolean rather than an integer count (CNPG `replica.enabled`).
+	role := roleFor(cluster, in.Variant.Placement)
+	values := in.Values
+	if role == RolePassive {
+		values = withStandbyOverlay(in.Values)
+	}
+
 	// Labels — start from OwnerLabels, then overlay the
 	// G117.6-mandated four (role, topology, app, cluster) so a
 	// caller that accidentally seeds one of these in OwnerLabels
@@ -200,7 +222,7 @@ func renderOneHR(in FanoutInputs, cluster string) *unstructured.Unstructured {
 	labels[LabelApp] = in.AppName
 	labels[LabelTopology] = string(in.Topology)
 	labels[LabelCluster] = cluster
-	labels[LabelRole] = roleFor(cluster, in.Variant.Placement)
+	labels[LabelRole] = role
 	hr.SetLabels(labels)
 
 	// Spec.
@@ -234,9 +256,10 @@ func renderOneHR(in FanoutInputs, cluster string) *unstructured.Unstructured {
 		spec["interval"] = fmt.Sprintf("%ds", in.IntervalSeconds)
 	}
 
-	// Values.
-	if len(in.Values) > 0 {
-		spec["values"] = in.Values
+	// Values — `values` is `in.Values` for active/singleton, or the
+	// standby-overlaid copy for a passive cluster (#3375 DoD-2).
+	if len(values) > 0 {
+		spec["values"] = values
 	}
 
 	// #3370 — Flux dependsOn wiring to the backing instance(s). The
@@ -327,6 +350,40 @@ func HRNameFor(app, cluster string) string {
 	truncated := combined[:maxBody]
 	truncated = strings.TrimRight(truncated, "-")
 	return fmt.Sprintf("%s-%s", truncated, suffix)
+}
+
+// StandbyMarker is the canonical top-level Openova standby signal
+// (docs/EPICS-1-6-unified-design.md §5). Charts whose standby semantic is
+// a boolean rather than a `replicas` integer (CNPG `replica.enabled`,
+// Cassandra, …) read this marker. Stable contract — mirrored from
+// core/controllers/pkg/render.mergeValues so the SOLE topology fan-out
+// emits the SAME standby shape the now-removed parallel path did.
+const StandbyMarker = "_openova_standby"
+
+// withStandbyOverlay returns a COPY of `user` with the standby scale-down
+// overlaid: `replicas: 0` (the universal Helm-chart standby signal for
+// Deployment / StatefulSet kinds) + `_openova_standby: true` (the
+// boolean marker for operators that key off a flag). #3375 DoD-2 — this
+// is the placement.go `Standby` semantic, relocated into the topology
+// fan-out so the fanned-out passive HR carries the scale-down instead of
+// being byte-identical to the active HR. The input map is NEVER mutated
+// (it is the Blueprint-derived shared `in.Values`); a shallow copy is
+// sufficient because we only set top-level keys.
+func withStandbyOverlay(user map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(user)+2)
+	for k, v := range user {
+		out[k] = v
+	}
+	// int64 (NOT a bare Go int): the rendered HR is an
+	// unstructured.Unstructured that gets DeepCopy'd on the dynamic-client
+	// write path. k8s.io/apimachinery's DeepCopyJSONValue only accepts
+	// JSON-compatible scalars (int64/float64/string/bool) and panics on a
+	// bare `int` ("cannot deep copy int"). The text/template per-region
+	// path can use a plain int because it serialises to YAML, but this
+	// path must stay JSON-deep-copyable.
+	out["replicas"] = int64(0)
+	out[StandbyMarker] = true
+	return out
 }
 
 // roleFor picks the per-cluster role from the variant's Roles map,
