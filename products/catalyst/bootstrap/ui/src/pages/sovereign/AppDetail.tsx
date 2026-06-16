@@ -736,6 +736,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               applicationName={componentId}
               namespace={appNamespace}
               callerTier={callerTier}
+              isBootstrap={appIsBootstrap}
             />
           </div>
         ) : appTab === 'resources' ? (
