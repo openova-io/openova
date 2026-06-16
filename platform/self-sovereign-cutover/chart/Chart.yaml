@@ -854,7 +854,27 @@ name: bp-self-sovereign-cutover
 # FATAL-on-failure contract is PRESERVED (Pillar 5 requires ALL openova-io
 # images local for the deny-egress hold) — the step only FATALs once BOTH retry
 # layers are exhausted. No step-count / RBAC / timeout change.
-version: 0.1.73
+#
+# 0.1.74 (#3379 — cutover-PROOF integrity, the five faces): (1) #3667 — the
+# status ConfigMap is now INIT-ONLY (lookup guard) so a `helm upgrade` never
+# re-asserts cutoverComplete:"false"/registriesYamlActive:"v1" over the live
+# values and can no longer re-fire the 600s hold; the durable fact is sealed
+# by catalyst-api in OpenBao (secret/catalyst/cutover-complete). (2) #3671 —
+# step-04 registry-pivot DaemonSet writes a per-node v2 ack
+# (node.<name>.registriesYaml) which step-04's daemonset-wait now COUNTS
+# (acks == DesiredNumberScheduled), so a node held at v1 fails the cutover. (3)
+# #3678 — step-08's CCNP is now a TRUE default-deny egress (enableDefaultDeny.
+# egress:true + intra-cluster allow-list 10.42/10.43/10.96 + DNS/apiserver/host/
+# remote-node entities) instead of a subtractive 4-CIDR block, plus an ACTIVE
+# call-home assertion that fails the proof if console.openova.io (or any
+# blockedDomains host) is reachable from a pod under the hold. (4) #3695 —
+# step-10's sso-bridge image override is MERGED with yq into the EXISTING
+# values: mapping (no more duplicate-key BuildFailed that killed bootstrap-kit),
+# host-less so global.registryMirror stays the single source of truth; step-08
+# now HARD-gates on bootstrap-kit + sovereign-tls + sme-tenants Ready and rolls
+# EVERY external-registry workload under deny-egress (not one hand-picked).
+# RBAC adds daemonsets/statefulsets {update,patch} for the generalized roll.
+version: 0.1.74
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

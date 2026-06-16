@@ -251,11 +251,26 @@ func TestListCutoverSteps_OrdersByOrderLabel(t *testing.T) {
 // DaemonSet wait sees a ready DS, and the status ConfigMap finishes
 // in cutoverComplete=true with every per-step row marked success.
 func TestHandleCutoverStart_RunsAllStepsAndPersistsCompleted(t *testing.T) {
+	// #3671: a real chain pivots the node registry. Include harbor-prewarm
+	// (which makes the engine flip registriesYamlActive=v2) BEFORE the
+	// registry-pivot daemonset-wait, and pre-seed the per-node v2 acks
+	// (DesiredNumberScheduled=3) the DaemonSet would write so the ack-wait
+	// passes deterministically in the fake. Without v2 + acks the cutover
+	// correctly REFUSES to complete (that negative path is its own test).
 	objs := []k8sruntime.Object{
 		makeCutoverStepCM("cutover-step-01-gitea-mirror", "gitea-mirror", 1, cutoverModeJob, minimalPodSpecYAML, ""),
-		makeCutoverStepCM("cutover-step-02-harbor-projects", "harbor-projects", 2, cutoverModeJob, minimalPodSpecYAML, ""),
+		makeCutoverStepCM("cutover-step-02-harbor-prewarm", cutoverStepHarborPrewarm, 2, cutoverModeJob, minimalPodSpecYAML, ""),
 		makeCutoverStepCM("cutover-step-03-registry-pivot", "registry-pivot", 3, cutoverModeDaemonSetWait, "", "registry-pivot"),
 		makeReadyDaemonSet("registry-pivot"),
+		&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: cutoverStatusConfigMapName(), Namespace: cutoverTestNS},
+			Data: map[string]string{
+				"cutoverComplete":              "false",
+				"node.cp-1.registriesYaml":     "v2",
+				"node.worker-1.registriesYaml": "v2",
+				"node.worker-2.registriesYaml": "v2",
+			},
+		},
 	}
 	h, client := fakeHandlerWithCutover(t, objs...)
 	installJobReactor(t, client, batchv1.JobComplete)
@@ -290,11 +305,14 @@ func TestHandleCutoverStart_RunsAllStepsAndPersistsCompleted(t *testing.T) {
 	if cm.Data["cutoverComplete"] != "true" {
 		t.Errorf("cutoverComplete = %q, want true (data=%v)", cm.Data["cutoverComplete"], cm.Data)
 	}
-	for _, name := range []string{"gitea-mirror", "harbor-projects", "registry-pivot"} {
+	for _, name := range []string{"gitea-mirror", cutoverStepHarborPrewarm, "registry-pivot"} {
 		key := "step." + name + ".result"
 		if cm.Data[key] != "success" {
 			t.Errorf("%s = %q, want success", key, cm.Data[key])
 		}
+	}
+	if cm.Data["registriesYamlActive"] != "v2" {
+		t.Errorf("registriesYamlActive = %q, want v2 (#3671 — harbor-prewarm must flip it)", cm.Data["registriesYamlActive"])
 	}
 	if cm.Data["progressPercent"] != "100" {
 		t.Errorf("progressPercent = %q, want 100", cm.Data["progressPercent"])
