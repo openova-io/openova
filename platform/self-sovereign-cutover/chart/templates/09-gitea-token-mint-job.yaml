@@ -208,17 +208,35 @@ data:
             mint_body=$(printf '{"name":"%s","scopes":%s}' "${TOKEN_NAME}" "${scope_json_array}")
             echo "[gitea-token-mint] minting token (scopes=${TOKEN_SCOPES})"
 
-            mint_response=$(curl -fsS -u "${GITEA_USERNAME}:${GITEA_PASSWORD}" \
-              -X POST \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/json" \
-              -d "${mint_body}" \
-              "${api_url}/users/${GITEA_USERNAME}/tokens" 2>&1) || {
-              echo "[gitea-token-mint] FATAL: mint POST failed" >&2
+            # #3643 (Refs #3584): Gitea MANDATES BasicAuth for token creation (a
+            # token cannot mint a token — see the header note), so the #3584 PAT
+            # remedy cannot apply here. But Gitea's apiAuth consults the
+            # openova-sso OAuth2 source when validating a BasicAuth PASSWORD, which
+            # BLOCKS ~130s then 401s while Keycloak is still re-converging in the
+            # cutover window (step-07 just rolled catalyst-api + pivoted the
+            # issuer). Bound each attempt (--max-time 40, under the ~130s hang) and
+            # retry with backoff so the mint survives the transient slowness until
+            # the OAuth2 lookup is fast — ~6 attempts x (40s + 15s) ~= 5.5min.
+            mint_response=""; mint_ok=""
+            for mint_attempt in 1 2 3 4 5 6; do
+              if mint_response=$(curl -fsS --max-time 40 -u "${GITEA_USERNAME}:${GITEA_PASSWORD}" \
+                -X POST \
+                -H "Content-Type: application/json" \
+                -H "Accept: application/json" \
+                -d "${mint_body}" \
+                "${api_url}/users/${GITEA_USERNAME}/tokens" 2>&1); then
+                mint_ok=yes
+                break
+              fi
+              echo "[gitea-token-mint] mint attempt ${mint_attempt}/6 failed (Gitea BasicAuth OAuth2-lookup slow/401 in the cutover window — #3584); retrying in 15s"
+              sleep 15
+            done
+            if [ -z "${mint_ok}" ]; then
+              echo "[gitea-token-mint] FATAL: mint POST failed after 6 attempts (~5.5min)" >&2
               # Redact credential before surfacing the body.
               printf '%s\n' "${mint_response}" | sed -E "s,${GITEA_PASSWORD}+,REDACTED,g" >&2
               exit 1
-            }
+            fi
 
             # Extract the sha1 field WITHOUT printing it. Use grep
             # because alpine/k8s has no jq guaranteed.
