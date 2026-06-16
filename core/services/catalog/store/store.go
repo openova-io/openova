@@ -34,14 +34,18 @@ type App struct {
 	IconDark        string    `bson:"icon_dark,omitempty" json:"icon_dark,omitempty"`
 	IconBg          string    `bson:"icon_bg" json:"icon_bg"`
 	// SupportedTopologies is the admin-editable set of placement modes
-	// this catalog entry advertises (e.g. ["single-region",
-	// "active-active", "active-hotstandby"]) — #3602, EPIC #3597. The
-	// canonical topology declaration still lives on the Blueprint
-	// (spec.topology.supported); this field lets the sovereign-admin
-	// curate which of those modes the catalog surfaces per entry without
-	// editing the Blueprint. Empty = no admin override; the catalog read
-	// API keeps the Blueprint/seed's own placement set. Additive — never
-	// overwrites the seed when unset.
+	// this catalog entry advertises, in the CANONICAL topology vocabulary
+	// (e.g. ["singleton", "active-active", "active-hot-standby"]) — #3602,
+	// EPIC #3597, canonicalized #3648. The canonical topology declaration
+	// still lives on the Blueprint (spec.topology.supported); this field
+	// lets the sovereign-admin curate which of those modes the catalog
+	// surfaces per entry without editing the Blueprint. The catalog-edit
+	// write path (catalog_edit_blueprint_yaml.go) normalizes the UI's
+	// placement-editor dialect (single-region / active-hotstandby) onto
+	// this canonical form before persisting, so values land hyphenated to
+	// match what the application-controller validates. Empty = no admin
+	// override; the catalog read API keeps the Blueprint/seed's own
+	// placement set. Additive — never overwrites the seed when unset.
 	SupportedTopologies []string `bson:"supported_topologies,omitempty" json:"supported_topologies,omitempty"`
 	MinimumSize     string    `bson:"minimum_size" json:"minimum_size"`
 	RecommendedSize string    `bson:"recommended_size" json:"recommended_size"`

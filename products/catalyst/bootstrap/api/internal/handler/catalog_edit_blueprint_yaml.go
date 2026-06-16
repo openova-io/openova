@@ -87,9 +87,20 @@ func mergeCatalogEditIntoBlueprintYAML(existing []byte, bpName string, edit cata
 	if len(edit.SupportedTopologies) > 0 {
 		topo := childMap(spec, "topology")
 		// Store as a plain []interface{} so yaml emits a clean sequence.
+		// #3648 — spec.topology.supported is the CANONICAL vocabulary
+		// (singleton | active-active | active-hot-standby | active-passive)
+		// that the application-controller's topology renderer validates
+		// against. The admin catalog UI may post the placement-editor
+		// dialect (single-region / active-hotstandby), so canonicalise each
+		// value before persisting — otherwise an un-hyphenated
+		// `active-hotstandby` lands in supported[] and every instance create
+		// fails `topology not in supported[]`. canonicalizeTopology mirrors
+		// the create-path normaliser in endpoint_handler.go; an unknown value
+		// is passed through trimmed so the Blueprint admission webhook still
+		// rejects genuine typos with their original spelling.
 		seq := make([]interface{}, 0, len(edit.SupportedTopologies))
 		for _, t := range edit.SupportedTopologies {
-			if s := strings.TrimSpace(t); s != "" {
+			if s := canonicalizeTopology(t); s != "" {
 				seq = append(seq, s)
 			}
 		}

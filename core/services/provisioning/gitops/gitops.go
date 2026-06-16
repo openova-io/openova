@@ -674,7 +674,7 @@ func generateCNPGPair(ns, password string, apps []string, cfg map[string]any, pr
 	// a different validation surface for `replicas` / `disk_gb`).
 	// `replicas` here maps to CNPG `instances` per region; min 3 is
 	// the bp-cnpg-pair chart's own configSchema floor for primary
-	// (active-hotstandby HA requires a 3-node quorum per region). If
+	// (active-hot-standby HA requires a 3-node quorum per region). If
 	// the customer chose 1-2 we clamp to 3 and log loud so the gap is
 	// operator-visible.
 	requested := readIntCfg(cfg, "replicas", 3, 1, 5, "postgres")
