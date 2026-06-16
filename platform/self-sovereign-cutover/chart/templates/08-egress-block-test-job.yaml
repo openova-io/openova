@@ -69,6 +69,19 @@ data:
             value: {{ eq (toString .Values.egressTest.enforceCIDRBlock) "true" | quote }}
           - name: UPSTREAM_HOSTS
             value: {{ .Values.egressTest.blockedDomains | default (list "github.com" "ghcr.io" "harbor.openova.io") | join " " | quote }}
+          # #3647 — fresh-pull-under-deny-egress proof knobs. See the
+          # FRESH-PULL phase in the script below + values.yaml egressTest.
+          # freshPullProof for the full rationale.
+          - name: FRESH_PULL_PROOF
+            value: {{ eq (toString .Values.egressTest.freshPullProof.enabled) "true" | quote }}
+          - name: FRESH_PULL_NAMESPACE
+            value: {{ .Values.egressTest.freshPullProof.namespace | quote }}
+          - name: FRESH_PULL_DEPLOYMENT
+            value: {{ .Values.egressTest.freshPullProof.deployment | quote }}
+          - name: FRESH_PULL_EXCLUDE
+            value: {{ .Values.egressTest.freshPullProof.excludeDeploymentSubstring | quote }}
+          - name: FRESH_PULL_TIMEOUT
+            value: {{ .Values.egressTest.freshPullProof.timeoutSeconds | quote }}
         volumeMounts:
           # #3379 (hw139, 2026-06-15): WRITABLE emptyDir at /work. The
           # container runs readOnlyRootFilesystem:true (securityContext
@@ -268,6 +281,120 @@ data:
               fi
             else
               echo "[egress-block-test] enforce mode OFF (default) — assertion + survival-poll only (#2940: flip egressTest.enforceCIDRBlock=true after a validated cutover walk)"
+            fi
+
+            # ── #3647 FRESH-PULL-UNDER-DENY-EGRESS PROOF ──────────────────
+            # The legacy survival-window below only proves ALREADY-RUNNING
+            # pods stay green — it never exercises a NEW image pull, the one
+            # path that breaks post-cutover (hw149: a rolled pod went
+            # Init:ImagePullBackOff on ghcr.io because the registry-pivot
+            # mirror was inert for new pulls). Here, WHILE the egressDeny
+            # CCNP is applied (external tethers blocked, apiserver/DNS/
+            # intra-cluster reachable), we force-roll ONE openova-io-imaged
+            # Pod and require its replacement to reach Running by pulling
+            # from local Harbor. A fresh pull that succeeds with egress
+            # denied is the actual ADR-0002 sovereignty proof.
+            #
+            # Fail-safe: only runs when the egressDeny policy is actually up
+            # (POLICY_APPLIED=yes) — with no deny there's nothing to prove,
+            # so we skip rather than bounce a pod for nothing. If no suitable
+            # Deployment is found we log and continue (never wedge on a
+            # tooling gap). A NEW Pod that lands in ImagePull{BackOff,Err} or
+            # never reaches Running within FRESH_PULL_TIMEOUT FAILS the proof
+            # → the policy is torn down → exit 1 → cutoverComplete stays false.
+            run_fresh_pull_proof() {
+              echo "[egress-block-test] #3647: FRESH-PULL proof — rolling one openova-io workload under deny-egress"
+              ns="${FRESH_PULL_NAMESPACE}"
+              dep="${FRESH_PULL_DEPLOYMENT}"
+              # Auto-discover an openova-io-imaged Deployment when not pinned.
+              if [ -z "${dep}" ]; then
+                discovered=$(kubectl get deployments -A \
+                  -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.spec.template.spec.containers[*].image}{"\n"}{end}' 2>/dev/null \
+                  | grep -E '=.*openova-io/' \
+                  | { [ -n "${FRESH_PULL_EXCLUDE}" ] && grep -vE "/${FRESH_PULL_EXCLUDE}[^/]*=" || cat; } \
+                  | head -1 | cut -d= -f1 || true)
+                if [ -z "${discovered}" ]; then
+                  echo "  WARN — no openova-io-imaged Deployment found to roll; FRESH-PULL proof skipped (survival-poll still runs)"
+                  return 0
+                fi
+                ns=$(printf '%s' "${discovered}" | cut -d/ -f1)
+                dep=$(printf '%s' "${discovered}" | cut -d/ -f2)
+              fi
+              echo "  target Deployment: ${ns}/${dep}"
+
+              # Build a label selector "k1=v1,k2=v2" from the Deployment's
+              # spec.selector.matchLabels so we can enumerate its Pods (the
+              # alpine/k8s image ships jq). Record the pre-delete Pod set so
+              # we can detect the brand-new replacement.
+              label_sel=$(kubectl get deployment "${dep}" -n "${ns}" -o json 2>/dev/null \
+                | jq -r '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")' 2>/dev/null || true)
+              if [ -z "${label_sel}" ]; then
+                echo "  WARN — could not resolve selector for ${ns}/${dep}; FRESH-PULL proof skipped"
+                return 0
+              fi
+              before_pods=$(kubectl get pods -n "${ns}" -l "${label_sel}" \
+                -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | sort -u || true)
+              victim=$(printf '%s\n' "${before_pods}" | head -1)
+              if [ -z "${victim}" ]; then
+                echo "  WARN — no running Pod for ${ns}/${dep}; FRESH-PULL proof skipped"
+                return 0
+              fi
+              echo "  deleting Pod ${ns}/${victim} (ReplicaSet will recreate it → forces a fresh image pull)"
+              kubectl delete pod "${victim}" -n "${ns}" --wait=false >/dev/null 2>&1 || true
+
+              # Wait for a NEW Pod (name not in before_pods) of this
+              # Deployment to reach Running with all containers ready. Treat
+              # ImagePullBackOff / ErrImagePull on the new Pod as a hard
+              # FAIL — that is exactly the mirror-inert failure mode.
+              fp_start=$(date +%s)
+              fp_deadline=$(( fp_start + ${FRESH_PULL_TIMEOUT} ))
+              while [ "$(date +%s)" -lt "${fp_deadline}" ]; do
+                now_pods=$(kubectl get pods -n "${ns}" -l "${label_sel}" \
+                  -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | sort -u || true)
+                # New = current Pod names absent from the pre-delete set.
+                # POSIX `grep -vxF -f` (no bash process substitution — this
+                # container's /bin/sh is busybox ash, which parse-errors on
+                # `<(...)`; the #3634 lesson applies here too). before_pods is
+                # written to a file so grep can use it as the pattern set.
+                printf '%s\n' "${before_pods}" > /work/fp_before.txt
+                printf '%s\n' "${now_pods}" > /work/fp_now.txt
+                new_pod=$(grep -vxF -f /work/fp_before.txt /work/fp_now.txt 2>/dev/null | head -1 || true)
+                if [ -n "${new_pod}" ]; then
+                  phase=$(kubectl get pod "${new_pod}" -n "${ns}" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+                  # Any container waiting with an image-pull error = inert mirror = FAIL.
+                  waiting_reasons=$(kubectl get pod "${new_pod}" -n "${ns}" \
+                    -o jsonpath='{range .status.containerStatuses[*]}{.state.waiting.reason}{" "}{end}{range .status.initContainerStatuses[*]}{.state.waiting.reason}{" "}{end}' 2>/dev/null || echo "")
+                  case "${waiting_reasons}" in
+                    *ImagePullBackOff*|*ErrImagePull*)
+                      echo "  FAIL — new Pod ${ns}/${new_pod} hit image-pull error under deny-egress (${waiting_reasons}); local Harbor mirror is INERT for fresh pulls (#3647)"
+                      return 1 ;;
+                  esac
+                  ready=$(kubectl get pod "${new_pod}" -n "${ns}" \
+                    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+                  if [ "${phase}" = "Running" ] && [ "${ready}" = "True" ]; then
+                    echo "  PASS — new Pod ${ns}/${new_pod} reached Running (image pulled from local Harbor with external egress denied) at $(( $(date +%s) - fp_start ))s"
+                    return 0
+                  fi
+                  echo "  ...new Pod ${ns}/${new_pod} phase=${phase:-<pending>} ready=${ready:-<no>}; re-checking in 10s"
+                else
+                  echo "  ...waiting for replacement Pod of ${ns}/${dep}; re-checking in 10s"
+                fi
+                sleep 10
+              done
+              echo "  FAIL — no replacement Pod of ${ns}/${dep} reached Running within ${FRESH_PULL_TIMEOUT}s under deny-egress (#3647)"
+              return 1
+            }
+
+            if [ "${FRESH_PULL_PROOF}" = "true" ] && [ "${POLICY_APPLIED}" = "yes" ]; then
+              if ! run_fresh_pull_proof; then
+                # Tear the deny policy down before failing so we never leave
+                # a cluster-wide egressDeny lingering on the Sovereign.
+                kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true || true
+                echo "[egress-block-test] FRESH-PULL proof FAILED — sovereignty proof FAILED (cutoverComplete stays false)"
+                exit 1
+              fi
+            elif [ "${FRESH_PULL_PROOF}" = "true" ]; then
+              echo "[egress-block-test] #3647: FRESH-PULL proof requested but egressDeny not applied (enforce off / fail-safe fallback) — skipping the fresh pull, survival-poll only"
             fi
 
             echo "[egress-block-test] capturing baseline NotReady set"

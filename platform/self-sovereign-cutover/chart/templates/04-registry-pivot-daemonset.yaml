@@ -17,6 +17,25 @@ the v2 form (rewrites every upstream registry through harbor.<sov-fqdn>).
 "v1" or "rollback" restores the cold-start file (mothership Harbor).
 Idempotent across restarts.
 
+🛑 #3647 (hw149 live repro) — registries.yaml ALONE is inert for new
+pulls. k3s reads /etc/rancher/k3s/registries.yaml ONLY at process
+startup, where it GENERATES the containerd host-mirror dir
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/<host>/hosts.toml and
+sets containerd's `config_path` to that dir. containerd then re-reads
+those hosts.toml files PER PULL REQUEST (the certs.d host-dir mechanism
+is dynamic — no containerd/k3s restart needed). So after cutover, just
+rewriting registries.yaml leaves the LIVE node still resolving ghcr.io:
+a fresh pod-roll 401s on ghcr (Init:ImagePullBackOff, reproduced on
+hw149). THE FIX: this loop now ALSO regenerates the certs.d/<host>/
+hosts.toml mirror files itself — exactly what k3s does at startup, but
+applied to the running node — so a pod rolled AFTER cutover pulls from
+local Harbor with NO node reboot. registries.yaml is still written (it
+keeps the node correct across a future genuine k3s restart); the
+hosts.toml write is what makes the pivot take effect immediately. The
+canonical certs.d path + the fact k3s materialises it from
+registries.yaml is documented in infra/providers/huawei/cloudinit-
+worker.tftpl (line ~74).
+
 The daemonset-wait completion condition is "all node Pods Ready" — by
 the time every Pod is Running and reporting Ready, the reconcile loop
 has done its first sync. Because the chart ships registriesYamlActive=v1
@@ -81,6 +100,12 @@ spec:
           volumeMounts:
             - name: registries-d
               mountPath: /host/etc/rancher/k3s
+            # #3647: the containerd certs.d host-mirror dir k3s generates
+            # from registries.yaml at startup. The pivot loop regenerates
+            # the per-host hosts.toml files here so NEW pulls on the
+            # running node hit local Harbor without a k3s restart.
+            - name: containerd-certs-d
+              mountPath: /host/var/lib/rancher/k3s/agent/etc/containerd/certs.d
             - name: pivot-script
               mountPath: /usr/local/bin/pivot.sh
               subPath: pivot.sh
@@ -101,6 +126,15 @@ spec:
         - name: registries-d
           hostPath:
             path: /etc/rancher/k3s
+            type: DirectoryOrCreate
+        # #3647: containerd host-mirror dir (k3s default data-dir; no
+        # --data-dir override in cloudinit-control-plane.tftpl). containerd
+        # re-reads <host>/hosts.toml here on every pull, so writing it makes
+        # the registry pivot effective on a RUNNING node — the missing piece
+        # that left hw149 resolving ghcr.io after cutover.
+        - name: containerd-certs-d
+          hostPath:
+            path: /var/lib/rancher/k3s/agent/etc/containerd/certs.d
             type: DirectoryOrCreate
         - name: pivot-script
           configMap:
@@ -143,7 +177,10 @@ data:
     #!/bin/sh
     # registry-pivot reconcile loop. Reads registriesYamlActive from the
     # cutover-status ConfigMap; when the value changes, atomically
-    # replaces the host registries.yaml with v1 or v2.
+    # replaces the host registries.yaml with v1 or v2 AND regenerates the
+    # containerd certs.d/<host>/hosts.toml mirror files so the pivot takes
+    # effect on the RUNNING node (registries.yaml alone is read only at k3s
+    # startup — see header comment + #3647).
     set -eu
 
     apk add --no-cache curl jq >/dev/null 2>&1 || true
@@ -156,7 +193,50 @@ data:
     target=/host/etc/rancher/k3s/registries.yaml
     src_v1=/etc/registry-pivot/registries.yaml.v1
     src_v2=/etc/registry-pivot/registries.yaml.v2
+    # #3647: the containerd host-mirror dir, mounted from the host. k3s
+    # generates these files from registries.yaml at startup and containerd
+    # re-reads them per pull, so writing them here makes new pulls hit the
+    # desired registry immediately — no k3s restart, no node reboot.
+    certs_d=/host/var/lib/rancher/k3s/agent/etc/containerd/certs.d
     last_state=""
+
+    # The 7 canonical upstream hosts the pivot mirrors, kept in lockstep
+    # with registries.yaml.{v1,v2} below (and .Values.harbor.proxyProjects).
+    # "<upstream-host> <proxy-project>" — the proxy path under the mirror.
+    upstream_mirrors="ghcr.io proxy-ghcr
+    docker.io proxy-docker
+    registry.k8s.io proxy-k8s
+    gcr.io proxy-gcr
+    quay.io proxy-quay
+    xpkg.upbound.io proxy-xpkg
+    public.ecr.aws proxy-ecr"
+
+    # Regenerate certs.d/<host>/hosts.toml for every mirrored upstream,
+    # pointing each at https://<mirror_host>/v2/<proxy-project>. This is
+    # the containerd host-dir form k3s itself emits from registries.yaml;
+    # override_path=true makes containerd use the literal /v2/<proxy>/...
+    # path (matching the registries.yaml `endpoint` rewrite) instead of
+    # appending the image path to the host root. capabilities pull+resolve
+    # is all a proxy-cache mirror needs. Written atomically per file.
+    write_hosts_toml() {
+      mirror_host="$1"   # bare host[:port], no scheme
+      mkdir -p "${certs_d}"
+      printf '%s\n' "${upstream_mirrors}" | while read -r up proj; do
+        [ -z "${up}" ] && continue
+        d="${certs_d}/${up}"
+        mkdir -p "${d}"
+        {
+          echo "# managed by bp-self-sovereign-cutover registry-pivot (#3647) — DO NOT EDIT"
+          echo "server = \"https://${up}\""
+          echo ""
+          echo "[host.\"https://${mirror_host}/v2/${proj}\"]"
+          echo "  capabilities = [\"pull\", \"resolve\"]"
+          echo "  override_path = true"
+        } > "${d}/hosts.toml.new"
+        mv "${d}/hosts.toml.new" "${d}/hosts.toml"
+      done
+      echo "[registry-pivot]   wrote certs.d hosts.toml for $(printf '%s\n' "${upstream_mirrors}" | grep -c .) upstreams -> ${mirror_host} on ${NODE_NAME}"
+    }
 
     apply_state() {
       desired="$1"
@@ -167,12 +247,19 @@ data:
           mv "${target}.new" "${target}"
           chmod 600 "${target}"
           echo "[registry-pivot]   wrote v2 to ${target} on ${NODE_NAME}"
+          # #3647: mirror the pivot into the live containerd host-dir so a
+          # pod rolled AFTER cutover pulls from local Harbor, not ghcr.io.
+          write_hosts_toml "${harbor_host}"
           ;;
         v1|rollback|*)
           cp "${src_v1}" "${target}.new"
           mv "${target}.new" "${target}"
           chmod 600 "${target}"
           echo "[registry-pivot]   wrote v1 to ${target} on ${NODE_NAME}"
+          # #3647: rollback must also be effective on the running node —
+          # point the live containerd host-dir back at mothership Harbor.
+          mothership_host=$(printf '%s' "{{ .Values.upstream.mothershipHarborURL }}" | sed -E 's,^https?://,,; s,/$,,')
+          write_hosts_toml "${mothership_host}"
           ;;
       esac
     }
