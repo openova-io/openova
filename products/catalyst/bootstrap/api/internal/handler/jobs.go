@@ -348,6 +348,17 @@ func (h *Handler) chrootSeedJobsStoreIfEmpty(ctx context.Context, dep *Deploymen
 	// a hasBootstrapKit=true chroot.
 	h.chrootSeedSecondaryRegions(ctx, dep, bridge)
 
+	// §5a generic reconciler ingestion (issue #3646). The helmwatch seed
+	// above surfaces ONLY HelmRelease installs — so a green install-openbao
+	// leaf masks a Failed openbao-snapshot CronJob, a stuck cnpg-pair join
+	// batch Job, or a failing trivy scan. Project EVERY non-install
+	// reconciler (Flux Kustomizations, recurring CronJobs, standalone
+	// Jobs, reconciler-marked Deployments) into the same store via ONE
+	// generic bridge call so the canvas shows the truth, not just the
+	// installs. Generic: no per-app branching — a new CronJob in any
+	// blueprint surfaces automatically.
+	h.chrootSeedReconcilerObservations(ctx, dep, bridge)
+
 	// Cutover EXECUTION projection (issue #3646). The helmwatch seed above
 	// only surfaces the DORMANT bp-self-sovereign-cutover chart install as
 	// an "install-self-sovereign-cutover" leaf — which reads "Succeeded"
@@ -499,6 +510,80 @@ func (h *Handler) chrootSeedSecondaryRegions(ctx context.Context, dep *Deploymen
 			"executionsSeeded", execsSeeded,
 		)
 	}
+}
+
+// chrootSeedReconcilerObservations — §5a generic ingestion (issue #3646).
+// Lists every observed non-install reconciler GVR from the chroot's own
+// cluster via the SAME dynamic client the HelmRelease seed uses, then
+// projects each into the jobs Store through the ONE generic bridge call
+// (Bridge.SeedReconcilerObservations). Best-effort: every failure path
+// logs at debug/warn and returns — a /jobs read never fails because the
+// reconciler projection couldn't run.
+//
+// This is the natural home for recurring/child/reconciler activity that
+// was previously invisible while the install row stayed green. It is
+// GENERIC — adding a new CronJob/Kustomization/Job/marked-Deployment in
+// any blueprint surfaces automatically, with zero per-app code.
+func (h *Handler) chrootSeedReconcilerObservations(ctx context.Context, dep *Deployment, bridge *jobs.Bridge) {
+	if h.jobs == nil || bridge == nil {
+		return
+	}
+	dyn, err := h.sovereignDynamicClient(dep)
+	if err != nil {
+		h.log.Debug("chroot seed: reconciler dynamic client unavailable", "depId", dep.ID, "err", err)
+		return
+	}
+	obs, err := helmwatch.ListReconcilerObservations(ctx, dyn)
+	if err != nil {
+		h.log.Warn("chroot seed: list reconciler observations failed", "depId", dep.ID, "err", err)
+		return
+	}
+	if len(obs) == 0 {
+		return
+	}
+	jobsCount, execsSeeded, err := bridge.SeedReconcilerObservations(reconcilerObsToBridge(obs))
+	if err != nil {
+		h.log.Warn("chroot seed: reconciler bridge seed failed", "depId", dep.ID, "err", err)
+		return
+	}
+	h.log.Info("chroot seed: reconciler activities projected",
+		"depId", dep.ID,
+		"observations", len(obs),
+		"jobsWritten", jobsCount,
+		"executionsSeeded", execsSeeded,
+	)
+}
+
+// reconcilerObsToBridge translates the helmwatch wire shape into the
+// jobs-local ReconcilerObservation the bridge consumes (the same
+// snapshot→seed indirection snapshotsToSeeds uses, keeping the jobs
+// package free of a helmwatch import).
+func reconcilerObsToBridge(in []helmwatch.ReconcilerObservation) []jobs.ReconcilerObservation {
+	out := make([]jobs.ReconcilerObservation, 0, len(in))
+	for _, o := range in {
+		execs := make([]jobs.ReconcilerExecutionObservation, 0, len(o.Executions))
+		for _, e := range o.Executions {
+			execs = append(execs, jobs.ReconcilerExecutionObservation{
+				Name:       e.Name,
+				Status:     e.Status,
+				StartedAt:  e.StartedAt,
+				FinishedAt: e.FinishedAt,
+				Message:    e.Message,
+			})
+		}
+		out = append(out, jobs.ReconcilerObservation{
+			Kind:              o.Kind,
+			Name:              o.Name,
+			Namespace:         o.Namespace,
+			Status:            o.Status,
+			Health:            o.Health,
+			Message:           o.Message,
+			ObservedAt:        o.ObservedAt,
+			OwnerInstallChart: o.OwnerInstallChart,
+			Executions:        execs,
+		})
+	}
+	return out
 }
 
 // jobsStore returns the Handler's jobs.Store. Returns nil when

@@ -6,6 +6,13 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     catalyst.openova.io/blueprint: bp-sso-bridge
+    # #3646 §5a — opt this long-running reconciler INTO the jobs canvas:
+    # the generic reconciler reader (helmwatch.ListReconcilerObservations)
+    # surfaces a Deployment carrying this marker as a kind=reconciler leaf
+    # with a HEALTH status (healthy/degraded/failing), never a one-shot
+    # "Succeeded". Without the marker a Deployment is not the operator's
+    # to drive, so it stays out of the canvas.
+    catalyst.openova.io/reconciler: "true"
     app.kubernetes.io/name: sso-bridge-reconciler
     app.kubernetes.io/instance: {{ .Release.Name }}
   {{- with .Values.deploymentAnnotations }}

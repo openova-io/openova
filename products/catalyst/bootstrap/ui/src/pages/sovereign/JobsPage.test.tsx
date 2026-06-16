@@ -122,11 +122,16 @@ describe('JobsPage — table view (NOT accordion)', () => {
     expect(table.tagName.toLowerCase()).toBe('table')
   })
 
-  it('has the seven canonical columns', async () => {
+  it('renders the canonical columns including Kind (issue #3646)', async () => {
     renderJobs('d-1')
     const table = await screen.findByTestId('jobs-table')
     const headers = within(table).getAllByRole('columnheader').map((h) => (h.textContent ?? '').toLowerCase().trim())
-    expect(headers).toEqual(['name', 'app', 'deps', 'batch', 'status', 'started', 'duration'])
+    // Kind inserted after Name (#3646); Parent (not the legacy "batch")
+    // is the canonical column; Actions trails when a deploymentId is
+    // threaded (JobsPage threads it). Assert the stable left columns.
+    expect(headers.slice(0, 8)).toEqual([
+      'name', 'kind', 'app', 'deps', 'parent', 'status', 'started', 'duration',
+    ])
   })
 
   it('does NOT render any legacy accordion testids', async () => {

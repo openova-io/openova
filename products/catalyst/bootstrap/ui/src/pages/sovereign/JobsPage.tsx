@@ -1,19 +1,35 @@
 /**
- * JobsPage — table-view of the recursive Job tree.
+ * JobsPage — table-view of the recursive Job tree (issue #3646 §5b).
  *
  * Layout, top-down:
- *   • Header: <h1>Jobs</h1> + tagline + back-to-apps link + a
- *     "Show as Flow" button that navigates to /flow.
- *   • <JobsTable /> — table view with search/sort/filter. Each parent
- *     chip in a row is a Link to that parent group's own home page
- *     (/jobs/$parentId) — group jobs are first-class citizens of the
- *     tree (issue #351), no separate BatchDetail page.
+ *   • Header: <h1>Jobs</h1> + tagline + back-to-apps link.
+ *   • <JobsTable /> — table view with search/sort/filter + per-row Retry.
  *
- * Per docs/INVIOLABLE-PRINCIPLES.md #1 (waterfall — first paint is the
- * full list), every Job is rendered from mount, even pending ones with
- * no events yet. Per #4 (never hardcode), the job set is computed by
- * deriveJobs() — adding a Blueprint to the catalog automatically adds
- * a row.
+ * # One honest list — no client-side mashup (issue #3646)
+ *
+ * This page renders ONE backend list: the catalyst-api `/jobs` REST
+ * payload (`liveJobs`), which — after the §5a generic ingestion — already
+ * carries EVERY reconciler activity (HelmRelease installs, Flux
+ * Kustomizations, recurring CronJobs, batch Jobs, reconciler Deployments,
+ * the cutover steps) with a backend-derived, honest status. The previous
+ * four-feed mashup is GONE:
+ *
+ *   ✗ `flowJobs` (`synthesizeJobFromFlowNode` as a list source) — the
+ *     openova-flow rows are now written into the jobs Store by the
+ *     all-reconcilers ingestion, so they appear in `/jobs` directly.
+ *   ✗ `mergeJobs(reducerJobs, liveJobs)` + the dedupe loop — the backend
+ *     list is complete; there is nothing to stitch on the client.
+ *   ✗ `applyHandoverStageOverride` — the client no longer fabricates a
+ *     `succeeded` for a contentless lifecycle group; the backend owns the
+ *     status, so an empty Apps/Handover/Cutover phase never renders as a
+ *     phantom Pending the client must rewrite.
+ *
+ * The SSE reducer (`reducerJobs`) is kept ONLY as the waterfall
+ * first-paint tail (Principle #1): before the live `/jobs` fetch lands, it
+ * provides provisional rows so the operator sees the activity immediately;
+ * the instant `liveJobs` arrives it becomes the single source of truth and
+ * the reducer rows are dropped. This is a strict "prefer the backend list"
+ * selection, never a merge — `liveJobs` always wins outright once present.
  */
 
 import { useMemo } from 'react'
@@ -26,12 +42,9 @@ import { resolveApplications } from './applicationCatalog'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import { deriveJobs } from './jobs'
 import { adaptDerivedJobsToFlat } from './jobsAdapter'
-import { useLiveJobsBackfill, mergeJobs } from './useLiveJobsBackfill'
+import { useLiveJobsBackfill } from './useLiveJobsBackfill'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
-import { useFlowStream } from '@/lib/openflow-adapter-sse'
-import { synthesizeJobFromFlowNode } from '@/lib/synthesizeJobFromFlowNode'
 import type { Job } from '@/lib/jobs.types'
-import { applyHandoverStageOverride } from './handoverStageOverride'
 import { HandoverRedirectBanner } from './HandoverRedirectBanner'
 import { HANDOVER_REDIRECT_BANNER_CSS } from './HandoverRedirectBanner.css'
 
@@ -71,23 +84,19 @@ export function JobsPage({
   })
   const sovereignFQDN = snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? null
 
+  // Reducer-derived rows — the SSE tail of the SAME activity model. Used
+  // ONLY as the waterfall first-paint until the live /jobs list lands; the
+  // backend list supersedes them entirely once present (never merged).
   const derivedJobs = useMemo(() => deriveJobs(state, applications), [state, applications])
-  const reducerJobs = useMemo(() => adaptDerivedJobsToFlat(derivedJobs), [derivedJobs])
+  const reducerJobs = useMemo(
+    () => markProvisional(adaptDerivedJobsToFlat(derivedJobs)),
+    [derivedJobs],
+  )
 
-  // Backfill from the catalyst-api Jobs endpoint while the deployment
-  // is in flight. helmwatch only fires on transitions, so a HelmRelease
-  // that's already Ready=True at watch-attach time emits no SSE event;
-  // the backend's Jobs API gives us the current ground-truth list and
-  // the merge below ensures live data wins on conflict. Polling stops
-  // automatically when the deployment reaches a terminal state.
-  // On Sovereign mode the imported snapshot from mother is FROZEN at
-  // mother's last reducer state (always streamStatus="completed" by the
-  // time handover fires), so the inFlight gate would never poll the
-  // live /api/v1/sovereign/jobs endpoint. The Sovereign Console MUST
-  // always show ground-truth from the local cluster, so override the
-  // gate when we're running on chroot Sovereign mode. Caught on
-  // omantel.biz 2026-05-06 — every job rendered "Pending" because
-  // mergeJobs fell through to the imported snapshot.
+  // The single backend list. After §5a ingestion this is COMPLETE — every
+  // reconciler activity is here with a backend-derived honest status.
+  // On Sovereign chroot mode the imported snapshot from mother is frozen,
+  // so always poll the live local-cluster /jobs endpoint there.
   const isSovereignMode = DETECTED_MODE.mode === 'sovereign'
   const inFlight = streamStatus !== 'completed' && streamStatus !== 'failed'
   const { liveJobs } = useLiveJobsBackfill({
@@ -96,83 +105,17 @@ export function JobsPage({
     disablePolling: disableJobsBackfill || (!inFlight && !isSovereignMode),
   })
 
-  const legacyMerged = useMemo(
-    () => mergeJobs(reducerJobs, liveJobs),
-    [reducerJobs, liveJobs],
-  )
-
-  // OpenovaFlow snapshot merge — TC-035 (2026-05-11). Some Sovereign
-  // jobs (notably the openova-flow-server + openova-flow-emitter HRs)
-  // exist ONLY in the OpenovaFlow snapshot — the legacy
-  // /api/v1/deployments/<id>/jobs endpoint has no entry for those ids.
-  // Without this merge the JobsTable misses entire HelmReleases for any
-  // Sovereign with an active flow surface. Verified live: GET
-  // /v1/flows/<id>/snapshot returns 2 leaf nodes (contabo:bp-openova-
-  // flow-server, contabo:bp-openova-flow-emitter) whose ids never
-  // appear in the legacy /jobs payload. Reuses the same SSE seam +
-  // FlowNode→Job adapter the JobDetail flow-fallback (PR #1412) shipped.
-  const flowStream = useFlowStream({ deploymentId, disableStream })
-  const flowJobs = useMemo(
-    () =>
-      Array.from(flowStream.nodes.values()).map(synthesizeJobFromFlowNode),
-    [flowStream.nodes],
-  )
-
-  // Final merge: legacy (reducer + live backfill) is authoritative on
-  // id collisions because it carries real execution timeline / status
-  // / appId / parentId — the flow-stream synth job is a minimal stub.
-  // Flow rows whose id is NOT present in legacy are appended so the
-  // table covers HRs that live only in the OpenovaFlow snapshot.
-  // Behavior unchanged when the flow stream is empty (Sovereigns
-  // without openova-flow-server deployed) — flowJobs.length === 0 and
-  // the dedupe loop returns legacyMerged untouched.
-  const mergedJobs: Job[] = useMemo(() => {
-    if (flowJobs.length === 0) return legacyMerged
-    const seen = new Set(legacyMerged.map((j) => j.id))
-    const extra: Job[] = []
-    for (const fj of flowJobs) {
-      if (seen.has(fj.id)) continue
-      seen.add(fj.id)
-      extra.push(fj)
-    }
-    if (extra.length === 0) return legacyMerged
-    return [...legacyMerged, ...extra]
-  }, [legacyMerged, flowJobs])
-
-  // Gap C fix (session_2026_05_16_t117_dod_partial.md): the openova-
-  // flow snapshot emits synthetic Apps / Handover / Cutover stages
-  // (and per-region variants) at depth=1 so the canvas surfaces the
-  // full five-phase lifecycle. When those groups have NO descendants
-  // — which is the common case for Apps (no operator-installed apps
-  // yet) and Handover (a once-per-Sovereign event with no per-region
-  // job rows) — the API leaves them at the placeholder "pending"
-  // status. The result on the JobsPage was 8 phantom "Pending" rows
-  // that contradicted the deployment record's status=ready +
-  // handoverFiredAt truth, breaking DoD gates D6 + D7.
-  //
-  // applyHandoverStageOverride re-derives those stages' status from
-  // the deployment snapshot: when handover has fired (status="ready"
-  // OR handoverFiredAt non-null), pending Apps/Handover/Cutover
-  // synthetic stages get coerced to "succeeded". Terminal statuses
-  // and non-lifecycle jobs are passed through untouched. See
-  // ./handoverStageOverride.ts for the full scope-of-effect rules.
+  // ONE honest list: the backend payload wins outright. The reducer tail
+  // is shown only before the first live fetch returns (waterfall paint),
+  // then dropped — a strict prefer-live selection, NOT a merge/coercion.
   const flatJobs: Job[] = useMemo(
-    () => applyHandoverStageOverride(mergedJobs, snapshot),
-    [mergedJobs, snapshot],
+    () => (liveJobs.length > 0 ? liveJobs : reducerJobs),
+    [liveJobs, reducerJobs],
   )
 
   const liveBackfillActive = liveJobs.length > 0
 
-  // Gap D fix — auto-redirect to the Sovereign Console after handover.
-  // The mothership Jobs view is where the operator typically lands
-  // while watching convergence; without an in-page redirect the
-  // operator gets stranded here even though the Sovereign is ready.
-  // Mirrors AppsPage's redirect surface but adds a visible 3-2-1
-  // countdown + Cancel button per the founder's brief.
-  //
-  // Suppressed in chroot Sovereign mode (`isSovereignMode` declared
-  // above for the live-backfill gate) — the operator is already at the
-  // destination; redirecting back to the same URL would loop.
+  // Gap D — auto-redirect to the Sovereign Console after handover.
   const handoverURL = handoverReady?.handoverURL ?? ''
   const handoverActive =
     handoverReady !== null && handoverURL !== '' && !isSovereignMode
@@ -213,8 +156,23 @@ export function JobsPage({
       ) : null}
 
       <div className="mt-6" data-testid="sov-jobs-list">
-        <JobsTable jobs={flatJobs} />
+        <JobsTable jobs={flatJobs} deploymentId={deploymentId} />
       </div>
     </PortalShell>
+  )
+}
+
+/**
+ * markProvisional flags reducer-derived rows whose status is still
+ * unconfirmed (pending/running) so the StatusBadge renders the
+ * "Confirming…" tone until the live source lands (#3656). Terminal rows
+ * are passed through. The reducer is only ever the first-paint tail, so
+ * this is the sole place a provisional flag is set.
+ */
+function markProvisional(jobs: Job[]): Job[] {
+  return jobs.map((j) =>
+    j.status === 'pending' || j.status === 'running'
+      ? { ...j, provisional: true }
+      : j,
   )
 }
