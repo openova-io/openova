@@ -92,6 +92,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	authnv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -175,6 +176,69 @@ func (h *Handler) sovereignHandoverComplete(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	return len(data) > 0, nil
+}
+
+// cutoverCompleteSecretPath is the KV-v2 path of the DURABLE, revert-immune
+// sovereignty fact (#3667). It mirrors the handover marker
+// (catalyst/tofu-phase0-archive) but records the FINAL state of the
+// cutover state machine: once the 11 steps run green AND the 600s
+// deny-egress hold holds, runCutover seals this in OpenBao in the SAME
+// transaction that flips the status ConfigMap's cutoverComplete=true.
+//
+// Why OpenBao and not the status ConfigMap: the status ConfigMap is
+// Helm/Flux-managed (the chart authors it at install with
+// data.cutoverComplete:"false"). A routine `helm upgrade
+// bp-self-sovereign-cutover` — chart pins land on running Sovereigns
+// constantly — runs helm-controller's 3-way merge, re-asserts the
+// template's "false" over the live "true", and re-arms the whole
+// cutover (the auto-trigger Job re-fires the 600s hold). OpenBao is
+// NOT chart-managed, so a chart upgrade cannot revert the seal. This
+// is the single durable bit that makes cutoverComplete=true a TRUE,
+// reconcile-immune proof of independence.
+const cutoverCompleteSecretPath = "catalyst/cutover-complete"
+
+// sovereignCutoverComplete reports whether THIS Sovereign has sealed the
+// durable cutover-complete fact (#3667). Modeled EXACTLY on
+// sovereignHandoverComplete: reads secret/catalyst/cutover-complete via
+// KV-v2; ABSENCE (ErrSecretNotFound) ⇒ false; a nil OpenBao client
+// (Catalyst-Zero, the orchestrator, is never itself a cutover subject)
+// reads as not-complete so the gate stays closed and a fresh prov can
+// still run its cutover.
+func (h *Handler) sovereignCutoverComplete(ctx context.Context) (bool, error) {
+	if h.openbao == nil {
+		return false, nil
+	}
+	data, err := h.openbao.GetKVv2(ctx, "secret", cutoverCompleteSecretPath)
+	if err != nil {
+		if errors.Is(err, openbao.ErrSecretNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return len(data) > 0, nil
+}
+
+// sealCutoverComplete writes the durable, revert-immune sovereignty fact
+// (#3667). Called from runCutover's success tail in the SAME block that
+// flips cutoverComplete=true in the status ConfigMap. The payload records
+// the audit anchor (true first-run start + finish) so the seal alone is
+// enough for HandleCutoverStatus to re-derive cutoverComplete=true even
+// if a chart upgrade reverted the ConfigMap.
+//
+// A nil OpenBao client is a non-fatal no-op (the orchestrator path):
+// the run still succeeds and the ConfigMap still carries the truth; only
+// the durable seal is skipped, which is correct because Catalyst-Zero is
+// never a cutover subject. The caller logs the skip.
+func (h *Handler) sealCutoverComplete(ctx context.Context, startedAt, finishedAt string) error {
+	if h.openbao == nil {
+		return nil
+	}
+	return h.openbao.PutKVv2(ctx, "secret", cutoverCompleteSecretPath, map[string]any{
+		"cutoverComplete":   "true",
+		"cutoverStartedAt":  startedAt,
+		"cutoverFinishedAt": finishedAt,
+		"sealedAt":          time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 // expectedInternalCutoverUsernames returns the set of acceptable SA
@@ -391,6 +455,39 @@ func (h *Handler) spawnCutoverEngine(ctx context.Context, deps *cutoverDeps, sou
 	status, err := readCutoverStatus(ctx, deps)
 	if err != nil {
 		return cutoverSpawnResult{}, fmt.Errorf("status-read-failed: %w", err)
+	}
+
+	// Durable, revert-immune sovereignty gate (#3667). Check the sealed
+	// OpenBao fact BEFORE the ConfigMap key. A routine `helm upgrade
+	// bp-self-sovereign-cutover` re-asserts the chart template's
+	// cutoverComplete:"false" over the live "true" (chart pins land on
+	// running Sovereigns constantly) — so the CM alone would read "false"
+	// and let the auto-trigger Job re-fire the whole cutover INCLUDING the
+	// 600s deny-egress hold on a customer cluster. The seal cannot be
+	// reverted by a chart upgrade, so once it exists we no-op regardless of
+	// what the CM says. Backfill the CM so the UI re-derives the green state
+	// on the next read. A status-read failure above is hard; a seal-read
+	// failure here is treated as "not sealed" only on ErrSecretNotFound
+	// (inside sovereignCutoverComplete) — any other error fails closed.
+	if sealed, serr := h.sovereignCutoverComplete(ctx); serr != nil {
+		return cutoverSpawnResult{}, fmt.Errorf("cutover-seal-check-failed: %w", serr)
+	} else if sealed {
+		bus := h.cutoverBusFor()
+		h.publishCutoverEvent(bus, cutoverEvent{
+			Phase:   cutoverPhaseAlreadyDone,
+			Level:   "info",
+			Message: fmt.Sprintf("cutover already complete (durable seal present); %s trigger is a no-op even if the status ConfigMap was reverted by a chart upgrade", source),
+		})
+		// Best-effort backfill so /status renders sovereign immediately.
+		if status["cutoverComplete"] != "true" {
+			_ = patchCutoverStatus(ctx, deps, map[string]string{"cutoverComplete": "true"})
+			status["cutoverComplete"] = "true"
+		}
+		return cutoverSpawnResult{
+			outcome:   cutoverSpawnAlreadyComplete,
+			status:    status,
+			stepNames: listStepNamesFromStatus(status),
+		}, nil
 	}
 
 	if status["cutoverComplete"] == "true" {
