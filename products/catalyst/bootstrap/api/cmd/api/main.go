@@ -1514,6 +1514,14 @@ func main() {
 		rg.Get("/api/v1/catalog", h.HandleCatalogList)
 		rg.Get("/api/v1/catalog/{name}", h.HandleCatalogGet)
 		rg.Get("/api/v1/catalog/{name}/versions/{version}", h.HandleCatalogGetVersion)
+		// #3668 §5D — the full-CR catalog IaC editor. Commits the WHOLE
+		// blueprint.yaml the admin edited (spec.source / manifests / sso /
+		// placementSchema / endpoints / shareable / contextSchema — fields
+		// the 7-field card form can never touch) to the SAME Gitea file the
+		// card-edit path writes (catalog-sovereign/<bp>/blueprint.yaml),
+		// under the dedicated git budget, tier-admin-gated. The console's
+		// "Edit IaC" mode (YamlEditor) drives this.
+		rg.Put("/api/v1/catalog/{name}/iac", h.HandleCatalogBlueprintIaCEdit)
 
 		// EPIC-6 (#1101) slice U-Fleet — multi-Sovereign fleet view.
 		// Read-only aggregator that backs the new live DashboardPage,

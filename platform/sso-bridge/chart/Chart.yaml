@@ -1,10 +1,22 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.19
-# 0.2.19 (#3646, 2026-06-17): stamp the `catalyst.openova.io/reconciler`
+version: 0.2.20
+# 0.2.20 (#3646, 2026-06-17): stamp the `catalyst.openova.io/reconciler`
 # marker label on the sso-bridge-reconciler Deployment so the jobs canvas's
 # generic §5a reconciler ingestion surfaces it as a kind=reconciler leaf
 # with a HEALTH status (healthy/degraded/failing), never a one-shot row.
+# 0.2.19 (#3374 Layer-C, 2026-06-17): DELETE the dead admin-by-default
+# theater (#3685). grant_operator_admin (minted a per-Client `admin` role
+# NO app reads — every app keys admin on the `groups` claim) and
+# grant_operator_realm_roles (per-email catalyst-admin grant, now
+# superseded by the realm-import group composite on /sovereign-admins) are
+# both removed, along with the per-HR `sso.realmRolesGranted` plumbing. On
+# hw150 with orgEmail="" these logged "skipping admin grant"/"skipping
+# realm-role grant" every 60s tick and NEVER granted anything. The
+# reconciler's job is now purely client-upsert + secret publication; admin
+# is conferred ONLY by /sovereign-admins membership. No privilege outcome
+# depends on the empty `orgEmail` ConfigMap key.
+#
 # 0.2.18 (#3374, 2026-06-14): add `sso.skipExternalSecret: true` opt-out.
 # Apps that consume their OIDC secret as DIRECT env vars (grafana's
 # `envFromSecret`) need keys named after the app's env-override contract

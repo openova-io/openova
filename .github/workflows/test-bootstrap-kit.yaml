@@ -21,6 +21,7 @@ on:
       - 'scripts/expected-bootstrap-deps.yaml'
       - 'scripts/expected-cloudinit-kustomization-deps.yaml'
       - 'scripts/render-slot-placement.py'
+      - 'scripts/tests/render_slot_placement_hostbridge_test.py'
       - 'scripts/audit-placement-conformance.py'
       - '.github/workflows/test-bootstrap-kit.yaml'
     branches: [main]
@@ -38,6 +39,7 @@ on:
       - 'scripts/expected-bootstrap-deps.yaml'
       - 'scripts/expected-cloudinit-kustomization-deps.yaml'
       - 'scripts/render-slot-placement.py'
+      - 'scripts/tests/render_slot_placement_hostbridge_test.py'
       - 'scripts/audit-placement-conformance.py'
       - '.github/workflows/test-bootstrap-kit.yaml'
   workflow_dispatch:
@@ -94,6 +96,14 @@ jobs:
         run: |
           pip install pyyaml --quiet 2>/dev/null || true
           python3 scripts/render-slot-placement.py check
+
+      - name: Host-bridge generator render-test (#3642)
+        # Pure-function unit checks of the host-bridge logic
+        # (effective_values/suppress, hostbridge_block transcription,
+        # extract/strip round-trip, lowercase booleans). Guards the
+        # generic mechanism that re-homes route/secret/CNPG apps into a
+        # vCluster while keeping their host-reaching CRs host-rendered.
+        run: python3 scripts/tests/render_slot_placement_hostbridge_test.py
 
       - name: Placement conformance audit — rendered (#3373 DoD-4)
         # actual==declared at render level + §4 host-minimum

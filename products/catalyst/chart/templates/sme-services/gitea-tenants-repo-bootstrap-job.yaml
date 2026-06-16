@@ -183,6 +183,11 @@ spec:
               value: {{ $repo | quote }}
             - name: TENANTS_BRANCH
               value: {{ $branch | quote }}
+            # #3376: the Sovereign FQDN seeds the clusters/<fqdn>/sme-tenants
+            # parent-index path (Step 5). Same source the GitRepository ignore
+            # filter + the Kustomization path use (global.sovereignFQDN).
+            - name: SOVEREIGN_FQDN
+              value: {{ .Values.global.sovereignFQDN | quote }}
             - name: ITERATIONS
               value: {{ .Values.giteaWait.iterations | default 168 | quote }}
             - name: INTERVAL
@@ -299,6 +304,71 @@ spec:
                 else
                   echo "[repo-bootstrap] FATAL: branch ${TENANTS_BRANCH} not present after create (HTTP ${FINAL})" >&2
                   exit 1
+                fi
+              fi
+
+              # Step 5: seed an EMPTY parent kustomization.yaml at
+              # clusters/${SOVEREIGN_FQDN}/sme-tenants/ on the tenants branch
+              # — #3376 (Refs #3689).
+              #
+              # WHY: the Flux Kustomization `sme-tenants` (sibling template
+              # sme-tenants-kustomization.yaml) watches
+              # ./clusters/<fqdn>/sme-tenants. That directory does NOT exist
+              # on the branch until the FIRST tenant POST runs catalyst-api's
+              # WriteTenantOverlay (which writes the parent index via
+              # writeParentKustomization). Until then Flux reports
+              # `kustomization path not found: ... no such file or directory`
+              # → Kustomization sme-tenants=False (caught live hw150). That
+              # NotReady was then accepted as "baseline noise" by the cutover
+              # egress-block proof — sovereignty declared GREEN while the
+              # customer-onboarding reconciler was dead (PRINCIPLES A1/A2).
+              #
+              # Seeding a VALID empty kustomize root (resources: []) makes the
+              # path exist + reconcile Ready from first convergence, zero
+              # tenants required. WriteTenantOverlay OVERWRITES this file with
+              # the helmrepositories.yaml + per-tenant subdir list on the
+              # first signup, so this seed is purely the empty-state index.
+              # Idempotent: only create when absent (GET 404) — never clobber
+              # a real tenant index. Uses the Gitea contents API
+              # (POST /repos/{org}/{repo}/contents/{path}) so there is no git
+              # clone/push (no extra tooling, no RBAC).
+              SEED_PATH="clusters/${SOVEREIGN_FQDN}/sme-tenants/kustomization.yaml"
+              if [ -z "${SOVEREIGN_FQDN:-}" ]; then
+                echo "[repo-bootstrap] WARN: SOVEREIGN_FQDN empty — skipping sme-tenants path seed"
+              else
+                SEED_GET=$(curl -sS -o /dev/null -w '%{http_code}' \
+                  -H "Authorization: token ${GITEA_TOKEN}" \
+                  "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/contents/${SEED_PATH}?ref=${TENANTS_BRANCH}")
+                if [ "$SEED_GET" = "200" ]; then
+                  echo "[repo-bootstrap] sme-tenants parent index already present (${SEED_PATH}@${TENANTS_BRANCH})"
+                else
+                  echo "[repo-bootstrap] seeding empty sme-tenants parent index ${SEED_PATH}@${TENANTS_BRANCH} (GET was ${SEED_GET})"
+                  # Empty-but-valid kustomize root. base64 with no line wrap so
+                  # Gitea's contents API accepts the `content` field. busybox
+                  # base64 wraps at 76 cols by default → strip newlines with tr.
+                  SEED_BODY=$(printf '%s\n' \
+                    "# Seeded empty by bp-catalyst-platform repo-bootstrap (#3376)." \
+                    "# The catalyst-api SME-tenant pipeline (WriteTenantOverlay)" \
+                    "# OVERWRITES this file on the first tenant signup with the" \
+                    "# helmrepositories.yaml + per-tenant overlay subdirectories." \
+                    "# Present so the Flux Kustomization sme-tenants path exists" \
+                    "# + reconciles Ready from first convergence (zero tenants)." \
+                    "apiVersion: kustomize.config.k8s.io/v1beta1" \
+                    "kind: Kustomization" \
+                    "resources: []" \
+                    | base64 | tr -d '\n')
+                  curl -sS -o /dev/null -w '[repo-bootstrap] PUT contents -> %{http_code}\n' \
+                    -H "Authorization: token ${GITEA_TOKEN}" -H "Content-Type: application/json" \
+                    -X POST "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/contents/${SEED_PATH}" \
+                    -d "{\"branch\":\"${TENANTS_BRANCH}\",\"content\":\"${SEED_BODY}\",\"message\":\"chore(sme-tenants): seed empty parent index so Flux path exists pre-first-tenant (#3376)\"}" || true
+                  SEED_FINAL=$(curl -sS -o /dev/null -w '%{http_code}' \
+                    -H "Authorization: token ${GITEA_TOKEN}" \
+                    "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/contents/${SEED_PATH}?ref=${TENANTS_BRANCH}")
+                  if [ "$SEED_FINAL" = "200" ]; then
+                    echo "[repo-bootstrap] sme-tenants parent index seeded"
+                  else
+                    echo "[repo-bootstrap] WARN: sme-tenants parent index not present after seed (HTTP ${SEED_FINAL}); Flux will report path-not-found until the first tenant signup writes it"
+                  fi
                 fi
               fi
 

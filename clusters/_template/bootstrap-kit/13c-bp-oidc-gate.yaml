@@ -55,12 +55,12 @@ spec:
   dependsOn:
     - name: bp-cilium
     - name: bp-keycloak
-      namespace: flux-system
+      namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-external-secrets-stores
   chart:
     spec:
       chart: bp-oidc-gate
-      version: 0.1.1
+      version: 0.1.2
       sourceRef:
         kind: HelmRepository
         name: bp-oidc-gate
@@ -101,3 +101,45 @@ spec:
           - "POST=^/v1/flows/[^/]+/log-lines$"
           # Health endpoints stay probe-able.
           - "GET=^/(healthz|readyz)$"
+
+      # powerdns-admin (#3374 §3-d row 6, Layer A). MOVED to the generic
+      # gate from its bespoke root-redirect. The bespoke approach is
+      # structurally fragile (§3-a: the pda OIDC callback shares the
+      # `/login` path, so the 0.1.10 `/login` redirect looped and was
+      # reverted; the 0.1.11 root-only redirect is a hand-tuned
+      # exception). oauth2-proxy fronts the WHOLE hostname instead: the
+      # gate serves its own /oauth2/callback (never the app's /oidc/*),
+      # and an already-valid app session passes straight through —
+      # zero-click, no loop, by the SAME mechanism as every other gated
+      # app. The hostname matches the per-Sovereign pda route
+      # (pdns-admin.<fqdn>); the upstream is the in-cluster pda Service.
+      #
+      # The pda chart's OWN HTTPRoute (incl. the bespoke root redirect)
+      # is suppressed by slot 11a setting `gateway.enabled: false`
+      # (two HTTPRoutes on one hostname is undefined routing — the gate
+      # now owns pdns-admin.<fqdn>). pda's /oidc/* login + callback paths
+      # are reached THROUGH the gate (oauth2-proxy proxies all non-
+      # /oauth2 paths to the upstream), so the app-native OIDC the gate's
+      # session sits in front of still functions for the in-app login the
+      # first time; subsequent visits ride the gate cookie.
+      - name: powerdns-admin
+        enabled: true
+        clientId: powerdns-admin
+        hostname: "pdns-admin.${SOVEREIGN_FQDN}"
+        upstream: http://powerdns-admin-bp-powerdns-admin.powerdns-admin.svc.cluster.local:80
+
+      # ── GENERALITY PROOF (#3374 DoD box 10a) ──────────────────────────
+      # A brand-new throwaway app gated with ONLY a name + hostname +
+      # upstream and NOTHING else — no app-specific redirect, no shim, no
+      # per-app chart code. Its bare URL lands zero-click by the generic
+      # mechanism alone. Disabled by default (no such upstream exists on
+      # a normal Sovereign); flip `enabled: true` + point `upstream` at
+      # any ClusterIP Service to demonstrate that adding an app to the
+      # zero-click contract is a single `instances:` entry. This is the
+      # #3370-bar proof transposed onto interception: the contract is
+      # generic across apps, not rebuilt per app.
+      - name: sso-generality-probe
+        enabled: false
+        clientId: sso-generality-probe
+        hostname: "sso-probe.${SOVEREIGN_FQDN}"
+        upstream: http://example-app.default.svc.cluster.local:80

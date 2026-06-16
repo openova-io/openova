@@ -1,10 +1,19 @@
-// sme_consumption.go — the B3 metering feed (issue #3378 §6 B3).
+// sme_consumption.go — the B3 metering feed (issue #3378 §6 B3, made
+// per-Organization-honest by #3687 fold #3677).
 //
 // Per-org consumption aggregation, labeled by org, exposed via ONE GET
-// the Organizations billing pages read. The FIRST deliverable is parent
-// self-showback (testable with zero sub-orgs): on a Sovereign with no
-// sub-orgs, 100% of consumption attributes to the parent organization,
-// broken down per application / namespace (#3378 DoD 3 + §5).
+// the Organizations billing pages read. Attribution keys on the single
+// `openova.io/organization` join key (ARCHITECTURE.md:306) stamped on
+// every per-Org namespace by the organization-controller
+// (gitops/manifests.go) — NOT a hardcoded constant. A pod whose
+// namespace carries no Org label (host/control-plane namespaces) and
+// every one-shot `Job`-owned pod (cutover / scan / snapshot) rolls up
+// into a single, visually-distinct "Platform overhead" line rather than
+// being mis-attributed to a tenant. On a Sovereign with zero customer
+// Organizations the only tenant-ish row is that Platform-overhead
+// rollup under the parent; the moment the first per-Org namespace
+// appears with the label, a second org row materializes with no code
+// change — the #3687 generality proof (DoD 6 + §7c).
 //
 // Meter source — the lean kube-metrics aggregation (the §6 B3 alternative,
 // "no new component"): this REUSES the existing per-namespace per-pod
@@ -26,17 +35,28 @@ package handler
 
 import (
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/labels"
 )
 
-// orgConsumption is one org's consumption rollup. With zero sub-orgs the
-// only row is the parent (org="<parent>", isParent=true) carrying 100%.
+// orgConsumption is one org's consumption rollup. The parent estate row
+// (isParent=true) is always present and ordered first; customer
+// Organizations follow, attributed via the `openova.io/organization`
+// join key; the synthetic platform-overhead row (isPlatform=true) carries
+// all control-plane + one-shot-Job consumption and is ordered last so the
+// console can render it as a single visually-distinct line (#3687 fold
+// #3677 §6).
 type orgConsumption struct {
 	Org      string `json:"org"`
 	IsParent bool   `json:"isParent"`
+	// IsPlatform flags the synthetic "Platform overhead" rollup — the
+	// control-plane / infra / one-shot-Job consumption that is NOT a
+	// tenant. The console renders this as one distinct line, never
+	// itemized inside a tenant's app list.
+	IsPlatform bool `json:"isPlatform"`
 	// CostUnits — the showback cost in abstract attribution units (the
 	// weighted CPU+memory+storage sum). Showback attributes consumption;
 	// it is not a billed currency amount.
@@ -83,6 +103,63 @@ const (
 	bytesPerGiB         = 1 << 30 // 1 GiB
 )
 
+// platformOrg is the synthetic bucket every control-plane / infra /
+// one-shot-Job pod rolls into. It is distinct from any real tenant org
+// and from the parent estate so the console can render it as a single
+// "Platform overhead" line, never itemized as `scan-vulnerabilityreport-…`
+// inside a tenant's app list (#3687 fold #3677 §6). The double-underscore
+// guards against collision with a real slug (slugs match
+// [a-z][a-z0-9-]{2,30}).
+const platformOrg = "__platform__"
+
+// defaultInfraNamespaces is the baked-in default set of host /
+// control-plane namespaces whose pods are NEVER tenant consumption. It is
+// the floor, not the law: SHOWBACK_INFRA_NAMESPACES (comma-separated)
+// extends it per Sovereign (Principle #4 — config, not a frozen literal).
+// Pods in these namespaces roll into the platformOrg bucket regardless of
+// any Org label, because the join key only becomes meaningful once a real
+// per-Org namespace exists.
+var defaultInfraNamespaces = []string{
+	"kube-system",
+	"flux-system",
+	"trivy-system",
+	"kyverno",
+	"cnpg",
+	"falco",
+	"cert-manager",
+	"external-secrets-system",
+	"sigstore-system",
+	"monitoring",
+	"observability",
+	"cilium-secrets",
+	"gateway-system",
+	"catalyst",
+	"catalyst-system",
+	"shared-data",
+	"dmz",
+	"rtz",
+	"mgmt",
+}
+
+// infraNamespaceSet builds the effective infra-namespace exclusion set:
+// the baked-in default floor merged with the SHOWBACK_INFRA_NAMESPACES
+// env override. Returned as a set for O(1) membership. Exported-to-test
+// via the explicit-set overload on aggregateConsumption so the unit test
+// drives a deterministic set with no env dependency.
+func infraNamespaceSet(envValue string) map[string]struct{} {
+	set := make(map[string]struct{}, len(defaultInfraNamespaces)+8)
+	for _, ns := range defaultInfraNamespaces {
+		set[ns] = struct{}{}
+	}
+	for _, ns := range strings.Split(envValue, ",") {
+		ns = strings.TrimSpace(ns)
+		if ns != "" {
+			set[ns] = struct{}{}
+		}
+	}
+	return set
+}
+
 // HandleSovereignConsumption — GET /api/v1/sme/consumption.
 func (h *Handler) HandleSovereignConsumption(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
@@ -115,16 +192,22 @@ func (h *Handler) HandleSovereignConsumption(w http.ResponseWriter, r *http.Requ
 
 	rows := buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, clusterID, "")
 
-	resp := aggregateConsumption(rows, parentOrg)
+	resp := aggregateConsumption(rows, parentOrg, infraNamespaceSet(os.Getenv("SHOWBACK_INFRA_NAMESPACES")))
 	writeJSON(w, http.StatusOK, resp)
 }
 
 // aggregateConsumption rolls podRows up into the per-org / per-app
-// showback shape. orgFor maps a namespace to its owning org; today every
-// namespace attributes to the parent (sub-org namespaces carry the
-// vcluster/org label that a later PR keys on — until then 100% → parent,
-// which is exactly the §5 day-one showback contract).
-func aggregateConsumption(rows []podRow, parentOrg string) SovereignConsumptionResponse {
+// showback shape (#3687 fold #3677). Attribution keys on the pod's real
+// `openova.io/organization` namespace label (resolved in buildPodRows
+// into podRow.org). A pod is rolled into the synthetic platformOrg
+// bucket — never a tenant — when ANY of these hold:
+//   - its namespace is in the infra-exclusion set (host / control-plane),
+//   - it is owned by a batch/v1 Job (one-shot cutover / scan / snapshot),
+//   - or its namespace carries no Org label at all.
+// Real per-Org namespaces (stamped by the organization-controller) yield
+// their own org row immediately, with no per-name special-casing — adding
+// a third org needs zero code change (the generality proof §7c).
+func aggregateConsumption(rows []podRow, parentOrg string, infraNamespaces map[string]struct{}) SovereignConsumptionResponse {
 	// org → namespace+app key → app rollup.
 	type appKey struct{ org, ns, app string }
 	appAgg := map[appKey]*appConsumption{}
@@ -133,7 +216,12 @@ func aggregateConsumption(rows []podRow, parentOrg string) SovereignConsumptionR
 	ensureOrg := func(org string) *orgConsumption {
 		oc, ok := orgAgg[org]
 		if !ok {
-			oc = &orgConsumption{Org: org, IsParent: org == parentOrg, Apps: []appConsumption{}}
+			oc = &orgConsumption{
+				Org:        org,
+				IsParent:   org == parentOrg,
+				IsPlatform: org == platformOrg,
+				Apps:       []appConsumption{},
+			}
 			orgAgg[org] = oc
 		}
 		return oc
@@ -143,7 +231,7 @@ func aggregateConsumption(rows []podRow, parentOrg string) SovereignConsumptionR
 
 	var total float64
 	for _, row := range rows {
-		org := orgForNamespace(row, parentOrg)
+		org := orgForRow(row, infraNamespaces)
 		cpuMilli := row.cpuReq
 		memGiB := row.memReq / bytesPerGiB
 		storageGiB := row.storageLim / bytesPerGiB
@@ -197,9 +285,15 @@ func aggregateConsumption(rows []podRow, parentOrg string) SovereignConsumptionR
 		oc.StorageGiB = round2(oc.StorageGiB)
 		orgs = append(orgs, *oc)
 	}
+	// Ordering: parent estate first, then customer Organizations by
+	// descending cost, then the synthetic platform-overhead row last so
+	// the console renders it as a trailing distinct line (#3687 §6).
 	sort.Slice(orgs, func(i, j int) bool {
 		if orgs[i].IsParent != orgs[j].IsParent {
 			return orgs[i].IsParent // parent first
+		}
+		if orgs[i].IsPlatform != orgs[j].IsPlatform {
+			return orgs[j].IsPlatform // platform overhead last
 		}
 		return orgs[i].CostUnits > orgs[j].CostUnits
 	})
@@ -210,14 +304,26 @@ func aggregateConsumption(rows []podRow, parentOrg string) SovereignConsumptionR
 	}
 }
 
-// orgForNamespace maps a pod's namespace to its owning org. Today every
-// namespace attributes to the parent (§5 day-one: 100% → parent). When a
-// sub-org's vCluster/namespace carries an org label, a later PR keys on
-// it here — the showback labels stay identical, so chargeback "becomes
-// meaningful automatically when the first sub-org splits out" (§5) with
-// no new mechanism.
-func orgForNamespace(_ podRow, parentOrg string) string {
-	return parentOrg
+// orgForRow resolves the owning org for a pod row's showback attribution
+// (#3687 fold #3677). It reads the real `openova.io/organization` join key
+// carried on podRow.org (resolved in buildPodRows from the namespace
+// label the organization-controller stamps). Control-plane / infra
+// namespaces, one-shot Job-owned pods, and any pod whose namespace lacks
+// an Org label roll into the synthetic platformOrg bucket so they render
+// as a single "Platform overhead" line, never inside a tenant's app list.
+// No per-org-name or per-namespace-name special-casing: the resolver keys
+// purely on the label + the config-driven exclusion set.
+func orgForRow(row podRow, infraNamespaces map[string]struct{}) string {
+	if _, infra := infraNamespaces[row.namespace]; infra {
+		return platformOrg
+	}
+	if strings.EqualFold(row.ownerKind, "Job") {
+		return platformOrg
+	}
+	if org := strings.TrimSpace(row.org); org != "" {
+		return org
+	}
+	return platformOrg
 }
 
 // consumptionParentOrg resolves the parent org name (the Sovereign FQDN).

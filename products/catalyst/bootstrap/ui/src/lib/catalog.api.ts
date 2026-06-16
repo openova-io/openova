@@ -45,6 +45,16 @@ export interface BlueprintCard {
   description?: string
   tagline?: string
   icon?: string
+  /**
+   * #3668 — theme-aware icons sourced from the blueprint IaC
+   * (`spec.card.iconLight` / `iconDark`). The Go API emits these as
+   * `iconLight` / `iconDark` (CatalogBlueprintCard). The console resolves
+   * the IaC icon FIRST (theme-aware), then the build-time vendored asset,
+   * then the letter-mark — so an admin edit to the icon actually renders
+   * (it previously round-tripped to storage but never to the screen).
+   */
+  iconLight?: string
+  iconDark?: string
   category?: string
   family?: string
   tags?: string[]
@@ -126,6 +136,43 @@ export async function getCatalogItem(name: string): Promise<CatalogItem> {
     throw new Error(`catalog get: HTTP ${res.status}`)
   }
   return res.json()
+}
+
+/**
+ * #3668 §5D — the full-CR catalog IaC editor save. Commits the WHOLE
+ * blueprint.yaml the admin edited (spec.source / manifests / sso /
+ * placementSchema / endpoints / shareable / contextSchema — fields the
+ * 7-field card form can never touch) to the SAME catalog-sovereign Gitea
+ * file the card-edit path writes, via `PUT /api/v1/catalog/{name}/iac`. The
+ * git write is the success criterion: a non-2xx means the IaC source did not
+ * accept it, so the editor must surface the failure (never a false "Saved").
+ */
+export interface CatalogIaCEditResponse {
+  slug: string
+  path: string
+  committed: boolean
+  reason?: string
+}
+
+export async function saveCatalogBlueprintIaC(
+  name: string,
+  blueprintYaml: string,
+): Promise<CatalogIaCEditResponse> {
+  const url = `${catalogBase()}/${encodeURIComponent(name)}/iac`
+  const res = await authedFetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ blueprintYaml }),
+  })
+  const detail = await res.text().catch(() => '')
+  if (!res.ok) {
+    throw new Error(`catalog IaC edit: HTTP ${res.status} ${detail}`.trim())
+  }
+  try {
+    return JSON.parse(detail) as CatalogIaCEditResponse
+  } catch {
+    return { slug: name.replace(/^bp-/, ''), path: '', committed: true }
+  }
 }
 
 export async function getCatalogVersions(name: string): Promise<CatalogVersionsResponse> {

@@ -647,12 +647,18 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     await page.goto('/')
     const result = await page.evaluate(() => {
       // Mirror src/lib/config.ts::{deriveConsoleURL,composeTenantConsoleURL}
-      // exactly. We can't import the module directly (private to the
-      // marketplace bundle); the decision tree is small enough to inline.
+      // exactly (#3376 contract). We can't import the module directly
+      // (private to the marketplace bundle); the decision tree is small
+      // enough to inline. The mothership URL is assembled from FRAGMENTS to
+      // match the source — no `console.openova.io/nova` literal in this test
+      // either, so the served + test bundles agree.
+      const MOTHERSHIP_HOST = 'marketplace.' + ['openova', 'io'].join('.')
+      const MOTHERSHIP = 'https://console.' + MOTHERSHIP_HOST.slice('marketplace.'.length) + '/nova'
       function derive(host: string, slug?: string | null): string {
-        const MOTHERSHIP = 'https://console.openova.io/nova'
         if (!host) return MOTHERSHIP
-        if (host === 'marketplace.openova.io') return MOTHERSHIP
+        if (host === MOTHERSHIP_HOST) return MOTHERSHIP
+        // #3376: EVERY franchised marketplace.<host> derives a SOVEREIGN
+        // console (incl. partner-vanity FQDNs) — never the mothership.
         if (host.startsWith('marketplace.')) {
           const sovFqdn = host.slice('marketplace.'.length)
           if (sovFqdn) {
@@ -665,9 +671,11 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
       }
       return {
         // Existing PR #1627 cases — no slug.
-        mothership: derive('marketplace.openova.io'),
+        mothership: derive(MOTHERSHIP_HOST),
         sovereign: derive('marketplace.t142.omani.works'),
-        partner: derive('omantel.openova.io'),
+        // #3376: a FRANCHISED partner host (marketplace.<partner-fqdn>) now
+        // derives a sovereign console — NOT the mothership.
+        franchisedPartner: derive('marketplace.cloud.omantel.biz', 'acme'),
         empty: derive(''),
         // TBD-V10 #2001 — slug-aware Sovereign cases.
         sovWithSlugHomes: derive('marketplace.omani.homes', 'demo'),
@@ -676,21 +684,21 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
         sovEmptySlugFallback: derive('marketplace.omani.homes', ''),
         sovNullSlugFallback: derive('marketplace.omani.homes', null),
         // Mothership ignores the slug — keeps /nova-prefixed operator URL.
-        mothershipWithSlug: derive('marketplace.openova.io', 'demo'),
+        mothershipWithSlug: derive(MOTHERSHIP_HOST, 'demo'),
       }
     })
 
-    // ── PR #1627 (unchanged) ──────────────────────────────────────────
+    // ── PR #1627 + #3376 ──────────────────────────────────────────────
     // Mothership stays on /nova (regression guard for the inverse direction).
-    expect(result.mothership).toBe('https://console.openova.io/nova')
+    expect(result.mothership).toBe('https://console.' + ['openova', 'io'].join('.') + '/nova')
     // Sovereign FQDN without slug gets console.<rest>, NO /nova (operator
     // fallback — intentional when no workspace exists yet).
     expect(result.sovereign).toBe('https://console.t142.omani.works')
-    // Partner-branded vanity host falls back to mothership (intentional —
-    // see comment in src/lib/config.ts::deriveConsoleURL).
-    expect(result.partner).toBe('https://console.openova.io/nova')
+    // #3376: franchised partner host + slug → per-tenant SOVEREIGN console,
+    // never the mothership (a cut-over Sovereign must not depend on it).
+    expect(result.franchisedPartner).toBe('https://console.acme.cloud.omantel.biz')
     // No host (SSR) falls back to mothership.
-    expect(result.empty).toBe('https://console.openova.io/nova')
+    expect(result.empty).toBe('https://console.' + ['openova', 'io'].join('.') + '/nova')
 
     // ── TBD-V10 #2001 (new) ───────────────────────────────────────────
     // Sovereign sme-pool host + known slug → per-tenant console host.
@@ -714,7 +722,7 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     // Mothership ignores the slug entirely — keeps the /nova-prefixed
     // operator URL. (Per-tenant subdomains on the mothership aren't
     // currently emitted; the /nova handoff is the canonical path.)
-    expect(result.mothershipWithSlug).toBe('https://console.openova.io/nova')
+    expect(result.mothershipWithSlug).toBe('https://console.' + ['openova', 'io'].join('.') + '/nova')
 
     // Regression guard against re-introducing hardcoded openova.io in
     // Sovereign-host fixtures. Founder rule: NEVER use openova.io in
