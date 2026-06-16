@@ -85,7 +85,11 @@ spec:
       # catalyst-system/newapi/sso-bridge/oidc-gate) in allowedIngressNamespaces
       # so the host Cilium Gateway + keycloak SSO consumers reach the moved
       # keycloak/grafana through the vCluster isolation netpol.
-      version: 0.2.11
+      # 0.2.12 (#3642 follow-on): the remaining 5 host→mgmt moves (openbao/
+      # harbor/gitea/newapi/guacamole) add harbor/gitea/velero/rtz to
+      # allowedIngressNamespaces (their host-bridged CNPG -rw Services + velero
+      # registry backup + the cross-vCluster shared-pg wire).
+      version: 0.2.12
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster

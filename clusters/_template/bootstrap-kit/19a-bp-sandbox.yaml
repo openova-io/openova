@@ -108,7 +108,7 @@ spec:
     # flux-system), wedging bp-sandbox at "unable to get 'rtz/bp-harbor'
     # dependency" and holding the bootstrap-kit health gate forever.
     - name: bp-harbor
-      namespace: flux-system
+      namespace: mgmt
     # #3098 (2026-06-08, hw100): the sandbox chart ships an
     # externalsecret.external-secrets.io resource
     # (platform/sandbox/chart/templates/sso-oauth-source-externalsecret.yaml,

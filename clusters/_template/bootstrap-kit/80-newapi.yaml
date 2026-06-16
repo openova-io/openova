@@ -44,13 +44,20 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-newapi
-  namespace: flux-system
+  namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
+    catalyst.openova.io/vcluster: mgmt
     catalyst.openova.io/slot: "80"
 spec:
   interval: 15m
   releaseName: newapi
   targetNamespace: newapi
+  storageNamespace: newapi
+  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
+  kubeConfig:
+    secretRef:
+      name: vc-mgmt
+      key: config
   # bp-newapi depends on:
   #   - bp-openbao(08): the secret backend the chart's ExternalSecret
   #     pulls `ADMIN_API_TOKEN` from. Without OpenBao Ready, the
@@ -64,12 +71,18 @@ spec:
   #     PostgresqlInstance claim once cnpg is Ready. The DSN is mounted
   #     into NewAPI via `database.existingSecret` (operator-set).
   dependsOn:
+    # bp-mgmt-vcluster MUST be Ready first — the vc-mgmt
+    # Secret doesn't exist until then. placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+    - name: bp-mgmt-vcluster
+      namespace: flux-system
     # G92.2 #2661 (2026-06-01): bp-openbao + bp-keycloak HRs moved to
     # host ns `mgmt`.
     - name: bp-openbao
+      namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-keycloak
       namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-cnpg
+      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   chart:
     spec:
       chart: bp-newapi
@@ -263,6 +276,7 @@ spec:
   # ~10 s once the Postgres DSN Secret is present; the long pole is
   # waiting for the operator's Crossplane claim to materialise the DB.
   install:
+    createNamespace: true  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     timeout: 15m
     disableWait: true
     remediation:
@@ -304,6 +318,7 @@ spec:
     # Mirror the chart's value path. (Same shape for slot 81-sme if that
     # chart also reads cnpg.cluster.instances — track separately.)
     cnpg:
+      enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
       cluster:
         instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
     postgres:
@@ -329,12 +344,14 @@ spec:
       # API spec, so enabling this on every Sovereign restores LLM
       # reachability without touching the marketplace wildcard.
       httpRoute:
-        enabled: true
+        enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
         host: newapi.${SOVEREIGN_FQDN}
     auth:
       adminUI:
         mode: keycloak
         keycloak:
+          ssoBridgeSync:
+            enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
           # #3374: was realms/ops — a realm that does not exist on any
           # Sovereign (bp-keycloak imports only `sovereign` + per-Org
           # realms; measured live on hw130 2026-06-13). The sovereign
@@ -349,7 +366,7 @@ spec:
       enabled: true
       existingSecret: catalyst-newapi-admin-token
       externalSecret:
-        enabled: true
+        enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
         refreshInterval: "1h"
         secretStoreRef:
           kind: ClusterSecretStore
@@ -495,3 +512,128 @@ spec:
         attestation:
           kind: in-cluster
           owner: ${SOVEREIGN_FQDN}
+
+# ── HOST-BRIDGE BEGIN (#3642) — placement-generated host-side route/secret/CNPG; edit placement.yaml hostBridge: + run scripts/render-slot-placement.py fix ──
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: newapi-bp-newapi-public
+  namespace: mgmt
+  labels:
+    catalyst.openova.io/blueprint: bp-newapi
+    catalyst.openova.io/component: newapi-public-route
+    catalyst.openova.io/host-bridge: mgmt
+spec:
+  parentRefs:
+  - name: cilium-gateway
+    namespace: kube-system
+  hostnames:
+  - newapi.${SOVEREIGN_FQDN}
+  rules:
+  - matches:
+    - path:
+        type: Exact
+        value: /
+    backendRefs:
+    - name: newapi-bp-newapi-x-newapi-x-mgmt-vcluster
+      namespace: mgmt
+      port: 8080
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: newapi-bp-newapi-x-newapi-x-mgmt-vcluster
+      namespace: mgmt
+      port: 3000
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: catalyst-newapi-admin-token
+  namespace: newapi
+  labels:
+    catalyst.openova.io/blueprint: bp-newapi
+    catalyst.openova.io/host-bridge: mgmt
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: vault-region1
+  target:
+    name: catalyst-newapi-admin-token
+    creationPolicy: Owner
+    template:
+      metadata:
+        annotations:
+          reflector.v1.k8s.emberstack.com/reflection-allowed: 'true'
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: catalyst-system
+          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: 'true'
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: catalyst-system
+  data:
+  - secretKey: ADMIN_API_TOKEN
+    remoteRef:
+      key: sovereign/${SOVEREIGN_FQDN}/newapi/admin-token
+      property: ADMIN_API_TOKEN
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: newapi-bp-newapi-oidc-sync
+  namespace: newapi
+  labels:
+    catalyst.openova.io/blueprint: bp-newapi
+    bp-sso-bridge.openova.io/consumer: bp-newapi
+    catalyst.openova.io/host-bridge: mgmt
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-region1
+    kind: ClusterSecretStore
+  target:
+    name: newapi-oidc
+    creationPolicy: Merge
+    template:
+      type: Opaque
+      mergePolicy: Merge
+      data:
+        OIDC_CLIENT_SECRET: '{{ .client_secret }}'
+  data:
+  - secretKey: client_secret
+    remoteRef:
+      key: sso/sovereign/newapi-admin
+      property: client_secret
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: newapi-bp-newapi-newapi-pg
+  namespace: newapi
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    catalyst.openova.io/blueprint: bp-newapi
+    catalyst.openova.io/host-bridge: mgmt
+spec:
+  instances: 1
+  imageName: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16.4
+  storage:
+    size: 5Gi
+  bootstrap:
+    initdb:
+      database: newapi
+      owner: newapi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: newapi-bp-newapi-newapi-db-dsn
+  namespace: newapi
+  labels:
+    catalyst.openova.io/blueprint: bp-newapi
+    catalyst.openova.io/host-bridge: mgmt
+type: Opaque
+data:
+  SQL_DSN: ''
+# ── HOST-BRIDGE END (#3642) ──

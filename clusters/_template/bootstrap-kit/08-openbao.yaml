@@ -39,7 +39,7 @@ metadata:
   # longer needs to colocate with vc-mgmt. Reverting also restores
   # the Helm valuesFrom lookup of secrets like 'object-storage'
   # (cloud-init seeds it in flux-system; lookup is in HR's own ns).
-  namespace: flux-system
+  namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
     catalyst.openova.io/slot: "08"
     catalyst.openova.io/vcluster: mgmt
@@ -47,6 +47,12 @@ spec:
   interval: 15m
   releaseName: openbao
   targetNamespace: openbao
+  storageNamespace: openbao
+  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
+  kubeConfig:
+    secretRef:
+      name: vc-mgmt
+      key: config
   # G105-followup #2697 (2026-06-01) — G92.2 #2661 placement REVERTED.
   # Same rationale as 09-keycloak: vCluster lacks ExternalSecret + the
   # mgmt namespace inside itself for Helm release storage. Caught live
@@ -55,6 +61,10 @@ spec:
   # Application-controller G92.1 Blueprint-layer pivot stays; slot-level
   # forcing removed until vCluster CRD sync ships.
   dependsOn:
+    # bp-mgmt-vcluster MUST be Ready first — the vc-mgmt
+    # Secret doesn't exist until then. placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+    - name: bp-mgmt-vcluster
+      namespace: flux-system
     # bp-gateway-api (issue #503): chart ships an HTTPRoute template at
     # platform/openbao/chart/templates/httproute.yaml; the
     # gateway.networking.k8s.io/v1 CRDs MUST be registered before this
@@ -157,6 +167,7 @@ spec:
   #   needs on first reconcile.
   values:
     gateway:
+      enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
       host: bao.${SOVEREIGN_FQDN}
     # G91.openbao (#2655) — wire bp-sso-bridge framework. The chart-side
     # continuous reconciler Deployment computes OIDC discovery + redirect
@@ -253,3 +264,109 @@ spec:
       primaryRegion: '${SOVEREIGN_PRIMARY_REGION:-}'
       standbyRegion: '${SOVEREIGN_REPLICA_REGION:-}'
       pdmZone: ${SOVEREIGN_FQDN}
+
+# ── HOST-BRIDGE BEGIN (#3642) — placement-generated host-side route/secret/CNPG; edit placement.yaml hostBridge: + run scripts/render-slot-placement.py fix ──
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: openbao
+  namespace: mgmt
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao
+    catalyst.openova.io/host-bridge: mgmt
+spec:
+  parentRefs:
+  - name: cilium-gateway
+    namespace: kube-system
+  hostnames:
+  - bao.${SOVEREIGN_FQDN}
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /sso/landing
+    backendRefs:
+    - name: openbao-sso-landing-x-openbao-x-mgmt-vcluster
+      namespace: mgmt
+      port: 80
+  - matches:
+    - path:
+        type: Exact
+        value: /
+    filters:
+    - type: RequestRedirect
+      requestRedirect:
+        hostname: bao.${SOVEREIGN_FQDN}
+        port: 443
+        path:
+          type: ReplaceFullPath
+          replaceFullPath: /sso/landing
+        statusCode: 302
+  - matches:
+    - path:
+        type: Exact
+        value: /ui
+    filters:
+    - type: RequestRedirect
+      requestRedirect:
+        hostname: bao.${SOVEREIGN_FQDN}
+        port: 443
+        path:
+          type: ReplaceFullPath
+          replaceFullPath: /sso/landing
+        statusCode: 302
+  - matches:
+    - path:
+        type: Exact
+        value: /ui/
+    filters:
+    - type: RequestRedirect
+      requestRedirect:
+        hostname: bao.${SOVEREIGN_FQDN}
+        port: 443
+        path:
+          type: ReplaceFullPath
+          replaceFullPath: /sso/landing
+        statusCode: 302
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: openbao-x-openbao-x-mgmt-vcluster
+      namespace: mgmt
+      port: 8200
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: openbao-sso-oidc-credentials
+  namespace: openbao
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    bp-sso-bridge.openova.io/consumer: bp-openbao
+    catalyst.openova.io/host-bridge: mgmt
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-region1
+    kind: ClusterSecretStore
+  target:
+    name: openbao-sso-oidc-credentials
+    creationPolicy: Owner
+  data:
+  - secretKey: client_id
+    remoteRef:
+      key: sso/openbao
+      property: client_id
+  - secretKey: client_secret
+    remoteRef:
+      key: sso/openbao
+      property: client_secret
+  - secretKey: issuer_url
+    remoteRef:
+      key: sso/openbao
+      property: issuer_url
+# ── HOST-BRIDGE END (#3642) ──

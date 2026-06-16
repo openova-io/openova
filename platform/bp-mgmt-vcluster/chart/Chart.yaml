@@ -94,7 +94,19 @@ name: bp-mgmt-vcluster
 # backendRef of the host-bridged HTTPRoutes) + catalyst-system/newapi/
 # sso-bridge/oidc-gate (keycloak SSO consumers) to allowedIngressNamespaces
 # (mirrors the #3423 sme→NATS carve-out). Additive netpol-values change only.
-version: 0.2.11
+# 0.2.12 (#3642 follow-on): the remaining 5 host→mgmt moves (openbao, harbor,
+# gitea, newapi, guacamole) add their host-side consumers' namespaces to
+# allowedIngressNamespaces (the mangled Services of their host-bridged routes
+# + their CNPG -rw Services now sit behind this isolation netpol). Per
+# docs/sessions/2026-06-14/3373-migration-plan §7 batch-D set: harbor + gitea +
+# velero (velero → harbor registry backup; harbor/gitea also self-ingress their
+# own host-rendered CNPG -rw Service from the in-vCluster Pod once the syncer
+# mirrors it) + rtz (the cross-vCluster DB wire when a moved app SHARES the rtz
+# shared-pg/cnpg-pair instead of owning its host-bridged Cluster). The
+# gateway-system/kube-system + catalyst-system/newapi/sso-bridge/oidc-gate
+# entries from 0.2.11 already cover the host Cilium Gateway + the openbao/newapi
+# SSO consumers. Additive netpol-values change only; default render unchanged.
+version: 0.2.12
 appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT
