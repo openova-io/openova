@@ -442,6 +442,41 @@ egressTest:
   # explicit `egressTest.enforceCIDRBlock: true` is now redundant-but-
   # harmless (overlay still wins; both agree).
   enforceCIDRBlock: true
+  # #3647 (hw149 live repro) — FRESH-PULL proof under deny-egress. The
+  # legacy Step-08 only watched that ALREADY-RUNNING pods stayed Ready, so
+  # it certified "no external deps" WITHOUT ever exercising the one path
+  # that breaks post-cutover: a brand-new image pull. With the egressDeny
+  # CCNP applied (4 tether CIDRs blocked, apiserver/DNS/intra-cluster
+  # untouched via enableDefaultDeny.egress:false), Step-08 now FORCE-rolls
+  # one openova-io-imaged workload (deletes a single Pod) and REQUIRES the
+  # replacement Pod to reach Running by pulling its image from local Harbor
+  # — proving the registry-pivot certs.d mirror (Step-04) actually serves
+  # openova-io images with external egress denied. If the new Pod lands in
+  # ImagePullBackOff/ErrImagePull (mirror inert → still resolving ghcr.io)
+  # the proof FAILS and cutoverComplete stays false. Fail-safe: only runs
+  # when the egressDeny policy was actually applied; if NO suitable
+  # openova-io Deployment is found, or the bounce can't be performed, it
+  # logs and falls back to the survival-poll only (never wedges the cutover
+  # on a tooling gap). Tune/disable per-Sovereign via overlay.
+  freshPullProof:
+    # Master switch. Default true so every cutover earns cutoverComplete
+    # only with a witnessed fresh pull under deny-egress (ADR-0002 intent).
+    enabled: true
+    # Optional explicit target. Empty = auto-discover an openova-io-imaged
+    # Deployment at runtime (any namespace, excluding catalyst-api so the
+    # cutover engine's own API is never bounced). Set both to pin a
+    # specific workload if auto-discovery picks a poor candidate.
+    namespace: ""
+    deployment: ""
+    # Deployment name substring NEVER selected by auto-discovery (the
+    # cutover runs inside catalyst-api; bouncing it mid-hold is unsafe).
+    excludeDeploymentSubstring: "catalyst-api"
+    # How long to wait for the freshly-rolled Pod to reach Running with its
+    # image pulled. 240s is generous: the image is in local Harbor (Step-03
+    # prewarm / Step-04 mirror) so the pull is typically seconds; the extra
+    # headroom covers scheduler + container-create. A Pod still not Running
+    # at the deadline — or any ImagePull error observed — FAILS the proof.
+    timeoutSeconds: 240
   blockedDomains:
     - "github.com"
     - "ghcr.io"

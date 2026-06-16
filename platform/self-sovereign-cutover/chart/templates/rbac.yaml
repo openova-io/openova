@@ -28,7 +28,10 @@ The cutover runner needs cluster-scope reach because:
     force-reconciles the GitRepository + bootstrap-kit Kustomization so
     Step-06's durable git-push lands before the HelmRepository-pivot
     assertion — needs kustomizations {update,patch} for the reconcile
-    annotation.
+    annotation. (#3647) It ALSO force-deletes ONE openova-io-imaged Pod
+    under the deny-egress hold and watches its replacement reach Running
+    to prove a FRESH image pull resolves through local Harbor — needs
+    pods {delete} + replicasets {get,list} (pod→Deployment ownership map).
   - Registry-pivot DaemonSet writes to /etc/rancher/k3s/registries.yaml
     on the host filesystem (hostPath, no K8s API needed beyond status
     update on the cutover-status ConfigMap).
@@ -79,6 +82,9 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments", "daemonsets", "statefulsets"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]   # step 08 (#3647) maps the freshly-created Pod back to its owning Deployment for the fresh-pull-under-deny-egress proof
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["get", "list", "watch"]
@@ -116,6 +122,9 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["update", "patch"]   # step 06 phase-0 merges harbor.<sov-fqdn> auth into ghcr-pull (#1184)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete"]   # step 08 (#3647) force-deletes ONE openova-io-imaged Pod under deny-egress to prove a fresh image pull resolves through local Harbor (the ReplicaSet recreates it; only a single Pod is bounced)
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["update", "patch"]   # step 07 sets env on catalyst-api deployment
