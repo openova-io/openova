@@ -401,6 +401,17 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
             </label>
             <label className="flex flex-col text-xs text-[var(--color-text-dim)]">
               Placement mode
+              {/*
+               * #3375 §3(d) — the install-flow placement picker must offer
+               * the SAME canonical class set the post-create TopologyEditor
+               * offers (ALL_MODES). It previously hardcoded only
+               * single-region / active-active / active-hotstandby, so a
+               * Blueprint that supports `active-passive` (primary serves;
+               * passive cold/warm standby) could be created on the editor
+               * but never AT INSTALL — a supported-vs-selectable
+               * contradiction. The fourth canonical class is added here so
+               * the install picker matches the backend's supported set.
+               */}
               <select
                 className="mt-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm"
                 data-testid="install-page-placement"
@@ -410,6 +421,7 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
                 <option value="single-region">single-region</option>
                 <option value="active-active">active-active</option>
                 <option value="active-hotstandby">active-hotstandby</option>
+                <option value="active-passive">active-passive</option>
               </select>
             </label>
           </div>

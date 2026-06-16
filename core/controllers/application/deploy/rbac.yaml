@@ -71,6 +71,15 @@ rules:
     resources: ["blueprints"]
     verbs: ["get", "list", "watch"]
 
+  # #3375 DoD-3 — the per-app Continuum DR contract the controller mints
+  # for every DR-capable Application (one dr-<app> CR per app, so
+  # `kubectl get continuums.dr.openova.io -A` shows a per-app roster). The
+  # producer upserts on reconcile + cascade-deletes on Application delete /
+  # topology-downgrade, so it needs the full write verb set on this CR.
+  - apiGroups: ["dr.openova.io"]
+    resources: ["continuums"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
   # Events for audit trail on every reconcile error / status flip.
   - apiGroups: [""]
     resources: ["events"]

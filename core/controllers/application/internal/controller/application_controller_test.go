@@ -189,6 +189,8 @@ func newScheme() *runtime.Scheme {
 		// qa-loop iter-11 Fix #45 Cluster-B — observation of downstream
 		// HelmRelease readiness for Application.status.phase rollup.
 		{Group: "helm.toolkit.fluxcd.io", Version: "v2", Kind: "HelmRelease"},
+		// #3375 DoD-3 — the per-app Continuum DR contract the fan-out mints.
+		{Group: ContinuumGroup, Version: ContinuumVersion, Kind: ContinuumKind},
 	} {
 		s.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
 		listGVK := schema.GroupVersionKind{Group: gvk.Group, Version: gvk.Version, Kind: gvk.Kind + "List"}
@@ -207,6 +209,8 @@ func listKindMap() map[schema.GroupVersionResource]string {
 		FluxGitRepositoryGVR: "GitRepositoryList",
 		FluxKustomizationGVR: "KustomizationList",
 		FluxHelmReleaseGVR:   "HelmReleaseList",
+		// #3375 DoD-3 — per-app Continuum DR contract.
+		ContinuumGVR: "ContinuumList",
 	}
 }
 
