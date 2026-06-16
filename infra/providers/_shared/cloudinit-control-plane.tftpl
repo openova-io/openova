@@ -685,21 +685,132 @@ runcmd:
   ${indent(2, kubeconfig_put_block)}
 %{ endif ~}
 
-  # ── IPv4-pin dual-stack bootstrap hosts (#3232 — the intermittent multi-
-  # region CNI killer, root-caused on hw125). Huawei VPCs are IPv4-only;
-  # helm/kubectl (Go) can resolve these GitHub-Pages/GitHub hosts to AAAA
-  # and try IPv6 FIRST → "network is unreachable" with NO fallback →
-  # `helm repo add cilium` fails → no CNI → the region's nodes stay
-  # NotReady forever. region-A happened to get the A record, region-b got
-  # AAAA (hw125: region-b CNI-dead, ClusterMesh impossible, Pillar-3
-  # blocked). Pinning the resolved IPv4 in /etc/hosts BEFORE any pull is
-  # targeted + cloud-agnostic (every host below is IPv4-reachable from
-  # every cloud; on a dual-stack cloud the A record is still valid).
+  # ── IPv4-pin dual-stack bootstrap hosts (#3232 + #3714 — the intermittent
+  # multi-region CNI/Flux killer, root-caused on hw125, deepened on hw151/152).
+  # Huawei VPCs are IPv4-only; helm/kubectl/git (Go) AND the in-cluster Flux
+  # source-controller can resolve these GitHub-Pages/GitHub hosts to AAAA and
+  # try IPv6 FIRST → "network is unreachable" with NO fallback →
+  #   * node side: `helm repo add cilium` fails → no CNI; or
+  #   * pod side: source-controller can't pull the bootstrap monorepo from
+  #     github.com → NO GitRepository artifact → 0 HelmReleases in BOTH
+  #     regions → Phase-1 watcher times out + the kubeconfig is never PUT
+  #     (the exact hw151/hw152 wedge).
+  # region-A happened to get the A record, region-b got AAAA (hw125: region-b
+  # CNI-dead). The #3232 /etc/hosts pin below fixes the NODE's Go resolvers;
+  # the CoreDNS step that FOLLOWS (#3714) fixes the in-cluster pod path —
+  # /etc/hosts on the node does NOT reach pods, which resolve via CoreDNS.
+  #
+  # HARDENING (#3714): the old `getent ahostsv4` pin SKIPPED silently (`||
+  # true`) when the VPC DNS returned no A-record, leaving the pin empty + the
+  # IPv6 trap live. We now resolve DETERMINISTICALLY via a 3-tier ladder
+  # (getent → public-resolver nslookup 1.1.1.1/8.8.8.8 → python3
+  # socket.getaddrinfo AF_INET), bounded by a retry loop, and persist every
+  # resolved `<ipv4> <host>` to a side-file the CoreDNS step reuses. Each host
+  # below is IPv4-reachable from every cloud; on a dual-stack cloud the A
+  # record is still valid, so this stays cloud-agnostic.
   - |
-    for h in helm.cilium.io get.helm.sh raw.githubusercontent.com github.com objects.githubusercontent.com codeload.github.com; do
-      ip="$(getent ahostsv4 "$h" 2>/dev/null | awk 'NR==1{print $1}')"
-      [ -n "$ip" ] && printf '%s %s\n' "$ip" "$h" >> /etc/hosts || true
+    PIN_HOSTS="helm.cilium.io get.helm.sh raw.githubusercontent.com github.com objects.githubusercontent.com codeload.github.com api.github.com"
+    PIN_FILE=/var/lib/catalyst/github-ipv4-hosts
+    mkdir -p /var/lib/catalyst
+    : > "$PIN_FILE"
+    # resolve_ipv4 <host> -> echoes the first IPv4 (A record) or empty.
+    # Tier 1 getent (node resolver) → Tier 2 public resolvers (nslookup) →
+    # Tier 3 python3 getaddrinfo(AF_INET). nslookup/getent presence varies by
+    # base image, so every tier is guarded + the next one runs on empty.
+    resolve_ipv4() {
+      _h="$1"; _ip=""
+      _ip="$(getent ahostsv4 "$_h" 2>/dev/null | awk 'NR==1{print $1}')"
+      if [ -z "$_ip" ] && command -v nslookup >/dev/null 2>&1; then
+        for _rs in 1.1.1.1 8.8.8.8; do
+          _ip="$(nslookup -type=A "$_h" "$_rs" 2>/dev/null | awk '/^Address: /{print $2; exit}')"
+          [ -n "$_ip" ] && break
+        done
+      fi
+      if [ -z "$_ip" ] && command -v python3 >/dev/null 2>&1; then
+        # Single-line -c (block-scalar/dash safe); host via argv (no shell
+        # interpolation). getaddrinfo raises on failure → traceback to
+        # /dev/null + non-zero → $() yields empty, exactly the want.
+        _ip="$(python3 -c 'import socket,sys; print(socket.getaddrinfo(sys.argv[1],443,socket.AF_INET)[0][4][0])' "$_h" 2>/dev/null)"
+      fi
+      printf '%s' "$_ip"
+    }
+    for h in $PIN_HOSTS; do
+      ip=""
+      n=0
+      while [ "$n" -lt 6 ]; do
+        ip="$(resolve_ipv4 "$h")"
+        [ -n "$ip" ] && break
+        n=$((n + 1))
+        sleep 5
+      done
+      if [ -n "$ip" ]; then
+        # de-dupe the /etc/hosts line across cloud-init re-runs (literal-space
+        # ERE; we always write exactly "<ip> <host>", and a POSIX space char
+        # class would trip the dash-lint bash-test heuristic)
+        grep -qE "^[0-9.]+ +$h\$" /etc/hosts 2>/dev/null || printf '%s %s\n' "$ip" "$h" >> /etc/hosts
+        printf '%s %s\n' "$ip" "$h" >> "$PIN_FILE"
+        echo "[ipv4-pin] $h -> $ip"
+      else
+        echo "[ipv4-pin] WARN: could not resolve A record for $h after retries (IPv6 trap may persist)" >&2
+      fi
     done
+
+  # ── In-cluster IPv4 resolution for github (#3714) — the deeper half of the
+  # #3232 fix. The Flux source-controller pod pulls the bootstrap monorepo
+  # from github.com (the GitRepository at flux-bootstrap.yaml) and resolves
+  # via CoreDNS, NOT the node's /etc/hosts. On an IPv4-only VPC a CoreDNS
+  # upstream that hands back AAAA makes source-controller try IPv6 → "network
+  # is unreachable" → no artifact → 0 HelmReleases (hw151/hw152). We inject a
+  # `coredns-custom` ConfigMap (the k3s-native, restart-/upgrade-surviving
+  # CoreDNS extension point: k3s imports `/etc/coredns/custom/*.override` into
+  # the default `.:53` server block) with a `hosts` plugin that force-resolves
+  # the github hosts to the IPv4 we just pinned. `fallthrough` keeps every
+  # other name resolving normally; this touches ONLY CoreDNS config, never
+  # Cilium/CNI/kube-proxy. CoreDNS is a k3s addon up shortly after /healthz;
+  # the rollout-restart makes it reload the override before Flux bootstraps.
+  - |
+    PIN_FILE=/var/lib/catalyst/github-ipv4-hosts
+    CM_FILE=/var/lib/catalyst/coredns-custom-github.yaml
+    KC=/etc/rancher/k3s/k3s.yaml
+    # Only the in-cluster-relevant github hosts need the CoreDNS override (the
+    # helm.cilium.io / get.helm.sh pulls all run on the NODE, already pinned).
+    GH_HOSTS="github.com codeload.github.com objects.githubusercontent.com raw.githubusercontent.com api.github.com"
+    # Build the ConfigMap YAML with printf (no nested heredoc — dash-safe; the
+    # `*.override` value is a block scalar imported into CoreDNS's .:53 server).
+    {
+      printf 'apiVersion: v1\n'
+      printf 'kind: ConfigMap\n'
+      printf 'metadata:\n'
+      printf '  name: coredns-custom\n'
+      printf '  namespace: kube-system\n'
+      printf 'data:\n'
+      printf '  github-ipv4.override: |\n'
+      printf '    hosts {\n'
+      for h in $GH_HOSTS; do
+        ip="$(awk -v host="$h" '$2 == host {print $1; exit}' "$PIN_FILE" 2>/dev/null)"
+        [ -n "$ip" ] && printf '        %s %s\n' "$ip" "$h"
+      done
+      printf '        fallthrough\n'
+      printf '    }\n'
+    } > "$CM_FILE"
+    # Wait for the CoreDNS deployment object to exist (k3s addon registers it
+    # within seconds of the apiserver; the Deployment EXISTS long before its
+    # pods are Ready — Ready needs Cilium, installed further below). Bounded so
+    # a missing addon never stalls bootstrap.
+    n=0
+    while [ "$n" -lt 24 ]; do
+      kubectl --kubeconfig="$KC" -n kube-system get deploy coredns >/dev/null 2>&1 && break
+      n=$((n + 1))
+      sleep 5
+    done
+    # Apply the override ConfigMap (idempotent, persists immediately) + nudge a
+    # restart. We deliberately do NOT block on rollout-status here: pre-CNI
+    # CoreDNS is Pending, so it picks up the mounted override on its first
+    # successful start once Cilium is up (still well before Flux bootstraps the
+    # GitRepository). The restart is a harmless best-effort nudge if a CoreDNS
+    # pod was already running.
+    kubectl --kubeconfig="$KC" apply -f "$CM_FILE" || true
+    kubectl --kubeconfig="$KC" -n kube-system rollout restart deploy/coredns >/dev/null 2>&1 || true
 
   # ── gateway-api CRDs: ONE official bundle apply (lean Hetzner pattern) ─
   # Flux's bp-gateway-api re-applies post-bootstrap; this single apply just
