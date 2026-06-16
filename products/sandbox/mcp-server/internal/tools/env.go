@@ -22,7 +22,7 @@
 //	KEYCLOAK_ADMIN_URL          = "http://keycloak.keycloak.svc.cluster.local:8080"
 //	KEYCLOAK_ADMIN_TOKEN        = "<admin bearer>" (sandbox-controller-injected)
 //	KEYCLOAK_PARENT_REALM       = "master"  (default; controller may override)
-//	SANDBOX_DOMAIN_API_URL      = "http://domain.sme.svc.cluster.local:8086"
+//	SANDBOX_DOMAIN_API_URL      = "http://domain.org-services.svc.cluster.local:8086"
 //	SANDBOX_MARKETPLACE_API_URL = "http://marketplace-api.marketplace.svc.cluster.local:8082"
 //	SANDBOX_TENANT_ID           = "<tenant-uuid>" (scopes domain/byod calls)
 //
@@ -90,7 +90,7 @@ func NewEnvFromOS() *Env {
 		// consumes — see core/services/tenant/handlers/apps.go:195 and
 		// core/services/provisioning/handlers/consumer.go::handleAppInstallRequested).
 		// Default unset; sandbox-controller injects via SANDBOX_TENANT_API_URL
-		// pointing at the SME gateway `http://gateway.sme.svc.cluster.local:8080/api/tenant`.
+		// pointing at the SME gateway `http://gateway.org-services.svc.cluster.local:8080/api/tenant`.
 		// Empty → marketplace.app.install surfaces a clear "not configured" error.
 		TenantAPIURL:        os.Getenv("SANDBOX_TENANT_API_URL"),
 		TenantID:            os.Getenv("SANDBOX_TENANT_ID"),

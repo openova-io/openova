@@ -55,7 +55,7 @@ const (
 // ADR-0003 §3.4.
 type UserProvisionRecord struct {
 	SMEUserUUID  string             `json:"sme_user_uuid"`
-	SMETenantID  string             `json:"sme_tenant_id"`
+	OrganizationID  string             `json:"sme_tenant_id"`
 	Email        string             `json:"email"`
 	State        UserProvisionState `json:"state"`
 	KCUserID     string             `json:"kc_user_id,omitempty"`
@@ -102,7 +102,7 @@ func (s *UserProvisionStore) Put(rec UserProvisionRecord) error {
 	if strings.TrimSpace(rec.SMEUserUUID) == "" {
 		return errors.New("user-provision: sme_user_uuid is required")
 	}
-	if strings.TrimSpace(rec.SMETenantID) == "" {
+	if strings.TrimSpace(rec.OrganizationID) == "" {
 		return errors.New("user-provision: sme_tenant_id is required")
 	}
 	if rec.State == "" {
@@ -113,7 +113,7 @@ func (s *UserProvisionStore) Put(rec UserProvisionRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	tenantDir := filepath.Join(s.dir, sanitizeID(rec.SMETenantID))
+	tenantDir := filepath.Join(s.dir, sanitizeID(rec.OrganizationID))
 	if err := os.MkdirAll(tenantDir, 0o700); err != nil {
 		return fmt.Errorf("user-provision: mkdir tenant %q: %w", tenantDir, err)
 	}

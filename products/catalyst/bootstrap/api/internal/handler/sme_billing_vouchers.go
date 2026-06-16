@@ -25,7 +25,7 @@
 // ── Upstream ─────────────────────────────────────────────────────────
 //
 // Upstream is the SME gateway (core/services/gateway/main.go) at
-// http://gateway.sme.svc.cluster.local:8080. The gateway strips `/api`
+// http://gateway.org-services.svc.cluster.local:8080. The gateway strips `/api`
 // and forwards to the in-cluster billing service. Override via
 // CATALYST_SME_GATEWAY_URL (docs/INVIOLABLE-PRINCIPLES.md #4 — never
 // hardcode; the default is the chart's documented Service DNS, every
@@ -59,7 +59,7 @@
 //      token with h.smeJWTSecret (mirrored from `sme-secrets`
 //      into catalyst-system by emberstack/reflector — see the
 //      annotation block on products/catalyst/chart/templates/
-//      sme-services/sme-secrets.yaml).
+//      org-services/org-services-secrets.yaml).
 //   5. The bridged token is forwarded as `Authorization: Bearer …`
 //      on the upstream hop. Per docs/INVIOLABLE-PRINCIPLES.md #10
 //      the token is NEVER logged.
@@ -88,8 +88,8 @@ import (
 
 const (
 	// defaultSMEGatewayURL — the in-cluster Service DNS the chart's
-	// templates/sme-services/gateway.yaml exposes on port 8080.
-	defaultSMEGatewayURL = "http://gateway.sme.svc.cluster.local:8080"
+	// templates/org-services/gateway.yaml exposes on port 8080.
+	defaultSMEGatewayURL = "http://gateway.org-services.svc.cluster.local:8080"
 
 	// smeGatewayURLEnv — runtime override per
 	// docs/INVIOLABLE-PRINCIPLES.md #4.

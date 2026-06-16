@@ -2,7 +2,7 @@
 // catalog microservice (services/catalog) used by HandleSovereignApps
 // and HandleSovereignAppPublish.
 //
-// Lives at http://catalog.sme.svc.cluster.local:8082 when the chart's
+// Lives at http://catalog.org-services.svc.cluster.local:8082 when the chart's
 // SME services tier is deployed. When the SME services tier is NOT
 // deployed (Sovereigns with marketplace.enabled=false, like omantel.biz),
 // every call returns nil/false with no error logged at warn level —
@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	defaultSMECatalogURL  = "http://catalog.sme.svc.cluster.local:8082"
+	defaultSMECatalogURL  = "http://catalog.org-services.svc.cluster.local:8082"
 	smeCatalogURLEnv      = "CATALYST_SME_CATALOG_URL"
 	smeCatalogCacheTTL    = 30 * time.Second
 	smeCatalogProbeBudget = 1500 * time.Millisecond

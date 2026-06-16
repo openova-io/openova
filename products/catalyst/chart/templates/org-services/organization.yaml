@@ -1,0 +1,111 @@
+{{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tenant
+  namespace: org-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sme-tenant
+  template:
+    metadata:
+      labels:
+        policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
+        app: sme-tenant
+    spec:
+      serviceAccountName: tenant
+      # TBD-D35a — must be true so the SandboxOrchestrator
+      # (core/services/tenant/handlers/sandbox_consumer.go) can build an
+      # in-cluster dynamic client and materialise Sandbox CRs in
+      # `catalyst-system`. The companion narrow RBAC (Role +
+      # RoleBinding in serviceaccounts.yaml, verbs get/create on
+      # sandboxes.sandbox.openova.io scoped to catalyst-system) bounds
+      # the blast radius. Without this flip, main.go logs
+      # `sandbox-orchestrator: kubernetes client unavailable —
+      # orchestrator disabled` and silently skips the consumer, which
+      # Wave 32 D35a verifier caught on t26.
+      automountServiceAccountToken: true
+      imagePullSecrets:
+        - name: ghcr-pull
+      containers:
+        - name: tenant
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-tenant:{{ .Values.images.smeTag }}"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8083
+          env:
+            - name: MONGODB_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: MONGODB_URI
+            - name: MONGODB_DB
+              value: "tenants"
+            - name: REDPANDA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: REDPANDA_BROKERS
+            # NATS JetStream URL — canonical event bus per ADR-0001 §6.
+            # On Sovereigns the ConfigMap default resolves to
+            # nats://nats-jetstream.nats-system.svc.cluster.local:4222
+            # (see configmap.yaml header). Service publishes
+            # `catalyst.tenant.<event>` subjects via events.MultiPublisher.
+            - name: NATS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: NATS_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: org-services-secrets
+                  key: JWT_SECRET
+            - name: CORS_ORIGIN
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CORS_ORIGIN_PUBLIC
+            - name: PROVISIONING_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: PROVISIONING_URL
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8083
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8083
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tenant
+  namespace: org-services
+spec:
+  selector:
+    app: sme-tenant
+  ports:
+    - port: 8083
+      targetPort: 8083
+{{- end }}

@@ -27,12 +27,12 @@ func main() {
 	port := getEnv("PORT", "8085")
 	successURL := getEnv("SUCCESS_URL", "https://sme.openova.io/checkout")
 	cancelURL := getEnv("CANCEL_URL", "https://sme.openova.io/checkout")
-	catalogURL := getEnv("CATALOG_URL", "http://catalog.sme.svc.cluster.local:8082")
-	tenantURL := getEnv("TENANT_URL", "http://tenant.sme.svc.cluster.local:8083")
+	catalogURL := getEnv("CATALOG_URL", "http://catalog.org-services.svc.cluster.local:8082")
+	tenantURL := getEnv("TENANT_URL", "http://tenant.org-services.svc.cluster.local:8083")
 	// NOTIFICATION_SERVICE_URL — sme-notification's POST /notification/send
 	// endpoint, used by D28 (voucher-issued gifting email). Default points at
 	// the in-cluster ClusterIP DNS the chart wires per sovereign.
-	notificationURL := getEnv("NOTIFICATION_SERVICE_URL", "http://notification.sme.svc.cluster.local:8087/notification/send")
+	notificationURL := getEnv("NOTIFICATION_SERVICE_URL", "http://notification.org-services.svc.cluster.local:8087/notification/send")
 	// SOVEREIGN_FQDN — per-Sovereign apex domain (e.g. "omani.works") used to
 	// build the public marketplace redeem URL in voucher emails. NEVER
 	// hardcoded; the chart pipes it from `billing.sovereignFQDN`. Empty is

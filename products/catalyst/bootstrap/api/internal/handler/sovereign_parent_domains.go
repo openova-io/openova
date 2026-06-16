@@ -7,8 +7,8 @@
 // domain" + DNS propagation status panel. This file does NOT register
 // a duplicate route; instead it provides:
 //
-//  1. LoadSMETenantParentDomainsFromEnv — startup wiring helper that
-//     seeds SMETenantDeps.ParentDomains from
+//  1. LoadOrganizationParentDomainsFromEnv — startup wiring helper that
+//     seeds OrganizationDeps.ParentDomains from
 //     CATALYST_SME_POOL_DOMAINS env (stub for #826's data model).
 //
 //  2. ParentDomainsForSMECreate — runtime adapter the SME tenant
@@ -28,7 +28,7 @@ import (
 	"strings"
 )
 
-// LoadSMETenantParentDomainsFromEnv returns the env-derived
+// LoadOrganizationParentDomainsFromEnv returns the env-derived
 // SME-pool seed. Wired to CATALYST_SME_POOL_DOMAINS (comma-separated
 // FQDNs; primary role marker is `<fqdn>:primary`, default role is
 // sme-pool). When the env knob is unset and CATALYST_OTECH_FQDN is
@@ -51,16 +51,16 @@ import (
 //
 // Forward-compat: when MD-1 lands the catalyst-api startup wiring
 // switches to read from the Sovereign's deployment record. The
-// SMETenantDeps consumer (sme_tenant.go) doesn't change.
-func LoadSMETenantParentDomainsFromEnv() []SMETenantParentDomain {
+// OrganizationDeps consumer (organization_provisioning.go) doesn't change.
+func LoadOrganizationParentDomainsFromEnv() []OrganizationParentDomain {
 	raw := strings.TrimSpace(os.Getenv("CATALYST_SME_POOL_DOMAINS"))
 	otech := strings.TrimSpace(os.Getenv("CATALYST_OTECH_FQDN"))
 	if raw == "" {
 		// Hardcoded stub fallback. TODO(#826): remove once the data
 		// model is live.
-		out := []SMETenantParentDomain{}
+		out := []OrganizationParentDomain{}
 		if otech != "" {
-			out = append(out, SMETenantParentDomain{
+			out = append(out, OrganizationParentDomain{
 				Name: strings.ToLower(otech), Role: "primary", NSFlipReady: true,
 			})
 		}
@@ -70,14 +70,14 @@ func LoadSMETenantParentDomainsFromEnv() []SMETenantParentDomain {
 		// picker so backend validation accepts every TLD the customer
 		// UI offers.
 		out = append(out,
-			SMETenantParentDomain{Name: "omani.homes", Role: "sme-pool", NSFlipReady: true},
-			SMETenantParentDomain{Name: "omani.rest", Role: "sme-pool", NSFlipReady: true},
-			SMETenantParentDomain{Name: "omani.trade", Role: "sme-pool", NSFlipReady: true},
-			SMETenantParentDomain{Name: "omani.works", Role: "sme-pool", NSFlipReady: true},
+			OrganizationParentDomain{Name: "omani.homes", Role: "sme-pool", NSFlipReady: true},
+			OrganizationParentDomain{Name: "omani.rest", Role: "sme-pool", NSFlipReady: true},
+			OrganizationParentDomain{Name: "omani.trade", Role: "sme-pool", NSFlipReady: true},
+			OrganizationParentDomain{Name: "omani.works", Role: "sme-pool", NSFlipReady: true},
 		)
 		return out
 	}
-	out := []SMETenantParentDomain{}
+	out := []OrganizationParentDomain{}
 	for _, entry := range strings.Split(raw, ",") {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
@@ -93,7 +93,7 @@ func LoadSMETenantParentDomainsFromEnv() []SMETenantParentDomain {
 				role = r
 			}
 		}
-		out = append(out, SMETenantParentDomain{
+		out = append(out, OrganizationParentDomain{
 			Name: strings.ToLower(name), Role: role, NSFlipReady: true,
 		})
 	}
@@ -107,22 +107,22 @@ func LoadSMETenantParentDomainsFromEnv() []SMETenantParentDomain {
 // the admin handler used to seed) merged with the implicit primary
 // domain (lookupPrimaryDomain).
 //
-// Returned entries are normalised to SMETenantParentDomain so the
+// Returned entries are normalised to OrganizationParentDomain so the
 // create handler's existing FindParentDomain / PoolDomains paths work
 // uniformly across sources.
 //
 // NOTE: this method intentionally does NOT fold the env stub into its
 // output. The env stub seed is wired exactly once at startup (via
-// LoadSMETenantParentDomainsFromEnv → SMETenantDeps.ParentDomains) so
-// SMETenantDeps remains the single startup-time seed. The runtime
+// LoadOrganizationParentDomainsFromEnv → OrganizationDeps.ParentDomains) so
+// OrganizationDeps remains the single startup-time seed. The runtime
 // adapter only adds entries the operator has changed *after* startup
 // (admin-persisted entries on the adopted deployment + adopted
 // primary). This preserves the back-compat behaviour from #804 where
 // a single-domain Sovereign with no admin entries falls back to
 // OTECHFQDN as the implicit sme-pool parent.
-func (h *Handler) ParentDomainsForSMECreate() []SMETenantParentDomain {
+func (h *Handler) ParentDomainsForSMECreate() []OrganizationParentDomain {
 	live := listParentDomainsFromActive(h.activeDeployment())
-	out := make([]SMETenantParentDomain, 0, len(live)+1)
+	out := make([]OrganizationParentDomain, 0, len(live)+1)
 	seen := map[string]struct{}{}
 	for _, p := range live {
 		// Persisted entries surface as FlipStatusReady from
@@ -130,7 +130,7 @@ func (h *Handler) ParentDomainsForSMECreate() []SMETenantParentDomain {
 		// record IS the proof the pipeline succeeded).
 		ready := p.FlipStatus == FlipStatusReady ||
 			p.FlipStatus == FlipStatusFlipped
-		out = append(out, SMETenantParentDomain{
+		out = append(out, OrganizationParentDomain{
 			Name:        strings.ToLower(p.Name),
 			Role:        string(p.Role),
 			NSFlipReady: ready,
@@ -140,7 +140,7 @@ func (h *Handler) ParentDomainsForSMECreate() []SMETenantParentDomain {
 	if primary := h.lookupPrimaryDomain(); primary != "" {
 		key := strings.ToLower(primary)
 		if _, ok := seen[key]; !ok {
-			out = append(out, SMETenantParentDomain{
+			out = append(out, OrganizationParentDomain{
 				Name: key, Role: "primary", NSFlipReady: true,
 			})
 		}

@@ -117,7 +117,7 @@ func main() {
 	mcpGiteaBaseURL := envOr("SANDBOX_MCP_GITEA_BASE_URL", giteaURL)
 	mcpGiteaTokenSecretName := envOr("SANDBOX_MCP_GITEA_TOKEN_SECRET_NAME", "catalyst-gitea-token")
 	mcpGiteaTokenSecretKey := envOr("SANDBOX_MCP_GITEA_TOKEN_SECRET_KEY", "token")
-	mcpDomainAPIURL := envOr("SANDBOX_MCP_DOMAIN_API_URL", "http://domain.sme.svc.cluster.local:8086")
+	mcpDomainAPIURL := envOr("SANDBOX_MCP_DOMAIN_API_URL", "http://domain.org-services.svc.cluster.local:8086")
 	mcpMarketplaceAPIURL := envOr("SANDBOX_MCP_MARKETPLACE_API_URL", "http://marketplace-api.marketplace.svc.cluster.local:8082")
 	mcpStorageS3Endpoint := envOr("SANDBOX_MCP_STORAGE_S3_ENDPOINT", "http://seaweedfs.storage.svc.cluster.local:8333")
 	mcpStorageS3Region := envOr("SANDBOX_MCP_STORAGE_S3_REGION", "us-east-1")

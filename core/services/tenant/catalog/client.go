@@ -99,7 +99,7 @@ func extractLeadingInt(s string) int {
 }
 
 // Client talks to the catalog service over HTTP. BaseURL should point at the
-// catalog service root, e.g. "http://catalog.sme.svc.cluster.local:8082".
+// catalog service root, e.g. "http://catalog.org-services.svc.cluster.local:8082".
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client

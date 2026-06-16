@@ -92,7 +92,7 @@ func newTestHandlerWithSME(t *testing.T) (*Handler, *fakeKC, *fakeApplier, *fake
 		KeycloakRealmURL:     "https://kc.acme.otech.example/realms/sme-acme",
 		KeycloakClientID:     "catalyst-ui",
 		TenantKind:           store.TenantKindSME,
-		SMETenantNamespace:   "sme-acme",
+		OrganizationNamespace:   "sme-acme",
 		SMEKeycloakAdminURL:  "http://keycloak-sme-acme.sme-acme.svc:8080",
 		SMEKeycloakRealmName: "sme-acme",
 	}); err != nil {
@@ -161,7 +161,7 @@ func newTestHandlerWithSME(t *testing.T) (*Handler, *fakeKC, *fakeApplier, *fake
 func TestSMEUsers_Create_HappyPath(t *testing.T) {
 	h, kc, ap, em, _ := newTestHandlerWithSME(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sme/users",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/org/users",
 		bytes.NewReader([]byte(`{"email":"alice@acme.example"}`)))
 	req.Header.Set("X-Tenant-Host", "console.acme.otech.example")
 	req.Header.Set("Content-Type", "application/json")
@@ -198,7 +198,7 @@ func TestSMEUsers_Create_HappyPath(t *testing.T) {
 func TestSMEUsers_Create_RejectsOTECHTenant(t *testing.T) {
 	h, _, _, _, _ := newTestHandlerWithSME(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sme/users",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/org/users",
 		bytes.NewReader([]byte(`{"email":"alice@otech.example"}`)))
 	req.Header.Set("X-Tenant-Host", "console.otech.example")
 	req.Header.Set("Content-Type", "application/json")
@@ -212,7 +212,7 @@ func TestSMEUsers_Create_RejectsOTECHTenant(t *testing.T) {
 func TestSMEUsers_Create_RejectsUnknownTenant(t *testing.T) {
 	h, _, _, _, _ := newTestHandlerWithSME(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sme/users",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/org/users",
 		bytes.NewReader([]byte(`{"email":"x@y.example"}`)))
 	req.Header.Set("X-Tenant-Host", "console.unknown.example")
 	req.Header.Set("Content-Type", "application/json")
@@ -226,7 +226,7 @@ func TestSMEUsers_Create_RejectsUnknownTenant(t *testing.T) {
 func TestSMEUsers_Create_RejectsMissingTenantHeader(t *testing.T) {
 	h, _, _, _, _ := newTestHandlerWithSME(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sme/users",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/org/users",
 		bytes.NewReader([]byte(`{"email":"x@y.example"}`)))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -239,7 +239,7 @@ func TestSMEUsers_Create_RejectsMissingTenantHeader(t *testing.T) {
 func TestSMEUsers_Create_RejectsBadEmail(t *testing.T) {
 	h, _, _, _, _ := newTestHandlerWithSME(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sme/users",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/org/users",
 		bytes.NewReader([]byte(`{"email":"not-an-email"}`)))
 	req.Header.Set("X-Tenant-Host", "console.acme.otech.example")
 	req.Header.Set("Content-Type", "application/json")
@@ -254,7 +254,7 @@ func TestSMEUsers_Create_KCFailure_PartialState(t *testing.T) {
 	h, kc, _, _, _ := newTestHandlerWithSME(t)
 	kc.failNext = true // first call fails
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sme/users",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/org/users",
 		bytes.NewReader([]byte(`{"email":"alice@acme.example"}`)))
 	req.Header.Set("X-Tenant-Host", "console.acme.otech.example")
 	req.Header.Set("Content-Type", "application/json")
@@ -279,7 +279,7 @@ func TestSMEUsers_List_ScopedToTenant(t *testing.T) {
 
 	// Create alice + bob in tenant-acme.
 	for _, email := range []string{"alice@acme.example", "bob@acme.example"} {
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/sme/users",
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/org/users",
 			bytes.NewReader([]byte(`{"email":"`+email+`"}`)))
 		req.Header.Set("X-Tenant-Host", "console.acme.otech.example")
 		req.Header.Set("Content-Type", "application/json")
@@ -287,7 +287,7 @@ func TestSMEUsers_List_ScopedToTenant(t *testing.T) {
 		h.HandleCreateSMEUser(w, req)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/sme/users", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/org/users", nil)
 	req.Header.Set("X-Tenant-Host", "console.acme.otech.example")
 	w := httptest.NewRecorder()
 	h.HandleListSMEUsers(w, req)
@@ -308,7 +308,7 @@ func TestSMEUsers_Delete(t *testing.T) {
 	h, _, _, em, _ := newTestHandlerWithSME(t)
 
 	// Create.
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sme/users",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/org/users",
 		bytes.NewReader([]byte(`{"email":"alice@acme.example"}`)))
 	req.Header.Set("X-Tenant-Host", "console.acme.otech.example")
 	req.Header.Set("Content-Type", "application/json")
@@ -320,7 +320,7 @@ func TestSMEUsers_Delete(t *testing.T) {
 	// Delete.
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("uuid", created.UUID)
-	dreq := httptest.NewRequest(http.MethodDelete, "/api/v1/sme/users/"+created.UUID, nil)
+	dreq := httptest.NewRequest(http.MethodDelete, "/api/v1/org/users/"+created.UUID, nil)
 	dreq.Header.Set("X-Tenant-Host", "console.acme.otech.example")
 	dreq = dreq.WithContext(context.WithValue(dreq.Context(), chi.RouteCtxKey, rctx))
 	dw := httptest.NewRecorder()

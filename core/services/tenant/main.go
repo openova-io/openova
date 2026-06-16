@@ -41,8 +41,8 @@ func main() {
 	redpandaBrokersRaw := getEnv("REDPANDA_BROKERS", "")
 	jwtSecret := []byte(getEnv("JWT_SECRET", ""))
 	corsOrigin := getEnv("CORS_ORIGIN", "*")
-	catalogURL := getEnv("CATALOG_URL", "http://catalog.sme.svc.cluster.local:8082")
-	provisioningURL := getEnv("PROVISIONING_URL", "http://provisioning.sme.svc.cluster.local:8084")
+	catalogURL := getEnv("CATALOG_URL", "http://catalog.org-services.svc.cluster.local:8082")
+	provisioningURL := getEnv("PROVISIONING_URL", "http://provisioning.org-services.svc.cluster.local:8084")
 	port := getEnv("PORT", "8083")
 
 	// Connect to MongoDB (FerretDB).

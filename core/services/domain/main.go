@@ -32,7 +32,7 @@ func main() {
 	corsOrigin := getEnv("CORS_ORIGIN", "*")
 	port := getEnv("PORT", "8086")
 	cnameTarget := getEnv("CNAME_TARGET", "sme.openova.io")
-	tenantURL := getEnv("TENANT_URL", "http://tenant.sme.svc.cluster.local:8083")
+	tenantURL := getEnv("TENANT_URL", "http://tenant.org-services.svc.cluster.local:8083")
 
 	// Connect to MongoDB (FerretDB).
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

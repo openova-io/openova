@@ -6,7 +6,7 @@
 # SME microservice mesh (bp-catalyst-platform, slot 13) — READY-TO-ADOPT.
 #
 # The SME mesh today bootstraps its own `sme-pg` Cluster (products/
-# catalyst/chart/templates/sme-services/cnpg-cluster.yaml) with the
+# catalyst/chart/templates/org-services/cnpg-cluster.yaml) with the
 # primary sme_auth database plus sme_billing + sme_documents via initdb
 # postInitApplicationSQL, all owned by ONE role `sme` and gated on
 # marketplace.enabled. This slot declares the SAME shape on shared-pg-c

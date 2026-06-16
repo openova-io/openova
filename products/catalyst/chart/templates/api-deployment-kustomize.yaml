@@ -687,7 +687,7 @@ spec:
             #
             # Source Secret is sme-secrets in the `sme` namespace; the
             # reflector annotation block on
-            # products/catalyst/chart/templates/sme-services/sme-secrets.yaml
+            # products/catalyst/chart/templates/org-services/org-services-secrets.yaml
             # mirrors it into catalyst-system at the SAME secret name so
             # the secretKeyRef below resolves to the same JWT_SECRET
             # bytes the SME gateway validates against.
@@ -698,6 +698,13 @@ spec:
             # `sme-jwt-bridge-unwired` for those clusters so the FE
             # renders an actionable "marketplace not enabled" message
             # rather than the pre-bridge silent 401.
+            #
+            # #3383: this is the contabo-mkt (Kustomize-applied) variant —
+            # it keeps the legacy `sme-secrets` name because contabo's
+            # hand-rolled clusters/contabo-mkt/apps/sme/data/secrets.yaml
+            # still ships `sme-secrets`. The Sovereign (Helm) variant
+            # repoints to `org-services-secrets`; the chart's one-release
+            # dual-render keeps both mirrored so either resolves.
             - name: CATALYST_SME_JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -1075,7 +1082,7 @@ spec:
             # `sme/provisioning-github-token`.`GITHUB_TOKEN` with the
             # provenance annotation `catalyst.openova.io/token-source=
             # self-sovereign-cutover-step-09`. The same chart's
-            # templates/sme-services/provisioning-github-token.yaml
+            # templates/org-services/provisioning-github-token.yaml
             # carries reflector annotations mirroring that Secret into
             # `catalyst-system` so this secretKeyRef resolves on the
             # catalyst-api Pod (which lives in catalyst-system, not

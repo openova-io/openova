@@ -15,7 +15,7 @@ import (
 // sees real zeros rather than the "API pending" fallback (Refs #1949).
 func TestHandleGetSMEBssOverview_Returns200WithFullShape(t *testing.T) {
 	h := &Handler{}
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/sme/bss/overview", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/org/bss/overview", nil)
 	w := httptest.NewRecorder()
 	h.HandleGetSMEBssOverview(w, r)
 

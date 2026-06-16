@@ -47,7 +47,7 @@ type Handler struct {
 	// because the marketplace already validated capacity at checkout.
 	Catalog *catalog.Client
 	// ProvisioningURL is the internal base URL for provisioning-service
-	// (e.g. http://provisioning.sme.svc.cluster.local:8084). Tenant calls
+	// (e.g. http://provisioning.org-services.svc.cluster.local:8084). Tenant calls
 	// it directly for day-2 install/uninstall so the pipeline works even
 	// when the event bus is unavailable.
 	ProvisioningURL string

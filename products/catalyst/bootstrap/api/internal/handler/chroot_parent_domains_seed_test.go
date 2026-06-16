@@ -2,7 +2,7 @@
 //
 // What the tests guard
 // --------------------
-// PR #1861 widened LoadSMETenantParentDomainsFromEnv to seed all four
+// PR #1861 widened LoadOrganizationParentDomainsFromEnv to seed all four
 // canonical .omani.X entries in the env-stub fallback, but on a real
 // Sovereign that path is bypassed: the mother imports a full
 // deployment record with only the operator-selected sme-pool TLD,

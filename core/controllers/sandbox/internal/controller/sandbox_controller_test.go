@@ -215,7 +215,7 @@ func makeReconciler(t *testing.T, objs ...client.Object) (*Reconciler, *giteaSer
 		GiteaBaseURL:                "http://gitea-http.gitea.svc.cluster.local:3000",
 		GiteaTokenSecretName:        "catalyst-gitea-token",
 		GiteaTokenSecretKey:         "token",
-		DomainAPIURL:                "http://domain.sme.svc.cluster.local:8086",
+		DomainAPIURL:                "http://domain.org-services.svc.cluster.local:8086",
 		MarketplaceAPIURL:           "http://marketplace-api.marketplace.svc.cluster.local:8082",
 		StorageS3Endpoint:           "http://seaweedfs.storage.svc.cluster.local:8333",
 		StorageS3Region:             "us-east-1",
@@ -532,7 +532,7 @@ func TestReconcile_Wave8RuntimeShape(t *testing.T) {
 		`value: "acme/eventforge,acme/internal-tools"`,
 		// Values plumbed from the controller's chart-level env.
 		"http://gitea-http.gitea.svc.cluster.local:3000",
-		"http://domain.sme.svc.cluster.local:8086",
+		"http://domain.org-services.svc.cluster.local:8086",
 		"http://seaweedfs.storage.svc.cluster.local:8333",
 		"http://keycloak.keycloak.svc.cluster.local:8080",
 		`name: "catalyst-gitea-token"`,

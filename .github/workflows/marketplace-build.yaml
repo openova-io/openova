@@ -55,7 +55,7 @@ jobs:
       - name: Update deployment manifest
         run: |
           SHA=$(echo $GITHUB_SHA | head -c 7)
-          FILE="products/catalyst/chart/templates/sme-services/marketplace.yaml"
+          FILE="products/catalyst/chart/templates/org-services/marketplace.yaml"
           if [ -f "$FILE" ]; then
             sed -i "s|image: ${IMAGE}:.*|image: ${IMAGE}:${SHA}|" "$FILE"
             echo "Updated marketplace to SHA ${SHA}"
@@ -66,5 +66,5 @@ jobs:
       - name: Commit and push
         uses: ./.github/actions/deploy-bump
         with:
-          paths: products/catalyst/chart/templates/sme-services/marketplace.yaml
+          paths: products/catalyst/chart/templates/org-services/marketplace.yaml
           commit-message: "deploy: update Catalyst marketplace image to ${{ needs.build.outputs.sha_short }}"

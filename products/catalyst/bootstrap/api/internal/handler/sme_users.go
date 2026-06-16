@@ -125,7 +125,7 @@ func (h *Handler) SetSMEDeps(deps SMEDeps) { h.smeDeps = deps }
 // Returns 400 if no tenant context is supplied; 404 if the host is
 // unknown; 422 if the resolved tenant is not SME-tier (otech-tier
 // admins use the existing UserAccess CRD surface).
-func (h *Handler) resolveSMETenant(w http.ResponseWriter, r *http.Request) (store.TenantRegistration, bool) {
+func (h *Handler) resolveOrganization(w http.ResponseWriter, r *http.Request) (store.TenantRegistration, bool) {
 	if h.tenantRegistry == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error": "tenant-registry-unavailable",
@@ -244,7 +244,7 @@ func recordToResponse(rec store.UserProvisionRecord) smeUserResponse {
 // always includes the steps[] progress so the SPA can render the
 // progress bar even if a step failed.
 func (h *Handler) HandleCreateSMEUser(w http.ResponseWriter, r *http.Request) {
-	tenant, ok := h.resolveSMETenant(w, r)
+	tenant, ok := h.resolveOrganization(w, r)
 	if !ok {
 		return
 	}
@@ -272,7 +272,7 @@ func (h *Handler) HandleCreateSMEUser(w http.ResponseWriter, r *http.Request) {
 	smeUserUUID := uuid.New().String()
 	rec := store.UserProvisionRecord{
 		SMEUserUUID: smeUserUUID,
-		SMETenantID: tenant.TenantID,
+		OrganizationID: tenant.TenantID,
 		Email:       email,
 		State:       store.UPSPending,
 	}
@@ -300,7 +300,7 @@ func (h *Handler) HandleCreateSMEUser(w http.ResponseWriter, r *http.Request) {
 
 // HandleListSMEUsers — GET /api/v1/sme/users.
 func (h *Handler) HandleListSMEUsers(w http.ResponseWriter, r *http.Request) {
-	tenant, ok := h.resolveSMETenant(w, r)
+	tenant, ok := h.resolveOrganization(w, r)
 	if !ok {
 		return
 	}
@@ -323,7 +323,7 @@ func (h *Handler) HandleListSMEUsers(w http.ResponseWriter, r *http.Request) {
 // the reconciler can retry the next pass. Returns 204 on success, 404
 // if the uuid is unknown.
 func (h *Handler) HandleDeleteSMEUser(w http.ResponseWriter, r *http.Request) {
-	tenant, ok := h.resolveSMETenant(w, r)
+	tenant, ok := h.resolveOrganization(w, r)
 	if !ok {
 		return
 	}
@@ -473,7 +473,7 @@ func applyStep3(
 		baseURL = strings.ReplaceAll(baseURL, "{otech_fqdn}", deps.OTECHFQDN)
 	}
 	secretName, err := deps.SecretApplier.ApplyNewAPIKeySecret(
-		ctx, tenant.SMETenantNamespace, tenant.TenantID, rec.SMEUserUUID, apiKey, baseURL,
+		ctx, tenant.OrganizationNamespace, tenant.TenantID, rec.SMEUserUUID, apiKey, baseURL,
 	)
 	if err != nil {
 		rec.LastError = "secret_apply:transient:" + truncate(err.Error(), 256)

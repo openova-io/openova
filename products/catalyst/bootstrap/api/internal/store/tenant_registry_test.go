@@ -30,7 +30,7 @@ func TestTenantRegistry_PutGetDelete(t *testing.T) {
 		KeycloakRealmURL:     "https://kc.otech.example/realms/sme-acme",
 		KeycloakClientID:     "catalyst-ui",
 		TenantKind:           TenantKindSME,
-		SMETenantNamespace:   "sme-acme",
+		OrganizationNamespace:   "sme-acme",
 		SMEKeycloakAdminURL:  "http://keycloak-sme-acme.sme-acme.svc.cluster.local:8080",
 		SMEKeycloakRealmName: "sme-acme",
 	}
@@ -46,8 +46,8 @@ func TestTenantRegistry_PutGetDelete(t *testing.T) {
 	if got.TenantKind != TenantKindSME {
 		t.Errorf("TenantKind = %q, want %q", got.TenantKind, TenantKindSME)
 	}
-	if got.SMETenantNamespace != "sme-acme" {
-		t.Errorf("SMETenantNamespace = %q, want sme-acme", got.SMETenantNamespace)
+	if got.OrganizationNamespace != "sme-acme" {
+		t.Errorf("OrganizationNamespace = %q, want sme-acme", got.OrganizationNamespace)
 	}
 
 	// File materialised on disk.

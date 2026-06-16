@@ -1,0 +1,500 @@
+{{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: provisioning
+  namespace: org-services
+---
+# Cluster-wide permissions for the provisioning SA.
+#
+# After #75 this is strictly READ ONLY across all non-namespaced and cross-NS
+# reads. The only destructive verbs granted cluster-wide are patch+delete on
+# Namespaces — and that is deliberate because tenant-<slug> namespaces are
+# only cluster-scoped things the teardown flow owns end-to-end.
+#
+# Every per-tenant destructive operation (deleting HelmRelease finalizers,
+# deleting legacy in-NS Kustomization CRs, reading DB-password secrets) is
+# granted by a namespaced Role that ships INSIDE each tenant's manifest
+# bundle (see services/provisioning/gitops:generateProvisioningTenantRBAC).
+# So a bug in teardown that points at the wrong slug can't wipe flux-system
+# Kustomization CRs or tenant CRs for tenants this SA wasn't invited into.
+#
+# Permissions to touch flux-system's own kustomizations + the kubeconfig
+# mirror secrets live in a Role bound in flux-system (below).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sme-provisioning
+rules:
+  # Read-only status endpoints.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates", "certificaterequests"]
+    # patch is needed to strip finalizers at teardown — cert-manager attaches
+    # finalizer.cert-manager.io/certificate-secret-binding to every Cert CR
+    # and once the tenant NS is Terminating the controller can't reconcile
+    # the delete (can't write back into a Terminating NS), so the finalizer
+    # is never removed and the NS stays Terminating forever. Same pattern as
+    # the cluster-wide namespace delete below: cluster-wide is justified
+    # because the GC target is cluster-scoped (the NS itself) and the
+    # per-tenant Role generated in gitops.go could already be pruned by
+    # Flux by the time we need to strip. At worst a buggy teardown can only
+    # drop the finalizer off a Certificate — cert-manager will re-add it on
+    # the next reconcile loop when the NS isn't Terminating. Issue #86.
+    verbs: ["get", "list", "watch", "patch"]
+  # Namespaces: tenant NS lifecycle. Cluster-wide because namespaces are a
+  # cluster-scoped resource. Scoping by naming convention (tenant-<slug>) is
+  # enforced in code; this rule trusts that discipline, but at worst a buggy
+  # teardown can only delete a NAMESPACE — not CRs in other namespaces. The
+  # previous version of this role could also delete Flux Kustomizations in
+  # flux-system, which would take the whole cluster offline; that verb is
+  # now gone from cluster scope.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "patch", "delete"]
+  # Secrets: cluster-wide read is needed so the provisioning service can
+  # fetch the source `vc-vcluster` Secret from tenant-<slug> at mirror time
+  # AND look up a DB password that lives in a tenant NS on day-2 installs.
+  # Write is scoped to flux-system only (see Role below) so a bug can't
+  # rewrite in-tenant secrets.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  # Organizations (orgs.openova.io): the tenant.created Kafka consumer
+  # creates one Organization CR per voucher checkout (D29 step 5). Without
+  # this rule the consumer 403s in a 5s NAK-retry loop forever and the
+  # rest of the customer journey (steps 6/7/8) is blocked. Issue #1900,
+  # consumer code shipped in PR #1860.
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sme-provisioning
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: sme-provisioning
+subjects:
+  - kind: ServiceAccount
+    name: provisioning
+    namespace: org-services
+---
+# flux-system-scoped Role: patch/delete the per-tenant Kustomization CRs that
+# live here (see #97 for why they live here and not in the tenant NS), and
+# create/update/delete the mirrored kubeconfig Secrets those CRs reference.
+#
+# Previously these rights were cluster-wide — a bug that resolved the wrong
+# CR name could have deleted flux-system/flux-system itself and taken all
+# reconciliation with it. Confining them to this one namespace means the
+# absolute worst a teardown bug can do is break one tenant's sync, not the
+# cluster.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sme-provisioning-fluxsystem
+  namespace: flux-system
+rules:
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["get", "list", "watch", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sme-provisioning-fluxsystem
+  namespace: flux-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: sme-provisioning-fluxsystem
+subjects:
+  - kind: ServiceAccount
+    name: provisioning
+    namespace: org-services
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provisioning
+  namespace: org-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sme-provisioning
+  template:
+    metadata:
+      labels:
+        policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
+        app: sme-provisioning
+    spec:
+      serviceAccountName: provisioning
+      imagePullSecrets:
+        - name: ghcr-pull
+      # ── Init container: wait-for-cutover-token (TBD-V11, issue #2002) ──
+      # The provisioning-github-token Secret has TWO lifecycle states:
+      #   1. First-install bootstrap (this chart's
+      #      provisioning-github-token.yaml writes the Gitea admin PASSWORD
+      #      under GITHUB_TOKEN — enough to boot the Pod past
+      #      CreateContainerConfigError but NOT a valid Gitea API token).
+      #   2. Cutover-owned (bp-self-sovereign-cutover Step 09 mints a real
+      #      Gitea API token via POST /api/v1/users/{user}/tokens and
+      #      patches this Secret + stamps the annotation
+      #      `catalyst.openova.io/token-source: self-sovereign-cutover-step-09`).
+      #
+      # Pre-fix on t38 (2026-05-19): provisioning Pod started at state (1),
+      # tenant Org CR creation fired BEFORE Step 09 had patched the Secret,
+      # gitea API call sent `Authorization: token <admin_password>`, Gitea
+      # 401'd with `user does not exist [uid: 0, name: ""]`, Org CR stuck
+      # at Ready=False/GiteaOrgFailed. Step 09's `rollout restart deploy/
+      # provisioning` recovers eventually, but the Pod accepting traffic
+      # in state (1) means the FIRST tenant request after install always
+      # fails until the rollout completes.
+      #
+      # Fix: gate the provisioning Pod on the Secret carrying the cutover
+      # annotation. Until Step 09 has minted + patched, the init container
+      # polls every {{ .Values.smeServices.provisioning.waitForCutoverToken.intervalSeconds | default 10 }}s
+      # (up to {{ .Values.smeServices.provisioning.waitForCutoverToken.timeoutSeconds | default 1800 }}s)
+      # and only exits 0 once `catalyst.openova.io/token-source` equals
+      # `self-sovereign-cutover-step-09` on Secret
+      # `{{ .Values.smeServices.provisioning.githubToken.secretName | default "provisioning-github-token" }}`
+      # in this namespace. On Catalyst-Zero (contabo) the SealedSecret-
+      # provisioned token carries no cutover annotation — operators set
+      # `.Values.smeServices.provisioning.waitForCutoverToken.enabled: false`
+      # via clusters/contabo-mkt/ overlay so the init container is a no-op
+      # there (defaults to true; Sovereigns inherit the gate).
+      #
+      # Per Inviolable Principle #14: this is Pod-level gating via init
+      # container, NOT HelmRelease.dependsOn → Kustomization (which Flux
+      # silently ignores). The cutover HR is dormant + disableWait:true so
+      # an HR-level dependsOn would resolve Ready=True at install time,
+      # BEFORE Step 09 actually runs — that approach buys nothing.
+      # Pod-level init gating waits on the actual condition (Secret
+      # annotation), not on a proxy.
+      {{- if .Values.smeServices.provisioning.waitForCutoverToken.enabled }}
+      initContainers:
+        # ── wait-for-gitea-token — #3376 (Refs #3689) ─────────────────────
+        # Gate the provisioning Pod on the GITHUB_TOKEN in the
+        # provisioning-github-token Secret being a Gitea token Gitea
+        # actually ACCEPTS, rather than on a brittle annotation.
+        #
+        # WHY the contract is now a DATA probe, not an annotation probe:
+        #   The previous gate polled for the annotation
+        #   `catalyst.openova.io/token-source=self-sovereign-cutover-step-09`
+        #   that bp-self-sovereign-cutover Step 09 was supposed to stamp.
+        #   That contract was SPLIT three ways and the Pod stuck Init:0/1
+        #   forever on a fully cut-over Sovereign (hw150):
+        #     1. Step 09's re-run no-op probe (09-gitea-token-mint-job.yaml)
+        #        exits 0 as soon as the existing token is valid — BEFORE it
+        #        reaches the annotation-stamp patch. Since #3122 the bootstrap
+        #        GITHUB_TOKEN IS a valid catalyst-gitea-token PAT, so the
+        #        no-op path always wins and the annotation is never written.
+        #     2. provisioning-github-token.yaml only re-emits the annotation
+        #        inside its `$cutoverOwned` branch, which needs the LIVE
+        #        Secret to ALREADY carry the annotation at lookup time
+        #        (chicken-and-egg); any reconcile without it re-emits the
+        #        bootstrap branch.
+        #     3. this init hard-required that exact annotation.
+        #   The init's STATED intent (provisioning.yaml header / #2002) is
+        #   "don't serve 401s with a non-working token" — which a DATA probe
+        #   satisfies directly: GET ${GITEA_INTERNAL_URL}/api/v1/user with
+        #   the token and proceed only on HTTP 200. This is immune to the
+        #   mint-Job no-op path AND the chart's bootstrap-branch annotation
+        #   strip, because the bootstrap token (the catalyst-gitea-token PAT)
+        #   is ITSELF a 200-valid Gitea token — so the Pod boots on a fresh
+        #   prov AND a cut-over Sovereign, with no manual touch.
+        - name: wait-for-gitea-token
+          image: {{ .Values.smeServices.provisioning.waitForCutoverToken.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" | quote }}
+          imagePullPolicy: IfNotPresent
+          env:
+            # The token bytes the main container will use — read from the
+            # SAME Secret/key via secretKeyRef so the probe validates exactly
+            # what the workload runs with (no kubectl get of the Secret, so
+            # no extra RBAC; the kubelet resolves it same-namespace).
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.smeServices.provisioning.githubToken.secretName | default "provisioning-github-token" | quote }}
+                  key: {{ .Values.smeServices.provisioning.githubToken.secretKey | default "GITHUB_TOKEN" | quote }}
+                  # optional:true — on the very first reconcile the Secret may
+                  # not exist yet (provisioning-github-token.yaml renders it
+                  # only once the bootstrap PAT is populated). An absent token
+                  # reads as empty and the probe keeps waiting rather than
+                  # crash-looping the init on a missing key.
+                  optional: true
+            - name: GITEA_INTERNAL_URL
+              value: {{ .Values.smeServices.provisioning.waitForCutoverToken.giteaInternalURL | default "http://gitea-http.gitea.svc.cluster.local:3000" | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ .Values.smeServices.provisioning.waitForCutoverToken.intervalSeconds | default 10 | quote }}
+            - name: TIMEOUT_SECONDS
+              value: {{ .Values.smeServices.provisioning.waitForCutoverToken.timeoutSeconds | default 1800 | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              echo "[wait-for-gitea-token] gating on a Gitea token Gitea accepts (GET ${GITEA_INTERNAL_URL}/api/v1/user → 200)"
+              deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+              while [ "$(date +%s)" -lt "${deadline}" ]; do
+                if [ -z "${GITHUB_TOKEN:-}" ]; then
+                  echo "[wait-for-gitea-token] GITHUB_TOKEN not yet populated (Secret absent/empty); retrying in ${INTERVAL_SECONDS}s"
+                  sleep "${INTERVAL_SECONDS}"
+                  continue
+                fi
+                # Probe what the mint step actually GUARANTEES: a token that
+                # authenticates. 200 → the token is live (bootstrap PAT or the
+                # cutover-minted token — both are real Gitea tokens). Anything
+                # else (401 placeholder / 000 Gitea not up yet) → keep waiting.
+                code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
+                  -H "Authorization: token ${GITHUB_TOKEN}" \
+                  -H "Accept: application/json" \
+                  "${GITEA_INTERNAL_URL}/api/v1/user" 2>/dev/null || echo "000")
+                if [ "${code}" = "200" ]; then
+                  echo "[wait-for-gitea-token] token validates (GET /api/v1/user=200) — proceeding"
+                  exit 0
+                fi
+                echo "[wait-for-gitea-token] token not yet accepted (GET /api/v1/user=${code}); retrying in ${INTERVAL_SECONDS}s"
+                sleep "${INTERVAL_SECONDS}"
+              done
+              # Timeout is a HARD FAIL — provisioning with a token Gitea
+              # rejects cannot satisfy ANY tenant request. Better to keep the
+              # Pod in Init: than to serve 401s downstream.
+              echo "[wait-for-gitea-token] FATAL: timed out after ${TIMEOUT_SECONDS}s — no accepted Gitea token in the provisioning Secret" >&2
+              exit 1
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits:   { memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      {{- end }}
+      containers:
+        - name: provisioning
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-provisioning:{{ .Values.images.smeTag }}"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8084
+          env:
+            - name: MONGODB_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: MONGODB_URI
+            - name: MONGODB_DB
+              value: "provisioning"
+            - name: REDPANDA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: REDPANDA_BROKERS
+            # NATS JetStream URL — canonical event bus per ADR-0001 §6.
+            # PR #1627 wired provisioning's tenant + order subscriber
+            # to NATS subjects `catalyst.tenant.created`,
+            # `catalyst.tenant.deleted`,
+            # `catalyst.tenant.app_{install,uninstall}_requested`, and
+            # `catalyst.billing.order.placed`. Empty on Catalyst-Zero
+            # disables the NATS leg; Sovereigns default to the in-
+            # cluster nats-jetstream Service.
+            - name: NATS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: NATS_URL
+            - name: EVENT_BUS_PROTOCOL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: EVENT_BUS_PROTOCOL
+                  optional: true
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: org-services-secrets
+                  key: JWT_SECRET
+            - name: CORS_ORIGIN
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CORS_ORIGIN_PUBLIC
+            # ── GitOps target path — issue #944 ───────────────────────────
+            # Pre-#944 GIT_BASE_PATH was hardcoded to
+            # `clusters/contabo-mkt/tenants` here. On a freshly franchised
+            # Sovereign (the SME marketplace runs on the Sovereign too) that
+            # path points at CONTABO's clusters/ tree — every alice tenant
+            # commit landed in upstream openova/openova's contabo overlay,
+            # which contabo Flux would then install on the contabo cluster.
+            # C5-final caught + reverted the alice2 incident at commit
+            # 20a0884a (revert visible on main as 5715db04, 2026-05-05).
+            #
+            # Fix: data-driven via .Values.smeServices.provisioning.gitBasePath
+            # with a topology-aware default. Sovereign installs default to
+            # clusters/<sovereignFQDN>/sme-tenants/ (matches the existing
+            # catalyst-api SME-tenant orchestrator path in
+            # sme_tenant_gitops.go and the Flux Kustomization spec.path the
+            # chart 1.4.13 org-repo-kustomization.yaml watches). Catalyst-
+            # Zero (contabo) keeps the legacy `clusters/contabo-mkt/tenants`
+            # path so existing contabo-mkt tenants continue to reconcile.
+            #
+            # Source-side cross-cluster pollution guard: the provisioning
+            # binary ALSO validates at startup + before every commit that
+            # the path begins with `clusters/<self-FQDN>/` so a malicious
+            # or misconfigured value pointing at a foreign cluster's tree
+            # is rejected at runtime even if a per-Sovereign overlay sets
+            # the value wrong. See main.go validateGitBasePath.
+            - name: GIT_BASE_PATH
+            {{- if .Values.smeServices.provisioning.gitBasePath }}
+              value: {{ .Values.smeServices.provisioning.gitBasePath | quote }}
+            {{- else if .Values.global.sovereignFQDN }}
+              value: "clusters/{{ .Values.global.sovereignFQDN }}/sme-tenants"
+            {{- else }}
+              value: "clusters/contabo-mkt/tenants"
+            {{- end }}
+            # ── Sovereign FQDN env (cross-cluster pollution guard) ────────
+            # Provisioning service uses this to validate that GIT_BASE_PATH
+            # starts with `clusters/<SOVEREIGN_FQDN>/` before any git
+            # commit. Empty on Catalyst-Zero (contabo) where the legacy
+            # `clusters/contabo-mkt/tenants` path is the canonical write
+            # target — the binary's guard recognises that special case.
+            - name: SOVEREIGN_FQDN
+              value: {{ .Values.global.sovereignFQDN | default "" | quote }}
+            - name: CATALOG_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CATALOG_URL
+            # ── GitOps token — issue #940 ─────────────────────────────────
+            # On contabo this Secret is hand-rolled (clusters/contabo-mkt/
+            # apps/sme/data/...). On franchised Sovereigns it is rendered by
+            # templates/org-services/provisioning-github-token.yaml (issue
+            # #866) which mirrors the local Gitea admin password into
+            # `sme/provisioning-github-token`. The Secret name + key are
+            # operator-overridable via
+            # .Values.smeServices.provisioning.githubToken.* without
+            # forking the chart.
+            #
+            # Provisioning service rejects placeholder values at startup
+            # (`<placeholder>`, `<changeme>`, empty) — a leaked Secret with
+            # a placeholder string in its bytes is just as broken as no
+            # Secret, and silent acceptance previously failed every per-
+            # tenant commit on Sovereigns with "401 Bad credentials" buried
+            # in service logs.
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.smeServices.provisioning.githubToken.secretName | default "provisioning-github-token" }}
+                  key: {{ .Values.smeServices.provisioning.githubToken.secretKey | default "GITHUB_TOKEN" }}
+            # ── Git host coordinates — issue #940 ─────────────────────────
+            # Pre-#940 GITHUB_OWNER + GITHUB_REPO were chart-level literals
+            # ("openova-io" / "openova"). On a Sovereign the orchestrator
+            # MUST commit to the LOCAL Gitea (the cutover step flipped the
+            # GitRepository CR to point there), so writes to upstream
+            # github.com would (a) leak per-tenant overlays into the public
+            # repo's main branch and (b) fail authentication because the
+            # GITHUB_TOKEN Secret is the local Gitea admin password, not a
+            # GitHub PAT.
+            #
+            # Defaults match the catalyst-api gitops env contract:
+            #   - GITHUB_API_URL: in-cluster Gitea on Sovereign,
+            #     https://api.github.com on contabo.
+            #   - GITHUB_OWNER:   `openova` (the local Gitea org bp-gitea
+            #     ships) on Sovereign, `openova-io` on contabo.
+            #   - GITHUB_REPO:    `openova` on both — bp-gitea seeds a
+            #     bare-name `openova/openova` repo on Sovereign install to
+            #     match the upstream path so Kustomization paths stay
+            #     stable across the cutover boundary.
+            # Per Inviolable Principle #4, every value is operator-
+            # overridable via .Values.smeServices.provisioning.git.*.
+            - name: GITHUB_API_URL
+            {{- if .Values.smeServices.provisioning.git.apiURL }}
+              value: {{ .Values.smeServices.provisioning.git.apiURL | quote }}
+            {{- else if .Values.global.sovereignFQDN }}
+              value: "http://gitea-http.gitea.svc.cluster.local:3000/api/v1"
+            {{- else }}
+              value: "https://api.github.com"
+            {{- end }}
+            - name: GITHUB_OWNER
+            {{- if .Values.smeServices.provisioning.git.owner }}
+              value: {{ .Values.smeServices.provisioning.git.owner | quote }}
+            {{- else if .Values.global.sovereignFQDN }}
+              value: "openova"
+            {{- else }}
+              value: "openova-io"
+            {{- end }}
+            - name: GITHUB_REPO
+              value: {{ .Values.smeServices.provisioning.git.repo | default "openova" | quote }}
+            # ── Tenant-write branch isolation (TBD-C18e, 2026-05-18) ─────
+            # Provisioning writes per-tenant overlays to a DEDICATED branch
+            # so the cutover-gitea-mirror Job (which force-pushes main from
+            # upstream every ≤10 min) cannot clobber tenant commits. The
+            # paired Flux GitRepository (openova-sme-tenants) + Kustomization
+            # both read from this branch. Default: `sme-tenants` on Sovereign,
+            # `main` on contabo (no in-cluster mirror exists there).
+            #
+            # Journey v5b root cause: provisioning commit 69d64e48 at
+            # 17:46:13Z (clusters/t22.omantel.biz/sme-tenants/...) was
+            # OVERWRITTEN by the mirror rerun at 17:54:55Z — Org CR never
+            # materialised, customer journey step 16 hung indefinitely.
+            - name: GITHUB_BRANCH
+            {{- if .Values.smeServices.provisioning.git.branch }}
+              value: {{ .Values.smeServices.provisioning.git.branch | quote }}
+            {{- else if .Values.global.sovereignFQDN }}
+              value: "sme-tenants"
+            {{- else }}
+              value: "main"
+            {{- end }}
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8084
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8084
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: provisioning
+  namespace: org-services
+spec:
+  selector:
+    app: sme-provisioning
+  ports:
+    - port: 8084
+      targetPort: 8084
+{{- end }}
