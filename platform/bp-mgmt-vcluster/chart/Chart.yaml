@@ -89,7 +89,12 @@ name: bp-mgmt-vcluster
 # schemas. The 0.2.7 customResources block is kept verbatim (Pro-license
 # activation + declarative record). Additive subchart-values change only;
 # default `helm template` gains the init-manifest CRDs.
-version: 0.2.10
+# 0.2.11 (#3642): host-bridge carve-outs — the keycloak + grafana host→mgmt
+# move adds gateway-system/kube-system (host Cilium Gateway → the mangled
+# backendRef of the host-bridged HTTPRoutes) + catalyst-system/newapi/
+# sso-bridge/oidc-gate (keycloak SSO consumers) to allowedIngressNamespaces
+# (mirrors the #3423 sme→NATS carve-out). Additive netpol-values change only.
+version: 0.2.11
 appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT

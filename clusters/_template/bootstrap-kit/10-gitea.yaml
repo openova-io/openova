@@ -56,7 +56,7 @@ spec:
       namespace: flux-system
     # bp-keycloak now lives in flux-system (G105-followup #2697).
     - name: bp-keycloak
-      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     # bp-gateway-api (issue #503): chart ships an HTTPRoute template;
     # gateway.networking.k8s.io/v1 CRDs must be registered first.
     - name: bp-gateway-api
