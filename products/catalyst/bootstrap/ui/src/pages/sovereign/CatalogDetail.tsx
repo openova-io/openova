@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { useParams, Link } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { getCatalogItem, getApplication, type CatalogItem } from '@/lib/catalog.api'
 import { findComponent } from '@/pages/wizard/steps/componentGroups'
@@ -7,6 +8,8 @@ import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { InstancesSection } from './AppDetail/InstancesSection'
+import { useCatalogAdmin } from '@/shared/lib/useCatalogAdmin'
+import { CatalogEditForm } from './CatalogEditForm'
 
 /**
  * CatalogDetail — the per-Blueprint CLASS page.
@@ -57,6 +60,11 @@ export function CatalogDetail() {
   }
   const name = (params.blueprintName ?? '').replace(/^bp-/, '')
   const { deploymentId } = useResolvedDeploymentId()
+  const isAdmin = useCatalogAdmin()
+  const qc = useQueryClient()
+  // #3648 (founder item #1) — inline edit-in-place on the detail page,
+  // replacing the separate edit chip + modal on the catalog grid.
+  const [editing, setEditing] = useState(false)
 
   // Chroot-aware "back to Catalog" target. On the mothership provision
   // monitor (`/provision/$deploymentId/...`) the apps grid is at
@@ -198,6 +206,28 @@ export function CatalogDetail() {
           <h1>
             <span data-testid="catalog-title">{title}</span>
           </h1>
+          {isAdmin && !editing ? (
+            <button
+              type="button"
+              data-testid="catalog-detail-edit"
+              onClick={() => setEditing(true)}
+              title="Edit this catalog entry"
+              style={{
+                alignSelf: 'flex-start',
+                marginTop: '0.15rem',
+                padding: '0.3rem 0.8rem',
+                borderRadius: '8px',
+                border: '1px solid var(--color-border)',
+                background: 'transparent',
+                color: 'var(--color-text)',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Edit
+            </button>
+          ) : null}
           {card.tagline || card.summary ? (
             <p className="hero-tagline">{card.tagline || card.summary}</p>
           ) : null}
@@ -290,6 +320,30 @@ export function CatalogDetail() {
           ) : null}
         </div>
       </div>
+
+      {/* #3648 (founder item #1) — inline edit-in-place panel. Replaces the
+          separate edit chip + modal on the catalog grid: the operator edits
+          the entry on its own page, where it is already shown. */}
+      {editing ? (
+        <section className="section" data-testid="catalog-edit-section">
+          <h2>Edit catalog entry</h2>
+          <CatalogEditForm
+            blueprintId={`bp-${name}`}
+            initial={{
+              name: title,
+              summary: card.tagline || card.summary || '',
+              supportedTopologies: topologies.map(toEditorMode),
+              iconLight: logoUrl ?? '',
+              iconDark: '',
+            }}
+            onSaved={() => {
+              setEditing(false)
+              void qc.invalidateQueries({ queryKey: ['catalog-item', name] })
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        </section>
+      ) : null}
 
       {/* About */}
       {card.description ? (
@@ -431,6 +485,21 @@ function readMultiInstance(cat: CatalogItem): boolean {
   const spec = (raw?.spec as Record<string, unknown> | undefined) ?? undefined
   const mi = spec?.multiInstance as { enabled?: boolean } | undefined
   return !!mi?.enabled
+}
+
+// #3648 — map BOTH the canonical matrix vocabulary (singleton /
+// active-hot-standby) AND the editor dialect onto the editor dialect
+// (single-region / active-hotstandby / active-active) the inline edit form's
+// topology checkboxes use, so a Blueprint's declared topologies pre-check
+// correctly regardless of which spelling the API returned.
+const CANONICAL_TO_EDITOR: Record<string, string> = {
+  singleton: 'single-region',
+  'active-hot-standby': 'active-hotstandby',
+  'active-active': 'active-active',
+}
+function toEditorMode(raw: string): string {
+  const s = raw.trim().toLowerCase()
+  return CANONICAL_TO_EDITOR[s] ?? s
 }
 
 function readTopologies(cat: CatalogItem): string[] {
