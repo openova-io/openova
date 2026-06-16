@@ -1162,6 +1162,15 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 	// /start picks up at step 3.
 	priorStatus, _ := readCutoverStatus(ctx, deps)
 
+	// Project the Cutover group + a pending step Job per discovered step
+	// (with the linear dependsOn chain) into the jobs/activity store so
+	// the console /jobs canvas surfaces the EXECUTION — not just the
+	// dormant chart-install row (issue #3646). Best-effort; never blocks
+	// the cutover. Re-projecting the durable prior results first means a
+	// resume already shows the real per-step states before this run's
+	// transitions land.
+	h.projectCutoverResumeSeed(stepNamesFromSteps(steps), priorStatus)
+
 	for i, step := range steps {
 		percent := int(100 * (float64(i) / float64(totalSteps)))
 		_ = patchCutoverStatus(ctx, deps, map[string]string{
@@ -1178,6 +1187,9 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 				Step:    step.stepName,
 				Message: fmt.Sprintf("step %s already succeeded on a prior run; skipping", step.stepName),
 			})
+			// Already projected as succeeded by projectCutoverResumeSeed
+			// above (the durable status carried result=success); nothing
+			// more to do for the activity view.
 			continue
 		}
 
@@ -1197,6 +1209,11 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 				Step:    step.stepName,
 				Message: fmt.Sprintf("step %s failed: %v", step.stepName, err),
 			})
+			// Project the terminal failure onto the Cutover group so the
+			// canvas shows the failed step (and the group rolls up to
+			// failed) — never a misleading "succeeded" (issue #3646).
+			h.projectCutoverStepFinished(step, "failed",
+				fmt.Sprintf("step %s failed: %v", step.stepName, err), finishedAt)
 			h.log.Error("cutover: step failed", "step", step.stepName, "err", err)
 			return
 		}
@@ -1270,6 +1287,12 @@ func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cu
 					JobName: job.Name,
 					Message: fmt.Sprintf("step %s already completed by prior Job %s; advancing without re-running", step.stepName, job.Name),
 				})
+				// Project the carried-over success onto the Cutover group
+				// so a resumed cutover shows the step succeeded (#3646).
+				h.projectCutoverStepStarted(step,
+					fmt.Sprintf("step %s recovered from prior Job %s", step.stepName, job.Name), finishedAt)
+				h.projectCutoverStepFinished(step, "success",
+					fmt.Sprintf("step %s already completed by prior Job %s", step.stepName, job.Name), finishedAt)
 				return nil
 			}
 			// cond == batchv1.JobFailed.
@@ -1395,6 +1418,10 @@ func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cu
 		JobName: jobOrDS,
 		Message: startMsg,
 	})
+	// Project the running transition onto the Cutover group's step Job
+	// (issue #3646). The actual batch/v1 Job (jobOrDS) is what runs; this
+	// row is its projection on the unified jobs canvas.
+	h.projectCutoverStepStarted(step, startMsg, startedAt)
 
 	switch step.mode {
 	case cutoverModeJob:
@@ -1435,6 +1462,11 @@ func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cu
 		JobName: jobOrDS,
 		Message: fmt.Sprintf("step %s completed", step.stepName),
 	})
+	// Project the success transition onto the Cutover group's step Job
+	// (issue #3646) so the canvas advances the step + rolls the group's
+	// status up correctly.
+	h.projectCutoverStepFinished(step, "success",
+		fmt.Sprintf("step %s completed", step.stepName), finishedAt)
 	return nil
 }
 

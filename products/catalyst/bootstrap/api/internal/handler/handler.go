@@ -317,6 +317,19 @@ type Handler struct {
 	// dispatches to the real h.spawnCutoverEngine.
 	spawnCutoverEngineFn func(ctx context.Context, deps *cutoverDeps, source string) (cutoverSpawnResult, error)
 
+	// cutoverActivityDepID — test/override of the deployment id the
+	// cutover activity bridge projects its step rows under (issue #3646).
+	// Empty in production: cutoverActivityBridge() resolves the chroot's
+	// imported deployment from the jobs store (the deployment carrying the
+	// bootstrap-kit group). Tests set this directly so the projection can
+	// be asserted against a known id without standing up the import path.
+	cutoverActivityDepID string
+	// cutoverActivityProj — lazily-constructed projector that owns the
+	// jobs.ActivityBridge translating cutover step transitions into the
+	// `Cutover` group of Job rows the canvas reads (issue #3646). See
+	// cutover_activity_bridge.go.
+	cutoverActivityProj cutoverActivityProjector
+
 	// ── Unified RBAC SME-tier (issue #802, ADR-0003) ────────────────────────
 	// tenantRegistry — host → tenant lookup table backing the public
 	// /api/v1/tenant/discover endpoint. Same registry is used by the
