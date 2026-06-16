@@ -392,11 +392,27 @@ func (b *Bridge) seedHealthExecutionLocked(jobName, health, message string, at t
 	}})
 }
 
-// reconcilerDisplay returns a friendly label for a reconciler leaf
-// ("cron-openbao-snapshot-save" → "openbao-snapshot-save"), letting the
-// kind column carry the type so the name stays the bare object name.
-func reconcilerDisplay(kind, name string) string {
-	return name
+// reconcilerDisplay returns a granular, human-readable label for a
+// reconciler leaf — the bare K8s object name humanized + qualified by its
+// kind so the /jobs Name column reads the way the operator says it out
+// loud (issue #3646: "non granular naming"). It builds the SAME label
+// Store.deriveTreeView would back-fill, so the source-set value and the
+// read-time floor agree:
+//
+//   - cron       "openbao-snapshot-save" → "OpenBao Snapshot Save (cron)"
+//   - reconcile  "flux-system"           → "Reconcile Flux System"
+//   - task       "gitea-sso-configure"   → "Gitea SSO Configure (task)"
+//   - reconciler "sso-bridge"            → "SSO Bridge (reconciler)"
+//
+// Previously this returned the bare lowercase-hyphenated object name,
+// which the founder reads as non-granular.
+func reconcilerDisplay(obsKind, name string) string {
+	return DeriveLeafDisplayName(Job{
+		JobName: reconcilerLeafJobName(obsKind, name),
+		AppID:   name,
+		Kind:    reconcilerLeafKind(obsKind),
+		Type:    JobTypeInstall,
+	})
 }
 
 // healthStatusFromObs maps a helmwatch.ObsHealth* string onto the jobs
