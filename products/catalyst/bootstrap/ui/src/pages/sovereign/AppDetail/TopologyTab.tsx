@@ -103,6 +103,18 @@ export interface TopologyTabProps {
   callerTier?: string
   /** Continuum CR name (slice U-DR-1) — when omitted, derived as `dr-<applicationName>`. */
   continuumName?: string
+  /**
+   * #3656 — true when this app is a bootstrap-kit HelmRelease with NO
+   * companion Application CR (the parent AppDetail computes this from
+   * `apiApp.bootstrap`; the hero already renders `source: HelmRelease`).
+   * The GET /applications/{name}/status endpoint 404s for these — the CR
+   * it reads does not exist — so we MUST NOT poll it. Without this gate the
+   * Live-status poller hammered the 404 forever (founder #6: a faithful UI
+   * never sticks on "Loading…" against a state that can never resolve).
+   * Generic by construction — keys on "has Application CR", never a
+   * blueprint name.
+   */
+  isBootstrap?: boolean
 }
 
 interface ApplicationStatus {
@@ -136,15 +148,23 @@ export function TopologyTab({
   disableNetwork = false,
   callerTier,
   continuumName,
+  isBootstrap = false,
 }: TopologyTabProps) {
   const qc = useQueryClient()
   const [refreshTick, setRefreshTick] = useState(0)
 
+  // #3656 — bootstrap-kit HelmReleases (bp-alloy/gitea/harbor/openbao/…)
+  // have NO Application CR, so the status endpoint 404s forever. Don't poll
+  // it for them, and never retry/loop on a 404: a faithful UI renders the
+  // calm n/a state below instead of sticking on "Loading…" against a state
+  // that can never resolve. `retry: false` + `refetchInterval: false` (when
+  // bootstrap) kills the tight 404 loop the founder caught on hw150.
   const statusQ = useQuery({
     queryKey: ['application-status', sovereignId, applicationName, namespace, refreshTick],
     queryFn: () => getApplicationStatus(sovereignId, applicationName, namespace),
-    enabled: !initialApp && !!sovereignId && !!applicationName,
-    refetchInterval: 10_000,
+    enabled: !initialApp && !isBootstrap && !!sovereignId && !!applicationName,
+    refetchInterval: isBootstrap ? false : 10_000,
+    retry: false,
   })
 
   // Resolve the spec view of the Application — this comes from the
@@ -338,7 +358,12 @@ export function TopologyTab({
         className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] p-3"
         data-testid="topology-tab-status-panel"
       >
-        {!app ? (
+        {isBootstrap ? (
+          <p className="text-xs text-[var(--color-text-dim)]" data-testid="topology-tab-status-bootstrap">
+            n/a — bootstrap component (HelmRelease, no Application CR). Live
+            rollout status is tracked via Flux, not the per-region controller.
+          </p>
+        ) : !app ? (
           <p className="text-xs text-[var(--color-text-dim)]" data-testid="topology-tab-status-loading">
             Loading status…
           </p>
