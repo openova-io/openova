@@ -1,5 +1,17 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.652 — #3663 (Refs #3598): cutover-driver ClusterRole gains
+# `namespaces: [create]`. The create-from-catalog + Organization-create
+# handlers call ensureOrgNamespace (namespace_ensure.go) which Get-then-
+# Creates the Org/Environment namespace to avoid racing the organization
+# controller's GitOps namespace reconcile. #3598 added the Create call but
+# not the RBAC, so on a fresh prov EVERY Org create 403'd with
+# `namespaces is forbidden: ... catalyst-api-cutover-driver cannot create
+# resource "namespaces" at the cluster scope` (caught live hw150 — ZERO
+# tenant Organizations could exist). catalyst-api runs permanently as this
+# SA (api-deployment.yaml), so the fix is the missing verb, not an SA swap.
+# `create` is its own Rule WITHOUT resourceNames per
+# feedback_rbac_create_no_resourcenames.md.
 # 1.4.619 — #3374 (2026-06-14) — baseline-default-deny: allow ingress
 # from the `oidc-gate` host namespace. The bp-oidc-gate auth-proxy (slot 13c)
 # reverse-proxies authenticated traffic to its upstream Service in
@@ -2712,7 +2724,7 @@ name: bp-catalyst-platform
 # (qaFixtures.cnpgBackupEndpointURL + cnpg-clusters-qa.yaml) to the
 # syncer-mangled host Service name. qa-fixtures only; Catalyst-Zero render
 # byte-unchanged. (1.4.622 was a content-free deploy-bot image sweep.)
-version: 1.4.651
+version: 1.4.652
 # 1.4.648 — #3638 (2026-06-16, Refs #3379; rebased over main's 1.4.647 deploy-bot bump) — fix the cutover step-07 re-run
 # loop at its source. templates/configmap-catalyst-runtime-config.yaml now
 # DERIVES sovereign-console-url + sovereign-api-public-url from

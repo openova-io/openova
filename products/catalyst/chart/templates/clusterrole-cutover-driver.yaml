@@ -54,6 +54,24 @@ rules:
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["create"]
+  # Namespace CREATE — #3663 (Refs #3598). The create-from-catalog +
+  # Organization-create handlers call ensureOrgNamespace
+  # (products/catalyst/bootstrap/api/internal/handler/namespace_ensure.go),
+  # which Get-then-Creates the Org/Environment namespace so an install
+  # never races the organization controller's GitOps namespace reconcile
+  # (`namespaces "<org>" not found`). #3598 added the Create call but not
+  # this RBAC, so on a fresh prov EVERY Org create 403'd:
+  #   namespaces is forbidden: User system:serviceaccount:catalyst-system:
+  #   catalyst-api-cutover-driver cannot create resource "namespaces" at
+  #   the cluster scope (namespace-ensure-failed) — caught live on hw150.
+  # The matching get/list/watch lives in the SOVEREIGN ENDPOINT READS
+  # block below (used by both ensureOrgNamespace's fast-path Get and the
+  # console /cloud pane). `create` MUST be in its own Rule WITHOUT
+  # resourceNames per feedback_rbac_create_no_resourcenames.md — a POST
+  # has no resource name to match, so create+resourceNames 403s.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["create"]
 
   # ───────────────────────────────────────────────────────────────
   # READ verbs — get/list/watch on the resources the handler reads.
