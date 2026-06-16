@@ -344,8 +344,10 @@ spec:
             # page (served by this sidecar at `/`, routed by the HTTPRoute's
             # Exact `/` rule) initiates. Matches the admin-sso-seed-job's
             # custom_oauth_providers.slug. Default "sovereign".
+            # #3648 — provider slug from the STANDARD sso.bootstrap contract
+            # first, then the legacy adminSeed.providerSlug, then default.
             - name: NEWAPI_SSO_INIT_SLUG
-              value: {{ (.Values.adminSeed | default dict).providerSlug | default "sovereign" | quote }}
+              value: {{ ((.Values.sso | default dict).bootstrap | default dict).providerSlug | default (.Values.adminSeed | default dict).providerSlug | default "sovereign" | quote }}
             {{- /*
             #3374 0.1.16 (2026-06-15) — the landing page builds the authorize
             redirect DIRECTLY from these values instead of discovering them at
@@ -359,8 +361,10 @@ spec:
             scopes). When sovereignFQDN is unset the seed/landing are no-ops
             anyway (the page degrades to the SPA /login link). */}}
             {{- $sk := .Values.adminSeed | default dict }}
+            {{- $ssoBoot := (.Values.sso | default dict).bootstrap | default dict }}
             {{- if .Values.sovereignFQDN }}
-            {{- $slug := $sk.providerSlug | default "sovereign" }}
+            {{- /* #3648 — standard sso.bootstrap.providerSlug first, then legacy. */}}
+            {{- $slug := $ssoBoot.providerSlug | default $sk.providerSlug | default "sovereign" }}
             - name: NEWAPI_SSO_AUTHORIZE_URL
               value: {{ printf "https://auth.%s/realms/%s/protocol/openid-connect/auth?kc_idp_hint=catalyst-pin" .Values.sovereignFQDN $slug | quote }}
             - name: NEWAPI_SSO_CLIENT_ID

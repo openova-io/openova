@@ -335,6 +335,17 @@ spec:
     rolesFromGroup:
       sovereign-admins: admin
     silentLogin: true
+    # #3648 — STANDARD sso-bootstrap contract (the SAME spec.sso.adminGroup +
+    # spec.sso.bootstrap every app declares). NewAPI is a Pattern-B app
+    # (upstream has no group→role mechanism), so the platform seeds + promotes
+    # its first admin via the chart's DB-direct admin-sso-seed-job — but WHO
+    # becomes admin (adminGroup) and the bootstrap parameters are declared
+    # HERE, uniformly, never in a newapi-bespoke key.
+    adminGroup: sovereign-admins
+    bootstrap:
+      enabled: true
+      providerSlug: sovereign
+      enforceAdminGroup: false
 
   # ── G117.6: Multi-instance ─────────────────────────────────────────────
   # Singleton per Sovereign — one NewAPI instance per Sovereign control plane.

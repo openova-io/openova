@@ -53,8 +53,22 @@ cluster). Operators on an external Postgres or a non-OIDC posture get
 nothing.
 */ -}}
 {{- $seed := .Values.adminSeed | default dict -}}
+{{- /* #3648 — STANDARD sso-bootstrap contract. The seed's parameters now
+   come from the app-agnostic `.Values.sso` stanza (adminGroup + bootstrap.*,
+   the SAME contract every other app declares: grafana/harbor/gitea/openbao);
+   the legacy `.Values.adminSeed.*` keys remain a fallback so existing
+   overlays keep working. The platform's interpretation keys on the STANDARD
+   fields, never on "newapi". The DB-direct SQL is intrinsic to newapi's
+   schema; only its parameterisation rides this contract. */ -}}
+{{- $sso := .Values.sso | default dict -}}
+{{- $ssoBootstrap := $sso.bootstrap | default dict -}}
+{{- /* Seed-enabled: standard sso.bootstrap.enabled wins; else legacy
+   adminSeed.enabled; default true. */ -}}
+{{- $seedEnabled := true -}}
+{{- if hasKey $ssoBootstrap "enabled" -}}{{- $seedEnabled = $ssoBootstrap.enabled -}}
+{{- else if hasKey $seed "enabled" -}}{{- $seedEnabled = $seed.enabled -}}{{- end -}}
 {{- $kcMode := eq .Values.auth.adminUI.mode "keycloak" -}}
-{{- if and (default true $seed.enabled) .Values.newapi.enabled $kcMode .Values.cnpg.enabled .Values.sovereignFQDN -}}
+{{- if and $seedEnabled .Values.newapi.enabled $kcMode .Values.cnpg.enabled .Values.sovereignFQDN -}}
 {{- $clusterName := printf "%s-newapi-pg" (include "bp-newapi.fullname" .) -}}
 {{- $cnpgSecretName := printf "%s-app" $clusterName -}}
 {{- $jobName := include "bp-newapi.adminSeedJobName" . -}}
@@ -69,10 +83,18 @@ nothing.
 {{- $fqdn := .Values.sovereignFQDN -}}
 {{- $clientId := .Values.auth.adminUI.keycloak.clientId | default "newapi-admin" -}}
 {{- $oidcSecretName := .Values.auth.adminUI.keycloak.existingSecret | default (printf "%s-oidc" (include "bp-newapi.fullname" .)) -}}
-{{- $adminGroup := $seed.adminGroup | default "sovereign-admins" -}}
+{{- /* #3648 — adminGroup + providerSlug resolve from the STANDARD
+   `.Values.sso` contract first (sso.adminGroup, sso.bootstrap.providerSlug),
+   then the legacy adminSeed.* keys, then the literal default. */ -}}
+{{- $adminGroup := $sso.adminGroup | default $seed.adminGroup | default "sovereign-admins" -}}
 {{- $rootUsername := $seed.rootUsername | default "catalyst-root" -}}
 {{- $providerName := $seed.providerName | default "OpenOva SSO" -}}
-{{- $providerSlug := $seed.providerSlug | default "sovereign" -}}
+{{- $providerSlug := $ssoBootstrap.providerSlug | default $seed.providerSlug | default "sovereign" -}}
+{{- /* #3648 — enforceAdminGroup: standard sso.bootstrap.enforceAdminGroup
+   wins; else legacy adminSeed.enforceAdminGroup; default false. */ -}}
+{{- $enforceAdminGroup := false -}}
+{{- if hasKey $ssoBootstrap "enforceAdminGroup" -}}{{- $enforceAdminGroup = $ssoBootstrap.enforceAdminGroup -}}
+{{- else if hasKey $seed "enforceAdminGroup" -}}{{- $enforceAdminGroup = $seed.enforceAdminGroup -}}{{- end -}}
 {{- /* #3374: NewAPI's public base URL → options.ServerAddress. The
    generic-OAuth token-exchange builds redirect_uri = ServerAddress/oauth/<slug>
    (upstream oauth/generic.go:97); it MUST byte-match the frontend authorize
@@ -346,7 +368,7 @@ data:
       # oidc_id — so the owner ALWAYS lands (the #3150 lesson: never let a gate
       # break the actual login). Operators flip enforceAdminGroup=true to also
       # deny non-admins at the newapi boundary.
-      {{- if $seed.enforceAdminGroup }}
+      {{- if $enforceAdminGroup }}
       POLICY='{"logic":"and","conditions":[{"field":"groups","op":"contains","value":"{{ $adminGroup }}"}],"groups":[]}'
       {{- else }}
       POLICY=''

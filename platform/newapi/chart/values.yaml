@@ -406,6 +406,34 @@ auth:
     # `self-serve`: customer-facing portal is enabled (NOT recommended
     # in Catalyst Sovereigns).
     keyIssuer: "catalyst"
+# ─── Standard SSO-bootstrap contract (#3648) ─────────────────────────────
+# This is the STANDARD, app-agnostic SSO-admin declaration that mirrors the
+# Blueprint `spec.sso` contract — the SAME stanza every other app uses
+# (grafana/harbor/gitea/openbao `sso.adminGroup`). It is the source of
+# truth for WHO becomes admin (`adminGroup`) and HOW the first admin is
+# seeded (`bootstrap.*`). The admin-sso-seed-job reads these FIRST and
+# falls back to the legacy `adminSeed.*` keys only for back-compat, so a
+# Sovereign overlay (or a future shared seed mechanism) configures newapi
+# the same way it configures every other app — NOT through a newapi-bespoke
+# key. The DB-direct SQL the chart runs is intrinsic to newapi's schema;
+# only its PARAMETERISATION rides this standard contract.
+sso:
+  # The Sovereign-realm group whose members are elevated to newapi admin
+  # (role=100). Elevation always keys on the group, never per-user.
+  adminGroup: "sovereign-admins"
+  bootstrap:
+    # Seed newapi's first admin via the Sovereign SSO (Pattern B — newapi's
+    # upstream has no group→role mechanism, so the chart seeds + promotes
+    # DB-direct). Set false to skip the whole seed bundle.
+    enabled: true
+    # The in-app OIDC provider slug newapi trusts (custom_oauth_providers
+    # .slug + the KC realm segment). Standard `sovereign`.
+    providerSlug: "sovereign"
+    # When true, also GATE newapi's OIDC provider on adminGroup membership
+    # (deny non-members at the newapi boundary). Default OFF (the #3150
+    # wire-proof≠walk lesson — a strict claim-format gate must never break
+    # the owner's first landing).
+    enforceAdminGroup: false
 # ─── Admin-init + SSO-provider seed (#3374) ──────────────────────────────
 # NewAPI 0.13.x stores OIDC providers + the root user in its Postgres DB,
 # not env. Without seeding, a fresh Sovereign's newapi shows the
