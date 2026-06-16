@@ -101,8 +101,16 @@ spec:
                   default: 60
                 topology:
                   type: string
-                  enum: [active-hotstandby, active-active]
-                  default: active-hotstandby
+                  # #3648 — canonical hyphenated vocabulary (matches the
+                  # Blueprint spec.topology.supported + docs/topology-matrix.md:
+                  # singleton | active-active | active-hot-standby | active-passive).
+                  # The legacy un-hyphenated `active-hotstandby` stays in the enum
+                  # for back-compat with any CnpgPair CR written before this
+                  # canonicalization (helm-controller skips crds/ on upgrade, so a
+                  # live Sovereign may still carry the old spelling until re-applied).
+                  # New writers emit the canonical default below.
+                  enum: [active-hot-standby, active-active, active-hotstandby]
+                  default: active-hot-standby
               x-kubernetes-preserve-unknown-fields: true
             status:
               type: object
