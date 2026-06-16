@@ -645,6 +645,20 @@ func deriveTreeView(jobs []Job) []Job {
 				jobs[i].Kind = kindForLeaf(jobs[i].JobName)
 			}
 		}
+		// Back-fill a granular, human-readable DisplayName for any LEAF
+		// whose producing bridge left it empty (issue #3646: "non granular
+		// naming"). The install + mutation bridges never set one, so the FE
+		// rendered the raw "install-<chart>" / "mutation-<verb>-<kind>"
+		// slug. DeriveLeafDisplayName names the component + action's purpose
+		// ("Install Keycloak", "Remove Region") from the structured fields.
+		// This is the SAME single chokepoint that back-fills Kind, so the
+		// granular name reaches every row regardless of which bridge minted
+		// it (and upgrades legacy persisted indexes on read). A bridge that
+		// DID set a friendly DisplayName (cutover steps, lifecycle phases,
+		// groups) keeps it — we only ever fill an EMPTY one, never override.
+		if jobs[i].DisplayName == "" && jobs[i].Type != JobTypeGroup {
+			jobs[i].DisplayName = DeriveLeafDisplayName(jobs[i])
+		}
 	}
 	// Build adjacency: parent ID → list of child indexes (children of
 	// the indexed parent's ID).
