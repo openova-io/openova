@@ -1,8 +1,10 @@
 # NS#1 — migrate the 7 host-placed apps into the mgmt vCluster (UAT walkthrough)
 
-## Status — last validated: hw158 (2026-06-17) — browser walk: **7 ✅ / 13 ❌ / 3 GAP**
+## Status — last validated: hw159.omani.works (2026-06-18) — browser walk: **7 ✅ / 13 ❌ / 3 GAP**
 
-> **hw158 browser-walk verdict (2026-06-17, real screenshots). DECISIVE FAIL on the headline.** With the `/dashboard` treemap set to **LAYER 1 = vCluster**, the treemap regroups into blocks **`host` · `rtz` · `mgmt`** — and the **`mgmt` block holds only `mimir` + `mgmt-vcluster`**. ALL of the 7 named apps (grafana, harbor, keycloak, gitea, openbao, newapi, guacamole) are under **`host`** (or are host/sub-namespace tiles), **NONE under `mgmt`** → North Star #1 *"every app IN a vCluster"* is **NOT met** (PART B all ❌, PART C all ❌; keycloak's app card reads Placement `singleton` / namespace `flux-system`). PASS (7): sign-in + dashboard + the LAYER1=vCluster regroup itself work; and 4 of 7 public surfaces land zero-click signed-in (gitea, grafana, openbao, guacamole). FAIL surfaces (3): keycloak account console errors ("Something went wrong"), **harbor** external FQDN returns ERR_HTTP_RESPONSE_CODE_FAILURE, **newapi** redirects to `/login?expired=true` with an upstream `delayed connect error: 111`.
+> **hw159 browser-walk verdict (2026-06-18, fresh real screenshots; dep `c117f6fd4e2eb2dd`, region `me-east-215-a`, status `ready`). DECISIVE FAIL on the headline — CONFIRMS the prior hw158 shape on a fresh env.** With the `/dashboard` treemap set to **LAYER 1 = vCluster**, the treemap regroups into 4 blocks **`host` · `rtz` · `mgmt` · `dmz`** — and the **`mgmt` block holds only `mimir` · `mgmt-vcluster` · `loki` · `tempo`**. ALL of the 7 named apps (grafana 9% · harbor 2% · keycloak 5% · gitea 5% · openbao 15% · newapi 2% · guacamole 1%) sit under the **`host`** block, **NONE under `mgmt`** → North Star #1 *"every app IN a vCluster"* is **NOT met** (PART B all 7 ❌, PART C all ❌; keycloak's app card reads Placement `singleton` / namespace `flux-system`). PASS (7): sign-in + dashboard + the LAYER1=vCluster regroup itself work; and 4 of 7 public surfaces land zero-click signed-in (gitea as `emrah.baysal`, grafana home, openbao secrets-engines, guacamole as `emrah.baysal@openova.io`). FAIL surfaces (3): keycloak account console errors ("Something went wrong — Sorry, an unexpected error has occurred"), **harbor** external FQDN returns ERR_HTTP_RESPONSE_CODE_FAILURE, **newapi** completes the OIDC callback then dies on an upstream `delayed connect error: 111` (backend down). Evidence: `hw159-3642-*.png`.
+>
+> **Prior hw158 verdict (2026-06-17): 7 ✅ / 13 ❌ / 3 GAP — same shape, superseded by the hw159 walk above.**
 
 
 > **Prior curl/kubectl-format runbook REPLACED.** The earlier version drove this walk with
@@ -36,7 +38,7 @@ app runs inside the mgmt vCluster; a `host`-block tile = it never moved. No term
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| — | Load the handover URL (with the operator's handover token). Lands on `/dashboard` **already signed in** as `emrah.baysal@openova.io` (avatar **E**, top-right) — **no login form**. A redirect to a Keycloak login screen here = FAIL. | ☐ | — |
+| — | Load the handover URL (with the operator's handover token). Lands on `/dashboard` **already signed in** as `emrah.baysal@openova.io` (avatar **E**, top-right) — **no login form**. A redirect to a Keycloak login screen here = FAIL. | ✅ | Handover lands directly on `/dashboard` (env `hw159.omani.works`, dep `c117f6fd4e2eb2dd`), avatar **E** top-right, 94 items — no login form. ![3642-treemap](../../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
 
 ---
 
@@ -44,8 +46,8 @@ app runs inside the mgmt vCluster; a `host`-block tile = it never moved. No term
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| — | Dashboard renders the cluster treemap and the grouping controls (LAYER 1 / LAYER 2 comboboxes) are visible. Login-screen redirect = FAIL. | ☐ | — |
-| — | Click the **LAYER 1** grouping combobox and select **`vCluster`**. The treemap regroups into one labelled block per vCluster: **`host`**, **`mgmt`** (plus `rtz` / `dmz` if present). The `mgmt` block is visible and clickable. | ☐ | — |
+| — | Dashboard renders the cluster treemap and the grouping controls (LAYER 1 / LAYER 2 comboboxes) are visible. Login-screen redirect = FAIL. | ✅ | The treemap renders (cluster `hw-me-east-215-a-rtz-prod`, 94 items) with the SIZE / COLOR / LAYER 1 / LAYER 2 comboboxes visible. ![3642-treemap](../../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
+| — | Click the **LAYER 1** grouping combobox and select **`vCluster`**. The treemap regroups into one labelled block per vCluster: **`host`**, **`mgmt`** (plus `rtz` / `dmz` if present). The `mgmt` block is visible and clickable. | ✅ | LAYER 1 set to `vCluster` → the treemap regroups into 4 labelled blocks **`host` · `rtz` · `mgmt` · `dmz`**; the `mgmt` block is visible (holds `mimir` · `mgmt-vcluster` · `loki` · `tempo`). ![3642-treemap](../../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
 
 ---
 
@@ -56,13 +58,13 @@ sits inside the `mgmt` block; a tile inside the `host` block is a FAIL.**
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **grafana** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `grafana` tile sits inside the **host** block (10%), NOT mgmt — it never moved. ![3642-grafana-mgmt](../../sessions/2026-06-17/evidence/3642-grafana-mgmt.png) |
-| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **harbor** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `harbor` tile sits inside the **host** block (2%), NOT mgmt. ![3642-harbor-mgmt](../../sessions/2026-06-17/evidence/3642-harbor-mgmt.png) |
-| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **keycloak** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `keycloak` tile sits inside the **host** block (3%), NOT mgmt. ![3642-keycloak-mgmt](../../sessions/2026-06-17/evidence/3642-keycloak-mgmt.png) |
-| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **gitea** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `gitea` does NOT appear under the **mgmt** block (the mgmt block holds only mimir + mgmt-vcluster); gitea is a host-cluster/sub-namespace tile, not in mgmt. ![3642-gitea-mgmt](../../sessions/2026-06-17/evidence/3642-gitea-mgmt.png) |
-| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **openbao** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `openbao` does NOT appear under the **mgmt** block; it is not a mgmt-vCluster tile. ![3642-openbao-mgmt](../../sessions/2026-06-17/evidence/3642-openbao-mgmt.png) |
-| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **newapi** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `newapi` tile sits inside the **host** block (2%), NOT mgmt. ![3642-newapi-mgmt](../../sessions/2026-06-17/evidence/3642-newapi-mgmt.png) |
-| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **guacamole** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `guacamole` tile sits inside the **host** block (1%), NOT mgmt. ![3642-guacamole-mgmt](../../sessions/2026-06-17/evidence/3642-guacamole-mgmt.png) |
+| [console.hw159/dashboard](https://console.hw159.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **grafana** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `grafana` tile (9%) sits inside the **host** block, NOT mgmt — it never moved. ![3642-treemap](../../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
+| [console.hw159/dashboard](https://console.hw159.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **harbor** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `harbor` tile (2%) sits inside the **host** block, NOT mgmt. ![3642-treemap](../../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
+| [console.hw159/dashboard](https://console.hw159.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **keycloak** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `keycloak` tile (5%) sits inside the **host** block, NOT mgmt. ![3642-treemap](../../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
+| [console.hw159/dashboard](https://console.hw159.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **gitea** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `gitea` tile (5%) sits inside the **host** block, NOT mgmt (the mgmt block holds only mimir · mgmt-vcluster · loki · tempo). ![3642-treemap](../../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
+| [console.hw159/dashboard](https://console.hw159.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **openbao** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `openbao` tile (15%) sits inside the **host** block, NOT mgmt. ![3642-treemap](../../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
+| [console.hw159/dashboard](https://console.hw159.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **newapi** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `newapi` tile (2%) sits inside the **host** block, NOT mgmt. ![3642-treemap](../../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
+| [console.hw159/dashboard](https://console.hw159.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **guacamole** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `guacamole` tile (1%) sits inside the **host** block, NOT mgmt. ![3642-treemap](../../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
 
 ---
 
@@ -70,9 +72,9 @@ sits inside the `mgmt` block; a tile inside the `host` block is a FAIL.**
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | Click into the **mgmt** block (drill down one LAYER). Its tiles must include **all 7** named apps (grafana / harbor / keycloak / gitea / openbao / newapi / guacamole) **alongside** loki / mimir / nats / tempo. Missing any of the 7 = FAIL. | ❌ | The **mgmt** block holds only **mimir** + **mgmt-vcluster** — NONE of the 7 named apps are inside it. ![3642-mgmt-block-contents](../../sessions/2026-06-17/evidence/3642-mgmt-block-contents.png) |
-| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | Read the **host** block on the same LAYER1=vCluster treemap. **None** of the 7 named apps may appear under `host`. Any of the 7 showing under `host` = FAIL. | ❌ | The **host** block contains harbor, keycloak, guacamole, newapi, grafana (and cnpg-pair, kyverno, falco, cilium, crossplane, catalyst, etc.) — at least 5 of the 7 named apps are under `host`. ![3642-host-block-clean](../../sessions/2026-06-17/evidence/3642-host-block-clean.png) |
-| [console.hw158/apps/keycloak](https://console.hw158.omani.works/apps/keycloak) | Open the **keycloak** app card and read its placement detail — it must show **`mgmt`** (the per-app placement readout mirrors the treemap block). A `host` readout = FAIL. | ❌ | (Note: `/apps/keycloak` is "Not Found"; the real route is `/app/keycloak`.) keycloak's app Overview reads **Placement: `singleton`**, **Namespace: `flux-system`** — NOT `mgmt`. ![3642-keycloak-card-placement](../../sessions/2026-06-17/evidence/3642-keycloak-card-placement.png) |
+| [console.hw159/dashboard](https://console.hw159.omani.works/dashboard) | Click into the **mgmt** block (drill down one LAYER). Its tiles must include **all 7** named apps (grafana / harbor / keycloak / gitea / openbao / newapi / guacamole) **alongside** loki / mimir / nats / tempo. Missing any of the 7 = FAIL. | ❌ | The **mgmt** block holds only **mimir** · **mgmt-vcluster** · **loki** · **tempo** — NONE of the 7 named apps are inside it. ![3642-treemap](../../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
+| [console.hw159/dashboard](https://console.hw159.omani.works/dashboard) | Read the **host** block on the same LAYER1=vCluster treemap. **None** of the 7 named apps may appear under `host`. Any of the 7 showing under `host` = FAIL. | ❌ | The **host** block contains all 7 named apps (grafana, harbor, keycloak, gitea, openbao, newapi, guacamole) plus cnpg-pair, kyverno, falco, cilium-agent, crossplane, etc. — all 7 are under `host`. ![3642-treemap](../../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
+| [console.hw159/app/keycloak](https://console.hw159.omani.works/app/keycloak) | Open the **keycloak** app card and read its placement detail — it must show **`mgmt`** (the per-app placement readout mirrors the treemap block). A `host` readout = FAIL. | ❌ | keycloak's app Overview reads **Placement: `singleton`**, **Namespace: `flux-system`**, Blueprint `bp-keycloak@1.4.31`, Ready — NOT `mgmt`. ![3642-keycloak-card-placement](../../sessions/2026-06-17/evidence/hw159-3642-keycloak-card-placement.png) |
 
 ---
 
@@ -84,13 +86,13 @@ authenticated app screen = ✅.
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [auth.hw158/realms/sovereign/account](https://auth.hw158.omani.works/realms/sovereign/account) | The sovereign-realm account console renders for `emrah.baysal@openova.io` (no second login). | ❌ | The account console shows a **"Danger alert: Something went wrong — Sorry, an unexpected error has occurred"** dialog (Try again) — not a rendered account page. ![3642-keycloak-surface](../../sessions/2026-06-17/evidence/3642-keycloak-surface.png) |
-| — | Gitea opens **already signed in** (avatar/menu shows the SSO user), repo list renders — no Gitea login form. | ☐ | — |
-| [harbor.hw158](https://harbor.hw158.omani.works/) | Harbor opens **signed in**, the projects list renders — no Harbor login form. | ❌ | `harbor.hw158.omani.works` returns **ERR_HTTP_RESPONSE_CODE_FAILURE** (non-2xx; UI does not load) on both `/` and `/harbor/projects`. (Evidence frame: the keycloak app placement page captured at the same time; harbor itself would not render to screenshot.) ![3642-harbor-surface](../../sessions/2026-06-17/evidence/3642-harbor-surface.png) |
-| — | Grafana opens **signed in** (no Grafana login), the home dashboard renders. | ☐ | — |
-| — | The OpenBao UI renders **signed in** via OIDC — no manual token/unseal prompt blocking the landing. | ☐ | — |
-| [newapi.hw158](https://newapi.hw158.omani.works/) | newapi opens **signed in**, its main console renders — no login form. | ❌ | newapi shows "Signing you in…" then redirects to **`/login?expired=true`** with body *"upstream connect error … delayed connect error: 111"* — a login redirect + backend connection failure. ![3642-newapi-surface](../../sessions/2026-06-17/evidence/3642-newapi-surface.png) |
-| — | Guacamole opens **signed in**, the connections list renders — no Guacamole login form. | ☐ | — |
+| [auth.hw159/realms/sovereign/account](https://auth.hw159.omani.works/realms/sovereign/account) | The sovereign-realm account console renders for `emrah.baysal@openova.io` (no second login). | ❌ | The account console shows a **"Something went wrong — Sorry, an unexpected error has occurred"** dialog (Try again) — not a rendered account page. ![3642-keycloak-surface](../../sessions/2026-06-17/evidence/hw159-3642-keycloak-surface.png) |
+| [gitea.hw159](https://gitea.hw159.omani.works/) | Gitea opens **already signed in** (avatar/menu shows the SSO user), repo list renders — no Gitea login form. | ✅ | Gitea opens signed in as **`emrah.baysal`** (avatar + name top-left, Issues/Pull Requests/Milestones/Explore nav, Repositories list) — no login form. ![3642-gitea-surface](../../sessions/2026-06-17/evidence/hw159-3642-gitea-surface.png) |
+| [harbor.hw159](https://harbor.hw159.omani.works/) | Harbor opens **signed in**, the projects list renders — no Harbor login form. | ❌ | `harbor.hw159.omani.works` returns **ERR_HTTP_RESPONSE_CODE_FAILURE** (non-2xx; UI does not load) on `/` — the gateway returns a chrome-error page, harbor never renders. ![3642-harbor-surface](../../sessions/2026-06-17/evidence/hw159-3642-harbor-surface.png) |
+| [grafana.hw159](https://grafana.hw159.omani.works/) | Grafana opens **signed in** (no Grafana login), the home dashboard renders. | ✅ | Grafana opens on the **"Welcome to Grafana"** home dashboard (full sidebar + avatar top-right) — no Grafana login. ![3642-grafana-surface](../../sessions/2026-06-17/evidence/hw159-3642-grafana-surface.png) |
+| [bao.hw159](https://bao.hw159.omani.works/) | The OpenBao UI renders **signed in** via OIDC — no manual token/unseal prompt blocking the landing. | ✅ | OpenBao lands on **"Secrets Engines"** (`/ui/vault/secrets`) signed in as `root`, showing `cubbyhole/` + `secret/` engines — no unseal/login block. ![3642-openbao-surface](../../sessions/2026-06-17/evidence/hw159-3642-openbao-surface.png) |
+| [newapi.hw159](https://newapi.hw159.omani.works/) | newapi opens **signed in**, its main console renders — no login form. | ❌ | newapi completes the OIDC callback (`/oauth/sovereign?...code=...`) then dies on **"upstream connect error … delayed connect error: 111"** — backend connection failure, console never renders. ![3642-newapi-surface](../../sessions/2026-06-17/evidence/hw159-3642-newapi-surface.png) |
+| [guacamole.hw159](https://guacamole.hw159.omani.works/guacamole/) | Guacamole opens **signed in**, the connections list renders — no Guacamole login form. | ✅ | Guacamole opens on **"RECENT CONNECTIONS / ALL CONNECTIONS"** signed in as **`emrah.baysal@openova.io`** (top-right) — no Guacamole login form. ![3642-guacamole-surface](../../sessions/2026-06-17/evidence/hw159-3642-guacamole-surface.png) |
 
 ---
 
@@ -110,11 +112,11 @@ browser-walkable.
 
 ## DoD roll-up (browser-walk)
 
-- [x] **Sign-in** — handover lands on `/dashboard` signed-in, no login form. → ✅
-- [x] **PART A** — `/dashboard` renders, LAYER 1 set to `vCluster`, `mgmt` block visible. → ✅ (2 rows)
+- [x] **Sign-in** — handover lands on `/dashboard` signed-in, no login form. → ✅ (hw159)
+- [x] **PART A** — `/dashboard` renders, LAYER 1 set to `vCluster`, `mgmt` block visible. → ✅ (2 rows; blocks `host`/`rtz`/`mgmt`/`dmz`)
 - [ ] **PART B** — all 7 app tiles (grafana / harbor / keycloak / gitea / openbao / newapi / guacamole) sit under the **mgmt** block on the LAYER1=vCluster treemap. → ❌ **ALL 7 under `host`, none under `mgmt`** (7 rows ❌)
-- [ ] **PART C** — the mgmt block holds all 7 + loki/mimir/nats/tempo; the host block holds none of the 7; keycloak card reads `mgmt`. → ❌ mgmt holds only mimir + mgmt-vcluster; host holds the apps; keycloak reads `singleton`/`flux-system` (3 rows ❌)
-- [ ] **PART D** — all 7 per-app public surfaces still land **signed in** (no regression). → ⚠️ 4/7 ✅ (gitea/grafana/openbao/guacamole); 3/7 ❌ (keycloak account error, harbor HTTP failure, newapi login-redirect+upstream-error)
+- [ ] **PART C** — the mgmt block holds all 7 + loki/mimir/nats/tempo; the host block holds none of the 7; keycloak card reads `mgmt`. → ❌ mgmt holds only mimir·mgmt-vcluster·loki·tempo; host holds the apps; keycloak reads `singleton`/`flux-system` (3 rows ❌)
+- [ ] **PART D** — all 7 per-app public surfaces still land **signed in** (no regression). → ⚠️ 4/7 ✅ (gitea/grafana/openbao/guacamole); 3/7 ❌ (keycloak account error, harbor HTTP failure, newapi upstream-111)
 - [ ] **GAPS** — 3 non-UI findings recorded (in-vCluster CRD registration, per-pod syncer suffix, cutover deny-egress survival owned by Pillar-5).
 
 **Acceptance = the founder (or operator) walking the clickable rows above on the live env in a browser,
