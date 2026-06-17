@@ -394,22 +394,73 @@ func (b *Bridge) SeedJobsFromInformerList(seeds []InformerSeed) (jobsWritten, ex
 			// for the seed-twice path covered by
 			// TestSeedJobsFromInformerList_idempotent).
 			if isTerminalHelmState(s.State) {
+				final := StatusSucceeded
+				if s.State == HelmStateFailed {
+					final = StatusFailed
+				}
+				t := s.ObservedAt
+				if t.IsZero() {
+					t = time.Now().UTC()
+				} else {
+					t = t.UTC()
+				}
 				priorExec, findErr := b.store.FindExecution(b.deploymentID, job.LatestExecutionID)
-				if findErr == nil && !IsTerminal(priorExec.Status) {
-					final := StatusSucceeded
-					if s.State == HelmStateFailed {
-						final = StatusFailed
-					}
-					t := s.ObservedAt
-					if t.IsZero() {
-						t = time.Now().UTC()
-					} else {
-						t = t.UTC()
-					}
+				switch {
+				case findErr == nil && !IsTerminal(priorExec.Status):
+					// Orphan non-terminal Execution (Pod restart between the
+					// pending→non-pending edge and the terminal edge). Close
+					// it with the live terminal status. TBD-B6/B7.
 					if finishErr := b.store.FinishExecution(b.deploymentID, job.LatestExecutionID, final, t); finishErr != nil {
 						return jobsWritten, executionsSeeded, finishErr
 					}
+				case findErr == nil && IsTerminal(priorExec.Status) && priorExec.Status != final:
+					// FALSE-FAILED RECOVERY (issue #3687 / #910 tail): the
+					// persisted Job is frozen at one terminal status (typically
+					// `failed` from a transient bootstrap-window InstallFailed)
+					// but the LIVE HR re-read this seed is built from now shows
+					// the OPPOSITE terminal (`installed` → Ready=True). The
+					// helmwatch bootstrap watch is finite, so the recovery
+					// transition was never observed by processEvent — nothing
+					// re-read the live HR afterward and the chip stuck on the
+					// stale FAILED snapshot. A UAT walk done after the bootstrap
+					// window then counts a false ❌.
+					//
+					// The live Ready condition is the source of truth (NOT a
+					// fabricated green), so heal the Job: allocate a FRESH
+					// Execution stamped at the recovery instant, anchor it with
+					// an honest seed line, and FinishExecution flips the Job's
+					// Status + FinishedAt + DurationMs to match the live HR. The
+					// prior terminal Execution is preserved as history. This
+					// mirrors OnHelmReleaseEvent's live recovery path (which
+					// already heals failed→installed by allocating a new
+					// Execution) so the seed-re-read path and the event path
+					// agree on the converged status.
+					recExec, startErr := b.store.StartExecution(b.deploymentID, jobName, t)
+					if startErr != nil {
+						return jobsWritten, executionsSeeded, startErr
+					}
+					executionsSeeded++
+					anchor := "[seeded] recovery: state=" + s.State + " at " + t.Format(time.RFC3339)
+					if msg := strings.TrimSpace(s.Message); msg != "" {
+						anchor = anchor + ": " + msg
+					}
+					recLevel := LevelInfo
+					if s.State == HelmStateFailed {
+						recLevel = LevelError
+					}
+					if appendErr := b.store.AppendLogLines(b.deploymentID, recExec.ID, []LogLine{{
+						Timestamp: t,
+						Level:     recLevel,
+						Message:   anchor,
+					}}); appendErr != nil {
+						return jobsWritten, executionsSeeded, appendErr
+					}
+					if finishErr := b.store.FinishExecution(b.deploymentID, recExec.ID, final, t); finishErr != nil {
+						return jobsWritten, executionsSeeded, finishErr
+					}
 				}
+				// Terminal seed (orphan-closed, recovered, or already-converged):
+				// clear the cursor so a late raw-log line doesn't re-open it.
 				b.activeExecID[comp] = ""
 			} else {
 				b.activeExecID[comp] = job.LatestExecutionID

@@ -1006,3 +1006,112 @@ func TestSeedJobsFromInformerList_resumeFailedTerminalFinishesOrphan(t *testing.
 		t.Errorf("Execution after resume: want 1×failed, got %+v", execs)
 	}
 }
+
+// TestSeedJobsFromInformerList_reseedRecoversFailedToSucceeded is the
+// bridge-side acceptance for the false-FAILED-chip defect (issue #3687 /
+// #910 tail). The finite Phase-1 bootstrap watch observed bp-catalyst-
+// platform at a transient InstallFailed and stamped the Job + its
+// Execution `failed`. The watch then RETURNED. Flux's remediation.retries
+// later converged the HR to Ready=True — but nothing re-read the live HR,
+// so the Job chip stuck on the stale `failed` snapshot and a UAT walk
+// counted a false ❌.
+//
+// A subsequent live re-read (POST /refresh-watch, or the chroot
+// list-and-seed path) feeds SeedJobsFromInformerList a seed with the
+// component now at HelmStateInstalled. The bridge MUST heal the stale
+// failure, driven by the live Ready condition (not a fabricated green):
+//
+//   - Job.Status flips failed → succeeded with FinishedAt + DurationMs set,
+//   - a FRESH succeeded Execution is allocated at the recovery instant,
+//   - the prior `failed` Execution is preserved as history,
+//   - and a repeat re-seed at the same installed state is idempotent.
+func TestSeedJobsFromInformerList_reseedRecoversFailedToSucceeded(t *testing.T) {
+	st, br, depID := newBridgeFixture(t)
+	t0 := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+
+	// Bootstrap-window seed: the HR was observed at a terminal failure.
+	if _, _, err := br.SeedJobsFromInformerList([]InformerSeed{
+		{Component: "catalyst-platform", State: HelmStateFailed, Message: "InstallFailed: missing sme namespace", ObservedAt: t0},
+	}); err != nil {
+		t.Fatalf("first (failed) seed: %v", err)
+	}
+	jobID := JobID(depID, JobNamePrefix+"catalyst-platform")
+	job, execs, err := st.GetJob(depID, jobID)
+	if err != nil {
+		t.Fatalf("GetJob after failed seed: %v", err)
+	}
+	if job.Status != StatusFailed {
+		t.Fatalf("post-failed-seed Job.Status: want %q, got %q", StatusFailed, job.Status)
+	}
+	if len(execs) != 1 || execs[0].Status != StatusFailed {
+		t.Fatalf("post-failed-seed executions: want 1×failed, got %+v", execs)
+	}
+	failedExecID := execs[0].ID
+
+	// Watch returned; later a live re-read (refresh-watch) sees Ready=True.
+	// Fresh Bridge models the Pod-restart / new-watcher path that has no
+	// in-memory cursors — the persisted store is the only state.
+	br2 := NewBridge(st, depID)
+	t1 := t0.Add(4 * time.Minute)
+	if _, execsSeeded, err := br2.SeedJobsFromInformerList([]InformerSeed{
+		{Component: "catalyst-platform", State: HelmStateInstalled, Message: "Helm install succeeded after retry", ObservedAt: t1},
+	}); err != nil {
+		t.Fatalf("recovery re-seed: %v", err)
+	} else if execsSeeded != 1 {
+		t.Errorf("recovery re-seed executionsSeeded = %d, want 1 (the fresh succeeded Execution)", execsSeeded)
+	}
+
+	job, execs, err = st.GetJob(depID, jobID)
+	if err != nil {
+		t.Fatalf("GetJob after recovery seed: %v", err)
+	}
+	// The load-bearing assertion: the stale FAILED chip is healed.
+	if job.Status != StatusSucceeded {
+		t.Errorf("recovered Job.Status: want %q, got %q (stale FAILED chip not healed)", StatusSucceeded, job.Status)
+	}
+	if job.FinishedAt == nil {
+		t.Errorf("recovered Job.FinishedAt: want non-nil, got nil")
+	} else if !job.FinishedAt.Equal(t1) {
+		t.Errorf("recovered Job.FinishedAt: want %v, got %v", t1, *job.FinishedAt)
+	}
+	if job.DurationMs <= 0 {
+		t.Errorf("recovered Job.DurationMs: want >0, got %d", job.DurationMs)
+	}
+	// History preserved: the original failed Execution survives, and a
+	// fresh succeeded Execution is now the latest.
+	if len(execs) != 2 {
+		t.Fatalf("recovered executions: want 2 (failed history + fresh succeeded), got %d: %+v", len(execs), execs)
+	}
+	var sawFailedHistory, sawSucceeded bool
+	for _, e := range execs {
+		if e.ID == failedExecID && e.Status == StatusFailed {
+			sawFailedHistory = true
+		}
+		if e.Status == StatusSucceeded {
+			sawSucceeded = true
+		}
+	}
+	if !sawFailedHistory {
+		t.Errorf("recovered executions: the original failed Execution %q must be preserved as history; got %+v", failedExecID, execs)
+	}
+	if !sawSucceeded {
+		t.Errorf("recovered executions: a fresh succeeded Execution must exist; got %+v", execs)
+	}
+	if job.LatestExecutionID == failedExecID {
+		t.Errorf("recovered Job.LatestExecutionID still points at the failed Execution %q; want the fresh succeeded one", failedExecID)
+	}
+
+	// Idempotency: re-seeding the same installed state must NOT allocate
+	// another Execution (a /refresh-watch poll loop must converge).
+	if _, execsSeeded, err := br2.SeedJobsFromInformerList([]InformerSeed{
+		{Component: "catalyst-platform", State: HelmStateInstalled, Message: "still Ready=True", ObservedAt: t1.Add(time.Second)},
+	}); err != nil {
+		t.Fatalf("idempotent re-seed: %v", err)
+	} else if execsSeeded != 0 {
+		t.Errorf("idempotent re-seed executionsSeeded = %d, want 0 (already converged)", execsSeeded)
+	}
+	_, execs, _ = st.GetJob(depID, jobID)
+	if len(execs) != 2 {
+		t.Errorf("after idempotent re-seed: want 2 executions, got %d", len(execs))
+	}
+}
