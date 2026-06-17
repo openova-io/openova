@@ -97,11 +97,32 @@ spec:
       `parameters` with "Can't set fixed configuration parameter".
       Verified live against CNPG 1.29.0 (hw124, 2026-06-10, #3195). We
       therefore declare synchronous replication via CNPG's NATIVE
-      `spec.postgresql.synchronous` block (CNPG ≥1.24) below — the
-      operator derives `synchronous_standby_names` from it
-      (`FIRST <number> (<replica application_name>)`). The replica's
-      externalCluster streaming connection defaults application_name to
-      the replica Cluster CR's name, which CNPG matches automatically.
+      `spec.postgresql.synchronous` block (CNPG ≥1.24) below.
+
+      🛑 CROSS-CLUSTER SYNC TARGET (#3740, hw158 2026-06-17). By default
+      CNPG auto-populates `synchronous_standby_names` from the LOCAL
+      cluster's own instance Pods ONLY (`maxStandbyNamesFromCluster`
+      defaults to unbounded). In the split-side topology (chart 0.2.0)
+      the cross-region standby is a SEPARATE Cluster CR on cluster-B,
+      which CNPG never adds — so a bare `method:first, number:1` block
+      renders `FIRST 1 (<local primary-2>,<primary-3>,<primary-1>)` and
+      the in-flight COMMIT is acked by a LOCAL region-A HA peer. The
+      cross-region replica then streams ASYNC (sync_state=async in
+      pg_stat_replication) → region-kill loses in-flight tx → the
+      Pillar-3 "zero transactions lost" claim is VIOLATED (caught live
+      on hw158: replica byte-caught-up yet async). The earlier comment
+      here claimed CNPG "matches the replica's application_name
+      automatically" — that is FALSE for the separate-cluster replica.
+
+      FIX: pin the cross-region replica as the synchronous target via
+      `standbyNamesPre: [<replicaName>]` and EXCLUDE the local pods with
+      `maxStandbyNamesFromCluster: 0`. CNPG then renders
+      `synchronous_standby_names = FIRST <number> ("<replicaName>")` and
+      the primary blocks COMMIT until the CROSS-REGION replica has
+      applied the WAL → RPO=0. The replica's externalCluster streaming
+      connection uses the replica Cluster CR name as its application_name
+      by default, which equals `cnpg-pair.replicaName` (verified live:
+      application_name=cnpg-pair-bp-cnpg-pair-replica).
 
       Mode "async" exists for forensic / lab use only; the rendered
       manifest then omits both the parameter AND the synchronous block,
@@ -113,15 +134,26 @@ spec:
       {{- end }}
     {{- if eq (default "sync" .Values.cnpgPair.replication.mode) "sync" }}
     # ── Synchronous replication — CNPG-native (NOT a raw parameter) ────
-    # method=first + number=N renders `synchronous_standby_names =
-    # FIRST N (...)`; CNPG fills the standby application_name(s) from the
-    # connected replicas. dataDurability=required strictly enforces the
+    # method=first + number=N + standbyNamesPre:[<replica>] +
+    # maxStandbyNamesFromCluster:0 renders
+    # `synchronous_standby_names = FIRST N ("<replica>")` — the
+    # CROSS-REGION replica (separate Cluster CR on cluster-B), NOT a
+    # local HA peer. dataDurability=required strictly enforces the
     # zero-tx-loss bar: COMMIT blocks when fewer than `number` healthy
     # synchronous standbys are connected (the Pillar-3 durability claim).
+    # See the #3740 note above for why standbyNamesPre is REQUIRED here.
     synchronous:
       method: first
       number: {{ int (default 1 .Values.cnpgPair.replication.sync.numSync) }}
       dataDurability: required
+      # Exclude the local cluster's own Pods from synchronous_standby_names
+      # so the cross-region replica is the ONLY synchronous target (a local
+      # region-A HA peer acking sync would leave the replica async → RPO>0).
+      maxStandbyNamesFromCluster: 0
+      # The cross-region replica's application_name == its Cluster CR name
+      # (CNPG externalCluster streaming default) == cnpg-pair.replicaName.
+      standbyNamesPre:
+        - {{ include "cnpg-pair.replicaName" . | quote }}
     {{- end }}
 
   # ── Replication-source Service (managed by CNPG, annotated for ──────

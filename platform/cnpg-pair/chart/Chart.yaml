@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-cnpg-pair
-version: 0.2.4
+version: 0.2.5
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
@@ -40,6 +40,34 @@ description: |
 
   Changelog
   ─────────
+  0.2.5 (2026-06-17, cross-region sync target — RPO=0 fix, Refs #3740 / #3375)
+    - FIX (Pillar-3 zero-tx-loss): the primary Cluster CR's CNPG-native
+      `spec.postgresql.synchronous` block now pins the CROSS-REGION
+      replica as the synchronous standby via
+      `standbyNamesPre: [<replicaName>]` + `maxStandbyNamesFromCluster: 0`.
+      Before this, CNPG auto-populated `synchronous_standby_names` from the
+      LOCAL cluster's own instance Pods only (default
+      maxStandbyNamesFromCluster is unbounded). In the split-side topology
+      (0.2.0) the cross-region standby is a SEPARATE Cluster CR on
+      cluster-B, which CNPG never adds, so `FIRST 1` was satisfied by a
+      LOCAL region-A HA peer and the cross-region replica streamed ASYNC
+      (sync_state=async). A region-kill then loses in-flight transactions
+      → the canonical "zero transactions lost" claim was VIOLATED. Caught
+      LIVE on hw158 (2026-06-17): the region-B replica was byte-for-byte
+      caught up yet pg_stat_replication showed it async while a local
+      primary-2 was sync. After the fix `synchronous_standby_names =
+      FIRST 1 ("<replicaName>")` and the primary blocks COMMIT until the
+      cross-region replica has applied the WAL → RPO=0. The
+      replica-unreachable → primary-blocks-writes trade-off is unchanged
+      and already disclosed in values.yaml / DESIGN.md.
+    - Render-gate test (chart/tests/cnpg-pair-render.sh) now asserts
+      `maxStandbyNamesFromCluster: 0` AND the replica name in
+      `standbyNamesPre` on the side=primary render.
+    - Default-OFF contract UNCHANGED: cnpgPair.enabled=false renders ZERO
+      resources on BOTH sides; async mode still omits the synchronous block.
+      Resource COUNTS unchanged (two fields added inside the existing
+      synchronous block).
+
   0.2.1 (2026-06-11, operator status-probe carve-out, Refs #3236 / #3195 / #2737)
     - FIX: the per-side ingress NetworkPolicies (allow-replication-to-
       primary on side=primary, allow-probe-to-replica on side=replica)

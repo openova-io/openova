@@ -829,7 +829,7 @@ data:
         {
           "clientId": "powerdns-admin",
           "name": "PowerDNS-Admin (Tier-2 silent-SSO)",
-          "description": "G117.5 #2744 — DNS UI silent-SSO via catalyst-pin broker. PDA reads OIDC env via ExternalSecret materialised by bp-sso-bridge.",
+          "description": "#3741 — DNS UI silent-SSO, gate-fronted by bp-oidc-gate oauth2-proxy: /oauth2/callback redirectUri + oidc-audience-mapper (aud=powerdns-admin) matching the gate AppRegistration, so config-cli FULL-managed reconcile keeps the client correct.",
           "enabled": true,
           "publicClient": false,
           "standardFlowEnabled": true,
@@ -839,8 +839,7 @@ data:
           "authorizationServicesEnabled": false,
           "secret": {{ include "bp-keycloak.tier2ClientSecret" (dict "ctx" . "clientId" "powerdns-admin") | quote }},
           "redirectUris": [
-            "https://pdns-admin.{{ .Values.sovereignFQDN }}/oidc/authorized",
-            "https://pdns-admin.{{ .Values.sovereignFQDN }}/*"
+            "https://pdns-admin.{{ .Values.sovereignFQDN }}/oauth2/callback"
           ],
           "webOrigins": [
             "https://pdns-admin.{{ .Values.sovereignFQDN }}"
@@ -858,6 +857,18 @@ data:
             "phone",
             "offline_access",
             "microprofile-jwt"
+          ],
+          "protocolMappers": [
+            {
+              "name": "audience-powerdns-admin",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.client.audience": "powerdns-admin",
+                "id.token.claim": "true",
+                "access.token.claim": "true"
+              }
+            }
           ],
           "attributes": {
             "access.token.lifespan": "900",

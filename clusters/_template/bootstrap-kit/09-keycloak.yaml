@@ -167,7 +167,9 @@ spec:
       # 1.4.25: hook Job managed-by:flux (kyverno Enforce, #3297 class).
       # 1.4.26: config-cli right-sized 500m->100m (requests-wedge on hw130).
       # 1.4.29: sovereign-realm configmap one-admin-authority (#3374).
-      version: 1.4.29
+      # 1.4.30: powerdns-admin realm client -> /oauth2/callback + aud-mapper,
+      #         matching the bp-oidc-gate AppRegistration (#3741, hw158 row 6).
+      version: 1.4.30
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
