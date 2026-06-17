@@ -1,4 +1,4 @@
-# UAT — browser walkthrough dashboard · `hw158` (2026-06-17)
+# UAT — browser walkthrough dashboard · `hw158` (2026-06-17) (RESET 2026-06-17 — pending hw159)
 
 > **Env:** `hw158.omani.works` · deployment `ab2135d4cf2d01e4` · single physical kom4dc region
 > (2 VPCs `me-east-215-a` / `-b`). On each wipe + re-prov this dashboard resets and the links flip
@@ -35,16 +35,16 @@ no curl/kubectl). `☐` = the browser walk + screenshot capture is in progress o
 
 | # | Runbook | Ticket | Browser surfaces | Status |
 |---|---|---|---|---|
-| 1 | [canonical-org-app-cr-model](uat-walkthrough/canonical-org-app-cr-model-live-end-to-end.md) | #3687 | /dashboard treemap · /apps · /organizations · showback | ✅**6** / ❌**19** / GAP**14** |
-| 2 | [sso-zero-login-everywhere](uat-walkthrough/sso-zero-login-everywhere-admin-by-default.md) | #3374 | each app bare URL → signed-in admin | ✅**17** / ❌**3** / GAP**6** |
-| 3 | [topology-dr-one-vocabulary](uat-walkthrough/topology-dr-one-vocabulary-built-and-region-kill-proven.md) | #3375 | /catalog new-instance picker · /app Topology tab · Switchover | ✅**8** / ❌**18** / GAP**7** |
-| 4 | [funnel-voucher-to-running-app](uat-walkthrough/3376-funnel-voucher-to-running-app.md) | #3376 | marketplace redeem → wizard → checkout → launch → Org console | ✅**2** / ❌**22** |
-| 5 | [ns1-migrate-7-host-apps](uat-walkthrough/ns1-migrate-7-host-apps-into-mgmt-vcluster.md) | #3642 | /dashboard treemap vCluster layer | ✅**7** / ❌**13** / GAP**3** (7 apps on host, not mgmt) |
-| 6 | [organizations-eradicate-sme-naming](uat-walkthrough/organizations-eradicate-sme-tenant-naming.md) | #3383 | /organizations · menus · BSS screens (no "tenant" word) | ✅**6** / ❌**1** / GAP**7** |
-| 7 | [catalog-edit-single-source-iac](uat-walkthrough/catalog-edit-single-source-iac-not-overlay.md) | #3668 | /catalog/<bp> inline edit · Edit-IaC · icon picker | ✅**18** / ❌**1** / GAP**5** — single-source IaC editor WORKS (Edit-IaC writes the CR, 'in sync'); E1 bp-wordpress absent |
-| 8 | [cutover-durable-deny-egress](uat-walkthrough/cutover-durable-true-deny-egress-and-faithful-pivot.md) | #3379 | Sovereignty/cutover screen · /jobs cutover steps | ✅**8** / ❌**0** / GAP**7** (Sovereignty UI found) |
-| 9 | [jobs-one-honest-canvas](uat-walkthrough/jobs-one-honest-canvas-no-fabrication-with-remediation.md) | #3646 | /jobs canvas · Kind column · filters · Re-run | ✅**16** / ❌**3** |
-| 10 | [regenerate-on-current-env](uat-walkthrough/uat-walkthrough-regenerate-on-current-env.md) | #3581 | (meta — the browser-walk discipline itself) | ✅**9** / ❌**0** (meta) |
+| 1 | [canonical-org-app-cr-model](uat-walkthrough/canonical-org-app-cr-model-live-end-to-end.md) | #3687 | /dashboard treemap · /apps · /organizations · showback | ⏳ |
+| 2 | [sso-zero-login-everywhere](uat-walkthrough/sso-zero-login-everywhere-admin-by-default.md) | #3374 | each app bare URL → signed-in admin | ⏳ |
+| 3 | [topology-dr-one-vocabulary](uat-walkthrough/topology-dr-one-vocabulary-built-and-region-kill-proven.md) | #3375 | /catalog new-instance picker · /app Topology tab · Switchover | ⏳ |
+| 4 | [funnel-voucher-to-running-app](uat-walkthrough/3376-funnel-voucher-to-running-app.md) | #3376 | marketplace redeem → wizard → checkout → launch → Org console | ⏳ |
+| 5 | [ns1-migrate-7-host-apps](uat-walkthrough/ns1-migrate-7-host-apps-into-mgmt-vcluster.md) | #3642 | /dashboard treemap vCluster layer | ⏳ |
+| 6 | [organizations-eradicate-sme-naming](uat-walkthrough/organizations-eradicate-sme-tenant-naming.md) | #3383 | /organizations · menus · BSS screens (no "tenant" word) | ⏳ |
+| 7 | [catalog-edit-single-source-iac](uat-walkthrough/catalog-edit-single-source-iac-not-overlay.md) | #3668 | /catalog/<bp> inline edit · Edit-IaC · icon picker | ⏳ |
+| 8 | [cutover-durable-deny-egress](uat-walkthrough/cutover-durable-true-deny-egress-and-faithful-pivot.md) | #3379 | Sovereignty/cutover screen · /jobs cutover steps | ⏳ |
+| 9 | [jobs-one-honest-canvas](uat-walkthrough/jobs-one-honest-canvas-no-fabrication-with-remediation.md) | #3646 | /jobs canvas · Kind column · filters · Re-run | ⏳ |
+| 10 | [regenerate-on-current-env](uat-walkthrough/uat-walkthrough-regenerate-on-current-env.md) | #3581 | (meta — the browser-walk discipline itself) | ⏳ |
 
 **Index + per-runbook verdicts:** [`uat-walkthrough/README.md`](uat-walkthrough/README.md).
 

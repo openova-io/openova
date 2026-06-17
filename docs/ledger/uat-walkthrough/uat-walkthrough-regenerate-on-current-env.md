@@ -65,12 +65,12 @@ then opened at its **bare public URL** in the same browser session.
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158.omani.works](https://console.hw158.omani.works/) | Fresh incognito, type the bare URL → must land on the **console dashboard, signed in as emrah.baysal**; NO login form, no PIN wall, no "Sign in with…" button; left-rail nav + env switcher reads `hw158.omani.works` | ✅ | Bare URL lands on `/dashboard` signed-in; left-rail nav + env switcher reads `hw158.omani.works`; no login form. ![hw158-01](../../sessions/2026-06-17/evidence/hw158-01-console-signedin-emrah.png) |
-| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | Click the avatar (top-right) → menu must read **"Signed in as emrah.baysal@openova.io"** with a Sign-out item — confirms the landed identity is the owner-admin | ✅ | Dashboard renders as the owner-admin (avatar **E** top-right; the handover session is `emrah.baysal@openova.io` as confirmed on every SSO surface below). ![hw158-01](../../sessions/2026-06-17/evidence/hw158-01-console-signedin-emrah.png) |
-| [grafana.hw158.omani.works](https://grafana.hw158.omani.works/) | Open the bare URL → must land on **Grafana Home**, full UI, **no login form**; user menu reads `emrah.baysal@openova.io` (SSO landed signed-in) | ✅ | grafana.hw158 lands on Grafana Home ("Welcome to Grafana", title "Home - Dashboards - Grafana"), full UI, no login form. ![hw158-02](../../sessions/2026-06-17/evidence/hw158-02-grafana-signedin.png) |
-| [registry.hw158.omani.works](https://registry.hw158.omani.works/) | Open the bare URL (Harbor registry) → must land on **`/harbor/projects`**, **no login form**; user dropdown shows `emrah.baysal@openova.io` | ✅ | registry.hw158 redirects to `/harbor/projects` signed-in — user dropdown reads `emrah.baysal@openova.io`; Projects (9: library + openova-io[67 repos] + 7 proxy caches) + full Administration nav render. No login form. ![hw158-03](../../sessions/2026-06-17/evidence/hw158-03-harbor-signedin.png) |
-| [gitea.hw158.omani.works](https://gitea.hw158.omani.works/) | Open the bare URL → must land on the **gitea dashboard titled "emrah.baysal — Dashboard"**, logged in; URL stays on `:443` | ✅ | gitea.hw158 lands on the dashboard titled "emrah.baysal - Dashboard - Catalyst Gitea", logged in (avatar + Repositories panel). No login form. ![hw158-04](../../sessions/2026-06-17/evidence/hw158-04-gitea-admin-signedin.png) |
-| [bao.hw158.omani.works/ui/](https://bao.hw158.omani.works/ui/) | Open the bare OpenBao UI → final rendered screen must be the **authenticated Vault session** (Secrets engines / dashboard), **NO `/ui/vault/auth` token form** (a "Signing in…" auto-redirect shim is allowed only in transit) | ✅ | bao.hw158/ui/ lands on the authenticated session at `/ui/vault/secrets` — the "Secrets Engines" page lists `cubbyhole/` + `secret/`; no `/ui/vault/auth` token form. ![hw158-05](../../sessions/2026-06-17/evidence/hw158-05-openbao-signedin.png) |
+| — | — | ☐ | — |
+| — | Click the avatar (top-right) → menu must read **"Signed in as emrah.baysal@openova.io"** with a Sign-out item — confirms the landed identity is the owner-admin | ☐ | — |
+| — | Open the bare URL → must land on **Grafana Home**, full UI, **no login form**; user menu reads `emrah.baysal@openova.io` (SSO landed signed-in) | ☐ | — |
+| — | Open the bare URL (Harbor registry) → must land on **`/harbor/projects`**, **no login form**; user dropdown shows `emrah.baysal@openova.io` | ☐ | — |
+| — | Open the bare URL → must land on the **gitea dashboard titled "emrah.baysal — Dashboard"**, logged in; URL stays on `:443` | ☐ | — |
+| — | Open the bare OpenBao UI → final rendered screen must be the **authenticated Vault session** (Secrets engines / dashboard), **NO `/ui/vault/auth` token form** (a "Signing in…" auto-redirect shim is allowed only in transit) | ☐ | — |
 
 > **Honesty rule:** a redirect that ends on a login screen / 404 / 500 / 503 is **`FAIL`**, not `✅`. Any
 > surface you do not walk this session stays `☐` in the regenerated docs — never a carried green, never a
@@ -86,9 +86,9 @@ screenshot what you see. No `grep`; you are reading the rendered page with your 
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [UAT.md (rendered)](../UAT.md) | Open `docs/ledger/UAT.md` in the GitHub web UI → read the H1 + the top banner block → must name **`hw158.omani.works` · dep `ab2135d4cf2d01e4` · 2026-06-17**, and **no `hw150` / `hw144` / `hw128`** anywhere in the banner | ✅ | GitHub web UI renders `openova-io/openova/docs/ledger/UAT.md` — H1 "UAT — browser walkthrough dashboard · `hw158` (2026-06-17)", banner names `hw158.omani.works` · dep `ab2135d4cf2d01e4`; **zero `hw150`/`hw144`/`hw128`** in the file. ![hw158-uat-md-banner](../../sessions/2026-06-17/evidence/hw158-uat-md-banner-hw158.png) |
-| [UAT.md 🌟 North-Star table](../UAT.md) | Scroll to the 4-North-Star table → every "On hw158" cell must name hw158 and either link an `hw158-*` screenshot or read `⏳ not yet walked this env`; **no cell** asserts a green inherited from a prior env (no "region-kill PASSED on hw144" survivor) | ✅ | The rendered UAT.md is anchored to hw158 only (banner + every env reference reads hw158); no predecessor-env green survives (0 hw150/hw144/hw128 mentions). ![hw158-uat-md-northstar](../../sessions/2026-06-17/evidence/hw158-uat-md-northstar-clean.png) |
-| [evidence/ folder (rendered)](../../sessions/2026-06-17/evidence/) | Open the evidence directory in the GitHub web UI → every screenshot the UAT.md table links must be present here and named `hw158-*` (or the funnel `01..05` captures); click one link from UAT.md and confirm the `hw158-*.png` image opens (not a predecessor `…/hw150-*`) | ✅ | The `docs/sessions/2026-06-17/evidence/` directory is populated with same-day `hw158-*` captures (console/grafana/harbor/gitea/openbao + the per-ticket `3###-*` screenshots from this walk); links resolve to current-env images, not predecessor `hw150-*`. ![hw158-uat-md-evidence-resolves](../../sessions/2026-06-17/evidence/hw158-uat-md-evidence-resolves.png) |
+| [UAT.md (rendered)](../UAT.md) | — | ☐ | — |
+| [UAT.md 🌟 North-Star table](../UAT.md) | — | ☐ | — |
+| — | — | ☐ | — |
 
 ---
 
