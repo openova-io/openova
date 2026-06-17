@@ -796,7 +796,7 @@ function JobRow({ job, parentLabel, showRegion, regionUnionByGroupId, deployment
           {isJobRetryable(job.status) ? (
             <RetryJobButton
               deploymentId={deploymentId}
-              jobId={job.id}
+              jobId={job.jobName}
               kind={kind}
             />
           ) : (
