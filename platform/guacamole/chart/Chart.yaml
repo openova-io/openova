@@ -179,7 +179,12 @@ name: bp-guacamole
 # (`persistentvolumeclaim "guacamole-recordings" not found`) — Pending in both
 # regions on hw146. Mirror the webapp's emptyDir/PVC `if` into guacd. Lockstep:
 # 52-bp-guacamole.yaml pin → 0.2.19. Refs #3629.
-version: 0.2.20
+# 0.2.21 (#3687, extends #3370): bootstrap self-registration —
+# templates/application-cr.yaml renders the canonical apps.openova.io/v1
+# Application CR for the slot-52 HelmRelease (gated bootstrapOwned.enabled
+# + Capabilities apps.openova.io/v1) so the console /apps list, per-app
+# Topology tab + showback resolve guacamole (no more "no Application CR").
+version: 0.2.22
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless

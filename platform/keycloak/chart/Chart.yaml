@@ -287,7 +287,12 @@ name: bp-keycloak
 #   dead pre-#3374 native /oidc/authorized + /* with no aud mapper, which the
 #   config-cli FULL-managed reconcile reverted over the gate's correct client).
 #   Mirrors the hubble-ui gated precedent. Refs #3741 (hw158 UAT row 6 SSO).
-version: 1.4.30
+# 1.4.31 (#3687, extends #3370): bootstrap self-registration —
+# templates/application-cr.yaml renders the canonical apps.openova.io/v1
+# Application CR for the slot-09 HelmRelease (gated bootstrapOwned.enabled
+# + Capabilities apps.openova.io/v1) so the console /apps list, per-app
+# Topology tab + showback resolve keycloak (no more "no Application CR").
+version: 1.4.31
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so

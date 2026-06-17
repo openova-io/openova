@@ -421,7 +421,7 @@ func TestDeleteOrganization_RemovesFromRegistry(t *testing.T) {
 
 func TestRenderOrganizationOverlay_FreeSubdomain_AllChartsPresent(t *testing.T) {
 	rec := store.OrganizationProvisionRecord{
-		OrganizationID:     "t-acme",
+		OrganizationID:  "t-acme",
 		Subdomain:       "acme",
 		DomainMode:      store.OrganizationDomainFreeSubdomain,
 		AdminEmail:      "admin@acme.test",
@@ -463,7 +463,7 @@ func TestRenderOrganizationOverlay_FreeSubdomain_AllChartsPresent(t *testing.T) 
 
 func TestRenderOrganizationOverlay_BYO_EmitsCertificate(t *testing.T) {
 	rec := store.OrganizationProvisionRecord{
-		OrganizationID:     "t-acme",
+		OrganizationID:  "t-acme",
 		Subdomain:       "acme",
 		DomainMode:      store.OrganizationDomainBYO,
 		BYODomain:       "acme.com",
@@ -487,7 +487,7 @@ func TestRenderOrganizationOverlay_BYO_EmitsCertificate(t *testing.T) {
 
 func TestRenderOrganizationOverlay_VersionsApplied(t *testing.T) {
 	rec := store.OrganizationProvisionRecord{
-		OrganizationID:     "t-acme",
+		OrganizationID:  "t-acme",
 		Subdomain:       "acme",
 		DomainMode:      store.OrganizationDomainFreeSubdomain,
 		AdminEmail:      "admin@acme.test",
@@ -512,7 +512,7 @@ func TestRenderOrganizationOverlay_VersionsApplied(t *testing.T) {
 
 func TestRenderOrganizationOverlay_NoVersionsDefaultsToStar(t *testing.T) {
 	rec := store.OrganizationProvisionRecord{
-		OrganizationID:     "t-acme",
+		OrganizationID:  "t-acme",
 		Subdomain:       "acme",
 		DomainMode:      store.OrganizationDomainFreeSubdomain,
 		AdminEmail:      "admin@acme.test",
@@ -537,7 +537,7 @@ func TestRenderOrganizationOverlay_NoVersionsDefaultsToStar(t *testing.T) {
 //     by C4 of #915).
 func TestRenderOrganizationOverlay_OpenClawOIDCAndLLMBlocks(t *testing.T) {
 	rec := store.OrganizationProvisionRecord{
-		OrganizationID:     "t-alice",
+		OrganizationID:  "t-alice",
 		Subdomain:       "alice",
 		ParentDomain:    "omantel.omani.works",
 		DomainMode:      store.OrganizationDomainFreeSubdomain,
@@ -613,7 +613,7 @@ func TestRenderOrganizationOverlay_OpenClawOIDCAndLLMBlocks(t *testing.T) {
 //     app secret in tenant ns) + newapi-credentials for app secrets.
 func TestRenderOrganizationOverlay_NewAPIEmitted(t *testing.T) {
 	rec := store.OrganizationProvisionRecord{
-		OrganizationID:     "t-alice",
+		OrganizationID:  "t-alice",
 		Subdomain:       "alice",
 		ParentDomain:    "omantel.omani.works",
 		DomainMode:      store.OrganizationDomainFreeSubdomain,
@@ -638,7 +638,7 @@ func TestRenderOrganizationOverlay_NewAPIEmitted(t *testing.T) {
 		"name: bp-newapi",
 		"namespace: sme-t-alice",
 		"chart: bp-newapi",
-		`version: "*"`, // unconfigured chart version falls back to "*"
+		`version: "*"`,    // unconfigured chart version falls back to "*"
 		"name: bp-newapi", // sourceRef.name
 	} {
 		if !strings.Contains(body, want) {
@@ -748,7 +748,7 @@ func TestRenderOrganizationOverlay_NewAPIEmitted(t *testing.T) {
 // Inviolable Principle 4 — never hardcode versions in source).
 func TestRenderOrganizationOverlay_NewAPIChartVersion(t *testing.T) {
 	rec := store.OrganizationProvisionRecord{
-		OrganizationID:     "t-alice",
+		OrganizationID:  "t-alice",
 		Subdomain:       "alice",
 		ParentDomain:    "omantel.omani.works",
 		DomainMode:      store.OrganizationDomainFreeSubdomain,
@@ -774,7 +774,7 @@ func TestRenderOrganizationOverlay_NewAPIChartVersion(t *testing.T) {
 // the orchestrator-side contract that consumes them.
 func TestRenderOrganizationOverlay_WordPressEmitsOIDC(t *testing.T) {
 	rec := store.OrganizationProvisionRecord{
-		OrganizationID:     "t-alice",
+		OrganizationID:  "t-alice",
 		Subdomain:       "alice",
 		ParentDomain:    "omantel.omani.works",
 		DomainMode:      store.OrganizationDomainFreeSubdomain,
@@ -840,12 +840,56 @@ func TestRenderOrganizationOverlay_WordPressEmitsOIDC(t *testing.T) {
 	}
 }
 
+// #3785 (Refs #3376 #3761) — the WordPress HelmRelease MUST set
+// global.imageRegistry to the Sovereign Harbor DockerHub proxy-cache so the
+// chart's main + wp-cli images (Docker Hub `wordpress`) route through
+// `<registry>/proxy-dockerhub/...` and pass the harbor-proxy-pull Kyverno
+// ClusterPolicy (Enforce). Without this the customer's purchased app is
+// admission-denied and never Runs — the funnel's terminal acceptance.
+func TestRenderOrganizationOverlay_WordPressImageProxiedThroughHarbor(t *testing.T) {
+	rec := store.OrganizationProvisionRecord{
+		OrganizationID:  "t-alice",
+		Subdomain:       "alice",
+		ParentDomain:    "omantel.omani.works",
+		DomainMode:      store.OrganizationDomainFreeSubdomain,
+		AdminEmail:      "admin@alice.test",
+		CompanyName:     "Alice Corp",
+		OTECHFQDN:       "otech107.omani.works",
+		VClusterName:    "vc-alice",
+		TenantNamespace: "sme-t-alice",
+	}
+
+	// Default registry (env unset) → harbor.openova.io.
+	t.Setenv("CATALYST_VCLUSTER_IMAGE_REGISTRY", "")
+	files, err := renderOrganizationOverlay(rec, OrganizationChartVersions{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := files["bp-wordpress-tenant.yaml"]
+	if !strings.Contains(body, "    global:") ||
+		!strings.Contains(body, "      imageRegistry: harbor.openova.io/proxy-dockerhub") {
+		t.Fatalf("WordPress HR must proxy images via global.imageRegistry harbor.openova.io/proxy-dockerhub\n--- rendered ---\n%s", body)
+	}
+
+	// Operator override (Principle #4) → the post-cutover Harbor host.
+	t.Setenv("CATALYST_VCLUSTER_IMAGE_REGISTRY", "harbor.alice.omantel.omani.works")
+	files2, err := renderOrganizationOverlay(rec, OrganizationChartVersions{})
+	if err != nil {
+		t.Fatalf("render (override): %v", err)
+	}
+	if !strings.Contains(files2["bp-wordpress-tenant.yaml"],
+		"      imageRegistry: harbor.alice.omantel.omani.works/proxy-dockerhub") {
+		t.Errorf("CATALYST_VCLUSTER_IMAGE_REGISTRY override not honoured in WordPress HR\n%s",
+			files2["bp-wordpress-tenant.yaml"])
+	}
+}
+
 // #915 (D1) — BYO domain mode must emit OIDC against the BYO host, not
 // the otech default zone. Mirrors the BYO certificate-emission test for
 // wordpress.
 func TestRenderOrganizationOverlay_WordPressOIDC_BYOMode(t *testing.T) {
 	rec := store.OrganizationProvisionRecord{
-		OrganizationID:     "t-acme",
+		OrganizationID:  "t-acme",
 		Subdomain:       "acme",
 		DomainMode:      store.OrganizationDomainBYO,
 		BYODomain:       "acme.com",
@@ -863,9 +907,11 @@ func TestRenderOrganizationOverlay_WordPressOIDC_BYOMode(t *testing.T) {
 	if !strings.Contains(body, "host: wordpress.acme.com") {
 		t.Errorf("byo wordpress host missing — got:\n%s", body)
 	}
-	// orgDomain (BYO mode) is the bare BYO domain.
-	if !strings.Contains(body, "orgDomain: acme.com") {
-		t.Errorf("byo orgDomain missing")
+	// smeDomain (BYO mode) is the bare BYO domain. The producer keeps the
+	// chart-consumed data-value key smeDomain (#3383 WIRE-STABLE invariant);
+	// the bp-wordpress-tenant chart reads .Values.smeDomain.
+	if !strings.Contains(body, "smeDomain: acme.com") {
+		t.Errorf("byo smeDomain missing")
 	}
 }
 
@@ -876,7 +922,7 @@ func TestRenderOrganizationOverlay_WordPressOIDC_BYOMode(t *testing.T) {
 // SMTP login flow can't reach Keycloak.
 func TestRenderOrganizationOverlay_StalwartEmitsKeycloakOIDC(t *testing.T) {
 	rec := store.OrganizationProvisionRecord{
-		OrganizationID:     "t-acme",
+		OrganizationID:  "t-acme",
 		Subdomain:       "acme",
 		DomainMode:      store.OrganizationDomainFreeSubdomain,
 		AdminEmail:      "admin@acme.test",

@@ -2766,9 +2766,10 @@ name: bp-catalyst-platform
 # (qaFixtures.cnpgBackupEndpointURL + cnpg-clusters-qa.yaml) to the
 # syncer-mangled host Service name. qa-fixtures only; Catalyst-Zero render
 # byte-unchanged. (1.4.622 was a content-free deploy-bot image sweep.)
-version: 1.4.672
-# 1.4.672 — #3383 ORGANIZATIONS rename (ZERO behavior change), rebased over
-# main's 1.4.671. The Organization-provisioning mesh's K8s namespace
+version: 1.4.675
+# 1.4.675 — #3383 ORGANIZATIONS rename (ZERO behavior change), rebased over
+# main's 1.4.674 (#3376 funnel + #3700/#3687 per-Org Flux loop + #3763
+# gitea-flux-auth-sync poll). The Organization-provisioning mesh's K8s namespace
 # `sme` → `org-services`; the chart template dir templates/sme-services/ →
 # templates/org-services/; the Secret `sme-secrets` → `org-services-secrets`
 # (dual-rendered for one release with byte-identical JWT_SECRET so consumers

@@ -169,7 +169,11 @@ spec:
       # 1.4.29: sovereign-realm configmap one-admin-authority (#3374).
       # 1.4.30: powerdns-admin realm client -> /oauth2/callback + aud-mapper,
       #         matching the bp-oidc-gate AppRegistration (#3741, hw158 row 6).
-      version: 1.4.30
+      # 1.4.31 (#3687, extends #3370): bootstrap self-registration — the
+      # chart renders the canonical apps.openova.io/v1 Application CR for
+      # this slot's HelmRelease so the console /apps list, per-app Topology
+      # tab + showback resolve keycloak (no more "no Application CR").
+      version: 1.4.31
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
@@ -228,6 +232,16 @@ spec:
   # ${VAR:=default} resolves to "sovereign" — backward-compat with
   # overlays that haven't been migrated.
   values:
+    # ── Bootstrap self-registration (#3687, extends #3370) ──────────────
+    # The chart self-registers the Application CR for keycloak (the
+    # canonical instance representation every console surface reads),
+    # marked spec.bootstrap=true so the application-controller ADOPTS this
+    # HR's install instead of re-rendering it (zero duplicate HRs).
+    bootstrapOwned:
+      enabled: true
+      helmRelease:
+        name: bp-keycloak
+        namespace: flux-system
     sovereignFQDN: ${SOVEREIGN_FQDN}
     # sovereignRealm.ownerEmail (founder NS-3 #3263): the deployment owner's
     # email — cloud-init threads tofu's org_email into the bootstrap-kit

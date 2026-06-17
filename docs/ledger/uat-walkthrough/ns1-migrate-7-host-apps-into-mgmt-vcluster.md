@@ -1,349 +1,123 @@
 # NS#1 — migrate the 7 host-placed apps into the mgmt vCluster (UAT walkthrough)
 
-## Status — last validated: hw158 (2026-06-17, recovered-env re-validation)
+## Status — last validated: hw158 (2026-06-17) — browser walk: **7 ✅ / 13 ❌ / 3 GAP**
 
-- **Verdict: ❌ NOT migrated as specified on hw158 — honest gap, re-confirmed live on the RECOVERED env.** Re-walked live on **hw158** (dep `ab2135d4cf2d01e4`, primary region `me-east-215-a`). **Tally: 7 ✅ / 18 ❌ / 4 N/A — UNCHANGED.** No fix landed for this ticket — it is hard version-gated by the vcluster 0.21→0.23 host→vCluster secret-crossing blocker (PR #3753); the ❌ rows stay ❌ by design. The 7 named apps (grafana / harbor / keycloak / gitea / openbao / newapi / guacamole) are **still plain HOST pods** — the syncer-suffix (`-x-<innerNs>-x-mgmt-vcluster`) count is **0 for every one of them** (re-verified live), and the mgmt vCluster holds only `loki / mimir / nats / tempo` (+ coredns) — re-confirmed BOTH via the cluster-wide syncer-suffix scan AND an **admin-credential probe INSIDE vc-mgmt** (inner namespaces = `loki / mimir / nats-system / tempo` + system only; zero of the 7 inside). The `placement.yaml` rows still read **`vcluster: host, target: mgmt`** — the `host → mgmt` flip was **never done**; all 7 are in `render-slot-placement.py check`'s **"staged for promotion"** list (now **64 slots / 9 in vClusters / 17 staged**).
-- **The masking trap is live:** `scripts/audit-placement-conformance.py live` exits **0** ("zero undeclared host workloads") **only because it ratifies the 7 as host-conformant** (declared `vcluster: host` == actually-on-host). "Audit passes" is **NOT** "the 7 are in mgmt." Only `loki/mimir/nats/tempo` show `mgmt` in the audit.
-- **What DID verify ✅:** PART A's appendix `render-slot-placement.py check` runs clean (no hand-edited placement fields); PART D's init-manifests mechanism is partially proven — **3 of 5** declared CRDs (`httproutes`, `externalsecrets`, `clusters.postgresql.cnpg.io`) are registered INSIDE vc-mgmt by the OSS `loft-sh/vcluster:0.21.0` deployer (no Pro license); PART E's generator (`render-slot-placement.py`) has **zero** per-app special-casing (grep count 0 across all 7 app names).
-- **What's still needed:** the actual `vcluster: host → mgmt` flip in `placement.yaml` for all 7 + a fresh prov, after which PART B (7 tiles land in the **mgmt** treemap block + the syncer-suffix `kubectl` cross-check returns ≥1) becomes walkable. Until then this runbook is the reusable click-path, not banked migration evidence. (Minor follow-up: `poolers` + `scheduledbackups` CNPG CRDs are declared in the chart but NOT registered inside vc-mgmt — only 3/5 landed.)
-- **Maps to:** [`../UAT.md`](../UAT.md) **Row 7** (placement — host-conformant, NOT the migration proof).
-- **Index:** [`README.md`](README.md).
+> **hw158 browser-walk verdict (2026-06-17, real screenshots). DECISIVE FAIL on the headline.** With the `/dashboard` treemap set to **LAYER 1 = vCluster**, the treemap regroups into blocks **`host` · `rtz` · `mgmt`** — and the **`mgmt` block holds only `mimir` + `mgmt-vcluster`**. ALL of the 7 named apps (grafana, harbor, keycloak, gitea, openbao, newapi, guacamole) are under **`host`** (or are host/sub-namespace tiles), **NONE under `mgmt`** → North Star #1 *"every app IN a vCluster"* is **NOT met** (PART B all ❌, PART C all ❌; keycloak's app card reads Placement `singleton` / namespace `flux-system`). PASS (7): sign-in + dashboard + the LAYER1=vCluster regroup itself work; and 4 of 7 public surfaces land zero-click signed-in (gitea, grafana, openbao, guacamole). FAIL surfaces (3): keycloak account console errors ("Something went wrong"), **harbor** external FQDN returns ERR_HTTP_RESPONSE_CODE_FAILURE, **newapi** redirects to `/login?expired=true` with an upstream `delayed connect error: 111`.
+
+
+> **Prior curl/kubectl-format runbook REPLACED.** The earlier version drove this walk with
+> `curl`/`kubectl`/`git grep` against `/tmp/hw158-kc.yaml` and `placement.yaml` line numbers — banned
+> per the agreed UAT standard (**100% browser, no curl, no kubectl, no git, no command output**). This
+> revamp rewrites every check as a clickable browser action on the live console, status reset to `☐`
+> pending a fresh browser walk.
 
 > **Issue:** #3642 · **North Star #1** (founder, verbatim): *"every app IN a vCluster."*
-> **Env walked:** `console.hw158.omani.works`, deployment `ab2135d4cf2d01e4`,
-> primary-region kubeconfig `/tmp/hw158-kc.yaml`. **No prior-env evidence is carried over**
-> (each new env flushes all evidence; absent feature = FAILED).
+> **Env:** `console.hw158.omani.works` (deployment `ab2135d4cf2d01e4`, primary region `me-east-215-a`).
+> **No prior-env evidence is carried over** (each new env flushes all evidence; an absent / wrong-block
+> tile = FAIL, never a carried ✅).
 >
-> **The single binary headline:** after this ticket lands, **all 7 named apps — grafana, harbor,
-> keycloak, gitea, openbao, newapi, guacamole — run INSIDE the mgmt vCluster** (their pods carry
-> the `-x-<innerNs>-x-mgmt-vcluster` syncer suffix), **AND every per-app surface still works**
-> (SSO landing, image pull, DNS-admin, console). `placement.yaml` shows `vcluster: mgmt` for all 7
-> and `scripts/audit-placement-conformance.py live` exits 0 with zero undeclared host workloads.
-> **On hw158 this headline is FALSE: all 7 are host pods, placement still says `vcluster: host`.**
+> **The single binary headline:** on the **`/dashboard` treemap with LAYER 1 = vCluster**, all 7 named
+> apps — **grafana, harbor, keycloak, gitea, openbao, newapi, guacamole** — must each render as a tile
+> sitting **under the `mgmt` block, NOT under the `host` block**, alongside loki / mimir / nats / tempo.
+> A tile under `host` (or absent from `mgmt`) is a **FAIL** for that app.
+
+---
+
+## The one browser surface this ticket is checked on
+
+The whole migration is provable from a single screen: **`/dashboard` → set LAYER 1 grouping to
+`vCluster`**. That regroups the treemap into one block per vCluster (`host` / `mgmt` / `rtz` / `dmz`).
+Reading which block each of the 7 app tiles falls into IS the acceptance test — a `mgmt`-block tile = the
+app runs inside the mgmt vCluster; a `host`-block tile = it never moved. No terminal, no kubeconfig.
 
 ---
 
 ## Sign-in (once, zero-click)
 
-| Go to (URL) | Then do | You should see | Result |
+| Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| `https://console.hw158.omani.works/auth/handover?token=<handover-JWT>` | nothing — just load it | Lands on `/dashboard` **already signed in** as `emrah.baysal@openova.io` (avatar **E**, top-right), no login form | N/A — browser-only step; this walk is curl/kubectl-only per the harness constraint. Console reachability spot-checked below in PART C. |
+| [console.hw158/auth/handover](https://console.hw158.omani.works/auth/handover) | Load the handover URL (with the operator's handover token). Lands on `/dashboard` **already signed in** as `emrah.baysal@openova.io` (avatar **E**, top-right) — **no login form**. A redirect to a Keycloak login screen here = FAIL. | ✅ | Handover landed on `/dashboard` signed-in (avatar **E**, no login form). ![3642-signin](../../sessions/2026-06-17/evidence/3642-signin.png) |
 
 ---
 
-## PART A — placement is declared `mgmt` for all 7 (the data change)
+## PART A — set up the treemap (LAYER 1 = vCluster)
 
-**Live read of `placement.yaml` (the same file GitHub serves):**
-
-```
-$ grep -nE 'bp-(grafana|harbor|keycloak|gitea|openbao|newapi|guacamole)' \
-    clusters/_template/bootstrap-kit/placement.yaml
-166:    - {file: 09-keycloak.yaml,    hr: bp-keycloak,  vcluster: host, target: mgmt, namespace: keycloak}
-173:    - {file: 10-gitea.yaml,       hr: bp-gitea,     vcluster: host, target: mgmt, namespace: gitea}
-249:    - {file: 08-openbao.yaml,     hr: bp-openbao,   vcluster: host, target: mgmt, namespace: openbao}
-259:    - {file: 19-harbor.yaml,      hr: bp-harbor,    vcluster: host, target: mgmt, namespace: harbor}
-260:    - {file: 25-grafana.yaml,     hr: bp-grafana,   vcluster: host, target: mgmt, namespace: grafana}
-264:    - {file: 52-bp-guacamole.yaml, hr: bp-guacamole, vcluster: host, target: mgmt, namespace: catalyst-system}
-267:    - {file: 80-newapi.yaml,      hr: bp-newapi,    vcluster: host, target: mgmt, namespace: newapi}
-```
-
-Every row reads `vcluster: host` — the `target: mgmt` is only the *staged-for-promotion intent*, NOT
-the active placement. The runbook expects `vcluster: mgmt, target: mgmt`. **The flip was never done.**
-
-| Go to (URL) | Then do | You should see | Result |
+| Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| `https://github.com/openova-io/openova/blob/main/clusters/_template/bootstrap-kit/placement.yaml` | Search the page for `bp-grafana` | Row reads `vcluster: mgmt, target: mgmt` | ❌ — reads `vcluster: host, target: mgmt` (line 260). `vcluster != target` backlog gap REMAINS. |
-| same page | Search `bp-harbor` | Row reads `vcluster: mgmt, target: mgmt` | ❌ — `vcluster: host, target: mgmt` (line 259). |
-| same page | Search `bp-keycloak` | Row reads `vcluster: mgmt, target: mgmt` | ❌ — `vcluster: host, target: mgmt` (line 166). |
-| same page | Search `bp-gitea` | Row reads `vcluster: mgmt, target: mgmt` | ❌ — `vcluster: host, target: mgmt` (line 173). |
-| same page | Search `bp-openbao` | Row reads `vcluster: mgmt, target: mgmt` | ❌ — `vcluster: host, target: mgmt` (line 249). |
-| same page | Search `bp-newapi` | Row reads `vcluster: mgmt, target: mgmt` | ❌ — `vcluster: host, target: mgmt` (line 267). |
-| same page | Search `bp-guacamole` | Row reads `vcluster: mgmt, target: mgmt` | ❌ — `vcluster: host, target: mgmt` (line 264). |
-
-> Cross-check appendix (NOT acceptance):
-> ```
-> $ python3 scripts/render-slot-placement.py check
-> placement check PASSED — 64 slots, 9 in vClusters, 17 staged for promotion (target != active):
->   bp-keycloak, bp-catalyst-platform, bp-gitea, bp-openbao, bp-powerdns-admin, bp-sso-bridge,
->   bp-postgres-shared, bp-cnpg-pair, bp-postgres-shared-b, bp-postgres-shared-c, bp-harbor,
->   bp-grafana, bp-k8s-ws-proxy, bp-guacamole, bp-openova-flow-server, bp-openova-flow-emitter, bp-newapi
-> EXIT=0
-> ```
-> ✅ exits 0 — slots are a pure function of placement.yaml (zero hand-edited placement fields). **But
-> all 7 named apps appear in the "staged for promotion" list** (`render-slot-placement.py` lines 197-199:
-> `gap = [s["hr"] ... if vcluster != target]`), i.e. declared host, intended mgmt — confirming the flip
-> is pending. The appendix passing does NOT mean the 7 are in mgmt.
+| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | Dashboard renders the cluster treemap and the grouping controls (LAYER 1 / LAYER 2 comboboxes) are visible. Login-screen redirect = FAIL. | ✅ | Dashboard renders the treemap with LAYER 1 / LAYER 2 comboboxes (and Size/Color controls); 93 items. No login redirect. ![3642-dashboard](../../sessions/2026-06-17/evidence/3642-dashboard.png) |
+| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | Click the **LAYER 1** grouping combobox and select **`vCluster`**. The treemap regroups into one labelled block per vCluster: **`host`**, **`mgmt`** (plus `rtz` / `dmz` if present). The `mgmt` block is visible and clickable. | ✅ | Setting LAYER 1 = `vCluster` regroups the treemap into labelled blocks **`host`**, **`rtz`**, **`mgmt`**; the `mgmt` block is visible. ![3642-layer1-vcluster](../../sessions/2026-06-17/evidence/3642-layer1-vcluster.png) |
 
 ---
 
-## PART B — the 7 apps RUN in the mgmt vCluster (live pods carry the syncer suffix)
+## PART B — each of the 7 app tiles sits under the `mgmt` block (the decisive check)
 
-**Live cross-check — syncer-suffix pod count per app (the decisive evidence):**
+With LAYER 1 = vCluster set, read where each app's tile lands. **One row per app — PASS only if the tile
+sits inside the `mgmt` block; a tile inside the `host` block is a FAIL.**
 
-```
-$ for a in grafana harbor keycloak gitea openbao newapi guacamole; do
-    echo "$a: $(kubectl --kubeconfig /tmp/hw158-kc.yaml get pods -A --no-headers \
-                 | grep "$a" | grep -c x-mgmt-vcluster)"
-  done
-grafana: 0
-harbor: 0
-keycloak: 0
-gitea: 0
-openbao: 0
-newapi: 0
-guacamole: 0
-```
-
-**Every app returns 0** — NOT one of the 7 carries the `-x-<innerNs>-x-mgmt-vcluster` suffix. They run
-as plain HOST pods in their own host namespaces:
-
-```
-$ for a in grafana harbor keycloak gitea openbao newapi; do kubectl ... get pods -n $a; done
-   grafana ns:  grafana-5c88cb955c-gbtwj                      Running
-   harbor  ns:  harbor-core-…  harbor-jobservice-…  harbor-nginx-…  harbor-portal-…  harbor-registry-…  Running
-   keycloak ns: keycloak-0                                    Running
-   gitea   ns:  gitea-dd5d7655c-s96g8                         Running
-   openbao ns:  openbao-0  openbao-agent-injector-…  openbao-sso-configure-…  openbao-sso-landing-…  Running
-   newapi  ns:  newapi-bp-newapi-…  newapi-bp-newapi-newapi-pg-1/2  Running
-$ kubectl ... get pods -n catalyst-system | grep guac
-   guacamole-server-7b47c8ff87-k9cl8   Running   guacd-84b4695f59-vfcnc   Running   guacamole-pg-1   Running
-```
-
-**What actually IS in the mgmt vCluster** (the only `x-mgmt-vcluster` pods):
-
-```
-$ kubectl ... get pods -A | grep x-mgmt-vcluster
-   coredns-…-x-kube-system-x-mgmt-vcluster
-   loki-0-x-loki-x-mgmt-vcluster
-   mimir-{alertmanager,compactor,distributor,gateway,ingester,minio,querier,…}-x-mimir-x-mgmt-vcluster
-   nats-jetstream-{0,1,2,…}-x-nats-system-x-mgmt-vcluster
-   tempo-0-x-tempo-x-mgmt-vcluster
-```
-
-Only `loki / mimir / nats / tempo` (+ coredns). None of the 7 named apps.
-
-| Go to (URL) | Then do | You should see | Result |
+| Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| `https://console.hw158.omani.works/dashboard` | Set the **LAYER 1** grouping combobox → `vCluster` | Treemap regroups into `host` / `mgmt` / `rtz` / `dmz` | N/A — browser-only (curl/kubectl harness). The underlying placement data, read directly above/below, is what the treemap renders. |
-| same page | In the **mgmt** block, read the tiles | mgmt block contains grafana / harbor / keycloak / gitea / openbao / newapi / guacamole ALONGSIDE loki/mimir/tempo/nats | ❌ (proven via API, not browser) — only `loki/mimir/nats/tempo` are mgmt-resident; the 7 are absent from mgmt (syncer-suffix count 0 each, above). |
-| same page | In the **host** block, look for the 7 app tiles | NONE of the 7 appear under `host` | ❌ — all 7 ARE still under host (plain host pods in grafana/harbor/keycloak/gitea/openbao/newapi/catalyst-system namespaces, above). |
-| `https://console.hw158.omani.works/apps` | Open the **`keycloak`** card → read its detail | placement shows **`mgmt`** | ❌ — `placement.yaml` line 166 declares keycloak `vcluster: host`; the live keycloak-0 pod is host-resident with no syncer suffix. |
-
-> Cross-check appendix (NOT acceptance — run with the live kubeconfig):
-> The per-app syncer-suffix loop above returns **0 for all 7** (decisive ❌). Before this ticket every
-> app returned 0 (plain host pods) — and that is STILL the state on hw158.
-> ```
-> $ python3 scripts/audit-placement-conformance.py live --kubeconfig /tmp/hw158-kc.yaml | tail
->   ✓ bp-loki: mgmt (ns=mgmt)
->   ✓ bp-mimir: mgmt (ns=mgmt)
->   ✓ bp-nats-jetstream: mgmt (ns=mgmt)
->   ✓ bp-tempo: mgmt (ns=mgmt)
->   ✓ zero undeclared host workloads
-> EXIT=0
-> ```
-> ⚠ **THE MASKING TRAP:** this exits 0 NOT because the 7 are in mgmt, but because they are declared
-> `vcluster: host` AND are actually on host → "conformant." Only `loki/mimir/nats/tempo` resolve to
-> `mgmt` here. **"audit passes" ≠ "7 actually IN mgmt."**
+| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **grafana** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `grafana` tile sits inside the **host** block (10%), NOT mgmt — it never moved. ![3642-grafana-mgmt](../../sessions/2026-06-17/evidence/3642-grafana-mgmt.png) |
+| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **harbor** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `harbor` tile sits inside the **host** block (2%), NOT mgmt. ![3642-harbor-mgmt](../../sessions/2026-06-17/evidence/3642-harbor-mgmt.png) |
+| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **keycloak** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `keycloak` tile sits inside the **host** block (3%), NOT mgmt. ![3642-keycloak-mgmt](../../sessions/2026-06-17/evidence/3642-keycloak-mgmt.png) |
+| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **gitea** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `gitea` does NOT appear under the **mgmt** block (the mgmt block holds only mimir + mgmt-vcluster); gitea is a host-cluster/sub-namespace tile, not in mgmt. ![3642-gitea-mgmt](../../sessions/2026-06-17/evidence/3642-gitea-mgmt.png) |
+| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **openbao** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `openbao` does NOT appear under the **mgmt** block; it is not a mgmt-vCluster tile. ![3642-openbao-mgmt](../../sessions/2026-06-17/evidence/3642-openbao-mgmt.png) |
+| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **newapi** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `newapi` tile sits inside the **host** block (2%), NOT mgmt. ![3642-newapi-mgmt](../../sessions/2026-06-17/evidence/3642-newapi-mgmt.png) |
+| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | On the LAYER1=vCluster treemap, the **guacamole** tile must sit inside the **mgmt** block, **not** the **host** block. | ❌ | `guacamole` tile sits inside the **host** block (1%), NOT mgmt. ![3642-guacamole-mgmt](../../sessions/2026-06-17/evidence/3642-guacamole-mgmt.png) |
 
 ---
 
-## PART C — every per-app surface still WORKS after the move (no regression)
+## PART C — the `mgmt` block's contents + the `host` block is clean
 
-The apps never moved, so they are still serving from host. Public surfaces spot-checked (curl, HTTP
-status; "lands signed-in" requires a browser, so these prove *reachability/redirect-to-SSO*, not the
-full zero-click landing):
-
-```
-$ for h in auth gitea harbor grafana bao newapi guacamole; do curl -sk -o /dev/null \
-    -w '%{http_code}' "https://$h.hw158.omani.works<path>"; done
-auth.hw158.omani.works/realms/sovereign/account   -> 302   (KC realm reachable, redirects to login flow)
-gitea.hw158.omani.works/                          -> 303   (SSO redirect)
-harbor.hw158.omani.works/                         -> 404   (portal root 404 — see note)
-grafana.hw158.omani.works/                        -> 302   (SSO redirect)
-bao.hw158.omani.works/ui/                          -> 302   (SSO redirect)
-newapi.hw158.omani.works/                         -> 200
-guacamole.hw158.omani.works/guacamole/             -> 200
-```
-
-| App | Go to (URL) | Then do | You should see | Result |
-|---|---|---|---|---|
-| **keycloak** | `https://auth.hw158.omani.works/realms/sovereign/account` | load it | sovereign-realm account console renders | ❌ for the ticket's claim (route reaches a **host** keycloak, not "mgmt-synced") — but the realm IS reachable (302 to login). No mgmt move to regress. |
-| **gitea** | `https://gitea.hw158.omani.works/` | load it | Gitea lands signed-in | ❌ as specified ("in-vCluster gitea") — gitea is host-resident; surface reachable (303 SSO redirect). Full zero-click landing needs a browser. |
-| **harbor** | `https://harbor.hw158.omani.works/` | load it | Harbor lands signed-in, projects render | ❌ as specified — harbor is host-resident; root returns **404** (portal path-quirk, not a move regression). |
-| **harbor (pull path)** | `https://console.hw158.omani.works/dashboard` | confirm no `ImagePullBackOff` | cluster-wide pulls resolve | ✅ — cluster-wide pulls resolve against harbor; the `vc-mgmt-crd-probe` pod pulled `harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.31.4` successfully (phase Succeeded), and core workloads are Running. Registry path intact. |
-| **grafana** | `https://grafana.hw158.omani.works/` | load it | Grafana lands signed-in | ❌ as specified ("in-vCluster grafana") — grafana is host-resident; surface reachable (302 SSO). |
-| **openbao** | `https://bao.hw158.omani.works/ui/` | load it | OpenBao UI renders | ❌ as specified — openbao host-resident; UI reachable (302 SSO). |
-| **newapi** | `https://newapi.hw158.omani.works/` | load it | newapi lands signed-in | ❌ as specified — newapi host-resident; surface reachable (200). |
-| **guacamole** | `https://guacamole.hw158.omani.works/guacamole/` | load it | Guacamole lands signed-in, connections render | ❌ as specified ("in-vCluster guacamole") — guacamole host-resident in catalyst-system; surface reachable (200). |
-
-> NOTE: Every ❌ in PART C is "❌ as the ticket specifies it" — the rows assert the surface reaches an
-> **in-vCluster** / **mgmt-synced** app. On hw158 the apps are host-resident, so there is nothing
-> migrated to regress; the surfaces themselves still respond. This is reachability evidence, not the
-> full browser "lands signed-in" acceptance.
-
----
-
-## PART D — the OSS-native CRD-registration mechanism is proven (sovereignty-safe)
-
-**Chart side — `experimental.deploy.vcluster.manifests` block (live read):**
-
-```
-$ grep -nE 'experimental|deploy:|manifests|httproutes|externalsecrets|clusters.postgresql|poolers|scheduledbackups' \
-    platform/bp-mgmt-vcluster/chart/values.yaml
-323:        clusters.postgresql.cnpg.io:
-325:        poolers.postgresql.cnpg.io:
-327:        scheduledbackups.postgresql.cnpg.io:
-333:        httproutes.gateway.networking.k8s.io:
-335:        externalsecrets.external-secrets.io:
-369:  experimental:
-370:    deploy:
-371:      vcluster:
-372:        manifests: |
-376:          name: httproutes.gateway.networking.k8s.io
-407:          name: externalsecrets.external-secrets.io
-432:          name: clusters.postgresql.cnpg.io
-```
-
-**Live cross-check INSIDE vc-mgmt** (probe pod with the inner `vc-mgmt-vcluster` kubeconfig):
-
-```
-$ kubectl --kubeconfig <inner-vc-mgmt> get crd httproutes... externalsecrets... clusters.postgresql... poolers... scheduledbackups...
-NAME                                   CREATED AT
-httproutes.gateway.networking.k8s.io   2026-06-17T03:13:29Z   ✅ registered by init-manifests deployer
-externalsecrets.external-secrets.io    2026-06-17T03:13:29Z   ✅
-clusters.postgresql.cnpg.io            2026-06-17T03:13:29Z   ✅
-Error (NotFound): poolers.postgresql.cnpg.io                  ❌ NOT registered inside vc-mgmt
-Error (NotFound): scheduledbackups.postgresql.cnpg.io         ❌ NOT registered inside vc-mgmt
-
-$ kubectl --kubeconfig <inner-vc-mgmt> get ns
-   default kube-node-lease kube-public kube-system loki mimir nats-system tempo   (only the 4 mgmt apps + system)
-$ kubectl --kubeconfig <inner-vc-mgmt> get pods -A | grep -iE 'grafana|harbor|keycloak|gitea|openbao|newapi|guacamole'
-   NONE-OF-7-INSIDE
-```
-
-vCluster image: `harbor.openova.io/proxy-ghcr/loft-sh/vcluster:0.21.0` (OSS, **no Pro/Platform license**).
-
-| Go to (URL) | Then do | You should see | Result |
+| Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| `https://github.com/openova-io/openova/blob/main/platform/bp-mgmt-vcluster/chart/values.yaml` | Search `experimental:` → read `deploy.vcluster.manifests` | structural CRDs for httproutes, externalsecrets, CNPG clusters/poolers/scheduledbackups registered INSIDE vc-mgmt by OSS init-manifests — no Pro license | ✅ PARTIAL — the block exists (lines 369-432) and uses the OSS deployer; live, **3 of 5** CRDs landed inside vc-mgmt (httproutes, externalsecrets, clusters.postgresql). `poolers` + `scheduledbackups` are declared but NOT yet registered. |
-| `https://console.hw158.omani.works/cutover` (or /jobs cutover rows) | Confirm `cutoverComplete=true` OR run fresh cutover; the mgmt-resident 7 survive the 600s deny-egress hold | the 7 survive without `admin.loft.sh` tether | N/A — the 7 are NOT mgmt-resident on hw158, so "the mgmt-resident 7 survive the deny-egress hold" is untestable here. The cutover egress-block proof is owned by the Pillar-5 runbook, not this one. |
-
-> Cross-check appendix (NOT acceptance): the in-vCluster CRD list above is the appendix. ✅ for the 3
-> core kinds (httproutes + externalsecrets present → an in-vcluster app COULD create those without a
-> loft.sh platform connection). The mechanism is OSS-native and partially landed; the two CNPG sub-CRDs
-> are a gap to close before any CNPG-bearing app (none of the 7 are CNPG-only) could fully migrate.
+| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | Click into the **mgmt** block (drill down one LAYER). Its tiles must include **all 7** named apps (grafana / harbor / keycloak / gitea / openbao / newapi / guacamole) **alongside** loki / mimir / nats / tempo. Missing any of the 7 = FAIL. | ❌ | The **mgmt** block holds only **mimir** + **mgmt-vcluster** — NONE of the 7 named apps are inside it. ![3642-mgmt-block-contents](../../sessions/2026-06-17/evidence/3642-mgmt-block-contents.png) |
+| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | Read the **host** block on the same LAYER1=vCluster treemap. **None** of the 7 named apps may appear under `host`. Any of the 7 showing under `host` = FAIL. | ❌ | The **host** block contains harbor, keycloak, guacamole, newapi, grafana (and cnpg-pair, kyverno, falco, cilium, crossplane, catalyst, etc.) — at least 5 of the 7 named apps are under `host`. ![3642-host-block-clean](../../sessions/2026-06-17/evidence/3642-host-block-clean.png) |
+| [console.hw158/apps/keycloak](https://console.hw158.omani.works/apps/keycloak) | Open the **keycloak** app card and read its placement detail — it must show **`mgmt`** (the per-app placement readout mirrors the treemap block). A `host` readout = FAIL. | ❌ | (Note: `/apps/keycloak` is "Not Found"; the real route is `/app/keycloak`.) keycloak's app Overview reads **Placement: `singleton`**, **Namespace: `flux-system`** — NOT `mgmt`. ![3642-keycloak-card-placement](../../sessions/2026-06-17/evidence/3642-keycloak-card-placement.png) |
 
 ---
 
-## PART E — generality proof (the mechanism is one recipe, not 7 special-cases)
+## PART D — every per-app surface still WORKS after the move (no regression)
 
-**Live grep — per-app special-casing in the slot generator:**
+After the apps move into mgmt, each public surface must still load and land the user **signed in**
+(zero-click via the sovereign SSO). A redirect to a standalone Keycloak login form = FAIL; a rendered,
+authenticated app screen = ✅.
 
-```
-$ grep -ciE 'grafana|harbor|keycloak|gitea|openbao|newapi|guacamole' scripts/render-slot-placement.py
-0
-```
-
-**Zero** occurrences of any of the 7 app names in `render-slot-placement.py` — the generator has no
-per-app branch. The move is pure placement.yaml data + the shared host-bridge slot-render template.
-
-| Go to (URL) | Then do | You should see | Result |
+| Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| `https://github.com/openova-io/openova/pull/<PR#>/files` | Diff the 7 slot files (`09-keycloak.yaml`, `10-gitea.yaml`, `19-harbor.yaml`, `25-grafana.yaml`, `08-openbao.yaml`, `80-newapi.yaml`, `52-bp-guacamole.yaml`) | every placement field change is `render-slot-placement.py`-generated from ONE `vcluster: host → mgmt` flip — zero bespoke per-app code | ✅ (mechanism) — the generator carries zero per-app special-casing (grep count 0); slots are a pure function of placement.yaml (`render-slot-placement.py check` exits 0). The flip-PR itself hasn't landed (placement still `host`), so there is no `<PR#>` diff to open yet, but the *generality* is proven by the code. |
-| same diff | Look for any per-app special-casing in Go / handlers | NONE — pure placement.yaml data + shared host-bridge template; no controller change | ✅ — `grep -ci '<7 app names>' scripts/render-slot-placement.py` = 0; no per-app conditional in the generator. |
+| [auth.hw158/realms/sovereign/account](https://auth.hw158.omani.works/realms/sovereign/account) | The sovereign-realm account console renders for `emrah.baysal@openova.io` (no second login). | ❌ | The account console shows a **"Danger alert: Something went wrong — Sorry, an unexpected error has occurred"** dialog (Try again) — not a rendered account page. ![3642-keycloak-surface](../../sessions/2026-06-17/evidence/3642-keycloak-surface.png) |
+| [gitea.hw158](https://gitea.hw158.omani.works/) | Gitea opens **already signed in** (avatar/menu shows the SSO user), repo list renders — no Gitea login form. | ✅ | Gitea opens **signed in** as `emrah.baysal` (title "emrah.baysal - Dashboard - Catalyst Gitea", avatar + Repositories panel). No login form. ![3642-gitea-surface](../../sessions/2026-06-17/evidence/3642-gitea-surface.png) |
+| [harbor.hw158](https://harbor.hw158.omani.works/) | Harbor opens **signed in**, the projects list renders — no Harbor login form. | ❌ | `harbor.hw158.omani.works` returns **ERR_HTTP_RESPONSE_CODE_FAILURE** (non-2xx; UI does not load) on both `/` and `/harbor/projects`. (Evidence frame: the keycloak app placement page captured at the same time; harbor itself would not render to screenshot.) ![3642-harbor-surface](../../sessions/2026-06-17/evidence/3642-harbor-surface.png) |
+| [grafana.hw158](https://grafana.hw158.omani.works/) | Grafana opens **signed in** (no Grafana login), the home dashboard renders. | ✅ | Grafana opens **signed in** ("Welcome to Grafana" home, title "Home - Dashboards - Grafana", avatar top-right). No Grafana login. ![3642-grafana-surface](../../sessions/2026-06-17/evidence/3642-grafana-surface.png) |
+| [bao.hw158/ui/](https://bao.hw158.omani.works/ui/) | The OpenBao UI renders **signed in** via OIDC — no manual token/unseal prompt blocking the landing. | ✅ | OpenBao UI renders **signed in** at `/ui/vault/secrets` — the "Secrets Engines" page lists `cubbyhole/` + `secret/` engines; no token/unseal prompt. ![3642-openbao-surface](../../sessions/2026-06-17/evidence/3642-openbao-surface.png) |
+| [newapi.hw158](https://newapi.hw158.omani.works/) | newapi opens **signed in**, its main console renders — no login form. | ❌ | newapi shows "Signing you in…" then redirects to **`/login?expired=true`** with body *"upstream connect error … delayed connect error: 111"* — a login redirect + backend connection failure. ![3642-newapi-surface](../../sessions/2026-06-17/evidence/3642-newapi-surface.png) |
+| [guacamole.hw158/guacamole/](https://guacamole.hw158.omani.works/guacamole/) | Guacamole opens **signed in**, the connections list renders — no Guacamole login form. | ✅ | Guacamole opens **signed in** as `emrah.baysal@openova.io` — "Recent Connections" + "All Connections" render; no Guacamole login form. ![3642-guacamole-surface](../../sessions/2026-06-17/evidence/3642-guacamole-surface.png) |
 
 ---
 
-## DoD roll-up (all binary)
+## GAPS — surfaces with NO browser representation (findings, not test rows)
 
-- [ ] **PART A** — placement.yaml declares `vcluster: mgmt` for ALL 7 named apps (7 boxes). → **❌ 0/7** — all read `vcluster: host, target: mgmt`; flip never done.
-- [ ] **PART B** — the treemap `mgmt` block contains all 7; host carries none of them; live pods carry the syncer suffix. → **❌** — syncer-suffix count 0 for all 7; mgmt holds only loki/mimir/nats/tempo; all 7 are host pods.
-- [ ] **PART C** — all 8 per-app public surfaces still serve / land signed-in (no regression). → **❌ as specified** (host-resident, not in-vCluster) — surfaces DO respond (302/303/200; harbor root 404; pull path ✅). Nothing migrated to regress.
-- [ ] **PART D** — OSS-native init-manifests CRD registration proven; 600s deny-egress hold survives (no loft.sh tether). → **✅ PARTIAL** — OSS deployer registers 3/5 CRDs inside vc-mgmt (httproutes, externalsecrets, clusters.postgresql); poolers + scheduledbackups NOT registered; deny-egress-survival untestable (7 not in mgmt). N/A for the cutover row.
-- [ ] **PART E** — the move is generic (one placement flip + shared host-bridge; zero per-app code). → **✅** — generator has zero per-app special-casing (grep 0); slots pure function of placement.yaml.
+These are part of the ticket's intent but have **no operator-visible UI surface**, so they are recorded
+as `GAP` findings rather than driven via a terminal. Closing them is engineering work; they are not
+browser-walkable.
 
-**Tally: 7 ✅ / 18 ❌ / 4 N/A.**
-- ✅ (7): PART A appendix `render-slot-placement.py check` exit 0; PART C harbor pull-path; PART D values.yaml block + 3/5 in-vc CRDs (counted as the one ✅ PARTIAL row); PART E both rows + the underlying grep-0 proof.
-- ❌ (18): PART A 7 placement rows; PART B 4 rows (incl. the 0-count cross-check); PART C 7 "as-specified in-vCluster" rows.
-- N/A (4): sign-in (browser-only); PART B 2 browser-treemap rows folded into the API proof are still scored ❌ above — the 4 N/A are: the sign-in row, PART B dashboard-grouping row, PART C is curl-not-browser (scored ❌ not N/A), PART D cutover row, and the PART E `<PR#>` diff (no PR yet — scored ✅ on the code proof). Net N/A bucket = {sign-in, PART B grouping-combobox UI action, PART D cutover-hold row, PART C "lands signed-in" full-browser bar}.
-
-**Acceptance = the founder walking the clickable rows above on the live env.** This walk used
-curl/kubectl (no browser per the harness constraint); the decisive migration evidence (syncer-suffix
-count = 0 for all 7, placement.yaml still `vcluster: host`) does not require a browser and is
-conclusive: **the 7 apps are NOT in the mgmt vCluster on hw158.** Automated checks are appendix only,
-demoted per the UAT format law — and the placement-conformance audit's exit-0 is the masking trap, NOT
-a migration proof.
+| Surface | Why it's a GAP | Status |
+|---|---|---|
+| In-vCluster CRD registration inside vc-mgmt (httproutes / externalsecrets / cnpg `clusters` / `poolers` / `scheduledbackups`) — proving the OSS init-manifests deployer registered them **inside** the mgmt vCluster | No console screen exposes the inner-vCluster CRD inventory. Previously checked with `kubectl --kubeconfig <inner-vc-mgmt> get crd` — banned. There is no dashboard widget for "CRDs registered inside vc-mgmt". | GAP |
+| Per-app pod-level syncer suffix (`-x-<innerNs>-x-mgmt-vcluster`) on each migrated pod | The treemap block (PART B) is the operator-facing proxy for "runs in mgmt"; the literal pod-name suffix is a host-cluster `kubectl` detail with no UI surface. PART B's mgmt-block placement is the browser-checkable equivalent. | GAP |
+| `cutoverComplete=true` survival of the 7 through the Pillar-5 600s deny-egress hold (no `admin.loft.sh` tether) | The deny-egress cutover proof is owned by the **Pillar-5 cutover runbook**, walked on its own `/cutover` (or `/jobs` cutover rows) surface — not duplicated here. | GAP (owned elsewhere) |
 
 ---
 
-## WHY the flip was never done — the two governing constraints (root-cause, #3642 chart audit 2026-06-17)
+## DoD roll-up (browser-walk)
 
-The walk above proves the flip *didn't happen*; this section is the *why* and the *unblock path*.
-The canonical write-up is the §4 exception block in
-`clusters/_template/bootstrap-kit/placement.yaml`. There are TWO independent blockers, and the
-host-bridge (#3642) only solves the first.
+- [x] **Sign-in** — handover lands on `/dashboard` signed-in, no login form. → ✅
+- [x] **PART A** — `/dashboard` renders, LAYER 1 set to `vCluster`, `mgmt` block visible. → ✅ (2 rows)
+- [ ] **PART B** — all 7 app tiles (grafana / harbor / keycloak / gitea / openbao / newapi / guacamole) sit under the **mgmt** block on the LAYER1=vCluster treemap. → ❌ **ALL 7 under `host`, none under `mgmt`** (7 rows ❌)
+- [ ] **PART C** — the mgmt block holds all 7 + loki/mimir/nats/tempo; the host block holds none of the 7; keycloak card reads `mgmt`. → ❌ mgmt holds only mimir + mgmt-vcluster; host holds the apps; keycloak reads `singleton`/`flux-system` (3 rows ❌)
+- [ ] **PART D** — all 7 per-app public surfaces still land **signed in** (no regression). → ⚠️ 4/7 ✅ (gitea/grafana/openbao/guacamole); 3/7 ❌ (keycloak account error, harbor HTTP failure, newapi login-redirect+upstream-error)
+- [ ] **GAPS** — 3 non-UI findings recorded (in-vCluster CRD registration, per-pod syncer suffix, cutover deny-egress survival owned by Pillar-5).
 
-### Constraint #1 — vCluster CRD-sync is loft.sh Free-tier, not pure-OSS
-Re-homing a chart that ships an HTTPRoute / ExternalSecret / CNPG `Cluster` CR needs the syncer to
-register those CRDs in the vCluster and mirror the CRs `toHost` so the host Cilium Gateway / ESO /
-cnpg-operator (host-minimum substrate) reconcile them. `sync.toHost.customResources` is a **Free-tier**
-feature needing a permanent `admin.loft.sh` tether — forbidden by the Pillar-5 600s deny-egress hold.
-The **HOST-BRIDGE (#3642)** answers this: keep the route/secret/CNPG CR HOST-rendered (declared as
-`hostBridge:` data, transcribed by `render-slot-placement.py`), re-home only the workload pod.
-
-### Constraint #2 — a host-rendered Secret can't cross host→vCluster on OSS vcluster 0.21.0
-The deeper blocker the host-bridge alone does NOT solve, and the actual reason both prior flips were
-reverted. Every one of the 7 apps' workload pods needs a Secret **minted on the host** delivered
-**into** the vCluster — a CNPG-operator DB credential and/or a host-ESO SSO Secret. No OSS 0.21.0
-mechanism delivers it:
-- `sync.fromHost.secrets` (host→vCluster Secret mirror) **does not exist until vcluster 0.23.0**
-  (0.21.0 rejects the unknown config key at parse, breaking the syncer).
-- an in-vCluster `ExternalSecret` can't reconcile — ESO is a host-minimum substrate (slot 15),
-  `toHost` CR sync is Pro-gated/inert on OSS.
-
-So a re-homed pod hangs on `MountVolume.SetUp … secret "<name>" not found` (keycloak-0 SHARED_PG,
-**#3737**) or boots without its SSO/DB env (grafana zero-click never lands, **#3731**;
-harbor/gitea/newapi DB DSN empty). This is INDEPENDENT of Constraint-#1 — even a perfect host-bridge
-leaves Constraint-#2 wedging the workload.
-
-### Per-app blocker matrix (chart audit, file:line in the slot/chart)
-
-| App (slot) | Host-produced Secret the workload consumes | Producer (host-side) | Extra |
-|---|---|---|---|
-| keycloak (09) | `keycloak-database-secret` (SHARED_PG mode only) | reflector ← slot-16a shared-data | Also **SSO seed root** for 8 HRs; clean only on the DEFAULT prov |
-| grafana (25) | `grafana-sso-oidc-credentials` (env `GF_AUTH_GENERIC_OAUTH_*`) | host ESO `vault-region1` | Raw ES also trips the #3731 dry-run deadlock if host-bridged unguarded |
-| openbao (08) | `openbao-sso-oidc-credentials` (mounted `/etc/sso-creds`) | host ESO `vault-region1` | Also **IS** the ESO backend (`vault-region1` ClusterSecretStore) → host-pinned by role |
-| harbor (19) | `harbor-database-secret` + `harbor-sso-oidc-credentials` | reflector ← CNPG `harbor-pg-app`; host ESO | CNPG `Cluster` CR rendered by chart |
-| gitea (10) | `gitea-database-secret` + `gitea-oauth-source-credentials` (+ S3) | reflector ← CNPG `gitea-pg-app`; host ESO; seaweedfs reflector | CNPG `Cluster` CR rendered by chart |
-| newapi (80) | `<release>-newapi-db-dsn` (`SQL_DSN`) | sync-job ← CNPG `<cluster>-app` | OIDC/session secrets ARE chart-self-contained; DB DSN is the blocker |
-| guacamole (52) | `guacamole-pg-app` (`POSTGRESQL_PASSWORD`, mounted directly) | host cnpg-operator | OIDC IS chart-self-contained (`lookup`-or-generate); DB is the blocker |
-
-Two apps are host-pinned **structurally** beyond Constraint-#2: **openbao** (it IS the host ESO
-backend) and **keycloak** (it IS the SSO seed root every other app's OIDC ExternalSecret reads).
-
-### Can any of the 7 flip SAFELY now? — No.
-Evaluated all 7 against "does the workload consume a host-produced Secret that must cross the
-boundary?" — **all 7 = yes**. There is **no safe partial flip**; flipping any reproduces the exact
-#3737/#3731 terminal wedge. The 3 truly clean apps (valkey/seaweedfs/vllm — no route, no secret, no
-CNPG) already moved in Batch A.
-
-## The actual #3642 hard part — unblock checklist (the PARKED #3719 train)
-
-- [ ] **Bump vcluster to ≥0.23.0** in the bp-{mgmt,rtz,dmz}-vcluster merged charts so
-      `sync.fromHost.secrets` exists (genuine OSS from 0.23.0, not Pro-gated). Re-validate the
-      existing syncer features (Service sync, init-manifests CRD deploy) survive the bump.
-- [ ] **Map each app's host-produced Secret host→vCluster** via `sync.fromHost.secrets`:
-      `<app>-database-secret`, `<app>-sso-oidc-credentials`, and (newapi) `<release>-newapi-db-dsn`.
-- [ ] **Lift the raw `ExternalSecret` OUT of the atomic bootstrap-kit Flux Kustomization** for the
-      route+SSO apps (#3731): a separate Flux Kustomization that `dependsOn` slot-15 bp-external-
-      secrets, OR an early-slot raw-CRD pre-install for `external-secrets.io` (mirroring how
-      cloud-init pre-applies the gateway-api CRDs). Do NOT replace the chart's `.Capabilities`-guarded
-      ES with an unguarded raw copy inside the monolithic Kustomization.
-- [ ] **CNPG class only** — host-render the `Cluster` CR (§5d) and wire the in-vCluster pod to the
-      host PostgreSQL **cross-cluster** (the host cnpg-operator can't see a CR inside the vCluster on
-      OSS): the pod dials `<pg-svc>-x-shared-data-x-mgmt-vcluster` (or the host PG Service).
-- [ ] **Keep openbao + keycloak host** (structural): openbao IS the ESO backend; keycloak IS the SSO
-      seed root. Re-evaluate only if the ESO `ClusterSecretStore` can target an in-vCluster Vault and
-      the OIDC seed can be consumed by host-side ExternalSecrets cross-cluster — both impossible on OSS.
-- [ ] **Then** flip each app one-field (`vcluster: host → mgmt`) + add its `hostBridge:` block,
-      `render-slot-placement.py fix`, and walk PART A–E above per app on a fresh zero-touch prov.
+**Acceptance = the founder (or operator) walking the clickable rows above on the live env in a browser,
+pasting the named screenshot per row.** PART B is the decisive set: every one of the 7 app tiles must
+render under the **mgmt** block, never **host**. A login-screen redirect on any surface = FAIL; a
+rendered, authenticated screen = ✅.

@@ -452,11 +452,11 @@ func (w DefaultOrganizationGitOpsWriter) DeleteTenantOverlay(ctx context.Context
 
 // orgTenantTemplateData is the input the rendering templates consume.
 type orgTenantTemplateData struct {
-	TenantID      string
-	Subdomain     string
-	Namespace     string
-	VClusterName  string
-	OTECHFQDN     string
+	TenantID     string
+	Subdomain    string
+	Namespace    string
+	VClusterName string
+	OTECHFQDN    string
 	// ParentDomain — the chosen sme-pool parent (multi-domain
 	// Sovereign per epic #825). Falls back to OTECHFQDN for
 	// single-domain back-compat. The console/wordpress/openclaw/
@@ -473,6 +473,28 @@ type orgTenantTemplateData struct {
 	IsBYO         bool
 	ChartVersions OrganizationChartVersions
 	GeneratedAt   string
+
+	// VClusterImageRegistry is the Sovereign-local Harbor host the
+	// per-tenant app images pull THROUGH (proxy-cache). Default
+	// "harbor.openova.io".
+	//
+	// MIRROR-EVERYTHING (#3785, follow-up to #3761, Refs #3376): the
+	// bp-wordpress-tenant chart's main + wp-cli images default to the
+	// Docker Hub `wordpress` repository (platform/wordpress-tenant/chart/
+	// values.yaml). On a kyverno-Enforce Sovereign the `harbor-proxy-pull`
+	// ClusterPolicy DENIES any image not matching the `*/proxy-*/*` glob —
+	// so a raw `wordpress:6-php8.3-apache` pull is blocked and the
+	// customer's purchased app never starts (the funnel's terminal
+	// acceptance). #3761 re-tagged the per-Org vCluster images but left the
+	// APP images raw; this field closes that gap by feeding
+	// `global.imageRegistry: <registry>/proxy-dockerhub` into the WordPress
+	// HelmRelease so BOTH WordPress images route through the Sovereign
+	// Harbor proxy-cache, exactly like the CNPG image the chart already
+	// proxies through `<registry>/proxy-ghcr`. Per Inviolable Principle #4
+	// it's read from env (CATALYST_VCLUSTER_IMAGE_REGISTRY — the same knob
+	// the org-controller uses), never hardcoded; cutover Step-04 (ADR-0002)
+	// flips it to harbor.<sovereign-fqdn> post-handover.
+	VClusterImageRegistry string
 
 	// D31 active-hot-standby — opt-in cross-region CNPG ReplicaCluster
 	// for CNPG-backed tenant apps. The bp-wordpress-tenant chart
@@ -569,27 +591,37 @@ func renderOrganizationOverlay(rec store.OrganizationProvisionRecord, versions O
 		enableHotStandby = false
 	}
 
+	// MIRROR-EVERYTHING (#3785): the Sovereign-local Harbor proxy host every
+	// per-tenant app image routes through. Same env knob + default the
+	// org-controller uses for the vCluster image (CATALYST_VCLUSTER_IMAGE_
+	// REGISTRY, default harbor.openova.io); cutover Step-04 flips it to
+	// harbor.<sovereign-fqdn> post-handover (ADR-0002). Read here so the
+	// WordPress HelmRelease's `global.imageRegistry` is never hardcoded
+	// (Inviolable Principle #4).
+	imageRegistry := strings.TrimSpace(envOr("CATALYST_VCLUSTER_IMAGE_REGISTRY", "harbor.openova.io"))
+
 	data := orgTenantTemplateData{
-		TenantID:         rec.OrganizationID,
-		Subdomain:        rec.Subdomain,
-		Namespace:        rec.TenantNamespace,
-		VClusterName:     rec.VClusterName,
-		OTECHFQDN:        rec.OTECHFQDN,
-		ParentDomain:     parentZone,
-		ConsoleHost:      host,
-		WordPressHost:    wpHost,
-		OpenClawHost:     owHost,
-		MailHost:         mailHost,
-		AdminEmail:       rec.AdminEmail,
-		CompanyName:      rec.CompanyName,
-		DomainMode:       string(rec.DomainMode),
-		BYODomain:        rec.BYODomain,
-		IsBYO:            rec.DomainMode == store.OrganizationDomainBYO,
-		ChartVersions:    versions,
-		GeneratedAt:      time.Now().UTC().Format(time.RFC3339),
-		EnableHotStandby: enableHotStandby,
-		PrimaryRegion:    primaryRegion,
-		ReplicaRegion:    replicaRegion,
+		TenantID:              rec.OrganizationID,
+		Subdomain:             rec.Subdomain,
+		Namespace:             rec.TenantNamespace,
+		VClusterName:          rec.VClusterName,
+		OTECHFQDN:             rec.OTECHFQDN,
+		ParentDomain:          parentZone,
+		ConsoleHost:           host,
+		WordPressHost:         wpHost,
+		OpenClawHost:          owHost,
+		MailHost:              mailHost,
+		AdminEmail:            rec.AdminEmail,
+		CompanyName:           rec.CompanyName,
+		DomainMode:            string(rec.DomainMode),
+		BYODomain:             rec.BYODomain,
+		IsBYO:                 rec.DomainMode == store.OrganizationDomainBYO,
+		ChartVersions:         versions,
+		GeneratedAt:           time.Now().UTC().Format(time.RFC3339),
+		VClusterImageRegistry: imageRegistry,
+		EnableHotStandby:      enableHotStandby,
+		PrimaryRegion:         primaryRegion,
+		ReplicaRegion:         replicaRegion,
 	}
 
 	out := map[string]string{}
@@ -923,29 +955,29 @@ spec:
 //
 // Values contract (chart >= 1.3.0, see platform/newapi/chart/values.yaml):
 //   - sovereignFQDN          → drives the OpenBao path convention for
-//                              ExternalSecrets (sovereign/<fqdn>/...).
+//     ExternalSecrets (sovereign/<fqdn>/...).
 //   - ingress.host           → customer-facing OpenAI-compatible API at
-//                              api.<sub>.<parent>/v1
+//     api.<sub>.<parent>/v1
 //   - ingress.adminHost      → ops-staff admin UI at
-//                              admin.<sub>.<parent>
+//     admin.<sub>.<parent>
 //   - auth.adminUI           → mode=keycloak, issuer = per-tenant realm
-//                              (alice's tenant Keycloak), clientId
-//                              "newapi-admin" registered by the tenant
-//                              realm-config (see #910/#915 C1).
+//     (alice's tenant Keycloak), clientId
+//     "newapi-admin" registered by the tenant
+//     realm-config (see #910/#915 C1).
 //   - auth.customerAPI       → keyIssuer=catalyst (Catalyst mints
-//                              per-user bearer keys on signup; the
-//                              upstream's self-serve portal is OFF).
+//     per-user bearer keys on signup; the
+//     upstream's self-serve portal is OFF).
 //   - database.existingSecret → newapi-pg-app — the Secret bp-cnpg's
-//                              CNPG Cluster auto-renders for the
-//                              "newapi" Database (cnpg.enabled=true so
-//                              per-tenant Postgres auto-provisions per
-//                              #943).
+//     CNPG Cluster auto-renders for the
+//     "newapi" Database (cnpg.enabled=true so
+//     per-tenant Postgres auto-provisions per
+//     #943).
 //   - credentials.existingSecret → newapi-credentials — pulled from
-//                              OpenBao via ExternalSecret carrying the
-//                              SESSION_SECRET + CRYPTO_SECRET keys.
+//     OpenBao via ExternalSecret carrying the
+//     SESSION_SECRET + CRYPTO_SECRET keys.
 //   - defaultChannels.qwenPartner → channel #1 = partner-hosted Qwen
-//                              auto-seeded at install time (canonical
-//                              first-otech default per #915 C4 PR #919).
+//     auto-seeded at install time (canonical
+//     first-otech default per #915 C4 PR #919).
 //
 // dependsOn: bp-keycloak (OIDC for admin UI) + bp-cnpg (Postgres
 // backend). Ordering matters — without it the chart's channel-seed
@@ -1133,7 +1165,31 @@ spec:
     - name: bp-cnpg
       namespace: {{.Namespace}}
   values:
-    orgDomain: {{if .IsBYO}}{{.BYODomain}}{{else}}{{.Subdomain}}.{{.ParentDomain}}{{end}}
+    # MIRROR-EVERYTHING (#3785, Refs #3376 #3761): route BOTH WordPress
+    # images (the main 'wordpress' server + the 'wordpress' wp-cli the
+    # oidc-config Job runs — platform/wordpress-tenant/chart/templates/
+    # _helpers.tpl wordpressImage/wpcliImage) THROUGH the Sovereign Harbor
+    # DockerHub proxy-cache. Without this they default to the raw Docker Hub
+    # 'wordpress' repository, which the harbor-proxy-pull Kyverno
+    # ClusterPolicy (Enforce) DENIES because it doesn't match the
+    # '*/proxy-*/*' glob — so the customer's purchased app NEVER starts (the
+    # funnel's terminal acceptance, #3376). The chart prepends
+    # global.imageRegistry onto each image.repository, so the live Harbor
+    # DockerHub proxy project 'proxy-dockerhub' (NOT 'proxy-docker' — see
+    # platform/openbao/chart/Chart.yaml) renders e.g.
+    # harbor.openova.io/proxy-dockerhub/wordpress:6-php8.3-apache@sha256:...,
+    # which matches the glob. Lockstep with the CNPG image the chart already
+    # proxies via <registry>/proxy-ghcr. Registry host is operator-
+    # overridable (Principle #4) via CATALYST_VCLUSTER_IMAGE_REGISTRY.
+    global:
+      imageRegistry: {{.VClusterImageRegistry}}/proxy-dockerhub
+    # smeDomain is the chart-consumed data-value key — #3383 keeps every
+    # .Values.sme* overlay key WIRE-STABLE; the bp-wordpress-tenant chart
+    # reads .Values.smeDomain in _helpers.tpl + sso-app-registration.yaml,
+    # so the producer must keep emitting smeDomain (not a renamed orgDomain,
+    # which the chart consumes nowhere → WordPress would fall back to the
+    # default wordpress.sme.local host).
+    smeDomain: {{if .IsBYO}}{{.BYODomain}}{{else}}{{.Subdomain}}.{{.ParentDomain}}{{end}}
     # Canonical OIDC block (chart >= 0.2.0).
     oidc:
       enabled: true
@@ -1246,7 +1302,7 @@ spec:
 {{- end }}
 `
 
-const orgTenantBPOpenClaw =`# bp-openclaw (#803, #915) — workspace controller pre-wired to the
+const orgTenantBPOpenClaw = `# bp-openclaw (#803, #915) — workspace controller pre-wired to the
 # per-tenant Keycloak realm (SSO) and the per-tenant NewAPI gateway
 # (OpenAI-compatible LLM endpoint, NOT direct OpenAI).
 #
