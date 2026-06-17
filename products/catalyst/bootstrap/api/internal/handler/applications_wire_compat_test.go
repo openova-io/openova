@@ -61,8 +61,9 @@ func TestDecodeApplicationInstallBody_SimplifiedMatrixShape(t *testing.T) {
 	if got.Name != "qa-wp" {
 		t.Errorf("name wrong: %q", got.Name)
 	}
-	if got.Placement.Mode != "single-region" {
-		t.Errorf("default placement mode wrong: %q", got.Placement.Mode)
+	// One vocabulary (#3375 DoD-1): the canonical default is "singleton".
+	if got.Placement.Mode != "singleton" {
+		t.Errorf("default placement mode wrong: %q, want canonical singleton", got.Placement.Mode)
 	}
 	// Default regions is `["primary"]` (a sentinel) per
 	// applicationInstallRequestNormalize; the caller is expected to

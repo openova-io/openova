@@ -16,9 +16,12 @@ import { useTheme } from '@/shared/lib/useTheme'
 import { resolveCatalogIcon } from '@/shared/lib/resolveCatalogIcon'
 import { YamlEditor } from '@/widgets/cloud-list/YamlEditor'
 import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
+import { ALL_MODES, canonicalizeMode, describeMode } from '@/widgets/topology/TopologyEditor'
+import { type CatalogEntryEdit } from '@/lib/commerce.api'
 import { InstancesSection } from './AppDetail/InstancesSection'
 import { useCatalogAdmin } from '@/shared/lib/useCatalogAdmin'
-import { CatalogEditForm } from './CatalogEditForm'
+import { CatalogInlineField } from './CatalogInlineField'
+import { IconPicker } from './IconPicker'
 
 /**
  * CatalogDetail — the per-Blueprint CLASS page.
@@ -72,9 +75,11 @@ export function CatalogDetail() {
   const isAdmin = useCatalogAdmin()
   const { theme } = useTheme()
   const qc = useQueryClient()
-  // #3648 (founder item #1) — inline edit-in-place on the detail page,
-  // replacing the separate edit chip + modal on the catalog grid.
-  const [editing, setEditing] = useState(false)
+  // #3668 (founder item §5A) — PER-FIELD inline editing replaces the single
+  // global "Edit" button + monolithic form: each hero field (icon, name,
+  // summary, supported-topologies) carries its own in-place edit affordance and
+  // saves INDEPENDENTLY via the shared saveCatalogEdit Gitea/store seam. No
+  // global edit-mode state — the per-field editors own their own open state.
   // #3668 §5D — the full-CR "Edit IaC" mode: mounts the shipping YamlEditor
   // on the WHOLE blueprint.yaml so spec.source / manifests / sso / placement
   // / endpoints / shareable / contextSchema (fields the 7-field card form
@@ -191,6 +196,24 @@ export function CatalogDetail() {
   const bundledLogo = findComponent(name)?.logoUrl ?? null
   const logoUrl = resolveCatalogIcon(card, theme, bundledLogo)
 
+  // #3668 §5A — the FULL current catalog-edit values, the merge base every
+  // per-field inline save round-trips so editing one field never clobbers a
+  // sibling (saveCatalogEdit does a full upsert). Light-icon pre-fills from the
+  // CURRENT IaC icon (`card.iconLight`), falling back to the bundled asset so
+  // the icon picker opens showing the rendered default rather than blank.
+  const currentEdit: CatalogEntryEdit = {
+    name: title,
+    tagline: card.tagline || card.summary || '',
+    supported_topologies: topologies.map(canonicalizeMode),
+    icon_light: card.iconLight || bundledLogo || '',
+    icon_dark: card.iconDark || '',
+  }
+  // Refetch the catalog item after any per-field save so the new value renders
+  // live (and the next field's merge base picks up the saved sibling).
+  const refetchCatalog = () => {
+    void qc.invalidateQueries({ queryKey: ['catalog-item', name] })
+  }
+
   const bootstrapApp = bootstrapQuery.data
   const isBootstrapSingleton = !!bootstrapApp?.bootstrap
 
@@ -213,7 +236,55 @@ export function CatalogDetail() {
 
       {/* Hero header */}
       <div className="hero" data-testid="catalog-hero">
-        {logoUrl ? (
+        {/* #3668 §5B — the icon is itself a per-field inline editor for an
+            admin: clicking the logo opens the visual icon picker (light + dark)
+            in place; non-admins (and the editor's display) see the rendered
+            logo. The picker writes the icon via the same saveCatalogEdit seam. */}
+        {isAdmin ? (
+          <CatalogInlineField<{ light: string; dark: string }>
+            blueprintId={`bp-${name}`}
+            fieldKey="icon"
+            label="Icon (light + dark)"
+            current={currentEdit}
+            editable={isAdmin && !editingIaC}
+            block
+            initialDraft={{ light: currentEdit.icon_light, dark: currentEdit.icon_dark }}
+            renderDisplay={() =>
+              logoUrl ? (
+                <img src={logoUrl} alt={title} className="hero-logo" loading="lazy" />
+              ) : (
+                <span className="hero-icon" style={{ background: '#1f2937' }}>
+                  {title[0] ?? '?'}
+                </span>
+              )
+            }
+            renderEditor={(draft, setDraft) => (
+              <div className="hero-icon-editors">
+                <div className="hero-icon-editor">
+                  <span className="hero-icon-editor-label">Light theme</span>
+                  <IconPicker
+                    which="light"
+                    value={draft.light}
+                    onChange={(src) => setDraft({ ...draft, light: src })}
+                  />
+                </div>
+                <div className="hero-icon-editor">
+                  <span className="hero-icon-editor-label">Dark theme</span>
+                  <IconPicker
+                    which="dark"
+                    value={draft.dark}
+                    onChange={(src) => setDraft({ ...draft, dark: src })}
+                  />
+                </div>
+              </div>
+            )}
+            toPatch={(draft) => ({
+              icon_light: draft.light.trim(),
+              icon_dark: draft.dark.trim(),
+            })}
+            onSaved={refetchCatalog}
+          />
+        ) : logoUrl ? (
           <img src={logoUrl} alt={title} className="hero-logo" loading="lazy" />
         ) : (
           <span className="hero-icon" style={{ background: '#1f2937' }}>
@@ -221,23 +292,36 @@ export function CatalogDetail() {
           </span>
         )}
         <div className="hero-body">
+          {/* #3668 §5A — the display name is a per-field inline editor. */}
           <h1>
-            <span data-testid="catalog-title">{title}</span>
+            <CatalogInlineField<string>
+              blueprintId={`bp-${name}`}
+              fieldKey="name"
+              label="Display name"
+              current={currentEdit}
+              editable={isAdmin && !editingIaC}
+              initialDraft={currentEdit.name}
+              renderDisplay={() => <span data-testid="catalog-title">{title}</span>}
+              renderEditor={(draft, setDraft) => (
+                <input
+                  type="text"
+                  className="cif-input"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder="WordPress"
+                  data-testid="cif-name-input"
+                />
+              )}
+              toPatch={(draft) => ({ name: draft.trim() })}
+              onSaved={refetchCatalog}
+            />
           </h1>
-          {isAdmin && !editing && !editingIaC ? (
+          {isAdmin && !editingIaC ? (
             <div style={{ display: 'flex', gap: '0.5rem', alignSelf: 'flex-start', marginTop: '0.15rem' }}>
-              <button
-                type="button"
-                data-testid="catalog-detail-edit"
-                onClick={() => setEditing(true)}
-                title="Edit this catalog entry's card fields"
-                style={CATALOG_EDIT_BTN_STYLE}
-              >
-                Edit
-              </button>
               {/* #3668 §5D — open the full-CR IaC editor on the whole
                   blueprint.yaml (spec.source / manifests / sso / placement /
-                  endpoints / shareable / contextSchema). */}
+                  endpoints / shareable / contextSchema). The card fields above
+                  are now edited per-field in place — no global Edit button. */}
               <button
                 type="button"
                 data-testid="catalog-detail-edit-iac"
@@ -249,7 +333,40 @@ export function CatalogDetail() {
               </button>
             </div>
           ) : null}
-          {card.tagline || card.summary ? (
+          {/* #3668 §5A — the summary/tagline is a per-field inline editor.
+              For an admin it always renders (so an empty summary can be added);
+              for a non-admin it renders only when present. */}
+          {isAdmin ? (
+            <div className="hero-tagline">
+              <CatalogInlineField<string>
+                blueprintId={`bp-${name}`}
+                fieldKey="summary"
+                label="Summary"
+                current={currentEdit}
+                editable={isAdmin && !editingIaC}
+                initialDraft={currentEdit.tagline}
+                renderDisplay={() => (
+                  <span data-testid="catalog-summary">
+                    {card.tagline || card.summary || (
+                      <span className="hero-tagline-empty">Add a one-line summary…</span>
+                    )}
+                  </span>
+                )}
+                renderEditor={(draft, setDraft) => (
+                  <textarea
+                    className="cif-input cif-textarea"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    rows={2}
+                    placeholder="One-line description shown on the card"
+                    data-testid="cif-summary-input"
+                  />
+                )}
+                toPatch={(draft) => ({ tagline: draft.trim() })}
+                onSaved={refetchCatalog}
+              />
+            </div>
+          ) : card.tagline || card.summary ? (
             <p className="hero-tagline">{card.tagline || card.summary}</p>
           ) : null}
           <div className="hero-meta">
@@ -342,35 +459,12 @@ export function CatalogDetail() {
         </div>
       </div>
 
-      {/* #3648 (founder item #1) — inline edit-in-place panel. Replaces the
-          separate edit chip + modal on the catalog grid: the operator edits
-          the entry on its own page, where it is already shown. */}
-      {editing ? (
-        <section className="section" data-testid="catalog-edit-section">
-          <h2>Edit catalog entry</h2>
-          <CatalogEditForm
-            blueprintId={`bp-${name}`}
-            initial={{
-              name: title,
-              summary: card.tagline || card.summary || '',
-              supportedTopologies: topologies.map(toEditorMode),
-              // #3668 §5B(b) — pre-fill from the CURRENT IaC icon
-              // (`card.iconLight` / `iconDark`), NOT the build-time bundled
-              // asset, so opening the form on an already-edited blueprint
-              // shows the edited value and dark is not permanently blank.
-              // The bundled asset is only a fallback when the IaC carries no
-              // light icon (so the admin starts from the rendered default).
-              iconLight: card.iconLight || bundledLogo || '',
-              iconDark: card.iconDark || '',
-            }}
-            onSaved={() => {
-              setEditing(false)
-              void qc.invalidateQueries({ queryKey: ['catalog-item', name] })
-            }}
-            onCancel={() => setEditing(false)}
-          />
-        </section>
-      ) : null}
+      {/* #3668 §5A — the per-field card editors (icon / name / summary /
+          supported-topologies) live INLINE on the hero + topologies sections
+          above/below; the old single global "Edit" button + monolithic
+          CatalogEditForm panel is gone (the exact non-standard UX the founder
+          called out). The full-CR "Edit IaC" editor below covers the fields the
+          card form can't (source / manifests / sso / placement / endpoints). */}
 
       {/* #3668 §5D — full-CR IaC editor. Reuses the shipping YamlEditor
           (the same widget the cloud-list uses) on the blueprint's full CR,
@@ -490,40 +584,93 @@ export function CatalogDetail() {
         <InstancesSection blueprint={`bp-${name}`} multiInstance={multiInstance} />
       )}
 
-      {/* Supported topologies */}
-      {topologies.length > 0 ? (
+      {/* Supported topologies. The read-only grid (with per-topology placement)
+          is the display; for an admin a per-field inline editor (#3668 §5A)
+          below it edits the supported-topologies SET independently. The section
+          renders for an admin even with no topologies yet so the first can be
+          added. */}
+      {topologies.length > 0 || isAdmin ? (
         <section className="section" data-testid="catalog-section-topologies">
           <h2>Supported topologies</h2>
-          <dl className="overview-grid" data-testid="catalog-topologies">
-            {topologies.map((t) => {
-              const placement = perTopology[t]
-              return (
-                <div className="overview-row" key={t} data-testid={`catalog-topology-${t}`}>
-                  <dt>
-                    {t}
-                    {t === defaultTopology ? (
-                      <span
-                        className="chip chip-installed"
-                        data-testid={`catalog-topology-default-${t}`}
-                        style={{ marginLeft: '0.4rem' }}
-                      >
-                        default
-                      </span>
-                    ) : null}
-                  </dt>
-                  <dd>
-                    {placement ? (
-                      <span data-testid={`catalog-topology-placement-${t}`}>{placement}</span>
-                    ) : (
-                      <span className="section-hint" style={{ margin: 0 }}>
-                        —
-                      </span>
-                    )}
-                  </dd>
-                </div>
-              )
-            })}
-          </dl>
+          {topologies.length > 0 ? (
+            <dl className="overview-grid" data-testid="catalog-topologies">
+              {topologies.map((t) => {
+                const placement = perTopology[t]
+                return (
+                  <div className="overview-row" key={t} data-testid={`catalog-topology-${t}`}>
+                    <dt>
+                      {t}
+                      {t === defaultTopology ? (
+                        <span
+                          className="chip chip-installed"
+                          data-testid={`catalog-topology-default-${t}`}
+                          style={{ marginLeft: '0.4rem' }}
+                        >
+                          default
+                        </span>
+                      ) : null}
+                    </dt>
+                    <dd>
+                      {placement ? (
+                        <span data-testid={`catalog-topology-placement-${t}`}>{placement}</span>
+                      ) : (
+                        <span className="section-hint" style={{ margin: 0 }}>
+                          —
+                        </span>
+                      )}
+                    </dd>
+                  </div>
+                )
+              })}
+            </dl>
+          ) : (
+            <p className="section-hint" data-testid="catalog-topologies-empty">
+              No topologies declared yet.
+            </p>
+          )}
+          {isAdmin ? (
+            <div style={{ marginTop: '0.7rem' }}>
+              <CatalogInlineField<string[]>
+                blueprintId={`bp-${name}`}
+                fieldKey="topologies"
+                label="Supported topologies"
+                current={currentEdit}
+                editable={isAdmin && !editingIaC}
+                block
+                initialDraft={currentEdit.supported_topologies}
+                renderDisplay={() => (
+                  <span className="cif-topo-summary" data-testid="catalog-topologies-edit-summary">
+                    {currentEdit.supported_topologies.length > 0
+                      ? currentEdit.supported_topologies.join(', ')
+                      : 'set supported topologies…'}
+                  </span>
+                )}
+                renderEditor={(draft, setDraft) => (
+                  <div className="cif-topos" data-testid="catalog-edit-topologies">
+                    {ALL_MODES.map((mode) => (
+                      <label key={mode} className="cif-topo" title={describeMode(mode)}>
+                        <input
+                          type="checkbox"
+                          checked={draft.includes(mode)}
+                          onChange={() =>
+                            setDraft(
+                              draft.includes(mode)
+                                ? draft.filter((m) => m !== mode)
+                                : [...draft, mode],
+                            )
+                          }
+                          data-testid={`catalog-edit-topo-${mode}`}
+                        />
+                        <span className="cif-topo-label">{mode}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                toPatch={(draft) => ({ supported_topologies: draft })}
+                onSaved={refetchCatalog}
+              />
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -572,20 +719,13 @@ function readMultiInstance(cat: CatalogItem): boolean {
   return !!mi?.enabled
 }
 
-// #3648 — map BOTH the canonical matrix vocabulary (singleton /
-// active-hot-standby) AND the editor dialect onto the editor dialect
-// (single-region / active-hotstandby / active-active) the inline edit form's
-// topology checkboxes use, so a Blueprint's declared topologies pre-check
-// correctly regardless of which spelling the API returned.
-const CANONICAL_TO_EDITOR: Record<string, string> = {
-  singleton: 'single-region',
-  'active-hot-standby': 'active-hotstandby',
-  'active-active': 'active-active',
-}
-function toEditorMode(raw: string): string {
-  const s = raw.trim().toLowerCase()
-  return CANONICAL_TO_EDITOR[s] ?? s
-}
+// One vocabulary (#3375 DoD-1): the inline-edit topology checkboxes use
+// ALL_MODES (the four CANONICAL classes), so a Blueprint's declared
+// topologies are folded onto the canonical token via the shared
+// canonicalizeMode (re-exported from TopologyEditor) — they pre-check
+// correctly regardless of which spelling the API returned, and the save
+// round-trips canonical. The former CANONICAL_TO_EDITOR dialect map is
+// gone now that the editor is canonical end-to-end.
 
 function readTopologies(cat: CatalogItem): string[] {
   const modes = cat.placementSchema?.modes
@@ -697,6 +837,12 @@ const CATALOG_DETAIL_CSS = `
 .hero-body { flex: 1; min-width: 0; }
 .hero-body h1 { margin: 0; color: var(--color-text-strong); font-size: 1.4rem; font-weight: 700; }
 .hero-tagline { margin: 0.25rem 0 0.6rem; color: var(--color-text-dim); font-size: 0.9rem; }
+.hero-tagline-empty { color: var(--color-text-dim); font-style: italic; opacity: 0.8; }
+
+/* #3668 §5B — the inline icon editor (light + dark pickers side by side). */
+.hero-icon-editors { display: flex; flex-wrap: wrap; gap: 1rem; }
+.hero-icon-editor { display: flex; flex-direction: column; gap: 0.35rem; min-width: 240px; flex: 1; }
+.hero-icon-editor-label { font-size: 0.72rem; font-weight: 600; color: var(--color-text-strong); }
 .hero-meta { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
 .hero-tags { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.55rem; }
 .hero-docs { margin: 0.6rem 0 0; font-size: 0.85rem; }

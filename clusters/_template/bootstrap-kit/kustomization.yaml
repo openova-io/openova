@@ -13,6 +13,15 @@ resources:
   - 01-cilium.yaml
   - 01a-gateway-api.yaml
   - 02-cert-manager.yaml
+  # bp-cert-manager-issuers (slot 02a, #3734) — the two Catalyst Let's
+  # Encrypt ClusterIssuers, split out of bp-cert-manager into their own
+  # HelmRelease (dependsOn bp-cert-manager) to dodge the helm-controller
+  # RESTMapper-cache CRD-ordering race that looped bp-cert-manager on
+  # InstallFailed (verified live hw157). MUST be registered here or Flux
+  # never creates the HR → the issuers never apply → the Cilium Gateway's
+  # TLS Certificate never issues (the #3191 forgotten-slot wedge class).
+  # Mirrors 15a-external-secrets-stores after 15-external-secrets.
+  - 02a-bp-cert-manager-issuers.yaml
   - 03-flux.yaml
   - 04-crossplane.yaml
   - 05-sealed-secrets.yaml

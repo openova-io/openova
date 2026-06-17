@@ -30,7 +30,17 @@ type: application
 # self-deadlock where the de-CNI'd apiserver node can't receive the webhook
 # response (hw135: cnpg-pair initdb wedged → no region-b standby → region-kill
 # impossible). See chart/values.yaml config.webhooks for the full root cause.
-version: 1.3.7
+# 1.3.8 (#3735, 2026-06-17): MIRROR-EVERYTHING for the Kyverno image pulls. The
+# 4 per-controller registries pointed at `ghcr.io` (slow-direct on the IPv4-only
+# kom4dc VPC + failing the `harbor-proxy-pull` Enforce glob `*/proxy-*/*`) AND
+# the kyvernopre INIT container was never overridden at all, falling through to
+# the upstream `defaultRegistry: reg.kyverno.io` (the SLOWEST registry on the
+# VPC, ~13 min cold-pull on hw157, starving the helm-controller install
+# workers). Re-pointed all four controllers + added admissionController.
+# initContainer.image at harbor.openova.io/proxy-ghcr/kyverno/*. Same fix class
+# as bp-cnpg (#3257) + bp-external-secrets (#3533). The flat global.imageRegistry
+# is documented as inert (upstream reads global.image.registry).
+version: 1.3.8
 appVersion: "v1.18.0"
 keywords: [catalyst, blueprint, kyverno, policy, admission, security]
 maintainers:

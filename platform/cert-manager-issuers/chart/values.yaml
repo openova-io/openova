@@ -1,0 +1,118 @@
+# Catalyst-curated values overlay for bp-cert-manager-issuers.
+#
+# This chart owns the Let's Encrypt ClusterIssuer CR(s) that the
+# bp-cert-manager umbrella chart can no longer ship in-line (the
+# helm-controller RESTMapper-cache CRD-ordering race; see Chart.yaml).
+# ALL knobs that previously lived under `certManager.issuers:` in
+# platform/cert-manager/chart/values.yaml move here UNCHANGED — cluster
+# overlays in clusters/<sovereign>/ that previously overrode
+# `certManager.issuers.*` continue to work via the SAME key path, they
+# just target this chart's HelmRelease now (slot 02a).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every operationally
+# meaningful value flows from this file; cluster overlays may set
+# `certManager.issuers.*` without rebuilding the Blueprint OCI artifact.
+
+# ─── Catalyst-managed ClusterIssuers (templates/clusterissuers.yaml) ──────
+# The chart ships TWO ClusterIssuers and lets the operator pick the active
+# one via these values:
+#
+#   - letsencrypt-dns01-prod  (DEPRECATED: was dynadot-webhook-backed.
+#                              DEFAULT DISABLED. The DNS-01 wildcard issuer
+#                              for Sovereigns is now `letsencrypt-dns01-prod-
+#                              powerdns`, shipped by bp-cert-manager-powerdns-
+#                              webhook against contabo's central PowerDNS —
+#                              Dynadot is NOT the API-level authority for
+#                              omani.works subdomains. Cluster overlays MAY
+#                              flip this back on if they ship their own
+#                              dynadot-webhook for a non-omani.works pool.)
+#   - letsencrypt-http01-prod (INTERIM, DEFAULT ENABLED: explicit hostnames
+#                              only, no wildcards, works today via Cilium
+#                              ingress.)
+#
+# NOTE — issuer NAMES + namespace are UNCHANGED from when these CRs lived in
+# bp-cert-manager. ClusterIssuer is cluster-scoped, so every dependent
+# Blueprint (cilium-gateway, harbor, gitea, …) that references
+# `letsencrypt-dns01-prod` / `letsencrypt-http01-prod` keeps working without
+# any change — only the Helm release that OWNS the CRs moved.
+certManager:
+  issuers:
+    # ACME account email used for renewal notifications. Per Sovereign
+    # convention this is ops@<pool-domain>.
+    email: ops@openova.io
+    # Production Let's Encrypt directory. Set to the staging URL during
+    # bring-up to avoid Let's Encrypt rate limits:
+    #   https://acme-staging-v02.api.letsencrypt.org/directory
+    acmeServer: https://acme-v02.api.letsencrypt.org/directory
+    dns01:
+      # DEFAULT DISABLED — the dynadot-webhook-backed letsencrypt-dns01-prod
+      # is deprecated for omani.works Sovereigns. The replacement issuer
+      # `letsencrypt-dns01-prod-powerdns` is shipped by
+      # bp-cert-manager-powerdns-webhook (bootstrap-kit slot 49) and writes
+      # ACME challenge TXT records to contabo's central PowerDNS at
+      # https://pdns.openova.io. Cluster overlays MAY flip this back to
+      # true if they ship a custom dynadot-webhook for a non-omani.works
+      # pool where Dynadot IS the API-level authority.
+      enabled: false
+      webhookGroupName: acme.dynadot.openova.io
+      webhookSolverName: dynadot
+    http01:
+      enabled: true
+      ingressClassName: cilium
+
+# ─── CRD-establishment gate (templates/crd-gate-{hook,rbac}.yaml) ─────────
+# Belt-and-suspenders. The split itself (separate HelmRelease + fresh
+# helm-controller reconcile gated on cert-manager Ready) is what closes the
+# RESTMapper-cache race — by the time this chart reconciles, the
+# cert-manager.io ClusterIssuer CRD is registered. This PRE-INSTALL gate
+# additionally asserts the CRD has reached Established=True on the apiserver
+# (the async apiextensions-apiserver transition can lag the CRD-create by
+# <1s warm, up to ~30s on a fresh cold-start k3s) BEFORE the plain
+# ClusterIssuer manifests in this chart apply. Unlike bp-cert-manager's
+# gate (which must be POST-install because the CRDs come from the upstream
+# subchart's MAIN apply pass), this chart's CRD is provided by a DIFFERENT
+# release that is already Ready, so a PRE-install gate is the correct shape:
+# the gate runs before the main-pass ClusterIssuer manifests.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (no hardcoded band-aids, target-state
+# every time): closes the residual async-Established race rather than
+# papering with a longer Flux retry loop.
+crdGate:
+  enabled: true
+  # CRDs the gate waits for. Only the ClusterIssuer CRD is instantiated by
+  # THIS chart, so that is all the gate needs to assert Established here
+  # (bp-cert-manager's own gate already covered Issuer + Certificate for
+  # downstream consumers). Cluster overlays MAY append CRDs.
+  crds:
+    - clusterissuers.cert-manager.io
+  # Total wait budget. 300s gives ~10x headroom over the worst-case
+  # observed Established latency (~30s on a fresh Hetzner cold-start) while
+  # still failing fast on a genuinely broken upstream. Same sizing rationale
+  # as bp-cert-manager crdGate.timeoutSeconds.
+  timeoutSeconds: 300
+  # Poll interval. 2s matches bp-cert-manager / bp-external-secrets-stores;
+  # <1s would spam the apiserver, >5s would over-pad the success path.
+  intervalSeconds: 2
+  # kubectl image. Explicit Harbor proxy-cache prefix per CLAUDE.md
+  # MIRROR-EVERYTHING inviolable rule (Fix #163 lineage): node-level
+  # containerd mirror already rewrites docker.io → harbor.openova.io/
+  # proxy-dockerhub, but explicit references defeat upstream-deletion blast
+  # radius (cf. bitnami/kubectl 2025-08 secure-images purge) AND satisfy the
+  # Kyverno harbor-proxy-pull ClusterPolicy. bitnamilegacy is Bitnami's
+  # deprecation-fallback path with bash/sh preserved (rancher/kubectl is
+  # distroless and would break the hook's bash-c shell script). 1.30.7 is
+  # the newest 1.30.x in bitnamilegacy.
+  image: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7
+  imagePullPolicy: IfNotPresent
+  # CPU/memory requests + limits on the gate Job container so the
+  # bp-kyverno-policies 05-resource-requests + 06-resource-limits
+  # ClusterPolicies admit the pre-install hook on HCS Sovereigns. Sized for
+  # a ~15s kubectl-poll loop, no idle headroom needed (mirrors
+  # bp-external-secrets-stores webhook-gate sizing, G26 Refs #2581).
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi

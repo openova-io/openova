@@ -1,0 +1,84 @@
+{{- /*
+RBAC for the bp-cert-manager-issuers ClusterIssuer CRD-establishment gate
+(issue #3734).
+
+Per docs/INVIOLABLE-PRINCIPLES.md #3 (least-privilege): the gate Job ONLY
+needs `get` + `list` on CustomResourceDefinitions. Cluster-scoped because
+CRDs are cluster-scoped — a namespaced Role cannot grant access to
+apiextensions.k8s.io/v1 CRDs.
+
+Hook timing — pre-install (NOT post-install)
+============================================
+The ClusterIssuer CRD this chart's gate waits for is registered by the
+SEPARATE bp-cert-manager release (this chart's Flux HR dependsOn it, so it
+is already Ready). Therefore the gate runs PRE-install — before this
+release's main-pass ClusterIssuer manifests apply — to assert the CRD has
+reached Established=True. (Contrast bp-cert-manager's own gate, which must
+be post-install because the CRDs it waits for come from the upstream
+subchart's OWN main apply pass.)
+
+Hook ordering inside the pre-install phase:
+  weight -20 → SA + ClusterRole + ClusterRoleBinding (this file)
+  weight -10 → CRD-gate Job (templates/crd-gate-hook.yaml)
+  (then)     → main-pass ClusterIssuer manifests (templates/clusterissuers.yaml)
+
+Pairs with templates/crd-gate-hook.yaml.
+*/}}
+{{- $gate := .Values.crdGate | default dict -}}
+{{- $enabled := true -}}
+{{- if hasKey $gate "enabled" -}}
+{{-   $enabled = $gate.enabled -}}
+{{- end -}}
+{{- if $enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-crd-gate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-cert-manager-issuers
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: crd-gate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-crd-gate
+  labels:
+    app.kubernetes.io/name: bp-cert-manager-issuers
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: crd-gate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-crd-gate
+  labels:
+    app.kubernetes.io/name: bp-cert-manager-issuers
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: crd-gate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-crd-gate
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-crd-gate
+    namespace: {{ .Release.Namespace }}
+{{- end }}

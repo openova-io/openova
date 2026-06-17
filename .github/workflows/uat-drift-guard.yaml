@@ -1,0 +1,60 @@
+# uat-drift-guard.yaml — block UAT walk-evidence that cites a PREDECESSOR env.
+#
+# THE LAW (founder 2026-06-14, the "fake snapshots" rebuke): each new env
+# flushes ALL prior evidence — a ✅ UAT row that still links a wiped env's
+# screenshot is a fabricated snapshot. `scripts/reset-uat.py` clears that
+# evidence on a fresh fire; THIS guard is the CI backstop that fails the build
+# if a ledger slips through with a ✅ row whose proof artifact references an
+# `hwNNN` env that is not the current env (resolved from the UAT.md H1 header,
+# or $UAT_CURRENT_ENV / --env).
+#
+# READ-ONLY: this guard never edits the ledger (verification stays read-only —
+# memory L7/L8). It only reports. The fix for a violation is a live re-walk on
+# the current env (the evidence half), or `python3 scripts/reset-uat.py <env>`.
+#
+# Self-test runs on every trigger so the guard's own logic is continuously
+# protected (clean tree -> 0, stale fixture -> 1, env-agnostic predecessor
+# detection both directions).
+name: uat-drift-guard
+
+on:
+  pull_request:
+    paths:
+      - "docs/ledger/UAT.md"
+      - "docs/ledger/uat-walkthrough/**"
+      - "scripts/uat-drift-guard.py"
+      - "scripts/reset-uat.py"
+      - ".github/workflows/uat-drift-guard.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/ledger/UAT.md"
+      - "docs/ledger/uat-walkthrough/**"
+      - "scripts/uat-drift-guard.py"
+      - "scripts/reset-uat.py"
+      - ".github/workflows/uat-drift-guard.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift-guard:
+    name: UAT predecessor-env drift guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Self-test the guard (clean -> 0, stale -> 1, both directions)
+        run: python3 scripts/uat-drift-guard.py --self-test
+
+      - name: Guard the live UAT ledger against predecessor-env evidence
+        # Current env is auto-derived from the `on \`hwNNN\`` token in the UAT.md
+        # H1 header. Override in an ad-hoc run with UAT_CURRENT_ENV=hwNNN.
+        run: python3 scripts/uat-drift-guard.py

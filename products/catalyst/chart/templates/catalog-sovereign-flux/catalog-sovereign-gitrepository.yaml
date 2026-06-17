@@ -1,0 +1,106 @@
+{{- /*
+Flux GitRepository tracking the dedicated `catalog-sovereign` branch — the
+LOAD-BEARING half PR #3702 deferred (issue #3668).
+
+WHY THIS FILE EXISTS
+--------------------
+PR #3702 made the operator-console catalog edit (and the curate endpoint)
+COMMIT each Blueprint card to the local Gitea — but EXPLICITLY DEFERRED the
+half that makes that commit reach a LIVE in-cluster Blueprint CR. Today a
+catalog edit lands in Gitea and is read back to the UI, but
+`kubectl get blueprint bp-alloy -o jsonpath='{.spec.card.summary}'` never
+moves: nothing reconciles `catalog-sovereign/<bp>/blueprint.yaml` into the
+`blueprints.catalyst.openova.io/v1` CR. So a chart `helm upgrade` re-renders
+the catalog-seed CR over the edit (the §9.1/9.4 revert-immunity gap).
+
+This template + its sibling Kustomization
+(catalog-sovereign-kustomization.yaml) close that gap: a console edit →
+Gitea commit → Flux reconcile → LIVE Blueprint CR, surviving helm upgrade
+(the CR becomes Git/Flux-owned, see the Kustomization's force:true SSA
+adoption + templates/catalog-seed/blueprints.yaml's helm.sh/resource-policy
+:keep handoff).
+
+THE AGGREGATOR TREE (why a single repo+branch, not per-Blueprint repos)
+-----------------------------------------------------------------------
+A Flux GitRepository tracks ONE repo + branch — it cannot reconcile a whole
+Gitea Org of per-Blueprint repos (which is how #3702 writes:
+`catalog-sovereign/<bp>` is one repo each). So catalyst-api ALSO mirrors the
+same ownership-stripped CR bytes into a single AGGREGATOR tree on the
+already-bootstrapped local Gitea repo `openova/openova`, on a dedicated
+`catalog-sovereign` branch (writeCatalogSovereignAggregator in
+internal/handler/catalog_edit_git.go):
+
+  openova/openova @ catalog-sovereign
+  └── clusters/<sovereignFQDN>/catalog-sovereign/<bp>.yaml   (full CR)
+
+This GitRepository tracks that one tree.
+
+WHY THIS REPO + A DEDICATED BRANCH
+----------------------------------
+We REUSE the same local Gitea repo the SME-tenant gitops chain already
+bootstraps + Flux already clones (`openova/openova`, seeded pre-cutover by
+the SME repo-bootstrap hook, clonable via the catalyst-gitea-token basic-
+auth Secret — #3454). A DEDICATED `catalog-sovereign` branch is immune to
+the cutover-gitea-mirror Job's `git push --mirror --force` of `main` (the
+exact TBD-C18e clobber rationale the openova-sme-tenants GitRepository
+documents). The chart's catalog-sovereign repo-bootstrap hook
+(catalog-sovereign-repo-bootstrap-job.yaml) ensures the branch + an empty
+parent directory pre-cutover so this source is Ready from first convergence
+with zero curated Blueprints.
+
+AUTH (#3454)
+------------
+bp-gitea sets `service.REQUIRE_SIGNIN_VIEW=true` → anonymous git clone
+returns 401 even for PUBLIC repos. So this GitRepository carries a secretRef
+to a Flux basic-auth Secret holding the catalyst-gitea-token PAT (rendered
+by catalog-sovereign-gitrepo-auth-secret.yaml, the byte-for-byte twin of the
+SME auth Secret). Without it the source sits "authentication required".
+
+GATING
+------
+Rendered ONLY when BOTH:
+  - .Values.global.sovereignFQDN non-empty (a Sovereign — the Catalyst-Zero
+    mothership pushes to github.com and has no local catalog Flux reconcile;
+    catalyst-api's writeCatalogSovereignAggregator no-ops there too).
+  - .Values.ingress.marketplace.enabled (same discriminator the SME bundle +
+    the rest of the per-Sovereign Flux sources use).
+
+Per Inviolable Principle #4 every operationally-meaningful value is operator-
+overridable via .Values.catalogSovereign.gitRepository.*.
+
+References:
+  - Issue #3668 (this fix), the deferred half of PR #3702 / #3648
+  - templates/sme-services/sme-tenants-gitrepository.yaml (the exact pattern)
+  - internal/handler/catalog_edit_git.go (writeCatalogSovereignAggregator)
+  - catalog-sovereign-kustomization.yaml (consumer of this GitRepository)
+*/}}
+{{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
+{{- $sovFQDN := .Values.global.sovereignFQDN -}}
+{{- if $sovFQDN -}}
+{{- $gr := (.Values.catalogSovereign).gitRepository | default dict -}}
+{{- $apiURL := ($gr.apiURL | default "http://gitea-http.gitea.svc.cluster.local:3000") -}}
+{{- $org := ($gr.org | default "openova") -}}
+{{- $repo := ($gr.repo | default "openova") -}}
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: {{ $gr.name | default "openova-catalog-sovereign" | quote }}
+  namespace: {{ $gr.namespace | default "flux-system" | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+    catalyst.openova.io/component: catalog-sovereign-source
+    app.kubernetes.io/part-of: catalog
+spec:
+  interval: {{ $gr.interval | default "1m" | quote }}
+  url: {{ printf "%s/%s/%s" $apiURL $org $repo | quote }}
+  ref:
+    branch: {{ $gr.branch | default "catalog-sovereign" | quote }}
+  ignore: |
+    /*
+    !/clusters/{{ $sovFQDN }}/catalog-sovereign
+  {{- if $gr.secretRef }}
+  secretRef:
+    name: {{ $gr.secretRef.name | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}

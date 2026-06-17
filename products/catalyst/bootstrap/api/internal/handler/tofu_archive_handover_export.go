@@ -41,8 +41,6 @@
 package handler
 
 import (
-	"bytes"
-	"context"
 	"crypto/tls"
 	"encoding/json"
 	"net/http"
@@ -116,61 +114,42 @@ func (h *Handler) exportTofuArchiveToChild(depID, fqdn string) {
 	h.postTofuArchiveWithRetry(client, url, body, depID)
 }
 
-// postTofuArchiveWithRetry POSTs body to url with the same retry shape as
-// exportJobsToChild: backoff doubles from 5s to 60s, total budget 5 min,
-// 5xx retries, 4xx gives up. A 503 from the receiver ("not handover
-// target" — OpenBao token not yet wired) is a 5xx and IS retried, because
-// the child's catalyst-api k8s-auth login (#3376) may still be settling.
-// Split out so the network half is unit-testable with an injected client.
+// postTofuArchiveWithRetry POSTs body to url via the shared handover-export
+// retry policy (#3747): backoff doubles from 5s to the ceiling, total budget
+// defaults to 20m (was a fixed 5m, which could expire against a not-yet-ready
+// `api.<fqdn>` backend and strand the cutover-arming seal forever), 5xx
+// retries, 4xx gives up. A 503 from the receiver ("not handover target" —
+// OpenBao token not yet wired) is a 5xx and IS retried, because the child's
+// catalyst-api k8s-auth login (#3376) may still be settling. Split out so the
+// network half is unit-testable with an injected client.
 func (h *Handler) postTofuArchiveWithRetry(client *http.Client, url string, body []byte, depID string) {
-	backoff := 5 * time.Second
-	deadline := time.Now().Add(5 * time.Minute)
-	attempt := 0
-	for time.Now().Before(deadline) {
-		attempt++
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(body))
-		if err != nil {
+	outcome := postHandoverExportWithRetry(client, url, body, func(attempt int, kind string, status int, err error) {
+		switch kind {
+		case "request-error":
 			h.log.Error("tofu-archive-export: NewRequest failed",
 				"id", depID, "url", url, "err", err,
 			)
-			return
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := client.Do(req)
-		if err != nil {
+		case "conn-error":
 			h.log.Warn("tofu-archive-export: POST failed (will retry)",
 				"id", depID, "url", url, "attempt", attempt, "err", err,
 			)
-			time.Sleep(backoff)
-			if backoff < 60*time.Second {
-				backoff *= 2
-			}
-			continue
-		}
-		status := resp.StatusCode
-		resp.Body.Close()
-		if status >= 500 {
+		case "5xx":
 			h.log.Warn("tofu-archive-export: child 5xx (will retry — receiver may still be wiring its OpenBao token)",
 				"id", depID, "url", url, "attempt", attempt, "status", status,
 			)
-			time.Sleep(backoff)
-			if backoff < 60*time.Second {
-				backoff *= 2
-			}
-			continue
-		}
-		if status >= 400 {
+		case "4xx":
 			h.log.Error("tofu-archive-export: child 4xx (giving up)",
 				"id", depID, "url", url, "attempt", attempt, "status", status,
 			)
-			return
+		case "ok":
+			h.log.Info("tofu-archive-export: phase0 archive sealed on child",
+				"id", depID, "url", url, "attempt", attempt,
+			)
 		}
-		h.log.Info("tofu-archive-export: phase0 archive sealed on child",
-			"id", depID, "url", url, "attempt", attempt,
+	})
+	if outcome == handoverExportGaveUpBudget {
+		h.log.Error("tofu-archive-export: gave up after export budget exhausted (backend never reachable — operator can re-mint via /mint-handover-token)",
+			"id", depID, "url", url, "budget", handoverExportBudget().String(),
 		)
-		return
 	}
-	h.log.Error("tofu-archive-export: gave up after 5min retries",
-		"id", depID, "url", url, "attempts", attempt,
-	)
 }

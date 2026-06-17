@@ -2,6 +2,13 @@
  * TopologyEditor.test.tsx — unit tests for EPIC-2 slice T (#1097)
  * topology editor widget. Uses disableNetwork seam so no fetch is
  * required.
+ *
+ * One vocabulary (#3375 DoD-1): the editor renders + selects the four
+ * CANONICAL classes (singleton / active-active / active-hot-standby /
+ * active-passive). These tests deliberately feed LEGACY-spelled
+ * `currentMode` / `placementSchema.modes` props to prove the editor
+ * folds them onto the canonical token (pre-selects the right radio,
+ * intersects allowedModes correctly).
  */
 import { describe, it, expect, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
@@ -17,12 +24,13 @@ function withProviders(node: React.ReactNode) {
 afterEach(() => cleanup())
 
 describe('TopologyEditor — mode picker', () => {
-  it('renders all three modes with current mode pre-selected', () => {
+  it('renders the four canonical modes; a legacy currentMode pre-selects the canonical radio', () => {
     render(
       withProviders(
         <TopologyEditor
           sovereignId="dep-1"
           applicationName="wp-prod"
+          // Legacy spelling on the wire …
           currentMode="single-region"
           currentRegions={['hz-fsn-rtz-prod']}
           availableRegions={['hz-fsn-rtz-prod', 'hz-hel-rtz-prod']}
@@ -30,24 +38,29 @@ describe('TopologyEditor — mode picker', () => {
         />,
       ),
     )
-    const single = screen.getByTestId('topology-editor-mode-single-region-radio') as HTMLInputElement
-    expect(single.checked).toBe(true)
+    // … folds to the canonical singleton radio, which is pre-selected.
+    const singleton = screen.getByTestId('topology-editor-mode-singleton-radio') as HTMLInputElement
+    expect(singleton.checked).toBe(true)
+    // All four canonical classes are representable.
+    expect(screen.getByTestId('topology-editor-mode-active-active-radio')).toBeTruthy()
+    expect(screen.getByTestId('topology-editor-mode-active-hot-standby-radio')).toBeTruthy()
+    expect(screen.getByTestId('topology-editor-mode-active-passive-radio')).toBeTruthy()
   })
 
-  it('switching to active-hotstandby allows multi-region selection', () => {
+  it('switching to active-hot-standby allows multi-region selection', () => {
     render(
       withProviders(
         <TopologyEditor
           sovereignId="dep-1"
           applicationName="wp-prod"
-          currentMode="single-region"
+          currentMode="singleton"
           currentRegions={['hz-fsn-rtz-prod']}
           availableRegions={['hz-fsn-rtz-prod', 'hz-hel-rtz-prod']}
           disableNetwork
         />,
       ),
     )
-    fireEvent.click(screen.getByTestId('topology-editor-mode-active-hotstandby-radio'))
+    fireEvent.click(screen.getByTestId('topology-editor-mode-active-hot-standby-radio'))
     fireEvent.click(screen.getByTestId('topology-editor-region-hz-hel-rtz-prod-checkbox'))
     const apply = screen.getByTestId('topology-editor-apply-btn') as HTMLButtonElement
     expect(apply.disabled).toBe(false)
@@ -59,7 +72,7 @@ describe('TopologyEditor — mode picker', () => {
         <TopologyEditor
           sovereignId="dep-1"
           applicationName="grafana"
-          currentMode="active-hotstandby"
+          currentMode="active-hot-standby"
           currentRegions={['hz-fsn-rtz-prod']}
           availableRegions={['hz-fsn-rtz-prod', 'hz-hel-rtz-prod']}
           supportedCanonical={['singleton', 'active-hot-standby']}
@@ -67,12 +80,12 @@ describe('TopologyEditor — mode picker', () => {
         />,
       ),
     )
-    // active-hotstandby canonicalises to active-hot-standby → supported → enabled
-    const hot = screen.getByTestId('topology-editor-mode-active-hotstandby-radio') as HTMLInputElement
+    // active-hot-standby is supported → enabled
+    const hot = screen.getByTestId('topology-editor-mode-active-hot-standby-radio') as HTMLInputElement
     expect(hot.disabled).toBe(false)
-    // single-region canonicalises to singleton → supported → enabled
-    const single = screen.getByTestId('topology-editor-mode-single-region-radio') as HTMLInputElement
-    expect(single.disabled).toBe(false)
+    // singleton is supported → enabled
+    const singleton = screen.getByTestId('topology-editor-mode-singleton-radio') as HTMLInputElement
+    expect(singleton.disabled).toBe(false)
     // active-active is NOT in the Blueprint's supported set → disabled (the
     // contradiction the operator flagged 3×: never offer an unsupported mode).
     const aa = screen.getByTestId('topology-editor-mode-active-active-radio') as HTMLInputElement
@@ -111,7 +124,7 @@ describe('TopologyEditor — preview', () => {
         <TopologyEditor
           sovereignId="dep-1"
           applicationName="wp-prod"
-          currentMode="single-region"
+          currentMode="singleton"
           currentRegions={['hz-fsn-rtz-prod']}
           availableRegions={['hz-fsn-rtz-prod', 'hz-hel-rtz-prod']}
           disableNetwork
@@ -125,13 +138,13 @@ describe('TopologyEditor — preview', () => {
 })
 
 describe('TopologyEditor — Blueprint constraint', () => {
-  it('disables modes the Blueprint placementSchema does not allow', () => {
+  it('disables modes the Blueprint placementSchema does not allow (legacy modes[] folded)', () => {
     render(
       withProviders(
         <TopologyEditor
           sovereignId="dep-1"
           applicationName="wp-prod"
-          currentMode="single-region"
+          currentMode="singleton"
           currentRegions={['a']}
           availableRegions={['a', 'b']}
           blueprint={{
@@ -140,6 +153,8 @@ describe('TopologyEditor — Blueprint constraint', () => {
             card: { title: 'X' },
             origin: 1,
             source: 'public',
+            // Legacy spelling in modes[] still constrains the canonical
+            // picker — active-active is not allowed.
             placementSchema: { modes: ['single-region'] },
           }}
           disableNetwork

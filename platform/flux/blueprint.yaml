@@ -5,7 +5,10 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-2-gitops-and-iac
 spec:
-  version: 1.2.6
+  # 1.2.7 (#3735): proxy all 6 Flux controller images + flux-cli onto Harbor
+  # proxy-ghcr/fluxcd; RollingUpdate(maxUnavailable:0) post-render patch on
+  # source-controller eliminates the Recreate serving-gap (Ready 26→7 on hw157).
+  version: 1.2.7
   card:
     title: flux
     summary: GitOps reconciler. One per vcluster (source + kustomize + helm controllers); host-level Flux per host cluster watches its bp-* OCI sources.

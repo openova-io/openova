@@ -991,6 +991,17 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 
 	// Step 7 — done.
 	if rec.State == store.STSTenantRegistered {
+		// #3687 master root — mint the canonical Organization CR before the
+		// pipeline reports DONE. Everything above provisioned the per-tenant
+		// substrate (vCluster overlay, DNS, Keycloak clients, registry row)
+		// but left `kubectl get organizations -A` = 0; the org-controller +
+		// every operator day-2 surface (Dashboard / Showback / Users) key off
+		// this CR. Best-effort + idempotent (AlreadyExists = success): a
+		// transient apiserver failure logs loud but does NOT fail the
+		// provision (the substrate is already valid), and the org-controller's
+		// level-triggered reconcile + a pipeline re-run land the CR on retry.
+		h.createSMEOrganizationCR(ctx, rec)
+
 		rec.State = store.STSDone
 		rec.LastError = ""
 		rec = persist(rec)

@@ -46,26 +46,15 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-grafana
-  namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
-    catalyst.openova.io/vcluster: mgmt
     catalyst.openova.io/slot: "25"
 spec:
   interval: 15m
   timeout: 15m
   releaseName: grafana
   targetNamespace: grafana
-  storageNamespace: grafana
-  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
-  kubeConfig:
-    secretRef:
-      name: vc-mgmt
-      key: config
   dependsOn:
-    # bp-mgmt-vcluster MUST be Ready first — the vc-mgmt
-    # Secret doesn't exist until then. placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
-    - name: bp-mgmt-vcluster
-      namespace: flux-system
     - name: bp-cnpg
       namespace: flux-system
     # #2745 (2026-06-12): bp-loki/bp-mimir/bp-tempo HRs re-homed to host
@@ -81,7 +70,7 @@ spec:
       namespace: mgmt
     # G92.2 #2661 (2026-06-01): bp-keycloak HR moved to host ns `mgmt`.
     - name: bp-keycloak
-      namespace: mgmt
+      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     # bp-gateway-api (issue #503): chart ships an HTTPRoute template;
     # gateway.networking.k8s.io/v1 CRDs must be registered first.
     - name: bp-gateway-api
@@ -140,7 +129,6 @@ spec:
         name: bp-grafana
         namespace: flux-system
   install:
-    createNamespace: true  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     timeout: 15m
     disableWait: true
     remediation:
@@ -156,7 +144,6 @@ spec:
   # attaches to cilium-gateway/kube-system installed by 01-cilium.yaml.
   values:
     gateway:
-      enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
       host: grafana.${SOVEREIGN_FQDN}
     # G91.grafana (#2658) — wire bp-sso-bridge framework. The chart-side
     # grafana.ini.auth.generic_oauth block computes auth_url / token_url /
@@ -165,7 +152,6 @@ spec:
     # half-config); with the envsubst SSO works zero-touch on every
     # fresh Sovereign.
     sso:
-      enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
       sovereignFqdn: ${SOVEREIGN_FQDN}
       # #3374 (2026-06-14): grafana consumes its OIDC secret as DIRECT env
       # vars via `grafana.envFromSecret: grafana-sso-oidc-credentials`, so it
@@ -207,79 +193,3 @@ spec:
       envFromSecrets:
         - name: grafana-database-env
           optional: ${SOVEREIGN_GRAFANA_DB_SECRET_OPTIONAL:=true}
-
-# ── HOST-BRIDGE BEGIN (#3642) — placement-generated host-side route/secret/CNPG; edit placement.yaml hostBridge: + run scripts/render-slot-placement.py fix ──
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: grafana
-  namespace: mgmt
-  labels:
-    catalyst.openova.io/blueprint: bp-grafana
-    catalyst.openova.io/component: grafana
-    catalyst.openova.io/host-bridge: mgmt
-spec:
-  parentRefs:
-  - name: cilium-gateway
-    namespace: kube-system
-  hostnames:
-  - grafana.${SOVEREIGN_FQDN}
-  rules:
-  - matches:
-    - path:
-        type: PathPrefix
-        value: /
-    backendRefs:
-    - name: grafana-x-grafana-x-mgmt-vcluster
-      namespace: mgmt
-      port: 80
----
-apiVersion: external-secrets.io/v1beta1
-kind: ExternalSecret
-metadata:
-  name: grafana-sso-oidc-credentials
-  namespace: grafana
-  labels:
-    catalyst.openova.io/blueprint: bp-grafana
-    bp-sso-bridge.openova.io/consumer: bp-grafana
-    catalyst.openova.io/host-bridge: mgmt
-spec:
-  refreshInterval: 1h
-  secretStoreRef:
-    name: vault-region1
-    kind: ClusterSecretStore
-  target:
-    name: grafana-sso-oidc-credentials
-    creationPolicy: Owner
-    template:
-      type: Opaque
-      data:
-        GF_AUTH_GENERIC_OAUTH_CLIENT_ID: '{{ .client_id }}'
-        GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: '{{ .client_secret }}'
-        GF_AUTH_GENERIC_OAUTH_AUTH_URL: '{{ .authorize_url }}?kc_idp_hint=catalyst-pin'
-        GF_AUTH_GENERIC_OAUTH_TOKEN_URL: '{{ .token_url }}'
-        GF_AUTH_GENERIC_OAUTH_API_URL: '{{ .userinfo_url }}'
-        GF_SERVER_ROOT_URL: https://grafana.${SOVEREIGN_FQDN}/
-  data:
-  - secretKey: client_id
-    remoteRef:
-      key: sso/grafana
-      property: client_id
-  - secretKey: client_secret
-    remoteRef:
-      key: sso/grafana
-      property: client_secret
-  - secretKey: authorize_url
-    remoteRef:
-      key: sso/grafana
-      property: authorize_url
-  - secretKey: token_url
-    remoteRef:
-      key: sso/grafana
-      property: token_url
-  - secretKey: userinfo_url
-    remoteRef:
-      key: sso/grafana
-      property: userinfo_url
-# ── HOST-BRIDGE END (#3642) ──

@@ -167,6 +167,20 @@ grep -qE '^\s+dataDurability: required' "$TMP/primary.yaml" || {
   echo "FAIL: primary Cluster CR missing spec.postgresql.synchronous.dataDurability=required (zero-tx-loss enforcement)." >&2
   exit 1
 }
+# #3740: the CROSS-REGION replica MUST be the synchronous target, not a
+# local HA peer. Without maxStandbyNamesFromCluster:0 CNPG fills
+# synchronous_standby_names from local pods only → cross-region replica
+# streams async → RPO>0 on region-kill (caught live on hw158).
+grep -qE '^\s+maxStandbyNamesFromCluster: 0' "$TMP/primary.yaml" || {
+  echo "FAIL: primary Cluster CR missing spec.postgresql.synchronous.maxStandbyNamesFromCluster=0 — local HA peers would be acked as sync, leaving the cross-region replica async (RPO>0). See #3740." >&2
+  exit 1
+}
+# standbyNamesPre must name the cross-region replica Cluster CR (its
+# externalCluster streaming application_name) so it leads FIRST N (...).
+grep -qE '^\s+- "smoke-cnpg-pair-bp-cnpg-pair-replica"' "$TMP/primary.yaml" || {
+  echo "FAIL: primary Cluster CR missing spec.postgresql.synchronous.standbyNamesPre=[<replicaName>] — the cross-region replica is not pinned as the synchronous standby. See #3740." >&2
+  exit 1
+}
 if grep -qE '^\s*synchronous_standby_names:\s' "$TMP/primary.yaml"; then
   echo "FAIL: primary Cluster CR sets synchronous_standby_names as a raw parameter — CNPG rejects this fixed parameter at admission." >&2
   exit 1

@@ -125,7 +125,8 @@ func applicationPreviewRequestNormalize(b applicationPreviewRequest) application
 		b.Parameters = b.ValuesShort
 	}
 	if strings.TrimSpace(b.Placement.Mode) == "" {
-		b.Placement.Mode = "single-region"
+		// One vocabulary (#3375 DoD-1): canonical default.
+		b.Placement.Mode = "singleton"
 	}
 	if len(b.Placement.Regions) == 0 {
 		b.Placement.Regions = []string{"primary"}
@@ -517,10 +518,13 @@ func validateApplicationPreviewRequest(req applicationPreviewRequest) (string, b
 	if strings.TrimSpace(req.Placement.Mode) == "" {
 		return "placement.mode is required", false
 	}
-	switch req.Placement.Mode {
-	case "single-region", "active-active", "active-hotstandby":
+	// One vocabulary (#3375 DoD-1): canonicalise then accept the four
+	// canonical classes (legacy single-region / active-hotstandby still
+	// folded so in-flight callers don't break).
+	switch canonicalizeTopology(req.Placement.Mode) {
+	case "singleton", "active-active", "active-hot-standby", "active-passive":
 	default:
-		return "placement.mode must be one of single-region, active-active, active-hotstandby", false
+		return "placement.mode must be one of singleton, active-active, active-hot-standby, active-passive (legacy single-region / active-hotstandby also accepted)", false
 	}
 	if len(req.Placement.Regions) == 0 {
 		return "placement.regions must list at least one region", false

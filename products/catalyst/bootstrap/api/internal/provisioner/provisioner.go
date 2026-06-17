@@ -1473,6 +1473,22 @@ type Provisioner struct {
 	PDMBasicAuthUser string
 	PDMBasicAuthPass string
 
+	// HuaweiAccessKey / HuaweiSecretKey / HuaweiProjectID / HuaweiRegion —
+	// operator AK/SK for the Huawei (HCS kom4dc) provider, mounted from
+	// the `huawei-operator-creds` Secret as CATALYST_HUAWEI_ACCESS_KEY /
+	// _SECRET_KEY / _PROJECT_ID / _REGION. The handler stamps these onto
+	// each Request from the same envs before Validate() (deployments.go);
+	// these struct-held copies are the defense-in-depth backstop so
+	// Provision() can re-stamp them onto any Request that arrives with
+	// the `json:"-"` Huawei fields empty (#3716) — the same pattern as
+	// GHCRPullToken / HarborRobotToken above. Without this, the NAT-EIP
+	// pre-flight (which needs the AK/SK to rotate poisoned EIPs) silently
+	// no-ops whenever the per-Request creds aren't populated.
+	HuaweiAccessKey string
+	HuaweiSecretKey string
+	HuaweiProjectID string
+	HuaweiRegion    string
+
 	// TofuPluginCacheDir is the OpenTofu provider plugin cache directory
 	// (#3126). Set as TF_PLUGIN_CACHE_DIR on every `tofu` exec so the
 	// provider binaries (huaweicloud, hetznercloud, dynadot, ...) are
@@ -1534,6 +1550,14 @@ func New() *Provisioner {
 		PowerDNSAPIKey:     os.Getenv("CATALYST_POWERDNS_API_KEY"),
 		PDMBasicAuthUser:   os.Getenv("CATALYST_PDM_BASIC_AUTH_USER"),
 		PDMBasicAuthPass:   os.Getenv("CATALYST_PDM_BASIC_AUTH_PASS"),
+		// #3716 — Huawei operator AK/SK backstop (see field docs). Read
+		// once at startup from the huawei-operator-creds-projected envs so
+		// the NAT-EIP pre-flight always has signing creds even if a Request
+		// arrives with the json:"-" Huawei fields empty.
+		HuaweiAccessKey: os.Getenv("CATALYST_HUAWEI_ACCESS_KEY"),
+		HuaweiSecretKey: os.Getenv("CATALYST_HUAWEI_SECRET_KEY"),
+		HuaweiProjectID: os.Getenv("CATALYST_HUAWEI_PROJECT_ID"),
+		HuaweiRegion:    os.Getenv("CATALYST_HUAWEI_REGION"),
 	}
 }
 
@@ -1604,6 +1628,29 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	}
 	if req.PDMBasicAuthPass == "" {
 		req.PDMBasicAuthPass = p.PDMBasicAuthPass
+	}
+	// #3716 — backstop the Huawei AK/SK from the Provisioner (loaded once
+	// from CATALYST_HUAWEI_* at New()) onto the Request, mirroring the
+	// GHCR/Harbor pattern above. The handler already stamps these from the
+	// same envs before Validate(); this guarantees the NAT-EIP pre-flight
+	// (which signs HCS API calls with these creds to rotate poisoned EIPs)
+	// still receives them on any code path that reaches Provision() with
+	// the json:"-" Huawei fields empty. Empty here = the pre-flight simply
+	// fails closed with a clear "access_key is required" instead of
+	// silently no-op'ing while a poisoned EIP blocks egress to harbor.
+	if req.Provider == "huawei" {
+		if strings.TrimSpace(req.HuaweiAccessKey) == "" {
+			req.HuaweiAccessKey = p.HuaweiAccessKey
+		}
+		if strings.TrimSpace(req.HuaweiSecretKey) == "" {
+			req.HuaweiSecretKey = p.HuaweiSecretKey
+		}
+		if strings.TrimSpace(req.HuaweiProjectID) == "" {
+			req.HuaweiProjectID = p.HuaweiProjectID
+		}
+		if strings.TrimSpace(req.HuaweiRegion) == "" {
+			req.HuaweiRegion = p.HuaweiRegion
+		}
 	}
 
 	if err := req.Validate(); err != nil {

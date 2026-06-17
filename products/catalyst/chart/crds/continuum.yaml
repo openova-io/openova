@@ -208,7 +208,7 @@ spec:
                   properties:
                     mechanism:
                       type: string
-                      enum: [cnpg-pair, raft-transition]
+                      enum: [cnpg-pair, raft-transition, stateless]
                       default: cnpg-pair
                       description: |
                         cnpg-pair (default) = bp-cnpg-pair promotion
@@ -216,7 +216,16 @@ spec:
                         Cluster CR halves). raft-transition = bp-openbao
                         promotion (`bao operator raft snapshot restore` of
                         the staged snapshot + `transition-to-primary` via
-                        Pod exec on the surviving standby; #3492).
+                        Pod exec on the surviving standby; #3492). stateless
+                        = the generic DNS-flip-only promotion for an app
+                        with NO cross-region state store (#3375 §5.1): the
+                        two state-store steps (cordon + promote) are no-ops
+                        and the five agnostic steps (lease / drain-HTTP /
+                        flip-DNS / swap-lease / audit) carry the whole
+                        switchover. This is the mechanism the
+                        application-controller stamps on the per-app
+                        Continuum CR it mints for a stateless DR blueprint
+                        (bp-sso-bridge, bp-livekit, …).
                     raftTransition:
                       type: object
                       description: |

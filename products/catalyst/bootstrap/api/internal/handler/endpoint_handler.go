@@ -2105,15 +2105,17 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 	obj.SetName(seed.Name)
 	obj.SetNamespace(seed.Namespace)
 	obj.SetLabels(seed.Labels)
-	// #3373 — spec.placement is dual-form. The legacy string form
-	// (the chosen topology) stays byte-identical when the user
-	// silently accepted the Blueprint defaults; the OBJECT form
-	// carries the advanced view's instance placement.
+	// One vocabulary (#3375 DoD-1): both the string AND object forms
+	// stamp the CANONICAL placement token. placementForTopology folds
+	// the chosen topology (which may already be a canonical G117 class,
+	// e.g. singleton / active-hot-standby) onto the canonical posture;
+	// the object form's `mode` is canonicalised too so the two forms
+	// never disagree.
 	var placementValue interface{} = placementForTopology(seed.Topology)
 	regions := []interface{}{"primary"}
 	if seed.Placement != nil {
 		pl := map[string]interface{}{
-			"mode": seed.Topology,
+			"mode": canonicalizeTopology(seed.Topology),
 		}
 		if seed.Placement.VCluster != "" {
 			pl["vcluster"] = seed.Placement.VCluster
@@ -2164,17 +2166,21 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 }
 
 // placementForTopology maps a BCP topology choice onto the Application
-// CRD's spec.placement enum (#3370).
+// CRD's spec.placement value (#3370). Post-#3375 DoD-1 it produces the
+// ONE canonical placement vocabulary (singleton / active-active /
+// active-hot-standby / active-passive) — the same set the catalog
+// placementSchema, both editors, and the application-controller's
+// resolver speak. It accepts any spelling (canonical OR the legacy
+// editor dialect) and folds it onto the canonical token via
+// canonicalizeTopology. Empty / unknown → singleton (the safe default
+// posture).
 func placementForTopology(topology string) string {
-	switch topology {
-	case "active-active":
-		return "active-active"
-	case "active-hot-standby", "active-hotstandby", "active-passive":
-		return "active-hotstandby"
-	default:
-		// singleton / empty / unknown → the single-region posture.
-		return "single-region"
+	if c := canonicalizeTopology(topology); c == "singleton" ||
+		c == "active-active" || c == "active-hot-standby" || c == "active-passive" {
+		return c
 	}
+	// empty / unknown → the singleton posture (one cluster, no failover).
+	return "singleton"
 }
 
 // readPhase + readTopology read the most-informative status field for

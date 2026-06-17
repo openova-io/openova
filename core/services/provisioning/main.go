@@ -153,6 +153,13 @@ func main() {
 	idxCancel()
 	slog.Info("provisioning job indexes ensured")
 	generator := gitops.NewManifestGenerator(gitBasePath)
+	// #3760 (Refs #3376 #3754) MIRROR-EVERYTHING: the Sovereign-local Harbor
+	// host the per-tenant vCluster images pull through. Without proxying, the
+	// harbor-proxy-pull Kyverno ClusterPolicy DENIES the vCluster StatefulSet
+	// (its loft-sh/kubernetes + loft-sh/vcluster-oss initContainers) and the
+	// tenant's app never runs. Default harbor.openova.io; cutover Step-04
+	// flips it to harbor.<sovereign-fqdn>.
+	generator.RegistryMirror = getEnv("VCLUSTER_IMAGE_REGISTRY", "harbor.openova.io")
 
 	// ── Git host coordinates (issue #940) ────────────────────────────
 	// On Sovereigns the canonical Git target is the local Gitea (the

@@ -81,6 +81,8 @@ spec:
        namespace: flux-system, justification: "HOST-MINIMUM §4 — Gateway API CRDs (cluster-scoped)"}
     - {file: 02-cert-manager.yaml, hr: bp-cert-manager, vcluster: host, target: host,
        namespace: cert-manager, justification: "HOST-MINIMUM §4 — cluster TLS substrate"}
+    - {file: 02a-bp-cert-manager-issuers.yaml, hr: bp-cert-manager-issuers, vcluster: host, target: host,
+       namespace: cert-manager, justification: "HOST-MINIMUM §4 — cluster TLS substrate (Let's Encrypt ClusterIssuers, #3734 split)"}
     - {file: 03-flux.yaml, hr: bp-flux, vcluster: host, target: host,
        namespace: flux-system, justification: "HOST-MINIMUM §4 — the GitOps engine itself"}
     - {file: 04-crossplane.yaml, hr: bp-crossplane, vcluster: host, target: host,
@@ -158,74 +160,34 @@ spec:
     # coupling-fix proof app (gitea).
     - {file: 07-nats-jetstream.yaml, hr: bp-nats-jetstream, vcluster: mgmt, target: mgmt,
        namespace: nats-system}
-    # ── #3642 HOST-BRIDGE PROMOTE — keycloak into the mgmt vCluster ─────
-    # The #2697 hw130 revert app: install had failed `no matches for kind
-    # HTTPRoute` because the OSS syncer registered 0 sync-set CRDs. The
-    # init-manifests deployer (bp-mgmt-vcluster experimental.deploy) now
-    # registers the structural HTTPRoute CRD inside vc-mgmt, AND the
-    # host-bridge keeps keycloak's HTTPRoute HOST-rendered (the chart's own
-    # in-vCluster route is suppressed) so the host Cilium Gateway reconciles
-    # it. keycloak ships NO ExternalSecret (pin-broker is a SealedSecret) and
-    # runs its OWN bundled bitnami PostgreSQL INSIDE the vCluster on a default
-    # prov (postgresql.enabled defaults true) — so it is a pure route-only
-    # host-bridge, no cross-cluster DB wiring. backendRef → the OSS-synced
-    # mangled Service keycloak-x-keycloak-x-mgmt-vcluster.
-    - file: 09-keycloak.yaml
-      hr: bp-keycloak
-      vcluster: mgmt
-      target: mgmt
-      namespace: keycloak
-      hostBridge:
-        suppress:
-          gateway.enabled: false
-        hostDocuments:
-          # The host-bridged HTTPRoute lives in the `mgmt` host namespace
-          # (where the syncer-mangled backend Service is projected), so the
-          # backendRef is SAME-namespace — no ReferenceGrant needed. It
-          # still attaches to kube-system/cilium-gateway: every listener
-          # sets allowedRoutes.namespaces.from=All (01-cilium.yaml:481), so
-          # a route in any namespace binds. The `mgmt` ns is the vCluster
-          # runtime namespace (slot 58) and always exists.
-          - apiVersion: gateway.networking.k8s.io/v1
-            kind: HTTPRoute
-            metadata:
-              name: keycloak
-              namespace: mgmt
-              labels:
-                catalyst.openova.io/blueprint: bp-keycloak
-                catalyst.openova.io/component: keycloak
-                catalyst.openova.io/host-bridge: "mgmt"
-            spec:
-              parentRefs:
-                - name: cilium-gateway
-                  namespace: kube-system
-              hostnames:
-                - auth.${SOVEREIGN_FQDN}
-              rules:
-                # BARE-URL sovereign-admin entry (#3374): the root 302s to
-                # the SOVEREIGN realm admin console (silent catalyst-pin),
-                # not the master-realm login form. Realm = the per-Sovereign
-                # short-name (cloud-init substitutes SOVEREIGN_REALM_NAME).
-                - matches:
-                    - path:
-                        type: Exact
-                        value: /
-                  filters:
-                    - type: RequestRedirect
-                      requestRedirect:
-                        port: 443
-                        path:
-                          type: ReplaceFullPath
-                          replaceFullPath: /admin/${SOVEREIGN_REALM_NAME:=sovereign}/console/
-                        statusCode: 302
-                - matches:
-                    - path:
-                        type: PathPrefix
-                        value: /
-                  backendRefs:
-                    - name: keycloak-x-keycloak-x-mgmt-vcluster
-                      namespace: mgmt
-                      port: 80
+    # ── #3735 HOST-BRIDGE REVERTED — keycloak back to HOST placement ────
+    # #3642/#3703 promoted keycloak INTO vc-mgmt (route-only host-bridge,
+    # bundled-PG in-vCluster). That is correct ONLY for the DEFAULT prov.
+    # On `SOVEREIGN_ENABLE_SHARED_PG=true` keycloak flips to externalDatabase
+    # mode and mounts the reflector-pushed `keycloak-database-secret`
+    # (existingSecret, 09-keycloak.yaml) — but slot 16a mints that Secret in
+    # the HOST ns shared-data and the host emberstack-reflector pushes it to
+    # the HOST ns `keycloak`, while keycloak-0 runs INSIDE vc-mgmt. Nothing
+    # bridges the Secret across the boundary, so keycloak-0 hangs on
+    # `MountVolume.SetUp … secret "keycloak-database-secret-x-keycloak-x-
+    # mgmt-vcluster" not found` → no OIDC seed → every downstream
+    # *-sso-oidc-credentials ExternalSecret SecretSyncedError → the last
+    # ~11 HRs never converge (terminal SHARED_PG fresh-prov blocker).
+    #
+    # The host→vCluster delivery wiring is NOT available on the OSS vcluster
+    # 0.21.0 we run: `sync.fromHost.secrets` does NOT EXIST until vcluster
+    # 0.23.0 (0.21.0 rejects the unknown key at config-parse, breaking the
+    # syncer), and an in-vCluster ExternalSecret cannot reconcile (ESO is a
+    # host-minimum substrate, placement.yaml ~line 102, and toHost custom-
+    # resource sync is Pro-gated/inert on OSS). So — exactly as #3733 did for
+    # grafana — keycloak reverts to a HOST placement: the chart renders its
+    # OWN native HTTPRoute and the HR runs where the reflector pushes the
+    # Secret (host ns `keycloak`), restoring the proven shared-pg recipe that
+    # gitea/harbor/grafana already use. target=mgmt stays the §4 aspiration;
+    # keycloak re-homes WITH the `sync.fromHost.secrets` wiring (vcluster
+    # ≥0.23.0) in the #3642/#3719 host-bridge train, per the #3731 note.
+    - {file: 09-keycloak.yaml, hr: bp-keycloak, vcluster: host, target: mgmt,
+       namespace: keycloak}   # §4: host-bridge reverted (#3735 SHARED_PG secret-into-vCluster gap); re-home with #3642/#3719 + fromHost.secrets
     # extraNamespaces: the umbrella renders the SME service set into ns
     # `sme` and cutover artifacts into ns `catalyst` alongside its own
     # catalyst-system — declared so the live conformance audit can
@@ -245,16 +207,20 @@ spec:
     #    stack (a SOVEREIGNTY decision, NOT an unfinished task) ──────────
     #
     # The rows below carry `target != host` (founder §4 wants them in a
-    # vCluster). #3642 lands the OSS-native HOST-BRIDGE (see RESOLUTION
-    # below) and MOVES keycloak (09) + grafana (25) into the mgmt vCluster
-    # — those two now carry `vcluster: mgmt` with a `hostBridge:` block.
-    # The remaining route/secret/CNPG rows are host-bridge-READY follow-ons
-    # (same one-field flip + `hostBridge:` declaration). This was NEVER a
-    # license requirement; the host-bridge keeps the route/secret/CNPG CRs
-    # host-rendered. (Migration plan: docs/sessions/2026-06-14/
-    # 3373-migration-plan.md §0/§4/§6; host-bridge: #3642.)
+    # vCluster). All 7 named NS#1 apps (keycloak/grafana/harbor/gitea/
+    # openbao/newapi/guacamole) currently read `vcluster: host` — NONE has
+    # cleanly moved. #3642 designed the OSS-native HOST-BRIDGE (see RESOLUTION
+    # below) and #3703 briefly flipped keycloak (09) + grafana (25) to
+    # `vcluster: mgmt` with a `hostBridge:` block — but BOTH were REVERTED:
+    # grafana by #3731 (raw-ExternalSecret dry-run deadlock in the monolithic
+    # Kustomization) and keycloak by #3737 (the reflected DB Secret can't
+    # cross host→vCluster on OSS vcluster 0.21.0). (Migration plan:
+    # docs/sessions/2026-06-14/3373-migration-plan.md §0/§4/§6; host-bridge:
+    # #3642. Honest per-app status: the SECOND CONSTRAINT block below + the
+    # #3642 UAT walkthrough docs/ledger/uat-walkthrough/ns1-migrate-7-host-
+    # apps-into-mgmt-vcluster.md.)
     #
-    # THE GOVERNING CONSTRAINT — vCluster CRD-sync is loft.sh Free-tier,
+    # GOVERNING CONSTRAINT #1 — vCluster CRD-sync is loft.sh Free-tier,
     # NOT pure-OSS:
     #   Re-homing a chart that ships an HTTPRoute, an ExternalSecret, or a
     #   CNPG `Cluster` CR requires the vCluster syncer to register those
@@ -287,30 +253,72 @@ spec:
     #   platform/install/air-gapped. The Free-tier CRD-sync feature has NO
     #   offline activation path that is sovereignty-safe.)
     #
-    # RESOLUTION — the HOST-BRIDGE (#3642, plan path (B)) is the OSS-native
-    # answer that does NOT need the loft.sh license: it keeps the app's
-    # HTTPRoute + ExternalSecret (+ CNPG Cluster) HOST-rendered — declared
-    # as data under the row's `hostBridge:` and transcribed into the slot by
-    # render-slot-placement.py — while only the workload Deployment/
-    # StatefulSet re-homes into the vCluster (spec.kubeConfig → vc-<tier>).
-    # backendRefs point at the OSS-synced mangled Service
-    # (<svc>-x-<innerNs>-x-<tier>-vcluster). So the §4 target is NO LONGER
-    # aspirational for route/secret apps — it is a one-field flip + a
-    # `hostBridge:` declaration. The 3 clean apps (valkey/seaweedfs/vllm)
-    # moved in Batch A; #3642 lands the host-bridge and MOVES the
-    # route/secret class. Status of the North-Star-#1 set, grouped by shape:
+    # GOVERNING CONSTRAINT #2 — a host-rendered Secret CANNOT cross
+    # host→vCluster on OSS vcluster 0.21.0 (the deeper blocker the
+    # host-bridge alone does NOT solve; #3731 + #3737, re-confirmed by the
+    # #3642 chart audit 2026-06-17):
+    #   The host-bridge (Constraint-#1 answer) keeps the HTTPRoute /
+    #   ExternalSecret / CNPG `Cluster` CR HOST-rendered — but every one of
+    #   the 7 NS#1 apps' WORKLOAD Pods then needs a Secret that is MINTED ON
+    #   THE HOST delivered INTO the vCluster: a CNPG-operator DB credential
+    #   (`<app>-pg-app`, reflected/sync-jobbed into `<app>-database-secret`),
+    #   and/or a host-ESO SSO Secret (`<app>-sso-oidc-credentials`). NO OSS
+    #   0.21.0 mechanism delivers it:
+    #     - `sync.fromHost.secrets` (host→vCluster Secret mirror) does NOT
+    #       exist until vcluster 0.23.0 — 0.21.0 rejects the unknown config
+    #       key at parse, breaking the syncer.
+    #     - an in-vCluster ExternalSecret cannot reconcile: ESO is a
+    #       host-minimum substrate (slot 15, host), and toHost custom-
+    #       resource sync is Pro-gated/inert on OSS.
+    #   So the re-homed Pod hangs on `MountVolume.SetUp … secret "<name>" not
+    #   found` (keycloak-0 SHARED_PG, #3737) or boots without its SSO/DB
+    #   env (grafana zero-click never lands; harbor/gitea/newapi DB DSN
+    #   empty). This is INDEPENDENT of Constraint-#1 — even with a perfect
+    #   host-bridge, Constraint-#2 wedges the workload.
     #
-    #   ROUTE + ExternalSecret — host-bridge MOVED (#3642):
-    #     ✅ keycloak (09, route-only — no ES, bundled PG in-vCluster),
-    #     ✅ grafana  (25, route + SSO ExternalSecret, shared-pg-b consumer).
-    #   ROUTE + ExternalSecret — host-bridge READY (same recipe, follow-on
-    #   rows; openbao adds a 2-backend bare-URL landing route):
-    #     openbao (08), powerdns-admin (11a), openova-flow-server (56).
-    #   ROUTE + ExternalSecret + CNPG `Cluster` — host-bridge + the CNPG
-    #   Cluster rendered host-side (§5d); the in-vCluster Pod reaches the
-    #   host PG cross-cluster (follow-on rows):
-    #     gitea (10), harbor (19), newapi (80), guacamole (52),
-    #     catalyst-platform (13, control-plane root — LAST).
+    # SECOND STRUCTURAL constraint on two of the seven (host-pinned by ROLE,
+    # not just by Secret-crossing):
+    #   - openbao (08) IS the host-side ESO backend — the `vault-region1`
+    #     ClusterSecretStore (slot 15a, host-minimum) dials it. Move openbao
+    #     into a vCluster and EVERY host ExternalSecret cluster-wide loses
+    #     its backend. openbao must stay host irrespective of #2.
+    #   - keycloak (09) is the SSO root 8 other HRs' `*-sso-oidc-credentials`
+    #     ExternalSecrets seed from; if its OIDC seed lands inside the
+    #     vCluster the host-side ESO consumers can't reach it (the #3737
+    #     terminal cascade).
+    #
+    # RESOLUTION — the HOST-BRIDGE (#3642, plan path (B)) solves
+    # Constraint-#1 (it keeps the app's HTTPRoute + ExternalSecret + CNPG
+    # Cluster HOST-rendered, declared as data under the row's `hostBridge:`
+    # and transcribed into the slot by render-slot-placement.py; only the
+    # workload Deployment/StatefulSet re-homes via spec.kubeConfig →
+    # vc-<tier>, backendRefs at the OSS-synced mangled Service
+    # <svc>-x-<innerNs>-x-<tier>-vcluster). It does NOT, on its own, solve
+    # Constraint-#2 — so NO route/secret/CNPG app can flip yet. The full
+    # NS#1 move additionally needs the `sync.fromHost.secrets` host→vCluster
+    # Secret delivery (vcluster ≥0.23.0, OSS from 0.23.0 — genuinely not
+    # Pro-gated) for the DB + SSO Secrets, plus (for the raw-ExternalSecret
+    # apps) the ExternalSecret lifted OUT of the atomic bootstrap-kit
+    # Kustomization (#3731). That work is the PARKED #3719 (DO-NOT-MERGE)
+    # train. The 3 truly clean apps (valkey/seaweedfs/vllm — no route, no
+    # secret, no CNPG) ALREADY moved in Batch A. Status of the North-Star-#1
+    # set, grouped by what blocks each (ALL 7 currently `vcluster: host`):
+    #
+    #   ROUTE + host-ESO SSO Secret — BLOCKED on Constraint-#2 (workload
+    #   consumes a host-ESO `<app>-sso-oidc-credentials`); needs fromHost
+    #   secret-sync + (for the raw ES) the #3731 Kustomization split:
+    #     grafana (25, reverted #3731), openbao (08, ALSO host-pinned —
+    #     it IS the ESO backend), powerdns-admin (11a),
+    #     openova-flow-server (56).
+    #   ROUTE + reflected/SHARED_PG DB Secret — BLOCKED on Constraint-#2
+    #   (workload mounts a host-reflected DB credential):
+    #     keycloak (09, reverted #3737 — clean only on the DEFAULT prov;
+    #     wedges on SOVEREIGN_ENABLE_SHARED_PG=true; ALSO the SSO root).
+    #   ROUTE + host-ESO SSO + CNPG `Cluster` — BLOCKED on Constraint-#2 on
+    #   TWO axes (host-CNPG DB credential AND host-ESO SSO Secret); the
+    #   in-vCluster Pod would also need the host PG reachable cross-cluster:
+    #     gitea (10), harbor (19), newapi (80), guacamole (52, DB-only —
+    #     OIDC is chart-self-contained), catalyst-platform (13, root — LAST).
     #   CNPG `Cluster` CR engines (host cnpg-operator reconciles host-side) —
     #   host-bridge the Cluster CR (follow-on) — 4:
     #     postgres-shared (×3: 16a/16c/16d) + cnpg-pair (16b).
@@ -333,110 +341,55 @@ spec:
     - {file: 17-valkey.yaml, hr: bp-valkey, vcluster: rtz, target: rtz, namespace: valkey}   # Batch A (#3373) — PROMOTED: pure-OSS clean (no route/secret/CNPG); plain Service DNS via OSS services-sync
     - {file: 18-seaweedfs.yaml, hr: bp-seaweedfs, vcluster: rtz, target: rtz, namespace: seaweedfs}   # Batch A (#3373) — PROMOTED: pure-OSS clean (no route/secret/CNPG); S3 wire is plain Service DNS via OSS services-sync; all consumers S3-default-OFF on a fresh prov
     - {file: 19-harbor.yaml, hr: bp-harbor, vcluster: host, target: mgmt, namespace: harbor}
-    # ── #3642 HOST-BRIDGE PROMOTE — grafana into the mgmt vCluster ──────
-    # The North-Star-#1 batch-D-first app (least blast radius: depends only
-    # on already-mgmt loki/mimir/tempo + shared-pg-b). grafana ships an
-    # HTTPRoute + an SSO ExternalSecret (no own CNPG Cluster — it is a
-    # shared-pg-b consumer). The host-bridge keeps BOTH host-rendered (the
-    # host Cilium Gateway + host external-secrets-operator reconcile them
-    # exactly as today) while the grafana Deployment re-homes into mgmt via
-    # spec.kubeConfig.secretRef → vc-mgmt. `suppress` turns the chart's OWN
-    # in-vCluster route + ES off; `hostDocuments` are the host-side copies,
-    # backendRef pre-aliased to the OSS-synced mangled Service
-    # grafana-x-grafana-x-mgmt-vcluster. The materialized
-    # grafana-sso-oidc-credentials Secret reaches the in-vCluster Pod via the
-    # mgmt-vcluster `sync.fromHost.secrets` mapping (values.yaml #3642).
-    - file: 25-grafana.yaml
-      hr: bp-grafana
-      vcluster: mgmt
-      target: mgmt
-      namespace: grafana
-      hostBridge:
-        # Chart values stamped into the in-vCluster workload HR: the
-        # chart's own HTTPRoute + SSO ExternalSecret do NOT render inside
-        # the vCluster (the host-side copies below are authoritative).
-        suppress:
-          gateway.enabled: false
-          sso.enabled: false
-        # Host-side route + ExternalSecret, transcribed verbatim into the
-        # slot by render-slot-placement.py. Placement is DATA.
-        hostDocuments:
-          # HTTPRoute in the `mgmt` host ns (same as the mangled backend
-          # Service → no ReferenceGrant); attaches to kube-system/
-          # cilium-gateway via allowedRoutes.from=All.
-          - apiVersion: gateway.networking.k8s.io/v1
-            kind: HTTPRoute
-            metadata:
-              name: grafana
-              namespace: mgmt
-              labels:
-                catalyst.openova.io/blueprint: bp-grafana
-                catalyst.openova.io/component: grafana
-                catalyst.openova.io/host-bridge: "mgmt"
-            spec:
-              parentRefs:
-                - name: cilium-gateway
-                  namespace: kube-system
-              hostnames:
-                - grafana.${SOVEREIGN_FQDN}
-              rules:
-                - matches:
-                    - path:
-                        type: PathPrefix
-                        value: /
-                  backendRefs:
-                    # OSS sync.toHost.services mangled name (grafana Service
-                    # synced out of vc-mgmt to the host mgmt namespace).
-                    - name: grafana-x-grafana-x-mgmt-vcluster
-                      namespace: mgmt
-                      port: 80
-          - apiVersion: external-secrets.io/v1beta1
-            kind: ExternalSecret
-            metadata:
-              name: grafana-sso-oidc-credentials
-              namespace: grafana
-              labels:
-                catalyst.openova.io/blueprint: bp-grafana
-                bp-sso-bridge.openova.io/consumer: bp-grafana
-                catalyst.openova.io/host-bridge: "mgmt"
-            spec:
-              refreshInterval: 1h
-              secretStoreRef:
-                name: vault-region1
-                kind: ClusterSecretStore
-              target:
-                name: grafana-sso-oidc-credentials
-                creationPolicy: Owner
-                template:
-                  type: Opaque
-                  data:
-                    GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "{{ .client_id }}"
-                    GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: "{{ .client_secret }}"
-                    GF_AUTH_GENERIC_OAUTH_AUTH_URL: "{{ .authorize_url }}?kc_idp_hint=catalyst-pin"
-                    GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "{{ .token_url }}"
-                    GF_AUTH_GENERIC_OAUTH_API_URL: "{{ .userinfo_url }}"
-                    GF_SERVER_ROOT_URL: "https://grafana.${SOVEREIGN_FQDN}/"
-              data:
-                - secretKey: client_id
-                  remoteRef:
-                    key: sso/grafana
-                    property: client_id
-                - secretKey: client_secret
-                  remoteRef:
-                    key: sso/grafana
-                    property: client_secret
-                - secretKey: authorize_url
-                  remoteRef:
-                    key: sso/grafana
-                    property: authorize_url
-                - secretKey: token_url
-                  remoteRef:
-                    key: sso/grafana
-                    property: token_url
-                - secretKey: userinfo_url
-                  remoteRef:
-                    key: sso/grafana
-                    property: userinfo_url
+    # ── #3642 HOST-BRIDGE REVERTED to host (#3731) — grafana stays host ──
+    # grafana was PROMOTED to a mgmt host-bridge by #3703 (route + SSO
+    # ExternalSecret host-rendered, workload re-homed into vc-mgmt). That
+    # promotion WEDGED every fresh prov at 0 HelmReleases (#3731, caught
+    # live on hw157):
+    #
+    #   The host-bridge transcribes a RAW `external-secrets.io/v1beta1`
+    #   ExternalSecret (grafana-sso-oidc-credentials) into THIS slot, inside
+    #   the monolithic bootstrap-kit Flux Kustomization (wait:true, default
+    #   server-side apply → it dry-run-validates the WHOLE rendered set on
+    #   every reconcile). The external-secrets CRD does NOT exist at that
+    #   first dry-run — it is installed only by the slot-15 bp-external-
+    #   secrets HelmRelease DURING reconciliation. So the dry-run fails with
+    #   `no matches for kind "ExternalSecret" in version
+    #   "external-secrets.io/v1beta1"`, the whole Kustomization apply is
+    #   rejected, the bp-external-secrets HR is never created → the CRD
+    #   never lands → permanent 0-HR deadlock (the CRD-provider slot 15 and
+    #   the CRD-consumer raw ES sit in the SAME Kustomization). The raw
+    #   HTTPRoute in the same block does NOT trip this only because cloud-
+    #   init pre-applies the gateway-api CRDs before Flux
+    #   (cloudinit-control-plane.tftpl:716-720); there is no equivalent
+    #   pre-install for external-secrets.
+    #
+    #   The lift ALSO disabled the chart's own protection: grafana's chart
+    #   ES (platform/grafana/chart/templates/sso-oauth-source-external
+    #   secret.yaml) is guarded by `.Capabilities.APIVersions.Has
+    #   "external-secrets.io/v1beta1"` and the HR `dependsOn: bp-external-
+    #   secrets`, so it renders only once the CRD exists. #3703's
+    #   `suppress: {sso.enabled: false}` turned that guarded ES OFF and
+    #   replaced it with the unguarded raw copy — re-introducing the exact
+    #   race the guard exists to prevent.
+    #
+    #   And the bridge was non-functional regardless: NO `sync.fromHost.
+    #   secrets` mapping in the merged bp-mgmt-vcluster chart delivers the
+    #   host-rendered grafana-sso-oidc-credentials Secret INTO the in-
+    #   vCluster Pod, and OSS vCluster's `sync.toHost.customResources` is
+    #   Pro-gated (silently no-ops) — that wiring is part of the PARKED
+    #   #3719 (DO-NOT-MERGE — next train) follow-on.
+    #
+    # So grafana reverts to a HOST placement (target=mgmt stays the §4
+    # aspiration). On host the chart renders its OWN `.Capabilities`-guarded
+    # ES + native HTTPRoute, the HR runs where ESO + OpenBao + the Cilium
+    # Gateway all live, and the proven #3374 zero-click recipe is restored.
+    # The host-bridge re-lands properly with #3642/#3719 — which must add
+    # the fromHost secret-sync AND keep the ExternalSecret out of the atomic
+    # Kustomization (a separate Flux Kustomization that `dependsOn` the ESO
+    # install, OR an early-slot raw-CRD pre-install), per #3731.
+    - {file: 25-grafana.yaml, hr: bp-grafana, vcluster: host, target: mgmt,
+       namespace: grafana}   # §4: host-bridge reverted (#3731 dry-run deadlock); re-home with #3642/#3719
     - {file: 39-bp-vllm.yaml, hr: bp-vllm, vcluster: rtz, target: rtz, namespace: vllm}   # Batch A (#3373) — PROMOTED: pure-OSS clean (no route/secret/CNPG); plain Service DNS via OSS services-sync; vllm + its newapi channel both default-OFF on a fresh prov
     - {file: 51-bp-k8s-ws-proxy.yaml, hr: bp-k8s-ws-proxy, vcluster: host, target: mgmt,
        namespace: catalyst-system}   # recipe proven, draft PR #3350

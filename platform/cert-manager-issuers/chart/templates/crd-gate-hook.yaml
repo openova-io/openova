@@ -1,0 +1,145 @@
+{{- /*
+ClusterIssuer CRD-establishment gate — bp-cert-manager-issuers (issue #3734).
+
+Background — the race we close
+==============================
+This chart ships the two ClusterIssuer CRs (letsencrypt-dns01-prod,
+letsencrypt-http01-prod) as PLAIN main-pass manifests (templates/
+clusterissuers.yaml). Those CRs are instances of the cert-manager.io/v1
+ClusterIssuer CRD that bp-cert-manager (a SEPARATE HelmRelease) registers.
+
+The split itself is the primary fix: this chart's Flux HR `dependsOn:
+bp-cert-manager`, so Flux only starts reconciling it AFTER cert-manager is
+Ready (CRD registered), and the FRESH helm-controller reconcile for this
+release builds a RESTMapper that already includes the ClusterIssuer kind.
+That eliminates the RESTMapper-cache miss that looped bp-cert-manager.
+
+This PRE-install Job is belt-and-suspenders for the residual
+apiserver-async lag: `kubectl apply` of the CRD object (in the
+bp-cert-manager release) returns when the resource is CREATED, not when the
+apiextensions-apiserver controller has set
+`status.conditions[?(@.type=="Established")].status == "True"`. That
+transition is asynchronous (typically <1s on a warm apiserver, observed up
+to ~30s on a fresh cold-start k3s). Gating on it here guarantees the main-
+pass ClusterIssuer manifests below never race a not-yet-Established CRD.
+
+Why PRE-install (NOT post-install)
+==================================
+Unlike bp-cert-manager — whose gate MUST be post-install because the CRDs
+it waits for come from the upstream subchart's OWN main apply pass (a
+pre-install hook would fire before that pass and never see them) — this
+chart does NOT install the ClusterIssuer CRD itself. The CRD is provided by
+the bp-cert-manager release, which is already Ready (Flux dependsOn). So the
+correct ordering is: PRE-install gate runs → asserts Established=True → then
+this release's main-pass ClusterIssuer manifests apply.
+
+Fails fast (300s budget) so a genuinely broken upstream surfaces in Flux
+conditions rather than in a 15-minute spin.
+
+Why hook-weight -10
+===================
+Lower weight than the RBAC hook (-20) in templates/crd-gate-rbac.yaml so
+the ServiceAccount + ClusterRole + Binding land BEFORE this Job needs them.
+
+Pairs with:
+  - templates/crd-gate-rbac.yaml — SA + ClusterRole + Binding
+  - values.yaml `crdGate:` — knobs (enabled, crds, timeout, image, resources)
+*/}}
+{{- $gate := .Values.crdGate | default dict -}}
+{{- $enabled := true -}}
+{{- if hasKey $gate "enabled" -}}
+{{-   $enabled = $gate.enabled -}}
+{{- end -}}
+{{- if $enabled }}
+{{- $crds := $gate.crds | default (list "clusterissuers.cert-manager.io") -}}
+{{- $timeout := $gate.timeoutSeconds | default 300 -}}
+{{- $interval := $gate.intervalSeconds | default 2 -}}
+{{- $image := $gate.image | default "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7" -}}
+{{- $pullPolicy := $gate.imagePullPolicy | default "IfNotPresent" -}}
+{{- $res := $gate.resources | default dict -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-crd-gate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-cert-manager-issuers
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: crd-gate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-cert-manager-issuers
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        catalyst.openova.io/component: crd-gate
+    spec:
+      serviceAccountName: {{ .Release.Name }}-crd-gate
+      restartPolicy: Never
+      containers:
+        - name: gate
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ $pullPolicy | quote }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          {{- with $res }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: CRDS
+              value: {{ join " " $crds | quote }}
+            - name: TIMEOUT_SECONDS
+              value: {{ $timeout | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $interval | quote }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "cert-manager-issuers CRD gate: wait for Established=True on: ${CRDS} (budget=${TIMEOUT_SECONDS}s, interval=${INTERVAL_SECONDS}s)"
+              deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+              attempt=0
+              while [ "$(date +%s)" -lt "${deadline}" ]; do
+                attempt=$(( attempt + 1 ))
+                all_ok=true
+                missing=""
+                for crd in ${CRDS}; do
+                  status="$(kubectl get crd "${crd}" \
+                    --ignore-not-found \
+                    -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' 2>/dev/null || true)"
+                  if [ "${status}" != "True" ]; then
+                    all_ok=false
+                    missing="${missing} ${crd}(=${status:-absent})"
+                  fi
+                done
+                if [ "${all_ok}" = "true" ]; then
+                  echo "All CRDs Established after ${attempt} attempt(s)."
+                  exit 0
+                fi
+                echo "Attempt ${attempt}: CRDs not yet Established:${missing}; sleeping ${INTERVAL_SECONDS}s."
+                sleep "${INTERVAL_SECONDS}"
+              done
+              echo "FATAL: ClusterIssuer CRD did not reach Established=True within ${TIMEOUT_SECONDS}s." >&2
+              echo "Still missing/not-Established:${missing}" >&2
+              echo "This release dependsOn bp-cert-manager; if the CRD is absent, bp-cert-manager is not Ready." >&2
+              echo "Diagnose with:" >&2
+              echo "  kubectl get crd | grep cert-manager.io" >&2
+              echo "  flux get helmrelease bp-cert-manager -n flux-system" >&2
+              echo "  kubectl describe crd clusterissuers.cert-manager.io" >&2
+              exit 1
+{{- end }}

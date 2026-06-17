@@ -758,6 +758,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	bpTopo := parseBlueprintTopology(bp)
 	var perClusterFanout []*unstructured.Unstructured
 	var perClusterStatus []map[string]interface{}
+	// #3375 DoD-3 — capture the resolved topology choice + variant so the
+	// per-app Continuum CR producer (reconcileContinuumCR, continuum.go)
+	// can mint the DR contract AFTER placement.Resolve runs below. nil
+	// variant / unset choice = no Blueprint topology, no DR CR.
+	var resolvedTopoChoice bpv1alpha1.BcpTopology
+	var resolvedTopoVariant *bpv1alpha1.TopologyVariant
+	var continuumOwnerLabels map[string]string
 	if bpTopo != nil {
 		appTopo := spec.Topology
 		sovRegions := len(envSpec.Regions)
@@ -779,6 +786,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			"choice", choice,
 			"sovereignRegions", sovRegions,
 			"clusters", placementClusters(variant))
+
+		// #3375 DoD-3 — remember the resolved topology so the per-app
+		// Continuum CR producer (after placement.Resolve below) can mint
+		// the DR contract. The variant captured here is the Blueprint-
+		// derived one (pre instance-narrowing); the producer only reads
+		// its switchover/replication blocks, which the instance narrowing
+		// never touches.
+		resolvedTopoChoice = choice
+		resolvedTopoVariant = variant
 
 		// FanoutHRs is a pure renderer — we collect the per-cluster HR
 		// shape into status.perCluster[] so catalyst-api (G117.2-G117.4)
@@ -911,6 +927,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				}
 			}
 
+			// #3375 DoD-3 — same owner labels on the per-app Continuum CR.
+			continuumOwnerLabels = fanoutOwnerLabels(envSpec, app)
+
 			hrs, ferr := topo.FanoutHRs(topo.FanoutInputs{
 				AppName:             app.GetName(),
 				AppNamespace:        app.GetNamespace(),
@@ -929,11 +948,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				KubeConfigSecretKey: "config",
 				DependsOnFor:        fanoutDependsOnFor,
 				IntervalSeconds:     r.Cfg.HelmReleaseIntervalSeconds,
-				OwnerLabels: map[string]string{
-					"catalyst.openova.io/organization": envSpec.OrganizationRef,
-					"catalyst.openova.io/env-type":     envSpec.EnvType,
-					"catalyst.openova.io/app-uid":      string(app.GetUID()),
-				},
+				OwnerLabels:         fanoutOwnerLabels(envSpec, app),
 			})
 			if ferr != nil {
 				// Render-error path — surface as Degraded so the
@@ -992,6 +1007,29 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	plan, err := placement.Resolve(spec.Placement, spec.Regions)
 	if err != nil {
 		return r.markFailed(ctx, app, ReasonInvalid, err.Error())
+	}
+
+	// 7.5 (#3375 DoD-3) — mint the per-app Continuum DR contract.
+	//
+	// Now that BOTH the topology variant (captured above from the fan-out
+	// resolver) AND the placement plan (primary + standby regions) are
+	// resolved, produce one Continuum.dr.openova.io/v1 CR per DR-capable
+	// Application so `kubectl get continuums.dr.openova.io -A` shows a
+	// per-app row (dr-grafana, dr-sso-bridge) and the continuum-controller
+	// (slot 62) has a real DR contract for EVERY DR app — not just the
+	// cnpg-pair (which mints its own CR from its chart). A singleton /
+	// active-active / single-region app, or a Blueprint variant with no
+	// switchover mechanism, produces NO CR (the buildContinuumPlan gate);
+	// a topology downgrade removes any stale CR. A produce error is
+	// surfaced as Degraded so the reconcile retries — a missing DR
+	// contract must not silently pass.
+	if continuumOwnerLabels == nil {
+		continuumOwnerLabels = fanoutOwnerLabels(envSpec, app)
+	}
+	if cerr := r.reconcileContinuumCR(ctx, app.GetName(), app.GetNamespace(),
+		resolvedTopoChoice, resolvedTopoVariant, plan, continuumOwnerLabels); cerr != nil {
+		return r.markDegraded(ctx, app, ReasonRenderError,
+			fmt.Sprintf("per-app Continuum DR contract: %v", cerr))
 	}
 
 	// 8. Ensure the per-Application Gitea repo exists.
@@ -1699,6 +1737,13 @@ func (r *Reconciler) handleDeletion(ctx context.Context, app *unstructured.Unstr
 		}
 	}
 
+	// #3375 DoD-3 — cascade-delete the per-app Continuum DR contract (the
+	// dr-<app> CR the fan-out minted). NotFound is a no-op, so a non-DR
+	// app (which never had one) deletes cleanly.
+	if err := r.deleteContinuumCRIfExists(ctx, app.GetName(), app.GetNamespace()); err != nil {
+		return fmt.Errorf("delete per-app Continuum CR: %w", err)
+	}
+
 	return r.removeFinalizer(ctx, app)
 }
 
@@ -2374,6 +2419,19 @@ func blueprintChart(bp *unstructured.Unstructured) string {
 	}
 	c, _, _ := unstructured.NestedString(bp.Object, "spec", "manifests", "chart")
 	return c
+}
+
+// fanoutOwnerLabels builds the org / env-type / app-uid label set the
+// reconciler stamps on every per-cluster HelmRelease AND (#3375 DoD-3)
+// the per-app Continuum CR, so both participate in the same
+// observability rollup + cascade-delete. Extracted into a helper so the
+// fan-out and the Continuum producer cannot drift apart.
+func fanoutOwnerLabels(envSpec envParsedSpec, app *unstructured.Unstructured) map[string]string {
+	return map[string]string{
+		"catalyst.openova.io/organization": envSpec.OrganizationRef,
+		"catalyst.openova.io/env-type":     envSpec.EnvType,
+		"catalyst.openova.io/app-uid":      string(app.GetUID()),
+	}
 }
 
 // placementClusters returns the variant's PlacementSpec.Clusters slice

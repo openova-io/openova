@@ -75,6 +75,34 @@ declare -a EXEMPT_PATHS=(
 # one-release compatibility alias and is allowed to name the legacy path.
 ALIAS_ANNOTATION='naming-guard: alias'
 
+# A matched line is NOT machinery when it is PROSE — a comment (shell/YAML
+# `#`, Go/JS `//`, or inside a Helm `{{- /* ... */}}` / C-style `/* ... */`
+# block) that merely REFERENCES the legacy name (e.g. a file-lineage note
+# "the byte-for-byte twin of templates/sme-services/…"), or a Go TEST
+# function whose name describes the legacy funnel scenario
+# (`func TestCreateSMETenant_…`). Machinery is load-bearing code/manifests,
+# never a comment or a test name; flagging those is a false positive. The
+# RED self-test still fails on a REAL resource path / route / exported
+# identifier because those are not comments and not `func Test…`.
+line_is_prose() {
+  # $1 = matched line content; $2 = 1 if the line sits inside an open
+  # block comment (tracked by the caller), else 0.
+  local line="$1" in_block="${2:-0}"
+  [[ "$in_block" == "1" ]] && return 0
+  local trimmed="${line#"${line%%[![:space:]]*}"}"   # left-trim
+  case "$trimmed" in
+    '#'*) return 0 ;;          # shell / YAML line comment
+    '//'*) return 0 ;;         # Go / JS line comment
+    '*'*) return 0 ;;          # continuation line of a /* */ block
+    '{{- /*'*|'{{/*'*) return 0 ;;  # Helm comment-block opener
+  esac
+  # A Go test function naming the legacy scenario is descriptive, not
+  # machinery (the renamed handlers/types carry the canonical names; the
+  # test that exercises the SME funnel keeps its scenario name).
+  [[ "$trimmed" == func\ Test* ]] && return 0
+  return 1
+}
+
 # Data-value exemptions (the legitimate `sme`): a line matching one of
 # these is the `Tier` commercial-class VALUE or the registry kind const,
 # never machinery. Checked per-line so a `Tier: "sme"` passes even in a
@@ -120,10 +148,23 @@ scan_tree() {
     # alias annotation (the real aliases annotate the comment above the
     # route block, not the route line itself).
     mapfile -t LINES < "$root/$f"
+    # Go _test.go files EXERCISE machinery (they POST to the live deprecated
+    # alias route, and name helper/scenario funcs after the SME funnel) but
+    # never DEFINE production machinery — that lives in non-test files, which
+    # are still fully scanned. So test files get the namespace/template-dir
+    # patterns only, not the route-literal or exported-identifier patterns.
+    local is_test=0
+    [[ "$f" == *_test.go ]] && is_test=1
     # Go files also get the exported-identifier machinery patterns.
-    local patterns=("${MACHINERY[@]}")
-    if [[ "$f" == *.go ]]; then
-      patterns+=("${MACHINERY_GO[@]}")
+    local patterns
+    if [[ "$is_test" == "1" ]]; then
+      # Drop the two route-literal patterns; keep namespace + template-dir.
+      patterns=('namespace:\s*sme\s*$' 'templates/sme-services')
+    else
+      patterns=("${MACHINERY[@]}")
+      if [[ "$f" == *.go ]]; then
+        patterns+=("${MACHINERY_GO[@]}")
+      fi
     fi
     for pat in "${patterns[@]}"; do
       while IFS= read -r match; do
@@ -136,6 +177,20 @@ scan_tree() {
         # block of alias registrations, so walk back up to a small window
         # (stopping at a blank line) looking for the annotation.
         if line_is_allowed "$content"; then
+          continue
+        fi
+        # Allowed if the matched line is PROSE (a comment or a test-function
+        # name) rather than machinery. Determine block-comment membership by
+        # counting unmatched `/*` openers above this line (covers Helm
+        # `{{- /* … */}}` and C-style `/* … */` blocks).
+        local in_block=0 j opens=0 closes=0
+        for ((j=0; j<lineno-1; j++)); do
+          local l="${LINES[$j]:-}"
+          [[ "$l" == *'/*'* ]] && opens=$((opens+1))
+          [[ "$l" == *'*/'* ]] && closes=$((closes+1))
+        done
+        [ "$opens" -gt "$closes" ] && in_block=1
+        if line_is_prose "$content" "$in_block"; then
           continue
         fi
         local exempt_by_block=0
