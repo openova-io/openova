@@ -1,0 +1,67 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-cert-manager-issuers
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+spec:
+  version: 1.0.0
+  card:
+    title: cert-manager — Issuers
+    summary: |
+      Default Let's Encrypt ClusterIssuer CR(s) (letsencrypt-dns01-prod,
+      letsencrypt-http01-prod). Split from bp-cert-manager (#3734) to
+      resolve the helm-controller RESTMapper-cache CRD-ordering race — the
+      ClusterIssuer CRs cannot live in the same Helm release as the
+      cert-manager subchart that registers their CRD; Flux dependsOn orders
+      this chart after bp-cert-manager is Ready so a fresh reconcile maps
+      the ClusterIssuer kind and the CRs apply cleanly.
+
+      Mirrors the bp-external-secrets-stores / bp-crossplane-claims pattern.
+    icon: cert-manager.svg
+    category: security
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  manifests:
+    chart: ./chart
+  depends:
+    - bp-cert-manager
+
+  # ── Outputs advertised to dependent Blueprints (inherited from #113) ─────
+  # The issuer NAMES are unchanged from when they lived in bp-cert-manager,
+  # so dependents that consume `issuerName` keep resolving the same CR.
+  # bp-cert-manager still advertises the issuerName output (it is the
+  # logical owner of the issuer contract); this chart is the physical
+  # owner of the CRs. Re-advertised here for discoverability.
+  outputs:
+    issuerName: letsencrypt-dns01-prod
+    issuerKind: ClusterIssuer
+    wildcardIssuerName: letsencrypt-dns01-prod
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        replication:
+          backend: flux-git
+          mode: async
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  multiInstance:
+    enabled: false

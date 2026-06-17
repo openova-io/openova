@@ -51,6 +51,20 @@ slots:
     name: bp-cert-manager
     depends_on: [bp-cilium]
     wave: present
+  - slot: "02a"
+    name: bp-cert-manager-issuers
+    # The two Catalyst Let's Encrypt ClusterIssuers (letsencrypt-dns01-prod,
+    # letsencrypt-http01-prod). Split from bp-cert-manager (issue #3734) to
+    # resolve the helm-controller RESTMapper-cache CRD-ordering race — the
+    # ClusterIssuer CRs cannot live in the same Helm release as the
+    # cert-manager subchart that registers their CRD (the cached RESTMapper,
+    # built before the CRD exists, never refreshes → `no matches for kind
+    # "ClusterIssuer"` on the in-release hook → InstallFailed loop, live
+    # hw157). A separate HR gets a fresh reconcile after bp-cert-manager is
+    # Ready whose RESTMapper maps the kind. Mirrors bp-external-secrets ↔
+    # bp-external-secrets-stores and bp-crossplane ↔ bp-crossplane-claims.
+    depends_on: [bp-cert-manager]
+    wave: present
   - slot: 3
     name: bp-flux
     depends_on: [bp-cert-manager]

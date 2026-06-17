@@ -81,6 +81,8 @@ spec:
        namespace: flux-system, justification: "HOST-MINIMUM §4 — Gateway API CRDs (cluster-scoped)"}
     - {file: 02-cert-manager.yaml, hr: bp-cert-manager, vcluster: host, target: host,
        namespace: cert-manager, justification: "HOST-MINIMUM §4 — cluster TLS substrate"}
+    - {file: 02a-bp-cert-manager-issuers.yaml, hr: bp-cert-manager-issuers, vcluster: host, target: host,
+       namespace: cert-manager, justification: "HOST-MINIMUM §4 — cluster TLS substrate (Let's Encrypt ClusterIssuers, #3734 split)"}
     - {file: 03-flux.yaml, hr: bp-flux, vcluster: host, target: host,
        namespace: flux-system, justification: "HOST-MINIMUM §4 — the GitOps engine itself"}
     - {file: 04-crossplane.yaml, hr: bp-crossplane, vcluster: host, target: host,

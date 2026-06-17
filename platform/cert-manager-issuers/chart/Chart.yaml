@@ -1,0 +1,64 @@
+apiVersion: v2
+name: bp-cert-manager-issuers
+# 1.0.0 (issue #3734): initial release. Splits the two Catalyst-curated
+# ClusterIssuers (letsencrypt-dns01-prod, letsencrypt-http01-prod) OUT of
+# the bp-cert-manager umbrella chart into this standalone chart so they are
+# reconciled by a SEPARATE HelmRelease that dependsOn bp-cert-manager.
+#
+# Why the split (the race this closes)
+# ====================================
+# bp-cert-manager@<=1.2.5 shipped both ClusterIssuers as in-release Helm
+# post-install hooks (weight 5). The chart's crd-gate Job (weight -10)
+# correctly waits for the ClusterIssuer CRD to reach Established=True on the
+# apiserver, BUT helm-controller builds its in-process RESTMapper cache at
+# reconcile-START — before the ClusterIssuer CRD is registered — and does
+# NOT refresh it before the issuer hooks' `before-hook-creation` delete
+# policy (or the create path) runs. The kind is therefore unmapped in the
+# cached mapper and BOTH the delete-hook AND the create fail with:
+#   resource mapping not found for ... "ClusterIssuer" in "cert-manager.io/v1"
+#   no matches for kind "ClusterIssuer"
+# → InstallFailed → Flux remediates (uninstall) → infinite reinstall loop
+# (verified live on hw157). The crd-gate closes the apiserver-Established
+# race but NOT the helm-controller client RESTMapper-cache race.
+#
+# A SEPARATE HelmRelease gets a FRESH helm-controller reconcile (gated, via
+# dependsOn: bp-cert-manager, on cert-manager Ready). That fresh reconcile
+# builds a RESTMapper AFTER the cert-manager.io CRDs are registered, so the
+# ClusterIssuer kind maps and the CRs apply cleanly. The issuers ship here
+# as PLAIN manifests (no Helm hooks) — the hook machinery is exactly what
+# tripped the RESTMapper path, so dropping it is strictly safer. A
+# pre-install crd-gate (belt-and-suspenders) still asserts Established=True
+# before the manifests apply, covering the residual apiserver-async lag.
+#
+# Mirrors the bp-external-secrets ↔ bp-external-secrets-stores (slot 15/15a,
+# issue #331) and bp-crossplane ↔ bp-crossplane-claims (slot 04/14, PR #247)
+# CRD-ordering split shape: controller chart owns the operator + CRDs, a
+# separate chart owns the CRs, Flux dependsOn orders them.
+#
+# Keeps zero upstream subchart deps — the chart is pure Catalyst templates
+# applying CRs against the cert-manager-registered ClusterIssuer CRD.
+version: 1.0.0
+description: |
+  Catalyst-curated Blueprint chart for the default Let's Encrypt
+  ClusterIssuer CR(s) (letsencrypt-dns01-prod, letsencrypt-http01-prod).
+  Split from bp-cert-manager (issue #3734) to resolve the helm-controller
+  RESTMapper-cache CRD-ordering race: the ClusterIssuer CRs cannot live in
+  the same Helm release as the cert-manager subchart that registers their
+  CRD — helm-controller's RESTMapper is built before the CRD exists and the
+  hook apply fails with `no matches for kind "ClusterIssuer"`. A separate
+  HelmRelease (dependsOn bp-cert-manager) gets a fresh reconcile whose
+  RESTMapper includes the now-registered CRD, so the issuers apply cleanly.
+
+  Mirrors the bp-external-secrets-stores / bp-crossplane-claims split shape:
+  controller chart owns the operator + CRDs, this chart owns the CRs, Flux
+  dependsOn orders them. Keeps zero upstream subchart deps — pure Catalyst
+  templates applying CRs against the upstream-registered ClusterIssuer CRD.
+type: application
+keywords: [catalyst, blueprint, cert-manager, clusterissuer, letsencrypt, tls, acme]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+annotations:
+  catalyst.openova.io/no-upstream: "true"
+  catalyst.openova.io/depends-on: "bp-cert-manager"

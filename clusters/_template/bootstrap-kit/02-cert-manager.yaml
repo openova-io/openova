@@ -49,7 +49,10 @@ spec:
       # next-private-key informer-cache race that blocks Certificate
       # issuance on HCS provs (verified live hw54 15:07Z). Plus
       # CVE-2025-22871/22870/22872 fixes.
-      version: 1.2.5
+      # 1.2.6 (issue #3734): the two Catalyst ClusterIssuers split out to
+      # bp-cert-manager-issuers (slot 02a) to dodge the helm-controller
+      # RESTMapper-cache CRD-ordering race. crd-gate Job/RBAC stay here.
+      version: 1.2.6
       sourceRef:
         kind: HelmRepository
         name: bp-cert-manager
