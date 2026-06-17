@@ -39,7 +39,7 @@ metadata:
   # longer needs to colocate with vc-mgmt. Reverting also restores
   # the Helm valuesFrom lookup of secrets like 'object-storage'
   # (cloud-init seeds it in flux-system; lookup is in HR's own ns).
-  namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
     catalyst.openova.io/slot: "09"
     catalyst.openova.io/vcluster: mgmt
@@ -47,12 +47,6 @@ spec:
   interval: 15m
   releaseName: keycloak
   targetNamespace: keycloak
-  storageNamespace: keycloak
-  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
-  kubeConfig:
-    secretRef:
-      name: vc-mgmt
-      key: config
   # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
   dependsOn:
     # bp-mgmt-vcluster MUST be Ready first — the vc-mgmt
@@ -250,7 +244,6 @@ spec:
     # removed the whole block — chart renders NO HTTPRoute without
     # gateway.host (auth.<fqdn> 404'd live).
     gateway:
-      enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
       host: auth.${SOVEREIGN_FQDN}
     # ── Shared-instance flip (#3188 three-instance model) ───────────────
     # Default OWN_CLUSTER=true → the bundled bitnami postgresql subchart
@@ -295,43 +288,3 @@ spec:
         database: keycloak
         existingSecret: keycloak-database-secret
         existingSecretPasswordKey: password
-
-# ── HOST-BRIDGE BEGIN (#3642) — placement-generated host-side route/secret/CNPG; edit placement.yaml hostBridge: + run scripts/render-slot-placement.py fix ──
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: keycloak
-  namespace: mgmt
-  labels:
-    catalyst.openova.io/blueprint: bp-keycloak
-    catalyst.openova.io/component: keycloak
-    catalyst.openova.io/host-bridge: mgmt
-spec:
-  parentRefs:
-  - name: cilium-gateway
-    namespace: kube-system
-  hostnames:
-  - auth.${SOVEREIGN_FQDN}
-  rules:
-  - matches:
-    - path:
-        type: Exact
-        value: /
-    filters:
-    - type: RequestRedirect
-      requestRedirect:
-        port: 443
-        path:
-          type: ReplaceFullPath
-          replaceFullPath: /admin/${SOVEREIGN_REALM_NAME:=sovereign}/console/
-        statusCode: 302
-  - matches:
-    - path:
-        type: PathPrefix
-        value: /
-    backendRefs:
-    - name: keycloak-x-keycloak-x-mgmt-vcluster
-      namespace: mgmt
-      port: 80
-# ── HOST-BRIDGE END (#3642) ──
