@@ -62,6 +62,95 @@ func (s *Store) CreateProvision(ctx context.Context, p *Provision) error {
 	return nil
 }
 
+// inFlightProvisionStatuses are the provision states that count as "a
+// provision is already running for this tenant". A tenant may legitimately be
+// re-provisioned once a prior provision reaches a terminal state (completed /
+// failed), so the dedup index (EnsureProvisionIndexes) and CreateProvisionIfAbsent
+// only collide on these non-terminal states.
+var inFlightProvisionStatuses = []string{"pending", "provisioning", "running"}
+
+// EnsureProvisionIndexes creates the partial unique index on tenant_id that
+// backs the dedup guarantee in CreateProvisionIfAbsent. The marketplace
+// credit-covered checkout fires the provision-create entrypoint twice — once
+// via the NATS order.placed event and once via POST /provisioning/start (the
+// client deliberately does both as belt-and-suspenders, see CheckoutStep.svelte).
+// Without this guard both calls insert a provision + fork a workflow → two
+// concurrent commits to the same Gitea branch → a ref-lock race that marks the
+// tenant "failed" even though the Org CR + winning commit land (#3744).
+//
+// The index is PARTIAL (filtered to in-flight statuses) so a tenant can be
+// re-provisioned after a prior provision terminates. Safe to call at startup
+// every time — index creation is idempotent. Mirrors EnsureJobIndexes (#71).
+func (s *Store) EnsureProvisionIndexes(ctx context.Context) error {
+	model := mongo.IndexModel{
+		Keys: bson.D{{Key: "tenant_id", Value: 1}},
+		Options: options.Index().
+			SetUnique(true).
+			SetName("uniq_inflight_tenant").
+			SetPartialFilterExpression(bson.D{
+				{Key: "status", Value: bson.D{{Key: "$in", Value: inFlightProvisionStatuses}}},
+			}),
+	}
+	_, err := s.provisions().Indexes().CreateOne(ctx, model)
+	if err != nil {
+		return fmt.Errorf("store: ensure provision indexes: %w", err)
+	}
+	return nil
+}
+
+// ErrProvisionExists is returned by CreateProvisionIfAbsent when an in-flight
+// provision already exists for the tenant. Callers should treat this as "a
+// provision is already running for this tenant — skip this duplicate dispatch"
+// and surface the existing record via GetInFlightProvisionByTenant. See #3744.
+var ErrProvisionExists = fmt.Errorf("store: in-flight provision already exists for tenant")
+
+// CreateProvisionIfAbsent inserts a provision iff no in-flight provision exists
+// for the same tenant. Returns ErrProvisionExists when the partial unique index
+// (EnsureProvisionIndexes) rejects the insert (the first writer wins). This is
+// the create-path twin of CreateJobIfAbsent (#71) and the load-bearing fix for
+// the stranger-redeem self-race (#3744): whichever of the two checkout triggers
+// arrives second collides here and becomes a no-op instead of forking a second
+// workflow.
+func (s *Store) CreateProvisionIfAbsent(ctx context.Context, p *Provision) error {
+	if p.TenantID == "" {
+		return fmt.Errorf("store: CreateProvisionIfAbsent requires TenantID")
+	}
+	if p.ID == "" {
+		p.ID = uuid.New().String()
+	}
+	now := time.Now().UTC()
+	p.CreatedAt = now
+	p.UpdatedAt = now
+	_, err := s.provisions().InsertOne(ctx, p)
+	if err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return ErrProvisionExists
+		}
+		return fmt.Errorf("store: create provision if absent: %w", err)
+	}
+	return nil
+}
+
+// GetInFlightProvisionByTenant returns the most-recent in-flight provision for
+// a tenant, or (nil, nil) if none exists. Used by the dedup path to surface the
+// already-running provision to the loser of a CreateProvisionIfAbsent collision.
+func (s *Store) GetInFlightProvisionByTenant(ctx context.Context, tenantID string) (*Provision, error) {
+	var p Provision
+	filter := bson.D{
+		{Key: "tenant_id", Value: tenantID},
+		{Key: "status", Value: bson.D{{Key: "$in", Value: inFlightProvisionStatuses}}},
+	}
+	opts := options.FindOne().SetSort(bson.D{{Key: "created_at", Value: -1}})
+	err := s.provisions().FindOne(ctx, filter, opts).Decode(&p)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("store: get in-flight provision by tenant %s: %w", tenantID, err)
+	}
+	return &p, nil
+}
+
 // GetProvision returns a provision by ID.
 func (s *Store) GetProvision(ctx context.Context, id string) (*Provision, error) {
 	var p Provision

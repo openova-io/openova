@@ -11,8 +11,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	ghclient "github.com/openova-io/openova/core/services/provisioning/github"
 	"github.com/openova-io/openova/core/services/provisioning/gitguard"
+	ghclient "github.com/openova-io/openova/core/services/provisioning/github"
 	"github.com/openova-io/openova/core/services/provisioning/gitops"
 	"github.com/openova-io/openova/core/services/provisioning/handlers"
 	"github.com/openova-io/openova/core/services/provisioning/store"
@@ -150,8 +150,17 @@ func main() {
 		slog.Error("failed to create job indexes", "error", err)
 		os.Exit(1)
 	}
+	// Ensure the partial unique index on (tenant_id, in-flight status) backing
+	// the provision-dedup guarantee (#3744) so a credit-covered checkout that
+	// fires the create entrypoint twice (event + HTTP) can't race itself into a
+	// failed tenant via a duplicate Gitea commit.
+	if err := provisionStore.EnsureProvisionIndexes(idxCtx); err != nil {
+		idxCancel()
+		slog.Error("failed to create provision indexes", "error", err)
+		os.Exit(1)
+	}
 	idxCancel()
-	slog.Info("provisioning job indexes ensured")
+	slog.Info("provisioning job + provision indexes ensured")
 	generator := gitops.NewManifestGenerator(gitBasePath)
 
 	// ── Git host coordinates (issue #940) ────────────────────────────

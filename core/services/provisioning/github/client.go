@@ -499,7 +499,13 @@ func (c *Client) ensureBranchExists(ctx context.Context, branch string) error {
 // "not a fast forward" signal the GitHub Git Data path uses, so the outer
 // retry loop in CommitFilesWithPruneAndRebuild treats both equivalently.
 // Gitea returns 409 Conflict or 422 with a body containing phrases like
-// "branch has been changed" / "stale base" / "ref has been updated".
+// "branch has been changed" / "stale base" / "ref has been updated". It can
+// ALSO surface a concurrent-commit collision as an HTTP 500 whose body carries
+// the raw git push rejection — "PushRejected ... cannot lock ref
+// 'refs/heads/<branch>': is at X but expected Y ... failed to update ref"
+// (observed on hw158, #3744). That wording is matched here too so the outer
+// rebuild loop re-fetches the branch head and retries against fresh HEAD
+// instead of classifying the loser of a genuine concurrent commit as fatal.
 func isGiteaRefRaceError(err error) bool {
 	if err == nil {
 		return false
@@ -509,7 +515,11 @@ func isGiteaRefRaceError(err error) bool {
 		strings.Contains(s, "branch has been changed") ||
 		strings.Contains(s, "stale base") ||
 		strings.Contains(s, "ref has been updated") ||
-		strings.Contains(s, "not a fast forward")
+		strings.Contains(s, "not a fast forward") ||
+		strings.Contains(s, "cannot lock ref") ||
+		strings.Contains(s, "failed to update ref") ||
+		strings.Contains(s, "PushRejected") ||
+		strings.Contains(s, "but expected")
 }
 
 // getContentSHA returns the blob SHA of `path` at `branch`, or "" if the
