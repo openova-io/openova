@@ -85,4 +85,28 @@ if echo "$route_block_override" | grep -q "openbao.smoke.omani.works"; then
 fi
 echo "[bp-openbao] Case 4: PASS"
 
+# ── Case 5: bootstrap Application CR placement is canonical ────────────
+# #3375 / #3768 / #3786 — ONE canonical vocabulary on the wire. When the
+# bootstrap-kit slot opts the chart into self-registering its Application
+# CR (bootstrapOwned.enabled=true), spec.placement MUST emit the canonical
+# token `singleton` — the read path (endpoint_handler.go readTopology)
+# serves it VERBATIM to the Topology tab + the Instances-table chip, so the
+# banned legacy `single-region` spelling would render raw to the operator
+# (exactly the hw159 #3375 finding).
+echo "[bp-openbao] Case 5: bootstrap Application CR placement is canonical 'singleton'"
+appcr=$("$helm" template smoke "$chart_dir" \
+        --set bootstrapOwned.enabled=true \
+        --set bootstrapOwned.helmRelease.name=bp-openbao \
+        --api-versions apps.openova.io/v1 2>&1)
+if ! echo "$appcr" | grep -qE '^  placement: singleton$'; then
+  echo "FAIL: Application CR placement must be canonical 'singleton' (not banned 'single-region')"
+  echo "$appcr" | grep -E '^  placement:' || true
+  exit 1
+fi
+if echo "$appcr" | grep -qE '^  placement: single-region$'; then
+  echo "FAIL: #3375 REGRESSION — Application CR re-introduced the banned 'single-region' placement"
+  exit 1
+fi
+echo "[bp-openbao] Case 5: PASS"
+
 echo "[bp-openbao] All HTTPRoute render cases PASS"

@@ -61,7 +61,13 @@ type: application
 # Application CR for the slot-25 HelmRelease (gated bootstrapOwned.enabled
 # + Capabilities apps.openova.io/v1) so the console /apps list, per-app
 # Topology tab + showback resolve grafana (no more "no Application CR").
-version: 1.0.15
+# 1.0.16 (#3375 / #3786, 2026-06-18): the bootstrap-owned Application CR's
+# spec.placement now emits the CANONICAL token `singleton` (overridable via
+# bootstrapOwned.placement) instead of the banned legacy `single-region`.
+# readTopology serves spec.placement VERBATIM to the Topology tab + the
+# Instances-table chip, so the legacy spelling leaked the banned word to the
+# operator (hw159 #3375).
+version: 1.0.16
 appVersion: "12.3.1"
 # 1.0.14 (#3374, 2026-06-14): raise the sidecar memory limit 64Mi → 192Mi
 # (request 32Mi → 64Mi). The 1.0.13 limit was too low for the

@@ -34,7 +34,13 @@ name: bp-valkey
 #   regions so it admits under BOTH the pre-#3370 CRD (hard-required) and the
 #   #3370 CRD (CEL-waived) — breaks the live upgrade-rollback deadlock that
 #   blocked keycloak->gitea->catalyst-platform on hw130.
-version: 1.1.2
+# 1.1.3 (#3375 / #3786, 2026-06-18): the bootstrap-owned Application CR's
+# spec.placement now emits the CANONICAL token `singleton` (overridable via
+# bootstrapOwned.placement) instead of the banned legacy `single-region`.
+# readTopology serves spec.placement VERBATIM to the Topology tab + the
+# Instances-table chip, so the legacy spelling leaked the banned word to the
+# operator (hw159 #3375).
+version: 1.1.3
 description: |
   Catalyst-curated Blueprint umbrella chart for Valkey (Redis-compatible
   cache, BSD-3). Depends on the upstream `valkey` chart (Bitnami) as a

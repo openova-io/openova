@@ -60,7 +60,16 @@ spec:
   blueprintRef:
     name: {{ .Chart.Name }}
     version: {{ .Chart.Version | quote }}
-  placement: single-region
+  {{- /* ONE canonical placement vocabulary (#3375 DoD-1, #3768/#3786 follow-up):
+       emit the canonical token (default `singleton`) — NOT the banned legacy
+       dialect `single-region`. The read path (endpoint_handler.go readTopology)
+       serves spec.placement VERBATIM to the Topology tab + the Instances-table
+       chip with no canonicalisation, so a legacy spelling here renders the banned
+       word straight to the operator (the hw159 #3375 finding). This is a leaf
+       bootstrap app installed as one copy → singleton is the truthful effective
+       mode; the value is overridable so a future slot can place it otherwise
+       without re-introducing a banned literal. */}}
+  placement: {{ .Values.bootstrapOwned.placement | default "singleton" }}
   {{- with .Values.bootstrapOwned.helmRelease }}
   helmRelease:
     name: {{ .name | quote }}
