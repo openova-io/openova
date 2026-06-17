@@ -1,5 +1,13 @@
 # Catalog is a SINGLE-source IaC commit — UAT walk (web UI + git + kubectl)
 
+## Status — last re-verified live: hw158 (2026-06-17) — 🟢 IaC spine FIXED (PR #3749), awaiting chart-roll re-walk
+
+- **The IaC-spine FAIL the hw158 walk found is fixed in PR #3749 and verified LIVE on hw158** (chart-side; not yet merged — re-walk after the chart roll). The earlier verdict was ❌ FAIL because a console edit committed to Gitea but the `catalog-sovereign` Flux source could not authenticate, so the commit never reached the Blueprint CR (`spec.card.summary` stayed empty). Root cause was **NOT** the write-path (which already commits the full CR to `openova/openova@catalog-sovereign` via `writeCatalogSovereignAggregator`) — it was the Flux source auth:
+  - **(a)** PR #3710 landed the four `catalog-sovereign-flux/*` templates but dropped the `catalogSovereign` values block → the GitRepository rendered with **no secretRef** → anonymous clone → 401. Fixed by adding `catalogSovereign.{gitRepository,repoBootstrap}` to `products/catalyst/chart/values.yaml`.
+  - **(b)** Both Flux auth Secrets (`openova-catalog-sovereign-git-auth` + `openova-sme-tenants-git-auth`) were never created — their lookup-based templates read `catalyst-gitea-token` at Helm **render** time (before the pre-install PAT mint), so the lookup was empty. Fixed by a `post-install/post-upgrade` hook Job (`catalog-sovereign-flux/gitea-flux-auth-secrets-sync-job.yaml`) that reads the runtime-minted PAT via `secretKeyRef` and applies both Secrets.
+- **Live proof on hw158 (auth fix applied by hand to the running env to prove it):** `gitrepository/openova-catalog-sovereign` → **READY=True**; `kustomization/catalog-sovereign` → **READY=True**; a catalog-sovereign aggregator commit drove `bp-alloy` `spec.card.summary` from empty → populated, with the CR **Flux-adopted** (`kustomize.toolkit.fluxcd.io/name=catalog-sovereign`) and `spec.source`/`manifests` surviving (not a lossy stub). The verify-edit was reverted; the fix lands zero-touch on a fresh prov / chart roll.
+- **Still to re-walk on the merged chart:** §1 (icon render), §2 (`committed:true`/`false` envelope surfaced), §3 (full-CR seed), §4 (Edit-IaC), §6/§7 (per-field editors + icon picker) — the editor UI itself was already built (#3713/#3710); this PR unblocks the path it writes to.
+
 > **Ticket:** [#3668](https://github.com/openova-io/openova/issues/3668) · folds #3657 #3672 #3676 #3682 · **Train:** next
 >
 > **What this proves (the slices shipped in this PR):**

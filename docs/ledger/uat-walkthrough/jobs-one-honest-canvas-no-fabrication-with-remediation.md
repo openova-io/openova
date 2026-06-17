@@ -1,5 +1,10 @@
 # UAT Walkthrough — #3646 Jobs: one honest canvas, no fabrication, with remediation
 
+## Status — last re-verified: hw158 (2026-06-17) — 🟢 Re-run 404 FIXED (PR #3749), awaiting chart-roll re-walk
+
+- **The /jobs Re-run 404 the hw158 walk found is fixed in PR #3749** (FE one-liner; not yet merged). The Flux-native Re-run **backend is correct** — `POST /api/v1/deployments/<id>/jobs/<jobName>/retry` with the bare name → 200, and the store accepts either the composite id or the bare name. The button 404'd because the FE passed the **composite** `job.id` (`<depId>:<jobName>`), which `RetryJobButton` `encodeURIComponent`-encodes → the `:` becomes `%3A` → Traefik 404s on the encoded colon. `JobsTable.tsx:799` now passes the **bare** `job.jobName`; a regression test pins `jobs-retry-<jobName>` present / composite-id testid absent (55 JobsTable + RetryJobButton tests green).
+- **Re-walk on the merged chart:** rows 8–11 (Retry reconcile → annotation; Run now; 403 non-operator) — the row that 404'd is row 8 (`Retry reconcile`).
+
 **Ticket:** #3646 — *JOBS one honest `/jobs` canvas: a GENERIC source-bridge projects HelmReleases + the 11-step cutover + DR-switchover + recurring/child/reconciler activities with `dependsOn` edges; status is NEVER ahead of reality; NO fabricated Succeeded; per-row remediation (retry / run-now / re-submit).*
 
 **Branch:** `feat/3646-jobs-one-honest-canvas` (PR open against `main`, `Refs #3646`, NOT merged).
