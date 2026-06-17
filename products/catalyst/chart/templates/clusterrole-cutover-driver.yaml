@@ -195,6 +195,37 @@ rules:
     verbs: ["get", "list", "watch"]
 
   # ───────────────────────────────────────────────────────────────
+  # §5a GENERIC RECONCILER INGESTION (issue #3646) — the honest /jobs
+  # canvas reader (internal/helmwatch/reconcilers.go
+  # ListReconcilerObservations) lists EVERY non-install reconciler GVR
+  # via this same in-cluster SA so a failing recurring activity surfaces
+  # RED while its install row stays green. Two of the four GVRs it lists
+  # were UNREADABLE by this SA:
+  #
+  #   - batch/cronjobs had only update/patch/delete/create (the §5c
+  #     "Run now" remediation verbs) — NO get/list/watch. So
+  #     dyn.Resource(CronJobGVR).List() returned a 403, the reader's
+  #     `if err == nil` guard skipped the whole CronJob pass, and ZERO
+  #     cron-kind rows ever appeared. A real Failed openbao-snapshot-save
+  #     CronJob was INVISIBLE on the hw158 #3646 walk — the exact
+  #     "invisible failing class" the canvas exists to kill.
+  #   - kustomize.toolkit.fluxcd.io/kustomizations had no rule at all, so
+  #     Flux Kustomization reconcile-<name> leaves never surfaced either.
+  #
+  # batch/jobs + apps/deployments are already granted get/list/watch
+  # above (that is why task-<name> + reconciler-<name> rows DO render),
+  # so only these two read grants were missing. Read-only verbs — the
+  # reader only OBSERVES; the §5c retry path's create/patch on cronjobs
+  # stays in its own rule above (feedback_rbac_create_no_resourcenames).
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["get", "list", "watch"]
+
+  # ───────────────────────────────────────────────────────────────
   # USER ACCESS CRD — backs /users on the chroot Sovereign Console.
   # The mother-side handlers (ListUserAccess, CreateUserAccess,
   # UpdateUserAccess, DeleteUserAccess) read/write the

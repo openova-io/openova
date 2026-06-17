@@ -169,7 +169,19 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 
 	// (2) CronJobs → cron-<name>; status + per-run Executions from the
 	// owned spawned Jobs (collected in pass 3's index below).
-	cronObs := map[string]*ReconcilerObservation{} // ns/name → obs
+	//
+	// The cron observations are appended to `out` HERE (so the documented
+	// kind order kustomizations→cronjobs→jobs→deployments holds), and the
+	// map indexes them by their POSITION in `out`, never by a cached
+	// pointer: pass 3 appends task/install-hook rows to `out`, which can
+	// reallocate the backing array — a cached &out[i] pointer would then
+	// dangle into the stale array and the failed-run status refinement
+	// below would be silently dropped (a Failed openbao-snapshot-save would
+	// read as the optimistic "pending" default → the exact "invisible
+	// failing class" #3646 forbids). An index is stable across reallocation
+	// because pass 3 only ever appends AFTER the cron rows, so out[idx]
+	// always addresses the same logical element in the current array.
+	cronIdx := map[string]int{} // ns/name → index into out
 	if list, err := dyn.Resource(CronJobGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
 		for i := range list.Items {
 			u := &list.Items[i]
@@ -184,7 +196,7 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 			}
 			key := u.GetNamespace() + "/" + u.GetName()
 			out = append(out, obs)
-			cronObs[key] = &out[len(out)-1]
+			cronIdx[key] = len(out) - 1
 		}
 	}
 
@@ -197,9 +209,13 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 			u := &list.Items[i]
 			status, started, finished := jobRunStatus(u)
 			if cronName, ok := cronJobOwnerName(u); ok {
-				// Attach as an Execution under the owning cron leaf.
+				// Attach as an Execution under the owning cron leaf. Mutate
+				// through the index (out[idx]) so the write always lands on
+				// the live backing array even after earlier appends in this
+				// pass reallocated `out`.
 				key := u.GetNamespace() + "/" + cronName
-				if c := cronObs[key]; c != nil {
+				if idx, ok := cronIdx[key]; ok {
+					c := &out[idx]
 					c.Executions = append(c.Executions, ReconcilerExecution{
 						Name:       u.GetName(),
 						Status:     status,
@@ -207,11 +223,22 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 						FinishedAt: finished,
 						Message:    "run " + u.GetName() + ": " + status,
 					})
-					// The cron leaf's own status reflects its latest run.
-					c.Status = status
-					c.Message = "last run " + u.GetName() + ": " + status
-					if !finished.IsZero() {
-						c.ObservedAt = finished
+					// The cron leaf's headline status reflects its MOST RECENT
+					// run, not list order (the apiserver returns owned Jobs in
+					// no guaranteed chronological order, so a stale Succeeded
+					// run arriving after a fresh Failed one must not overwrite
+					// the failure — that would re-introduce the silent-green
+					// the §5a ingestion exists to kill). Recency = the run's
+					// finish time, falling back to its start for an in-flight
+					// run. The first owned run always wins (default ObservedAt
+					// is zero); later runs override only when strictly newer.
+					runAt := firstNonZero(finished, started)
+					if c.ObservedAt.IsZero() || runAt.IsZero() || !runAt.Before(c.ObservedAt) {
+						c.Status = status
+						c.Message = "last run " + u.GetName() + ": " + status
+						if !runAt.IsZero() {
+							c.ObservedAt = runAt
+						}
 					}
 				}
 				continue
