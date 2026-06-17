@@ -175,7 +175,7 @@ spec:
       # chart renders the canonical apps.openova.io/v1 Application CR for
       # this slot's HelmRelease so the console /apps list, per-app Topology
       # tab + showback resolve guacamole (no more "no Application CR").
-      version: 0.2.22
+      version: 0.2.23
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
