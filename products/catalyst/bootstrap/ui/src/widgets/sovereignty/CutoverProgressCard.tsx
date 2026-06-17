@@ -231,7 +231,7 @@ export function CutoverProgressCard({
             {failed
               ? 'Cutover halted on a failed step. Review the error and re-trigger after the underlying issue is fixed.'
               : status.state === 'sovereign'
-                ? 'All 8 steps completed.'
+                ? `All ${CUTOVER_STEPS.length} steps completed.`
                 : `Step ${doneCount} of ${CUTOVER_STEPS.length} complete — the operator is not required to keep this tab open.`}
           </p>
         </div>

@@ -98,10 +98,25 @@ export interface CutoverStepDef {
 }
 
 /**
- * Wire-level step identifier — matches the JobTemplate ConfigMap key
- * names installed by the bp-self-sovereign-cutover chart and the
- * `step` field on the `CutoverStepStatus` payload from
- * GET /sovereign/cutover/status.
+ * Wire-level step identifier — matches the `stepName` data key + the
+ * `bp.openova.io/cutover-order` label on each step ConfigMap installed
+ * by the bp-self-sovereign-cutover chart, and the `name` field on the
+ * per-step record the catalyst-api `/sovereign/cutover/status` endpoint
+ * emits (`cutoverStepStatus.Name` in api/internal/handler/cutover.go).
+ *
+ * #3379 (hw159, 2026-06-18): the canonical chain GREW from 8 → 11. The
+ * api handler header documents this drift verbatim ("the step count has
+ * drifted (8→11) as gitea-token-mint / vcluster-registry-pivot /
+ * crossplane-provider-pivot were appended"). The chart templates are the
+ * ground truth — verified against
+ * platform/self-sovereign-cutover/chart/templates/*.yaml:
+ *   01 gitea-mirror · 02 harbor-projects · 03 harbor-prewarm ·
+ *   04 registry-pivot · 05 flux-gitrepository-patch ·
+ *   06 helmrepository-patches · 07 catalyst-api-env-patch ·
+ *   08 egress-block-test · 09 gitea-token-mint ·
+ *   10 vcluster-registry-pivot · 11 crossplane-provider-pivot
+ * NOTE the slug is `helmrepository-patches` (NOT the prior `helmrepo-patches`)
+ * — the old FE id never matched the chart, so that row could never light up.
  */
 export type CutoverStepID =
   | 'gitea-mirror'
@@ -109,9 +124,12 @@ export type CutoverStepID =
   | 'harbor-prewarm'
   | 'registry-pivot'
   | 'flux-gitrepository-patch'
-  | 'helmrepo-patches'
+  | 'helmrepository-patches'
   | 'catalyst-api-env-patch'
   | 'egress-block-test'
+  | 'gitea-token-mint'
+  | 'vcluster-registry-pivot'
+  | 'crossplane-provider-pivot'
 
 /**
  * Per-step status the SSE stream + `/status` endpoint emit.
@@ -128,9 +146,13 @@ export type CutoverStepID =
 export type CutoverStepStatus = 'pending' | 'running' | 'done' | 'failed'
 
 /**
- * The canonical, ordered 8-step list. ANY code path that needs to
+ * The canonical, ordered 11-step list. ANY code path that needs to
  * iterate the chain (UI rendering, reducer initialisation, e2e) MUST
  * read from this list — adding or removing a step ripples here once.
+ *
+ * Order + ids mirror the chart's `bp.openova.io/cutover-order` labels
+ * (platform/self-sovereign-cutover/chart/templates/NN-*.yaml). The
+ * catalyst-api engine discovers + executes them in this exact sequence.
  */
 export const CUTOVER_STEPS: readonly CutoverStepDef[] = [
   {
@@ -159,7 +181,8 @@ export const CUTOVER_STEPS: readonly CutoverStepDef[] = [
     label: 'Pivot containerd registries',
     description:
       'Hot-reload registries.yaml on every node from harbor.openova.io ' +
-      'to harbor.<sovereign-fqdn> via a DaemonSet sentinel.',
+      'to harbor.<sovereign-fqdn> via a DaemonSet sentinel; each node ' +
+      'acks the v2 (local Harbor) rewrite.',
   },
   {
     id: 'flux-gitrepository-patch',
@@ -169,8 +192,8 @@ export const CUTOVER_STEPS: readonly CutoverStepDef[] = [
       'the local Gitea HTTP service. Flux reconciles from local Git.',
   },
   {
-    id: 'helmrepo-patches',
-    label: 'Repoint 38 HelmRepositories',
+    id: 'helmrepository-patches',
+    label: 'Repoint HelmRepositories',
     description:
       'Patch every oci://ghcr.io/openova-io HelmRepository to ' +
       'oci://harbor.<sovereign-fqdn>/openova-io.',
@@ -189,6 +212,27 @@ export const CUTOVER_STEPS: readonly CutoverStepDef[] = [
       'Apply a NetworkPolicy denying egress to github.com + ghcr.io + ' +
       'harbor.openova.io for 10 minutes; assert all reconciles stay green.',
   },
+  {
+    id: 'gitea-token-mint',
+    label: 'Mint local Gitea token',
+    description:
+      'Mint a long-lived Gitea API token so the host GitOps loop + the ' +
+      'mirror-resync CronJob authenticate against local Gitea after cutover.',
+  },
+  {
+    id: 'vcluster-registry-pivot',
+    label: 'Pivot vCluster registries',
+    description:
+      'Repoint every tenant vCluster’s containerd + pull secrets at the ' +
+      'local Harbor so Organization workloads stop pulling from ghcr.io.',
+  },
+  {
+    id: 'crossplane-provider-pivot',
+    label: 'Pivot Crossplane providers',
+    description:
+      'Rewrite Crossplane provider + function package refs from upstream ' +
+      'registries to the local Harbor proxy projects.',
+  },
 ] as const
 
 export const CUTOVER_STEP_COUNT = CUTOVER_STEPS.length
@@ -201,15 +245,88 @@ export function isCutoverStepID(s: unknown): s is CutoverStepID {
   return typeof s === 'string' && CUTOVER_STEP_IDS.has(s)
 }
 
+/**
+ * Map the catalyst-api's native per-step `result` string onto the UI's
+ * `CutoverStepStatus`. This is the seam that was MISSING — the live
+ * `/sovereign/cutover/status` endpoint emits `steps[].result`
+ * (`cutoverStepStatus.Result` in api/internal/handler/cutover.go), NOT
+ * `steps[].status`, and its vocabulary is the ENGINE's, not the UI's:
+ *
+ *   • "success" → done      (the engine writes step.<n>.result=success)
+ *   • "skipped" → done      (already-succeeded step on a resume)
+ *   • "running" → running   (the projected-Job in-flight value)
+ *   • "failed"  → failed
+ *   • ""/absent → pending   (no per-step row written yet)
+ *
+ * Without this mapping every step record off the wire was dropped by the
+ * `status !== 'done' …` filter, so the progress card rendered 8 (now 11)
+ * permanently-pending rows even on a fully-completed cutover — the
+ * GAP-missing-ui the hw159 walk recorded.
+ *
+ * Returns `null` for an unrecognised value so the caller can drop the
+ * record (forward-compat with a future engine result string).
+ */
+export function cutoverResultToStatus(result: unknown): CutoverStepStatus | null {
+  switch (result) {
+    case 'success':
+    case 'skipped':
+      return 'done'
+    case 'running':
+      return 'running'
+    case 'failed':
+      return 'failed'
+    case '':
+    case undefined:
+    case null:
+      return 'pending'
+    default:
+      return null
+  }
+}
+
+/**
+ * Resolve a per-step status from a wire record that may carry EITHER the
+ * UI vocabulary (`status: 'done'`) OR the engine vocabulary
+ * (`result: 'success'`). The live catalyst-api uses `result`; the older
+ * fixtures + the SSE-derived records use `status`. Prefer an explicit,
+ * valid `status`; otherwise fall back to mapping `result`. Returns null
+ * if neither yields a recognised status (record is then dropped).
+ */
+function resolveStepStatus(rec: Record<string, unknown>): CutoverStepStatus | null {
+  const s = rec.status
+  if (s === 'pending' || s === 'running' || s === 'done' || s === 'failed') {
+    return s
+  }
+  // Only fall back to result-mapping when status is absent — an explicit
+  // but unknown status string is a malformed record and must be dropped
+  // (preserves the existing "drops malformed status values" contract).
+  if (s === undefined || s === null) {
+    return cutoverResultToStatus(rec.result)
+  }
+  return null
+}
+
+/**
+ * Resolve the per-step wire id from a record that may carry EITHER `step`
+ * (UI/SSE vocabulary) OR `name` (the live `/status` endpoint's
+ * `cutoverStepStatus.Name`). Returns the branded id or null.
+ */
+function resolveStepID(rec: Record<string, unknown>): CutoverStepID | null {
+  if (isCutoverStepID(rec.step)) return rec.step
+  if (isCutoverStepID(rec.name)) return rec.name
+  return null
+}
+
 /* ────────────────────────────────────────────────────────────────
  * 3. Wire shapes from /sovereign/cutover/{status,events}
  * ────────────────────────────────────────────────────────────── */
 
 /**
- * Per-step record returned in `CutoverStatus.steps[]` and emitted on
- * the SSE stream as `event: cutover-step` (or, for the terminal frame,
- * folded into the `cutover-status` payload). Timestamps are RFC 3339
- * UTC strings.
+ * Per-step record returned in `CutoverStatus.steps[]`. The catalyst-api
+ * GET /status response carries each step as `{name, result, …}` (the
+ * engine vocabulary) and the SSE stream signals transitions via the
+ * `cutover-step-started/finished/failed` event NAMES; both are adapted
+ * onto this normalized record. Timestamps are RFC 3339 UTC strings.
  */
 export interface CutoverStepStatusRecord {
   /** The wire step id; the parser drops records with unknown ids. */
@@ -300,49 +417,114 @@ export function parseCutoverStatus(input: unknown): CutoverStatus {
     typeof raw.cutoverComplete === 'boolean'
       ? raw.cutoverComplete
       : state === 'sovereign'
+  // The top-level failed-step + error live on the status ConfigMap as
+  // `failedStep` / `lastError` (NOT on the per-step record) — the engine
+  // writes them in patchCutoverStatus when a step fails. Fold lastError
+  // onto the matching step's `message` so the progress card's red error
+  // row lights up off the live wire shape (it reads rec.message).
+  const failedStep =
+    typeof raw.failedStep === 'string' && raw.failedStep !== ''
+      ? raw.failedStep
+      : undefined
+  const lastError =
+    typeof raw.lastError === 'string' && raw.lastError !== ''
+      ? raw.lastError
+      : undefined
+
   const stepsRaw = Array.isArray(raw.steps) ? raw.steps : []
   const steps: CutoverStepStatusRecord[] = []
   for (const r of stepsRaw) {
     if (r === null || typeof r !== 'object') continue
     const rec = r as Record<string, unknown>
-    if (!isCutoverStepID(rec.step)) continue
-    const status = rec.status
-    if (
-      status !== 'pending' &&
-      status !== 'running' &&
-      status !== 'done' &&
-      status !== 'failed'
-    )
-      continue
+    const id = resolveStepID(rec)
+    if (id === null) continue
+    const status = resolveStepStatus(rec)
+    if (status === null) continue
+    // Per-step message wins; otherwise inherit the top-level lastError
+    // when THIS is the failed step the engine flagged.
+    let message =
+      typeof rec.message === 'string' && rec.message !== ''
+        ? rec.message
+        : undefined
+    if (message === undefined && status === 'failed' && id === failedStep) {
+      message = lastError
+    }
     steps.push({
-      step: rec.step,
+      step: id,
       status,
       startedAt: typeof rec.startedAt === 'string' ? rec.startedAt : undefined,
       finishedAt:
         typeof rec.finishedAt === 'string' ? rec.finishedAt : undefined,
-      message: typeof rec.message === 'string' ? rec.message : undefined,
+      message,
     })
   }
+  // Timestamps: prefer the legacy/typed `startedAt`/`finishedAt`, fall
+  // back to the live catalyst-api field names (`cutoverStartedAt` /
+  // `cutoverFinishedAt` — see cutoverStatusResponse in cutover.go).
+  const startedAt = firstString(raw.startedAt, raw.cutoverStartedAt)
+  const finishedAt = firstString(raw.finishedAt, raw.cutoverFinishedAt)
+
+  // egressTestPassed: the live backend does NOT emit a typed boolean; the
+  // proof is the `egress-block-test` step reaching result=success. Prefer
+  // an explicit boolean (forward-compat) then derive from that step.
+  let egressTestPassed: boolean | undefined
+  if (typeof raw.egressTestPassed === 'boolean') {
+    egressTestPassed = raw.egressTestPassed
+  } else {
+    const egressStep = steps.find((s) => s.step === 'egress-block-test')
+    if (egressStep) {
+      if (egressStep.status === 'done') egressTestPassed = true
+      else if (egressStep.status === 'failed') egressTestPassed = false
+    }
+  }
+
   return {
     state,
     cutoverComplete,
-    startedAt: typeof raw.startedAt === 'string' ? raw.startedAt : undefined,
-    finishedAt: typeof raw.finishedAt === 'string' ? raw.finishedAt : undefined,
+    startedAt,
+    finishedAt,
     steps,
-    mirroredCommitSHA:
-      typeof raw.mirroredCommitSHA === 'string'
-        ? raw.mirroredCommitSHA
-        : undefined,
-    harborProjectCount:
-      typeof raw.harborProjectCount === 'number'
-        ? raw.harborProjectCount
-        : undefined,
-    egressTestPassed:
-      typeof raw.egressTestPassed === 'boolean'
-        ? raw.egressTestPassed
-        : undefined,
-    error: typeof raw.error === 'string' ? raw.error : undefined,
+    // Summary fields are optional on the live wire (they live under the
+    // status ConfigMap's free-form keys, surfaced via `raw`). Read the
+    // typed top-level value first, then fall back to the raw key.
+    mirroredCommitSHA: firstString(raw.mirroredCommitSHA, rawKey(raw, 'mirroredCommitSHA')),
+    harborProjectCount: firstNumber(raw.harborProjectCount, rawKey(raw, 'harborProjectCount')),
+    egressTestPassed,
+    error: firstString(raw.error, raw.lastError),
   }
+}
+
+/** First argument that is a non-empty string, else undefined. */
+function firstString(...vals: unknown[]): string | undefined {
+  for (const v of vals) {
+    if (typeof v === 'string' && v !== '') return v
+  }
+  return undefined
+}
+
+/**
+ * First argument coercible to a number, else undefined. Accepts a real
+ * number or a numeric string (the status ConfigMap stores everything as
+ * strings, so `raw.harborProjectCount` arrives as e.g. "7").
+ */
+function firstNumber(...vals: unknown[]): number | undefined {
+  for (const v of vals) {
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+    if (typeof v === 'string' && v.trim() !== '') {
+      const n = Number(v)
+      if (Number.isFinite(n)) return n
+    }
+  }
+  return undefined
+}
+
+/** Read a key off the optional `raw` string-map the backend nests under `raw`. */
+function rawKey(obj: Record<string, unknown>, key: string): unknown {
+  const r = obj.raw
+  if (r !== null && typeof r === 'object') {
+    return (r as Record<string, unknown>)[key]
+  }
+  return undefined
 }
 
 /**
@@ -364,7 +546,8 @@ export function buildInitialCutoverStatus(): CutoverStatus {
 
 /**
  * Merge a per-step update onto an existing status snapshot. Used by
- * the SSE reducer when it receives `event: cutover-step` frames.
+ * the SSE reducer when it receives `cutover-step-started/finished/failed`
+ * frames.
  *
  * Idempotent: an update for a step that already has the same status +
  * timestamps returns the input unchanged so React's state-equality
@@ -372,9 +555,9 @@ export function buildInitialCutoverStatus(): CutoverStatus {
  *
  * Append-on-miss: a wire snapshot from POST /start may carry only the
  * currently-running step (e.g. just `gitea-mirror`); subsequent SSE
- * `cutover-step` frames for steps that aren't present yet must be
- * APPENDED, not silently dropped. Otherwise the progress card never
- * reflects steps 2..8 because the reducer's map() never sees them.
+ * step frames for steps that aren't present yet must be APPENDED, not
+ * silently dropped. Otherwise the progress card never reflects later
+ * steps because the reducer's map() never sees them.
  */
 export function applyCutoverStepUpdate(
   prev: CutoverStatus,
@@ -402,4 +585,57 @@ export function applyCutoverStepUpdate(
   }
   if (!changed) return prev
   return { ...prev, steps: nextSteps }
+}
+
+/**
+ * Parse the FLAT status-ConfigMap map (`Record<string, string>`) that the
+ * catalyst-api SSE `cutover-status` snapshot frame carries.
+ *
+ * The SSE channel's terminal/replay snapshot is NOT a `CutoverStatus`
+ * object — `HandleCutoverEvents` JSON-encodes the raw status ConfigMap
+ * (`readCutoverStatus` → `map[string]string`) into the event `message`.
+ * That map has NO `steps` array; the per-step rows are flat keys:
+ *   step.<stepName>.result      "success" | "failed" | "running" | ""
+ *   step.<stepName>.startedAt    RFC3339
+ *   step.<stepName>.finishedAt   RFC3339
+ *   step.<stepName>.jobName
+ * plus top-level cutoverComplete / failedStep / lastError / etc.
+ *
+ * We reconstruct a `steps` array (exactly as the backend's
+ * buildCutoverStatusResponseFromMap does for the GET /status response) and
+ * delegate to `parseCutoverStatus`, so the SSE snapshot and the GET
+ * snapshot converge on one validated shape.
+ *
+ * Returns null if `input` is not a flat string-map (caller then ignores
+ * the frame rather than crashing the stream).
+ */
+export function parseCutoverStatusConfigMap(input: unknown): CutoverStatus | null {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    return null
+  }
+  const m = input as Record<string, unknown>
+  // Collect step names from the `step.<name>.<field>` keys.
+  const stepNames = new Set<string>()
+  for (const k of Object.keys(m)) {
+    if (!k.startsWith('step.')) continue
+    const rest = k.slice('step.'.length)
+    const dot = rest.lastIndexOf('.')
+    if (dot <= 0) continue
+    stepNames.add(rest.slice(0, dot))
+  }
+  const steps = [...stepNames].map((name) => ({
+    name,
+    result: m[`step.${name}.result`],
+    startedAt: m[`step.${name}.startedAt`],
+    finishedAt: m[`step.${name}.finishedAt`],
+    jobName: m[`step.${name}.jobName`],
+  }))
+  // Hand the reconstructed object to the single validated parser. The
+  // flat map's `state` key may be absent — parseCutoverStatus derives it
+  // from cutoverComplete, which IS present on the status ConfigMap.
+  return parseCutoverStatus({
+    ...m,
+    cutoverComplete: m.cutoverComplete === 'true' || m.cutoverComplete === true,
+    steps,
+  })
 }

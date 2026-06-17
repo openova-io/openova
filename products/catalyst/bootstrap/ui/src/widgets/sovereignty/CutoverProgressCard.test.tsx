@@ -48,7 +48,7 @@ describe('CutoverProgressCard — mid-flight progress', () => {
         { step: 'harbor-prewarm', status: 'running' },
       ],
     })
-    // Padding pending so the card renders 8 rows.
+    // Padding pending so the card renders all canonical rows.
     const merged: CutoverStatus = {
       ...status,
       steps: CUTOVER_STEPS.map((s) =>
@@ -59,9 +59,10 @@ describe('CutoverProgressCard — mid-flight progress', () => {
       ),
     }
     render(<CutoverProgressCard status={merged} />)
-    // 2 of 8 done = 25%.
+    // 2 done of CUTOVER_STEPS.length, rounded.
+    const expectedPct = Math.round((2 / CUTOVER_STEPS.length) * 100)
     expect(screen.getByTestId('cutover-progress-pct').textContent).toMatch(
-      /25%/,
+      new RegExp(`${expectedPct}%`),
     )
     expect(
       screen
