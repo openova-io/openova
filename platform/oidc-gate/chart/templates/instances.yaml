@@ -262,6 +262,50 @@ spec:
   hostnames:
     - {{ $hostname | quote }}
   rules:
+{{- if $inst.rootRedirectPath }}
+{{- /*
+#3374 Layer-A (powerdns-admin) — bare-root → app-native OIDC login path.
+
+WHY THIS IS NEEDED for an app that ships its OWN OIDC (pda-legacy authlib),
+not just a login-less binary (openova-flow). oauth2-proxy authenticates the
+BROWSER at the gate (zero-click via kc_idp_hint) and then PROXIES path-for-
+path to the upstream — it does NOT rewrite `/`. So a bare-root hit reaches
+PDA's `/`, which (PDA's Flask session being unauthenticated, separate from
+the gate cookie) 302s to PDA's `/login` FORM with a manual "Sign in using
+OpenID Connect" button. The operator then sees a login form = the zero-click
+contract FAILS (measured live on hw159, #3374). oauth2-proxy's
+X-Auth-Request-* headers don't help — pda-legacy's authlib consumes only its
+own `/oidc/login`→KC round-trip, never header-asserted identity.
+
+FIX: redirect ONLY the bare root (Exact `/`) to the app's native OIDC login
+entrypoint (rootRedirectPath, e.g. `/oidc/login`). The chain then is:
+  bare `/` → (gate 302) → `/oidc/login` → (gate proxies, browser already
+  gate-authed silently) → PDA `/oidc/login` → KC (silent, kc_idp_hint) →
+  PDA `/oidc/authorized` → PDA session → `/login` authed-guard → `/dashboard`.
+Two silent KC round-trips, ZERO clicks.
+
+LOOP-SAFE (the pda 0.1.11 lesson, exactly): the redirect fires ONLY on the
+Exact bare root; `/oidc/login`, `/oidc/authorized`, `/login` and `/dashboard`
+all flow through the catch-all backend untouched, and PDA's post-login lands
+on `/dashboard/` which NEVER revisits `/`. An OIDC error degrades to PDA's
+visible form, never a redirect loop. Gateway API matches the most-specific
+path (Exact `/` here) ahead of the PathPrefix `/` catch-all regardless of
+rule order, so this rule wins for the bare root and ONLY the bare root.
+Default unset → byte-identical to a login-less gated app (openova-flow).
+*/}}
+    - matches:
+        - path:
+            type: Exact
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            port: {{ $inst.rootRedirectPort | default 443 }}
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: {{ $inst.rootRedirectPath | quote }}
+            statusCode: 302
+{{- end }}
     - matches:
         - path:
             type: PathPrefix

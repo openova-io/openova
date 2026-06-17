@@ -32,7 +32,27 @@ name: bp-oidc-gate
 # gate is the single hostname owner. Adding the gate to a NEW app is now
 # one `instances:` entry — proven by the disabled `sso-generality-probe`
 # instance in the slot (#3374 DoD box 10a generality proof).
-version: 0.1.2
+# 0.1.3 (#3374, 2026-06-18): rootRedirectPath — bare-root → app-native
+# OIDC login. 0.1.2's gate coverage of powerdns-admin did NOT achieve
+# zero-click: oauth2-proxy auths the BROWSER at the gate then proxies
+# path-for-path, so a bare-root hit reached PDA's `/`, whose unauth Flask
+# session 302s to PDA's `/login` FORM with a manual "Sign in using
+# OpenID Connect" button (measured live hw159: bare URL landed on the
+# form, zero-click FAIL — a "Sign in with…" button = FAIL per the
+# contract). PDA ships its OWN authlib OIDC (unlike the login-less
+# openova-flow) and ignores oauth2-proxy's X-Auth-Request-* headers,
+# honouring only its own /oidc/login→KC round-trip. New per-instance
+# `rootRedirectPath` (+ optional `rootRedirectPort`, default 443): the
+# gate's HTTPRoute now 302s ONLY the bare root (Exact `/`) to that path
+# (e.g. `/oidc/login`) so the app starts its own SILENT KC round-trip
+# (kc_idp_hint=catalyst-pin) and lands signed-in — zero clicks, two
+# silent KC hops. Loop-safe (the pda 0.1.11 lesson): only the Exact bare
+# root is redirected; the app's login/callback/dashboard paths flow
+# through untouched and the post-login lands on /dashboard/, never
+# revisiting `/`. Default unset → byte-identical to a login-less gated
+# app (openova-flow renders no redirect rule). Slot 13c sets
+# rootRedirectPath:/oidc/login on the powerdns-admin instance.
+version: 0.1.3
 appVersion: "7.6.0"
 description: |
   Catalyst generic OIDC gate — a per-app oauth2-proxy instance set that

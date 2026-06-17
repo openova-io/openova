@@ -259,7 +259,14 @@ spec:
       # chart renders the canonical apps.openova.io/v1 Application CR for
       # this slot's HelmRelease so the console /apps list, per-app Topology
       # tab + showback resolve newapi (no more "no Application CR").
-      version: 1.4.101
+      # 1.4.102 (#3374, 2026-06-18): bridge landing page (sso_init.go) retries
+      # the /api/oauth/state mint (8× / 1.5s backoff) before falling back to
+      # /login, so a fresh-prov NewAPI still warming up (DSN-gate + GORM
+      # migrate) does not dead-end the first bare-URL visit at /setup (hw159:
+      # 1st-hit upstream-connect-error 111, 2nd-hit /setup wizard). Shrinks the
+      # human-visible window; the per-minute CronJob (1.4.97) self-heals the
+      # underlying convergence race.
+      version: 1.4.102
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

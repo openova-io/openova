@@ -175,11 +175,29 @@ var ssoInitTemplate = template.Must(template.New("sso-init").Parse(`<!doctype ht
     // 1. Mint the CSRF state (also sets the same-origin session cookie that
     //    NewAPI's /api/oauth/<slug> callback checks). This is the ONLY
     //    runtime dependency and is structurally required.
-    var sr = await fetch("/api/oauth/state", { credentials: "include" });
-    if (!sr.ok) return fallback();
-    var sj = await sr.json();
-    if (!sj || !sj.success || !sj.data) return fallback();
-    var state = sj.data;
+    //
+    // #3374 (2026-06-18) — RETRY before falling back. On a fresh prov NewAPI's
+    // SQL_DSN initContainer + GORM AutoMigrate keep the backend unreachable for
+    // up to ~2min after the gateway first routes here (the bare-URL hit returns
+    // an upstream-connect-error 111 / the /api/oauth/state fetch fails). The
+    // prior code fell through to /login on the FIRST failure, and the NewAPI SPA
+    // then showed the /setup wizard — the exact hw159 symptom (bare URL → /setup
+    // instead of signed-in). A few short retries ride out NewAPI's warm-up so
+    // the FIRST human visit during convergence still lands signed-in instead of
+    // dead-ending at /setup. Same-origin, idempotent; if it never recovers we
+    // still degrade to /login (no worse than before).
+    var state = null;
+    for (var attempt = 0; attempt < 8; attempt++) {
+      try {
+        var sr = await fetch("/api/oauth/state", { credentials: "include" });
+        if (sr.ok) {
+          var sj = await sr.json();
+          if (sj && sj.success && sj.data) { state = sj.data; break; }
+        }
+      } catch (e) { /* NewAPI still warming up — retry */ }
+      await new Promise(function (r) { setTimeout(r, 1500); });
+    }
+    if (!state) return fallback();
     // 2. Build the authorize URL EXACTLY like the SPA does
     //    (web/src/helpers/api.js onCustomOAuthClicked: redirect_uri =
     //    window.location.origin + "/oauth/" + slug) and redirect. The
