@@ -1,8 +1,24 @@
 # UAT Walkthrough — ORGANIZATIONS: the persona word "tenant"/"SME" is GONE from every user-facing screen, replaced by "Organization" (#3383)
 
-## Status — last validated: hw158 (2026-06-17) — browser walk: **6 ✅ / 1 ❌ / 7 GAP**
+## Status — last validated: hw159.omani.works (2026-06-18) — browser walk: **6 ✅ / 1 ❌ / 7 GAP**
 
-> **hw158 browser-walk verdict (2026-06-17, real screenshots).** The Organizations directory (title, cards/columns, nav label), the org-detail view + breadcrumb, the BSS/billing screen, and the legacy `/bss/tenants` alias (→ `/organizations`) all read **"Organization"** with no "tenant"/"SME" persona text (6 ✅). **FAIL (1):** the **create-organization flow** (`/organizations/new`) still leaks persona words — field label **"SME tenant slug"**, submit button **"Onboard tenant"**, plus "the tenant picks…", "The SME owns an apex", "No sme-pool parents available". **Global finding (not a row):** the **bottom-left user widget reads "Tenant"** on every console screen — a residual persona-word leak the rename also needs to land. The 7 backend-only carriers (sme namespace, chart dir, secret, API route, Go symbols, CI guard, the retained `TenantKind="sme"` enum) remain GAP (no browser surface).
+> **hw159 browser-walk verdict (2026-06-18, real screenshots).** Re-walked live on `hw159.omani.works`
+> (dep `c117f6fd4e2eb2dd`, bp-catalyst-platform **1.4.674** — pre-#3707, so the same state as hw158). The
+> Organizations directory (title heading **"Organizations"**, cards/columns labeled "Organization / Kind /
+> Tier / Billing / Isolation / Status", nav label "Organizations"), the org-detail view (heading "Acme
+> Corp", breadcrumb **"← Organizations"**), the BSS/billing screen ("This **organization** is in showback
+> mode…", zero persona leaks), and the legacy `/bss/tenants` alias (→ `/organizations`, H1 "Organizations")
+> all read **"Organization"** with no "tenant"/"SME" persona text (6 ✅). **FAIL (1):** the
+> **create-organization flow** (`/organizations/new`) still leaks persona words — field label
+> **"SME tenant slug"**, submit button **"Onboard tenant"**, plus "…when the **tenant** picks free-subdomain
+> mode", "The **SME** owns an apex". **Global finding (not a row):** the **bottom-left user widget reads
+> "Tenant"** on every console screen — a residual persona-word leak the rename also needs to land. (Also a
+> documented data-value survivor, not a persona label: the org **Tier** value renders **"sme"** for the
+> customer org — the retained `TenantKind="sme"` enum, a GAP not a row failure.) The 7 backend-only carriers
+> (sme namespace, chart dir, secret, API route, Go symbols, CI guard, the retained `TenantKind="sme"` enum)
+> remain GAP (no browser surface). The user-facing rename fix is the held, de-risked **1.4.677** (#873).
+
+> **Prior hw158 verdict (2026-06-17) — superseded by the hw159 walk above; identical result (1.4.674).**
 
 
 > **Prior curl/kubectl/grep format REPLACED.** The earlier version of this runbook walked `kubectl get ns sme`, `git grep -rwl "sme"`, `curl -si …/api/v1/sme/tenants`, `helm template …`, and Go-identifier `grep` counts — all of which are **banned** (curl / kubectl / git / command-output are not user-acceptance-testable). This revamp is **100% browser**: the operator opens each user-facing screen in a browser and READS it, confirming the displayed text says **"Organization"** and the persona terms **"tenant"** / **"SME"** are absent. Backend-only carriers (the `sme` namespace, the `sme-services/` chart dir, the `sme-secrets` Secret, the `/api/v1/sme/tenants` route, the Go handler/store identifiers, the CI naming guard) have **no UI surface** — a code-level rename cannot be acceptance-tested by clicking, so each is recorded as a **`GAP`** finding (not a browser row).
@@ -18,13 +34,13 @@
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| — | Open the Organizations directory. READ the **page title / heading** — it must say **"Organizations"**, never "Tenants" or "SME Tenants". | ☐ | — |
-| — | On the same directory, READ the **org cards / list rows** — each card's label, column headers, and any subtitle must read **"Organization"** (e.g. "Organization name", "Organization status"), never "tenant"/"SME". | ☐ | — |
-| — | READ the **left-nav sidebar label** for this section — the menu item must say **"Organizations"**, not "Tenants"/"SME". (PR #3390 moved this label; confirm it still reads "Organizations".) | ☐ | — |
-| [console.hw158/organizations/new](https://console.hw158.omani.works/organizations/new) | Open the **create-organization flow**. READ the form title, field labels ("Organization name", "Organization slug/domain"), and the submit button — all must say **"Organization"**, never "Create Tenant" / "New SME Tenant". | ❌ | Title "Create organization" is fine, but the form **leaks persona words**: field label **"SME tenant slug"**, help text "the **tenant** picks free-subdomain mode", "The **SME** owns an apex", "No **sme**-pool parents available", and the submit button **"Onboard tenant"**. ![3383-create-org-flow](../../sessions/2026-06-17/evidence/3383-create-org-flow.png) |
-| — | Click into an org card to open the **organization-detail view**. READ the detail heading, tab labels, and the **breadcrumb trail** (e.g. `Organizations › <name>`) — all must say **"Organization"**, never "tenant"/"SME". | ☐ | — |
-| — | Open the **BSS / billing menu** and its vouchers screen. READ the menu entry and the page heading — billing for an org must be framed as **"Organization"** billing, never "Tenant billing" / "SME billing". | ☐ | — |
-| — | Open the **legacy `/bss/tenants` URL** (PR #3390 alias). It must resolve and **render the Organizations surface** (client-side route lands on the Organizations directory) — NOT a 404, NOT a login redirect, and the rendered page heading must read **"Organizations"**. Confirms the alias is intact and the destination already uses the canonical term. | ☐ | — |
+| [console.hw159/organizations](https://console.hw159.omani.works/organizations) | Open the Organizations directory. READ the **page title / heading** — reads **"Organizations"**, never "Tenants"/"SME Tenants". | ✅ | [hw159-3383-organizations-title](../../sessions/2026-06-17/evidence/hw159-3383-organizations-title.png) |
+| [console.hw159/organizations](https://console.hw159.omani.works/organizations) | On the same directory, READ the **org cards / list rows** — column headers read **"Organization / Kind / Tier / Billing / Isolation / Status"**; the parent row + Acme row both labeled "Organization", never "tenant"/"SME". (The Acme **Tier** value renders `sme` — the retained `TenantKind` data-value enum, a documented GAP, not a persona label.) | ✅ | [hw159-3383-organizations-title](../../sessions/2026-06-17/evidence/hw159-3383-organizations-title.png) |
+| [console.hw159/organizations](https://console.hw159.omani.works/organizations) | READ the **left-nav sidebar label** for this section — the menu item reads **"Organizations"**, not "Tenants"/"SME" (PR #3390 intact). *(Note the residual global leak: the bottom-left user widget reads "Tenant" — captured as the global finding, not this row.)* | ✅ | [hw159-3383-organizations-title](../../sessions/2026-06-17/evidence/hw159-3383-organizations-title.png) |
+| [console.hw159/organizations/new](https://console.hw159.omani.works/organizations/new) | Open the **create-organization flow**. READ the form title, field labels, and submit button — all must say "Organization". | ❌ | Title "Create organization" is fine, but the form **leaks persona words** (verified live, 1.4.674): field label **"SME tenant slug"**, help text "…when the **tenant** picks free-subdomain mode", "The **SME** owns an apex", and the submit button **"Onboard tenant"**. Fixed in held 1.4.677. ![hw159-3383-create-org-flow-FAIL](../../sessions/2026-06-17/evidence/hw159-3383-create-org-flow-FAIL.png) |
+| [console.hw159/organizations/acme](https://console.hw159.omani.works/organizations/acme) | Click into an org card to open the **organization-detail view**. READ the detail heading, tab labels, and breadcrumb — heading **"Acme Corp"**, breadcrumb **"← Organizations"**, field labels "Slug / Kind / Tier / Billing mode / Isolation / Status / Owner / Console" — clean, no "tenant"/"SME" in the detail content. | ✅ | [hw159-3383-org-detail](../../sessions/2026-06-17/evidence/hw159-3383-org-detail.png) |
+| [console.hw159/organizations/billing/billing](https://console.hw159.omani.works/organizations/billing/billing) | Open the **BSS / billing screen**. READ the heading + body — billing is framed as **"This organization is in showback mode…"**, zero "tenant"/"SME" leaks; billing for an org is "Organization" billing. | ✅ | [hw159-3383-bss-billing](../../sessions/2026-06-17/evidence/hw159-3383-bss-billing.png) |
+| [console.hw159/bss/tenants](https://console.hw159.omani.works/bss/tenants) | Open the **legacy `/bss/tenants` URL** (PR #3390 alias). **Resolves and redirects to `/organizations`**, rendering the Organizations directory (H1 "Organizations") — NOT a 404, NOT a login redirect. Alias intact, destination canonical. | ✅ | [hw159-3383-bss-tenants-alias](../../sessions/2026-06-17/evidence/hw159-3383-bss-tenants-alias.png) |
 
 ---
 
