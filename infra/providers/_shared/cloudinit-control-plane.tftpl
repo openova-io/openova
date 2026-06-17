@@ -448,18 +448,26 @@ write_files:
             # PARENT_DOMAINS_FILTER (#3376) — the external-dns domainFilters
             # list (bootstrap-kit slot 12, clusters/_template/bootstrap-kit/
             # 12-external-dns.yaml). Pre-#3376 the filter was ONLY the
-            # Sovereign FQDN (`${sovereign_fqdn}`), so external-dns IGNORED
-            # the per-Org HTTPRoute hostnames `console.<slug>.<pool-tld>` /
-            # `<app>.<slug>.<pool-tld>` (under the role=sme-pool parent zones
-            # like omani.homes/omani.rest/omani.trade) and never wrote their
-            # A records → the customer's own console + purchased app resolved
-            # NXDOMAIN → ERR_CONNECTION_REFUSED. Deriving the filter from EVERY
-            # parent zone (primary + sme-pool) lets external-dns manage the
-            # tenant subdomains too. Inline-flow JSON array (valid YAML scalar
-            # for Flux postBuild.substitute; same pattern as PARENT_DOMAINS_
-            # YAML). txtOwnerId=${sovereign_fqdn} still isolates record
-            # ownership when two Sovereigns share a pool zone.
-            PARENT_DOMAINS_FILTER: '${jsonencode([for z in yamldecode(coalesce(parent_domains_yaml, format("[{name: \"%s\", role: \"primary\"}]", sovereign_fqdn))) : z.name])}'
+            # Sovereign FQDN, so external-dns IGNORED the per-Org HTTPRoute
+            # hostnames `console.<slug>.<pool-tld>` / `<app>.<slug>.<pool-tld>`
+            # (under the role=sme-pool parent zones omani.homes/.rest/.trade)
+            # and never wrote their A records → NXDOMAIN → CONNECTION_REFUSED.
+            # Deriving the filter from EVERY parent zone lets external-dns
+            # manage the tenant subdomains too.
+            #
+            # SIZE (#3793 → Refs #3376): emit this key ONLY when the Sovereign
+            # brought >1 parent zone (i.e. sme-pool zones beyond the primary
+            # FQDN). When there is just the single primary zone — the default
+            # zero-touch flow + every single-zone prov — 12-external-dns.yaml's
+            # envsubst default $${PARENT_DOMAINS_FILTER:-["$${SOVEREIGN_FQDN}"]}
+            # already renders the byte-identical ["<fqdn>"], so omitting the
+            # key here is behavior-preserving AND reclaims the ~44 cloud-init
+            # bytes that pushed the 3-region render past Hetzner's 32256 guard
+            # (hard cap 32768). The filter is only NEEDED in the multi-zone
+            # pool case, which is exactly when it is emitted.
+%{ if length(distinct([for z in yamldecode(parent_domains_yaml) : z.name])) > 1 ~}
+            PARENT_DOMAINS_FILTER: '${jsonencode(distinct([for z in yamldecode(parent_domains_yaml) : z.name]))}'
+%{ endif ~}
             SOVEREIGN_CNPG_INSTANCES: "${sovereign_cnpg_instances}"
             CONTINUUM_ENABLED: "${continuum_enabled}"
             CLUSTER_MESH_NAME: "${cluster_mesh_name}"
