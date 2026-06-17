@@ -422,13 +422,28 @@ vcluster:
       # namespace with zero per-secret enumeration — the generic mechanism
       # (#3642 DoD-6 "no per-app special-casing"), not a per-secret hack. The
       # namespaces are exactly the 7 NS#1 apps' inner namespaces
-      # (keycloak/gitea/harbor/newapi/grafana, plus catalyst-system for
+      # (keycloak/gitea/harbor/newapi/grafana/openbao, plus catalyst-system for
       # guacamole — guacamole's `guacamole-pg` CNPG-app Secret + the
       # bp-continuum/k8s-ws-proxy host-adjacent peers share that namespace).
       # On a fresh prov the host namespaces that don't yet exist are simply
       # not mirrored (no-op) until the host-bridge renders them — additive
       # and safe. Independent of the existing `sync.toHost.secrets`
       # (vCluster→host); the two directions don't conflict.
+      #
+      # ⚠️ openbao/* (hw161 converge-readiness fix, Refs #3760): openbao is the
+      # 7th NS#1 app re-homed into vc-mgmt (placement.yaml `hr: bp-openbao,
+      # vcluster: mgmt, namespace: openbao`). Its host-bridge mints
+      # `openbao-sso-oidc-credentials` in the `openbao` HOST namespace (the
+      # host ESO reconciles it from secret/sso/openbao), while the openbao
+      # sso-configure Deployment runs INSIDE vc-mgmt and mounts that Secret
+      # (templates/sso-configure-deployment.yaml `secretName:
+      # openbao-sso-oidc-credentials`, optional:true → it WAITS forever rather
+      # than CrashLoops). The 0.2.12 mapping shipped keycloak/gitea/harbor/
+      # newapi/grafana/catalyst-system but DROPPED openbao/* — so OpenBao SSO
+      # silently never configured (the #3737 secret-not-mirrored class, the
+      # soft-wait variant). Adding openbao/* mirrors the host Secret into
+      # vc-mgmt's openbao ns so sso-configure completes the OIDC auth-method
+      # wiring zero-touch.
       secrets:
         enabled: true
         mappings:
@@ -438,6 +453,7 @@ vcluster:
             "harbor/*": "harbor/*"
             "newapi/*": "newapi/*"
             "grafana/*": "grafana/*"
+            "openbao/*": "openbao/*"
             "catalyst-system/*": "catalyst-system/*"
 
   # ── In-vCluster CRD registration (#3373, OSS-native) ────────────────────

@@ -94,7 +94,13 @@ spec:
       # harbor/gitea/newapi/guacamole) add harbor/gitea/velero/rtz to
       # allowedIngressNamespaces (their host-bridged CNPG -rw Services + velero
       # registry backup + the cross-vCluster shared-pg wire).
-      version: 0.2.12
+      # 0.2.13 (hw161 converge-readiness, Refs #3760): add the missing
+      # `openbao/*` fromHost.secrets.mappings.byName entry — openbao is the 7th
+      # NS#1 app re-homed into vc-mgmt but the 0.2.12 mapping shipped only 6 of
+      # the 7 namespaces, so the in-vCluster openbao sso-configure Deployment
+      # waited forever for the host-minted openbao-sso-oidc-credentials Secret
+      # the mirror never delivered (the #3737 secret-not-mirrored class).
+      version: 0.2.13
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster
