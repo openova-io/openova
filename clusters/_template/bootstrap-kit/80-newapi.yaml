@@ -277,7 +277,7 @@ spec:
       # warm-up retry-exhaustion. The setup wizard stays pre-completed by the
       # admin-sso-seed-job. This slot sets no sandboxBridge/service overrides,
       # so the chart defaults (native sidecar + bridge Service) are what render.
-      version: 1.4.107
+      version: 1.4.108
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
