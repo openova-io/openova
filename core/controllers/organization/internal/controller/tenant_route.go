@@ -108,7 +108,21 @@ func (r *Reconciler) reconcileTenantRoute(ctx context.Context, org *orgapi.Organ
 	}
 	backend := strings.TrimSpace(tp.BackendService)
 	if backend == "" {
-		return false, fmt.Errorf("tenantPublic.backendService is required when parentDomain is set")
+		// #3376 fix: the funnel mints the Organization CR with
+		// tenantPublic.{parentDomain,subdomain} set but NO backendService —
+		// the provisioning service patches backendService LATER, once the
+		// purchased product becomes Ready (provision.completed /
+		// provision.app_ready → patchOrgTenantPublic, tenant_public_patch.go).
+		// Treating "parentDomain set, backendService not-yet-set" as a HARD
+		// ERROR failed the WHOLE Org reconcile at this step (the caller's
+		// fail() path) — so the Org never went Ready, the per-Org Flux loop +
+		// realm + UserAccess status never converged, and no HTTPRoute ever
+		// landed even after the product came up. This is a normal transient
+		// ordering window, NOT a failure: skip the route render (no-op) and
+		// let a later reconcile — triggered by the backendService PATCH —
+		// emit it. The Sovereign-wide `*.<sovFQDN>` tenant-wildcard route
+		// keeps the Org reachable in the meantime.
+		return false, nil
 	}
 	port := tp.BackendPort
 	if port == 0 {

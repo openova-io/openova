@@ -1004,6 +1004,71 @@ func TestReconcile_TenantPublic_DisabledByDefault(t *testing.T) {
 	}
 }
 
+// TestReconcile_TenantPublic_ParentDomainSet_BackendPending covers the
+// #3376 ordering case: the funnel mints the Organization CR with
+// spec.tenantPublic.{parentDomain,subdomain} set but NO backendService
+// (the provisioning service patches backendService LATER, once the
+// purchased product is Ready — tenant_public_patch.go). The reconciler
+// MUST treat "parentDomain set, backendService not-yet-set" as a normal
+// transient window: the whole Org reconcile MUST still succeed (NOT fail
+// with TenantRouteFailed), and simply NO HTTPRoute is written yet (it
+// lands on the later reconcile that the backendService PATCH triggers).
+//
+// Before the #3376 fix this path returned an error from
+// reconcileTenantRoute → the caller's fail() path marked the whole Org
+// Failed and requeued forever, so the Org never went Ready and the
+// customer's `console.<slug>.<pool-tld>` console never served.
+func TestReconcile_TenantPublic_ParentDomainSet_BackendPending(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg()
+	// parentDomain + subdomain set (exactly what organization_create.go
+	// seeds on the funnel path), but backendService deliberately empty.
+	org.Spec.TenantPublic = orgapi.OrganizationTenantPublic{
+		ParentDomain: "omani.homes",
+		Subdomain:    "acme",
+	}
+	r, _, _ := makeReconciler(t, org)
+	scheme := r.Scheme()
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
+		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute",
+	}, &unstructured.Unstructured{})
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
+		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRouteList",
+	}, &unstructured.UnstructuredList{})
+
+	// MUST NOT error — the missing backendService is a transient ordering
+	// window, not a failure.
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "acme"},
+	}); err != nil {
+		t.Fatalf("reconcile must succeed while backendService is pending (#3376), got: %v", err)
+	}
+
+	// The Org's Ready condition MUST NOT be TenantRouteFailed — the route
+	// step was skipped, not failed.
+	got := orgapi.Organization{}
+	if err := r.Get(context.Background(), client.ObjectKey{Name: "acme"}, &got); err != nil {
+		t.Fatalf("get Organization acme: %v", err)
+	}
+	for _, c := range got.Status.Conditions {
+		if c.Type == "Ready" && c.Reason == "TenantRouteFailed" {
+			t.Errorf("Ready condition must NOT be TenantRouteFailed when backendService is merely pending (#3376); got %+v", c)
+		}
+	}
+
+	// No HTTPRoute is written yet — it lands once backendService is patched.
+	hrList := unstructured.UnstructuredList{}
+	hrList.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRouteList",
+	})
+	if err := r.List(context.Background(), &hrList); err != nil {
+		t.Fatalf("list HTTPRoute: %v", err)
+	}
+	if len(hrList.Items) != 0 {
+		t.Errorf("expected 0 HTTPRoutes while backendService is pending, got %d", len(hrList.Items))
+	}
+}
+
 // ── Per-Org Keycloak realm (#3084 Part 2) ────────────────────────────
 //
 // These mirror the EnsureGroup test cases (create, idempotent-already-

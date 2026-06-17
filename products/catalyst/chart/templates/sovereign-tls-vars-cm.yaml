@@ -83,6 +83,22 @@ parses it as the materialised listener list.
 {{-   $sanitised := replace "." "-" $z.name }}
 {{-   $httpsName := ternary "https" (printf "https-%s" $sanitised) $single }}
 {{-   $httpName := ternary "http" (printf "http-%s" $sanitised) $single }}
+{{- /* #3376 fix: per-zone certificate binding. The primary zone (the
+       Sovereign FQDN apex, role=primary) keeps the per-prov cert
+       sovereign-wildcard-tls-fqdnDashed minted by cilium-gateway-cert.yaml
+       (the TBD-A29 per-prov LE bucket; its SAN is the primary apex
+       wildcard). A role=sme-pool zone (e.g. omani.homes) is NOT covered by
+       that cert, so its wildcard listener previously bound to a cert that
+       did not match the hostname, leaving the listener Programmed=False and
+       tenant hosts under the pool zone connection-refused. Bind sme-pool
+       zone listeners to the per-zone Secret sovereign-wildcard-tls-
+       sanitised that sovereign-wildcard-certs.yaml now mints (re-enabled in
+       this PR). Selection keys only off the zone role field (data, not
+       code) so it is generic for any pool TLD. */}}
+{{- $zoneSecret := $secretName }}
+{{- if and (ne $z.name $fqdn) (eq (default "primary" $z.role) "sme-pool") }}
+{{-   $zoneSecret = printf "sovereign-wildcard-tls-%s" $sanitised }}
+{{- end }}
 {{-   $httpsListener := dict
         "name" $httpsName
         "port" 30443
@@ -90,7 +106,7 @@ parses it as the materialised listener list.
         "hostname" (printf "*.%s" $z.name)
         "tls" (dict
           "mode" "Terminate"
-          "certificateRefs" (list (dict "kind" "Secret" "name" $secretName))
+          "certificateRefs" (list (dict "kind" "Secret" "name" $zoneSecret))
         )
         "allowedRoutes" (dict "namespaces" (dict "from" "All"))
       }}
