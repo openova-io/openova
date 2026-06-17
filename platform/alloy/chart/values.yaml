@@ -15,11 +15,37 @@ catalystBlueprint:
 # ─── Upstream chart values (subchart key: alloy) ─────────────────────────
 alloy:
   # Pin upstream Alloy image tag — DO NOT use floating tags.
+  #
+  # #3760 harbor-proxy-glob (hw161 converge-readiness): route BOTH the main
+  # Alloy image and the config-reloader sidecar through the Sovereign's local
+  # Harbor proxy. The alloy DaemonSet runs in the `alloy` namespace, which is
+  # NOT in the kyverno harbor-proxy-pull excludeNamespaces set (unlike
+  # mgmt/dmz/rtz/kube-system). The upstream subchart defaults
+  # (docker.io/grafana/alloy + quay.io/prometheus-operator/prometheus-config-
+  # reloader) match NEITHER allowed glob (`*/proxy-*/*` or `*/openova-io/*`),
+  # so once `compliancePolicies.bootstrapMode` flips to false post-handover
+  # (post_handover_policy_enforce.go, phase 2b) the policy goes Enforce and the
+  # next DaemonSet pod reschedule (node reboot / image roll / eviction) is
+  # admission-DENIED — the #3296 delayed self-inflicted-wound shape #3380-D
+  # fixed for the vCluster control-plane images. The alloy chart was never
+  # swept by #3380-D (last touched #3179). proxy-dockerhub/proxy-quay are the
+  # canonical proxy projects already used by bp-grafana/bp-openbao and named in
+  # bp-self-sovereign-cutover values (`proxy-docker/grafana/alloy`,
+  # `proxy-quay/...`). Bootstrap-mode Audit means this is byte-equivalent during
+  # the fresh-prov convergence walk; the proxy path simply prevents the
+  # post-handover/cutover-walk denial.
   image:
-    registry: "docker.io"
-    repository: grafana/alloy
+    registry: "harbor.openova.io"
+    repository: proxy-dockerhub/grafana/alloy
     tag: "v1.16.0"
     pullPolicy: IfNotPresent
+  # Config-reloader sidecar (upstream default quay.io/prometheus-operator/
+  # prometheus-config-reloader) — same harbor-proxy-glob fix as the main image.
+  configReloader:
+    image:
+      registry: "harbor.openova.io"
+      repository: proxy-quay/prometheus-operator/prometheus-config-reloader
+      tag: v0.81.0
 
   # Alloy runtime config. Empty by default — the upstream chart ships an
   # empty configMap that Alloy starts up against. Per-Sovereign overlays

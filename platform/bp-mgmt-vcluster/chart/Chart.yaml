@@ -133,7 +133,18 @@ name: bp-mgmt-vcluster
 # gateway-system/kube-system + catalyst-system/newapi/sso-bridge/oidc-gate
 # entries from 0.2.11 already cover the host Cilium Gateway + the openbao/newapi
 # SSO consumers. Additive netpol-values change only; default render unchanged.
-version: 0.2.12
+# 0.2.13 (hw161 converge-readiness, Refs #3760): add the missing `openbao/*`
+# entry to vcluster.sync.fromHost.secrets.mappings.byName. openbao is the 7th
+# NS#1 app re-homed into vc-mgmt (placement.yaml `vcluster: mgmt, namespace:
+# openbao`); its host-bridge mints `openbao-sso-oidc-credentials` in the openbao
+# HOST namespace but the 0.2.12 mapping shipped only 6 of the 7 namespaces
+# (keycloak/gitea/harbor/newapi/grafana/catalyst-system) — DROPPING openbao.
+# Result: the in-vCluster openbao sso-configure Deployment (optional secret
+# mount) WAITS forever for openbao-sso-oidc-credentials that the host→vCluster
+# mirror never delivered → OpenBao SSO silently never configures (the #3737
+# secret-not-mirrored class, soft-wait variant). Additive values-only change;
+# default render gains one mapping entry.
+version: 0.2.13
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT

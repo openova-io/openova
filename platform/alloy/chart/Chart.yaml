@@ -12,7 +12,15 @@ description: |
   bp-mimir (metrics), bp-tempo (traces). Default controller is DaemonSet
   (one pod per node) so node + pod metrics + container logs are collected.
 type: application
-version: 1.0.1
+# 1.0.2 (#3760 hw161 converge-readiness): route the main Alloy image AND the
+# config-reloader sidecar through the Sovereign Harbor proxy (proxy-dockerhub/
+# grafana/alloy + proxy-quay/prometheus-operator/prometheus-config-reloader).
+# The DaemonSet runs in the un-excluded `alloy` namespace, so the upstream
+# docker.io/quay.io defaults were post-handover Enforce-deniable by the
+# harbor-proxy-pull ClusterPolicy (the #3296/#3380-D delayed self-inflicted
+# wound). Values-only image-registry change; the chart was never swept by
+# #3380-D. Added to scripts/check-kyverno-proxy-images.sh to guard regressions.
+version: 1.0.2
 appVersion: "v1.16.0"
 keywords: [catalyst, blueprint, alloy, observability, otlp, telemetry, collector]
 maintainers:

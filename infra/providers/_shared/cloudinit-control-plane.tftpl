@@ -680,7 +680,48 @@ runcmd:
   # public-resolver nslookup → python3 AF_INET getaddrinfo) before pinning
   # /etc/hosts. POSIX/dash-clean; every host is IPv4-reachable from every
   # cloud (on a dual-stack cloud the resolved A record is still valid).
+  #
+  # #3735 (2026-06-18 — the hw159 ImagePullBackOff): harbor.openova.io is
+  # ALSO dual-stack (A=45.151.123.50 + AAAA). On the IPv4-only Huawei VPC the
+  # node's containerd image-pull resolver intermittently gets the AAAA →
+  # `dial tcp: lookup harbor.openova.io: Try again` → ImagePullBackOff for any
+  # image pulled through the harbor pull-through proxy (catalyst-api,
+  # controllers — they can land on a CP node). containerd reads the NODE
+  # resolver, NOT pod DNS, so a coredns-custom hosts entry does NOT fix it —
+  # the pin MUST be at the node /etc/hosts level (this block). registry.<fqdn>
+  # is the POST-CUTOVER local Harbor: pre-cutover it has no DNS record so r4()
+  # returns empty and the `[ -n "$a" ]` guard skips it (no bad pin); post-
+  # cutover it resolves to the gateway EIP (IPv4) and pins correctly. Both
+  # hosts are appended ONLY on huawei: Hetzner is dual-stack (harbor's AAAA is
+  # reachable so no pin is needed) AND its CP render sits at 32223/32256 B
+  # (#1981 ExternalIP reconciler) — only 33 B of headroom — so the
+  # provider-gated conditional keeps the Hetzner render byte-identical while
+  # giving every IPv4-only cloud the harbor pin. No hardcoded IP: r4() derives
+  # the A record at boot and self-heals if harbor's address ever changes.
+  #
+  # #3714 (2026-06-18 — the kom4dc 0-HR wedge): the /etc/hosts pin below fixes
+  # the NODE Go resolvers (helm/kubectl/git/containerd) but does NOT reach the
+  # in-cluster Flux source-controller pod, which pulls the bootstrap monorepo
+  # from github.com and resolves via CoreDNS, not the node /etc/hosts. On the
+  # IPv4-only Huawei VPC a CoreDNS upstream that hands back AAAA makes the
+  # source-controller try IPv6 → "network is unreachable" → no GitRepository
+  # artifact → 0 HelmReleases in BOTH regions → Phase-1 watcher times out + the
+  # kubeconfig is never PUT (the exact hw160 wedge; intermittent per-prov —
+  # hw159 got an A record and converged, hw160 got AAAA). #3715 first shipped
+  # both halves (node pin + an in-cluster coredns-custom ConfigMap); #3721
+  # reverted #3715 wholesale for Hetzner cloud-init bloat, and #3727 re-added
+  # ONLY the node half — so the in-cluster half was lost. The CoreDNS step that
+  # FOLLOWS (after the CNI is up) restores it, Huawei-gated. To feed that step
+  # without duplicating the r4() resolver ladder, on Huawei we ALSO persist
+  # every resolved `<ip> <host>` to a side-file the CoreDNS step reads back.
+  # Both the side-file and the api.github.com host are Huawei-gated so the
+  # byte-tight Hetzner render (only ~49 B headroom under the 32256 cap) stays
+  # byte-identical — Hetzner is dual-stack and needs neither.
   - |
+%{ if provider == "huawei" ~}
+    mkdir -p /var/lib/catalyst
+    : >/var/lib/catalyst/github-ipv4-hosts
+%{ endif ~}
     r4() {
      getent ahostsv4 "$1" 2>/dev/null | awk '{print $1; exit}' && return
      for s in 1.1.1.1 8.8.8.8; do
@@ -689,8 +730,11 @@ runcmd:
      done
      python3 -c 'import socket,sys;print(socket.getaddrinfo(sys.argv[1],443,2)[0][4][0])' "$1" 2>/dev/null
     }
-    for h in github.com raw.githubusercontent.com codeload.github.com objects.githubusercontent.com helm.cilium.io get.helm.sh; do
+    for h in github.com raw.githubusercontent.com codeload.github.com objects.githubusercontent.com helm.cilium.io get.helm.sh%{ if provider == "huawei" } api.github.com harbor.openova.io registry.${sovereign_fqdn}%{ endif ~}; do
      a=$(r4 "$h"); [ -n "$a" ] && echo "$a $h" >>/etc/hosts || true
+%{ if provider == "huawei" ~}
+     [ -n "$a" ] && echo "$a $h" >>/var/lib/catalyst/github-ipv4-hosts
+%{ endif ~}
     done
 
   # ── Install k3s server ────────────────────────────────────────────────
@@ -752,6 +796,67 @@ runcmd:
       --namespace kube-system \
       -f /var/lib/catalyst/cilium-values.yaml
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n kube-system rollout status ds/cilium --timeout=240s'
+%{ if provider == "huawei" ~}
+  # ── In-cluster github→IPv4 for the Flux source-controller (#3714) ──────
+  # The DEEPER half of the #3232/#3714 fix, restored after the #3721 revert
+  # (which kept only the node /etc/hosts pin). The source-controller pod pulls
+  # the bootstrap monorepo from github.com and resolves via CoreDNS — NOT the
+  # node /etc/hosts — so on the IPv4-only Huawei VPC a CoreDNS upstream that
+  # returns AAAA makes it dial IPv6 → "network is unreachable" → no
+  # GitRepository artifact → 0 HelmReleases in BOTH regions → Phase-1 watcher
+  # times out + the kubeconfig is never PUT (the hw160 wedge). We inject a
+  # `coredns-custom` ConfigMap — the k3s-native, restart/upgrade-surviving
+  # CoreDNS extension point: k3s imports `/etc/coredns/custom/*.override` into
+  # the default `.:53` server block — with a `hosts` plugin that force-resolves
+  # the github hosts to the SAME IPv4 the node pin just resolved (read back
+  # from the r4() side-file, so the resolver ladder is NOT duplicated).
+  # `fallthrough` keeps every other name resolving normally; this touches ONLY
+  # CoreDNS config, never Cilium/CNI/kube-proxy, so ClusterMesh is unaffected.
+  # Runs AFTER the CNI is up (CoreDNS pods can now go Ready + mount the
+  # override) and BEFORE Flux is installed/bootstrapped below, so the
+  # source-controller resolves github→IPv4 on its first GitRepository attempt.
+  # Huawei-only: Hetzner is dual-stack (no in-cluster IPv6 trap) and its render
+  # is byte-tight, so the whole block renders empty there. POSIX/dash-clean
+  # (printf, no nested heredoc).
+  - |
+    PIN_FILE=/var/lib/catalyst/github-ipv4-hosts
+    CM_FILE=/var/lib/catalyst/coredns-custom-github.yaml
+    KC=/etc/rancher/k3s/k3s.yaml
+    # Only the in-cluster-relevant github hosts get the CoreDNS override (the
+    # helm.cilium.io / get.helm.sh / harbor / registry pulls all run on the
+    # NODE, already pinned in /etc/hosts above — they never hit CoreDNS).
+    GH_HOSTS="github.com codeload.github.com objects.githubusercontent.com raw.githubusercontent.com api.github.com"
+    {
+     printf 'apiVersion: v1\n'
+     printf 'kind: ConfigMap\n'
+     printf 'metadata:\n'
+     printf '  name: coredns-custom\n'
+     printf '  namespace: kube-system\n'
+     printf 'data:\n'
+     printf '  github-ipv4.override: |\n'
+     printf '    hosts {\n'
+     for h in $GH_HOSTS; do
+      ip=$(awk -v host="$h" '$2 == host {print $1; exit}' "$PIN_FILE" 2>/dev/null)
+      [ -n "$ip" ] && printf '        %s %s\n' "$ip" "$h"
+     done
+     printf '        fallthrough\n'
+     printf '    }\n'
+    } >"$CM_FILE"
+    # Wait (bounded) for the CoreDNS Deployment object — the k3s addon
+    # registers it within seconds of the apiserver; the Deployment EXISTS long
+    # before its pods are Ready. A missing addon must never stall bootstrap.
+    n=0
+    while [ "$n" -lt 24 ]; do
+     kubectl --kubeconfig="$KC" -n kube-system get deploy coredns >/dev/null 2>&1 && break
+     n=$((n + 1))
+     sleep 5
+    done
+    # Apply the override (idempotent, persists immediately) + nudge a restart.
+    # We do NOT block on rollout-status: CoreDNS picks up the mounted override
+    # on its next reload, still well before Flux bootstraps the GitRepository.
+    kubectl --kubeconfig="$KC" apply -f "$CM_FILE" || true
+    kubectl --kubeconfig="$KC" -n kube-system rollout restart deploy/coredns >/dev/null 2>&1 || true
+%{ endif ~}
 
   # ── BACKGROUND pre-pull of the PRIVATE openova-io/openova image set (#3534)
   # The ~19 ghcr.io/openova-io/openova/* images (catalyst-api/ui, the

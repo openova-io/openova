@@ -50,6 +50,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"k8s.io/client-go/dynamic"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
@@ -527,7 +528,31 @@ func (h *Handler) GetComponentsState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// No live watcher — synthesise rows from the persisted final
+	// No live watcher — the finite Phase-1 bootstrap watch has ended.
+	// FALSE-FAILED RECOVERY (issue #3687 / #910 tail): the persisted
+	// dep.Result.ComponentStates is a FROZEN snapshot from the moment
+	// the watch terminated. A bp-* HelmRelease that hit a transient
+	// InstallFailed during the bootstrap window and then recovered to
+	// Ready=True AFTER the watch returned still shows its stale "failed"
+	// chip in that frozen map — nothing re-read the live HR, so a UAT
+	// walk done post-bootstrap counts a false ❌. The live HR Ready
+	// condition is the source of truth, so attempt a stateless ONE-SHOT
+	// live re-read of the cluster's bp-* HelmReleases (same projection
+	// SnapshotComponents uses, via DeriveState) and serve THAT. Only
+	// fall back to the frozen persisted map when the kubeconfig is
+	// unresolvable or the live list errors (Sovereign post-handover /
+	// wiped / unreachable) — never fabricate a green, just re-derive
+	// from whatever the cluster actually reports right now.
+	if live, ok := h.liveComponentsSnapshot(r.Context(), dep); ok {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"watching":   false,
+			"live":       true,
+			"components": live,
+		})
+		return
+	}
+
+	// Live re-read unavailable — synthesise rows from the persisted final
 	// state map so the FE always gets a usable snapshot. Per-component
 	// message + lastTransitionAt are unavailable on the persisted
 	// side (only the state enum is captured), so they are emitted
@@ -545,4 +570,52 @@ func (h *Handler) GetComponentsState(w http.ResponseWriter, r *http.Request) {
 		"watching":   false,
 		"components": out,
 	})
+}
+
+// liveComponentsSnapshot performs a stateless ONE-SHOT live read of the
+// deployment's bp-* HelmReleases and projects them through the same
+// DeriveState path SnapshotComponents uses. Returns (snapshot, true) on
+// success; (nil, false) when no live read is possible (no resolvable
+// kubeconfig on the PVC, dynamic-client build failure, or the list call
+// errors — e.g. the Sovereign is post-handover, wiped, or unreachable).
+//
+// This is the live-HR-truth re-read that heals a stale FALSE-FAILED chip
+// after the finite Phase-1 watch has ended (issue #3687 / #910 tail): a
+// HelmRelease that recovered to Ready=True post-bootstrap re-derives to
+// `installed` here instead of echoing the frozen persisted snapshot.
+//
+// READ-ONLY: it resolves the kubeconfig via resolvePrimaryKubeconfigPath
+// (which never mutates dep.Result, avoiding the -race against the
+// Deployment.State() marshal) and never writes the deployment record.
+func (h *Handler) liveComponentsSnapshot(ctx context.Context, dep *Deployment) ([]helmwatch.ComponentSnapshot, bool) {
+	kubeconfigPath, ok := h.resolvePrimaryKubeconfigPath(dep)
+	if !ok {
+		return nil, false
+	}
+	raw, err := os.ReadFile(kubeconfigPath)
+	if err != nil {
+		return nil, false
+	}
+	// Honour the test dynamicFactory injection (same pattern as
+	// tryDynamicClientLocked / sovereignDynamicClient) so handler tests
+	// can drive a fake.NewSimpleDynamicClient; production builds the
+	// real client from the posted-back kubeconfig.
+	var dyn dynamic.Interface
+	if h.dynamicFactory != nil {
+		dyn, err = h.dynamicFactory(string(raw))
+	} else {
+		dyn, err = helmwatch.NewDynamicClientFromKubeconfig(string(raw))
+	}
+	if err != nil {
+		return nil, false
+	}
+	// Bound the live list so a slow/unreachable apiserver cannot hang the
+	// stateless read — fall back to the persisted map instead.
+	listCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	snap, err := helmwatch.ListAndSnapshotHelmReleases(listCtx, dyn)
+	if err != nil {
+		return nil, false
+	}
+	return snap, true
 }

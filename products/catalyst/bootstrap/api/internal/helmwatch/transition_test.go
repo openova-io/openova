@@ -622,3 +622,103 @@ func TestTransition_FirstObservation_NeverDedupsAcrossWatchers(t *testing.T) {
 	runOnce("first attach")
 	runOnce("re-attach after Pod restart")
 }
+
+// TestTransition_FailedThenReady_EndsInstalledNotFailed is the core
+// recovery contract for the false-FAILED-chip defect (issue #3687 /
+// #910 tail). A bp-* HelmRelease that is observed Failed (transient
+// bootstrap InstallFailed) and later recovers to Ready=True while the
+// informer is still attached MUST:
+//
+//   - emit a per-component recovery transition (State=installed) AFTER
+//     the earlier State=failed event — so the bridge / StatusStrip
+//     consumer flips the chip back to succeeded, AND
+//   - end with final[component] == StateInstalled (NOT StateFailed) AND
+//     Outcome() == OutcomeReady.
+//
+// This pins that StateFailed is NON-terminal at the informer level: the
+// watch keeps observing the HR after a Failed observation and the
+// recovery Update flows through processEvent. If a future refactor ever
+// short-circuited the informer on the first Failed (the bug the founder
+// reported — a stale "FAILED" snapshot inflating the UAT ❌ count), the
+// recovery transition would vanish and this test would fail.
+func TestTransition_FailedThenReady_EndsInstalledNotFailed(t *testing.T) {
+	scheme := newFakeScheme()
+	releases := []runtime.Object{
+		makeReadyHelmRelease("bp-cilium"),
+		makeReadyHelmRelease("bp-cert-manager"),
+		// bp-catalyst-platform starts Failed (transient InstallFailed in
+		// the bootstrap window).
+		makeFailedHelmRelease("bp-catalyst-platform"),
+	}
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{HelmReleaseGVR: "HelmReleaseList"},
+		releases...,
+	)
+
+	rec := &recorder{}
+	cfg := Config{
+		KubeconfigYAML:     "fake",
+		WatchTimeout:       30 * time.Second,
+		FirstSeenTimeout:   30 * time.Second,
+		MinBootstrapKitHRs: 3,
+		DynamicFactory:     fakeFactory(client),
+		Resync:             0,
+		// Generous late-poll so the informer stays attached long enough
+		// to observe the recovery Update the goroutine below issues.
+		LatePollTimeout:  3 * time.Second,
+		LatePollInterval: 25 * time.Millisecond,
+	}
+	w, err := NewWatcher(cfg, rec.emit)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+
+	// Flip the failed HR to Ready=True shortly after the all-terminal
+	// trip fires (with the failure), so the recovery arrives while the
+	// late-poll keeps the informer attached — modelling Flux's
+	// remediation.retries converging post-failure.
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		updateHR(t, client, "bp-catalyst-platform", []metav1.Condition{
+			{Type: "Ready", Status: metav1.ConditionTrue, Reason: "ReconciliationSucceeded", Message: "Helm install succeeded after retry"},
+		})
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	final, err := w.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+
+	// Final per-component state + overall outcome must reflect the
+	// recovery, never the stale failure.
+	if final["catalyst-platform"] != StateInstalled {
+		t.Errorf("final[catalyst-platform] = %q, want %q (recovery must not stick on the stale Failed)", final["catalyst-platform"], StateInstalled)
+	}
+	if got, want := w.Outcome(), OutcomeReady; got != want {
+		t.Errorf("Outcome() = %q, want %q (failed component recovered to installed)", got, want)
+	}
+
+	// The event stream for catalyst-platform must end on State=installed,
+	// and it must have carried the earlier State=failed too (proving the
+	// transition was observed live, not papered over). This is exactly
+	// what the bridge.OnHelmReleaseEvent consumer needs to flip the Job
+	// chip succeeded after a failure.
+	var states []string
+	for _, ev := range rec.componentStateEvents() {
+		if ev.Component == "catalyst-platform" {
+			states = append(states, ev.State)
+		}
+	}
+	if len(states) == 0 {
+		t.Fatalf("no component-state events for catalyst-platform; got events: %+v", rec.snapshot())
+	}
+	if last := states[len(states)-1]; last != StateInstalled {
+		t.Errorf("last catalyst-platform state event = %q, want %q; full sequence=%v", last, StateInstalled, states)
+	}
+	if !containsSubsequence(states, []string{StateFailed, StateInstalled}) {
+		t.Errorf("catalyst-platform state events = %v, want the failed→installed recovery subsequence", states)
+	}
+}
