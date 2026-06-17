@@ -154,6 +154,19 @@ spec:
             # with a realm is the precondition for the Enter-org walk.
             - name: CATALYST_PER_ORG_REALM_ENABLED
               value: {{ .Values.controllers.organization.perOrgRealmEnabled | default false | quote }}
+            # #3760 (Refs #3376 #3754) MIRROR-EVERYTHING: the Sovereign-local
+            # Harbor host the per-Org vCluster images (the loft-sh/kubernetes
+            # k8s-distro initContainer + the loft-sh/vcluster-oss syncer) pull
+            # through. The harbor-proxy-pull Kyverno ClusterPolicy (Enforce)
+            # DENIES any vcluster image still on ghcr.io, so the per-Org
+            # vCluster StatefulSet never installs and the customer's app never
+            # runs. gitops.Render re-tags both to `<registry>/proxy-ghcr/
+            # loft-sh/...` (matches the */proxy-*/* glob), lockstep with
+            # bp-dmz/mgmt/rtz-vcluster. Default harbor.openova.io for bootstrap;
+            # cutover Step-04 (ADR-0002) flips a per-Sovereign overlay to
+            # harbor.<sovereign-fqdn> post-handover.
+            - name: CATALYST_VCLUSTER_IMAGE_REGISTRY
+              value: {{ .Values.controllers.organization.vclusterImageRegistry | default "harbor.openova.io" | quote }}
             {{- range $k, $v := .Values.controllers.organization.env }}
             - name: {{ $k | quote }}
               value: {{ $v | quote }}
