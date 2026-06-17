@@ -7,6 +7,7 @@
 ## 📋 FULL PER-ROW MATRIX — all 243 canonical UAT rows (hw159, 2026-06-18)
 
 Every test from the 10 runbooks, one row each: **ID** (`<ticket>-<NN>`) · **Test** · **Result** (✅ PASS / ❌ FAIL / GAP=no-UI / ☐ not-reached) · **Evidence** (screenshot). Full detail + inline screenshots per runbook: [`uat-walkthrough/`](uat-walkthrough/). The per-runbook rollup is the **⭐ STANDARD SCOREBOARD** below.
+> 🎯 **How to reach 100%:** [`PATH-TO-100.md`](PATH-TO-100.md) — every ❌ mapped to its root-cause fix (issue + code path + owner), every GAP triaged, priority-ordered. Cheapest first move: re-prov on the published **1.4.677** (clears the stale-1.4.674-pin fails for free).
 
 > **Authoritative aggregate (hw159, this env): `119 ✅ / 61 ❌ / 56 GAP / 5 ☐` — the per-runbook walker tallies in the scoreboard below.** This row-level matrix re-parses each runbook table and lands at `116 ✅ / 64 ❌ / 57 GAP / 6 ☐` — a ±3 delta because a few runbook rows bundle multiple checks (e.g. `A1 ✅✅` = one row, two passes); the scoreboard counts checks, the matrix counts rows. Both are **hw159's real numbers**.
 >
