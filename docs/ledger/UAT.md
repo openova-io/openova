@@ -32,6 +32,8 @@ object-model #3786, topology vocab #3784, funnel #3376, per-Org Flux loop #3687,
 | 4 | [/organizations](https://console.hw159.omani.works/organizations) | Object-model view (#3687/#3378): parent-org row, Showback, Commerce/Billing/Domains | ✅ renders; ⚠️ sidebar still says **"Tenant"** (the cosmetic #3707 rename is in the held 1.4.677, not 1.4.674) | [04-organizations](../sessions/2026-06-17/evidence/hw159-uat-04-organizations-objectmodel.png) |
 | 5 | [/jobs](https://console.hw159.omani.works/jobs) | Jobs canvas (#3646) | ✅ renders | [05-jobs](../sessions/2026-06-17/evidence/hw159-uat-05-jobs-canvas.png) |
 | 6 | [/cloud?view=graph](https://console.hw159.omani.works/cloud?view=graph) | Cloud-graph topology view (#3375 / NS#4) | ✅ renders | [12-cloud-graph](../sessions/2026-06-17/evidence/hw159-uat-12-cloud-graph-topology.png) |
+| 7 | [/catalog](https://console.hw159.omani.works/catalog) | Blueprint catalog grid (#3668) | ✅ renders | [13-catalog](../sessions/2026-06-17/evidence/hw159-uat-13-catalog.png) |
+| 8 | [/catalog/bp-grafana](https://console.hw159.omani.works/catalog/bp-grafana) | Blueprint detail / IaC editor surface (#3668) | ✅ renders | [14-catalog-detail](../sessions/2026-06-17/evidence/hw159-uat-14-catalog-bp-grafana-detail.png) |
 
 **SSO landing matrix (#3374) — each app opened at its bare URL, must land *signed-in* (a login screen = FAIL):**
 
