@@ -51,17 +51,18 @@ describe('InstallPage placement picker (#3375 §3d)', () => {
   })
   afterEach(() => cleanup())
 
-  it('offers all four canonical placement modes including active-passive', () => {
+  it('offers all four CANONICAL placement modes (singleton / active-active / active-hot-standby / active-passive)', () => {
     render(<InstallPage preselectedBlueprint="bp-grafana" />)
 
     const select = screen.getByTestId('install-page-placement') as HTMLSelectElement
     const optionValues = Array.from(select.options).map((o) => o.value)
 
-    expect(optionValues).toContain('single-region')
-    expect(optionValues).toContain('active-active')
-    expect(optionValues).toContain('active-hotstandby')
-    // The #3375 §3(d) fix — previously absent.
-    expect(optionValues).toContain('active-passive')
+    // One vocabulary (#3375 DoD-1): the picker emits the canonical set,
+    // the same set the catalog placementSchema serves + the CR stores —
+    // NO legacy single-region / active-hotstandby spelling.
+    expect(optionValues).toEqual(['singleton', 'active-active', 'active-hot-standby', 'active-passive'])
+    expect(optionValues).not.toContain('single-region')
+    expect(optionValues).not.toContain('active-hotstandby')
   })
 
   it('lets active-passive be selected', () => {
