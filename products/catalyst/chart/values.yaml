@@ -532,6 +532,22 @@ controllers:
     # set to "" to force anonymous clone (only valid if bp-gitea ever drops
     # REQUIRE_SIGNIN_VIEW AND the per-Org repo is made public).
     fluxGiteaSecretRef: "openova-sme-tenants-git-auth"
+    # MIRROR-EVERYTHING (#3760, Refs #3376 #3754 — hw158 funnel blocker)
+    # ---------------------------------------------------------------------
+    # The Sovereign-local Harbor host the per-Org vCluster images pull
+    # through (proxy-cache). vcluster 0.33.x renders TWO ghcr.io images in
+    # the StatefulSet initContainers — the `loft-sh/kubernetes` k8s distro
+    # AND the `loft-sh/vcluster-oss` syncer — both of which the
+    # harbor-proxy-pull Kyverno ClusterPolicy (Enforce) DENIES because they
+    # don't match the `*/proxy-*/*` glob. gitops.Render re-tags both to
+    # `<vclusterImageRegistry>/proxy-ghcr/loft-sh/...`, lockstep with the
+    # platform's own bp-dmz/mgmt/rtz-vcluster charts (proven live: without
+    # this the StatefulSet is blocked at `/spec/template/spec/initContainers/
+    # 0/image/` and the customer's purchased app never runs). Default
+    # `harbor.openova.io` for bootstrap; cutover Step-04 (ADR-0002) flips a
+    # per-Sovereign overlay to `harbor.<sovereign-fqdn>` post-handover. Per
+    # Inviolable Principle #4 it stays operator-overridable.
+    vclusterImageRegistry: "harbor.openova.io"
     # Free-form extra env vars threaded into the Pod (advanced; for one-off
     # operator-side knobs not yet promoted to a top-level value).
     env: {}
@@ -623,7 +639,7 @@ controllers:
       # — drops cross-namespace ownerRef on the host-side Flux CRs
       # (was being silently GC'd by the K8s collector because
       # Application lives in a different namespace from flux-system).
-      tag: "6dea4c7"
+      tag: "d2e8c02"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -1556,6 +1572,18 @@ smeServices:
     # start with `clusters/<SOVEREIGN_FQDN>/` on Sovereigns — the
     # cross-cluster pollution defence (#944 critical).
     gitBasePath: ""
+    # vclusterImageRegistry (#3760, Refs #3376 #3754): the Sovereign-local
+    # Harbor host the per-tenant vCluster images pull through (proxy-cache).
+    # vcluster 0.33.x renders TWO ghcr.io images in the StatefulSet
+    # initContainers — the loft-sh/kubernetes k8s distro AND the
+    # loft-sh/vcluster-oss syncer — both DENIED by the harbor-proxy-pull
+    # Kyverno ClusterPolicy (Enforce, */proxy-*/* glob). The provisioning
+    # generator re-tags both to `<registry>/proxy-ghcr/loft-sh/...`, lockstep
+    # with bp-dmz/mgmt/rtz-vcluster (without it the tenant vCluster
+    # StatefulSet is blocked and the tenant's app never runs). Default
+    # harbor.openova.io for bootstrap; cutover Step-04 (ADR-0002) flips it to
+    # harbor.<sovereign-fqdn> post-handover. Operator-overridable (Principle #4).
+    vclusterImageRegistry: "harbor.openova.io"
     # githubToken: Secret name + key the Deployment reads GITHUB_TOKEN
     # from. Defaults match the chart-emitted
     # templates/sme-services/provisioning-github-token.yaml output

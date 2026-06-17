@@ -118,6 +118,14 @@ type Reconciler struct {
 	VClusterHelmRepoName      string
 	VClusterHelmRepoNamespace string
 
+	// VClusterImageRegistry is the Sovereign-local Harbor host the
+	// per-Org vCluster images pull through (proxy-cache). Default
+	// harbor.openova.io. Per Inviolable Principle #4 it's read from
+	// env (CATALYST_VCLUSTER_IMAGE_REGISTRY), never hardcoded — cutover
+	// Step-04 flips it to harbor.<sovereign-fqdn>. See gitops.Inputs
+	// for the harbor-proxy-pull admission rationale (#3760).
+	VClusterImageRegistry string
+
 	// Branch is the Gitea branch the controller writes manifests to.
 	// Defaults to "main".
 	Branch string
@@ -345,6 +353,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		VClusterChartVersion:      r.VClusterChartVersion,
 		VClusterHelmRepoName:      r.VClusterHelmRepoName,
 		VClusterHelmRepoNamespace: r.VClusterHelmRepoNamespace,
+		VClusterImageRegistry:     r.VClusterImageRegistry,
 	})
 	if err != nil {
 		return r.fail(ctx, &org, "ManifestRenderFailed", err.Error())

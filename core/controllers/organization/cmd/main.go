@@ -80,6 +80,11 @@ func main() {
 	chartVer := envOr("CATALYST_VCLUSTER_CHART_VERSION", "0.33.*")
 	helmRepoName := envOr("CATALYST_VCLUSTER_HELMREPO_NAME", "loft")
 	helmRepoNs := envOr("CATALYST_VCLUSTER_HELMREPO_NAMESPACE", "vcluster-system")
+	// #3760 (Refs #3376 #3754): the Sovereign-local Harbor host the per-Org
+	// vCluster images pull through (proxy-cache). Default harbor.openova.io;
+	// cutover Step-04 flips it to harbor.<sovereign-fqdn>. Without proxying,
+	// the harbor-proxy-pull Kyverno ClusterPolicy DENIES the StatefulSet.
+	vclusterImageRegistry := envOr("CATALYST_VCLUSTER_IMAGE_REGISTRY", "harbor.openova.io")
 	branch := envOr("CATALYST_GITEA_BRANCH", "main")
 	// PR #3700 §4.3 — per-Org vCluster Flux loop. The in-cluster Gitea URL
 	// the per-Org Flux GitRepository clones from. Defaults to the same
@@ -168,6 +173,7 @@ func main() {
 		VClusterChartVersion:      chartVer,
 		VClusterHelmRepoName:      helmRepoName,
 		VClusterHelmRepoNamespace: helmRepoNs,
+		VClusterImageRegistry:     vclusterImageRegistry,
 		Branch:                    branch,
 		GiteaInClusterURL:         giteaInClusterURL,
 		FluxNamespace:             fluxNamespace,
