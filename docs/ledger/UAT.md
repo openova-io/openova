@@ -6,22 +6,28 @@
 
 ## ⭐ STANDARD SCOREBOARD (the only matrix — fixed shape, numbers update each walk)
 
-| # | Runbook (ticket) | ✅ Pass | ❌ Fail | ⏳ Not walked | Verdict |
-|---|------------------|:------:|:------:|:------------:|---------|
-| 1 | object-model (#3687) | 4 | 0 | 0 | **PASS** |
-| 2 | SSO zero-login (#3374) | 5 | 2 | 0 | **PARTIAL** |
-| 3 | topology-DR (#3375) | 4 | 0 | 1 | **PASS** |
-| 4 | funnel (#3376) | 3 | 0 | 0 | **PASS** |
-| 5 | ns1-migrate (#3642) | 1 | 0 | 1 | **PARTIAL** |
-| 6 | eradicate-sme-naming (#3383) | 0 | 1 | 0 | **FAIL** |
-| 7 | catalog-IaC (#3668) | 2 | 0 | 1 | **PARTIAL** |
-| 8 | cutover (#3379) | 2 | 0 | 1 | **PASS** |
-| 9 | jobs-canvas (#3646) | 3 | 0 | 1 | **PASS** |
-| 10 | regenerate-meta (#3581) | 1 | 0 | 0 | **PASS** |
-| **TOTAL** | **10 runbooks** | **25** | **3** | **5** | **6 PASS / 3 PARTIAL / 1 FAIL** |
+Denominator = the canonical **step-rows in each runbook .md** (the full test set). `walked` = freshly
+re-verified in a browser on **hw159**; everything else still carries **stale hw158 markers** and is
+**not** counted as passed.
 
-**Pass ratio: 25 ✅ / 3 ❌ = 89% of decided checks pass** · 5 checks not-yet-walked · 20 screenshots.
-**The 3 ❌:** SSO newapi(`/setup`) + powerdns(`/login`) + the #3383 `Tenant` rename (fixed in published 1.4.677).
+| # | Runbook (ticket) | Total steps | ✅ walked-pass | ❌ walked-fail | ⏳ NOT walked on hw159 |
+|---|------------------|:----------:|:-------------:|:-------------:|:---------------------:|
+| 1 | object-model (#3687) | 39 | 4 | 0 | 35 |
+| 2 | SSO zero-login (#3374) | 26 | 5 | 2 | 19 |
+| 3 | topology-DR (#3375) | 33 | 4 | 0 | 29 |
+| 4 | funnel (#3376) | 24 | 3 | 0 | 21 |
+| 5 | ns1-migrate (#3642) | 23 | 1 | 0 | 22 |
+| 6 | eradicate-sme-naming (#3383) | 15 | 0 | 1 | 14 |
+| 7 | catalog-IaC (#3668) | 39 | 2 | 0 | 37 |
+| 8 | cutover (#3379) | 16 | 2 | 0 | 14 |
+| 9 | jobs-canvas (#3646) | 19 | 3 | 0 | 16 |
+| 10 | regenerate-meta (#3581) | 9 | 1 | 0 | 8 |
+| **TOTAL** | **243** | **25** | **3** | **215** |
+
+**hw159 progress: 28 of 243 steps walked (12%).** Of those 28: 25 ✅ / 3 ❌. **215 steps (88%) still
+unwalked on this env.** 20 screenshots back the 28. This is the honest denominator — NOT "6 PASS";
+the per-runbook keystone passed, but each runbook has 9–39 steps and most are not yet re-verified.
+**The 3 walked ❌:** newapi SSO(`/setup`) · powerdns SSO(`/login`) · #3383 `Tenant` rename (fixed in 1.4.677).
 
 ---
 
