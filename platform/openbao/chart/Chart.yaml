@@ -108,7 +108,12 @@ name: bp-openbao
 # render nothing). tests/continuum-render.sh Case 3 now passes
 # `--api-versions dr.openova.io/v1`; new Case 4 proves the guard skips the CR
 # (no install failure) when the CRD is absent. No upstream subchart change.
-version: 1.2.46
+# 1.2.47 (#3687, extends #3370): bootstrap self-registration —
+# templates/application-cr.yaml renders the canonical apps.openova.io/v1
+# Application CR for the slot-08 HelmRelease (gated bootstrapOwned.enabled
+# + Capabilities apps.openova.io/v1) so the console /apps list, per-app
+# Topology tab + showback resolve openbao (no more "no Application CR").
+version: 1.2.47
 # 1.2.46 (#3629, 2026-06-16): the SECONDARY (fetch) snapshot CronJob no longer
 # performs an OpenBao k8s-auth login. The fetch path is PURE S3 I/O
 # (list-objects-v2 + `s3 cp` to the restore-staging PVC) and NEVER reads

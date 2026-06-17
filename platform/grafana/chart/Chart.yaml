@@ -56,7 +56,12 @@ type: application
 # to plain in-vCluster names when grafana itself promotes (audit
 # Phase-2). Lockstep with bootstrap-kit slots 22/23/24 + bp-catalyst-
 # platform 1.4.591 (CATALYST_MIMIR_URL + baseline CNP).
-version: 1.0.14
+# 1.0.15 (#3687, extends #3370): bootstrap self-registration —
+# templates/application-cr.yaml renders the canonical apps.openova.io/v1
+# Application CR for the slot-25 HelmRelease (gated bootstrapOwned.enabled
+# + Capabilities apps.openova.io/v1) so the console /apps list, per-app
+# Topology tab + showback resolve grafana (no more "no Application CR").
+version: 1.0.15
 appVersion: "12.3.1"
 # 1.0.14 (#3374, 2026-06-14): raise the sidecar memory limit 64Mi → 192Mi
 # (request 32Mi → 64Mi). The 1.0.13 limit was too low for the

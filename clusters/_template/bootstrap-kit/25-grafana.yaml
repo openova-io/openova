@@ -123,7 +123,12 @@ spec:
       # 1.0.13's 64Mi OOMKilled the searchNamespace=ALL k8s-sidecar (exitCode
       # 137 CrashLoopBackOff) → Pod stuck 1/3 NotReady → route 503 despite the
       # main grafana container serving SSO. Refs #3374.
-      version: 1.0.14
+      # 1.0.15 (#3687, extends #3370): bootstrap self-registration — the
+      # chart renders the canonical apps.openova.io/v1 Application CR for
+      # this slot's HelmRelease (adoption-guarded, Capabilities-gated) so
+      # the console /apps list, per-app Topology tab + showback resolve
+      # grafana instead of "n/a — bootstrap component, no Application CR".
+      version: 1.0.15
       sourceRef:
         kind: HelmRepository
         name: bp-grafana
@@ -143,6 +148,16 @@ spec:
   # (platform/grafana/chart/templates/httproute.yaml). The HTTPRoute
   # attaches to cilium-gateway/kube-system installed by 01-cilium.yaml.
   values:
+    # ── Bootstrap self-registration (#3687, extends #3370) ──────────────
+    # The chart self-registers the Application CR for grafana (the
+    # canonical instance representation every console surface reads),
+    # marked spec.bootstrap=true so the application-controller ADOPTS
+    # this HR's install instead of re-rendering it (zero duplicate HRs).
+    bootstrapOwned:
+      enabled: true
+      helmRelease:
+        name: bp-grafana
+        namespace: flux-system
     gateway:
       host: grafana.${SOVEREIGN_FQDN}
     # G91.grafana (#2658) — wire bp-sso-bridge framework. The chart-side

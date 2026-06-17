@@ -1,0 +1,62 @@
+{{- /*
+Bootstrap self-registration (#3687, extends #3370) — the Application CR
+for this bootstrap-kit platform instance. See platform/postgres/chart/
+templates/application-cr.yaml for the full chart-vs-slot rationale.
+
+bootstrap-kit slots install bare Flux HelmReleases; the canonical
+apps.openova.io/v1 Application CR is what every operator-console surface
+reads (the /apps list, the per-app Topology tab, per-Organization
+showback). On hw158 only the 3 shared-pg CRs existed while ~64
+HelmReleases ran live, so grafana showed "no Application CR" on every
+console surface. The chart self-registers the canonical CR
+(spec.bootstrap=true) for its slot-installed HelmRelease; the
+application-controller ADOPTS it (status-only reconcile mirroring
+spec.helmRelease Ready), never re-rendering — the install already
+belongs to the slot HR.
+
+This chart has NO _helpers.tpl, so the house labels are inlined here
+(catalyst.openova.io/blueprint + component, the app.kubernetes.io trio) —
+matching the literal label blocks the chart's other resources hand-write
+(e.g. templates/datasource-configmaps.yaml).
+
+Gates (bp-valkey idiom — no top-level .Values.enabled here):
+`.Values.bootstrapOwned.enabled` (defaults false; the slot opts in) AND
+the Capabilities apps.openova.io/v1 gate (benign skip pre-CRD; CR
+materialises on the first post-CRD upgrade). Leaf platform app — no
+shareable Context, so spec.parameters is empty.
+*/ -}}
+{{- if and .Values.bootstrapOwned.enabled (.Capabilities.APIVersions.Has "apps.openova.io/v1") }}
+apiVersion: apps.openova.io/v1
+kind: Application
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    catalyst.openova.io/blueprint: bp-grafana
+    catalyst.openova.io/component: grafana
+    apps.openova.io/bootstrap-owned: "true"
+    catalyst.openova.io/organization: platform
+spec:
+  bootstrap: true
+  {{- /* OLD-CRD compatibility (hw130 outage 2026-06-13): pre-#3370 CRD
+       hard-requires environmentRef + regions; the #3370 CRD CEL-waives
+       them for bootstrap-owned instances but still ACCEPTS them. Inert
+       under both schemas. */}}
+  environmentRef: platform-bootstrap
+  regions: ["platform-bootstrap-owned-host"]
+  blueprintRef:
+    name: {{ .Chart.Name }}
+    version: {{ .Chart.Version | quote }}
+  placement: single-region
+  {{- with .Values.bootstrapOwned.helmRelease }}
+  helmRelease:
+    name: {{ .name | quote }}
+    namespace: {{ .namespace | default "flux-system" | quote }}
+  {{- end }}
+  targetNamespace: {{ .Release.Namespace }}
+  releaseName: {{ .Release.Name }}
+  parameters: {}
+{{- end }}
