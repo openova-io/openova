@@ -1117,7 +1117,6 @@ meteringSidecar:
     allowPrivilegeEscalation: false
     capabilities:
       drop: ["ALL"]
-
 # ── Bootstrap self-registration (#3687, extends #3370) ───────────────────
 # When a bootstrap-kit slot installs this chart, it flips
 # bootstrapOwned.enabled=true so templates/application-cr.yaml renders the
