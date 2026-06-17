@@ -150,7 +150,7 @@ spec:
       # chart renders the canonical apps.openova.io/v1 Application CR for
       # this slot's HelmRelease so the console /apps list, per-app Topology
       # tab + showback resolve powerdns (no more "no Application CR").
-      version: 1.2.14
+      version: 1.2.16
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns
