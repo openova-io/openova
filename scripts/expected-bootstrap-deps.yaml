@@ -377,11 +377,13 @@ slots:
     # the ESO CRD (.Capabilities .Has "external-secrets.io/v1beta1") and gates
     # on bp-external-secrets so the ESO webhook is serving before grafana's
     # ExternalSecret applies — lockstep with the live 25-grafana.yaml edge.
-    # bp-mgmt-vcluster dep (#3642): grafana host→mgmt host-bridge move — the
-    # vc-mgmt kubeConfig Secret doesn't exist until bp-mgmt-vcluster is Ready,
-    # so the kubeConfig pivot dangles without this edge (added by
-    # render-slot-placement.py fix from the placement.yaml flip).
-    depends_on: [bp-cnpg, bp-loki, bp-mimir, bp-tempo, bp-keycloak, bp-gateway-api, bp-external-secrets, bp-postgres-shared-b, bp-mgmt-vcluster]
+    # bp-mgmt-vcluster edge REMOVED (#3731): the #3642 grafana host→mgmt
+    # host-bridge was reverted to a HOST placement — its raw ExternalSecret
+    # dry-run-deadlocked the bootstrap-kit Kustomization before the ESO CRD
+    # installed (0-HR fresh-prov wedge on hw157). Grafana runs on host again
+    # (chart renders its own .Capabilities-guarded ES), so the vc-mgmt
+    # runtime edge no longer applies; re-home with #3642/#3719 next train.
+    depends_on: [bp-cnpg, bp-loki, bp-mimir, bp-tempo, bp-keycloak, bp-gateway-api, bp-external-secrets, bp-postgres-shared-b]
     wave: W2.K2
   - slot: 26
     name: bp-network-policies
