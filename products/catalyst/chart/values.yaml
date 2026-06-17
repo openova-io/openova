@@ -497,10 +497,41 @@ controllers:
     # = 60s default.
     fluxIntervalSeconds: ""
     # Name of a Flux basic-auth Secret (in fluxNamespace) holding the Gitea
-    # PAT the per-Org GitRepository clones with — bp-gitea
-    # REQUIRE_SIGNIN_VIEW=true makes anonymous clone 401. Empty = anonymous
-    # (parity with controllers.application.fluxGiteaSecretRef).
-    fluxGiteaSecretRef: ""
+    # PAT the per-Org GitRepository clones with.
+    #
+    # WHY THIS IS NON-EMPTY BY DEFAULT (#3687 / #3376 — hw158 funnel blocker)
+    # ---------------------------------------------------------------------
+    # The per-Org `<slug>/catalyst-tenant` repo the org-controller creates is
+    # ALWAYS private (organization_controller.go EnsureOrg/EnsureRepo pass
+    # private=true), and bp-gitea additionally sets REQUIRE_SIGNIN_VIEW=true —
+    # so an anonymous git clone returns 401 "authentication required". With an
+    # empty secretRef the per-Org GitRepository (catalyst-tenant-<slug>,
+    # per_org_flux.go) carries NO `spec.secretRef`, source-controller clones
+    # anonymously, Gitea 401s, the catalyst-tenant-<slug>-vcluster
+    # Kustomization reports "Source artifact not found", the committed vCluster
+    # HelmRelease never reconciles, and the tenant namespace + purchased app
+    # (e.g. WordPress) never come up — the funnel's terminal acceptance fails
+    # (proven live on hw158 by the #3687 + #3376 walkers).
+    #
+    # `openova-sme-tenants-git-auth` is a Flux basic-auth Secret in flux-system
+    # holding the `gitea_admin` PAT (sourced from catalyst-gitea-token). Because
+    # gitea_admin is the Gitea admin it can clone EVERY Org's private
+    # catalyst-tenant repo, so this single shared secret authenticates the
+    # per-Org GitRepository for all Organizations — no per-Org secret needed.
+    # It is the exact credential the top-level openova-sme-tenants
+    # GitRepository already clones with successfully on every Sovereign (the
+    # proven #3454 pattern). The Secret is guaranteed to exist in flux-system
+    # by the catalog-sovereign-flux/gitea-flux-auth-secrets-sync-job.yaml
+    # post-install/post-upgrade hook (#3749 / #3668), which reads the
+    # runtime-minted catalyst-gitea-token PAT via secretKeyRef (NOT a render-
+    # time `lookup`) and idempotently applies BOTH openova-sme-tenants-git-auth
+    # and openova-catalog-sovereign-git-auth — so a fresh prov gets it the
+    # first time and any chart bump re-asserts it. The PAT never touches argv.
+    #
+    # Per Inviolable Principle #4 the secret name stays operator-overridable;
+    # set to "" to force anonymous clone (only valid if bp-gitea ever drops
+    # REQUIRE_SIGNIN_VIEW AND the per-Org repo is made public).
+    fluxGiteaSecretRef: "openova-sme-tenants-git-auth"
     # Free-form extra env vars threaded into the Pod (advanced; for one-off
     # operator-side knobs not yet promoted to a top-level value).
     env: {}
