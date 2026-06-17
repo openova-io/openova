@@ -4,7 +4,7 @@
 // record (events, jobs history, HRs, cloud topology, kubeconfig
 // metadata) to the freshly-provisioned child's catalyst-api at
 //
-//   POST https://api.<sovereign-fqdn>/api/v1/internal/deployments/import
+//	POST https://api.<sovereign-fqdn>/api/v1/internal/deployments/import
 //
 // The receiving Sovereign persists it to its local store (see
 // deployment_handover_import.go) so its operator-facing endpoints
@@ -13,7 +13,6 @@
 package handler
 
 import (
-	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"net/http"
@@ -79,58 +78,39 @@ func (h *Handler) exportDeploymentToChild(dep *Deployment, fqdn string) {
 		},
 	}
 
-	// D16 PR E retry: backoff doubles from 5s up to 60s, total budget 5 min.
+	// Shared handover-export retry (#3747): backoff 5s→ceiling, total budget
+	// defaults to 20m (was a fixed 5m), retries connection errors + 5xx while
+	// the child's `api.<fqdn>` backend is still warming up, gives up on a 4xx.
 	// Most handovers succeed on attempt 2-4 (15-45s after first try).
-	backoff := 5 * time.Second
-	deadline := time.Now().Add(5 * time.Minute)
-	attempt := 0
-	for time.Now().Before(deadline) {
-		attempt++
-		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-		if err != nil {
+	outcome := postHandoverExportWithRetry(client, url, body, func(attempt int, kind string, status int, err error) {
+		switch kind {
+		case "request-error":
 			h.log.Error("deployment-export: NewRequest failed",
 				"id", depID, "url", url, "err", err,
 			)
-			return
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := client.Do(req)
-		if err != nil {
+		case "conn-error":
 			h.log.Warn("deployment-export: POST failed (will retry)",
 				"id", depID, "url", url, "attempt", attempt, "err", err,
 			)
-			time.Sleep(backoff)
-			if backoff < 60*time.Second {
-				backoff *= 2
-			}
-			continue
-		}
-		status := resp.StatusCode
-		resp.Body.Close()
-		if status >= 500 {
+		case "5xx":
 			h.log.Warn("deployment-export: child 5xx (will retry)",
 				"id", depID, "url", url, "attempt", attempt, "status", status,
 			)
-			time.Sleep(backoff)
-			if backoff < 60*time.Second {
-				backoff *= 2
-			}
-			continue
-		}
-		if status >= 400 {
+		case "4xx":
 			h.log.Error("deployment-export: child 4xx (giving up)",
 				"id", depID, "url", url, "attempt", attempt, "status", status,
 			)
-			return
+		case "ok":
+			h.log.Info("deployment-export: shipped to child",
+				"id", depID, "url", url, "attempt", attempt, "events", len(rec.Events),
+			)
 		}
-		h.log.Info("deployment-export: shipped to child",
-			"id", depID, "url", url, "attempt", attempt, "events", len(rec.Events),
+	})
+	if outcome == handoverExportGaveUpBudget {
+		h.log.Error("deployment-export: gave up after export budget exhausted (backend never reachable — operator can re-mint via /mint-handover-token)",
+			"id", depID, "url", url, "budget", handoverExportBudget().String(),
 		)
-		return
 	}
-	h.log.Error("deployment-export: gave up after 5min retries",
-		"id", depID, "url", url, "attempts", attempt,
-	)
 }
 
 // secondaryKubeconfigFileWaitBudget bounds how long
@@ -264,61 +244,42 @@ func (h *Handler) waitForSecondaryKubeconfig(path string, budget, poll time.Dura
 	}
 }
 
-// postSecondaryKubeconfigWithRetry POSTs body to url and retries on
-// transient errors. Refactored out of exportSecondaryKubeconfigsToChild
-// so the per-region goroutine reads top-to-bottom and the retry shape
-// is unit-testable. Total budget 5 min, backoff 5s→60s.
+// postSecondaryKubeconfigWithRetry POSTs body to url via the shared
+// handover-export retry policy (#3747). Refactored out of
+// exportSecondaryKubeconfigsToChild so the per-region goroutine reads
+// top-to-bottom and the retry shape is unit-testable. Budget defaults to
+// 20m (was a fixed 5m), backoff 5s→ceiling, retries connection errors + 5xx
+// while the child backend warms up, gives up on a 4xx.
 func (h *Handler) postSecondaryKubeconfigWithRetry(client *http.Client, url string, body []byte, depID, regionKey string) {
-	backoff := 5 * time.Second
-	deadline := time.Now().Add(5 * time.Minute)
-	attempt := 0
-	for time.Now().Before(deadline) {
-		attempt++
-		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-		if err != nil {
+	outcome := postHandoverExportWithRetry(client, url, body, func(attempt int, kind string, status int, err error) {
+		switch kind {
+		case "request-error":
 			h.log.Error("d16-export: NewRequest failed",
 				"id", depID, "region", regionKey, "err", err,
 			)
-			return
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := client.Do(req)
-		if err != nil {
+		case "conn-error":
 			h.log.Warn("d16-export: POST failed (will retry)",
 				"id", depID, "region", regionKey, "url", url, "attempt", attempt, "err", err,
 			)
-			time.Sleep(backoff)
-			if backoff < 60*time.Second {
-				backoff *= 2
-			}
-			continue
-		}
-		status := resp.StatusCode
-		resp.Body.Close()
-		if status >= 500 {
+		case "5xx":
 			h.log.Warn("d16-export: child 5xx (will retry)",
 				"id", depID, "region", regionKey, "attempt", attempt, "status", status,
 			)
-			time.Sleep(backoff)
-			if backoff < 60*time.Second {
-				backoff *= 2
-			}
-			continue
-		}
-		if status >= 400 {
+		case "4xx":
 			h.log.Error("d16-export: child 4xx (giving up)",
 				"id", depID, "region", regionKey, "attempt", attempt, "status", status,
 			)
-			return
+		case "ok":
+			h.log.Info("d16-export: secondary kubeconfig shipped to child",
+				"id", depID, "region", regionKey, "attempt", attempt,
+			)
 		}
-		h.log.Info("d16-export: secondary kubeconfig shipped to child",
-			"id", depID, "region", regionKey, "attempt", attempt,
+	})
+	if outcome == handoverExportGaveUpBudget {
+		h.log.Error("d16-export: gave up on region after export budget exhausted (backend never reachable — operator can re-mint via /mint-handover-token)",
+			"id", depID, "region", regionKey, "budget", handoverExportBudget().String(),
 		)
-		return
 	}
-	h.log.Error("d16-export: gave up on region after 5min retries",
-		"id", depID, "region", regionKey, "attempts", attempt,
-	)
 }
 
 // regionKeysForExport returns the deployment's secondary region keys
