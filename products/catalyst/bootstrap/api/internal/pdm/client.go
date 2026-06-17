@@ -349,6 +349,71 @@ func (c *Client) CommitWithRetry(
 	return fmt.Errorf("pdm commit retry exhausted (%d attempts): %w", cfg.MaxAttempts, lastErr)
 }
 
+// ReleaseWithRetry runs Release with bounded exponential backoff and
+// treats pdm.ErrNotFound as success (idempotent — the row may already
+// be gone). It is the resilient sibling of CommitWithRetry for the
+// decommission path.
+//
+// Why this exists (Refs #3728): the wipe handler's pool-subdomain
+// release was best-effort and NON-retried — a single transient PDM
+// failure (5xx, network blip, basic-auth 401 during a Secret rotation,
+// or a PDM Pod roll) left the `active` pool_allocations row orphaned.
+// Because an `active` row never self-heals (the sweeper only reclaims
+// expired *reserved* rows), and the wipe path then deletes catalyst-api's
+// own deployment record, the orphaned row permanently 409s every re-fire
+// of the same subdomain — forcing operators to burn a fresh name each
+// wipe→re-fire cycle (hw155→hw156→hw157…). Retrying the release closes
+// that window the same way CommitWithRetry already closes it for /commit.
+//
+// Semantics:
+//
+//	nil / ErrNotFound  — success (the slot is free); returns nil.
+//	5xx / network      — back off (InitialBackoff * 2^attempt, capped at
+//	                     MaxBackoff) and retry, up to MaxAttempts.
+//	ctx cancelled      — returns the wrapped context error immediately.
+//
+// On final exhaustion returns the last error wrapped with
+// "pdm release retry exhausted (N attempts)". Callers should pass a
+// context that is NOT tied to the inbound HTTP request (use
+// context.Background with its own timeout) so a client disconnect during
+// a long cloud purge cannot starve the release.
+func (c *Client) ReleaseWithRetry(ctx context.Context, poolDomain, subdomain string, cfg CommitRetryConfig) error {
+	if cfg.MaxAttempts <= 0 {
+		cfg.MaxAttempts = 5
+	}
+	if cfg.InitialBackoff <= 0 {
+		cfg.InitialBackoff = 1 * time.Second
+	}
+	if cfg.MaxBackoff <= 0 {
+		cfg.MaxBackoff = 16 * time.Second
+	}
+
+	var lastErr error
+	backoff := cfg.InitialBackoff
+	for attempt := 1; attempt <= cfg.MaxAttempts; attempt++ {
+		err := c.Release(ctx, poolDomain, subdomain)
+		if err == nil || errors.Is(err, ErrNotFound) {
+			// 404 means the row is already gone — the slot is free, which
+			// is exactly the post-condition the caller wants. Idempotent.
+			return nil
+		}
+		lastErr = err
+		if attempt == cfg.MaxAttempts {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("pdm release retry cancelled after %d attempts: %w", attempt, ctx.Err())
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+		if backoff > cfg.MaxBackoff {
+			backoff = cfg.MaxBackoff
+		}
+	}
+	return fmt.Errorf("pdm release retry exhausted (%d attempts): %w", cfg.MaxAttempts, lastErr)
+}
+
 // Release calls DELETE /api/v1/pool/{domain}/release.
 func (c *Client) Release(ctx context.Context, poolDomain, subdomain string) error {
 	body := map[string]string{"subdomain": subdomain}

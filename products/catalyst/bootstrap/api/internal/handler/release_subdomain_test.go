@@ -346,6 +346,73 @@ func TestRestoreFromStore_PodRestartOrphanReleasesPDMSlot(t *testing.T) {
 	}
 }
 
+// TestReleaseSubdomain_WipedWithRetainedPointersCompletesRelease is the
+// #3728 recovery contract. When a wipe's pool release failed, the wipe
+// handler RETAINS the deployment record (status="wiped") WITH its
+// pdmPoolDomain/pdmSubdomain pointers intact, precisely so this endpoint
+// can finish the orphaned release. The prior code returned 410 Gone for
+// ANY "wiped" deployment, which dead-ended that recovery and left the
+// subdomain permanently 409ing on re-fire. A wiped deployment that still
+// carries pool pointers must therefore PROCEED to the release.
+func TestReleaseSubdomain_WipedWithRetainedPointersCompletesRelease(t *testing.T) {
+	fpdm := &fakePDM{}
+	h := NewWithPDM(silentLogger(), fpdm)
+
+	dep := &Deployment{
+		ID:            "dep-wiped-retained",
+		Status:        "wiped", // infra gone, but pool release had failed
+		Request:       provisioner.Request{SovereignFQDN: "hw155.omani.works", SovereignDomainMode: "pool"},
+		pdmPoolDomain: "omani.works",
+		pdmSubdomain:  "hw155",
+	}
+	h.deployments.Store(dep.ID, dep)
+
+	w := callReleaseSubdomain(h, dep.ID)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s — a wiped deployment with retained pool pointers must release, not 410", w.Code, w.Body.String())
+	}
+	var resp releaseSubdomainResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !resp.PDMReleased {
+		t.Errorf("PDMReleased=false; the retained pool allocation for hw155.omani.works must be freed (body=%s)", w.Body.String())
+	}
+	if got := len(fpdm.releases); got != 1 || fpdm.releases[0].sub != "hw155" {
+		t.Errorf("expected exactly one Release(omani.works, hw155), got %+v", fpdm.releases)
+	}
+	// Pointers cleared so a duplicate recovery call is a clean no-op.
+	if dep.pdmPoolDomain != "" || dep.pdmSubdomain != "" {
+		t.Errorf("pointers not cleared after recovery release: pool=%q sub=%q", dep.pdmPoolDomain, dep.pdmSubdomain)
+	}
+}
+
+// TestReleaseSubdomain_WipedWithClearedPointersStill410 proves the normal
+// happy path is unchanged: a wiped deployment whose pool slot WAS released
+// (pointers cleared) still returns 410 Gone — there is nothing left to do.
+func TestReleaseSubdomain_WipedWithClearedPointersStill410(t *testing.T) {
+	fpdm := &fakePDM{}
+	h := NewWithPDM(silentLogger(), fpdm)
+
+	dep := &Deployment{
+		ID:      "dep-wiped-clean",
+		Status:  "wiped",
+		Request: provisioner.Request{SovereignFQDN: "hw155.omani.works", SovereignDomainMode: "pool"},
+		// pdmPoolDomain / pdmSubdomain intentionally empty (released on wipe)
+	}
+	h.deployments.Store(dep.ID, dep)
+
+	w := callReleaseSubdomain(h, dep.ID)
+
+	if w.Code != http.StatusGone {
+		t.Errorf("status=%d, want 410 (already wiped, slot already released) — body=%s", w.Code, w.Body.String())
+	}
+	if got := len(fpdm.releases); got != 0 {
+		t.Errorf("no Release should fire for a fully-wiped deployment, got %d", got)
+	}
+}
+
 // TestRestoreFromStore_TerminalRecordDoesNotReleasePDM proves we DON'T
 // re-release a deployment that finished cleanly (status="failed" was
 // already the terminal state on disk, not a rewrite). A clean failure

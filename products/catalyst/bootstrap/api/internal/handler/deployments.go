@@ -2165,9 +2165,14 @@ func (h *Handler) releasePDMReservation(dep *Deployment) {
 	if dep.pdmReservationToken == "" || h.pdm == nil {
 		return
 	}
-	pdmCtx, pdmCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Refs #3728 — ReleaseWithRetry so a transient PDM failure on the
+	// Phase-0-failure cleanup doesn't strand the reservation until its TTL.
+	// (A reserved row WOULD expire on its 10m TTL, but if it was already
+	// committed to `active` before the failure, only an explicit release
+	// frees it — retrying closes that window.)
+	pdmCtx, pdmCancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer pdmCancel()
-	releaseErr := h.pdm.Release(pdmCtx, dep.pdmPoolDomain, dep.pdmSubdomain)
+	releaseErr := h.pdm.ReleaseWithRetry(pdmCtx, dep.pdmPoolDomain, dep.pdmSubdomain, pdm.CommitRetryConfig{})
 	if releaseErr != nil && !errors.Is(releaseErr, pdm.ErrNotFound) {
 		h.log.Error("pdm release failed; reservation will expire on TTL",
 			"id", dep.ID,

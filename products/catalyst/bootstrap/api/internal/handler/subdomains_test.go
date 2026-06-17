@@ -162,6 +162,30 @@ func (f *fakePDM) Release(ctx context.Context, pool, sub string) error {
 	return nil
 }
 
+// ReleaseWithRetry on the fake delegates to the same `release` hook used
+// by Release (so existing tests that stub `release` keep working) but
+// threads the retry loop manually — ErrNotFound counts as success, and
+// non-sentinel errors are retried up to MaxAttempts with NO sleep (fakes
+// don't sleep; callers that want to verify backoff timing use the
+// httptest-based test in pdm/client_test.go instead). Refs #3728.
+func (f *fakePDM) ReleaseWithRetry(ctx context.Context, pool, sub string, cfg pdm.CommitRetryConfig) error {
+	if cfg.MaxAttempts <= 0 {
+		cfg.MaxAttempts = 5
+	}
+	var lastErr error
+	for attempt := 1; attempt <= cfg.MaxAttempts; attempt++ {
+		err := f.Release(ctx, pool, sub)
+		if err == nil || errors.Is(err, pdm.ErrNotFound) {
+			return nil
+		}
+		lastErr = err
+		if attempt == cfg.MaxAttempts {
+			break
+		}
+	}
+	return lastErr
+}
+
 func decodeResp(t *testing.T, body io.Reader) SubdomainCheckResponse {
 	t.Helper()
 	var got SubdomainCheckResponse

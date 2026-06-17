@@ -584,9 +584,27 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 		emit("wipe", "error", providerName+" G103 verification: "+itoa(residualTotal)+" catalyst-* resource(s) survived wipe (bastion-* excluded): "+kindCountSummary(report.ResidualOrphans))
 	}
 
-	// Step 3 — PDM release (pool-subdomain only). Best-effort. Resolve pool
-	// + subdomain from either the Deployment record (set during the
-	// reservation step) or from the FQDN as a fallback.
+	// Step 3 — PDM release (pool-subdomain only). Resolve pool + subdomain
+	// from either the Deployment record (set during the reservation step)
+	// or from the FQDN as a fallback.
+	//
+	// Refs #3728 — three hardening changes vs. the prior best-effort call:
+	//   1. Guard h.pdm == nil (symmetric with ReleaseSubdomain at line ~840
+	//      and the reserve path) — a wipe on a catalyst-api without
+	//      POOL_DOMAIN_MANAGER_URL must not nil-deref, and must NOT silently
+	//      forget the deployment with the pool row still active.
+	//   2. ReleaseWithRetry on a BACKGROUND context — an `active`
+	//      pool_allocations row never self-heals (the sweeper only reclaims
+	//      expired *reserved* rows), so a single transient PDM failure
+	//      orphans the subdomain permanently and 409s every re-fire. The
+	//      release context is deliberately independent of r.Context() so a
+	//      client disconnect after the long (≤30m) cloud purge can't starve
+	//      it with `context canceled`.
+	//   3. When the release still fails after retries, set pdmReleaseFailed
+	//      so the finalize step SKIPS deleting the on-disk record + reaping
+	//      the in-memory row — keeping ReleaseSubdomain (DELETE
+	//      …/release-subdomain) a viable manual recovery instead of leaving
+	//      an orphan no actor knows to clean up.
 	poolDomain, subdomain := dep.pdmPoolDomain, dep.pdmSubdomain
 	if poolDomain == "" || subdomain == "" {
 		// Fallback: split sovereignFQDN at the first dot.
@@ -595,16 +613,28 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 			poolDomain = dep.Request.SovereignFQDN[idx+1:]
 		}
 	}
+	pdmReleaseFailed := false
 	if dep.Request.SovereignDomainMode == "pool" && poolDomain != "" && subdomain != "" {
-		releaseCtx, releaseCancel := context.WithTimeout(r.Context(), 30*time.Second)
-		if err := h.pdm.Release(releaseCtx, poolDomain, subdomain); err != nil {
-			report.Errors = append(report.Errors, "pdm release: "+err.Error())
-			emit("wipe", "warn", "PDM release failed (operator must run pdm-cli force-release later): "+err.Error())
+		if h.pdm == nil {
+			pdmReleaseFailed = true
+			report.Errors = append(report.Errors, "pdm release skipped: pool-domain-manager client is not configured")
+			emit("wipe", "warn", "PDM client not configured — pool allocation for "+subdomain+"."+poolDomain+" NOT released; on-disk record retained for retry via DELETE /release-subdomain")
 		} else {
-			report.PDMReleased = true
-			emit("wipe", "info", "PDM allocation released for "+subdomain+"."+poolDomain)
+			// Background context — independent of the inbound HTTP request so
+			// an operator-console disconnect during the cloud purge cannot
+			// cancel the release. 90s covers up to 5 retry attempts of the
+			// 15s-timeout PDM client.
+			releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 90*time.Second)
+			if err := h.pdm.ReleaseWithRetry(releaseCtx, poolDomain, subdomain, pdm.CommitRetryConfig{}); err != nil {
+				pdmReleaseFailed = true
+				report.Errors = append(report.Errors, "pdm release: "+err.Error())
+				emit("wipe", "warn", "PDM release failed after retries — on-disk record retained for retry via DELETE /release-subdomain (or operator pdm-cli force-release): "+err.Error())
+			} else {
+				report.PDMReleased = true
+				emit("wipe", "info", "PDM allocation released for "+subdomain+"."+poolDomain)
+			}
+			releaseCancel()
 		}
-		releaseCancel()
 	} else {
 		emit("wipe", "info", "BYO or unresolvable pool — no PDM allocation to release")
 	}
@@ -649,15 +679,22 @@ _ = deploymentSovereignName // retained for backwards-compat callers; unused on 
 		report.Errors = append(report.Errors, "remove tofu workdir: "+err.Error())
 	}
 
-	if h.store != nil {
+	// Refs #3728 — if the PDM pool release failed after retries, RETAIN the
+	// on-disk record so the deployment is still loadable after a Pod
+	// restart and DELETE /release-subdomain can drive the manual recovery.
+	// Deleting it here is what historically stranded the orphan `active`
+	// row with no actor left to release it.
+	if h.store != nil && !pdmReleaseFailed {
 		if err := h.store.Delete(id); err != nil {
 			report.Errors = append(report.Errors, "store delete: "+err.Error())
 		} else {
 			report.LocalCleaned = true
 			emit("wipe", "info", "deployment record removed from on-disk store")
 		}
-	} else {
+	} else if h.store == nil {
 		report.LocalCleaned = true
+	} else {
+		emit("wipe", "info", "on-disk deployment record retained — PDM allocation still active; retry release via DELETE /api/v1/deployments/"+id+"/release-subdomain")
 	}
 
 	// Step 5 — finalize. Mark the deployment "wiped" in memory and close
@@ -673,10 +710,17 @@ _ = deploymentSovereignName // retained for backwards-compat callers; unused on 
 	// Don't immediately remove from sync.Map — we want StreamLogs
 	// reconnects within ~30s to see the final wipe summary frames. A
 	// background goroutine reaps after a TTL.
-	go func() {
-		time.Sleep(60 * time.Second)
-		h.deployments.Delete(id)
-	}()
+	//
+	// Refs #3728 — skip the reap when the PDM release failed: the
+	// in-memory deployment (with its pdmPoolDomain/pdmSubdomain pointers)
+	// must survive so ReleaseSubdomain can retry the orphaned pool
+	// allocation. Reaping it here is what made the manual recovery 404.
+	if !pdmReleaseFailed {
+		go func() {
+			time.Sleep(60 * time.Second)
+			h.deployments.Delete(id)
+		}()
+	}
 
 	emit("wipe", "info", "Wipe complete. Start a fresh deployment from /sovereign.")
 
@@ -804,7 +848,12 @@ func (h *Handler) ReleaseSubdomain(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if status == "wiped" {
+	// Refs #3728 — a "wiped" deployment normally has its PDM pointers
+	// cleared (the wipe released the slot), so 410 is correct. BUT when the
+	// wipe's pool release FAILED, the record is retained with its pointers
+	// intact precisely so this endpoint can finish the release. In that
+	// recovery case, fall through to the release instead of 410.
+	if status == "wiped" && (poolDomain == "" || subdomain == "") {
 		writeJSON(w, http.StatusGone, releaseSubdomainResponse{
 			DeploymentID: id,
 			PoolDomain:   poolDomain,
@@ -847,9 +896,12 @@ func (h *Handler) ReleaseSubdomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	releaseCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	// Refs #3728 — ReleaseWithRetry on a background context so this manual
+	// recovery seam is as resilient as the wipe path (a single transient
+	// PDM failure must not strand the operator's retry either).
+	releaseCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	err := h.pdm.Release(releaseCtx, poolDomain, subdomain)
+	err := h.pdm.ReleaseWithRetry(releaseCtx, poolDomain, subdomain, pdm.CommitRetryConfig{})
 	if err != nil && !errors.Is(err, pdmErrNotFound()) {
 		h.log.Warn("release-subdomain: pdm release failed",
 			"id", id,

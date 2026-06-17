@@ -437,3 +437,126 @@ func TestClient_BasicAuth_OmittedWhenEnvUnset(t *testing.T) {
 		t.Errorf("expected no Authorization header, got %q", seenAuth)
 	}
 }
+
+// ── ReleaseWithRetry (Refs #3728) ───────────────────────────────────────
+//
+// The wipe path's pool-subdomain release was best-effort and non-retried;
+// a single transient PDM failure orphaned the `active` allocation row,
+// which never self-heals (the sweeper only reclaims expired *reserved*
+// rows) → permanent 409 on re-fire of the same subdomain. ReleaseWithRetry
+// gives the decommission path the same resilience Commit already has.
+
+// TestReleaseWithRetry_5xx_ThenSuccess proves a transient PDM 5xx on the
+// first DELETE /release does NOT strand the subdomain — the loop backs off
+// and the second attempt frees the slot. This is the exact hw155/hw156
+// failure window: a PDM blip during wipe left the row, forcing a fresh
+// subdomain each re-fire.
+func TestReleaseWithRetry_5xx_ThenSuccess(t *testing.T) {
+	var releases int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&releases, 1)
+		if !strings.HasSuffix(r.URL.Path, "/release") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if n == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"db down"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"freed":{"state":"active"}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(srv.URL)
+	err := c.ReleaseWithRetry(context.Background(), "omani.works", "hw155",
+		CommitRetryConfig{MaxAttempts: 5, InitialBackoff: time.Millisecond, MaxBackoff: time.Millisecond})
+	if err != nil {
+		t.Fatalf("ReleaseWithRetry should recover after a transient 5xx: %v", err)
+	}
+	if got := atomic.LoadInt32(&releases); got != 2 {
+		t.Errorf("releases=%d, want 2 (1 5xx + 1 success)", got)
+	}
+}
+
+// TestReleaseWithRetry_404_IsSuccess proves a 404 (row already gone) is
+// treated as success on the FIRST attempt — release is idempotent, and a
+// freed slot is exactly the post-condition the caller wants. It must NOT
+// burn the whole retry budget on an already-released row.
+func TestReleaseWithRetry_404_IsSuccess(t *testing.T) {
+	var releases int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&releases, 1)
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"not-found"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(srv.URL)
+	err := c.ReleaseWithRetry(context.Background(), "omani.works", "hw155",
+		CommitRetryConfig{MaxAttempts: 5, InitialBackoff: time.Millisecond, MaxBackoff: time.Millisecond})
+	if err != nil {
+		t.Fatalf("ReleaseWithRetry: 404 must be success (idempotent), got %v", err)
+	}
+	if got := atomic.LoadInt32(&releases); got != 1 {
+		t.Errorf("releases=%d, want 1 (404 returns immediately, no retry)", got)
+	}
+}
+
+// TestReleaseWithRetry_5xx_Exhaustion proves a persistently-down PDM
+// surfaces a clear 'retry exhausted' error after MaxAttempts so the wipe
+// handler can RETAIN the deployment record for manual recovery rather than
+// silently forgetting an orphaned allocation.
+func TestReleaseWithRetry_5xx_Exhaustion(t *testing.T) {
+	var releases int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&releases, 1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(srv.URL)
+	err := c.ReleaseWithRetry(context.Background(), "omani.works", "hw155",
+		CommitRetryConfig{MaxAttempts: 3, InitialBackoff: time.Millisecond, MaxBackoff: time.Millisecond})
+	if err == nil {
+		t.Fatal("ReleaseWithRetry should fail on persistent 5xx")
+	}
+	if !strings.Contains(err.Error(), "retry exhausted") {
+		t.Errorf("err=%q should contain 'retry exhausted'", err.Error())
+	}
+	if !strings.Contains(err.Error(), "3 attempts") {
+		t.Errorf("err=%q should mention attempt count (3)", err.Error())
+	}
+	if got := atomic.LoadInt32(&releases); got != 3 {
+		t.Errorf("releases=%d, want 3 (MaxAttempts)", got)
+	}
+}
+
+// TestReleaseWithRetry_ContextCancellation_StopsBackoff proves a cancelled
+// context (e.g. the 90s background-context timeout elapsing) stops the
+// backoff loop promptly with a wrapped error rather than spinning.
+func TestReleaseWithRetry_ContextCancellation_StopsBackoff(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	c := New(srv.URL)
+
+	// Cancel almost immediately so the first inter-attempt sleep aborts.
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		cancel()
+	}()
+
+	err := c.ReleaseWithRetry(ctx, "omani.works", "hw155",
+		CommitRetryConfig{MaxAttempts: 50, InitialBackoff: 50 * time.Millisecond, MaxBackoff: 50 * time.Millisecond})
+	if err == nil {
+		t.Fatal("ReleaseWithRetry should return an error when ctx is cancelled mid-backoff")
+	}
+	if !strings.Contains(err.Error(), "cancelled") && !strings.Contains(err.Error(), "context") {
+		t.Errorf("err=%q should reflect context cancellation", err.Error())
+	}
+}
