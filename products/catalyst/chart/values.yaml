@@ -294,9 +294,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "54d29b7"
+    tag: "94ef502"
   catalystUi:
-    tag: "54d29b7"
+    tag: "94ef502"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -319,7 +319,7 @@ images:
   # carries the server-side filter and is published for every services-* image
   # (verified: services-auth, unchanged by #3157, also has c96f998 → the SME
   # build is all-services, not path-filtered). Refs #3156.
-  smeTag: "94ef502"
+  smeTag: "574d7a5"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────
