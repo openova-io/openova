@@ -85,7 +85,12 @@ spec:
       # catalyst-system/newapi/sso-bridge/oidc-gate) in allowedIngressNamespaces
       # so the host Cilium Gateway + keycloak SSO consumers reach the moved
       # keycloak/grafana through the vCluster isolation netpol.
-      version: 0.2.11
+      # 0.2.12 (#3642 #3736): vcluster subchart 0.21.0 → 0.23.0 +
+      # sync.fromHost.secrets.mappings.byName — delivers each re-homed app's
+      # host-MINTED DB/SSO Secret INTO vc-mgmt (GOVERNING CONSTRAINT #2; the
+      # #3737 keycloak SHARED_PG `secret not found` blocker). OSS-native, no
+      # admin.loft.sh tether → cutover deny-egress hold still passes.
+      version: 0.2.12
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster
