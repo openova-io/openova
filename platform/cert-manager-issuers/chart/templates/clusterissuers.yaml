@@ -1,57 +1,55 @@
-# clusterissuer-letsencrypt-dns01.yaml — Catalyst-curated TLS issuer for
-# OpenOva Sovereign clusters.
-#
-# Closes #113 — "[G] dns: validate TLS issuance via cert-manager Let's
-# Encrypt DNS-01 challenge".
+# clusterissuers.yaml — Catalyst-curated Let's Encrypt ClusterIssuers,
+# split out of bp-cert-manager into bp-cert-manager-issuers (issue #3734).
 #
 # ──────────────────────────────────────────────────────────────────────────
-# Why two ClusterIssuers in one file
+# Why these are PLAIN manifests (no Helm hooks)
 # ──────────────────────────────────────────────────────────────────────────
+# In bp-cert-manager these two CRs shipped as post-install Helm hooks
+# (weight 5) with `before-hook-creation` delete policy. That tripped the
+# helm-controller RESTMapper-cache race: the cached mapper (built at
+# reconcile-start, before the cert-manager.io ClusterIssuer CRD existed)
+# never refreshed, so the hook's delete AND create both failed with
+# `no matches for kind "ClusterIssuer"` → InstallFailed → uninstall →
+# reinstall loop (verified live on hw157).
 #
+# This chart is a SEPARATE HelmRelease (bootstrap-kit slot 02a) whose Flux
+# HR `dependsOn: bp-cert-manager`. By the time Flux starts reconciling this
+# release, bp-cert-manager is Ready → the ClusterIssuer CRD is registered →
+# the FRESH helm-controller reconcile for THIS release builds a RESTMapper
+# that already includes the ClusterIssuer kind. So the CRs apply cleanly as
+# ordinary main-pass manifests; the Helm hook machinery that caused the
+# original failure is gone entirely. The chart's pre-install crd-gate
+# (templates/crd-gate-hook.yaml) is belt-and-suspenders for the residual
+# apiserver-async Established lag.
+#
+# ──────────────────────────────────────────────────────────────────────────
+# Why two ClusterIssuers
+# ──────────────────────────────────────────────────────────────────────────
 # Wildcard certificates (e.g. *.omantel.omani.works) MUST be issued via
 # DNS-01: HTTP-01 cannot prove ownership of a wildcard hostname. The
 # canonical 6-record set written by catalyst-dns includes
-# `*.<sub>.<domain>`, and the Cilium Gateway's HTTPS listener serves that
-# wildcard via a single Certificate. So DNS-01 is the target state.
-#
-# However, cert-manager's DNS-01 webhook contract is DIFFERENT from
-# external-dns's webhook contract: external-dns expects a sidecar that
-# implements its own RPC schema (records.list / records.add / records.delete),
-# while cert-manager expects a webhook that implements
-# `webhook.acme.cert-manager.io/v1alpha1` (Present / CleanUp on a
-# ChallengeRequest CRD). The Catalyst external-dns webhook at
-# products/catalyst/bootstrap/api/cmd/external-dns-dynadot-webhook/ does
-# NOT satisfy the cert-manager contract and therefore CANNOT be reused
-# here. There is no upstream cert-manager-Dynadot webhook on
-# https://cert-manager.io/docs/configuration/acme/dns01/webhook/ as of
-# 2026-04-28.
+# `*.<sub>.<domain>`, served by the Cilium Gateway's HTTPS listener via a
+# single Certificate. So DNS-01 is the target state.
 #
 # What we ship today (this file):
 #   - letsencrypt-dns01-prod   — DEPRECATED for omani.works Sovereigns,
 #     DEFAULT DISABLED. Was templated against the (now-dropped)
 #     bp-cert-manager-dynadot-webhook. The replacement DNS-01 wildcard
 #     issuer is `letsencrypt-dns01-prod-powerdns`, shipped by
-#     bp-cert-manager-powerdns-webhook against contabo's central PowerDNS
-#     (https://pdns.openova.io — authoritative for omani.works because
-#     Dynadot delegates the zone to ns1/2/3.openova.io). Cluster overlays
-#     MAY flip dns01.enabled=true and supply their own dynadot-webhook
-#     for a non-omani.works pool where Dynadot IS the API-level authority.
-#   - letsencrypt-http01-prod  — INTERIM, RETAINED. Continues to issue
-#     per-host certs for explicit hostnames. Operator may flip the
-#     active issuer at any time via certManager.issuers.dns01.enabled
-#     and certManager.issuers.http01.enabled.
+#     bp-cert-manager-powerdns-webhook (slot 49) against contabo's central
+#     PowerDNS (https://pdns.openova.io — authoritative for omani.works
+#     because Dynadot delegates the zone to ns1/2/3.openova.io). Cluster
+#     overlays MAY flip dns01.enabled=true and supply their own dynadot-
+#     webhook for a non-omani.works pool where Dynadot IS the API-level
+#     authority.
+#   - letsencrypt-http01-prod  — INTERIM, RETAINED, DEFAULT ENABLED.
+#     Continues to issue per-host certs for explicit hostnames. Operator
+#     may flip the active issuer at any time via
+#     certManager.issuers.dns01.enabled and certManager.issuers.http01.enabled.
 #
-# Webhook contract — the dns01 issuer below references
-# acme.dynadot.openova.io/v1alpha1 / solver "dynadot", which match the
-# binary's GROUP_NAME default and Solver.Name() return. See
-# core/cmd/cert-manager-dynadot-webhook/main.go and
-# platform/cert-manager-dynadot-webhook/chart/values.yaml.
-#
-# Operator runbook (rollback):
-#   1. Set certManager.issuers.dns01.enabled=false in the umbrella values
-#      to revert to http01 — existing certs remain valid until renewal.
-#   2. Optionally `flux suspend` the bp-cert-manager-dynadot-webhook
-#      HelmRelease to free cert-manager namespace resources.
+# The issuer NAMES are UNCHANGED from when they lived in bp-cert-manager —
+# ClusterIssuer is cluster-scoped, so every dependent Blueprint that
+# references these names keeps working without any change.
 #
 # Reference: https://cert-manager.io/docs/configuration/acme/dns01/
 
@@ -63,23 +61,12 @@
 {{- if $dns01.enabled }}
 # ─── TARGET STATE: DNS-01 via Catalyst Dynadot webhook ────────────────────
 # Activated when the cert-manager-dynadot-webhook is deployed alongside
-# this chart. Issues wildcard certificates for the canonical Sovereign
+# cert-manager. Issues wildcard certificates for the canonical Sovereign
 # record set (*.<sub>.<domain>).
-#
-# Helm post-install/post-upgrade hook: ClusterIssuer is a cert-manager.io/v1
-# CRD that only exists AFTER the cert-manager controllers + CRDs (installed
-# by the upstream subchart) are running. Without the hook, Helm renders
-# both the upstream chart AND this template in the same install pass and
-# the apply fails with `no matches for kind "ClusterIssuer"`. The hook
-# weight orders the two issuers below the upstream chart's CRD job.
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
   name: letsencrypt-dns01-prod
-  annotations:
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "5"
-    "helm.sh/hook-delete-policy": before-hook-creation
   labels:
     catalyst.openova.io/component: cert-manager
     catalyst.openova.io/issuer-class: dns01
@@ -122,19 +109,11 @@ spec:
 # ─── INTERIM: HTTP-01 (no wildcard support) ───────────────────────────────
 # Works today; serves explicit hostnames (console, gitea, harbor, admin,
 # api). Cannot issue wildcard certs — the Gateway listener must enumerate
-# every subdomain until the DNS-01 webhook is built. See the runbook in
-# the file header for the cutover procedure.
+# every subdomain until the DNS-01 webhook is built.
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
   name: letsencrypt-http01-prod
-  annotations:
-    # Same post-install hook as the DNS-01 issuer above — see the comment
-    # block on letsencrypt-dns01-prod for the rationale (CRD must be
-    # installed by the upstream subchart before this resource applies).
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "5"
-    "helm.sh/hook-delete-policy": before-hook-creation
   labels:
     catalyst.openova.io/component: cert-manager
     catalyst.openova.io/issuer-class: http01

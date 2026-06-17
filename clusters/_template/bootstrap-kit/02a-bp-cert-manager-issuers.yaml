@@ -1,0 +1,97 @@
+# bp-cert-manager-issuers — Catalyst bootstrap-kit Blueprint, slot 02a
+# (sub-slot of 02, follows bp-cert-manager).
+#
+# Owns the two Catalyst Let's Encrypt ClusterIssuers (letsencrypt-dns01-prod,
+# letsencrypt-http01-prod). Split from bp-cert-manager (issue #3734) to
+# resolve the helm-controller RESTMapper-cache CRD-ordering race:
+#
+#   bp-cert-manager shipped the two ClusterIssuers as in-release Helm
+#   post-install hooks (weight 5). The chart's crd-gate Job (weight -10)
+#   correctly waited for the ClusterIssuer CRD to reach Established=True on
+#   the apiserver, BUT helm-controller builds its in-process RESTMapper
+#   cache at reconcile-START — before the CRD is registered — and does NOT
+#   refresh it before the issuer hooks' before-hook-creation delete (or the
+#   create) runs. The kind is unmapped in the cached mapper, so BOTH the
+#   delete-hook AND the create fail with:
+#     no matches for kind "ClusterIssuer" in version "cert-manager.io/v1"
+#   → InstallFailed → Flux remediates (uninstall) → infinite reinstall loop
+#   (verified live on hw157). The crd-gate closed the apiserver-Established
+#   race but NOT the client RESTMapper-cache race.
+#
+# A SEPARATE HelmRelease (this slot) gets a FRESH helm-controller reconcile,
+# gated via dependsOn on bp-cert-manager reaching Ready. By then the
+# cert-manager.io ClusterIssuer CRD is registered, so the fresh reconcile's
+# RESTMapper includes the ClusterIssuer kind and the CRs apply cleanly. The
+# bp-cert-manager-issuers chart ships them as PLAIN manifests (no Helm hooks
+# — the hook machinery is what tripped the RESTMapper path) plus a
+# belt-and-suspenders pre-install crd-gate for the residual apiserver-async
+# Established lag.
+#
+# Mirrors the bp-external-secrets ↔ bp-external-secrets-stores (slot 15/15a,
+# issue #331) and bp-crossplane ↔ bp-crossplane-claims (slot 04/14, PR #247)
+# CRD-ordering split shape: controller chart owns the operator + CRDs, this
+# chart owns the CRs, Flux dependsOn orders them.
+#
+# Wrapper chart: platform/cert-manager-issuers/chart/
+# Catalyst-curated values: platform/cert-manager-issuers/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-cert-manager-issuers
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-cert-manager-issuers
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "02a"
+spec:
+  interval: 15m
+  releaseName: cert-manager-issuers
+  # Co-located with cert-manager so the ClusterIssuers' ACME account-key
+  # Secrets (privateKeySecretRef) live in the namespace cert-manager itself
+  # watches. ClusterIssuer is cluster-scoped, so the targetNamespace only
+  # governs where the account-key Secret + the crd-gate Job land.
+  targetNamespace: cert-manager
+  # Order — Flux will not start install until bp-cert-manager reaches
+  # Ready=True (upstream cert-manager controllers running AND the
+  # cert-manager.io CRDs registered). The fresh reconcile that follows
+  # builds a RESTMapper that includes the ClusterIssuer kind — the whole
+  # point of the split (#3734).
+  dependsOn:
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-cert-manager-issuers
+      # 1.0.0 (issue #3734): initial release. Splits the two Catalyst
+      # ClusterIssuers out of bp-cert-manager.
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-cert-manager-issuers
+        namespace: flux-system
+  # Event-driven install per docs/INVIOLABLE-PRINCIPLES.md #3 (Flux
+  # dependsOn is the gate, not Helm timeout). The chart's pre-install
+  # crd-gate already bounds the Established wait; the plain-manifest
+  # ClusterIssuers apply in the main pass.
+  install:
+    disableWait: true
+    timeout: 15m
+    remediation:
+      retries: -1
+  upgrade:
+    disableWait: true
+    timeout: 15m
+    remediation:
+      retries: 3

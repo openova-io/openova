@@ -14,15 +14,33 @@ name: bp-cert-manager
 # Per CLAUDE.md inviolable rule, ALL chart-hook references MUST be
 # explicit Harbor proxy-cache form — not just rely on the node-level
 # containerd mirror in registries.yaml.
-version: 1.2.5
+#
+# 1.2.6 (issue #3734, 2026-06-17): REMOVE the two Catalyst ClusterIssuers
+# (letsencrypt-dns01-prod, letsencrypt-http01-prod) from this chart — they
+# now ship in the standalone bp-cert-manager-issuers chart (bootstrap-kit
+# slot 02a, dependsOn bp-cert-manager). The in-release post-install
+# ClusterIssuer hook tripped the helm-controller RESTMapper-cache race
+# (the cached mapper, built before the ClusterIssuer CRD existed, never
+# refreshed → `no matches for kind "ClusterIssuer"` on BOTH the
+# before-hook-creation delete AND the create → InstallFailed → uninstall →
+# reinstall loop, verified live hw157). The crd-gate closed the apiserver-
+# Established race but NOT the client RESTMapper-cache race. A SEPARATE
+# HelmRelease gets a fresh reconcile (after this chart is Ready) whose
+# RESTMapper includes the registered CRD. The crd-gate Job/RBAC REMAIN here
+# — they still gate the Issuer + Certificate CRDs Established=True for
+# downstream Blueprints that apply Certificate CRs immediately. Mirrors the
+# bp-external-secrets ↔ bp-external-secrets-stores and bp-crossplane ↔
+# bp-crossplane-claims CRD-ordering splits.
+version: 1.2.6
 description: |
   Catalyst-curated Blueprint umbrella chart for cert-manager. Depends on the
   upstream `cert-manager` chart (Jetstack) as a Helm subchart so
   `helm dependency build` pulls the upstream payload into this artifact;
-  the Catalyst overlay templates in templates/ (ClusterIssuers, NetworkPolicy,
-  ExternalSecret, ServiceMonitor) sit alongside the upstream subchart and
-  Helm renders both at install time. Catalyst-curated values flow into the
-  upstream subchart under the `cert-manager:` key in values.yaml.
+  the Catalyst overlay templates in templates/ (NetworkPolicy, ServiceMonitor,
+  CRD-establishment gate) sit alongside the upstream subchart and Helm renders
+  both at install time. Catalyst-curated values flow into the upstream subchart
+  under the `cert-manager:` key in values.yaml. The Let's Encrypt ClusterIssuers
+  moved to bp-cert-manager-issuers (slot 02a) at 1.2.6 — see #3734.
 type: application
 keywords: [catalyst, blueprint, cert-manager]
 maintainers:
