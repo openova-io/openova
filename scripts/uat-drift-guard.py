@@ -120,7 +120,14 @@ def guard(current_env, root=REPO_ROOT, quiet=False):
         current_env = header_env(open(uat, encoding="utf-8").read())
 
     total = 0
+    # The #3581 meta runbook documents THIS guard + reset-uat.py; its example
+    # rows intentionally cite prior envs (B4/B5/D2/G1) to illustrate what stale
+    # evidence looks like. It is process-documentation, not an env-specific
+    # walk ledger, so exclude it from the staleness scan.
+    SKIP_BASENAMES = {"uat-walkthrough-regenerate-on-current-env.md"}
     for p in paths:
+        if os.path.basename(p) in SKIP_BASENAMES:
+            continue
         text = open(p, encoding="utf-8").read()
         v = scan_text(text, current_env)
         if v:
