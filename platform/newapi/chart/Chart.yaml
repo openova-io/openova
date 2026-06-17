@@ -679,7 +679,7 @@ name: bp-newapi
 # Application CR for the slot-80 HelmRelease (gated bootstrapOwned.enabled
 # + Capabilities apps.openova.io/v1) so the console /apps list, per-app
 # Topology tab + showback resolve newapi (no more "no Application CR").
-version: 1.4.100
+version: 1.4.101
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
