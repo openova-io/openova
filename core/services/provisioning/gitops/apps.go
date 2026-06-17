@@ -1,13 +1,83 @@
 package gitops
 
+import "strings"
+
+// proxyImage re-tags an upstream image reference through the Sovereign-local
+// Harbor proxy-cache so it passes the `harbor-proxy-pull` Kyverno
+// ClusterPolicy (Enforce), which DENIES any image not matching the
+// `*/proxy-*/*` glob (#3785, follow-up to #3761, Refs #3376).
+//
+// The per-tenant app Deployments are synced INTO the tenant vCluster, whose
+// syncer schedules the BACKING Pod on the HOST cluster (in the
+// `tenant-<slug>` host namespace) — where the host kyverno ClusterPolicy
+// enforces. A raw `wordpress:6-apache` (Docker Hub) is therefore DENIED and
+// the customer's purchased app never starts (the funnel's terminal
+// acceptance). Re-tagging through the registry-appropriate Harbor proxy
+// project (`proxy-dockerhub` / `proxy-ghcr` / `proxy-quay` / `proxy-gcr` /
+// `proxy-k8s`) makes the reference match the glob.
+//
+// `mirror` is the Sovereign Harbor host (e.g. "harbor.openova.io",
+// operator-overridable; cutover Step-04 flips it to harbor.<fqdn>). An empty
+// mirror or an already-proxied reference (`<host>/proxy-*/...`) is returned
+// unchanged. Registries without an established Harbor proxy project (e.g.
+// lscr.io) are also returned unchanged — no regression for those apps, which
+// keep their pre-#3785 behaviour; they are day-2 catalog entries, not the
+// funnel terminal.
+func proxyImage(image, mirror string) string {
+	image = strings.TrimSpace(image)
+	mirror = strings.TrimSpace(strings.TrimRight(mirror, "/"))
+	if image == "" || mirror == "" {
+		return image
+	}
+	// Already routed through a Harbor proxy project — leave as-is.
+	if strings.HasPrefix(image, mirror+"/proxy-") {
+		return image
+	}
+
+	// Split the optional registry host off the front. Docker Hub references
+	// have no host (`wordpress:tag`, `chatwoot/chatwoot:tag`); explicit-
+	// registry references start with a host containing a dot or colon
+	// (`ghcr.io/...`, `lscr.io/...`).
+	first := image
+	if i := strings.IndexByte(image, '/'); i >= 0 {
+		first = image[:i]
+	}
+	hasRegistryHost := strings.ContainsAny(first, ".:") && strings.Contains(image, "/")
+
+	// registryToProxy maps an upstream registry host to its Harbor
+	// proxy-cache project. Only registries with an established proxy project
+	// (the live convention — see platform/**/values.yaml + chart comments)
+	// are listed; the DockerHub project is `proxy-dockerhub` (NOT
+	// `proxy-docker` — platform/openbao/chart/Chart.yaml).
+	registryToProxy := map[string]string{
+		"docker.io":       "proxy-dockerhub",
+		"ghcr.io":         "proxy-ghcr",
+		"quay.io":         "proxy-quay",
+		"gcr.io":          "proxy-gcr",
+		"registry.k8s.io": "proxy-k8s",
+	}
+
+	if !hasRegistryHost {
+		// Bare Docker Hub reference → harbor/proxy-dockerhub/<repo>:<tag>.
+		return mirror + "/proxy-dockerhub/" + image
+	}
+	proj, ok := registryToProxy[first]
+	if !ok {
+		// Unknown registry without a Harbor proxy project — leave unchanged
+		// (no regression; not a funnel-terminal image).
+		return image
+	}
+	return mirror + "/" + proj + "/" + strings.TrimPrefix(image, first+"/")
+}
+
 // AppSpec defines how to deploy an app.
 type AppSpec struct {
-	Image       string
-	Port        int
-	EnvVars     map[string]string // static env vars
-	NeedsDB     string            // "postgres", "mysql", or ""
-	RAMMI       string            // resource request memory
-	CPUMilli    string            // resource request cpu
+	Image    string
+	Port     int
+	EnvVars  map[string]string // static env vars
+	NeedsDB  string            // "postgres", "mysql", or ""
+	RAMMI    string            // resource request memory
+	CPUMilli string            // resource request cpu
 	// DBEnvStyle selects the env var shape used for the wired DB secret.
 	// "wordpress" → WORDPRESS_DB_* (WordPress, BookStack, InvoiceShelf, default).
 	// "ghost"     → database__client + database__connection__{host,user,password,database}.
@@ -29,43 +99,43 @@ var KnownApps = map[string]AppSpec{
 	"wordpress": {
 		Image: "wordpress:6-apache", Port: 80,
 		NeedsDB: "mysql",
-		RAMMI: "256Mi", CPUMilli: "100m",
+		RAMMI:   "256Mi", CPUMilli: "100m",
 		EnvVars: map[string]string{},
 	},
 	"umami": {
 		Image: "ghcr.io/umami-software/umami:postgresql-latest", Port: 3000,
 		NeedsDB: "postgres",
-		RAMMI: "256Mi", CPUMilli: "100m",
+		RAMMI:   "256Mi", CPUMilli: "100m",
 		EnvVars: map[string]string{},
 	},
 	"cal-com": {
 		Image: "calcom/cal.com:latest", Port: 3000,
 		NeedsDB: "postgres",
-		RAMMI: "256Mi", CPUMilli: "100m",
+		RAMMI:   "256Mi", CPUMilli: "100m",
 		EnvVars: map[string]string{
 			"NEXT_PUBLIC_WEBAPP_URL": "https://TENANT.omani.rest/calcom",
-			"NEXTAUTH_URL":          "https://TENANT.omani.rest/calcom",
+			"NEXTAUTH_URL":           "https://TENANT.omani.rest/calcom",
 		},
 	},
 	"chatwoot": {
 		Image: "chatwoot/chatwoot:latest", Port: 3000,
 		NeedsDB: "postgres",
-		RAMMI: "512Mi", CPUMilli: "200m",
+		RAMMI:   "512Mi", CPUMilli: "200m",
 		EnvVars: map[string]string{
-			"RAILS_ENV":       "production",
-			"REDIS_URL":       "redis://redis:6379",
+			"RAILS_ENV": "production",
+			"REDIS_URL": "redis://redis:6379",
 		},
 	},
 	"invoiceshelf": {
 		Image: "invoiceshelf/invoiceshelf:latest", Port: 8080,
 		NeedsDB: "mysql",
-		RAMMI: "256Mi", CPUMilli: "100m",
+		RAMMI:   "256Mi", CPUMilli: "100m",
 		EnvVars: map[string]string{},
 	},
 	"ghost": {
 		Image: "ghost:5-alpine", Port: 2368,
 		NeedsDB: "mysql",
-		RAMMI: "256Mi", CPUMilli: "100m",
+		RAMMI:   "256Mi", CPUMilli: "100m",
 		EnvVars: map[string]string{
 			"NODE_ENV": "production",
 			"url":      "https://TENANT.omani.rest/ghost",
@@ -76,31 +146,31 @@ var KnownApps = map[string]AppSpec{
 	"nextcloud": {
 		Image: "nextcloud:29-apache", Port: 80,
 		NeedsDB: "postgres",
-		RAMMI: "256Mi", CPUMilli: "100m",
+		RAMMI:   "256Mi", CPUMilli: "100m",
 		EnvVars: map[string]string{},
 	},
 	"gitea": {
 		Image: "gitea/gitea:1-rootless", Port: 3000,
 		NeedsDB: "postgres",
-		RAMMI: "256Mi", CPUMilli: "100m",
+		RAMMI:   "256Mi", CPUMilli: "100m",
 		EnvVars: map[string]string{},
 	},
 	"uptime-kuma": {
 		Image: "louislam/uptime-kuma:1", Port: 3001,
 		NeedsDB: "",
-		RAMMI: "128Mi", CPUMilli: "50m",
+		RAMMI:   "128Mi", CPUMilli: "50m",
 		EnvVars: map[string]string{},
 	},
 	"vaultwarden": {
 		Image: "vaultwarden/server:latest", Port: 80,
 		NeedsDB: "",
-		RAMMI: "128Mi", CPUMilli: "50m",
+		RAMMI:   "128Mi", CPUMilli: "50m",
 		EnvVars: map[string]string{},
 	},
 	"bookstack": {
 		Image: "lscr.io/linuxserver/bookstack:latest", Port: 80,
 		NeedsDB: "mysql",
-		RAMMI: "256Mi", CPUMilli: "100m",
+		RAMMI:   "256Mi", CPUMilli: "100m",
 		// linuxserver/bookstack reads DB_HOST/DB_USER/DB_PASS/DB_DATABASE
 		// (NOT WORDPRESS_DB_*) and refuses to start without APP_KEY. Without
 		// the bookstack DBEnvStyle the manifest emitted only WordPress-shape
@@ -113,13 +183,13 @@ var KnownApps = map[string]AppSpec{
 	"nocodb": {
 		Image: "nocodb/nocodb:latest", Port: 8080,
 		NeedsDB: "postgres",
-		RAMMI: "256Mi", CPUMilli: "100m",
+		RAMMI:   "256Mi", CPUMilli: "100m",
 		EnvVars: map[string]string{},
 	},
 	"listmonk": {
 		Image: "listmonk/listmonk:latest", Port: 9000,
 		NeedsDB: "postgres",
-		RAMMI: "128Mi", CPUMilli: "50m",
+		RAMMI:   "128Mi", CPUMilli: "50m",
 		EnvVars: map[string]string{},
 		// listmonk reads config.toml and only honours LISTMONK_db__* envs —
 		// DATABASE_URL is ignored. Issue #101.
@@ -135,13 +205,13 @@ var KnownApps = map[string]AppSpec{
 	"rocket-chat": {
 		Image: "rocket.chat:latest", Port: 3000,
 		NeedsDB: "",
-		RAMMI: "512Mi", CPUMilli: "200m",
+		RAMMI:   "512Mi", CPUMilli: "200m",
 		EnvVars: map[string]string{},
 	},
 	"formbricks": {
 		Image: "formbricks/formbricks:latest", Port: 3000,
 		NeedsDB: "postgres",
-		RAMMI: "256Mi", CPUMilli: "100m",
+		RAMMI:   "256Mi", CPUMilli: "100m",
 		EnvVars: map[string]string{},
 	},
 }
