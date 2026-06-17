@@ -1,140 +1,54 @@
-# UAT — live walkthrough on `hw158` (2026-06-17)
+# UAT — browser walkthrough dashboard · `hw158` (2026-06-17)
 
-> **Env: `hw158.omani.works` · deployment `ab2135d4cf2d01e4` · 2026-06-17 · single physical
-> kom4dc region (2 VPCs `me-east-215-a` / `-b`).** Fully converged: **61/64 HelmReleases Ready**,
-> status=ready. The 3 not-Ready are Hetzner-only charts deliberately suspended on Huawei
-> (`bp-cluster-autoscaler-hcloud`, `bp-hcloud-ccm`, `bp-velero`; `bp-velero-hcs` IS Ready) — the
-> conformant TC-07 set, not failures.
+> **Env:** `hw158.omani.works` · deployment `ab2135d4cf2d01e4` · single physical kom4dc region
+> (2 VPCs `me-east-215-a` / `-b`). On each wipe + re-prov this dashboard resets and the links flip
+> to the new env.
 
-**Walked live: 2026-06-17 on `hw158.omani.works`.** **Login: none** — a signed
-`/auth/handover?token=<RS256-JWT>` minted from the mothership owner key (`/tmp/hw-priv.pem`, whose
-public modulus byte-matches the on-cluster `handover-jwt-public/public.jwk`) lands directly in the
-console as `emrah.baysal@openova.io` (role `sovereign-admin`); every app is then opened at its
-**bare public URL** in the same browser session.
+## The acceptance standard (the agreed contract)
 
-> **Wipe-and-rewalk contract:** every wipe empties this file; the rows below were walked **on
-> hw158** 2026-06-17 from the live UI + `kubectl` on `/tmp/hw158-kc.yaml` (primary region A,
-> server `212.72.24.26:6443`). Prior-environment results are void and were cleared on each wipe.
-> Screenshots: `docs/sessions/2026-06-17/evidence/hw158-*.png`. Per-surface walkthroughs:
-> [`docs/ledger/uat-walkthrough/`](uat-walkthrough/).
+**UAT is 100% browser — no terminal, no kubectl, no git, no curl.** Every step is **open a URL →
+click/type → SEE a rendered screen**. Evidence is a **screenshot** under
+[`docs/sessions/2026-06-17/evidence/`](../sessions/2026-06-17/evidence/). A redirect that ends on a
+**login screen is a FAIL** — only a rendered, signed-in screen is ✅. `GAP` = a requirement with no
+web-UI surface (itself a finding; never a reason to drop to a terminal check).
 
----
+**Sign-in (the zero-click owner-admin landing):** open the signed
+`https://console.hw158.omani.works/auth/handover?token=<JWT>` URL in a fresh tab → it lands
+**directly on the Dashboard signed in as `emrah.baysal@openova.io` (sovereign-admin)**, no login
+form. Every app is then opened at its **bare public URL** in the same browser session.
+Proof: [`hw158-uat-01-console-dashboard-signedin.png`](../sessions/2026-06-17/evidence/hw158-uat-01-console-dashboard-signedin.png) ✅.
 
-## 🌟 The 4 North Stars (founder verbatim) — on hw158
-
-| # | North Star (founder) | On hw158 | Evidence |
-|---|---|---|---|
-| 1 | **Every app runs IN a vCluster** (placement law §4) | ✅ PASS | `audit-placement-conformance.py live` → exit 0, "zero undeclared host workloads"; 31 pods carry the `-x-…-{mgmt,dmz,rtz}-vcluster` syncer suffix · `hw158-13` |
-| 2 | **3 shared-PG instances → 3 cards; 6–7 apps many-to-many** | ✅ PASS | `/catalog/bp-postgres` Instances table = exactly 3 cards (shared-pg/-b/-c); `/app/shared-pg` Contexts = db/registry→harbor, db/gitea→gitea, db/keycloak→keycloak; -b/-c carry the same 3 DBs (9 bindings) · `hw158-07`/`hw158-08` |
-| 3 | **NO login UI anywhere — URL → signed in as emrah.baysal as ADMIN** | ✅ PASS | console `/auth/handover`→`/dashboard` signed-in, avatar "Signed in as emrah.baysal@openova.io"; grafana/harbor/gitea/openbao all zero-click admin · `hw158-01`..`hw158-05` |
-| 4 | **Agreed apps actually multi-region** | ✅ PASS | substrate ✅ — `/cloud` Region 2/2 + Cluster 2/2, both `me-east-215-a`/`-b` clusters; shared-pg WAL `streaming` ×2 replicas. **Live region-kill ✅** — armed the cross-region SYNC standby (PR #3742: `standbyNamesPre` + `maxStandbyNamesFromCluster:0` → RPO=0) → seeded 5 rows → severed region-a → promoted region-b: `pg_is_in_recovery` t→f in **RTO ≈ 1.4s, RPO = 0**, all 5 rows survived, region-a restored · `hw158-06` + `hw158-region-kill-walk-PASS.md` |
+**Table format (mandated), used in every per-ticket runbook:** a 4-column table —
+**`Tested page · Description · Status · Evidence`** — where *Tested page* is a clickable link to the
+live page and *Evidence* is a screenshot link.
 
 ---
 
-## ROW 0 — MASTER PROOF (#3687, object model alive at runtime) — ✅ PASS
+## The 10 canonical runbooks — browser walk index
 
-`kubectl --kubeconfig /tmp/hw158-kc.yaml get applications.apps.openova.io,organizations.orgs.openova.io -A`:
+Each runbook below is the full per-ticket browser walk (the **455-step** canonical set). All have
+been **revamped to the browser-walk standard** (4-column clickable-link table, screenshot evidence,
+no curl/kubectl). `☐` = the browser walk + screenshot capture is in progress on hw158.
 
-| Check | Result | Evidence |
-|---|---|---|
-| `applications.apps.openova.io` rows | **3 Ready** — `shared-pg`/`shared-pg-b`/`shared-pg-c`, blueprint `bp-postgres@0.2.2`, placement `active-hotstandby`, env `platform-bootstrap` | kubectl |
-| `organizations.orgs.openova.io` rows | **1** post-funnel — `walk-stranger-co` (kind customer, tier sme) minted by the TC-01 stranger-redeem walk (row 12); was 0 pre-signup as expected (parent-Sovereign Org is host-owned) | kubectl |
-| 4 canonical CRDs present | ✅ `applications.apps` · `organizations.orgs` · `environments.catalyst` · `continuums.dr` | kubectl |
-| controllers `1/1 Running` | ✅ all 7 in `catalyst-system` (api, application, catalog, environment, organization, ui, useraccess) + continuum-controller | kubectl |
-
-> ✅ **PASS:** Application CRs return non-zero Ready rows; the canonical object model is alive at
-> runtime (not a pod/HR projection). Organizations was 0 pre-funnel (expected); the TC-01
-> stranger-redeem walk (row 12) then minted Organization `walk-stranger-co` → now **1**.
-
----
-
-## The 14 UAT rows
-
-| # | Row (ticket / NS) | Result | Evidence (hw158) |
-|---|---|---|---|
-| 0 | **Master proof** — object model alive (#3687) | ✅ PASS | 3 Application CRs Ready; 4 CRDs; 8 controllers Running |
-| 1 | **SSO — console** zero-click → emrah.baysal admin (#3374 / NS3) | ✅ PASS | `/auth/handover`→`/dashboard`; avatar "Signed in as emrah.baysal@openova.io" · `hw158-01` |
-| 2 | **SSO — grafana** (#3374 / NS3) | ✅ PASS | `grafana.…/?orgId=1` Home, no login form; `/api/user`→`login=emrah.baysal@openova.io isGrafanaAdmin=true` · `hw158-02` |
-| 3 | **SSO — harbor** (#3374 / NS3) | ✅ PASS (minor) | `/harbor/projects` zero-click, Administration menu visible, user=emrah.baysal; `/api/v2.0/users/current`→`admin_role_in_auth:true` but `sysadmin_flag:false` on hw158 (login ✅; the OIDC admin-group→Harbor-sysadmin promote is a small follow-up) · `hw158-03` |
-| 4 | **SSO — gitea** (#3374 / NS3) | ✅ PASS | title "emrah.baysal — Dashboard — Catalyst Gitea"; `/admin` → 200 (Site Administration reachable; non-admin would 403) · `hw158-04` |
-| 5 | **SSO — openbao** (#3374 / NS3) | ✅ PASS | `/ui/vault/secrets` Secrets Engines (cubbyhole/, secret/) — **NO `/ui/vault/auth` token form** (founder-witnessed fail dead) · `hw158-05` |
-| 6 | **SSO — bonus** (keycloak/guacamole/newapi/pdns-admin) | ✅ 3/4 PASS · 1 ❌ FAIL (pdns-admin) | keycloak-admin ✅ (Sovereign realm console, emrah.baysal) `hw158-12`; guacamole ✅ (OIDC auto-completes → Recent/All Connections, no Tomcat-404) `hw158-09`; newapi ✅ — the `sso_init.go` zero-click bridge intercepts `/`→`/console` (the `/setup` sighting was a stale/pre-convergence observation; DB ground-truth confirms setups-row + catalyst-root role=100 + sovereign-oauth enabled — #3741, NOT a defect) `hw158-10`; **pdns-admin ❌ FAIL — re-walked LIVE 2026-06-17, the redirect_uri error PERSISTS.** Lands `/login` (NOT zero-click); clicking "Sign in using OpenID Connect" → KC `realms/sovereign` renders **"We are sorry… Invalid parameter: redirect_uri"** for `redirect_uri=https://pdns-admin.hw158.omani.works/oidc/authorized`. **PR #3743's fix is NOT live on hw158** — live `bp-keycloak` HR chart is **1.4.29** while #3743 is bp-keycloak **1.4.30 and still OPEN/unmerged**; the realm-import `import.managed.client=FULL` reverts the client to the dead native shape (the exact mechanism #3741 tracks). An earlier in-cluster KC patch may have transiently passed but has been reverted. `hw158-20` (NOTE: the prior "✅ FIXED live (PR #3743)" claim was unverifiable against live state and is corrected here per the re-walk.) |
-| 7 | **Placement** — every app in a vCluster (#3373 / NS1) | ✅ PASS | `audit-placement-conformance.py live` exit 0, "zero undeclared host workloads"; mgmt={loki,mimir,nats,tempo}, rtz={seaweedfs,valkey,vllm,sandbox}, dmz={coraza}; ratified route/secret apps on host conformant · `hw158-13` |
-| 8 | **Contexts** — 3 shared-PG cards, many-to-many (#3370 / NS2) | ✅ PASS | `/catalog/bp-postgres` = 3 instance cards; `/app/shared-pg` Contexts tab = 3 isolated db/ children (harbor/gitea/keycloak); -b/-c each host gitea/keycloak/registry (9 bindings total) · `hw158-07`/`hw158-08` |
-| 9 | **Topology Q1/Q2** — vocabulary + editable picker (#3375 / NS4) | ✅ PASS | `/app/shared-pg` Topology tab: Q1 declared "singleton — no cross-region failover" (honest); Q2 4-mode radio picker (single-region[checked]/active-active/active-hotstandby/active-passive) + both regions as checkboxes + Preview/Apply; Live-status honest "n/a — bootstrap component (HelmRelease, no Application CR)" · `hw158-15` |
-| 10 | **Multi-region substrate** — 2/2 (#3375 / NS4) | ✅ PASS | `/cloud` Region 2/2 · Cluster 2/2 · vCluster 6/6 · Network 2/2; both `hw-me-east-215-a-rtz-prod` + `hw-me-east-215-b-rtz-prod` clusters in graph w/ own CP+3 workers · `hw158-06` |
-| 11 | **Region-kill EXECUTION** — live promote (#3375 / NS4) | ✅ PASS | **Live kill→promote walked 2026-06-17: RTO ≈ 1.4s, RPO = 0.** Root cause was NOT the kom4dc datapath (peering verified live — region-b replica `client_addr 10.43.4.36` streaming to region-a primary) but the cross-region replica streaming **async**: the primary's CNPG `synchronous` block named only local standbys, so `synchronous_standby_names` auto-filled from region-a HA peers, never the cross-region replica. Fixed (PR #3742, bp-cnpg-pair 0.2.5 — `standbyNamesPre:[replica]` + `maxStandbyNamesFromCluster:0` → COMMIT blocks on the cross-region replica → RPO=0). Armed the sync standby live, seeded 5 rows (each sync-acked by region-b), severed region-a (force-delete primary pods + cordon region-a nodes), promoted region-b (`replica.enabled=false`) → `pg_is_in_recovery` t→f in ~1.4s, all 5 rows survived, post-kill write accepted, region-a restored writable. Evidence: `docs/sessions/2026-06-17/evidence/hw158-region-kill-walk-PASS.md`. (Out-of-scope follow-ups: region-a `instances:3` capacity scheduling + Day-2 cross-region rejoin.) |
-| 12 | **Funnel (TC-01)** — voucher → app → Org non-zero (#3376 / NS1+NS3) | ✅ PASS | **Full stranger redeem→checkout→Org-mint walked LIVE 2026-06-17.** Issued voucher `VCH-56T66GFC2BNC` (5000 OMR) via the live billing service `POST /billing/vouchers/issue` (the canonical BSS-menu call) — **the store was EMPTY; that empty store, not any code bug, was the "empty voucher SPA" root cause** (redeem-preview through the edge `/api/`→sme-gateway route returns 200 live, the `/api` HTTPRoute is present). Opened `marketplace.hw158.omani.works/redeem?code=VCH-56T66GFC2BNC` → "Voucher valid · 5000 OMR credit" renders (`01-redeem-voucher-valid.png`). "Sign up to redeem" → 6-step wizard; **BCP step 4 = Active-hot-standby** (multi-region, +5 OMR/mo, RTO 30s/RPO 5s) selected (`02-bcp-active-hot-standby.png`). Checkout: stranger `walkstranger@omani.homes` signed in via email magic-code (auth wire healthy), voucher auto-applied → **Due now OMR 0.000** "Credit covers this order" (`03-checkout-voucher-applied-due-zero.png`). "Launch my tenant" → tenant-service `POST /tenant/orgs` **201** → `tenant.created` NATS event → provisioning consumer **"Organization CR created slug=walk-stranger-co"**. `kubectl get organizations.orgs.openova.io -A` now **NON-ZERO** — `walk-stranger-co` (kind customer, tier sme, billing real, owner walkstranger@omani.homes, sovereignRef hw158.omani.works); organization-controller reconciling (Gitea org + `catalyst-tenant` repo, Keycloak group `/walk-stranger-co`, vCluster phase Pending) — `04-org-cr-kubectl-proof.txt`. **No Org fabricated — a real CR from a real redeem.** Two non-blocking follow-ups: (a) post-launch redirect lands on `console.walk-stranger-co.hw158.omani.works` → `ERR_CERT_COMMON_NAME_INVALID` (per-tenant cert/DNS not yet issued for a just-minted vCluster; `05-post-launch-redirect.png`); (b) a duplicate provision raced itself on the Gitea `sme-tenants` branch (`PushRejected: cannot lock ref`) and marked the tenant "failed" though the Org CR + the winning manifest commit succeeded — tracked for a source fix. |
-| 13 | **Robustness** — install-record real, no crash-loop (#3380 / NS1) | ✅ PASS | 61/64 HR Ready; the 3 not-Ready are Hetzner-only suspended charts (autoscaler-hcloud, hcloud-ccm, velero; velero-hcs Ready); no crash-loop; `/dashboard` treemap renders 93 items · kubectl + `hw158-01` |
-
----
-
-## SSO — type the URL → land signed in (zero clicks) — walked on hw158
-
-| # | App | Bare URL | Now | Proof (hw158, 2026-06-17) |
+| # | Runbook | Ticket | Browser surfaces | Status |
 |---|---|---|---|---|
-| 1 | console | `console.hw158.omani.works/` | ✅ | handover→`/dashboard`; avatar "Signed in as emrah.baysal@openova.io" · `hw158-01` |
-| 2 | grafana | `grafana.hw158.omani.works/` | ✅ | Home, `/api/user`→isGrafanaAdmin=true · `hw158-02` |
-| 3 | harbor | `registry.hw158.omani.works/` | ✅ | `/harbor/projects`, Admin menu; sysadmin_flag minor follow-up · `hw158-03` |
-| 4 | gitea | `gitea.hw158.omani.works/` | ✅ | "emrah.baysal — Dashboard"; `/admin`→200 · `hw158-04` |
-| 5 | openbao | `bao.hw158.omani.works/ui/` | ✅ | `/ui/vault/secrets`, no token form · `hw158-05` |
-| 6 | keycloak admin | `auth.hw158.omani.works/admin/sovereign/console/` | ✅ | Sovereign realm admin console (Clients/Users/Groups/Realm-settings nav); header "emrah.baysal@openova.io" · `hw158-12` |
-| 7 | guacamole | `guacamole.hw158.omani.works/guacamole/` | ✅ | OIDC auto-completes from live KC session (`id_token` groups=sovereign-admins); "Recent Connections / All Connections" as emrah.baysal; NO Tomcat-404 · `hw158-09` |
-| 8 | newapi | `newapi.hw158.omani.works/` | 🟡 | route + custom-OAuth `kc_idp_hint=catalyst-pin` flow fire and return, but the app lands on `/setup` ("System initialization" 4-step wizard) not a signed-in `/console` — fresh-prov uninitialized · `hw158-10` |
-| 9 | pdns-admin | `pdns-admin.hw158.omani.works/` | ❌ | lands `/login` (username/password form + "Sign in using OpenID Connect" link — NOT zero-click); clicking OIDC → KC `realms/sovereign` returns **"Invalid parameter: redirect_uri"** (the `powerdns-admin` client has no `…/oidc/authorized` redirect-URI registered). **Re-walked LIVE 2026-06-17: still FAIL** — #3743 (bp-keycloak 1.4.30) NOT merged/rolled (live HR = 1.4.29); tracked by #3741 · `hw158-11`, `hw158-20` |
+| 1 | [canonical-org-app-cr-model](uat-walkthrough/canonical-org-app-cr-model-live-end-to-end.md) | #3687 | /dashboard treemap · /apps · /organizations · showback | ☐ browser walk |
+| 2 | [sso-zero-login-everywhere](uat-walkthrough/sso-zero-login-everywhere-admin-by-default.md) | #3374 | each app bare URL → signed-in admin | ☐ browser walk |
+| 3 | [topology-dr-one-vocabulary](uat-walkthrough/topology-dr-one-vocabulary-built-and-region-kill-proven.md) | #3375 | /catalog new-instance picker · /app Topology tab · Switchover | ☐ browser walk |
+| 4 | [funnel-voucher-to-running-app](uat-walkthrough/3376-funnel-voucher-to-running-app.md) | #3376 | marketplace redeem → wizard → checkout → launch → Org console | ☐ browser walk |
+| 5 | [ns1-migrate-7-host-apps](uat-walkthrough/ns1-migrate-7-host-apps-into-mgmt-vcluster.md) | #3642 | /dashboard treemap vCluster layer | ☐ browser walk |
+| 6 | [organizations-eradicate-sme-naming](uat-walkthrough/organizations-eradicate-sme-tenant-naming.md) | #3383 | /organizations · menus · BSS screens (no "tenant" word) | ☐ browser walk |
+| 7 | [catalog-edit-single-source-iac](uat-walkthrough/catalog-edit-single-source-iac-not-overlay.md) | #3668 | /catalog/<bp> inline edit · Edit-IaC · icon picker | ☐ browser walk |
+| 8 | [cutover-durable-deny-egress](uat-walkthrough/cutover-durable-true-deny-egress-and-faithful-pivot.md) | #3379 | Sovereignty/cutover screen · /jobs cutover steps | ☐ browser walk |
+| 9 | [jobs-one-honest-canvas](uat-walkthrough/jobs-one-honest-canvas-no-fabrication-with-remediation.md) | #3646 | /jobs canvas · Kind column · filters · Re-run | ☐ browser walk |
+| 10 | [regenerate-on-current-env](uat-walkthrough/uat-walkthrough-regenerate-on-current-env.md) | #3581 | (meta — the browser-walk discipline itself) | ☐ |
 
-**SSO core 5/5 ✅** (console, grafana, harbor, gitea, openbao) — all zero-click signed-in admin.
-**SSO bonus 2 PASS (keycloak, guacamole) / 1 PARTIAL (newapi `/setup`) / 1 FAIL (pdns-admin redirect-uri).**
+**Index + per-runbook verdicts:** [`uat-walkthrough/README.md`](uat-walkthrough/README.md).
 
 ---
 
-## What is NOT green on hw158 (honest open list)
-
-1. **Region-kill EXECUTION (#3375 / NS4)** — ❌ BLOCKED. The cnpg-pair cross-region replica was
-   still joining (2/3 "Creating") and the continuum CR was Degraded (LeaseHeld=False) at walk
-   time, so there is no armed cross-region standby to hard-kill and promote. The multi-region
-   *substrate* is proven (2/2 regions, cnpg-pair, shared-pg streaming) but the live promote was
-   not walkable — and is NOT claimed.
-2. **Funnel (TC-01, #3376)** — ✅ PASS (walked 2026-06-17). The SME `provisioning` Init-wedge
-   (missing `sme/provisioning-github-token` → empty `GITHUB_TOKEN` → gitea 403 in `wait-for-gitea-token`)
-   was root-caused and fixed live (validated PAT mirrored → all 12 SME pods `1/1 Running`). The
-   "empty voucher SPA" was then root-caused to an **empty voucher store** (no voucher had ever been
-   issued — not a code bug); the edge `/api/`→sme-gateway route + redeem-preview are healthy live.
-   Issued `VCH-56T66GFC2BNC` via `POST /billing/vouchers/issue`, then walked a clean stranger
-   (`walkstranger@omani.homes`) through redeem→6-step wizard (BCP=Active-hot-standby)→email-code
-   sign-in→checkout (voucher covers, Due OMR 0.000)→Launch. `POST /tenant/orgs` 201 → `tenant.created`
-   → provisioning minted **Organization `walk-stranger-co`** (`kubectl get organizations` now **1**,
-   organization-controller reconciling vCluster + Keycloak group + Gitea org). **No Org fabricated.**
-   Two non-blocking follow-ups remain (per-tenant console cert not yet issued for the just-minted
-   vCluster; a duplicate-provision Gitea `sme-tenants` ref-lock race that mismarks the tenant "failed"
-   — Org CR + winning commit still land). See row 12.
-3. **pdns-admin SSO (#3374 bonus)** — ❌ FAIL. Lands on a `/login` username/password form; the
-   "Sign in using OpenID Connect" link → Keycloak returns **"Invalid parameter: redirect_uri"**.
-   The `powerdns-admin` OIDC client in the `sovereign` realm is missing the
-   `https://pdns-admin.hw158.omani.works/oidc/authorized` redirect-URI. Concrete client-config fix.
-4. **newapi SSO (#3374 bonus)** — 🟡 PARTIAL. The route + custom-OAuth flow fire and return from
-   Keycloak, but the app renders its `/setup` "System initialization" wizard instead of a signed-in
-   `/console` (the instance is uninitialized on a fresh prov). Not zero-click-to-admin.
-5. **harbor admin-group → sysadmin mapping (#3374, minor)** — login ✅ on hw158, `sysadmin_flag:false`;
-   small OIDC-group-promote follow-up.
-6. **Cutover (#3379 / NS5)** — handover-gated (`cutoverComplete=false` is the expected fresh-prov
-   state; the operator drives "Achieve True Sovereignty" + the 600s deny-egress hold). Not walked
-   this session.
-7. **`/jobs` honest canvas (#3646)** — 🟡 PASS-with-one-defect (walked LIVE 2026-06-17). The canvas
-   IS one honest typed read-model: 92 rows all carry a server-typed `kind` (`install`/`task`/`step`/
-   `lifecycle`/`reconciler`; `missingKind:0`), a real **Kind** column + Kind/Status filters, honest
-   status (sso-bridge reconciler=`healthy`; the 11-step `cutover` group=`pending` not premature-
-   Succeeded; `reconcilers` group=`failed` from real failed child trivy scans), no fabricated rows,
-   live SSE tail. The per-row **Re-run** control (Flux-native, gated to Failed rows) has a working
-   backend (bare-name `POST …/retry` → 200, annotates the Job, audits `requestedBy: emrah.baysal`),
-   but the **button** sends the composite `job.id` (URL-encoded `:` → `%3A`) → **404 at the proxy**.
-   One-line FE fix (send `job.jobName`). Evidence `hw158-16`, `hw158-17`. Runbook
-   [`uat-walkthrough/jobs-one-honest-canvas-no-fabrication-with-remediation.md`](uat-walkthrough/jobs-one-honest-canvas-no-fabrication-with-remediation.md).
-8. **Catalog edit = single-source IaC (#3668)** — ❌ FAIL (walked LIVE 2026-06-17). The console
-   catalog **editor UI is built** (per-field inline `cif-summary-*` + full-CR `Edit IaC` YamlEditor +
-   icon affordance, #3713/#3710), but a console summary edit fires `POST /api/v1/sme/commerce/apps`
-   (commerce-store **overlay**) — the Blueprint CR `spec.card.summary` stays EMPTY, owner still
-   `catalog-seed`/Helm. The Flux `catalog-sovereign` GitRepository is READY=False (Gitea clone
-   `authentication required`). So edit→Gitea→Flux→CR single-source IaC is **NOT achieved** — still a
-   card overlay (the exact anti-pattern #3668 targets). Evidence `hw158-18`, `hw158-19`. Runbook
-   [`uat-walkthrough/catalog-edit-single-source-iac-not-overlay.md`](uat-walkthrough/catalog-edit-single-source-iac-not-overlay.md).
+> **What changed (2026-06-17):** the prior version of this file (and the runbooks) carried
+> **curl/kubectl command-output** as "evidence" — a violation of the agreed browser-only contract.
+> All 10 runbooks + this dashboard were revamped back to the **screenshot-based browser-walk
+> format**. The browser re-walk that fills each `☐` with a real screenshot is in progress; the
+> sign-in row above is the first witnessed screen.
