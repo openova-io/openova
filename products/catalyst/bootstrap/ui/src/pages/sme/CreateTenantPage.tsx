@@ -315,7 +315,7 @@ export function CreateTenantPage({
 
         <label className="grid gap-1 text-sm">
           <span className="text-[var(--color-text-dim)]">
-            {isInternal ? 'Organization slug' : 'SME tenant slug'}
+            Organization slug
           </span>
           <input
             data-testid="sme-create-tenant-subdomain"
@@ -329,7 +329,7 @@ export function CreateTenantPage({
           />
           <span className="text-xs text-[var(--color-text-dim)]">
             Used in resource names (vCluster, namespace) and the URL when
-            the tenant picks free-subdomain mode.
+            the organization picks free-subdomain mode.
           </span>
         </label>
 
@@ -407,7 +407,7 @@ export function CreateTenantPage({
                 Bring your own domain
               </span>
               <span className="text-xs text-[var(--color-text-dim)]">
-                The SME owns an apex (e.g.
+                The organization owns an apex (e.g.
                 <code className="mx-1 rounded bg-[var(--color-input)] px-1">
                   acme.com
                 </code>
@@ -459,7 +459,7 @@ export function CreateTenantPage({
 
         {domainMode === 'byo' && (
           <label className="grid gap-1 text-sm">
-            <span className="text-[var(--color-text-dim)]">SME apex domain</span>
+            <span className="text-[var(--color-text-dim)]">Organization apex domain</span>
             <input
               data-testid="sme-create-tenant-byo"
               type="text"
@@ -504,7 +504,7 @@ export function CreateTenantPage({
           className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
           <Plus className="h-4 w-4" />
-          {submitting ? 'Provisioning…' : 'Onboard tenant'}
+          {submitting ? 'Provisioning…' : 'Create organization'}
         </button>
       </form>
 
@@ -540,7 +540,7 @@ export function CreateTenantPage({
                 </dd>
               </>
             )}
-            <dt className="text-[var(--color-text-dim)]">Tenant ID</dt>
+            <dt className="text-[var(--color-text-dim)]">Organization ID</dt>
             <dd className="font-mono">{created.sme_tenant_id}</dd>
           </dl>
           <TenantSteps steps={created.steps} />
