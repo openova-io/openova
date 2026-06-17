@@ -266,7 +266,7 @@ spec:
       # 1st-hit upstream-connect-error 111, 2nd-hit /setup wizard). Shrinks the
       # human-visible window; the per-minute CronJob (1.4.97) self-heals the
       # underlying convergence race.
-      version: 1.4.104
+      version: 1.4.105
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
