@@ -829,7 +829,7 @@ data:
         {
           "clientId": "powerdns-admin",
           "name": "PowerDNS-Admin (Tier-2 silent-SSO)",
-          "description": "#3741 — DNS UI silent-SSO via catalyst-pin broker, fronted by the bp-oidc-gate oauth2-proxy. The gate sends redirect_uri=https://pdns-admin.<fqdn>/oauth2/callback and (keycloak-oidc provider) verifies the ID-token aud contains powerdns-admin — hence the /oauth2/callback redirectUri + the oidc-audience-mapper below, matching the gate's own AppRegistration (platform/oidc-gate/chart/templates/instances.yaml) so config-cli's FULL-managed reconcile keeps the client correct rather than reverting to the dead pre-#3374 native /oidc/authorized shape.",
+          "description": "#3741 — DNS UI silent-SSO, gate-fronted by bp-oidc-gate oauth2-proxy: /oauth2/callback redirectUri + oidc-audience-mapper (aud=powerdns-admin) matching the gate AppRegistration, so config-cli FULL-managed reconcile keeps the client correct.",
           "enabled": true,
           "publicClient": false,
           "standardFlowEnabled": true,
