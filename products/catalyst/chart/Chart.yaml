@@ -1,5 +1,22 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.663 — #3687 / #3376 (2026-06-17): per-Org vCluster repo clone now
+# AUTHENTICATES — default controllers.organization.fluxGiteaSecretRef to
+# `openova-sme-tenants-git-auth`. PR #3718 wired the per-Org Flux loop
+# (org-controller reconcilePerOrgFlux → catalyst-tenant-<slug> GitRepository
+# → ./vcluster Kustomization → vCluster HelmRelease) but left the secretRef
+# default empty. The per-Org `<slug>/catalyst-tenant` repo is private
+# (EnsureOrg/EnsureRepo private=true) AND bp-gitea sets REQUIRE_SIGNIN_VIEW
+# =true, so the source-controller's anonymous clone 401'd → Kustomization
+# "Source artifact not found" → the committed vCluster HR never reconciled →
+# the tenant namespace + purchased app (WordPress) never came up → the
+# funnel's terminal acceptance failed (proven live hw158 by the #3687/#3376
+# walkers). `openova-sme-tenants-git-auth` holds the gitea_admin PAT (clones
+# every Org's private repo) and is guaranteed in flux-system by the
+# sme-tenants auth-secret template + #3749's gitea-flux-auth-secrets-sync-job
+# (the deterministic runtime creator). Catalyst-Zero render byte-unchanged
+# (the value only reaches the org-controller env, which is sovereign-only).
+# Refs #3687 #3376.
 # 1.4.654 — #3376 FUNNEL (voucher→running-app) — three folded fixes so a
 # stranger with a voucher ends signed-in in their own Org console with the
 # app running, on a cut-over Sovereign, zero-touch:
@@ -2735,7 +2752,7 @@ name: bp-catalyst-platform
 # (qaFixtures.cnpgBackupEndpointURL + cnpg-clusters-qa.yaml) to the
 # syncer-mangled host Service name. qa-fixtures only; Catalyst-Zero render
 # byte-unchanged. (1.4.622 was a content-free deploy-bot image sweep.)
-version: 1.4.662
+version: 1.4.663
 # 1.4.657 — PR #3700 §4.3 (Refs #3687, 2026-06-17): close the per-Org
 # vCluster Flux loop — the deferred half of the object-model-LIVE master.
 # The organization-controller already PUT the vCluster Namespace + HelmRelease
