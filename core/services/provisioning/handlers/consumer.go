@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -921,7 +922,37 @@ func (h *Handler) startProvisioning(ctx context.Context, tenantID, orderID, plan
 		Progress:  0,
 	}
 
-	if err := h.Store.CreateProvision(ctx, provision); err != nil {
+	// #3744 — dedup the provision-create entrypoint. A credit-covered
+	// marketplace checkout fires this path twice (NATS order.placed event +
+	// POST /provisioning/start) by design; without a guard both inserts fork a
+	// workflow and the two near-simultaneous Gitea commits race on the shared
+	// sme-tenants branch ("cannot lock ref"), marking the tenant failed even
+	// though the Org CR + winning commit land. CreateProvisionIfAbsent is backed
+	// by a partial unique index on (tenant_id, in-flight status), so the second
+	// trigger collides and we return the already-running provision without
+	// forking a duplicate workflow — mirroring CreateJobIfAbsent's #71 dedup for
+	// day-2 Jobs.
+	if err := h.Store.CreateProvisionIfAbsent(ctx, provision); err != nil {
+		if errors.Is(err, store.ErrProvisionExists) {
+			existing, getErr := h.Store.GetInFlightProvisionByTenant(ctx, tenantID)
+			if getErr != nil {
+				slog.Error("duplicate provision dispatch: failed to load in-flight provision",
+					"tenant_id", tenantID, "error", getErr)
+				return nil, getErr
+			}
+			if existing != nil {
+				slog.Info("duplicate provision dispatch — an in-flight provision already exists for this tenant; skipping",
+					"tenant_id", tenantID, "provision_id", existing.ID)
+				return existing, nil
+			}
+			// Lost the in-flight row between the collision and the lookup (it
+			// just reached a terminal state). Treat as benign: return the
+			// provision we built without forking — the prior workflow owns the
+			// outcome. A subsequent legitimate re-provision will succeed.
+			slog.Info("duplicate provision dispatch — prior provision terminated; not forking a new workflow",
+				"tenant_id", tenantID)
+			return provision, nil
+		}
 		slog.Error("failed to create provision record", "error", err)
 		return nil, err
 	}
