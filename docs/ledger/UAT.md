@@ -21,12 +21,14 @@ re-verified in a browser on **hw159**; everything else still carries **stale hw1
 | 7 | catalog-IaC (#3668) | 39 | 2 | 0 | 37 |
 | 8 | cutover (#3379) | 16 | 2 | 0 | 14 |
 | 9 | jobs-canvas (#3646) | 19 | 3 | 0 | 16 |
-| 10 | regenerate-meta (#3581) | 9 | 1 | 0 | 8 |
-| **TOTAL** | **243** | **25** | **3** | **215** |
+| 10 | regenerate-meta (#3581) | 9 | 9 | 0 | 0 |
+| **TOTAL** | **243** | **33** | **3** | **207** |
 
-**hw159 progress: 28 of 243 steps walked (12%).** Of those 28: 25 ✅ / 3 ❌. **215 steps (88%) still
-unwalked on this env.** 20 screenshots back the 28. This is the honest denominator — NOT "6 PASS";
+**hw159 progress: 36 of 243 steps walked (15%).** Of those 36: 33 ✅ / 3 ❌. **207 steps (85%) still
+unwalked on this env.** 28 screenshots back the 36. This is the honest denominator — NOT "6 PASS";
 the per-runbook keystone passed, but each runbook has 9–39 steps and most are not yet re-verified.
+**Runbook #10 (regenerate-meta #3581) fully walked 2026-06-18: 9✅** — Part A (6 SSO bare-URL landings:
+console/grafana/harbor/gitea/openbao all signed-in) + Part B (3: rendered UAT.md names only hw159).
 **The 3 walked ❌:** newapi SSO(`/setup`) · powerdns SSO(`/login`) · #3383 `Tenant` rename (fixed in 1.4.677).
 
 ---
