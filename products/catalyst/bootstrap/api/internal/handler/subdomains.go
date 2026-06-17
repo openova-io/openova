@@ -260,4 +260,9 @@ type pdmClient interface {
 		cfg pdm.CommitRetryConfig,
 	) error
 	Release(ctx context.Context, poolDomain, subdomain string) error
+	// ReleaseWithRetry is the production path for the wipe/decommission
+	// release (bounded backoff + ErrNotFound-as-success). Refs #3728 —
+	// the plain Release is retained for the manual ReleaseSubdomain
+	// recovery seam and tests that exercise single-shot semantics.
+	ReleaseWithRetry(ctx context.Context, poolDomain, subdomain string, cfg pdm.CommitRetryConfig) error
 }

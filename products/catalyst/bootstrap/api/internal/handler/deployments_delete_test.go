@@ -152,3 +152,84 @@ func TestDeleteDeployment_TerminalWipedAllowed(t *testing.T) {
 		t.Errorf("wiped deployment was not removed from map")
 	}
 }
+
+// newPoolDepForDelete builds a pool-mode Deployment with PDM pointers set,
+// for the #3728 record-only-delete release tests.
+func newPoolDepForDelete(id, status, sub string) *Deployment {
+	dep := &Deployment{
+		ID:     id,
+		Status: status,
+		Request: provisioner.Request{
+			SovereignFQDN:       sub + ".omani.works",
+			SovereignDomainMode: "pool",
+			Region:              "fsn1",
+		},
+		StartedAt:     time.Now().Add(-1 * time.Hour),
+		eventsCh:      make(chan provisioner.Event),
+		done:          make(chan struct{}),
+		pdmPoolDomain: "omani.works",
+		pdmSubdomain:  sub,
+	}
+	close(dep.eventsCh)
+	close(dep.done)
+	return dep
+}
+
+// TestDeleteDeployment_WipedPoolReleasesSubdomain is the #3728 closure for
+// the record-only path: deleting the breadcrumb of an ALREADY-WIPED pool
+// Sovereign must release its pool subdomain so the slot is re-fireable.
+// Previously this path never called PDM release, leaking the active row.
+func TestDeleteDeployment_WipedPoolReleasesSubdomain(t *testing.T) {
+	fpdm := &fakePDM{}
+	h := NewWithPDM(silentLogger(), fpdm)
+	dep := newPoolDepForDelete("dep-wiped-pool", "wiped", "hw155")
+	h.deployments.Store(dep.ID, dep)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/deployments/dep-wiped-pool", nil)
+	rec := httptest.NewRecorder()
+	routerForDelete(h).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var out deleteDeploymentResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !out.PDMReleased {
+		t.Errorf("PDMReleased=false; a record-only delete of a wiped pool Sovereign must release the subdomain (body=%s)", rec.Body.String())
+	}
+	if got := len(fpdm.releases); got != 1 || fpdm.releases[0].sub != "hw155" {
+		t.Errorf("expected one Release(omani.works, hw155), got %+v", fpdm.releases)
+	}
+}
+
+// TestDeleteDeployment_LivePoolDoesNotReleaseSubdomain is the safety
+// invariant: a record-only delete of a LIVE pool Sovereign (status=ready,
+// deliberately orphaned by the operator) must NOT release its subdomain —
+// the running cluster still serves DNS from that pool child zone, and
+// dropping it would break the live Sovereign. Refs #3728.
+func TestDeleteDeployment_LivePoolDoesNotReleaseSubdomain(t *testing.T) {
+	fpdm := &fakePDM{}
+	h := NewWithPDM(silentLogger(), fpdm)
+	dep := newPoolDepForDelete("dep-live-pool", "ready", "hw160")
+	h.deployments.Store(dep.ID, dep)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/deployments/dep-live-pool", nil)
+	rec := httptest.NewRecorder()
+	routerForDelete(h).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var out deleteDeploymentResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.PDMReleased {
+		t.Errorf("PDMReleased=true for a LIVE pool Sovereign; releasing would break its DNS")
+	}
+	if got := len(fpdm.releases); got != 0 {
+		t.Errorf("PDM Release fired for a live orphaned Sovereign (%d times) — must not", got)
+	}
+}

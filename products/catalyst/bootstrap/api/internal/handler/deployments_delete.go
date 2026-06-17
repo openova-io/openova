@@ -36,12 +36,28 @@
 package handler
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 )
+
+// noteAppend joins a new note fragment onto an existing one with "; ".
+// Refs #3728 — the record-only delete can now surface both a store-delete
+// note and a pdm-release note in the same response.
+func noteAppend(existing, add string) string {
+	if existing == "" {
+		return add
+	}
+	return existing + "; " + add
+}
 
 // deleteDeploymentResponse is the wire shape of DELETE
 // /api/v1/deployments/{id}.
@@ -50,8 +66,18 @@ type deleteDeploymentResponse struct {
 	SovereignFQDN string `json:"sovereignFQDN,omitempty"`
 	StoreDeleted  bool   `json:"storeDeleted"`
 	LocalCleaned  bool   `json:"localCleaned"`
+	PDMReleased   bool   `json:"pdmReleased,omitempty"`
 	Mode          string `json:"mode"`
 	Note          string `json:"note,omitempty"`
+}
+
+// destroyedTerminalStatus reports whether a deployment's infra is already
+// gone (wiped or failed-before-materialising). Refs #3728 — the
+// record-only delete releases the pool subdomain ONLY in these states, so
+// a deliberately-orphaned but LIVE Sovereign keeps its DNS records intact
+// (releasing would drop its PowerDNS child zone out from under it).
+func destroyedTerminalStatus(s string) bool {
+	return s == "wiped" || s == "failed"
 }
 
 // DeleteDeployment handles DELETE /api/v1/deployments/{id}.
@@ -85,6 +111,9 @@ func (h *Handler) DeleteDeployment(w http.ResponseWriter, r *http.Request) {
 	status := dep.Status
 	fqdn := dep.Request.SovereignFQDN
 	adopted := dep.AdoptedAt != nil
+	poolDomain := dep.pdmPoolDomain
+	subdomain := dep.pdmSubdomain
+	domainMode := dep.Request.SovereignDomainMode
 	dep.mu.Unlock()
 
 	// Adopted deployments are customer-owned Sovereigns. Don't allow
@@ -154,6 +183,37 @@ func (h *Handler) DeleteDeployment(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		out.LocalCleaned = true
+	}
+
+	// Step 2b (Refs #3728) — release the pool subdomain ONLY when the
+	// Sovereign's infra is already destroyed (wiped/failed). This closes
+	// the leak where a record-only delete of an already-wiped breadcrumb
+	// left the `active` pool_allocations row orphaned → permanent 409 on
+	// re-fire of the same subdomain. We deliberately do NOT release for a
+	// LIVE deployment being orphaned (status ready/converged/…): that
+	// Sovereign still serves DNS from the pool child zone, and dropping it
+	// would break the running cluster. Best-effort + ErrNotFound-as-success
+	// on a background context (independent of the inbound request).
+	if domainMode == "pool" && (poolDomain == "" || subdomain == "") {
+		if idx := strings.IndexByte(fqdn, '.'); idx > 0 {
+			subdomain = fqdn[:idx]
+			poolDomain = fqdn[idx+1:]
+		}
+	}
+	if domainMode == "pool" && destroyedTerminalStatus(status) && poolDomain != "" && subdomain != "" {
+		if h.pdm == nil {
+			out.Note = noteAppend(out.Note, "pool release skipped: pool-domain-manager client not configured")
+		} else {
+			relCtx, relCancel := context.WithTimeout(context.Background(), 90*time.Second)
+			if err := h.pdm.ReleaseWithRetry(relCtx, poolDomain, subdomain, pdm.CommitRetryConfig{}); err != nil && !errors.Is(err, pdm.ErrNotFound) {
+				h.log.Warn("delete-deployment: pdm release failed",
+					"id", id, "poolDomain", poolDomain, "subdomain", subdomain, "err", err)
+				out.Note = noteAppend(out.Note, "pdm release: "+err.Error())
+			} else {
+				out.PDMReleased = true
+			}
+			relCancel()
+		}
 	}
 
 	// Step 3 — drop the in-memory row. The wizard's polling loop will
