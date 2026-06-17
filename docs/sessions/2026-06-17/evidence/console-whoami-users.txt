@@ -1,0 +1,17 @@
+# hw158 SSO re-validation evidence — 2026-06-17T08:56:25Z — #3374
+
+## Session established via /auth/handover (RS256 JWT, /tmp/hw-priv.pem matches on-cluster JWK)
+```
+$ curl /auth/handover?token=<JWT> -> 302, Set-Cookie: catalyst_session (domain .hw158.omani.works)
+session payload: tier=owner, realm_access.roles=[catalyst-owner,catalyst-admin,sovereign-admins], email=emrah.baysal@openova.io, keycloak_uid=082ce85c-...
+```
+
+## console /api/v1/whoami (WITH session)
+```
+{"email":"emrah.baysal@openova.io","sub":"emrah.baysal@openova.io","verified":true,"deploymentId":"ab2135d4cf2d01e4","sovereignFQDN":"hw158.omani.works","mode":"sovereign","tier":"owner","realm_access":{"roles":["catalyst-owner","catalyst-admin","sovereign-admins"]}}
+
+## same endpoint WITHOUT cookie -> 401 (proves session authenticates)
+{"error":"unauthenticated"} [http 401]
+## console /api/v1/sovereign/users (WITH session) — owner UserAccess CR
+{"items":[{"name":"useraccess-owner-emrah-baysal-at-openova-io","spec":{"user":{"keycloakSubject":"emrah.baysal@openova.io"},"sovereignRef":"hw158","applications":[]},"creationTimestamp":"2026-06-17T03:37:56Z"},{"name":"walk-stranger-co-walkstranger-at-omani-homes","spec":{"user":{"keycloakSubject":"walkstranger@omani.homes"},"sovereignRef":"walk-stranger-co","applications":[{"app":"walk-stranger-co","role":"admin","namespaces":["walk-stranger-co"]}]},"creationTimestamp":"2026-06-17T04:30:58Z"}]}
+```
