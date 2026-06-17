@@ -97,10 +97,22 @@ spec:
     # dependsOn requires explicit `namespace:`.
     - name: bp-mgmt-vcluster
       namespace: flux-system
-    # #2745: explicit namespace — a bare `name:` resolves in THIS HR's
-    # namespace (now `mgmt`) → dangling dep → wedge (#3191 shape).
-    - name: bp-seaweedfs
-      namespace: rtz
+    # bp-seaweedfs dependency REMOVED (Refs #840) — mirrors the slot-19
+    # bp-harbor seaweedfs-dep removal (ADR-0001 §13: "writes blobs directly
+    # to cloud Object Storage, not via SeaweedFS"). The DEFAULT Loki render
+    # is `loki.storage.type: filesystem` (platform/loki/chart/values.yaml —
+    # chunks + index on a local 10Gi PVC), NOT SeaweedFS S3. The "MUST
+    # replace storage with s3" per-Sovereign overlay every slot-comment
+    # assumed was specced but never written, so Loki never references
+    # `seaweedfs-s3` / `seaweedfs-s3-secret`. The old
+    # `dependsOn: bp-seaweedfs (ns rtz)` was therefore a FALSE coupling: it
+    # gated Loki — and grafana (slot 25, which dependsOn bp-loki) — on the
+    # rtz-vCluster seaweedfs HR reaching Ready. When seaweedfs is
+    # slow/not-Ready in the SECONDARY region's rtz vCluster, that needlessly
+    # wedged the whole LGTM+grafana chain there (hw159 region-b 41/55 vs
+    # region-a 55/55). Decoupled, Loki converges on its own PVC in BOTH
+    # regions. NOTE: a future overlay that actually flips Loki to SeaweedFS
+    # S3 MUST re-add this edge (with `namespace: rtz`) in lockstep.
   chart:
     spec:
       chart: bp-loki
