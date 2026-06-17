@@ -1,99 +1,115 @@
-# UAT — ground reality on `hw144.omani.works` (live kom4dc prov, 2026-06-15)
+# UAT — hw158 live walkthrough (2026-06-17)
 
-> **Env: `hw144.omani.works` · deployment `d8e798bdf1b4256b` · 2026-06-15 · single physical kom4dc
-> region (2 VPCs `me-east-215-a` / `-b`).** This ledger re-walks on the comprehensive `hw144` prov
-> fired with the five remaining fixes baked in (cutover half-pivot #3568, newapi idempotent re-login
-> #3564, openbao cross-region raft #3562, Open-button grid restore #3570, shared-PG real
-> cross-region DR #3572).
+> **Env: `hw158.omani.works` · deployment `ab2135d4cf2d01e4` · 2026-06-17 · single physical
+> kom4dc region (2 VPCs `me-east-215-a` / `-b`).** Fully converged: **61/64 HelmReleases Ready**,
+> status=ready. The 3 not-Ready are Hetzner-only charts deliberately suspended on Huawei
+> (`bp-cluster-autoscaler-hcloud`, `bp-hcloud-ccm`, `bp-velero`; `bp-velero-hcs` IS Ready) — the
+> conformant TC-07 set, not failures.
 
-**Last verified live: 2026-06-15 on `hw144.omani.works`.** **Login: none** — a signed
-`/auth/handover` token lands directly in the console as `emrah.baysal@openova.io` (role
-`sovereign-admin`); every app is then opened at its **bare public URL** in the same browser session.
+**Walked live: 2026-06-17 on `hw158.omani.works`.** **Login: none** — a signed
+`/auth/handover?token=<RS256-JWT>` minted from the mothership owner key (`/tmp/hw-priv.pem`, whose
+public modulus byte-matches the on-cluster `handover-jwt-public/public.jwk`) lands directly in the
+console as `emrah.baysal@openova.io` (role `sovereign-admin`); every app is then opened at its
+**bare public URL** in the same browser session.
 
 > **Wipe-and-rewalk contract:** every wipe empties this file; the rows below were walked **on
-> hw144** 2026-06-15 from the live UI. Prior-env (hw139 / hw128) results are void and were cleared.
-> Every row: click the URL yourself; a row is ✅ only if it works **right now** with an hw144
-> screenshot. Per-surface detail + screenshots live in [`docs/ledger/uat-walkthrough/`](uat-walkthrough/)
-> and `docs/sessions/2026-06-15/evidence/` (the `hw144-*` files).
+> hw158** 2026-06-17 from the live UI + `kubectl` on `/tmp/hw158-kc.yaml` (primary region A,
+> server `212.72.24.26:6443`). Prior-env (hw144 / hw150 / hw130) results are void and were cleared.
+> Screenshots: `docs/sessions/2026-06-17/evidence/hw158-*.png`. Per-surface walkthroughs:
+> [`docs/ledger/uat-walkthrough/`](uat-walkthrough/).
 
 ---
 
-## 🌟 The 4 North Stars (founder verbatim) — on hw144
+## 🌟 The 4 North Stars (founder verbatim) — on hw158
 
-| # | North Star (founder) | On hw144 | Evidence |
+| # | North Star (founder) | On hw158 | Evidence |
 |---|---|---|---|
-| 1 | **Every app runs IN a vCluster** (placement law §4) | **✅ conformant** — 9 apps in their target vClusters (`loki`/`mimir`/`tempo`/`nats`→mgmt, `valkey`/`seaweedfs`/`vllm`→rtz, `coraza`→dmz); the 5 route/secret apps (`keycloak`/`gitea`/`grafana`/`harbor`/`openbao`) held on `host` BY ratified #3373 Batch-A design (loft.sh-Free CR-sync would need a permanent tether — incompatible with Pillar-5 cutover); `audit-placement-conformance.py live` exit 0; treemap LAYER1=vCluster renders host/mgmt/rtz/dmz | [3373-placement.md](uat-walkthrough/3373-placement.md) |
-| 2 | **3 shared-PG instances → 3 cards; 6–7 apps many-to-many** | **✅ 3 cards + 11 contexts / 9 apps** — `/catalog/bp-postgres` Instances table = `shared-pg`/`shared-pg-b`/`shared-pg-c` (all active-hotstandby + Ready); consumption many-to-many (`shared-pg`←harbor/gitea/keycloak, `-b`←grafana/powerdns/powerdns-admin, `-c`←catalyst-platform×3/newapi/openova-flow) | [3370-contexts.md](uat-walkthrough/3370-contexts.md) · [3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md) |
-| 3 | **NO login UI anywhere — URL → signed in as emrah.baysal as ADMIN** | **✅** — handover URL → `/dashboard` signed-in (avatar **E**, "Signed in as emrah.baysal@openova.io"); grafana / harbor / openbao / gitea all land signed-in zero-click at their bare URL; admin proven by surfing Server Admin / Administration / Secrets Engines / owner-dashboard. **Q6: Open buttons RESTORED (#3570)** (`↗ Open <App>` + `Open →`) | [3374-sso.md](uat-walkthrough/3374-sso.md) |
-| 4 | **Agreed apps actually multi-region** | **✅** — `/cloud` reports Region 2/2 + Cluster 2/2, the Topology picker is editable (single-region / active-active / active-hotstandby × me-east-215-a/-b, Preview+Apply), and the **live region-kill PASSED** on hw144: region-a killed (cordon 3 workers + delete `shared-pg-1/2/3`) → region-b `shared-pg-replica` promoted in **RTO ≈ 4s** (`pg_is_in_recovery` t→f, 12:23:39→12:23:43Z) → consumer keycloak realms (master+sovereign) + 3 users identical post-kill → **RPO = 0** | [3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md) |
+| 1 | **Every app runs IN a vCluster** (placement law §4) | ✅ PASS | `audit-placement-conformance.py live` → exit 0, "zero undeclared host workloads"; 31 pods carry the `-x-…-{mgmt,dmz,rtz}-vcluster` syncer suffix · `hw158-13` |
+| 2 | **3 shared-PG instances → 3 cards; 6–7 apps many-to-many** | ✅ PASS | `/catalog/bp-postgres` Instances table = exactly 3 cards (shared-pg/-b/-c); `/app/shared-pg` Contexts = db/registry→harbor, db/gitea→gitea, db/keycloak→keycloak; -b/-c carry the same 3 DBs (9 bindings) · `hw158-07`/`hw158-08` |
+| 3 | **NO login UI anywhere — URL → signed in as emrah.baysal as ADMIN** | ✅ PASS | console `/auth/handover`→`/dashboard` signed-in, avatar "Signed in as emrah.baysal@openova.io"; grafana/harbor/gitea/openbao all zero-click admin · `hw158-01`..`hw158-05` |
+| 4 | **Agreed apps actually multi-region** | 🟡 PARTIAL | substrate ✅ — `/cloud` Region 2/2 + Cluster 2/2, both `me-east-215-a`/`-b` clusters; shared-pg WAL `streaming` ×2 replicas; cnpg-pair 3 instances. **Live region-kill BLOCKED** — cnpg-pair replica still 2/3 "Creating", continuum CR Degraded (LeaseHeld=False) → no armed cross-region standby to kill-promote yet · `hw158-06` |
 
 ---
 
-## Per-surface fractions (every row = a UI action → screen → result, sourced from the walkthroughs)
+## ROW 0 — MASTER PROOF (#3687, object model alive at runtime) — ✅ PASS
 
-| Surface (issue) | Live result on hw144 | Walkthrough |
+`kubectl --kubeconfig /tmp/hw158-kc.yaml get applications.apps.openova.io,organizations.orgs.openova.io -A`:
+
+| Check | Result | Evidence |
 |---|---|---|
-| **Placement** (#3373) | ✅ — 9 apps in target vClusters + 5 route/secret apps host-by-ratified-design; treemap LAYER1=vCluster (host/mgmt/rtz/dmz); audit exit 0 | [3373-placement.md](uat-walkthrough/3373-placement.md) |
-| **Contexts** (#3370) | ✅ — 3 instance cards + ⛓ shareable catalog + 11 contexts across 3 instances / 9 distinct apps | [3370-contexts.md](uat-walkthrough/3370-contexts.md) |
-| **SSO** (#3374) | ✅ — handover + grafana + harbor + openbao + gitea land signed-in zero-click; Open buttons (Q6) present | [3374-sso.md](uat-walkthrough/3374-sso.md) |
-| **Topology Q1 / Q2** (#3375) | ✅ — 3 active-hotstandby cards; Q1 declared-singleton honesty render; Q2 truly-editable Topology picker | [3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md) |
-| **Region-kill** (#3375 / NS#4) | ✅ — live kill→promote driven on hw144: region-a killed → region-b promoted RTO ≈ 4s → consumer keycloak data identical (RPO = 0) | [3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md) |
-| **Cutover** (#3379) | ⏳ PENDING — `cutoverComplete=true` + the 600s deny-egress hold walk on hw144 not yet witnessed this session | [3379-cutover.md](uat-walkthrough/3379-cutover.md) · [3379-sovereignty.md](uat-walkthrough/3379-sovereignty.md) |
+| `applications.apps.openova.io` rows | **3 Ready** — `shared-pg`/`shared-pg-b`/`shared-pg-c`, blueprint `bp-postgres@0.2.2`, placement `active-hotstandby`, env `platform-bootstrap` | kubectl |
+| `organizations.orgs.openova.io` rows | **0** — EXPECTED pre-signup (the parent-Sovereign Org is host-owned; TC-01 funnel mints the first tenant Org) | kubectl |
+| 4 canonical CRDs present | ✅ `applications.apps` · `organizations.orgs` · `environments.catalyst` · `continuums.dr` | kubectl |
+| controllers `1/1 Running` | ✅ all 7 in `catalyst-system` (api, application, catalog, environment, organization, ui, useraccess) + continuum-controller | kubectl |
 
-**Honesty line:** the **region-kill EXECUTION** (NS#4) is now **✅** — the live kill→promote walk ran
-on hw144 (RTO ≈ 4s, RPO = 0). The one remaining open item on hw144 is the **Pillar-5 cutover** (the
-witnessed deny-egress hold + `cutoverComplete=true`), marked **⏳ PENDING** — it will be filled in
-after the live run and is NOT claimed green.
+> ✅ **PASS:** Application CRs return non-zero Ready rows; the canonical object model is alive at
+> runtime (not a pod/HR projection). Organizations=0 is the expected pre-funnel state.
 
 ---
 
-## SSO — type the URL → land signed in (zero clicks) — walked on hw144
+## The 14 UAT rows
 
-| # | App | Try it | Now | Proof (hw144, 2026-06-15) |
+| # | Row (ticket / NS) | Result | Evidence (hw158) |
+|---|---|---|---|
+| 0 | **Master proof** — object model alive (#3687) | ✅ PASS | 3 Application CRs Ready; 4 CRDs; 8 controllers Running |
+| 1 | **SSO — console** zero-click → emrah.baysal admin (#3374 / NS3) | ✅ PASS | `/auth/handover`→`/dashboard`; avatar "Signed in as emrah.baysal@openova.io" · `hw158-01` |
+| 2 | **SSO — grafana** (#3374 / NS3) | ✅ PASS | `grafana.…/?orgId=1` Home, no login form; `/api/user`→`login=emrah.baysal@openova.io isGrafanaAdmin=true` · `hw158-02` |
+| 3 | **SSO — harbor** (#3374 / NS3) | ✅ PASS (minor) | `/harbor/projects` zero-click, Administration menu visible, user=emrah.baysal; `/api/v2.0/users/current`→`admin_role_in_auth:true` but `sysadmin_flag:false` on hw158 (login ✅; the OIDC admin-group→Harbor-sysadmin promote is a small follow-up) · `hw158-03` |
+| 4 | **SSO — gitea** (#3374 / NS3) | ✅ PASS | title "emrah.baysal — Dashboard — Catalyst Gitea"; `/admin` → 200 (Site Administration reachable; non-admin would 403) · `hw158-04` |
+| 5 | **SSO — openbao** (#3374 / NS3) | ✅ PASS | `/ui/vault/secrets` Secrets Engines (cubbyhole/, secret/) — **NO `/ui/vault/auth` token form** (founder-witnessed fail dead) · `hw158-05` |
+| 6 | **SSO — bonus** (keycloak/guacamole/newapi/pdns-admin) | 🟡 2 PASS / 1 PARTIAL / 1 FAIL | keycloak-admin ✅ (Sovereign realm console, emrah.baysal) `hw158-12`; guacamole ✅ (OIDC auto-completes → Recent/All Connections, no Tomcat-404) `hw158-09`; newapi 🟡 route+OIDC fire but lands `/setup` init-wizard not `/console` (fresh-prov uninitialized) `hw158-10`; pdns-admin ❌ login wall → OIDC click → KC "Invalid parameter: redirect_uri" (client redirect-URI unregistered) `hw158-11` |
+| 7 | **Placement** — every app in a vCluster (#3373 / NS1) | ✅ PASS | `audit-placement-conformance.py live` exit 0, "zero undeclared host workloads"; mgmt={loki,mimir,nats,tempo}, rtz={seaweedfs,valkey,vllm,sandbox}, dmz={coraza}; ratified route/secret apps on host conformant · `hw158-13` |
+| 8 | **Contexts** — 3 shared-PG cards, many-to-many (#3370 / NS2) | ✅ PASS | `/catalog/bp-postgres` = 3 instance cards; `/app/shared-pg` Contexts tab = 3 isolated db/ children (harbor/gitea/keycloak); -b/-c each host gitea/keycloak/registry (9 bindings total) · `hw158-07`/`hw158-08` |
+| 9 | **Topology Q1/Q2** — vocabulary + editable picker (#3375 / NS4) | ✅ PASS | `/app/shared-pg` Topology tab: Q1 declared "singleton — no cross-region failover" (honest); Q2 4-mode radio picker (single-region[checked]/active-active/active-hotstandby/active-passive) + both regions as checkboxes + Preview/Apply; Live-status honest "n/a — bootstrap component (HelmRelease, no Application CR)" · `hw158-15` |
+| 10 | **Multi-region substrate** — 2/2 (#3375 / NS4) | ✅ PASS | `/cloud` Region 2/2 · Cluster 2/2 · vCluster 6/6 · Network 2/2; both `hw-me-east-215-a-rtz-prod` + `hw-me-east-215-b-rtz-prod` clusters in graph w/ own CP+3 workers · `hw158-06` |
+| 11 | **Region-kill EXECUTION** — live promote (#3375 / NS4) | ❌ BLOCKED | continuum `cnpg-pair-…-continuum` phase=**Degraded**, LeaseHeld=False, Ready=False; cnpg-pair replica 2/3 "Creating a new replica" — cross-region standby not yet armed, so an honest kill→promote walk cannot run. shared-pg intra-instance WAL `streaming` ✅ but that is HA, not cross-region DR. NOT claimed green. |
+| 12 | **Funnel (TC-01)** — voucher → app → Org non-zero (#3376 / NS1+NS3) | ⚠️ BLOCKED (substrate repaired) | Marketplace `marketplace.hw158.…/` "Build Your Tenant — OpenOva SME" serves (HTTP 200) · `hw158-14`; back-office `/back-office/` "Revenue — SME Admin" reachable. **Blocker found + fixed live:** SME `provisioning` was `Init:0/1` for 35 min — its `wait-for-gitea-token` init read an EMPTY `GITHUB_TOKEN` because `sme/provisioning-github-token` was never rendered (the chart mirrors it via a render-time `lookup` of `catalyst-system/catalyst-gitea-token`, whose 40-char PAT only became valid AFTER the initial render; helm-controller won't re-render on cluster-state-only change — a `reconcile.fluxcd.io/requestedAt` nudge did not recreate it). Mirrored the validated PAT (gitea `/api/v1/user`→200) into `provisioning-github-token`, deleted the stuck pod → **all 12 SME pods now 1/1 Running.** Full stranger redeem→checkout→Org-mint NOT completed (back-office voucher SPA renders empty; `console.<slug>.omani.homes` tenant-subdomain DNS pool is a further dependency); `kubectl get organizations` still **0** — **no Org fabricated.** |
+| 13 | **Robustness** — install-record real, no crash-loop (#3380 / NS1) | ✅ PASS | 61/64 HR Ready; the 3 not-Ready are Hetzner-only suspended charts (autoscaler-hcloud, hcloud-ccm, velero; velero-hcs Ready); no crash-loop; `/dashboard` treemap renders 93 items · kubectl + `hw158-01` |
+
+---
+
+## SSO — type the URL → land signed in (zero clicks) — walked on hw158
+
+| # | App | Bare URL | Now | Proof (hw158, 2026-06-17) |
 |---|---|---|---|---|
-| 1 | console | [open](https://console.hw144.omani.works/auth/handover) | ✅ | handover → `/dashboard` signed-in, avatar **E**, "Signed in as emrah.baysal@openova.io" (hw144-01/02) |
-| 2 | grafana | [open](https://grafana.hw144.omani.works/) | ✅ | bare URL → Home/Dashboards signed-in; `/api/user` `isGrafanaAdmin=true` (hw144-10) |
-| 3 | harbor | [open](https://registry.hw144.omani.works/) | ✅ | bare URL → `/harbor/projects` signed-in, `emrah.baysal@openova.io`, Administration menu (admin-group mapping = minor follow-up) (hw144-11) |
-| 4 | openbao | [open](https://bao.hw144.omani.works/) | ✅ | bare URL → OIDC round-trip → `/ui/vault/secrets`, no auth form (hw144-12) |
-| 5 | gitea | [open](https://gitea.hw144.omani.works/) | ✅ | bare URL → "emrah.baysal — Dashboard — Catalyst Gitea" (hw144-14) |
-| 6 | grafana / guacamole Open buttons | [open](https://console.hw144.omani.works/app/bp-grafana) | ✅ | app-detail header `↗ Open <App>` + Endpoints `Open →` restored (#3570) (hw144-09) |
-| 7 | newapi | — | N/A | exposes NO external HTTPRoute ("Internal-only services reachable cluster-side") — no browser SSO walk; re-login is internal/M2M |
+| 1 | console | `console.hw158.omani.works/` | ✅ | handover→`/dashboard`; avatar "Signed in as emrah.baysal@openova.io" · `hw158-01` |
+| 2 | grafana | `grafana.hw158.omani.works/` | ✅ | Home, `/api/user`→isGrafanaAdmin=true · `hw158-02` |
+| 3 | harbor | `registry.hw158.omani.works/` | ✅ | `/harbor/projects`, Admin menu; sysadmin_flag minor follow-up · `hw158-03` |
+| 4 | gitea | `gitea.hw158.omani.works/` | ✅ | "emrah.baysal — Dashboard"; `/admin`→200 · `hw158-04` |
+| 5 | openbao | `bao.hw158.omani.works/ui/` | ✅ | `/ui/vault/secrets`, no token form · `hw158-05` |
+| 6 | keycloak admin | `auth.hw158.omani.works/admin/sovereign/console/` | ✅ | Sovereign realm admin console (Clients/Users/Groups/Realm-settings nav); header "emrah.baysal@openova.io" · `hw158-12` |
+| 7 | guacamole | `guacamole.hw158.omani.works/guacamole/` | ✅ | OIDC auto-completes from live KC session (`id_token` groups=sovereign-admins); "Recent Connections / All Connections" as emrah.baysal; NO Tomcat-404 · `hw158-09` |
+| 8 | newapi | `newapi.hw158.omani.works/` | 🟡 | route + custom-OAuth `kc_idp_hint=catalyst-pin` flow fire and return, but the app lands on `/setup` ("System initialization" 4-step wizard) not a signed-in `/console` — fresh-prov uninitialized · `hw158-10` |
+| 9 | pdns-admin | `pdns-admin.hw158.omani.works/` | ❌ | lands `/login` (username/password form + "Sign in using OpenID Connect" link — NOT zero-click); clicking OIDC → KC `realms/sovereign` returns **"Invalid parameter: redirect_uri"** (the `powerdns-admin` client has no `…/oidc/authorized` redirect-URI registered) · `hw158-11` |
 
-**SSO on hw144: ✅** — 5 apps land zero-click signed-in admin + the Open buttons (Q6) are restored.
-Full per-row evidence: [3374-sso.md](uat-walkthrough/3374-sso.md) · `docs/sessions/2026-06-15/evidence/`.
-
-## Contexts — shared-PG instances render as cards + many-to-many (North Star #2) — walked on hw144
-
-| Check | Where | Now | Proof (hw144) |
-|---|---|---|---|
-| 3 shared-PG instance **cards** | `/catalog/bp-postgres` Instances | ✅ | `shared-pg` / `shared-pg-b` / `shared-pg-c`, all active-hotstandby + Ready, `bp-postgres@0.2.1` (hw144-04) |
-| PostgreSQL **catalog** card | `/apps` Catalog → search postgres | ✅ | `PostgreSQL · ⛓ shareable · multi-instance · db`, 3-row Instances table, + New instance (hw144-04) |
-| Each instance's **Contexts** tab | `/app/shared-pg{,-b,-c}` | ✅ | `Context · Occupied by · Credential · Status`; 9 `ready` (+2 `Declared`) across 3 instances; many-to-many (hw144-06/07/08) |
-
-Full evidence: [3370-contexts.md](uat-walkthrough/3370-contexts.md) · `docs/sessions/2026-06-15/evidence/`.
-
-## Topology / DR — agreed apps multi-region (North Star #4) — walked on hw144
-
-| Check | Where | Now | Proof (hw144) |
-|---|---|---|---|
-| shared-PG cards = active-hotstandby | `/catalog/bp-postgres` | ✅ | 3 instances, all active-hotstandby + Ready (hw144-04) |
-| Q1 declared-singleton honesty | `/app/shared-pg` Topology | ✅ | "Declared topology · singleton … no cross-region failover"; Live status "No per-region status yet … Replication lag n/a" (hw144-15) |
-| Q2 editable Topology picker | `/app/shared-pg` Topology | ✅ | radios single-region / active-active / active-hotstandby × regions me-east-215-a/-b + Preview + Apply (truly editable, not cosmetic) (hw144-15) |
-| 2-region substrate | `/cloud` | ✅ | Region 2/2 + Cluster 2/2 graph renders (hw144-16); region-b `shared-pg-replica` confirmed streaming (`pg_is_in_recovery=t`, wal_receiver=streaming) at the gate |
-| Region-kill EXECUTION (live promote) | kubectl kill→promote | ✅ | **PASS on hw144** — region-a killed (cordon 3 workers + delete `shared-pg-1/2/3`) → region-b promoted RTO ≈ 4s (12:23:39→12:23:43Z) → keycloak realms+3 users identical, RPO = 0; no hw128 carryover ([proof txt](../sessions/2026-06-15/evidence/hw144-ns4-region-kill-proof.txt)) |
-
-Full evidence: [3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md) · `docs/sessions/2026-06-15/evidence/`.
+**SSO core 5/5 ✅** (console, grafana, harbor, gitea, openbao) — all zero-click signed-in admin.
+**SSO bonus 2 PASS (keycloak, guacamole) / 1 PARTIAL (newapi `/setup`) / 1 FAIL (pdns-admin redirect-uri).**
 
 ---
 
-## What is NOT yet green on hw144 (honest open list)
+## What is NOT green on hw158 (honest open list)
 
-1. **Cutover completion** (#3379) — the witnessed 600s deny-egress hold + `cutoverComplete=true`
-   have not yet been walked on hw144. Marked **⏳ PENDING**.
-2. **harbor admin-group mapping** (#3374, minor) — harbor login lands signed-in, but
-   `/api/v2.0/users/current` reports `sysadmin:false`; the OIDC admin-group → Harbor-sysadmin
-   mapping is a small follow-up (login itself is ✅).
-
-*(Resolved this session: **Region-kill EXECUTION** (#3375 / NS#4) — the live kill → promote →
-zero-data-loss walk PASSED on hw144 (RTO ≈ 4s, RPO = 0). See the NS#4 table in
-[3375-topology-dr.md](uat-walkthrough/3375-topology-dr.md).)*
+1. **Region-kill EXECUTION (#3375 / NS4)** — ❌ BLOCKED. The cnpg-pair cross-region replica was
+   still joining (2/3 "Creating") and the continuum CR was Degraded (LeaseHeld=False) at walk
+   time, so there is no armed cross-region standby to hard-kill and promote. The multi-region
+   *substrate* is proven (2/2 regions, cnpg-pair, shared-pg streaming) but the live promote was
+   not walkable — and is NOT claimed.
+2. **Funnel (TC-01, #3376)** — ⚠️ BLOCKED, substrate repaired. The SME `provisioning` Init-wedge
+   (missing `sme/provisioning-github-token` → empty `GITHUB_TOKEN` → gitea 403 in `wait-for-gitea-token`)
+   was root-caused and fixed live (validated PAT mirrored → all 12 SME pods now `1/1 Running`;
+   marketplace landing + back-office serve). A full stranger voucher→checkout→Org-mint was NOT
+   completed (back-office voucher SPA renders empty; tenant-subdomain DNS pool dependency).
+   `kubectl get organizations` is still **0** — no Org was fabricated. This is the one terminal
+   pillar gap on hw158.
+3. **pdns-admin SSO (#3374 bonus)** — ❌ FAIL. Lands on a `/login` username/password form; the
+   "Sign in using OpenID Connect" link → Keycloak returns **"Invalid parameter: redirect_uri"**.
+   The `powerdns-admin` OIDC client in the `sovereign` realm is missing the
+   `https://pdns-admin.hw158.omani.works/oidc/authorized` redirect-URI. Concrete client-config fix.
+4. **newapi SSO (#3374 bonus)** — 🟡 PARTIAL. The route + custom-OAuth flow fire and return from
+   Keycloak, but the app renders its `/setup` "System initialization" wizard instead of a signed-in
+   `/console` (the instance is uninitialized on a fresh prov). Not zero-click-to-admin.
+5. **harbor admin-group → sysadmin mapping (#3374, minor)** — login ✅ on hw158, `sysadmin_flag:false`;
+   small OIDC-group-promote follow-up.
+6. **Cutover (#3379 / NS5)** — handover-gated (`cutoverComplete=false` is the expected fresh-prov
+   state; the operator drives "Achieve True Sovereignty" + the 600s deny-egress hold). Not walked
+   this session.
