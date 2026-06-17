@@ -190,7 +190,7 @@ name: bp-guacamole
 # readTopology serves spec.placement VERBATIM to the Topology tab + the
 # Instances-table chip, so the legacy spelling leaked the banned word to the
 # operator (hw159 #3375).
-version: 0.2.23
+version: 0.2.24
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
