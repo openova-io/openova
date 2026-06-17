@@ -120,8 +120,98 @@ spec:
         the gate passes immediately). databaseDsnGate.enabled=false opts out.
       */}}
       {{- $dsnGate := .Values.databaseDsnGate | default dict -}}
-      {{- if and (default true $dsnGate.enabled) .Values.cnpg.enabled }}
+      {{- $dsnGateOn := and (default true $dsnGate.enabled) .Values.cnpg.enabled -}}
+      {{- /*
+        #3374 (2026-06-18) — sandbox-bridge as a NATIVE sidecar (initContainer
+        with restartPolicy:Always), so the zero-click bare-URL landing page is
+        reachable on the FIRST hit instead of throwing `upstream-connect-error
+        ... delayed connect error: 111`.
+
+        ROOT CAUSE (re-walked live hw159): the bridge sidecar serves the
+        Exact `/` landing page, but as a PLAIN container it was gated TWICE
+        behind NewAPI's ~2-min warm-up:
+          (1) the `wait-for-sql-dsn` initContainer (below) runs to completion
+              BEFORE any plain container — including the bridge — starts, so
+              the bridge process was not even listening during the DSN-wait
+              window; and
+          (2) a Pod joins a Service's EndpointSlice only when ALL its
+              containers are Ready (pod-readiness = AND of every container's
+              readinessProbe). The `newapi` container's readinessProbe cannot
+              pass until GORM AutoMigrate finishes, so the WHOLE Pod stayed
+              NotReady → the Service had ZERO ready endpoints on EVERY port,
+              including the bridge port → the gateway's Exact `/` backendRef
+              had no healthy upstream → 111. The bridge process being up was
+              irrelevant; its endpoint was suppressed.
+        A native sidecar (KEP-753, GA k8s 1.29; Sovereigns run k3s v1.31.4)
+        declared as the FIRST initContainer starts in init-order BEFORE the
+        DSN gate and keeps running for the whole Pod lifetime, decoupling the
+        landing page from NewAPI's migrate. Paired with a bridge-only Service
+        carrying publishNotReadyAddresses:true (service.yaml) so the bridge
+        endpoint publishes the instant it listens, even while `newapi` is
+        NotReady. Together these eliminate the 1st-hit 111; the landing page
+        then rides out NewAPI's /api/oauth/state warm-up via its own retry.
+        Gated on sandboxBridge.nativeSidecar (default true); set false to fall
+        back to the legacy plain-container bridge.
+      */}}
+      {{- /* default-true gate that respects an explicit `false` — the Helm
+         `default true <bool>` idiom wrongly coerces an explicit false back to
+         true because false is the bool zero-value, so test key presence +
+         value directly (same idiom as the ssoInit gate). */ -}}
+      {{- $sb := .Values.sandboxBridge | default dict -}}
+      {{- $bridgeNativeOn := or (not (hasKey $sb "nativeSidecar")) $sb.nativeSidecar -}}
+      {{- $bridgeNative := and .Values.sandboxBridge.enabled $bridgeNativeOn -}}
+      {{- if or $bridgeNative $dsnGateOn }}
       initContainers:
+        {{- if $bridgeNative }}
+        # ── Sandbox-bridge NATIVE sidecar (#3374, 2026-06-18) ───────────
+        # restartPolicy:Always promotes this initContainer to a native
+        # sidecar: it starts FIRST (before wait-for-sql-dsn) and runs for the
+        # whole Pod lifetime. This is the SAME image/env/port/securityContext
+        # as the legacy plain-container bridge (kept identical so the only
+        # behavioural change is WHEN it starts and HOW its endpoint publishes).
+        - name: sandbox-bridge
+          image: "{{ .Values.sandboxBridge.image.repository }}:{{ .Values.sandboxBridge.image.tag }}"
+          imagePullPolicy: {{ .Values.sandboxBridge.image.pullPolicy }}
+          restartPolicy: Always
+          ports:
+            - name: bridge
+              containerPort: {{ .Values.sandboxBridge.port }}
+              protocol: TCP
+          env:
+            {{- include "bp-newapi.sandboxBridgeEnv" . | nindent 12 }}
+          # startupProbe gates "sidecar started" for the native-sidecar init
+          # ordering (the next init step waits for this probe to pass). The
+          # bridge binds :8080 in milliseconds, so this is near-instant.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.sandboxBridge.port }}
+            initialDelaySeconds: 1
+            periodSeconds: 2
+            timeoutSeconds: 3
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.sandboxBridge.port }}
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.sandboxBridge.port }}
+            initialDelaySeconds: 1
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.sandboxBridge.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.sandboxBridge.securityContext | nindent 12 }}
+        {{- end }}
+        {{- if $dsnGateOn }}
         # Image defaults to the NewAPI image itself (same ghcr.io/openova-io/*
         # glob as the main container). kyverno harbor-proxy-pull uses an
         # anyPattern that requires ONE allowed glob to match BOTH the
@@ -178,6 +268,7 @@ spec:
             - name: sql-dsn-gate
               mountPath: /dsn
               readOnly: true
+        {{- end }}
       {{- end }}
       containers:
         - name: newapi
@@ -310,8 +401,22 @@ spec:
           resources:
             {{- toYaml .Values.newapi.resources | nindent 12 }}
 
-        {{- if .Values.sandboxBridge.enabled }}
-        # ── Sandbox-bridge sidecar (#2303, Wave 5.57) ───────────
+        {{- /*
+        #3374 (2026-06-18) — the sandbox-bridge is now a NATIVE sidecar
+        (initContainers, above) by default so the zero-click landing page is
+        reachable on the 1st hit (it no longer waits behind the DSN gate +
+        NewAPI's pod-readiness AND-gate → no more 111). The legacy plain
+        sidecar below renders ONLY when sandboxBridge.nativeSidecar=false (an
+        operator opt-out, e.g. for a k8s <1.29 cluster without native-sidecar
+        support). Env is shared via the bp-newapi.sandboxBridgeEnv helper so
+        both code paths stay byte-identical. */}}
+        {{- /* legacy plain-container bridge renders ONLY when nativeSidecar is
+           explicitly false (key present + value false). Mirrors $bridgeNative
+           above; avoids the `default true <bool>` false-coercion trap. */ -}}
+        {{- $sbC := .Values.sandboxBridge | default dict -}}
+        {{- $bridgeLegacy := and .Values.sandboxBridge.enabled (hasKey $sbC "nativeSidecar") (not $sbC.nativeSidecar) -}}
+        {{- if $bridgeLegacy }}
+        # ── Sandbox-bridge sidecar (#2303, Wave 5.57; legacy plain container) ──
         # Catalyst-side bridge handler at POST /admin/tokens/sandbox.
         # The upstream Calcium-Ion binary doesn't ship this route, so
         # without this sidecar sandbox-controller's token-mint call
@@ -328,50 +433,7 @@ spec:
               containerPort: {{ .Values.sandboxBridge.port }}
               protocol: TCP
           env:
-            - name: BRIDGE_LISTEN
-              value: ":{{ .Values.sandboxBridge.port }}"
-            - name: NEWAPI_TOKEN_SIGNING_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $effTokenSigningKeySecret }}
-                  key: SIGNING_KEY
-            - name: NEWAPI_ADMIN_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $effTokenSigningKeySecret }}
-                  key: ADMIN_SECRET
-            # #3374 — the OIDC provider slug the zero-click bare-URL landing
-            # page (served by this sidecar at `/`, routed by the HTTPRoute's
-            # Exact `/` rule) initiates. Matches the admin-sso-seed-job's
-            # custom_oauth_providers.slug. Default "sovereign".
-            # #3648 — provider slug from the STANDARD sso.bootstrap contract
-            # first, then the legacy adminSeed.providerSlug, then default.
-            - name: NEWAPI_SSO_INIT_SLUG
-              value: {{ ((.Values.sso | default dict).bootstrap | default dict).providerSlug | default (.Values.adminSeed | default dict).providerSlug | default "sovereign" | quote }}
-            {{- /*
-            #3374 0.1.16 (2026-06-15) — the landing page builds the authorize
-            redirect DIRECTLY from these values instead of discovering them at
-            runtime from GET /api/status. ROOT CAUSE (measured live hw138, dep
-            4b5ff7852e33fc15): NewAPI v0.13.2's /api/status payload has NO
-            `custom_oauth_providers` field, so the old discovery returned [] →
-            the page fell through to /login → the SPA bounced the owner to the
-            /setup wizard (even though the DB was correctly seeded). These are
-            the IDENTICAL values the admin-sso-seed-job seeds into
-            custom_oauth_providers (authorization_endpoint + client_id +
-            scopes). When sovereignFQDN is unset the seed/landing are no-ops
-            anyway (the page degrades to the SPA /login link). */}}
-            {{- $sk := .Values.adminSeed | default dict }}
-            {{- $ssoBoot := (.Values.sso | default dict).bootstrap | default dict }}
-            {{- if .Values.sovereignFQDN }}
-            {{- /* #3648 — standard sso.bootstrap.providerSlug first, then legacy. */}}
-            {{- $slug := $ssoBoot.providerSlug | default $sk.providerSlug | default "sovereign" }}
-            - name: NEWAPI_SSO_AUTHORIZE_URL
-              value: {{ printf "https://auth.%s/realms/%s/protocol/openid-connect/auth?kc_idp_hint=catalyst-pin" .Values.sovereignFQDN $slug | quote }}
-            - name: NEWAPI_SSO_CLIENT_ID
-              value: {{ .Values.auth.adminUI.keycloak.clientId | default "newapi-admin" | quote }}
-            - name: NEWAPI_SSO_SCOPES
-              value: {{ $sk.scopes | default "openid profile email groups" | quote }}
-            {{- end }}
+            {{- include "bp-newapi.sandboxBridgeEnv" . | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /healthz

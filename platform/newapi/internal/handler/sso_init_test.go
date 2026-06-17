@@ -58,6 +58,13 @@ func TestSSOInitHandler_ServesLandingAtRoot(t *testing.T) {
 		// /setup. Assert the retry loop + a backoff sleep are present.
 		"attempt < 8",
 		"setTimeout(r, 1500)",
+		// #3374 (2026-06-18) — on retry-exhaustion with SSO configured the page
+		// must RELOAD ITSELF (keep trying) rather than fall through to /login,
+		// because the SPA's /login bounces an unseeded NewAPI to /setup. Assert
+		// the self-reload helper + that the exhausted-state path calls it.
+		"function reloadSelf()",
+		`window.location.replace("/")`,
+		"if (!state) return reloadSelf();",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("landing page missing %q", want)

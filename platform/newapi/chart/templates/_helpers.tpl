@@ -86,6 +86,63 @@ ConfigMap name (channel + policy config).
 {{- end }}
 
 {{/*
+Sandbox-bridge env block (#3374). Shared by BOTH the native-sidecar
+initContainer (the default since 2026-06-18) and the legacy plain-container
+sidecar in deployment.yaml, so the two code paths stay byte-identical. Resolves
+the token-signing-key Secret name with the SAME precedence as the Deployment's
+$effTokenSigningKeySecret (explicit existingSecret > chart auto-provisioned
+`<release>-token-signing-key`). The #3374 zero-click SSO env (provider slug +
+deterministic authorize URL / client_id / scopes) is injected here so the
+landing page builds the Keycloak redirect directly (NewAPI v0.13.2's
+/api/status omits custom_oauth_providers, so runtime discovery is impossible).
+*/}}
+{{- define "bp-newapi.sandboxBridgeEnv" -}}
+{{- $tk := .Values.sandboxTokenSigningKey | default dict -}}
+{{- $effTokenSigningKeySecret := $tk.existingSecret -}}
+{{- if and (not $effTokenSigningKeySecret) (default true $tk.autoProvision) -}}
+{{- $effTokenSigningKeySecret = default (printf "%s-token-signing-key" (include "bp-newapi.fullname" .)) $tk.autoSecretName -}}
+{{- end -}}
+- name: BRIDGE_LISTEN
+  value: ":{{ .Values.sandboxBridge.port }}"
+- name: NEWAPI_TOKEN_SIGNING_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ $effTokenSigningKeySecret }}
+      key: SIGNING_KEY
+- name: NEWAPI_ADMIN_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ $effTokenSigningKeySecret }}
+      key: ADMIN_SECRET
+{{- /* #3374 — the OIDC provider slug the zero-click bare-URL landing page
+   (served by this sidecar at `/`, routed by the HTTPRoute's Exact `/` rule)
+   initiates. Matches the admin-sso-seed-job's custom_oauth_providers.slug.
+   #3648 — standard sso.bootstrap contract first, then legacy adminSeed, then
+   the literal default "sovereign". */}}
+- name: NEWAPI_SSO_INIT_SLUG
+  value: {{ ((.Values.sso | default dict).bootstrap | default dict).providerSlug | default (.Values.adminSeed | default dict).providerSlug | default "sovereign" | quote }}
+{{- /*
+   #3374 0.1.16 — the landing page builds the authorize redirect DIRECTLY from
+   these values instead of discovering them at runtime from GET /api/status
+   (NewAPI v0.13.2's /api/status has NO custom_oauth_providers field → the old
+   discovery returned [] → the page fell through to /login → the SPA bounced
+   the owner to /setup). These are the IDENTICAL values the admin-sso-seed-job
+   seeds into custom_oauth_providers. When sovereignFQDN is unset the
+   seed/landing are no-ops anyway (the page degrades to the SPA /login link). */}}
+{{- $sk := .Values.adminSeed | default dict }}
+{{- $ssoBoot := (.Values.sso | default dict).bootstrap | default dict }}
+{{- if .Values.sovereignFQDN }}
+{{- $slug := $ssoBoot.providerSlug | default $sk.providerSlug | default "sovereign" }}
+- name: NEWAPI_SSO_AUTHORIZE_URL
+  value: {{ printf "https://auth.%s/realms/%s/protocol/openid-connect/auth?kc_idp_hint=catalyst-pin" .Values.sovereignFQDN $slug | quote }}
+- name: NEWAPI_SSO_CLIENT_ID
+  value: {{ .Values.auth.adminUI.keycloak.clientId | default "newapi-admin" | quote }}
+- name: NEWAPI_SSO_SCOPES
+  value: {{ $sk.scopes | default "openid profile email groups" | quote }}
+{{- end }}
+{{- end -}}
+
+{{/*
 Effective channel list — composed default channels plus
 `.Values.channels`. Composition order matters because NewAPI's
 channel-router resolves `model` lookups in row-insertion order:

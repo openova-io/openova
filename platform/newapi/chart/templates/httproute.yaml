@@ -88,7 +88,15 @@ lands the owner signed-in (verified live on hw136). Gated + overrideable.
             type: Exact
             value: "/"
       backendRefs:
-        - name: {{ .Values.gateway.backendService | default (include "bp-newapi.fullname" .) }}
+        {{- /* #3374 (2026-06-18) — route the bare URL to the dedicated
+        bridge-only Service (<fullname>-bridge, publishNotReadyAddresses:true)
+        so the zero-click landing page is reachable on the 1st hit even while
+        the `newapi` container is NotReady during GORM AutoMigrate (no more
+        111). gateway.bridgeBackendService overrides the name when this chart
+        installs inside a vCluster (the syncer mangles it to
+        <svc>-x-<ns>-x-<vcluster>); empty default = chart-computed
+        <fullname>-bridge. */}}
+        - name: {{ .Values.gateway.bridgeBackendService | default (printf "%s-bridge" (include "bp-newapi.fullname" .)) }}
           port: {{ .Values.sandboxBridge.port }}
 {{- end }}
     - matches:

@@ -908,6 +908,13 @@ gateway:
   # (<svc>-x-<ns>-x-<vcluster>). Empty = chart-computed name (host
   # install, byte-identical).
   backendService: ""
+  # #3374 (2026-06-18): the HTTPRoute's Exact `/` rule (zero-click bare-URL SSO
+  # landing) backendRefs the dedicated bridge-only Service
+  # (<fullname>-bridge, publishNotReadyAddresses:true). When this chart
+  # installs inside a vCluster the syncer mangles that Service name to
+  # <svc>-x-<ns>-x-<vcluster>; set this override to the host-side synced name.
+  # Empty = chart-computed <fullname>-bridge (host install, byte-identical).
+  bridgeBackendService: ""
 # ─── NetworkPolicy ───────────────────────────────────────────────────────
 # Default-allow ingress from the platform's gateway namespace; egress
 # to Postgres, Valkey (now in the rtz host namespace — #3373 Batch A),
@@ -1029,6 +1036,20 @@ ssoInit:
   enabled: true
 sandboxBridge:
   enabled: true
+  # #3374 (2026-06-18): run the bridge as a NATIVE sidecar (initContainers
+  # entry with restartPolicy:Always) instead of a plain container. This is the
+  # real fix for the hw159 1st-hit `upstream-connect-error ... delayed connect
+  # error: 111` on the bare URL: as a plain container the bridge (a) did not
+  # start until the wait-for-sql-dsn initContainer completed, and (b) had its
+  # Service endpoint suppressed because a Pod only joins a Service's
+  # EndpointSlice when ALL containers are Ready — and the `newapi` container is
+  # NotReady for ~2 min during GORM AutoMigrate. As a native sidecar declared
+  # FIRST it starts immediately (before the DSN gate) and runs the whole Pod
+  # lifetime, so paired with the bridge-only Service (publishNotReadyAddresses)
+  # the zero-click landing page is reachable on the 1st hit. Native sidecars
+  # are GA in k8s 1.29 (Sovereigns run k3s v1.31.4). Set false to fall back to
+  # the legacy plain-container bridge (e.g. a pre-1.29 cluster).
+  nativeSidecar: true
   image:
     repository: ghcr.io/openova-io/openova/newapi-sandbox-bridge
     # Wave 5.57d (#2303, 2026-05-24): switch to `:latest` + pullPolicy
