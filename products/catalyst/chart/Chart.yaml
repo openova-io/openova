@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-catalyst-platform
-# 1.4.667 — #3763 (Refs #3749, 2026-06-17): FIX the catalyst-gitea-flux-auth-sync
+# 1.4.666 — #3763 (Refs #3749, 2026-06-17): FIX the catalyst-gitea-flux-auth-sync
 # hook crashloop that degraded the live hw158 spine. The post-install/post-upgrade
 # hook read catalyst-gitea-token.token ONCE and `exit 1` FATAL'd on empty →
 # crashloop → BackoffLimitExceeded → bp-catalyst-platform upgrade failed + rolled
