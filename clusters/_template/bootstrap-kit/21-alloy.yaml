@@ -58,7 +58,11 @@ spec:
   chart:
     spec:
       chart: bp-alloy
-      version: 1.0.1
+      # 1.0.2 (#3760 hw161): main + config-reloader images routed through the
+      # Harbor proxy — the alloy DaemonSet runs in the un-excluded `alloy`
+      # namespace, so the upstream docker.io/quay.io defaults were post-handover
+      # harbor-proxy-pull Enforce-deniable (the #3296/#3380-D shape).
+      version: 1.0.2
       sourceRef:
         kind: HelmRepository
         name: bp-alloy
