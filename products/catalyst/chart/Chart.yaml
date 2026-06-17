@@ -2735,7 +2735,17 @@ name: bp-catalyst-platform
 # (qaFixtures.cnpgBackupEndpointURL + cnpg-clusters-qa.yaml) to the
 # syncer-mangled host Service name. qa-fixtures only; Catalyst-Zero render
 # byte-unchanged. (1.4.622 was a content-free deploy-bot image sweep.)
-version: 1.4.662
+version: 1.4.663
+# 1.4.663 (#3646, 2026-06-17): grant the catalyst-api SA
+# (catalyst-api-cutover-driver) get/list/watch on batch/cronjobs +
+# kustomize.toolkit.fluxcd.io/kustomizations. The §5a honest /jobs reader
+# (ListReconcilerObservations) lists these GVRs but the SA could only
+# create/patch/delete cronjobs (the §5c "Run now" verbs) and had NO rule
+# for kustomizations — so the CronJob/Kustomization List calls 403'd, the
+# reader's `if err == nil` guard skipped both passes, and a Failed
+# openbao-snapshot-save CronJob was INVISIBLE on the hw158 walk (zero
+# cron-kind rows). Read-only verbs (the create/patch retry path is
+# unchanged). ClusterRole-only; Catalyst-Zero render byte-unchanged.
 # 1.4.657 — PR #3700 §4.3 (Refs #3687, 2026-06-17): close the per-Org
 # vCluster Flux loop — the deferred half of the object-model-LIVE master.
 # The organization-controller already PUT the vCluster Namespace + HelmRelease
