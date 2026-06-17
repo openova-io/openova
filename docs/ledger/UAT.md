@@ -26,7 +26,7 @@ live page and *Evidence* is a screenshot link.
 
 ## The 10 canonical runbooks — browser walk index
 
-> **✅ BROWSER WALK COMPLETE (2026-06-17):** all 10 runbooks walked in a real browser (Playwright), ~179 embedded screenshots. **AGGREGATE (10 runbooks, all walked): ~97 ✅ / ~80 ❌ / ~44 GAP — ~55% real browser pass rate.** #3668 catalog corrected to PASS (single-source IaC editor verified live, overturning the stale curl 'overlay' finding).
+> **✅ BROWSER WALK COMPLETE (2026-06-17):** all 10 runbooks walked in a real browser (Playwright), **201 embedded screenshots** on main. **AGGREGATE: 97 ✅ / 80 ❌ / 49 GAP — 55% real browser pass rate** (97 ✅ of 177 decidable). #3668 catalog corrected to PASS (single-source IaC editor verified live, overturning the stale curl 'overlay' finding). Per-runbook tallies in the table below; every ✅/❌ is backed by an embedded screenshot in its runbook.
 
 
 Each runbook below is the full per-ticket browser walk (the **455-step** canonical set). All have
