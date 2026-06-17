@@ -35,7 +35,7 @@ name: bp-catalyst-platform
 # stranger with a voucher ends signed-in in their own Org console with the
 # app running, on a cut-over Sovereign, zero-touch:
 #   (a) provisioning init gate is now a token-DATA probe, not a brittle
-#       annotation (templates/sme-services/provisioning.yaml +
+#       annotation (templates/org-services/provisioning.yaml +
 #       provisioning-github-token.yaml). The cutover Step-09 no-op path
 #       skipped the annotation stamp + the chart's bootstrap branch stripped
 #       it, so both `sme/provisioning` replicas stuck Init:0/1 forever on a
@@ -105,7 +105,7 @@ name: bp-catalyst-platform
 # but the matching CATALYST_GITOPS_TOKEN secretKeyRef could NOT be inline-
 # templated (strategy-flip applies api-deployment.yaml UNRENDERED; kubectl
 # rejects a templated RFC-1123 name) — so the token fix lands in the Secret
-# POPULATION here. templates/sme-services/provisioning-github-token.yaml's
+# POPULATION here. templates/org-services/provisioning-github-token.yaml's
 # first-install bootstrap branch now sources catalyst-gitea-token/token (the
 # same PAT CATALYST_GITEA_TOKEN uses, minted by this chart's
 # catalyst-gitea-token-secret.yaml pre-install hook → populated before this
@@ -450,7 +450,7 @@ name: bp-catalyst-platform
 # mirror annotations on the ExternalSecret target so the rendered
 # Secret lands in `catalyst-system` (the same-namespace seam used
 # by every other Catalyst cross-namespace secret — see
-# templates/sme-services/sme-secrets.yaml for the canonical
+# templates/org-services/org-services-secrets.yaml for the canonical
 # pattern). Bootstrap-kit pins both charts in lockstep
 # (Inviolable Principle #14).
 #
@@ -605,7 +605,7 @@ name: bp-catalyst-platform
 # downstream dispatch.
 #
 # Investigation showed both Pods already read the SAME sme-secrets/
-# JWT_SECRET (see chart templates/sme-services/billing.yaml line 67-71
+# JWT_SECRET (see chart templates/org-services/billing.yaml line 67-71
 # and notification.yaml line 47-51) — the TBD's hypothesis of a
 # secret-name mismatch was incorrect. The real gap was that
 # billing never used those bytes to mint an outbound service token.
@@ -715,13 +715,13 @@ name: bp-catalyst-platform
 #      PUBLIC_MARKETPLACE_ORIGIN override). On a Sovereign tenant
 #      console (e.g. console.acme.omani.homes) the marketplace
 #      resolves to `marketplace.omani.homes`, not `marketplace.openova.io`.
-#   3. products/catalyst/chart/templates/sme-services/configmap.yaml —
+#   3. products/catalyst/chart/templates/org-services/configmap.yaml —
 #      CORS_ORIGIN_* / PUBLIC_BASE_URL / PUBLIC_API_BASE_URL /
 #      CNAME_TARGET / CHECKOUT_*_URL templated against
 #      `marketplace.<global.sovereignFQDN>` + sibling platform zone.
 #      Catalyst-Zero render (no sovereignFQDN) keeps the legacy
 #      `sme.openova.io` byte-identical so contabo doesn't drift.
-#   4. products/catalyst/chart/templates/sme-services/notification.yaml —
+#   4. products/catalyst/chart/templates/org-services/notification.yaml —
 #      Notification Deployment's CORS_ORIGIN env now sources from the
 #      shared `sme-services-config.CORS_ORIGIN_PUBLIC` key instead of
 #      hardcoding `https://sme.openova.io`. Per-Sovereign substitution
@@ -744,7 +744,7 @@ name: bp-catalyst-platform
 #      controller emitted `<slug>.<parent>` while the bp-wordpress-
 #      tenant overlay emitted `console.<slug>.<parent>` — the two
 #      drifted and the founder caught it on the t34 walkthrough.
-#   2. products/catalyst/chart/templates/sme-services/
+#   2. products/catalyst/chart/templates/org-services/
 #      tenant-public-routes.yaml:82 — chart-side static-fixture
 #      template mirrors the runtime reconciler so byte-identical
 #      HTTPRoute shapes are produced via either path.
@@ -854,9 +854,9 @@ name: bp-catalyst-platform
 # Net behavioural effect of the flip — 4 chain-broken behaviours
 # unblocked on every fresh franchised Sovereign:
 #   1. marketplace Deployment + Service render in `sme` ns
-#      (templates/sme-services/marketplace.yaml)
+#      (templates/org-services/marketplace.yaml)
 #   2. marketplace.<sov> HTTPRoute attached to cilium-gateway
-#      (templates/sme-services/marketplace-routes.yaml)
+#      (templates/org-services/marketplace-routes.yaml)
 #   3. sme-secrets reflection to catalyst-system unblocks the JWT
 #      bridge (PR #1954 already merged) — paired with the gateway
 #      Service rendering now, the voucher endpoint can ACTUALLY reach
@@ -916,8 +916,8 @@ name: bp-catalyst-platform
 # blocking the entire D28 voucher → D29 customer-journey →
 # D34 WordPress install chain (Refs #1842 #1829 #1723 #1741).
 # Fix: drop the `if .Values.ingress.marketplace.enabled` wrapper from
-# both `templates/sme-services/sme-namespace.yaml` and
-# `templates/sme-services/sme-secrets.yaml`. The SME *microservice
+# both `templates/org-services/org-namespace.yaml` and
+# `templates/org-services/org-services-secrets.yaml`. The SME *microservice
 # mesh* (billing.yaml, auth.yaml, gateway.yaml, catalog.yaml,
 # console.yaml, marketplace.yaml, notification.yaml, provisioning.yaml,
 # domain.yaml, admin.yaml, ferretdb.yaml, cnpg-cluster.yaml +
@@ -944,7 +944,7 @@ name: bp-catalyst-platform
 # customer-journey Sovereigns" is a separate operator-policy decision
 # tracked in a follow-up issue.
 # Kustomize-mode contabo build unchanged: both templates remain
-# excluded from `templates/sme-services/kustomization.yaml`'s
+# excluded from `templates/org-services/kustomization.yaml`'s
 # `resources:` list, so contabo continues to source the `sme`
 # namespace + secrets from clusters/contabo-mkt/apps/sme/.
 # Refs #1943.
@@ -1103,7 +1103,7 @@ name: bp-catalyst-platform
 # shadowing possible by construction. Defaults to empty list, so non-
 # opted-in Sovereigns emit ZERO catch-all routes. Per-tenant routes
 # for Orgs created post-provision are written live by the
-# organization-controller (see templates/sme-services/tenant-public-
+# organization-controller (see templates/org-services/tenant-public-
 # routes.yaml — byte-identical shape, so no helm-diff conflict).
 # marketplace-reference-grant.yaml still covers every emitted route
 # (catalyst-system → sme/console) — no grant changes needed.
@@ -1213,7 +1213,7 @@ name: bp-catalyst-platform
 #   <slug>.<parentDomain> serves the tenant's installed product
 #   (was falling through to the marketplace tenant-wildcard route).
 #   Adds crds/organization.yaml tenantPublic field +
-#   templates/sme-services/tenant-public-routes.yaml + values.yaml
+#   templates/org-services/tenant-public-routes.yaml + values.yaml
 #   tenantRoutes[] static-fixture path.
 # - #1650 provisioning service patches Organization.spec.tenantPublic
 #   on product-install (both initial workflow and day-2 install path)
@@ -2339,7 +2339,7 @@ name: bp-catalyst-platform
 # install.timeout. This bumps the chart-INTERNAL wait loop budget
 # inside the pre-install hook Job, which is a different seam.
 # 1.4.168 (TBD-C18b, 2026-05-18): stop clobbering the cutover-minted
-# Gitea API token. Pre-fix, templates/sme-services/provisioning-github-
+# Gitea API token. Pre-fix, templates/org-services/provisioning-github-
 # token.yaml unconditionally mirrored gitea-admin-secret.password into
 # Secret sme/provisioning-github-token.GITHUB_TOKEN on every reconcile,
 # overwriting the real API token that bp-self-sovereign-cutover Step 09
@@ -2357,7 +2357,7 @@ name: bp-catalyst-platform
 # 1.4.175 (TBD-C18e, 2026-05-18): isolate per-tenant overlay commits onto
 # a dedicated `sme-tenants` branch so the cutover-gitea-mirror Job's
 # every-≤10-min `git push --mirror --force` on `main` cannot clobber
-# them. Ships a new Flux GitRepository (templates/sme-services/
+# them. Ships a new Flux GitRepository (templates/org-services/
 # sme-tenants-gitrepository.yaml) tracking the protected branch; the
 # existing sme-tenants Kustomization is repointed at it. Provisioning
 # Deployment env GITHUB_BRANCH default flipped from `main` to
@@ -2716,7 +2716,7 @@ name: bp-catalyst-platform
 # sme-tenants, but that repo is created ONLY by cutover Step 01 (post-handover),
 # so PRE-cutover the openova-sme-tenants GitRepository sits "authentication
 # required" (missing-repo → 401) and every sub-org hangs in Provisioning. New
-# pre-install/pre-upgrade hook Job (templates/sme-services/gitea-tenants-repo-
+# pre-install/pre-upgrade hook Job (templates/org-services/gitea-tenants-repo-
 # bootstrap-job.yaml) seeds the org/repo/sme-tenants branch via the Gitea API so
 # the chain is live from first convergence; cutover Step 01 mirrors full content
 # later (idempotent). Gated on global.sovereignFQDN + ingress.marketplace.enabled.
@@ -2766,7 +2766,20 @@ name: bp-catalyst-platform
 # (qaFixtures.cnpgBackupEndpointURL + cnpg-clusters-qa.yaml) to the
 # syncer-mangled host Service name. qa-fixtures only; Catalyst-Zero render
 # byte-unchanged. (1.4.622 was a content-free deploy-bot image sweep.)
-version: 1.4.674
+version: 1.4.675
+# 1.4.675 — #3383 ORGANIZATIONS rename (ZERO behavior change), rebased over
+# main's 1.4.674 (#3376 funnel + #3700/#3687 per-Org Flux loop + #3763
+# gitea-flux-auth-sync poll). The Organization-provisioning mesh's K8s namespace
+# `sme` → `org-services`; the chart template dir templates/sme-services/ →
+# templates/org-services/; the Secret `sme-secrets` → `org-services-secrets`
+# (dual-rendered for one release with byte-identical JWT_SECRET so consumers
+# carry over with zero downtime); every workload + DNS host (.sme.svc →
+# .org-services.svc) and the catalyst-system→org-services CNP allow re-pointed.
+# WIRE-STABLE + UNCHANGED: the CNPG cluster `sme-pg` + its `sme-pg-app` secret,
+# the DB names sme_auth/sme_billing/sme_documents, the Tier value "sme", the
+# GitOps branch/path `sme-tenants` (coupled to the catalyst-api writer's
+# hardcoded path), and every .Values.sme* overlay key. helm template byte-diff:
+# only names/ns changed. Refs #3383.
 # 1.4.657 — PR #3700 §4.3 (Refs #3687, 2026-06-17): close the per-Org
 # vCluster Flux loop — the deferred half of the object-model-LIVE master.
 # The organization-controller already PUT the vCluster Namespace + HelmRelease
@@ -3044,7 +3057,7 @@ appVersion: 1.4.668
 # that case. Fix: default `ingress.gateway.parentRef.sectionName=""`
 # in values.yaml; the existing `{{- with .Values.ingress.gateway.
 # parentRef.sectionName }}` guard in templates/httproute.yaml,
-# templates/services/catalog/httproute.yaml, and templates/sme-services/
+# templates/services/catalog/httproute.yaml, and templates/org-services/
 # marketplace-routes.yaml skips the sectionName field entirely.
 # Cilium Gateway then matches routes to listeners by hostname filter
 # (`*.<zone>` on each per-zone listener), which is exactly the pattern
@@ -3128,7 +3141,7 @@ appVersion: 1.4.668
 # — the destination Secret bp-self-sovereign-cutover Step 09 writes the
 # minted Gitea API token into (annotated `catalyst.openova.io/token-source:
 # self-sovereign-cutover-step-09`). Add reflector annotations on
-# templates/sme-services/provisioning-github-token.yaml mirroring
+# templates/org-services/provisioning-github-token.yaml mirroring
 # `sme/provisioning-github-token` into `catalyst-system` so the
 # catalyst-api Pod can secretKeyRef the minted token from its own
 # namespace. CATALYST_GITOPS_USER becomes a literal "gitea_admin" (the
@@ -3244,7 +3257,7 @@ description: |
   2026-04-29). See docs/RUNBOOK-PROVISIONING.md §"bp-flux double-install".
   Bumped to 1.1.3 to drop three stray kustomize index files
   (templates/kustomization.yaml, templates/marketplace-api/kustomization.yaml,
-  templates/sme-services/kustomization.yaml) that Helm was rendering as
+  templates/org-services/kustomization.yaml) that Helm was rendering as
   resources with empty metadata.name — Helm post-render rejected the
   install on otech.omani.works, 2026-04-30.
   Bumped to 1.1.4 to give the bp-keycloak/bp-gitea embedded postgresql
@@ -3255,7 +3268,7 @@ description: |
   refused the second occurrence — install_failed on otech.omani.works,
   2026-04-30 (issue #252).
   Bumped to 1.1.5 to remove three legacy Traefik-era ingress template
-  files (templates/ingress.yaml, templates/sme-services/ingress.yaml,
+  files (templates/ingress.yaml, templates/org-services/ingress.yaml,
   templates/marketplace-api/ingress.yaml). They emitted
   `traefik.io/v1alpha1 Middleware` (strip-sovereign, strip-nova,
   root-to-nova) plus Ingress objects hardcoded to `console.openova.io` /
@@ -3269,7 +3282,7 @@ description: |
   Per-Sovereign HTTPRoute resources for the Catalyst console/admin/
   marketplace will be authored separately (out of scope here) — issue
   #279, 2026-04-30.
-  Bumped to 1.1.6 to delete the entire `templates/sme-services/`
+  Bumped to 1.1.6 to delete the entire `templates/org-services/`
   directory (admin/auth/billing/catalog/configmap/console/domain/
   gateway/marketplace/notification/provisioning/serviceaccounts/tenant
   — 13 manifests, ~36 resources). Every one of them was hardcoded to
@@ -3577,7 +3590,7 @@ description: |
   landed in CreateContainerConfigError after MARKETPLACE_ENABLED=true.
 
   Fix:
-  - templates/sme-services/cnpg-cluster.yaml — gated on the same
+  - templates/org-services/cnpg-cluster.yaml — gated on the same
     .Values.ingress.marketplace.enabled flag the rest of the SME
     bundle uses. Renders postgresql.cnpg.io/v1.Cluster `sme-pg` in
     `sme` namespace, instances=1, storage=10Gi, primary DB sme_auth
@@ -3589,7 +3602,7 @@ description: |
     yaml). bp-catalyst-platform (slot 13) declares dependsOn:
     bp-cnpg (slot 16) — already in place since 2026-05-02 (see
     1.1.9 changelog) — so by reconcile time the CRD is registered.
-  - templates/sme-services/sme-secrets.yaml — gated on the same
+  - templates/org-services/org-services-secrets.yaml — gated on the same
     flag. JWT_SECRET / JWT_REFRESH_SECRET / ADMIN_PASSWORD are
     auto-generated via sprig randAlphaNum (64 / 64 / 32 chars
     respectively) AND PERSISTED across reconciles via Helm `lookup`
@@ -3629,7 +3642,7 @@ description: |
       `valkey-headless` — no plain `valkey` service)
 
   Fix:
-  - NEW templates/sme-services/ferretdb.yaml — gated on the same
+  - NEW templates/org-services/ferretdb.yaml — gated on the same
     .Values.ingress.marketplace.enabled flag. Deployment + Service
     `ferretdb` in `sme` ns, image pinned ghcr.io/ferretdb/ferretdb:1.24
     (matches contabo's data/ferretdb.yaml — v2.x requires PostgreSQL
@@ -3653,7 +3666,7 @@ description: |
     architecture renders, NOT the issue's `valkey.valkey.svc.cluster.
     local` which doesn't exist on Sovereigns). MONGODB_URI also uses
     .Values.smeServices.ferretdb.{host,port} for symmetry.
-  - NEW templates/sme-services/valkey-cross-ns-policy.yaml —
+  - NEW templates/org-services/valkey-cross-ns-policy.yaml —
     CiliumNetworkPolicy in `valkey` namespace allowing ingress on
     6379/TCP from any Pod in the `sme` namespace. Defense-in-depth on
     top of bp-valkey 1.0.0's upstream NetworkPolicy (which already
@@ -3706,7 +3719,7 @@ description: |
     read VALKEY_USERNAME + VALKEY_PASSWORD env, call
     ConnectValkeyWithAuth when password is non-empty, else fall through
     to the no-auth path. Empty password = current contabo behaviour.
-  - NEW templates/sme-services/valkey-cross-ns-secret.yaml — use Helm
+  - NEW templates/org-services/valkey-cross-ns-secret.yaml — use Helm
     `lookup` to read the bp-valkey auto-generated password from
     `valkey/valkey` Secret and re-emit it as `sme-valkey-auth` in
     `sme` namespace. Same lookup-and-mirror pattern as
@@ -3765,7 +3778,7 @@ description: |
   Fix (issue #866 Option C — local-Gitea target):
   Post-cutover the canonical Git target on a Sovereign IS the local
   Gitea instance (the GitRepository CRs already point there). New
-  template templates/sme-services/provisioning-github-token.yaml
+  template templates/org-services/provisioning-github-token.yaml
   uses Helm `lookup` to read the auto-generated gitea admin password
   from `gitea/gitea-admin-secret` (already generated by
   platform/gitea/chart/templates/admin-secret.yaml with the same
@@ -3801,11 +3814,11 @@ description: |
   on otech103 because the public /api/* HTTPRoute backend-ref'd a dead
   Service (catalyst-system/marketplace-api with zero matching Pods).
   Two template fixes:
-    - templates/sme-services/marketplace-routes.yaml: /api/* rule now
+    - templates/org-services/marketplace-routes.yaml: /api/* rule now
       cross-namespace backendRef sme/gateway:8080 (the SME BSS gateway
       Pod that already fronts services-auth, catalog, tenant, billing,
       provisioning).
-    - templates/sme-services/marketplace-reference-grant.yaml: extend
+    - templates/org-services/marketplace-reference-grant.yaml: extend
       `to:` list with the gateway Service so the cross-ns hop is
       authorised by Gateway API.
   Lockstep slot 13 pin in clusters/_template/bootstrap-kit/
@@ -3813,7 +3826,7 @@ description: |
 
   1.4.9 (issue #871): no template change — chart-version-only bump to
   republish the OCI artifact with the current services-auth image SHA
-  baked into templates/sme-services/auth.yaml. 1.4.8 was published from
+  baked into templates/org-services/auth.yaml. 1.4.8 was published from
   commit 95a06f56 BEFORE the deploy-bot updated auth.yaml's image pin
   from `services-auth:fa4395f` (old) → `services-auth:95a06f5` (new,
   with the /auth/send-pin alias), so 1.4.8 OCI bytes still reference
@@ -3933,7 +3946,7 @@ description: |
   to the local Gitea openova/openova repo @main, but `kubectl get hr
   -n sme-15f1e45e-...` returned No resources found indefinitely.
 
-  Fix: NEW templates/sme-services/sme-tenants-kustomization.yaml,
+  Fix: NEW templates/org-services/org-repo-kustomization.yaml,
   gated on .Values.ingress.marketplace.enabled (same flag the rest of
   the SME bundle uses) — non-marketplace Sovereigns don't run the SME
   tenant pipeline so they don't render this Kustomization. Renders one
@@ -4058,7 +4071,7 @@ description: |
 
   1.4.18 (issue #910 — TBD): create the `sme` namespace on Sovereigns
   where the marketplace is enabled. Every template under
-  templates/sme-services/* (billing, auth, ferretdb, valkey-cross-ns-
+  templates/org-services/* (billing, auth, ferretdb, valkey-cross-ns-
   secret, sme-secrets, provisioning-github-token, cnpg-cluster, ...)
   emits resources with `namespace: sme`. On Catalyst-Zero (contabo)
   the `sme` namespace is pre-provisioned by clusters/contabo-mkt/apps/
@@ -4066,10 +4079,10 @@ description: |
   Sovereign nothing else creates the `sme` namespace, so chart 1.4.17
   install failed 23 times with `failed to create resource: namespaces
   "sme" not found` — caught live on otech105 (2026-05-05). Fix: NEW
-  templates/sme-services/sme-namespace.yaml gated on the same
+  templates/org-services/org-namespace.yaml gated on the same
   ingress.marketplace.enabled flag as the rest of the SME bundle so
   non-marketplace Sovereigns and the Kustomize-mode contabo build
-  (which does NOT include sme-namespace.yaml in templates/sme-services/
+  (which does NOT include sme-namespace.yaml in templates/org-services/
   kustomization.yaml's `resources:` list) skip this entirely.
   helm.sh/resource-policy: keep — never cascade-delete the namespace
   on chart uninstall (would erase every SME workload + tenant).

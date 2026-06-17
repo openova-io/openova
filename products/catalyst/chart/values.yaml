@@ -567,7 +567,7 @@ controllers:
       # — adds EnsureBranch before PutFile so Gitea's branch-missing
       # 404 (mapped to ErrRepoNotFound by the client) no longer dead-
       # loops the env-controller.
-      tag: "6dea4c7"
+      tag: "01db043"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -606,7 +606,7 @@ controllers:
       # (2026-06-02). enabled remains false until the bp-controller
       # surfaces are wired end-to-end; the pin matches the latest
       # successful push-on-main build per Inviolable Principle #4a.
-      tag: "6dea4c7"
+      tag: "01db043"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -639,7 +639,7 @@ controllers:
       # — drops cross-namespace ownerRef on the host-side Flux CRs
       # (was being silently GC'd by the K8s collector because
       # Application lives in a different namespace from flux-system).
-      tag: "d2e8c02"
+      tag: "01db043"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -697,7 +697,7 @@ controllers:
       # (#2745, 2026-06-03) — bumped from 8d01e2f (2026-05-31) to the
       # latest useraccess-controller main-HEAD push (2026-06-02).
       # #2851 closed the drift gap (auto-bump + sweep + freshness guard).
-      tag: "6dea4c7"
+      tag: "01db043"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -991,7 +991,7 @@ ingress:
       # core/controllers/sandbox/internal/gitops/manifests.go (sandbox),
       # core/controllers/organization/internal/controller/tenant_route.go
       # (per-tenant routes), and the chart's own
-      # templates/sme-services/tenant-public-routes.yaml — every other
+      # templates/org-services/organization-public-routes.yaml — every other
       # Cilium Gateway HTTPRoute on a Sovereign omits sectionName.
       #
       # Operators with an unusual topology (e.g. internal-only Gateway,
@@ -999,7 +999,7 @@ ingress:
       # still override via per-Sovereign values:
       #   --set ingress.gateway.parentRef.sectionName=http
       # The httproute.yaml / services/catalog/httproute.yaml /
-      # sme-services/marketplace-routes.yaml templates all guard with
+      # org-services/marketplace-routes.yaml templates all guard with
       # `{{- with .Values.ingress.gateway.parentRef.sectionName }}`,
       # so the field renders only when explicitly set.
       sectionName: ""
@@ -1026,7 +1026,7 @@ ingress:
     marketplace:
       host: ""
   # Marketplace mode toggle (issue #710). When enabled, the chart renders
-  # templates/sme-services/marketplace-routes.yaml exposing
+  # templates/org-services/marketplace-routes.yaml exposing
   # marketplace.<sov>/{,api/,back-office/} (storefront + BSS) and one
   # HTTPRoute per entry in `tenantSlugs` (each scoped to
   # `<slug>.<sov>` exactly — NO wildcard) via Cilium Gateway. Default
@@ -1062,10 +1062,10 @@ ingress:
     # construction.
     tenantSlugs: []
 
-# ─── SME tenant overlay reconciler (issue #882) ───────────────────────────
-# Flux Kustomization shipped by templates/sme-services/sme-tenants-
-# kustomization.yaml. Watches the path the catalyst-api SME-tenant
-# orchestrator (sme_tenant_gitops.go::WriteTenantOverlay) commits
+# ─── Organization overlay reconciler (issue #882) ─────────────────────────
+# Flux Kustomization shipped by templates/org-services/org-repo-
+# kustomization.yaml. Watches the path the catalyst-api Organization
+# orchestrator (organization_gitops.go::WriteTenantOverlay) commits
 # per-tenant overlays to:
 #
 #   ./clusters/<global.sovereignFQDN>/sme-tenants
@@ -1130,7 +1130,7 @@ smeTenants:
     # prevent tenant B from being created.
     wait: false
   # ─── Dedicated GitRepository for tenant overlays (TBD-C18e) ─────────
-  # Rendered by templates/sme-services/sme-tenants-gitrepository.yaml.
+  # Rendered by templates/org-services/org-repo-gitrepository.yaml.
   # Tracks a SEPARATE branch from the bootstrap GitRepository so the
   # cutover-gitea-mirror Job (which `git push --mirror --force`s `main`
   # from upstream every ≤10 min) cannot clobber per-tenant overlays
@@ -1143,7 +1143,7 @@ smeTenants:
     # Branch the provisioning service writes per-tenant overlays to and
     # this GitRepository pulls from. MUST stay in sync with the
     # provisioning Deployment's GITHUB_BRANCH env (see
-    # templates/sme-services/provisioning.yaml — defaults to
+    # templates/org-services/provisioning.yaml — defaults to
     # `sme-tenants` on Sovereign install, `main` on Catalyst-Zero).
     branch: sme-tenants
     # In-cluster Gitea base URL. Matches what
@@ -1184,7 +1184,7 @@ smeTenants:
   # creates it only POST-handover, so the GitRepository sits in
   # "authentication required" (missing-repo → Gitea 401) and every
   # sub-org hangs in Provisioning. The pre-install hook Job rendered by
-  # templates/sme-services/gitea-tenants-repo-bootstrap-job.yaml seeds
+  # templates/org-services/gitea-org-repo-bootstrap-job.yaml seeds
   # the org/repo/branch via the Gitea API (admin creds from
   # gitea/gitea-admin-secret) so the chain is live from first
   # convergence; cutover Step 01 later mirrors the full upstream content
@@ -1207,7 +1207,7 @@ smeTenants:
 # instead of the tenant's installed WordPress / Nextcloud / GitLab.
 #
 # Each entry in tenantRoutes[] is rendered by
-# templates/sme-services/tenant-public-routes.yaml as one HTTPRoute in
+# templates/org-services/organization-public-routes.yaml as one HTTPRoute in
 # the Org's namespace, attached to cilium-gateway/kube-system. The
 # runtime organization-controller produces the same HTTPRoute shape
 # live for every Organization whose spec.tenantPublic.parentDomain is
@@ -1233,7 +1233,7 @@ tenantRoutes: []
 
 # Marketplace operator branding + payment + signup config (issue #710).
 # Operator-supplied at provision time; rendered into ConfigMaps consumed
-# by templates/sme-services/marketplace.yaml + admin.yaml. Defaults are
+# by templates/org-services/marketplace.yaml + admin.yaml. Defaults are
 # safe placeholders so non-marketplace Sovereigns render without input.
 marketplace:
   brand:
@@ -1287,8 +1287,8 @@ smePostgres:
     # false → the bundled sme-pg Cluster is skipped entirely (#3370
     # shared mode: the mesh runs on shared-pg-c's sme_* Contexts).
     enabled: true
-    name: sme-pg                    # produces sme-pg-rw / sme-pg-app / sme-pg-superuser
-    namespace: sme                  # the SME services live here too
+    name: sme-pg                    # produces sme-pg-rw / sme-pg-app / sme-pg-superuser (wire-stable persisted data — #3383 keeps the CNPG cluster + secret names)
+    namespace: org-services         # the Organization services live here too (#3383: was `sme`)
     instances: 1                    # single-node by default; HA is a per-overlay decision
     # CNPG postgres image. Defaults to the mothership Harbor proxy cache
     # (harbor.openova.io/proxy-ghcr) so fresh-prov bootstrap pulls the
@@ -1339,8 +1339,8 @@ smePostgres:
 # credentials; every value flows from .Values.smeSecrets or via lookup'd
 # external Secret refs.
 smeSecrets:
-  secretName: sme-secrets
-  namespace: sme
+  secretName: org-services-secrets   # #3383: was `sme-secrets`; chart dual-renders the legacy name for one release
+  namespace: org-services            # #3383: was `sme`
   smtp:
     # ─── Sovereign source-Secret (issue #934) ────────────────────────
     # On a freshly franchised Sovereign the SMTP creds are seeded by
@@ -1383,11 +1383,11 @@ smeSecrets:
 
 # ─── SME service backing-store endpoints (issue #861) ─────────────────────
 # When ingress.marketplace.enabled=true the chart renders:
-#   - templates/sme-services/ferretdb.yaml — FerretDB Deployment + Service
+#   - templates/org-services/ferretdb.yaml — FerretDB Deployment + Service
 #     in `sme` ns, MongoDB-wire-compatible front end backed by sme-pg.
-#   - templates/sme-services/valkey-cross-ns-policy.yaml —
+#   - templates/org-services/valkey-cross-ns-policy.yaml —
 #     CiliumNetworkPolicy in `valkey` ns allowing ingress from `sme` ns.
-#   - templates/sme-services/configmap.yaml — MONGODB_URI + VALKEY_ADDR
+#   - templates/org-services/configmap.yaml — MONGODB_URI + VALKEY_ADDR
 #     populated from the values below.
 #
 # Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every URL,
@@ -1423,7 +1423,7 @@ smeServices:
     # set explicitly empty to force NATS-disabled mode.
     natsURL: ""
   ferretdb:
-    namespace: sme
+    namespace: org-services          # #3383: was `sme`
     # FerretDB v1.24 — works against vanilla CNPG postgres:16. v2.x
     # requires PostgreSQL with the DocumentDB extension which the
     # sme-pg cluster does not ship; bumping is a separate change that
@@ -1444,7 +1444,7 @@ smeServices:
     sslmode: disable                          # ClusterIP traffic is overlay-encrypted; CNPG default issuer chain not bundled
     # Service FQDN exposed to other SME services via configmap MONGODB_URI.
     # Per-Sovereign overlays MAY swap to an external MongoDB endpoint.
-    host: ferretdb.sme.svc.cluster.local
+    host: ferretdb.org-services.svc.cluster.local
     port: 27017
     resources:
       requests:
@@ -1479,7 +1479,7 @@ smeServices:
     # bp-valkey 1.0.0 ships auth.enabled=true; bitnami auto-generates a
     # random password and exposes it via the `valkey` Secret in the
     # `valkey` namespace. The catalyst chart renders templates/
-    # sme-services/valkey-cross-ns-secret.yaml which uses Helm `lookup`
+    # org-services/valkey-cross-ns-secret.yaml which uses Helm `lookup`
     # to read that password and re-emit it as `sme-valkey-auth` in
     # `sme` ns — auth.yaml + gateway.yaml then wire VALKEY_PASSWORD via
     # secretKeyRef. Each knob below is operator-overridable in case a
@@ -1490,7 +1490,7 @@ smeServices:
     destNamespace: sme
     destSecretName: sme-valkey-auth
     crossNsPolicy:
-      # Render templates/sme-services/valkey-cross-ns-policy.yaml — a
+      # Render templates/org-services/valkey-cross-ns-policy.yaml — a
       # CiliumNetworkPolicy in the `valkey` namespace allowing ingress
       # from the `sme` namespace on Valkey's port.
       #
@@ -1509,7 +1509,7 @@ smeServices:
   # The SME `provisioning` service Deployment references
   # `secret/provisioning-github-token` with key `GITHUB_TOKEN`. On
   # contabo-mkt this is pre-provisioned via SealedSecret. On a freshly
-  # franchised Sovereign, templates/sme-services/provisioning-github-
+  # franchised Sovereign, templates/org-services/provisioning-github-
   # token.yaml mirrors the gitea-admin password (already generated by
   # platform/gitea/chart/templates/admin-secret.yaml with the same
   # lookup-persistence pattern) into `sme` ns under the canonical
@@ -1551,7 +1551,7 @@ smeServices:
       patSourceKey: token
       # Destination: the Secret + key shape that the provisioning
       # Deployment's secretKeyRef in
-      # templates/sme-services/provisioning.yaml reads.
+      # templates/org-services/provisioning.yaml reads.
       destNamespace: sme
       destSecretName: provisioning-github-token
       destKey: GITHUB_TOKEN
@@ -1586,7 +1586,7 @@ smeServices:
     vclusterImageRegistry: "harbor.openova.io"
     # githubToken: Secret name + key the Deployment reads GITHUB_TOKEN
     # from. Defaults match the chart-emitted
-    # templates/sme-services/provisioning-github-token.yaml output
+    # templates/org-services/provisioning-github-token.yaml output
     # (issue #866). Operator may swap to a per-Sovereign ExternalSecret
     # by setting both fields here.
     githubToken:
@@ -1966,7 +1966,7 @@ security:
     # `sme` — the bp-sme-platform chart deploys the SME control-plane
     # (auth, billing, catalog, console, domain, gateway, marketplace,
     # notification, provisioning, tenant) into namespace `sme`. Console
-    # in catalyst-system reaches `gateway.sme.svc.cluster.local:8080`
+    # in catalyst-system reaches `gateway.org-services.svc.cluster.local:8080`
     # for every voucher list/issue/redeem call (and admin reaches the
     # same gateway for tenant onboarding). Without this allow, console
     # requests time out at 5s and return 503 `context deadline exceeded`
@@ -1996,12 +1996,13 @@ security:
       - opentelemetry
       - external-secrets-system
       - cert-manager
-      # TBD-A38 (issue #1917, PR #1919): catalyst-system → sme east-west
-      # for voucher list / issue / redeem + tenant onboarding. The
-      # bp-sme-platform stack lives in `sme`; Console hits
-      # `gateway.sme.svc:8080`. Without the entry the CNP dropped the
-      # traffic and the Console 503'd with `context deadline exceeded`.
-      - sme
+      # TBD-A38 (issue #1917, PR #1919): catalyst-system → org-services
+      # east-west for voucher list / issue / redeem + Organization
+      # onboarding. The Organization mesh lives in `org-services` (#3383:
+      # was `sme`); Console hits `gateway.org-services.svc:8080`. Without
+      # the entry the CNP dropped the traffic and the Console 503'd with
+      # `context deadline exceeded`.
+      - org-services
       # TBD-A43 (issue #1920): catalyst-system → newapi east-west for
       # the customer-journey D29 NewAPI v2 calls (`newapi-*.newapi.svc`).
       # Companion fix to #1919 — PR #1912 was titled "fix catalyst-system

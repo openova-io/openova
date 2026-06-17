@@ -342,18 +342,18 @@ type Handler struct {
 	smeDeps SMEDeps
 
 	// ── SME tenant provisioning pipeline (issue #804) ───────────────────────
-	// smeTenantDeps — bundle of dependencies for the SME tenant
+	// orgTenantDeps — bundle of dependencies for the SME tenant
 	// provisioning pipeline (state-machine store, GitOps overlay
 	// writer, DNS provisioner, Keycloak client provisioner, NATS
 	// emitter, OTECH FQDN). Wired from main.go at startup; tests
 	// inject stubs.
-	smeTenantDeps SMETenantDeps
+	orgTenantDeps OrganizationDeps
 
 	// ── SME HS256 bridge secret (PR #1625 follow-up) ───────────────────────
 	// smeJWTSecret — raw bytes of `sme-secrets/JWT_SECRET` (mirrored
 	// from the `sme` namespace into catalyst-system by
 	// emberstack/reflector — see the annotation block on
-	// products/catalyst/chart/templates/sme-services/sme-secrets.yaml).
+	// products/catalyst/chart/templates/org-services/org-services-secrets.yaml).
 	// Used by sme_billing_vouchers.go's proxySMEVoucher() (and any
 	// future /api/v1/sme/* proxy) to mint a short-lived HS256 token
 	// the SME gateway (core/services/gateway/proxy.go) and downstream

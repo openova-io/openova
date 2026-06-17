@@ -25,7 +25,7 @@ import (
 func newSMETenantHandlerWithDynamic(t *testing.T) (*Handler, *dynamicfake.FakeDynamicClient) {
 	t.Helper()
 	dir := t.TempDir()
-	tenantStore, err := store.NewSMETenantProvisionStore(dir)
+	tenantStore, err := store.NewOrganizationProvisionStore(dir)
 	if err != nil {
 		t.Fatalf("tenant store: %v", err)
 	}
@@ -35,7 +35,7 @@ func newSMETenantHandlerWithDynamic(t *testing.T) (*Handler, *dynamicfake.FakeDy
 	}
 	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	h.SetTenantRegistry(registry)
-	h.SetSMETenantDeps(SMETenantDeps{
+	h.SetOrganizationDeps(OrganizationDeps{
 		Store:            tenantStore,
 		GitOps:           &fakeGitOps{},
 		DNS:              &fakeDNS{},
@@ -76,12 +76,12 @@ func TestCreateSMETenant_MintsOrganizationCR(t *testing.T) {
 		}`)))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	h.HandleCreateSMETenant(w, req)
+	h.HandleCreateOrganization(w, req)
 
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("status: want 202 got %d body=%s", w.Code, w.Body.String())
 	}
-	var got smeTenantResponse
+	var got orgTenantResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -138,8 +138,8 @@ func TestCreateSMETenant_MintsOrganizationCR(t *testing.T) {
 func TestCreateSMETenant_OrganizationCR_Idempotent(t *testing.T) {
 	h, dyn := newSMETenantHandlerWithDynamic(t)
 
-	rec := store.SMETenantProvisionRecord{
-		SMETenantID:     "tid-1",
+	rec := store.OrganizationProvisionRecord{
+		OrganizationID:  "tid-1",
 		State:           store.STSTenantRegistered,
 		Subdomain:       "acme",
 		AdminEmail:      "owner@acme.test",
@@ -167,8 +167,8 @@ func TestCreateSMETenant_OrganizationCR_Idempotent(t *testing.T) {
 func TestCreateSMETenant_OrganizationCR_InvalidSlugSkipped(t *testing.T) {
 	h, dyn := newSMETenantHandlerWithDynamic(t)
 
-	rec := store.SMETenantProvisionRecord{
-		SMETenantID: "tid-2",
+	rec := store.OrganizationProvisionRecord{
+		OrganizationID: "tid-2",
 		State:       store.STSTenantRegistered,
 		Subdomain:   "9acme", // digit-leading: valid subdomain, invalid Org slug
 		AdminEmail:  "owner@acme.test",
@@ -190,11 +190,11 @@ func TestCreateSMETenant_OrganizationCR_InvalidSlugSkipped(t *testing.T) {
 // safe no-op — the SME pipeline still completes.
 func TestCreateSMETenant_OrganizationCR_NoClientSkipped(t *testing.T) {
 	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	h.SetSMETenantDeps(SMETenantDeps{OTECHFQDN: "otech.example"})
+	h.SetOrganizationDeps(OrganizationDeps{OTECHFQDN: "otech.example"})
 	// sovereignDepsFactory not set → sovereignDepsFromEnv runs → no in-cluster
 	// config in the test process → error → skip. Must not panic.
-	rec := store.SMETenantProvisionRecord{
-		SMETenantID: "tid-3",
+	rec := store.OrganizationProvisionRecord{
+		OrganizationID: "tid-3",
 		State:       store.STSTenantRegistered,
 		Subdomain:   "acme",
 		AdminEmail:  "owner@acme.test",

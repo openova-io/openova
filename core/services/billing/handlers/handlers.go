@@ -88,12 +88,12 @@ type Handler struct {
 	Producer   events.BrokerPublisher
 	SuccessURL string
 	CancelURL  string
-	CatalogURL string // internal URL to catalog service, e.g. http://catalog.sme.svc.cluster.local:8082
+	CatalogURL string // internal URL to catalog service, e.g. http://catalog.org-services.svc.cluster.local:8082
 	TenantURL  string // internal URL to tenant service (to dispatch provisioning without broker)
 
 	// NotificationURL is the internal URL of the notification service's
 	// POST /notification/send endpoint. Default in main.go is
-	// `http://notification.sme.svc.cluster.local:8087/notification/send`.
+	// `http://notification.org-services.svc.cluster.local:8087/notification/send`.
 	// Used by IssueVoucher (#D28) to deliver the voucher gifting email to
 	// the recipient.
 	NotificationURL string
@@ -119,7 +119,7 @@ type Handler struct {
 
 	// JWTSecret is the raw bytes of `sme-secrets/JWT_SECRET` — the SAME
 	// Secret value the notification service reads via secretKeyRef on
-	// `sme-secrets/JWT_SECRET` (see chart templates/sme-services/{billing,
+	// `sme-secrets/JWT_SECRET` (see chart templates/org-services/{billing,
 	// notification}.yaml). Used to mint a short-lived HS256 service token
 	// on the billing→notification hop so notification's JWTAuth middleware
 	// (core/services/shared/middleware/jwt.go) accepts the request.

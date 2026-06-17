@@ -1,0 +1,154 @@
+{{- /*
+Marketplace exposure HTTPRoutes (issue #710).
+
+bp-catalyst-platform 1.3.0 ships the SME marketplace stack
+(templates/org-services/{marketplace,admin,console,...}.yaml) on every
+Sovereign as Pods + ClusterIPs. This template attaches public hostnames
+when the operator opts in via .Values.ingress.marketplace.enabled=true.
+
+HTTPRoutes emitted:
+
+1. marketplace.<sov> → routes:
+   - /api/             → sme/gateway     (BSS REST)
+   - /back-office/     → sme/admin       (Otech-staff BSS UI; "back-office"
+                                            not "admin" per founder rule
+                                            2026-05-03)
+   - /                 → sme/marketplace  (storefront landing + signup)
+
+2. tenant-<slug> per entry in ingress.marketplace.tenantSlugs:
+     hostname = <slug>.<sov>   (EXACT, no wildcard)
+     backend  = sme/console
+   (per-tenant SaaS dashboard; the console Pod host-routes by slug
+   internally — one HTTPRoute per slug.)
+
+TBD-A42 (issue #1905, 2026-05-19) — HTTPRoute precedence fix.
+Previously this template emitted a single `tenant-wildcard` HTTPRoute
+claiming `*.<sov>`, which on Cilium Gateway shadowed exact-match
+platform HTTPRoutes (`auth.<sov>` → Keycloak, `console.<sov>` →
+catalyst-ui, `api.<sov>` → catalyst-api, `pdns.<sov>` → powerdns,
+`grafana.<sov>` → grafana, etc.) even though Gateway API spec §5.2.1
+says exact > wildcard. The admission-order-dependent precedence on
+Cilium meant `auth.t31.omani.works` returned the SME console Astro
+HTML instead of Keycloak's login page, breaking D4 SSO PIN-bounce.
+
+Fix: emit one explicit `tenant-<slug>` HTTPRoute per slug in
+`ingress.marketplace.tenantSlugs`. No wildcard catch-all, so platform
+subdomains cannot be shadowed by construction. Operators stamp the
+slug list at provision time; the runtime organization-controller
+writes per-tenant HTTPRoutes for Orgs created post-provision (see
+tenant-public-routes.yaml). `tenantSlugs` defaults to empty — no
+SaaS-tenant route is emitted until the operator opts a slug in.
+
+Listener attachment uses the existing cilium-gateway https listener
+which already has hostname `*.${SOVEREIGN_FQDN}` from
+sovereign-tls/cilium-gateway.yaml, so the wildcard cert covers every
+emitted `<slug>.<sov>` automatically.
+
+Service backends live in the `sme` namespace (see
+sme-services/{marketplace,admin,console}.yaml).
+
+Default OFF: ingress.marketplace.enabled=false in values.yaml so non-
+marketplace Sovereigns don't render these routes.
+*/}}
+{{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
+{{- $marketplaceHost := (((.Values.ingress.hosts).marketplace).host) }}
+{{- $sovFQDN := .Values.global.sovereignFQDN }}
+{{- $gwName := .Values.ingress.gateway.parentRef.name | default "cilium-gateway" }}
+{{- $gwNs := .Values.ingress.gateway.parentRef.namespace | default "kube-system" }}
+{{- $gwSection := .Values.ingress.gateway.parentRef.sectionName }}
+{{- if and $marketplaceHost $sovFQDN }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: marketplace
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+    catalyst.openova.io/component: marketplace
+spec:
+  parentRefs:
+    - name: {{ $gwName | quote }}
+      namespace: {{ $gwNs | quote }}
+      {{- with $gwSection }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ $marketplaceHost | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/api/"
+      # /api/* is the SME BSS REST surface (auth, catalog, tenant, billing,
+      # provisioning) served by the gateway Pod in the sme namespace, NOT
+      # the catalyst-system marketplace-api Service. Live debugging on
+      # otech103 (issue #868) showed catalyst-system/marketplace-api had
+      # zero backing Pods (selector matched nothing), so PIN-signin POSTs
+      # 503'd at the gateway before ever reaching the auth service. The
+      # gateway in sme already proxies /auth/* to services-auth, so we
+      # cross-namespace backendRef directly. ReferenceGrant
+      # marketplace-routes-to-sme (in sme ns) authorises this hop.
+      backendRefs:
+        - name: gateway
+          namespace: org-services
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/back-office/"
+      backendRefs:
+        - name: admin
+          namespace: org-services
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/"
+      backendRefs:
+        - name: marketplace
+          namespace: org-services
+          port: 8080
+{{- /*
+  Per-tenant SaaS-console HTTPRoutes. One HTTPRoute per slug in
+  ingress.marketplace.tenantSlugs (defaults to empty). Each route
+  claims `<slug>.<sovFQDN>` exactly — NO wildcard — so platform
+  subdomains (auth/api/console/grafana/...) can never be shadowed.
+
+  Naming: `tenant-<slug>` so the HTTPRoute name is stable, human-
+  legible, and collision-free against the platform routes (`marketplace`,
+  `catalyst-ui`, `keycloak`, ...).
+*/}}
+{{- range $i, $slug := (.Values.ingress.marketplace.tenantSlugs | default list) }}
+{{- if $slug }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ printf "tenant-%s" $slug | quote }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+    catalyst.openova.io/component: tenant-route
+    catalyst.openova.io/tenant-slug: {{ $slug | quote }}
+spec:
+  parentRefs:
+    - name: {{ $gwName | quote }}
+      namespace: {{ $gwNs | quote }}
+      {{- with $gwSection }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ printf "%s.%s" $slug $sovFQDN | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/"
+      backendRefs:
+        - name: console
+          namespace: org-services
+          port: 8080
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

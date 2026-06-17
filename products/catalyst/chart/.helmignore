@@ -11,8 +11,8 @@
 templates/kustomization.yaml
 templates/ingress.yaml
 templates/ingress-console-tls.yaml
-templates/sme-services/kustomization.yaml
-templates/sme-services/ingress.yaml
+templates/org-services/kustomization.yaml
+templates/org-services/ingress.yaml
 templates/marketplace-api/kustomization.yaml
 templates/marketplace-api/ingress.yaml
 # Kustomize-only sibling of clusterrolebinding-cutover-driver.yaml.
@@ -20,7 +20,7 @@ templates/marketplace-api/ingress.yaml
 # (issue #830 P0 Bug 1 follow-up).
 templates/clusterrolebinding-cutover-driver-kustomize.yaml
 
-# Other sme-services/* and marketplace-api/* templates are PACKAGED in
+# Other org-services/* and marketplace-api/* templates are PACKAGED in
 # bp-catalyst-platform 1.3.0+ but each file's content is wrapped in
 # `{{- if and .Values.ingress.marketplace .Values.ingress.marketplace.enabled }}`
 # (issue #710). Non-marketplace Sovereigns get an empty render; marketplace

@@ -177,7 +177,7 @@ type Env struct {
 
 	// DomainAPIURL — root URL of the canonical domain service
 	// (`core/services/domain`), e.g.
-	// `http://domain.sme.svc.cluster.local:8086`. The marketplace.*
+	// `http://domain.org-services.svc.cluster.local:8086`. The marketplace.*
 	// tool family proxies POST /domain/byod + POST /domain/subdomains
 	// here. Empty → marketplace.* surfaces a clear "not configured"
 	// error rather than failing on a bad URL.
@@ -198,7 +198,7 @@ type Env struct {
 	// forwarded as the bearer (HS256 SME wire contract).
 	//
 	// Wired by sandbox-controller from SANDBOX_TENANT_API_URL — typically
-	// `http://gateway.sme.svc.cluster.local:8080/api/tenant`. Empty →
+	// `http://gateway.org-services.svc.cluster.local:8080/api/tenant`. Empty →
 	// marketplace.app.install surfaces a clear "not configured" error.
 	TenantAPIURL string
 

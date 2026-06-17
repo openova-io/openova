@@ -8,7 +8,7 @@
 # vCluster via Flux v2 spec.kubeConfig.secretRef → vc-mgmt (kubeconfig
 # Secret exported by bp-mgmt-vcluster slot 58). Per docs/SOVEREIGN-
 # MULTI-REGION-DOD.md §A4 the secret backend lives in MGMT so it's
-# co-located with catalyst-api / sme-services. The HR CR itself lives
+# co-located with catalyst-api / org-services. The HR CR itself lives
 # in host ns `mgmt` so helm-controller resolves the kubeConfig Secret
 # from the same namespace (Flux v2 SecretReference contract). The
 # bp-cnpg-backed audit/storage adjuncts continue to use the host's

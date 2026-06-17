@@ -776,23 +776,24 @@ spec:
             # core/services/shared/auth.MintSMEAccessToken and forward
             # the bridged token to the SME gateway.
             #
-            # Source Secret is sme-secrets in the `sme` namespace; the
+            # Source Secret is org-services-secrets in the `org-services`
+            # namespace (#3383 — was `sme-secrets` in `sme`); the
             # reflector annotation block on
-            # products/catalyst/chart/templates/sme-services/sme-secrets.yaml
+            # products/catalyst/chart/templates/org-services/org-services-secrets.yaml
             # mirrors it into catalyst-system at the SAME secret name so
             # the secretKeyRef below resolves to the same JWT_SECRET
-            # bytes the SME gateway validates against.
+            # bytes the Organization gateway validates against.
             #
             # optional: true — Sovereigns without marketplace
             # (ingress.marketplace.enabled=false) never materialise
-            # sme-secrets; proxySMEVoucher surfaces 503
+            # org-services-secrets; proxySMEVoucher surfaces 503
             # `sme-jwt-bridge-unwired` for those clusters so the FE
             # renders an actionable "marketplace not enabled" message
             # rather than the pre-bridge silent 401.
             - name: CATALYST_SME_JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: sme-secrets
+                  name: org-services-secrets
                   key: JWT_SECRET
                   optional: true
             # ── NewAPI admin client (ADR-0003 §3.2, TBD-V15 / #2021) ─────
@@ -1192,7 +1193,7 @@ spec:
             # `sme/provisioning-github-token`.`GITHUB_TOKEN` with the
             # provenance annotation `catalyst.openova.io/token-source=
             # self-sovereign-cutover-step-09`. The same chart's
-            # templates/sme-services/provisioning-github-token.yaml
+            # templates/org-services/provisioning-github-token.yaml
             # carries reflector annotations mirroring that Secret into
             # `catalyst-system` so this secretKeyRef resolves on the
             # catalyst-api Pod (which lives in catalyst-system, not
@@ -1243,11 +1244,11 @@ spec:
             #
             # The push target MATCHES the Flux GitRepository the chart
             # renders for SME tenants — `openova-sme-tenants` (template
-            # sme-services/sme-tenants-gitrepository.yaml):
+            # org-services/org-repo-gitrepository.yaml):
             #   url    = http://gitea-http.gitea.svc.cluster.local:3000/openova/openova
             #   branch = sme-tenants
             # and the provisioning service's own GITHUB_* env (template
-            # sme-services/provisioning.yaml) uses the identical coordinates.
+            # org-services/provisioning.yaml) uses the identical coordinates.
             #
             # Gated on .Values.global.sovereignFQDN (empty on the mothership,
             # non-empty on a Sovereign — same discriminator the provisioning

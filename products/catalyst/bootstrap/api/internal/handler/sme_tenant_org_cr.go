@@ -80,13 +80,13 @@ var orgSlugRE = regexp.MustCompile(`^[a-z][a-z0-9-]{2,30}$`)
 // the in-cluster config is unavailable (CI / out-of-cluster catalyst-api) the
 // create is skipped with an info log, matching every other dynamic-client
 // path in this package.
-func (h *Handler) createSMEOrganizationCR(ctx context.Context, rec store.SMETenantProvisionRecord) {
+func (h *Handler) createSMEOrganizationCR(ctx context.Context, rec store.OrganizationProvisionRecord) {
 	slug := strings.ToLower(strings.TrimSpace(rec.Subdomain))
 	if !orgSlugRE.MatchString(slug) {
 		h.log.Warn("sme-tenant: skipping Organization CR — subdomain is not a valid Org slug",
 			"subdomain", rec.Subdomain,
 			"expected", "[a-z][a-z0-9-]{2,30}",
-			"sme_tenant_id", rec.SMETenantID,
+			"sme_tenant_id", rec.OrganizationID,
 		)
 		return
 	}
@@ -97,19 +97,19 @@ func (h *Handler) createSMEOrganizationCR(ctx context.Context, rec store.SMETena
 		// is simply not minted (no apiserver to POST to). On a real Sovereign
 		// this branch never fires.
 		h.log.Info("sme-tenant: Organization CR skipped — no in-cluster dynamic client",
-			"sme_tenant_id", rec.SMETenantID, "err", err)
+			"sme_tenant_id", rec.OrganizationID, "err", err)
 		return
 	}
 
-	if err := ensureOrganizationCR(ctx, deps.dyn, rec, h.smeTenantDeps.OTECHFQDN); err != nil {
+	if err := ensureOrganizationCR(ctx, deps.dyn, rec, h.orgTenantDeps.OTECHFQDN); err != nil {
 		h.log.Error("sme-tenant: Organization CR create failed — org-controller reconcile will retry",
-			"slug", slug, "sme_tenant_id", rec.SMETenantID, "err", err)
+			"slug", slug, "sme_tenant_id", rec.OrganizationID, "err", err)
 		return
 	}
 	h.log.Info("sme-tenant: Organization CR ensured",
-		"slug", slug, "sme_tenant_id", rec.SMETenantID,
+		"slug", slug, "sme_tenant_id", rec.OrganizationID,
 		"kind", rec.Kind, "tier", rec.Tier, "billing_mode", rec.BillingMode,
-		"sovereign", h.smeTenantDeps.OTECHFQDN,
+		"sovereign", h.orgTenantDeps.OTECHFQDN,
 	)
 }
 
@@ -127,7 +127,7 @@ func (h *Handler) createSMEOrganizationCR(ctx context.Context, rec store.SMETena
 // empties default the same way the provisioning consumer defaults them
 // (kind→customer, tier→sme, billingMode→real) so every door mints an
 // identical shape.
-func ensureOrganizationCR(ctx context.Context, dyn dynamic.Interface, rec store.SMETenantProvisionRecord, sovereignFQDN string) error {
+func ensureOrganizationCR(ctx context.Context, dyn dynamic.Interface, rec store.OrganizationProvisionRecord, sovereignFQDN string) error {
 	slug := strings.ToLower(strings.TrimSpace(rec.Subdomain))
 	if !orgSlugRE.MatchString(slug) {
 		return fmt.Errorf("ensureOrganizationCR: invalid slug %q", slug)
@@ -183,7 +183,7 @@ func ensureOrganizationCR(ctx context.Context, dyn dynamic.Interface, rec store.
 			"metadata": map[string]any{
 				"name": slug,
 				"labels": map[string]any{
-					"openova.io/tenant-id":         rec.SMETenantID,
+					"openova.io/tenant-id":         rec.OrganizationID,
 					"openova.io/source":            "sme-tenant-funnel",
 					"app.kubernetes.io/managed-by": "catalyst-api",
 				},

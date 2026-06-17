@@ -1,6 +1,27 @@
 package handlers
 
-import "net/http"
+import (
+	"fmt"
+	"net/http"
+)
+
+// deprecatedAlias wraps a handler registered on a LEGACY route path so the
+// response carries RFC-8594 deprecation signalling. #3383 renamed the
+// marketplace org-create/list path `POST|GET /tenant/orgs` (exposed by the
+// gateway as `/api/tenant/orgs`) to the canonical `/organizations`. The old
+// path stays for exactly ONE release so the marketplace SPA keeps working
+// across the rename; the removal of these aliases is a checklist row on
+// #3383 for next release.
+func deprecatedAlias(canonical string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Deprecation", "true")
+		w.Header().Set("Sunset", "Wed, 01 Jul 2026 00:00:00 GMT")
+		if canonical != "" {
+			w.Header().Add("Link", fmt.Sprintf("<%s>; rel=\"successor-version\"", canonical))
+		}
+		next(w, r)
+	}
+}
 
 // Routes returns an http.Handler with all tenant endpoints registered.
 func (h *Handler) Routes() http.Handler {
@@ -9,12 +30,22 @@ func (h *Handler) Routes() http.Handler {
 	// Public — slug availability check.
 	mux.HandleFunc("GET /tenant/check-slug/{slug}", h.CheckSlug)
 
-	// Authenticated — organization CRUD.
-	mux.HandleFunc("POST /tenant/orgs", h.CreateOrg)
-	mux.HandleFunc("GET /tenant/orgs", h.ListOrgs)
-	mux.HandleFunc("GET /tenant/orgs/{id}", h.GetOrg)
-	mux.HandleFunc("PUT /tenant/orgs/{id}", h.UpdateOrg)
-	mux.HandleFunc("DELETE /tenant/orgs/{id}", h.DeleteOrg)
+	// Authenticated — Organization CRUD (#3383: canonical `/organizations`).
+	// The marketplace SPA + console org pages create/list Organizations
+	// here; the gateway exposes these as `/api/organizations`.
+	mux.HandleFunc("POST /organizations", h.CreateOrg)
+	mux.HandleFunc("GET /organizations", h.ListOrgs)
+	mux.HandleFunc("GET /organizations/{id}", h.GetOrg)
+	mux.HandleFunc("PUT /organizations/{id}", h.UpdateOrg)
+	mux.HandleFunc("DELETE /organizations/{id}", h.DeleteOrg)
+	// naming-guard: alias — legacy `/tenant/orgs` paths, one-release
+	// deprecation (marketplace SPA stays on these until the alias-removal
+	// release; each emits a Deprecation/Sunset header).
+	mux.HandleFunc("POST /tenant/orgs", deprecatedAlias("/api/organizations", h.CreateOrg))
+	mux.HandleFunc("GET /tenant/orgs", deprecatedAlias("/api/organizations", h.ListOrgs))
+	mux.HandleFunc("GET /tenant/orgs/{id}", deprecatedAlias("/api/organizations/{id}", h.GetOrg))
+	mux.HandleFunc("PUT /tenant/orgs/{id}", deprecatedAlias("/api/organizations/{id}", h.UpdateOrg))
+	mux.HandleFunc("DELETE /tenant/orgs/{id}", deprecatedAlias("/api/organizations/{id}", h.DeleteOrg))
 
 	// Authenticated — member management.
 	mux.HandleFunc("GET /tenant/orgs/{id}/members", h.ListMembers)
