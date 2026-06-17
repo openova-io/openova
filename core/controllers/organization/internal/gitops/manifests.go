@@ -56,6 +56,23 @@ type Inputs struct {
 	// "vcluster-system" — matches clusters/contabo-mkt/tenants/test/.
 	VClusterHelmRepoName      string
 	VClusterHelmRepoNamespace string
+
+	// VClusterImageRegistry is the Sovereign-local Harbor host every
+	// vCluster image (syncer StatefulSet + the k8s-distro init image)
+	// pulls through. Default "harbor.openova.io".
+	//
+	// MIRROR-EVERYTHING (#3760, Refs #3376 #3754): the per-Org vCluster
+	// StatefulSet is admission-gated by the `harbor-proxy-pull` Kyverno
+	// ClusterPolicy (Enforce), which DENIES any image not matching the
+	// `*/proxy-*/*` glob. vcluster 0.33.x renders TWO denied initContainer
+	// images off ghcr.io — the k8s distro `loft-sh/kubernetes` AND the
+	// `loft-sh/vcluster-oss` syncer — so BOTH must be re-tagged through
+	// the Sovereign Harbor proxy-cache (`<registry>/proxy-ghcr/loft-sh/...`),
+	// exactly like the platform's own bp-dmz/mgmt/rtz-vcluster charts.
+	// Per Inviolable Principle #4 it's read from env, never hardcoded;
+	// cutover Step-04 (ADR-0002) flips it to `harbor.<sovereign-fqdn>`
+	// post-handover.
+	VClusterImageRegistry string
 }
 
 // renderTemplates is the named template set the controller uses.
@@ -103,14 +120,26 @@ spec:
       distro:
         k8s:
           enabled: true
+          # MIRROR-EVERYTHING (#3760): the k8s-distro image is
+          # initContainers[0] of the vcluster StatefulSet (vcluster 0.33.x
+          # renders ghcr.io/loft-sh/kubernetes:vX). The harbor-proxy-pull
+          # Kyverno ClusterPolicy (Enforce) DENIES it off ghcr.io — re-tag
+          # through the Sovereign Harbor proxy-cache so it matches the
+          # */proxy-*/* glob, lockstep with bp-dmz/mgmt/rtz-vcluster.
+          image:
+            registry: {{ .VClusterImageRegistry }}
+            repository: proxy-ghcr/loft-sh/kubernetes
       backingStore:
         database:
           embedded:
             enabled: true
       statefulSet:
+        # MIRROR-EVERYTHING (#3760): the syncer image is initContainers[1]
+        # (+ the main container). Pull it through the Sovereign Harbor
+        # proxy-cache too — ghcr.io is denied by harbor-proxy-pull.
         image:
-          registry: ghcr.io
-          repository: loft-sh/vcluster-oss
+          registry: {{ .VClusterImageRegistry }}
+          repository: proxy-ghcr/loft-sh/vcluster-oss
         resources:
           requests:
             cpu: 100m
@@ -160,6 +189,12 @@ func Render(in Inputs) (map[string][]byte, error) {
 	}
 	if in.VClusterHelmRepoNamespace == "" {
 		in.VClusterHelmRepoNamespace = "vcluster-system"
+	}
+	if in.VClusterImageRegistry == "" {
+		// Bootstrap default — the Sovereign-local Harbor. Matches the
+		// `global.registryMirror` default in bp-dmz/mgmt/rtz-vcluster.
+		// Cutover Step-04 flips it to harbor.<sovereign-fqdn> per ADR-0002.
+		in.VClusterImageRegistry = "harbor.openova.io"
 	}
 	if in.Tier == "" {
 		in.Tier = "sme"

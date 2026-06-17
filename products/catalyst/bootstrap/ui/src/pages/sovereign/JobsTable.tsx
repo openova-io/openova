@@ -31,8 +31,10 @@
 
 import { useMemo, useState } from 'react'
 import { Link, useParams } from '@tanstack/react-router'
-import type { Job, JobStatus } from '@/lib/jobs.types'
+import type { Job, JobStatus, JobKind } from '@/lib/jobs.types'
+import { jobKind, isJobRetryable } from '@/lib/jobs.types'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
+import { RetryJobButton } from './RetryJobButton'
 
 /* ──────────────────────────────────────────────────────────────────
  * Pure helpers (exported for unit tests)
@@ -49,10 +51,16 @@ import { DETECTED_MODE } from '@/shared/lib/detectMode'
  * JobsTable.test.tsx can assert without re-deriving.
  */
 export const STATUS_PRIORITY: Record<JobStatus, number> = {
+  // Unhealthy reconciler kinds rank with failures — the operator wants
+  // them surfaced at the top alongside failed installs (issue #3646).
+  failing:   0,
   running:   0,
+  degraded:  1,
   pending:   1,
   succeeded: 2,
   failed:    3,
+  // A healthy recurring reconciler is steady-state — sinks like succeeded.
+  healthy:   2,
 }
 
 /**
@@ -273,13 +281,23 @@ interface JobsTableProps {
    * dropdown.
    */
   initialParentFilter?: string
+  /**
+   * The deployment id the rows belong to — threaded to the per-row Retry
+   * control so it can POST the §5c remediation endpoint
+   * (/deployments/{depId}/jobs/{jobId}/retry). When absent the Retry
+   * control is hidden (e.g. a preview surface with no live cluster).
+   */
+  deploymentId?: string
 }
 
-const STATUS_VALUES: readonly JobStatus[] = ['running', 'pending', 'succeeded', 'failed']
+const STATUS_VALUES: readonly JobStatus[] = [
+  'running', 'pending', 'succeeded', 'failed', 'healthy', 'degraded', 'failing',
+]
 
-export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableProps) {
+export function JobsTable({ jobs, appIdFilter, initialParentFilter, deploymentId }: JobsTableProps) {
   const [search, setSearch] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<'' | JobStatus>('')
+  const [kindFilter, setKindFilter] = useState<'' | JobKind>('')
   const [appFilter, setAppFilter] = useState<string>('')
   const [parentFilter, setParentFilter] = useState<string>('')
   // D20 (2026-05-17 t143): region filter dropdown so operators on a
@@ -314,6 +332,17 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
     const set = new Set<string>()
     for (const j of jobs) {
       if (j.appId) set.add(j.appId)
+    }
+    return [...set].sort((a, b) => a.localeCompare(b))
+  }, [jobs])
+  // Kind options — the typed activity kinds actually present (issue
+  // #3646). Group rows are excluded since the table hides them; the
+  // remaining leaf kinds drive the Kind filter dropdown generically.
+  const kindOptions = useMemo<JobKind[]>(() => {
+    const set = new Set<JobKind>()
+    for (const j of jobs) {
+      if (j.type === 'group') continue
+      set.add(jobKind(j))
     }
     return [...set].sort((a, b) => a.localeCompare(b))
   }, [jobs])
@@ -374,6 +403,7 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
       if (appIdFilter && j.appId !== appIdFilter) return false
       if (initialParentFilter && j.parentId !== initialParentFilter) return false
       if (statusFilter && j.status !== statusFilter) return false
+      if (kindFilter && jobKind(j) !== kindFilter) return false
       if (appFilter && j.appId !== appFilter) return false
       if (parentFilter && j.parentId !== parentFilter) return false
       if (regionFilter && regionFromJob(j) !== regionFilter) return false
@@ -381,7 +411,7 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
       return true
     })
     return [...filtered].sort(compareJobs)
-  }, [jobs, search, statusFilter, appFilter, parentFilter, regionFilter, appIdFilter, initialParentFilter])
+  }, [jobs, search, statusFilter, kindFilter, appFilter, parentFilter, regionFilter, appIdFilter, initialParentFilter])
 
   return (
     <div className="jobs-table-wrap" data-testid="jobs-table-wrap">
@@ -418,6 +448,27 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
               {STATUS_VALUES.map((s) => (
                 <option key={s} value={s}>
                   {s}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {/* Kind filter (issue #3646) — scope the canvas to a single
+              activity kind (cron / reconcile / install / task / …). Only
+              the kinds actually present render as options. */}
+          <label className="jobs-filter-label">
+            <span className="jobs-filter-caption">Kind</span>
+            <select
+              value={kindFilter}
+              onChange={(e) => setKindFilter(e.target.value as '' | JobKind)}
+              className="jobs-filter-select"
+              data-testid="jobs-filter-kind"
+              aria-label="Filter by kind"
+            >
+              <option value="">All</option>
+              {kindOptions.map((k) => (
+                <option key={k} value={k}>
+                  {k}
                 </option>
               ))}
             </select>
@@ -506,6 +557,9 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
           <thead>
             <tr>
               <th data-col="name">Name</th>
+              {/* Kind column (issue #3646) — the typed activity kind, read
+                  from job.kind (never a JobName-prefix string-match). */}
+              <th data-col="kind">Kind</th>
               <th data-col="app">App</th>
               {/* Region column — shown only on a multi-region Sovereign
                   (2+ distinct regions in the job set), matching the
@@ -517,12 +571,23 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
               <th data-col="status">Status</th>
               <th data-col="started">Started</th>
               <th data-col="duration">Duration</th>
+              {/* Actions column (issue #3646 §5c) — per-row Retry control
+                  for Failed/degraded rows. Hidden when no deploymentId is
+                  threaded (preview surfaces with no live cluster). */}
+              {deploymentId ? <th data-col="actions">Actions</th> : null}
             </tr>
           </thead>
           <tbody>
             {visibleJobs.length === 0 ? (
               <tr>
-                <td colSpan={showRegion ? 8 : 7} className="jobs-empty" data-testid="jobs-table-empty">
+                {/* base 7 cols (name,app,deps,parent,status,started,
+                    duration) + Kind (+1) + Region (showRegion) + Actions
+                    (deploymentId). */}
+                <td
+                  colSpan={8 + (showRegion ? 1 : 0) + (deploymentId ? 1 : 0)}
+                  className="jobs-empty"
+                  data-testid="jobs-table-empty"
+                >
                   No jobs match the current filters.
                 </td>
               </tr>
@@ -534,6 +599,7 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
                   parentLabel={parentLabelById.get(j.parentId) ?? j.parentId}
                   showRegion={showRegion}
                   regionUnionByGroupId={regionUnionByGroupId}
+                  deploymentId={deploymentId}
                 />
               ))
             )}
@@ -554,6 +620,9 @@ interface JobRowProps {
       drives the group-row Region cell union and the Parent chip's
       hover title on a multi-region Sovereign. */
   regionUnionByGroupId: Map<string, string[]>
+  /** Deployment id for the per-row Retry POST (issue #3646 §5c). When
+      undefined the Actions cell is omitted (no live cluster to act on). */
+  deploymentId?: string
 }
 
 /**
@@ -604,10 +673,11 @@ function useJobLinkBuilder(): (jobId: string) => string {
   }
 }
 
-function JobRow({ job, parentLabel, showRegion, regionUnionByGroupId }: JobRowProps) {
+function JobRow({ job, parentLabel, showRegion, regionUnionByGroupId, deploymentId }: JobRowProps) {
   const started = formatRelative(job.startedAt)
   const jobLink = useJobLinkBuilder()
   const region = regionFromJob(job)
+  const kind = jobKind(job)
   // Union of the row's OWN children's regions (group rows) + union of
   // the row's PARENT group's children (drives the Parent chip title).
   const ownGroupRegions = regionUnionByGroupId.get(job.id) ?? []
@@ -633,6 +703,17 @@ function JobRow({ job, parentLabel, showRegion, regionUnionByGroupId }: JobRowPr
         >
           {job.displayName ?? job.jobName}
         </Link>
+      </td>
+      <td className="jobs-cell jobs-cell-kind">
+        {/* Kind chip — read from job.kind (issue #3646), never inferred
+            from a JobName prefix. */}
+        <span
+          className={`jobs-kind-chip jobs-kind-${kind}`}
+          data-testid={`jobs-cell-kind-${job.id}`}
+          data-kind={kind}
+        >
+          {kind}
+        </span>
       </td>
       <td className="jobs-cell jobs-cell-app">
         {job.appId ? (
@@ -706,6 +787,23 @@ function JobRow({ job, parentLabel, showRegion, regionUnionByGroupId }: JobRowPr
       <td className="jobs-cell jobs-cell-duration">
         <span data-testid={`jobs-cell-duration-${job.id}`}>{formatDuration(job.durationMs)}</span>
       </td>
+      {deploymentId ? (
+        <td className="jobs-cell jobs-cell-actions">
+          {/* Retry control (issue #3646 §5c) — visible only for a
+              retryable (failed / degraded / failing) row. Re-drives the
+              reconcile via the backend's Flux-native annotation; the
+              backend RBAC-gates it (403 for a non-operator). */}
+          {isJobRetryable(job.status) ? (
+            <RetryJobButton
+              deploymentId={deploymentId}
+              jobId={job.jobName}
+              kind={kind}
+            />
+          ) : (
+            <span className="jobs-empty-cell" data-testid={`jobs-cell-actions-empty-${job.id}`}>—</span>
+          )}
+        </td>
+      ) : null}
     </tr>
   )
 }
@@ -761,6 +859,12 @@ const STATUS_TONE: Record<JobStatus, { label: string }> = {
   running:   { label: 'Running' },
   succeeded: { label: 'Succeeded' },
   failed:    { label: 'Failed' },
+  // HEALTH axis (issue #3646 §4c) — recurring/reconciler kinds. Distinct
+  // labels so "Healthy (running forever, correct)" never reads as the
+  // one-shot "Succeeded", and a hang reads as "Degraded"/"Failing".
+  healthy:   { label: 'Healthy' },
+  degraded:  { label: 'Degraded' },
+  failing:   { label: 'Failing' },
 }
 
 interface ChipProps {
@@ -981,6 +1085,36 @@ const JOBS_TABLE_CSS = `
 .jobs-badge-running   { background: rgba(56,189,248,0.10);  color: #38BDF8; border-color: rgba(56,189,248,0.35); }
 .jobs-badge-succeeded { background: rgba(74,222,128,0.10);  color: #4ADE80; border-color: rgba(74,222,128,0.35); }
 .jobs-badge-failed    { background: rgba(248,113,113,0.10); color: #F87171; border-color: rgba(248,113,113,0.35); }
+/* HEALTH axis (issue #3646) — recurring/reconciler kinds. Healthy = green
+ * (steady-state, distinct from one-shot Succeeded by label); degraded =
+ * amber; failing = red (same urgency as failed). */
+.jobs-badge-healthy   { background: rgba(74,222,128,0.08);  color: #4ADE80; border-color: rgba(74,222,128,0.30); }
+.jobs-badge-degraded  { background: rgba(251,191,36,0.10);  color: #FBBF24; border-color: rgba(251,191,36,0.40); }
+.jobs-badge-failing   { background: rgba(248,113,113,0.12); color: #F87171; border-color: rgba(248,113,113,0.40); }
+/* Kind chip — a neutral pill carrying the typed activity kind. */
+.jobs-kind-chip {
+  display: inline-block; padding: 1px 7px; border-radius: 999px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.03em;
+  text-transform: uppercase;
+  background: rgba(148,163,184,0.10); color: var(--color-text-dim);
+  border: 1px solid rgba(148,163,184,0.25);
+}
+.jobs-kind-cron       { color: #C084FC; border-color: rgba(192,132,252,0.35); background: rgba(192,132,252,0.08); }
+.jobs-kind-reconcile  { color: #38BDF8; border-color: rgba(56,189,248,0.35);  background: rgba(56,189,248,0.08); }
+.jobs-kind-reconciler { color: #2DD4BF; border-color: rgba(45,212,191,0.35);  background: rgba(45,212,191,0.08); }
+.jobs-kind-step       { color: #FBBF24; border-color: rgba(251,191,36,0.35);  background: rgba(251,191,36,0.08); }
+/* Retry control (issue #3646 §5c). */
+.jobs-retry-wrap { display: inline-flex; align-items: center; gap: 6px; }
+.jobs-retry-btn {
+  cursor: pointer; padding: 2px 9px; border-radius: 6px; font-size: 11px;
+  font-weight: 600; border: 1px solid rgba(56,189,248,0.40); color: #38BDF8;
+  background: rgba(56,189,248,0.08);
+}
+.jobs-retry-btn:hover:not(:disabled) { background: rgba(56,189,248,0.18); }
+.jobs-retry-btn:disabled { opacity: 0.6; cursor: default; }
+.jobs-retry-result { font-size: 11px; font-weight: 600; }
+.jobs-retry-done  { color: #4ADE80; }
+.jobs-retry-error { color: #F87171; }
 /* #3656 (founder #6) — provisional "Confirming…" badge: a reducer-derived
  * row the live cluster state has not confirmed yet. Amber + DASHED border so
  * it reads as a distinct "settling, not committed" state — unmistakable from

@@ -52,32 +52,14 @@ import (
 	"github.com/openova-io/openova/core/services/shared/events"
 )
 
-// tenantCreatedPayload is the wire shape this consumer expects on
-// `tenant.created`. Mirrors core/services/tenant/handlers/handlers.go's
-// CreateOrg envelope: a Tenant doc plus an owner_email sibling
-// extracted from the caller's JWT. We intentionally mirror only the
-// fields the Organization CR needs — schema drift on unused fields
-// (Apps, AddOns, CustomDomains, etc.) is non-blocking.
-type tenantCreatedPayload struct {
-	ID         string `json:"id"`
-	Slug       string `json:"slug"`
-	Name       string `json:"name"`
-	OwnerID    string `json:"owner_id"`
-	OwnerEmail string `json:"owner_email"`
-	PlanID     string `json:"plan_id"`
-	// Tier is optional — defaults to "sme" when empty (the only tier
-	// the SME-pool wizard issues vouchers for as of TBD-C16). A future
-	// corporate-tier flow that publishes tenant.created can set this
-	// to "corporate" without code changes.
-	Tier string `json:"tier,omitempty"`
-	// BillingMode is optional — defaults to "real" when empty.
-	BillingMode string `json:"billing_mode,omitempty"`
-	// ParentDomain optionally overrides Handler.TenantParentDomain
-	// when a multi-pool Sovereign wants to pick the apex zone per
-	// tenant (omani.homes vs omani.rest vs omani.trades). Empty
-	// inherits the Sovereign-wide default.
-	ParentDomain string `json:"parent_domain,omitempty"`
-}
+// tenantCreatedPayload is the wire shape this consumer decodes on
+// `tenant.created`. #3687 (fold #3690/#3673) collapses the former
+// per-service copy into the ONE canonical struct in the shared module
+// (events.TenantCreatedPayload) — the same type the producer emits and
+// the bootstrap-API funnel maps onto, killing the 3-way drift the #3687
+// §3.1 audit measured. Kept as a local alias so existing call sites +
+// tests read unchanged; the underlying type is now shared, not a copy.
+type tenantCreatedPayload = events.TenantCreatedPayload
 
 // handleTenantCreated is the consumer for `tenant.created` (subject
 // `catalyst.tenant.created` on NATS, topic `sme.tenant.events` on

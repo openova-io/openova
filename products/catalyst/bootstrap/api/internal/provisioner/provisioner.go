@@ -183,9 +183,15 @@ const (
 )
 
 // validBcpTopologies is the wire-allowed set the validator checks
-// against. Kept in sync with the chart-side enum in
-// products/catalyst/chart/crds/cnpgpair.yaml (`spec.topology`) and the
-// applications_update.go placement.mode set.
+// against. This is the operator-signup PLACEMENT-EDITOR DIALECT — kept in
+// sync with the Sovereign CRD enum (`spec.bcpTopology` in
+// products/catalyst/chart/crds/sovereign.yaml) and the
+// applications_update.go placement.mode set. NOTE (#3648): the separate
+// cnpg-pair DR CRD (`cnpgpairs.dr.openova.io` spec.topology) uses the
+// CANONICAL hyphenated vocabulary (`active-hot-standby`); do NOT "resync"
+// this dialect set to it — they are intentionally different axes (signup
+// dialect vs canonical DR-contract). The dialect→canonical mapping lives
+// in endpoint_handler.go::canonicalizeTopology.
 var validBcpTopologies = map[string]struct{}{
 	BcpTopologySingleRegion:     {},
 	BcpTopologyActiveHotStandby: {},
@@ -1342,6 +1348,72 @@ func detectPartialRegionMaterialisation(declaredRegions []RegionSpec, perRegion 
 	return materialised, missing
 }
 
+// ReasonStandbyRegionAbsent is the canonical Phase-1 failure reason
+// stamped when a deployment requested an active-hot-standby (or
+// active-active) topology but the standby region's cluster never
+// materialised in the watch — no secondary control-plane was ever
+// observed (#3375 §3(e)/DoD-7). It is the DR sibling of the
+// "did not PUT kubeconfig" primary-region failure class: a topology the
+// Sovereign cannot honour must NOT be stamped `ready`.
+const ReasonStandbyRegionAbsent = "standby-region-absent"
+
+// DeclaredDRStandbyIntegrity reports whether a multi-region DR topology's
+// standby half is structurally PRESENT, given:
+//
+//   - bcpTopology: the effective Request.BcpTopology (one of
+//     single-region | active-hotstandby | active-active).
+//   - declaredRegions: len(Request.Regions) — how many regions the
+//     operator chose at signup.
+//   - observedSecondaryRegions: how many SECONDARY regions the Phase-1
+//     watch actually observed (the count of distinct keys in the
+//     secondary-watcher census — a region whose kubeconfig never arrived
+//     is NOT counted, which is exactly the hw150 absent-standby signal).
+//
+// It returns ok=true when the topology's standby requirement is met (or
+// when the topology is single-region, where there is no standby to
+// check). It returns ok=false + a human reason when active-hot-standby /
+// active-active was requested but FEWER than (declaredRegions-1)
+// secondary regions came up — i.e. a declared standby region is missing.
+//
+// This is the INTEGRITY half of #3375's DoD-7: it refuses to let a
+// Sovereign claim active-hot-standby when its standby region is absent.
+// It is DISTINCT from the surface-only "secondary degraded" census
+// (#3611): a SLOW-but-present secondary has an observed watcher and so is
+// counted here (it does not trip this gate — the prov is not hung); only
+// a GENUINELY-ABSENT region (no cluster, no kubeconfig, zero observed
+// secondary) trips it. It is also additive to the tofu-apply-time
+// partial-region post-condition (#2840), which fires earlier when the
+// region's EIP itself never materialised; this gate catches the case
+// where the EIP came up but the region-B cluster never formed.
+//
+// Pure function — no I/O, no locks. Generic by construction: it keys on
+// the declared topology + region counts, never on any app or blueprint
+// name. Refs #3375.
+func DeclaredDRStandbyIntegrity(bcpTopology string, declaredRegions, observedSecondaryRegions int) (ok bool, reason string) {
+	switch strings.ToLower(strings.TrimSpace(bcpTopology)) {
+	case BcpTopologyActiveHotStandby, BcpTopologyActiveActive:
+		// Multi-region DR requested. Need at least (declaredRegions-1)
+		// secondaries observed; a declared 2-region prov needs >=1.
+		wantSecondary := declaredRegions - 1
+		if wantSecondary < 1 {
+			// Defensive: a multi-region topology with <2 declared regions
+			// is rejected at Validate() (provisioner.go ~830); if we ever
+			// reach here, treat the missing standby as absent.
+			wantSecondary = 1
+		}
+		if observedSecondaryRegions < wantSecondary {
+			return false, fmt.Sprintf(
+				"topology %q was requested but %d of %d standby region(s) did not provision — the standby region's cluster never came up (no secondary control-plane observed). Disaster-recovery is INACTIVE; this Sovereign is running single-region. The deployment is NOT ready: a Sovereign cannot claim active-hot-standby when its standby region is absent (Pillar 2/3, #3375).",
+				bcpTopology, wantSecondary-observedSecondaryRegions, declaredRegions-1)
+		}
+		return true, ""
+	default:
+		// single-region (or empty / unknown — Validate() gates those):
+		// no standby to assert.
+		return true, ""
+	}
+}
+
 // Provisioner runs `tofu init && tofu apply` against the canonical
 // infra/hetzner/ module.
 type Provisioner struct {
@@ -1400,6 +1472,22 @@ type Provisioner struct {
 	// posture as the harbor-robot-token Empty-Token path.
 	PDMBasicAuthUser string
 	PDMBasicAuthPass string
+
+	// HuaweiAccessKey / HuaweiSecretKey / HuaweiProjectID / HuaweiRegion —
+	// operator AK/SK for the Huawei (HCS kom4dc) provider, mounted from
+	// the `huawei-operator-creds` Secret as CATALYST_HUAWEI_ACCESS_KEY /
+	// _SECRET_KEY / _PROJECT_ID / _REGION. The handler stamps these onto
+	// each Request from the same envs before Validate() (deployments.go);
+	// these struct-held copies are the defense-in-depth backstop so
+	// Provision() can re-stamp them onto any Request that arrives with
+	// the `json:"-"` Huawei fields empty (#3716) — the same pattern as
+	// GHCRPullToken / HarborRobotToken above. Without this, the NAT-EIP
+	// pre-flight (which needs the AK/SK to rotate poisoned EIPs) silently
+	// no-ops whenever the per-Request creds aren't populated.
+	HuaweiAccessKey string
+	HuaweiSecretKey string
+	HuaweiProjectID string
+	HuaweiRegion    string
 
 	// TofuPluginCacheDir is the OpenTofu provider plugin cache directory
 	// (#3126). Set as TF_PLUGIN_CACHE_DIR on every `tofu` exec so the
@@ -1462,6 +1550,14 @@ func New() *Provisioner {
 		PowerDNSAPIKey:     os.Getenv("CATALYST_POWERDNS_API_KEY"),
 		PDMBasicAuthUser:   os.Getenv("CATALYST_PDM_BASIC_AUTH_USER"),
 		PDMBasicAuthPass:   os.Getenv("CATALYST_PDM_BASIC_AUTH_PASS"),
+		// #3716 — Huawei operator AK/SK backstop (see field docs). Read
+		// once at startup from the huawei-operator-creds-projected envs so
+		// the NAT-EIP pre-flight always has signing creds even if a Request
+		// arrives with the json:"-" Huawei fields empty.
+		HuaweiAccessKey: os.Getenv("CATALYST_HUAWEI_ACCESS_KEY"),
+		HuaweiSecretKey: os.Getenv("CATALYST_HUAWEI_SECRET_KEY"),
+		HuaweiProjectID: os.Getenv("CATALYST_HUAWEI_PROJECT_ID"),
+		HuaweiRegion:    os.Getenv("CATALYST_HUAWEI_REGION"),
 	}
 }
 
@@ -1532,6 +1628,29 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	}
 	if req.PDMBasicAuthPass == "" {
 		req.PDMBasicAuthPass = p.PDMBasicAuthPass
+	}
+	// #3716 — backstop the Huawei AK/SK from the Provisioner (loaded once
+	// from CATALYST_HUAWEI_* at New()) onto the Request, mirroring the
+	// GHCR/Harbor pattern above. The handler already stamps these from the
+	// same envs before Validate(); this guarantees the NAT-EIP pre-flight
+	// (which signs HCS API calls with these creds to rotate poisoned EIPs)
+	// still receives them on any code path that reaches Provision() with
+	// the json:"-" Huawei fields empty. Empty here = the pre-flight simply
+	// fails closed with a clear "access_key is required" instead of
+	// silently no-op'ing while a poisoned EIP blocks egress to harbor.
+	if req.Provider == "huawei" {
+		if strings.TrimSpace(req.HuaweiAccessKey) == "" {
+			req.HuaweiAccessKey = p.HuaweiAccessKey
+		}
+		if strings.TrimSpace(req.HuaweiSecretKey) == "" {
+			req.HuaweiSecretKey = p.HuaweiSecretKey
+		}
+		if strings.TrimSpace(req.HuaweiProjectID) == "" {
+			req.HuaweiProjectID = p.HuaweiProjectID
+		}
+		if strings.TrimSpace(req.HuaweiRegion) == "" {
+			req.HuaweiRegion = p.HuaweiRegion
+		}
 	}
 
 	if err := req.Validate(); err != nil {

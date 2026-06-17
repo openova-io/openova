@@ -141,13 +141,25 @@ Cutover ownership handover (TBD-C18b, 2026-05-18):
 {{- $cutoverOwned := false -}}
 {{- $existingTokenB64 := "" -}}
 {{- $preservedMintedAt := "" -}}
+{{- /* #3376 (Refs #3689): track the cutover annotation INDEPENDENTLY of
+       $cutoverOwned so the bootstrap branch never STRIPS it. Previously
+       the token-source annotation was re-emitted only inside the
+       $cutoverOwned branch (which requires both the annotation AND the
+       data key present at lookup time); any reconcile that fell through to
+       the bootstrap branch dropped the annotation, breaking the
+       provisioning-github-token.yaml ↔ cutover Step-09 contract and the
+       reflector-backed CATALYST_GITOPS_TOKEN provenance. We now preserve
+       the annotation whenever the LIVE Secret carries it, on either
+       branch. */ -}}
+{{- $annotCutover := false -}}
 {{- if and $destSecret $destSecret.metadata $destSecret.metadata.annotations -}}
   {{- $tokenSource := index $destSecret.metadata.annotations "catalyst.openova.io/token-source" -}}
   {{- if eq $tokenSource "self-sovereign-cutover-step-09" -}}
+    {{- $annotCutover = true -}}
+    {{- $preservedMintedAt = index $destSecret.metadata.annotations "catalyst.openova.io/token-minted-at" -}}
     {{- if and $destSecret.data (index $destSecret.data $destKey) -}}
       {{- $cutoverOwned = true -}}
       {{- $existingTokenB64 = index $destSecret.data $destKey -}}
-      {{- $preservedMintedAt = index $destSecret.metadata.annotations "catalyst.openova.io/token-minted-at" -}}
     {{- end -}}
   {{- end -}}
 {{- end -}}
@@ -206,12 +218,15 @@ metadata:
     reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "catalyst-system"
     reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
     reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "catalyst-system"
-    {{- if $cutoverOwned }}
-    # bp-self-sovereign-cutover Step 09 has minted a real Gitea API
-    # token and patched this Secret. Preserve the token-source +
-    # token-minted-at annotations so subsequent reconciles continue to
-    # honour the cutover ownership (the cutoverOwned branch below
-    # re-emits the existing token bytes verbatim).
+    {{- if $annotCutover }}
+    # bp-self-sovereign-cutover Step 09 has stamped this Secret. Preserve
+    # the token-source + token-minted-at annotations on EVERY branch
+    # (#3376) so a reconcile that falls through to the bootstrap branch
+    # below — e.g. the cutover token bytes momentarily absent at lookup —
+    # never STRIPS the cutover provenance and re-triggers the split
+    # contract. The $cutoverOwned data branch additionally re-emits the
+    # existing token bytes verbatim; here we only guarantee the annotation
+    # survives.
     catalyst.openova.io/token-source: "self-sovereign-cutover-step-09"
     {{- if $preservedMintedAt }}
     catalyst.openova.io/token-minted-at: {{ $preservedMintedAt | quote }}

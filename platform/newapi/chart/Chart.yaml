@@ -1,5 +1,33 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.97 (#3374/#3563, 2026-06-17): SELF-HEALING provider reload — make the
+# zero-click SSO custom-provider reload DETERMINISTIC on a fresh install. ROOT
+# CAUSE re-surfaced live on hw158: newapi's in-app OIDC callback
+# /api/oauth/sovereign returned `{"message":"Unknown OAuth provider"}` (3/3) and
+# the pod boot-logged "Loaded 0 custom OAuth providers". The `sovereign`
+# custom_oauth_providers DB row was correct (enabled, client_id/secret/endpoints
+# present, created 03:25:05) but the running NewAPI pod was NEVER restarted to
+# reload it — the Deployment carried restartCount=0 and NO
+# `catalyst.openova.io/newapi-provider-reload-hash` annotation. 1.4.91's
+# reload_newapi_provider (rollout-restart so LoadCustomProviders re-runs) is
+# CORRECT, but it ran EXACTLY ONCE in the post-install/upgrade seed Job and is
+# best-effort (`python3 /scripts/reload.py || echo`; reload.py raises
+# SystemExit(0) on any GET/PATCH error). On hw158 that one-shot silently did not
+# land (the provider INSERT and the hash-query/PATCH run microseconds apart in
+# the same script while the pod does its own first rollout — any transient
+# skip/blip leaves the annotation unset), and the per-minute promote CronJob's
+# promote.sh called ONLY promote_oidc_users, so NOTHING ever retried the reload
+# → broken forever. FIX (admin-sso-seed-job.yaml): promote.sh now ALSO calls
+# reload_newapi_provider, so the per-minute CronJob RETRIES the reload until the
+# Deployment's reload-hash annotation matches the live provider hash. Idempotent
+# + hash-gated (reload.py no-ops once cur==want — never a restart loop). No RBAC
+# or volume change: the CronJob already runs as the admin-seed SA (get+patch on
+# the NewAPI Deployment) and already mounts /scripts (incl. reload.py) + /cnpg.
+# Verified live hw158: a one-off run of reload_newapi_provider under the
+# admin-seed SA patched the Deployment ("rollout-restart triggered ... provider
+# hash none -> 593838668f7a") and rolled a fresh pod — proving the mechanism is
+# sound and only its retry cadence was missing. Lockstep: 80-newapi.yaml pin +
+# blueprint.yaml → 1.4.97. Refs #3374, #3563.
 # 1.4.93 (#3563, 2026-06-15): zero-click RE-login fix — the bare-URL SSO landing
 # page (sandbox-bridge sso_init.go 0.1.17) is now IDEMPOTENT. After 1.4.92 the
 # FIRST bare-URL visit bound the SSO identity to a NewAPI user (role=100) and
@@ -646,7 +674,12 @@ name: bp-newapi
 # URL/client_id are unset the page degrades to the SPA /login link. The bridge
 # IMAGE TAG + a further chart patch bump are auto-committed by
 # build-bp-newapi-sandbox-bridge.yaml on merge (push to internal/handler/**).
-version: 1.4.96
+# 1.4.99 (#3687, extends #3370): bootstrap self-registration —
+# templates/application-cr.yaml renders the canonical apps.openova.io/v1
+# Application CR for the slot-80 HelmRelease (gated bootstrapOwned.enabled
+# + Capabilities apps.openova.io/v1) so the console /apps list, per-app
+# Topology tab + showback resolve newapi (no more "no Application CR").
+version: 1.4.100
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

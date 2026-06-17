@@ -42,6 +42,14 @@ metadata:
     catalyst.openova.io/section: pts-7-sme-tenant
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.2.0"
   visibility: listed
@@ -145,6 +153,14 @@ metadata:
     catalyst.openova.io/category: database
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -242,6 +258,14 @@ metadata:
     catalyst.openova.io/companion: bp-cnpg
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.1.1"
   visibility: listed
@@ -401,6 +425,14 @@ metadata:
     catalyst.openova.io/category: identity
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -499,6 +531,14 @@ metadata:
     catalyst.openova.io/category: observability
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -625,6 +665,14 @@ metadata:
     catalyst.openova.io/category: observability
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -685,6 +733,14 @@ metadata:
     catalyst.openova.io/category: observability
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -766,6 +822,14 @@ metadata:
     catalyst.openova.io/category: database
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -828,6 +892,14 @@ metadata:
     catalyst.openova.io/category: analytics
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -919,6 +991,14 @@ metadata:
     catalyst.openova.io/category: search
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -1027,6 +1107,14 @@ metadata:
     catalyst.openova.io/category: workflow
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -1115,6 +1203,14 @@ metadata:
     catalyst.openova.io/category: automation
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -1204,6 +1300,14 @@ metadata:
     catalyst.openova.io/category: ai
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -1292,6 +1396,14 @@ metadata:
     catalyst.openova.io/category: ai
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -1399,6 +1511,14 @@ metadata:
     catalyst.openova.io/section: pts-3-observability
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.1"
   visibility: listed
@@ -1465,6 +1585,14 @@ metadata:
     catalyst.openova.io/section: pts-4-6-llm-serving
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -1539,6 +1667,14 @@ metadata:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.2.3"
   visibility: listed
@@ -1638,6 +1774,14 @@ metadata:
     catalyst.openova.io/section: pts-4-6-ai-ml
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: unlisted
@@ -1734,6 +1878,14 @@ metadata:
     catalyst.openova.io/section: pts-3-3-security-and-policy
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -1800,6 +1952,14 @@ metadata:
     catalyst.openova.io/section: pts-4-5-communication
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -1895,6 +2055,14 @@ metadata:
     catalyst.openova.io/section: pts-4-5-communication
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.1.0"
   visibility: listed
@@ -1997,6 +2165,14 @@ metadata:
     catalyst.openova.io/section: pts-3-observability
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.5"
   visibility: listed
@@ -2069,6 +2245,14 @@ metadata:
     catalyst.openova.io/section: pts-4-7-ai-safety
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -2135,6 +2319,14 @@ metadata:
     catalyst.openova.io/section: pts-4-6-llm-serving
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.4.63"
   visibility: listed
@@ -2235,6 +2427,14 @@ metadata:
     catalyst.openova.io/section: pts-4-7-agentic-workspace
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.2.0"
   visibility: listed
@@ -2299,6 +2499,14 @@ metadata:
     catalyst.openova.io/section: pts-4-8-identity-and-metering
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.1.0"
   visibility: listed
@@ -2401,6 +2609,14 @@ metadata:
     catalyst.openova.io/section: pts-3-observability
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.2.1"
   visibility: listed
@@ -2460,6 +2676,14 @@ metadata:
     catalyst.openova.io/section: pts-3-5-storage-and-data
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.2.1"
   visibility: unlisted
@@ -2528,6 +2752,14 @@ metadata:
     catalyst.openova.io/section: pts-4-5-communication
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.1.3"
   visibility: listed
@@ -2647,6 +2879,14 @@ metadata:
     catalyst.openova.io/section: pts-4-5-communication
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: unlisted
@@ -2736,6 +2976,14 @@ metadata:
     catalyst.openova.io/section: pts-3-observability
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -2808,6 +3056,14 @@ metadata:
     catalyst.openova.io/section: pts-4-1-data-services
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.1.0"
   visibility: unlisted
@@ -2905,6 +3161,14 @@ metadata:
     catalyst.openova.io/section: pts-3-observability
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.2.2"
   visibility: listed
@@ -2967,6 +3231,14 @@ metadata:
     catalyst.openova.io/section: pts-3-observability
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.1.0"
   visibility: listed
@@ -3037,6 +3309,14 @@ metadata:
     catalyst.openova.io/section: pts-4-6-llm-serving
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: listed
@@ -3124,6 +3404,14 @@ metadata:
     catalyst.openova.io/category: platform
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.2.26"
   visibility: unlisted
@@ -3225,6 +3513,14 @@ metadata:
     catalyst.openova.io/category: platform
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.2.25"
   visibility: unlisted
@@ -3353,6 +3649,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.4.539"
   visibility: unlisted
@@ -3439,13 +3743,21 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
-  version: "1.2.5"
+  version: "1.2.6"
   visibility: unlisted
   card:
     title: "cert-manager"
     category: platform
-    summary: "X.509 certificate automation for Kubernetes — Let's Encrypt ACME issuance, renewal, and the wildcard ClusterIssuer every Sovereign HTTPRoute terminates against."
+    summary: "X.509 certificate automation for Kubernetes — Let's Encrypt ACME issuance, renewal, and the controllers + CRDs the Sovereign's ClusterIssuers (bp-cert-manager-issuers) bind against."
     icon: cert-manager.svg
   placementSchema:
     modes: [single-region]
@@ -3457,7 +3769,66 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cert-manager
-    version: "1.2.5"
+    version: "1.2.6"
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-cert-manager-issuers
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: security
+    catalyst.openova.io/section: pts-1-control-plane
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
+spec:
+  version: "1.0.0"
+  visibility: unlisted
+  card:
+    title: "cert-manager — Issuers"
+    category: security
+    summary: "The Sovereign's Let's Encrypt ClusterIssuers (letsencrypt-dns01-prod, letsencrypt-http01-prod). Split from bp-cert-manager (#3734) into a separate HelmRelease (dependsOn bp-cert-manager) so a fresh helm-controller reconcile maps the ClusterIssuer kind after its CRD registers."
+    icon: cert-manager.svg
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-cert-manager-issuers
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-cert-manager-issuers
+    version: "1.0.0"
   topology:
     supported:
       - singleton
@@ -3490,6 +3861,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.1.0"
   visibility: unlisted
@@ -3536,6 +3915,14 @@ metadata:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.4.0"
   visibility: unlisted
@@ -3594,6 +3981,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.3.0"
   visibility: unlisted
@@ -3640,6 +4035,14 @@ metadata:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: unlisted
@@ -3686,6 +4089,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.1.4"
   visibility: unlisted
@@ -3732,6 +4143,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.1.5"
   visibility: unlisted
@@ -3778,6 +4197,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.1.8"
   visibility: unlisted
@@ -3824,6 +4251,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.1.1"
   visibility: unlisted
@@ -3875,6 +4310,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.6"
   visibility: unlisted
@@ -3926,6 +4369,14 @@ metadata:
     catalyst.openova.io/section: pts-3-observability
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.1"
   visibility: unlisted
@@ -3977,6 +4428,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.2.6"
   visibility: unlisted
@@ -4028,6 +4487,14 @@ metadata:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.1.0"
   visibility: unlisted
@@ -4079,6 +4546,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.2.24"
   visibility: unlisted
@@ -4167,6 +4642,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: unlisted
@@ -4213,6 +4696,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.1.14"
   visibility: unlisted
@@ -4276,6 +4767,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.3.6"
   visibility: unlisted
@@ -4327,6 +4826,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.28"
   visibility: unlisted
@@ -4378,6 +4885,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.3.3"
   visibility: unlisted
@@ -4444,6 +4959,14 @@ metadata:
     catalyst.openova.io/section: pts-3-observability
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.4"
   visibility: unlisted
@@ -4490,6 +5013,14 @@ metadata:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.2.9"
   visibility: unlisted
@@ -4555,6 +5086,14 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.1.5"
   visibility: unlisted
@@ -4629,6 +5168,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: unlisted
@@ -4680,6 +5227,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: unlisted
@@ -4731,6 +5286,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.1.2"
   visibility: unlisted
@@ -4777,6 +5340,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.1.56"
   visibility: unlisted
@@ -4827,6 +5398,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: unlisted
@@ -4882,6 +5461,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.2.15"
   visibility: unlisted
@@ -4945,6 +5532,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.0"
   visibility: unlisted
@@ -4991,6 +5586,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.3"
   visibility: unlisted
@@ -5037,6 +5640,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "1.0.1"
   visibility: unlisted
@@ -5083,6 +5694,14 @@ metadata:
     catalyst.openova.io/section: pts-9-disaster-recovery
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.1.4"
   visibility: unlisted
@@ -5156,6 +5775,14 @@ metadata:
     catalyst.openova.io/section: pts-3-observability
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.2.3"
   visibility: unlisted
@@ -5202,6 +5829,14 @@ metadata:
     catalyst.openova.io/section: pts-3-observability
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.1.1"
   visibility: unlisted
@@ -5253,6 +5888,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.2.6"
   visibility: unlisted
@@ -5299,6 +5942,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.2.5"
   visibility: unlisted
@@ -5345,6 +5996,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.2.6"
   visibility: unlisted
@@ -5391,6 +6050,14 @@ metadata:
     catalyst.openova.io/section: pts-1-control-plane
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.2.0"
   visibility: unlisted
@@ -5437,6 +6104,14 @@ metadata:
     catalyst.openova.io/section: pts-4-sandbox
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.3.10"
   visibility: unlisted
@@ -5564,6 +6239,14 @@ metadata:
     catalyst.openova.io/companion: bp-cnpg
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate. catalog-seed seeds the CR once (the t=0 fallback
+    # for un-curated Blueprints); Flux owns it post-edit and a helm upgrade
+    # must not claw it back (DoD §9.4).
+    helm.sh/resource-policy: keep
 spec:
   version: "0.1.6"
   visibility: listed

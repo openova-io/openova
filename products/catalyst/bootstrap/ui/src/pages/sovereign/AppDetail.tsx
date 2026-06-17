@@ -60,6 +60,7 @@ import {
   type ApplicationDetailResponse,
 } from '@/lib/catalog.api'
 import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
+import { getHierarchicalInfrastructure } from '@/lib/infrastructure.types'
 import { ComplianceTab } from './AppDetail/ComplianceTab'
 import { ContextsTab } from './AppDetail/ContextsTab'
 import { PerClusterTable } from './AppDetail/InstancesSection'
@@ -251,7 +252,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   const appDependsOn = apiApp?.dependsOn ?? []
   const appRegions = apiApp?.regions ?? []
   const appLastReconciled = apiApp?.lastReconciledAt ?? ''
-  const appPlacement = apiApp?.placement ?? 'single-region'
+  const appPlacement = apiApp?.placement ?? 'singleton'
   const appPrimaryRegion = apiApp?.primaryRegion ?? appRegions[0] ?? ''
   // Family B (2026-05-17 t10 C4-005/007): the namespace the workload
   // actually lives in (HR spec.targetNamespace), and the label that
@@ -736,6 +737,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               applicationName={componentId}
               namespace={appNamespace}
               callerTier={callerTier}
+              isBootstrap={appIsBootstrap}
             />
           </div>
         ) : appTab === 'resources' ? (
@@ -788,7 +790,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
           </div>
         ) : appTab === 'jobs' ? (
           <div role="tabpanel" data-testid="app-tab-jobs-panel" className="app-tabpanel">
-            <JobsTable jobs={flatJobs} appIdFilter={componentId} />
+            <JobsTable jobs={flatJobs} appIdFilter={componentId} deploymentId={deploymentId} />
           </div>
         ) : (
           <div role="tabpanel" data-testid="app-tab-dependencies-panel" className="app-tabpanel">
@@ -1257,6 +1259,46 @@ function OverviewPanel({
             ? 'Degraded'
             : 'Pending')
 
+  // #3659 — the "Available regions" list MUST come from the Sovereign's
+  // own live infrastructure topology, NOT a hardcoded Hetzner placeholder.
+  // Same source the Topology tab uses (getHierarchicalInfrastructure keyed
+  // on the deploymentId / sovereignId) so a Huawei prov shows me-east-215-a/b
+  // and a Hetzner prov shows the operator's actual hz-* clusters. The query
+  // key matches TopologyTab's so the two share one cache entry — no extra
+  // round-trip when the operator flips between Overview and Topology.
+  const infraQ = useQuery({
+    queryKey: ['infrastructure-topology', deploymentId],
+    queryFn: () => getHierarchicalInfrastructure(deploymentId),
+    enabled: !!deploymentId,
+    staleTime: 60_000,
+  })
+
+  // Build "<cluster> (<cloud-region>)" entries from the live topology —
+  // generic across providers, never a provider literal. Each RegionSpec
+  // carries `providerRegion` (the cloud code e.g. me-east-215-a / fsn1)
+  // and `clusters[].name` (the catalyst cluster id e.g. hz-fsn-rtz-prod).
+  // Fall back to the app's own placement regions when the topology call
+  // hasn't resolved (or the BE returned none) so we never show a wrong
+  // hardcoded list — at worst we show the live placement, at best the
+  // full Sovereign region inventory.
+  const availableRegions = useMemo<string[]>(() => {
+    const regions = infraQ.data?.topology?.regions ?? []
+    const out: string[] = []
+    for (const region of regions) {
+      const code = region.providerRegion || region.name
+      const clusters = region.clusters ?? []
+      if (clusters.length === 0) {
+        if (code) out.push(code)
+        continue
+      }
+      for (const cluster of clusters) {
+        out.push(code ? `${cluster.name} (${code})` : cluster.name)
+      }
+    }
+    if (out.length === 0) return [...appRegions]
+    return Array.from(new Set(out)).sort()
+  }, [infraQ.data, appRegions])
+
   return (
     <>
       {/* Identity / status table — duplicates the hero chips as
@@ -1511,33 +1553,45 @@ function OverviewPanel({
       </section>
 
       {/*
-        Region availability — qa-loop iter-16 Fix #67. TC-069/TC-112
-        expect literal region tokens (fsn1, hel) visible on AppDetail
-        even when the live placement is single-region. Render the
-        cluster-known regions as a structural list so the snapshot
-        always includes them.
+        Region availability — #3659. Sourced from the Sovereign's OWN live
+        infrastructure topology (see `availableRegions` above), NOT a
+        hardcoded Hetzner placeholder. On a Huawei prov this surfaces the
+        real me-east-215-a/-b cluster codes; on a Hetzner prov the hz-*
+        clusters the operator actually provisioned. When the topology call
+        hasn't resolved a single region we show an explicit empty state
+        rather than a misleading hardcoded list.
       */}
       <section className="section" data-testid="sov-section-regions">
         <h2>Available regions</h2>
-        <ul
-          className="dep-list"
-          aria-label="Available cluster regions"
-          style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', listStyle: 'none', padding: 0 }}
-        >
-          {(['hz-fsn-rtz-prod (fsn1)', 'hz-hel-rtz-prod (hel)'] as const).map((r) => (
-            <li
-              key={r}
-              data-testid={`app-detail-region-known-${r.split(' ')[0]}`}
-              className="chip chip-region"
-              style={{
-                background: 'color-mix(in srgb, var(--color-accent) 14%, transparent)',
-                color: 'var(--color-accent)',
-              }}
-            >
-              {r}
-            </li>
-          ))}
-        </ul>
+        {availableRegions.length > 0 ? (
+          <ul
+            className="dep-list"
+            aria-label="Available cluster regions"
+            style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', listStyle: 'none', padding: 0 }}
+          >
+            {availableRegions.map((r) => (
+              <li
+                key={r}
+                data-testid={`app-detail-region-known-${r.split(' ')[0]}`}
+                className="chip chip-region"
+                style={{
+                  background: 'color-mix(in srgb, var(--color-accent) 14%, transparent)',
+                  color: 'var(--color-accent)',
+                }}
+              >
+                {r}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p
+            className="muted"
+            data-testid="app-detail-regions-empty"
+            style={{ color: 'var(--color-text-dim)', fontSize: '0.85rem' }}
+          >
+            Region inventory unavailable.
+          </p>
+        )}
       </section>
 
       {/*

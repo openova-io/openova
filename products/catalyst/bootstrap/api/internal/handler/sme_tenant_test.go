@@ -638,7 +638,7 @@ func TestRenderSMETenantOverlay_NewAPIEmitted(t *testing.T) {
 		"name: bp-newapi",
 		"namespace: sme-t-alice",
 		"chart: bp-newapi",
-		`version: "*"`, // unconfigured chart version falls back to "*"
+		`version: "*"`,    // unconfigured chart version falls back to "*"
 		"name: bp-newapi", // sourceRef.name
 	} {
 		if !strings.Contains(body, want) {
@@ -837,6 +837,50 @@ func TestRenderSMETenantOverlay_WordPressEmitsOIDC(t *testing.T) {
 	// import + Secret materialisation.
 	if !strings.Contains(body, "name: bp-keycloak") {
 		t.Errorf("expected dependsOn bp-keycloak in bp-wordpress-tenant.yaml")
+	}
+}
+
+// #3785 (Refs #3376 #3761) — the WordPress HelmRelease MUST set
+// global.imageRegistry to the Sovereign Harbor DockerHub proxy-cache so the
+// chart's main + wp-cli images (Docker Hub `wordpress`) route through
+// `<registry>/proxy-dockerhub/...` and pass the harbor-proxy-pull Kyverno
+// ClusterPolicy (Enforce). Without this the customer's purchased app is
+// admission-denied and never Runs — the funnel's terminal acceptance.
+func TestRenderSMETenantOverlay_WordPressImageProxiedThroughHarbor(t *testing.T) {
+	rec := store.SMETenantProvisionRecord{
+		SMETenantID:     "t-alice",
+		Subdomain:       "alice",
+		ParentDomain:    "omantel.omani.works",
+		DomainMode:      store.SMEDomainFreeSubdomain,
+		AdminEmail:      "admin@alice.test",
+		CompanyName:     "Alice Corp",
+		OTECHFQDN:       "otech107.omani.works",
+		VClusterName:    "vc-alice",
+		TenantNamespace: "sme-t-alice",
+	}
+
+	// Default registry (env unset) → harbor.openova.io.
+	t.Setenv("CATALYST_VCLUSTER_IMAGE_REGISTRY", "")
+	files, err := renderSMETenantOverlay(rec, SMETenantChartVersions{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := files["bp-wordpress-tenant.yaml"]
+	if !strings.Contains(body, "    global:") ||
+		!strings.Contains(body, "      imageRegistry: harbor.openova.io/proxy-dockerhub") {
+		t.Fatalf("WordPress HR must proxy images via global.imageRegistry harbor.openova.io/proxy-dockerhub\n--- rendered ---\n%s", body)
+	}
+
+	// Operator override (Principle #4) → the post-cutover Harbor host.
+	t.Setenv("CATALYST_VCLUSTER_IMAGE_REGISTRY", "harbor.alice.omantel.omani.works")
+	files2, err := renderSMETenantOverlay(rec, SMETenantChartVersions{})
+	if err != nil {
+		t.Fatalf("render (override): %v", err)
+	}
+	if !strings.Contains(files2["bp-wordpress-tenant.yaml"],
+		"      imageRegistry: harbor.alice.omantel.omani.works/proxy-dockerhub") {
+		t.Errorf("CATALYST_VCLUSTER_IMAGE_REGISTRY override not honoured in WordPress HR\n%s",
+			files2["bp-wordpress-tenant.yaml"])
 	}
 }
 

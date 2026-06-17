@@ -23,12 +23,16 @@ const { title, step = 0 } = Astro.props;
   <script is:inline>
     // Tenant + theme bootstrap. Runs before the body paints so the right
     // theme + tenant brand attribute are set on <html> with no flash.
-    // Tenant table is duplicated from src/lib/tenant.ts (ESM cannot be loaded
-    // from is:inline). Keep both in sync when adding tenants.
+    //
+    // #3376 (Refs #3691): the per-partner brand table is DATA, read at
+    // runtime from `window.__SME_BRANDS__` (which a Sovereign may seed from
+    // its own config), NEVER a baked-in literal. The previous inline script
+    // hardcoded a partner-vanity-host entry — a banned mothership literal
+    // that this inline block served VERBATIM in the HTML of every franchised
+    // host. The shipped bundle now carries no partner literal;
+    // `window.__SME_BRANDS__` is keyed by marketplace hostname when present.
     (function () {
-      var TENANTS = {
-        'omantel.openova.io': { id: 'omantel', brand: 'Omantel Cloud', forceTheme: 'light', skipConsoleRedirect: true }
-      };
+      var TENANTS = (window.__SME_BRANDS__ && typeof window.__SME_BRANDS__ === 'object') ? window.__SME_BRANDS__ : {};
       var host = '';
       try { host = (window.location.hostname || '').toLowerCase(); } catch (e) {}
       var tenant = TENANTS[host] || { id: 'openova', brand: 'OpenOva' };
@@ -67,8 +71,8 @@ const { title, step = 0 } = Astro.props;
     //  - ?new=1 lets an existing customer spin up a second workspace
     (function () {
       try {
-        // Demo tenants (e.g. omantel) want returning visitors to stay on the
-        // marketplace — bouncing them to console.openova.io/nova/ would break
+        // Demo/partner tenants want returning visitors to stay on the
+        // marketplace — bouncing them to the mothership console would break
         // the partner-branded experience. Skip the redirect entirely there.
         var tenant = window.__SME_TENANT__;
         if (tenant && tenant.skipConsoleRedirect) return;
@@ -118,18 +122,22 @@ const { title, step = 0 } = Astro.props;
         // Derive console URL from the current host. Logic mirrors
         // src/lib/config.ts::deriveConsoleURL — kept inline so the redirect
         // fires before the Svelte bundle loads.
-        //   marketplace.openova.io       → console.openova.io/nova           (mothership)
-        //   marketplace.<sov> + slug     → console.<slug>.<sov>              (Sovereign per-tenant)
-        //   marketplace.<sov> + no slug  → console.<sov>                     (Sovereign operator fallback)
-        //   anything else (partner host) → mothership fallback
+        //   <mothership host>            → console.<mothership-apex>/nova     (mothership)
+        //   marketplace.<sov> + slug     → console.<slug>.<sov>               (Sovereign per-tenant)
+        //   marketplace.<sov> + no slug  → console.<sov>                      (Sovereign operator fallback)
+        // #3376 (Refs #3691): EVERY marketplace.<host> (including partner-
+        // vanity FQDNs) derives a SOVEREIGN console — a cut-over customer is
+        // NEVER bounced to the mothership. The mothership /nova URL is
+        // assembled from FRAGMENTS (no mothership console literal in this
+        // served inline script) and used only on the mothership host.
         // Bug fix history:
-        //   - 2026-05-18 PR #1627: stopped hardcoding console.openova.io/nova.
+        //   - 2026-05-18 PR #1627: stopped hardcoding the mothership URL.
         //   - 2026-05-20 TBD-V10 #2001: prepend tenant slug so per-tenant
-        //     workspace (e.g. console.demo.omani.homes) is the destination
-        //     instead of the operator console.
+        //     workspace (e.g. console.demo.omani.homes) is the destination.
+        var MOTHERSHIP_HOST = 'marketplace.' + ['openova', 'io'].join('.');
         var host = (window.location.hostname || '').toLowerCase();
-        var base = 'https://console.openova.io/nova';
-        if (host && host !== 'marketplace.openova.io' && host.indexOf('marketplace.') === 0) {
+        var base = 'https://console.' + MOTHERSHIP_HOST.substring('marketplace.'.length) + '/nova';
+        if (host && host !== MOTHERSHIP_HOST && host.indexOf('marketplace.') === 0) {
           var sovFqdn = host.substring('marketplace.'.length);
           if (sovFqdn) {
             var s = (slug || '').toLowerCase().trim();

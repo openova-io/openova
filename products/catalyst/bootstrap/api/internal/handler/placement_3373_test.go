@@ -11,18 +11,23 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/instances"
 )
 
-func TestNewApplicationUnstructured_LegacyStringForm(t *testing.T) {
+func TestNewApplicationUnstructured_StringForm_StoresCanonical(t *testing.T) {
 	req := applicationInstallRequest{
 		BlueprintRef:    applicationBlueprintRef{Name: "bp-wp", Version: "1.0.0"},
 		Name:            "site",
 		OrganizationRef: "acme",
 		EnvironmentRef:  "acme-prod",
-		Placement:       applicationPlacement{Mode: "single-region", Regions: []string{"fsn"}},
+		// Legacy editor dialect on the wire …
+		Placement: applicationPlacement{Mode: "single-region", Regions: []string{"fsn"}},
 	}
 	obj := newApplicationUnstructured(req)
 	pl, ok, err := unstructured.NestedString(obj.Object, "spec", "placement")
-	if err != nil || !ok || pl != "single-region" {
-		t.Fatalf("legacy callers must keep the byte-identical string form, got (%q, %v, %v)", pl, ok, err)
+	// One vocabulary (#3375 DoD-1): the CR STORES the canonical token —
+	// the legacy "single-region" is folded to "singleton" so every CR
+	// carries one vocabulary the resolver/render path can rely on. The
+	// string form is preserved (still a string, not the object form).
+	if err != nil || !ok || pl != "singleton" {
+		t.Fatalf("legacy single-region must store the canonical singleton string, got (%q, %v, %v)", pl, ok, err)
 	}
 }
 
@@ -45,8 +50,10 @@ func TestNewApplicationUnstructured_ObjectFormWhenVClusterSet(t *testing.T) {
 		t.Fatalf("spec.placement.vcluster = %q, want rtz", vc)
 	}
 	mode, _, _ := unstructured.NestedString(obj.Object, "spec", "placement", "mode")
-	if mode != "single-region" {
-		t.Fatalf("spec.placement.mode = %q, want single-region", mode)
+	// One vocabulary (#3375 DoD-1): the object form's mode also stores
+	// the canonical token (legacy single-region folded to singleton).
+	if mode != "singleton" {
+		t.Fatalf("spec.placement.mode = %q, want canonical singleton", mode)
 	}
 	clusters, _, _ := unstructured.NestedSlice(obj.Object, "spec", "placement", "clusters")
 	if len(clusters) != 1 || clusters[0] != "mgmt-A" {
@@ -103,7 +110,7 @@ func TestNewApplicationCRFromSeed_PlacementObjectStamped(t *testing.T) {
 	}
 }
 
-func TestNewApplicationCRFromSeed_NoPlacement_LegacyString(t *testing.T) {
+func TestNewApplicationCRFromSeed_NoPlacement_StringForm(t *testing.T) {
 	seed := instances.ApplicationSeed{
 		Name:      "obs",
 		Namespace: "acme",
@@ -112,13 +119,29 @@ func TestNewApplicationCRFromSeed_NoPlacement_LegacyString(t *testing.T) {
 	}
 	obj := newApplicationCRFromSeed(seed)
 	pl, ok, err := unstructured.NestedString(obj.Object, "spec", "placement")
-	// Post-#3370 merge: the legacy STRING form is the DR-posture enum
-	// (single-region|active-active|active-hotstandby) — raw topology
-	// strings like "singleton" are NOT admissible on the real
-	// apiserver, so the silent-accept flow maps through
-	// placementForTopology (singleton → single-region).
-	if err != nil || !ok || pl != "single-region" {
-		t.Fatalf("silent-accept flow must stamp the mapped DR-posture enum, got (%q, %v, %v)", pl, ok, err)
+	// One vocabulary (#3375 DoD-1): the silent-accept string form stamps
+	// the CANONICAL token via placementForTopology. A "singleton" topology
+	// maps to the canonical "singleton" placement (no longer rewritten to
+	// the legacy "single-region"); the catalog placementSchema, the
+	// editors, and the resolver all speak this single set.
+	if err != nil || !ok || pl != "singleton" {
+		t.Fatalf("silent-accept flow must stamp the canonical placement token, got (%q, %v, %v)", pl, ok, err)
+	}
+}
+
+// A legacy / hyphen-variant topology choice on the seed still folds to
+// the canonical placement token on the string form.
+func TestNewApplicationCRFromSeed_LegacyTopologyFoldsToCanonical(t *testing.T) {
+	seed := instances.ApplicationSeed{
+		Name:      "obs",
+		Namespace: "acme",
+		Blueprint: "bp-grafana",
+		Topology:  "active-hotstandby", // legacy spelling
+	}
+	obj := newApplicationCRFromSeed(seed)
+	pl, _, _ := unstructured.NestedString(obj.Object, "spec", "placement")
+	if pl != "active-hot-standby" {
+		t.Fatalf("legacy active-hotstandby topology must stamp canonical active-hot-standby, got %q", pl)
 	}
 }
 

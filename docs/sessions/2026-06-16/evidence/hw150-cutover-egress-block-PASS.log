@@ -1,0 +1,29 @@
+[egress-block-test] verifying post-cutover URLs are local
+  gitrepository.openova.url=http://gitea-http.gitea.svc.cluster.local:3000/openova/openova
+[egress-block-test] #3526: force-reconciling Step-06's durable git-push before asserting HelmRepository pivot
+  reconcile requested: gitrepository/openova
+  reconcile requested: kustomization/bootstrap-kit
+  external HelmRepositories still pointing at ghcr.io/openova-io (excluding slot-managed self-refs): 0
+[egress-block-test] HelmRepository pivot converged — all external HelmRepositories on local Harbor
+  catalyst-api env CATALYST_GITOPS_REPO_URL=http://gitea-http.gitea.svc.cluster.local:3000/openova/openova
+[egress-block-test] enforce mode ON — resolving upstream hosts to CIDRs
+  block github.com -> 20.205.243.166/32
+  block ghcr.io -> 20.205.243.164/32
+  block harbor.openova.io -> 45.151.123.50/32
+  block xpkg.upbound.io -> 34.111.161.63/32
+ciliumclusterwidenetworkpolicy.cilium.io/cutover-egress-block created
+[egress-block-test] egressDeny applied — hidden runtime tethers will now surface as NotReady
+[egress-block-test] #3647: FRESH-PULL proof — rolling one openova-io workload under deny-egress
+  target Deployment: catalyst-system/catalyst-application-controller
+  deleting Pod catalyst-system/catalyst-application-controller-65c57c9c5c-czcsg (ReplicaSet will recreate it → forces a fresh image pull)
+  ...new Pod catalyst-system/catalyst-application-controller-65c57c9c5c-k7wjc phase=Pending ready=False; re-checking in 10s
+  PASS — new Pod catalyst-system/catalyst-application-controller-65c57c9c5c-k7wjc reached Running (image pulled from local Harbor with external egress denied) at 11s
+[egress-block-test] capturing baseline NotReady set
+[egress-block-test] baseline pre-existing NotReady items (excluded from regression check):
+  baseline KS flux-system/sme-tenants=False
+  baseline KS flux-system/sovereign-tls=False
+[egress-block-test] entering 600s survival window — only NEW NotReady regressions count as failure
+[egress-block-test] window complete; new-regression-cycles=0
+ciliumclusterwidenetworkpolicy.cilium.io "cutover-egress-block" deleted
+[egress-block-test] egressDeny removed
+[egress-block-test] no new regressions during 600s window — sovereignty proof PASSED

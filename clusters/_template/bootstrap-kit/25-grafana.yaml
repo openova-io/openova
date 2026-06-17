@@ -46,7 +46,7 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-grafana
-  namespace: flux-system
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
     catalyst.openova.io/slot: "25"
 spec:
@@ -56,6 +56,7 @@ spec:
   targetNamespace: grafana
   dependsOn:
     - name: bp-cnpg
+      namespace: flux-system
     # #2745 (2026-06-12): bp-loki/bp-mimir/bp-tempo HRs re-homed to host
     # ns `mgmt` (mgmt vCluster placement). A bare `name:` resolves in
     # THIS HR's namespace (flux-system) → dangling dep → grafana wedges
@@ -73,6 +74,7 @@ spec:
     # bp-gateway-api (issue #503): chart ships an HTTPRoute template;
     # gateway.networking.k8s.io/v1 CRDs must be registered first.
     - name: bp-gateway-api
+      namespace: flux-system
     # bp-external-secrets (#3374, 2026-06-14 — #2988 gold-standard pattern,
     # mirrors bp-harbor slot 19): the chart ships
     # templates/sso-oauth-source-externalsecret.yaml which renders grafana's
@@ -90,6 +92,7 @@ spec:
     # grafana wait for the ESO webhook to be Ready so its chart-side ES
     # renders into the grafana namespace at install time.
     - name: bp-external-secrets
+      namespace: flux-system
     # bp-postgres-shared-b (#3188 three-instance model): when grafana
     # SHARES the shared-pg-b instance, gate on it so the grafana Database
     # + role + reflector-pushed `grafana-database-env` hub Secret exist
@@ -98,6 +101,7 @@ spec:
     # within seconds of bp-cnpg + bp-reflector (same unconditional-edge
     # shape as bp-gitea/bp-harbor → bp-postgres-shared).
     - name: bp-postgres-shared-b
+      namespace: flux-system
   chart:
     spec:
       chart: bp-grafana
@@ -119,7 +123,12 @@ spec:
       # 1.0.13's 64Mi OOMKilled the searchNamespace=ALL k8s-sidecar (exitCode
       # 137 CrashLoopBackOff) → Pod stuck 1/3 NotReady → route 503 despite the
       # main grafana container serving SSO. Refs #3374.
-      version: 1.0.14
+      # 1.0.15 (#3687, extends #3370): bootstrap self-registration — the
+      # chart renders the canonical apps.openova.io/v1 Application CR for
+      # this slot's HelmRelease (adoption-guarded, Capabilities-gated) so
+      # the console /apps list, per-app Topology tab + showback resolve
+      # grafana instead of "n/a — bootstrap component, no Application CR".
+      version: 1.0.15
       sourceRef:
         kind: HelmRepository
         name: bp-grafana
@@ -139,6 +148,16 @@ spec:
   # (platform/grafana/chart/templates/httproute.yaml). The HTTPRoute
   # attaches to cilium-gateway/kube-system installed by 01-cilium.yaml.
   values:
+    # ── Bootstrap self-registration (#3687, extends #3370) ──────────────
+    # The chart self-registers the Application CR for grafana (the
+    # canonical instance representation every console surface reads),
+    # marked spec.bootstrap=true so the application-controller ADOPTS
+    # this HR's install instead of re-rendering it (zero duplicate HRs).
+    bootstrapOwned:
+      enabled: true
+      helmRelease:
+        name: bp-grafana
+        namespace: flux-system
     gateway:
       host: grafana.${SOVEREIGN_FQDN}
     # G91.grafana (#2658) — wire bp-sso-bridge framework. The chart-side

@@ -217,6 +217,42 @@ data:
         "/sovereign-viewers"
       ],
       {{- /*
+      #3374 Layer-C (2026-06-17) — ONE admin authority: the catalyst-*
+      realm-role chain.
+
+      The operator console's RBAC (auth.go / whoami) keys on the
+      `catalyst-{viewer,developer,operator,admin,owner}` realm roles.
+      Before this block those roles existed ONLY as strings the
+      catalyst-api PIN-mint asserted in a self-signed JWT (System A in
+      #3374 §3-c) — they were NEVER real Keycloak realm roles, so a
+      genuinely Keycloak-federated operator (catalyst-ui PKCE) could not
+      be admin no matter what groups they held. Defining them here as
+      real composite realm roles makes the console-RBAC vocabulary a
+      first-class part of the realm, grantable + compositable like any
+      other role — the precondition for the `/sovereign-admins` group
+      below to confer `catalyst-admin` generically.
+
+      Inheritance composite chain (viewer < developer < operator <
+      admin < owner), mirroring whoamiTierInheritance in auth.go: each
+      higher role `composites.realm` the one below it, so holding
+      `catalyst-admin` effectively grants viewer/developer/operator too
+      — the SAME inheritance the whoamiInjectTierRoles projection
+      applies, now sourced from Keycloak rather than synthesized.
+      */ -}}
+      "roles": {
+        "realm": [
+          { "name": "catalyst-viewer",    "description": "Catalyst console: read-only operator." },
+          { "name": "catalyst-developer", "description": "Catalyst console: developer tier.",
+            "composite": true, "composites": { "realm": ["catalyst-viewer"] } },
+          { "name": "catalyst-operator",  "description": "Catalyst console: operator tier.",
+            "composite": true, "composites": { "realm": ["catalyst-developer"] } },
+          { "name": "catalyst-admin",     "description": "Catalyst console: admin tier (BSS + RBAC nav).",
+            "composite": true, "composites": { "realm": ["catalyst-operator"] } },
+          { "name": "catalyst-owner",     "description": "Catalyst console: Sovereign owner.",
+            "composite": true, "composites": { "realm": ["catalyst-admin"] } }
+        ]
+      },
+      {{- /*
       #3374 (2026-06-13) — sovereign-admin access model for the Keycloak
       admin console (the IdP's own UI, the last login-form holdout).
       Members of /sovereign-admins receive the realm-management
@@ -229,10 +265,26 @@ data:
       existing realms too. The master realm + its local form remain
       untouched (not the default path; bp-keycloak httproute now 302s
       the bare root to the sovereign realm console).
+
+      #3374 Layer-C (2026-06-17) — ONE membership lights up ALL surfaces.
+      The group now composites BOTH the KC-console role (realm-management
+      `realm-admin`, the IdP's own UI) AND the `catalyst-admin` realm
+      role (the operator console's RBAC), via `realmRoles`. This closes
+      the #3374 §3-c disjunction: previously the group carried ONLY
+      realm-management:realm-admin, so a federated operator in
+      /sovereign-admins could surf the Keycloak admin console but the
+      Catalyst console did NOT see them as admin (it relied on the
+      self-signed `catalyst-owner` System-A constant). Now the SINGLE
+      decision point — membership in /sovereign-admins — confers admin on
+      every surface (console, KC console, and every app keying on the
+      `groups` claim). No self-signed assertion, no per-email grant, no
+      unreconciled one-shot. keycloak-config-cli re-applies the import so
+      this composites onto existing realms too.
       */ -}}
       "groups": [
         {
           "name": "sovereign-admins",
+          "realmRoles": ["catalyst-admin"],
           "clientRoles": {
             "realm-management": ["realm-admin"]
           }
@@ -777,7 +829,7 @@ data:
         {
           "clientId": "powerdns-admin",
           "name": "PowerDNS-Admin (Tier-2 silent-SSO)",
-          "description": "G117.5 #2744 — DNS UI silent-SSO via catalyst-pin broker. PDA reads OIDC env via ExternalSecret materialised by bp-sso-bridge.",
+          "description": "#3741 — DNS UI silent-SSO, gate-fronted by bp-oidc-gate oauth2-proxy: /oauth2/callback redirectUri + oidc-audience-mapper (aud=powerdns-admin) matching the gate AppRegistration, so config-cli FULL-managed reconcile keeps the client correct.",
           "enabled": true,
           "publicClient": false,
           "standardFlowEnabled": true,
@@ -787,8 +839,7 @@ data:
           "authorizationServicesEnabled": false,
           "secret": {{ include "bp-keycloak.tier2ClientSecret" (dict "ctx" . "clientId" "powerdns-admin") | quote }},
           "redirectUris": [
-            "https://pdns-admin.{{ .Values.sovereignFQDN }}/oidc/authorized",
-            "https://pdns-admin.{{ .Values.sovereignFQDN }}/*"
+            "https://pdns-admin.{{ .Values.sovereignFQDN }}/oauth2/callback"
           ],
           "webOrigins": [
             "https://pdns-admin.{{ .Values.sovereignFQDN }}"
@@ -806,6 +857,18 @@ data:
             "phone",
             "offline_access",
             "microprofile-jwt"
+          ],
+          "protocolMappers": [
+            {
+              "name": "audience-powerdns-admin",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.client.audience": "powerdns-admin",
+                "id.token.claim": "true",
+                "access.token.claim": "true"
+              }
+            }
           ],
           "attributes": {
             "access.token.lifespan": "900",

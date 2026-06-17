@@ -7,9 +7,14 @@
 //     {org=[<slug>], tier=[<tier>]}.
 //  2. Ensures a Gitea Org exists with username=<slug>.
 //  3. Renders + writes a vCluster HelmRelease into the per-Org Gitea
-//     repo (auto-created if absent). Flux on the host cluster picks up
-//     the manifest from the per-Org `clusters/<host>/tenants/<slug>/`
-//     Kustomization (a one-off, set up by the Sovereign-admin once).
+//     repo (auto-created if absent).
+//  3b. Find-or-creates the host-cluster Flux GitRepository + Kustomization
+//     that reconcile that per-Org repo's ./vcluster tree onto the host
+//     cluster (per_org_flux.go, PR #3700 §4.3). This is what makes the
+//     vCluster manifest from step 3 actually get APPLIED — previously the
+//     design assumed a manual one-off `clusters/<host>/tenants/<slug>/`
+//     Kustomization the Sovereign-admin set up by hand, which never ran on
+//     a fresh prov, leaving the manifest as orphaned bytes (Pending).
 //  4. Writes one UserAccess CR per spec.owners[] entry — slice C5's
 //     useraccess-controller materializes the RoleBindings.
 //  5. Updates Organization.status with the reconciled IDs/paths +
@@ -113,9 +118,45 @@ type Reconciler struct {
 	VClusterHelmRepoName      string
 	VClusterHelmRepoNamespace string
 
+	// VClusterImageRegistry is the Sovereign-local Harbor host the
+	// per-Org vCluster images pull through (proxy-cache). Default
+	// harbor.openova.io. Per Inviolable Principle #4 it's read from
+	// env (CATALYST_VCLUSTER_IMAGE_REGISTRY), never hardcoded — cutover
+	// Step-04 flips it to harbor.<sovereign-fqdn>. See gitops.Inputs
+	// for the harbor-proxy-pull admission rationale (#3760).
+	VClusterImageRegistry string
+
 	// Branch is the Gitea branch the controller writes manifests to.
 	// Defaults to "main".
 	Branch string
+
+	// GiteaInClusterURL is the in-cluster Gitea base URL the per-Org Flux
+	// GitRepository clones from (e.g.
+	// http://gitea-http.gitea.svc.cluster.local:3000). Drives the
+	// per-Org vCluster Flux loop (per_org_flux.go, PR #3700 §4.3). When
+	// empty the loop is skipped (vclusterReadiness keeps reporting
+	// Pending) — a unit-test Reconciler that only exercises the
+	// Keycloak/Gitea code leaves it empty. Per Inviolable Principle #4
+	// it is read from env (CATALYST_GITEA_INCLUSTER_URL), never hardcoded.
+	GiteaInClusterURL string
+
+	// FluxNamespace is where the per-Org Flux GitRepository + Kustomization
+	// CRs are created. Defaults to "flux-system" (matches the
+	// application-controller's HostFluxNamespace + the chart's
+	// catalog-sovereign / sme-tenants Flux sources).
+	FluxNamespace string
+
+	// FluxIntervalSeconds is the reconcile interval stamped on the per-Org
+	// Flux GitRepository + Kustomization. Defaults to 60. Per Inviolable
+	// Principle #4 it is operator-overridable (env).
+	FluxIntervalSeconds int
+
+	// FluxGiteaSecretRef is the name of a Flux basic-auth Secret (in
+	// FluxNamespace) holding the Gitea PAT the per-Org GitRepository uses
+	// to clone (bp-gitea sets REQUIRE_SIGNIN_VIEW=true → anonymous clone
+	// 401s). Empty == anonymous, matching the application-controller's
+	// FluxGiteaSecretRef default.
+	FluxGiteaSecretRef string
 
 	// FederationSecretNamespace is the K8s namespace where the
 	// `spec.identity.federationConfig.clientSecretRef` Secret lives.
@@ -180,6 +221,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// before the Keycloak/Gitea ensure steps prevents recreating
 	// artifacts we're about to delete.
 	if !org.DeletionTimestamp.IsZero() {
+		// Per-Org vCluster Flux teardown (PR #3700 §4.3). The Flux CR pair
+		// carries NO ownerRef (cross-namespace GC trap), so the GC won't
+		// reap it — delete explicitly. Best-effort + absent-as-success +
+		// no-op when GiteaInClusterURL is unset. Run first so Flux stops
+		// reconciling (and prune:true GCs the vCluster) before the other
+		// teardowns remove the Gitea Org / Keycloak realm.
+		if err := r.teardownPerOrgFlux(ctx, &org); err != nil {
+			log.Error(err, "per-org-flux teardown")
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
 		if containsFinalizer(org.Finalizers, IacBootstrapFinalizer) {
 			if err := r.teardownIacBootstrap(ctx, &org); err != nil {
 				log.Error(err, "iac-bootstrap teardown")
@@ -302,6 +353,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		VClusterChartVersion:      r.VClusterChartVersion,
 		VClusterHelmRepoName:      r.VClusterHelmRepoName,
 		VClusterHelmRepoNamespace: r.VClusterHelmRepoNamespace,
+		VClusterImageRegistry:     r.VClusterImageRegistry,
 	})
 	if err != nil {
 		return r.fail(ctx, &org, "ManifestRenderFailed", err.Error())
@@ -318,6 +370,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			return r.fail(ctx, &org, "GitopsWriteFailed",
 				fmt.Sprintf("write %s: %s", path, err))
 		}
+	}
+
+	// 3b. Per-Org vCluster Flux loop (PR #3700 §4.3 — the deferred half of
+	// #3687). Find-or-create the host-cluster Flux GitRepository +
+	// Kustomization that reconcile the per-Org `catalyst-tenant` repo's
+	// ./vcluster tree onto the host cluster — so the vCluster HelmRelease we
+	// just PUT to Gitea is actually APPLIED, not left as orphaned bytes.
+	// Without this, vclusterReadiness() reports phase=Pending forever (no
+	// Flux source watches the repo). Non-fatal: a Flux-CR write failure is
+	// requeued (the manifest already landed in Gitea) rather than failing
+	// the whole Org reconcile. Skipped (no-op) when GiteaInClusterURL is
+	// unset — see per_org_flux.go.
+	if err := r.reconcilePerOrgFlux(ctx, &org); err != nil {
+		return r.fail(ctx, &org, "PerOrgFluxFailed", err.Error())
 	}
 
 	// 4. UserAccess per owner. The CR is cluster-scoped (per the
@@ -365,14 +431,35 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			"organization", org.Name)
 	}
 
-	// 6. Status update — Ready=True plus the per-step federation
-	// conditions (always present so the access-matrix UI can render
-	// the federation column without conditional logic).
+	// 6. Status update. #3687 (fold #3669): the vCluster phase + the
+	// Ready condition derive from a LIVE readback of the vCluster
+	// HelmRelease the controller wrote (+ the per-Org Namespace), NOT
+	// from "I PUT the file." The old code hardcoded Phase=Provisioning
+	// and Ready=True the instant the Gitea PutFile returned — reporting a
+	// green Org over orphaned bytes when no Flux source watched the repo.
+	// Now Ready=True requires the HR to actually be Ready AND the
+	// namespace to exist; until then it sits False with a reason naming
+	// what is pending, and the reconcile requeues so the status converges
+	// as Flux brings the vCluster up.
+	vcPhase, vcReady, vcMsg := r.vclusterReadiness(ctx, org.Spec.Slug)
+	readyCond := orgapi.Condition{
+		Type:               "Ready",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	}
+	if vcReady {
+		readyCond.Status = "True"
+		readyCond.Reason = "Reconciled"
+		readyCond.Message = "vCluster HelmRelease Ready + Keycloak group + Gitea Org reconciled"
+	} else {
+		readyCond.Status = "False"
+		readyCond.Reason = "VClusterProvisioning"
+		readyCond.Message = vcMsg
+	}
 	desired := orgapi.OrganizationStatus{
 		VCluster: orgapi.VClusterStatus{
 			Name:        org.Spec.Slug,
 			HostCluster: r.HostCluster,
-			Phase:       "Provisioning", // Flux still has to spin up the HelmRelease
+			Phase:       vcPhase,
 		},
 		KeycloakGroup: orgapi.KeycloakGroupStatus{
 			ID:    kcID,
@@ -386,13 +473,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		},
 		IacBootstrap: iacStatus,
 		Conditions: []orgapi.Condition{
-			{
-				Type:               "Ready",
-				Status:             "True",
-				Reason:             "Reconciled",
-				Message:            "vCluster HelmRelease + Keycloak group + Gitea Org reconciled",
-				LastTransitionTime: metav1.NewTime(time.Now()),
-			},
+			readyCond,
 			idpCond,
 			mappersCond,
 			iacBootstrapCondition(iacStatus),
@@ -407,8 +488,111 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	log.Info("reconcile ok",
 		"keycloak_group", kcID,
 		"gitea_org", gOrg.Username,
-		"vcluster", org.Spec.Slug)
+		"vcluster", org.Spec.Slug,
+		"vcluster_phase", vcPhase,
+		"vcluster_ready", vcReady)
+
+	// Requeue until the vCluster HR is Ready so status.vcluster.phase +
+	// the Ready condition converge as Flux applies the Git-authored
+	// manifest. A steady-state (Ready) Org needs no periodic requeue —
+	// the Organization watch re-triggers on spec changes; the HR's own
+	// Flux reconcile drives the cluster state. While provisioning we poll
+	// the readback every 30s (matching the fail() cadence).
+	if !vcReady {
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
 	return ctrl.Result{}, nil
+}
+
+// vclusterReadiness reads back the vCluster HelmRelease the controller
+// authored (name "vcluster" in namespace <slug>, matching the
+// gitops.vclusterTemplate) plus the per-Org Namespace, and derives the
+// reported phase + a Ready bool + a human message (#3687 fold #3669).
+//
+// Phase ladder:
+//   - "Ready"        — the HR's Ready condition is True AND the namespace
+//     exists. Only here does the Org go Ready=True.
+//   - "Provisioning" — the HR exists but is not yet Ready (Flux applied it,
+//     the vCluster pod is still coming up), OR the HR's
+//     Ready condition is explicitly False/unknown.
+//   - "Pending"      — neither the HR nor the namespace is visible yet:
+//     the manifest was written to Git but no Flux source
+//     has applied it (the "orphaned bytes" case the old
+//     code masked as Ready). Surfaced honestly so the
+//     operator sees the gap instead of a false green.
+//
+// Keys only off slug + HostCluster (both on the CR) → generic for any
+// Org/host, no per-org-name special-casing (#3687 §7d). Read failures
+// other than NotFound degrade to Provisioning (transient API blips
+// shouldn't flip a healthy Org to Pending) and requeue.
+func (r *Reconciler) vclusterReadiness(ctx context.Context, slug string) (phase string, ready bool, message string) {
+	nsExists := false
+	ns := &corev1.Namespace{}
+	switch err := r.Get(ctx, types.NamespacedName{Name: slug}, ns); {
+	case err == nil:
+		nsExists = true
+	case apierrors.IsNotFound(err):
+		nsExists = false
+	default:
+		return "Provisioning", false,
+			fmt.Sprintf("vCluster namespace readback error (transient): %s", err)
+	}
+
+	hr := &unstructured.Unstructured{}
+	hr.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "helm.toolkit.fluxcd.io",
+		Version: "v2",
+		Kind:    "HelmRelease",
+	})
+	switch err := r.Get(ctx, types.NamespacedName{Namespace: slug, Name: "vcluster"}, hr); {
+	case apierrors.IsNotFound(err):
+		// No HR in the cluster yet. The manifest was PUT to the per-Org
+		// Gitea repo and the per-Org Flux GitRepository + Kustomization
+		// were created (step 3b / per_org_flux.go) — this is the transient
+		// window before Flux has cloned the repo and applied ./vcluster.
+		// Still surfaced honestly as Pending (not a false green) so the
+		// operator sees the vCluster is not up yet; the 30s requeue walks
+		// it to Provisioning → Ready as Flux converges.
+		return "Pending", false,
+			"vCluster HelmRelease not yet applied by Flux (manifest authored in Gitea + per-Org Flux source created; awaiting first reconcile of ./vcluster)"
+	case err != nil:
+		return "Provisioning", false,
+			fmt.Sprintf("vCluster HelmRelease readback error (transient): %s", err)
+	}
+
+	hrReady := helmReleaseReady(hr)
+	if hrReady && nsExists {
+		return "Ready", true, ""
+	}
+	if !nsExists {
+		return "Provisioning", false,
+			"vCluster HelmRelease present but the per-Org namespace is not Active yet"
+	}
+	return "Provisioning", false,
+		"vCluster HelmRelease applied; awaiting its Ready condition (vCluster pod still coming up)"
+}
+
+// helmReleaseReady reports whether a Flux HelmRelease's `Ready` condition
+// is True. Flux v2 sets status.conditions[type=Ready].status to
+// "True"/"False"/"Unknown" once it has attempted a reconcile.
+func helmReleaseReady(hr *unstructured.Unstructured) bool {
+	conds, found, err := unstructured.NestedSlice(hr.Object, "status", "conditions")
+	if err != nil || !found {
+		return false
+	}
+	for _, ci := range conds {
+		c, ok := ci.(map[string]any)
+		if !ok {
+			continue
+		}
+		t, _, _ := unstructured.NestedString(c, "type")
+		if t != "Ready" {
+			continue
+		}
+		s, _, _ := unstructured.NestedString(c, "status")
+		return s == "True"
+	}
+	return false
 }
 
 // fail records a Failed condition + non-zero observedGeneration so the

@@ -179,7 +179,7 @@ spec:
           # values.yaml `images.catalystApi.tag` is also bumped (but
           # unused for catalyst-api; kept for SME services that DO read
           # from values).
-          image: "ghcr.io/openova-io/openova/catalyst-api:80a9d2c"
+          image: "ghcr.io/openova-io/openova/catalyst-api:54d29b7"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
@@ -312,6 +312,24 @@ spec:
             # provide write access to /var/lib/catalyst (PVC mountPath).
             - name: CATALYST_TOFU_WORKDIR
               value: /var/lib/catalyst/tofu
+            # CATALYST_HUAWEI_NAT_EIP_STATE — on-PVC store for the LEARNED
+            # poisoned-NAT-EIP blocklist (#3722). The kom4dc EIP free-pool
+            # gets poisoned by repeated wipe→re-prov cycles: released EIPs
+            # stay reputation-blocklisted / un-routable to harbor.openova.io
+            # (45.151.123.50) "for hours". The static seed only knows
+            # .48/.14, so a fresh prov that draws a freshly-poisoned address
+            # (.8/.59/.43/.29/.46) used to wedge (0 HelmReleases, kubeconfig
+            # never PUT). The nat-eip preflight now RECORDS every EIP it
+            # rotates away from here, and merges the store back on the next
+            # prov — so prov N's poison becomes prov N+1's auto-avoid set
+            # with NO operator env toggle and NO flux suspend. SIBLING of
+            # the tofu workdir (not inside it) so it SURVIVES a wipe — which
+            # is exactly when the pool gets poisoned. TTL-pruned (default
+            # 24h, CATALYST_HUAWEI_NAT_EIP_TTL) so a recovered EIP ages back
+            # in. LITERAL value (dual-mode Helm/Kustomize contract — no Helm
+            # template directives in this file's `value:` fields).
+            - name: CATALYST_HUAWEI_NAT_EIP_STATE
+              value: /var/lib/catalyst/tofu/nat-eip-blocklist.json
             # CATALYST_DEPLOYMENTS_DIR — flat-file store for deployment
             # records (one JSON file per deployment id). Backed by the
             # PVC mount below so deployments persist across Pod

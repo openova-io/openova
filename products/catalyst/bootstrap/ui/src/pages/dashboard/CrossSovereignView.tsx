@@ -42,11 +42,16 @@ import {
 } from '@/lib/fleet.api'
 import { useFleetApplications } from '@/lib/useFleet'
 
+// #3375 §3(f) / DoD-1 — the filter offers all FOUR canonical topology
+// classes and posts the CANONICAL vocabulary the backend validates
+// (singleton / active-active / active-hot-standby / active-passive),
+// never the legacy editor dialect (single-region / active-hotstandby).
 const TOPOLOGY_OPTIONS: Array<{ value: '' | TopologyMode; label: string }> = [
   { value: '', label: 'All topologies' },
-  { value: 'single-region', label: 'Single region' },
+  { value: 'singleton', label: 'Singleton' },
   { value: 'active-active', label: 'Active-Active' },
-  { value: 'active-hotstandby', label: 'Active-Hotstandby' },
+  { value: 'active-hot-standby', label: 'Active-Hot-Standby' },
+  { value: 'active-passive', label: 'Active-Passive' },
 ]
 
 const DR_OPTIONS: Array<{ value: '' | DRPosture; label: string }> = [

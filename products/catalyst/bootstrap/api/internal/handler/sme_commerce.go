@@ -160,18 +160,28 @@ func (h *Handler) proxyCommerce(w http.ResponseWriter, r *http.Request, method, 
 		})
 		return
 	}
-	// #3648 (train/hw150) — make the catalog edit IaC: when an `apps`
-	// create/update succeeds at the commerce store, ALSO commit the edited
-	// card fields into the catalog-sovereign Gitea Org as a Blueprint CR.
-	// git is the single source of truth; the store stays as a cache. This
-	// is additive + best-effort — a git failure NEVER changes the API
-	// response the unchanged UI relies on (the store write already
-	// happened); it is logged for the operator. DELETEs are not mirrored
-	// here (removing a curated CR is the /blueprints lifecycle, not an
-	// edit). See catalog_edit_git.go.
+	// #3668 (train/hw150) — make the catalog edit a load-bearing IaC commit.
+	// When an `apps` create/update succeeds at the commerce store, COMMIT the
+	// edited card fields into the catalog-sovereign Gitea Org as a Blueprint
+	// CR — git is the single source of truth, the store is its cache. The
+	// commit runs under its OWN budget (catalogEditGitBudget, NOT the
+	// already-partly-consumed 1500ms probe ctx — §3C/§5C), and its result is
+	// surfaced to the caller instead of being swallowed: a non-committed edit
+	// must never read as a durable green "Saved" (§5: "no green 'Saved'
+	// unless the IaC write is durable"). DELETEs are not mirrored here
+	// (removing a curated CR is the /blueprints lifecycle, not an edit). See
+	// catalog_edit_git.go.
 	if kind == "apps" && method != http.MethodDelete &&
 		upstreamStatus >= 200 && upstreamStatus < 300 {
-		h.commitCatalogAppEditToGit(ctx, body)
+		committed, reason := h.commitCatalogAppEditToGit(r.Context(), body)
+		// The commerce store (the cache) has the edit; whether git (the
+		// source) durably accepted it is reported alongside so the UI shows
+		// "Saved to IaC ✓" vs "Saved (cache only) — IaC commit failed: …".
+		// Only a successful 2xx-with-JSON-body upstream reaches here, so we
+		// re-wrap the upstream object with the commit verdict rather than
+		// relaying it opaquely.
+		h.writeCatalogEditEnvelope(w, upstreamStatus, respBody, committed, reason)
+		return
 	}
 
 	// Relay the upstream response verbatim — status + body — so the
@@ -187,6 +197,36 @@ func (h *Handler) proxyCommerce(w http.ResponseWriter, r *http.Request, method, 
 	}
 }
 
+// catalogEditEnvelope wraps a successful commerce-store `apps` mutation with
+// the IaC-commit verdict (#3668 §5C). The UI's saveCatalogEdit reads
+// `committed` + `reason` to decide between a durable "Saved to IaC ✓" and an
+// amber "Saved (cache only) — IaC commit failed: <reason>". `store` carries
+// the upstream object verbatim so any consumer that read the raw created/
+// updated row before #3668 still finds it.
+type catalogEditEnvelope struct {
+	Stored    bool            `json:"stored"`
+	Committed bool            `json:"committed"`
+	Reason    string          `json:"reason,omitempty"`
+	Store     json.RawMessage `json:"store,omitempty"`
+}
+
+// writeCatalogEditEnvelope emits the #3668 edit envelope. The commerce store
+// write already succeeded (stored:true is unconditional on this path); the
+// `committed`/`reason` fields report whether the git source-of-truth write
+// landed. The upstream status is preserved so existing 2xx handling in the UI
+// is unchanged.
+func (h *Handler) writeCatalogEditEnvelope(w http.ResponseWriter, upstreamStatus int, storeBody []byte, committed bool, reason string) {
+	env := catalogEditEnvelope{
+		Stored:    true,
+		Committed: committed,
+		Reason:    reason,
+	}
+	if len(storeBody) > 0 && json.Valid(storeBody) {
+		env.Store = json.RawMessage(storeBody)
+	}
+	writeJSON(w, upstreamStatus, env)
+}
+
 // commitCatalogAppEditToGit decodes the `apps` mutation body (the
 // commerce App JSON the UI's saveCatalogEdit PUT/POSTs) into the catalog
 // card-overlay shape and commits it to the local catalog git
@@ -194,25 +234,60 @@ func (h *Handler) proxyCommerce(w http.ResponseWriter, r *http.Request, method, 
 // icon, icon_light, icon_dark, supported_topologies) line up with
 // catalogEdit's tags VERBATIM, so the same bytes decode straight in.
 //
-// Failures are logged + swallowed: the store write already succeeded, so
-// the API response stays correct; the entry simply isn't yet reflected in
-// git (e.g. Gitea unreachable pre-cutover). The next edit re-attempts.
-func (h *Handler) commitCatalogAppEditToGit(ctx context.Context, body []byte) {
+// #3668 §5C — the git commit is the SOURCE write, not a best-effort
+// side-effect. It runs under its OWN budget (catalogEditGitBudgetDuration,
+// derived from a FRESH context off the parent request — NOT the 1500ms
+// commerce probe ctx that was already partly consumed by AdminProxy) so a
+// busy-but-healthy Gitea commits durably. The verdict is RETURNED, never
+// swallowed: the caller surfaces (committed, reason) so the UI distinguishes
+// a durable "Saved to IaC ✓" from a cache-only "IaC commit failed".
+//
+// Returns:
+//   - (true, "")            — the bytes were committed (a new commit, or the
+//     file was already byte-identical to the edit).
+//   - (false, "<reason>")   — the edit is not yet durable in git; reason is a
+//     short human string for the UI (unwired client / nothing-to-commit /
+//     the transport error). The store write already succeeded, so the entry
+//     is served from the cache until a later edit (or a reconcile) lands it.
+func (h *Handler) commitCatalogAppEditToGit(parent context.Context, body []byte) (bool, string) {
 	if len(body) == 0 {
-		return
+		return false, "empty body"
 	}
 	var edit catalogEdit
 	if err := json.Unmarshal(body, &edit); err != nil {
 		if h.log != nil {
 			h.log.Warn("catalog-edit-git: decode apps body failed", "err", err)
 		}
-		return
+		return false, "decode apps body failed"
 	}
 	if strings.TrimSpace(edit.Slug) == "" || !edit.hasOverlay() {
-		return // nothing IaC-relevant to commit
+		return false, "nothing IaC-relevant to commit"
 	}
-	if _, err := h.writeCatalogEditToGit(ctx, edit); err != nil && h.log != nil {
-		h.log.Warn("catalog-edit-git: commit to catalog-sovereign failed",
-			"slug", edit.Slug, "err", err)
+	if h.giteaClient == nil {
+		// Pre-cutover / CI: no local catalog git yet. The store cache holds
+		// the edit; it becomes IaC once Gitea is reachable. Reported (not
+		// swallowed) so the UI can say "cache only" rather than a false green.
+		return false, "local catalog git not yet available (pre-cutover)"
 	}
+
+	// Fresh, git-sized budget off the ORIGINAL request context (so a client
+	// disconnect still cancels) — decoupled from the consumed 1500ms probe ctx.
+	ctx, cancel := context.WithTimeout(parent, catalogEditGitBudgetDuration())
+	defer cancel()
+
+	// writeCatalogEditToGit returns committed=false WITHOUT error in two
+	// cases now that the unwired + no-overlay guards are handled above:
+	// (a) a fresh commit was suppressed because the file was already
+	// BYTE-IDENTICAL to the edit (PutFile's idempotency short-circuit). That
+	// is a DURABLE state — the source of truth already carries these bytes —
+	// so it must read as committed/durable to the UI, NOT a "cache only"
+	// failure. We therefore treat (false, nil) here as durable.
+	if _, err := h.writeCatalogEditToGit(ctx, edit); err != nil {
+		if h.log != nil {
+			h.log.Warn("catalog-edit-git: commit to catalog-sovereign failed",
+				"slug", edit.Slug, "err", err)
+		}
+		return false, "IaC commit failed: " + err.Error()
+	}
+	return true, ""
 }

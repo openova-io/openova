@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"strings"
 	"time"
@@ -52,6 +53,60 @@ func NewClientWithAPIURL(token, owner, repo, apiURL string) *Client {
 // branch-ref level; a clean rebuild against the new HEAD succeeds on the
 // next try. 5 attempts handles bursts of ~5 parallel commits.
 const commitAttemptsMax = 5
+
+// Backoff bounds for the ref-race retry. Without a delay every concurrent
+// writer that lost the compare-and-swap retries simultaneously and re-loses
+// against the SAME winner — a thundering herd that can burn all
+// commitAttemptsMax attempts in milliseconds on the shared `sme-tenants`
+// branch (Refs #3376). A short jittered exponential backoff staggers the
+// racers so each gets a clear shot at the moved HEAD. Bounds are small —
+// Gitea ref updates land in tens of ms — so the worst-case total added
+// latency across 4 backoffs stays well under a second.
+const (
+	commitRetryBaseDelay = 50 * time.Millisecond
+	commitRetryMaxDelay  = 750 * time.Millisecond
+)
+
+// commitRetryBackoff returns the jittered backoff to wait before the given
+// 1-based retry attempt. attempt==1 is the first try (no preceding backoff);
+// the returned duration applies BEFORE attempt N (N>=2). Exponential in the
+// attempt index, capped at commitRetryMaxDelay, with full jitter in
+// [base, computed] so concurrent writers de-correlate.
+func commitRetryBackoff(attempt int) time.Duration {
+	if attempt < 2 {
+		return 0
+	}
+	// 2^(attempt-2) * base: attempt 2 → 1x, attempt 3 → 2x, attempt 4 → 4x …
+	mult := time.Duration(1) << uint(attempt-2)
+	d := commitRetryBaseDelay * mult
+	if d > commitRetryMaxDelay {
+		d = commitRetryMaxDelay
+	}
+	// Full jitter in [base, d] — never below base so we always yield the
+	// goroutine, never above the capped ceiling.
+	if d <= commitRetryBaseDelay {
+		return commitRetryBaseDelay
+	}
+	jitterSpan := int64(d - commitRetryBaseDelay)
+	return commitRetryBaseDelay + time.Duration(rand.Int63n(jitterSpan+1))
+}
+
+// sleepWithContext waits for d or until ctx is cancelled, whichever comes
+// first. Returns ctx.Err() if the context fired during the wait so the
+// caller can abort the retry loop promptly instead of blocking on a timer.
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
 
 // CommitFiles creates an atomic commit with multiple files on the given branch.
 // files maps path (e.g. "clusters/contabo-mkt/tenants/slug/namespace.yaml") to content.
@@ -131,6 +186,15 @@ func (c *Client) CommitFilesWithPruneAndRebuild(
 		}
 		slog.Warn("commit: ref moved under us — retrying with fresh HEAD",
 			"attempt", attempt, "branch", branch, "error", err)
+		// Jittered backoff before the next attempt so concurrent writers on
+		// the shared branch de-correlate instead of re-colliding immediately
+		// (Refs #3376). Skipped after the final attempt. Honours ctx so a
+		// cancelled request aborts promptly rather than sleeping.
+		if attempt < commitAttemptsMax {
+			if waitErr := sleepWithContext(ctx, commitRetryBackoff(attempt+1)); waitErr != nil {
+				return fmt.Errorf("commit: ref-race retry aborted: %w (last commit error: %v)", waitErr, lastErr)
+			}
+		}
 	}
 	return fmt.Errorf("commit: ref-race persisted after %d attempts: %w", commitAttemptsMax, lastErr)
 }
@@ -500,6 +564,23 @@ func (c *Client) ensureBranchExists(ctx context.Context, branch string) error {
 // retry loop in CommitFilesWithPruneAndRebuild treats both equivalently.
 // Gitea returns 409 Conflict or 422 with a body containing phrases like
 // "branch has been changed" / "stale base" / "ref has been updated".
+//
+// hw158 funnel re-validation (Refs #3376): the production SME funnel commits
+// every per-tenant overlay to the SINGLE shared `sme-tenants` branch. When two
+// provisioning commits (or the funnel's own multi-step commit racing a
+// concurrent teardown) try to update refs/heads/sme-tenants at once, Gitea's
+// git backend rejects the loser at the ref-lock layer with the git-native
+// message `cannot lock ref 'refs/heads/sme-tenants': ...` (a `.lock` file /
+// compare-and-swap contention) rather than any of the higher-level phrases
+// above. That string was NOT matched here, so the error fell through to the
+// fatal `change files` branch and the outer retry loop never engaged — the
+// funnel step "Committing manifests to Git" went straight to status:"failed".
+// The git ref-lock shapes below restore the fetch-rebuild-retry for that case.
+// Gitea surfaces several wordings depending on which failure path it takes:
+//   - "cannot lock ref 'refs/heads/<branch>'"                       (lock held / CAS lost)
+//   - "is at <sha> but expected <sha>"                              (CAS mismatch)
+//   - "unable to create '...refs/heads/<branch>.lock': File exists" (lock-file race)
+//   - "failed to update ref"                                       (generic ref-update wrap)
 func isGiteaRefRaceError(err error) bool {
 	if err == nil {
 		return false
@@ -509,7 +590,14 @@ func isGiteaRefRaceError(err error) bool {
 		strings.Contains(s, "branch has been changed") ||
 		strings.Contains(s, "stale base") ||
 		strings.Contains(s, "ref has been updated") ||
-		strings.Contains(s, "not a fast forward")
+		strings.Contains(s, "not a fast forward") ||
+		// git-native ref-lock contention on the shared sme-tenants branch
+		// (Refs #3376). Any of these means a concurrent writer won the CAS;
+		// a fresh fetch-rebuild-retry against the new HEAD resolves it.
+		strings.Contains(s, "cannot lock ref") ||
+		strings.Contains(s, "but expected") ||
+		(strings.Contains(s, "unable to create") && strings.Contains(s, ".lock")) ||
+		strings.Contains(s, "failed to update ref")
 }
 
 // getContentSHA returns the blob SHA of `path` at `branch`, or "" if the

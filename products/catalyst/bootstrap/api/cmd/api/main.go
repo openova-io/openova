@@ -1276,6 +1276,16 @@ func main() {
 		// any batch-specific endpoint (issue #351).
 		rg.Get("/api/v1/deployments/{depId}/jobs", h.ListJobs)
 		rg.Get("/api/v1/deployments/{depId}/jobs/{jobId}", h.GetJob)
+		// Generic Flux-native remediation (issue #3646 §5c). ONE write
+		// route dispatching on the leaf's typed Kind re-drives ANY stuck
+		// reconcile (HelmRelease / Kustomization / CronJob / reconciler
+		// Deployment / batch Job) from the console — the operator never
+		// drops to kubectl. Owner-checked (404 cross-tenant) + RBAC-gated
+		// to operator tier (403 otherwise); writes a new Execution with
+		// the operator identity; NEVER shells out (annotation via the
+		// in-cluster dynamic client only). Inside RequireSession so the
+		// operator's claims are populated for the RBAC gate + audit line.
+		rg.Post("/api/v1/deployments/{depId}/jobs/{jobId}/retry", h.RetryJob)
 		rg.Get("/api/v1/actions/executions/{execId}/logs", h.GetExecutionLogs)
 		// Backfill endpoints — give the FE an explicit handshake to
 		// re-attach the helmwatch goroutine after a Pod restart and to
@@ -1504,6 +1514,14 @@ func main() {
 		rg.Get("/api/v1/catalog", h.HandleCatalogList)
 		rg.Get("/api/v1/catalog/{name}", h.HandleCatalogGet)
 		rg.Get("/api/v1/catalog/{name}/versions/{version}", h.HandleCatalogGetVersion)
+		// #3668 §5D — the full-CR catalog IaC editor. Commits the WHOLE
+		// blueprint.yaml the admin edited (spec.source / manifests / sso /
+		// placementSchema / endpoints / shareable / contextSchema — fields
+		// the 7-field card form can never touch) to the SAME Gitea file the
+		// card-edit path writes (catalog-sovereign/<bp>/blueprint.yaml),
+		// under the dedicated git budget, tier-admin-gated. The console's
+		// "Edit IaC" mode (YamlEditor) drives this.
+		rg.Put("/api/v1/catalog/{name}/iac", h.HandleCatalogBlueprintIaCEdit)
 
 		// EPIC-6 (#1101) slice U-Fleet — multi-Sovereign fleet view.
 		// Read-only aggregator that backs the new live DashboardPage,

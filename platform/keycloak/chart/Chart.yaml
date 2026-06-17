@@ -271,7 +271,28 @@ name: bp-keycloak
 # cli reconciles the realm on every post-upgrade Job, so this lands on both
 # fresh provs AND the existing live client. (The OpenBao OIDC role's
 # allowed_redirect_uris already carries it via bp-openbao 1.2.35+.)
-version: 1.4.28
+#
+# 1.4.29 (#3374 Layer-C, 2026-06-17): ONE admin authority. The sovereign
+# realm import now (a) defines the catalyst-{viewer,developer,operator,
+# admin,owner} composite realm-role chain (previously these were ONLY
+# strings the catalyst-api self-signed into a PIN JWT — System A, never
+# real KC roles), and (b) composites `realmRoles: ["catalyst-admin"]`
+# onto the `/sovereign-admins` group. ONE membership now lights up the
+# Catalyst console (catalyst-admin), the Keycloak admin console
+# (realm-management:realm-admin), AND every app keying on the `groups`
+# claim — no self-signed assertion, no per-email grant. keycloak-config-
+# cli re-applies the import so the composite reaches existing realms too.
+# 1.4.30: powerdns-admin realm-seed client aligned to the bp-oidc-gate
+#   contract — /oauth2/callback redirectUri + oidc-audience-mapper (was the
+#   dead pre-#3374 native /oidc/authorized + /* with no aud mapper, which the
+#   config-cli FULL-managed reconcile reverted over the gate's correct client).
+#   Mirrors the hubble-ui gated precedent. Refs #3741 (hw158 UAT row 6 SSO).
+# 1.4.31 (#3687, extends #3370): bootstrap self-registration —
+# templates/application-cr.yaml renders the canonical apps.openova.io/v1
+# Application CR for the slot-09 HelmRelease (gated bootstrapOwned.enabled
+# + Capabilities apps.openova.io/v1) so the console /apps list, per-app
+# Topology tab + showback resolve keycloak (no more "no Application CR").
+version: 1.4.31
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so

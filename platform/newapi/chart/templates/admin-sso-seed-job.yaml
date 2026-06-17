@@ -422,6 +422,34 @@ data:
     . /scripts/common.sh
     wait_for_users_table
     promote_oidc_users
+    # (e') #3374/#3563 — SELF-HEALING provider reload. The one-shot seed.sh
+    #      reload (step e) fires EXACTLY ONCE and is best-effort: if it is
+    #      skipped or fails for ANY transient reason at first-install time —
+    #      the provider INSERT not yet visible to the hash query's psql
+    #      connection when reload ran microseconds later, an apiserver blip,
+    #      the seed Pod's SA-token not yet propagated, or the PATCH racing the
+    #      Deployment's own initial rollout — the NewAPI Deployment never gets
+    #      the `{{ $reloadHashAnno }}` annotation, the pod that booted "Loaded
+    #      0 custom OAuth providers" is never restarted, and
+    #      /api/oauth/{{ $providerSlug }} returns "Unknown OAuth provider"
+    #      FOREVER (measured live hw158 2026-06-17: admin-seed Job Complete,
+    #      `{{ $providerSlug }}` custom_oauth_providers row enabled+correct,
+    #      created 03:25:05 — 4s AFTER the pod boot-logged "Loaded 0 custom
+    #      OAuth providers" at 03:25:01 — yet the Deployment had restartCount=0
+    #      and NO `{{ $reloadHashAnno }}` annotation; the one-shot reload
+    #      silently did not land and nothing ever retried it → 3/3 SSO callbacks
+    #      "Unknown OAuth provider"). The per-minute promote CronJob now ALSO
+    #      runs the reload so it RETRIES every minute until the Deployment
+    #      annotation matches the live provider hash. IDEMPOTENT + hash-gated
+    #      (reload.py no-ops when the recorded hash already == the live hash),
+    #      so once the running pod has loaded the provider this is a pure
+    #      GET-and-compare — never a restart loop. This makes zero-click SSO
+    #      deterministic on a FRESH install, not merely on a later chart
+    #      upgrade. The CronJob already runs as the admin-seed ServiceAccount
+    #      (which holds get+patch on exactly the NewAPI Deployment) and already
+    #      mounts /scripts (incl. reload.py) + the CNPG /cnpg secret, so no RBAC
+    #      or volume change is needed.
+    reload_newapi_provider
   reload.py: |
     # #3374 (2026-06-15) — rollout-restart NewAPI so the running pod reloads the
     # seeded custom OAuth provider (boot-only registry; the 60s sync loop never

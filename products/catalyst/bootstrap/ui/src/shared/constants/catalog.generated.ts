@@ -402,7 +402,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.5",
+    "version": "1.2.6",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -473,6 +473,62 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "perTopology": {
         "singleton": {
           "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
+    "id": "bp-cert-manager-issuers",
+    "slug": "cert-manager-issuers",
+    "title": "cert-manager — Issuers",
+    "summary": "|",
+    "icon": "cert-manager.svg",
+    "category": "security",
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [
+      "bp-cert-manager"
+    ],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": {
+            "backend": "flux-git",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
           "switchover": null,
           "placement": {
             "tier": "",
@@ -833,7 +889,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.4",
+    "version": "0.2.5",
     "section": "pts-9-disaster-recovery",
     "depends": [
       "bp-cnpg",
@@ -1507,7 +1563,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.6",
+    "version": "1.2.7",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [],
     "shareable": false,
@@ -2113,7 +2169,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.4.28",
+    "version": "1.4.30",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-postgres"
@@ -2314,7 +2370,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.3.7",
+    "version": "1.3.8",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -2865,7 +2921,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.2.10",
+    "version": "0.2.11",
     "section": "pts-3-2-control-plane-isolation",
     "depends": [
       "bp-cilium",
@@ -3360,7 +3416,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.4.95",
+    "version": "1.4.96",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",
@@ -3430,7 +3486,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-cilium",
@@ -4422,7 +4478,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.73",
+    "version": "0.1.75",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-gitea",
@@ -4583,7 +4639,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.2.18",
+    "version": "0.2.20",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-keycloak",
@@ -5593,6 +5649,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/bge/blueprint.yaml",
   "platform/catalyst-platform/blueprint.yaml",
   "platform/cert-manager-dynadot-webhook/blueprint.yaml",
+  "platform/cert-manager-issuers/blueprint.yaml",
   "platform/cert-manager-powerdns-webhook/blueprint.yaml",
   "platform/cert-manager/blueprint.yaml",
   "platform/cilium-policies/blueprint.yaml",

@@ -294,9 +294,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "80a9d2c"
+    tag: "54d29b7"
   catalystUi:
-    tag: "80a9d2c"
+    tag: "54d29b7"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -319,7 +319,7 @@ images:
   # carries the server-side filter and is published for every services-* image
   # (verified: services-auth, unchanged by #3157, also has c96f998 → the SME
   # build is all-services, not path-filtered). Refs #3156.
-  smeTag: "c96f998"
+  smeTag: "94ef502"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────
@@ -448,7 +448,7 @@ controllers:
       # 405 to the in-cluster SA). 72e3f08 = qa-loop iter-8 Fix #42
       # (#1252 + Containerfile fix-up #1253), fixed Bug 1 (UserAccess
       # Claim namespace).
-      tag: "887a5cd"
+      tag: "42c4213"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -477,6 +477,77 @@ controllers:
     # validates it on a live env and flips this in the per-Sovereign values
     # overlay. Stays runtime-overridable per Inviolable Principle #4.
     perOrgRealmEnabled: false
+    # PR #3700 §4.3 (deferred half of #3687) — per-Org vCluster Flux loop.
+    # On Organization-CR creation the org-controller now find-or-creates a
+    # host-cluster Flux GitRepository + Kustomization that reconcile the
+    # per-Org `catalyst-tenant` repo's ./vcluster tree onto the host
+    # cluster, so the vCluster HelmRelease the controller authored in Gitea
+    # actually gets APPLIED (previously assumed a manual one-off
+    # Kustomization that never ran on a fresh prov → orphaned bytes /
+    # phase=Pending). Per Inviolable Principle #4 every knob is overridable.
+    #
+    # giteaInClusterURL: the git clone URL the per-Org Flux GitRepository
+    # uses. Empty here = in-cluster default (the bp-gitea Service). MUST NOT
+    # carry `/api/v1` (that's the REST base, this is the clone URL).
+    giteaInClusterURL: ""
+    # Namespace the per-Org Flux GitRepository + Kustomization land in.
+    # Empty = flux-system (matches the chart's other Flux sources).
+    fluxNamespace: ""
+    # Reconcile interval (seconds) stamped on the per-Org Flux CRs. Empty/0
+    # = 60s default.
+    fluxIntervalSeconds: ""
+    # Name of a Flux basic-auth Secret (in fluxNamespace) holding the Gitea
+    # PAT the per-Org GitRepository clones with.
+    #
+    # WHY THIS IS NON-EMPTY BY DEFAULT (#3687 / #3376 — hw158 funnel blocker)
+    # ---------------------------------------------------------------------
+    # The per-Org `<slug>/catalyst-tenant` repo the org-controller creates is
+    # ALWAYS private (organization_controller.go EnsureOrg/EnsureRepo pass
+    # private=true), and bp-gitea additionally sets REQUIRE_SIGNIN_VIEW=true —
+    # so an anonymous git clone returns 401 "authentication required". With an
+    # empty secretRef the per-Org GitRepository (catalyst-tenant-<slug>,
+    # per_org_flux.go) carries NO `spec.secretRef`, source-controller clones
+    # anonymously, Gitea 401s, the catalyst-tenant-<slug>-vcluster
+    # Kustomization reports "Source artifact not found", the committed vCluster
+    # HelmRelease never reconciles, and the tenant namespace + purchased app
+    # (e.g. WordPress) never come up — the funnel's terminal acceptance fails
+    # (proven live on hw158 by the #3687 + #3376 walkers).
+    #
+    # `openova-sme-tenants-git-auth` is a Flux basic-auth Secret in flux-system
+    # holding the `gitea_admin` PAT (sourced from catalyst-gitea-token). Because
+    # gitea_admin is the Gitea admin it can clone EVERY Org's private
+    # catalyst-tenant repo, so this single shared secret authenticates the
+    # per-Org GitRepository for all Organizations — no per-Org secret needed.
+    # It is the exact credential the top-level openova-sme-tenants
+    # GitRepository already clones with successfully on every Sovereign (the
+    # proven #3454 pattern). The Secret is guaranteed to exist in flux-system
+    # by the catalog-sovereign-flux/gitea-flux-auth-secrets-sync-job.yaml
+    # post-install/post-upgrade hook (#3749 / #3668), which reads the
+    # runtime-minted catalyst-gitea-token PAT via secretKeyRef (NOT a render-
+    # time `lookup`) and idempotently applies BOTH openova-sme-tenants-git-auth
+    # and openova-catalog-sovereign-git-auth — so a fresh prov gets it the
+    # first time and any chart bump re-asserts it. The PAT never touches argv.
+    #
+    # Per Inviolable Principle #4 the secret name stays operator-overridable;
+    # set to "" to force anonymous clone (only valid if bp-gitea ever drops
+    # REQUIRE_SIGNIN_VIEW AND the per-Org repo is made public).
+    fluxGiteaSecretRef: "openova-sme-tenants-git-auth"
+    # MIRROR-EVERYTHING (#3760, Refs #3376 #3754 — hw158 funnel blocker)
+    # ---------------------------------------------------------------------
+    # The Sovereign-local Harbor host the per-Org vCluster images pull
+    # through (proxy-cache). vcluster 0.33.x renders TWO ghcr.io images in
+    # the StatefulSet initContainers — the `loft-sh/kubernetes` k8s distro
+    # AND the `loft-sh/vcluster-oss` syncer — both of which the
+    # harbor-proxy-pull Kyverno ClusterPolicy (Enforce) DENIES because they
+    # don't match the `*/proxy-*/*` glob. gitops.Render re-tags both to
+    # `<vclusterImageRegistry>/proxy-ghcr/loft-sh/...`, lockstep with the
+    # platform's own bp-dmz/mgmt/rtz-vcluster charts (proven live: without
+    # this the StatefulSet is blocked at `/spec/template/spec/initContainers/
+    # 0/image/` and the customer's purchased app never runs). Default
+    # `harbor.openova.io` for bootstrap; cutover Step-04 (ADR-0002) flips a
+    # per-Sovereign overlay to `harbor.<sovereign-fqdn>` post-handover. Per
+    # Inviolable Principle #4 it stays operator-overridable.
+    vclusterImageRegistry: "harbor.openova.io"
     # Free-form extra env vars threaded into the Pod (advanced; for one-off
     # operator-side knobs not yet promoted to a top-level value).
     env: {}
@@ -496,7 +567,7 @@ controllers:
       # — adds EnsureBranch before PutFile so Gitea's branch-missing
       # 404 (mapped to ErrRepoNotFound by the client) no longer dead-
       # loops the env-controller.
-      tag: "78de06d"
+      tag: "6dea4c7"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -535,7 +606,7 @@ controllers:
       # (2026-06-02). enabled remains false until the bp-controller
       # surfaces are wired end-to-end; the pin matches the latest
       # successful push-on-main build per Inviolable Principle #4a.
-      tag: "78de06d"
+      tag: "6dea4c7"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -568,7 +639,7 @@ controllers:
       # — drops cross-namespace ownerRef on the host-side Flux CRs
       # (was being silently GC'd by the K8s collector because
       # Application lives in a different namespace from flux-system).
-      tag: "6dea4c7"
+      tag: "d2e8c02"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -626,7 +697,7 @@ controllers:
       # (#2745, 2026-06-03) — bumped from 8d01e2f (2026-05-31) to the
       # latest useraccess-controller main-HEAD push (2026-06-02).
       # #2851 closed the drift gap (auto-bump + sweep + freshness guard).
-      tag: "6e0d02b"
+      tag: "6dea4c7"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -1501,6 +1572,18 @@ smeServices:
     # start with `clusters/<SOVEREIGN_FQDN>/` on Sovereigns — the
     # cross-cluster pollution defence (#944 critical).
     gitBasePath: ""
+    # vclusterImageRegistry (#3760, Refs #3376 #3754): the Sovereign-local
+    # Harbor host the per-tenant vCluster images pull through (proxy-cache).
+    # vcluster 0.33.x renders TWO ghcr.io images in the StatefulSet
+    # initContainers — the loft-sh/kubernetes k8s distro AND the
+    # loft-sh/vcluster-oss syncer — both DENIED by the harbor-proxy-pull
+    # Kyverno ClusterPolicy (Enforce, */proxy-*/* glob). The provisioning
+    # generator re-tags both to `<registry>/proxy-ghcr/loft-sh/...`, lockstep
+    # with bp-dmz/mgmt/rtz-vcluster (without it the tenant vCluster
+    # StatefulSet is blocked and the tenant's app never runs). Default
+    # harbor.openova.io for bootstrap; cutover Step-04 (ADR-0002) flips it to
+    # harbor.<sovereign-fqdn> post-handover. Operator-overridable (Principle #4).
+    vclusterImageRegistry: "harbor.openova.io"
     # githubToken: Secret name + key the Deployment reads GITHUB_TOKEN
     # from. Defaults match the chart-emitted
     # templates/sme-services/provisioning-github-token.yaml output
@@ -1509,32 +1592,43 @@ smeServices:
     githubToken:
       secretName: provisioning-github-token
       secretKey: GITHUB_TOKEN
-    # waitForCutoverToken: gate the provisioning Pod on bp-self-sovereign-
-    # cutover Step 09 having patched the Secret with a REAL Gitea API
-    # token (TBD-V11, issue #2002). Without this gate, the Pod starts with
-    # the chart's first-install bootstrap value (Gitea admin password,
-    # which Gitea rejects as an API token → 401 "user does not exist")
-    # and the FIRST tenant Org CR creation after install fails. The
-    # init container polls the Secret in the same namespace for the
-    # `catalyst.openova.io/token-source: self-sovereign-cutover-step-09`
-    # annotation that Step 09 stamps.
+    # waitForCutoverToken: gate the provisioning Pod on the GITHUB_TOKEN in
+    # provisioning-github-token being a Gitea token Gitea ACCEPTS — a DATA
+    # probe (#3376, Refs #3689), NOT the old annotation probe (#2002/TBD-V11).
+    # Without this gate, the Pod could start with a token Gitea rejects →
+    # 401 on the FIRST tenant Org CR creation. The init container GETs
+    # ${giteaInternalURL}/api/v1/user with the token and proceeds only on
+    # HTTP 200.
     #
-    # On Sovereigns: leave enabled (the cutover Job will mint and
-    # patch within minutes of bp-catalyst-platform reconciling).
-    # On Catalyst-Zero (contabo): set enabled=false in
-    # clusters/contabo-mkt/ overlay — the SealedSecret-provisioned token
-    # carries no cutover annotation and Step 09 never runs there.
+    # WHY a DATA probe and not the annotation: the previous gate polled for
+    # `catalyst.openova.io/token-source: self-sovereign-cutover-step-09`,
+    # but that contract was SPLIT (the cutover Step-09 mint Job's re-run
+    # no-op path exits BEFORE stamping the annotation since #3122 made the
+    # bootstrap token a valid PAT, and the chart's bootstrap branch strips
+    # it) → the Pod stuck Init:0/1 forever on a fully cut-over Sovereign
+    # (hw150). Validating the token directly is immune to both: the
+    # bootstrap catalyst-gitea-token PAT and the cutover-minted token are
+    # BOTH real 200-valid Gitea tokens, so the Pod boots zero-touch on a
+    # fresh prov AND a cut-over Sovereign.
+    #
+    # On Sovereigns: leave enabled. On Catalyst-Zero (contabo): set
+    # enabled=false in clusters/contabo-mkt/ overlay — there the
+    # SealedSecret-provisioned token is already valid, so the gate is a
+    # harmless one-shot 200 either way, but disabling skips the init.
     waitForCutoverToken:
       enabled: true
-      # image: kubectl client used by the init container. Default tracks
+      # image: kubectl/curl client used by the init container. Default tracks
       # platform/self-sovereign-cutover/chart/values.yaml's kubectl image
       # so a platform-wide bump only needs to land in one place at a time.
       image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
+      # giteaInternalURL: the in-cluster Gitea REST base the probe hits.
+      # Same default as the rest of the SME bundle's Gitea coordinates.
+      giteaInternalURL: "http://gitea-http.gitea.svc.cluster.local:3000"
       # intervalSeconds + timeoutSeconds: poll cadence + wall-clock cap.
       # Default 10s × 180 iters = 1800s (30m) — covers the slowest cutover
       # observed on Hetzner cold-start (~18 min) with 12 min safety margin.
-      # The Pod stays in Init: until Step 09 runs; failing closed is the
-      # correct behaviour because serving 401s blocks every tenant journey.
+      # The Pod stays in Init: until a valid token lands; failing closed is
+      # the correct behaviour because serving 401s blocks every tenant journey.
       intervalSeconds: 10
       timeoutSeconds: 1800
     # git.{apiURL,owner,repo,branch}: Git host coordinates. The

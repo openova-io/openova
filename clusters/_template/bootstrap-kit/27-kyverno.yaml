@@ -73,7 +73,12 @@ spec:
       # can always recreate its own agent (the de-CNI'd apiserver node can't
       # receive the webhook response otherwise → cnpg-pair initdb wedged on
       # hw135 → no region-b standby → region-kill impossible).
-      version: 1.3.7
+      # 1.3.8 (#3735): MIRROR-EVERYTHING — the 4 controller registries (were
+      # ghcr.io) + the previously-unoverridden kyvernopre INIT image (fell
+      # through to reg.kyverno.io, the slowest registry on the kom4dc VPC,
+      # ~13 min cold-pull on hw157) re-pointed to harbor.openova.io/proxy-ghcr/
+      # kyverno/* — proxied + satisfies the harbor-proxy-pull Enforce glob.
+      version: 1.3.8
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno

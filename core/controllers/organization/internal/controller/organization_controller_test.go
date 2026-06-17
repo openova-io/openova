@@ -27,6 +27,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -392,6 +393,22 @@ func makeReconciler(t *testing.T, objs ...client.Object) (*Reconciler, *giteaSer
 	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
 		Group: "access.openova.io", Version: "v1alpha1", Kind: "UserAccessList",
 	}, &unstructured.UnstructuredList{})
+	// #3687 (fold #3669): register the Flux v2 HelmRelease GVK so the
+	// vCluster-readiness readback can Get the per-Org vCluster HR (and so
+	// tests can seed a Ready HR to drive the Org to Ready=True).
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
+		Group: "helm.toolkit.fluxcd.io", Version: "v2", Kind: "HelmRelease",
+	}, &unstructured.Unstructured{})
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
+		Group: "helm.toolkit.fluxcd.io", Version: "v2", Kind: "HelmReleaseList",
+	}, &unstructured.UnstructuredList{})
+	// PR #3700 §4.3: register the Flux v1 GitRepository + Kustomization
+	// GVKs so the per-Org vCluster Flux loop (step 3b / per_org_flux.go) can
+	// find-or-create them when a test sets GiteaInClusterURL.
+	for _, gvk := range []schema.GroupVersionKind{fluxGitRepositoryGVK, fluxKustomizationGVK} {
+		scheme.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
+		scheme.AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
+	}
 
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme).
@@ -455,8 +472,13 @@ func TestReconcile_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile error: %v", err)
 	}
-	if res.RequeueAfter != 0 {
-		t.Errorf("happy path should not requeue: got %v", res)
+	// #3687 (fold #3669): with the vCluster HR not yet applied by Flux
+	// (the fake cluster has no HelmRelease/namespace for "acme"), the
+	// controller must NOT over-claim. It requeues so status converges as
+	// the HR comes up — the honest replacement for the old
+	// "PutFile → Ready=True, no requeue" lie.
+	if res.RequeueAfter == 0 {
+		t.Errorf("while the vCluster HR is not yet Ready the reconcile must requeue, got %v", res)
 	}
 
 	// Keycloak: 1 EnsureGroup call.
@@ -498,6 +520,13 @@ func TestReconcile_HappyPath(t *testing.T) {
 	if got.Status.VCluster.Name != "acme" || got.Status.VCluster.HostCluster != "ct-eu-mgt-prod" {
 		t.Errorf("status.vcluster: got %+v", got.Status.VCluster)
 	}
+	// #3687 (fold #3669): no Flux source has applied the vCluster HR in
+	// this fake cluster, so the phase is honestly "Pending" (manifest
+	// authored in Gitea, awaiting reconcile) — NOT a frozen "Provisioning"
+	// that masks orphaned bytes, and certainly not "Ready".
+	if got.Status.VCluster.Phase != "Pending" {
+		t.Errorf("status.vcluster.phase: got %q want Pending (HR not yet applied)", got.Status.VCluster.Phase)
+	}
 	// Slice F2 added two federation-status conditions on every
 	// reconcile (NoFederation reason when spec.identity is empty —
 	// the access-matrix UI expects them to always be present).
@@ -511,8 +540,19 @@ func TestReconcile_HappyPath(t *testing.T) {
 		t.Fatalf("expected 5 conditions (Ready + 2 federation + IacRepoBootstrapped + PerOrgRealmProvisioned), got %d: %+v",
 			len(got.Status.Conditions), got.Status.Conditions)
 	}
-	if got.Status.Conditions[0].Type != "Ready" || got.Status.Conditions[0].Status != "True" {
-		t.Errorf("expected Ready=True at index 0, got %+v", got.Status.Conditions[0])
+	// #3687 (fold #3669): Ready is honestly False until the vCluster HR
+	// is Ready AND the namespace is Active. In this fake cluster neither
+	// exists yet, so Ready=False / VClusterProvisioning with an
+	// explanatory message — the old unconditional Ready=True was the
+	// "Ready over orphaned bytes" lie this ticket kills.
+	if got.Status.Conditions[0].Type != "Ready" || got.Status.Conditions[0].Status != "False" {
+		t.Errorf("expected Ready=False at index 0 (HR not yet applied), got %+v", got.Status.Conditions[0])
+	}
+	if got.Status.Conditions[0].Reason != "VClusterProvisioning" {
+		t.Errorf("expected Ready reason VClusterProvisioning, got %q", got.Status.Conditions[0].Reason)
+	}
+	if got.Status.Conditions[0].Message == "" {
+		t.Errorf("Ready=False must carry an explanatory message naming what is pending")
 	}
 	if got.Status.Conditions[1].Type != "IdentityProviderConfigured" ||
 		got.Status.Conditions[1].Status != "False" ||
@@ -541,6 +581,52 @@ func TestReconcile_HappyPath(t *testing.T) {
 		if !strings.HasPrefix(ua.GetName(), "acme-") {
 			t.Errorf("UserAccess name should be acme-prefixed, got %q", ua.GetName())
 		}
+	}
+}
+
+// TestReconcile_ReadyOnlyWhenVClusterHRReady — #3687 (fold #3669) C4
+// proof: the Org flips Ready=True and stops requeueing ONLY once the
+// vCluster HelmRelease is actually Ready AND the per-Org namespace
+// exists. Seeds a Ready HR (name "vcluster" in ns "acme") + the "acme"
+// namespace, then reconciles and asserts status.vcluster.phase=Ready,
+// Ready=True, and no requeue — the converse of the HappyPath test which
+// proves it sits False/Pending while the HR is absent.
+func TestReconcile_ReadyOnlyWhenVClusterHRReady(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg()
+
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "acme"}}
+	hr := &unstructured.Unstructured{}
+	hr.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "helm.toolkit.fluxcd.io", Version: "v2", Kind: "HelmRelease",
+	})
+	hr.SetNamespace("acme")
+	hr.SetName("vcluster")
+	_ = unstructured.SetNestedSlice(hr.Object, []any{
+		map[string]any{"type": "Ready", "status": "True"},
+	}, "status", "conditions")
+
+	r, _, _ := makeReconciler(t, org, ns, hr)
+
+	res, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "acme"},
+	})
+	if err != nil {
+		t.Fatalf("reconcile error: %v", err)
+	}
+	if res.RequeueAfter != 0 {
+		t.Errorf("a Ready vCluster HR must stop the requeue, got %v", res)
+	}
+
+	var got orgapi.Organization
+	if err := r.Get(context.Background(), client.ObjectKey{Name: "acme"}, &got); err != nil {
+		t.Fatalf("get post-reconcile: %v", err)
+	}
+	if got.Status.VCluster.Phase != "Ready" {
+		t.Errorf("status.vcluster.phase: got %q want Ready (HR Ready + ns Active)", got.Status.VCluster.Phase)
+	}
+	if got.Status.Conditions[0].Type != "Ready" || got.Status.Conditions[0].Status != "True" {
+		t.Errorf("expected Ready=True once the HR is Ready, got %+v", got.Status.Conditions[0])
 	}
 }
 
@@ -716,9 +802,12 @@ func TestUpsertUserAccess_NamespaceScoped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile failed (regression — empty-namespace bug?): %v", err)
 	}
-	if res.RequeueAfter != 0 {
-		t.Errorf("happy path must not requeue: got %v", res)
-	}
+	// #3687 (fold #3669): the reconcile requeues while the vCluster HR is
+	// still provisioning (no HR/namespace seeded in this fake cluster).
+	// That is correct convergence behavior — the UserAccess writes below
+	// still happen on this pass; this test asserts their namespace, not
+	// the requeue cadence.
+	_ = res
 
 	// Assert every UserAccess CR carries metadata.namespace =
 	// r.UserAccessNamespace (catalyst-system).

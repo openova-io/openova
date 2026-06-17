@@ -27,6 +27,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -85,25 +86,87 @@ const pinSessionRole = "openova-user"
 // the Sovereign's mail server.
 //
 // Per docs/EPICS-1-6-unified-design.md §6.2 the canonical tier vocab is
-// viewer < developer < operator < admin < owner. PIN-mint stamps `owner`
-// so every privileged catalyst-api endpoint (rbac_audit, rbac_assign,
-// keycloak_proxy U2/U3/U4, blueprints/curate, policy_mode) resolves to
-// "authorized" without a separate per-handler nil-claim escape hatch.
+// viewer < developer < operator < admin < owner.
 //
-// The realm-role mirror (`pinSessionRealmRole`) is also stamped so the
-// realm-role-list authorization path on the same gates resolves the same
-// way — both gate seams (Tier vs RealmAccess.Roles) accept the operator.
-const pinSessionTier = "owner"
+// #3374 Layer-C (2026-06-17): the PIN session tier is NO LONGER a hard
+// `owner` constant. The prior `const pinSessionTier = "owner"` +
+// `const pinSessionRealmRole = "catalyst-owner"` made EVERY email that
+// could receive a PIN a self-signed Sovereign owner, ignoring the
+// user's real Keycloak group state — System A in #3374 §3-c, the
+// self-signed assertion that ignored the realm (law #4 violation). The
+// tier is now derived from live Keycloak group membership by
+// pinSessionAuthority(): membership in /sovereign-admins → admin (the
+// ONE decision point, #3374 §2 law #4); otherwise viewer. A non-owner
+// who PIN-authenticates is NO LONGER silently granted owner.
+//
+// pinSessionAdminTier is what a member of /sovereign-admins receives.
+// `admin` (not `owner`) is the group-conferred tier: it carries the
+// catalyst-admin realm role (now composited onto the /sovereign-admins
+// group in configmap-sovereign-realm.yaml) and lights up the BSS + RBAC
+// console nav. `owner` remains reserved for the handover-authenticated
+// Sovereign owner (auth_handover.go, RS256-signed by the mothership),
+// the genuine ownership proof — never minted from a bare PIN.
+const pinSessionAdminTier = "admin"
 
-// pinSessionRealmRole — Keycloak realm-role mirror of pinSessionTier.
-// Stamped into the JWT's realm_access.roles so handler gates that walk
-// the realm-role list (rbacAssignCallerAuthorized's HasRealmRole loop)
-// accept the PIN-derived operator without a per-handler tier-claim
-// special case. Matches the EPIC-3 T2 bootstrap vocabulary
-// (catalyst-admin / catalyst-owner / application-admin) so the PIN
-// session looks indistinguishable from a real Keycloak-issued token
-// for the privileged caller — single contract surface for the gates.
-const pinSessionRealmRole = "catalyst-owner"
+// pinSessionDefaultTier is what a PIN-authenticated user NOT in
+// /sovereign-admins receives — read-only viewer. Never owner.
+const pinSessionDefaultTier = "viewer"
+
+// pinSovereignAdminsGroupPath is the canonical KC group whose
+// membership confers console admin (mirrors the realm import's
+// /sovereign-admins group + every app's groups-claim JMESPath).
+const pinSovereignAdminsGroupPath = "/sovereign-admins"
+
+// userGroupReader is the optional capability the concrete Keycloak
+// client (*keycloak.Client) satisfies via UserGroupPaths. The narrow
+// keycloakClient interface (EnsureUser/ImpersonateToken) is preserved
+// for the existing test fakes; group-derived authority is reached by a
+// runtime type-assert so a fake without the method degrades to the
+// OPERATOR_EMAIL fallback rather than failing to compile or panicking.
+type userGroupReader interface {
+	UserGroupPaths(ctx context.Context, email string) ([]string, error)
+}
+
+// pinSessionAuthority resolves the (tier, realmRoles) a PIN-authenticated
+// email is entitled to, from live Keycloak group membership — the ONE
+// admin-authority source (#3374 §2 law #4, Layer C).
+//
+// Resolution:
+//  1. If the Keycloak client exposes UserGroupPaths and the email is in
+//     /sovereign-admins → admin tier + [catalyst-admin] (the group also
+//     composites catalyst-admin in the realm import, so a federated
+//     login of the same user is admin too — one source, both paths).
+//  2. If KC is reachable but the email is NOT in /sovereign-admins →
+//     viewer (read-only). A non-owner is NEVER silently granted owner.
+//  3. If KC is unreachable / the client lacks the capability (CI, a
+//     just-installed Sovereign whose realm hasn't converged) → fall
+//     back to the configured operator email: an exact match yields
+//     admin (the chroot owner whose mailbox proved control), anything
+//     else viewer. This keeps the owner working through a realm-import
+//     race WITHOUT the old blanket owner-for-everyone grant.
+func (h *Handler) pinSessionAuthority(ctx context.Context, email string) (tier string, realmRoles []string) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if reader, ok := h.keycloakClientFor().(userGroupReader); ok && reader != nil {
+		paths, err := reader.UserGroupPaths(ctx, email)
+		if err != nil {
+			h.log.Warn("pin/verify: KC group lookup failed; using operator-email fallback",
+				"email", email, "err", err)
+		} else {
+			for _, p := range paths {
+				if strings.EqualFold(strings.TrimSpace(p), pinSovereignAdminsGroupPath) {
+					return pinSessionAdminTier, []string{"catalyst-admin"}
+				}
+			}
+			// KC answered authoritatively: not in /sovereign-admins.
+			return pinSessionDefaultTier, nil
+		}
+	}
+	// Fallback: KC unavailable or capability absent.
+	if opEmail := strings.ToLower(strings.TrimSpace(os.Getenv("OPERATOR_EMAIL"))); opEmail != "" && opEmail == email {
+		return pinSessionAdminTier, []string{"catalyst-admin"}
+	}
+	return pinSessionDefaultTier, nil
+}
 
 // pinSessionTTL — how long a PIN-derived session lasts. 8 hours, matching
 // the magic-link session TTL so operator-facing UX is unchanged.
@@ -690,28 +753,31 @@ func (h *Handler) HandlePinVerify(w http.ResponseWriter, r *http.Request) {
 	// the EPIC-3 (#1098) RBAC gates consume (rbac_audit, rbac_assign,
 	// keycloak_proxy U2/U3/U4, blueprints/curate, policy_mode).
 	//
-	// Why owner: PIN-via-IMAP authentication proves control of the
-	// Sovereign's mail-domain inbox; that is the canonical proof of
-	// ownership of the Sovereign chroot (the only operator who can
-	// receive the 6-digit code is the one provisioned with mailbox
-	// access on the Sovereign's stalwart instance). Stamping
-	// tier=owner / realm_access.roles=[catalyst-owner] makes the JWT's
-	// authorization context match the real-world authority the auth
-	// flow already granted — without it, every privileged endpoint
-	// returns 403 even though the caller is the Sovereign owner.
+	// #3374 Layer-C (2026-06-17): the tier + realm-role claims are
+	// DERIVED FROM LIVE KEYCLOAK GROUP MEMBERSHIP, not hardcoded to
+	// owner. pinSessionAuthority() reads /sovereign-admins membership —
+	// the ONE admin-authority source (#3374 §2 law #4). A member is
+	// stamped tier=admin + [catalyst-admin] (the same realm role the
+	// group composites, so a federated login of the same user is admin
+	// too — one source, both paths); a NON-member who PIN-authenticates
+	// is stamped tier=viewer and is NOT silently granted owner (the
+	// System-A self-signed-owner defect, killed). The genuine Sovereign
+	// owner is established by the handover path (auth_handover.go),
+	// RS256-signed by the mothership — never by a bare PIN.
 	//
 	// Per CLAUDE.md INVIOLABLE-PRINCIPLES #5 (least privilege): the
 	// stamp happens ONLY at PIN-verify (i.e. only after the operator
 	// proved IMAP control); pre-PIN sessions never carry these claims.
+	sessionTier, sessionRealmRoles := h.pinSessionAuthority(r.Context(), email)
 	sessionClaims := jwt.MapClaims{
 		"iss":            pinIssuer,
 		"sub":            email, // email == subject; downstream reads claims.Email
 		"email":          email,
 		"email_verified": true,
 		"role":           pinSessionRole,
-		"tier":           pinSessionTier,
+		"tier":           sessionTier,
 		"realm_access": map[string]any{
-			"roles": []string{pinSessionRealmRole},
+			"roles": sessionRealmRoles,
 		},
 		"iat": time.Now().Unix(),
 		"exp": time.Now().Add(pinSessionTTL).Unix(),

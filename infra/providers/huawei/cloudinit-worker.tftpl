@@ -188,3 +188,42 @@ runcmd:
       sleep 5
     done
 
+  # ── #3735 (2026-06-17): BACKGROUND pre-pull of the CNPG postgresql:16 image ──
+  # The ~150 MB `harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16` cold-
+  # pulls in 7+ min through the bastion harbor-cache on this IPv4-only VPC. When
+  # several CNPG clusters (gitea / keycloak / harbor / powerdns / openova-flow,
+  # plus the cnpg-pair replicas) get co-scheduled onto a worker during the Phase-1
+  # cascade they each kick off the SAME cold pull → containerd de-dupes but the
+  # losing pulls hit `ErrImagePull: context canceled` and back off, stretching
+  # initdb well past the CNPG bootstrap timeout. Warming the image ONCE per worker
+  # at boot means by the time CNPG schedules an instance the layer is already in
+  # containerd → zero pull contention.
+  #
+  # IDEMPOTENT + NON-FATAL + DETACHED (mirrors the control-plane #3534 pre-pull):
+  # `crictl pull` is a no-op if present, every step is `|| true`, and the whole
+  # block is `nohup … &` so a slow/failed warm can NEVER affect bootstrap —
+  # kubelet still pulls on demand exactly as before. Waits for crictl + the harbor
+  # mirror to exist first (k3s ships crictl; the registries.yaml above wires the
+  # bastion :5000 harbor mirror + robot creds, so no inline --creds needed).
+  - |
+    nohup sh -c '
+      log=/var/lib/catalyst/prepull-cnpg.log
+      mkdir -p /var/lib/catalyst
+      echo "[prepull-cnpg] $(date -u +%FT%TZ) waiting for crictl + k3s-agent" >> "$log" 2>&1
+      CRICTL="$(command -v crictl || echo /var/lib/rancher/k3s/data/current/bin/crictl)"
+      for i in $(seq 1 120); do
+        if systemctl is-active k3s-agent >/dev/null 2>&1 && [ -x "$CRICTL" ]; then break; fi
+        # crictl may live under the k3s data dir once the agent unpacks.
+        CRICTL="$(command -v crictl || ls /var/lib/rancher/k3s/data/*/bin/crictl 2>/dev/null | head -1 || echo "")"
+        sleep 5
+      done
+      IMG="harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16"
+      echo "[prepull-cnpg] $(date -u +%FT%TZ) pulling $IMG via $CRICTL" >> "$log" 2>&1
+      if [ -n "$CRICTL" ] && [ -x "$CRICTL" ]; then
+        "$CRICTL" pull "$IMG" >> "$log" 2>&1 || echo "[prepull-cnpg] pull failed (non-fatal; kubelet will pull on demand)" >> "$log" 2>&1
+      else
+        echo "[prepull-cnpg] crictl not found; skipping (non-fatal)" >> "$log" 2>&1
+      fi
+      echo "[prepull-cnpg] $(date -u +%FT%TZ) done" >> "$log" 2>&1
+    ' >/dev/null 2>&1 &
+

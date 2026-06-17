@@ -1,0 +1,72 @@
+{{- /*
+Bootstrap self-registration (#3687, extends #3370) — the Application CR
+for this bootstrap-kit platform instance.
+
+WHY this exists: bootstrap-kit slots install their workloads as bare Flux
+HelmReleases. The canonical object model (apps.openova.io/v1 Application)
+is what every operator-console surface reads — the /apps list, the
+per-app Topology tab, the per-Organization showback. On hw158 only the 3
+shared-pg Application CRs existed while ~64 HelmReleases ran live, so the
+console could not see grafana/gitea/keycloak/harbor/openbao/etc.: each
+showed "n/a — bootstrap component, no Application CR", and showback rolled
+100% to the parent. This template closes that gap the SAME way bp-postgres
+/ bp-valkey already do (see platform/postgres/chart/templates/
+application-cr.yaml for the full chart-vs-slot decision rationale): the
+CHART self-registers the canonical CR for its slot-installed HelmRelease.
+
+The application-controller ADOPTS the CR (spec.bootstrap=true): it skips
+every render / fan-out / Gitea path (the install is already owned by the
+bootstrap-kit HR — rendering would duplicate it) and reconciles STATUS
+ONLY by observing spec.helmRelease's Ready condition
+(core/controllers/application/internal/controller/application_controller.go
+reconcileBootstrapOwned).
+
+Gates (the bp-valkey idiom — this chart has no top-level .Values.enabled
+master switch, so bootstrapOwned.enabled IS the opt-in):
+  - `.Values.bootstrapOwned.enabled`: defaults false; the slot opts in
+    (slot 19 sets it true). Console-created instances keep it OFF so the
+    controller-created CR is the only card ("N instances ⇒ exactly N
+    cards").
+  - Capabilities gate on apps.openova.io/v1: benign skip during first
+    bootstrap (the CRD ships in the umbrella, slot 13, which transitively
+    depends on this chart); the CR materialises on the first post-CRD
+    upgrade of this HR and immediately on converged Sovereigns.
+
+These are leaf platform apps with NO shareable Context, so spec.parameters
+is empty — the CR is the canonical instance card + Topology/showback
+anchor, not a backing-service Context publisher.
+*/ -}}
+{{- if and .Values.bootstrapOwned.enabled (.Capabilities.APIVersions.Has "apps.openova.io/v1") }}
+apiVersion: apps.openova.io/v1
+kind: Application
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-harbor.labels" . | nindent 4 }}
+    apps.openova.io/bootstrap-owned: "true"
+    catalyst.openova.io/organization: platform
+spec:
+  bootstrap: true
+  {{- /* OLD-CRD compatibility (hw130 outage 2026-06-13): the pre-#3370
+       CRD hard-requires environmentRef + regions; the #3370 CRD CEL-
+       waives them for bootstrap-owned instances but still ACCEPTS them.
+       Without these two fields, the Capabilities gate above passes on a
+       CONVERGED env still running the old CRD and the CR is rejected ->
+       upgrade fails -> rollback loop. These values are inert under both
+       schemas. */}}
+  environmentRef: platform-bootstrap
+  regions: ["platform-bootstrap-owned-host"]
+  blueprintRef:
+    name: {{ .Chart.Name }}
+    version: {{ .Chart.Version | quote }}
+  placement: single-region
+  {{- with .Values.bootstrapOwned.helmRelease }}
+  helmRelease:
+    name: {{ .name | quote }}
+    namespace: {{ .namespace | default "flux-system" | quote }}
+  {{- end }}
+  targetNamespace: {{ .Release.Namespace }}
+  releaseName: {{ .Release.Name }}
+  parameters: {}
+{{- end }}

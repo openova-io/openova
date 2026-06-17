@@ -49,6 +49,10 @@ const STATUS_COLOR: Record<JobStatus, string> = {
   running: '#BAE6FD',
   failed: '#FCA5A5',
   pending: 'rgba(255,255,255,0.40)',
+  // HEALTH axis (issue #3646) — reuse the nearest one-shot colour.
+  healthy: '#86EFAC',
+  degraded: '#FDE68A',
+  failing: '#FCA5A5',
 }
 
 const STATUS_LABEL: Record<JobStatus, string> = {
@@ -56,6 +60,9 @@ const STATUS_LABEL: Record<JobStatus, string> = {
   running: 'running',
   failed: 'failed',
   pending: 'waiting',
+  healthy: 'healthy',
+  degraded: 'degraded',
+  failing: 'failing',
 }
 
 export function FlowLogFeed({ job, lines, live, collapsed }: FlowLogFeedProps) {

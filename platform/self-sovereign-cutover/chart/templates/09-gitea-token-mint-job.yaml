@@ -173,6 +173,23 @@ data:
                 "${api_url}/user" 2>/dev/null || echo "000")
               if [ "${probe_code}" = "200" ]; then
                 echo "[gitea-token-mint] existing token in ${DEST_SECRET_NAMESPACE}/${DEST_SECRET_NAME} is VALID — re-run is a no-op (#2938: re-runs must not break working state)"
+                # #3376 (Refs #3689): stamp the cutover annotations on the
+                # no-op path too, so the on-disk Secret never diverges from
+                # what a full mint would have produced. The init gate no
+                # longer reads this annotation (it now DATA-probes the token),
+                # but catalyst-api's provisioning-github-token.yaml
+                # $cutoverOwned preservation branch + an operator forensicking
+                # `kubectl describe secret` both still expect it. Idempotent —
+                # patches ONLY the annotations, never the token bytes (so the
+                # working token the probe just validated is untouched). A
+                # failure here is non-fatal: the token is already valid, which
+                # is what actually matters.
+                ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                noop_annot_patch=$(printf '{"metadata":{"annotations":{"catalyst.openova.io/token-minted-at":"%s","catalyst.openova.io/token-source":"self-sovereign-cutover-step-09"}}}' "${ts}")
+                kubectl -n "${DEST_SECRET_NAMESPACE}" patch secret "${DEST_SECRET_NAME}" \
+                  --type=strategic -p "${noop_annot_patch}" >/dev/null 2>&1 \
+                  && echo "[gitea-token-mint] stamped token-source annotation on the no-op path (artifacts kept in sync)" \
+                  || echo "[gitea-token-mint] WARN: could not stamp no-op annotation (token still valid; non-fatal)"
                 exit 0
               fi
               echo "[gitea-token-mint] existing-token probe returned ${probe_code} — minting a replacement"

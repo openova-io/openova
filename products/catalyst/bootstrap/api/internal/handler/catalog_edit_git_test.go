@@ -16,10 +16,12 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	yamlv3 "gopkg.in/yaml.v3"
 )
@@ -70,8 +72,11 @@ func TestMergeCatalogEditIntoBlueprintYAML_FreshCR(t *testing.T) {
 	if got.IconLight != "https://cdn/light.svg" || got.IconDark != "https://cdn/dark.svg" {
 		t.Errorf("icon round-trip: light=%q dark=%q", got.IconLight, got.IconDark)
 	}
-	if len(got.SupportedTopologies) != 2 || got.SupportedTopologies[0] != "single-region" {
-		t.Errorf("topology round-trip: %v", got.SupportedTopologies)
+	// #3648 — the write path canonicalizes the placement-editor dialect onto
+	// the canonical spec.topology.supported vocabulary, so single-region is
+	// stored (and read back) as singleton; active-active is already canonical.
+	if len(got.SupportedTopologies) != 2 || got.SupportedTopologies[0] != "singleton" || got.SupportedTopologies[1] != "active-active" {
+		t.Errorf("topology round-trip: got %v want [singleton active-active]", got.SupportedTopologies)
 	}
 }
 
@@ -290,8 +295,38 @@ func TestCommitCatalogAppEditToGit_DecodesCommerceAppBody(t *testing.T) {
 	if got.IconLight != "l.svg" || got.IconDark != "d.svg" {
 		t.Errorf("theme icons not committed: %+v", got)
 	}
-	if len(got.SupportedTopologies) != 1 || got.SupportedTopologies[0] != "single-region" {
-		t.Errorf("topologies not committed: %v", got.SupportedTopologies)
+	// #3648 — single-region (placement-editor dialect) canonicalizes to
+	// singleton on the canonical spec.topology.supported.
+	if len(got.SupportedTopologies) != 1 || got.SupportedTopologies[0] != "singleton" {
+		t.Errorf("topologies not committed canonically: got %v want [singleton]", got.SupportedTopologies)
+	}
+}
+
+// TestCommitCatalogAppEditToGit_CanonicalizesHotStandby (#3648) — the
+// founder's failing case: the catalog UI posts the un-hyphenated
+// placement-editor dialect `active-hotstandby`, which MUST land in the
+// canonical spec.topology.supported as `active-hot-standby` so a later
+// instance create resolves against the Blueprint instead of failing
+// `topology "active-hotstandby" not in supported [...]`.
+func TestCommitCatalogAppEditToGit_CanonicalizesHotStandby(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+
+	body := []byte(`{"slug":"postgres","name":"Postgres","published":true,"supported_topologies":["active-active","active-hotstandby"]}`)
+	h.commitCatalogAppEditToGit(context.Background(), body)
+
+	key := giteaKey(catalogSovereignOrg, "bp-postgres", catalogEditGitBranch, catalogEditBlueprintPath)
+	raw, ok := fg.files[key]
+	if !ok {
+		t.Fatalf("expected committed blueprint.yaml at %s; keys=%v", key, fileKeys(fg))
+	}
+	got, ok := catalogEditFromBlueprintYAML("bp-postgres", raw)
+	if !ok {
+		t.Fatal("committed CR did not parse")
+	}
+	if len(got.SupportedTopologies) != 2 || got.SupportedTopologies[1] != "active-hot-standby" {
+		t.Errorf("active-hotstandby must canonicalize to active-hot-standby: got %v", got.SupportedTopologies)
 	}
 }
 
@@ -308,6 +343,254 @@ func TestCommitCatalogAppEditToGit_EmptyOverlayIsNoop(t *testing.T) {
 
 	if len(fg.files) != 0 {
 		t.Errorf("an empty-overlay row must not commit a CR; got files %v", fileKeys(fg))
+	}
+}
+
+// TestWriteCatalogEditToGit_FirstEditSeedsFullCRFromLiveSpec — #3668 §5A /
+// §9.2-9.3: the FIRST console edit on a blueprint with NO Gitea file must
+// SEED the committed file from the live CR's FULL spec (resolved via the
+// catalog client), so spec.manifests / spec.version / spec.source survive —
+// NOT a lossy `version: 0.0.0` card-only stub. Before #3668 a first edit on
+// bp-wordpress committed a stub that dropped every install field.
+func TestWriteCatalogEditToGit_FirstEditSeedsFullCRFromLiveSpec(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+	// The live CR (resolved via the catalog client) carries the full spec —
+	// real version + manifests — exactly as the in-cluster Blueprint does.
+	h.SetCatalogClient(newFakeCatalog(sampleWordpressBlueprint()))
+
+	// A first edit changing only the card summary (no Gitea file yet).
+	edit := catalogEdit{Slug: "wordpress", Tagline: "Edited via console"}
+	committed, err := h.writeCatalogEditToGit(context.Background(), edit)
+	if err != nil {
+		t.Fatalf("writeCatalogEditToGit: %v", err)
+	}
+	if !committed {
+		t.Fatalf("first edit must commit a CR")
+	}
+
+	key := giteaKey(catalogSovereignOrg, "bp-wordpress", catalogEditGitBranch, catalogEditBlueprintPath)
+	raw, ok := fg.files[key]
+	if !ok {
+		t.Fatalf("expected committed blueprint.yaml at %s; keys=%v", key, fileKeys(fg))
+	}
+	var doc map[string]interface{}
+	if err := yamlv3.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("unmarshal committed CR: %v", err)
+	}
+	spec, _ := doc["spec"].(map[string]interface{})
+	if spec == nil {
+		t.Fatalf("committed CR has no spec; doc=%v", doc)
+	}
+	// The REAL version is seeded from the live CR — NOT the 0.0.0 stub.
+	if asString(spec["version"]) != "1.2.3" {
+		t.Errorf("first edit must seed the real spec.version from the live CR, not a 0.0.0 stub; got %v", spec["version"])
+	}
+	// spec.manifests (an install field the old stub dropped) survives.
+	if _, ok := spec["manifests"].(map[string]interface{}); !ok {
+		t.Errorf("first edit must seed spec.manifests from the live CR; spec=%v", spec)
+	}
+	// The card edit landed on top of the seeded full CR.
+	card, _ := spec["card"].(map[string]interface{})
+	if card == nil || card["summary"] != "Edited via console" {
+		t.Errorf("the card edit must overlay the seeded CR; card=%v", card)
+	}
+	// Server-managed metadata is NOT carried into the committed source.
+	meta, _ := doc["metadata"].(map[string]interface{})
+	if meta == nil || meta["name"] != "bp-wordpress" {
+		t.Errorf("metadata.name must be bp-wordpress; meta=%v", meta)
+	}
+	if _, leaked := meta["managedFields"]; leaked {
+		t.Errorf("managedFields must be stripped from the seeded source")
+	}
+	if _, leaked := doc["status"]; leaked {
+		t.Errorf("status must be stripped from the seeded source")
+	}
+}
+
+// TestCommitCatalogAppEditToGit_SlowGiteaStillCommits — #3668 §9.6(a):
+// a Gitea that sleeps 3s on PutFile no longer aborts the commit. Before
+// #3668 the write shared the 1500ms commerce-probe ctx and deadline-d; now
+// it runs under the dedicated ~15s catalogEditGitBudget, so a busy-but-
+// healthy Gitea commits durably (committed=true).
+func TestCommitCatalogAppEditToGit_SlowGiteaStillCommits(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	fg.putFileSleep = 3 * time.Second // far over the dead 1500ms probe budget
+	h.SetGiteaClient(fg)
+
+	body := []byte(`{"slug":"alloy","name":"Alloy (IaC write test)","tagline":"telemetry","supported_topologies":["single-region"]}`)
+	committed, reason := h.commitCatalogAppEditToGit(context.Background(), body)
+	if !committed {
+		t.Fatalf("a 3s PutFile must still commit under the dedicated git budget; reason=%q", reason)
+	}
+	if reason != "" {
+		t.Errorf("a durable commit must carry no failure reason; got %q", reason)
+	}
+	key := giteaKey(catalogSovereignOrg, "bp-alloy", catalogEditGitBranch, catalogEditBlueprintPath)
+	if _, ok := fg.files[key]; !ok {
+		t.Fatalf("expected a committed blueprint.yaml at %s; keys=%v", key, fileKeys(fg))
+	}
+}
+
+// TestCommitCatalogAppEditToGit_ErroringGiteaReportsNotCommitted — #3668
+// §9.6(b): a Gitea that errors on PutFile makes the edit report
+// committed=false + a reason. Before #3668 the error was logged + swallowed
+// and the caller relayed a 200 OK; now the verdict is surfaced so the UI can
+// show "cache only / IaC commit failed" instead of a false green "Saved".
+func TestCommitCatalogAppEditToGit_ErroringGiteaReportsNotCommitted(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	fg.putFileErr = errors.New("gitea: 500 internal error")
+	h.SetGiteaClient(fg)
+
+	body := []byte(`{"slug":"alloy","name":"Alloy","tagline":"telemetry"}`)
+	committed, reason := h.commitCatalogAppEditToGit(context.Background(), body)
+	if committed {
+		t.Fatalf("an erroring PutFile must report committed=false")
+	}
+	if !strings.Contains(reason, "IaC commit failed") {
+		t.Errorf("the failure reason must name the IaC commit failure; got %q", reason)
+	}
+}
+
+// TestCommitCatalogAppEditToGit_UnwiredReportsCacheOnly — #3668 §9.6: with
+// no Gitea client (pre-cutover / CI) the commit is reported committed=false
+// with a "pre-cutover" reason, NOT swallowed as success — the store cache
+// holds the edit but the UI must know it is not yet IaC.
+func TestCommitCatalogAppEditToGit_UnwiredReportsCacheOnly(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	// no SetGiteaClient → h.giteaClient == nil
+	committed, reason := h.commitCatalogAppEditToGit(context.Background(),
+		[]byte(`{"slug":"alloy","name":"Alloy"}`))
+	if committed {
+		t.Fatalf("an unwired client must report committed=false")
+	}
+	if strings.TrimSpace(reason) == "" {
+		t.Errorf("the unwired case must carry a human reason for the UI")
+	}
+}
+
+// TestCommitCatalogAppEditToGit_ByteIdenticalIsDurable — #3668: a second
+// identical edit (PutFile's byte-equal short-circuit returns committed=false,
+// err=nil) is a DURABLE state — the source already carries these bytes — so
+// it must report committed=true, never a false "cache only" failure.
+func TestCommitCatalogAppEditToGit_ByteIdenticalIsDurable(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+
+	body := []byte(`{"slug":"alloy","name":"Alloy","tagline":"telemetry"}`)
+	if c, _ := h.commitCatalogAppEditToGit(context.Background(), body); !c {
+		t.Fatalf("first commit must report committed=true")
+	}
+	// Second identical edit — PutFile short-circuits (no new bytes written).
+	committed, reason := h.commitCatalogAppEditToGit(context.Background(), body)
+	if !committed {
+		t.Fatalf("a byte-identical re-edit is durable and must report committed=true; reason=%q", reason)
+	}
+}
+
+// TestWriteCatalogEditToGit_MirrorsToFluxAggregator — #3668: the load-bearing
+// half PR #3702 deferred. On a Sovereign (SOVEREIGN_FQDN set), a console edit
+// ALSO writes the SAME merged CR bytes into the Flux-reconciled aggregator
+// tree `openova/openova @ catalog-sovereign : clusters/<fqdn>/catalog-
+// sovereign/<bp>.yaml`, so the openova-catalog-sovereign Kustomization can
+// reconcile it into the LIVE in-cluster Blueprint CR. The per-Blueprint repo
+// write (the UI read source) is unchanged; this asserts the SECOND, Flux
+// source-of-truth write lands with byte-identical content.
+func TestWriteCatalogEditToGit_MirrorsToFluxAggregator(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "t99.omani.works")
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+
+	edit := catalogEdit{
+		Slug:    "alloy",
+		Name:    "Alloy (Edited)",
+		Tagline: "RECONCILE-PROOF",
+	}
+	if _, err := h.writeCatalogEditToGit(context.Background(), edit); err != nil {
+		t.Fatalf("writeCatalogEditToGit: %v", err)
+	}
+
+	// The per-Blueprint repo write (UI read source) still lands.
+	perBP := giteaKey(catalogSovereignOrg, "bp-alloy", catalogEditGitBranch, catalogEditBlueprintPath)
+	perBPRaw, ok := fg.files[perBP]
+	if !ok {
+		t.Fatalf("per-Blueprint write missing at %s; keys=%v", perBP, fileKeys(fg))
+	}
+
+	// The Flux aggregator write lands on openova/openova @ catalog-sovereign.
+	aggPath := "clusters/t99.omani.works/catalog-sovereign/bp-alloy.yaml"
+	aggKey := giteaKey(catalogSovereignAggOrg, catalogSovereignAggRepo, catalogSovereignAggBranch, aggPath)
+	aggRaw, ok := fg.files[aggKey]
+	if !ok {
+		t.Fatalf("Flux aggregator write missing at %s; keys=%v", aggKey, fileKeys(fg))
+	}
+	if string(aggRaw) != string(perBPRaw) {
+		t.Errorf("aggregator bytes must equal the per-Blueprint CR bytes (same merged CR drives render+reconcile)\nagg:\n%s\nperBP:\n%s", aggRaw, perBPRaw)
+	}
+	if !strings.Contains(string(aggRaw), "RECONCILE-PROOF") {
+		t.Errorf("aggregator CR must carry the edited summary; got:\n%s", aggRaw)
+	}
+	// The aggregator path is the one the Flux Kustomization sweeps.
+	if got := catalogSovereignAggPath("t99.omani.works", "bp-alloy"); got != aggPath {
+		t.Errorf("catalogSovereignAggPath = %q, want %q", got, aggPath)
+	}
+}
+
+// TestWriteCatalogEditToGit_NoAggregatorOnMothership — #3668: the Catalyst-
+// Zero mothership (SOVEREIGN_FQDN empty) has NO local catalog-sovereign Flux
+// reconcile (it pushes to github.com), so the aggregator write must NOT fire.
+// The per-Blueprint write still lands (it is the read overlay everywhere).
+func TestWriteCatalogEditToGit_NoAggregatorOnMothership(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "")
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+
+	if _, err := h.writeCatalogEditToGit(context.Background(),
+		catalogEdit{Slug: "alloy", Name: "X", Tagline: "y"}); err != nil {
+		t.Fatalf("writeCatalogEditToGit: %v", err)
+	}
+	for k := range fg.files {
+		if strings.Contains(k, "/catalog-sovereign/bp-") && strings.HasPrefix(k, catalogSovereignAggOrg+"/"+catalogSovereignAggRepo+"/") {
+			t.Errorf("mothership must not write the Flux aggregator tree; found key %q", k)
+		}
+	}
+}
+
+// TestWriteCatalogSovereignAggregator_BestEffortGuards — the aggregator
+// mirror no-ops (committed=false, err=nil) when unwired or FQDN-less, and
+// never blocks the edit. Erroring Gitea surfaces an err for the caller to
+// log+swallow (the edit API still returns the per-Blueprint verdict).
+func TestWriteCatalogSovereignAggregator_BestEffortGuards(t *testing.T) {
+	// Unwired client → no-op.
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	if c, err := h.writeCatalogSovereignAggregator(context.Background(), "bp-alloy", []byte("x")); c || err != nil {
+		t.Errorf("unwired: want (false,nil); got (%v,%v)", c, err)
+	}
+
+	// Wired but FQDN empty → no-op.
+	t.Setenv("SOVEREIGN_FQDN", "")
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+	if c, err := h.writeCatalogSovereignAggregator(context.Background(), "bp-alloy", []byte("x")); c || err != nil {
+		t.Errorf("no-FQDN: want (false,nil); got (%v,%v)", c, err)
+	}
+	if len(fg.files) != 0 {
+		t.Errorf("no-FQDN must write nothing; keys=%v", fileKeys(fg))
+	}
+
+	// Wired + FQDN + erroring PutFile → err returned (caller logs+swallows).
+	t.Setenv("SOVEREIGN_FQDN", "t99.omani.works")
+	fgErr := newFakeGitea()
+	fgErr.putFileErr = errors.New("gitea: 500")
+	h.SetGiteaClient(fgErr)
+	if _, err := h.writeCatalogSovereignAggregator(context.Background(), "bp-alloy", []byte("x")); err == nil {
+		t.Errorf("erroring PutFile must return a non-nil err for the caller to log")
 	}
 }
 

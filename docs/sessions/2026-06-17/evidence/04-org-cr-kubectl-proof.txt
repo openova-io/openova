@@ -1,0 +1,83 @@
+# hw158 marketplace funnel walk — Organization CR mint proof
+# Captured: 2026-06-17T04:31:39Z
+# Env: hw158 (deployment ab2135d4cf2d01e4), Sovereign hw158.omani.works
+# Walk: stranger walkstranger@omani.homes redeemed voucher VCH-56T66GFC2BNC via marketplace.hw158.omani.works/redeem
+
+## kubectl get organizations.orgs.openova.io -A
+NAME               SLUG               KIND       TIER   BILLING   SOVEREIGN           AGE
+walk-stranger-co   walk-stranger-co   customer   sme    real      hw158.omani.works   45s
+
+## full Organization CR
+apiVersion: orgs.openova.io/v1
+kind: Organization
+metadata:
+  creationTimestamp: "2026-06-17T04:30:54Z"
+  generation: 1
+  labels:
+    openova.io/source: tenant-created-event
+    openova.io/tenant-id: 8a4c40ad-78a8-4a64-964d-a6f6398fbb41
+  name: walk-stranger-co
+  resourceVersion: "102896"
+  uid: 89f8f5af-c8d1-42e5-b690-b759e2263685
+spec:
+  billingMode: real
+  defaultEnvironmentType: prod
+  displayName: Walk Stranger Co
+  kind: customer
+  owners:
+  - email: walkstranger@omani.homes
+    role: owner
+  slug: walk-stranger-co
+  sovereignRef: hw158.omani.works
+  tier: sme
+status:
+  conditions:
+  - lastTransitionTime: "2026-06-17T04:31:28Z"
+    message: vCluster HelmRelease not yet applied by Flux (manifest authored in Gitea
+      + per-Org Flux source created; awaiting first reconcile of ./vcluster)
+    reason: VClusterProvisioning
+    status: "False"
+    type: Ready
+  - lastTransitionTime: "2026-06-17T04:31:28Z"
+    message: spec.identity.federationProvider is empty — no IdP configured
+    reason: NoFederation
+    status: "False"
+    type: IdentityProviderConfigured
+  - lastTransitionTime: "2026-06-17T04:31:28Z"
+    message: no IdP → no claim mappers
+    reason: NoFederation
+    status: "False"
+    type: IdentityProviderClaimMappersConfigured
+  - lastTransitionTime: "2026-06-17T04:31:28Z"
+    message: iacbootstrap dependencies not wired
+    reason: BootstrapDisabled
+    status: "False"
+    type: IacRepoBootstrapped
+  - lastTransitionTime: "2026-06-17T04:31:28Z"
+    message: per-Org Keycloak realm auto-wiring disabled
+    reason: RealmDisabled
+    status: "False"
+    type: PerOrgRealmProvisioned
+  giteaOrg:
+    name: walk-stranger-co
+    repos:
+    - catalyst-tenant
+  iacBootstrap:
+    lastError: iacbootstrap dependencies not wired in this controller deployment
+    state: Disabled
+  keycloakGroup:
+    id: e5c61e02-250f-4f61-841a-6ad73b5c7bcc
+    path: /walk-stranger-co
+    realm: sovereign
+  observedGeneration: 1
+  perOrgRealm:
+    lastError: per-Org Keycloak realm auto-wiring disabled in this controller deployment
+    state: Disabled
+  vcluster:
+    hostCluster: hw158.omani.works
+    name: walk-stranger-co
+    phase: Pending
+
+## tenant-service POST /tenant/orgs (201) + provisioning Organization-CR-created log
+tenant: POST /tenant/orgs status=201 (tenant_id=8a4c40ad-78a8-4a64-964d-a6f6398fbb41)
+provisioning: 'tenant.created consumer: Organization CR created slug=walk-stranger-co tenant_id=8a4c40ad... tier=sme sovereign=hw158.omani.works'

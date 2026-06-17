@@ -393,6 +393,19 @@ func (h *Handler) HandleBlueprintCurate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// #3668 — ALSO mirror the curated CR into the Flux-reconciled aggregator
+	// tree so curate (not just the console edit) reaches the LIVE in-cluster
+	// Blueprint CR and survives `helm upgrade`. Ownership-strip first so the
+	// committed source is helm-upgrade-immune (DoD §9.4). Best-effort: a
+	// failure is logged + swallowed — the per-Blueprint write above already
+	// succeeded for the read overlay.
+	if _, aggErr := h.writeCatalogSovereignAggregator(
+		ctx, body.BlueprintName, stripBlueprintCRBytesForGit(srcBytes, body.BlueprintName),
+	); aggErr != nil {
+		h.log.Warn("blueprint curate: aggregator mirror failed (Blueprint CR will not reconcile until next write)",
+			"blueprint", body.BlueprintName, "err", aggErr)
+	}
+
 	resp := blueprintCurateResponse{
 		BlueprintName: body.BlueprintName,
 		SourceOrg:     body.SourceOrg,

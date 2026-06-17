@@ -273,13 +273,16 @@ describe('JobsTable — render', () => {
     expect(screen.queryByTestId('jobs-filter-app')).toBeNull()
   })
 
-  it('renders all seven canonical columns', async () => {
+  it('renders the canonical columns including the Kind column (issue #3646)', async () => {
     renderTable({ jobs: FIXTURE_JOBS })
     await screen.findByTestId('jobs-table')
     const headers = screen
       .getAllByRole('columnheader')
       .map((h) => (h.textContent ?? '').toLowerCase().trim())
-    expect(headers).toEqual(['name', 'app', 'deps', 'parent', 'status', 'started', 'duration'])
+    // Kind is inserted after Name (#3646 typed activity discriminator).
+    // The Actions column appears only when a deploymentId is threaded,
+    // which this no-deploymentId render does not, so it's absent here.
+    expect(headers).toEqual(['name', 'kind', 'app', 'deps', 'parent', 'status', 'started', 'duration'])
   })
 
   it('row link stays scoped under /provision/$deploymentId on the mother surface (prov #59)', async () => {
@@ -666,5 +669,42 @@ describe('JobsTable region filter (C8-005)', () => {
     expect(screen.getByTestId('jobs-cell-region-primary-bp-cilium')).toBeTruthy()
     const regionCell = screen.getByTestId('jobs-cell-region-me-east-215-b-1:bp-cilium')
     expect(regionCell.textContent).toContain('me-east-215-b-1')
+  })
+})
+
+describe('JobsTable — Re-run button passes the BARE jobName, not the composite id (#3646)', () => {
+  // Regression for the live hw158 walk: the Flux-native Re-run control's
+  // backend accepts EITHER the composite `<depId>:<jobName>` id OR the bare
+  // jobName, but the FE previously passed `job.id` (composite) which
+  // RetryJobButton runs through encodeURIComponent → the `:` becomes `%3A`
+  // → the upstream proxy (Traefik) returns 404 on the encoded colon in the
+  // path segment. The actions cell MUST pass `job.jobName` so the retry URL
+  // carries no colon. RetryJobButton stamps its control
+  // `data-testid="jobs-retry-${jobId}"`, so the rendered testid is the proof
+  // of which identifier the call site forwarded.
+  const failedComposite: Job[] = [
+    {
+      id: 'd-1:install-velero', // composite id — contains the colon that 404s
+      jobName: 'install-velero', // bare name — the URL-safe persistence key
+      appId: 'bp-velero',
+      type: 'install',
+      parentId: 'applications',
+      childIds: [],
+      dependsOn: [],
+      status: 'failed', // failed ⇒ isJobRetryable ⇒ the Re-run control renders
+      startedAt: '2026-04-29T10:00:00Z',
+      finishedAt: '2026-04-29T10:01:00Z',
+      durationMs: 60000,
+    },
+  ]
+
+  it('stamps the retry control with the bare jobName (no composite colon)', async () => {
+    // deploymentId present ⇒ the Actions column (and the Re-run control) render.
+    renderTable({ jobs: failedComposite, deploymentId: 'd-1' })
+    await screen.findByTestId('jobs-table')
+    // The retry control keyed on the BARE jobName is present …
+    expect(screen.getByTestId('jobs-retry-install-velero')).toBeTruthy()
+    // … and the composite-id-keyed control (the %3A-404 bug) is absent.
+    expect(screen.queryByTestId('jobs-retry-d-1:install-velero')).toBeNull()
   })
 })

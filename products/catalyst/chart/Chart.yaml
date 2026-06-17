@@ -1,17 +1,59 @@
 apiVersion: v2
 name: bp-catalyst-platform
-# 1.4.652 — #3663 (Refs #3598): cutover-driver ClusterRole gains
-# `namespaces: [create]`. The create-from-catalog + Organization-create
-# handlers call ensureOrgNamespace (namespace_ensure.go) which Get-then-
-# Creates the Org/Environment namespace to avoid racing the organization
-# controller's GitOps namespace reconcile. #3598 added the Create call but
-# not the RBAC, so on a fresh prov EVERY Org create 403'd with
-# `namespaces is forbidden: ... catalyst-api-cutover-driver cannot create
-# resource "namespaces" at the cluster scope` (caught live hw150 — ZERO
-# tenant Organizations could exist). catalyst-api runs permanently as this
-# SA (api-deployment.yaml), so the fix is the missing verb, not an SA swap.
-# `create` is its own Rule WITHOUT resourceNames per
-# feedback_rbac_create_no_resourcenames.md.
+# 1.4.667 — #3763 (Refs #3749, 2026-06-17): FIX the catalyst-gitea-flux-auth-sync
+# hook crashloop that degraded the live hw158 spine. The post-install/post-upgrade
+# hook read catalyst-gitea-token.token ONCE and `exit 1` FATAL'd on empty →
+# crashloop → BackoffLimitExceeded → bp-catalyst-platform upgrade failed + rolled
+# back + oscillated (held bp-continuum/bp-sandbox/sovereign-tls non-Ready). The
+# PAT is minted by the pre-* mint hook, but pre-/post-* hook weights are
+# INDEPENDENT phases (no weight can sequence post after pre's mint) AND the mint
+# Secret's `before-hook-creation` delete-policy re-creates it each upgrade →
+# transient empty-read window. FIX: the auth-sync job now POLLS the Secret for a
+# non-empty `.token` (bounded, default 60 × 5s = 300s) before failing, instead of
+# FATAL-on-first-empty — survives ANY mint-vs-sync ordering on fresh-install OR
+# upgrade. Also raised the hook's own RBAC weight 5→20 (intra-phase determinism).
+# PAT still off argv. Template-only; rendered only on a Sovereign +
+# ingress.marketplace.enabled — Catalyst-Zero render byte-unchanged.
+# 1.4.663 — #3687 / #3376 (2026-06-17): per-Org vCluster repo clone now
+# AUTHENTICATES — default controllers.organization.fluxGiteaSecretRef to
+# `openova-sme-tenants-git-auth`. PR #3718 wired the per-Org Flux loop
+# (org-controller reconcilePerOrgFlux → catalyst-tenant-<slug> GitRepository
+# → ./vcluster Kustomization → vCluster HelmRelease) but left the secretRef
+# default empty. The per-Org `<slug>/catalyst-tenant` repo is private
+# (EnsureOrg/EnsureRepo private=true) AND bp-gitea sets REQUIRE_SIGNIN_VIEW
+# =true, so the source-controller's anonymous clone 401'd → Kustomization
+# "Source artifact not found" → the committed vCluster HR never reconciled →
+# the tenant namespace + purchased app (WordPress) never came up → the
+# funnel's terminal acceptance failed (proven live hw158 by the #3687/#3376
+# walkers). `openova-sme-tenants-git-auth` holds the gitea_admin PAT (clones
+# every Org's private repo) and is guaranteed in flux-system by the
+# sme-tenants auth-secret template + #3749's gitea-flux-auth-secrets-sync-job
+# (the deterministic runtime creator). Catalyst-Zero render byte-unchanged
+# (the value only reaches the org-controller env, which is sovereign-only).
+# Refs #3687 #3376.
+# 1.4.654 — #3376 FUNNEL (voucher→running-app) — three folded fixes so a
+# stranger with a voucher ends signed-in in their own Org console with the
+# app running, on a cut-over Sovereign, zero-touch:
+#   (a) provisioning init gate is now a token-DATA probe, not a brittle
+#       annotation (templates/sme-services/provisioning.yaml +
+#       provisioning-github-token.yaml). The cutover Step-09 no-op path
+#       skipped the annotation stamp + the chart's bootstrap branch stripped
+#       it, so both `sme/provisioning` replicas stuck Init:0/1 forever on a
+#       fully cut-over Sovereign (hw150). The init now GETs Gitea
+#       /api/v1/user with the token and proceeds on HTTP 200 — immune to
+#       both. The bootstrap branch also no longer strips the token-source
+#       annotation when the live Secret carries it (artifacts stay in sync).
+#   (a2) gitea-tenants-repo-bootstrap-job.yaml seeds an EMPTY parent
+#       kustomization at clusters/<fqdn>/sme-tenants/ so the Flux
+#       Kustomization sme-tenants path exists + reconciles Ready from first
+#       convergence (was NotReady "path not found" → silently excluded from
+#       the cutover egress proof as baseline noise — PRINCIPLES A1/A2).
+#   (b) cutover-driver ClusterRole gains `namespaces: [create]` (folds
+#       PR #3664 / #3663): ensureOrgNamespace (namespace_ensure.go, #3598)
+#       Get-then-Creates the Org namespace; #3598 added the Create call but
+#       not the RBAC, so EVERY Org create 403'd (ZERO tenant Orgs creatable
+#       on a fresh prov — caught live hw150).
+# Refs #3376 #3689 #3663 #3664 #3598 #3379.
 # 1.4.619 — #3374 (2026-06-14) — baseline-default-deny: allow ingress
 # from the `oidc-gate` host namespace. The bp-oidc-gate auth-proxy (slot 13c)
 # reverse-proxies authenticated traffic to its upstream Service in
@@ -2724,7 +2766,24 @@ name: bp-catalyst-platform
 # (qaFixtures.cnpgBackupEndpointURL + cnpg-clusters-qa.yaml) to the
 # syncer-mangled host Service name. qa-fixtures only; Catalyst-Zero render
 # byte-unchanged. (1.4.622 was a content-free deploy-bot image sweep.)
-version: 1.4.652
+version: 1.4.674
+# 1.4.657 — PR #3700 §4.3 (Refs #3687, 2026-06-17): close the per-Org
+# vCluster Flux loop — the deferred half of the object-model-LIVE master.
+# The organization-controller already PUT the vCluster Namespace + HelmRelease
+# into the per-Org `<slug>/catalyst-tenant` Gitea repo, but NOTHING on the
+# host cluster watched it (the design assumed a manual one-off
+# `clusters/<host>/tenants/<slug>/` Kustomization that never ran on a fresh
+# prov) — so the manifest sat as orphaned bytes and vclusterReadiness()
+# reported phase=Pending forever. The controller now find-or-creates a
+# host-cluster Flux GitRepository (catalyst-tenant-<slug>) + Kustomization
+# (catalyst-tenant-<slug>-vcluster, path ./vcluster, prune:true, no
+# cross-namespace ownerRef per the Fix #42 GC-trap idiom) that reconcile that
+# repo's ./vcluster tree onto the host cluster, so the vCluster HR is actually
+# APPLIED and the Org walks Pending → Provisioning → Ready. New
+# organization-controller env (CATALYST_GITEA_INCLUSTER_URL / CATALYST_FLUX_*)
+# + ClusterRole grants for gitrepositories + kustomizations (create/update/
+# delete). Templates-only chart delta is the deployment env block + the
+# ClusterRole rules; rendered identically on Catalyst-Zero + Sovereign.
 # 1.4.648 — #3638 (2026-06-16, Refs #3379; rebased over main's 1.4.647 deploy-bot bump) — fix the cutover step-07 re-run
 # loop at its source. templates/configmap-catalyst-runtime-config.yaml now
 # DERIVES sovereign-console-url + sovereign-api-public-url from
@@ -2782,7 +2841,7 @@ version: 1.4.652
 #   unsatisfiable on kom4dc (me-east-215-*), which kept the production
 #   Continuum seed unfireable. Backwards-compatible (all-letter labels
 #   still match). Flux CreateReplace flows it to live Sovereigns.
-appVersion: 1.4.494
+appVersion: 1.4.674
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +

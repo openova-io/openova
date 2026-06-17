@@ -15,6 +15,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -79,7 +80,26 @@ func main() {
 	chartVer := envOr("CATALYST_VCLUSTER_CHART_VERSION", "0.33.*")
 	helmRepoName := envOr("CATALYST_VCLUSTER_HELMREPO_NAME", "loft")
 	helmRepoNs := envOr("CATALYST_VCLUSTER_HELMREPO_NAMESPACE", "vcluster-system")
+	// #3760 (Refs #3376 #3754): the Sovereign-local Harbor host the per-Org
+	// vCluster images pull through (proxy-cache). Default harbor.openova.io;
+	// cutover Step-04 flips it to harbor.<sovereign-fqdn>. Without proxying,
+	// the harbor-proxy-pull Kyverno ClusterPolicy DENIES the StatefulSet.
+	vclusterImageRegistry := envOr("CATALYST_VCLUSTER_IMAGE_REGISTRY", "harbor.openova.io")
 	branch := envOr("CATALYST_GITEA_BRANCH", "main")
+	// PR #3700 §4.3 — per-Org vCluster Flux loop. The in-cluster Gitea URL
+	// the per-Org Flux GitRepository clones from. Defaults to the same
+	// in-cluster Service the application-controller's GiteaInClusterURL +
+	// the chart's Flux sources use. When this resolves empty the loop is
+	// skipped (vclusterReadiness keeps reporting Pending) — but the default
+	// ensures a fresh prov wires it automatically with zero operator action.
+	giteaInClusterURL := envOr("CATALYST_GITEA_INCLUSTER_URL", "http://gitea-http.gitea.svc.cluster.local:3000")
+	fluxNamespace := envOr("CATALYST_FLUX_NAMESPACE", "flux-system")
+	fluxIntervalSeconds := envIntOr("CATALYST_FLUX_INTERVAL_SECONDS", 60)
+	// Flux basic-auth Secret (in fluxNamespace) holding the Gitea PAT the
+	// per-Org GitRepository uses to clone (bp-gitea REQUIRE_SIGNIN_VIEW=true
+	// → anonymous clone 401s). Empty == anonymous, matching the
+	// application-controller's FLUX_GITEA_SECRET_REF default.
+	fluxGiteaSecretRef := envOr("CATALYST_FLUX_GITEA_SECRET_REF", "")
 	// Slice F2 (#1098): namespace where federation client-secret K8s
 	// Secrets live. Defaults to the controller's own namespace so the
 	// ClusterRole `secrets:get` rule + cache scope stay minimal.
@@ -153,7 +173,12 @@ func main() {
 		VClusterChartVersion:      chartVer,
 		VClusterHelmRepoName:      helmRepoName,
 		VClusterHelmRepoNamespace: helmRepoNs,
+		VClusterImageRegistry:     vclusterImageRegistry,
 		Branch:                    branch,
+		GiteaInClusterURL:         giteaInClusterURL,
+		FluxNamespace:             fluxNamespace,
+		FluxIntervalSeconds:       fluxIntervalSeconds,
+		FluxGiteaSecretRef:        fluxGiteaSecretRef,
 		FederationSecretNamespace: fedSecretNs,
 		UserAccessNamespace:       uaNs,
 		IacBootstrapGitea:         iacGitea,
@@ -246,6 +271,22 @@ func envOr(key, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+// envIntOr reads a positive-integer env var, falling back to `fallback`
+// when unset, empty, or unparseable / non-positive (a 0 or negative
+// interval would make Flux reject the CR). Per Inviolable Principle #4 the
+// knob is operator-overridable but defended against a fat-fingered value.
+func envIntOr(key string, fallback int) int {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
 }
 
 // envBoolDefaultFalse reads a boolean env var that defaults to FALSE when

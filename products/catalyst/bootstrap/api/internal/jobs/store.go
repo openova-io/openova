@@ -257,6 +257,20 @@ func (s *Store) UpsertJob(j Job) error {
 	if j.DependsOn == nil {
 		j.DependsOn = []string{}
 	}
+	// Stamp the typed Kind at write time (issue #3646 §4b). Every bridge
+	// funnels its writes through UpsertJob, so populating it here gives
+	// the persisted record a canonical kind without each call site
+	// repeating the derivation — a caller that already set an explicit
+	// Kind (the activity/reconciler bridges) wins. Group rows are
+	// KindGroup; leaves infer from JobName via the same kindForLeaf the
+	// read path uses, so write and read agree exactly.
+	if j.Kind == "" {
+		if j.Type == JobTypeGroup {
+			j.Kind = KindGroup
+		} else {
+			j.Kind = kindForLeaf(j.JobName)
+		}
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -318,6 +332,14 @@ func mergeJob(prev, next Job) Job {
 	// as the DependsOn preservation directly above.
 	if next.Region == "" && prev.Region != "" {
 		out.Region = prev.Region
+	}
+	// Carry forward Kind — same preservation shape as Region/DependsOn.
+	// A bridge's per-event transition path may pass a Job with Kind=""
+	// (it only re-stamps status), and the seed path stamped the real
+	// kind once; without this the typed discriminator would blank out on
+	// the first transition after the seed (issue #3646 §4b).
+	if next.Kind == "" && prev.Kind != "" {
+		out.Kind = prev.Kind
 	}
 	if out.StartedAt != nil && out.FinishedAt != nil {
 		out.DurationMs = out.FinishedAt.Sub(*out.StartedAt).Milliseconds()
@@ -611,6 +633,32 @@ func deriveTreeView(jobs []Job) []Job {
 	for i := range jobs {
 		idx[jobs[i].ID] = i
 		jobs[i].ChildIDs = nil
+		// Back-fill the typed Kind for any row whose persisted Kind is
+		// empty (legacy index written before #3646, or a synthesized
+		// parent). Group Jobs are KindGroup; leaves infer from JobName.
+		// This guarantees every wire row carries an honest kind even
+		// when the producing bridge predates the field.
+		if jobs[i].Kind == "" {
+			if jobs[i].Type == JobTypeGroup {
+				jobs[i].Kind = KindGroup
+			} else {
+				jobs[i].Kind = kindForLeaf(jobs[i].JobName)
+			}
+		}
+		// Back-fill a granular, human-readable DisplayName for any LEAF
+		// whose producing bridge left it empty (issue #3646: "non granular
+		// naming"). The install + mutation bridges never set one, so the FE
+		// rendered the raw "install-<chart>" / "mutation-<verb>-<kind>"
+		// slug. DeriveLeafDisplayName names the component + action's purpose
+		// ("Install Keycloak", "Remove Region") from the structured fields.
+		// This is the SAME single chokepoint that back-fills Kind, so the
+		// granular name reaches every row regardless of which bridge minted
+		// it (and upgrades legacy persisted indexes on read). A bridge that
+		// DID set a friendly DisplayName (cutover steps, lifecycle phases,
+		// groups) keeps it — we only ever fill an EMPTY one, never override.
+		if jobs[i].DisplayName == "" && jobs[i].Type != JobTypeGroup {
+			jobs[i].DisplayName = DeriveLeafDisplayName(jobs[i])
+		}
 	}
 	// Build adjacency: parent ID → list of child indexes (children of
 	// the indexed parent's ID).
@@ -700,6 +748,19 @@ func deriveTreeView(jobs []Job) []Job {
 				allTerminal = false
 			case StatusPending, "":
 				hasPending = true
+				allTerminal = false
+			case StatusFailing, StatusDegraded:
+				// HEALTH-axis leaf currently unhealthy (issue #3646 §4c):
+				// surface it as a failure on the group — NEVER average a
+				// degraded/failing reconciler away into a green rollup.
+				// A health leaf never terminates, so it also keeps the
+				// group out of the all-terminal (FinishedAt) state.
+				hasFailed = true
+				allTerminal = false
+			case StatusHealthy:
+				// A healthy reconciler is "running forever and that's
+				// correct" — it does not make the group failed/pending,
+				// but it is non-terminal (the group never "finishes").
 				allTerminal = false
 			}
 			if c.StartedAt != nil {

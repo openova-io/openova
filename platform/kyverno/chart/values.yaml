@@ -7,12 +7,15 @@
 # may override any of these without rebuilding the Blueprint OCI artifact.
 
 global:
-  # When set, ALL image pulls in this chart route through this registry.
-  # Used post-handover when the Sovereign's own Harbor takes over the
-  # proxy_cache role from contabo's central Harbor. Empty = no rewrite
-  # (image references use upstream defaults). The upstream Kyverno chart
-  # exposes per-controller `kyverno.<controller>.image.registry` knobs.
-  # Per-Sovereign overlays wire those alongside this value. Tracked under #560.
+  # ⚠️ #3735 (2026-06-17): this `global.imageRegistry` key is INERT for the
+  # upstream Kyverno chart — Kyverno reads `global.image.registry` (a nested
+  # `image.registry`), NOT a flat `global.imageRegistry`. It is kept here only
+  # for cross-chart umbrella-overlay symmetry (#560) and has NO effect on any
+  # Kyverno image pull. The registry that actually moves the pull is each
+  # per-controller `kyverno.<controller>.image.registry` (set to the Harbor
+  # proxy-ghcr cache below). A per-Sovereign overlay that needs to repoint ALL
+  # Kyverno images in one line should set `kyverno.global.image.registry`
+  # (the real upstream knob), not this field.
   imageRegistry: ""
 
 catalystBlueprint:
@@ -27,6 +30,15 @@ kyverno:
   # land before the controller deployments). Default upstream behavior.
   crds:
     install: true
+    # #3735: the CRD-migration hook image (kyverno-cli) defaulted to
+    # `reg.kyverno.io` (crds.migration.enabled=true → the post-upgrade-migrate-
+    # resources hook Job runs on every CRD migration, e.g. a chart bump). Proxy
+    # it so the migration hook never cold-pulls the slow un-proxied registry +
+    # never trips the harbor-proxy-pull Enforce glob.
+    migration:
+      image:
+        registry: harbor.openova.io
+        repository: proxy-ghcr/kyverno/kyverno-cli
 
   # HA mode — Kyverno 1.18 splits into 4 controllers. Solo-Sovereign default
   # is replicas=2 (Wave 5.90 #2436) so a single admission-controller restart
@@ -34,11 +46,51 @@ kyverno:
   # overlays may bump to 3 for true HA on regional Sovereigns.
   admissionController:
     replicas: 2
+    # #3735 (2026-06-17): MIRROR-EVERYTHING for ALL Kyverno image pulls. Every
+    # Kyverno image used to resolve to a NON-Harbor registry — slow-direct on the
+    # IPv4-only kom4dc VPC AND failing the `harbor-proxy-pull` Enforce glob
+    # `*/proxy-*/*` on converged-env rolls. Same fix class as bp-cnpg (#3257) +
+    # bp-external-secrets (#3533). Re-pointed at the Harbor proxy-ghcr cache.
+    #
+    # ⚠️ KEY-PATH TRAP (verified by `helm template` on hw157): the MAIN admission
+    # image is read from `admissionController.CONTAINER.image.*`, NOT
+    # `admissionController.image.*`. The legacy top-level `admissionController.image`
+    # block below is INERT for the running Pod (exactly like the `.resources`-vs-
+    # `.container.resources` trap the #2436 comment documents) — it was rendering
+    # `reg.kyverno.io/kyverno/kyverno:v1.18.0` despite carrying a tag, because the
+    # helper only reads `.container.image`. The EFFECTIVE override lives under
+    # `container.image` further down. We keep the legacy block ONLY so an operator
+    # grepping for the admission tag still finds the right value, with this warning.
+    #
+    # Resolution precedence in the upstream `kyverno.image` helper:
+    #   `<x>.image.registry` > `global.image.registry` > `image.defaultRegistry`
+    #   (= `reg.kyverno.io` for the controllers, `ghcr.io` for readiness-checker).
+    # The flat `global.imageRegistry` (top of file) is INERT — upstream reads the
+    # nested `global.image.registry`. So each per-image `registry:` is the knob
+    # that actually moves the pull. Live on hw157: `reg.kyverno.io` was the
+    # SLOWEST registry on the VPC (~13 min) and starved the helm-controller
+    # install workers.
     image:
-      registry: ghcr.io
-      repository: kyverno/kyverno
+      # INERT for the main container (see KEY-PATH TRAP above) — the effective
+      # override is admissionController.container.image. Kept proxied + in sync
+      # for grep-friendliness; harmless if upstream ever starts reading it.
+      registry: harbor.openova.io
+      repository: proxy-ghcr/kyverno/kyverno
       tag: "v1.18.0"
       pullPolicy: IfNotPresent
+    # #3735: the kyvernopre INIT container was NEVER overridden — the chart set
+    # only admissionController.image.* (itself inert), so the init image fell
+    # through to upstream `defaultRegistry: reg.kyverno.io`. kyvernopre runs on
+    # EVERY admission-controller Pod start (replicas=2 → 2 cold pulls of
+    # reg.kyverno.io/kyverno/kyvernopre:v1.18.0). The init-container image block
+    # is admissionController.initContainer.image.{registry,repository,tag}. tag
+    # pinned explicitly (else it falls through to image.tag).
+    initContainer:
+      image:
+        registry: harbor.openova.io
+        repository: proxy-ghcr/kyverno/kyvernopre
+        tag: "v1.18.0"
+        pullPolicy: IfNotPresent
     # Wave 5.90 (#2436) — main container resources bumped from upstream
     # default 100m/128Mi/384Mi → 500m/512Mi/1Gi. Surfaced live on
     # d3c6268c (#2423 fresh prov 2026-05-24T20:00Z): with the upstream
@@ -56,6 +108,15 @@ kyverno:
     # to the Pod spec). The `container:` nesting is the canonical path
     # per upstream values.yaml line 1238.
     container:
+      # #3735: the EFFECTIVE main admission-controller image override (the
+      # upstream helper reads `.container.image`, not `.image` — see KEY-PATH
+      # TRAP above). Proxies the heaviest, most-pulled Kyverno image off
+      # reg.kyverno.io onto the Harbor proxy-ghcr cache.
+      image:
+        registry: harbor.openova.io
+        repository: proxy-ghcr/kyverno/kyverno
+        tag: "v1.18.0"
+        pullPolicy: IfNotPresent
       # G67 #2616 (2026-05-31): cpu request 500m → 200m. Live use on
       # hw74 was ~50m/admission-controller — 200m is conservative
       # right-size. Original 500m × 2 replicas ate 1000m on workers,
@@ -171,9 +232,10 @@ kyverno:
 
   backgroundController:
     replicas: 1
+    # #3735: proxy-ghcr (was ghcr.io) — see admissionController.image comment.
     image:
-      registry: ghcr.io
-      repository: kyverno/background-controller
+      registry: harbor.openova.io
+      repository: proxy-ghcr/kyverno/background-controller
       tag: "v1.18.0"
       pullPolicy: IfNotPresent
     resources:
@@ -189,9 +251,10 @@ kyverno:
   cleanupController:
     enabled: true
     replicas: 1
+    # #3735: proxy-ghcr (was ghcr.io) — see admissionController.image comment.
     image:
-      registry: ghcr.io
-      repository: kyverno/cleanup-controller
+      registry: harbor.openova.io
+      repository: proxy-ghcr/kyverno/cleanup-controller
       tag: "v1.18.0"
       pullPolicy: IfNotPresent
     resources:
@@ -206,9 +269,10 @@ kyverno:
 
   reportsController:
     replicas: 1
+    # #3735: proxy-ghcr (was ghcr.io) — see admissionController.image comment.
     image:
-      registry: ghcr.io
-      repository: kyverno/reports-controller
+      registry: harbor.openova.io
+      repository: proxy-ghcr/kyverno/reports-controller
       tag: "v1.18.0"
       pullPolicy: IfNotPresent
     resources:
@@ -220,6 +284,27 @@ kyverno:
         memory: 256Mi
     serviceMonitor:
       enabled: false
+
+  # #3735: the readiness-checker image (used by the webhooksCleanup pre-delete
+  # hook Job AND `helm test`) defaulted to `ghcr.io` with an implicit `:latest`
+  # tag — un-proxied + unpinned, failing the Enforce glob and slow-direct on the
+  # VPC. Proxy both call sites onto proxy-ghcr. (webhooksCleanup runs as a Helm
+  # pre-delete hook so it IS on the live uninstall path; `test` is helm-test-only
+  # but proxied for full MIRROR-EVERYTHING glob compliance.)
+  webhooksCleanup:
+    image:
+      registry: harbor.openova.io
+      repository: proxy-ghcr/kyverno/readiness-checker
+      # tag left to upstream default (chart appVersion v1.18.0); the
+      # pre-delete hook only runs on uninstall so an unpinned tag never
+      # races a fresh-prov pull.
+  test:
+    image:
+      registry: harbor.openova.io
+      repository: proxy-ghcr/kyverno/readiness-checker
+      # #3735: pin to v1.18.0 (was implicit `:latest`) so even the helm-test
+      # image is a deterministic proxied ref, not a floating `:latest`.
+      tag: v1.18.0
 
   # Reports server — bundled subchart, default disabled. Per-Sovereign
   # overlays enable when scaling out PolicyReport storage.
@@ -378,5 +463,10 @@ webhookGate:
   tlsSecretName: kyverno-svc.kyverno.svc.kyverno-tls-pair
   timeoutSeconds: 300
   intervalSeconds: 2
-  image: "bitnamilegacy/kubectl:1.30.7"
+  # #3735: explicit Harbor proxy-dockerhub prefix (was bare
+  # `bitnamilegacy/kubectl:1.30.7`). A bare ref relies on the node containerd
+  # docker.io→proxy-dockerhub mirror AND fails the `harbor-proxy-pull` Enforce
+  # glob `*/proxy-*/*` (the glob matches the image STRING as written, pre-mirror-
+  # rewrite). Matches the cnpg webhookGate (#3257) + cert-manager idiom exactly.
+  image: "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7"
   imagePullPolicy: IfNotPresent

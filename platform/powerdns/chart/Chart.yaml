@@ -36,7 +36,12 @@ name: bp-powerdns
 # harbor-proxy-pull policy (bp-kyverno-policies 1.0.33,
 # harborProxyPull.extraExcludeNamespaces), NOT by rerouting the image.
 # The #3380-D part-(1) REST-API-Ingress gating is UNCHANGED.
-version: 1.2.14
+# 1.2.15 (#3687, extends #3370): bootstrap self-registration —
+# templates/application-cr.yaml renders the canonical apps.openova.io/v1
+# Application CR for the slot-11 HelmRelease (gated bootstrapOwned.enabled
+# + Capabilities apps.openova.io/v1) so the console /apps list, per-app
+# Topology tab + showback resolve powerdns (no more "no Application CR").
+version: 1.2.15
 description: |
   Catalyst-curated Blueprint wrapper for PowerDNS Authoritative.
   Carries Catalyst-specific values.yaml + templates (CNPG cluster, dnsdist

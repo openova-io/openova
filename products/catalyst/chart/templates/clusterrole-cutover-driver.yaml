@@ -54,8 +54,9 @@ rules:
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["create"]
-  # Namespace CREATE — #3663 (Refs #3598). The create-from-catalog +
-  # Organization-create handlers call ensureOrgNamespace
+  # Namespace CREATE — #3663 (Refs #3598), folded into #3376.
+  # The create-from-catalog + Organization-create handlers call
+  # ensureOrgNamespace
   # (products/catalyst/bootstrap/api/internal/handler/namespace_ensure.go),
   # which Get-then-Creates the Org/Environment namespace so an install
   # never races the organization controller's GitOps namespace reconcile
@@ -64,11 +65,12 @@ rules:
   #   namespaces is forbidden: User system:serviceaccount:catalyst-system:
   #   catalyst-api-cutover-driver cannot create resource "namespaces" at
   #   the cluster scope (namespace-ensure-failed) — caught live on hw150.
-  # The matching get/list/watch lives in the SOVEREIGN ENDPOINT READS
-  # block below (used by both ensureOrgNamespace's fast-path Get and the
-  # console /cloud pane). `create` MUST be in its own Rule WITHOUT
-  # resourceNames per feedback_rbac_create_no_resourcenames.md — a POST
-  # has no resource name to match, so create+resourceNames 403s.
+  # catalyst-api runs permanently as this SA (api-deployment.yaml), so the
+  # fix is the missing verb, not an SA swap. The matching get/list/watch
+  # lives in the SOVEREIGN ENDPOINT READS block below. `create` MUST be in
+  # its own Rule WITHOUT resourceNames per
+  # feedback_rbac_create_no_resourcenames.md — a POST has no resource name
+  # to match, so create+resourceNames 403s.
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["create"]
@@ -190,6 +192,37 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: ["helm.toolkit.fluxcd.io"]
     resources: ["helmreleases"]
+    verbs: ["get", "list", "watch"]
+
+  # ───────────────────────────────────────────────────────────────
+  # §5a GENERIC RECONCILER INGESTION (issue #3646) — the honest /jobs
+  # canvas reader (internal/helmwatch/reconcilers.go
+  # ListReconcilerObservations) lists EVERY non-install reconciler GVR
+  # via this same in-cluster SA so a failing recurring activity surfaces
+  # RED while its install row stays green. Two of the four GVRs it lists
+  # were UNREADABLE by this SA:
+  #
+  #   - batch/cronjobs had only update/patch/delete/create (the §5c
+  #     "Run now" remediation verbs) — NO get/list/watch. So
+  #     dyn.Resource(CronJobGVR).List() returned a 403, the reader's
+  #     `if err == nil` guard skipped the whole CronJob pass, and ZERO
+  #     cron-kind rows ever appeared. A real Failed openbao-snapshot-save
+  #     CronJob was INVISIBLE on the hw158 #3646 walk — the exact
+  #     "invisible failing class" the canvas exists to kill.
+  #   - kustomize.toolkit.fluxcd.io/kustomizations had no rule at all, so
+  #     Flux Kustomization reconcile-<name> leaves never surfaced either.
+  #
+  # batch/jobs + apps/deployments are already granted get/list/watch
+  # above (that is why task-<name> + reconciler-<name> rows DO render),
+  # so only these two read grants were missing. Read-only verbs — the
+  # reader only OBSERVES; the §5c retry path's create/patch on cronjobs
+  # stays in its own rule above (feedback_rbac_create_no_resourcenames).
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
     verbs: ["get", "list", "watch"]
 
   # ───────────────────────────────────────────────────────────────
