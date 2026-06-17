@@ -448,7 +448,7 @@ controllers:
       # 405 to the in-cluster SA). 72e3f08 = qa-loop iter-8 Fix #42
       # (#1252 + Containerfile fix-up #1253), fixed Bug 1 (UserAccess
       # Claim namespace).
-      tag: "01db043"
+      tag: "42c4213"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -697,7 +697,7 @@ controllers:
       # (#2745, 2026-06-03) — bumped from 8d01e2f (2026-05-31) to the
       # latest useraccess-controller main-HEAD push (2026-06-02).
       # #2851 closed the drift gap (auto-bump + sweep + freshness guard).
-      tag: "6dea4c7"
+      tag: "01db043"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
