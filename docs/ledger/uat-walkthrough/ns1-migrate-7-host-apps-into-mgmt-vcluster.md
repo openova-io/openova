@@ -1,6 +1,6 @@
 # NS#1 — migrate the 7 host-placed apps into the mgmt vCluster (UAT walkthrough)
 
-## Status — last validated: hw159.omani.works (2026-06-18) — browser walk: **7 ✅ / 13 ❌ / 3 GAP**
+## Status — last validated: hw159.omani.works (2026-06-18) — browser walk: **7 ✅ / 13 ❌ / 3 GAP** (GAP audit 2026-06-18: 3/3 confirmed `GAP-backend` — inner-vCluster CRD inventory + per-pod syncer suffix + Pillar-5 deny-egress, all non-browser; 0 converted to ❌)
 
 > **hw159 browser-walk verdict (2026-06-18, fresh real screenshots; dep `c117f6fd4e2eb2dd`, region `me-east-215-a`, status `ready`). DECISIVE FAIL on the headline — CONFIRMS the prior hw158 shape on a fresh env.** With the `/dashboard` treemap set to **LAYER 1 = vCluster**, the treemap regroups into 4 blocks **`host` · `rtz` · `mgmt` · `dmz`** — and the **`mgmt` block holds only `mimir` · `mgmt-vcluster` · `loki` · `tempo`**. ALL of the 7 named apps (grafana 9% · harbor 2% · keycloak 5% · gitea 5% · openbao 15% · newapi 2% · guacamole 1%) sit under the **`host`** block, **NONE under `mgmt`** → North Star #1 *"every app IN a vCluster"* is **NOT met** (PART B all 7 ❌, PART C all ❌; keycloak's app card reads Placement `singleton` / namespace `flux-system`). PASS (7): sign-in + dashboard + the LAYER1=vCluster regroup itself work; and 4 of 7 public surfaces land zero-click signed-in (gitea as `emrah.baysal`, grafana home, openbao secrets-engines, guacamole as `emrah.baysal@openova.io`). FAIL surfaces (3): keycloak account console errors ("Something went wrong — Sorry, an unexpected error has occurred"), **harbor** external FQDN returns ERR_HTTP_RESPONSE_CODE_FAILURE, **newapi** completes the OIDC callback then dies on an upstream `delayed connect error: 111` (backend down). Evidence: `hw159-3642-*.png`.
 >
@@ -104,9 +104,9 @@ browser-walkable.
 
 | Surface | Why it's a GAP | Status |
 |---|---|---|
-| In-vCluster CRD registration inside vc-mgmt (httproutes / externalsecrets / cnpg `clusters` / `poolers` / `scheduledbackups`) — proving the OSS init-manifests deployer registered them **inside** the mgmt vCluster | No console screen exposes the inner-vCluster CRD inventory. Previously checked with `kubectl --kubeconfig <inner-vc-mgmt> get crd` — banned. There is no dashboard widget for "CRDs registered inside vc-mgmt". | GAP |
-| Per-app pod-level syncer suffix (`-x-<innerNs>-x-mgmt-vcluster`) on each migrated pod | The treemap block (PART B) is the operator-facing proxy for "runs in mgmt"; the literal pod-name suffix is a host-cluster `kubectl` detail with no UI surface. PART B's mgmt-block placement is the browser-checkable equivalent. | GAP |
-| `cutoverComplete=true` survival of the 7 through the Pillar-5 600s deny-egress hold (no `admin.loft.sh` tether) | The deny-egress cutover proof is owned by the **Pillar-5 cutover runbook**, walked on its own `/cutover` (or `/jobs` cutover rows) surface — not duplicated here. | GAP (owned elsewhere) |
+| In-vCluster CRD registration inside vc-mgmt (httproutes / externalsecrets / cnpg `clusters` / `poolers` / `scheduledbackups`) — proving the OSS init-manifests deployer registered them **inside** the mgmt vCluster | No console screen exposes the inner-vCluster CRD inventory. Previously checked with `kubectl --kubeconfig <inner-vc-mgmt> get crd` — banned. There is no dashboard widget for "CRDs registered inside vc-mgmt". | GAP-backend |
+| Per-app pod-level syncer suffix (`-x-<innerNs>-x-mgmt-vcluster`) on each migrated pod | The treemap block (PART B) is the operator-facing proxy for "runs in mgmt"; the literal pod-name suffix is a host-cluster `kubectl` detail with no UI surface. PART B's mgmt-block placement is the browser-checkable equivalent. | GAP-backend |
+| `cutoverComplete=true` survival of the 7 through the Pillar-5 600s deny-egress hold (no `admin.loft.sh` tether) | The deny-egress cutover proof is owned by the **Pillar-5 cutover runbook**, walked on its own `/cutover` (or `/jobs` cutover rows) surface — not duplicated here. | GAP-backend (owned elsewhere — Pillar-5) |
 
 ---
 
