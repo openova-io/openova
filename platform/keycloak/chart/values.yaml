@@ -671,6 +671,14 @@ gateway:
 # lives (flux-system for the slot 09 HR).
 bootstrapOwned:
   enabled: false
+  # Canonical placement token stamped onto the self-registered Application
+  # CR's spec.placement (#3375 DoD-1 / #3768 / #3786). MUST be a canonical
+  # mode (singleton / active-active / active-hot-standby / active-passive) —
+  # NEVER the banned legacy dialect single-region / active-hotstandby, which
+  # the read path (readTopology) would surface verbatim to the operator. A
+  # leaf bootstrap app installs as one copy, so singleton is the truthful
+  # effective mode.
+  placement: singleton
   helmRelease:
     name: ""
     namespace: flux-system

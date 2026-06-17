@@ -78,7 +78,13 @@ type: application
 # Application CR for the slot-19 HelmRelease (gated bootstrapOwned.enabled
 # + Capabilities apps.openova.io/v1) so the console /apps list, per-app
 # Topology tab + showback resolve harbor (no more "no Application CR").
-version: 1.2.31
+# 1.2.32 (#3375 / #3786, 2026-06-18): the bootstrap-owned Application CR's
+# spec.placement now emits the CANONICAL token `singleton` (overridable via
+# bootstrapOwned.placement) instead of the banned legacy `single-region`.
+# readTopology serves spec.placement VERBATIM to the Topology tab + the
+# Instances-table chip, so the legacy spelling leaked the banned word to the
+# operator (hw159 #3375).
+version: 1.2.32
 appVersion: "2.14.3"
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
 # `oidc_extra_redirect_parms` config field. The configure-oauth Job now

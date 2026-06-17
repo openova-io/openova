@@ -99,6 +99,17 @@ grep -q 'name: sessions' "$TMP/appcr-only.yaml" \
   || fail "Application CR parameters missing the sessions Context"
 grep -q 'blueprint: bp-newapi' "$TMP/appcr-only.yaml" \
   || fail "Application CR parameters missing the newapi consumer"
+# #3375 / #3768 / #3786 — ONE canonical vocabulary on the wire. The
+# bootstrap-owned Application CR's spec.placement scalar must emit the
+# CANONICAL token `singleton` — the read path (endpoint_handler.go
+# readTopology) serves it VERBATIM to the Topology tab + Instances-table
+# chip, so the banned legacy `single-region` spelling would surface raw
+# to the operator (the hw159 #3375 finding).
+grep -qE '^  placement: singleton$' "$TMP/appcr.yaml" \
+  || fail "#3375: Application CR placement must be canonical 'singleton' (not banned 'single-region')"
+if grep -qE '^  placement: single-region$' "$TMP/appcr.yaml"; then
+  fail "#3375 REGRESSION: Application CR re-introduced the banned 'single-region' placement spelling"
+fi
 
 echo "[contexts] Case 5: bootstrapOwned WITHOUT the CRD → benign skip"
 helm template valkey . -f "$TMP/keyspaces.values.yaml" --namespace valkey \
