@@ -35,12 +35,20 @@ gate) therefore never landed → `cutoverStartedAt` empty, `cutoverComplete=fals
   re-fired all exports → mothership logged `tofu-archive-export: phase0 archive sealed on child` (attempt 1),
   `jobs-export: snapshot shipped` (135 jobs), `d16-export: secondary kubeconfig shipped` — **zero resets**.
   hw158 catalyst-api logged `openbao tofu archive sealed` + `handover seal: cutover engine fired`.
-- **Cutover-readiness: ARMED + WALKING (live).** `self-sovereign-cutover-status` flipped to
-  `cutoverStartedAt=2026-06-17T06:24:04Z`, engine driving the 11 steps. Observed: step-01 gitea-mirror ✅ success,
-  step-02 harbor-projects ✅ success, step-03 harbor-prewarm running (the catalog→local-Harbor prewarm, the long
-  step). `cutoverComplete=true` + the 600s deny-egress sovereignty proof (Sections 1–6 below) are NOT yet
-  verified on hw158 — the walk is in progress at the time of this note; this Status records the handover-arm
-  unblock only, not a cutover-complete claim.
+- **Cutover-readiness: ARMED, then HALTED at step-03 (harbor-prewarm) by a PEER's unmerged pin — NOT a #3747
+  regression, NOT a main defect.** `self-sovereign-cutover-status` flipped to `cutoverStartedAt=2026-06-17T06:24:04Z`
+  and the engine drove: step-01 gitea-mirror ✅ success, step-02 harbor-projects ✅ success, **step-03 harbor-prewarm
+  ❌ failed** (`failedStep=harbor-prewarm`, Job `Failed/BackoffLimitExceeded`, 4 failed pods). Cause: the prewarm
+  mirrors every live HR's chart ghcr→local-Harbor and hit `ghcr.io/openova-io/bp-keycloak:1.4.30: manifest unknown`
+  (38/39 charts OK). The live hw158 `bp-keycloak` HR pins **1.4.30**, applied from an **active peer worktree**
+  `fix/sso-pdns-admin-newapi-hw158` (#3741) that is **not merged**, so CI never published 1.4.30 to ghcr (keycloak-0
+  actually runs the published 1.4.29; the HR is `Ready=False SourceNotReady` trying to upgrade to the phantom tag).
+  **`main` pins bp-keycloak 1.4.28 (published; ghcr has 1.4.22…1.4.29)** → a clean fresh prov off main mirrors fine;
+  this failure is specific to hw158 carrying the peer's pin. Fix belongs to #3741 (merge the branch so CI publishes
+  1.4.30, or revert the live HR to 1.4.28) — not touched here (another session's in-flight hw158 work). So
+  `cutoverComplete=true` + the 600s deny-egress proof (Sections 1–6 below) are **NOT** verified on hw158; the walk
+  is blocked UPSTREAM of #3747's scope. #3747 delivers the handover-arm; the 11-step walk to `true` must run on a
+  clean fresh prov off main (or after #3741 lands).
 - **Fix (so a fresh prov arms zero-touch, no manual re-fire):** PR #3748 / commit `9b36d455f` — shared
   `postHandoverExportWithRetry` retries connection-error/5xx up to a **20m budget** (was 5m), still gives up
   immediately on a 4xx. Until merged + rolled + re-proven on a NEW fresh prov, the zero-touch arm remains
