@@ -33,7 +33,6 @@
 package handler
 
 import (
-	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"net/http"
@@ -142,59 +141,39 @@ func (h *Handler) exportJobsToChild(depID, fqdn string) {
 	h.postJobsExportWithRetry(client, url, body, depID)
 }
 
-// postJobsExportWithRetry POSTs body to url with the same retry shape
-// as exportDeploymentToChild: backoff doubles from 5s up to 60s, total
-// budget 5 min, 5xx retries, 4xx gives up. Split out so the network
-// half is unit-testable with an injected client.
+// postJobsExportWithRetry POSTs body to url via the shared handover-export
+// retry policy (#3747): backoff doubles from 5s to the ceiling, total budget
+// defaults to 20m (was a fixed 5m), retries connection errors + 5xx while the
+// child backend warms up, gives up on a 4xx. Split out so the network half is
+// unit-testable with an injected client.
 func (h *Handler) postJobsExportWithRetry(client *http.Client, url string, body []byte, depID string) {
-	backoff := 5 * time.Second
-	deadline := time.Now().Add(5 * time.Minute)
-	attempt := 0
-	for time.Now().Before(deadline) {
-		attempt++
-		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-		if err != nil {
+	outcome := postHandoverExportWithRetry(client, url, body, func(attempt int, kind string, status int, err error) {
+		switch kind {
+		case "request-error":
 			h.log.Error("jobs-export: NewRequest failed",
 				"id", depID, "url", url, "err", err,
 			)
-			return
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := client.Do(req)
-		if err != nil {
+		case "conn-error":
 			h.log.Warn("jobs-export: POST failed (will retry)",
 				"id", depID, "url", url, "attempt", attempt, "err", err,
 			)
-			time.Sleep(backoff)
-			if backoff < 60*time.Second {
-				backoff *= 2
-			}
-			continue
-		}
-		status := resp.StatusCode
-		resp.Body.Close()
-		if status >= 500 {
+		case "5xx":
 			h.log.Warn("jobs-export: child 5xx (will retry)",
 				"id", depID, "url", url, "attempt", attempt, "status", status,
 			)
-			time.Sleep(backoff)
-			if backoff < 60*time.Second {
-				backoff *= 2
-			}
-			continue
-		}
-		if status >= 400 {
+		case "4xx":
 			h.log.Error("jobs-export: child 4xx (giving up)",
 				"id", depID, "url", url, "attempt", attempt, "status", status,
 			)
-			return
+		case "ok":
+			h.log.Info("jobs-export: snapshot shipped to child",
+				"id", depID, "url", url, "attempt", attempt,
+			)
 		}
-		h.log.Info("jobs-export: snapshot shipped to child",
-			"id", depID, "url", url, "attempt", attempt,
+	})
+	if outcome == handoverExportGaveUpBudget {
+		h.log.Error("jobs-export: gave up after export budget exhausted (backend never reachable — operator can re-mint via /mint-handover-token)",
+			"id", depID, "url", url, "budget", handoverExportBudget().String(),
 		)
-		return
 	}
-	h.log.Error("jobs-export: gave up after 5min retries",
-		"id", depID, "url", url, "attempts", attempt,
-	)
 }
