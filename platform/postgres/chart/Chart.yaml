@@ -1,5 +1,20 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.3 — #3375 / #3768 follow-up (ONE canonical placement vocabulary on the
+#   wire): the hw158 #3375 browser-walk caught the bp-postgres New-instance
+#   picker serving the BANNED legacy dialect — `placementSchema.modes`
+#   (blueprint.yaml) was `[single-region, active-active]` (2 of 4 modes, both
+#   legacy spellings) and the bootstrap-owned Application CR's spec.placement
+#   scalar (application-cr.yaml) rendered `single-region` / `active-hotstandby`.
+#   #3768 unified the CRD / canonicaliser / TS editors but missed THESE two
+#   chart/blueprint sources. FIX: blueprint.yaml placementSchema.modes →
+#   the canonical 4-class set [singleton, active-active, active-hot-standby,
+#   active-passive] (default: singleton); application-cr.yaml placement scalar
+#   → canonical singleton / active-hot-standby. No Kubernetes-resource change
+#   (the spec.parameters.topology.mode was already canonical); the CR's legacy
+#   `placement` scalar + the picker's advertised modes are now canonical
+#   end-to-end. tests/postgres-render.sh Case 10 updated + Case 12 added to pin
+#   both surfaces. singleton render stays byte-identical for every other field.
 # 0.2.2 — #3629 (Refs #3571 #3572 North-Star-4): cross-region CONSUMER write
 #   host. 0.2.0 promised "the consumer host `<instance>-rw` is unchanged across
 #   regions", but never delivered it: CNPG's `<instance>-rw` Service is
@@ -72,7 +87,7 @@ name: bp-postgres
 #   regions so it admits under BOTH the pre-#3370 CRD (hard-required) and the
 #   #3370 CRD (CEL-waived) — breaks the live upgrade-rollback deadlock that
 #   blocked keycloak->gitea->catalyst-platform on hw130.
-version: 0.2.2
+version: 0.2.3
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
