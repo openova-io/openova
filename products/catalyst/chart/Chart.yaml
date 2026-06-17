@@ -2776,7 +2776,7 @@ name: bp-catalyst-platform
 # is byte-unchanged (org-services egress was already correct — the test was stale, not
 # the chart). Unblocks the 1.4.67x train (hook-fix #3780 + object-model #3786 + topology
 # vocab #3784 + ORGANIZATIONS rename #3707 + RBAC #3664) for fresh-prov hw159.
-version: 1.4.679
+version: 1.4.680
 # 1.4.675 — #3383 ORGANIZATIONS rename (ZERO behavior change), rebased over
 # main's 1.4.674 (#3376 funnel + #3700/#3687 per-Org Flux loop + #3763
 # gitea-flux-auth-sync poll). The Organization-provisioning mesh's K8s namespace
