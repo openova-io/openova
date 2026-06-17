@@ -38,12 +38,13 @@ console as `emrah.baysal@openova.io` (role `sovereign-admin`); every app is then
 | Check | Result | Evidence |
 |---|---|---|
 | `applications.apps.openova.io` rows | **3 Ready** — `shared-pg`/`shared-pg-b`/`shared-pg-c`, blueprint `bp-postgres@0.2.2`, placement `active-hotstandby`, env `platform-bootstrap` | kubectl |
-| `organizations.orgs.openova.io` rows | **0** — EXPECTED pre-signup (the parent-Sovereign Org is host-owned; TC-01 funnel mints the first tenant Org) | kubectl |
+| `organizations.orgs.openova.io` rows | **1** post-funnel — `walk-stranger-co` (kind customer, tier sme) minted by the TC-01 stranger-redeem walk (row 12); was 0 pre-signup as expected (parent-Sovereign Org is host-owned) | kubectl |
 | 4 canonical CRDs present | ✅ `applications.apps` · `organizations.orgs` · `environments.catalyst` · `continuums.dr` | kubectl |
 | controllers `1/1 Running` | ✅ all 7 in `catalyst-system` (api, application, catalog, environment, organization, ui, useraccess) + continuum-controller | kubectl |
 
 > ✅ **PASS:** Application CRs return non-zero Ready rows; the canonical object model is alive at
-> runtime (not a pod/HR projection). Organizations=0 is the expected pre-funnel state.
+> runtime (not a pod/HR projection). Organizations was 0 pre-funnel (expected); the TC-01
+> stranger-redeem walk (row 12) then minted Organization `walk-stranger-co` → now **1**.
 
 ---
 
@@ -63,7 +64,7 @@ console as `emrah.baysal@openova.io` (role `sovereign-admin`); every app is then
 | 9 | **Topology Q1/Q2** — vocabulary + editable picker (#3375 / NS4) | ✅ PASS | `/app/shared-pg` Topology tab: Q1 declared "singleton — no cross-region failover" (honest); Q2 4-mode radio picker (single-region[checked]/active-active/active-hotstandby/active-passive) + both regions as checkboxes + Preview/Apply; Live-status honest "n/a — bootstrap component (HelmRelease, no Application CR)" · `hw158-15` |
 | 10 | **Multi-region substrate** — 2/2 (#3375 / NS4) | ✅ PASS | `/cloud` Region 2/2 · Cluster 2/2 · vCluster 6/6 · Network 2/2; both `hw-me-east-215-a-rtz-prod` + `hw-me-east-215-b-rtz-prod` clusters in graph w/ own CP+3 workers · `hw158-06` |
 | 11 | **Region-kill EXECUTION** — live promote (#3375 / NS4) | ❌ BLOCKED | continuum `cnpg-pair-…-continuum` phase=**Degraded**, LeaseHeld=False, Ready=False; cnpg-pair replica 2/3 "Creating a new replica" — cross-region standby not yet armed, so an honest kill→promote walk cannot run. shared-pg intra-instance WAL `streaming` ✅ but that is HA, not cross-region DR. NOT claimed green. |
-| 12 | **Funnel (TC-01)** — voucher → app → Org non-zero (#3376 / NS1+NS3) | ⚠️ BLOCKED (substrate repaired) | Marketplace `marketplace.hw158.…/` "Build Your Tenant — OpenOva SME" serves (HTTP 200) · `hw158-14`; back-office `/back-office/` "Revenue — SME Admin" reachable. **Blocker found + fixed live:** SME `provisioning` was `Init:0/1` for 35 min — its `wait-for-gitea-token` init read an EMPTY `GITHUB_TOKEN` because `sme/provisioning-github-token` was never rendered (the chart mirrors it via a render-time `lookup` of `catalyst-system/catalyst-gitea-token`, whose 40-char PAT only became valid AFTER the initial render; helm-controller won't re-render on cluster-state-only change — a `reconcile.fluxcd.io/requestedAt` nudge did not recreate it). Mirrored the validated PAT (gitea `/api/v1/user`→200) into `provisioning-github-token`, deleted the stuck pod → **all 12 SME pods now 1/1 Running.** Full stranger redeem→checkout→Org-mint NOT completed (back-office voucher SPA renders empty; `console.<slug>.omani.homes` tenant-subdomain DNS pool is a further dependency); `kubectl get organizations` still **0** — **no Org fabricated.** |
+| 12 | **Funnel (TC-01)** — voucher → app → Org non-zero (#3376 / NS1+NS3) | ✅ PASS | **Full stranger redeem→checkout→Org-mint walked LIVE 2026-06-17.** Issued voucher `VCH-56T66GFC2BNC` (5000 OMR) via the live billing service `POST /billing/vouchers/issue` (the canonical BSS-menu call) — **the store was EMPTY; that empty store, not any code bug, was the "empty voucher SPA" root cause** (redeem-preview through the edge `/api/`→sme-gateway route returns 200 live, the `/api` HTTPRoute is present). Opened `marketplace.hw158.omani.works/redeem?code=VCH-56T66GFC2BNC` → "Voucher valid · 5000 OMR credit" renders (`01-redeem-voucher-valid.png`). "Sign up to redeem" → 6-step wizard; **BCP step 4 = Active-hot-standby** (multi-region, +5 OMR/mo, RTO 30s/RPO 5s) selected (`02-bcp-active-hot-standby.png`). Checkout: stranger `walkstranger@omani.homes` signed in via email magic-code (auth wire healthy), voucher auto-applied → **Due now OMR 0.000** "Credit covers this order" (`03-checkout-voucher-applied-due-zero.png`). "Launch my tenant" → tenant-service `POST /tenant/orgs` **201** → `tenant.created` NATS event → provisioning consumer **"Organization CR created slug=walk-stranger-co"**. `kubectl get organizations.orgs.openova.io -A` now **NON-ZERO** — `walk-stranger-co` (kind customer, tier sme, billing real, owner walkstranger@omani.homes, sovereignRef hw158.omani.works); organization-controller reconciling (Gitea org + `catalyst-tenant` repo, Keycloak group `/walk-stranger-co`, vCluster phase Pending) — `04-org-cr-kubectl-proof.txt`. **No Org fabricated — a real CR from a real redeem.** Two non-blocking follow-ups: (a) post-launch redirect lands on `console.walk-stranger-co.hw158.omani.works` → `ERR_CERT_COMMON_NAME_INVALID` (per-tenant cert/DNS not yet issued for a just-minted vCluster; `05-post-launch-redirect.png`); (b) a duplicate provision raced itself on the Gitea `sme-tenants` branch (`PushRejected: cannot lock ref`) and marked the tenant "failed" though the Org CR + the winning manifest commit succeeded — tracked for a source fix. |
 | 13 | **Robustness** — install-record real, no crash-loop (#3380 / NS1) | ✅ PASS | 61/64 HR Ready; the 3 not-Ready are Hetzner-only suspended charts (autoscaler-hcloud, hcloud-ccm, velero; velero-hcs Ready); no crash-loop; `/dashboard` treemap renders 93 items · kubectl + `hw158-01` |
 
 ---
@@ -94,13 +95,19 @@ console as `emrah.baysal@openova.io` (role `sovereign-admin`); every app is then
    time, so there is no armed cross-region standby to hard-kill and promote. The multi-region
    *substrate* is proven (2/2 regions, cnpg-pair, shared-pg streaming) but the live promote was
    not walkable — and is NOT claimed.
-2. **Funnel (TC-01, #3376)** — ⚠️ BLOCKED, substrate repaired. The SME `provisioning` Init-wedge
+2. **Funnel (TC-01, #3376)** — ✅ PASS (walked 2026-06-17). The SME `provisioning` Init-wedge
    (missing `sme/provisioning-github-token` → empty `GITHUB_TOKEN` → gitea 403 in `wait-for-gitea-token`)
-   was root-caused and fixed live (validated PAT mirrored → all 12 SME pods now `1/1 Running`;
-   marketplace landing + back-office serve). A full stranger voucher→checkout→Org-mint was NOT
-   completed (back-office voucher SPA renders empty; tenant-subdomain DNS pool dependency).
-   `kubectl get organizations` is still **0** — no Org was fabricated. This is the one terminal
-   pillar gap on hw158.
+   was root-caused and fixed live (validated PAT mirrored → all 12 SME pods `1/1 Running`). The
+   "empty voucher SPA" was then root-caused to an **empty voucher store** (no voucher had ever been
+   issued — not a code bug); the edge `/api/`→sme-gateway route + redeem-preview are healthy live.
+   Issued `VCH-56T66GFC2BNC` via `POST /billing/vouchers/issue`, then walked a clean stranger
+   (`walkstranger@omani.homes`) through redeem→6-step wizard (BCP=Active-hot-standby)→email-code
+   sign-in→checkout (voucher covers, Due OMR 0.000)→Launch. `POST /tenant/orgs` 201 → `tenant.created`
+   → provisioning minted **Organization `walk-stranger-co`** (`kubectl get organizations` now **1**,
+   organization-controller reconciling vCluster + Keycloak group + Gitea org). **No Org fabricated.**
+   Two non-blocking follow-ups remain (per-tenant console cert not yet issued for the just-minted
+   vCluster; a duplicate-provision Gitea `sme-tenants` ref-lock race that mismarks the tenant "failed"
+   — Org CR + winning commit still land). See row 12.
 3. **pdns-admin SSO (#3374 bonus)** — ❌ FAIL. Lands on a `/login` username/password form; the
    "Sign in using OpenID Connect" link → Keycloak returns **"Invalid parameter: redirect_uri"**.
    The `powerdns-admin` OIDC client in the `sovereign` realm is missing the
