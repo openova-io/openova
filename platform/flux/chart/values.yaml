@@ -9,12 +9,15 @@
 #      the values namespace).
 
 global:
-  # When set, ALL image pulls in this chart route through this registry.
-  # Used post-handover when the Sovereign's own Harbor takes over the
-  # proxy_cache role from contabo's central Harbor. Empty = no rewrite
-  # (image references use upstream defaults). The upstream flux2 chart
-  # exposes per-controller `flux2.<controller>.image.repository` knobs.
-  # Per-Sovereign overlays wire those alongside this value. Tracked under #560.
+  # ⚠️ #3735 (2026-06-17): this `global.imageRegistry` key is INERT for the
+  # upstream flux2 2.14.1 chart — that chart has NO `imageRegistry` knob and NO
+  # top-level `global:` block, and (unlike most charts) it does NOT use a nested
+  # `<controller>.image.{registry,repository,tag}` structure. Each controller's
+  # image is a FLAT scalar: `<controller>.image: <full-registry/repo/path>` with
+  # a sibling `<controller>.tag`. So a chart-wide registry value moves NOTHING.
+  # Kept here only for cross-chart umbrella-overlay symmetry (#560). The pulls
+  # are actually re-pointed per-controller under the `flux2:` key below (each
+  # `<controller>.image` scalar set to the Harbor proxy-ghcr/fluxcd cache).
   imageRegistry: ""
 
 catalystBlueprint:
@@ -121,6 +124,26 @@ flux2:
   policies:
     create: false
   sourceController:
+    # #3735 (2026-06-17): proxy the source-controller image off ghcr.io onto the
+    # Harbor proxy-ghcr/fluxcd cache. The flux2 2.14.1 chart's image is a FLAT
+    # scalar (`image: <full-path>`) + sibling `tag:` — NOT a nested image block.
+    # WHY this matters even though the node containerd ghcr.io→proxy-ghcr mirror
+    # already rewrites the pull: when bp-flux rolls source-controller (it applies
+    # the curated resources + leader-election args below, which differ from the
+    # bare cloud-init install.yaml spec → a one-time Recreate roll on first
+    # reconcile), the new pod's image STRING must satisfy the kyverno
+    # `harbor-proxy-pull` Enforce glob `*/proxy-*/*` on converged-env rolls, and
+    # the proxied string makes the roll-pull hit Harbor's warm cache directly. The
+    # SERVING-GAP half of this blocker (Recreate kills the old pod before the new
+    # one is Ready → ~60 HRs ArtifactFail / `connection refused` → Ready 26→7 on
+    # hw157) is fixed by the postRenderers RollingUpdate patch on the bp-flux
+    # HelmRelease (clusters/_template/bootstrap-kit/03-flux.yaml) — the flux2
+    # chart hardcodes `strategy: Recreate` + an emptyDir /data cache with no
+    # values knob, so the strategy override has to live as a Flux post-render
+    # kustomize patch (which runs INSIDE helm-controller's render → it can't be
+    # reverted by a subsequent reconcile, unlike a raw `kubectl patch`).
+    image: harbor.openova.io/proxy-ghcr/fluxcd/source-controller
+    tag: v1.4.1
     resources:
       requests: { cpu: 50m, memory: 64Mi }
       limits: { memory: 384Mi }
@@ -130,6 +153,9 @@ flux2:
         - --leader-election-renew-deadline=40s
         - --leader-election-retry-period=5s
   kustomizeController:
+    # #3735: proxy off ghcr.io — see sourceController.image comment.
+    image: harbor.openova.io/proxy-ghcr/fluxcd/kustomize-controller
+    tag: v1.4.0
     resources:
       requests: { cpu: 50m, memory: 64Mi }
       limits: { memory: 384Mi }
@@ -139,6 +165,9 @@ flux2:
         - --leader-election-renew-deadline=40s
         - --leader-election-retry-period=5s
   helmController:
+    # #3735: proxy off ghcr.io — see sourceController.image comment.
+    image: harbor.openova.io/proxy-ghcr/fluxcd/helm-controller
+    tag: v1.1.0
     resources:
       requests: { cpu: 50m, memory: 64Mi }
       limits: { memory: 512Mi }
@@ -147,6 +176,29 @@ flux2:
         - --leader-election-lease-duration=60s
         - --leader-election-renew-deadline=40s
         - --leader-election-retry-period=5s
+  # #3735: notification-controller is rendered by the flux2 chart by default
+  # (version-pin-replay Case 5 asserts its Deployment present). Proxy its image
+  # too so every Catalyst-installed Flux controller pulls from Harbor. Catalyst
+  # doesn't tune its resources/args (the 3 critical controllers above carry the
+  # leader-election stretch), so this block only repoints the image scalar.
+  notificationController:
+    image: harbor.openova.io/proxy-ghcr/fluxcd/notification-controller
+    tag: v1.4.0
+  # #3735: the flux2 chart renders image-automation-controller +
+  # image-reflector-controller Deployments by DEFAULT (confirmed via render) —
+  # both pulled ghcr.io direct. Proxy them too. (Catalyst doesn't use the image
+  # automation feature today, but the controllers are installed, so their images
+  # are on the live pull path + the Enforce glob.)
+  imageAutomationController:
+    image: harbor.openova.io/proxy-ghcr/fluxcd/image-automation-controller
+    tag: v0.39.0
+  imageReflectionController:
+    image: harbor.openova.io/proxy-ghcr/fluxcd/image-reflector-controller
+    tag: v0.33.0
+  # #3735: the flux-cli image backs the chart's pre-install hook Job. Proxy it.
+  cli:
+    image: harbor.openova.io/proxy-ghcr/fluxcd/flux-cli
+    tag: v2.4.0
   # Prometheus PodMonitor — DEFAULT OFF.
   #
   # Per docs/INVIOLABLE-PRINCIPLES.md #4 and docs/BLUEPRINT-AUTHORING.md

@@ -77,7 +77,11 @@ spec:
       # 1.2.4 captures stderr to a temp file and emits structured
       # `[A66]` log lines (detection / success / failure-with-stderr).
       # RBAC was already correct in 1.2.3.
-      version: 1.2.6
+      # 1.2.7 (#3735): all 6 Flux controller images + flux-cli proxied onto
+      # harbor.openova.io/proxy-ghcr/fluxcd/*; paired with the postRenderers
+      # RollingUpdate patch below that closes the source-controller Recreate
+      # serving-gap (Ready 26→7 regression on hw157).
+      version: 1.2.7
       sourceRef:
         kind: HelmRepository
         name: bp-flux
@@ -106,3 +110,48 @@ spec:
     # Match install behaviour — adopt rather than fail on conflict.
     remediation:
       retries: 3
+  # ── #3735 (2026-06-17): source-controller serving-gap fix ─────────────
+  # ROOT CAUSE (live on hw157, Ready 26→7 regression): the flux2 2.14.1 chart
+  # applies curated resource limits + leader-election args to source-controller
+  # (platform/flux/chart/values.yaml). Those differ from the bare cloud-init
+  # install.yaml spec, so the FIRST bp-flux reconcile rolls the Deployment. The
+  # chart HARDCODES `spec.strategy.type: Recreate` (template-level, no values
+  # knob) AND mounts /data as an emptyDir. Recreate kills the old
+  # source-controller pod BEFORE the new one is Ready → during the new pod's
+  # cold image-pull + cache rebuild there is NO source-controller serving
+  # artifacts → every HelmRelease + the bootstrap-kit Kustomization gets
+  # `dial tcp …:80: connection refused` / ArtifactFailed and all ~60 HelmCharts
+  # must re-fetch → full Ready 26→7 collapse.
+  #
+  # FIX: post-render-patch source-controller's strategy to RollingUpdate with
+  # maxUnavailable:0 (+ maxSurge:1). The OLD pod keeps serving artifacts until
+  # the NEW pod passes its /healthz readiness probe, THEN terminates — so there
+  # is NO serving gap on the (still one-time) roll. source-controller rebuilds
+  # its emptyDir cache lazily per GitRepository/HelmChart reconcile after the
+  # cutover, which consumers never observe as a hard `connection refused`.
+  #
+  # WHY a Flux postRenderer and not a `kubectl patch` in cloud-init: helm-
+  # controller owns the source-controller Deployment via the flux2 subchart and
+  # re-applies its rendered manifest (strategy:Recreate) on every reconcile,
+  # which would REVERT a raw kubectl patch and re-introduce the gap. A
+  # postRenderer kustomize patch runs INSIDE helm-controller's own render
+  # pipeline, so the patched RollingUpdate strategy IS what helm-controller
+  # applies — it can never be reverted. (The image proxying that pairs with this
+  # lives in the chart values; the roll-pull then hits Harbor's warm cache.)
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+              name: source-controller
+            patch: |
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: source-controller
+              spec:
+                strategy:
+                  type: RollingUpdate
+                  rollingUpdate:
+                    maxUnavailable: 0
+                    maxSurge: 1
