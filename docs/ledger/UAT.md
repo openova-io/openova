@@ -4,6 +4,27 @@
 > (2 VPCs `me-east-215-a` / `-b`). On each wipe + re-prov this dashboard resets and the links flip
 > to the new env.
 
+## ⭐ STANDARD SCOREBOARD (the only matrix — fixed shape, numbers update each walk)
+
+| # | Runbook (ticket) | ✅ Pass | ❌ Fail | ⏳ Not walked | Verdict |
+|---|------------------|:------:|:------:|:------------:|---------|
+| 1 | object-model (#3687) | 4 | 0 | 0 | **PASS** |
+| 2 | SSO zero-login (#3374) | 5 | 2 | 0 | **PARTIAL** |
+| 3 | topology-DR (#3375) | 4 | 0 | 1 | **PASS** |
+| 4 | funnel (#3376) | 3 | 0 | 0 | **PASS** |
+| 5 | ns1-migrate (#3642) | 1 | 0 | 1 | **PARTIAL** |
+| 6 | eradicate-sme-naming (#3383) | 0 | 1 | 0 | **FAIL** |
+| 7 | catalog-IaC (#3668) | 2 | 0 | 1 | **PARTIAL** |
+| 8 | cutover (#3379) | 2 | 0 | 1 | **PASS** |
+| 9 | jobs-canvas (#3646) | 3 | 0 | 1 | **PASS** |
+| 10 | regenerate-meta (#3581) | 1 | 0 | 0 | **PASS** |
+| **TOTAL** | **10 runbooks** | **25** | **3** | **5** | **6 PASS / 3 PARTIAL / 1 FAIL** |
+
+**Pass ratio: 25 ✅ / 3 ❌ = 89% of decided checks pass** · 5 checks not-yet-walked · 20 screenshots.
+**The 3 ❌:** SSO newapi(`/setup`) + powerdns(`/login`) + the #3383 `Tenant` rename (fixed in published 1.4.677).
+
+---
+
 ## hw159 fresh-prov walk — live results (the complete 1.4.67x train, clean install)
 
 **The prov converged on the published train.** Fresh `POST /deployments` (no hand-patching) →
