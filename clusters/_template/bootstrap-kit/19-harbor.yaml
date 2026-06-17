@@ -194,7 +194,7 @@ spec:
       # chart renders the canonical apps.openova.io/v1 Application CR for
       # this slot's HelmRelease so the console /apps list, per-app Topology
       # tab + showback resolve harbor (no more "no Application CR").
-      version: 1.2.30
+      version: 1.2.32
       sourceRef:
         kind: HelmRepository
         name: bp-harbor
