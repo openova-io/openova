@@ -10,24 +10,26 @@ Denominator = the canonical **step-rows in each runbook .md** (the full test set
 re-verified in a browser on **hw159**; everything else still carries **stale hw158 markers** and is
 **not** counted as passed.
 
-| # | Runbook (ticket) | Total steps | ✅ walked-pass | ❌ walked-fail | ⏳ NOT walked on hw159 |
-|---|------------------|:----------:|:-------------:|:-------------:|:---------------------:|
-| 1 | object-model (#3687) | 39 | 4 | 0 | 35 |
-| 2 | SSO zero-login (#3374) | 26 | 5 | 2 | 19 |
-| 3 | topology-DR (#3375) | 33 | 4 | 0 | 29 |
-| 4 | funnel (#3376) | 24 | 3 | 0 | 21 |
-| 5 | ns1-migrate (#3642) | 23 | 1 | 0 | 22 |
-| 6 | eradicate-sme-naming (#3383) | 15 | 6 | 1 | 8 |
-| 7 | catalog-IaC (#3668) | 39 | 2 | 0 | 37 |
-| 8 | cutover (#3379) | 16 | 2 | 0 | 14 |
-| 9 | jobs-canvas (#3646) | 19 | 3 | 0 | 16 |
-| 10 | regenerate-meta (#3581) | 9 | 9 | 0 | 0 |
-| **TOTAL** | **243** | **39** | **3** | **201** |
+| # | Runbook (ticket) | Total | ✅ pass | ❌ fail | GAP (no UI) | ⏳ NOT walked | Walker |
+|---|------------------|:----:|:------:|:------:|:-----------:|:------------:|--------|
+| 1 | object-model (#3687) | 39 | 4 | 0 | 0 | 35 | walking |
+| 2 | SSO zero-login (#3374) | 26 | 5 | 2 | 0 | 19 | walking |
+| 3 | topology-DR (#3375) | 33 | 4 | 0 | 0 | 29 | walking |
+| 4 | funnel (#3376) | 24 | 3 | 0 | 0 | 21 | walking |
+| 5 | ns1-migrate (#3642) | 23 | 7 | **13** | 3 | 0 | ✅ DONE |
+| 6 | eradicate-sme-naming (#3383) | 15 | 6 | 1 | 7 | 1 | ✅ DONE |
+| 7 | catalog-IaC (#3668) | 39 | 2 | 0 | 0 | 37 | walking |
+| 8 | cutover (#3379) | 16 | 3 | 0 | 8 | 5 | ✅ DONE (view-only) |
+| 9 | jobs-canvas (#3646) | 19 | 3 | 0 | 0 | 16 | walking |
+| 10 | regenerate-meta (#3581) | 9 | 9 | 0 | 0 | 0 | ✅ DONE |
+| **TOTAL** | **243** | **46** | **16** | **18** | **163** | **4/10 done** |
 
-**hw159 progress: 42 of 243 steps decided (17%).** Of those 42: 39 ✅ / 3 ❌ (+ 7 GAP backend-only
-carriers under #3383, no browser surface). **201 steps (83%) still unwalked on this env.** 36 screenshots
-back the walk. This is the honest denominator — NOT "6 PASS"; the per-runbook keystone passed, but each
-runbook has 9–39 steps and most are not yet re-verified.
+**hw159 progress: 80 of 243 steps decided (33%) — 46 ✅ / 16 ❌ / 18 GAP · 163 (67%) still unwalked.**
+4 of 10 runbooks fully walked; 5 still walking in parallel (own-browser agents). 51 screenshots back the walk.
+**🛑 NORTH STAR #1 FAILS on hw159 (#3642, evidenced):** the 7 platform apps (grafana/harbor/keycloak/gitea/
+openbao/newapi/guacamole) sit under the **`host`** block in the vCluster-layer treemap, **NONE under `mgmt`** —
+"every app IN a vCluster" is NOT met (mgmt holds only mimir/loki/tempo/mgmt-vcluster). This corrects my earlier
+breezy "✅ vClusters" — the vClusters *exist* but the apps are *not placed inside them*. That's the 13 ❌ in row 5.
 **Walked 2026-06-18:** #3581 regenerate-meta **9✅** (6 SSO bare-URL landings + 3 rendered-UAT.md flush);
 #3383 eradicate-sme-naming **6✅/1❌/7 GAP** (directory/detail/billing/`/bss/tenants` alias clean;
 `/organizations/new` still leaks "SME tenant slug"/"Onboard tenant" on 1.4.674 — fixed in held 1.4.677).
