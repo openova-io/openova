@@ -207,16 +207,20 @@ spec:
     #    stack (a SOVEREIGNTY decision, NOT an unfinished task) ──────────
     #
     # The rows below carry `target != host` (founder §4 wants them in a
-    # vCluster). #3642 lands the OSS-native HOST-BRIDGE (see RESOLUTION
-    # below) and MOVES keycloak (09) + grafana (25) into the mgmt vCluster
-    # — those two now carry `vcluster: mgmt` with a `hostBridge:` block.
-    # The remaining route/secret/CNPG rows are host-bridge-READY follow-ons
-    # (same one-field flip + `hostBridge:` declaration). This was NEVER a
-    # license requirement; the host-bridge keeps the route/secret/CNPG CRs
-    # host-rendered. (Migration plan: docs/sessions/2026-06-14/
-    # 3373-migration-plan.md §0/§4/§6; host-bridge: #3642.)
+    # vCluster). All 7 named NS#1 apps (keycloak/grafana/harbor/gitea/
+    # openbao/newapi/guacamole) currently read `vcluster: host` — NONE has
+    # cleanly moved. #3642 designed the OSS-native HOST-BRIDGE (see RESOLUTION
+    # below) and #3703 briefly flipped keycloak (09) + grafana (25) to
+    # `vcluster: mgmt` with a `hostBridge:` block — but BOTH were REVERTED:
+    # grafana by #3731 (raw-ExternalSecret dry-run deadlock in the monolithic
+    # Kustomization) and keycloak by #3737 (the reflected DB Secret can't
+    # cross host→vCluster on OSS vcluster 0.21.0). (Migration plan:
+    # docs/sessions/2026-06-14/3373-migration-plan.md §0/§4/§6; host-bridge:
+    # #3642. Honest per-app status: the SECOND CONSTRAINT block below + the
+    # #3642 UAT walkthrough docs/ledger/uat-walkthrough/ns1-migrate-7-host-
+    # apps-into-mgmt-vcluster.md.)
     #
-    # THE GOVERNING CONSTRAINT — vCluster CRD-sync is loft.sh Free-tier,
+    # GOVERNING CONSTRAINT #1 — vCluster CRD-sync is loft.sh Free-tier,
     # NOT pure-OSS:
     #   Re-homing a chart that ships an HTTPRoute, an ExternalSecret, or a
     #   CNPG `Cluster` CR requires the vCluster syncer to register those
@@ -249,30 +253,72 @@ spec:
     #   platform/install/air-gapped. The Free-tier CRD-sync feature has NO
     #   offline activation path that is sovereignty-safe.)
     #
-    # RESOLUTION — the HOST-BRIDGE (#3642, plan path (B)) is the OSS-native
-    # answer that does NOT need the loft.sh license: it keeps the app's
-    # HTTPRoute + ExternalSecret (+ CNPG Cluster) HOST-rendered — declared
-    # as data under the row's `hostBridge:` and transcribed into the slot by
-    # render-slot-placement.py — while only the workload Deployment/
-    # StatefulSet re-homes into the vCluster (spec.kubeConfig → vc-<tier>).
-    # backendRefs point at the OSS-synced mangled Service
-    # (<svc>-x-<innerNs>-x-<tier>-vcluster). So the §4 target is NO LONGER
-    # aspirational for route/secret apps — it is a one-field flip + a
-    # `hostBridge:` declaration. The 3 clean apps (valkey/seaweedfs/vllm)
-    # moved in Batch A; #3642 lands the host-bridge and MOVES the
-    # route/secret class. Status of the North-Star-#1 set, grouped by shape:
+    # GOVERNING CONSTRAINT #2 — a host-rendered Secret CANNOT cross
+    # host→vCluster on OSS vcluster 0.21.0 (the deeper blocker the
+    # host-bridge alone does NOT solve; #3731 + #3737, re-confirmed by the
+    # #3642 chart audit 2026-06-17):
+    #   The host-bridge (Constraint-#1 answer) keeps the HTTPRoute /
+    #   ExternalSecret / CNPG `Cluster` CR HOST-rendered — but every one of
+    #   the 7 NS#1 apps' WORKLOAD Pods then needs a Secret that is MINTED ON
+    #   THE HOST delivered INTO the vCluster: a CNPG-operator DB credential
+    #   (`<app>-pg-app`, reflected/sync-jobbed into `<app>-database-secret`),
+    #   and/or a host-ESO SSO Secret (`<app>-sso-oidc-credentials`). NO OSS
+    #   0.21.0 mechanism delivers it:
+    #     - `sync.fromHost.secrets` (host→vCluster Secret mirror) does NOT
+    #       exist until vcluster 0.23.0 — 0.21.0 rejects the unknown config
+    #       key at parse, breaking the syncer.
+    #     - an in-vCluster ExternalSecret cannot reconcile: ESO is a
+    #       host-minimum substrate (slot 15, host), and toHost custom-
+    #       resource sync is Pro-gated/inert on OSS.
+    #   So the re-homed Pod hangs on `MountVolume.SetUp … secret "<name>" not
+    #   found` (keycloak-0 SHARED_PG, #3737) or boots without its SSO/DB
+    #   env (grafana zero-click never lands; harbor/gitea/newapi DB DSN
+    #   empty). This is INDEPENDENT of Constraint-#1 — even with a perfect
+    #   host-bridge, Constraint-#2 wedges the workload.
     #
-    #   ROUTE + ExternalSecret — host-bridge MOVED (#3642):
-    #     ✅ keycloak (09, route-only — no ES, bundled PG in-vCluster),
-    #     ✅ grafana  (25, route + SSO ExternalSecret, shared-pg-b consumer).
-    #   ROUTE + ExternalSecret — host-bridge READY (same recipe, follow-on
-    #   rows; openbao adds a 2-backend bare-URL landing route):
-    #     openbao (08), powerdns-admin (11a), openova-flow-server (56).
-    #   ROUTE + ExternalSecret + CNPG `Cluster` — host-bridge + the CNPG
-    #   Cluster rendered host-side (§5d); the in-vCluster Pod reaches the
-    #   host PG cross-cluster (follow-on rows):
-    #     gitea (10), harbor (19), newapi (80), guacamole (52),
-    #     catalyst-platform (13, control-plane root — LAST).
+    # SECOND STRUCTURAL constraint on two of the seven (host-pinned by ROLE,
+    # not just by Secret-crossing):
+    #   - openbao (08) IS the host-side ESO backend — the `vault-region1`
+    #     ClusterSecretStore (slot 15a, host-minimum) dials it. Move openbao
+    #     into a vCluster and EVERY host ExternalSecret cluster-wide loses
+    #     its backend. openbao must stay host irrespective of #2.
+    #   - keycloak (09) is the SSO root 8 other HRs' `*-sso-oidc-credentials`
+    #     ExternalSecrets seed from; if its OIDC seed lands inside the
+    #     vCluster the host-side ESO consumers can't reach it (the #3737
+    #     terminal cascade).
+    #
+    # RESOLUTION — the HOST-BRIDGE (#3642, plan path (B)) solves
+    # Constraint-#1 (it keeps the app's HTTPRoute + ExternalSecret + CNPG
+    # Cluster HOST-rendered, declared as data under the row's `hostBridge:`
+    # and transcribed into the slot by render-slot-placement.py; only the
+    # workload Deployment/StatefulSet re-homes via spec.kubeConfig →
+    # vc-<tier>, backendRefs at the OSS-synced mangled Service
+    # <svc>-x-<innerNs>-x-<tier>-vcluster). It does NOT, on its own, solve
+    # Constraint-#2 — so NO route/secret/CNPG app can flip yet. The full
+    # NS#1 move additionally needs the `sync.fromHost.secrets` host→vCluster
+    # Secret delivery (vcluster ≥0.23.0, OSS from 0.23.0 — genuinely not
+    # Pro-gated) for the DB + SSO Secrets, plus (for the raw-ExternalSecret
+    # apps) the ExternalSecret lifted OUT of the atomic bootstrap-kit
+    # Kustomization (#3731). That work is the PARKED #3719 (DO-NOT-MERGE)
+    # train. The 3 truly clean apps (valkey/seaweedfs/vllm — no route, no
+    # secret, no CNPG) ALREADY moved in Batch A. Status of the North-Star-#1
+    # set, grouped by what blocks each (ALL 7 currently `vcluster: host`):
+    #
+    #   ROUTE + host-ESO SSO Secret — BLOCKED on Constraint-#2 (workload
+    #   consumes a host-ESO `<app>-sso-oidc-credentials`); needs fromHost
+    #   secret-sync + (for the raw ES) the #3731 Kustomization split:
+    #     grafana (25, reverted #3731), openbao (08, ALSO host-pinned —
+    #     it IS the ESO backend), powerdns-admin (11a),
+    #     openova-flow-server (56).
+    #   ROUTE + reflected/SHARED_PG DB Secret — BLOCKED on Constraint-#2
+    #   (workload mounts a host-reflected DB credential):
+    #     keycloak (09, reverted #3737 — clean only on the DEFAULT prov;
+    #     wedges on SOVEREIGN_ENABLE_SHARED_PG=true; ALSO the SSO root).
+    #   ROUTE + host-ESO SSO + CNPG `Cluster` — BLOCKED on Constraint-#2 on
+    #   TWO axes (host-CNPG DB credential AND host-ESO SSO Secret); the
+    #   in-vCluster Pod would also need the host PG reachable cross-cluster:
+    #     gitea (10), harbor (19), newapi (80), guacamole (52, DB-only —
+    #     OIDC is chart-self-contained), catalyst-platform (13, root — LAST).
     #   CNPG `Cluster` CR engines (host cnpg-operator reconciles host-side) —
     #   host-bridge the Cluster CR (follow-on) — 4:
     #     postgres-shared (×3: 16a/16c/16d) + cnpg-pair (16b).
