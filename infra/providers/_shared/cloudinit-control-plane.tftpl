@@ -642,6 +642,34 @@ runcmd:
   # Empty on clouds that need none. Each item is plain POSIX (dash -n clean).
   ${indent(2, provider_prelude)}
 
+  # ── IPv4-pin bootstrap hosts (#3232/#3714 — the intermittent multi-region
+  # pre-PUT/CNI killer). Huawei VPCs are IPv4-only; the node resolver can
+  # hand back an AAAA for these GitHub/helm hosts → curl + Go (helm/kubectl)
+  # try IPv6 FIRST → "network is unreachable" with NO A fallback → the
+  # github artifact pulls stall. This MUST run BEFORE the k3s install (the
+  # very first github-dependent pull: get.k3s.io redirects to the k3s
+  # release asset on github) so the PRIMARY-region pre-PUT stall (hw150,
+  # k3s/helm/git artifacts never finish → kubeconfig never PUT) cannot
+  # recur, AND before the later helm/cilium/flux pulls (region-b CNI-dead,
+  # ClusterMesh blocked). The old getent-only probe SILENTLY skipped any
+  # host whose IPv4 getent missed, leaving AAAA to win — #3714 makes
+  # resolution DETERMINISTIC via a bounded 3-tier ladder (getent →
+  # public-resolver nslookup → python3 AF_INET getaddrinfo) before pinning
+  # /etc/hosts. POSIX/dash-clean; every host is IPv4-reachable from every
+  # cloud (on a dual-stack cloud the resolved A record is still valid).
+  - |
+    r4() {
+     getent ahostsv4 "$1" 2>/dev/null | awk '{print $1; exit}' && return
+     for s in 1.1.1.1 8.8.8.8; do
+      a=$(nslookup -type=A "$1" "$s" 2>/dev/null | awk '/^Address: [0-9]/&&$2!~/#/{print $2; exit}')
+      [ -n "$a" ] && { echo "$a"; return; }
+     done
+     python3 -c 'import socket,sys;print(socket.getaddrinfo(sys.argv[1],443,2)[0][4][0])' "$1" 2>/dev/null
+    }
+    for h in github.com raw.githubusercontent.com codeload.github.com objects.githubusercontent.com helm.cilium.io get.helm.sh; do
+     a=$(r4 "$h"); [ -n "$a" ] && echo "$a $h" >>/etc/hosts || true
+    done
+
   # ── Install k3s server ────────────────────────────────────────────────
   # NODE_EXTERNAL_IP comes from the provider-injected discovery command:
   #   Hetzner → curl metadata 169.254.169.254/hetzner/v1/.../public-ipv4
@@ -684,22 +712,6 @@ runcmd:
   # ══════════════════════════════════════════════════════════════════════
   ${indent(2, kubeconfig_put_block)}
 %{ endif ~}
-
-  # ── IPv4-pin dual-stack bootstrap hosts (#3232 — the intermittent multi-
-  # region CNI killer, root-caused on hw125). Huawei VPCs are IPv4-only;
-  # helm/kubectl (Go) can resolve these GitHub-Pages/GitHub hosts to AAAA
-  # and try IPv6 FIRST → "network is unreachable" with NO fallback →
-  # `helm repo add cilium` fails → no CNI → the region's nodes stay
-  # NotReady forever. region-A happened to get the A record, region-b got
-  # AAAA (hw125: region-b CNI-dead, ClusterMesh impossible, Pillar-3
-  # blocked). Pinning the resolved IPv4 in /etc/hosts BEFORE any pull is
-  # targeted + cloud-agnostic (every host below is IPv4-reachable from
-  # every cloud; on a dual-stack cloud the A record is still valid).
-  - |
-    for h in helm.cilium.io get.helm.sh raw.githubusercontent.com github.com objects.githubusercontent.com codeload.github.com; do
-      ip="$(getent ahostsv4 "$h" 2>/dev/null | awk 'NR==1{print $1}')"
-      [ -n "$ip" ] && printf '%s %s\n' "$ip" "$h" >> /etc/hosts || true
-    done
 
   # ── gateway-api CRDs: ONE official bundle apply (lean Hetzner pattern) ─
   # Flux's bp-gateway-api re-applies post-bootstrap; this single apply just
