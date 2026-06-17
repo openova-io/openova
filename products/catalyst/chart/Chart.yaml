@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.666 — #3763 (Refs #3749, 2026-06-17): FIX the catalyst-gitea-flux-auth-sync
+# hook crashloop that degraded the live hw158 spine. The post-install/post-upgrade
+# hook read catalyst-gitea-token.token ONCE and `exit 1` FATAL'd on empty →
+# crashloop → BackoffLimitExceeded → bp-catalyst-platform upgrade failed + rolled
+# back + oscillated (held bp-continuum/bp-sandbox/sovereign-tls non-Ready). The
+# PAT is minted by the pre-* mint hook, but pre-/post-* hook weights are
+# INDEPENDENT phases (no weight can sequence post after pre's mint) AND the mint
+# Secret's `before-hook-creation` delete-policy re-creates it each upgrade →
+# transient empty-read window. FIX: the auth-sync job now POLLS the Secret for a
+# non-empty `.token` (bounded, default 60 × 5s = 300s) before failing, instead of
+# FATAL-on-first-empty — survives ANY mint-vs-sync ordering on fresh-install OR
+# upgrade. Also raised the hook's own RBAC weight 5→20 (intra-phase determinism).
+# PAT still off argv. Template-only; rendered only on a Sovereign +
+# ingress.marketplace.enabled — Catalyst-Zero render byte-unchanged.
 # 1.4.663 — #3687 / #3376 (2026-06-17): per-Org vCluster repo clone now
 # AUTHENTICATES — default controllers.organization.fluxGiteaSecretRef to
 # `openova-sme-tenants-git-auth`. PR #3718 wired the per-Org Flux loop
@@ -2752,7 +2766,7 @@ name: bp-catalyst-platform
 # (qaFixtures.cnpgBackupEndpointURL + cnpg-clusters-qa.yaml) to the
 # syncer-mangled host Service name. qa-fixtures only; Catalyst-Zero render
 # byte-unchanged. (1.4.622 was a content-free deploy-bot image sweep.)
-version: 1.4.665
+version: 1.4.666
 # 1.4.657 — PR #3700 §4.3 (Refs #3687, 2026-06-17): close the per-Org
 # vCluster Flux loop — the deferred half of the object-model-LIVE master.
 # The organization-controller already PUT the vCluster Namespace + HelmRelease
