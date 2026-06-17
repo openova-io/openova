@@ -28,6 +28,9 @@ products/*/chart/Chart.lock
 # provider binaries; only the .terraform/ working dir + state files are
 # ignored.
 **/.terraform/
+# Throwaway probe dir written by scripts/cloudinit-size-report.sh during CI to
+# measure the rendered cloud-init size; removed on exit, never committed (#3724).
+**/.cloudinit-size-probe/
 **/terraform.tfstate
 **/terraform.tfstate.backup
 **/*.tfstate

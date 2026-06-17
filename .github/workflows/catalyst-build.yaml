@@ -382,6 +382,32 @@ jobs:
           done
           echo "G36 gate OK: every templatefile() in huawei parses + renders."
 
+      # Loud-signal on a main-push build-api FAILURE (issue #3724 / Refs #3720).
+      #
+      # When #3715's cloud-init bloat merged, this job's G36 step failed on EVERY
+      # subsequent main commit — but nothing SHOUTED, so no catalyst-api image
+      # built for hours and the mothership silently froze 15 commits behind main
+      # (never receiving the #3717 fix). The regression should now be caught at
+      # PR time by `cloud-init-size.yaml` (a required check) + infra-*-tofu.yaml,
+      # but if anything still reaches a red main build, make it UNMISSABLE: an
+      # ::error:: annotation + a Step Summary block naming the broken job and the
+      # consequence (no image published → mothership freezes). `if: failure()`
+      # fires only when an earlier step in this job failed.
+      - name: Announce build-api failure (no catalyst-api image will publish)
+        if: failure()
+        run: |
+          MSG="Build & Deploy Catalyst: build-api FAILED on ${GITHUB_REF_NAME} @ ${GITHUB_SHA}. No catalyst-api image was published for this commit — the mothership will NOT roll forward and silently stays on the last green SHA until this is fixed. Most common cause: the rendered cloud-init exceeded the 32256-byte Hetzner user_data guardrail (see the G36 tofu test step + issue #3724). Inspect the failed step above and revert/trim before the mothership drifts further behind main."
+          echo "::error title=catalyst-api build FAILED — mothership will freeze::${MSG}"
+          {
+            echo "## :rotating_light: Build & Deploy Catalyst — build-api FAILED"
+            echo ""
+            echo "${MSG}"
+            echo ""
+            echo "- Ref: \`${GITHUB_REF_NAME}\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Push API image
         uses: docker/build-push-action@v6
         with:

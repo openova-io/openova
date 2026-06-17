@@ -1,0 +1,104 @@
+name: cloud-init size gate
+
+# PR-LEVEL guardrail against the cloud-init `user_data` size regression that
+# froze "Build & Deploy Catalyst" for hours on 2026-06-16 (issue #3724 / Refs
+# #3720). Background:
+#
+# PR #3715 added +124 lines to infra/providers/_shared/cloudinit-control-
+# plane.tftpl, pushing the *rendered* Hetzner control-plane cloud-init past the
+# 32256-byte `user_data` guardrail. It merged anyway — the existing PR-level
+# `tofu test` (infra-hetzner-tofu.yaml) DID fail, but its check was not a
+# required check and shared the ambiguous name `validate + fmt + test` with the
+# huawei sibling, so the red was easy to miss. On `push: main` the catalyst-
+# build "G36 — tofu test" step then failed on EVERY commit → no catalyst-api
+# image built → the mothership silently froze 15 commits behind main and never
+# received the #3717 fix.
+#
+# This workflow exists so the size cap is enforced by a SINGLE, UNIQUELY-NAMED,
+# required-able PR check per provider (`cloud-init size gate / hetzner`,
+# `cloud-init size gate / huawei`) that:
+#   1. FAILS the PR before merge when the real rendered cloud-init exceeds the
+#      32256 / 30720 guardrails (tests/cloudinit_size.tftest.hcl — real module
+#      render under mock_provider, zero render-harness drift). This ALSO adds
+#      size coverage to the huawei module, which had no size precondition at all.
+#   2. Emits a HEADROOM WARNING + exact byte count (scripts/cloudinit-size-
+#      report.sh) so the cliff is visible before a PR trips it. Mark BOTH matrix
+#      legs required in branch protection so a red here blocks merge.
+#
+# Per CLAUDE.md "every workflow MUST be event-driven, NEVER scheduled": this is
+# pull_request-on-touch + push-on-merge; ad-hoc reruns go through
+# workflow_dispatch. No `schedule:` trigger.
+
+on:
+  pull_request:
+    paths:
+      # The shared, cloud-agnostic control-plane template (the #3715 culprit).
+      - 'infra/providers/_shared/**'
+      # Per-provider modules: their main.tf wires the templatefile() vars + the
+      # per-provider worker template, both of which change the rendered size.
+      - 'infra/providers/hetzner/**'
+      - 'infra/providers/huawei/**'
+      # The bootstrap-kit content the cloud-init bundles/threads can also move
+      # the rendered size (BOOTSTRAP_KIT substitutes), so re-check on its change.
+      - 'products/catalyst/bootstrap/**'
+      - 'scripts/cloudinit-size-report.sh'
+      - '.github/workflows/cloud-init-size.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/providers/_shared/**'
+      - 'infra/providers/hetzner/**'
+      - 'infra/providers/huawei/**'
+      - 'products/catalyst/bootstrap/**'
+      - 'scripts/cloudinit-size-report.sh'
+      - '.github/workflows/cloud-init-size.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  size-gate:
+    # Unique, per-provider check name — NOT the ambiguous `validate + fmt + test`
+    # that infra-hetzner-tofu.yaml and infra-huawei-tofu.yaml both expose. Mark
+    # `cloud-init size gate / hetzner` and `cloud-init size gate / huawei`
+    # required in branch protection.
+    name: cloud-init size gate / ${{ matrix.provider }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [hetzner, huawei]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          # Lockstep with the infra-${{ matrix.provider }}-tofu.yaml siblings
+          # (1.8.5) so a future OpenTofu bump moves all the module-local checks
+          # atomically.
+          tofu_version: 1.8.5
+
+      - name: tofu init (backend=false — no real state for the render-only check)
+        working-directory: infra/providers/${{ matrix.provider }}
+        run: tofu init -backend=false -input=false -no-color
+
+      # BLOCKING GATE — the real module renders the cloud-init under mock_provider
+      # and the size suite asserts it stays under the 32256 / 30720 guardrails.
+      # A render over the cap fails this step → fails the (required) check → the
+      # PR cannot merge. This is the gate that #3715 needed at PR time.
+      - name: cloud-init size assertions (tofu test)
+        working-directory: infra/providers/${{ matrix.provider }}
+        run: tofu test -no-color -filter=tests/cloudinit_size.tftest.hcl
+
+      # HEADROOM SIGNAL — report the exact rendered byte count and annotate a
+      # WARNING once it crosses ~93% of the cap (so the cliff is visible before a
+      # PR trips it) or an ERROR if it is already over. This step is advisory:
+      # the blocking gate above is the hard fail. `if: always()` so the count is
+      # reported even if the gate failed (then it doubles as the over-cap number).
+      - name: cloud-init headroom report
+        if: always()
+        run: scripts/cloudinit-size-report.sh "infra/providers/${{ matrix.provider }}" "${{ matrix.provider }}"
