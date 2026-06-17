@@ -266,7 +266,18 @@ spec:
       # 1st-hit upstream-connect-error 111, 2nd-hit /setup wizard). Shrinks the
       # human-visible window; the per-minute CronJob (1.4.97) self-heals the
       # underlying convergence race.
-      version: 1.4.105
+      # 1.4.107 (#3374, 2026-06-18): REAL fix for the hw159 1st-hit 111 — the
+      # bridge is now a NATIVE sidecar (starts before the DSN gate) behind a
+      # dedicated bridge-only Service with publishNotReadyAddresses:true, and
+      # the Exact `/` route backendRefs that Service — so the zero-click landing
+      # page is REACHABLE on the 1st hit even while `newapi` is NotReady during
+      # GORM migrate (a plain-container bridge had its endpoint suppressed by
+      # pod-readiness AND-gating → 111 → browser never loaded the page → SPA
+      # /setup). The landing page also self-reloads (not /login→/setup) on
+      # warm-up retry-exhaustion. The setup wizard stays pre-completed by the
+      # admin-sso-seed-job. This slot sets no sandboxBridge/service overrides,
+      # so the chart defaults (native sidecar + bridge Service) are what render.
+      version: 1.4.107
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

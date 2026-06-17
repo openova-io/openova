@@ -1,5 +1,48 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.107 (#3374, 2026-06-18): REAL fix for the hw159 zero-click 1st-hit 111 +
+# /setup — eliminate the readiness race at its source instead of only retrying
+# in the landing page (1.4.102 was honest race-hardening, not a fix). ROOT
+# CAUSE: the sandbox-bridge serves the Exact `/` zero-click landing page, but
+# as a PLAIN container it was gated TWICE behind NewAPI's ~2-min warm-up:
+#   (1) the wait-for-sql-dsn initContainer runs to completion BEFORE any plain
+#       container starts, so the bridge wasn't listening during the DSN-wait
+#       window; and
+#   (2) a Pod joins a Service EndpointSlice only when ALL containers are Ready
+#       (pod-readiness = AND of every readinessProbe). The `newapi` container is
+#       NotReady until GORM AutoMigrate finishes, so the WHOLE Pod stayed
+#       NotReady → the Service had ZERO ready endpoints on every port (incl. the
+#       bridge) → the gateway's Exact `/` backendRef had no healthy upstream →
+#       `upstream-connect-error ... delayed connect error: 111`. The bridge
+#       process being up was irrelevant; its endpoint was suppressed. The
+#       browser could not even LOAD the landing page, so the 1.4.102 retry never
+#       ran on the 1st hit; the SPA then showed /setup.
+# FIX (three coordinated parts, all real):
+#   (a) deployment.yaml — the bridge is now a NATIVE sidecar (initContainers
+#       entry with restartPolicy:Always, KEP-753 GA k8s 1.29; Sovereigns run
+#       k3s v1.31.4) declared FIRST, so it starts BEFORE the DSN gate and runs
+#       the whole Pod lifetime — decoupled from NewAPI's migrate. Env shared
+#       with the legacy path via the new bp-newapi.sandboxBridgeEnv helper.
+#       Operator opt-out: sandboxBridge.nativeSidecar=false (pre-1.29 clusters).
+#   (b) service.yaml — a dedicated bridge-only Service
+#       `<fullname>-bridge` with publishNotReadyAddresses:true publishes the
+#       bridge endpoint the INSTANT it binds :8080, even while `newapi` is
+#       NotReady. httproute.yaml's Exact `/` rule now backendRefs THIS Service
+#       (gateway.bridgeBackendService overrides it for the vCluster syncer-
+#       mangled name). Result: the bare URL loads the landing page on the 1st
+#       hit — no 111.
+#   (c) sso_init.go (bridge sidecar) — on /api/oauth/state retry-exhaustion
+#       while SSO IS configured (NewAPI still warming up) the page now RELOADS
+#       ITSELF instead of falling through to /login (which the SPA bounces to
+#       /setup on an unseeded NewAPI). So the first human visit never dead-ends
+#       at the setup wizard during convergence. (An unconfigured overlay still
+#       degrades to /login — reloading would loop with nothing to land on.)
+# The setup wizard itself stays pre-completed by the admin-sso-seed-job (setups
+# row + sovereign OIDC provider) and the per-minute promote/reload CronJob
+# (1.4.97); this change ensures the landing page is REACHABLE and never routes
+# the owner to /setup before the seed lands. Lockstep: 80-newapi.yaml pin +
+# blueprint.yaml → 1.4.107. NB: build-bp-newapi-sandbox-bridge.yaml auto-bumps
+# the pin further on merge (it rebuilds the sso_init.go sidecar). Refs #3374.
 # 1.4.97 (#3374/#3563, 2026-06-17): SELF-HEALING provider reload — make the
 # zero-click SSO custom-provider reload DETERMINISTIC on a fresh install. ROOT
 # CAUSE re-surfaced live on hw158: newapi's in-app OIDC callback
@@ -698,7 +741,7 @@ name: bp-newapi
 # fresh-prov readiness window the per-minute admin-promote CronJob self-heals
 # (#3767, 1.4.97) — this retry shrinks the human-visible window, it is not a
 # new SSO mechanism. Refs #3374.
-version: 1.4.105
+version: 1.4.107
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

@@ -96,6 +96,30 @@
 // Both calls are same-origin (the page is served at newapi.<fqdn>/), so the
 // session cookie is in scope. The logout is best-effort: a failure still falls
 // through to the OAuth flow (no worse than before). Refs #3563, #3374.
+//
+// ── #3374 (2026-06-18): 1st-hit 111 + /setup on a fresh prov ──────────────
+// Re-walked live on hw159: the bare URL's 1st hit returned
+// `upstream-connect-error ... delayed connect error: 111` and the 2nd hit
+// landed on the /setup wizard instead of signed-in /console. The 111 is NOT a
+// landing-page bug — it is the gateway finding no healthy upstream for the
+// Exact `/` route while NewAPI warms up (~2min: the wait-for-sql-dsn
+// initContainer + GORM AutoMigrate). As a plain container the bridge (a) did
+// not even START until the DSN gate completed, and (b) had its Service
+// endpoint suppressed because a Pod only joins a Service EndpointSlice once
+// ALL its containers are Ready and the `newapi` container is NotReady during
+// migrate. The REAL fix lives in the chart: the bridge is now a NATIVE sidecar
+// (starts first, before the DSN gate) behind a bridge-only Service with
+// publishNotReadyAddresses:true (so its endpoint publishes the instant it
+// binds, independent of `newapi`). With those in place the landing page LOADS
+// on the 1st hit; this file's job is then to ride out NewAPI's own warm-up:
+//   - the /api/oauth/state mint RETRIES (8× / 1.5s) so the first visit during
+//     convergence still completes the silent-SSO redirect; and
+//   - on retry-exhaustion (NewAPI still not up) the page RELOADS ITSELF rather
+//     than falling through to /login — because the SPA's /login bounces an
+//     unseeded NewAPI to /setup. So the first human visit never dead-ends at
+//     the setup wizard. (An overlay with no SSO configured still degrades to
+//     /login, since reloading would loop forever with nothing to land on.)
+// Refs #3374.
 package handler
 
 import (
@@ -148,6 +172,16 @@ var ssoInitTemplate = template.Must(template.New("sso-init").Parse(`<!doctype ht
   var CLIENT_ID = {{ .ClientID }};
   var SCOPES = {{ .Scopes }};
   function fallback(){ window.location.replace("/login"); }
+  // #3374 (2026-06-18) — self-reload instead of falling through to /login when
+  // NewAPI is configured for SSO but still WARMING UP (DSN-gate + GORM migrate,
+  // up to ~2min on a fresh prov). The SPA's /login bounces an unseeded NewAPI
+  // to the /setup wizard — the exact hw159 symptom. Reloading THIS bare-root
+  // page keeps re-running the whole chain (self-check → state mint → redirect)
+  // until NewAPI is up, so the FIRST human visit never dead-ends at /setup. We
+  // only reach this when AUTHORIZE_URL+CLIENT_ID ARE set (SSO IS configured),
+  // so the loop is bounded by NewAPI coming up; an unconfigured overlay takes
+  // fallback() instead and never reloads.
+  function reloadSelf(){ setTimeout(function(){ window.location.replace("/"); }, 2000); }
   // #3563 — idempotent re-login. If the visitor ALREADY holds a valid NewAPI
   // session they ARE signed in; send them straight to the app. This is the
   // common re-visit path and avoids the Keycloak round-trip entirely. Only
@@ -197,7 +231,12 @@ var ssoInitTemplate = template.Must(template.New("sso-init").Parse(`<!doctype ht
       } catch (e) { /* NewAPI still warming up — retry */ }
       await new Promise(function (r) { setTimeout(r, 1500); });
     }
-    if (!state) return fallback();
+    // #3374 (2026-06-18) — exhausted the state-mint retries while SSO IS
+    // configured ⇒ NewAPI is still warming up. RELOAD this page (keep trying)
+    // instead of falling through to /login (which the SPA bounces to /setup on
+    // an unseeded NewAPI — the hw159 symptom). The bare URL therefore never
+    // lands the first visitor on the setup wizard during convergence.
+    if (!state) return reloadSelf();
     // 2. Build the authorize URL EXACTLY like the SPA does
     //    (web/src/helpers/api.js onCustomOAuthClicked: redirect_uri =
     //    window.location.origin + "/oauth/" + slug) and redirect. The

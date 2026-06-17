@@ -45,4 +45,48 @@ spec:
     {{- end }}
   selector:
     {{- include "bp-newapi.selectorLabels" . | nindent 4 }}
+{{- /*
+#3374 (2026-06-18) — dedicated bridge-only Service with
+publishNotReadyAddresses:true. The main Service above only adds the Pod to its
+EndpointSlice once ALL containers are Ready (pod-readiness = AND of every
+container readinessProbe); the `newapi` container is NotReady for ~2 min during
+GORM AutoMigrate, so the main Service has ZERO ready endpoints (every port)
+during warm-up. The gateway routes the bare URL's Exact `/` here instead, and
+publishNotReadyAddresses:true publishes the bridge endpoint the INSTANT the
+bridge container is listening — even while `newapi` is NotReady — so the
+zero-click landing page loads on the 1st hit (no `upstream-connect-error ...
+delayed connect error: 111`). The landing page's own retry then rides out
+NewAPI's /api/oauth/state warm-up. Combined with the native-sidecar bridge
+(deployment.yaml), this is the real fix for the hw159 1st-hit 111. Gated on
+sandboxBridge.enabled + ssoInit (the only consumer is the Exact `/` route);
+publishNotReadyAddresses is safe here because the bridge has NO not-ready
+window that serves bad data — it answers /healthz + the static landing page as
+soon as it binds, and /api/oauth/state is proxied to NewAPI by the SPA, not by
+this Service.
+*/ -}}
+{{- $ssoInit := .Values.ssoInit | default dict -}}
+{{- $ssoInitOn := or (not (hasKey $ssoInit "enabled")) $ssoInit.enabled -}}
+{{- if and .Values.sandboxBridge.enabled $ssoInitOn }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-newapi.fullname" . }}-bridge
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    catalyst.openova.io/component: newapi-bridge
+spec:
+  type: {{ .Values.service.type }}
+  # Publish the bridge endpoint even while the Pod is NotReady (the `newapi`
+  # container's GORM-migrate window). The bridge serves the zero-click landing
+  # page + /healthz the instant it binds :{{ .Values.sandboxBridge.port }}.
+  publishNotReadyAddresses: true
+  ports:
+    - name: bridge
+      port: {{ .Values.sandboxBridge.port }}
+      targetPort: {{ .Values.sandboxBridge.port }}
+      protocol: TCP
+  selector:
+    {{- include "bp-newapi.selectorLabels" . | nindent 4 }}
+{{- end }}
 {{- end }}
