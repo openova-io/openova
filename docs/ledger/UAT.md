@@ -31,6 +31,21 @@ object-model #3786, topology vocab #3784, funnel #3376, per-Org Flux loop #3687,
 | 3 | [grafana.hw159](https://grafana.hw159.omani.works/) | Per-app SSO lands signed-in (no login form) | ✅ | [03-grafana-sso](../sessions/2026-06-17/evidence/hw159-uat-03-grafana-sso-signedin.png) |
 | 4 | [/organizations](https://console.hw159.omani.works/organizations) | Object-model view (#3687/#3378): parent-org row, Showback, Commerce/Billing/Domains | ✅ renders; ⚠️ sidebar still says **"Tenant"** (the cosmetic #3707 rename is in the held 1.4.677, not 1.4.674) | [04-organizations](../sessions/2026-06-17/evidence/hw159-uat-04-organizations-objectmodel.png) |
 | 5 | [/jobs](https://console.hw159.omani.works/jobs) | Jobs canvas (#3646) | ✅ renders | [05-jobs](../sessions/2026-06-17/evidence/hw159-uat-05-jobs-canvas.png) |
+| 6 | [/cloud?view=graph](https://console.hw159.omani.works/cloud?view=graph) | Cloud-graph topology view (#3375 / NS#4) | ✅ renders | [12-cloud-graph](../sessions/2026-06-17/evidence/hw159-uat-12-cloud-graph-topology.png) |
+
+**SSO landing matrix (#3374) — each app opened at its bare URL, must land *signed-in* (a login screen = FAIL):**
+
+| App | URL | Landed | Verdict | Evidence |
+|---|---|---|---|---|
+| Grafana | grafana.hw159 | "Home - Dashboards", Profile avatar | ✅ | [03-grafana](../sessions/2026-06-17/evidence/hw159-uat-03-grafana-sso-signedin.png) |
+| Gitea | gitea.hw159 | "emrah.baysal - Dashboard - Catalyst Gitea" | ✅ | [06-gitea](../sessions/2026-06-17/evidence/hw159-uat-06-gitea-sso-signedin.png) |
+| Harbor | registry.hw159 | `/harbor/projects` (signed-in view) | ✅ | [07-harbor](../sessions/2026-06-17/evidence/hw159-uat-07-harbor-sso.png) |
+| OpenBao | bao.hw159 | `/ui/vault/secrets` (signed-in, not /auth) | ✅ | [08-openbao](../sessions/2026-06-17/evidence/hw159-uat-08-openbao-sso.png) |
+| Guacamole | guacamole.hw159 | "Recent Connections" as emrah.baysal (OIDC id_token, sovereign-admins group) | ✅ | [10-guacamole](../sessions/2026-06-17/evidence/hw159-uat-10-guacamole-sso-signedin.png) |
+| newapi | newapi.hw159 | `/setup` first-run wizard + Sign in button (PG connected, but not SSO-landed) | ❌ | [09-newapi](../sessions/2026-06-17/evidence/hw159-uat-09-newapi-setup-wizard-FAIL.png) |
+| PowerDNS-Admin | pdns-admin.hw159 | `/login` ("Log In - PowerDNS-Admin") — login screen | ❌ | [11-powerdns](../sessions/2026-06-17/evidence/hw159-uat-11-powerdns-admin-login-FAIL.png) |
+
+**SSO matrix tally: 5 ✅ / 2 ❌** (grafana/gitea/harbor/openbao/guacamole land signed-in — incl. the historically-broken openbao + guacamole; newapi shows its first-run setup wizard, powerdns-admin shows a login screen). The console handover itself re-lands signed-in even after the catalyst-api pod rolled (session re-established mid-walk).
 
 **Honest open items on hw159:** (a) **8 FAILED apps** — SeaweedFS (object storage) is the root, cascading to Loki/Mimir/Tempo; plus Valkey, nats-jetstream, Coraza, vLLM (the known observability/cache/messaging gap, same class as hw144 #840). (b) The **cosmetic `Tenant→Organization` rename** is absent (1.4.674 pre-#3707); the fix is the **held, de-risked 1.4.677** (all chart-test gates green) awaiting publish (#873). (c) Convergence required a live kom4dc fix: `harbor.openova.io` resolved its IPv6/AAAA on the IPv4-only VPC → catalyst-api `ImagePullBackOff`; pinned it to IPv4 in coredns-custom (the #3735 family — needs a durable bootstrap pin for future provs). The exhaustive per-runbook walk (the 10 runbooks below) continues from this converged base.
 
