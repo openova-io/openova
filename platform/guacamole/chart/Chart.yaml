@@ -184,7 +184,7 @@ name: bp-guacamole
 # Application CR for the slot-52 HelmRelease (gated bootstrapOwned.enabled
 # + Capabilities apps.openova.io/v1) so the console /apps list, per-app
 # Topology tab + showback resolve guacamole (no more "no Application CR").
-version: 0.2.21
+version: 0.2.22
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
