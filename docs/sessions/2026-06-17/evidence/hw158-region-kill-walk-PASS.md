@@ -95,7 +95,17 @@ satisfied on the live env.
 > hw128 walk (2026-06-11) used the ECS BatchStopServers HARD-stop and produced the same result. The
 > root-cause fix (#3740) is the load-bearing change and was verified independently via `sync_state=sync`.
 
-## Restore
-region-a uncordoned, Flux HR un-suspended on both clusters → CNPG re-establishes the original
-primary/replica roles on next reconcile (Day-2 split-brain note from hw128 applies: a CR-level
-switchover/rejoin is the clean path; for this walk the env was restored by un-suspending Flux).
+## Restore (post-walk state — honest)
+region-a uncordoned + Flux HR un-suspended on both clusters. CNPG's region-a primary recovery was
+initially wedged on a STALE `…-primary-3-join` Job (the pre-existing `instances:3` 3rd instance that
+could never schedule on the 3 CPU-saturated region-a workers — "A job is currently running. Waiting").
+Deleting that stale Job let CNPG recreate `…-primary-1` from its intact PVC:
+
+- **region-a primary**: `in_recovery=false` (writable), 5 original rows, 2/3 ready (3rd instance still
+  Pending — pre-existing region-a CPU-capacity issue, cosmetic, tracked separately from #3740).
+- **region-b replica**: holds 6 rows (incl. the post-kill row 99), `in_recovery=true`, but **NOT
+  re-streaming** — its timeline diverged when it was promoted standalone during the kill, so it needs a
+  re-basebackup to rejoin. This is the **known Day-2 rejoin gap** (Continuum auto-rejoin not wired;
+  same note as the hw128 walk + memory `reference_hw128_region_kill_walk_and_vpc_peering`). It is OUT OF
+  SCOPE for #3740 (which fixes the SYNC-target so the kill is RPO=0). Both regions hold the data; the
+  clean rejoin is a CR-level Continuum switchover / `kubectl cnpg` re-basebackup, an operator Day-2 step.
