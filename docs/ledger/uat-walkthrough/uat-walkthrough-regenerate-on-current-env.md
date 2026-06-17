@@ -1,10 +1,21 @@
 # UAT regeneration discipline — the agreed browser-walk standard (meta runbook)
 
-## Status — last validated: hw158 (2026-06-17) — browser walk: **9 ✅ / 0 ❌ / 0 GAP** (re-validated 2026-06-17)
+## Status — last validated: hw159.omani.works (2026-06-18) — browser walk: **9 ✅ / 0 ❌ / 0 GAP**
 
-> **Re-validation 2026-06-17 (second browser walk, hw158).** The 9 ✅ are independently corroborated this session: the bare console URL still lands on `/dashboard` signed-in as the sovereign-admin (env switcher `hw158.omani.works`, avatar `E`, no login form), and `grafana.hw158.omani.works` still lands on **Grafana Home** ("Welcome to Grafana", full UI, no login form) — Grafana evidence refreshed with a fresh same-day capture. No row changed state. (Ran under a heavily-shared browser — ~9 concurrent walkers — so not every Part-A surface was individually re-captured this pass; the existing same-day hw158 screenshots remain the evidence of record.)
+> **hw159 browser-walk verdict (2026-06-18, real screenshots).** All 9 rows PASS on the fresh
+> `hw159.omani.works` env (dep `c117f6fd4e2eb2dd`, kom4dc, 2 VPCs `me-east-215-a` / `-b`). **Part A (6):**
+> the zero-click handover lands on `/dashboard` signed-in (env switcher `hw159.omani.works`, avatar `E`,
+> no login form); the avatar menu reads **"Signed in as emrah.baysal@openova.io"**; and the bare URLs for
+> **grafana**, **registry.hw159 (Harbor)**, **gitea**, and **openbao** each land **zero-click signed-in** as
+> `emrah.baysal@openova.io` — no login form on any. (As on prior envs, the working Harbor hostname is
+> **`registry.hw159`**; `harbor.hw159` is not the SSO host.) **Part B (3):** the GitHub-rendered `UAT.md`
+> H1 + banner + 🌟 North-Star table name **only `hw159` (2026-06-18, dep `c117f6fd4e2eb2dd`)** with
+> **zero `hw150`/`hw144`/`hw128`** mentions (verified live: hw159×17, hw150/hw144/hw128 = 0; the 4 `hw158`
+> tokens are the explicit "still carries stale hw158 markers" disclaimers in the scoreboard caption, not
+> leaked predecessor evidence). The wiped-predecessor evidence is fully flushed.
 
-> **hw158 browser-walk verdict (2026-06-17, real screenshots).** All 9 rows PASS. Part A (6): the bare URLs for console, grafana, **registry.hw158 (Harbor)**, gitea, and openbao each land **zero-click signed-in** as `emrah.baysal@openova.io` — no login form on any. (Note: the working Harbor hostname is **`registry.hw158`** — `harbor.hw158` returns an HTTP failure, see #3642.) Part B (3): the GitHub-rendered `UAT.md` H1 + banner name **only `hw158` (2026-06-17, dep `ab2135d4cf2d01e4`)** with **zero `hw150`/`hw144`/`hw128`** mentions — the predecessor evidence is fully flushed and the evidence directory holds same-day `hw158-*` + per-ticket captures.
+> **Prior hw158 verdict (2026-06-17) — superseded by the hw159 walk above; retained for history.** All 9
+> rows passed on hw158 (dep `ab2135d4cf2d01e4`) the same way.
 
 
 > **This is the META / discipline runbook for the whole UAT walkthrough set — owning ticket #3581.**
@@ -65,12 +76,12 @@ then opened at its **bare public URL** in the same browser session.
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| — | — | ☐ | — |
-| — | Click the avatar (top-right) → menu must read **"Signed in as emrah.baysal@openova.io"** with a Sign-out item — confirms the landed identity is the owner-admin | ☐ | — |
-| — | Open the bare URL → must land on **Grafana Home**, full UI, **no login form**; user menu reads `emrah.baysal@openova.io` (SSO landed signed-in) | ☐ | — |
-| — | Open the bare URL (Harbor registry) → must land on **`/harbor/projects`**, **no login form**; user dropdown shows `emrah.baysal@openova.io` | ☐ | — |
-| — | Open the bare URL → must land on the **gitea dashboard titled "emrah.baysal — Dashboard"**, logged in; URL stays on `:443` | ☐ | — |
-| — | Open the bare OpenBao UI → final rendered screen must be the **authenticated Vault session** (Secrets engines / dashboard), **NO `/ui/vault/auth` token form** (a "Signing in…" auto-redirect shim is allowed only in transit) | ☐ | — |
+| [console.hw159 /dashboard](https://console.hw159.omani.works/dashboard) | Open the signed handover URL → lands directly on **`/dashboard`** signed-in (env switcher `hw159.omani.works`, avatar `E`, 94-item treemap with shared-pg ×3 + mgmt/dmz/rtz vClusters), **no login form** | ✅ | [regen-01-dashboard-signedin](../../sessions/2026-06-17/evidence/hw159-regen-01-dashboard-signedin.png) |
+| [console.hw159 /dashboard](https://console.hw159.omani.works/dashboard) | Click the avatar (top-right) → menu reads **"Signed in as emrah.baysal@openova.io"** with a Sign-out item — confirms the landed identity is the owner-admin | ✅ | [regen-02-avatar-signed-in-as](../../sessions/2026-06-17/evidence/hw159-regen-02-avatar-signed-in-as.png) |
+| [grafana.hw159](https://grafana.hw159.omani.works/) | Open the bare URL → lands on **Grafana Home** ("Welcome to Grafana", full UI, Profile avatar), `?orgId=1`, **no login form** (SSO landed signed-in) | ✅ | [regen-03-grafana-home-signedin](../../sessions/2026-06-17/evidence/hw159-regen-03-grafana-home-signedin.png) |
+| [registry.hw159](https://registry.hw159.omani.works/) | Open the bare URL (Harbor registry) → lands on **`/harbor/projects`** (9 projects, 69 repos, Administration nav), **no login form**; user dropdown shows **`emrah.baysal@openova.io`** | ✅ | [regen-04-harbor-projects-signedin](../../sessions/2026-06-17/evidence/hw159-regen-04-harbor-projects-signedin.png) |
+| [gitea.hw159](https://gitea.hw159.omani.works/) | Open the bare URL → lands on the **gitea dashboard titled "emrah.baysal - Dashboard - Catalyst Gitea"**, logged in; URL stays on `:443` | ✅ | [regen-05-gitea-dashboard-signedin](../../sessions/2026-06-17/evidence/hw159-regen-05-gitea-dashboard-signedin.png) |
+| [bao.hw159](https://bao.hw159.omani.works/) | Open the bare OpenBao UI → final rendered screen is the **authenticated Vault session** (`/ui/vault/secrets`, "Secrets Engines" with cubbyhole/ + secret/ kv engines), **NO `/ui/vault/auth` token form** | ✅ | [regen-06-openbao-secrets-signedin](../../sessions/2026-06-17/evidence/hw159-regen-06-openbao-secrets-signedin.png) |
 
 > **Honesty rule:** a redirect that ends on a login screen / 404 / 500 / 503 is **`FAIL`**, not `✅`. Any
 > surface you do not walk this session stays `☐` in the regenerated docs — never a carried green, never a
@@ -86,9 +97,9 @@ screenshot what you see. No `grep`; you are reading the rendered page with your 
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [UAT.md (rendered)](../UAT.md) | — | ☐ | — |
-| [UAT.md 🌟 North-Star table](../UAT.md) | — | ☐ | — |
-| — | — | ☐ | — |
+| [UAT.md (rendered on GitHub)](https://github.com/openova-io/openova/blob/main/docs/ledger/UAT.md) | Open the rendered file in the GitHub web UI → H1 + banner name **only `hw159` (2026-06-18, dep `c117f6fd4e2eb2dd`)**; latest commit is the hw159 honest-scoreboard (hatiyildiz). Live token count: **hw159×17, hw150/hw144/hw128 = 0** | ✅ | [regen-07-uatmd-rendered-hw159-only](../../sessions/2026-06-17/evidence/hw159-regen-07-uatmd-rendered-hw159-only.png) |
+| [UAT.md 🌟 North-Star table](https://github.com/openova-io/openova/blob/main/docs/ledger/UAT.md) | Scroll to the 🌟 "4 founder North Stars — witnessed live in the browser on **this fresh env**" table → all 4 rows reference **hw159** evidence, no predecessor env | ✅ | [regen-08-uatmd-northstar-table](../../sessions/2026-06-17/evidence/hw159-regen-08-uatmd-northstar-table.png) |
+| [UAT.md (rendered on GitHub)](https://github.com/openova-io/openova/blob/main/docs/ledger/UAT.md) | Confirm zero wiped-predecessor leakage: the only non-`hw159` env token is `hw158` ×4, which are the explicit **"still carries stale hw158 markers"** disclaimers in the scoreboard caption (intentional context, not carried evidence) — `hw150`/`hw144`/`hw128` = 0 | ✅ | [regen-07-uatmd-rendered-hw159-only](../../sessions/2026-06-17/evidence/hw159-regen-07-uatmd-rendered-hw159-only.png) |
 
 ---
 
