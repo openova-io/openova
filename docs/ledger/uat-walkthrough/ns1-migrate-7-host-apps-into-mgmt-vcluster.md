@@ -38,7 +38,7 @@ app runs inside the mgmt vCluster; a `host`-block tile = it never moved. No term
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| — | Load the handover URL (with the operator's handover token). Lands on `/dashboard` **already signed in** as `emrah.baysal@openova.io` (avatar **E**, top-right) — **no login form**. A redirect to a Keycloak login screen here = FAIL. | ✅ | Handover lands directly on `/dashboard` (env `hw159.omani.works`, dep `c117f6fd4e2eb2dd`), avatar **E** top-right, 94 items — no login form. ![3642-treemap](../../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
+| — | Load the handover URL (with the operator's handover token). Lands on `/dashboard` **already signed in** as `emrah.baysal@openova.io` (avatar **E**, top-right) — **no login form**. A redirect to a Keycloak login screen here = FAIL. | ☐ | — |
 
 ---
 
@@ -46,8 +46,8 @@ app runs inside the mgmt vCluster; a `host`-block tile = it never moved. No term
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| — | Dashboard renders the cluster treemap and the grouping controls (LAYER 1 / LAYER 2 comboboxes) are visible. Login-screen redirect = FAIL. | ✅ | The treemap renders (cluster `hw-me-east-215-a-rtz-prod`, 94 items) with the SIZE / COLOR / LAYER 1 / LAYER 2 comboboxes visible. ![3642-treemap](../../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
-| — | Click the **LAYER 1** grouping combobox and select **`vCluster`**. The treemap regroups into one labelled block per vCluster: **`host`**, **`mgmt`** (plus `rtz` / `dmz` if present). The `mgmt` block is visible and clickable. | ✅ | LAYER 1 set to `vCluster` → the treemap regroups into 4 labelled blocks **`host` · `rtz` · `mgmt` · `dmz`**; the `mgmt` block is visible (holds `mimir` · `mgmt-vcluster` · `loki` · `tempo`). ![3642-treemap](../../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
+| — | Dashboard renders the cluster treemap and the grouping controls (LAYER 1 / LAYER 2 comboboxes) are visible. Login-screen redirect = FAIL. | ☐ | — |
+| — | Click the **LAYER 1** grouping combobox and select **`vCluster`**. The treemap regroups into one labelled block per vCluster: **`host`**, **`mgmt`** (plus `rtz` / `dmz` if present). The `mgmt` block is visible and clickable. | ☐ | — |
 
 ---
 
@@ -87,12 +87,12 @@ authenticated app screen = ✅.
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
 | [auth.hw159/realms/sovereign/account](https://auth.hw159.omani.works/realms/sovereign/account) | The sovereign-realm account console renders for `emrah.baysal@openova.io` (no second login). | ❌ | The account console shows a **"Something went wrong — Sorry, an unexpected error has occurred"** dialog (Try again) — not a rendered account page. ![3642-keycloak-surface](../../sessions/2026-06-17/evidence/hw159-3642-keycloak-surface.png) |
-| [gitea.hw159](https://gitea.hw159.omani.works/) | Gitea opens **already signed in** (avatar/menu shows the SSO user), repo list renders — no Gitea login form. | ✅ | Gitea opens signed in as **`emrah.baysal`** (avatar + name top-left, Issues/Pull Requests/Milestones/Explore nav, Repositories list) — no login form. ![3642-gitea-surface](../../sessions/2026-06-17/evidence/hw159-3642-gitea-surface.png) |
+| — | Gitea opens **already signed in** (avatar/menu shows the SSO user), repo list renders — no Gitea login form. | ☐ | — |
 | [harbor.hw159](https://harbor.hw159.omani.works/) | Harbor opens **signed in**, the projects list renders — no Harbor login form. | ❌ | `harbor.hw159.omani.works` returns **ERR_HTTP_RESPONSE_CODE_FAILURE** (non-2xx; UI does not load) on `/` — the gateway returns a chrome-error page, harbor never renders. ![3642-harbor-surface](../../sessions/2026-06-17/evidence/hw159-3642-harbor-surface.png) |
-| [grafana.hw159](https://grafana.hw159.omani.works/) | Grafana opens **signed in** (no Grafana login), the home dashboard renders. | ✅ | Grafana opens on the **"Welcome to Grafana"** home dashboard (full sidebar + avatar top-right) — no Grafana login. ![3642-grafana-surface](../../sessions/2026-06-17/evidence/hw159-3642-grafana-surface.png) |
-| [bao.hw159](https://bao.hw159.omani.works/) | The OpenBao UI renders **signed in** via OIDC — no manual token/unseal prompt blocking the landing. | ✅ | OpenBao lands on **"Secrets Engines"** (`/ui/vault/secrets`) signed in as `root`, showing `cubbyhole/` + `secret/` engines — no unseal/login block. ![3642-openbao-surface](../../sessions/2026-06-17/evidence/hw159-3642-openbao-surface.png) |
+| — | Grafana opens **signed in** (no Grafana login), the home dashboard renders. | ☐ | — |
+| — | The OpenBao UI renders **signed in** via OIDC — no manual token/unseal prompt blocking the landing. | ☐ | — |
 | [newapi.hw159](https://newapi.hw159.omani.works/) | newapi opens **signed in**, its main console renders — no login form. | ❌ | newapi completes the OIDC callback (`/oauth/sovereign?...code=...`) then dies on **"upstream connect error … delayed connect error: 111"** — backend connection failure, console never renders. ![3642-newapi-surface](../../sessions/2026-06-17/evidence/hw159-3642-newapi-surface.png) |
-| [guacamole.hw159](https://guacamole.hw159.omani.works/guacamole/) | Guacamole opens **signed in**, the connections list renders — no Guacamole login form. | ✅ | Guacamole opens on **"RECENT CONNECTIONS / ALL CONNECTIONS"** signed in as **`emrah.baysal@openova.io`** (top-right) — no Guacamole login form. ![3642-guacamole-surface](../../sessions/2026-06-17/evidence/hw159-3642-guacamole-surface.png) |
+| — | Guacamole opens **signed in**, the connections list renders — no Guacamole login form. | ☐ | — |
 
 ---
 
