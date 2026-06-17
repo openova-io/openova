@@ -93,14 +93,20 @@ type treemapResponse struct {
 // region and vcluster added 2026-05-16 (DoD D16/D19) so multi-region
 // operators can pivot the treemap by their actual topology hierarchy
 // (Cloud → Region → Cluster → vCluster → Namespace → Application).
+// organization added 2026-06-18 (#3687 fold #3692) so the operator can
+// pivot the treemap by the owning Organization — the same
+// `openova.io/organization` label join key the per-Org showback uses.
+// podRow.org is already populated in buildPodRows; this just exposes it
+// as a first-class group_by dimension (the Lane-E UAT FAIL).
 var dashboardDimension = map[string]struct{}{
-	"sovereign":   {},
-	"region":      {},
-	"cluster":     {},
-	"vcluster":    {},
-	"family":      {},
-	"namespace":   {},
-	"application": {},
+	"sovereign":    {},
+	"region":       {},
+	"cluster":      {},
+	"vcluster":     {},
+	"family":       {},
+	"namespace":    {},
+	"application":  {},
+	"organization": {},
 }
 
 var dashboardSizeBy = map[string]struct{}{
@@ -706,6 +712,21 @@ func dimensionKey(r podRow, dim string) (string, string) {
 			return r.vcluster, r.vcluster
 		}
 		return "host", "host"
+	case "organization":
+		// Organization name derives from the pod's namespace
+		// `openova.io/organization` (or `catalyst.openova.io/organization`)
+		// label — the SAME single join key the per-Org showback
+		// (#3687 fold #3677) attributes consumption by, resolved into
+		// podRow.org at buildPodRows time. Pods in host/control-plane
+		// namespaces carry no Org label (org == "") and roll into the
+		// synthetic platform-overhead bucket — visible + labelled, never
+		// silently dropped and never mis-attributed to a tenant. The
+		// bucket id is the same `platformOrg` sentinel the showback uses
+		// so the two surfaces agree on the unattributed estate.
+		if r.org != "" {
+			return r.org, r.org
+		}
+		return platformOrg, "Platform overhead"
 	case "family":
 		return r.family, titleCase(r.family)
 	case "namespace":

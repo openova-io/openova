@@ -25,11 +25,17 @@ import { API_BASE } from '@/shared/config/urls'
 /**
  * The granularity dimension a treemap layer groups by.
  *
- *   • application — Helm release / bp-* unit
- *   • namespace   — Kubernetes namespace
- *   • cluster     — Sovereign cluster (one per kubeconfig)
- *   • family      — product family (observability, security, …)
- *   • sovereign   — top-level Sovereign tenant
+ *   • application  — Helm release / bp-* unit
+ *   • namespace    — Kubernetes namespace
+ *   • cluster      — Sovereign cluster (one per kubeconfig)
+ *   • family       — product family (observability, security, …)
+ *   • sovereign    — top-level Sovereign tenant
+ *   • region       — cloud region (multi-region topology)
+ *   • vcluster     — vCluster role (mgmt/dmz/rtz; host pods → "host")
+ *   • organization — owning Organization, keyed on the
+ *     `openova.io/organization` label join key (the same key the per-Org
+ *     showback attributes by). Pods with no Org label (host/control-plane
+ *     namespaces) roll into a single "Platform overhead" bucket.
  */
 export type TreemapDimension =
   | 'application'
@@ -39,6 +45,7 @@ export type TreemapDimension =
   | 'sovereign'
   | 'region'
   | 'vcluster'
+  | 'organization'
 
 /**
  * What the gradient maps to. The backend stamps every cell with a

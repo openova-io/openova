@@ -891,3 +891,95 @@ func TestDropEphemeralRows_FiltersJobOwnedPods(t *testing.T) {
 	}
 }
 
+/* ── #3687 fold #3692 — Organization dimension ───────────────────────── */
+
+// mkDashNamespaceOrg produces an unstructured Namespace carrying the
+// canonical `openova.io/organization` label the treemap's organization
+// grouping (and the per-Org showback) read. Empty `org` omits the label
+// so the host/control-plane (no-org) fallback can be exercised.
+func mkDashNamespaceOrg(name, org string) *unstructured.Unstructured {
+	labels := map[string]any{}
+	if org != "" {
+		labels["openova.io/organization"] = org
+	}
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Namespace",
+		"metadata": map[string]any{
+			"name":            name,
+			"resourceVersion": "1",
+			"labels":          labels,
+		},
+	}}
+}
+
+// TestDashboardTreemap_OrganizationFromNamespaceLabel — grouping by
+// `organization` bucketises pods by the owning Organization, resolved
+// from the host Namespace's `openova.io/organization` label (the single
+// join key the per-Org showback uses). Pods in namespaces WITHOUT an
+// org label (host/control-plane) roll into the "Platform overhead"
+// bucket — visible + labelled, never mis-attributed to a tenant.
+func TestDashboardTreemap_OrganizationFromNamespaceLabel(t *testing.T) {
+	h := newDashHandlerWithCache(t, "alpha", false,
+		mkDashNamespaceOrg("acme", "acme"),
+		mkDashNamespaceOrg("beta", "beta"),
+		mkDashNamespaceOrg("kube-system", ""), // no org label → platform overhead
+		mkDashPodOnNode("acme", "p1", "blog", ""),
+		mkDashPodOnNode("beta", "p2", "shop", ""),
+		mkDashPodOnNode("kube-system", "p3", "cilium", ""),
+	)
+	out := dashGet(t, h, "deployment_id=alpha&group_by=organization&color_by=health&size_by=cpu_request")
+	if len(out.Items) != 3 {
+		t.Fatalf("expected 3 org buckets (acme,beta,Platform overhead); got %d (%+v)",
+			len(out.Items), out)
+	}
+	names := map[string]bool{}
+	for _, it := range out.Items {
+		names[it.Name] = true
+	}
+	for _, want := range []string{"acme", "beta", "Platform overhead"} {
+		if !names[want] {
+			t.Errorf("expected org bucket %q; got %v", want, names)
+		}
+	}
+}
+
+// TestDashboardTreemap_OrganizationDrillToApplication — the canonical
+// Lane-E view: Layer-1 Organization → Layer-2 Application. A tenant's
+// org cell nests its own apps; the unattributed estate nests under
+// "Platform overhead".
+func TestDashboardTreemap_OrganizationDrillToApplication(t *testing.T) {
+	h := newDashHandlerWithCache(t, "alpha", false,
+		mkDashNamespaceOrg("acme", "acme"),
+		mkDashPodOnNode("acme", "p1", "blog", ""),
+		mkDashPodOnNode("acme", "p2", "blog", ""),
+	)
+	out := dashGet(t, h, "deployment_id=alpha&group_by=organization,application&color_by=health&size_by=cpu_request")
+	if len(out.Items) != 1 || out.Items[0].Name != "acme" {
+		t.Fatalf("expected single org bucket 'acme'; got %+v", out.Items)
+	}
+	kids := out.Items[0].Children
+	if len(kids) != 1 || kids[0].Name != "blog" {
+		t.Fatalf("expected acme to nest the 'blog' application; got %+v", kids)
+	}
+}
+
+// TestDimensionKey_OrganizationFallsBackToPlatformOverhead — the unit
+// contract: an empty-org row keys on the synthetic platformOrg id (the
+// SAME sentinel the showback uses) so the two surfaces agree on the
+// unattributed estate, and renders the human-readable "Platform
+// overhead" label.
+func TestDimensionKey_OrganizationFallsBackToPlatformOverhead(t *testing.T) {
+	id, name := dimensionKey(podRow{org: "acme"}, "organization")
+	if id != "acme" || name != "acme" {
+		t.Errorf("labelled org: got id=%q name=%q, want acme/acme", id, name)
+	}
+	id, name = dimensionKey(podRow{org: ""}, "organization")
+	if id != platformOrg {
+		t.Errorf("empty org: got id=%q, want platformOrg sentinel %q", id, platformOrg)
+	}
+	if name != "Platform overhead" {
+		t.Errorf("empty org: got name=%q, want \"Platform overhead\"", name)
+	}
+}
+

@@ -130,3 +130,32 @@ describe('TreemapLayerController — dimension exclusion', () => {
     expect(values).not.toContain('family')
   })
 })
+
+describe('TreemapLayerController — Organization dimension (#3687 fold #3692)', () => {
+  it('offers Organization as a Layer-1 dimension', () => {
+    render(<Harness initialLayers={['cluster']} />)
+    const layer1 = screen.getByTestId('treemap-layer-0-select') as HTMLSelectElement
+    const values = Array.from(layer1.querySelectorAll('option')).map((o) => (o as HTMLOptionElement).value)
+    expect(values).toContain('organization')
+    // The full topology set remains available alongside the new dimension.
+    for (const dim of ['sovereign', 'region', 'cluster', 'vcluster', 'family', 'namespace', 'application']) {
+      expect(values).toContain(dim)
+    }
+  })
+
+  it('renders the human label "Organization" for the option', () => {
+    render(<Harness initialLayers={['cluster']} />)
+    const layer1 = screen.getByTestId('treemap-layer-0-select') as HTMLSelectElement
+    const orgOption = Array.from(layer1.querySelectorAll('option')).find(
+      (o) => (o as HTMLOptionElement).value === 'organization',
+    ) as HTMLOptionElement | undefined
+    expect(orgOption?.textContent).toBe('Organization')
+  })
+
+  it('selecting Organization in Layer-1 drives the layers state', () => {
+    render(<Harness initialLayers={['application']} />)
+    const layer1 = screen.getByTestId('treemap-layer-0-select') as HTMLSelectElement
+    fireEvent.change(layer1, { target: { value: 'organization' } })
+    expect(layer1.value).toBe('organization')
+  })
+})

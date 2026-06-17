@@ -53,13 +53,14 @@ const COLOR_OPTIONS: { value: TreemapColorBy; label: string }[] = [
 ]
 
 const DIMENSION_OPTIONS: { value: TreemapDimension; label: string }[] = [
-  { value: 'sovereign',   label: 'Sovereign' },
-  { value: 'region',      label: 'Region' },
-  { value: 'cluster',     label: 'Cluster' },
-  { value: 'vcluster',    label: 'vCluster' },
-  { value: 'family',      label: 'Family' },
-  { value: 'namespace',   label: 'Namespace' },
-  { value: 'application', label: 'Application' },
+  { value: 'organization', label: 'Organization' },
+  { value: 'sovereign',    label: 'Sovereign' },
+  { value: 'region',       label: 'Region' },
+  { value: 'cluster',      label: 'Cluster' },
+  { value: 'vcluster',     label: 'vCluster' },
+  { value: 'family',       label: 'Family' },
+  { value: 'namespace',    label: 'Namespace' },
+  { value: 'application',  label: 'Application' },
 ]
 
 /** Hard upper bound — recharts treemap legibility falls off a cliff
