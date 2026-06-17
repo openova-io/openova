@@ -1,4 +1,4 @@
-# UAT — hw158 live walkthrough (2026-06-17)
+# UAT — live walkthrough on `hw158` (2026-06-17)
 
 > **Env: `hw158.omani.works` · deployment `ab2135d4cf2d01e4` · 2026-06-17 · single physical
 > kom4dc region (2 VPCs `me-east-215-a` / `-b`).** Fully converged: **61/64 HelmReleases Ready**,
@@ -14,7 +14,7 @@ console as `emrah.baysal@openova.io` (role `sovereign-admin`); every app is then
 
 > **Wipe-and-rewalk contract:** every wipe empties this file; the rows below were walked **on
 > hw158** 2026-06-17 from the live UI + `kubectl` on `/tmp/hw158-kc.yaml` (primary region A,
-> server `212.72.24.26:6443`). Prior-env (hw144 / hw150 / hw130) results are void and were cleared.
+> server `212.72.24.26:6443`). Prior-environment results are void and were cleared on each wipe.
 > Screenshots: `docs/sessions/2026-06-17/evidence/hw158-*.png`. Per-surface walkthroughs:
 > [`docs/ledger/uat-walkthrough/`](uat-walkthrough/).
 
