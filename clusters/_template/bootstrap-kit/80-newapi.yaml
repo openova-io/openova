@@ -80,7 +80,7 @@ spec:
     - name: bp-openbao
       namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-keycloak
-      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      namespace: mgmt
     - name: bp-cnpg
       namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   chart:

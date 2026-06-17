@@ -55,7 +55,7 @@ spec:
   dependsOn:
     - name: bp-cilium
     - name: bp-keycloak
-      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-external-secrets-stores
   chart:
     spec:

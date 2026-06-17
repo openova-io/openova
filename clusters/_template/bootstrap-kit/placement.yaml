@@ -160,34 +160,74 @@ spec:
     # coupling-fix proof app (gitea).
     - {file: 07-nats-jetstream.yaml, hr: bp-nats-jetstream, vcluster: mgmt, target: mgmt,
        namespace: nats-system}
-    # ── #3735 HOST-BRIDGE REVERTED — keycloak back to HOST placement ────
-    # #3642/#3703 promoted keycloak INTO vc-mgmt (route-only host-bridge,
-    # bundled-PG in-vCluster). That is correct ONLY for the DEFAULT prov.
-    # On `SOVEREIGN_ENABLE_SHARED_PG=true` keycloak flips to externalDatabase
-    # mode and mounts the reflector-pushed `keycloak-database-secret`
-    # (existingSecret, 09-keycloak.yaml) — but slot 16a mints that Secret in
-    # the HOST ns shared-data and the host emberstack-reflector pushes it to
-    # the HOST ns `keycloak`, while keycloak-0 runs INSIDE vc-mgmt. Nothing
-    # bridges the Secret across the boundary, so keycloak-0 hangs on
-    # `MountVolume.SetUp … secret "keycloak-database-secret-x-keycloak-x-
-    # mgmt-vcluster" not found` → no OIDC seed → every downstream
-    # *-sso-oidc-credentials ExternalSecret SecretSyncedError → the last
-    # ~11 HRs never converge (terminal SHARED_PG fresh-prov blocker).
-    #
-    # The host→vCluster delivery wiring is NOT available on the OSS vcluster
-    # 0.21.0 we run: `sync.fromHost.secrets` does NOT EXIST until vcluster
-    # 0.23.0 (0.21.0 rejects the unknown key at config-parse, breaking the
-    # syncer), and an in-vCluster ExternalSecret cannot reconcile (ESO is a
-    # host-minimum substrate, placement.yaml ~line 102, and toHost custom-
-    # resource sync is Pro-gated/inert on OSS). So — exactly as #3733 did for
-    # grafana — keycloak reverts to a HOST placement: the chart renders its
-    # OWN native HTTPRoute and the HR runs where the reflector pushes the
-    # Secret (host ns `keycloak`), restoring the proven shared-pg recipe that
-    # gitea/harbor/grafana already use. target=mgmt stays the §4 aspiration;
-    # keycloak re-homes WITH the `sync.fromHost.secrets` wiring (vcluster
-    # ≥0.23.0) in the #3642/#3719 host-bridge train, per the #3731 note.
-    - {file: 09-keycloak.yaml, hr: bp-keycloak, vcluster: host, target: mgmt,
-       namespace: keycloak}   # §4: host-bridge reverted (#3735 SHARED_PG secret-into-vCluster gap); re-home with #3642/#3719 + fromHost.secrets
+    # ── #3642 HOST-BRIDGE PROMOTE — keycloak into the mgmt vCluster ─────
+    # The #2697 hw130 revert app: install had failed `no matches for kind
+    # HTTPRoute` because the OSS syncer registered 0 sync-set CRDs. The
+    # init-manifests deployer (bp-mgmt-vcluster experimental.deploy) now
+    # registers the structural HTTPRoute CRD inside vc-mgmt, AND the
+    # host-bridge keeps keycloak's HTTPRoute HOST-rendered (the chart's own
+    # in-vCluster route is suppressed) so the host Cilium Gateway reconciles
+    # it. keycloak ships NO ExternalSecret (pin-broker is a SealedSecret) and
+    # runs its OWN bundled bitnami PostgreSQL INSIDE the vCluster on a default
+    # prov (postgresql.enabled defaults true) — so it is a pure route-only
+    # host-bridge, no cross-cluster DB wiring. backendRef → the OSS-synced
+    # mangled Service keycloak-x-keycloak-x-mgmt-vcluster.
+    - file: 09-keycloak.yaml
+      hr: bp-keycloak
+      vcluster: mgmt
+      target: mgmt
+      namespace: keycloak
+      hostBridge:
+        suppress:
+          gateway.enabled: false
+        hostDocuments:
+          # The host-bridged HTTPRoute lives in the `mgmt` host namespace
+          # (where the syncer-mangled backend Service is projected), so the
+          # backendRef is SAME-namespace — no ReferenceGrant needed. It
+          # still attaches to kube-system/cilium-gateway: every listener
+          # sets allowedRoutes.namespaces.from=All (01-cilium.yaml:481), so
+          # a route in any namespace binds. The `mgmt` ns is the vCluster
+          # runtime namespace (slot 58) and always exists.
+          - apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            metadata:
+              name: keycloak
+              namespace: mgmt
+              labels:
+                catalyst.openova.io/blueprint: bp-keycloak
+                catalyst.openova.io/component: keycloak
+                catalyst.openova.io/host-bridge: "mgmt"
+            spec:
+              parentRefs:
+                - name: cilium-gateway
+                  namespace: kube-system
+              hostnames:
+                - auth.${SOVEREIGN_FQDN}
+              rules:
+                # BARE-URL sovereign-admin entry (#3374): the root 302s to
+                # the SOVEREIGN realm admin console (silent catalyst-pin),
+                # not the master-realm login form. Realm = the per-Sovereign
+                # short-name (cloud-init substitutes SOVEREIGN_REALM_NAME).
+                - matches:
+                    - path:
+                        type: Exact
+                        value: /
+                  filters:
+                    - type: RequestRedirect
+                      requestRedirect:
+                        port: 443
+                        path:
+                          type: ReplaceFullPath
+                          replaceFullPath: /admin/${SOVEREIGN_REALM_NAME:=sovereign}/console/
+                        statusCode: 302
+                - matches:
+                    - path:
+                        type: PathPrefix
+                        value: /
+                  backendRefs:
+                    - name: keycloak-x-keycloak-x-mgmt-vcluster
+                      namespace: mgmt
+                      port: 80
     # extraNamespaces: the umbrella renders the SME service set into ns
     # `sme` and cutover artifacts into ns `catalyst` alongside its own
     # catalyst-system — declared so the live conformance audit can
