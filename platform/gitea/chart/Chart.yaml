@@ -113,7 +113,12 @@ name: bp-gitea
 # syncer-mangled host Service name (seaweedfs-s3-x-seaweedfs-x-rtz-vcluster.rtz.svc).
 # objectStorage.enabled is default-OFF, so the single-region/Catalyst-Zero render
 # is byte-identical (the defaults apply only when an operator enables S3).
-version: 1.2.35
+# 1.2.36 (#3687, extends #3370): bootstrap self-registration —
+# templates/application-cr.yaml renders the canonical apps.openova.io/v1
+# Application CR for the slot-10 HelmRelease (gated bootstrapOwned.enabled
+# + Capabilities apps.openova.io/v1) so the console /apps list, per-app
+# Topology tab + showback resolve gitea (no more "no Application CR").
+version: 1.2.36
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so

@@ -659,3 +659,18 @@ gateway:
     # pinning sectionName: https breaks NoMatchingListener. Cilium Gateway
     # matches by hostname filter. See PR #1888 / TBD-A40 / issue #1902.
     sectionName: ""
+
+# ── Bootstrap self-registration (#3687, extends #3370) ───────────────────
+# When a bootstrap-kit slot installs this chart, it flips
+# bootstrapOwned.enabled=true so templates/application-cr.yaml renders the
+# canonical apps.openova.io/v1 Application CR for the slot's HelmRelease
+# (the instance card every console surface reads — /apps, Topology,
+# showback). Default OFF so console-created instances are not double-carded.
+# helmRelease names the owning Flux HelmRelease (the controller's adoption
+# path mirrors its Ready condition); namespace is where that HR object
+# lives (flux-system for the slot 09 HR).
+bootstrapOwned:
+  enabled: false
+  helmRelease:
+    name: ""
+    namespace: flux-system
