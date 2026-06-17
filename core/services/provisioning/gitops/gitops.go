@@ -294,6 +294,16 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 			continue
 		}
 		spec := GetAppSpec(a)
+		// MIRROR-EVERYTHING (#3785, Refs #3376 #3761): route the app image
+		// (main container + the InitCommand initContainer that reuses it)
+		// THROUGH the Sovereign Harbor proxy-cache. The vCluster syncer
+		// schedules the backing Pod on the HOST cluster, where the
+		// `harbor-proxy-pull` Kyverno ClusterPolicy (Enforce) DENIES any
+		// image not matching `*/proxy-*/*` — so a raw `wordpress:6-apache`
+		// pull is blocked and the purchased app never starts. proxyImage is
+		// a no-op when registryMirror is empty or the image is already
+		// proxied / on a registry without a Harbor proxy project.
+		spec.Image = proxyImage(spec.Image, g.registryMirror())
 		vcFiles[fmt.Sprintf("app-%s.yaml", a)] = generateAppDeployment(appNS, slug, a, spec, dbPassword)
 	}
 	vcFiles["kustomization.yaml"] = generateKustomization(appNS, vcFiles)
