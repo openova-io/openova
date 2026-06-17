@@ -209,7 +209,8 @@ func applicationInstallRequestNormalize(b applicationInstallRequest) application
 		b.Parameters = b.ValuesShort
 	}
 	if strings.TrimSpace(b.Placement.Mode) == "" {
-		b.Placement.Mode = "single-region"
+		// One vocabulary (#3375 DoD-1): canonical default.
+		b.Placement.Mode = "singleton"
 	}
 	if len(b.Placement.Regions) == 0 {
 		b.Placement.Regions = []string{"primary"}
@@ -823,10 +824,14 @@ func validateApplicationInstallRequest(req applicationInstallRequest) (string, b
 	if strings.TrimSpace(req.Placement.Mode) == "" {
 		return "placement.mode is required", false
 	}
-	switch req.Placement.Mode {
-	case "single-region", "active-active", "active-hotstandby":
+	// One vocabulary (#3375 DoD-1): canonicalise the posted mode (folds
+	// the legacy editor dialect single-region / active-hotstandby) then
+	// accept the four canonical classes. The editors now emit canonical;
+	// legacy spellings remain admissible so in-flight callers don't break.
+	switch canonicalizeTopology(req.Placement.Mode) {
+	case "singleton", "active-active", "active-hot-standby", "active-passive":
 	default:
-		return "placement.mode must be one of single-region, active-active, active-hotstandby", false
+		return "placement.mode must be one of singleton, active-active, active-hot-standby, active-passive (legacy single-region / active-hotstandby also accepted)", false
 	}
 	if len(req.Placement.Regions) == 0 {
 		return "placement.regions must list at least one region", false
@@ -937,15 +942,22 @@ func newApplicationUnstructured(req applicationInstallRequest) *unstructured.Uns
 	for _, r := range req.Placement.Regions {
 		regions = append(regions, r)
 	}
-	// #3373 — spec.placement is dual-form. The legacy string form
-	// stays byte-identical for callers that never set the WHERE
-	// fields; the OBJECT form {mode, vcluster, regions, clusters}
-	// carries the instance placement when the caller (console
-	// advanced view / direct API) declares it.
-	var placementValue any = req.Placement.Mode
+	// One vocabulary (#3375 DoD-1): the CR always STORES the canonical
+	// placement token (singleton / active-active / active-hot-standby /
+	// active-passive), regardless of which spelling the caller posted.
+	// The legacy editor dialect (single-region / active-hotstandby) is
+	// folded here so every Application CR carries one vocabulary and the
+	// resolver/render path never sees a legacy spelling.
+	canonMode := canonicalizeTopology(req.Placement.Mode)
+	// #3373 — spec.placement is dual-form. The string form carries the
+	// canonical posture for callers that never set the WHERE fields; the
+	// OBJECT form {mode, vcluster, regions, clusters} carries the
+	// instance placement when the caller (console advanced view / direct
+	// API) declares it.
+	var placementValue any = canonMode
 	if req.Placement.VCluster != "" || len(req.Placement.Clusters) > 0 {
 		pl := map[string]any{
-			"mode":     req.Placement.Mode,
+			"mode":     canonMode,
 			"vcluster": req.Placement.VCluster,
 		}
 		if len(req.Placement.Regions) > 0 {

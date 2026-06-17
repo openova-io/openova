@@ -67,26 +67,32 @@ export interface TopologyEditorProps {
  * reuses the SAME option set the post-create Topology editor offers,
  * instead of reinventing it.
  *
- * #3375 §3(d) — the editor must be able to SELECT all FOUR canonical
- * classes. It previously offered only `single-region` / `active-active`
- * / `active-hotstandby`, so `active-passive` could never be chosen even
- * for a blueprint that supports it (a `supported`-vs-editable
- * contradiction). `single-region` is the editor's spelling of the
- * canonical `singleton` (canonicalizeMode maps them together), so the
- * fourth class — `active-passive` — is added here. The
- * `allowedModes`/`supportedCanonical` gate still hides any class the
- * blueprint doesn't declare; this only makes the option REPRESENTABLE.
+ * ONE canonical vocabulary (#3375 DoD-1). The editor RENDERS and SELECTS
+ * the four canonical classes — `singleton` / `active-active` /
+ * `active-hot-standby` / `active-passive` — the exact set the catalog
+ * placementSchema serves, the Application CR stores, and the
+ * application-controller's resolver accepts. The editor previously spoke
+ * the legacy dialect (`single-region` / `active-hotstandby`) which (a)
+ * could not represent `active-passive`/`singleton` and (b) drifted from
+ * the catalog + CR. canonicalizeMode still folds any legacy value the
+ * server returns, so loading an older CR keeps working. The
+ * `allowedModes`/`supportedCanonical` gate hides any class the blueprint
+ * doesn't declare; this set only makes every canonical class
+ * REPRESENTABLE.
  */
-export const ALL_MODES = ['single-region', 'active-active', 'active-hotstandby', 'active-passive'] as const
+export const ALL_MODES = ['singleton', 'active-active', 'active-hot-standby', 'active-passive'] as const
 
 export type TopologyMode = (typeof ALL_MODES)[number]
 
 /**
- * canonicalizeMode (#3648) maps BOTH the editor dialect (single-region /
- * active-hotstandby) AND the canonical matrix vocabulary (singleton /
- * active-hot-standby / active-passive) onto one token, so the
- * supported-constraint can compare an ALL_MODES entry against a Blueprint's
- * canonical SupportedTopologies regardless of spelling.
+ * canonicalizeMode (#3648, #3375 DoD-1) folds BOTH the legacy editor
+ * dialect (single-region / active-hotstandby) AND the canonical
+ * vocabulary (singleton / active-active / active-hot-standby /
+ * active-passive) onto the ONE canonical token, so any value the server
+ * returns (an older CR, a legacy POST) compares correctly against the
+ * canonical ALL_MODES / SupportedTopologies. Mirrors the Go single
+ * source of truth (placement.Canonicalize) — the CI drift test asserts
+ * the FE + Go + catalyst-api agree.
  */
 export function canonicalizeMode(raw: string): string {
   switch (raw.trim().toLowerCase()) {
@@ -117,7 +123,10 @@ export function TopologyEditor({
   onApplied,
   disableNetwork = false,
 }: TopologyEditorProps) {
-  const [mode, setMode] = useState<string>(currentMode || 'single-region')
+  // One vocabulary (#3375 DoD-1): the editor works in canonical tokens.
+  // Any legacy currentMode the server returns is folded to canonical so
+  // the radio pre-selects correctly and the POST carries canonical.
+  const [mode, setMode] = useState<string>(currentMode ? canonicalizeMode(currentMode) : 'singleton')
   const [regions, setRegions] = useState<string[]>(currentRegions)
   const [preview, setPreview] = useState<ApplicationPreviewResponse | null>(null)
   const [busy, setBusy] = useState<'preview' | 'apply' | null>(null)
@@ -127,7 +136,7 @@ export function TopologyEditor({
 
   // Reset when a different Application is loaded into the tab.
   useEffect(() => {
-    setMode(currentMode || 'single-region')
+    setMode(currentMode ? canonicalizeMode(currentMode) : 'singleton')
     setRegions(currentRegions)
     setPreview(null)
     setError(null)
@@ -148,21 +157,28 @@ export function TopologyEditor({
     }
     const fromSchema = blueprint?.placementSchema?.modes
     if (Array.isArray(fromSchema) && fromSchema.length > 0) {
-      return new Set(fromSchema)
+      // One vocabulary (#3375 DoD-1): canonicalise the declared modes so a
+      // Blueprint that uses the legacy spelling (single-region /
+      // active-hotstandby) in placementSchema.modes still enables the
+      // matching CANONICAL radio (ALL_MODES is canonical).
+      const canon = new Set(fromSchema.map(canonicalizeMode))
+      return new Set<string>(ALL_MODES.filter((m) => canon.has(canonicalizeMode(m))))
     }
     return new Set<string>(ALL_MODES)
   }, [supportedCanonical, blueprint])
 
-  const isDirty = mode !== currentMode || !sameRegionSet(regions, currentRegions)
+  // Compare canonically so a canonical `mode` vs a legacy `currentMode`
+  // (older CR) is not falsely flagged dirty (#3375 DoD-1).
+  const isDirty = canonicalizeMode(mode) !== canonicalizeMode(currentMode) || !sameRegionSet(regions, currentRegions)
 
   // Compute whether the proposed change is destructive (regions drop or
-  // mode collapse) — surfaces the force-confirm UI client-side.
+  // mode collapse) — surfaces the force-confirm UI client-side. Compare
+  // on the canonical token so the guard fires regardless of spelling.
   const requiresForce = useMemo(() => {
+    const cur = canonicalizeMode(currentMode)
     if (
-      mode === 'single-region' &&
-      (currentMode === 'active-active' ||
-        currentMode === 'active-hotstandby' ||
-        currentMode === 'active-passive')
+      canonicalizeMode(mode) === 'singleton' &&
+      (cur === 'active-active' || cur === 'active-hot-standby' || cur === 'active-passive')
     ) {
       return true
     }
@@ -394,15 +410,17 @@ export function TopologyEditor({
 /**
  * describeMode — one-line human description per topology mode. Exported
  * (#3599) so the create-flow placement step shows the same helper text
- * the post-create editor shows for each mode.
+ * the post-create editor shows for each mode. Canonicalises first so it
+ * describes both the canonical tokens and any legacy spelling
+ * (#3375 DoD-1).
  */
 export function describeMode(mode: string): string {
-  switch (mode) {
-    case 'single-region':
+  switch (canonicalizeMode(mode)) {
+    case 'singleton':
       return 'one cluster; lowest cost; no failover'
     case 'active-active':
       return 'every region serves traffic; horizontal scaling'
-    case 'active-hotstandby':
+    case 'active-hot-standby':
       return 'primary serves; standby ready for switchover'
     case 'active-passive':
       return 'primary serves; passive cold/warm standby (backup-restore)'

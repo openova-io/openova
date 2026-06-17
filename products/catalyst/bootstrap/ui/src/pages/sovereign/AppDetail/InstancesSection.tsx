@@ -38,8 +38,12 @@ import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
 // free-text) so an install can't be typo'd into an invalid zone.
 const VCLUSTER_OPTIONS = ['host', 'mgmt', 'dmz', 'rtz'] as const
 
-/** Modes that require ≥2 regions (the create-flow validation rule). */
-const MULTI_REGION_MODES = new Set(['active-active', 'active-hotstandby'])
+/**
+ * Modes that require ≥2 regions (the create-flow validation rule). ONE
+ * canonical vocabulary (#3375 DoD-1) — active-passive is multi-region
+ * too. Membership is tested on the canonical token (canonicalEditorMode).
+ */
+const MULTI_REGION_MODES = new Set(['active-active', 'active-hot-standby', 'active-passive'])
 
 /**
  * InstancesSection — renders the per-Blueprint instances list (one row
@@ -547,7 +551,9 @@ export function NewInstanceDialog({
       ? canonicalEditorMode(defs['multi-region'] ?? defs['single-region'] ?? '')
       : ''
     if (declaredDefault && supportedModes.includes(declaredDefault)) return declaredDefault
-    return supportedModes.includes('single-region') ? 'single-region' : supportedModes[0] ?? 'single-region'
+    // One vocabulary (#3375 DoD-1): prefer the canonical singleton, else
+    // the first supported canonical mode.
+    return supportedModes.includes('singleton') ? 'singleton' : supportedModes[0] ?? 'singleton'
   }, [bpQuery.data, supportedModes])
 
   useEffect(() => {
@@ -895,11 +901,14 @@ export function NewInstanceDialog({
 }
 
 /**
- * canonicalEditorMode — normalise a Blueprint topology token (which may
- * use the hyphenated `active-hot-standby` / `singleton` / `multi-region`
- * dialect) onto the editor mode vocabulary
- * (single-region | active-active | active-hotstandby) so the create-flow
- * dropdown intersects cleanly with ALL_MODES (#3599).
+ * canonicalEditorMode — fold a Blueprint topology token onto the ONE
+ * canonical vocabulary (#3375 DoD-1: singleton | active-active |
+ * active-hot-standby | active-passive) so the create-flow dropdown
+ * intersects cleanly with ALL_MODES (now canonical). Legacy spellings
+ * (single-region / active-hotstandby) and the `multi-region` deployment
+ * posture (which is a Sovereign shape, not an instance mode) fold to a
+ * valid canonical option; anything unknown falls back to singleton so
+ * the dropdown always offers a valid choice.
  */
 function canonicalEditorMode(raw: string): string {
   const s = (raw ?? '').trim().toLowerCase()
@@ -910,18 +919,20 @@ function canonicalEditorMode(raw: string): string {
     case 'active-hot-standby':
     case 'active-hotstandby':
     case 'active_hot_standby':
+      return 'active-hot-standby'
     case 'active-passive':
     case 'active_passive':
-      return 'active-hotstandby'
+      return 'active-passive'
     case 'singleton':
     case 'single-region':
     case 'single_region':
+      return 'singleton'
     case 'multi-region':
     default:
-      // multi-region is a deployment posture, not an editor mode; map it
-      // (and anything unknown) to single-region so the dropdown still
-      // offers a valid editor option.
-      return 'single-region'
+      // multi-region is a deployment posture, not an instance mode; map
+      // it (and anything unknown) to singleton so the dropdown still
+      // offers a valid canonical option.
+      return 'singleton'
   }
 }
 

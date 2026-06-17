@@ -52,6 +52,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/openova-io/openova/core/controllers/internal/placement"
 	"github.com/openova-io/openova/core/controllers/internal/semver"
 )
 
@@ -106,10 +107,18 @@ func compileBlueprintTopologySchema() (*jsonschema.Schema, error) {
 // Two tiers of placement modes coexist:
 //
 //  1. Application-tier modes — operator/tenant-facing modes for normal
-//     application Blueprints (the marketplace 99%):
-//     - single-region     (one region, no replication)
-//     - active-active     (multi-region, all primary)
-//     - active-hotstandby (multi-region, primary + warm standby)
+//     application Blueprints (the marketplace 99%). ONE canonical
+//     vocabulary (#3375 DoD-1), defined once by the placement package
+//     (core/controllers/internal/placement.CanonicalModes):
+//     - singleton          (one region, no replication)
+//     - active-active      (multi-region, all primary)
+//     - active-hot-standby (multi-region, primary + warm standby)
+//     - active-passive     (multi-region, primary + cold/warm standby)
+//
+//     The legacy spellings `single-region` / `active-hotstandby` are
+//     still ACCEPTED here (folded via placement.Canonicalize) so the
+//     71-blueprint corpus that pre-dates the canonical spelling keeps
+//     validating; new blueprint.yaml authors emit the canonical token.
 //
 //  2. Bootstrap-topology modes — used by `bp-*-vcluster` and other
 //     bootstrap-kit Blueprints whose placement is dictated by the
@@ -129,15 +138,25 @@ func compileBlueprintTopologySchema() (*jsonschema.Schema, error) {
 // and must be kept in sync — see that file's `placementSchema.modes`
 // items.enum.
 var canonicalPlacementModes = map[string]struct{}{
-	// Application-tier
+	// Application-tier — canonical (placement.CanonicalModes)
+	"singleton":          {},
+	"active-active":      {},
+	"active-hot-standby": {},
+	"active-passive":     {},
+	// Application-tier — legacy spellings, accepted for back-compat
 	"single-region":     {},
-	"active-active":     {},
 	"active-hotstandby": {},
 	// Bootstrap-topology tier (docs/SOVEREIGN-MULTI-REGION-DOD.md A4)
 	"primary-only":   {},
 	"secondary-only": {},
 	"every-region":   {},
 }
+
+// placementModesLegalValues is the human-readable legal-value list for
+// error messages — the canonical Application-tier vocabulary plus the
+// bootstrap-topology tier (legacy spellings are accepted but not
+// advertised as the preferred form).
+const placementModesLegalValues = "singleton, active-active, active-hot-standby, active-passive, primary-only, secondary-only, every-region (legacy single-region / active-hotstandby also accepted)"
 
 // canonicalManifestKinds — must mirror the enum in
 // products/catalyst/chart/crds/blueprint.yaml `manifests.source.kind`.
@@ -310,21 +329,25 @@ func Validate(bp *unstructured.Unstructured, catalog map[string]struct{}) Result
 			for _, m := range modes {
 				if _, ok := canonicalPlacementModes[m]; !ok {
 					res.Errors = append(res.Errors, fmt.Sprintf(
-						"spec.placementSchema.modes contains %q; legal values: single-region, active-active, active-hotstandby, primary-only, secondary-only, every-region",
-						m,
+						"spec.placementSchema.modes contains %q; legal values: %s",
+						m, placementModesLegalValues,
 					))
 				}
 			}
 		}
 		// Optional: default mode must be one of modes[] (when both set).
+		// Membership is checked on the CANONICAL token so a `default:
+		// singleton` matches `modes: [single-region]` and vice versa —
+		// the one-vocabulary rule must not reject a Blueprint that mixes
+		// canonical + legacy spellings during the corpus migration.
 		if defaultMode, _, _ := unstructured.NestedString(pSchema, "default"); defaultMode != "" {
 			if _, ok := canonicalPlacementModes[defaultMode]; !ok {
 				res.Errors = append(res.Errors, fmt.Sprintf(
-					"spec.placementSchema.default = %q; legal values: single-region, active-active, active-hotstandby, primary-only, secondary-only, every-region",
-					defaultMode,
+					"spec.placementSchema.default = %q; legal values: %s",
+					defaultMode, placementModesLegalValues,
 				))
 			}
-			if len(modes) > 0 && !containsString(modes, defaultMode) {
+			if len(modes) > 0 && !containsCanonicalMode(modes, defaultMode) {
 				res.Errors = append(res.Errors, fmt.Sprintf(
 					"spec.placementSchema.default = %q is not in modes[]: %v",
 					defaultMode, modes,
@@ -342,11 +365,11 @@ func Validate(bp *unstructured.Unstructured, catalog map[string]struct{}) Result
 		if dMR, _, _ := unstructured.NestedString(pSchema, "defaultOnMultiRegion"); dMR != "" {
 			if _, ok := canonicalPlacementModes[dMR]; !ok {
 				res.Errors = append(res.Errors, fmt.Sprintf(
-					"spec.placementSchema.defaultOnMultiRegion = %q; legal values: single-region, active-active, active-hotstandby, primary-only, secondary-only, every-region",
-					dMR,
+					"spec.placementSchema.defaultOnMultiRegion = %q; legal values: %s",
+					dMR, placementModesLegalValues,
 				))
 			}
-			if len(modes) > 0 && !containsString(modes, dMR) {
+			if len(modes) > 0 && !containsCanonicalMode(modes, dMR) {
 				res.Errors = append(res.Errors, fmt.Sprintf(
 					"spec.placementSchema.defaultOnMultiRegion = %q is not in modes[]: %v",
 					dMR, modes,
@@ -883,6 +906,24 @@ func nestedAsMap(m map[string]interface{}, key string) (map[string]interface{}, 
 func containsString(xs []string, s string) bool {
 	for _, x := range xs {
 		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+// containsCanonicalMode reports whether s is in xs after BOTH sides are
+// folded onto the canonical placement vocabulary (#3375 DoD-1). It is
+// the membership check for `placementSchema.default` /
+// `defaultOnMultiRegion` against `modes[]`, so a Blueprint that mixes a
+// canonical default with legacy-spelled modes (or vice versa) during
+// the corpus migration is not falsely rejected. Bootstrap-topology
+// modes (primary-only / …) canonicalise to themselves, so they keep
+// exact-match semantics.
+func containsCanonicalMode(xs []string, s string) bool {
+	want := placement.Canonicalize(s)
+	for _, x := range xs {
+		if placement.Canonicalize(x) == want {
 			return true
 		}
 	}

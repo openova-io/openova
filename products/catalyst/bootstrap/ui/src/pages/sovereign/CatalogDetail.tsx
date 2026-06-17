@@ -16,7 +16,7 @@ import { useTheme } from '@/shared/lib/useTheme'
 import { resolveCatalogIcon } from '@/shared/lib/resolveCatalogIcon'
 import { YamlEditor } from '@/widgets/cloud-list/YamlEditor'
 import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
-import { ALL_MODES, describeMode } from '@/widgets/topology/TopologyEditor'
+import { ALL_MODES, canonicalizeMode, describeMode } from '@/widgets/topology/TopologyEditor'
 import { type CatalogEntryEdit } from '@/lib/commerce.api'
 import { InstancesSection } from './AppDetail/InstancesSection'
 import { useCatalogAdmin } from '@/shared/lib/useCatalogAdmin'
@@ -204,7 +204,7 @@ export function CatalogDetail() {
   const currentEdit: CatalogEntryEdit = {
     name: title,
     tagline: card.tagline || card.summary || '',
-    supported_topologies: topologies.map(toEditorMode),
+    supported_topologies: topologies.map(canonicalizeMode),
     icon_light: card.iconLight || bundledLogo || '',
     icon_dark: card.iconDark || '',
   }
@@ -719,20 +719,13 @@ function readMultiInstance(cat: CatalogItem): boolean {
   return !!mi?.enabled
 }
 
-// #3648 — map BOTH the canonical matrix vocabulary (singleton /
-// active-hot-standby) AND the editor dialect onto the editor dialect
-// (single-region / active-hotstandby / active-active) the inline edit form's
-// topology checkboxes use, so a Blueprint's declared topologies pre-check
-// correctly regardless of which spelling the API returned.
-const CANONICAL_TO_EDITOR: Record<string, string> = {
-  singleton: 'single-region',
-  'active-hot-standby': 'active-hotstandby',
-  'active-active': 'active-active',
-}
-function toEditorMode(raw: string): string {
-  const s = raw.trim().toLowerCase()
-  return CANONICAL_TO_EDITOR[s] ?? s
-}
+// One vocabulary (#3375 DoD-1): the inline-edit topology checkboxes use
+// ALL_MODES (the four CANONICAL classes), so a Blueprint's declared
+// topologies are folded onto the canonical token via the shared
+// canonicalizeMode (re-exported from TopologyEditor) — they pre-check
+// correctly regardless of which spelling the API returned, and the save
+// round-trips canonical. The former CANONICAL_TO_EDITOR dialect map is
+// gone now that the editor is canonical end-to-end.
 
 function readTopologies(cat: CatalogItem): string[] {
   const modes = cat.placementSchema?.modes

@@ -97,9 +97,10 @@ func applicationDefaultPrimaryRegionFromEnv() string {
 }
 
 // applicationDefaultPlacementMode is the literal fallback placement.
-// Single-region is the safest default; the caller can always promote
-// post-install via PUT .../applications/{name} with ?force=true.
-const applicationDefaultPlacementMode = "single-region"
+// The canonical "singleton" (#3375 DoD-1) is the safest default — one
+// cluster, no failover; the caller can always promote post-install via
+// PUT .../applications/{name} with ?force=true.
+const applicationDefaultPlacementMode = "singleton"
 
 // applicationSimplifiedInstall mirrors the simplified-shape install
 // body. ALL fields are optional from a JSON-decode standpoint; the

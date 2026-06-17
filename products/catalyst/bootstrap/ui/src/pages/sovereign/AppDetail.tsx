@@ -252,7 +252,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   const appDependsOn = apiApp?.dependsOn ?? []
   const appRegions = apiApp?.regions ?? []
   const appLastReconciled = apiApp?.lastReconciledAt ?? ''
-  const appPlacement = apiApp?.placement ?? 'single-region'
+  const appPlacement = apiApp?.placement ?? 'singleton'
   const appPrimaryRegion = apiApp?.primaryRegion ?? appRegions[0] ?? ''
   // Family B (2026-05-17 t10 C4-005/007): the namespace the workload
   // actually lives in (HR spec.targetNamespace), and the label that

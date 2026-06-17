@@ -72,15 +72,16 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
   const [previewState, setPreviewState] = useState<ApplicationPreviewResponse | null>(null)
   const [statusName, setStatusName] = useState<string | null>(null)
 
-  // Default placement / org / env per the brief — single-region, primary
-  // region read from the deployment's first region. For slice I we keep
-  // these as plain inputs above the auto-form; a follow-up slice swaps
-  // them for richer pickers (Topology editor, see EPIC-2 slice T).
+  // Default placement / org / env per the brief — the canonical
+  // `singleton` (#3375 DoD-1), primary region read from the deployment's
+  // first region. For slice I we keep these as plain inputs above the
+  // auto-form; a follow-up slice swaps them for richer pickers (Topology
+  // editor, see EPIC-2 slice T).
   const [organizationRef, setOrganizationRef] = useState<string>('default')
   const [environmentRef, setEnvironmentRef] = useState<string>('default-prod')
   const [appName, setAppName] = useState<string>('')
   const [region, setRegion] = useState<string>('hz-fsn-rtz-prod')
-  const [placementMode, setPlacementMode] = useState<string>('single-region')
+  const [placementMode, setPlacementMode] = useState<string>('singleton')
 
   // Reset the form scaffold when a new Blueprint is selected. Keeps the
   // "click another card" UX intuitive — the prior input doesn't survive
@@ -402,15 +403,17 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
             <label className="flex flex-col text-xs text-[var(--color-text-dim)]">
               Placement mode
               {/*
-               * #3375 §3(d) — the install-flow placement picker must offer
-               * the SAME canonical class set the post-create TopologyEditor
-               * offers (ALL_MODES). It previously hardcoded only
-               * single-region / active-active / active-hotstandby, so a
-               * Blueprint that supports `active-passive` (primary serves;
-               * passive cold/warm standby) could be created on the editor
-               * but never AT INSTALL — a supported-vs-selectable
-               * contradiction. The fourth canonical class is added here so
-               * the install picker matches the backend's supported set.
+               * ONE canonical vocabulary (#3375 DoD-1) — the install-flow
+               * placement picker offers the SAME four canonical classes
+               * the catalog placementSchema serves, the post-create
+               * TopologyEditor (ALL_MODES) offers, the Application CR
+               * stores, and the application-controller resolves:
+               * singleton / active-active / active-hot-standby /
+               * active-passive. It previously spoke the legacy dialect
+               * (single-region / active-hotstandby) which drifted from the
+               * catalog + CR and could not represent active-passive/
+               * singleton consistently. The backend still folds any legacy
+               * value, but the editor now emits canonical end-to-end.
                */}
               <select
                 className="mt-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm"
@@ -418,9 +421,9 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
                 value={placementMode}
                 onChange={(e) => setPlacementMode(e.target.value)}
               >
-                <option value="single-region">single-region</option>
+                <option value="singleton">singleton</option>
                 <option value="active-active">active-active</option>
-                <option value="active-hotstandby">active-hotstandby</option>
+                <option value="active-hot-standby">active-hot-standby</option>
                 <option value="active-passive">active-passive</option>
               </select>
             </label>

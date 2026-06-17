@@ -202,8 +202,10 @@ func TestHandleApplicationInstall_CreatesApplicationCR(t *testing.T) {
 	if v, _, _ := unstructured.NestedString(got.Object, "spec", "environmentRef"); v != "acme-prod" {
 		t.Fatalf("spec.environmentRef: got %q", v)
 	}
-	if v, _, _ := unstructured.NestedString(got.Object, "spec", "placement"); v != "single-region" {
-		t.Fatalf("spec.placement: got %q", v)
+	// One vocabulary (#3375 DoD-1): the body posted the legacy spelling
+	// "single-region"; the CR STORES the canonical token "singleton".
+	if v, _, _ := unstructured.NestedString(got.Object, "spec", "placement"); v != "singleton" {
+		t.Fatalf("spec.placement: got %q, want canonical singleton (legacy single-region folded)", v)
 	}
 	regions, _, _ := unstructured.NestedStringSlice(got.Object, "spec", "regions")
 	if len(regions) != 1 || regions[0] != "hz-fsn-rtz-prod" {
