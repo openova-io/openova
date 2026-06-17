@@ -9,8 +9,9 @@
  *   • Recharts <Treemap>, NOT raw D3. Recharts handles the squarified
  *     layout; we only own the cell renderer + the toolbar + drill-down.
  *   • Up to 4 layers, picked from
- *     [sovereign | cluster | family | namespace | application]. The
- *     first layer is the outer ring; deeper layers nest inside.
+ *     [organization | sovereign | region | cluster | vcluster |
+ *     family | namespace | application]. The first layer is the outer
+ *     ring; deeper layers nest inside.
  *   • Click a parent cell → drill in (push onto a breadcrumb stack).
  *     Clicking a breadcrumb pops back. NO refetch — the breadcrumb
  *     walks the in-memory tree.
@@ -150,27 +151,31 @@ export function Dashboard({
   })
   const sovereignFQDN = snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? null
 
-  // PR M (2026-05-17 t142 founder follow-up #1): default Layer-1 = `cluster`
-  // on multi-region Sovereigns so the operator sees the 3-cluster grouping
-  // immediately. Previously default was `['family', 'application']` —
-  // founder opened /dashboard, saw family-grouped bubbles, concluded the
-  // multi-cluster fix was broken.
+  // #3687 fold #3692 (2026-06-18): default Layer-1 = `organization` on the
+  // Sovereign Console so the operator's landing treemap groups by the
+  // owning Organization (customer estate vs platform overhead) drillable
+  // to Application — the canonical object model the Lane-E UAT asserts,
+  // not a raw infra pod treemap. The Organization dimension keys on the
+  // `openova.io/organization` label join key (same as the per-Org
+  // showback); host/control-plane pods roll into a single "Platform
+  // overhead" bucket. Operators can still pivot to cluster/region for the
+  // multi-region topology view via the Layer-1 selector.
+  //
+  // Prior default was `['cluster', 'application']` (PR M, 2026-05-17 t142
+  // founder follow-up #1) so multi-region operators saw the 3-cluster
+  // grouping; cluster/region remain one click away in the selector.
   //
   // Wave 2 Family D (t10 regression): the snapshot-driven `sovereignFQDN`
   // is fetched asynchronously via SSE — on first paint it is null, so the
-  // default fell back to `['family', 'application']` even on a Sovereign
-  // Console. Test agent caught:
-  //
-  //     DOM testid `treemap-layer-0-select` value="family" on first paint
-  //
-  // Fix: read mode synchronously from `DETECTED_MODE` (window.location-
-  // derived at module load, stable for the lifetime of the page). This
-  // is the SAME source the SovereignSidebar + cloud-list routes use for
-  // their mode-gated rendering, so default Layer-1 stays consistent with
-  // the rest of the sidebar's Sovereign affordances.
+  // default must NOT depend on it. Read mode synchronously from
+  // `DETECTED_MODE` (window.location-derived at module load, stable for
+  // the lifetime of the page) — the SAME source the SovereignSidebar +
+  // cloud-list routes use for their mode-gated rendering, so default
+  // Layer-1 stays consistent with the rest of the sidebar's Sovereign
+  // affordances and is deterministic on first paint.
   const defaultLayers: readonly TreemapDimension[] =
     DETECTED_MODE.mode === 'sovereign'
-      ? ['cluster', 'application']
+      ? ['organization', 'application']
       : ['family', 'application']
   const [layers, setLayers] = useState<readonly TreemapDimension[]>(
     initialLayers ?? defaultLayers,
