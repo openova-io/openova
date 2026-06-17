@@ -19,6 +19,33 @@
 >    `values:` (no duplicate-key BuildFailed); step-08 HARD-gates on bootstrap-kit/sovereign-tls/sme-tenants
 >    Ready and rolls EVERY external-registry workload under deny-egress.
 
+## Status
+
+**2026-06-17 — hw158 (`ab2135d4cf2d01e4`), cutover chart `0.1.75`, live finding (#3747).** Before the cutover
+proof can even be walked, the cutover must ARM — and on hw158 it had not, despite the env being converged
+(`status=ready`, 61/64 HRs). Root cause (#3747, now PR'd): the mother→child **handover exports**
+(tofu-archive / deployment-record / jobs / secondary-kubeconfig) are one-shot fire-and-forget goroutines with
+a **fixed 5-minute retry budget**; `fireHandover` runs once and is idempotency-guarded. At Phase-1 `ready` the
+Sovereign's `api.<fqdn>` data path (cilium-gateway HTTPRoute + LE wildcard cert + catalyst-api pod readiness +
+LB health-check) was still warming up, the exports hit `connection reset by peer`, exhausted the 5m budget, and
+gave up **permanently**. The tofu-archive seal of `secret/catalyst/tofu-phase0-archive` (the cutover-arming
+gate) therefore never landed → `cutoverStartedAt` empty, `cutoverComplete=false`.
+
+- **Handover: GREEN (live, after re-fire).** `POST /sovereign/api/v1/deployments/ab2135d4cf2d01e4/mint-handover-token`
+  re-fired all exports → mothership logged `tofu-archive-export: phase0 archive sealed on child` (attempt 1),
+  `jobs-export: snapshot shipped` (135 jobs), `d16-export: secondary kubeconfig shipped` — **zero resets**.
+  hw158 catalyst-api logged `openbao tofu archive sealed` + `handover seal: cutover engine fired`.
+- **Cutover-readiness: ARMED + WALKING (live).** `self-sovereign-cutover-status` flipped to
+  `cutoverStartedAt=2026-06-17T06:24:04Z`, engine driving the 11 steps. Observed: step-01 gitea-mirror ✅ success,
+  step-02 harbor-projects ✅ success, step-03 harbor-prewarm running (the catalog→local-Harbor prewarm, the long
+  step). `cutoverComplete=true` + the 600s deny-egress sovereignty proof (Sections 1–6 below) are NOT yet
+  verified on hw158 — the walk is in progress at the time of this note; this Status records the handover-arm
+  unblock only, not a cutover-complete claim.
+- **Fix (so a fresh prov arms zero-touch, no manual re-fire):** PR #3748 / commit `9b36d455f` — shared
+  `postHandoverExportWithRetry` retries connection-error/5xx up to a **20m budget** (was 5m), still gives up
+  immediately on a 4xx. Until merged + rolled + re-proven on a NEW fresh prov, the zero-touch arm remains
+  UNVERIFIED-on-fresh-prov.
+
 ## Section 0 — pre-state (reproduce the hw150 defects on the OLD chart, then confirm fixed)
 
 | Go to | Do | See | ☐ |
