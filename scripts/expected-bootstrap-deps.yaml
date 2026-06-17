@@ -367,17 +367,28 @@ slots:
   # bp-mgmt-vcluster edge so the install gates on the vc-mgmt
   # kubeconfig Secret existing before helm-controller attempts the
   # kubeConfig pivot (same shape as bp-coraza/bp-dmz-vcluster G92.4).
+  #
+  # Refs #840 (2026-06-18): bp-seaweedfs edge REMOVED from all three —
+  # mirrors the slot-19 bp-harbor seaweedfs-dep removal (ADR-0001 §13).
+  # The DEFAULT renders are filesystem (loki), bundled MinIO (mimir),
+  # local PVC (tempo) — NONE consume SeaweedFS S3 (the "MUST overlay to
+  # S3" was specced in slot-comments but never written). The old edge was
+  # a FALSE coupling that gated the LGTM stack — and grafana (which
+  # dependsOn loki/mimir/tempo) — on the rtz-vCluster seaweedfs HR reaching
+  # Ready, needlessly wedging convergence in the SECONDARY region when
+  # seaweedfs is slow/not-Ready there (hw159 region-b 41/55). A future
+  # overlay that flips any of them to SeaweedFS S3 MUST re-add the edge.
   - slot: 22
     name: bp-loki
-    depends_on: [bp-mgmt-vcluster, bp-seaweedfs]
+    depends_on: [bp-mgmt-vcluster]
     wave: W2.K2
   - slot: 23
     name: bp-mimir
-    depends_on: [bp-mgmt-vcluster, bp-seaweedfs]
+    depends_on: [bp-mgmt-vcluster]
     wave: W2.K2
   - slot: 24
     name: bp-tempo
-    depends_on: [bp-mgmt-vcluster, bp-seaweedfs]
+    depends_on: [bp-mgmt-vcluster]
     wave: W2.K2
   - slot: 25
     name: bp-grafana

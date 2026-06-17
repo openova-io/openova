@@ -93,10 +93,20 @@ spec:
     # dependsOn requires explicit `namespace:`.
     - name: bp-mgmt-vcluster
       namespace: flux-system
-    # #2745: explicit namespace — a bare `name:` resolves in THIS HR's
-    # namespace (now `mgmt`) → dangling dep → wedge (#3191 shape).
-    - name: bp-seaweedfs
-      namespace: rtz
+    # bp-seaweedfs dependency REMOVED (Refs #840) — mirrors the slot-19
+    # bp-harbor seaweedfs-dep removal (ADR-0001 §13). The DEFAULT Tempo
+    # render is `tempo.storage.trace.backend: local` (platform/tempo/chart/
+    # values.yaml — traces + WAL on a local 10Gi PVC), NOT SeaweedFS S3. The
+    # "MUST replace this with S3" per-Sovereign overlay every slot-comment
+    # assumed was specced but never written, so Tempo never references
+    # `seaweedfs-s3` / `seaweedfs-s3-secret`. The old
+    # `dependsOn: bp-seaweedfs (ns rtz)` was a FALSE coupling that gated
+    # Tempo — and grafana (slot 25, which dependsOn bp-tempo) — on the
+    # rtz-vCluster seaweedfs HR reaching Ready, needlessly wedging the
+    # LGTM+grafana chain in the SECONDARY region when seaweedfs is
+    # slow/not-Ready there (hw159 region-b 41/55). Decoupled, Tempo
+    # converges on its own PVC in BOTH regions. NOTE: a future overlay that
+    # flips Tempo to SeaweedFS S3 MUST re-add this edge (ns rtz) in lockstep.
   chart:
     spec:
       chart: bp-tempo

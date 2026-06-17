@@ -99,10 +99,21 @@ spec:
     # dependsOn requires explicit `namespace:`.
     - name: bp-mgmt-vcluster
       namespace: flux-system
-    # #2745: explicit namespace — a bare `name:` resolves in THIS HR's
-    # namespace (now `mgmt`) → dangling dep → wedge (#3191 shape).
-    - name: bp-seaweedfs
-      namespace: rtz
+    # bp-seaweedfs dependency REMOVED (Refs #840) — mirrors the slot-19
+    # bp-harbor seaweedfs-dep removal (ADR-0001 §13). The DEFAULT Mimir
+    # render runs its OWN bundled MinIO (`minio.enabled: true` in
+    # platform/mimir/chart/values.yaml — blocks-storage on the in-chart
+    # MinIO), NOT SeaweedFS S3. The "MUST set minio.enabled:false AND wire
+    # S3 at SeaweedFS" per-Sovereign overlay was specced but never written,
+    # so Mimir never references `seaweedfs-s3` / `seaweedfs-s3-secret`. The
+    # old `dependsOn: bp-seaweedfs (ns rtz)` was a FALSE coupling that gated
+    # Mimir — and grafana (slot 25, which dependsOn bp-mimir) — on the
+    # rtz-vCluster seaweedfs HR reaching Ready, needlessly wedging the
+    # LGTM+grafana chain in the SECONDARY region when seaweedfs is
+    # slow/not-Ready there (hw159 region-b 41/55). Decoupled, Mimir
+    # converges on its bundled MinIO in BOTH regions. NOTE: a future overlay
+    # that flips Mimir to SeaweedFS S3 MUST re-add this edge (ns rtz) in
+    # lockstep.
   chart:
     spec:
       chart: bp-mimir
