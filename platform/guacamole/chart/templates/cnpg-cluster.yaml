@@ -21,7 +21,14 @@ template until the CRD is registered (bootstrap order lands bp-cnpg first).
 */ -}}
 {{- $db := .Values.guacamole.database | default dict -}}
 {{- $cl := $db.cluster | default dict -}}
-{{- if and .Values.guacamole.enabled (default true $db.enabled) (default true $cl.enabled) (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
+{{- /* #3642 host-bridge: the gate must honour an EXPLICIT `false` so the
+   placement host-bridge can SUPPRESS the in-vCluster Cluster CR (host-rendered
+   instead). The Helm `default true <bool>` idiom wrongly coerces an explicit
+   false back to true (false is the bool zero-value), so test key-presence +
+   value directly — the same idiom newapi's httproute.yaml uses for ssoInit. */ -}}
+{{- $dbOn := or (not (hasKey $db "enabled")) $db.enabled -}}
+{{- $clOn := or (not (hasKey $cl "enabled")) $cl.enabled -}}
+{{- if and .Values.guacamole.enabled $dbOn $clOn (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
 {{- $name := $cl.name | default "guacamole-pg" -}}
 {{- $ns := $cl.namespace | default .Release.Namespace -}}
 {{- $owner := $cl.owner | default "guacamole" -}}

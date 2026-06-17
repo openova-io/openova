@@ -73,7 +73,11 @@ spec:
       # in allowedIngressNamespaces so seaweedfs S3 consumers reach the now-rtz-vCluster synced Service.
       # 0.2.11 (#3373 Batch A): `newapi` carve-out in allowedIngressNamespaces
       # so the LLM gateway reaches the now-rtz-vCluster bp-vllm synced Service.
-      version: 0.2.11
+      # 0.2.12 (#3642 #3736): vcluster subchart 0.21.0 → 0.23.0 LOCKSTEP with
+      # bp-mgmt-vcluster + bp-dmz-vcluster (sibling tag parity). The active
+      # fromHost.secrets mappings live in bp-mgmt-vcluster; RTZ takes the
+      # version bump only.
+      version: 0.2.12
       sourceRef:
         kind: HelmRepository
         name: bp-rtz-vcluster

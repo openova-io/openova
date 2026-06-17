@@ -40,8 +40,19 @@ name: bp-dmz-vcluster
 # `registry.k8s.io/kube-*` — which the `harbor-proxy-pull` Enforce
 # ClusterPolicy DENIES on the next image roll. Additive values only.
 # Sibling to bp-mgmt-vcluster 0.2.8 + bp-rtz-vcluster 0.2.8.
-version: 0.2.7
-appVersion: "0.21.0"
+# 0.2.8 — Refs #3642/#3736 (2026-06-17): LOCKSTEP loft-sh/vcluster subchart
+# bump 0.21.0 → 0.23.0 (sibling to bp-mgmt-vcluster 0.2.12 + bp-rtz-vcluster
+# 0.2.12). The active `sync.fromHost.secrets` mappings land in
+# bp-mgmt-vcluster (the 7 NS#1 apps re-home into vc-mgmt); this DMZ umbrella
+# carries ONLY the version bump so all 3 vCluster umbrellas stay on the same
+# loft-sh tag — drift between siblings would surface as inconsistent syncer
+# behaviour across the DMZ / MGMT / RTZ apiservers (the exact reason the
+# G92 0.20→0.21 bump was done in lockstep). DMZ hosts only bp-coraza, which
+# mints no host-side DB/SSO Secret, so no fromHost.secrets mapping is needed
+# here. Syncer image tag bumped to 0.23.0 to match. Default render unchanged
+# in shape (still default-OFF; subchart version only).
+version: 0.2.8
+appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign DMZ
   vCluster. Implements docs/SOVEREIGN-MULTI-REGION-DOD.md A4
@@ -85,7 +96,14 @@ dependencies:
     # G92 EPIC #2639 (2026-06-01) — sibling bump with bp-mgmt-vcluster
     # 0.2.0 + bp-rtz-vcluster 0.2.0. See bp-mgmt-vcluster/chart/Chart.yaml
     # for the full RCA on why the 0.21.0 schema is required.
-    version: "0.21.0"
+    #
+    # #3642/#3736 (2026-06-17): 0.21.0 → 0.23.0 LOCKSTEP with bp-mgmt-vcluster
+    # + bp-rtz-vcluster (all 3 vCluster umbrellas pin the same loft-sh tag —
+    # sibling drift = inconsistent syncer behaviour). The 0.23.0
+    # sync.fromHost.secrets mappings that unblock the host→vCluster Secret
+    # crossing are declared in bp-mgmt-vcluster (where the 7 NS#1 apps move);
+    # this umbrella takes the version bump only.
+    version: "0.23.0"
     repository: "https://charts.loft.sh"
     # The subchart only renders when the umbrella's top-level
     # `dmzVcluster.enabled` is true. Default-OFF therefore renders ZERO

@@ -81,7 +81,7 @@ metadata:
   # longer needs to colocate with vc-mgmt. Reverting also restores
   # the Helm valuesFrom lookup of secrets like 'object-storage'
   # (cloud-init seeds it in flux-system; lookup is in HR's own ns).
-  namespace: flux-system
+  namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
     catalyst.openova.io/slot: "19"
     catalyst.openova.io/vcluster: mgmt
@@ -97,6 +97,12 @@ spec:
   interval: 1m
   releaseName: harbor
   targetNamespace: harbor
+  storageNamespace: harbor
+  # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
+  kubeConfig:
+    secretRef:
+      name: vc-mgmt
+      key: config
   # G105-followup #2697 (2026-06-01) — G92.3 #2662 placement REVERTED.
   # vCluster lacks Gateway API + ExternalSecret CRDs + the mgmt
   # namespace inside itself. App installs on HOST until vCluster CRD
@@ -273,6 +279,7 @@ spec:
         name: bp-harbor
         namespace: flux-system
     gateway:
+      enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
       host: registry.${SOVEREIGN_FQDN}
       # #3150 (2026-06-09): the chart's HTTPRoute backend defaults to
       # `harbor-core`, but harbor-core is the API backend — it returns 404 for
@@ -285,6 +292,7 @@ spec:
     # post-install Job PUTs /api/v2.0/configurations with
     # auth_mode=oidc_auth + oidc_endpoint computed from sovereignFqdn.
     sso:
+      enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
       sovereignFqdn: ${SOVEREIGN_FQDN}
     # G87 #2634: multi-region CNPG instances default (1 single-region, 2 multi).
     postgres:
@@ -299,7 +307,7 @@ spec:
         # Service. The `registry` Database + role + reflected
         # harbor-database-secret are provisioned by the shared bp-postgres
         # instance (slot 16a).
-        enabled: ${SOVEREIGN_HARBOR_PG_OWN_CLUSTER:=true}
+        enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     objectStorage:
       enabled: true
       useExistingSecret: false
@@ -330,3 +338,100 @@ spec:
             v4auth: true
             secure: true
             storageclass: STANDARD
+
+# ── HOST-BRIDGE BEGIN (#3642) — placement-generated host-side route/secret/CNPG; edit placement.yaml hostBridge: + run scripts/render-slot-placement.py fix ──
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: harbor
+  namespace: mgmt
+  labels:
+    catalyst.openova.io/blueprint: bp-harbor
+    catalyst.openova.io/component: harbor
+    catalyst.openova.io/host-bridge: mgmt
+spec:
+  parentRefs:
+  - name: cilium-gateway
+    namespace: kube-system
+  hostnames:
+  - registry.${SOVEREIGN_FQDN}
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: harbor-x-harbor-x-mgmt-vcluster
+      namespace: mgmt
+      port: 80
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: harbor-sso-oidc-credentials
+  namespace: harbor
+  labels:
+    catalyst.openova.io/blueprint: bp-harbor
+    bp-sso-bridge.openova.io/consumer: bp-harbor
+    catalyst.openova.io/host-bridge: mgmt
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-region1
+    kind: ClusterSecretStore
+  target:
+    name: harbor-sso-oidc-credentials
+    creationPolicy: Owner
+  data:
+  - secretKey: client_id
+    remoteRef:
+      key: sso/harbor
+      property: client_id
+  - secretKey: client_secret
+    remoteRef:
+      key: sso/harbor
+      property: client_secret
+  - secretKey: issuer_url
+    remoteRef:
+      key: sso/harbor
+      property: issuer_url
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: harbor-pg
+  namespace: harbor
+  labels:
+    catalyst.openova.io/blueprint: bp-harbor
+    catalyst.openova.io/component: harbor
+    catalyst.openova.io/host-bridge: mgmt
+spec:
+  instances: 1
+  imageName: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16
+  bootstrap:
+    initdb:
+      database: registry
+      owner: harbor
+  inheritedMetadata:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: 'true'
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: harbor
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: 'true'
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: harbor
+  postgresql:
+    parameters:
+      max_connections: '100'
+      shared_buffers: 64MB
+      effective_cache_size: 192MB
+      work_mem: 4MB
+      maintenance_work_mem: 64MB
+      log_statement: ddl
+      log_min_duration_statement: '1000'
+  storage:
+    size: 5Gi
+    storageClass: local-path
+  enableSuperuserAccess: true
+  monitoring:
+    enablePodMonitor: false
+# ── HOST-BRIDGE END (#3642) ──

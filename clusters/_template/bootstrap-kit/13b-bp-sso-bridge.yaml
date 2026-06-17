@@ -72,8 +72,9 @@ spec:
     # reconcile once catalyst-api is up. So sso-bridge runs early, writes
     # sso/<app>, and gitea/catalyst-platform install behind it.
     - name: bp-keycloak
-      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-openbao
+      namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   chart:
     spec:
       chart: bp-sso-bridge
