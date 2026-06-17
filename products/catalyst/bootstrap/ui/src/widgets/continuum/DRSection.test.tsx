@@ -142,3 +142,92 @@ describe('DRSection', () => {
     expect(screen.getByTestId('continuum-lua-view')).toBeTruthy()
   })
 })
+
+/**
+ * #3375 (DR-UI honesty) — the Switchover control must be ARMED only when a
+ * REAL live DR pair backs the app, and DISABLED-with-an-honest-reason when
+ * none exists. This locks the fix for the hw158 defect: an armed Switchover
+ * against a non-existent dr-grafana that 404s on click.
+ */
+describe('DRSection — Switchover armed only with a real live DR pair (#3375)', () => {
+  it('ARMS the Switchover button for an owner when drPairLive=true', () => {
+    render(
+      withProviders(
+        <DRSection
+          sovereignId="dep-1"
+          continuumName="dr-grafana"
+          applicationName="grafana"
+          callerTier="owner"
+          declaredClass="active-hot-standby"
+          drPairLive
+          initialContinuum={sampleCR}
+          disableNetwork
+        />,
+      ),
+    )
+    expect(screen.getByTestId('continuum-dr-switchover-btn')).toBeTruthy()
+    expect(screen.queryByTestId('continuum-dr-switchover-no-pair')).toBeNull()
+  })
+
+  it('DISABLES the Switchover with an honest reason when drPairLive=false (owner, no phantom arm)', () => {
+    render(
+      withProviders(
+        <DRSection
+          sovereignId="dep-1"
+          continuumName="dr-grafana"
+          applicationName="grafana"
+          callerTier="owner"
+          declaredClass="active-hot-standby"
+          drPairLive={false}
+          initialContinuum={sampleCR}
+          disableNetwork
+        />,
+      ),
+    )
+    // No armed button — the exact hw158 defect (armed against a phantom CR).
+    expect(screen.queryByTestId('continuum-dr-switchover-btn')).toBeNull()
+    // Instead, the honest disabled state.
+    const disabled = screen.getByTestId('continuum-dr-switchover-no-pair')
+    expect(disabled).toBeTruthy()
+    expect(disabled.textContent ?? '').toMatch(/no live dr pair/i)
+  })
+
+  it('does NOT arm Switchover when no live CR exists and no drPairLive signal (old crMissing arming is gone)', () => {
+    // disableNetwork + no initialContinuum → the panel has no live record.
+    // The OLD behaviour armed the button on this `crMissing` case; the fix
+    // makes it honestly disabled.
+    render(
+      withProviders(
+        <DRSection
+          sovereignId="dep-1"
+          continuumName="dr-grafana"
+          applicationName="grafana"
+          callerTier="owner"
+          declaredClass="active-hot-standby"
+          disableNetwork
+        />,
+      ),
+    )
+    expect(screen.queryByTestId('continuum-dr-switchover-btn')).toBeNull()
+    expect(screen.getByTestId('continuum-dr-switchover-no-pair')).toBeTruthy()
+  })
+
+  it('still hides the control for a non-owner even when a live pair exists', () => {
+    render(
+      withProviders(
+        <DRSection
+          sovereignId="dep-1"
+          continuumName="dr-grafana"
+          applicationName="grafana"
+          callerTier="viewer"
+          declaredClass="active-hot-standby"
+          drPairLive
+          initialContinuum={sampleCR}
+          disableNetwork
+        />,
+      ),
+    )
+    expect(screen.queryByTestId('continuum-dr-switchover-btn')).toBeNull()
+    expect(screen.getByTestId('continuum-dr-switchover-disabled')).toBeTruthy()
+  })
+})

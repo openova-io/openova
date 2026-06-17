@@ -28,6 +28,11 @@ import {
   type CatalogItem,
 } from '@/lib/catalog.api'
 import { getHierarchicalInfrastructure } from '@/lib/infrastructure.types'
+import {
+  getContinuum,
+  parseLagSeconds,
+  type ContinuumGetResponse,
+} from '@/lib/continuum.api'
 import { TopologyEditor } from '@/widgets/topology/TopologyEditor'
 import { DRSection } from '@/widgets/continuum/DRSection'
 import {
@@ -86,6 +91,26 @@ function describeTopologyClass(klass: string): string {
 /** Whether a declared class carries a cross-region DR contract. */
 function isDRCapableClass(klass: string): boolean {
   return klass === 'active-hot-standby' || klass === 'active-passive' || klass === 'active-active'
+}
+
+/**
+ * #3375 — the OBSERVED (live) DR state of an app on THIS Sovereign, parsed
+ * from GET /continuums/dr-<app>. `exists` is the honest "a real DR pair backs
+ * this app here" — true only when the API returned a record naming both a
+ * primary and a DISTINCT standby region (a reconciled Continuum CR OR the
+ * live-cnpg-pair projection the backend derives). Everything the Topology tab
+ * reads back as OBSERVED (vs declared) state flows through this shape.
+ */
+interface LiveDRState {
+  exists: boolean
+  record?: ContinuumGetResponse
+  primaryRegion: string
+  replicaRegion: string
+  phase: string
+  lagSeconds: number | null
+  replicationHealthy: boolean
+  source: string
+  loading: boolean
 }
 
 export interface TopologyTabProps {
@@ -306,6 +331,76 @@ export function TopologyTab({
     effectiveDRClass === 'active-passive' ||
     (!!switchoverMechanism && switchoverMechanism.toLowerCase() !== 'none')
 
+  // #3375 (Topology reads back REAL state + DR-UI honesty) — fetch the LIVE
+  // DR record for this app from catalyst-api: GET /continuums/dr-<app>. The
+  // backend returns either a reconciled Continuum CR's spec+status OR (when
+  // no CR is seeded) a record DERIVED from the live cnpg cluster-pair backing
+  // the app (real primaryRegion / replicaRegion / replicationHealthy /
+  // replicationLagSeconds / phase) — see continuum_live.go
+  // deriveLiveContinuumRecord. A 404 (the fetch throws) is the HONEST signal
+  // that no live 2-region pair exists on this Sovereign — we surface that, we
+  // never invent one. Only fetched when the app is DR-capable and not a bare
+  // bootstrap HelmRelease that has no chance of a pair. Honors an explicit
+  // `continuumName` prop (AppDetail may pass the controller-minted CR name);
+  // else the conventional `dr-<app>` the backend also derives.
+  const resolvedContinuumName = continuumName ?? `dr-${applicationName}`
+  const liveContinuumQ = useQuery({
+    queryKey: ['topology-tab-continuum', sovereignId, resolvedContinuumName, namespace, refreshTick],
+    queryFn: () => getContinuum(sovereignId, resolvedContinuumName, { namespace }),
+    enabled: !disableNetwork && showDR && !!sovereignId && !!applicationName,
+    // 404 (no live pair) is an expected terminal state, not a transient
+    // failure — don't retry-loop it (mirrors the #3656 status-poll fix).
+    retry: false,
+    refetchInterval: 10_000,
+  })
+
+  // The live DR record, parsed into the single observed-truth shape the tab
+  // reads back. `exists` is the honest "a real DR pair backs this app on this
+  // Sovereign" — true only when the API returned a record carrying a usable
+  // standby/replica region (a reconciled CR OR the derived live-cnpg-pair
+  // projection). It is what gates the Switchover control (DR-UI honesty) and
+  // feeds the real replication-lag number (replacing the hardcoded "—").
+  const liveDR = useMemo(() => {
+    const rec: ContinuumGetResponse | undefined = liveContinuumQ.data
+    const spec = (rec?.spec ?? {}) as Record<string, unknown>
+    const status = (rec?.status ?? {}) as Record<string, unknown>
+
+    const primaryRegion =
+      (status['primaryRegion'] as string | undefined) ??
+      (spec['primaryRegion'] as string | undefined) ??
+      ''
+    const replicaRegion =
+      (status['replicaRegion'] as string | undefined) ??
+      (Array.isArray(spec['hotStandbyRegions'])
+        ? ((spec['hotStandbyRegions'] as unknown[])[0] as string | undefined)
+        : undefined) ??
+      ''
+    const phase = (status['phase'] as string | undefined) ?? ''
+    const lagSeconds = parseLagSeconds(status['replicationLagSeconds'])
+    const replicationHealthy = Boolean(status['replicationHealthy'] ?? false)
+    const source = (spec['source'] as string | undefined) ?? ''
+
+    // A live DR pair genuinely exists only when the record names BOTH a
+    // primary AND a distinct standby region — anything less is not a
+    // cross-region pair and must NOT arm the Switchover control.
+    const exists =
+      !!rec && !!primaryRegion && !!replicaRegion && primaryRegion !== replicaRegion
+
+    return {
+      exists,
+      record: rec,
+      primaryRegion,
+      replicaRegion,
+      phase,
+      lagSeconds,
+      replicationHealthy,
+      source,
+      // Distinguish "still loading" from "confirmed absent" so the read-back
+      // copy reads honestly (a spinner vs the no-pair state).
+      loading: liveContinuumQ.isLoading && !liveContinuumQ.isError,
+    }
+  }, [liveContinuumQ.data, liveContinuumQ.isLoading, liveContinuumQ.isError])
+
   useEffect(() => {
     // When initialApp updates, just trigger no-op so consumers re-derive.
   }, [initialApp])
@@ -325,6 +420,8 @@ export function TopologyTab({
         liveClass={liveClass}
         isMultiRegion={isMultiRegion}
         sovereignRegionCount={sovereignRegionCount}
+        liveDR={liveDR}
+        showDR={showDR}
       />
 
       <h3 className="mt-6 mb-2 text-sm font-medium text-[var(--color-text-strong)]">
@@ -407,13 +504,47 @@ export function TopologyTab({
         <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-[var(--color-text-dim)]">
           <div data-testid="topology-tab-replication-lag">
             <strong className="text-[var(--color-text)]">Replication lag</strong>:{' '}
-            {effectiveDRClass === 'active-hot-standby' ? '—' : 'n/a (mode)'}
+            {/* #3375 (E4) — REAL replication lag from the live Continuum
+                record (its status.replicationLagSeconds), NOT a hardcoded
+                "—". When the app declares no replication, it's n/a; when it
+                declares active-hot-standby but no live pair exists yet on
+                this Sovereign, we say so honestly rather than print a bare
+                dash that looks like a value-that-failed-to-load. */}
+            {!isDRCapableClass(effectiveDRClass) ? (
+              <span>n/a (mode)</span>
+            ) : liveDR.exists ? (
+              <span data-testid="topology-tab-replication-lag-live">
+                {liveDR.lagSeconds == null
+                  ? '— (no lag reported)'
+                  : `${liveDR.lagSeconds}s`}
+                {liveDR.phase ? (
+                  <span className="ml-1 text-[var(--color-text-dim)]">· {liveDR.phase}</span>
+                ) : null}
+              </span>
+            ) : liveDR.loading ? (
+              <span data-testid="topology-tab-replication-lag-loading">checking…</span>
+            ) : (
+              <span data-testid="topology-tab-replication-lag-nopair">
+                no live DR pair on this Sovereign
+              </span>
+            )}
           </div>
           <div data-testid="topology-tab-last-switchover">
             <strong className="text-[var(--color-text)]">Last switchover</strong>:{' '}
-            {(app?.status as Record<string, unknown> | undefined)?.lastSwitchover
-              ? String((app?.status as Record<string, unknown>).lastSwitchover)
-              : '—'}
+            {(() => {
+              // Prefer the live Continuum record's lastSwitchover; fall back
+              // to the Application status' field for back-compat.
+              const fromCont = (liveDR.record?.status as Record<string, unknown> | undefined)
+                ?.lastSwitchover
+              const fromApp = (app?.status as Record<string, unknown> | undefined)?.lastSwitchover
+              const ls = fromCont ?? fromApp
+              if (!ls) return '—'
+              const lsObj = ls as Record<string, unknown>
+              const at = lsObj['at'] as string | undefined
+              const result = lsObj['result'] as string | undefined
+              if (at || result) return `${result ?? '—'}${at ? ` (${at})` : ''}`
+              return String(ls)
+            })()}
           </div>
         </div>
       </div>
@@ -429,13 +560,20 @@ export function TopologyTab({
       {showDR ? (
         <DRSection
           sovereignId={sovereignId}
-          continuumName={continuumName ?? `dr-${applicationName}`}
+          continuumName={resolvedContinuumName}
           applicationName={applicationName}
           namespace={namespace}
           callerTier={callerTier}
           declaredClass={effectiveDRClass}
           switchoverMechanism={switchoverMechanism}
           hasSwitchover={hasSwitchover}
+          // #3375 (DR-UI honesty) — the authoritative live-state gate: the
+          // Switchover control arms ONLY when a real DR pair backs this app
+          // on this Sovereign (a live Continuum record naming a distinct
+          // standby region). Derived from the same GET /continuums the panel
+          // reads. When false, the panel renders the honest disabled state
+          // instead of an armed button against a phantom dr-<app> CR.
+          drPairLive={liveDR.exists}
           disableNetwork={disableNetwork}
         />
       ) : null}
@@ -453,6 +591,10 @@ interface DeclaredTopologyPanelProps {
   liveClass: string
   isMultiRegion: boolean
   sovereignRegionCount: number
+  /** #3375 — the OBSERVED live DR state (from GET /continuums/dr-<app>). */
+  liveDR: LiveDRState
+  /** Whether this app's effective class is DR-capable (gates the observed strip). */
+  showDR: boolean
 }
 
 /**
@@ -474,6 +616,8 @@ function DeclaredTopologyPanel({
   liveClass,
   isMultiRegion,
   sovereignRegionCount,
+  liveDR,
+  showDR,
 }: DeclaredTopologyPanelProps) {
   const placement = declaredVariant?.placement
   const replication = declaredVariant?.replication
@@ -520,6 +664,18 @@ function DeclaredTopologyPanel({
           {classLabel(declaredClass)}
         </span>
       </div>
+
+      {/* #3375 (Topology reads back REAL state) — the OBSERVED strip. Beneath
+          the DECLARED contract (build-time, from blueprint.yaml) we surface
+          the EFFECTIVE/observed state read LIVE off this Sovereign's Continuum
+          record: which region is primary, the standby region, the replication
+          phase + lag. This is the read-back the hw158 walk found missing — the
+          tab was a declared-only editor that never reflected the app's actual
+          matrix topology. Only rendered for DR-capable apps; honest about the
+          three live states (a real pair / still checking / no pair here). */}
+      {showDR ? (
+        <ObservedDRStrip applicationName={applicationName} liveDR={liveDR} declaredClass={declaredClass} />
+      ) : null}
 
       {!declaredTopology ? (
         <p className="text-xs text-[var(--color-text-dim)]" data-testid="topology-tab-declared-none">
@@ -642,5 +798,110 @@ function DeclaredTopologyPanel({
         </>
       )}
     </section>
+  )
+}
+
+/* ─── Observed (live) DR read-back strip (#3375) ─────────────────────── */
+
+interface ObservedDRStripProps {
+  applicationName: string
+  liveDR: LiveDRState
+  declaredClass: string
+}
+
+/**
+ * ObservedDRStrip — the EFFECTIVE/observed half of the #3375 read-back.
+ *
+ * Where DeclaredTopologyPanel shows the build-time CONTRACT, this strip shows
+ * what is ACTUALLY running on THIS Sovereign for the app, read live from its
+ * Continuum record (GET /continuums/dr-<app>): the current primary region,
+ * the standby region, the replication phase, and the real replication lag.
+ *
+ * Three honest states, never a fabricated one:
+ *   • a real DR pair  → primary / standby / phase / lag rendered live;
+ *   • still checking  → a calm "reading live DR state…";
+ *   • no pair here    → the explicit "no live DR pair on this Sovereign"
+ *     (single-region prov, or the standby half isn't up) — so the operator
+ *     reads the truth instead of a green badge against a phantom.
+ */
+function ObservedDRStrip({ applicationName, liveDR, declaredClass }: ObservedDRStripProps) {
+  const phaseColor = (() => {
+    switch (liveDR.phase) {
+      case 'Healthy':
+        return 'bg-green-500/10 text-green-400'
+      case 'Degraded':
+        return 'bg-yellow-500/10 text-yellow-400'
+      case 'FailedOver':
+        return 'bg-purple-500/10 text-purple-400'
+      case 'Failed':
+        return 'bg-red-500/10 text-red-400'
+      default:
+        return 'bg-[var(--color-border)]/40 text-[var(--color-text-dim)]'
+    }
+  })()
+
+  return (
+    <div
+      className="mt-3 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-3"
+      data-testid="topology-tab-observed-strip"
+    >
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-dim)]">
+        Observed (live on this Sovereign)
+      </p>
+
+      {liveDR.exists ? (
+        <div className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2" data-testid="topology-tab-observed-live">
+          <div className="flex justify-between gap-3 sm:block">
+            <dt className="text-[var(--color-text-dim)]">Primary region</dt>
+            <dd className="font-mono text-[var(--color-text)]" data-testid="topology-tab-observed-primary">
+              {liveDR.primaryRegion || '—'}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3 sm:block">
+            <dt className="text-[var(--color-text-dim)]">Standby region</dt>
+            <dd className="font-mono text-[var(--color-text)]" data-testid="topology-tab-observed-standby">
+              {liveDR.replicaRegion || '—'}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3 sm:block">
+            <dt className="text-[var(--color-text-dim)]">Replication</dt>
+            <dd data-testid="topology-tab-observed-phase">
+              <span className={`inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase ${phaseColor}`}>
+                {liveDR.phase || (liveDR.replicationHealthy ? 'healthy' : 'unknown')}
+              </span>
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3 sm:block">
+            <dt className="text-[var(--color-text-dim)]">Replication lag</dt>
+            <dd className="font-mono text-[var(--color-text)]" data-testid="topology-tab-observed-lag">
+              {liveDR.lagSeconds == null ? '— (not reported)' : `${liveDR.lagSeconds}s`}
+            </dd>
+          </div>
+          {liveDR.source ? (
+            <div className="flex justify-between gap-3 sm:col-span-2 sm:block">
+              <dt className="text-[var(--color-text-dim)]">Source</dt>
+              <dd className="font-mono text-[11px] text-[var(--color-text-dim)]" data-testid="topology-tab-observed-source">
+                {liveDR.source === 'live-cnpg-pair'
+                  ? 'live cnpg cluster-pair (no reconciled Continuum CR yet)'
+                  : liveDR.source}
+              </dd>
+            </div>
+          ) : null}
+        </div>
+      ) : liveDR.loading ? (
+        <p className="text-xs text-[var(--color-text-dim)]" data-testid="topology-tab-observed-loading">
+          Reading live DR state…
+        </p>
+      ) : (
+        <p className="text-xs text-[var(--color-text-dim)]" data-testid="topology-tab-observed-nopair">
+          No live DR pair for{' '}
+          <code className="font-mono text-[var(--color-text)]">{applicationName}</code> on this
+          Sovereign. The declared{' '}
+          <strong className="text-[var(--color-text)]">{declaredClass}</strong> contract activates a
+          cross-region pair only on a 2-region Sovereign with a healthy standby — until then there is
+          nothing to switch over.
+        </p>
+      )}
+    </div>
   )
 }

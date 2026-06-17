@@ -70,6 +70,26 @@ export interface DRSectionProps {
    * posture but no Switchover button. Defaults true for back-compat.
    */
   hasSwitchover?: boolean
+  /**
+   * #3375 (DR-UI honesty) — whether a REAL live DR pair backs this app on
+   * THIS Sovereign: a live Continuum record (a reconciled Continuum CR OR
+   * the derived live-cnpg-pair projection) carrying a usable standby region.
+   *
+   * The Switchover control is ARMED only when this is true. When false — no
+   * 2-region pair exists for the app on this Sovereign (single-region prov,
+   * or the region-b half isn't up) — the button is DISABLED with an honest
+   * reason, NEVER armed against a phantom `dr-<app>` Continuum that 404s on
+   * click (the exact defect the hw158 walk caught: an armed Switchover
+   * against a non-existent dr-grafana). The parent (TopologyTab) derives
+   * this from the same GET /continuums/{name} this panel reads — so the gate
+   * keys on live state, never on a build-time constant or the app name.
+   *
+   * Left `undefined` (the back-compat default) means "the parent did not
+   * pass a live-state signal" — the panel then falls back to its own query
+   * result (`!crMissing`), so an embedded DRSection rendered with a live
+   * `initialContinuum` still arms correctly in isolation.
+   */
+  drPairLive?: boolean
   /** Test seam — pre-fill the Continuum CR + audit list, skip network. */
   initialContinuum?: ContinuumGetResponse
   /** Test seam — bypass the audit fetch + network calls. */
@@ -85,6 +105,7 @@ export function DRSection({
   declaredClass,
   switchoverMechanism,
   hasSwitchover = true,
+  drPairLive,
   initialContinuum,
   disableNetwork = false,
 }: DRSectionProps) {
@@ -153,15 +174,24 @@ export function DRSection({
         ? 'Disaster Recovery (active-active)'
         : 'Disaster Recovery (active-hot-standby)'
 
-  // The Switchover button is enabled for the owner tier whenever there is a
-  // failover target. When a live CR is present we use its hot-standby set;
-  // when none exists yet (no Continuum CR) the owner can still INITIATE the
-  // switchover — the catalyst-api handler defaults the target to the first
-  // hot-standby region server-side, so we pass an empty target and let the
-  // dialog/handler resolve it. This is what makes the control walkable
-  // rather than permanently absent. Suppressed entirely when the variant
-  // declares no switchover (active-active / none).
-  const canSwitchover = hasSwitchover && isOwner && (!!failoverTarget || crMissing)
+  // #3375 (DR-UI honesty) — the Switchover button is ARMED only when a REAL
+  // live DR pair backs this app on this Sovereign. The truth signal:
+  //
+  //   • the parent (TopologyTab) passed `drPairLive` — the authoritative
+  //     live-state flag it derives from the SAME GET /continuums/{name} this
+  //     panel reads (a reconciled Continuum CR OR the derived live-cnpg-pair
+  //     projection with a usable standby). We honor it directly; OR
+  //   • the panel is embedded standalone with a live record of its own
+  //     (`!crMissing`) — e.g. a test/fixture passing `initialContinuum`.
+  //
+  // Critically, the OLD `|| crMissing` arming is GONE: when there is no live
+  // pair (single-region prov, or the region-b half isn't up) the button must
+  // be DISABLED with an honest reason, never armed against a phantom
+  // `dr-<app>` Continuum that 404s on click (the hw158 defect: an armed
+  // Switchover against a non-existent dr-grafana). Suppressed entirely when
+  // the variant declares no switchover (active-active / none).
+  const livePairPresent = drPairLive !== undefined ? drPairLive : !crMissing
+  const canSwitchover = hasSwitchover && isOwner && livePairPresent
 
   return (
     <section
@@ -194,6 +224,20 @@ export function DRSection({
             className="text-xs text-[var(--color-text-dim)]"
           >
             Owner tier required to switchover
+          </span>
+        ) : !livePairPresent ? (
+          // #3375 (DR-UI honesty) — owner tier, but no live DR pair exists on
+          // this Sovereign. Disable with the honest reason instead of arming
+          // against a phantom Continuum. A title attribute spells out why so
+          // the operator never wonders if the control is "broken".
+          <span
+            data-testid="continuum-dr-switchover-no-pair"
+            className="cursor-not-allowed text-xs text-[var(--color-text-dim)]"
+            title={`No live DR pair for ${applicationName} on this Sovereign — switchover activates once the app runs ${
+              declaredClass ?? 'active-hot-standby'
+            } with a healthy standby in the second region.`}
+          >
+            No live DR pair — switchover unavailable
           </span>
         ) : (
           <span
