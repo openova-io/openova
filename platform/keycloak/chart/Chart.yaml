@@ -282,7 +282,12 @@ name: bp-keycloak
 # (realm-management:realm-admin), AND every app keying on the `groups`
 # claim — no self-signed assertion, no per-email grant. keycloak-config-
 # cli re-applies the import so the composite reaches existing realms too.
-version: 1.4.29
+# 1.4.30: powerdns-admin realm-seed client aligned to the bp-oidc-gate
+#   contract — /oauth2/callback redirectUri + oidc-audience-mapper (was the
+#   dead pre-#3374 native /oidc/authorized + /* with no aud mapper, which the
+#   config-cli FULL-managed reconcile reverted over the gate's correct client).
+#   Mirrors the hubble-ui gated precedent. Refs #3741 (hw158 UAT row 6 SSO).
+version: 1.4.30
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so

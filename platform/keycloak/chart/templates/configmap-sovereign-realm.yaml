@@ -829,7 +829,7 @@ data:
         {
           "clientId": "powerdns-admin",
           "name": "PowerDNS-Admin (Tier-2 silent-SSO)",
-          "description": "G117.5 #2744 — DNS UI silent-SSO via catalyst-pin broker. PDA reads OIDC env via ExternalSecret materialised by bp-sso-bridge.",
+          "description": "#3741 — DNS UI silent-SSO via catalyst-pin broker, fronted by the bp-oidc-gate oauth2-proxy. The gate sends redirect_uri=https://pdns-admin.<fqdn>/oauth2/callback and (keycloak-oidc provider) verifies the ID-token aud contains powerdns-admin — hence the /oauth2/callback redirectUri + the oidc-audience-mapper below, matching the gate's own AppRegistration (platform/oidc-gate/chart/templates/instances.yaml) so config-cli's FULL-managed reconcile keeps the client correct rather than reverting to the dead pre-#3374 native /oidc/authorized shape.",
           "enabled": true,
           "publicClient": false,
           "standardFlowEnabled": true,
@@ -839,8 +839,7 @@ data:
           "authorizationServicesEnabled": false,
           "secret": {{ include "bp-keycloak.tier2ClientSecret" (dict "ctx" . "clientId" "powerdns-admin") | quote }},
           "redirectUris": [
-            "https://pdns-admin.{{ .Values.sovereignFQDN }}/oidc/authorized",
-            "https://pdns-admin.{{ .Values.sovereignFQDN }}/*"
+            "https://pdns-admin.{{ .Values.sovereignFQDN }}/oauth2/callback"
           ],
           "webOrigins": [
             "https://pdns-admin.{{ .Values.sovereignFQDN }}"
@@ -858,6 +857,18 @@ data:
             "phone",
             "offline_access",
             "microprofile-jwt"
+          ],
+          "protocolMappers": [
+            {
+              "name": "audience-powerdns-admin",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.client.audience": "powerdns-admin",
+                "id.token.claim": "true",
+                "access.token.claim": "true"
+              }
+            }
           ],
           "attributes": {
             "access.token.lifespan": "900",
