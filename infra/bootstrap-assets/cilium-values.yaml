@@ -1,0 +1,71 @@
+# Cilium Helm values for the Catalyst control-plane CNI install.
+#
+# Externalized from infra/providers/_shared/cloudinit-control-plane.tftpl to
+# reclaim control-plane cloud-init user-data headroom (Hetzner 32256 B hard cap,
+# the G36 tofu-test gate). Refs #3714 / #3729.
+#
+# Fetched at bootstrap via `curl` from raw.githubusercontent.com (this repo is
+# public) in runcmd, AFTER the github-IPv4 /etc/hosts pin (#3232/#3727) so the
+# host is IPv4-reachable on Huawei's IPv4-only VPC, and BEFORE `helm install
+# cilium`. THREE runtime sentinels are sed-substituted on the node after the
+# fetch (each value is per-deployment / per-node, so it cannot be baked into a
+# static asset):
+#   NODE_IP_PLACEHOLDER           -> the CP's runtime-detected PRIVATE IP
+#   CLUSTER_MESH_NAME_PLACEHOLDER -> cluster_mesh_name (tofu var)
+#   CLUSTER_MESH_ID_PLACEHOLDER   -> cluster_mesh_id (tofu var)
+#
+# This file is byte-for-byte equivalent in EFFECT to the inline write_files
+# block it replaced; the bootstrap ordering (CNI up before the Flux handoff) is
+# unchanged. kubeProxyReplacement + gateway-api + envoy + wireguard.
+cluster:
+  name: "CLUSTER_MESH_NAME_PLACEHOLDER"
+  id: CLUSTER_MESH_ID_PLACEHOLDER
+kubeProxyReplacement: true
+k8sServiceHost: NODE_IP_PLACEHOLDER
+k8sServicePort: 6443
+tunnelProtocol: vxlan
+bpf:
+  masquerade: true
+ipam:
+  mode: kubernetes
+encryption:
+  enabled: true
+  type: wireguard
+gatewayAPI:
+  enabled: true
+  gatewayClass:
+    # Force GatewayClass creation regardless of CRD presence at Helm render
+    # time (cilium-gateway-race #503). "auto" skips creation when the
+    # gateway.networking.k8s.io CRDs are not yet present.
+    create: "true"
+envoy:
+  enabled: true
+# envoyConfig.enabled (issue #491): without it the chart skips the
+# CiliumEnvoyConfig CRD registrations and cilium-agent waits forever.
+envoyConfig:
+  enabled: true
+l7Proxy: true
+hubble:
+  enabled: true
+  relay:
+    enabled: false
+  ui:
+    enabled: false
+  metrics:
+    enabled: null
+    serviceMonitor:
+      enabled: false
+l2announcements:
+  enabled: false
+operator:
+  replicas: 1
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+prometheus:
+  enabled: false
+  serviceMonitor:
+    enabled: false

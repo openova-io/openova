@@ -142,128 +142,38 @@ write_files:
     content: |
       ${indent(6, registry_mirror_yaml)}
 
-  # ── flux-system/ghcr-pull Secret ──────────────────────────────────────
-  # imagePullSecret for ghcr.io/openova-io/*. bp-reflector (slot 05a) mirrors
-  # it to every workload namespace so catalyst-* + bp-* pods pull cleanly.
-  - path: /var/lib/catalyst/ghcr-pull-secret.yaml
+  # ── Bootstrap-Secret VALUES (Refs #3714 / #3729) ──────────────────────
+  # The static SCAFFOLD of five bootstrap Secrets (ghcr-pull, harbor-robot-
+  # token, powerdns-api-credentials, pdm-basicauth, object-storage) was
+  # EXTERNALIZED to infra/bootstrap-assets/bootstrap-secrets.tpl.yaml to reclaim
+  # cloud-init user-data headroom (the verbose bp-reflector annotation namespace
+  # lists + YAML wrappers). ONLY the per-deployment values stay here, as a dense
+  # 0600 KEY=value file the node sources + substitutes into the fetched scaffold
+  # (see the runcmd fetch+inject item below). The resulting Secret objects are
+  # byte-for-byte equivalent to the previous inline write_files, applied at the
+  # same point (after the kubeconfig PUT, before the Flux handoff). bp-reflector
+  # (slot 05a) still mirrors them to the workload + vCluster host namespaces.
+  - path: /var/lib/catalyst/secret-env
     permissions: '0600'
     content: |
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: ghcr-pull
-        namespace: flux-system
-        annotations:
-          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "sme,catalyst,catalyst-system,gitea,harbor,cert-manager,kube-system,flux-system,reflector,reloader,kyverno,opentelemetry,openbao,seaweedfs,powerdns,grafana,loki,mimir,tempo,alloy,coraza,crossplane-system,sigstore-system,trivy-system,syft-grype,falco,vpa,valkey,vllm,dmz,mgmt,rtz,external-dns,external-secrets,cnpg-system,velero,nats-system,sealed-secrets,newapi"
-          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "sme,catalyst,catalyst-system,gitea,harbor,cert-manager,kube-system,reflector,reloader,kyverno,opentelemetry,openbao,seaweedfs,powerdns,grafana,loki,mimir,tempo,alloy,coraza,crossplane-system,sigstore-system,trivy-system,syft-grype,falco,vpa,valkey,vllm,dmz,mgmt,rtz,external-dns,external-secrets,cnpg-system,velero,nats-system,sealed-secrets,newapi"
-      type: kubernetes.io/dockerconfigjson
-      data:
-        .dockerconfigjson: ${base64encode(jsonencode({
-          auths = {
-            "ghcr.io" = {
-              username = ghcr_pull_username
-              password = ghcr_pull_token
-              auth     = ghcr_pull_auth_b64
-            }
+      GHCR_DOCKERCONFIGJSON_B64='${base64encode(jsonencode({
+        auths = {
+          "ghcr.io" = {
+            username = ghcr_pull_username
+            password = ghcr_pull_token
+            auth     = ghcr_pull_auth_b64
           }
-        }))}
-
-  # ── flux-system/harbor-robot-token Secret (issue #557) ────────────────
-  # catalyst-api references it via REQUIRED secretKeyRef. bp-reflector
-  # mirrors flux-system → catalyst-system on first reconcile.
-  - path: /var/lib/catalyst/harbor-robot-token-secret.yaml
-    permissions: '0600'
-    content: |
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: harbor-robot-token
-        namespace: flux-system
-        annotations:
-          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: ""
-          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: ""
-      type: Opaque
-      data:
-        token: ${base64encode(harbor_robot_token)}
-
-  # ── cert-manager/powerdns-api-credentials Secret ──────────────────────
-  # bp-cert-manager-powerdns-webhook reads X-API-Key for DNS-01 challenges.
-  - path: /var/lib/catalyst/powerdns-api-credentials.yaml
-    permissions: '0600'
-    content: |
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: powerdns-api-credentials
-        namespace: cert-manager
-      type: Opaque
-      data:
-        api-key: ${base64encode(powerdns_api_key)}
-
-  # ── flux-system/pdm-basicauth Secret (issue #879 Bug 2) ───────────────
-  # catalyst-api calls PDM (Pool Domain Manager) with Basic auth for the
-  # Day-2 "Add another parent domain" flow. Reflector mirrors it out.
-  - path: /var/lib/catalyst/pdm-basicauth-secret.yaml
-    permissions: '0600'
-    content: |
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: pdm-basicauth
-        namespace: flux-system
-        annotations:
-          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "sme,catalyst,catalyst-system,gitea,harbor"
-          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "sme,catalyst,catalyst-system,gitea,harbor"
-      type: Opaque
-      data:
-        username: ${base64encode(pdm_basic_auth_user)}
-        password: ${base64encode(pdm_basic_auth_pass)}
-
-  # ── flux-system/object-storage Secret ─────────────────────────────────
-  # S3-compatible object storage (Hetzner Object Storage / Huawei OBS /
-  # AWS S3 / …). Harbor + Velero HelmReleases read these keys. Emit BOTH
-  # the canonical `s3-*` keys and the bare aliases so every chart variant
-  # resolves (Wave 5.101 #2447 — bp-harbor/bp-velero want `s3-bucket`).
-  #
-  # #3373 coupling fix (c) — reflector annotations (same pattern as
-  # ghcr-pull above): Flux `valuesFrom` resolves a Secret in the HR's
-  # OWN namespace, so when a slot re-homes into a vCluster its HR moves
-  # to the vCluster host namespace (mgmt/dmz/rtz) and a flux-system-only
-  # object-storage Secret would dangle (the #2697 revert class).
-  # bp-reflector (slot 05a, host substrate) mirrors it into the three
-  # vCluster host namespaces so every re-homed HR's valuesFrom keeps
-  # resolving — placement stays a pure data change.
-  - path: /var/lib/catalyst/object-storage-secret.yaml
-    permissions: '0600'
-    content: |
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: object-storage
-        namespace: flux-system
-        annotations:
-          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "mgmt,dmz,rtz"
-          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "mgmt,dmz,rtz"
-      type: Opaque
-      stringData:
-        endpoint: "${object_storage_endpoint}"
-        region: "${object_storage_region}"
-        bucket: "${object_storage_bucket_name}"
-        s3-endpoint: "${object_storage_endpoint}"
-        s3-region: "${object_storage_region}"
-        s3-bucket: "${object_storage_bucket_name}"
-        s3-access-key: "${object_storage_access_key}"
-        s3-secret-key: "${object_storage_secret_key}"
-        access-key: "${object_storage_access_key}"
-        secret-key: "${object_storage_secret_key}"
+        }
+      }))}'
+      HARBOR_ROBOT_TOKEN_B64='${base64encode(harbor_robot_token)}'
+      POWERDNS_API_KEY_B64='${base64encode(powerdns_api_key)}'
+      PDM_BASICAUTH_USER_B64='${base64encode(pdm_basic_auth_user)}'
+      PDM_BASICAUTH_PASS_B64='${base64encode(pdm_basic_auth_pass)}'
+      OBJ_ENDPOINT='${object_storage_endpoint}'
+      OBJ_REGION='${object_storage_region}'
+      OBJ_BUCKET='${object_storage_bucket_name}'
+      OBJ_ACCESS_KEY='${object_storage_access_key}'
+      OBJ_SECRET_KEY='${object_storage_secret_key}'
 
   # ── flux-system/cloud-credentials Secret — PROVIDER-INJECTED ──────────
   # Vendor-agnostic name (#425). Body composed per-provider in main.tf:
@@ -303,68 +213,16 @@ write_files:
       data:
         public.jwk: ${base64encode(handover_jwt_public_key)}
 
-  # ── Cilium Helm values (one structured file; same on every cloud) ─────
-  # kubeProxyReplacement + gateway-api + envoy + wireguard node-encryption.
-  # k8sServiceHost = the CP's PRIVATE IP. We write the sentinel
-  # NODE_IP_PLACEHOLDER and sed-substitute the runtime-detected NODE_IP just
-  # before the helm install — because some clouds (Huawei HCS) assign the
-  # private IP via non-deterministic DHCP, so a tofu-baked guess is wrong.
-  # node_ip_cmd discovers it identically on every cloud (hard-dependency-free).
-  - path: /var/lib/catalyst/cilium-values.yaml
-    permissions: '0644'
-    content: |
-      cluster:
-        name: "${cluster_mesh_name}"
-        id: ${cluster_mesh_id}
-      kubeProxyReplacement: true
-      k8sServiceHost: NODE_IP_PLACEHOLDER
-      k8sServicePort: 6443
-      tunnelProtocol: vxlan
-      bpf:
-        masquerade: true
-      ipam:
-        mode: kubernetes
-      encryption:
-        enabled: true
-        type: wireguard
-      gatewayAPI:
-        enabled: true
-        gatewayClass:
-          # Force GatewayClass creation regardless of CRD presence at Helm
-          # render time (cilium-gateway-race #503). "auto" skips creation
-          # when the gateway.networking.k8s.io CRDs are not yet present.
-          create: "true"
-      envoy:
-        enabled: true
-      # envoyConfig.enabled (issue #491): without it the chart skips the
-      # CiliumEnvoyConfig CRD registrations and cilium-agent waits forever.
-      envoyConfig:
-        enabled: true
-      l7Proxy: true
-      hubble:
-        enabled: true
-        relay:
-          enabled: false
-        ui:
-          enabled: false
-        metrics:
-          enabled: null
-          serviceMonitor:
-            enabled: false
-      l2announcements:
-        enabled: false
-      operator:
-        replicas: 1
-      resources:
-        requests:
-          cpu: 100m
-          memory: 256Mi
-        limits:
-          memory: 1Gi
-      prometheus:
-        enabled: false
-        serviceMonitor:
-          enabled: false
+  # ── Cilium Helm values: EXTERNALIZED to infra/bootstrap-assets/cilium-
+  # values.yaml (Refs #3714 / #3729) to reclaim cloud-init user-data headroom
+  # (Hetzner 32256 B cap). Fetched in runcmd via curl from raw.githubusercontent
+  # .com (this repo is PUBLIC) AFTER the github-IPv4 /etc/hosts pin and BEFORE
+  # `helm install cilium`. The CP private IP + cluster-mesh name/id are
+  # per-deployment so they ride NODE_IP_PLACEHOLDER / CLUSTER_MESH_NAME_
+  # PLACEHOLDER / CLUSTER_MESH_ID_PLACEHOLDER sentinels sed-substituted on the
+  # node post-fetch (some clouds, e.g. Huawei HCS, assign the private IP via
+  # non-deterministic DHCP, so a tofu-baked guess is wrong; node_ip_cmd
+  # discovers it identically on every cloud). Bootstrap behavior unchanged.
 
   # ── Flux bootstrap: GitRepository + bootstrap-kit Kustomization ───────
   # From here Flux owns the cluster. The postBuild.substitute map threads
@@ -670,6 +528,60 @@ runcmd:
      a=$(r4 "$h"); [ -n "$a" ] && echo "$a $h" >>/etc/hosts || true
     done
 
+  # ── Fetch the externalized Cilium values (Refs #3714 / #3729) ─────────
+  # cilium-values.yaml was moved OUT of inline write_files to reclaim cloud-
+  # init headroom. Fetch it from this repo's raw.githubusercontent.com (PUBLIC)
+  # at ${gitops_branch} so it matches the ref this prov deploys (same ref-match
+  # discipline as the prepull `git clone --branch ${gitops_branch}`). This runs
+  # AFTER the github-IPv4 pin above (so raw.githubusercontent.com is IPv4-
+  # reachable on Huawei's IPv4-only VPC) and BEFORE `helm install cilium`. Then
+  # sed-substitute the three per-deployment sentinels (NODE_IP re-derived via
+  # the cloud-agnostic node_ip_cmd; cluster-mesh name/id from tofu). Fail LOUD
+  # if the file is empty — strictly better-observable than a silent bad render.
+  - |
+    curl -sfL --retry 8 --retry-delay 5 --retry-connrefused \
+      "https://raw.githubusercontent.com/openova-io/openova/${gitops_branch}/infra/bootstrap-assets/cilium-values.yaml" \
+      -o /var/lib/catalyst/cilium-values.yaml
+    [ -s /var/lib/catalyst/cilium-values.yaml ] || { echo "[cilium] FATAL: cilium-values.yaml fetch failed/empty" >&2; exit 92; }
+    NODE_IP=$(${node_ip_cmd})
+    [ -n "$${NODE_IP}" ] || { echo "[cilium] FATAL: could not determine node private IP for cilium-values sed" >&2; exit 93; }
+    sed -i \
+      -e "s|NODE_IP_PLACEHOLDER|$${NODE_IP}|g" \
+      -e "s|CLUSTER_MESH_NAME_PLACEHOLDER|${cluster_mesh_name}|g" \
+      -e "s|CLUSTER_MESH_ID_PLACEHOLDER|${cluster_mesh_id}|g" \
+      /var/lib/catalyst/cilium-values.yaml
+
+  # ── Fetch + assemble the externalized bootstrap Secrets (Refs #3714/#3729)
+  # The static scaffold of five Secrets lives in bootstrap-secrets.tpl.yaml
+  # (public asset); the per-deployment values are in the 0600 secret-env file
+  # written above. Source the values, substitute each __PLACEHOLDER__ into the
+  # fetched scaffold, and write the assembled multi-doc manifest. The applied
+  # Secret objects are byte-for-byte equivalent to the old inline write_files;
+  # they are applied later (after the kubeconfig PUT, before the Flux handoff)
+  # by the secret-apply block below. The sed `|` delimiter is collision-free —
+  # base64 + S3-endpoint URLs never contain `|`. Values are sourced (not on the
+  # command line) so tokens never leak into `ps`. Fail LOUD on a failed fetch.
+  - |
+    curl -sfL --retry 8 --retry-delay 5 --retry-connrefused \
+      "https://raw.githubusercontent.com/openova-io/openova/${gitops_branch}/infra/bootstrap-assets/bootstrap-secrets.tpl.yaml" \
+      -o /var/lib/catalyst/bootstrap-secrets.tpl.yaml
+    [ -s /var/lib/catalyst/bootstrap-secrets.tpl.yaml ] || { echo "[secrets] FATAL: bootstrap-secrets.tpl.yaml fetch failed/empty" >&2; exit 94; }
+    . /var/lib/catalyst/secret-env
+    umask 077
+    sed \
+      -e "s|__GHCR_DOCKERCONFIGJSON_B64__|$${GHCR_DOCKERCONFIGJSON_B64}|g" \
+      -e "s|__HARBOR_ROBOT_TOKEN_B64__|$${HARBOR_ROBOT_TOKEN_B64}|g" \
+      -e "s|__POWERDNS_API_KEY_B64__|$${POWERDNS_API_KEY_B64}|g" \
+      -e "s|__PDM_BASICAUTH_USER_B64__|$${PDM_BASICAUTH_USER_B64}|g" \
+      -e "s|__PDM_BASICAUTH_PASS_B64__|$${PDM_BASICAUTH_PASS_B64}|g" \
+      -e "s|__OBJ_ENDPOINT__|$${OBJ_ENDPOINT}|g" \
+      -e "s|__OBJ_REGION__|$${OBJ_REGION}|g" \
+      -e "s|__OBJ_BUCKET__|$${OBJ_BUCKET}|g" \
+      -e "s|__OBJ_ACCESS_KEY__|$${OBJ_ACCESS_KEY}|g" \
+      -e "s|__OBJ_SECRET_KEY__|$${OBJ_SECRET_KEY}|g" \
+      /var/lib/catalyst/bootstrap-secrets.tpl.yaml > /var/lib/catalyst/bootstrap-secrets.yaml
+    chmod 0600 /var/lib/catalyst/bootstrap-secrets.yaml
+
   # ── Install k3s server ────────────────────────────────────────────────
   # NODE_EXTERNAL_IP comes from the provider-injected discovery command:
   #   Hetzner → curl metadata 169.254.169.254/hetzner/v1/.../public-ipv4
@@ -682,10 +594,12 @@ runcmd:
     [ -n "$${NODE_EXTERNAL_IP}" ] || { echo "[k3s] FATAL: could not determine node external IP" >&2; exit 87; }
     NODE_IP=$(${node_ip_cmd})
     [ -n "$${NODE_IP}" ] || { echo "[k3s] FATAL: could not determine node private IP" >&2; exit 86; }
-    # Substitute the runtime-detected private IP into the cilium values +
-    # bootstrap-kit substitute map (the NODE_IP_PLACEHOLDER sentinel) so Cilium
-    # reaches its OWN apiserver on a real address on every cloud.
-    sed -i "s|NODE_IP_PLACEHOLDER|$${NODE_IP}|g" /var/lib/catalyst/cilium-values.yaml /var/lib/catalyst/flux-bootstrap.yaml
+    # Substitute the runtime-detected private IP into the bootstrap-kit
+    # substitute map (the NODE_IP_PLACEHOLDER sentinel) so Cilium reaches its
+    # OWN apiserver on a real address on every cloud. cilium-values.yaml is
+    # fetched + sed'd separately further down (after the github-IPv4 pin), so
+    # it is NOT present yet here — only flux-bootstrap.yaml (write_files) is.
+    sed -i "s|NODE_IP_PLACEHOLDER|$${NODE_IP}|g" /var/lib/catalyst/flux-bootstrap.yaml
     curl -sfL https://get.k3s.io | \
       INSTALL_K3S_VERSION=${k3s_version} \
       K3S_TOKEN=${k3s_token} \
@@ -830,11 +744,14 @@ runcmd:
 
   # Apply the bootstrap secrets BEFORE Flux reconciles bootstrap-kit (each
   # is an idempotent `kubectl apply`; re-running cloud-init rewrites bytes).
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/ghcr-pull-secret.yaml'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/harbor-robot-token-secret.yaml'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/pdm-basicauth-secret.yaml'
+  # The five externalized Secrets (ghcr-pull + harbor-robot-token + pdm-
+  # basicauth + object-storage in flux-system, powerdns-api-credentials in
+  # cert-manager) were assembled into /var/lib/catalyst/bootstrap-secrets.yaml
+  # by the fetch+inject runcmd above (Refs #3714/#3729). cert-manager must
+  # exist first (powerdns targets it); flux-system already exists. ONE apply
+  # of the multi-doc file replaces the five prior per-file applies.
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace cert-manager --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/powerdns-api-credentials.yaml'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/bootstrap-secrets.yaml'
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace catalyst-system --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/handover-jwt-public-secret.yaml'
 
@@ -851,7 +768,8 @@ runcmd:
       | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -
     unset OPENBAO_SEED
 
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/object-storage-secret.yaml'
+  # object-storage Secret is part of the assembled bootstrap-secrets.yaml above
+  # (applied right after the cert-manager namespace); no separate apply needed.
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/cloud-credentials-secret.yaml'
 %{ if crossplane_provider_yaml != "" ~}
   # Crossplane Provider CR — the Provider CRD lands later via bp-crossplane,
