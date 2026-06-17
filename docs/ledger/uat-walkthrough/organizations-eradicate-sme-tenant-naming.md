@@ -1,6 +1,6 @@
 # UAT Walkthrough — ORGANIZATIONS: the persona word "tenant"/"SME" is GONE from every user-facing screen, replaced by "Organization" (#3383)
 
-## Status — last validated: hw159.omani.works (2026-06-18) — browser walk: **6 ✅ / 1 ❌ / 7 GAP**
+## Status — last validated: hw159.omani.works (2026-06-18) — browser walk: **6 ✅ / 1 ❌ / 7 GAP** (GAP audit 2026-06-18: 7/7 confirmed `GAP-backend` — all code/CI/cluster carriers with no browser surface; 0 converted to ❌)
 
 > **hw159 browser-walk verdict (2026-06-18, real screenshots).** Re-walked live on `hw159.omani.works`
 > (dep `c117f6fd4e2eb2dd`, bp-catalyst-platform **1.4.674** — pre-#3707, so the same state as hw158). The
@@ -50,13 +50,13 @@ These carriers live entirely in cluster/code/CI and **render nothing in the brow
 
 | Carrier (backend-only) | Why it is a `GAP` (no browser surface) | Status |
 |---|---|---|
-| Kubernetes namespace `sme` → `org-services` | A namespace name is never displayed to a User; it appears only in cluster tooling. No browser screen renders it. | `GAP` |
-| Chart template dir `products/catalyst/chart/templates/sme-services/` → `org-services/` | A chart directory path has no rendered UI; it is a build-time artifact only. | `GAP` |
-| Secret `sme-secrets` → `org-services-secrets` (+ catalyst-api `CATALYST_SME_JWT_SECRET` env repoint) | A Secret name and an env-var key are never shown to a User; the billing flow that consumes them is what the User sees (covered by the BSS/billing row above). | `GAP` |
-| API route `POST /api/v1/sme/tenants` → `POST /api/v1/organizations` (+ one-release deprecation alias) | A raw API path is not a user-facing screen — the User sees the create-organization FORM (browser row above), not the route string. The deprecation-header alias is a wire-level contract, not a clickable surface. | `GAP` |
-| Go handler/store identifiers (`HandleCreateSMETenant`, `SMETenantProvisionStore`, …) → `Organization*` | Source-code symbols have no UI; they cannot be observed in a browser. | `GAP` |
-| CI naming guard (`scripts/check-no-persona-machinery.sh` + `.github/workflows/naming-guard.yaml`) | A CI workflow/script is a developer-pipeline artifact; it surfaces on a GitHub PR check, not on the Sovereign console — out of scope for a User-acceptance browser walk. | `GAP` |
-| Legitimate data-value survivor: `TenantKindSME TenantKind = "sme"` (a `Tier` enum value) | Intentionally retained — an internal enum value, never displayed as a persona label. Not a rename target, and has no UI. | `GAP` |
+| Kubernetes namespace `sme` → `org-services` | A namespace name is never displayed to a User; it appears only in cluster tooling. No browser screen renders it. | `GAP-backend` |
+| Chart template dir `products/catalyst/chart/templates/sme-services/` → `org-services/` | A chart directory path has no rendered UI; it is a build-time artifact only. | `GAP-backend` |
+| Secret `sme-secrets` → `org-services-secrets` (+ catalyst-api `CATALYST_SME_JWT_SECRET` env repoint) | A Secret name and an env-var key are never shown to a User; the billing flow that consumes them is what the User sees (covered by the BSS/billing row above). | `GAP-backend` |
+| API route `POST /api/v1/sme/tenants` → `POST /api/v1/organizations` (+ one-release deprecation alias) | A raw API path is not a user-facing screen — the User sees the create-organization FORM (browser row above), not the route string. The deprecation-header alias is a wire-level contract, not a clickable surface. | `GAP-backend` |
+| Go handler/store identifiers (`HandleCreateSMETenant`, `SMETenantProvisionStore`, …) → `Organization*` | Source-code symbols have no UI; they cannot be observed in a browser. | `GAP-backend` |
+| CI naming guard (`scripts/check-no-persona-machinery.sh` + `.github/workflows/naming-guard.yaml`) | A CI workflow/script is a developer-pipeline artifact; it surfaces on a GitHub PR check, not on the Sovereign console — out of scope for a User-acceptance browser walk. | `GAP-backend` |
+| Legitimate data-value survivor: `TenantKindSME TenantKind = "sme"` (a `Tier` enum value) | Intentionally retained — an internal enum value, never displayed as a persona label. Not a rename target, and has no UI. | `GAP-backend` |
 
 ---
 
