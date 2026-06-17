@@ -34,6 +34,9 @@ object-model #3786, topology vocab #3784, funnel #3376, per-Org Flux loop #3687,
 | 6 | [/cloud?view=graph](https://console.hw159.omani.works/cloud?view=graph) | Cloud-graph topology view (#3375 / NS#4) | ✅ renders | [12-cloud-graph](../sessions/2026-06-17/evidence/hw159-uat-12-cloud-graph-topology.png) |
 | 7 | [/catalog](https://console.hw159.omani.works/catalog) | Blueprint catalog grid (#3668) | ✅ renders | [13-catalog](../sessions/2026-06-17/evidence/hw159-uat-13-catalog.png) |
 | 8 | [/catalog/bp-grafana](https://console.hw159.omani.works/catalog/bp-grafana) | Blueprint detail / IaC editor surface (#3668) | ✅ renders | [14-catalog-detail](../sessions/2026-06-17/evidence/hw159-uat-14-catalog-bp-grafana-detail.png) |
+| 9 | [/organizations/new](https://console.hw159.omani.works/organizations/new) | Create-Organization form (funnel/Pillar-1 console entry, #3376/#3378) | ✅ renders | [15-create-org](../sessions/2026-06-17/evidence/hw159-uat-15-create-organization-form.png) |
+
+> **Walk coverage so far:** 9 console surfaces + 7 SSO apps = **15 real screenshots**, all 4 North Stars witnessed. Still to walk on this converged base: the full funnel *provisioning* (create-org → org-active, historically the "gitops token" blocker #806), the cutover/Sovereignty flow (#3379), and re-verification of the FAILED apps once the kom4dc image-pull DNS root (#3735) is durably fixed (diagnosis agent running).
 
 **SSO landing matrix (#3374) — each app opened at its bare URL, must land *signed-in* (a login screen = FAIL):**
 
