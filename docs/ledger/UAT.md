@@ -10,30 +10,32 @@ Denominator = the canonical **step-rows in each runbook .md** (the full test set
 re-verified in a browser on **hw159**; everything else still carries **stale hw158 markers** and is
 **not** counted as passed.
 
-| # | Runbook (ticket) | Total | ✅ pass | ❌ fail | GAP (no UI) | ⏳ NOT walked | Walker |
-|---|------------------|:----:|:------:|:------:|:-----------:|:------------:|--------|
-| 1 | object-model (#3687) | 39 | 4 | 0 | 0 | 35 | walking |
-| 2 | SSO zero-login (#3374) | 26 | 5 | 2 | 0 | 19 | walking |
-| 3 | topology-DR (#3375) | 33 | 4 | 0 | 0 | 29 | walking |
-| 4 | funnel (#3376) | 24 | 3 | 0 | 0 | 21 | walking |
-| 5 | ns1-migrate (#3642) | 23 | 7 | **13** | 3 | 0 | ✅ DONE |
-| 6 | eradicate-sme-naming (#3383) | 15 | 6 | 1 | 7 | 1 | ✅ DONE |
-| 7 | catalog-IaC (#3668) | 39 | 2 | 0 | 0 | 37 | walking |
-| 8 | cutover (#3379) | 16 | 3 | 0 | 8 | 5 | ✅ DONE (view-only) |
-| 9 | jobs-canvas (#3646) | 19 | 3 | 0 | 0 | 16 | walking |
-| 10 | regenerate-meta (#3581) | 9 | 9 | 0 | 0 | 0 | ✅ DONE |
-| **TOTAL** | **243** | **46** | **16** | **18** | **163** | **4/10 done** |
+**✅ COMPLETE — all 10 runbooks walked on hw159 (2026-06-18), 5 parallel own-browser agents, ~280 screenshots.**
+Tallies below are each walker's own per-row count (committed in the runbook headers).
 
-**hw159 progress: 80 of 243 steps decided (33%) — 46 ✅ / 16 ❌ / 18 GAP · 163 (67%) still unwalked.**
-4 of 10 runbooks fully walked; 5 still walking in parallel (own-browser agents). 51 screenshots back the walk.
-**🛑 NORTH STAR #1 FAILS on hw159 (#3642, evidenced):** the 7 platform apps (grafana/harbor/keycloak/gitea/
-openbao/newapi/guacamole) sit under the **`host`** block in the vCluster-layer treemap, **NONE under `mgmt`** —
-"every app IN a vCluster" is NOT met (mgmt holds only mimir/loki/tempo/mgmt-vcluster). This corrects my earlier
-breezy "✅ vClusters" — the vClusters *exist* but the apps are *not placed inside them*. That's the 13 ❌ in row 5.
-**Walked 2026-06-18:** #3581 regenerate-meta **9✅** (6 SSO bare-URL landings + 3 rendered-UAT.md flush);
-#3383 eradicate-sme-naming **6✅/1❌/7 GAP** (directory/detail/billing/`/bss/tenants` alias clean;
-`/organizations/new` still leaks "SME tenant slug"/"Onboard tenant" on 1.4.674 — fixed in held 1.4.677).
-**The 3 walked ❌:** newapi SSO(`/setup`) · powerdns SSO(`/login`) · #3383 create-org-flow persona leak.
+| # | Runbook (ticket) | Rows | ✅ pass | ❌ fail | GAP (no UI) | ☐ not-reached | Walked? |
+|---|------------------|:----:|:------:|:------:|:-----------:|:------------:|:------:|
+| 1 | object-model (#3687) | 37 | 16 | 7 | 14 | 0 | ✅ |
+| 2 | SSO zero-login (#3374) | 26 | 17 | 3 | 6 | 0 | ✅ |
+| 3 | topology-DR (#3375) | 33 | 9 | 16 | 8 | 0 | ✅ |
+| 4 | funnel (#3376) | 24 | 6 | 18 | 0 | 0 | ✅ |
+| 5 | ns1-migrate (#3642) | 23 | 7 | **13** | 3 | 0 | ✅ |
+| 6 | eradicate-sme-naming (#3383) | 14 | 6 | 1 | 7 | 0 | ✅ |
+| 7 | catalog-IaC (#3668) | 40 | 35 | 3 | 2 | 0 | ✅ |
+| 8 | cutover (#3379) | 16 | 3 | 0 | 8 | 5 | ✅ view-only |
+| 9 | jobs-canvas (#3646) | 19 | 11 | 0 | 8 | 0 | ✅ |
+| 10 | regenerate-meta (#3581) | 9 | 9 | 0 | 0 | 0 | ✅ |
+| **TOTAL** | **241** | **119** | **61** | **56** | **5** | **10/10** |
+
+**hw159 FINAL: 10/10 runbooks walked · 236 of 241 rows decided (98%) · 119 ✅ / 61 ❌ / 56 GAP · 5 ☐ (cutover view-only).**
+Pass-rate of pass/fail = **119 / 180 = 66%**. ~280 real screenshots. This is the honest complete walkthrough — the
+fresh-prov surfaced the real gaps a fake all-pass never would. **Top real failures (screenshot-backed):**
+1. **🛑 North Star #1 (#3642, 13❌):** the 7 platform apps sit under `host`, **NONE in the `mgmt` vCluster** — "every app in a vCluster" NOT met.
+2. **🛑 Funnel terminal (#3376, 18❌):** Acme Org goes **ACTIVE**, but `console.acme.omani.homes` + `wordpress.acme.omani.homes` = **ERR_CONNECTION_REFUSED** — the customer's own console/app don't serve externally.
+3. **🛑 Topology runtime (#3375, 16❌):** `shared-pg` Topology tab dead at runtime (bootstrap HR, no Application CR → declared `singleton` ≠ Overview `active-hotstandby`, Live status "n/a").
+4. **SSO (#3374, 3❌):** newapi regressed (`/setup` wizard + upstream-111) · pdns-admin manual-OIDC. **guacamole FIXED** (jti) ✅.
+5. **#3383 (1❌):** create-org form still says "SME tenant slug"/"Onboard tenant" on 1.4.674 — fixed in published **1.4.677**.
+**Stale-pin note:** hw159 runs last-published **1.4.674**; the jobs multi-kind ingestion (#3646 GAPs) + several features land in **1.4.677** (published this session) → a re-prov on 1.4.677 would lift many GAPs. **Strong passes:** catalog single-source IaC **35✅** (2 real writes persisted+verified), object-model many-to-many shared-PG (harbor/gitea/keycloak share 1 pg) LIVE, SSO 17✅, jobs Re-run fires a real retry POST.
 
 ---
 
