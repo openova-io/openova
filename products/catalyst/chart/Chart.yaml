@@ -2766,7 +2766,17 @@ name: bp-catalyst-platform
 # (qaFixtures.cnpgBackupEndpointURL + cnpg-clusters-qa.yaml) to the
 # syncer-mangled host Service name. qa-fixtures only; Catalyst-Zero render
 # byte-unchanged. (1.4.622 was a content-free deploy-bot image sweep.)
-version: 1.4.676
+#
+# 1.4.677 — #3383 publish-gate fix. baseline-cnp-allowlist.sh Case 5c asserted the
+# PRE-rename `sme` namespace in the catalyst-system egress allow-list; #3383 renamed
+# it to `org-services` (values.yaml security.baselineCnp.allowedPlatformNamespaces +
+# templates/org-services/), so the stale assertion failed the chart/tests/*.sh gate →
+# bp-catalyst-platform 1.4.675/676 never published to ghcr (fresh provs pinning them
+# would wedge on the missing chart). Test now asserts `org-services`; the chart itself
+# is byte-unchanged (org-services egress was already correct — the test was stale, not
+# the chart). Unblocks the 1.4.67x train (hook-fix #3780 + object-model #3786 + topology
+# vocab #3784 + ORGANIZATIONS rename #3707 + RBAC #3664) for fresh-prov hw159.
+version: 1.4.677
 # 1.4.675 — #3383 ORGANIZATIONS rename (ZERO behavior change), rebased over
 # main's 1.4.674 (#3376 funnel + #3700/#3687 per-Org Flux loop + #3763
 # gitea-flux-auth-sync poll). The Organization-provisioning mesh's K8s namespace
