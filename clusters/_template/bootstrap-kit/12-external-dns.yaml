@@ -84,11 +84,26 @@ spec:
       retries: 3
   # Per-Sovereign overrides — txtOwnerId MUST be the Sovereign FQDN so two
   # Sovereigns sharing a parent zone don't fight over the same record set.
-  # domainFilters narrow the zones ExternalDNS will manage; per-Sovereign
-  # cluster overlays patch this with the actual zone list.
+  # domainFilters narrow the zones ExternalDNS will manage.
+  #
+  # #3376 fix: domainFilters now covers EVERY parent zone the Sovereign
+  # brought (primary FQDN + every role=sme-pool pool TLD), not just the
+  # Sovereign FQDN. Pre-#3376 the filter was `[${SOVEREIGN_FQDN}]` only —
+  # so external-dns saw the per-Org HTTPRoute hostnames
+  # `console.<slug>.<pool-tld>` / `<app>.<slug>.<pool-tld>` (the org-
+  # controller renders them on cilium-gateway, gateway-httproute source is
+  # enabled in platform/external-dns/chart/values.yaml) but DROPPED them
+  # because their zone (e.g. omani.homes) was outside the filter → no A
+  # record written → the customer's own console + purchased app resolved
+  # NXDOMAIN → ERR_CONNECTION_REFUSED. PARENT_DOMAINS_FILTER is a YAML
+  # inline-array of zone names derived from parent_domains_yaml in
+  # infra/providers/_shared/cloudinit-control-plane.tftpl; the envsubst
+  # default `${PARENT_DOMAINS_FILTER:-["${SOVEREIGN_FQDN}"]}` preserves the
+  # legacy single-FQDN behavior on any path that does not yet substitute
+  # the new key (no regression). txtOwnerId keeps record ownership isolated
+  # when two Sovereigns share a pool zone.
   values:
     external-dns:
       txtOwnerId: ${SOVEREIGN_FQDN}
       txtPrefix: _externaldns.
-      domainFilters:
-        - ${SOVEREIGN_FQDN}
+      domainFilters: ${PARENT_DOMAINS_FILTER:-["${SOVEREIGN_FQDN}"]}

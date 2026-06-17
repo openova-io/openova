@@ -39,6 +39,19 @@ rules:
   - apiGroups: ["access.openova.io"]
     resources: ["useraccesses"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
+  # #3376 fix: the reconciler renders a per-Organization Gateway-API
+  # HTTPRoute for `console.<slug>.<parentDomain>` (tenant_route.go,
+  # issue #1629 follow-up) attached to cilium-gateway/kube-system. It
+  # was authored via the runtime client (r.Create/r.Update) but this
+  # ClusterRole granted NO `gateway.networking.k8s.io` verbs — so on a
+  # live Sovereign every per-tenant route write 403'd and the customer's
+  # `console.<slug>.<pool-tld>` host never attached to a route (it fell
+  # through to the Sovereign-wide tenant-wildcard / connection-refused).
+  # The Flux GitRepository + Kustomization grants below (per_org_flux.go)
+  # were already present; the HTTPRoute grant was the missing peer.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

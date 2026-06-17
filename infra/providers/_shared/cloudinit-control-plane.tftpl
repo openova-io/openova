@@ -445,6 +445,21 @@ write_files:
             SOVEREIGN_REGION_KEY: ${sovereign_region_key}
             MARKETPLACE_ENABLED: "${marketplace_enabled}"
             PARENT_DOMAINS_YAML: '${parent_domains_yaml}'
+            # PARENT_DOMAINS_FILTER (#3376) — the external-dns domainFilters
+            # list (bootstrap-kit slot 12, clusters/_template/bootstrap-kit/
+            # 12-external-dns.yaml). Pre-#3376 the filter was ONLY the
+            # Sovereign FQDN (`${sovereign_fqdn}`), so external-dns IGNORED
+            # the per-Org HTTPRoute hostnames `console.<slug>.<pool-tld>` /
+            # `<app>.<slug>.<pool-tld>` (under the role=sme-pool parent zones
+            # like omani.homes/omani.rest/omani.trade) and never wrote their
+            # A records → the customer's own console + purchased app resolved
+            # NXDOMAIN → ERR_CONNECTION_REFUSED. Deriving the filter from EVERY
+            # parent zone (primary + sme-pool) lets external-dns manage the
+            # tenant subdomains too. Inline-flow JSON array (valid YAML scalar
+            # for Flux postBuild.substitute; same pattern as PARENT_DOMAINS_
+            # YAML). txtOwnerId=${sovereign_fqdn} still isolates record
+            # ownership when two Sovereigns share a pool zone.
+            PARENT_DOMAINS_FILTER: '${jsonencode([for z in yamldecode(coalesce(parent_domains_yaml, format("[{name: \"%s\", role: \"primary\"}]", sovereign_fqdn))) : z.name])}'
             SOVEREIGN_CNPG_INSTANCES: "${sovereign_cnpg_instances}"
             CONTINUUM_ENABLED: "${continuum_enabled}"
             CLUSTER_MESH_NAME: "${cluster_mesh_name}"

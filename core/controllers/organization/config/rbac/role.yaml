@@ -35,6 +35,25 @@ rules:
   - apiGroups: ["access.openova.io"]
     resources: ["useraccesses"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
+  # #3376 fix: the reconciler renders a per-Organization Gateway-API
+  # HTTPRoute for `console.<slug>.<parentDomain>` (tenant_route.go,
+  # issue #1629 follow-up) AND the per-Org vCluster Flux loop
+  # (per_org_flux.go, PR #3700 §4.3) writes Flux GitRepository +
+  # Kustomization CRs in flux-system. Both were authored by the
+  # controller via the runtime client but had NO matching RBAC grant —
+  # so `r.Create`/`r.Update` on a live Sovereign returned 403 and the
+  # per-Org serving + vCluster loop silently stalled. Grant the minimum:
+  #   - httproutes: render the per-tenant public route on cilium-gateway
+  #   - gitrepositories/kustomizations: author the per-Org vCluster source
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["source.toolkit.fluxcd.io"]
+    resources: ["gitrepositories"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Leader-election lease — required when --leader-elect=true.
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
