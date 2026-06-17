@@ -280,7 +280,7 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
     (claims.name as string | undefined) ??
     (claims.preferred_username as string | undefined) ??
     (claims.email as string | undefined) ??
-    'Tenant'
+    'User'
   const userInitials = userName
     .split(/\s+/)
     .map((w) => w[0]?.toUpperCase() ?? '')
