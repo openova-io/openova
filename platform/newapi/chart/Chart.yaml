@@ -698,7 +698,7 @@ name: bp-newapi
 # fresh-prov readiness window the per-minute admin-promote CronJob self-heals
 # (#3767, 1.4.97) — this retry shrinks the human-visible window, it is not a
 # new SSO mechanism. Refs #3374.
-version: 1.4.104
+version: 1.4.105
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
