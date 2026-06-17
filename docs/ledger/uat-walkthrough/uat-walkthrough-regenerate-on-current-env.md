@@ -1,6 +1,8 @@
 # UAT regeneration discipline — the agreed browser-walk standard (meta runbook)
 
-## Status — last validated: hw158 (2026-06-17) — browser walk: **9 ✅ / 0 ❌ / 0 GAP**
+## Status — last validated: hw158 (2026-06-17) — browser walk: **9 ✅ / 0 ❌ / 0 GAP** (re-validated 2026-06-17)
+
+> **Re-validation 2026-06-17 (second browser walk, hw158).** The 9 ✅ are independently corroborated this session: the bare console URL still lands on `/dashboard` signed-in as the sovereign-admin (env switcher `hw158.omani.works`, avatar `E`, no login form), and `grafana.hw158.omani.works` still lands on **Grafana Home** ("Welcome to Grafana", full UI, no login form) — Grafana evidence refreshed with a fresh same-day capture. No row changed state. (Ran under a heavily-shared browser — ~9 concurrent walkers — so not every Part-A surface was individually re-captured this pass; the existing same-day hw158 screenshots remain the evidence of record.)
 
 > **hw158 browser-walk verdict (2026-06-17, real screenshots).** All 9 rows PASS. Part A (6): the bare URLs for console, grafana, **registry.hw158 (Harbor)**, gitea, and openbao each land **zero-click signed-in** as `emrah.baysal@openova.io` — no login form on any. (Note: the working Harbor hostname is **`registry.hw158`** — `harbor.hw158` returns an HTTP failure, see #3642.) Part B (3): the GitHub-rendered `UAT.md` H1 + banner name **only `hw158` (2026-06-17, dep `ab2135d4cf2d01e4`)** with **zero `hw150`/`hw144`/`hw128`** mentions — the predecessor evidence is fully flushed and the evidence directory holds same-day `hw158-*` + per-ticket captures.
 
