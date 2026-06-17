@@ -28,7 +28,7 @@
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158/auth/handover](https://console.hw158.omani.works/auth/handover?token=<handover-JWT>) | Load the handover URL (token minted the way the funnel does). Lands on `/dashboard` **already signed in** as `emrah.baysal@openova.io` (avatar **E**, top-right) — **no login form**. A login screen here = FAIL. | ☐ | `docs/sessions/2026-06-17/evidence/3668-signin.png` |
+| [console.hw158/auth/handover](https://console.hw158.omani.works/auth/handover?token=<handover-JWT>) | Load the handover URL (token minted the way the funnel does). Lands on `/dashboard` **already signed in** as `emrah.baysal@openova.io` (avatar **E**, top-right) — **no login form**. A login screen here = FAIL. | ✅ | ![3668-signin](../../sessions/2026-06-17/evidence/3668-signin.png) |
 
 > The handover JWT is on the catalyst-api-deployments PVC at `/deps/handover-jwt-private.pem`; mint a
 > short-lived token the same way the funnel does, then open the URL in the browser. Everything below is
