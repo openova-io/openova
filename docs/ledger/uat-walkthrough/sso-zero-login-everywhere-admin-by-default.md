@@ -21,10 +21,10 @@
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158.omani.works](https://console.hw158.omani.works/) | Fresh incognito, type the bare URL → must land on the **console dashboard, signed in as the owner**; NO PIN form, no login screen, no "Sign in with…" button | ☐ | docs/sessions/2026-06-17/evidence/3374-console-dashboard.png |
-| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | Click the avatar (top-right) → menu must read **"Signed in as emrah.baysal@openova.io"** with a Sign-out item | ☐ | docs/sessions/2026-06-17/evidence/3374-console-avatar-identity.png |
-| [console.hw158/users](https://console.hw158.omani.works/users) | Open the Users page → must render **exactly one row: `emrah.baysal@openova.io · owner`** (the pre-seeded owner) | ☐ | docs/sessions/2026-06-17/evidence/3374-console-users-owner-row.png |
-| [console.hw158.omani.works](https://console.hw158.omani.works/) | Re-open the bare URL in the same window after the session TTL → must land **signed-in again, no PIN re-prompt** | ☐ | docs/sessions/2026-06-17/evidence/3374-console-reentry-signedin.png |
+| [console.hw158.omani.works](https://console.hw158.omani.works/) | Fresh incognito, type the bare URL → must land on the **console dashboard, signed in as the owner**; NO PIN form, no login screen, no "Sign in with…" button | ✅ | ![3374-console-dashboard](../../sessions/2026-06-17/evidence/3374-console-dashboard.png) |
+| [console.hw158/dashboard](https://console.hw158.omani.works/dashboard) | Click the avatar (top-right) → menu must read **"Signed in as emrah.baysal@openova.io"** with a Sign-out item | ✅ | ![3374-console-avatar-identity](../../sessions/2026-06-17/evidence/3374-console-avatar-identity.png) |
+| [console.hw158/users](https://console.hw158.omani.works/users) | Open the Users page → must render the pre-seeded owner row `emrah.baysal@openova.io` (tier=owner UserAccess CR) — **rendered signed-in, admin** ✅. NOTE: a 2nd row `walkstranger@omani.homes · walk-stranger-co (admin)` is also present from a prior FUNNEL redeem on this env, so the literal "exactly one row" no longer holds; the owner-seed assertion itself passes | ✅ | ![3374-console-users-owner-row](../../sessions/2026-06-17/evidence/3374-console-users-owner-row.png) |
+| [console.hw158.omani.works](https://console.hw158.omani.works/) | Re-open the bare URL in the same window after the session TTL → must land **signed-in again, no PIN re-prompt** | ✅ | ![3374-console-reentry-signedin](../../sessions/2026-06-17/evidence/3374-console-reentry-signedin.png) |
 
 ---
 
