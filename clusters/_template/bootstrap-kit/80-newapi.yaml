@@ -253,7 +253,9 @@ spec:
       # build-bp-newapi-sandbox-bridge.yaml re-tags the sidecar + may auto-bump
       # this pin further on merge (it rebuilds the bridge that carries this fix).
       # #3648 — lockstep with platform/newapi Chart.yaml + blueprint.yaml 1.4.95.
-      version: 1.4.96
+      # #3374/#3563 — 1.4.97: per-minute CronJob now retries the SSO provider
+      # reload until the NewAPI Deployment is restarted (fresh-prov determinism).
+      version: 1.4.97
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
