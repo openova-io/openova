@@ -471,8 +471,16 @@ grep -q 'apps.openova.io/bootstrap-owned: "true"' "$TMP/appcr.yaml" \
   || fail "#3370: Application CR missing the bootstrap-owned label"
 grep -q 'name: "bp-postgres-shared"' "$TMP/appcr.yaml" \
   || fail "#3370: Application CR missing spec.helmRelease.name (owning HR ref)"
-grep -q 'placement: single-region' "$TMP/appcr.yaml" \
-  || fail "#3370: Application CR missing placement (singleton → single-region)"
+# #3375 / #3768 follow-up — ONE canonical vocabulary on the wire. The
+# bootstrap-owned Application CR's spec.placement scalar must emit the
+# CANONICAL token `singleton` for the singleton topology (the legacy
+# `single-region` spelling — what the hw158 #3375 walk caught — is retired;
+# the backend canonicalizeTopology still folds it, but the source is canonical).
+grep -qE '^  placement: singleton$' "$TMP/appcr.yaml" \
+  || fail "#3375: Application CR placement must be the canonical 'singleton' (not the banned 'single-region')"
+if grep -qE '^  placement: single-region$' "$TMP/appcr.yaml"; then
+  fail "#3375 REGRESSION: Application CR re-introduced the banned 'single-region' placement spelling"
+fi
 # Context declarations ride spec.parameters.databases verbatim.
 awk '/^kind: Application$/{s=1} s' "$TMP/appcr.yaml" > "$TMP/appcr-only.yaml"
 grep -q 'name: registry' "$TMP/appcr-only.yaml" \
@@ -541,4 +549,49 @@ grep -qE '^      - name: "openova_flow"$' "$TMP/uscore.yaml" \
 grep -q 'username: "openova_flow"' "$TMP/uscore.yaml" \
   || fail "#3375: role Secret username should keep the verbatim openova_flow identifier"
 
-echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty; 3-instance shapes locked; #3370 Application-CR self-registration locked; #3375 underscore-owner role-Secret sanitization locked)"
+# ── Case 12: #3375 / #3768 — ONE canonical placement vocabulary on the wire ──
+# (a) The bootstrap-owned Application CR's spec.placement scalar emits the
+#     CANONICAL token under BOTH topologies (singleton → `singleton`,
+#     active-hot-standby → `active-hot-standby`) — NEVER the banned legacy
+#     dialect (`single-region` / `active-hotstandby`). The catalog instances
+#     table `topology` chip + the AppDetail topology strip read this scalar.
+# (b) The sibling blueprint.yaml `spec.placementSchema.modes` (served verbatim
+#     in the catalog-item-version endpoint `raw`; the New-instance picker +
+#     the inline-edit topology checkboxes read `placementSchema.modes`) lists
+#     ONLY the four canonical classes — this is the exact source the hw158
+#     #3375 walk caught serving `single-region` / `active-active`.
+echo "[render] Case 12: #3375/#3768 — placement scalar + placementSchema.modes are canonical (no banned dialect)"
+# (a) active-hot-standby bootstrap-owned CR → canonical active-hot-standby scalar.
+helm template shared-pg . -f "$TMP/ahs.values.yaml" --namespace shared-data \
+  --set bootstrapOwned.enabled=true \
+  --set bootstrapOwned.helmRelease.name=bp-postgres-shared \
+  --api-versions postgresql.cnpg.io/v1 \
+  --api-versions apps.openova.io/v1 > "$TMP/ahs-appcr.yaml" 2> "$TMP/ahs-appcr.err" || {
+  cat "$TMP/ahs-appcr.err" >&2; fail "ahs bootstrapOwned render errored"; }
+grep -qE '^  placement: active-hot-standby$' "$TMP/ahs-appcr.yaml" \
+  || fail "#3375: active-hot-standby Application CR placement must be the canonical 'active-hot-standby'"
+if grep -qE '^  placement: active-hotstandby$' "$TMP/ahs-appcr.yaml"; then
+  fail "#3375 REGRESSION: Application CR re-introduced the banned 'active-hotstandby' placement spelling"
+fi
+# (b) blueprint.yaml placementSchema.modes — canonical 4-mode set, no legacy.
+BP_YAML="$CHART_DIR/../blueprint.yaml"
+[ -f "$BP_YAML" ] || fail "#3375: blueprint.yaml not found at $BP_YAML"
+modes_line=$(grep -E '^[[:space:]]*modes:[[:space:]]*\[' "$BP_YAML" | head -1)
+[ -n "$modes_line" ] || fail "#3375: placementSchema.modes line not found in blueprint.yaml"
+for canon in singleton active-active active-hot-standby active-passive; do
+  echo "$modes_line" | grep -qw "$canon" \
+    || fail "#3375: placementSchema.modes missing canonical mode '$canon' (got: $modes_line)"
+done
+# The banned legacy spellings must NOT appear as placementSchema modes.
+if echo "$modes_line" | grep -qE '\bsingle-region\b'; then
+  fail "#3375 REGRESSION: placementSchema.modes lists the banned 'single-region' (use canonical 'singleton')"
+fi
+if echo "$modes_line" | grep -qE '\bactive-hotstandby\b'; then
+  fail "#3375 REGRESSION: placementSchema.modes lists the banned 'active-hotstandby' (use canonical 'active-hot-standby')"
+fi
+default_line=$(grep -E '^[[:space:]]*default:[[:space:]]' "$BP_YAML" | head -1)
+if echo "$default_line" | grep -qE '\bsingle-region\b'; then
+  fail "#3375 REGRESSION: placementSchema.default is the banned 'single-region' (use canonical 'singleton')"
+fi
+
+echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty; 3-instance shapes locked; #3370 Application-CR self-registration locked; #3375 underscore-owner role-Secret sanitization locked; #3375/#3768 ONE canonical placement vocabulary locked)"

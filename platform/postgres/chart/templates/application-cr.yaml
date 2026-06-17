@@ -80,12 +80,19 @@ spec:
     name: bp-postgres
     version: {{ .Chart.Version | quote }}
   {{- /* placement = the canonical topology surface (G117). Reflects the
-       EFFECTIVE mode so the card shows active-hotstandby once the slot's
-       crossRegion flag (SOVEREIGN_ENABLE_CNPG_PAIR) flips the pair on. */}}
+       EFFECTIVE mode so the card shows active-hot-standby once the slot's
+       crossRegion flag (SOVEREIGN_ENABLE_CNPG_PAIR) flips the pair on.
+       ONE canonical vocabulary (#3375 DoD-1, #3768 follow-up): emit the
+       canonical token (singleton / active-hot-standby) — NOT the legacy
+       dialect (single-region / active-hotstandby) #3768 retired across the
+       CRD / canonicaliser / editors but left on THIS Application-CR scalar.
+       The backend canonicalizeTopology still folds the legacy spelling, but
+       the bootstrap-owned CR (the instances-table `topology` chip + the
+       AppDetail topology strip read this) now stamps canonical end-to-end. */}}
   {{- if eq (include "bp-postgres.activeHotStandby" .) "true" }}
-  placement: active-hotstandby
+  placement: active-hot-standby
   {{- else }}
-  placement: single-region
+  placement: singleton
   {{- end }}
   {{- /* The owning Flux HelmRelease — the controller's adoption path
        observes its Ready condition; console projections dedupe

@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-4-1-data-services
     catalyst.openova.io/companion: bp-cnpg
 spec:
-  version: 0.2.2
+  version: 0.2.3
   card:
     title: PostgreSQL
     summary: |
@@ -139,8 +139,23 @@ spec:
                   type: array
                   items: { type: string }
   placementSchema:
-    modes: [single-region, active-active]
-    default: single-region
+    # ONE canonical placement vocabulary (#3375 DoD-1, #3768 follow-up).
+    # The catalog New-instance picker + the inline-edit topology checkboxes
+    # read these modes off the live wire (the catalog-item-version endpoint
+    # serves spec.placementSchema verbatim in `raw`; the FE reads
+    # `placementSchema.modes` — CatalogDetail.readTopologies). #3768 unified
+    # the CRD / canonicaliser / TS editors but missed THIS source, which
+    # still served the BANNED legacy dialect `single-region` / `active-active`
+    # (2 of 4 modes, both legacy spellings) — exactly what the hw158 #3375
+    # walk caught on the wire. Aligned to placement.CanonicalModes
+    # (singleton / active-active / active-hot-standby / active-passive) so the
+    # picker offers all four canonical classes and never a banned spelling.
+    # The validator still folds any legacy value, but the source now emits
+    # canonical end-to-end. (postgres genuinely materialises only singleton +
+    # active-hot-standby per spec.topology.supported below; placementSchema
+    # advertises the full canonical class set the editor vocabulary spans.)
+    modes: [singleton, active-active, active-hot-standby, active-passive]
+    default: singleton
   manifests:
     chart: ./chart
   # Runtime dependencies — Flux gates Apply until each is reconciled.
