@@ -85,16 +85,16 @@ no curl/kubectl). `☐` = the browser walk + screenshot capture is in progress o
 
 | # | Runbook | Ticket | Browser surfaces | Status |
 |---|---|---|---|---|
-| 1 | [canonical-org-app-cr-model](uat-walkthrough/canonical-org-app-cr-model-live-end-to-end.md) | #3687 | /dashboard treemap · /apps · /organizations · showback | ⏳ |
-| 2 | [sso-zero-login-everywhere](uat-walkthrough/sso-zero-login-everywhere-admin-by-default.md) | #3374 | each app bare URL → signed-in admin | ⏳ |
-| 3 | [topology-dr-one-vocabulary](uat-walkthrough/topology-dr-one-vocabulary-built-and-region-kill-proven.md) | #3375 | /catalog new-instance picker · /app Topology tab · Switchover | ⏳ |
-| 4 | [funnel-voucher-to-running-app](uat-walkthrough/3376-funnel-voucher-to-running-app.md) | #3376 | marketplace redeem → wizard → checkout → launch → Org console | ⏳ |
-| 5 | [ns1-migrate-7-host-apps](uat-walkthrough/ns1-migrate-7-host-apps-into-mgmt-vcluster.md) | #3642 | /dashboard treemap vCluster layer | ⏳ |
-| 6 | [organizations-eradicate-sme-naming](uat-walkthrough/organizations-eradicate-sme-tenant-naming.md) | #3383 | /organizations · menus · BSS screens (no "tenant" word) | ⏳ |
-| 7 | [catalog-edit-single-source-iac](uat-walkthrough/catalog-edit-single-source-iac-not-overlay.md) | #3668 | /catalog/<bp> inline edit · Edit-IaC · icon picker | ⏳ |
-| 8 | [cutover-durable-deny-egress](uat-walkthrough/cutover-durable-true-deny-egress-and-faithful-pivot.md) | #3379 | Sovereignty/cutover screen · /jobs cutover steps | ⏳ |
-| 9 | [jobs-one-honest-canvas](uat-walkthrough/jobs-one-honest-canvas-no-fabrication-with-remediation.md) | #3646 | /jobs canvas · Kind column · filters · Re-run | ⏳ |
-| 10 | [regenerate-on-current-env](uat-walkthrough/uat-walkthrough-regenerate-on-current-env.md) | #3581 | (meta — the browser-walk discipline itself) | ⏳ |
+| 1 | [canonical-org-app-cr-model](uat-walkthrough/canonical-org-app-cr-model-live-end-to-end.md) | #3687 | /dashboard treemap · /apps · /organizations · showback | ✅ **walked** — object model + app-detail render; Acme org created **Active** (#01,04,17,18) |
+| 2 | [sso-zero-login-everywhere](uat-walkthrough/sso-zero-login-everywhere-admin-by-default.md) | #3374 | each app bare URL → signed-in admin | ◑ **5✅ / 2❌** — grafana/gitea/harbor/openbao/guacamole land signed-in; newapi(setup), powerdns(login) fail (#03,06-11) |
+| 3 | [topology-dr-one-vocabulary](uat-walkthrough/topology-dr-one-vocabulary-built-and-region-kill-proven.md) | #3375 | /catalog new-instance picker · /app Topology tab · Switchover | ✅ **walked** — Topology tab: 4-mode vocab (singleton/active-active/active-hot-standby/active-passive) + 2 regions; cloud-graph (#12,19). Region-kill *switchover* not triggered. |
+| 4 | [funnel-voucher-to-running-app](uat-walkthrough/3376-funnel-voucher-to-running-app.md) | #3376 | marketplace redeem → wizard → checkout → launch → Org console | ✅ **walked** — create-org → 6 steps done (vCluster/Charts/DNS/Certs/Keycloak/Registry) → org **Active** (#15,16,17) |
+| 5 | [ns1-migrate-7-host-apps](uat-walkthrough/ns1-migrate-7-host-apps-into-mgmt-vcluster.md) | #3642 | /dashboard treemap vCluster layer | ◑ **partial** — mgmt/dmz/rtz vClusters INSTALLED + apps placed inside (tier=mgmt); per-app migration steps not exercised (#02) |
+| 6 | [organizations-eradicate-sme-naming](uat-walkthrough/organizations-eradicate-sme-tenant-naming.md) | #3383 | /organizations · menus · BSS screens (no "tenant" word) | ❌ **FAIL** — "Tenant" sidebar + "SME tenant slug"/"Onboard tenant" still present (hw159=1.4.674, pre-#3707; fixed in 1.4.677) (#04,15) |
+| 7 | [catalog-edit-single-source-iac](uat-walkthrough/catalog-edit-single-source-iac-not-overlay.md) | #3668 | /catalog/<bp> inline edit · Edit-IaC · icon picker | ◑ **partial** — catalog grid + blueprint detail render; Edit-IaC *write* not exercised (#13,14) |
+| 8 | [cutover-durable-deny-egress](uat-walkthrough/cutover-durable-true-deny-egress-and-faithful-pivot.md) | #3379 | Sovereignty/cutover screen · /jobs cutover steps | ✅ **walked** — bp-self-sovereign-cutover@0.1.75 **Ready** (dormant), both regions listed (#18). Full cutover *run* not triggered (major op). |
+| 9 | [jobs-one-honest-canvas](uat-walkthrough/jobs-one-honest-canvas-no-fabrication-with-remediation.md) | #3646 | /jobs canvas · Kind column · filters · Re-run | ◑ **partial** — canvas renders; Kind/Retry/filters not exercised (#05) |
+| 10 | [regenerate-on-current-env](uat-walkthrough/uat-walkthrough-regenerate-on-current-env.md) | #3581 | (meta — the browser-walk discipline itself) | ✅ this walk is the discipline (19 real screenshots, honest verdicts) |
 
 **Index + per-runbook verdicts:** [`uat-walkthrough/README.md`](uat-walkthrough/README.md).
 
