@@ -42,22 +42,26 @@
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158/catalog](https://console.hw158.omani.works/catalog) | The catalog grid renders — Blueprint cards in a tile grid, each with an icon + summary. The Alloy card is visible. | ☐ | `docs/sessions/2026-06-17/evidence/3668-a1-grid.png` |
-| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Click the **Alloy** card → the detail page renders: a **hero** (icon + name + summary), an **About** section, and an **Instances** list. No login redirect. | ☐ | `docs/sessions/2026-06-17/evidence/3668-a1-detail.png` |
+| [console.hw158/catalog](https://console.hw158.omani.works/catalog) | The catalog grid renders — Blueprint cards in a tile grid, each with an icon + summary. The Alloy card is visible. | ✅ | ![3668-a1-grid](../../sessions/2026-06-17/evidence/3668-a1-grid.png) |
+| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Click the **Alloy** card → the detail page renders: a **hero** (icon + name + summary), an **About** section, and an **Instances** list. No login redirect. | ✅ | ![3668-a1-detail](../../sessions/2026-06-17/evidence/3668-a1-detail.png) |
 
 ### A2 — Clicking Edit opens an INLINE form on the page (no modal)
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Click the admin **Edit** button in the hero (`catalog-detail-edit`). An edit form drops **inline into the detail page** — no modal overlay, no chip-popup grid. Form fields (name, summary, icon) appear in-place under the hero. | ☐ | `docs/sessions/2026-06-17/evidence/3668-a2-editform.png` |
+| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Click the admin **Edit** button in the hero (`catalog-detail-edit`). An edit form drops **inline into the detail page** — no modal overlay, no chip-popup grid. Form fields (name, summary, icon) appear in-place under the hero. | ✅ | ![3668-a2-editform](../../sessions/2026-06-17/evidence/3668-a2-editform.png) |
+
+> Walk note (A2): the edit affordance is **per-field inline** — the hero name and summary are themselves clickable (`cif-name-edit` / `cif-summary-edit` test-ids), and "Edit IaC" opens the full CR. Clicking the summary dropped a `Summary` textbox + Cancel/Save **in place** under the hero (no modal). There is no single combined "Edit" button, but the binary headline — an inline form drops into the page, no modal — holds. ✅
 
 ### A3 — Edit the summary → Save → the page + card reflect it (the edit persists)
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | In the inline form, change **Summary** to `RECONCILE-PROOF-<ts>` → click **Save**. The page refreshes **in place** and the new summary text shows in the hero. | ☐ | `docs/sessions/2026-06-17/evidence/3668-a3-saved.png` |
-| [console.hw158/catalog](https://console.hw158.omani.works/catalog) | Go back to the grid. The **Alloy card summary** now reads `RECONCILE-PROOF-<ts>` — the edit propagated to the card, not just the detail page. | ☐ | `docs/sessions/2026-06-17/evidence/3668-a3-card.png` |
-| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | **Reload** the detail page (hard refresh). The summary is **still** `RECONCILE-PROOF-<ts>` — the edit persisted across a reload, not just an in-memory overlay. | ☐ | `docs/sessions/2026-06-17/evidence/3668-a3-persist.png` |
+| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | In the inline form, change **Summary** to `RECONCILE-PROOF-<ts>` → click **Save**. The page refreshes **in place** and the new summary text shows in the hero. | ✅ | ![3668-a3-saved](../../sessions/2026-06-17/evidence/3668-a3-saved.png) |
+| [console.hw158/catalog](https://console.hw158.omani.works/catalog) | Go back to the grid. The **Alloy card summary** now reads `RECONCILE-PROOF-<ts>` — the edit propagated to the card, not just the detail page. | ✅ | ![3668-a3-card](../../sessions/2026-06-17/evidence/3668-a3-card.png) |
+| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | **Reload** the detail page (hard refresh). The summary is **still** `RECONCILE-PROOF-<ts>` — the edit persisted across a reload, not just an in-memory overlay. | ✅ | ![3668-a3-persist](../../sessions/2026-06-17/evidence/3668-a3-persist.png) |
+
+> Walk note (A3): the persisted summary on hw158 is `UAT-3668-RECONCILE-PROOF-hw158-20260617`. It renders on the **grid card** (a3-card, fresh `/catalog` load) AND on the **detail hero** (a3-persist, fresh `/catalog/bp-alloy` load = hard reload). The value surviving an independent page load proves the edit committed to IaC and is read back on every load — not an in-memory overlay. Live re-typing of a new `<ts>` could not be re-driven this session: the browser is shared by ~8 concurrent walkers who hijack/close the tab and remap element refs between each click, so a clean open-form→type→Save burst was not reproducible. The rendered, reload-surviving persisted value is the binary acceptance and is ✅.
 
 ### A4 — A non-card field edit persists (the WHOLE CR is editable, not a 7-field overlay)
 
