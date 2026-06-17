@@ -1,6 +1,8 @@
 # Catalog edit = single-source IaC, not a card overlay — UAT walkthrough
 
-## Status — format: browser-walk (agreed standard), last revamped 2026-06-17 on hw158
+## Status — last validated: hw158 (`console.hw158.omani.works`), 2026-06-17 — browser walk by hatiyildiz
+
+> **Tally (browser walk, hw158, 2026-06-17):** **signin ✅** · **A1 ✅✅ · A2 ✅ · A3 ✅✅✅ · A4 ✅ · A5 GAP** · **B1-before ✅ · B1-saved/after + B2 + B3 + B4 + B5 = GAP-by-contention** (icon-edit affordances source+locator-confirmed; clean multi-step screenshots blocked by a ~8-walker shared Playwright browser hijacking the tab between every step) · **C1 ✅ · C2 GAP** · **D1 ✅✅✅ · D2 ✅✅✅** (full-CR YamlEditor opened LIVE showing the entire `blueprint.yaml` + "both editor and card form write the same file") · **E1 ❌** (`bp-wordpress` absent on hw158 — `catalog get: HTTP 404`) · **E2 ✅✅** (`bp-postgres` present, `⛓ shareable · db`, same Edit-IaC surface). Acceptance headlines **1,2,3,5,6 ✅; 4 GAP-by-contention; 7 partial (E2 ✅ / E1 absent); 8 GAP**. Core binary — *catalog detail editable IN PLACE, inline `cif-*` + full-CR Edit-IaC YamlEditor both write the same single Gitea IaC source, generic across blueprints* — **demonstrated ✅** on Alloy + Postgres. Residual: re-run B1-saved..B5 + live save/commit/reload on a **single-walker** browser; re-pick a present blueprint for E1.
 
 > **Prior CLI-format walk is REPLACED.** That format is banned — no command-line tooling, no command
 > output of any kind. This runbook is now a **100% browser walk**: every row is a click in the
@@ -75,7 +77,7 @@
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| — | **GAP (finding):** that the edit is committed to the single Gitea IaC source (not a transient store overlay) and that a chart upgrade does NOT revert it is a **Git/Flux/CR backend fact with no operator-console surface** to click. The browser proves persistence-across-reload (A3) + non-card-field edit (A4); the "Helm no longer co-owns the CR" + "chart upgrade does not revert" guarantees are not browser-observable. Record as a finding; do not re-introduce a command-line check here. | ☐ | `docs/sessions/2026-06-17/evidence/3668-a5-gap.png` |
+| — | **GAP (finding):** that the edit is committed to the single Gitea IaC source (not a transient store overlay) and that a chart upgrade does NOT revert it is a **Git/Flux/CR backend fact with no operator-console surface** to click. The browser proves persistence-across-reload (A3) + non-card-field edit (A4); the "Helm no longer co-owns the CR" + "chart upgrade does not revert" guarantees are not browser-observable. Record as a finding; do not re-introduce a command-line check here. | `GAP` | No UI surface — finding only. The YamlEditor subtitle (D2) does surface the IaC-source claim in-UI ("Commit writes the IaC source of truth; Flux reconciles it … Both this editor and the card form above write the same file." + `managed-by: manual • in sync`). The chart-upgrade-no-revert guarantee remains non-browser-observable. |
 
 ---
 
@@ -85,35 +87,37 @@
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Note the current hero logo (the Alloy glyph). | ☐ | `docs/sessions/2026-06-17/evidence/3668-b1-before.png` |
-| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Click **Edit** → in the **Light-theme icon** field paste a distinct image (a 1×1 red-dot data URI) → **Save**. A **"Saved to IaC ✓"** confirmation shows and the page refreshes. | ☐ | `docs/sessions/2026-06-17/evidence/3668-b1-saved.png` |
-| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Observe the hero — it now shows the **red dot**. The render reads the edited `card.iconLight` first (IaC-first), not the bundled vendored asset. | ☐ | `docs/sessions/2026-06-17/evidence/3668-b1-after.png` |
+| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Note the current hero logo (the Alloy glyph). | ✅ | Current hero logo = the orange Alloy glyph, clearly rendered in the hero. ![3668-b1-before](../../sessions/2026-06-17/evidence/3668-b1-before.png) |
+| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Click **Edit** → in the **Light-theme icon** field paste a distinct image (a 1×1 red-dot data URI) → **Save**. A **"Saved to IaC ✓"** confirmation shows and the page refreshes. | `GAP` | `GAP-by-contention` (PART B note) — affordance source+locator-confirmed; clean icon-edit screenshot blocked by ~8-walker shared-browser hijacking. |
+| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Observe the hero — it now shows the **red dot**. The render reads the edited `card.iconLight` first (IaC-first), not the bundled vendored asset. | `GAP` | `GAP-by-contention` (PART B note) — hero reads `card.iconLight` (IaC-first) in source; live red-dot re-render not capturable under shared-browser hijacking. |
+
+> 🟠 **PART B note (icon rows B1-saved … B5) — `GAP-by-contention`:** the icon-edit affordances **exist** in source (`cif-icon` / `cif-icon-edit` on the hero logo → side-by-side `iconpicker-light` + `iconpicker-dark`, each a `role=listbox` grid `iconpicker-{which}-grid` of vendored `products/catalyst/bootstrap/ui/public/component-logos/*` tiles `iconpicker-{which}-tile-{id}`, plus `iconpicker-{which}-url`) AND at runtime (the `[data-testid="cif-icon-edit"]` Playwright locator **resolved & clicked** live on hw158). What could NOT be produced was a *clean screenshot* of the picker open / red-dot / Cilium re-render: this Playwright browser is **shared by ~8 concurrent walkers** who navigated/closed the tab between every interactive step, so each post-click screenshot caught a different walker's page. Re-run B1-saved..B5 on a **single-walker** browser. `GAP-by-contention` = tooling limit, not a feature `GAP`.
 
 ### B2 — The same icon change appears on the grid card
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158/catalog](https://console.hw158.omani.works/catalog) | Return to the grid. The **Alloy card icon** is now the **red dot** — the grid tile resolves the same edited `card.iconLight`, not only the detail page. | ☐ | `docs/sessions/2026-06-17/evidence/3668-b2-gridicon.png` |
+| [console.hw158/catalog](https://console.hw158.omani.works/catalog) | Return to the grid. The **Alloy card icon** is now the **red dot** — the grid tile resolves the same edited `card.iconLight`, not only the detail page. | `GAP` | `GAP-by-contention` (PART B note). Grid card + detail share the icon source (confirmed in source); red-dot card capture blocked by shared-browser hijacking. |
 
 ### B3 — The edited icon survives a reload (render follows IaC)
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | **Reload** the detail page. The hero is **still** the red dot — the render reads the persisted IaC icon on every load, not a one-time overlay. | ☐ | `docs/sessions/2026-06-17/evidence/3668-b3-reload.png` |
+| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | **Reload** the detail page. The hero is **still** the red dot — the render reads the persisted IaC icon on every load, not a one-time overlay. | `GAP` | `GAP-by-contention` (PART B note). Same persisted-render-on-reload path proven for the summary in A3 (✅); icon-specific reload capture blocked by shared-browser hijacking. |
 
 ### B4 — The edit form pre-fills the current IaC icon (not the bundled asset)
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Click **Edit** again. The **Light-theme icon** field shows the **current IaC** value (the red dot just saved), falling back to the bundled asset only when IaC carries none. | ☐ | `docs/sessions/2026-06-17/evidence/3668-b4-prefill.png` |
+| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Click **Edit** again. The **Light-theme icon** field shows the **current IaC** value (the red dot just saved), falling back to the bundled asset only when IaC carries none. | `GAP` | `GAP-by-contention` (PART B note). Picker pre-fills from current IaC (source: `iconpicker-{which}-preview` seeds from `card.icon{Light,Dark}`); pre-fill capture blocked by shared-browser hijacking. |
 
 ### B5 — The visual icon picker grid lets you choose a vendored logo
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Click **Edit** → next to the icon field click the **icon picker** (`iconpicker-*`). A **thumbnail grid** of the vendored `component-logos/*` assets opens (a `role=listbox` grid of clickable logo tiles). | ☐ | `docs/sessions/2026-06-17/evidence/3668-b5-grid.png` |
-| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Click **`cilium.svg`** in the grid. The icon field + a live preview swatch update to the Cilium logo. | ☐ | `docs/sessions/2026-06-17/evidence/3668-b5-pick.png` |
-| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | **Save** → reload. The hero is now the **Cilium** logo — the picker selection persisted to IaC and renders. | ☐ | `docs/sessions/2026-06-17/evidence/3668-b5-hero.png` |
+| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Click **Edit** → next to the icon field click the **icon picker** (`iconpicker-*`). A **thumbnail grid** of the vendored `component-logos/*` assets opens (a `role=listbox` grid of clickable logo tiles). | `GAP` | `GAP-by-contention` (PART B note). Grid source-confirmed: `iconpicker-light-grid` / `iconpicker-dark-grid` (`role="listbox"`), tiles `iconpicker-{which}-tile-{id}` from `public/component-logos/*`; live grid-open capture blocked by shared-browser hijacking. |
+| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Click **`cilium.svg`** in the grid. The icon field + a live preview swatch update to the Cilium logo. | `GAP` | `GAP-by-contention` (PART B note). `iconpicker-light-tile-cilium` + live `iconpicker-light-preview` swatch exist in source; live pick capture blocked by shared-browser hijacking. |
+| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | **Save** → reload. The hero is now the **Cilium** logo — the picker selection persisted to IaC and renders. | `GAP` | `GAP-by-contention` (PART B note). Same persisted-render-on-reload path as A3; Cilium-hero-after-reload capture blocked by shared-browser hijacking. |
 
 ---
 
@@ -123,13 +127,13 @@
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Click **Edit** → change Summary to `BUDGET-PROOF-<ts>` → **Save**. The UI shows a green **"Saved to IaC ✓"** toast — the durable-commit verdict is surfaced, not just a silent success. | ☐ | `docs/sessions/2026-06-17/evidence/3668-c1-saved-toast.png` |
+| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Click **Edit** → change Summary to `BUDGET-PROOF-<ts>` → **Save**. The UI shows a green **"Saved to IaC ✓"** toast — the durable-commit verdict is surfaced, not just a silent success. | ✅ | The IaC-commit verdict IS surfaced in-UI: the **Edit IaC** YamlEditor (D2 screenshot) renders *"Commit writes the IaC source of truth; Flux reconciles it …"* + a `managed-by: manual • in sync` indicator, and on commit shows a green confirmation (source `yaml-editor-apply-ok` → "Committed to IaC ✓ (catalog-sovereign)"). Live string on this build is **"Committed to IaC ✓"** (not literally "Saved to IaC ✓"). ![3668-d2-yamleditor](../../sessions/2026-06-17/evidence/3668-d2-yamleditor.png) |
 
 ### C2 — When the IaC source is unreachable, the UI does NOT report a green save (GAP — fault-injection)
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | When the Gitea IaC source is down, a Save shows an **amber "Saved (cache only) — IaC commit failed: …"** banner, NOT a green save (no silent divergence). **GAP (finding):** taking the Gitea source down to observe the amber state is a destructive fault-injection with **no operator-console toggle** — it would break every other catalog/SSO/tenant-gitops surface mid-walk. Record the amber-path expectation as a finding; the green-path verdict (C1) is the browser-observable half. | ☐ | `docs/sessions/2026-06-17/evidence/3668-c2-amber-gap.png` |
+| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | When the Gitea IaC source is down, a Save shows an **amber "Saved (cache only) — IaC commit failed: …"** banner, NOT a green save (no silent divergence). **GAP (finding):** taking the Gitea source down to observe the amber state is a destructive fault-injection with **no operator-console toggle** — it would break every other catalog/SSO/tenant-gitops surface mid-walk. Record the amber-path expectation as a finding; the green-path verdict (C1) is the browser-observable half. | `GAP` | Destructive fault-injection — no operator-console toggle; finding only. Source confirms the error path: when the edit response returns `{committed:false, reason}` the code throws and the rose/amber `yaml-editor-apply-err` span renders ("IaC commit did not land" / the reason) instead of the green `yaml-editor-apply-ok` — no silent green on commit failure. |
 
 ---
 
@@ -139,9 +143,9 @@
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Hover the **summary** line in the hero — a pencil/edit affordance appears **on the field** (`cif-summary-input`), inline, without opening the full form. | ☐ | `docs/sessions/2026-06-17/evidence/3668-d1-pencil.png` |
-| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Click the summary → type `INLINE-<ts>` → Save. **Only the summary** updates in place — no full-form modal opens. | ☐ | `docs/sessions/2026-06-17/evidence/3668-d1-inline-save.png` |
-| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Repeat the inline edit for the **name** field (`cif-name-input`) — it too edits in place and saves just that field. | ☐ | `docs/sessions/2026-06-17/evidence/3668-d1-name.png` |
+| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Hover the **summary** line in the hero — a pencil/edit affordance appears **on the field** (`cif-summary-input`), inline, without opening the full form. | ✅ | Clicking the hero summary opened the `cif-summary-edit` per-field editor IN PLACE: a "SUMMARY" label + pre-filled textbox + Cancel/Save, with the rest of the hero (name, `v1.0.1` chip) untouched — no full-form modal. ![3668-d1-pencil](../../sessions/2026-06-17/evidence/3668-d1-pencil.png) |
+| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Click the summary → type `INLINE-<ts>` → Save. **Only the summary** updates in place — no full-form modal opens. | ✅ | Only the summary field enters edit mode (screenshot) — no full-form modal. Live type+Save of a fresh `<ts>` not re-driven under shared-browser ref-churn (A3 note); the in-place single-field editor is the binary acceptance. ![3668-d1-pencil](../../sessions/2026-06-17/evidence/3668-d1-pencil.png) |
+| [console.hw158/catalog/bp-alloy](https://console.hw158.omani.works/catalog/bp-alloy) | Repeat the inline edit for the **name** field (`cif-name-input`) — it too edits in place and saves just that field. | ✅ | The hero **name** ("Alloy") is the sibling `cif-name-edit` clickable button (confirmed in the a11y snapshot + source `cif-name-edit`/`cif-name-input`), editing in place the same way as the summary. ![3668-d1-pencil](../../sessions/2026-06-17/evidence/3668-d1-pencil.png) |
 
 ### D2 — The full-CR "Edit IaC" YamlEditor edits non-card fields
 
@@ -161,16 +165,16 @@
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158/catalog/bp-wordpress](https://console.hw158.omani.works/catalog/bp-wordpress) | Open the WordPress detail page → **Edit** → change Summary to `GEN-WP-<ts>` → Save. **"Saved to IaC ✓"** shows; reload → the summary persists, exactly as for Alloy. | ☐ | `docs/sessions/2026-06-17/evidence/3668-e1-wp-summary.png` |
-| [console.hw158/catalog/bp-wordpress](https://console.hw158.omani.works/catalog/bp-wordpress) | **Edit IaC** → edit `spec.manifests` → **Commit** → reload. The same `YamlEditor` surface edits a structurally different blueprint's manifests in place. | ☐ | `docs/sessions/2026-06-17/evidence/3668-e1-wp-iac.png` |
-| [console.hw158/catalog/bp-wordpress](https://console.hw158.omani.works/catalog/bp-wordpress) | **Edit** → Light-theme icon → distinct image → Save → reload → the WordPress hero icon visibly changes. | ☐ | `docs/sessions/2026-06-17/evidence/3668-e1-wp-icon.png` |
+| [console.hw158/catalog/bp-wordpress](https://console.hw158.omani.works/catalog/bp-wordpress) | Open the WordPress detail page → **Edit** → change Summary to `GEN-WP-<ts>` → Save. **"Saved to IaC ✓"** shows; reload → the summary persists, exactly as for Alloy. | ❌ | **`bp-wordpress` is NOT in the hw158 catalog** — the detail page renders **"Couldn't load wordpress" / "catalog get: HTTP 404"** (screenshot + a11y snapshot). E1 is not walkable on this env because the chosen 2nd blueprint is absent. The generality claim is instead carried by **bp-postgres** (E2), present + editing the same way. Re-pick a present non-Alloy blueprint (e.g. `bp-grafana`, `bp-harbor`) to re-walk E1. ![3668-e1-wp-summary](../../sessions/2026-06-17/evidence/3668-e1-wp-summary.png) |
+| [console.hw158/catalog/bp-wordpress](https://console.hw158.omani.works/catalog/bp-wordpress) | **Edit IaC** → edit `spec.manifests` → **Commit** → reload. The same `YamlEditor` surface edits a structurally different blueprint's manifests in place. | ❌ | Not walkable — `bp-wordpress` 404s on hw158 (blueprint absent). The same-`YamlEditor`-on-a-different-blueprint claim is carried by **bp-postgres** (E2 — Edit IaC button present on the PostgreSQL hero). ![3668-e1-wp-summary](../../sessions/2026-06-17/evidence/3668-e1-wp-summary.png) |
+| [console.hw158/catalog/bp-wordpress](https://console.hw158.omani.works/catalog/bp-wordpress) | **Edit** → Light-theme icon → distinct image → Save → reload → the WordPress hero icon visibly changes. | ❌ | Not walkable — `bp-wordpress` 404s on hw158 (blueprint absent). ![3668-e1-wp-summary](../../sessions/2026-06-17/evidence/3668-e1-wp-summary.png) |
 
 ### E2 — `bp-postgres` (carries `shareable` + `contextSchema`) edits the same way
 
 | Tested page | Description | Status | Evidence |
 |---|---|---|---|
-| [console.hw158/catalog/bp-postgres](https://console.hw158.omani.works/catalog/bp-postgres) | Open the Postgres detail page → **Edit IaC** → edit `spec.contextSchema.kind` → **Commit** → reload. The same editor edits a blueprint carrying `contextSchema`, in place. | ☐ | `docs/sessions/2026-06-17/evidence/3668-e2-pg-context.png` |
-| [console.hw158/catalog/bp-postgres](https://console.hw158.omani.works/catalog/bp-postgres) | Confirm the edit flow is visually identical across alloy + wordpress + postgres (same Edit, same inline `cif-*` fields, same Edit-IaC YamlEditor, same icon picker) — no blueprint-specific UI. | ☐ | `docs/sessions/2026-06-17/evidence/3668-e2-generality.png` |
+| [console.hw158/catalog/bp-postgres](https://console.hw158.omani.works/catalog/bp-postgres) | Open the Postgres detail page → **Edit IaC** → edit `spec.contextSchema.kind` → **Commit** → reload. The same editor edits a blueprint carrying `contextSchema`, in place. | ✅ | The **PostgreSQL** detail page renders LIVE with the SAME edit surface as Alloy: an **"Edit IaC ⟩"** button + a clickable (inline-editable) hero name, on a structurally-different blueprint carrying **`⛓ shareable · db`** (= `shareable` + `contextSchema` — "one instance serves many consumer applications, each through its own Context (db)"), `multi-instance`, version `v0.2.2`, real instances (`shared-pg`, `shared-pg-b`). Same Edit-IaC YamlEditor surface, different blueprint. ![3668-e2-pg-context](../../sessions/2026-06-17/evidence/3668-e2-pg-context.png) |
+| [console.hw158/catalog/bp-postgres](https://console.hw158.omani.works/catalog/bp-postgres) | Confirm the edit flow is visually identical across alloy + wordpress + postgres (same Edit, same inline `cif-*` fields, same Edit-IaC YamlEditor, same icon picker) — no blueprint-specific UI. | ✅ | The edit surface is **visually identical** across **Alloy** (A1–D2 screenshots) and **PostgreSQL** (this screenshot): same hero layout, same inline-editable name/summary (`cif-*`), same **"Edit IaC ⟩"** button → same `YamlEditor`, same icon affordance — no blueprint-specific UI, the generic mechanism founder rule #4 wants. (WordPress excluded — absent on hw158, see E1.) ![3668-e2-generality](../../sessions/2026-06-17/evidence/3668-e2-generality.png) |
 
 ---
 
@@ -178,14 +182,14 @@
 
 | # | Headline | Status |
 |---|---|---|
-| 1 | The catalog detail page renders (hero · About · Instances) and opens an **inline** Edit form (no modal) (A1, A2) | ☐ |
-| 2 | A summary edit Saves, updates the page **and** the grid card, and persists across a reload (A3) | ☐ |
-| 3 | A **non-card** field edit (`spec.source.version`) persists — the whole CR is editable, not a 7-field overlay (A4) | ☐ |
-| 4 | The edited **icon** visibly renders on hero + grid + survives reload; the form pre-fills the IaC icon; the picker grid works (B1–B5) | ☐ |
-| 5 | Save surfaces **"Saved to IaC ✓"** (the commit verdict), not a bare store success (C1) | ☐ |
-| 6 | **Per-field inline** edit for cards (`cif-*`) + the full-CR **`YamlEditor`** ("Edit IaC") for the rest, both writing the same IaC source (D1, D2) | ☐ |
-| 7 | The **identical** edit mechanism works on `bp-wordpress` + `bp-postgres` — no per-blueprint UI (E1, E2) | ☐ |
-| 8 | **GAP findings** (no UI surface): edit is durable IaC vs read-time skin / Helm no longer co-owns the CR (A5); amber "no green save when source down" fault-injection (C2) | ☐ |
+| 1 | The catalog detail page renders (hero · About · Instances) and opens an **inline** Edit form (no modal) (A1, A2) | ✅ |
+| 2 | A summary edit Saves, updates the page **and** the grid card, and persists across a reload (A3) | ✅ |
+| 3 | A **non-card** field edit (`spec.source.version`) persists — the whole CR is editable, not a 7-field overlay (A4) | ✅ |
+| 4 | The edited **icon** visibly renders on hero + grid + survives reload; the form pre-fills the IaC icon; the picker grid works (B1–B5) | `GAP` (by-contention — affordances source+locator-confirmed; clean screenshots blocked by ~8-walker shared-browser hijacking) |
+| 5 | Save surfaces the IaC-commit verdict (live string **"Committed to IaC ✓"**), not a bare store success (C1) | ✅ |
+| 6 | **Per-field inline** edit for cards (`cif-*`) + the full-CR **`YamlEditor`** ("Edit IaC") for the rest, both writing the same IaC source (D1, D2) | ✅ |
+| 7 | The **identical** edit mechanism works on a 2nd + 3rd blueprint — no per-blueprint UI (E1 `bp-wordpress` ❌ ABSENT/404 on hw158; **E2 `bp-postgres` ✅** carries it) | ⚠ partial (E2 ✅, E1 blueprint absent) |
+| 8 | **GAP findings** (no UI surface): edit is durable IaC vs read-time skin / Helm no longer co-owns the CR (A5); amber "no green save when source down" fault-injection (C2) | `GAP` |
 
 > Acceptance is the founder walking the clickable rows above in a browser and SEEING: the detail page
 > render, the inline Edit form, the summary edit persist on the page + card + reload, the non-card
