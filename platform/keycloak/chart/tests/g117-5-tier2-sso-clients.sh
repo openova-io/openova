@@ -79,8 +79,11 @@ for c in d.get('clients', []):
   fi
 }
 check_redirect guacamole      "https://guacamole.${SOV_FQDN}/*"
-check_redirect powerdns-admin "https://pdns-admin.${SOV_FQDN}/oidc/authorized"
-check_redirect powerdns-admin "https://pdns-admin.${SOV_FQDN}/*"
+# 1.4.30 (#3741/#3743): powerdns-admin is gate-fronted by the bp-oidc-gate
+# oauth2-proxy, so its ONLY valid redirectUri is /oauth2/callback (the dead
+# pre-#3374 native /oidc/authorized + /* shape was removed from the realm
+# seed). Mirror the hubble-ui gated precedent below.
+check_redirect powerdns-admin "https://pdns-admin.${SOV_FQDN}/oauth2/callback"
 check_redirect hubble-ui      "https://hubble.${SOV_FQDN}/oauth2/callback"
 echo "  PASS"
 
