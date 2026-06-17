@@ -374,3 +374,139 @@ func TestComponentsState_404UnknownDeployment(t *testing.T) {
 		t.Errorf("status=%d want 404", rec.Code)
 	}
 }
+
+// TestComponentsState_LiveReadHealsStaleFailed is the endpoint-level
+// acceptance for the false-FAILED-chip defect (issue #3687 / #910 tail).
+// With NO live watcher attached (the finite Phase-1 bootstrap watch has
+// ended), GET /components/state must NOT echo the frozen
+// dep.Result.ComponentStates — it must re-read the live cluster's bp-*
+// HelmReleases and re-derive their state. A HelmRelease that had a
+// transient bootstrap InstallFailed (persisted "failed") but is now
+// Ready=True must surface as "installed", killing the false ❌.
+func TestComponentsState_LiveReadHealsStaleFailed(t *testing.T) {
+	r, _, h := newBackfillRouter(t)
+
+	// The live cluster now reports every bp-* Ready=True — including
+	// bp-flux, which the persisted snapshot still has frozen at "failed".
+	h.dynamicFactory = fakeDynamicFactoryFromObjects(
+		makeReadyHR("bp-cilium"),
+		makeReadyHR("bp-cert-manager"),
+		makeReadyHR("bp-flux"),
+	)
+
+	// Persist a kubeconfig file on the PVC so resolvePrimaryKubeconfigPath
+	// resolves; the contents are irrelevant (fake factory ignores them).
+	kcPath := filepath.Join(t.TempDir(), "live-heal.yaml")
+	if err := os.WriteFile(kcPath, []byte("fake-kubeconfig: yaml"), 0o600); err != nil {
+		t.Fatalf("write kubeconfig: %v", err)
+	}
+
+	dep := &Deployment{
+		ID:        "dep-live-heal",
+		Status:    "ready",
+		StartedAt: time.Now(),
+		eventsCh:  make(chan provisioner.Event, 4),
+		done:      make(chan struct{}),
+		Result: &provisioner.Result{
+			SovereignFQDN:  "test.example",
+			KubeconfigPath: kcPath,
+			// Frozen snapshot from when the finite watch ended: flux is
+			// stale-FAILED (transient bootstrap InstallFailed that has
+			// since recovered).
+			ComponentStates: map[string]string{
+				"cilium":       "installed",
+				"cert-manager": "installed",
+				"flux":         "failed",
+			},
+		},
+	}
+	h.deployments.Store(dep.ID, dep)
+	// No live watcher attached → the no-watcher live-re-read path fires.
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
+		"/api/v1/deployments/dep-live-heal/components/state", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Watching   bool `json:"watching"`
+		Live       bool `json:"live"`
+		Components []struct {
+			AppID  string `json:"appId"`
+			Status string `json:"status"`
+		} `json:"components"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Watching {
+		t.Errorf("watching=true; want false (no live watcher)")
+	}
+	if !body.Live {
+		t.Errorf("live=false; want true (the no-watcher path must have re-read the live cluster)")
+	}
+	statusByApp := map[string]string{}
+	for _, c := range body.Components {
+		statusByApp[c.AppID] = c.Status
+	}
+	// The load-bearing assertion: the stale FAILED chip is healed by the
+	// live HR re-read.
+	if got := statusByApp["flux"]; got != "installed" {
+		t.Errorf("flux: want %q (live HR Ready=True), got %q — stale FAILED chip not healed", "installed", got)
+	}
+	if got := statusByApp["cilium"]; got != "installed" {
+		t.Errorf("cilium: want %q, got %q", "installed", got)
+	}
+}
+
+// TestComponentsState_LiveReadUnavailableFallsBack proves the safety
+// net: when the live re-read is impossible (no resolvable kubeconfig on
+// the PVC), the endpoint still falls back to the persisted snapshot
+// rather than erroring — a post-handover / wiped Sovereign keeps its
+// last-known component view.
+func TestComponentsState_LiveReadUnavailableFallsBack(t *testing.T) {
+	r, _, h := newBackfillRouter(t)
+	// A factory is wired, but there is NO kubeconfig path on the record
+	// and kubeconfigsDir is unset, so resolvePrimaryKubeconfigPath returns
+	// false and the live read never runs → persisted fallback.
+	h.dynamicFactory = fakeDynamicFactoryFromObjects(makeReadyHR("bp-flux"))
+
+	dep := &Deployment{
+		ID:        "dep-no-kc",
+		Status:    "ready",
+		StartedAt: time.Now(),
+		eventsCh:  make(chan provisioner.Event, 4),
+		done:      make(chan struct{}),
+		Result: &provisioner.Result{
+			SovereignFQDN: "test.example",
+			ComponentStates: map[string]string{
+				"flux": "failed",
+			},
+		},
+	}
+	h.deployments.Store(dep.ID, dep)
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
+		"/api/v1/deployments/dep-no-kc/components/state", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Live       bool `json:"live"`
+		Components []struct {
+			AppID  string `json:"appId"`
+			Status string `json:"status"`
+		} `json:"components"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Live {
+		t.Errorf("live=true; want false (no resolvable kubeconfig → persisted fallback)")
+	}
+	if len(body.Components) != 1 || body.Components[0].Status != "failed" {
+		t.Errorf("want persisted [flux=failed], got %+v", body.Components)
+	}
+}
