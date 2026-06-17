@@ -99,6 +99,37 @@ write_files:
       MaxAuthTries 3
 
 runcmd:
+  # ── IPv4-pin harbor + local registry (#3735, 2026-06-18 — the hw159
+  # ImagePullBackOff). Huawei VPCs are IPv4-only; harbor.openova.io is
+  # dual-stack (A=45.151.123.50 + AAAA). The k3s-agent containerd image-pull
+  # resolver intermittently gets harbor's AAAA → `dial tcp: lookup
+  # harbor.openova.io: Try again` → ImagePullBackOff for every uncached pull
+  # (catalyst-api / controllers / CNPG land on workers too). containerd reads
+  # the NODE resolver, not pod DNS, so the only fix is a node /etc/hosts pin —
+  # the CP template carries the identical block (#3232/#3714 + #3735); the
+  # Huawei worker had NO pin block at all until now. This MUST run BEFORE the
+  # k3s-agent install below (get.k3s.io redirects to a github release asset,
+  # and every subsequent pull flows through the bastion harbor mirror whose
+  # `harbor.openova.io` mirror host must itself resolve to IPv4). registry.
+  # <fqdn> is the post-cutover LOCAL Harbor: pre-cutover it has no DNS record
+  # so r4() returns empty and the `[ -n "$a" ]` guard skips it (no bad pin);
+  # post-cutover it resolves to the gateway EIP (IPv4) and pins. Bounded
+  # 3-tier resolver ladder (getent v4 → public-resolver nslookup → python3
+  # AF_INET getaddrinfo) — DETERMINISTIC, never lets AAAA win. POSIX/dash-
+  # clean. No hardcoded IP: r4() derives the A record at boot + self-heals.
+  - |
+    r4() {
+     getent ahostsv4 "$1" 2>/dev/null | awk '{print $1; exit}' && return
+     for s in 1.1.1.1 8.8.8.8; do
+      a=$(nslookup -type=A "$1" "$s" 2>/dev/null | awk '/^Address: [0-9]/&&$2!~/#/{print $2; exit}')
+      [ -n "$a" ] && { echo "$a"; return; }
+     done
+     python3 -c 'import socket,sys;print(socket.getaddrinfo(sys.argv[1],443,2)[0][4][0])' "$1" 2>/dev/null
+    }
+    for h in harbor.openova.io registry.${sovereign_fqdn}; do
+     a=$(r4 "$h"); [ -n "$a" ] && echo "$a $h" >>/etc/hosts || true
+    done
+
   # Wave 5.20: single shell block — cloud-init runcmd list-form had two
   # silent halts on HCS Ubuntu image: (1) apt-get install fails because
   # the mirror is unreachable so fail2ban package isn't installed,

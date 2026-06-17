@@ -680,6 +680,24 @@ runcmd:
   # public-resolver nslookup → python3 AF_INET getaddrinfo) before pinning
   # /etc/hosts. POSIX/dash-clean; every host is IPv4-reachable from every
   # cloud (on a dual-stack cloud the resolved A record is still valid).
+  #
+  # #3735 (2026-06-18 — the hw159 ImagePullBackOff): harbor.openova.io is
+  # ALSO dual-stack (A=45.151.123.50 + AAAA). On the IPv4-only Huawei VPC the
+  # node's containerd image-pull resolver intermittently gets the AAAA →
+  # `dial tcp: lookup harbor.openova.io: Try again` → ImagePullBackOff for any
+  # image pulled through the harbor pull-through proxy (catalyst-api,
+  # controllers — they can land on a CP node). containerd reads the NODE
+  # resolver, NOT pod DNS, so a coredns-custom hosts entry does NOT fix it —
+  # the pin MUST be at the node /etc/hosts level (this block). registry.<fqdn>
+  # is the POST-CUTOVER local Harbor: pre-cutover it has no DNS record so r4()
+  # returns empty and the `[ -n "$a" ]` guard skips it (no bad pin); post-
+  # cutover it resolves to the gateway EIP (IPv4) and pins correctly. Both
+  # hosts are appended ONLY on huawei: Hetzner is dual-stack (harbor's AAAA is
+  # reachable so no pin is needed) AND its CP render sits at 32223/32256 B
+  # (#1981 ExternalIP reconciler) — only 33 B of headroom — so the
+  # provider-gated conditional keeps the Hetzner render byte-identical while
+  # giving every IPv4-only cloud the harbor pin. No hardcoded IP: r4() derives
+  # the A record at boot and self-heals if harbor's address ever changes.
   - |
     r4() {
      getent ahostsv4 "$1" 2>/dev/null | awk '{print $1; exit}' && return
@@ -689,7 +707,7 @@ runcmd:
      done
      python3 -c 'import socket,sys;print(socket.getaddrinfo(sys.argv[1],443,2)[0][4][0])' "$1" 2>/dev/null
     }
-    for h in github.com raw.githubusercontent.com codeload.github.com objects.githubusercontent.com helm.cilium.io get.helm.sh; do
+    for h in github.com raw.githubusercontent.com codeload.github.com objects.githubusercontent.com helm.cilium.io get.helm.sh%{ if provider == "huawei" } harbor.openova.io registry.${sovereign_fqdn}%{ endif ~}; do
      a=$(r4 "$h"); [ -n "$a" ] && echo "$a $h" >>/etc/hosts || true
     done
 
