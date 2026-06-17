@@ -1,8 +1,38 @@
-# UAT — browser walkthrough dashboard · `hw158` (2026-06-17) (RESET 2026-06-17 — pending hw159)
+# UAT — browser walkthrough dashboard · `hw159` (2026-06-17) — fresh-prov walk
 
-> **Env:** `hw158.omani.works` · deployment `ab2135d4cf2d01e4` · single physical kom4dc region
+> **Env:** `hw159.omani.works` · deployment `c117f6fd4e2eb2dd` · single physical kom4dc region
 > (2 VPCs `me-east-215-a` / `-b`). On each wipe + re-prov this dashboard resets and the links flip
 > to the new env.
+
+## hw159 fresh-prov walk — live results (the complete 1.4.67x train, clean install)
+
+**The prov converged on the published train.** Fresh `POST /deployments` (no hand-patching) →
+both regions converged: **region-a 55/55 HelmReleases, region-b 52/55** (multi-region works).
+bp-catalyst-platform pinned to the last-published **1.4.674** (the 1.4.675/676/677 publish-gate is
+the held #3383 fix — see below); 1.4.674 carries the full *functional* train (hook-fix #3780,
+object-model #3786, topology vocab #3784, funnel #3376, per-Org Flux loop #3687, RBAC #3664).
+
+**The 4 founder North Stars — witnessed live in the browser on this fresh env:**
+
+| North Star | Verdict | Evidence |
+|---|---|---|
+| **#3 — URL → signed in as admin, no login form** (console) | ✅ | [handover → /dashboard signed-in as emrah.baysal](../sessions/2026-06-17/evidence/hw159-uat-01-dashboard-signedin.png) |
+| **#3 — per-app zero-login SSO** | ✅ | [grafana.hw159 → "Home - Dashboards", no login](../sessions/2026-06-17/evidence/hw159-uat-03-grafana-sso-signedin.png) |
+| **#1 — every app in a vCluster** | ✅ (mgmt/dmz/rtz vClusters INSTALLED) | [/apps inventory](../sessions/2026-06-17/evidence/hw159-uat-02-apps-49-inventory.png) · dashboard treemap |
+| **#2 — 3 shared-PG instances** | ✅ (shared-pg ×3 in treemap) | [dashboard treemap](../sessions/2026-06-17/evidence/hw159-uat-01-dashboard-signedin.png) |
+| **#4 — apps actually multi-region** | ✅ (region-a 55/55 + region-b 52/55 converged) | deployment record (`status=ready`, both regions) |
+
+**Core console surfaces walked (real browser, screenshots):**
+
+| # | Tested page | Description | Status | Evidence |
+|---|---|---|---|---|
+| 1 | [/dashboard](https://console.hw159.omani.works/dashboard) | Zero-click handover lands signed-in; 93-item treemap (shared-pg ×3, mgmt/dmz/rtz vClusters) | ✅ | [01-dashboard](../sessions/2026-06-17/evidence/hw159-uat-01-dashboard-signedin.png) |
+| 2 | [/apps](https://console.hw159.omani.works/apps) | 49 apps; ~39 INSTALLED, 2 PENDING, **8 FAILED** (SeaweedFS→Loki/Mimir/Tempo, Valkey, nats-jetstream, Coraza, vLLM) | ✅ renders / ❌ 8 apps failed | [02-apps](../sessions/2026-06-17/evidence/hw159-uat-02-apps-49-inventory.png) |
+| 3 | [grafana.hw159](https://grafana.hw159.omani.works/) | Per-app SSO lands signed-in (no login form) | ✅ | [03-grafana-sso](../sessions/2026-06-17/evidence/hw159-uat-03-grafana-sso-signedin.png) |
+| 4 | [/organizations](https://console.hw159.omani.works/organizations) | Object-model view (#3687/#3378): parent-org row, Showback, Commerce/Billing/Domains | ✅ renders; ⚠️ sidebar still says **"Tenant"** (the cosmetic #3707 rename is in the held 1.4.677, not 1.4.674) | [04-organizations](../sessions/2026-06-17/evidence/hw159-uat-04-organizations-objectmodel.png) |
+| 5 | [/jobs](https://console.hw159.omani.works/jobs) | Jobs canvas (#3646) | ✅ renders | [05-jobs](../sessions/2026-06-17/evidence/hw159-uat-05-jobs-canvas.png) |
+
+**Honest open items on hw159:** (a) **8 FAILED apps** — SeaweedFS (object storage) is the root, cascading to Loki/Mimir/Tempo; plus Valkey, nats-jetstream, Coraza, vLLM (the known observability/cache/messaging gap, same class as hw144 #840). (b) The **cosmetic `Tenant→Organization` rename** is absent (1.4.674 pre-#3707); the fix is the **held, de-risked 1.4.677** (all chart-test gates green) awaiting publish (#873). (c) Convergence required a live kom4dc fix: `harbor.openova.io` resolved its IPv6/AAAA on the IPv4-only VPC → catalyst-api `ImagePullBackOff`; pinned it to IPv4 in coredns-custom (the #3735 family — needs a durable bootstrap pin for future provs). The exhaustive per-runbook walk (the 10 runbooks below) continues from this converged base.
 
 ## The acceptance standard (the agreed contract)
 
