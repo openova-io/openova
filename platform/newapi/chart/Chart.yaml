@@ -679,7 +679,26 @@ name: bp-newapi
 # Application CR for the slot-80 HelmRelease (gated bootstrapOwned.enabled
 # + Capabilities apps.openova.io/v1) so the console /apps list, per-app
 # Topology tab + showback resolve newapi (no more "no Application CR").
-version: 1.4.101
+# 1.4.102 (#3374, 2026-06-18): bridge landing page (sso_init.go) RETRIES the
+# /api/oauth/state mint before falling back to /login. ROOT CAUSE re-walked
+# live on hw159: the bare URL's 1st hit returned an upstream-connect-error
+# (111) and the 2nd hit landed on the /setup "System initialization" wizard
+# instead of signed-in /console. On a fresh prov NewAPI's wait-for-sql-dsn
+# initContainer + GORM AutoMigrate keep the backend unreachable for up to
+# ~2min after the gateway first routes to the bare URL; the prior landing
+# page fell through to /login on the FIRST /api/oauth/state failure and the
+# SPA then showed /setup — the exact symptom. The page now retries the state
+# mint (8× with a 1.5s backoff, same-origin + idempotent) so the FIRST human
+# visit during convergence rides out NewAPI's warm-up and still lands
+# signed-in; if it never recovers it still degrades to /login (no worse than
+# before). The bridge IMAGE tag + a further chart patch bump are
+# auto-committed by build-bp-newapi-sandbox-bridge.yaml on merge (push to
+# internal/handler/**). Lockstep: 80-newapi.yaml pin + blueprint.yaml →
+# 1.4.102. NB: the 1st-hit 111 + /setup-on-2nd-hit are fundamentally a
+# fresh-prov readiness window the per-minute admin-promote CronJob self-heals
+# (#3767, 1.4.97) — this retry shrinks the human-visible window, it is not a
+# new SSO mechanism. Refs #3374.
+version: 1.4.102
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

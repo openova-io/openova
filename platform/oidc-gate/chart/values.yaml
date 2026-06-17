@@ -56,4 +56,17 @@ resources:
 #     skipAuthRoutes: []            # oauth2-proxy --skip-auth-route
 #                                   # entries (METHOD=^path-regex)
 #     replicas: 1
+#     # rootRedirectPath (#3374 Layer-A): for an app that ships its OWN OIDC
+#     # (e.g. pda-legacy authlib) — NOT a login-less binary. oauth2-proxy
+#     # authenticates the browser at the gate then proxies path-for-path, so a
+#     # bare-root hit reaches the app's `/` which 302s to the app's OWN login
+#     # FORM (a manual "Sign in with…" button = zero-click FAIL, measured live
+#     # hw159). Set this to the app's native OIDC login entrypoint (e.g.
+#     # `/oidc/login`) and the gate 302s ONLY the bare root (Exact `/`) there,
+#     # so the app starts its own silent KC round-trip and lands signed-in with
+#     # zero clicks. Loop-safe: only the Exact bare root is redirected; the
+#     # app's login/callback/dashboard paths flow through untouched. Default
+#     # unset → no root redirect (byte-identical to a login-less app).
+#     rootRedirectPath: ""          # e.g. "/oidc/login"
+#     rootRedirectPort: 443         # the Sovereign HTTPS listener port
 instances: []

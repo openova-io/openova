@@ -52,6 +52,12 @@ func TestSSOInitHandler_ServesLandingAtRoot(t *testing.T) {
 		`"newapi-admin"`,   // the injected client_id is present
 		`"/oauth/" + SLUG`, // redirect_uri construction matches the SPA
 		"window.location.replace(url)",
+		// #3374 (2026-06-18) — the /api/oauth/state mint must RETRY (a loop +
+		// setTimeout backoff) so a fresh-prov NewAPI still warming up
+		// (DSN-gate + GORM migrate) does not dead-end the first visit at
+		// /setup. Assert the retry loop + a backoff sleep are present.
+		"attempt < 8",
+		"setTimeout(r, 1500)",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("landing page missing %q", want)
