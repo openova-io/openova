@@ -17,19 +17,21 @@ re-verified in a browser on **hw159**; everything else still carries **stale hw1
 | 3 | topology-DR (#3375) | 33 | 4 | 0 | 29 |
 | 4 | funnel (#3376) | 24 | 3 | 0 | 21 |
 | 5 | ns1-migrate (#3642) | 23 | 1 | 0 | 22 |
-| 6 | eradicate-sme-naming (#3383) | 15 | 0 | 1 | 14 |
+| 6 | eradicate-sme-naming (#3383) | 15 | 6 | 1 | 8 |
 | 7 | catalog-IaC (#3668) | 39 | 2 | 0 | 37 |
 | 8 | cutover (#3379) | 16 | 2 | 0 | 14 |
 | 9 | jobs-canvas (#3646) | 19 | 3 | 0 | 16 |
 | 10 | regenerate-meta (#3581) | 9 | 9 | 0 | 0 |
-| **TOTAL** | **243** | **33** | **3** | **207** |
+| **TOTAL** | **243** | **39** | **3** | **201** |
 
-**hw159 progress: 36 of 243 steps walked (15%).** Of those 36: 33 ✅ / 3 ❌. **207 steps (85%) still
-unwalked on this env.** 28 screenshots back the 36. This is the honest denominator — NOT "6 PASS";
-the per-runbook keystone passed, but each runbook has 9–39 steps and most are not yet re-verified.
-**Runbook #10 (regenerate-meta #3581) fully walked 2026-06-18: 9✅** — Part A (6 SSO bare-URL landings:
-console/grafana/harbor/gitea/openbao all signed-in) + Part B (3: rendered UAT.md names only hw159).
-**The 3 walked ❌:** newapi SSO(`/setup`) · powerdns SSO(`/login`) · #3383 `Tenant` rename (fixed in 1.4.677).
+**hw159 progress: 42 of 243 steps decided (17%).** Of those 42: 39 ✅ / 3 ❌ (+ 7 GAP backend-only
+carriers under #3383, no browser surface). **201 steps (83%) still unwalked on this env.** 36 screenshots
+back the walk. This is the honest denominator — NOT "6 PASS"; the per-runbook keystone passed, but each
+runbook has 9–39 steps and most are not yet re-verified.
+**Walked 2026-06-18:** #3581 regenerate-meta **9✅** (6 SSO bare-URL landings + 3 rendered-UAT.md flush);
+#3383 eradicate-sme-naming **6✅/1❌/7 GAP** (directory/detail/billing/`/bss/tenants` alias clean;
+`/organizations/new` still leaks "SME tenant slug"/"Onboard tenant" on 1.4.674 — fixed in held 1.4.677).
+**The 3 walked ❌:** newapi SSO(`/setup`) · powerdns SSO(`/login`) · #3383 create-org-flow persona leak.
 
 ---
 
