@@ -43,6 +43,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/shared/ui/dialog'
+import { CUTOVER_STEPS } from '@/shared/types/cutover'
 import { CutoverProgressCard } from './CutoverProgressCard'
 import {
   useCutoverEvents,
@@ -193,9 +194,9 @@ export function SovereigntyCard({ override }: SovereigntyCardProps) {
             Achieve True Sovereignty
           </Button>
           <p className="max-w-prose text-[11px] text-[var(--color-text-dim)]">
-            Runs the 8-step cutover. ~10 minutes. Includes a 10-minute
-            egress-block self-test against github.com + ghcr.io +
-            harbor.openova.io.
+            Runs the {CUTOVER_STEPS.length}-step cutover. ~10 minutes.
+            Includes a 10-minute egress-block self-test against github.com
+            + ghcr.io + harbor.openova.io.
           </p>
         </div>
       ) : null}
@@ -279,22 +280,20 @@ function ConfirmCutoverModal({
             Achieve True Sovereignty
           </DialogTitle>
           <DialogDescription className="text-xs text-[var(--color-text-dim)]">
-            This runs an 8-step cutover that makes this Sovereign cluster
-            operationally independent of the openova-io mothership. The
-            process takes about 10 minutes and includes a final
-            10-minute egress-block self-test.
+            This runs a {CUTOVER_STEPS.length}-step cutover that makes this
+            Sovereign cluster operationally independent of the openova-io
+            mothership. The process takes about 10 minutes and includes a
+            final 10-minute egress-block self-test.
           </DialogDescription>
         </DialogHeader>
 
+        {/* Step overview — rendered from the canonical CUTOVER_STEPS list so
+            it can never drift from the engine's real chain (the per-step
+            LIVE status renders in CutoverProgressCard once the cutover runs). */}
         <ol className="mt-4 list-decimal space-y-1 pl-5 text-[12px] text-[var(--color-text)]">
-          <li>Mirror github.com/openova-io/openova into local Gitea.</li>
-          <li>Create 7 Harbor proxy projects (ghcr / docker / k8s / gcr / quay / xpkg / ecr).</li>
-          <li>Pre-warm critical images through Harbor.</li>
-          <li>Pivot containerd registries.yaml on every node.</li>
-          <li>Repoint the Flux GitRepository to local Gitea.</li>
-          <li>Repoint 38 HelmRepositories to local Harbor.</li>
-          <li>Patch catalyst-api environment to use local sources.</li>
-          <li>Apply egress-block NetworkPolicy and verify reconciles stay green for 10 min.</li>
+          {CUTOVER_STEPS.map((s) => (
+            <li key={s.id}>{s.label}</li>
+          ))}
         </ol>
 
         <p className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-[11px] text-amber-300">

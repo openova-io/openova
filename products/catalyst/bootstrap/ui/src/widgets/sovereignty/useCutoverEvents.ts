@@ -10,8 +10,10 @@
  *      finished still renders the full 8-step trail (and the green
  *      "Sovereignty achieved" banner).
  *   2. SSE  /api/v1/sovereign/cutover/events — live event channel.
- *      Emits `cutover-step` frames for per-step transitions and a
- *      terminal `cutover-status` frame on completion.
+ *      Emits `cutover-step-started` / `cutover-step-finished` /
+ *      `cutover-step-failed` frames for per-step transitions (the step
+ *      outcome is the EVENT NAME) and `cutover-status` snapshot frames
+ *      (carrying the raw status ConfigMap) on connect + completion.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md:
  *   #4 (never hardcode): URLs go through `${API_BASE}` from
@@ -22,8 +24,9 @@
  *
  * Why a dedicated hook (vs reusing useDeploymentEvents)
  * ────────────────────────────────────────────────────
- * The cutover SSE channel speaks a different vocabulary (`cutover-step`,
- * `cutover-status`) than the deployment channel (`done`, `handover-ready`).
+ * The cutover SSE channel speaks a different vocabulary
+ * (`cutover-step-started/finished/failed`, `cutover-status`) than the
+ * deployment channel (`done`, `handover-ready`).
  * Multiplexing them would force every frame parser to discriminate on
  * event-type at the dispatch layer, and the reconnect/backoff logic
  * would need to know about both. Cleaner to keep them separated and
@@ -36,7 +39,9 @@ import {
   applyCutoverStepUpdate,
   buildInitialCutoverStatus,
   parseCutoverStatus,
+  parseCutoverStatusConfigMap,
   type CutoverStatus,
+  type CutoverStepStatus,
   type CutoverStepStatusRecord,
   isCutoverStepID,
 } from '@/shared/types/cutover'
@@ -165,48 +170,69 @@ export function useCutoverEvents(
   // ── SSE live stream — runs in parallel; reducer is idempotent ─
   useEffect(() => {
     if (disableStream) return
-    setStreamError(null)
+    // Note: streamError is cleared in the EventSource `onopen` callback
+    // below (an external-event handler) rather than synchronously here —
+    // a synchronous setState in an effect body triggers a cascading
+    // render (react-hooks/set-state-in-effect).
     let cancelled = false
     let es: EventSource | null = null
     let reconnectAttempts = 0
     const MAX_RECONNECT_ATTEMPTS = 5
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
-    const onCutoverStep = (msg: MessageEvent) => {
-      if (cancelled) return
-      try {
-        const payload = JSON.parse(msg.data) as unknown
-        if (payload === null || typeof payload !== 'object') return
-        const rec = payload as Record<string, unknown>
-        if (!isCutoverStepID(rec.step)) return
-        const stepStatus = rec.status
-        if (
-          stepStatus !== 'pending' &&
-          stepStatus !== 'running' &&
-          stepStatus !== 'done' &&
-          stepStatus !== 'failed'
-        )
-          return
-        const update: CutoverStepStatusRecord = {
-          step: rec.step,
-          status: stepStatus,
-          startedAt:
-            typeof rec.startedAt === 'string' ? rec.startedAt : undefined,
-          finishedAt:
-            typeof rec.finishedAt === 'string' ? rec.finishedAt : undefined,
-          message: typeof rec.message === 'string' ? rec.message : undefined,
+    // The catalyst-api SSE channel emits per-step transitions as THREE
+    // distinct event types — `cutover-step-started`, `-finished`,
+    // `-failed` (the `cutoverEvent.Phase` values in
+    // api/internal/handler/cutover.go) — and encodes the step OUTCOME in
+    // the event NAME, not a payload field. Each frame's data is a
+    // `cutoverEvent{step, jobName, message, time}`. We map the event name
+    // → CutoverStepStatus here. (The old single `cutover-step` listener
+    // with a payload `status` field matched no real backend frame, so the
+    // progress card never advanced off the live stream.)
+    const onStepTransition =
+      (status: CutoverStepStatus) => (msg: MessageEvent) => {
+        if (cancelled) return
+        try {
+          const payload = JSON.parse(msg.data) as unknown
+          if (payload === null || typeof payload !== 'object') return
+          const rec = payload as Record<string, unknown>
+          if (!isCutoverStepID(rec.step)) return
+          const ts = typeof rec.time === 'string' ? rec.time : undefined
+          const update: CutoverStepStatusRecord = {
+            step: rec.step,
+            status,
+            // The engine only carries `time` on the event; use it as the
+            // start moment for a running step and the finish moment for a
+            // terminal one so the row shows a timestamp either way.
+            startedAt: status === 'running' ? ts : undefined,
+            finishedAt:
+              status === 'done' || status === 'failed' ? ts : undefined,
+            message:
+              status === 'failed' && typeof rec.message === 'string'
+                ? rec.message
+                : undefined,
+          }
+          setStatus((prev) => applyCutoverStepUpdate(prev, update))
+        } catch {
+          /* malformed event — drop, the next event recovers */
         }
-        setStatus((prev) => applyCutoverStepUpdate(prev, update))
-      } catch {
-        /* malformed event — drop, the next event recovers */
       }
-    }
 
+    // The `cutover-status` snapshot frame (replay-on-connect + terminal)
+    // carries the RAW status ConfigMap (a flat string-map) JSON-encoded
+    // into `cutoverEvent.message` — NOT a CutoverStatus object. Unwrap the
+    // envelope, then parse the flat map via parseCutoverStatusConfigMap.
     const onCutoverStatus = (msg: MessageEvent) => {
       if (cancelled) return
       try {
-        const payload = JSON.parse(msg.data) as unknown
-        const next = parseCutoverStatus(payload)
+        const envelope = JSON.parse(msg.data) as unknown
+        if (envelope === null || typeof envelope !== 'object') return
+        const env = envelope as Record<string, unknown>
+        // The status map is stringified inside `.message`.
+        const inner =
+          typeof env.message === 'string' ? JSON.parse(env.message) : env
+        const next = parseCutoverStatusConfigMap(inner)
+        if (!next) return
         setStatus(next)
         if (next.state === 'sovereign') {
           setStreamStatus('completed')
@@ -243,16 +269,34 @@ export function useCutoverEvents(
       }, backoffMs)
     }
 
+    // Bind the real backend phase names to status transitions.
+    const onStepStarted = onStepTransition('running')
+    const onStepFinished = onStepTransition('done')
+    const onStepFailed = onStepTransition('failed')
+
     const openStream = (): EventSource => {
       const next = new EventSource(cutoverEventsURL())
       next.onopen = () => {
         if (cancelled) return
+        // Connection (re)established — clear any prior transport error.
+        setStreamError(null)
         setStreamStatus((prev) =>
           prev === 'completed' ? prev : 'streaming',
         )
         reconnectAttempts = 0
       }
-      next.addEventListener('cutover-step', onCutoverStep as EventListener)
+      next.addEventListener(
+        'cutover-step-started',
+        onStepStarted as EventListener,
+      )
+      next.addEventListener(
+        'cutover-step-finished',
+        onStepFinished as EventListener,
+      )
+      next.addEventListener(
+        'cutover-step-failed',
+        onStepFailed as EventListener,
+      )
       next.addEventListener(
         'cutover-status',
         onCutoverStatus as EventListener,
@@ -270,7 +314,18 @@ export function useCutoverEvents(
       cancelled = true
       if (reconnectTimer !== null) clearTimeout(reconnectTimer)
       if (es) {
-        es.removeEventListener('cutover-step', onCutoverStep as EventListener)
+        es.removeEventListener(
+          'cutover-step-started',
+          onStepStarted as EventListener,
+        )
+        es.removeEventListener(
+          'cutover-step-finished',
+          onStepFinished as EventListener,
+        )
+        es.removeEventListener(
+          'cutover-step-failed',
+          onStepFailed as EventListener,
+        )
         es.removeEventListener(
           'cutover-status',
           onCutoverStatus as EventListener,

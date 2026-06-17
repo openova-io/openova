@@ -16,10 +16,12 @@ import {
   CUTOVER_STEP_COUNT,
   applyCutoverStepUpdate,
   buildInitialCutoverStatus,
+  cutoverResultToStatus,
   isCutoverState,
   isCutoverStepID,
   parseCutoverState,
   parseCutoverStatus,
+  parseCutoverStatusConfigMap,
   type CutoverState,
   type CutoverStatus,
 } from './cutover'
@@ -81,24 +83,29 @@ describe('isCutoverState — type-guard variant', () => {
 
 /* ────────────────────────── CUTOVER_STEPS — canonical 8 ─────────────── */
 
-describe('CUTOVER_STEPS — canonical 8-step list', () => {
-  it('has exactly 8 entries', () => {
-    expect(CUTOVER_STEPS).toHaveLength(8)
-    expect(CUTOVER_STEP_COUNT).toBe(8)
+describe('CUTOVER_STEPS — canonical 11-step list', () => {
+  it('has exactly 11 entries', () => {
+    expect(CUTOVER_STEPS).toHaveLength(11)
+    expect(CUTOVER_STEP_COUNT).toBe(11)
   })
 
-  it('matches the catalyst-api Job sequence by id + order', () => {
-    // This list mirrors openova-io/openova#793 (Step 2 progress card)
-    // and #792 (POST /start orchestrates these in this exact order).
+  it('matches the chart cutover-order labels + the catalyst-api Job sequence', () => {
+    // Ground truth: platform/self-sovereign-cutover/chart/templates/NN-*.yaml
+    // `bp.openova.io/cutover-order` labels 01..11. The catalyst-api engine
+    // discovers + runs them in this order. The slug is `helmrepository-patches`
+    // (the prior `helmrepo-patches` never matched the chart).
     expect(CUTOVER_STEPS.map((s) => s.id)).toEqual([
       'gitea-mirror',
       'harbor-projects',
       'harbor-prewarm',
       'registry-pivot',
       'flux-gitrepository-patch',
-      'helmrepo-patches',
+      'helmrepository-patches',
       'catalyst-api-env-patch',
       'egress-block-test',
+      'gitea-token-mint',
+      'vcluster-registry-pivot',
+      'crossplane-provider-pivot',
     ])
   })
 
@@ -107,6 +114,28 @@ describe('CUTOVER_STEPS — canonical 8-step list', () => {
       expect(s.label.length).toBeGreaterThan(0)
       expect(s.description.length).toBeGreaterThan(0)
     }
+  })
+})
+
+/* ─────────────────────── cutoverResultToStatus ──────────────────────── */
+
+describe('cutoverResultToStatus — engine result → UI status', () => {
+  it('maps success + skipped → done', () => {
+    expect(cutoverResultToStatus('success')).toBe('done')
+    expect(cutoverResultToStatus('skipped')).toBe('done')
+  })
+  it('maps running → running, failed → failed', () => {
+    expect(cutoverResultToStatus('running')).toBe('running')
+    expect(cutoverResultToStatus('failed')).toBe('failed')
+  })
+  it('maps empty / absent → pending', () => {
+    expect(cutoverResultToStatus('')).toBe('pending')
+    expect(cutoverResultToStatus(undefined)).toBe('pending')
+    expect(cutoverResultToStatus(null)).toBe('pending')
+  })
+  it('returns null for an unrecognised value (forward-compat)', () => {
+    expect(cutoverResultToStatus('explodey')).toBeNull()
+    expect(cutoverResultToStatus(42)).toBeNull()
   })
 })
 
@@ -148,10 +177,87 @@ describe('parseCutoverStatus — happy paths', () => {
     })
     expect(out.state).toBe('sovereign')
     expect(out.cutoverComplete).toBe(true)
-    expect(out.steps).toHaveLength(8)
+    expect(out.steps).toHaveLength(11)
     expect(out.mirroredCommitSHA).toBe('abc123def4567890')
     expect(out.harborProjectCount).toBe(7)
     expect(out.egressTestPassed).toBe(true)
+  })
+
+  it('parses the LIVE catalyst-api wire shape (steps[].name + .result)', () => {
+    // This is the shape api/internal/handler/cutover.go actually emits
+    // from GET /sovereign/cutover/status — `name`/`result`, NOT
+    // `step`/`status`. Before the adapter every one of these records was
+    // dropped, so the progress card stayed blank on a completed cutover.
+    const out = parseCutoverStatus({
+      state: 'sovereign',
+      cutoverComplete: true,
+      cutoverStartedAt: '2026-06-18T10:00:00Z',
+      cutoverFinishedAt: '2026-06-18T10:11:00Z',
+      steps: [
+        {
+          name: 'gitea-mirror',
+          result: 'success',
+          startedAt: '2026-06-18T10:00:00Z',
+          finishedAt: '2026-06-18T10:01:00Z',
+          jobName: 'cutover-gitea-mirror-1',
+        },
+        { name: 'harbor-projects', result: 'success' },
+        { name: 'egress-block-test', result: 'success' },
+      ],
+    })
+    expect(out.cutoverComplete).toBe(true)
+    // success → done
+    expect(out.steps.find((s) => s.step === 'gitea-mirror')?.status).toBe(
+      'done',
+    )
+    expect(out.steps.find((s) => s.step === 'gitea-mirror')?.startedAt).toBe(
+      '2026-06-18T10:00:00Z',
+    )
+    // Live timestamps come off cutoverStartedAt/cutoverFinishedAt.
+    expect(out.startedAt).toBe('2026-06-18T10:00:00Z')
+    expect(out.finishedAt).toBe('2026-06-18T10:11:00Z')
+    // egressTestPassed derived from the egress-block-test step result.
+    expect(out.egressTestPassed).toBe(true)
+  })
+
+  it('derives egressTestPassed=false + folds lastError onto the failed step', () => {
+    const out = parseCutoverStatus({
+      cutoverComplete: false,
+      failedStep: 'egress-block-test',
+      lastError: 'reconcile bp-kyverno went NotReady during the deny-egress hold',
+      steps: [
+        { name: 'gitea-mirror', result: 'success' },
+        { name: 'egress-block-test', result: 'failed' },
+      ],
+    })
+    expect(out.state).toBe('tethered')
+    const egress = out.steps.find((s) => s.step === 'egress-block-test')
+    expect(egress?.status).toBe('failed')
+    expect(egress?.message).toMatch(/deny-egress hold/)
+    expect(out.egressTestPassed).toBe(false)
+  })
+
+  it('maps a running step from the live result vocabulary', () => {
+    const out = parseCutoverStatus({
+      cutoverComplete: false,
+      steps: [
+        { name: 'gitea-mirror', result: 'success' },
+        { name: 'harbor-projects', result: 'running' },
+      ],
+    })
+    expect(out.steps.find((s) => s.step === 'harbor-projects')?.status).toBe(
+      'running',
+    )
+  })
+
+  it('reads harborProjectCount from the nested raw string-map', () => {
+    const out = parseCutoverStatus({
+      cutoverComplete: true,
+      steps: [],
+      raw: { harborProjectCount: '7', mirroredCommitSHA: 'deadbeef0000' },
+    })
+    expect(out.harborProjectCount).toBe(7)
+    expect(out.mirroredCommitSHA).toBe('deadbeef0000')
   })
 
   it('drops steps with unknown ids (forward-compat)', () => {
@@ -255,15 +361,59 @@ describe('parseCutoverStatus — defensive boundaries', () => {
 /* ────────────────────────── buildInitialCutoverStatus ───────────────── */
 
 describe('buildInitialCutoverStatus — first-paint placeholder', () => {
-  it('seeds 8 pending steps in canonical order', () => {
+  it('seeds 11 pending steps in canonical order', () => {
     const init = buildInitialCutoverStatus()
     expect(init.state).toBe('tethered')
     expect(init.cutoverComplete).toBe(false)
-    expect(init.steps).toHaveLength(8)
+    expect(init.steps).toHaveLength(11)
     expect(init.steps.map((s) => s.step)).toEqual(
       CUTOVER_STEPS.map((s) => s.id),
     )
     expect(init.steps.every((s) => s.status === 'pending')).toBe(true)
+  })
+})
+
+/* ─────────────────── parseCutoverStatusConfigMap (SSE) ──────────────── */
+
+describe('parseCutoverStatusConfigMap — flat status ConfigMap (SSE snapshot)', () => {
+  it('reconstructs steps from step.<name>.<field> keys', () => {
+    // This is the flat string-map HandleCutoverEvents JSON-encodes into the
+    // `cutover-status` SSE frame's message (readCutoverStatus output).
+    const out = parseCutoverStatusConfigMap({
+      cutoverComplete: 'true',
+      cutoverStartedAt: '2026-06-18T10:00:00Z',
+      cutoverFinishedAt: '2026-06-18T10:11:00Z',
+      'step.gitea-mirror.result': 'success',
+      'step.gitea-mirror.startedAt': '2026-06-18T10:00:00Z',
+      'step.gitea-mirror.finishedAt': '2026-06-18T10:01:00Z',
+      'step.egress-block-test.result': 'success',
+    })
+    expect(out).not.toBeNull()
+    expect(out!.state).toBe('sovereign')
+    expect(out!.cutoverComplete).toBe(true)
+    expect(out!.steps.find((s) => s.step === 'gitea-mirror')?.status).toBe(
+      'done',
+    )
+    expect(out!.egressTestPassed).toBe(true)
+  })
+
+  it('derives tethered from cutoverComplete:"false" with an in-flight step', () => {
+    const out = parseCutoverStatusConfigMap({
+      cutoverComplete: 'false',
+      'step.gitea-mirror.result': 'success',
+      'step.harbor-projects.result': 'running',
+    })
+    expect(out).not.toBeNull()
+    expect(out!.state).toBe('tethered')
+    expect(out!.steps.find((s) => s.step === 'harbor-projects')?.status).toBe(
+      'running',
+    )
+  })
+
+  it('returns null for a non-map input (frame ignored, stream survives)', () => {
+    expect(parseCutoverStatusConfigMap(null)).toBeNull()
+    expect(parseCutoverStatusConfigMap('nope')).toBeNull()
+    expect(parseCutoverStatusConfigMap([1, 2, 3])).toBeNull()
   })
 })
 

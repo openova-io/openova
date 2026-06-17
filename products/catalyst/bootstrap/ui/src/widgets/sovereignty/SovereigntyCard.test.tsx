@@ -74,15 +74,15 @@ describe('SovereigntyCard — tethered, no progress', () => {
 })
 
 describe('SovereigntyCard — CTA opens explanation modal', () => {
-  it('clicking the button reveals the modal with the 8-step explainer', () => {
+  it('clicking the button reveals the modal with the per-step explainer', () => {
     render(<SovereigntyCard override={makeResult({})} />)
     fireEvent.click(screen.getByTestId('cutover-start-button'))
     const modal = screen.getByTestId('cutover-confirm-modal')
     expect(modal).toBeTruthy()
-    // The 8 numbered list items naming each step.
+    // One numbered list item per canonical cutover step.
     const list = modal.querySelector('ol')
     expect(list).toBeTruthy()
-    expect(list!.children.length).toBe(8)
+    expect(list!.children.length).toBe(CUTOVER_STEPS.length)
     // Confirm + cancel buttons are both wired.
     expect(screen.getByTestId('cutover-confirm-button')).toBeTruthy()
     expect(screen.getByTestId('cutover-confirm-cancel')).toBeTruthy()
