@@ -395,7 +395,10 @@ func (h *Handler) HandleApplicationUpdate(w http.ResponseWriter, r *http.Request
 		_ = unstructured.SetNestedMap(patched.Object, paramsCopy, "spec", "parameters")
 	}
 	if body.Placement != nil {
-		_ = unstructured.SetNestedField(patched.Object, body.Placement.Mode, "spec", "placement")
+		// One vocabulary (#3375 DoD-1): the patched CR stores the
+		// canonical placement token regardless of which spelling the PUT
+		// body carried.
+		_ = unstructured.SetNestedField(patched.Object, canonicalizeTopology(body.Placement.Mode), "spec", "placement")
 		regionsAny := make([]interface{}, 0, len(body.Placement.Regions))
 		for _, reg := range body.Placement.Regions {
 			regionsAny = append(regionsAny, reg)
@@ -790,15 +793,16 @@ func (h *Handler) handleApplicationChangePreview(w http.ResponseWriter, r *http.
 		target.Parameters = body.Parameters
 	}
 
-	// Default placement.mode to "single-region" when neither the body nor
-	// the current Application CR sets one. The matrix (TC-107) issues
-	// previews on Applications that pre-date the placement field; rather
-	// than 400 on the operator-friendly "preview as-is" use case we
-	// surface the canonical default. `regions` defaults to a stamped
-	// single-region list so renderApplicationPreview has something to
-	// project; downstream consumers that care override before submit.
+	// Default placement.mode to the canonical "singleton" (#3375 DoD-1)
+	// when neither the body nor the current Application CR sets one. The
+	// matrix (TC-107) issues previews on Applications that pre-date the
+	// placement field; rather than 400 on the operator-friendly "preview
+	// as-is" use case we surface the canonical default. `regions`
+	// defaults to a stamped single-entry list so renderApplicationPreview
+	// has something to project; downstream consumers that care override
+	// before submit.
 	if strings.TrimSpace(target.Placement.Mode) == "" {
-		target.Placement.Mode = "single-region"
+		target.Placement.Mode = "singleton"
 	}
 	if len(target.Placement.Regions) == 0 {
 		target.Placement.Regions = []string{previewDefaultRegion}
@@ -847,10 +851,13 @@ func validateApplicationUpdateRequest(req applicationUpdateRequest) (string, boo
 		if strings.TrimSpace(req.Placement.Mode) == "" {
 			return "placement.mode is required when placement is set", false
 		}
-		switch req.Placement.Mode {
-		case "single-region", "active-active", "active-hotstandby":
+		// One vocabulary (#3375 DoD-1): canonicalise then accept the four
+		// canonical classes (legacy single-region / active-hotstandby
+		// still folded so in-flight callers don't break).
+		switch canonicalizeTopology(req.Placement.Mode) {
+		case "singleton", "active-active", "active-hot-standby", "active-passive":
 		default:
-			return "placement.mode must be one of single-region, active-active, active-hotstandby", false
+			return "placement.mode must be one of singleton, active-active, active-hot-standby, active-passive (legacy single-region / active-hotstandby also accepted)", false
 		}
 		if len(req.Placement.Regions) == 0 {
 			return "placement.regions must list at least one region", false
@@ -870,21 +877,28 @@ func validateApplicationUpdateRequest(req applicationUpdateRequest) (string, boo
 // topologyTransitionAllowed — guards against destructive transitions
 // (anything that scales DOWN replicas) without explicit ?force=true.
 //
+// Both modes are canonicalised first (#3375 DoD-1) so the guard fires
+// correctly whether the CR stored / the request posted a canonical or
+// legacy spelling — the destructive case is "downgrade to singleton
+// from a multi-region class", in ONE vocabulary.
+//
 // Allowed without force:
 //   - same mode, same regions (no-op)
 //   - same mode, regions ADDED (scale up)
-//   - single-region → active-active or active-hotstandby (scale up)
-//   - active-hotstandby promote (regions reordered, count same/up)
+//   - singleton → active-active / active-hot-standby / active-passive (scale up)
+//   - active-hot-standby promote (regions reordered, count same/up)
 //
 // Blocked without force:
-//   - active-active → single-region (replica drop)
+//   - active-active / active-hot-standby / active-passive → singleton (replica drop)
 //   - any mode → fewer regions
 func topologyTransitionAllowed(curMode string, curRegions []string, newMode string, newRegions []string) (string, bool) {
-	if newMode == "single-region" && curMode == "active-active" {
-		return "active-active → single-region scales down replicas; pass ?force=true to confirm", false
+	cur := canonicalizeTopology(curMode)
+	next := canonicalizeTopology(newMode)
+	if next == "singleton" && cur == "active-active" {
+		return "active-active → singleton scales down replicas; pass ?force=true to confirm", false
 	}
-	if newMode == "single-region" && curMode == "active-hotstandby" {
-		return "active-hotstandby → single-region drops standby replicas; pass ?force=true to confirm", false
+	if next == "singleton" && (cur == "active-hot-standby" || cur == "active-passive") {
+		return fmt.Sprintf("%s → singleton drops standby replicas; pass ?force=true to confirm", cur), false
 	}
 	if len(newRegions) < len(curRegions) {
 		return fmt.Sprintf("regions count drops %d → %d; pass ?force=true to confirm", len(curRegions), len(newRegions)), false

@@ -377,6 +377,18 @@ spec:
             # target — the binary's guard recognises that special case.
             - name: SOVEREIGN_FQDN
               value: {{ .Values.global.sovereignFQDN | default "" | quote }}
+            # #3760 (Refs #3376 #3754) MIRROR-EVERYTHING: the Sovereign-local
+            # Harbor host the per-tenant vCluster images (the loft-sh/kubernetes
+            # k8s-distro initContainer + the loft-sh/vcluster-oss syncer) pull
+            # through. The harbor-proxy-pull Kyverno ClusterPolicy (Enforce)
+            # DENIES any vcluster image still on ghcr.io, so the tenant vCluster
+            # StatefulSet never installs and the tenant's app never runs. The
+            # generator re-tags both to `<registry>/proxy-ghcr/loft-sh/...`
+            # (matches the */proxy-*/* glob), lockstep with bp-dmz/mgmt/rtz-
+            # vcluster. Default harbor.openova.io; cutover Step-04 (ADR-0002)
+            # flips a per-Sovereign overlay to harbor.<sovereign-fqdn>.
+            - name: VCLUSTER_IMAGE_REGISTRY
+              value: {{ .Values.smeServices.provisioning.vclusterImageRegistry | default "harbor.openova.io" | quote }}
             - name: CATALOG_URL
               valueFrom:
                 configMapKeyRef:

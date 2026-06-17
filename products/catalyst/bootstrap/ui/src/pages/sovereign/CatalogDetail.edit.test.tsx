@@ -173,7 +173,10 @@ describe('CatalogDetail per-field inline editing (#3668 §5A)', () => {
     expect(edit.name).toBe('Grafana (Renamed)')
     // …and the sibling fields are preserved (merge base), not wiped.
     expect(edit.tagline).toBe('Visualization and dashboarding')
-    expect(edit.supported_topologies).toEqual(['single-region', 'active-hotstandby'])
+    // One vocabulary (#3375 DoD-1): the edit form carries the CANONICAL
+    // topology tokens (the fixture declares them canonical; the form folds
+    // any spelling onto the canonical set).
+    expect(edit.supported_topologies).toEqual(['singleton', 'active-hot-standby'])
   })
 
   it('editing the SUMMARY field saves tagline only, preserving the name', async () => {
@@ -192,14 +195,15 @@ describe('CatalogDetail per-field inline editing (#3668 §5A)', () => {
   it('editing SUPPORTED TOPOLOGIES toggles a mode and saves the set', async () => {
     renderCatalog()
     fireEvent.click(await screen.findByTestId('cif-topologies-edit'))
-    // The mapped current set pre-checks single-region + active-hotstandby;
+    // The canonical current set pre-checks singleton + active-hot-standby;
     // toggle active-active ON.
     fireEvent.click(screen.getByTestId('catalog-edit-topo-active-active'))
     fireEvent.click(screen.getByTestId('cif-topologies-save'))
     await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1))
     const edit = saveSpy.mock.calls[0][1] as { supported_topologies: string[] }
+    // One vocabulary (#3375 DoD-1): the saved set is canonical.
     expect(edit.supported_topologies).toContain('active-active')
-    expect(edit.supported_topologies).toContain('single-region')
+    expect(edit.supported_topologies).toContain('singleton')
   })
 
   it('Cancel closes a field editor without saving', async () => {

@@ -125,8 +125,10 @@ func TestHandleApplicationUpdate_TopologyScaleUp_Succeeds(t *testing.T) {
 	}
 	got, _ := client.Resource(ApplicationGVR()).Namespace("acme").Get(context.Background(), "wp-prod", metav1.GetOptions{})
 	mode, _, _ := unstructured.NestedString(got.Object, "spec", "placement")
-	if mode != "active-hotstandby" {
-		t.Fatalf("placement not patched: got %q", mode)
+	// One vocabulary (#3375 DoD-1): the PUT posted the legacy spelling
+	// "active-hotstandby"; the CR STORES the canonical "active-hot-standby".
+	if mode != "active-hot-standby" {
+		t.Fatalf("placement not patched to canonical: got %q, want active-hot-standby", mode)
 	}
 }
 

@@ -171,15 +171,25 @@ spec:
                         # Two tiers of placement modes coexist (see
                         # core/controllers/blueprint/internal/validate/validate.go
                         # canonicalPlacementModes):
-                        #   - Application-tier (marketplace 99%):
-                        #     single-region / active-active / active-hotstandby
+                        #   - Application-tier (marketplace 99%) — ONE
+                        #     canonical vocabulary (#3375 DoD-1, defined by
+                        #     core/controllers/internal/placement.CanonicalModes):
+                        #     singleton / active-active / active-hot-standby /
+                        #     active-passive. Legacy spellings
+                        #     single-region / active-hotstandby remain in the
+                        #     enum for back-compat (folded via
+                        #     placement.Canonicalize); new authors emit the
+                        #     canonical token.
                         #   - Bootstrap-topology tier (bp-*-vcluster +
                         #     bp-vcluster-helmrepo, per
                         #     docs/SOVEREIGN-MULTI-REGION-DOD.md A4):
                         #     primary-only / secondary-only / every-region
                         enum:
-                          - single-region
+                          - singleton
                           - active-active
+                          - active-hot-standby
+                          - active-passive
+                          - single-region
                           - active-hotstandby
                           - primary-only
                           - secondary-only
@@ -187,8 +197,11 @@ spec:
                     default:
                       type: string
                       enum:
-                        - single-region
+                        - singleton
                         - active-active
+                        - active-hot-standby
+                        - active-passive
+                        - single-region
                         - active-hotstandby
                         - primary-only
                         - secondary-only
@@ -196,7 +209,7 @@ spec:
                     # G93.2 (Refs #2667) — defaultOnMultiRegion is the
                     # Blueprint author's declarative preferred default
                     # when the Sovereign is multi-region (BCP topology =
-                    # active-hotstandby or active-active). The
+                    # active-hot-standby or active-active). The
                     # application-controller consults this when the
                     # Application CR's spec.placement is empty:
                     #   - Multi-region Sovereign + defaultOnMultiRegion
@@ -204,12 +217,16 @@ spec:
                     #     touch for CNPG-backed Blueprints).
                     #   - Otherwise → fall back to `default` (single-
                     #     knob backwards-compat).
-                    # When set, MUST be in modes[] (validator enforces).
+                    # When set, MUST be in modes[] (validator enforces;
+                    # membership is checked on the canonical token).
                     defaultOnMultiRegion:
                       type: string
                       enum:
-                        - single-region
+                        - singleton
                         - active-active
+                        - active-hot-standby
+                        - active-passive
+                        - single-region
                         - active-hotstandby
                         - primary-only
                         - secondary-only

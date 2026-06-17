@@ -175,11 +175,14 @@ export function TopologyTab({
   const app: ApplicationStatus | undefined = initialApp ?? statusQ.data
 
   const currentMode = useMemo(() => {
-    if (!app) return 'single-region'
+    // One vocabulary (#3375 DoD-1): default to the canonical singleton.
+    // A live legacy spelling is folded downstream by canonicalTopologyClass
+    // and the editor's canonicalizeMode.
+    if (!app) return 'singleton'
     const fromSpec = (app.spec?.placement ?? '').trim()
     if (fromSpec) return fromSpec
     const fromStatus = (app.status as Record<string, unknown> | undefined)?.placement as string | undefined
-    return fromStatus ?? 'single-region'
+    return fromStatus ?? 'singleton'
   }, [app])
 
   const currentRegions = useMemo(() => {

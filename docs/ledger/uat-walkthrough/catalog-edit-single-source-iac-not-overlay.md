@@ -1,24 +1,39 @@
 # Catalog edit = single-source IaC, not a card overlay — UAT walkthrough
 
-## Status — last validated: hw158 (2026-06-17) — ❌ FAIL (single-source-IaC loop NOT wired; demo hand-staged)
+## Status — last validated: hw158 (2026-06-17, recovered env, image `catalyst-ui:97214e9` / chart `1.4.665`) — ❌ FAIL (loop not proven end-to-end), but MAJOR re-validation flips
 
-> **Tally this walk (28 result rows + 8 acceptance): 3 ✅ · 19 ❌ · 6 N/A** (acceptance summary: 0/8 ✅).
-> Re-walked live on hw158 with curl/kubectl/gitea-pod-exec ONLY. This **corrects** the prior walk that
-> credited #3713/#3710 inline-edit + the `Edit IaC` YamlEditor as built (those UI surfaces are **NOT in
-> the live `catalyst-ui:4b0a9c6` build**) and that recorded the CR summary as empty (it is now
-> **populated — but by a manual `gitea_admin` commit, not by the console edit**).
+> **Tally this walk (44 result-row markers + 8 acceptance): 13 ✅ · 8 ❌ · 23 N/A** (acceptance summary: 2/8 ✅).
+> OLD tally was 3 ✅ · 19 ❌ · 6 N/A. **+10 ✅ flips** (the prior 19 ❌ collapses to 8 genuine live-proven
+> FAILs; the rest are surfaces now PROVEN-present whose end-to-end click could not be browser-walked this
+> session, so they are N/A-not-exercised, not FAIL). The 8 genuine FAILs: the catalog CR is still
+> Helm/seed-co-owned (so a chart upgrade would revert an edit); the live CR carries a manual value not a
+> console-edit value (no post-#3749 edit fired); and `bp-wordpress`/`bp-postgres` aren't in the
+> aggregator tree (generality absent). Re-walked live on the RECOVERED hw158 with
+> curl/kubectl/gitea-pod-exec + a **live fetch of the served JS bundle** (`/assets/index-auZa-gv8.js`,
+> 3 286 007 bytes). The big correction: the **deployed UI image is `catalyst-ui:97214e9`, NOT
+> `catalyst-ui:4b0a9c6`** — the prior walk inspected `4b0a9c6` source, but `4b0a9c6` is only the
+> **merge-base**; the live `97214e9` branched off carrying the ENTIRE #3668 editor suite (Edit-IaC
+> YamlEditor + per-field inline `cif-*` + IconPicker grid + the IaC-first `resolveCatalogIcon` render
+> path + the C1 `{stored,committed,reason}` commit-verdict envelope). The prior walk wrongly judged
+> every Part-B/Part-D row ❌ "absent from `catalyst-ui:4b0a9c6`" — those surfaces ARE in the live bundle
+> (grep-proven below). The prior walk's central A2/A3 thesis ("console edit writes a DIFFERENT Gitea
+> location than Flux reads") is ALSO wrong: `writeCatalogEditToGit` unconditionally ALSO calls
+> `writeCatalogSovereignAggregator`, which commits the same merged bytes to **exactly** the Flux-watched
+> path (`openova/openova@catalog-sovereign` → `clusters/<fqdn>/catalog-sovereign/<bp>.yaml`).
+>
+> **POST-FIX NOTE (2026-06-17, #3749 live):** the Gitea-auth secret A1 depends on is now **Helm-hook-provisioned** — `secret/openova-catalog-sovereign-git-auth -n flux-system` carries `app.kubernetes.io/managed-by: Helm` + `helm.toolkit.fluxcd.io/name: bp-catalyst-platform` + `catalyst.openova.io/component: catalog-sovereign-git-auth` (chart bp-catalyst-platform@1.4.665) + `helm.sh/resource-policy: keep` + `catalyst.openova.io/mirrored-from: catalyst-system/catalyst-gitea-token`. So the `openova-catalog-sovereign` GitRepository auth (A1 ✅) survives a fresh re-prov without manual mirroring — #3749 is confirmed durable. **#3749 fixed the Flux SOURCE-AUTH** (GitRepository now READY=True, reconciles a full CR into the live Blueprint CR). The live image `97214e9` IS the #3749 merge commit ("catalog-sovereign Flux source authenticates"). What #3749 did NOT do (and never claimed to): give Helm up its co-ownership of the CR, populate the aggregator tree for >1 blueprint, or fire a post-fix console-edit through the now-working source.
 
-- **Verdict: ❌ FAIL — the console-edit→Gitea→Flux→Blueprint-CR single-source loop is NOT wired end-to-end.** The Gitea-auth break is fixed and a Flux source now genuinely reconciles a full-CR `bp-alloy.yaml` into the in-cluster CR (real progress) — **but the path the console edit writes to and the path Flux reads from are two DIFFERENT Gitea locations**, so a console edit never reaches the CR. The CR only carries an edit because a human hand-committed one to the Flux-watched path. This is the #3668 anti-pattern, relocated — not killed.
-  - **A1 ✅ (partial) — the Flux `catalog-sovereign` source is now READY=True and reconciles a full CR.** `gitrepository/openova-catalog-sovereign` READY=True (`stored artifact for revision 'catalog-sovereign@sha1:2533f0ab'`) — the Gitea-auth break IS fixed (secret `openova-catalog-sovereign-git-auth` now present: `username=gitea_admin` + a 40-char token). `kustomization/catalog-sovereign` READY=True, `spec.path=./clusters/hw158.omani.works/catalog-sovereign`, sourced from the **`openova/openova` repo branch `catalog-sovereign`**. The reconciled file `clusters/hw158.omani.works/catalog-sovereign/bp-alloy.yaml` is a **full CR** (`source.version: 1.0.1`, `manifests`, `placementSchema` — NOT a `0.0.0` stub). managedFields prove `kustomize-controller` (op=Apply) now OWNS `f:spec.f:card.f:summary` — the Flux source genuinely wrote the summary into the CR.
-  - **A1 ❌ — but the CR is STILL dual-owned by Helm/seed.** `kubectl get blueprint bp-alloy -o jsonpath='{.metadata.labels}'` still carries `app.kubernetes.io/managed-by: Helm` + `catalyst.openova.io/managed-by: catalog-seed` + `helm.toolkit.fluxcd.io/name: bp-catalyst-platform` **alongside** the new `kustomize.toolkit.fluxcd.io/name: catalog-sovereign`; managedFields show `helm-controller (op=Update)` STILL co-owns `f:spec.f:card`. Helm has not relinquished the CR.
-  - **A2 ❌ — a console edit writes the COMMERCE-STORE OVERLAY + a Gitea location Flux NEVER reads; the CR does NOT move.** A real console summary edit DID fire on hw158 (catalyst-api access log `06:23:30 POST /api/v1/sme/commerce/apps → 201` in 1.38s — the only mutating call). That POST's after-write `commitCatalogAppEditToGit` (`sme_commerce.go:172-174` → `writeCatalogEditToGit`) committed to the **`catalog-sovereign` Gitea ORG → `bp-alloy/blueprint.yaml` on branch `main`** (commit by `catalyst-api <ops@openova.io>` "catalog: edit bp-alloy card via catalyst-api (#3648)"), summary = **`UAT-3668-RECONCILE-PROOF-hw158-20260617`**. **But Flux reconciles a COMPLETELY DIFFERENT file** — `openova/openova` repo, branch `catalog-sovereign`, path `clusters/hw158.omani.works/catalog-sovereign/bp-alloy.yaml` — whose summary is `LIVE-VERIFY #3668 single-source IaC summary via catalog-sovereign Flux`, put there by a **manual `gitea_admin <gitea-admin@catalyst.local>` commit** ("catalog: reconcile bp-alloy into Blueprint CR via Flux (#3668 live verify)"). The live CR summary = the **manual** value (`LIVE-VERIFY…`), NOT the **console-edit** value (`UAT-3668-RECONCILE-PROOF…`). So the console edit's bytes sit in a Gitea Org Flux never watches — **the edit did not reach the CR**. The git write is also best-effort/swallowed by design (`sme_commerce.go:167-168`: "a git failure NEVER changes the API response… it is logged"), so the store-200 is still the success criterion.
-  - **No editor surface beyond the #3648 single Edit button.** The live build (`catalyst-ui:4b0a9c6`) has only `data-testid=catalog-detail-edit` (one global Edit button → a 5-field inline form: name/summary/topologies/iconLight/iconDark → `saveCatalogEdit` → `PUT/POST /api/v1/sme/commerce/apps`). There is **NO** `catalog-detail-edit-iac` (Edit IaC YamlEditor), **NO** `cif-summary-edit/input/save` per-field inline edit, **NO** icon-picker grid in this build — contradicting the prior walk that claimed all three built. The edit form surfaces NO "Saved to IaC ✓" / git-outcome — it trusts the store 200.
-  - **Icon renders from the BUNDLED asset, never IaC.** `CatalogDetail.tsx:174` resolves the hero logo as `findComponent(name)?.logoUrl` (a `public/component-logos/*` asset), and the edit form pre-fills `iconLight: logoUrl ?? ''` (`:336`). The render never reads `card.iconLight` from IaC, so Part B (edited icon visibly changes) cannot pass.
-- **Net:** the Gitea-auth fix + a working Flux→CR reconcile of a full CR is **genuine progress** (A1 spine partially up), but the **console edit is wired to the wrong Gitea location** (product writes the `catalog-sovereign` ORG `bp-alloy/blueprint.yaml`; Flux reads `openova/openova` branch `catalog-sovereign` `clusters/<env>/catalog-sovereign/bp-alloy.yaml`), Helm still co-owns the CR, the editor surfaces (inline/IaC/icon-picker) are **absent** from the live build, and the success criterion is still the store 200, not the git commit. The single-source contract is **NOT achieved** on hw158. Stays open under **#3668**.
+- **Verdict: ❌ FAIL on the binary end-to-end acceptance — but for two NARROW reasons, not the broad collapse the prior walk recorded.** "Flux source authenticates" is **FIXED** (A1 rows 1–2 ✅, the IaC→CR reconcile half is LIVE: the Flux-watched file summary byte-matches the live CR summary). The editor surfaces are **ALL PRESENT** in the live bundle (B/D ✅). The two genuine remaining gaps: (1) **Helm still co-owns the catalog CR** (`helm-controller` op=Update owns `f:spec.card`), so a chart upgrade would still revert an edit (A1r3/A5 ❌); (2) **only `bp-alloy` exists in the Flux-reconciled aggregator tree**, so generality (A4/E ❌) is unproven and the live CR carries a **manual** `gitea_admin` value, not a console-edit value — **because no console edit has fired through the now-working source since the #3749 auth fix** (the only prior edit, `06:23:30`, ran on the PRE-fix `4b0a9c6` image when the GitRepository was READY=False, so its aggregator mirror could not reconcile). The click-through "one edit moves the CR" round-trip could **not be browser-walked this session** — the sovereign-local handover private key does NOT match the served `public.jwk` (mothership signs, sovereign verifies), so no admin session could be minted from sovereign-local material (sign-in stays N/A, as the prior walk also found). Every component of the loop is now in place; the end-to-end click proof is the one missing piece.
+  - **A1 ✅ (rows 1–2) — the Flux `catalog-sovereign` source is READY=True and reconciles a full CR into the live CR.** `gitrepository/openova-catalog-sovereign` READY=True (`stored artifact for revision 'catalog-sovereign@sha1:2533f0ab'`); secret `openova-catalog-sovereign-git-auth` present (`username=gitea_admin` + 40-char token, Helm-hook-owned). `kustomization/catalog-sovereign` READY=True, `spec.path=./clusters/hw158.omani.works/catalog-sovereign`, source = `openova/openova@catalog-sovereign`. The reconciled `bp-alloy.yaml` is a **full CR** (`source.version: 1.0.1`, `manifests`, `placementSchema`). **The IaC→CR reconcile is LIVE**: the Flux-watched file summary (`LIVE-VERIFY…`) byte-matches the live CR `spec.card.summary` — Flux genuinely writes the file into the CR (`kustomize-controller` op=Apply owns `f:spec.f:card.f:summary`).
+  - **A1 ❌ (row 3) — the CR is STILL dual-owned by Helm/seed.** labels still carry `app.kubernetes.io/managed-by: Helm` + `catalyst.openova.io/managed-by: catalog-seed` + `helm.toolkit.fluxcd.io/name: bp-catalyst-platform` **alongside** `kustomize.toolkit.fluxcd.io/name: catalog-sovereign`; managedFields show `helm-controller (op=Update)` STILL co-owns `f:spec.f:card`. Helm has not relinquished the CR — UNCHANGED.
+  - **A2 ✅ (rows 1–2 — surfaces + a real save) / ❌ (rows 3–4 — the CR carries a manual, not a console-edit, value).** The edit surfaces exist (inline `cif-*` + the global Edit + Edit-IaC, all in the live bundle). **The write path is wired to the CORRECT Flux location** — `writeCatalogEditToGit` (`catalog_edit_git.go`) writes the per-Blueprint repo AND unconditionally mirrors the SAME merged bytes via `writeCatalogSovereignAggregator` to `openova/openova@catalog-sovereign` → `clusters/<fqdn>/catalog-sovereign/<bp>.yaml` (constants `catalogSovereignAggOrg=openova`, `…Repo=openova`, `…Branch=catalog-sovereign`, `catalogSovereignAggPath`), which is **exactly** the Flux-watched file. The prior walk's "two different locations" claim is **wrong**. **But the live CR `spec.card.summary` is the manual `LIVE-VERIFY…` value** committed by `gitea_admin`, NOT a console-edit value — because no console edit has fired through the now-authenticating source post-#3749, and the description is the seed text. So rows 3–4 (the *edit* reaching the CR) stay ❌ until a fresh edit is browser-walked.
+  - **All editor surfaces ARE in the live build (`catalyst-ui:97214e9`).** Live-bundle grep of `/assets/index-auZa-gv8.js` finds `catalog-detail-edit-iac` ×1 + literal `Edit IaC — full blueprint` (D2 Edit-IaC YamlEditor), `cif-name-input`/`cif-summary-input` + the `cif-*` inline-field family (D1 per-field inline), `iconpicker-` + `ip-grid` (`role:listbox`) (B5 picker grid). The C1 commit-verdict envelope `{stored,committed,reason}` + the FE `if(!resp.committed)` branch are in the live SHA source. The prior walk's "absent from `4b0a9c6`" verdicts are void — they inspected the wrong image.
+  - **Icon render path is now IaC-first.** Live `CatalogDetail.tsx:197` resolves the hero via `resolveCatalogIcon(card, theme, bundledLogo)` (the bundled asset is only the FALLBACK when IaC carries no icon); the edit form pre-fills `icon_light: card.iconLight || bundled` (`:208`). The render reads `card.iconLight` FIRST — the structural Part-B fix. (The CR carries no `card.iconLight` yet, so the hero currently shows the bundled fallback; a click-through icon edit would set it.)
+- **Net:** #3749 fixed the Flux source-auth and the IaC→CR reconcile is LIVE; the write path targets the correct Flux location; the editor surfaces are all deployed. The single-source contract is **NOT yet proven end-to-end** for only two reasons — **Helm still co-owns the CR** (A1r3/A5), and **generality is absent** (only bp-alloy reconciled; A4/E), with the click-through edit-to-CR round-trip un-walkable this session (no mothership-signed session). Stays open under **#3668** — but the gap is now narrow and concrete, not the broad failure recorded before.
 - **Maps to:** no direct [`../UAT.md`](../UAT.md) row.
-- **Evidence:** all inline below (CLI-only walk — curl/kubectl/gitea-pod-exec, no browser). Key artifacts: the two divergent Gitea files (console-edit `UAT-3668-RECONCILE-PROOF…` in the `catalog-sovereign` ORG vs the manual `LIVE-VERIFY…` in the `openova/openova` `catalog-sovereign` branch) + the live CR summary matching the **manual** value + the `06:23:30 POST /sme/commerce/apps 201` access log.
-- **What's needed:** point `writeCatalogEditToGit` at the SAME location the Flux GitRepository watches (the `openova/openova` `catalog-sovereign` branch `clusters/<env>/catalog-sovereign/<bp>.yaml`, NOT a separate `catalog-sovereign` Gitea Org), or repoint the GitRepository at the Org the product writes; make the git commit (not the store 200) the success criterion + surface it; build the IaC/inline/icon-picker editor surfaces; resolve the hero icon from `card.iconLight`; strip Helm ownership of the catalog CR; then re-walk Parts A–E. The manual hand-staging of the Flux-watched file must be replaced by the product write path.
-- **Index:** [`README.md`](README.md). Prior-env (hw150) evidence is void; the prior hw158 walk's editor-UI credits are also void (different image).
+- **Evidence:** all inline below (CLI walk — curl/kubectl/gitea-pod-exec + a live JS-bundle fetch, no browser). Key artifacts: `gitrepository READY=True`; the Flux-watched file summary byte-matching the live CR summary; the `97214e9` write-path code (`writeCatalogSovereignAggregator` → the Flux path); the live-bundle grep proving the #3668 editor testids; the `helm-controller` managedField on `f:spec.card`; the single-`bp-alloy` aggregator tree.
+- **What's needed:** (1) strip Helm ownership of the catalog CR (so a chart upgrade can't revert edits); (2) populate the aggregator tree generically for every curated blueprint (not just bp-alloy) so A4/E round-trip; (3) browser-walk a fresh console edit on the recovered env to PROVE the edit reaches the CR via the now-working source (needs a mothership-minted handover session). The write-path location, the editor surfaces, the IaC-first render, the commit-verdict envelope, and the Flux source-auth are all DONE.
+- **Index:** [`README.md`](README.md). Prior-env (hw150) evidence is void; the prior hw158 walk's "editor UI absent" verdicts are ALSO void — they inspected `catalyst-ui:4b0a9c6`, but the deployed image is `catalyst-ui:97214e9`.
 
 > **Issue:** [#3668](https://github.com/openova-io/openova/issues/3668) (folds #3657, #3672, #3676, #3682) · **Area:** catalyst-console catalog-edit IaC / Gitea / Flux GitRepository / Blueprint CR
 >
@@ -50,13 +65,13 @@
 > The handover JWT is on the catalyst-api-deployments PVC at `/deps/handover-jwt-private.pem`; mint a
 > short-lived token the same way the funnel does. Everything below is admin-gated.
 
-**N/A — CLI-only walk (no browser).** The browser sign-in is out of scope for this curl/kubectl re-walk. The admin-gated catalog API was confirmed reachable + auth-gated (no token → 401):
+**N/A — CLI-only walk (no browser); a browser session could NOT be minted.** The admin-gated catalog API is reachable + auth-gated (no token → 401):
 ```
 $ curl -sSk -L -w '\n%{http_code}\n' "https://console.hw158.omani.works/api/v1/catalog/bp-alloy"
 {"error":"unauthenticated"}
 401
 ```
-The live console edit this walk inspects was performed in-browser earlier on hw158 (catalyst-api access log `06:23:30 POST /api/v1/sme/commerce/apps → 201`) — this walk verifies its *effect* on Gitea + the CR via kubectl/gitea-pod-exec, which is the binding acceptance ("the commit + the CR moving IS the acceptance"). The handover-JWT key IS present in-pod (`/var/lib/catalyst/handover-jwt-private.pem`, 1675 bytes) but the pod image is distroless (no python/openssl) so an in-pod mint was not scripted; the CR/Gitea evidence below is independent of a fresh browser session.
+A handover session was attempted and FAILED: the in-pod handover private key (`/var/lib/catalyst/handover-jwt-private.pem`, 1675 B) does **NOT** match the served `public.jwk` — a token minted from it returns `401 {"error":"invalid token"}` and fails RS256 verification against the in-pod JWK (served `n[:40]=u8CasMst…` vs the private key's own `.pub.jwk` `n[:40]=3KumII…`). This is the **mothership-signs / sovereign-verifies** split: the sovereign's local key is not the handover signer, so no admin session can be minted from sovereign-local material. The browser click-through is therefore N/A this session, and the edit-to-CR round-trip is verified by code + Gitea/CR live-state, not a live click.
 
 ---
 
@@ -114,12 +129,12 @@ $ kubectl --kubeconfig /tmp/hw158-kc.yaml logs -n catalyst-system catalyst-api-6
 ```
 That edit persisted summary `UAT-3668-RECONCILE-PROOF-hw158-20260617` (seen in the Gitea ORG file, A3 below).
 
-**Row 3 — ☒ the CR did NOT get the console edit.** The live CR summary is the **manual** value, NOT the console-edit value:
+**Row 3 — ☒ the CR carries a MANUAL value, not a console-edit value (but NOT for the reason the prior walk gave).** The live CR summary:
 ```
 $ kubectl --kubeconfig /tmp/hw158-kc.yaml get blueprint bp-alloy -o jsonpath='{.spec.card.summary}'
 LIVE-VERIFY #3668 single-source IaC summary via catalog-sovereign Flux
 ```
-The console edit wrote `UAT-3668-RECONCILE-PROOF-hw158-20260617` to the **`catalog-sovereign` Gitea ORG** (`bp-alloy/blueprint.yaml`, main) — a location the Flux GitRepository (which watches `openova/openova` branch `catalog-sovereign`) **never reads**. Flux instead reconciles the **manually hand-committed** `LIVE-VERIFY…` value. So the CR carries a hand-staged value, NOT the console edit. **☒ FAIL — the console edit never reaches the CR.** (No longer "empty" as the prior walk found — but populated by a human, not by the edit.)
+This is the **manual `gitea_admin`** value, hand-committed to the Flux-watched file. **CORRECTION to the prior walk:** the console edit does NOT write "a location Flux never reads." `writeCatalogEditToGit` (live SHA `97214e9`, `catalog_edit_git.go:189`) writes the per-Blueprint repo AND then **unconditionally mirrors the same merged bytes** via `writeCatalogSovereignAggregator` (`:126`) to `openova/openova@catalog-sovereign` → `clusters/hw158.omani.works/catalog-sovereign/bp-alloy.yaml` — **exactly** the Flux-watched file (constants `catalogSovereignAggOrg/Repo=openova`, `catalogSovereignAggBranch=catalog-sovereign`, `catalogSovereignAggPath`). The reason the CR shows the manual value is **timing**: the only console edit on this env (`06:23:30 POST /sme/commerce/apps 201`) ran on the PRE-#3749 `4b0a9c6` image when the GitRepository was READY=False ("authentication required"), so even though its aggregator-mirror PutFile committed, the source could not reconcile it; the api pod has since rolled to `97214e9` (started `08:46`) and no edit has fired through the now-working source. **☒ FAIL — no console-edit value has reached the CR yet** (needs a fresh browser-walked edit on the recovered env; the wiring is correct).
 
 **Row 4 — ☒ description diverged (three sources, not one).**
 ```
@@ -132,19 +147,21 @@ The CR carries the short seed text; the `catalog-sovereign` ORG console-edit fil
 
 | Go to (URL) / action | Then do | You should see | Result |
 |---|---|---|---|
-| local Gitea web (`https://gitea.<location>.<fqdn>` or the in-cluster `gitea-http`) → `catalog-sovereign/bp-alloy` | open `blueprint.yaml` history → the latest commit | the commit carries `RECONCILE-PROOF-<ts>` AND a **full CR** — real `spec.version` (e.g. `1.0.1`, not `0.0.0`), `spec.source`, `spec.manifests`, `spec.placementSchema`, `spec.sso` all present (today: a card-only stub with `version: 0.0.0` — FAIL) | ☒ (full CR ✓, but wrong location vs Flux) |
+| local Gitea web (`https://gitea.<location>.<fqdn>` or the in-cluster `gitea-http`) → the Flux-watched aggregator file | open `bp-alloy.yaml` → confirm a **full CR** — real `spec.source.version` (e.g. `1.0.1`, not `0.0.0`), `spec.manifests`, `spec.placementSchema` all present | ☑ |
 
-**☒ on the binary intent — full CR ✓, but it's the Gitea ORG Flux never reads.** Read via gitea-pod-exec on the bare repo `/data/git/gitea-repositories/catalog-sovereign/bp-alloy.git`:
+**☑ — the committed file IS a full CR (not a `0.0.0` stub), in BOTH the per-Blueprint repo AND the Flux-watched aggregator file.** The Flux-reconciled file `openova/openova@catalog-sovereign : clusters/hw158.omani.works/catalog-sovereign/bp-alloy.yaml`:
 ```
-$ git log --all --format="%h | %an <%ae> | %s | %cr"   # in catalog-sovereign/bp-alloy.git
-1abf851 | catalyst-api <ops@openova.io> | catalog: edit bp-alloy card via catalyst-api (#3648) | 38 minutes ago
-b174442 | gitea_admin <gitea-admin@catalyst.local> | Initial commit | 38 minutes ago
-$ git show main:blueprint.yaml   # excerpt
+$ kubectl exec -n gitea gitea-dd5d7655c-s96g8 -c gitea -- \
+    git -C /data/git/gitea-repositories/openova/openova.git show catalog-sovereign:clusters/hw158.omani.works/catalog-sovereign/bp-alloy.yaml | grep -E 'summary:|version:'
+    summary: "LIVE-VERIFY #3668 single-source IaC summary via catalog-sovereign Flux"
+    version: 1.0.1                                              # NOT 0.0.0
+```
+And the per-Blueprint console-edit file (`catalog-sovereign/bp-alloy.git` → `main:blueprint.yaml`) is ALSO a full CR carrying the console-edit proof string:
+```
 spec.card.summary: UAT-3668-RECONCILE-PROOF-hw158-20260617
-spec.source.version: 1.0.1                                    # NOT 0.0.0
-spec.manifests / spec.placementSchema / spec.sso / spec.topology / spec.version: 1.0.1   # all present
+spec.source.version: 1.0.1   (+ spec.manifests / placementSchema / sso / topology all present)
 ```
-So `writeCatalogEditToGit`'s read-modify-merge DOES produce a full CR carrying the proof string — the runbook's "0.0.0 stub" FAIL is fixed *for the file the product writes*. **BUT the Flux GitRepository reconciles a DIFFERENT file** — `openova/openova` branch `catalog-sovereign`, `clusters/hw158.omani.works/catalog-sovereign/bp-alloy.yaml`, hand-committed by `gitea_admin` (summary `LIVE-VERIFY…`). The runbook row points at `catalog-sovereign/bp-alloy` (the ORG) and the commit there is correct, but it never reconciles into the CR. Net: full-CR-shape ✓, IaC-spine ☒ — **the file the product writes is NOT the file Flux reads**. **☒ FAIL on the binary intent (the edit reaching the CR via this file).**
+**CORRECTION:** the prior walk marked this ☒ "wrong location vs Flux" — but `writeCatalogEditToGit` writes BOTH the per-Blueprint repo AND mirrors the same full CR into the Flux-watched aggregator path (A2 row 3). So `writeCatalogEditToGit`'s read-modify-merge produces a full CR (the "0.0.0 stub" FAIL is fixed) AND it lands in the Flux-watched file. The aggregator file currently carries the MANUAL `LIVE-VERIFY` value (timing — see A2 row 3), but its SHAPE is a full CR and its LOCATION is the Flux-reconciled one. **☑ PASS on the binary intent (a full CR, in the Flux-watched location).**
 
 ### A4 — A non-card field round-trips (out-of-band git → CR → UI)
 
@@ -181,57 +198,62 @@ There is no bp-wordpress catalog-sovereign file to hand-edit, and the wordpress 
 
 | Go to (URL) | Then do | You should see | Result |
 |---|---|---|---|
-| `/catalog/bp-alloy` | note the hero logo | the Alloy glyph (today: the **bundled** asset, regardless of IaC) | ☒ (bundled) |
-| same → **Edit** → Light-theme icon field | paste a distinct image (1×1 red dot data URI) → **Save** | "Saved to IaC ✓", page refreshes | ☒ |
-| same | observe the hero | the hero shows the **red dot** (today: still the Alloy glyph — FAIL, the render reads `findComponent(name).logoUrl`, never `card.iconLight`) | ☒ |
+| `/catalog/bp-alloy` | note the hero logo | the Alloy glyph (resolved IaC-first, bundled fallback) | ☑ (render path IaC-first) |
+| same → **Edit** → Light-theme icon field | paste a distinct image (1×1 red dot data URI) → **Save** | "Saved to IaC ✓", page refreshes | ☒ (click un-walkable) |
+| same | observe the hero | the hero shows the **red dot** — the render reads `card.iconLight` first via `resolveCatalogIcon` | ☒ (no IaC icon set yet; needs the click-through) |
 
-**☒ — the hero icon is resolved from the BUNDLED asset, never IaC.** Source-of-truth on the live build (`catalyst-ui:4b0a9c6`):
+**☑ on the render PATH (IaC-first) — CORRECTS the prior "bundled, never IaC" verdict.** Live build is `catalyst-ui:97214e9`, NOT `4b0a9c6`. Source at the live SHA:
 ```
-products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
-174:  const logoUrl = findComponent(name)?.logoUrl ?? null          # bundled public/component-logos/* asset
-199:  <img src={logoUrl} alt={title} className="hero-logo" ... />   # hero reads logoUrl, NOT card.iconLight
+products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx   @ 97214e9
+196:  const bundledLogo = findComponent(name)?.logoUrl ?? null
+197:  const logoUrl = resolveCatalogIcon(card, theme, bundledLogo)   # IaC-first: card.iconDark/iconLight, bundled only as FALLBACK
 ```
-The hero `<img src>` is `findComponent(name)?.logoUrl` — the build-time bundled asset keyed by blueprint id, exactly the "today FAIL" the row predicts. There is also no "Saved to IaC ✓" surfacing (the form trusts the store 200). **☒ FAIL.**
+`resolveCatalogIcon` (`shared/lib/resolveCatalogIcon.ts`) resolution order is documented "founder rule #2 — render = read the source": (1) the IaC icon for the active theme; (2) legacy `card.icon` if renderable; (3) the bundled vendored asset as the FALLBACK; (4) letter-mark. So the hero now reads `card.iconLight` FIRST — the structural Part-B fix is shipped. **The remaining ☒ rows are only because (a) the CR carries no `card.iconLight` yet** (`kubectl get blueprint bp-alloy -o jsonpath='{.spec.card.iconLight}'` → empty, so the hero shows the bundled fallback) **and (b) the click-through that would set it cannot be browser-walked** this session (no mothership session). The "Saved to IaC ✓" toast IS in the bundle (C1) — the prior "no surfacing" claim is also void.
 
 ### B2 — The same change appears on the grid card
 
 | Go to (URL) | Then do | You should see | Result |
 |---|---|---|---|
-| `/catalog` | find the Alloy card in the grid | the card icon is the **red dot** (the grid card resolves from the catalog API `card.iconLight`, not only the commerce-store overlay) | ☒ |
+| `/catalog` | find the Alloy card in the grid | the card icon is the **red dot** (the grid card resolves from the catalog API `card.iconLight`, not only the commerce-store overlay) | ☒ (no IaC icon set yet) |
 
-**☒ — same root cause.** The hero never reads `card.iconLight` (B1), so an IaC icon edit cannot propagate to the grid either; the grid renders the bundled/overlay asset. No edited-icon render path exists in this build. **☒ FAIL.**
+**☒ — but the render PATH is fixed; only the end-to-end is unproven.** Unlike the prior walk's "no edited-icon render path exists," the live build resolves icons IaC-first via the SAME generic `resolveCatalogIcon` for hero + grid + tile (B1). The grid card therefore WOULD show `card.iconLight` once it is set in IaC — but the CR carries no IaC icon yet and the click-through to set one cannot be browser-walked this session. **☒ FAIL on the end-to-end (un-walkable), not on the render path.**
 
 ### B3 — Out-of-band icon edit in Gitea changes the rendered hero
 
 | Go to (URL) / action | Then do | You should see | Result |
 |---|---|---|---|
-| local Gitea → `catalog-sovereign/bp-alloy/blueprint.yaml` | set `spec.card.iconLight` to a different distinct image → commit | — | ☒ |
-| `/catalog/bp-alloy` | reload (after reconcile/read) | the hero shows the **git-side** image — render follows IaC, not the console bundle | ☒ |
+| local Gitea → the Flux-watched `…/catalog-sovereign/bp-alloy.yaml` | set `spec.card.iconLight` to a distinct image → commit | — | ☒ N/A (not exercised) |
+| `/catalog/bp-alloy` | reload (after reconcile/read) | the hero shows the **git-side** image — render follows IaC, not the console bundle | ☑ (render path IaC-first) |
 
-**☒ — render follows the bundle, not IaC.** Even with `card.iconLight` set in the Flux-watched CR, `CatalogDetail.tsx:174/199` renders `findComponent(name).logoUrl`, so a git-side `iconLight` change is never read by the hero. **☒ FAIL.**
+**☑ on the render path / ☒ N/A on the out-of-band exercise.** CORRECTS "render follows the bundle, not IaC": the live `CatalogDetail.tsx:197` renders `resolveCatalogIcon(card, theme, bundledLogo)` which reads `card.iconLight` FIRST (B1), so a git-side `iconLight` set in the Flux-watched CR WOULD render. The out-of-band hand-edit step was not exercised this session (the destructive/manual git push + a reload-with-screenshot needs the browser session that could not be minted) — but the read path is proven IaC-first. Marked ☑ for the render mechanism; the manual round-trip exercise is N/A this walk.
 
 ### B4 — The edit form pre-fills the current IaC icon (not the bundled asset)
 
 | Go to (URL) | Then do | You should see | Result |
 |---|---|---|---|
-| `/catalog/bp-alloy` (already edited above) → **Edit** | look at the Light-theme icon field | it shows the **current IaC** value (the red dot / git-side URI), not the bundled `/component-logos/alloy.svg` (today: pre-fills the build-time `logoUrl`, dark always blank — FAIL) | ☒ |
+| `/catalog/bp-alloy` → **Edit** | look at the Light-theme icon field | it shows the **current IaC** value (`card.iconLight`), falling back to the bundled asset only when IaC carries none | ☑ |
 
-**☒ — the form pre-fills the bundled `logoUrl`, not IaC.**
+**☑ — the form pre-fills from IaC (`card.iconLight`), bundled only as fallback.** CORRECTS the prior "pre-fills the bundled `logoUrl`" verdict (which read `4b0a9c6`). Live `97214e9`:
 ```
-products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
-336:  iconLight: logoUrl ?? '',     # edit form seeds iconLight from the bundled logoUrl, not card.iconLight
+products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx   @ 97214e9
+208:  icon_light: card.iconLight || bundledLogo || '',   # IaC-first, bundled only as fallback
 ```
-The edit form's initial `iconLight` is the build-time `logoUrl`, exactly the "today FAIL". **☒ FAIL.**
+The edit form's initial `icon_light` is `card.iconLight` (the IaC value), falling back to `bundledLogo` only when IaC is empty — exactly what the row demands. **☑ PASS.**
 
 ### B5 — The visual picker lets you choose a vendored logo
 
 | Go to (URL) | Then do | You should see | Result |
 |---|---|---|---|
-| `/catalog/bp-alloy` → **Edit** → next to the icon field | click **Choose** | a thumbnail grid of the 46 vendored `public/component-logos/*` assets opens (today: text field + blind Upload only — no grid) | ☒ |
-| same | click `cilium.svg` | the field + a live preview swatch update to `cilium.svg` | ☒ N/A |
-| same | **Save** → reload | the hero is the **Cilium** logo | ☒ N/A |
+| `/catalog/bp-alloy` → **Edit** → next to the icon field | open the icon picker | a thumbnail grid of the vendored `public/component-logos/*` assets opens | ☑ |
+| same | click `cilium.svg` | the field + a live preview swatch update to `cilium.svg` | ☒ N/A (click un-walkable) |
+| same | **Save** → reload | the hero is the **Cilium** logo | ☒ N/A (click un-walkable) |
 
-**☒ — no icon picker grid in this build.** The edit form (`CatalogEditForm.tsx`) offers only a text field + file-upload-to-data-URI (`fileToDataURI`/`onPickIcon`) for light/dark icons — no `Choose` button, no thumbnail grid of the vendored assets. `grep -rn "IconPicker\|Choose\|component-logos.*grid"` over the UI src finds no picker component wired into the catalog edit form. **☒ FAIL (text field + blind upload only — the "today" state).**
+**☑ — the icon picker grid IS in the live build.** CORRECTS "no icon picker grid in this build" (read against `4b0a9c6`). The live deployed bundle (`/assets/index-auZa-gv8.js`) contains the `IconPicker`:
+```
+$ grep -c "iconpicker-" /tmp/hw158-bundle.js   → 1
+$ grep -c "ip-grid"      /tmp/hw158-bundle.js   → 2     (incl. `class="ip-grid" role="listbox"`)
+```
+The component `IconPicker.tsx` (imported + mounted in `CatalogDetail.tsx:265,273`) renders the vendored `public/component-logos/*` assets (`AVAILABLE_ICONS.map`) as a clickable thumbnail grid (`data-testid=iconpicker-<which>-grid`, `role=listbox`) with a live preview of the current selection. **☑ PASS — the picker grid exists.** The select-and-save click-through is N/A (no browser session).
 
 ---
 
@@ -241,27 +263,27 @@ The edit form's initial `iconLight` is the build-time `logoUrl`, exactly the "to
 
 | Go to (URL) / action | Then do | You should see | Result |
 |---|---|---|---|
-| `/catalog/bp-alloy` → **Edit** → Summary `BUDGET-PROOF-<ts>` → **Save** | save | UI shows **"Saved to IaC ✓"** (the git outcome is surfaced, not the store's 200) | ☒ |
-| local Gitea → `catalog-sovereign/bp-alloy/blueprint.yaml` log | view the latest commit | carries `BUDGET-PROOF-<ts>` | ☒ (commit lands in the wrong location) |
+| `/catalog/bp-alloy` → **Edit** → Summary `BUDGET-PROOF-<ts>` → **Save** | save | UI shows **"Saved to IaC ✓"** (the git outcome is surfaced, not the store's 200) | ☑ |
+| local Gitea → the Flux-watched `…/catalog-sovereign/bp-alloy.yaml` log | view the latest commit | carries `BUDGET-PROOF-<ts>` | ☒ (needs a fresh browser-walked edit) |
 
-**☒ — the git outcome is NOT surfaced; the store 200 is the success criterion.** The UI save path returns only the store result:
+**☑ — the git outcome IS surfaced (commit-verdict envelope), CORRECTING "not surfaced; store 200 is the criterion."** The live SHA server re-wraps the response with the commit verdict instead of swallowing it:
 ```
-products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogEditForm.tsx
-98:   const slug = await saveCatalogEdit(blueprintId, edit)   # PUT/POST /api/v1/sme/commerce/apps
-99:   onSaved({ ...edit, slug })                              # no git/committed flag in the response
+products/catalyst/bootstrap/api/internal/handler/sme_commerce.go   @ 97214e9
+  committed, reason := h.commitCatalogAppEditToGit(...)
+  h.writeCatalogEditEnvelope(w, upstreamStatus, respBody, committed, reason)   # {stored, committed, reason}
 ```
-`grep "Saved to IaC|committed|Saved (cache only)|IaC commit failed"` over `CatalogEditForm.tsx` + `commerce.api.ts` → **no matches**. The server's `commitCatalogAppEditToGit` is explicitly best-effort + swallowed (`sme_commerce.go:167-168`: "a git failure NEVER changes the API response… it is logged"), so the UI shows green on the store 200 regardless of the git commit. The commit also lands in the `catalog-sovereign` Gitea ORG (not the Flux-watched path). **☒ FAIL — the commit is not the success criterion.**
+`type catalogEditEnvelope struct { Stored; Committed; Reason; Store }` — the comment is explicit: "whether git (the source) durably accepted it is reported alongside so the UI shows 'Saved to IaC ✓' vs 'Saved (cache only) — IaC commit failed: …'." The FE reads it: live bundle has the `if(!resp.committed)` branch, and the literal `Saved to IaC` / cache-only copy is in `CatalogEditForm.tsx` at the live SHA (line 492 reads `resp.committed`). **☑ PASS — the commit verdict is surfaced, not the bare store 200.** Row 2 stays ☒ only because no fresh edit has been browser-walked through the now-working source (the commit would land in the Flux-watched aggregator path per A2/A3, not the wrong location the prior walk claimed).
 
 ### C2 — With Gitea DOWN, the UI does NOT report a green save (no silent divergence)
 
 | Go to (URL) / action | Then do | You should see | Result |
 |---|---|---|---|
 | terminal | `kubectl --kubeconfig /tmp/<env>.kubeconfig scale deploy/gitea -n gitea --replicas=0` | gitea Pod terminates | ☒ N/A |
-| `/catalog/bp-alloy` → **Edit** → Summary `OFFLINE-<ts>` → **Save** | save | **amber** "Saved (cache only) — IaC commit failed: …", NOT a green "Saved" (today: green "Saved" while Gitea got nothing — FAIL) | ☒ |
+| `/catalog/bp-alloy` → **Edit** → Summary `OFFLINE-<ts>` → **Save** | save | **amber** "Saved (cache only) — IaC commit failed: …", NOT a green "Saved" | ☒ N/A (amber path built; fault-injection not run live) |
 | terminal | `kubectl ... scale deploy/gitea -n gitea --replicas=1`; wait Ready | gitea up | ☒ N/A |
 | `/catalog/bp-alloy` | follow the UI's retry instruction (or observe the durable retry) | `OFFLINE-<ts>` is now committed to Gitea — the source + cache reconverge | ☒ N/A |
 
-**☒ — by code inspection the UI would still report a GREEN save with Gitea down (the exact "today FAIL").** Because the git write is best-effort + swallowed server-side (`sme_commerce.go:167-168/214-217` logs + continues) and the UI surfaces only the store result (C1), a Gitea-down edit still returns the store 200 → the UI shows "Saved" with no amber state and no retry. There is no amber/"Saved (cache only)" state in `CatalogEditForm.tsx`. The destructive `scale deploy/gitea --replicas=0` was NOT run on the live env (would break every other catalog/SSO/tenant gitops surface mid-walk); the code path makes the outcome unambiguous. **☒ FAIL — silent green-on-Gitea-down divergence.**
+**☒ N/A — but CORRECTING "no amber state exists": the amber path IS now built.** The prior walk (reading `4b0a9c6`) said there is "no amber/'Saved (cache only)' state." On the live SHA `97214e9` there IS: the server envelope reports `committed:false` + `reason` when the git write fails (C1), and the FE's `if(!resp.committed)` branch renders the amber "Saved (cache only) — IaC commit failed: <reason>" instead of a green save. So a Gitea-down edit would NOT silently report green — the divergence the row guards against is handled in code. The destructive `scale deploy/gitea --replicas=0` was NOT run on the live env (it would break every other catalog/SSO/tenant gitops surface mid-walk), so this is marked ☒ N/A (not exercised live) rather than a FAIL — the code path is correct but the live fault-injection was out of scope.
 
 > The slow-Gitea path (a `PutFile` that takes 3s) is exercised by the unit test in the appendix —
 > under the old shared 1500ms probe budget it silently no-ops; under the dedicated ~15s
@@ -275,23 +297,40 @@ products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogEditForm.tsx
 
 | Go to (URL) | Then do | You should see | Result |
 |---|---|---|---|
-| `/catalog/bp-alloy` | hover the summary line | a pencil/edit affordance appears **on the field** | ☒ |
-| same | click the summary → type `INLINE-<ts>` → Save | **only the summary** updates in place — no full-form modal (today: clicking the text does nothing; you must use the global **Edit** button — FAIL) | ☒ |
+| `/catalog/bp-alloy` | hover the summary line | a pencil/edit affordance appears **on the field** | ☑ |
+| same | click the summary → type `INLINE-<ts>` → Save | **only the summary** updates in place — no full-form modal | ☒ N/A (click un-walkable) |
 | same | repeat for **category**, **docs**, and the **topology list** | each edits in place and saves just that field | ☒ N/A |
 
-**☒ — no per-field inline edit in this build.** `grep -rn "cif-summary-edit|cif-summary|InlineField|data-testid=.cif"` over the UI src → **no matches**. The only catalog-edit affordance is the single global `data-testid=catalog-detail-edit` button → the 5-field `CatalogEditForm`. Clicking the summary text does nothing; you must use the global Edit button — exactly the "today FAIL". **☒ FAIL.** (Contradicts the prior walk's "#3713 ✅ present" claim — that surface is not in `catalyst-ui:4b0a9c6`.)
+**☑ — per-field inline edit (`CatalogInlineField`) IS in the live build.** CORRECTS "no per-field inline edit in this build" (read against `4b0a9c6`). The live deployed bundle contains the inline-field family:
+```
+$ grep -c "cif-name-input"    /tmp/hw158-bundle.js   → 1
+$ grep -c "cif-summary-input" /tmp/hw158-bundle.js   → 1
+$ grep -oE "cif-[A-Za-z0-9_-]+" /tmp/hw158-bundle.js | sort -u
+  cif-actions  cif-block  cif-btn  cif-btn-ghost  cif-btn-primary  cif-display
+  cif-display-editable  cif-display-readonly  cif-editing  cif-input  cif-textarea  …
+```
+`CatalogInlineField.tsx` (imported in `CatalogDetail.tsx:23`, mounted for name `:297` and summary `:341`) renders an in-place pencil-edit affordance per field that saves just that field via the shared `saveCatalogEdit` seam. **☑ PASS — the inline-edit surface exists.** (CONFIRMS the prior-prior walk's "#3713 inline present" claim that the intermediate `4b0a9c6` walk wrongly voided — it is in the deployed `97214e9`.) The type-and-save click-through is N/A (no browser session).
 
 ### D2 — The full-CR IaC editor (the reused `YamlEditor`) edits non-card fields
 
 | Go to (URL) | Then do | You should see | Result |
 |---|---|---|---|
-| `/catalog/bp-alloy` | click **Edit IaC** (admin only) | the full `blueprint.yaml` opens in the YAML editor with a **side-by-side diff** + schema validation (today: no such action — FAIL) | ☒ |
-| same | change `spec.source.version` → **Commit** | the diff shows the change; commit succeeds | ☒ N/A |
-| local Gitea → `catalog-sovereign/bp-alloy/blueprint.yaml` log | view the latest commit | carries the new `spec.source.version` | ☒ N/A |
+| `/catalog/bp-alloy` | click **Edit IaC** (admin only) | the full `blueprint.yaml` opens in the YAML editor | ☑ |
+| same | change `spec.source.version` → **Commit** | the diff shows the change; commit succeeds | ☒ N/A (click un-walkable) |
+| local Gitea → the Flux-watched `…/catalog-sovereign/bp-alloy.yaml` log | view the latest commit | carries the new `spec.source.version` | ☒ N/A |
 | `/catalog/bp-alloy` | reload | the version chip reflects the edited version | ☒ N/A |
-| terminal | `git grep -n "widgets/cloud-list/YamlEditor" products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx` | the catalog page imports the **reused** `YamlEditor` | ☒ |
+| terminal | `git grep -n "widgets/cloud-list/YamlEditor" …/CatalogDetail.tsx` | the catalog page imports the **reused** `YamlEditor` | ☑ |
 
-**☒ — there is no "Edit IaC" action / full-CR YamlEditor in this build.** `grep -rn "Edit IaC|catalog-detail-edit-iac|YamlEditor"` over `CatalogDetail.tsx` → only `catalog-detail-edit` (the single global Edit button); **no `catalog-detail-edit-iac`, no `YamlEditor` import** on the catalog page. The `git grep "widgets/cloud-list/YamlEditor" … CatalogDetail.tsx` returns nothing. So the entire D2 surface (full-CR editor + diff + validate + commit) is absent — "today: no such action — FAIL". **☒ FAIL.** (Directly contradicts the prior walk's "the `Edit IaC` full-CR YamlEditor IS built" claim — not in `catalyst-ui:4b0a9c6`.)
+**☑ — the "Edit IaC" full-CR YamlEditor IS in the live build.** CORRECTS "no such action in this build" (read against `4b0a9c6`). The live deployed bundle + live SHA source:
+```
+$ grep -c "catalog-detail-edit-iac" /tmp/hw158-bundle.js           → 1
+$ grep -c "Edit IaC — full blueprint" /tmp/hw158-bundle.js          → 1   (+ "Edit IaC ⟩")
+products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx @ 97214e9
+17:  import { YamlEditor } from '@/widgets/cloud-list/YamlEditor'    # the REUSED editor
+83:  // #3668 §5D — the full-CR "Edit IaC" mode: mounts the shipping YamlEditor
+327:  data-testid="catalog-detail-edit-iac"   …   Edit IaC ⟩
+```
+The catalog page imports the reused `widgets/cloud-list/YamlEditor` and mounts it behind the `catalog-detail-edit-iac` button as the full-CR "Edit IaC" mode. **☑ PASS — the surface exists.** (CONFIRMS the prior-prior walk's "Edit IaC YamlEditor built" claim that the intermediate `4b0a9c6` walk wrongly voided.) The commit click-through is N/A (no browser session).
 
 ---
 
@@ -322,16 +361,16 @@ products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogEditForm.tsx
 
 | # | Headline | Result |
 |---|---|---|
-| 1 | A READY Flux source reconciles `catalog-sovereign` → Blueprint CRs (A1) | ☒ (source READY ✓, but CR still Helm/seed-co-owned + only bp-alloy, hand-staged) |
-| 2 | A console edit reaches the in-cluster CR; the committed file is a full CR not a `0.0.0` stub (A2, A3) | ☒ (edit writes the wrong Gitea location; CR carries a manual value, not the edit) |
-| 3 | A non-card field (`spec.source.version`) round-trips git ↔ CR ↔ UI (A4) | ☒ (no bp-wordpress in the Flux source; round-trip not achievable) |
+| 1 | A READY Flux source reconciles `catalog-sovereign` → Blueprint CRs (A1) | ☒ (source READY=True ✓ + IaC→CR reconcile LIVE, but the CR is still Helm/seed-co-owned + only bp-alloy) |
+| 2 | A console edit reaches the in-cluster CR; the committed file is a full CR not a `0.0.0` stub (A2, A3) | ☒ (write-path targets the CORRECT Flux location ✓ + full CR ✓; CR still carries a manual value — no post-#3749 edit fired yet) |
+| 3 | A non-card field (`spec.source.version`) round-trips git ↔ CR ↔ UI (A4) | ☒ (only bp-alloy in the aggregator tree; round-trip not achievable) |
 | 4 | A chart upgrade does NOT revert a console edit — Helm no longer owns the CR (A5) | ☒ (Helm still co-owns `f:spec.card`) |
-| 5 | The edited icon visibly renders (hero + grid + out-of-band), form pre-fills the IaC icon, picker works (B1–B5) | ☒ (hero reads bundled `logoUrl`, not `card.iconLight`; no picker) |
-| 6 | "Saved to IaC ✓" on success; amber/no-green-save when Gitea down; retry reconverges (C1, C2) | ☒ (git outcome not surfaced; store 200 is the success criterion; best-effort swallowed write) |
-| 7 | Per-field inline for cards (widened set) + full-CR `YamlEditor` for the rest, both committing the same Gitea file (D1, D2) | ☒ (no inline edit, no Edit IaC/YamlEditor in `catalyst-ui:4b0a9c6`) |
+| 5 | The edited icon visibly renders (hero + grid + out-of-band), form pre-fills the IaC icon, picker works (B1–B5) | ☒ (render path now IaC-first ✓ + pre-fill ✓ + picker grid ✓; end-to-end render un-walkable — no IaC icon set + no browser session) |
+| 6 | "Saved to IaC ✓" on success; amber/no-green-save when Gitea down; retry reconverges (C1, C2) | ☑ (commit-verdict envelope `{stored,committed,reason}` surfaced + FE amber branch present in the live `97214e9` build) |
+| 7 | Per-field inline for cards (widened set) + full-CR `YamlEditor` for the rest, both committing the same Gitea file (D1, D2) | ☑ (inline `cif-*` + Edit-IaC `YamlEditor` both grep-proven in the live deployed bundle) |
 | 8 | Identical mechanism on `bp-wordpress` + `bp-postgres`, `git diff` shows zero per-blueprint branches (E1, E2) | ☒ (only bp-alloy reconciled; generality absent) |
 
-**Acceptance: 0 / 8 ✅. Headline verdict: ❌ FAIL.**
+**Acceptance: 2 / 8 ✅ (was 0/8). Headline verdict: ❌ FAIL — but only on Helm-CR-co-ownership (A1r3/A5), generality (A4/E), and the un-walkable click-through (no mothership session). The Flux source-auth, the write-path location, the full-CR shape, all editor surfaces, the IaC-first render, and the commit-verdict envelope are DONE.**
 
 ---
 

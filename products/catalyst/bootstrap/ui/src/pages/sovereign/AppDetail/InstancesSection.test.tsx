@@ -148,15 +148,18 @@ describe('NewInstanceDialog — dropdowns (#3600)', () => {
     })
   })
 
-  it('Topology mode is a <select> from the editor mode set', async () => {
+  it('Topology mode is a <select> from the canonical editor mode set', async () => {
     await openDialog()
     const sel = (await screen.findByTestId('select-instance-topology')) as HTMLSelectElement
     expect(sel.tagName).toBe('SELECT')
-    // Constrained to the blueprint's supported modes (single-region +
-    // active-hot-standby → active-hotstandby).
+    // One vocabulary (#3375 DoD-1): the blueprint declares the legacy
+    // spelling (supported: ['single-region', 'active-hot-standby']) but
+    // the select offers the CANONICAL tokens it folds onto.
     const values = Array.from(sel.querySelectorAll('option')).map((o) => o.getAttribute('value'))
-    expect(values).toContain('single-region')
-    expect(values).toContain('active-hotstandby')
+    expect(values).toContain('singleton')
+    expect(values).toContain('active-hot-standby')
+    expect(values).not.toContain('single-region')
+    expect(values).not.toContain('active-hotstandby')
   })
 
   it('vCluster is a <select>', async () => {
@@ -185,7 +188,7 @@ describe('NewInstanceDialog — placement (#3599)', () => {
     const name = await screen.findByTestId('input-instance-name')
     fireEvent.change(name, { target: { value: 'wp-1' } })
     fireEvent.change(await screen.findByTestId('select-instance-org'), { target: { value: 'acme' } })
-    fireEvent.change(await screen.findByTestId('select-instance-topology'), { target: { value: 'active-hotstandby' } })
+    fireEvent.change(await screen.findByTestId('select-instance-topology'), { target: { value: 'active-hot-standby' } })
 
     const submit = (await screen.findByTestId('btn-submit-instance')) as HTMLButtonElement
     // No regions yet → disabled + validation hint visible.
@@ -205,7 +208,7 @@ describe('NewInstanceDialog — placement (#3599)', () => {
     await openDialog()
     fireEvent.change(await screen.findByTestId('input-instance-name'), { target: { value: 'wp-1' } })
     fireEvent.change(await screen.findByTestId('select-instance-org'), { target: { value: 'acme' } })
-    fireEvent.change(await screen.findByTestId('select-instance-topology'), { target: { value: 'active-hotstandby' } })
+    fireEvent.change(await screen.findByTestId('select-instance-topology'), { target: { value: 'active-hot-standby' } })
     fireEvent.click(await screen.findByTestId('region-checkbox-rgn-a'))
     fireEvent.click(await screen.findByTestId('region-checkbox-rgn-b'))
     fireEvent.change(await screen.findByTestId('select-instance-vcluster'), { target: { value: 'rtz' } })
@@ -217,7 +220,8 @@ describe('NewInstanceDialog — placement (#3599)', () => {
     expect(body.blueprint).toBe('wordpress')
     expect(body.org).toBe('acme')
     expect(body.name).toBe('wp-1')
-    expect(body.topology).toBe('active-hotstandby')
+    // One vocabulary (#3375 DoD-1): the canonical topology is POSTed.
+    expect(body.topology).toBe('active-hot-standby')
     expect(body.placement).toEqual({ vcluster: 'rtz', regions: ['rgn-a', 'rgn-b'] })
   })
 })

@@ -126,10 +126,37 @@ func logUnknownKeys(cfg map[string]any, knownKeys []string, appSlug string) {
 // Each tenant gets a real vCluster (not just a namespace).
 type ManifestGenerator struct {
 	BasePath string // e.g., "clusters/contabo-mkt/tenants"
+
+	// RegistryMirror is the Sovereign-local Harbor host the per-tenant
+	// vCluster images pull through (proxy-cache). Default
+	// "harbor.openova.io".
+	//
+	// MIRROR-EVERYTHING (#3760, Refs #3376 #3754): vcluster 0.33.x renders
+	// TWO ghcr.io images into the StatefulSet initContainers — the
+	// `loft-sh/kubernetes` k8s distro AND the `loft-sh/vcluster-oss`
+	// syncer — both of which the harbor-proxy-pull Kyverno ClusterPolicy
+	// (Enforce) DENIES because they don't match the `*/proxy-*/*` glob.
+	// generateVCluster re-tags both to `<mirror>/proxy-ghcr/loft-sh/...`,
+	// lockstep with bp-dmz/mgmt/rtz-vcluster and the org-controller's
+	// gitops.Render. Cutover Step-04 (ADR-0002) flips it to
+	// harbor.<sovereign-fqdn> post-handover.
+	RegistryMirror string
 }
+
+// defaultVClusterRegistryMirror is the bootstrap Harbor proxy host.
+const defaultVClusterRegistryMirror = "harbor.openova.io"
 
 func NewManifestGenerator(basePath string) *ManifestGenerator {
 	return &ManifestGenerator{BasePath: basePath}
+}
+
+// registryMirror returns the configured Harbor proxy host, falling back
+// to the bootstrap default when unset.
+func (g *ManifestGenerator) registryMirror() string {
+	if g.RegistryMirror == "" {
+		return defaultVClusterRegistryMirror
+	}
+	return g.RegistryMirror
 }
 
 func (g *ManifestGenerator) TenantDir(slug string) string {
@@ -204,7 +231,7 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 	// --- host-scoped files ---
 	hostFiles := map[string]string{
 		"namespace.yaml":         generateHostNamespace(hostNS, slug),
-		"vcluster.yaml":          generateVCluster(hostNS, slug, planSlug),
+		"vcluster.yaml":          generateVCluster(hostNS, slug, planSlug, g.registryMirror()),
 		"ingress.yaml":           generateHostIngress(hostNS, slug, appSlugs),
 		"apps-sync.yaml":         generateAppsSyncKustomization(hostNS, slug, g.BasePath),
 		"provisioning-rbac.yaml": generateProvisioningTenantRBAC(hostNS),
@@ -296,7 +323,7 @@ metadata:
 `, ns, slug)
 }
 
-func generateVCluster(ns, slug, planSlug string) string {
+func generateVCluster(ns, slug, planSlug, registryMirror string) string {
 	limits := planLimits(planSlug)
 	return fmt.Sprintf(`apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -318,14 +345,26 @@ spec:
       distro:
         k8s:
           enabled: true
+          # MIRROR-EVERYTHING (#3760): the k8s-distro image is
+          # initContainers[0] of the vcluster StatefulSet (vcluster 0.33.x
+          # renders ghcr.io/loft-sh/kubernetes:vX). The harbor-proxy-pull
+          # Kyverno ClusterPolicy (Enforce) DENIES it off ghcr.io — pull
+          # through the Sovereign Harbor proxy-cache so it matches the
+          # */proxy-*/* glob, lockstep with bp-dmz/mgmt/rtz-vcluster.
+          image:
+            registry: %s
+            repository: proxy-ghcr/loft-sh/kubernetes
       backingStore:
         database:
           embedded:
             enabled: true
       statefulSet:
+        # MIRROR-EVERYTHING (#3760): the syncer image is initContainers[1]
+        # (+ the main container). Pull it through the Sovereign Harbor
+        # proxy-cache too — ghcr.io is denied by harbor-proxy-pull.
         image:
-          registry: ghcr.io
-          repository: loft-sh/vcluster-oss
+          registry: %s
+          repository: proxy-ghcr/loft-sh/vcluster-oss
         resources:
           requests:
             cpu: 100m
@@ -358,7 +397,7 @@ spec:
       fromHost:
         ingressClasses:
           enabled: true
-`, ns, limits.CPULimit, limits.MemoryLimit, ns, ns)
+`, ns, registryMirror, registryMirror, limits.CPULimit, limits.MemoryLimit, ns, ns)
 }
 
 // generateAppsSyncKustomization emits the per-tenant Flux Kustomization CR

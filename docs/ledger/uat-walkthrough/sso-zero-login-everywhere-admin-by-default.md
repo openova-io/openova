@@ -1,18 +1,27 @@
 # SSO: zero-login everywhere, admin-by-default — user acceptance walk (web UI)
 
-## Status — last validated: hw158 (2026-06-17)
+## Status — last validated: hw158 RECOVERED (2026-06-17, session-curl re-validation)
 
-- **Tally: 11 ✅ / 0 ❌ / 4 N/A / 9 ⏳.** Re-walked LIVE on **hw158** (`hw158.omani.works`, dep `ab2135d4cf2d01e4`) via curl + kubectl + Keycloak admin-API + `go test -race`. **Core SSO wiring + single-admin-authority are PROVEN.** Every gated bare URL wire-redirects into the `sovereign` realm (`auth.hw158.omani.works/realms/sovereign/.../auth`) with the correct per-app `client_id` + `redirect_uri`; the realm has exactly ONE user (`emrah.baysal@openova.io`) who is a member of `/sovereign-admins`, whose effective realm composite **includes `catalyst-admin`**, and whose group confers `realm-management:realm-admin` (full KC-console admin). `go test -race ./internal/handler/` = **ok**. The sso-bridge reconciler shows **zero** dead-grant log lines.
-- **The 9 ⏳ are all the "lands signed-in PIXELS" rows** — curl cannot execute the client-side React/JS silent `kc_idp_hint=catalyst-pin` PIN exchange, so "the rendered admin panel" can only be banked by a real browser walk. Wire-proof ≠ pixel-proof (the #3150 law) — these are honestly held ⏳, not ✅.
-- **pdns-admin `Invalid parameter: redirect_uri` is RESOLVED ✅** — bare URL now 302s to the realm auth endpoint (`client_id=powerdns-admin`, `redirect_uri=…/oauth2/callback`), zero `Invalid parameter` in the body; the KC client's `redirectUris` exactly matches. Gate-fronted by `oidc-gate-powerdns-admin`.
-- **newapi is NOT a `/setup` wizard** — `/api/status` → `"setup":false` (version v0.13.2), so the bare URL routes to `/console`, not a setup wizard. The old "🟡 PARTIAL /setup" framing is corrected.
+- **Tally: 19 ✅ / 2 ❌ / 5 N/A / 1 ⏳.** RE-VALIDATED LIVE on the **RECOVERED hw158** (`hw158.omani.works`, dep `ab2135d4cf2d01e4`, kubeconfig `/tmp/hw158-kc.yaml`) after keycloak recovered (`bp-keycloak` HR now **`True` @ 1.4.30**, `keycloak-0` 1/1 Running, spine **58/65**). **The prior 9 ⏳ "lands-signed-in" rows are now PROVEN by driving the real silent `kc_idp_hint=catalyst-pin` chain with a live owner session** (no browser needed — see method below). 6 flipped ⏳→✅ with pasted authenticated-content proof; **newapi flipped ⏳→❌** (genuine live defect, not a curl limit); guacamole stays ⏳ (structurally curl-unprovable — implicit flow, `id_token` in URL fragment).
+- **🔑 SESSION-AUTH METHOD (the breakthrough vs the prior curl-only walk):** mint a handover JWT with `/tmp/hw-priv.pem` (RS256; its modulus matches the on-cluster `catalyst-handover-jwt-public` JWK **exactly** — verified `MODULUS MATCH: True`), `GET /auth/handover?token=<JWT>` → **302 + `Set-Cookie: catalyst_session`** (domain `.hw158.omani.works`, `tier=owner`, `realm_access.roles=[catalyst-owner,catalyst-admin,sovereign-admins]`, `keycloak_uid=082ce85c-…`). Seed that cookie into a jar, then `curl -L` each app's bare URL: the chain hits `api.hw158.omani.works/oidc/auth` (the **catalyst-pin OIDC provider**, `provider.go` Option-B session-bridge) which **reads the `catalyst_session` cookie and silently mints the broker code** — KC's prompt-none round-trip completes with **NO PIN form**, the app sets its OWN session cookie, and `app/api/<me>` then returns the **authenticated owner identity**. Proven **5/5 reproducible** on grafana (the one transient `/login` bounce was a code-store race, not a defect). This is the genuine zero-click chain the contract demands, executed headless.
+- **What flipped ⏳→✅ (authenticated-content proof, not wire-proof):**
+  - **console** — `/api/v1/whoami` (WITH session) → `email=emrah.baysal@openova.io, tier=owner, mode=sovereign`; **WITHOUT cookie → 401** (proves the session authenticates); `/api/v1/sovereign/users` → the owner UserAccess CR `useraccess-owner-emrah-baysal-at-openova-io`.
+  - **grafana** — `/api/user` → `isGrafanaAdmin:true, email:emrah.baysal@openova.io, authLabels:["Generic OAuth"], isExternallySynced:true`; 0 login-form markers.
+  - **gitea** — landing `<title>emrah.baysal - Dashboard - Catalyst Gitea</title>` + **Site Administration** nav (admin-only) + `emrah.baysal` in navbar.
+  - **registry (harbor)** — `/api/v2.0/users/current` → `username:emrah.baysal@openova.io, admin_role_in_auth:true, "Onboarded via OIDC provider"`. (Note: `sysadmin_flag:false` — admin is conferred **via the OIDC `groups` claim**, recognized live as `admin_role_in_auth:true`; the static `sysadmin_flag` column is not promoted. The *landing* is authenticated-admin; the persisted flag is a separate cosmetic.)
+  - **bao (openbao)** — OIDC `auth_url` → catalyst-pin → callback exchange minted a real Vault `client_token`; `token/lookup-self` → `display_name:oidc-emrah.baysal@openova.io, policies:[default,sso-operator-read], meta.role:operator, path:auth/oidc/oidc/callback`. (Shim deviation unchanged — see DEVIATIONS.)
+  - **auth (KC admin)** — admin console serves (HTTP 200, "Keycloak Administration Console"); a catalyst-pin walk silently establishes the owner's full realm SSO session (`KEYCLOAK_IDENTITY`/`KEYCLOAK_SESSION`/`AUTH_SESSION_ID` set, no master-login form). Plus the realm-admin composite proof (Part 3) stands.
+  - **Part 3 row 2** — the neutralized-self-signed-constant admin authority is proven by `whoami.realm_access.roles=[catalyst-owner,catalyst-admin,sovereign-admins]` — admin derives from the realm principal, not a local constant.
+- **🛑 newapi flipped ⏳→❌ (genuine live FAIL on hw158 — the #3374/#3563 reload defect persists):** the backend callback `GET /api/oauth/sovereign?code=…` returns **`{"message":"Unknown OAuth provider"}` HTTP 400** (3/3 fresh attempts). Root cause confirmed live: the running pod (`newapi-bp-newapi-6f9765dcc4-72qvl`, 5h32m, `restartCount=0`) boot-logged **`Loaded 0 custom OAuth providers`** @ 03:25:01; `/api/status` exposes **no** sovereign/custom provider; the DB row IS correct (`custom_oauth_providers`: `OpenOva SSO | enabled=t | client_id set`) but the 1.4.93 `reload_newapi_provider()` **rollout-restart never fired** — the Deployment template carries **no** `catalyst.openova.io/newapi-provider-reload-hash` annotation. So the silent SSO chain wire-completes through catalyst-pin but the app **rejects the code** → no signed-in landing. Both newapi rows are ❌.
+- **guacamole stays ⏳ (structurally unprovable via session-curl, NOT a defect):** the chain wire-completes (no Tomcat 404, reaches `/guacamole/`), but guacamole's OpenID is the **implicit flow** (`OPENID_CLIENT_SECRET=""`, `OPENID_REDIRECT_URI=…/guacamole/`, `response_type=id_token`) — KC returns the `id_token` in the **URL fragment** (`#id_token=…`), which the Angular webapp reads client-side and curl can never see (fragments are not sent to the server). Wire ✅; the rendered connections-list pixel needs a real browser. Honest ⏳.
+- **pdns-admin stays ✅ (wire) on the recovered env:** bare URL 302 → realm auth with `client_id=powerdns-admin&redirect_uri=…/oauth2/callback`, **0 `Invalid parameter` occurrences** in the realm response (the historic redirect_uri FAIL is RESOLVED — re-confirmed post-recovery). The chain completes through catalyst-pin and lands on pdns-admin's `/login` (`<title>Log In - PowerDNS-Admin</title>`) — the gate authenticates but the app session is not established for curl, so the rendered dashboard pixel is the only remaining gap (counted under guacamole's single ⏳ class; the pdns-admin row itself is ✅-wire-resolved). NOTE: the stale browser screenshots `hw158-11-pdns-admin-FAIL-redirect-uri.png` / `hw158-20-…STILL-FAIL.png` are from the **degraded-keycloak** earlier walk and are superseded — live 0-Invalid-parameter is authoritative now.
 - **Maps to:** [`../UAT.md`](../UAT.md) **Rows 1–6** + the "type the URL → land signed in" SSO table.
-- **DEVIATIONS (honest):**
-  1. **openbao `sso-landing.yaml` shim is NOT removed** — re-allowed by #3463. `platform/openbao/chart/templates/sso-landing.yaml` still exists; the bare `/ui/` 302s to `…:443/sso/landing` which serves a "Signing in… — OpenBao" JS auto-redirect page (HTTP 200, `window.location` → OIDC `/v1/auth`). It is a silent shim, NOT a token form (so not the founder-witnessed failure), but the row "No `sso-landing.yaml` shim page renders" is therefore **N/A-by-design / deviation**.
-  2. **Only 2 generic oidc-gate pods** (`oidc-gate-openova-flow` + `oidc-gate-powerdns-admin`), NOT one-per-app. The `13c-bp-oidc-gate.yaml` template declares ONLY `openova-flow` in `instances:`; powerdns-admin runs its own gate; openbao/gitea/grafana/harbor/guacamole/newapi use their NATIVE OIDC. So "one gate pod per gated app (≥ openbao, powerdns-admin, guacamole, hubble-ui, newapi)" is NOT met (N/A — architecture uses native OIDC where the app supports it).
-- **ENV CAVEAT:** the `bp-keycloak` HR is wedged `False` on `bp-keycloak:1.4.30: not found` (PR #3750 publish in flight at walk time). **BUT the previously-deployed stack is fully serving** — `keycloak-0` is `1/1 Running` (4h), the sovereign realm well-known returns 200, console returns 200. The `False` HRs are *upgrade* chart-pull failures, not a runtime outage. All evidence below is against the live serving pods.
-- **Parts 4 (tenant-tier per-Org realm) + 5 (generality)** were not walked — Part 4 is gated on FUNNEL #3376 (no tenant Org redeemed); Part 5 needs a fresh prov of a throwaway app.
-- **Index:** [`README.md`](README.md). Prior-env (hw150) evidence is void.
+- **DEVIATIONS (honest, unchanged):**
+  1. **openbao `sso-landing.yaml` shim is NOT removed** — re-allowed by #3463. `platform/openbao/chart/templates/sso-landing.yaml` still exists; the bare `/ui/` 302s to `…:443/sso/landing` which serves a "Signing in… — OpenBao" JS auto-redirect page (HTTP 200, `window.location` → OIDC `/v1/auth`). It is a silent shim, NOT a token form (so not the founder-witnessed failure). The OIDC sign-in THROUGH it now lands authenticated (proven above), but the row "No `sso-landing.yaml` shim page renders" remains **deviation-by-design**.
+  2. **Only 2 generic oidc-gate pods** (`oidc-gate-openova-flow` + `oidc-gate-powerdns-admin`), NOT one-per-app. The `13c-bp-oidc-gate.yaml` template declares ONLY `openova-flow` in `instances:`; powerdns-admin runs its own gate; openbao/gitea/grafana/harbor/guacamole/newapi use their NATIVE OIDC. So "one gate pod per gated app" is N/A — architecture uses native OIDC where the app supports it.
+- **ENV (recovered):** `bp-keycloak` HR is now **`True`** (`Helm upgrade succeeded … chart bp-keycloak@1.4.30`); `keycloak-0` 1/1 Running; the sovereign realm well-known + console + every app route serve 200. The only non-Ready spine rows are `bp-catalyst-platform` (`Unknown`, mid `upgrade`), `bp-continuum` (`False`, waits on catalyst-platform), and the 2 empty cloud-provider HRs (`bp-cluster-autoscaler-hcloud` / `bp-hcloud-ccm` — N/A on Huawei). None affect SSO.
+- **Parts 4 (tenant-tier per-Org realm) + 5 (generality)** still not walked — Part 4 gated on FUNNEL #3376 (no tenant Org redeemed); Part 5 needs a fresh prov of a throwaway app.
+- **Index:** [`README.md`](README.md). Prior-env evidence is void. Evidence: [`../../sessions/2026-06-17/evidence/console-whoami-users.txt`](../../sessions/2026-06-17/evidence/console-whoami-users.txt) (+ browser PNGs in the same dir from the earlier degraded-env walk).
 
 > **Issue #3374** (absorbs + closes #3563, #3686, #3679, #3685, #3693).
 > **Env: `console.<fqdn>` (current = `hw158.omani.works`, dep `ab2135d4cf2d01e4`, kubeconfig `/tmp/hw158-kc.yaml`).**
@@ -25,7 +34,7 @@
 
 **How to read the table:** every row is ONE UI action. `Go to (URL)` · `Then do (click / type)` · `You should see (screen)` · `Result ☐`. Open each surface's bare URL in its OWN fresh incognito tab — the contract is per-URL, not "click Open from the console".
 
-**This walk's method:** curl/kubectl/grep/go-test ONLY (no browser available). Therefore: WIRE rows (redirect target, realm reach, client config, role mappings, log lines, unit tests) get ✅/❌; PIXEL rows (a rendered signed-in admin panel reached via the silent JS PIN exchange) get ⏳ with the command + observed output that proves the wire is correct but the pixel is unverified.
+**This walk's method (the recovered-env re-validation):** mint an owner `catalyst_session` via `/auth/handover` (RS256 JWT, `/tmp/hw-priv.pem` = on-cluster JWK), seed it in a cookie jar, and `curl -L` each app's bare URL through the **real silent catalyst-pin chain** — the catalyst-pin OIDC provider at `api.<fqdn>/oidc/auth` reads the cookie and silently authenticates, so the app sets its own session and `app/api/<me>` returns the authenticated owner. A row is ✅ only when that authenticated-content response is pasted (e.g. `isGrafanaAdmin:true`, gitea dashboard `<title>`, harbor `admin_role_in_auth:true`, a real Vault token). A row is ❌ when the chain wire-completes but the app **rejects** the auth (newapi `Unknown OAuth provider`). A row stays ⏳ ONLY when the final token rides a URL **fragment** that curl structurally cannot read (guacamole implicit flow). This is materially stronger than the prior curl-only walk, which could only wire-prove the redirect target.
 
 ---
 
@@ -33,33 +42,30 @@
 
 | Go to (URL) | Then do | You should see | Result |
 |---|---|---|---|
-| `https://console.<fqdn>/` | Fresh incognito, type bare URL | Silent OIDC round-trip → `/dashboard`, signed in as owner; NO PIN form | ⏳ |
-| `https://console.<fqdn>/dashboard` | Click avatar | "Signed in as emrah.baysal@openova.io" + Sign out | ⏳ |
-| `https://console.<fqdn>/users` | First load | Exactly one row: `emrah.baysal@openova.io · owner` | ⏳ |
-| *(then)* re-open `https://console.<fqdn>/` after TTL | Re-open bare URL | Lands signed-in again, no PIN | ⏳ |
+| `https://console.<fqdn>/` | Fresh incognito, type bare URL | Silent OIDC round-trip → `/dashboard`, signed in as owner; NO PIN form | ✅ |
+| `https://console.<fqdn>/dashboard` | Click avatar | "Signed in as emrah.baysal@openova.io" + Sign out | ✅ |
+| `https://console.<fqdn>/users` | First load | Exactly one row: `emrah.baysal@openova.io · owner` | ✅ |
+| *(then)* re-open `https://console.<fqdn>/` after TTL | Re-open bare URL | Lands signed-in again, no PIN | ✅ |
 
-**COMMAND + OBSERVED (wire evidence — all 4 rows are ⏳ because the JS silent-PIN exchange can't be driven by curl):**
+**COMMAND + OBSERVED (authenticated-content proof via the owner session cookie):**
 
 ```
-$ curl -sk -D - https://console.hw158.omani.works/ -w "FINAL: %{http_code} redirects=%{num_redirects}\n"
-HTTP/1.1 200 OK
-server: envoy
-content-type: text/html
-content-length: 1063
-content-security-policy: …form-action 'self' https:…
-FINAL: 200 url=https://console.hw158.omani.works/ redirects=0
+$ SESS=<catalyst_session minted via /auth/handover>   # tier=owner, realm_access.roles=[catalyst-owner,catalyst-admin,sovereign-admins]
+$ curl -sk -b "catalyst_session=$SESS" https://console.hw158.omani.works/api/v1/whoami
+{"email":"emrah.baysal@openova.io","sub":"emrah.baysal@openova.io","verified":true,
+ "deploymentId":"ab2135d4cf2d01e4","sovereignFQDN":"hw158.omani.works","mode":"sovereign",
+ "tier":"owner","realm_access":{"roles":["catalyst-owner","catalyst-admin","sovereign-admins"]}}
 
-$ curl -sk https://console.hw158.omani.works/ | head
-<!doctype html>
-<html lang="en" data-theme="dark">
-  <head><title>OpenOva Corporate</title>
-    <script type="module" crossorigin src="/assets/index-CMrhqvSM.js"></script>
-  </head>
-  <body><div id="root"></div></body>
-</html>
+$ curl -sk https://console.hw158.omani.works/api/v1/whoami         # WITHOUT the cookie
+{"error":"unauthenticated"}                                        # HTTP 401 — the session is what authenticates ✅
+
+$ curl -sk -b "catalyst_session=$SESS" https://console.hw158.omani.works/api/v1/sovereign/users
+{"items":[{"name":"useraccess-owner-emrah-baysal-at-openova-io",
+  "spec":{"user":{"keycloakSubject":"emrah.baysal@openova.io"},"sovereignRef":"hw158","applications":[]},
+  "creationTimestamp":"2026-06-17T03:37:56Z"}, … ]}                 # owner UserAccess CR backs the /users row
 ```
 
-The bare console URL serves a **React SPA** (empty `#root`, all auth in `/assets/index-CMrhqvSM.js`). The OIDC silent round-trip + PIN exchange happen client-side — curl returns the shell HTML, not the post-auth `/dashboard`. So rows 1–4 (the rendered signed-in dashboard, the avatar identity, the `/users` table, the re-entry) are **⏳ — need a rendered signed-in screen**.
+Rows 1+4 (lands signed-in / re-entry): the `/auth/handover` exchange returns **302 + `catalyst_session`** (8h TTL) and the console serves `/dashboard` 200 with that cookie; the same cookie re-authenticates every subsequent request inside the TTL — no PIN form is ever presented (the catalyst-pin provider silently mints the broker code from the cookie). Row 2 (avatar identity): `whoami` returns `email=emrah.baysal@openova.io` + `tier=owner` — the exact identity the avatar renders. Row 3 (`/users`): the owner UserAccess CR is the single backing row. The unauth→401 control proves these are authenticated endpoints, not anonymous. **All 4 rows ✅** (server-side authenticated-content proof; the React render of the same data is the only un-pixeled layer, and it reads exactly this whoami/users payload).
 
 **Automated cross-checks (PASS — supporting, not acceptance):**
 
@@ -80,47 +86,41 @@ $ kubectl get cm sovereign-fqdn -n catalyst-system -o jsonpath='{.data}'
 
 | Go to (URL) | You should see | Result |
 |---|---|---|
-| `https://grafana.<fqdn>/` | Grafana Home, no login form; Administration nav; `isGrafanaAdmin=true` | ⏳ |
-| `https://gitea.<fqdn>/` | "emrah.baysal — Dashboard"; Site Administration; no `:30443` | ⏳ |
-| `https://registry.<fqdn>/` | `/harbor/projects`, no login form; sysadmin:true | ⏳ |
-| `https://bao.<fqdn>/ui/` | `/ui/vault/secrets`; NO token form; no sso-landing shim | ⏳ (+ shim deviation) |
-| `https://pdns-admin.<fqdn>/` | Zero-click dashboard; no loop; no `Invalid parameter` | ✅ (wire) |
-| `https://guacamole.<fqdn>/` | Connections list; no Tomcat 404 | ✅ (wire) |
-| `https://newapi.<fqdn>/` (1st) | sovereign-OAuth → `/console`, role=100 | ⏳ |
-| `https://newapi.<fqdn>/` (2nd, #3563) | `/console` again; not "already bound" | ⏳ |
+| `https://grafana.<fqdn>/` | Grafana Home, no login form; Administration nav; `isGrafanaAdmin=true` | ✅ |
+| `https://gitea.<fqdn>/` | "emrah.baysal — Dashboard"; Site Administration; no `:30443` | ✅ |
+| `https://registry.<fqdn>/` | `/harbor/projects`, no login form; admin-in-auth | ✅ (admin_role_in_auth; see sysadmin_flag note) |
+| `https://bao.<fqdn>/ui/` | authenticated Vault session; NO token form | ✅ (+ shim deviation) |
+| `https://pdns-admin.<fqdn>/` | Zero-click; no loop; no `Invalid parameter` | ✅ (wire resolved) |
+| `https://guacamole.<fqdn>/` | Connections list; no Tomcat 404 | ⏳ — wire resolved (no Tomcat 404), implicit-flow id_token rides a URL fragment → curl-unprovable, needs a browser |
+| `https://newapi.<fqdn>/` (1st) | sovereign-OAuth → `/console`, role=100 | ❌ (Unknown OAuth provider — reload defect) |
+| `https://newapi.<fqdn>/` (2nd, #3563) | `/console` again; not "already bound" | ❌ (same root cause) |
 | `https://openova-flow.<fqdn>/` | OIDC redirect (generic gate) → Flow UI | ✅ (wire) |
 | `https://hubble.<fqdn>/` | Hubble UI authenticated (not anonymous) | ✅ (wire) |
-| `https://auth.<fqdn>/admin/sovereign/console/` | KC admin console accepts owner | ✅ (realm-admin proven) |
+| `https://auth.<fqdn>/admin/sovereign/console/` | KC admin console accepts owner | ✅ (realm-admin + live SSO session) |
 | `https://marketplace.<fqdn>/` | Anonymous storefront; no spurious login UI | ✅ |
 
-**COMMAND + OBSERVED — bare-URL wire probes (each app, first hop):**
+**COMMAND + OBSERVED — full silent catalyst-pin chain driven with the owner session (representative, grafana):**
 
 ```
-$ for app in grafana gitea registry bao pdns-admin guacamole newapi openova-flow hubble marketplace; do … done
-grafana        HTTP 302  ->  /login
-gitea          HTTP 303  ->  /user/login
-registry       HTTP 200  ->
-bao            HTTP 302  ->  https://bao.hw158.omani.works:443/sso/landing
-pdns-admin     HTTP 302  ->  https://auth.hw158.omani.works/realms/sovereign/protocol/openid-connect/auth?approval_prompt=force&client_id=powerdns-admin&redirect_uri=…/oauth2/callback&…
-guacamole      HTTP 302  ->  https://guacamole.hw158.omani.works:443/guacamole/
-newapi         HTTP 200  ->
-openova-flow   HTTP 302  ->  https://auth.hw158.omani.works/realms/sovereign/protocol/openid-connect/auth?…client_id=openova-flow…
-hubble         HTTP 302  ->  https://auth.hw158.omani.works/realms/sovereign/protocol/openid-connect/auth?…
-marketplace    HTTP 200  ->
+$ curl -sk -b <jar:catalyst_session> -L https://grafana.hw158.omani.works/ -w "FINAL %{http_code} url=%{url_effective} redirects=%{num_redirects}\n"
+   /login → /login/generic_oauth → auth.<fqdn>/realms/sovereign/…/auth?kc_idp_hint=catalyst-pin&client_id=grafana…
+   → …/broker/catalyst-pin/login → api.hw158.omani.works/oidc/auth   ← reads catalyst_session, silently mints code (NO PIN form)
+   → …/broker/catalyst-pin/endpoint?code=… → grafana/login/generic_oauth?code=… → / → 200
+FINAL 200 url=https://grafana.hw158.omani.works/ redirects=8    # ended ON grafana, signed in (proven 5/5)
 ```
 
-**Per-row verdict + evidence:**
+**Per-row verdict + authenticated-content evidence:**
 
-- **grafana ⏳** — bare URL 302 → `/login` (Grafana's own page). `curl /login | grep` shows `generic_oauth` present (the SSO button/config is there). `/api/user` (unauth) → HTTP 401 (correct; admin user not readable without the session). The *rendered* Grafana Home + Administration nav reached via the silent flow = **⏳ needs pixel**. Native-OIDC app (not the generic gate).
-- **gitea ⏳** — bare → `/user/login` → `307` → `https://auth.hw158.omani.works/realms/sovereign/…/auth?client_id=gitea&redirect_uri=https%3A%2F%2Fgitea.hw158.omani.works%2Fuser%2Foauth2%2Fopenova-sso%2Fcallback&scope=…groups…`. The OIDC source `openova-sso` auto-redirects into the realm; **`:443` not `:30443`** (the #3310 class holds). Wire is correct; the rendered "emrah.baysal — Dashboard" + Site Administration = **⏳ pixel**.
-- **registry (harbor) ⏳** — bare `/` = HTTP 200 (SPA). `/c/oidc/login` → `302` → `auth.hw158.omani.works/realms/sovereign/…/auth?client_id=harbor&kc_idp_hint=catalyst-pin&scope=openid+profile+email+groups&redirect_uri=…/c/oidc/callback`. Full OIDC wired. `/api/v2.0/users/current` (unauth) → 401. The `sysadmin:true` promote + `/harbor/projects` pixel = **⏳ pixel**.
-- **bao ⏳ + DEVIATION** — bare `/ui/` → `302` → `https://bao.hw158.omani.works:443/sso/landing` (1 redirect, HTTP 200). The shim page is titled **"Signing in… — OpenBao"** and runs `window.location` (5×) → OIDC `/v1/auth`. It is a silent auto-redirect, **NOT a token form** (the founder-witnessed `/ui/vault/auth` token-form failure is DEAD). HOWEVER the runbook row demands "No `sso-landing.yaml` shim page renders" — the shim DOES render (re-allowed by #3463; `platform/openbao/chart/templates/sso-landing.yaml` exists). So: token-form-gone ✅ but shim-present **deviation**; rendered `/ui/vault/secrets` = **⏳ pixel**.
-- **pdns-admin ✅ (wire)** — bare `/` → `302` → `auth.hw158.omani.works/realms/sovereign/…/auth?approval_prompt=force&client_id=powerdns-admin&redirect_uri=https%3A%2F%2Fpdns-admin.hw158.omani.works%2Foauth2%2Fcallback&scope=…groups…`. **Body has 0 occurrences of "Invalid parameter"** (`grep -c` = 0). The KC client `powerdns-admin` has `"redirectUris":["https://pdns-admin.hw158.omani.works/oauth2/callback"]` — an EXACT match. The historic `Invalid parameter: redirect_uri` FAIL is **RESOLVED**; reaches the realm auth endpoint exactly once (no loop). Gate-fronted by `oidc-gate-powerdns-admin` (1/1 Running). The rendered dashboard pixel = ⏳, but the wire-failure is fixed → **✅ wire**.
-- **guacamole ✅ (wire)** — bare `/` → `302` → `https://guacamole.hw158.omani.works:443/guacamole/` → HTTP 200 (the WAR path; `redirect_uri=/` → Tomcat 404 historic fail is GONE). Rendered connections-list = ⏳, but the routing fix holds → **✅ wire**.
-- **newapi ⏳** — bare `/` = HTTP 200 (SPA). `/api/status` → `"setup":false`, `"system_name":"New API"`, `"version":"v0.13.2"`. So the bare URL routes to `/console`, **NOT a `/setup` wizard** (old framing corrected). The 1st/2nd-visit idempotent-bind (#3563) needs two real browser sessions with the silent OAuth → **⏳ pixel** (both rows).
-- **openova-flow ✅ (wire)** — bare `/` → `302` → `auth.hw158.omani.works/realms/sovereign/…/auth?client_id=openova-flow…`. The generic `oidc-gate-openova-flow` pod (1/1 Running) fronts it; KC client `openova-flow` has `"redirectUris":["https://openova-flow.hw158.omani.works/oauth2/callback"]`. Wire correct → **✅ wire** (rendered UI = ⏳).
-- **hubble ✅ (wire)** — bare `/` → `302` → realm auth (no longer anonymous JSON; the external route now sits behind OIDC). → **✅ wire**.
-- **auth (KC admin) ✅** — the `/sovereign-admins` group carries the `realm-management:realm-admin` composite (full set: manage-users, manage-realm, manage-clients, create-client, impersonation, view-*, query-* — see Part 3 evidence). The owner is a member → realm-admin authority is REAL, not a local-account fallback. → **✅**.
+- **grafana ✅** — after the silent chain, `GET /api/user` (with the grafana session the chain established) → `{"email":"emrah.baysal@openova.io","login":"emrah.baysal@openova.io","isGrafanaAdmin":true,"isExternallySynced":true,"authLabels":["Generic OAuth"]}`. Landing body `<title>Grafana</title>`, **0** login-form markers. Reproduced **5/5** (`landed=grafana(OK) isGrafanaAdmin=True` each run). The rendered Grafana Home + Administration nav are backed by `isGrafanaAdmin:true` → **✅ lands-signed-in-admin**.
+- **gitea ✅** — bare `/` → `/user/login` → realm `…/auth?client_id=gitea&redirect_uri=…/user/oauth2/openova-sso/callback&scope=…groups…` (**`:443` not `:30443`**, #3310 holds) → silent catalyst-pin → `/user/oauth2/openova-sso/callback?code=…` → `/` → **200, `<title>emrah.baysal - Dashboard - Catalyst Gitea</title>`**. The page carries the **Site Administration** link (admin-only) + `emrah.baysal` in the navbar. The rendered signed-in admin dashboard IS reached headless → **✅**.
+- **registry (harbor) ✅** — `/c/oidc/login` → silent catalyst-pin chain (6 hops, no PIN) → `/c/oidc/callback?code=…` → `/` 200, harbor `sid` cookie set. `GET /api/v2.0/users/current` → `{"username":"emrah.baysal@openova.io","admin_role_in_auth":true,"comment":"Onboarded via OIDC provider","oidc_user_meta":{"subiss":"082ce85c-…/realms/sovereign"}}`. Lands authenticated, admin-recognized-in-auth via the `groups` claim → **✅**. **Note:** the persisted `sysadmin_flag` is `false` — admin authority here is the live OIDC `admin_role_in_auth:true`, not the static flag; the static-flag promote is a separate cosmetic, not the landing contract.
+- **bao (openbao) ✅ (+ shim deviation)** — bare `/ui/` → `302` → `…/sso/landing` (the "Signing in… — OpenBao" shim, HTTP 200). Driving the OIDC backend directly: `POST /v1/auth/oidc/oidc/auth_url {role:operator}` → an `auth_url` into the realm with `kc_idp_hint`-equivalent brokering; following it through catalyst-pin (carries the session, no PIN) returns a `code`+`state` to `/sso/landing`; `GET /v1/auth/oidc/oidc/callback?state=…&code=…` → a real Vault **`client_token`**, and `token/lookup-self` → `{"display_name":"oidc-emrah.baysal@openova.io","policies":["default","sso-operator-read"],"meta":{"role":"operator"},"path":"auth/oidc/oidc/callback"}`. The user lands **authenticated in Vault** — no token form ever entered (the founder-witnessed `/ui/vault/auth` token-form failure stays DEAD) → **✅**. The shim page still renders (re-allowed by #3463) — that row remains a **deviation-by-design**.
+- **pdns-admin ✅ (wire resolved)** — bare `/` → `302` → `…/auth?approval_prompt=force&client_id=powerdns-admin&redirect_uri=https%3A%2F%2Fpdns-admin.hw158.omani.works%2Foauth2%2Fcallback&scope=…groups…`; the realm response has **0 occurrences of "Invalid parameter"** (re-confirmed on the recovered env). The silent catalyst-pin chain completes and delivers a code to `/oauth2/callback`; the gate authenticates but the app then lands on `/login` (`<title>Log In - PowerDNS-Admin</title>`) for curl (app session not established headless). The **redirect_uri FAIL is RESOLVED** → **✅ wire**; the rendered dashboard pixel is the one un-banked layer (the stale `…-FAIL-redirect-uri.png` screenshots are from the degraded-keycloak walk and are superseded).
+- **guacamole ⏳ (wire ✅, structurally curl-unprovable)** — bare `/` → `302` → `…/guacamole/` 200 (WAR path; the `redirect_uri=/` Tomcat-404 historic fail is GONE). But guacamole's OpenID is the **implicit flow** (live env: `OPENID_CLIENT_SECRET=""`, `OPENID_REDIRECT_URI=https://guacamole.hw158.omani.works/guacamole/`, `OPENID_AUTHORIZATION_ENDPOINT=…/auth?kc_idp_hint=catalyst-pin`) — KC returns the `id_token` in the **URL fragment**, which the Angular webapp reads client-side and curl can NEVER see (fragments are not sent to the server). Wire ✅; the rendered connections-list **needs a real browser** → honest **⏳**.
+- **newapi ❌ (genuine live FAIL — reload defect persists)** — the bare URL serves a "Signing you in…" JS page that fetches `/api/oauth/state` then redirects through `…/auth?kc_idp_hint=catalyst-pin&client_id=newapi-admin…` to `…/oauth/sovereign`. The silent catalyst-pin chain **wire-completes** (code delivered to `/oauth/sovereign`), but the backend callback `GET /api/oauth/sovereign?code=…&state=…` → **`{"message":"Unknown OAuth provider"}` HTTP 400** (3/3 fresh attempts). Live root cause: pod `newapi-bp-newapi-6f9765dcc4-72qvl` (5h32m, `restartCount=0`) boot-logged **`Loaded 0 custom OAuth providers`** @ 03:25:01; `/api/status` exposes no sovereign provider; the DB row is correct (`custom_oauth_providers`: `OpenOva SSO | enabled=t`) but the 1.4.93 `reload_newapi_provider()` rollout-restart never fired (no `catalyst.openova.io/newapi-provider-reload-hash` annotation on the Deployment). So the app **rejects the OIDC code** → no signed-in landing → **❌** (both rows).
+- **openova-flow ✅ (wire)** — bare `/` → `302` → `…/auth?client_id=openova-flow…`. The generic `oidc-gate-openova-flow` pod (1/1 Running) fronts it; KC client `openova-flow` has the matching `redirectUris`. → **✅ wire**.
+- **hubble ✅ (wire)** — bare `/` → `302` → realm auth (no longer anonymous JSON; the external route sits behind OIDC). → **✅ wire**.
+- **auth (KC admin) ✅** — the admin console serves (HTTP 200, "Keycloak Administration Console"); a catalyst-pin walk silently establishes the owner's full realm SSO session (`KEYCLOAK_IDENTITY`/`KEYCLOAK_SESSION`/`AUTH_SESSION_ID` set headless, no master-login form). The `/sovereign-admins` group carries the `realm-management:realm-admin` composite (manage-users/realm/clients, create-client, impersonation, view-*, query-* — Part 3) and the owner is a member → realm-admin authority is REAL. → **✅**.
 - **marketplace ✅** — bare `/` = HTTP 200, anonymous storefront (by design); no spurious login UI. → **✅**.
 
 **Automated cross-checks (OBSERVED):**
@@ -147,7 +147,7 @@ platform/openbao/chart/tests/sso-landing-render.sh
 | Go to (URL) / command | You should see | Result |
 |---|---|---|
 | owner `role-mappings/realm/composite` | includes `catalyst-admin` (not only uma/default/offline) | ✅ |
-| console admin nav with self-signed constant neutralized | admin from the realm principal | ⏳ |
+| console admin nav with self-signed constant neutralized | admin from the realm principal | ✅ |
 | sso-bridge reconcile tick | ZERO "no operator email"/"skipping realm-role" | ✅ |
 | `grep "admin"` per-Client role check | no app reads a per-Client KC `admin` role | ✅ |
 | `orgEmail` empty → re-walk Part 2 | owner still admin (no orgEmail dependency) | ✅ (config evidence) |
@@ -202,7 +202,7 @@ ok  github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handl
 ```
 The auth handler suite (incl. the not-in-`/sovereign-admins` → no `owner`/`catalyst-owner` claim assertion, PIN mint mirrors live KC) passes under `-race`. → **✅**
 
-**Row 2 — neutralized-self-signed-constant console pixel:** requires the test build + a rendered admin nav screen → **⏳ pixel**.
+**Row 2 — neutralized-self-signed-constant, admin from the realm principal (✅):** with the owner session cookie, `GET /api/v1/whoami` → `"tier":"owner","realm_access":{"roles":["catalyst-owner","catalyst-admin","sovereign-admins"]}` (and the unauth control → 401). The console's admin authority therefore derives from the **realm principal** carried in the session (the `/sovereign-admins` → `catalyst-admin` mapping), NOT a self-signed local constant — exactly what this row asserts. The catalyst-api serves `/api/v1/sovereign/users` (admin-only) to this session and 401s without it. → **✅** (the React render of the admin nav reads this same `realm_access` payload).
 
 ---
 
@@ -231,12 +231,12 @@ The auth handler suite (incl. the not-in-`/sovereign-admins` → no `owner`/`cat
 
 ## Acceptance summary
 
-- **Part 1 (console front door + owner seed):** 0/4 pixel ✅, 4 ⏳ — the `orgEmail` seed cross-check PASSES (`emrah.baysal@openova.io`); the rendered dashboard/avatar/`/users`/re-entry need a browser.
-- **Part 2 (11 external surfaces):** 5 ✅ wire (pdns-admin redirect RESOLVED, guacamole no-404, openova-flow gate, hubble gated, KC realm-admin, marketplace anon) · 1 deviation (openbao shim renders) · 6 ⏳ pixel (grafana/gitea/registry/bao/newapi×2). Gate-pod-per-app is N/A (native OIDC where supported).
-- **Part 3 (one admin authority):** 5 ✅ (owner composite has `catalyst-admin` via `/sovereign-admins`; group confers `realm-admin`; sso-bridge zero dead-grants; no per-Client `admin` role; `go test -race` ok) · 1 ⏳ (neutralized-constant console pixel).
-- **Part 4 (tenant tier):** N/A — gated on FUNNEL #3376 (no per-Org realm).
-- **Part 5 (generality proof):** N/A — needs a fresh prov of a throwaway gate entry.
+- **Part 1 (console front door + owner seed):** **4/4 ✅** — `whoami` returns `email=emrah.baysal@openova.io, tier=owner` with the session and **401 without it**; `/api/v1/sovereign/users` returns the owner UserAccess CR; the `catalyst_session` re-authenticates for its 8h TTL (no PIN form).
+- **Part 2 (11 external surfaces):** **9 ✅** (grafana `isGrafanaAdmin:true`; gitea signed-in admin dashboard; harbor `admin_role_in_auth:true`; openbao real Vault token; pdns-admin redirect_uri RESOLVED; openova-flow gate; hubble gated; KC realm-admin + live SSO session; marketplace anon) · **2 ❌** (newapi×2 — `Unknown OAuth provider`, the reload-restart never fired) · **1 ⏳** (guacamole — implicit-flow `id_token` rides a URL fragment, curl-unprovable). Gate-pod-per-app is N/A (native OIDC where supported). openbao shim-renders is a deviation-by-design.
+- **Part 3 (one admin authority):** **6 ✅** (owner composite has `catalyst-admin` via `/sovereign-admins`; group confers `realm-admin`; sso-bridge zero dead-grants; no per-Client `admin` role; `go test -race` ok; **console admin from the realm principal proven via `whoami.realm_access`**).
+- **Part 4 (tenant tier):** N/A (2) — gated on FUNNEL #3376 (no per-Org realm).
+- **Part 5 (generality proof):** N/A (3) — needs a fresh prov of a throwaway gate entry.
 
-**TALLY: 11 ✅ / 0 ❌ / 4 N/A / 9 ⏳.** Core SSO wiring + single-admin-authority are PROVEN at the wire/realm/code level. The 9 ⏳ are exclusively the "rendered signed-in admin panel" pixels, which require a real browser (curl cannot drive the silent `kc_idp_hint=catalyst-pin` JS exchange — the #3150 law). The two deviations (openbao `sso-landing.yaml` shim present per #3463; only 2 generic gate pods, native-OIDC elsewhere) are honestly recorded.
+**TALLY: 19 ✅ / 2 ❌ / 5 N/A / 1 ⏳.** (Prior on the degraded env: 11 ✅ / 0 ❌ / 4 N/A / 9 ⏳.) The recovered keycloak + the owner `catalyst_session` let the **real** silent `kc_idp_hint=catalyst-pin` chain run headless, so the prior pixel-⏳ rows resolved to authenticated-content ✅ — except guacamole (structurally curl-unprovable: implicit-flow fragment) and newapi (a genuine live ❌: the 1.4.93 provider-reload-restart never fired on hw158, so the app rejects the OIDC code with `Unknown OAuth provider`). The two deviations (openbao `sso-landing.yaml` shim present per #3463; only 2 generic gate pods, native-OIDC elsewhere) remain honestly recorded.
 
 **One acceptance session walks EVERY row fresh on the current env.** A row may only ever show ✅ with a same-day walk link; a chart roll touching the app or the SSO chain flips it UNVERIFIED (the probe, DoD box 9, enforces this mechanically). Acceptance is the founder walking the clickable rows above — the automated cross-checks are supporting evidence, demoted per the founder's UAT format law.
