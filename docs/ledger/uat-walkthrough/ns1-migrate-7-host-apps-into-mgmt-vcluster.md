@@ -273,3 +273,77 @@ count = 0 for all 7, placement.yaml still `vcluster: host`) does not require a b
 conclusive: **the 7 apps are NOT in the mgmt vCluster on hw158.** Automated checks are appendix only,
 demoted per the UAT format law — and the placement-conformance audit's exit-0 is the masking trap, NOT
 a migration proof.
+
+---
+
+## WHY the flip was never done — the two governing constraints (root-cause, #3642 chart audit 2026-06-17)
+
+The walk above proves the flip *didn't happen*; this section is the *why* and the *unblock path*.
+The canonical write-up is the §4 exception block in
+`clusters/_template/bootstrap-kit/placement.yaml`. There are TWO independent blockers, and the
+host-bridge (#3642) only solves the first.
+
+### Constraint #1 — vCluster CRD-sync is loft.sh Free-tier, not pure-OSS
+Re-homing a chart that ships an HTTPRoute / ExternalSecret / CNPG `Cluster` CR needs the syncer to
+register those CRDs in the vCluster and mirror the CRs `toHost` so the host Cilium Gateway / ESO /
+cnpg-operator (host-minimum substrate) reconcile them. `sync.toHost.customResources` is a **Free-tier**
+feature needing a permanent `admin.loft.sh` tether — forbidden by the Pillar-5 600s deny-egress hold.
+The **HOST-BRIDGE (#3642)** answers this: keep the route/secret/CNPG CR HOST-rendered (declared as
+`hostBridge:` data, transcribed by `render-slot-placement.py`), re-home only the workload pod.
+
+### Constraint #2 — a host-rendered Secret can't cross host→vCluster on OSS vcluster 0.21.0
+The deeper blocker the host-bridge alone does NOT solve, and the actual reason both prior flips were
+reverted. Every one of the 7 apps' workload pods needs a Secret **minted on the host** delivered
+**into** the vCluster — a CNPG-operator DB credential and/or a host-ESO SSO Secret. No OSS 0.21.0
+mechanism delivers it:
+- `sync.fromHost.secrets` (host→vCluster Secret mirror) **does not exist until vcluster 0.23.0**
+  (0.21.0 rejects the unknown config key at parse, breaking the syncer).
+- an in-vCluster `ExternalSecret` can't reconcile — ESO is a host-minimum substrate (slot 15),
+  `toHost` CR sync is Pro-gated/inert on OSS.
+
+So a re-homed pod hangs on `MountVolume.SetUp … secret "<name>" not found` (keycloak-0 SHARED_PG,
+**#3737**) or boots without its SSO/DB env (grafana zero-click never lands, **#3731**;
+harbor/gitea/newapi DB DSN empty). This is INDEPENDENT of Constraint-#1 — even a perfect host-bridge
+leaves Constraint-#2 wedging the workload.
+
+### Per-app blocker matrix (chart audit, file:line in the slot/chart)
+
+| App (slot) | Host-produced Secret the workload consumes | Producer (host-side) | Extra |
+|---|---|---|---|
+| keycloak (09) | `keycloak-database-secret` (SHARED_PG mode only) | reflector ← slot-16a shared-data | Also **SSO seed root** for 8 HRs; clean only on the DEFAULT prov |
+| grafana (25) | `grafana-sso-oidc-credentials` (env `GF_AUTH_GENERIC_OAUTH_*`) | host ESO `vault-region1` | Raw ES also trips the #3731 dry-run deadlock if host-bridged unguarded |
+| openbao (08) | `openbao-sso-oidc-credentials` (mounted `/etc/sso-creds`) | host ESO `vault-region1` | Also **IS** the ESO backend (`vault-region1` ClusterSecretStore) → host-pinned by role |
+| harbor (19) | `harbor-database-secret` + `harbor-sso-oidc-credentials` | reflector ← CNPG `harbor-pg-app`; host ESO | CNPG `Cluster` CR rendered by chart |
+| gitea (10) | `gitea-database-secret` + `gitea-oauth-source-credentials` (+ S3) | reflector ← CNPG `gitea-pg-app`; host ESO; seaweedfs reflector | CNPG `Cluster` CR rendered by chart |
+| newapi (80) | `<release>-newapi-db-dsn` (`SQL_DSN`) | sync-job ← CNPG `<cluster>-app` | OIDC/session secrets ARE chart-self-contained; DB DSN is the blocker |
+| guacamole (52) | `guacamole-pg-app` (`POSTGRESQL_PASSWORD`, mounted directly) | host cnpg-operator | OIDC IS chart-self-contained (`lookup`-or-generate); DB is the blocker |
+
+Two apps are host-pinned **structurally** beyond Constraint-#2: **openbao** (it IS the host ESO
+backend) and **keycloak** (it IS the SSO seed root every other app's OIDC ExternalSecret reads).
+
+### Can any of the 7 flip SAFELY now? — No.
+Evaluated all 7 against "does the workload consume a host-produced Secret that must cross the
+boundary?" — **all 7 = yes**. There is **no safe partial flip**; flipping any reproduces the exact
+#3737/#3731 terminal wedge. The 3 truly clean apps (valkey/seaweedfs/vllm — no route, no secret, no
+CNPG) already moved in Batch A.
+
+## The actual #3642 hard part — unblock checklist (the PARKED #3719 train)
+
+- [ ] **Bump vcluster to ≥0.23.0** in the bp-{mgmt,rtz,dmz}-vcluster merged charts so
+      `sync.fromHost.secrets` exists (genuine OSS from 0.23.0, not Pro-gated). Re-validate the
+      existing syncer features (Service sync, init-manifests CRD deploy) survive the bump.
+- [ ] **Map each app's host-produced Secret host→vCluster** via `sync.fromHost.secrets`:
+      `<app>-database-secret`, `<app>-sso-oidc-credentials`, and (newapi) `<release>-newapi-db-dsn`.
+- [ ] **Lift the raw `ExternalSecret` OUT of the atomic bootstrap-kit Flux Kustomization** for the
+      route+SSO apps (#3731): a separate Flux Kustomization that `dependsOn` slot-15 bp-external-
+      secrets, OR an early-slot raw-CRD pre-install for `external-secrets.io` (mirroring how
+      cloud-init pre-applies the gateway-api CRDs). Do NOT replace the chart's `.Capabilities`-guarded
+      ES with an unguarded raw copy inside the monolithic Kustomization.
+- [ ] **CNPG class only** — host-render the `Cluster` CR (§5d) and wire the in-vCluster pod to the
+      host PostgreSQL **cross-cluster** (the host cnpg-operator can't see a CR inside the vCluster on
+      OSS): the pod dials `<pg-svc>-x-shared-data-x-mgmt-vcluster` (or the host PG Service).
+- [ ] **Keep openbao + keycloak host** (structural): openbao IS the ESO backend; keycloak IS the SSO
+      seed root. Re-evaluate only if the ESO `ClusterSecretStore` can target an in-vCluster Vault and
+      the OIDC seed can be consumed by host-side ExternalSecrets cross-cluster — both impossible on OSS.
+- [ ] **Then** flip each app one-field (`vcluster: host → mgmt`) + add its `hostBridge:` block,
+      `render-slot-placement.py fix`, and walk PART A–E above per app on a fresh zero-touch prov.
