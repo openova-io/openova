@@ -150,8 +150,17 @@ func main() {
 		slog.Error("failed to create job indexes", "error", err)
 		os.Exit(1)
 	}
+	// Ensure the partial unique index on (tenant_id, in-flight status) backing
+	// the provision-dedup guarantee (#3744) so a credit-covered checkout that
+	// fires the create entrypoint twice (event + HTTP) can't race itself into a
+	// failed tenant via a duplicate Gitea commit on the shared sme-tenants branch.
+	if err := provisionStore.EnsureProvisionIndexes(idxCtx); err != nil {
+		idxCancel()
+		slog.Error("failed to create provision indexes", "error", err)
+		os.Exit(1)
+	}
 	idxCancel()
-	slog.Info("provisioning job indexes ensured")
+	slog.Info("provisioning job + provision indexes ensured")
 	generator := gitops.NewManifestGenerator(gitBasePath)
 	// #3760 (Refs #3376 #3754) MIRROR-EVERYTHING: the Sovereign-local Harbor
 	// host the per-tenant vCluster images pull through. Without proxying, the
