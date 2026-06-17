@@ -294,9 +294,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "97214e9"
+    tag: "5e95cea"
   catalystUi:
-    tag: "97214e9"
+    tag: "5e95cea"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -623,10 +623,7 @@ controllers:
       # — drops cross-namespace ownerRef on the host-side Flux CRs
       # (was being silently GC'd by the K8s collector because
       # Application lives in a different namespace from flux-system).
-      # d2e8c02 (2026-06-17) — freshness-guard bump: 6dea4c7 was 58 commits
-      # behind GHCR latest (>50 threshold). The catalyst-build sweep had not
-      # re-pinned application-controller; bumped to current main HEAD.
-      tag: "d2e8c02"
+      tag: "6dea4c7"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -1183,81 +1180,6 @@ smeTenants:
     org: openova
     repo: openova
     branch: sme-tenants
-
-# ─── catalog-sovereign Flux source (#3668) ───────────────────────────
-# The LOAD-BEARING half of #3668: a console catalog edit (or curate) →
-# catalyst-api writes the full Blueprint CR into the local Gitea repo
-# `openova/openova`@`catalog-sovereign` (writeCatalogSovereignAggregator
-# in internal/handler/catalog_edit_git.go) → the openova-catalog-sovereign
-# GitRepository + catalog-sovereign Kustomization reconcile it into a LIVE
-# Blueprint CR (surviving `helm upgrade`, the §9.1/9.4 revert-immunity).
-#
-# This block is what the catalog-sovereign-flux/* templates read. PR #3710
-# landed the four templates (catalog-sovereign-gitrepository.yaml,
-# catalog-sovereign-gitrepo-auth-secret.yaml, catalog-sovereign-
-# kustomization.yaml, catalog-sovereign-repo-bootstrap-job.yaml) but DROPPED
-# this matching values block — so `.Values.catalogSovereign` was nil:
-#   - the GitRepository's `{{- if $gr.secretRef }}` rendered NO secretRef →
-#     anonymous clone → "authentication required" forever (proven live on
-#     hw158: openova-catalog-sovereign GitRepository READY=False,
-#     secretRef:<none>);
-#   - the catalog-sovereign Kustomization then sat "Source artifact not
-#     found", so a committed edit never reached the in-cluster Blueprint CR
-#     (`kubectl get blueprint bp-alloy -o jsonpath='{.spec.card.summary}'`
-#     stayed empty).
-# This block is the exact byte-twin of the smeTenants block above (the
-# proven #3454 pattern); only org-coordinates + names differ.
-catalogSovereign:
-  # ─── openova-catalog-sovereign Flux GitRepository ──────────────────
-  # Rendered by catalog-sovereign-flux/catalog-sovereign-gitrepository.yaml.
-  # Tracks the dedicated `catalog-sovereign` branch on the local Gitea repo
-  # (immune to the cutover gitea-mirror Job's `git push --mirror --force` of
-  # `main`, same TBD-C18e isolation the sme-tenants branch uses).
-  gitRepository:
-    # Resource name — appears in `kubectl get gitrepository -n flux-system`.
-    name: openova-catalog-sovereign
-    # flux-system alongside the cluster's other GitRepositories.
-    namespace: flux-system
-    # In-cluster Gitea endpoint the source clones from.
-    apiURL: "http://gitea-http.gitea.svc.cluster.local:3000"
-    org: openova
-    repo: openova
-    branch: catalog-sovereign
-    interval: 1m
-    # bp-gitea sets service.REQUIRE_SIGNIN_VIEW=true (platform/gitea/chart/
-    # values.yaml) which makes ANONYMOUS git clone return 401 even for a
-    # public repo (proven live on hw133/hw158). So the GitRepository carries
-    # a secretRef to a Flux basic-auth Secret holding the catalyst-gitea-token
-    # PAT. The Secret is created by the catalyst-gitea-token mint Job at
-    # runtime (catalyst-gitea-token-secret.yaml — it already holds the PAT
-    # bytes post-mint, sidestepping the render-time `lookup` race that left
-    # the previous lookup-based auth-secret template permanently un-emitted).
-    secretRef:
-      # Name of the Flux basic-auth Secret in flux-system. Created by the
-      # catalyst-gitea-token mint Job (and rendered as a fallback by
-      # catalog-sovereign-gitrepo-auth-secret.yaml when the PAT lookup
-      # succeeds at render time).
-      name: openova-catalog-sovereign-git-auth
-      # Gitea account the PAT belongs to (matches CATALYST_GITOPS_USER in
-      # api-deployment.yaml). The PAT is sourced from catalyst-gitea-token.
-      username: gitea_admin
-      patSourceSecretName: catalyst-gitea-token
-      patSourceKey: token
-  # ─── Pre-cutover catalog-sovereign branch bootstrap (#3668) ─────────
-  # The catalog-sovereign branch + per-Sovereign aggregator directory do
-  # NOT exist pre-cutover. Without them the GitRepository is NotReady and
-  # the Kustomization reports `path not found`. The pre-install hook Job
-  # rendered by catalog-sovereign-flux/catalog-sovereign-repo-bootstrap-job
-  # .yaml (weight 13, after the SME repo-bootstrap that auto-inits the repo)
-  # ensures the branch + an empty README marker via the Gitea API so the
-  # source is Ready from first convergence with zero curated Blueprints.
-  # MUST stay in sync with gitRepository.{org,repo,branch} above and the
-  # catalogSovereignAgg{Org,Repo,Branch} consts in catalog_edit_git.go.
-  repoBootstrap:
-    giteaInternalURL: "http://gitea-http.gitea.svc.cluster.local:3000"
-    org: openova
-    repo: openova
-    branch: catalog-sovereign
 
 # ─── Per-Organization public HTTPRoutes (issue #1629 follow-up) ───────
 # PowerDNS now resolves `<slug>.<parentDomain>` for every Org that maps
