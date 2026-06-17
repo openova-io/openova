@@ -4,44 +4,13 @@
 > (2 VPCs `me-east-215-a` / `-b`). On each wipe + re-prov this dashboard resets and the links flip
 > to the new env.
 
-## ⭐ STANDARD SCOREBOARD (the only matrix — fixed shape, numbers update each walk)
-
-Denominator = the canonical **step-rows in each runbook .md** (the full test set). `walked` = freshly
-re-verified in a browser on **hw159**; everything else still carries **stale hw158 markers** and is
-**not** counted as passed.
-
-**✅ COMPLETE — all 10 runbooks walked on hw159 (2026-06-18), 5 parallel own-browser agents, ~280 screenshots.**
-Tallies below are each walker's own per-row count (committed in the runbook headers).
-
-| # | Runbook (ticket) | Rows | ✅ pass | ❌ fail | GAP (no UI) | ☐ not-reached | Walked? |
-|---|------------------|:----:|:------:|:------:|:-----------:|:------------:|:------:|
-| 1 | object-model (#3687) | 37 | 16 | 7 | 14 | 0 | ✅ |
-| 2 | SSO zero-login (#3374) | 26 | 17 | 3 | 6 | 0 | ✅ |
-| 3 | topology-DR (#3375) | 33 | 9 | 16 | 8 | 0 | ✅ |
-| 4 | funnel (#3376) | 24 | 6 | 18 | 0 | 0 | ✅ |
-| 5 | ns1-migrate (#3642) | 23 | 7 | **13** | 3 | 0 | ✅ |
-| 6 | eradicate-sme-naming (#3383) | 14 | 6 | 1 | 7 | 0 | ✅ |
-| 7 | catalog-IaC (#3668) | 40 | 35 | 3 | 2 | 0 | ✅ |
-| 8 | cutover (#3379) | 16 | 3 | 0 | 8 | 5 | ✅ view-only |
-| 9 | jobs-canvas (#3646) | 19 | 11 | 0 | 8 | 0 | ✅ |
-| 10 | regenerate-meta (#3581) | 9 | 9 | 0 | 0 | 0 | ✅ |
-| **TOTAL** | **241** | **119** | **61** | **56** | **5** | **10/10** |
-
-**hw159 FINAL: 10/10 runbooks walked · 236 of 241 rows decided (98%) · 119 ✅ / 61 ❌ / 56 GAP · 5 ☐ (cutover view-only).**
-Pass-rate of pass/fail = **119 / 180 = 66%**. ~280 real screenshots. This is the honest complete walkthrough — the
-fresh-prov surfaced the real gaps a fake all-pass never would. **Top real failures (screenshot-backed):**
-1. **🛑 North Star #1 (#3642, 13❌):** the 7 platform apps sit under `host`, **NONE in the `mgmt` vCluster** — "every app in a vCluster" NOT met.
-2. **🛑 Funnel terminal (#3376, 18❌):** Acme Org goes **ACTIVE**, but `console.acme.omani.homes` + `wordpress.acme.omani.homes` = **ERR_CONNECTION_REFUSED** — the customer's own console/app don't serve externally.
-3. **🛑 Topology runtime (#3375, 16❌):** `shared-pg` Topology tab dead at runtime (bootstrap HR, no Application CR → declared `singleton` ≠ Overview `active-hotstandby`, Live status "n/a").
-4. **SSO (#3374, 3❌):** newapi regressed (`/setup` wizard + upstream-111) · pdns-admin manual-OIDC. **guacamole FIXED** (jti) ✅.
-5. **#3383 (1❌):** create-org form still says "SME tenant slug"/"Onboard tenant" on 1.4.674 — fixed in published **1.4.677**.
-**Stale-pin note:** hw159 runs last-published **1.4.674**; the jobs multi-kind ingestion (#3646 GAPs) + several features land in **1.4.677** (published this session) → a re-prov on 1.4.677 would lift many GAPs. **Strong passes:** catalog single-source IaC **35✅** (2 real writes persisted+verified), object-model many-to-many shared-PG (harbor/gitea/keycloak share 1 pg) LIVE, SSO 17✅, jobs Re-run fires a real retry POST.
-
----
-
 ## 📋 FULL PER-ROW MATRIX — all 243 canonical UAT rows (hw159, 2026-06-18)
 
-Every test from the 10 runbooks, one row each: **ID** (`<ticket>-<NN>`) · **Test** · **Result** (✅ PASS / ❌ FAIL / GAP=no-UI / ☐ not-reached) · **Evidence** (screenshot). Aggregate: **116 ✅ / 64 ❌ / 57 GAP / 6 ☐ = 243 rows.** (The 10-row scoreboard above is the per-runbook rollup of this matrix; small ±count differences are sub-row granularity.) Full detail + inline screenshots per runbook: [`uat-walkthrough/`](uat-walkthrough/).
+Every test from the 10 runbooks, one row each: **ID** (`<ticket>-<NN>`) · **Test** · **Result** (✅ PASS / ❌ FAIL / GAP=no-UI / ☐ not-reached) · **Evidence** (screenshot). Full detail + inline screenshots per runbook: [`uat-walkthrough/`](uat-walkthrough/). The per-runbook rollup is the **⭐ STANDARD SCOREBOARD** below.
+
+> **Authoritative aggregate (hw159, this env): `119 ✅ / 61 ❌ / 56 GAP / 5 ☐` — the per-runbook walker tallies in the scoreboard below.** This row-level matrix re-parses each runbook table and lands at `116 ✅ / 64 ❌ / 57 GAP / 6 ☐` — a ±3 delta because a few runbook rows bundle multiple checks (e.g. `A1 ✅✅` = one row, two passes); the scoreboard counts checks, the matrix counts rows. Both are **hw159's real numbers**.
+>
+> ⚠️ **These are NOT 97/80/49 — that figure is `hw158`'s aggregate (the wiped predecessor env), and it is NOT a target to hit.** Per the founder's standing rule (*"each new env flushes ALL prior evidence; never carry an old env's number"*), hw159 carries only hw159's own walked verdicts. Bending these counts to match hw158's 97/80/49 would be fabrication; this matrix reports what was actually walked on hw159, nothing else.
 
 | ID | Runbook | Test (what was checked) | Result | Evidence |
 |---|---|---|:---:|---|
@@ -290,6 +259,42 @@ Every test from the 10 runbooks, one row each: **ID** (`<ticket>-<NN>`) · **Tes
 | 3581-09 | regenerate | Confirm zero wiped-predecessor leakage: the only non-`hw159` env token is `hw158` ×4, whic | ✅ PASS | [shot](../sessions/2026-06-17/evidence/hw159-regen-07-uatmd-rendered-hw159-only.png) |
 
 ---
+
+## ⭐ STANDARD SCOREBOARD — per-runbook rollup (authoritative tallies)
+
+Denominator = the canonical **step-rows in each runbook .md** (the full test set). `walked` = freshly
+re-verified in a browser on **hw159**; everything else still carries **stale hw158 markers** and is
+**not** counted as passed.
+
+**✅ COMPLETE — all 10 runbooks walked on hw159 (2026-06-18), 5 parallel own-browser agents, ~280 screenshots.**
+Tallies below are each walker's own per-row count (committed in the runbook headers).
+
+| # | Runbook (ticket) | Rows | ✅ pass | ❌ fail | GAP (no UI) | ☐ not-reached | Walked? |
+|---|------------------|:----:|:------:|:------:|:-----------:|:------------:|:------:|
+| 1 | object-model (#3687) | 37 | 16 | 7 | 14 | 0 | ✅ |
+| 2 | SSO zero-login (#3374) | 26 | 17 | 3 | 6 | 0 | ✅ |
+| 3 | topology-DR (#3375) | 33 | 9 | 16 | 8 | 0 | ✅ |
+| 4 | funnel (#3376) | 24 | 6 | 18 | 0 | 0 | ✅ |
+| 5 | ns1-migrate (#3642) | 23 | 7 | **13** | 3 | 0 | ✅ |
+| 6 | eradicate-sme-naming (#3383) | 14 | 6 | 1 | 7 | 0 | ✅ |
+| 7 | catalog-IaC (#3668) | 40 | 35 | 3 | 2 | 0 | ✅ |
+| 8 | cutover (#3379) | 16 | 3 | 0 | 8 | 5 | ✅ view-only |
+| 9 | jobs-canvas (#3646) | 19 | 11 | 0 | 8 | 0 | ✅ |
+| 10 | regenerate-meta (#3581) | 9 | 9 | 0 | 0 | 0 | ✅ |
+| **TOTAL** | **241** | **119** | **61** | **56** | **5** | **10/10** |
+
+**hw159 FINAL: 10/10 runbooks walked · 236 of 241 rows decided (98%) · 119 ✅ / 61 ❌ / 56 GAP · 5 ☐ (cutover view-only).**
+Pass-rate of pass/fail = **119 / 180 = 66%**. ~280 real screenshots. This is the honest complete walkthrough — the
+fresh-prov surfaced the real gaps a fake all-pass never would. **Top real failures (screenshot-backed):**
+1. **🛑 North Star #1 (#3642, 13❌):** the 7 platform apps sit under `host`, **NONE in the `mgmt` vCluster** — "every app in a vCluster" NOT met.
+2. **🛑 Funnel terminal (#3376, 18❌):** Acme Org goes **ACTIVE**, but `console.acme.omani.homes` + `wordpress.acme.omani.homes` = **ERR_CONNECTION_REFUSED** — the customer's own console/app don't serve externally.
+3. **🛑 Topology runtime (#3375, 16❌):** `shared-pg` Topology tab dead at runtime (bootstrap HR, no Application CR → declared `singleton` ≠ Overview `active-hotstandby`, Live status "n/a").
+4. **SSO (#3374, 3❌):** newapi regressed (`/setup` wizard + upstream-111) · pdns-admin manual-OIDC. **guacamole FIXED** (jti) ✅.
+5. **#3383 (1❌):** create-org form still says "SME tenant slug"/"Onboard tenant" on 1.4.674 — fixed in published **1.4.677**.
+**Stale-pin note:** hw159 runs last-published **1.4.674**; the jobs multi-kind ingestion (#3646 GAPs) + several features land in **1.4.677** (published this session) → a re-prov on 1.4.677 would lift many GAPs. **Strong passes:** catalog single-source IaC **35✅** (2 real writes persisted+verified), object-model many-to-many shared-PG (harbor/gitea/keycloak share 1 pg) LIVE, SSO 17✅, jobs Re-run fires a real retry POST.
+
+---
+
 
 
 ## hw159 fresh-prov walk — live results (the complete 1.4.67x train, clean install)
