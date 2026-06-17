@@ -11,7 +11,9 @@ spec:
   # 1.3.6 (#3149): webhook-gate non-fatal — no more fatal-hook→stuck-uninstall cascade.
   # 1.3.7 (#3499): config.webhooks.objectSelector excludes the cilium CNI stack so a
   # cilium roll can always recreate its agent (breaks the apiserver-return-path deadlock).
-  version: 1.3.7
+  # 1.3.8 (#3735): MIRROR-EVERYTHING — 4 controller registries + kyvernopre init image
+  # re-pointed from ghcr.io / reg.kyverno.io to harbor.openova.io/proxy-ghcr/kyverno/*.
+  version: 1.3.8
   card:
     title: Kyverno
     family: guardian

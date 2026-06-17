@@ -41,7 +41,25 @@ name: bp-flux
 # verbs grant exists); the silent failure was diagnostic-blind, not
 # RBAC-blind. The Chart.yaml bump here exists so the bootstrap-kit
 # pin auto-sync hook propagates the new image into fresh provs.
-version: 1.2.6
+#
+# 1.2.7 (#3735, 2026-06-17): MIRROR-EVERYTHING + source-controller self-DoS fix.
+# (1) All 6 Flux controller images + the flux-cli pre-install-hook image were
+# pulled ghcr.io DIRECT (the flux2 2.14.1 chart has NO chart-wide registry knob
+# and uses FLAT `<controller>.image` scalars, so the inert `global.imageRegistry`
+# moved nothing). Re-pointed each scalar at harbor.openova.io/proxy-ghcr/fluxcd/*
+# — proxied + satisfies the kyverno `harbor-proxy-pull` Enforce glob `*/proxy-*/*`
+# on the source-controller roll. (2) The bp-flux reconcile rolls source-controller
+# (curated limits + leader-election args differ from the bare cloud-init install),
+# and the chart hardcodes `strategy: Recreate` + an emptyDir /data cache → the
+# Recreate roll killed the only artifact-serving pod mid-bootstrap → ~60 HRs
+# ArtifactFailed / `connection refused` → Ready 26→7 on hw157. The serving-gap is
+# eliminated by a RollingUpdate(maxUnavailable:0) post-render patch on the bp-flux
+# HelmRelease (clusters/_template/bootstrap-kit/03-flux.yaml) — the only override
+# point helm-controller cannot revert. Image fix class matches bp-cnpg (#3257) +
+# bp-external-secrets (#3533). NOTE: the flux2 SUBCHART pin (2.14.1) + cloud-init's
+# v2.4.0 install.yaml are UNCHANGED — the catastrophic version-pin invariant
+# (tests/version-pin-replay.sh) is untouched.
+version: 1.2.7
 description: |
   Catalyst-curated Blueprint umbrella chart for Flux. Depends on the
   upstream `flux2` chart (fluxcd-community) as a Helm subchart so
