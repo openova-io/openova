@@ -273,7 +273,7 @@ Tallies below are each walker's own per-row count (committed in the runbook head
 | # | Runbook (ticket) | Rows | ✅ pass | ❌ fail | GAP (no UI) | ☐ not-reached | Walked? |
 |---|------------------|:----:|:------:|:------:|:-----------:|:------------:|:------:|
 | 1 | object-model (#3687) | 37 | 16 | 7 | 14 | 0 | ✅ |
-| 2 | SSO zero-login (#3374) | 26 | 17 | 3 | 6 | 0 | ✅ |
+| 2 | SSO zero-login (#3374) | 26 | 17 | 5 | 4 | 0 | ✅ |
 | 3 | topology-DR (#3375) | 33 | 9 | 16 | 8 | 0 | ✅ |
 | 4 | funnel (#3376) | 24 | 6 | 18 | 0 | 0 | ✅ |
 | 5 | ns1-migrate (#3642) | 23 | 7 | **13** | 3 | 0 | ✅ |
@@ -282,10 +282,13 @@ Tallies below are each walker's own per-row count (committed in the runbook head
 | 8 | cutover (#3379) | 16 | 3 | 0 | 8 | 5 | ✅ view-only |
 | 9 | jobs-canvas (#3646) | 19 | 11 | 0 | 8 | 0 | ✅ |
 | 10 | regenerate-meta (#3581) | 9 | 9 | 0 | 0 | 0 | ✅ |
-| **TOTAL** | **241** | **119** | **61** | **56** | **5** | **10/10** |
+| **TOTAL** | **241** | **119** | **63** | **54** | **5** | **10/10** |
 
-**hw159 FINAL: 10/10 runbooks walked · 236 of 241 rows decided (98%) · 119 ✅ / 61 ❌ / 56 GAP · 5 ☐ (cutover view-only).**
-Pass-rate of pass/fail = **119 / 180 = 66%**. ~280 real screenshots. This is the honest complete walkthrough — the
+**hw159 FINAL: 10/10 runbooks walked · 119 ✅ / 63 ❌ / 54 GAP · 5 ☐.** (GAP audit 2026-06-18 converted 2 disguised fails — `console.acme`/`wordpress.acme` CONN_REFUSED — from GAP→❌; SSO row 17/3/6 → 17/5/4.)
+
+> **🎯 What "100%" means (GAP audit result):** the 54 GAP split into **~41 GAP-backend** (code/cluster/CI invariants — NO browser UI possible → **descoped from the browser-UAT denominator**, tracked as code-tests) + **~13 GAP-missing-ui** (surface renders, sub-feature unbuilt → build candidates). So the **browser-decidable universe ≈ 200 rows** (241 − 41 backend). **Currently 119 ✅ of ~200 = ~60%.** To 100%: flip the **63 ❌** (the 4 root-cause fixes now in flight as PRs) + build the **~13 missing-ui** + walk the **5 ☐** (cutover run). The 41 backend-invariants are NOT browser-UAT rows — counting them against 100% would be a category error. See [`PATH-TO-100.md`](PATH-TO-100.md).
+
+Pass-rate of browser pass/fail = **119 / 182 = 65%**. ~280 + audit screenshots. This is the honest complete walkthrough — the
 fresh-prov surfaced the real gaps a fake all-pass never would. **Top real failures (screenshot-backed):**
 1. **🛑 North Star #1 (#3642, 13❌):** the 7 platform apps sit under `host`, **NONE in the `mgmt` vCluster** — "every app in a vCluster" NOT met.
 2. **🛑 Funnel terminal (#3376, 18❌):** Acme Org goes **ACTIVE**, but `console.acme.omani.homes` + `wordpress.acme.omani.homes` = **ERR_CONNECTION_REFUSED** — the customer's own console/app don't serve externally.
