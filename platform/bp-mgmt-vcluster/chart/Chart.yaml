@@ -94,8 +94,35 @@ name: bp-mgmt-vcluster
 # backendRef of the host-bridged HTTPRoutes) + catalyst-system/newapi/
 # sso-bridge/oidc-gate (keycloak SSO consumers) to allowedIngressNamespaces
 # (mirrors the #3423 sme→NATS carve-out). Additive netpol-values change only.
-version: 0.2.11
-appVersion: "0.21.0"
+# 0.2.12 (#3642 #3736): UNBLOCK North-Star #1 — the host→vCluster Secret
+# delivery the host-bridge alone could NOT provide (placement.yaml
+# GOVERNING CONSTRAINT #2). loft-sh/vcluster subchart bumped 0.21.0 →
+# 0.23.0 (lockstep with bp-dmz-vcluster 0.2.8 + bp-rtz-vcluster 0.2.12) to
+# pick up `sync.fromHost.secrets.mappings.byName` — the host→vCluster
+# Secret mirror that FIRST shipped in vcluster 0.23.0 and is genuinely
+# OSS (no `product:"pro"` struct tag on SyncFromHost.Secrets → no
+# admin.loft.sh license tether → the Pillar-5 bp-self-sovereign-cutover
+# 600s deny-egress hold still passes). Each of the 7 NS#1 apps that
+# re-homes into vc-mgmt (keycloak/gitea/harbor/newapi/grafana/openbao/
+# guacamole) mounts a host-MINTED Secret — a CNPG/reflector DB credential
+# (`<app>-database-secret` / `<app>-pg-app`) and/or a host-ESO SSO Secret
+# (`<app>-sso-oidc-credentials`) — that lives in the app's HOST namespace
+# while the Pod runs inside vc-mgmt (a different apiserver). Without this
+# mirror keycloak-0 hangs on `MountVolume.SetUp … secret
+# "keycloak-database-secret-x-keycloak-x-mgmt-vcluster" not found` (#3737
+# SHARED_PG terminal blocker) and grafana/harbor/gitea/newapi boot without
+# their SSO/DB env. The new `vcluster.sync.fromHost.secrets` block (default
+# render) mirrors every host Secret in the 6 moved-app host namespaces
+# (keycloak/gitea/harbor/newapi/grafana/catalyst-system) into the
+# identically-named vCluster namespace via the documented OSS namespace-
+# wildcard idiom (`"<ns>/*": "<ns>/*"`). `sync.toHost.secrets` (existing,
+# vCluster→host) and `sync.fromHost.secrets` (host→vCluster) are
+# independent struct fields — no conflict. ⚠️ DO-NOT-MERGE until a
+# fresh-prov walk confirms the 7 apps land IN vc-mgmt with their Secrets
+# mounted: a vcluster MAJOR bump (0.21→0.23) can change syncer behaviour
+# and MUST be validated on a live env before merge.
+version: 0.2.12
+appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT
   vCluster. Implements docs/SOVEREIGN-MULTI-REGION-DOD.md A4
@@ -156,7 +183,24 @@ dependencies:
     # Cluster template (bp-gitea, bp-harbor, bp-catalyst-platform)
     # silently skips it under the chart's Capabilities gate when
     # installed inside the vCluster.
-    version: "0.21.0"
+    #
+    # #3642/#3736 (2026-06-17): bumped 0.21.0 → 0.23.0 (lockstep with
+    # bp-dmz-vcluster + bp-rtz-vcluster) so the umbrella can declare
+    # `vcluster.sync.fromHost.secrets.mappings.byName` — the host→vCluster
+    # Secret mirror that FIRST shipped in vcluster 0.23.0. This is the
+    # GOVERNING CONSTRAINT #2 fix (placement.yaml §4 exception): the 7
+    # NS#1 apps re-homed into vc-mgmt each mount a host-MINTED DB/SSO
+    # Secret that the OSS 0.21.0 syncer could not deliver across the
+    # host→vCluster boundary (0.21.0 has no `sync.fromHost.secrets` key
+    # and REJECTS it at strict-unmarshal config parse). 0.23.0's
+    # SyncFromHost.Secrets struct field carries NO `product:"pro"` tag —
+    # genuinely OSS, no admin.loft.sh tether, so the bp-self-sovereign-
+    # cutover 600s deny-egress hold still passes. Empirically verified
+    # (helm dependency build + helm template) that all pre-existing
+    # subchart values (controlPlane.distro.k8s, statefulSet.image,
+    # sync.toHost.customResources, experimental.deploy.vcluster.manifests)
+    # still parse under 0.23.0 strict-unmarshal alongside the new block.
+    version: "0.23.0"
     repository: "https://charts.loft.sh"
     # The subchart only renders when the umbrella's top-level
     # `mgmtVcluster.enabled` is true. Default-OFF therefore renders

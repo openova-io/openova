@@ -54,7 +54,8 @@ rtzVcluster:
   # host-qualified repository is honoured verbatim by the helper.
   image:
     repository: "proxy-ghcr/loft-sh/vcluster"
-    tag: "0.21.0"
+    # #3642/#3736: 0.21.0 → 0.23.0 lockstep with the subchart dependency bump.
+    tag: "0.23.0"
     pullPolicy: "IfNotPresent"
 
   # ── NetworkPolicy isolation baseline ──────────────────────────────
@@ -154,7 +155,9 @@ vcluster:
         # Keep in lockstep with the umbrella rtzVcluster.image above.
         registry: harbor.openova.io
         repository: proxy-ghcr/loft-sh/vcluster
-        tag: "0.21.0"
+        # #3642/#3736: the ACTUAL syncer image — 0.21.0 → 0.23.0 to match the
+        # subchart dependency version (Chart.yaml).
+        tag: "0.23.0"
       resources:
         requests:
           cpu: "200m"

@@ -115,7 +115,9 @@ mgmtVcluster:
   # (pre-#2940 shape) is still honoured verbatim by the helper.
   image:
     repository: "proxy-ghcr/loft-sh/vcluster"
-    tag: "0.21.0"
+    # #3642/#3736: 0.21.0 → 0.23.0 in lockstep with the subchart
+    # dependency bump (Chart.yaml) + the real syncer image tag below.
+    tag: "0.23.0"
     pullPolicy: "IfNotPresent"
 
   # ── NetworkPolicy isolation baseline ───────────────────────────
@@ -259,7 +261,10 @@ vcluster:
         # Keep this in lockstep with the umbrella `mgmtVcluster.image` above.
         registry: harbor.openova.io
         repository: proxy-ghcr/loft-sh/vcluster
-        tag: "0.21.0"
+        # #3642/#3736: the ACTUAL vCluster syncer image — bumped 0.21.0 →
+        # 0.23.0 to match the subchart dependency version (Chart.yaml). The
+        # 0.23.0 syncer is the binary that honours sync.fromHost.secrets.
+        tag: "0.23.0"
       resources:
         requests:
           cpu: "200m"
@@ -362,6 +367,58 @@ vcluster:
     fromHost:
       ingressClasses:
         enabled: true
+      # ── #3642/#3736 host→vCluster Secret mirror (GOVERNING CONSTRAINT #2) ──
+      # The host-bridge (#3642) keeps each re-homed app's HTTPRoute +
+      # ExternalSecret + CNPG `Cluster` CR HOST-rendered so the host Cilium
+      # Gateway / external-secrets-operator / cnpg-operator (all host-minimum
+      # substrate) reconcile them — but the app's WORKLOAD Pod, which now runs
+      # INSIDE vc-mgmt, still needs the Secret those host-side resources MINT:
+      #   - a CNPG/reflector DB credential — `<app>-database-secret` (the
+      #     emberstack-reflector hub Secret, e.g. keycloak-database-secret /
+      #     gitea-database-secret / harbor-database-secret /
+      #     newapi-database-secret) and/or the CNPG-app Secret `<app>-pg-app`
+      #     (gitea-pg-app) / `guacamole-pg`.
+      #   - a host-ESO SSO Secret — `<app>-sso-oidc-credentials`
+      #     (harbor-/grafana-/openbao-/gitea-/newapi-).
+      # On OSS vcluster 0.21.0 NO mechanism delivered it across the
+      # host→vCluster boundary (the in-vCluster Pod mounts from the vCluster's
+      # OWN apiserver, a different namespace store than the host's): an
+      # in-vCluster ExternalSecret can't reconcile (ESO is host-minimum, slot
+      # 15; toHost custom-resource sync is Pro-gated/inert on OSS), and
+      # `sync.fromHost.secrets` did not EXIST until vcluster 0.23.0. Result:
+      # keycloak-0 hung on `MountVolume.SetUp … secret
+      # "keycloak-database-secret-x-keycloak-x-mgmt-vcluster" not found`
+      # (#3737 SHARED_PG terminal blocker) and grafana/harbor/gitea/newapi
+      # booted without their SSO/DB env. THIS block is that delivery
+      # mechanism — genuinely OSS in 0.23.0 (no `product:"pro"` tag → no
+      # admin.loft.sh tether → the Pillar-5 cutover deny-egress hold passes).
+      #
+      # `mappings.byName` is a map[string]string keyed `"<hostNs>/<name>"` →
+      # valued `"<vClusterNs>/<name>"`; `*` wildcards the NAME component. We
+      # use the documented namespace-wildcard idiom `"<ns>/*": "<ns>/*"` per
+      # moved-app HOST namespace so EVERY host Secret in that namespace (DB
+      # hub Secret, CNPG-app Secret, SSO ExternalSecret-materialised Secret,
+      # and any future addition) mirrors into the identically-named vCluster
+      # namespace with zero per-secret enumeration — the generic mechanism
+      # (#3642 DoD-6 "no per-app special-casing"), not a per-secret hack. The
+      # namespaces are exactly the 7 NS#1 apps' inner namespaces
+      # (keycloak/gitea/harbor/newapi/grafana, plus catalyst-system for
+      # guacamole — guacamole's `guacamole-pg` CNPG-app Secret + the
+      # bp-continuum/k8s-ws-proxy host-adjacent peers share that namespace).
+      # On a fresh prov the host namespaces that don't yet exist are simply
+      # not mirrored (no-op) until the host-bridge renders them — additive
+      # and safe. Independent of the existing `sync.toHost.secrets`
+      # (vCluster→host); the two directions don't conflict.
+      secrets:
+        enabled: true
+        mappings:
+          byName:
+            "keycloak/*": "keycloak/*"
+            "gitea/*": "gitea/*"
+            "harbor/*": "harbor/*"
+            "newapi/*": "newapi/*"
+            "grafana/*": "grafana/*"
+            "catalyst-system/*": "catalyst-system/*"
 
   # ── In-vCluster CRD registration (#3373, OSS-native) ────────────────────
   # The init-manifests deployer (`loft-sh/vcluster` controllers
