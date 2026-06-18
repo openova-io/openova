@@ -609,6 +609,53 @@ write_files:
             - kind: ConfigMap
               name: sovereign-tls-vars
               optional: false
+      ---
+      # bootstrap-kit-crs Kustomization (#3804 / Refs #3642) — the host-bridge
+      # CRD-dependent CRs tier. #3642 re-homed 7 host apps into the mgmt
+      # vCluster and extracted their host-side HTTPRoute / ExternalSecret /
+      # CNPG `Cluster` CRs OUT of the (now in-vCluster) Helm charts into RAW
+      # kustomize resources. Raw resources cannot carry the chart's
+      # `.Capabilities.APIVersions.Has` gate, so when they lived inside the
+      # bootstrap-kit kustomization they failed bootstrap-kit's atomic
+      # server-side dry-run with `no matches for kind "Cluster"/"HTTPRoute"/
+      # "ExternalSecret"` — because the gateway-api / external-secrets / cnpg
+      # CRDs are installed by HelmReleases that have NOT reconciled yet on a
+      # fresh prov's FIRST pass. That aborted the WHOLE bootstrap-kit
+      # reconcile → 0 HRs ever applied → the operators never installed → the
+      # CRDs never appeared → permanent 0-HelmRelease deadlock (diagnosed live
+      # on hw161; pre-#3642 there were zero raw CRs in bootstrap-kit).
+      #
+      # Fix: this SEPARATE Flux Kustomization carries those CRs and
+      # `dependsOn: [bootstrap-kit]`, so Flux validates + applies them only
+      # AFTER bootstrap-kit is Ready (every operator installed + its CRDs
+      # registered). Same CRD-ordering split shape as the sovereign-tls
+      # Kustomization above and the bp-cert-manager-issuers (02a) /
+      # crossplane-claims (14) / external-secrets-stores (15a) / cnpg-pair
+      # (16b) / kyverno-policies (27a) HelmRelease splits. wait:false — Flux
+      # only confirms the apply succeeds (CRDs present); per-CR health (CNPG
+      # cluster ready, ESO sync) reconciles asynchronously and must NOT gate
+      # this Kustomization. Provider-agnostic: the deadlock hits every cloud,
+      # so this is OUTSIDE the hetzner-only infrastructure-config block.
+      apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: bootstrap-kit-crs
+        namespace: flux-system
+      spec:
+        interval: 5m
+        retryInterval: 1m
+        path: ./clusters/_template/bootstrap-kit-crs
+        prune: true
+        sourceRef:
+          kind: GitRepository
+          name: openova
+        dependsOn:
+          - name: bootstrap-kit
+        wait: false
+        timeout: 5m
+        postBuild:
+          substitute:
+            SOVEREIGN_FQDN: ${sovereign_fqdn}
 %{ if provider == "hetzner" ~}
       ---
       # infrastructure-config Kustomization — installs the Crossplane Provider

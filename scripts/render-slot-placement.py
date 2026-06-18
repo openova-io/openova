@@ -57,7 +57,42 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KIT = os.path.join(REPO, "clusters", "_template", "bootstrap-kit")
 PLACEMENT = os.path.join(KIT, "placement.yaml")
 
+# bootstrap-kit-crs (#3804 / Refs #3642) — the SEPARATE Flux Kustomization
+# tier that carries the host-bridge raw CRD-dependent CRs (HTTPRoute,
+# ExternalSecret, CNPG Cluster). These CANNOT live in the bootstrap-kit
+# kustomize apply set: bootstrap-kit reconciles all ~56 slots atomically and
+# its server-side validation pass dry-runs the WHOLE set BEFORE the first
+# apply — but the gateway.networking.k8s.io / external-secrets.io /
+# postgresql.cnpg.io CRDs are installed by bp-gateway-api / bp-external-
+# secrets / bp-cnpg HelmReleases that have NOT reconciled yet on a fresh
+# prov's first pass, so the raw CRs fail with `no matches for kind` → the
+# entire bootstrap-kit reconcile aborts → 0 HRs ever apply → the operators
+# never install → the CRDs never appear → permanent deadlock (diagnosed live
+# on hw161; #3642 introduced these raw CRs — pre-#3642 there were none).
+# Raw kustomize YAML cannot carry the Helm `.Capabilities.APIVersions.Has`
+# gate that the in-chart templates used, so the fix is the platform's
+# established CRD-ordering idiom (slots 02a/14/15a/16b/27a + the sovereign-
+# tls Kustomization): a SEPARATE Flux Kustomization that `dependsOn:
+# [bootstrap-kit]` so it validates+applies these CRs only AFTER bootstrap-kit
+# is Ready (operators installed + their CRDs registered). The generator
+# renders the host-bridge docs HERE, one file per source slot, instead of
+# appending them into the slot file.
+CRS_DIR = os.path.join(REPO, "clusters", "_template", "bootstrap-kit-crs")
+
 GENERATED_MARK = "# placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix"
+CRS_GENERATED_HEADER = (
+    "# placement-generated (#3804 / Refs #3642) — host-bridge CRD-dependent CRs\n"
+    "# for slot %(slot)s. SOURCE OF TRUTH: clusters/_template/bootstrap-kit/\n"
+    "# placement.yaml (the matching slot's hostBridge.hostDocuments). Edit THERE\n"
+    "# + run scripts/render-slot-placement.py fix — never hand-edit this file.\n"
+    "#\n"
+    "# Reconciled by the `bootstrap-kit-crs` Flux Kustomization (defined in\n"
+    "# infra/providers/_shared/cloudinit-control-plane.tftpl), which\n"
+    "# `dependsOn: [bootstrap-kit]` so these gateway.networking.k8s.io /\n"
+    "# external-secrets.io / postgresql.cnpg.io CRs are validated + applied\n"
+    "# only AFTER their operator CRDs exist — never in the bootstrap-kit atomic\n"
+    "# dry-run (the fresh-prov `no matches for kind` deadlock, hw161)."
+)
 
 # ── host-bridge markers (#3642) ─────────────────────────────────────
 # An app re-homed INTO a vCluster ships its public HTTPRoute, its
@@ -109,27 +144,65 @@ def effective_values(slot):
     return vals
 
 
-def hostbridge_block(slot):
-    """The exact lines the slot file must carry between the host-bridge
-    markers (#3642), or None when the slot declares no host-bridge.
+def crs_file_for(slot):
+    """The bootstrap-kit-crs/ file path that holds this slot's host-bridge
+    CRs (#3804). One file per source slot, same basename so the provenance
+    is obvious (e.g. bootstrap-kit/10-gitea.yaml -> bootstrap-kit-crs/
+    10-gitea.yaml)."""
+    return os.path.join(CRS_DIR, slot["file"])
 
-    Each host-bridge document is appended as its own `---`-separated YAML
-    document in the app's HOST namespace. The content is a verbatim
-    transcription of `hostBridge.hostDocuments` (a list of mapping docs)
-    — placement is data, the slot is its rendering."""
+
+def _crs_body(text):
+    """Return the YAML body of a generated bootstrap-kit-crs file — i.e.
+    everything from the first `---` document separator onward, dropping the
+    leading generated-header comment block (#3804). Robust to header text
+    changes: the body always starts at the first `---` line."""
+    lines = text.splitlines()
+    for i, l in enumerate(lines):
+        if l.rstrip() == "---":
+            return "\n".join(lines[i:])
+    return ""
+
+
+def crs_files_expected(data):
+    """The set of bootstrap-kit-crs/<basename> files the placement implies —
+    every vCluster slot that declares hostBridge.hostDocuments (#3804)."""
+    out = []
+    for slot in data["slots"]:
+        if slot.get("vcluster", "host") != "host" and hostbridge_docs_yaml(slot) is not None:
+            out.append(slot["file"])
+    return out
+
+
+def hostbridge_docs_yaml(slot):
+    """The rendered YAML body (a string) of this slot's host-bridge CRs —
+    each `hostBridge.hostDocuments` entry as its own `---`-separated doc —
+    or None when the slot declares no host-bridge. Verbatim transcription
+    of the placement data: placement is data, the file is its rendering
+    (#3804 / Refs #3642)."""
     hb = slot.get("hostBridge") or {}
     docs = hb.get("hostDocuments") or []
     if not docs:
         return None
-    out = [HOSTBRIDGE_BEGIN]
+    out = []
     for doc in docs:
         out.append("---")
         # block-style, 2-space indent, keys in declared order (yaml lib
         # preserves dict insertion order on py3.7+).
         rendered = yaml.safe_dump(doc, default_flow_style=False, sort_keys=False).rstrip("\n")
         out.extend(rendered.splitlines())
-    out.append(HOSTBRIDGE_END)
-    return out
+    return "\n".join(out)
+
+
+def hostbridge_block(slot):
+    """DEPRECATED in-slot rendering (#3804). Pre-#3804 the host-bridge CRs
+    were transcribed INTO the slot file between these markers; they now live
+    in their own bootstrap-kit-crs/<slot> file (see hostbridge_docs_yaml +
+    fix_hostbridge). Retained only so strip_hostbridge / extract_hostbridge
+    can detect + remove any stale in-slot block on a slot authored before
+    the split. Returns None always — no slot should carry an in-slot block
+    anymore."""
+    return None
 
 
 def extract_hostbridge(lines):
@@ -268,30 +341,52 @@ def check(data, by_hr, verbose=True):
             if got != want:
                 errors.append(f"{slot['file']}: values.{dotted} = {got!r}, placement declares {want!r}")
 
-        # host-bridge block (#3642): the slot must carry EXACTLY the
-        # host-side route/secret/CNPG docs the placement declares — a
-        # verbatim transcription, drift-gated. A host placement must NOT
-        # carry one (its CRs render natively from the chart, host-side).
-        want_hb = hostbridge_block(slot)
+        # host-bridge CRs (#3804 / Refs #3642): the host-side route/secret/
+        # CNPG docs the placement declares are NO LONGER transcribed into the
+        # slot file — they live in their own bootstrap-kit-crs/<slot> file
+        # reconciled by the bootstrap-kit-crs Kustomization (dependsOn
+        # bootstrap-kit) so they validate only AFTER their operator CRDs
+        # exist. Two drift gates:
+        #   (1) NO slot file may carry a (now-stale) in-slot host-bridge block.
+        #   (2) the bootstrap-kit-crs/<slot> file must equal EXACTLY the docs
+        #       the placement declares (verbatim transcription); a host
+        #       placement (or a vcluster slot with no hostDocuments) must NOT
+        #       have a crs file.
         with open(fpath) as f:
             raw_lines = f.read().splitlines()
         got_hb = extract_hostbridge(raw_lines)
-        if vc == "host":
-            if want_hb is not None:
-                errors.append(f"{slot['file']}: host placement declares hostBridge: — only "
-                              f"vCluster placements need the host-bridge (the chart renders "
-                              f"its CRs host-side natively on host placement)")
-            elif got_hb is not None:
-                errors.append(f"{slot['file']}: stale host-bridge block on a host placement "
-                              f"— run scripts/render-slot-placement.py fix to strip it")
+        if got_hb is not None:
+            errors.append(f"{slot['file']}: carries a stale in-slot host-bridge block — the "
+                          f"host-bridge CRs moved to bootstrap-kit-crs/{slot['file']} (#3804); "
+                          f"run scripts/render-slot-placement.py fix to strip it")
+        want_docs = hostbridge_docs_yaml(slot) if vc != "host" else None
+        crs_path = crs_file_for(slot)
+        if vc == "host" and (slot.get("hostBridge") or {}).get("hostDocuments"):
+            errors.append(f"placement.yaml: {slot['hr']} is a host placement but declares "
+                          f"hostBridge.hostDocuments — only vCluster placements need the "
+                          f"host-bridge (host placements render their CRs natively)")
+        if want_docs is None:
+            if os.path.exists(crs_path):
+                errors.append(f"bootstrap-kit-crs/{slot['file']}: exists but placement.yaml "
+                              f"declares no hostBridge.hostDocuments for {slot['hr']} "
+                              f"(run scripts/render-slot-placement.py fix to remove it)")
         else:
-            if want_hb is not None and got_hb != want_hb:
-                errors.append(f"{slot['file']}: host-bridge block drift — slot does not match "
-                              f"placement.yaml hostBridge.hostDocuments (run "
+            if not os.path.exists(crs_path):
+                errors.append(f"bootstrap-kit-crs/{slot['file']}: MISSING — placement.yaml "
+                              f"declares hostBridge.hostDocuments for {slot['hr']} but the "
+                              f"host-bridge CRs file is absent (run "
                               f"scripts/render-slot-placement.py fix)")
-            if want_hb is None and got_hb is not None:
-                errors.append(f"{slot['file']}: carries a host-bridge block but placement.yaml "
-                              f"declares no hostBridge: for it (run fix to strip)")
+            else:
+                with open(crs_path) as f:
+                    got_body = f.read()
+                # strip the generated header (everything up to + including the
+                # first blank line after the leading comment block) for the
+                # body comparison.
+                got_docs = _crs_body(got_body)
+                if got_docs.rstrip("\n") != want_docs.rstrip("\n"):
+                    errors.append(f"bootstrap-kit-crs/{slot['file']}: host-bridge CRs drift — "
+                                  f"does not match placement.yaml hostBridge.hostDocuments "
+                                  f"(run scripts/render-slot-placement.py fix)")
 
         # dependents: every edge pointing at a placement-managed HR must
         # carry that HR's CURRENT namespace (or omit it only when both
@@ -320,6 +415,38 @@ def check(data, by_hr, verbose=True):
         if slot.get("target", "host") == "host" and not slot.get("justification"):
             errors.append(f"placement.yaml: {slot['hr']} target=host without justification "
                           f"(founder §4: 'only the minimums could stay there')")
+
+    # bootstrap-kit-crs/kustomization.yaml completeness (#3804): the crs-tier
+    # Kustomization must list EXACTLY the per-slot CR files the placement
+    # implies — an unlisted file is INERT (Flux skips it → the host-bridge
+    # route/secret/CNPG never apply → the re-homed app has no host front
+    # door), and a listed-but-absent file fails the kustomize build. Mirrors
+    # the Phase-2.5 slot-registration guard in check-bootstrap-deps.sh.
+    expected_crs = set(crs_files_expected(data))
+    crs_kustomization = os.path.join(CRS_DIR, "kustomization.yaml")
+    if expected_crs and not os.path.exists(crs_kustomization):
+        errors.append("bootstrap-kit-crs/kustomization.yaml: MISSING but placement declares "
+                      "host-bridge CRs (run scripts/render-slot-placement.py fix)")
+    elif os.path.exists(crs_kustomization):
+        with open(crs_kustomization) as f:
+            kdata = yaml.safe_load(f) or {}
+        listed = set(kdata.get("resources") or [])
+        for missing in sorted(expected_crs - listed):
+            errors.append(f"bootstrap-kit-crs/kustomization.yaml: resources[] is missing "
+                          f"'{missing}' — the host-bridge CRs file is INERT until listed "
+                          f"(run scripts/render-slot-placement.py fix)")
+        for extra in sorted(listed - expected_crs):
+            errors.append(f"bootstrap-kit-crs/kustomization.yaml: resources[] lists '{extra}' "
+                          f"but placement declares no host-bridge CRs for it "
+                          f"(run scripts/render-slot-placement.py fix)")
+    # stray crs files not implied by placement
+    if os.path.isdir(CRS_DIR):
+        for fn in sorted(os.listdir(CRS_DIR)):
+            if not re.match(r"^[0-9].*\.ya?ml$", fn):
+                continue
+            if fn not in expected_crs:
+                errors.append(f"bootstrap-kit-crs/{fn}: present but placement.yaml declares no "
+                              f"host-bridge CRs for it (run scripts/render-slot-placement.py fix)")
 
     if errors:
         print("PLACEMENT DRIFT — slots are not a function of placement.yaml:", file=sys.stderr)
@@ -603,25 +730,67 @@ def fix_dependents(data, by_hr):
 
 
 def fix_hostbridge(data):
-    """Transcribe each vCluster slot's host-bridge route/secret/CNPG docs
-    into the slot file (markers inclusive), at the END of the file —
-    after the workload HR — and strip any stale block from a slot that no
-    longer declares one (or reverted to host) (#3642). Idempotent."""
+    """Render each vCluster slot's host-bridge route/secret/CNPG docs into
+    its OWN bootstrap-kit-crs/<slot> file (#3804 / Refs #3642) — NOT into the
+    slot file (raw CRD-dependent CRs in the bootstrap-kit atomic apply set
+    deadlock a fresh prov; the crs tier is a separate Flux Kustomization that
+    dependsOn bootstrap-kit). Also:
+      * strips any stale in-slot host-bridge block left by the pre-#3804
+        in-slot rendering;
+      * removes a crs file for a slot that no longer declares hostDocuments
+        (or reverted to host placement);
+      * regenerates bootstrap-kit-crs/kustomization.yaml to list exactly the
+        per-slot CR files.
+    Idempotent."""
+    # 1. strip any stale in-slot block from EVERY slot file (back-compat with
+    #    the pre-#3804 in-slot rendering).
     for slot in data["slots"]:
         fpath = os.path.join(KIT, slot["file"])
         with open(fpath) as f:
             lines = f.read().splitlines()
-        lines = strip_hostbridge(lines)
-        vc = slot.get("vcluster", "host")
-        block = hostbridge_block(slot) if vc != "host" else None
-        if block is not None:
-            # one blank line of separation before the block.
-            while lines and lines[-1].strip() == "":
-                lines.pop()
-            lines.append("")
-            lines.extend(block)
-        with open(fpath, "w") as f:
-            f.write("\n".join(lines) + "\n")
+        stripped = strip_hostbridge(lines)
+        if stripped != lines:
+            with open(fpath, "w") as f:
+                f.write("\n".join(stripped) + "\n")
+
+    # 2. (re)write the crs files; track which slots have one.
+    os.makedirs(CRS_DIR, exist_ok=True)
+    expected = crs_files_expected(data)
+    expected_set = set(expected)
+    for slot in data["slots"]:
+        crs_path = crs_file_for(slot)
+        if slot["file"] in expected_set:
+            body = hostbridge_docs_yaml(slot)
+            header = CRS_GENERATED_HEADER % {"slot": slot["file"]}
+            with open(crs_path, "w") as f:
+                f.write(header + "\n" + body + "\n")
+        elif os.path.exists(crs_path):
+            os.remove(crs_path)
+
+    # 3. drop any stray generated crs file no longer implied by placement.
+    for fn in sorted(os.listdir(CRS_DIR)):
+        if re.match(r"^[0-9].*\.ya?ml$", fn) and fn not in expected_set:
+            os.remove(os.path.join(CRS_DIR, fn))
+
+    # 4. regenerate the crs kustomization.yaml (deterministic slot order).
+    kustomization = (
+        "# placement-generated (#3804 / Refs #3642) — DO NOT hand-edit.\n"
+        "# The bootstrap-kit-crs Flux Kustomization tier: host-bridge\n"
+        "# CRD-dependent CRs (HTTPRoute / ExternalSecret / CNPG Cluster) for\n"
+        "# vCluster-re-homed apps. Reconciled by the `bootstrap-kit-crs`\n"
+        "# Kustomization (cloud-init flux-bootstrap), which dependsOn\n"
+        "# bootstrap-kit so these CRs validate + apply only AFTER their\n"
+        "# operator CRDs exist — keeping them OUT of the bootstrap-kit atomic\n"
+        "# dry-run that would otherwise fail `no matches for kind` on a fresh\n"
+        "# prov (hw161). Source of truth: bootstrap-kit/placement.yaml\n"
+        "# hostBridge.hostDocuments + scripts/render-slot-placement.py fix.\n"
+        "apiVersion: kustomize.config.k8s.io/v1beta1\n"
+        "kind: Kustomization\n"
+        "resources:\n"
+    )
+    kustomization += "".join(f"  - {fn}\n" for fn in expected)
+    with open(os.path.join(CRS_DIR, "kustomization.yaml"), "w") as f:
+        f.write(kustomization)
 
 
 def main():

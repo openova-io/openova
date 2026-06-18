@@ -1,0 +1,114 @@
+# placement-generated (#3804 / Refs #3642) — host-bridge CRD-dependent CRs
+# for slot 08-openbao.yaml. SOURCE OF TRUTH: clusters/_template/bootstrap-kit/
+# placement.yaml (the matching slot's hostBridge.hostDocuments). Edit THERE
+# + run scripts/render-slot-placement.py fix — never hand-edit this file.
+#
+# Reconciled by the `bootstrap-kit-crs` Flux Kustomization (defined in
+# infra/providers/_shared/cloudinit-control-plane.tftpl), which
+# `dependsOn: [bootstrap-kit]` so these gateway.networking.k8s.io /
+# external-secrets.io / postgresql.cnpg.io CRs are validated + applied
+# only AFTER their operator CRDs exist — never in the bootstrap-kit atomic
+# dry-run (the fresh-prov `no matches for kind` deadlock, hw161).
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: openbao
+  namespace: mgmt
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao
+    catalyst.openova.io/host-bridge: mgmt
+spec:
+  parentRefs:
+  - name: cilium-gateway
+    namespace: kube-system
+  hostnames:
+  - bao.${SOVEREIGN_FQDN}
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /sso/landing
+    backendRefs:
+    - name: openbao-sso-landing-x-openbao-x-mgmt-vcluster
+      namespace: mgmt
+      port: 80
+  - matches:
+    - path:
+        type: Exact
+        value: /
+    filters:
+    - type: RequestRedirect
+      requestRedirect:
+        hostname: bao.${SOVEREIGN_FQDN}
+        port: 443
+        path:
+          type: ReplaceFullPath
+          replaceFullPath: /sso/landing
+        statusCode: 302
+  - matches:
+    - path:
+        type: Exact
+        value: /ui
+    filters:
+    - type: RequestRedirect
+      requestRedirect:
+        hostname: bao.${SOVEREIGN_FQDN}
+        port: 443
+        path:
+          type: ReplaceFullPath
+          replaceFullPath: /sso/landing
+        statusCode: 302
+  - matches:
+    - path:
+        type: Exact
+        value: /ui/
+    filters:
+    - type: RequestRedirect
+      requestRedirect:
+        hostname: bao.${SOVEREIGN_FQDN}
+        port: 443
+        path:
+          type: ReplaceFullPath
+          replaceFullPath: /sso/landing
+        statusCode: 302
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: openbao-x-openbao-x-mgmt-vcluster
+      namespace: mgmt
+      port: 8200
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: openbao-sso-oidc-credentials
+  namespace: openbao
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    bp-sso-bridge.openova.io/consumer: bp-openbao
+    catalyst.openova.io/host-bridge: mgmt
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-region1
+    kind: ClusterSecretStore
+  target:
+    name: openbao-sso-oidc-credentials
+    creationPolicy: Owner
+  data:
+  - secretKey: client_id
+    remoteRef:
+      key: sso/openbao
+      property: client_id
+  - secretKey: client_secret
+    remoteRef:
+      key: sso/openbao
+      property: client_secret
+  - secretKey: issuer_url
+    remoteRef:
+      key: sso/openbao
+      property: issuer_url

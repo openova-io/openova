@@ -1,0 +1,93 @@
+# placement-generated (#3804 / Refs #3642) — host-bridge CRD-dependent CRs
+# for slot 52-bp-guacamole.yaml. SOURCE OF TRUTH: clusters/_template/bootstrap-kit/
+# placement.yaml (the matching slot's hostBridge.hostDocuments). Edit THERE
+# + run scripts/render-slot-placement.py fix — never hand-edit this file.
+#
+# Reconciled by the `bootstrap-kit-crs` Flux Kustomization (defined in
+# infra/providers/_shared/cloudinit-control-plane.tftpl), which
+# `dependsOn: [bootstrap-kit]` so these gateway.networking.k8s.io /
+# external-secrets.io / postgresql.cnpg.io CRs are validated + applied
+# only AFTER their operator CRDs exist — never in the bootstrap-kit atomic
+# dry-run (the fresh-prov `no matches for kind` deadlock, hw161).
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: guacamole-server
+  namespace: mgmt
+  labels:
+    catalyst.openova.io/blueprint: bp-guacamole
+    catalyst.openova.io/component: guacamole
+    catalyst.openova.io/host-bridge: mgmt
+spec:
+  parentRefs:
+  - name: cilium-gateway
+    namespace: kube-system
+  hostnames:
+  - guacamole.${SOVEREIGN_FQDN}
+  rules:
+  - matches:
+    - path:
+        type: Exact
+        value: /
+    filters:
+    - type: RequestRedirect
+      requestRedirect:
+        port: 443
+        path:
+          type: ReplaceFullPath
+          replaceFullPath: /guacamole/
+        statusCode: 302
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: guacamole-server-x-catalyst-system-x-mgmt-vcluster
+      namespace: mgmt
+      port: 80
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: guacamole-pg
+  namespace: catalyst-system
+  labels:
+    catalyst.openova.io/blueprint: bp-guacamole
+    catalyst.openova.io/component: guacamole-db
+    catalyst.openova.io/host-bridge: mgmt
+spec:
+  instances: 1
+  imageName: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16
+  bootstrap:
+    initdb:
+      database: guacamole_db
+      owner: guacamole
+  managed:
+    roles:
+    - name: guacamole
+      ensure: present
+      login: true
+      passwordSecret:
+        name: guacamole-pg-app
+  postgresql:
+    parameters:
+      max_connections: '100'
+      shared_buffers: 64MB
+      effective_cache_size: 192MB
+      work_mem: 4MB
+      maintenance_work_mem: 64MB
+      log_statement: ddl
+      log_min_duration_statement: '1000'
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  storage:
+    size: 5Gi
+    storageClass: local-path
+  enableSuperuserAccess: true
+  monitoring:
+    enablePodMonitor: false
