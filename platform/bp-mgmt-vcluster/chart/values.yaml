@@ -302,6 +302,44 @@ vcluster:
       spec:
         type: ClusterIP
 
+  # ── #3642/#3737-DNS host→vCluster Service mirror (4th-layer SHARED_PG fix) ──
+  # The NS#1 apps re-homed into vc-mgmt (#3642) consume the 3 HOST-level
+  # shared-pg instances that live in the host `shared-data` namespace (North
+  # Star #2: 3 shared instances, 6-7 apps many-to-many). Each app's
+  # emberstack-reflector-minted `<app>-database-secret` carries the HOST FQDN
+  # `shared-pg[-b|-c]-rw.shared-data.svc.cluster.local`. The in-vCluster Pod is
+  # a REAL host pod (shared CNI) so the host ClusterIP is reachable — but the
+  # NAME does not resolve inside vc-mgmt: the vCluster's own CoreDNS only knows
+  # vCluster-local services, and `sync.toHost.services` mirrors the OTHER
+  # direction (vCluster→host). The `sync` PG `customResources` mechanism (lines
+  # ~332-341) only resolves PG Clusters CREATED INSIDE the vCluster, NOT a
+  # host-level shared instance. Result (hw163, 2026-06-18): keycloak-0
+  # CrashLoopBackOff — `cannot resolve host
+  # "shared-pg-rw.shared-data.svc.cluster.local" … on <vc-coredns>:53: no such
+  # host` — the #3642-vs-NorthStar-#2 collision. `replicateServices.fromHost`
+  # creates a vCluster Service per host shared-pg endpoint so the host FQDN
+  # resolves natively inside vc-mgmt (routes to the host ClusterIP via the
+  # shared CNI). Eventually-consistent: the syncer watches the host service and
+  # materialises the mirror once bp-postgres-shared renders it — on a fresh
+  # prov the vCluster starts before shared-pg exists (no-op until present). All
+  # 3 instances × rw/ro so EVERY SHARED_PG consumer (any instance) resolves
+  # with zero per-app special-casing (#3642 DoD-6 "no per-app special-casing").
+  networking:
+    replicateServices:
+      fromHost:
+        - from: shared-data/shared-pg-rw
+          to: shared-data/shared-pg-rw
+        - from: shared-data/shared-pg-ro
+          to: shared-data/shared-pg-ro
+        - from: shared-data/shared-pg-b-rw
+          to: shared-data/shared-pg-b-rw
+        - from: shared-data/shared-pg-b-ro
+          to: shared-data/shared-pg-b-ro
+        - from: shared-data/shared-pg-c-rw
+          to: shared-data/shared-pg-c-rw
+        - from: shared-data/shared-pg-c-ro
+          to: shared-data/shared-pg-c-ro
+
   # sync — what host-cluster resources sync into the vCluster. The
   # MGMT vCluster needs services + endpoints + configmaps + secrets
   # to talk to the bootstrap services that live in the host (cnpg,
