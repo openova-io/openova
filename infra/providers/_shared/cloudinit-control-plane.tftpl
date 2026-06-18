@@ -761,6 +761,25 @@ runcmd:
   # giving every IPv4-only cloud the harbor pin. No hardcoded IP: r4() derives
   # the A record at boot and self-heals if harbor's address ever changes.
   #
+  # #3835 (2026-06-19 — the hw166 bootstrap-flux ImagePullBackOff): the
+  # `flux install` below (~line 1066, applied from ghcr.io/fluxcd BEFORE harbor
+  # exists — the chicken-and-egg the #3735 harbor-proxy can't break at bootstrap)
+  # pulls the 6 controller IMAGES; ghcr.io serves their manifests but redirects
+  # the BLOBS to the CDN host `pkg-containers.githubusercontent.com`, which is
+  # ALSO dual-stack (A=185.199.108-111.154 + AAAA=2606:50c0:800x::154 — verified
+  # live on the hw166 node). On the IPv4-only Huawei VPC containerd's resolver
+  # intermittently gets the AAAA → `dial tcp: lookup
+  # pkg-containers.githubusercontent.com: Try again` → ImagePullBackOff → the
+  # bootstrap kustomize-controller never starts → it never reconciles the bp-flux
+  # HR that re-points controllers at the harbor proxy → 0 HelmReleases → wedge.
+  # The github.com / *.githubusercontent.com hosts already pinned above are
+  # IPv4-ONLY (no AAAA — verified) so they never trip; this ghcr image-blob CDN
+  # host is the one dual-stack gap and the host EVERY ghcr image pull (the flux
+  # controllers + the line-962 crictl pre-pull) depends on. Huawei-gated like
+  # harbor above (Hetzner is dual-stack → reaches the AAAA → no pin needed, and
+  # its render is byte-tight). r4() pins ONE anycast A and removes the AAAA from
+  # the node's view; self-heals if Fastly/Azure rotates the edge.
+  #
   # #3714 (2026-06-18 — the kom4dc 0-HR wedge): the /etc/hosts pin below fixes
   # the NODE Go resolvers (helm/kubectl/git/containerd) but does NOT reach the
   # in-cluster Flux source-controller pod, which pulls the bootstrap monorepo
@@ -792,7 +811,7 @@ runcmd:
      done
      python3 -c 'import socket,sys;print(socket.getaddrinfo(sys.argv[1],443,2)[0][4][0])' "$1" 2>/dev/null
     }
-    for h in github.com raw.githubusercontent.com codeload.github.com objects.githubusercontent.com helm.cilium.io get.helm.sh%{ if provider == "huawei" } api.github.com harbor.openova.io registry.${sovereign_fqdn}%{ endif ~}; do
+    for h in github.com raw.githubusercontent.com codeload.github.com objects.githubusercontent.com helm.cilium.io get.helm.sh%{ if provider == "huawei" } api.github.com pkg-containers.githubusercontent.com harbor.openova.io registry.${sovereign_fqdn}%{ endif ~}; do
      a=$(r4 "$h"); [ -n "$a" ] && echo "$a $h" >>/etc/hosts || true
 %{ if provider == "huawei" ~}
      [ -n "$a" ] && echo "$a $h" >>/var/lib/catalyst/github-ipv4-hosts
