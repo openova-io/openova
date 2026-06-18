@@ -938,6 +938,15 @@ runcmd:
   # instantly. Public images — no ghcr auth. Huawei-gated: the slow egress is
   # Huawei-specific and Hetzner's cloud-init is byte-tight. Versions track
   # flux2 v2.4.0 — keep in lockstep with the install.yaml URL below.
+  #
+  # #3735 Blocker #5 (cnpg postgresql:16 cold-pull): the 3 shared-pg instances
+  # + every per-app CNPG Cluster pull cloudnative-pg/postgresql:16 (~the largest
+  # single data-plane layer) via harbor's ANONYMOUS proxy-ghcr cache (the exact
+  # kyverno-rewritten ref a fresh prov's pod uses). It serializes behind the
+  # bp-postgres-shared + cnpg-pair reconcile the same way the flux controllers
+  # do, so it rides the SAME background pre-pull — public (no auth), idempotent,
+  # dedups against the pod's own pull. Keep the tag in lockstep with the cnpg
+  # operator's imageName default + the kyverno proxy-ghcr rewrite prefix.
   - |
     ( CRICTL="$(command -v crictl 2>/dev/null || echo /var/lib/rancher/k3s/data/current/bin/crictl)"
       for img in \
@@ -946,7 +955,8 @@ runcmd:
         ghcr.io/fluxcd/helm-controller:v1.1.0 \
         ghcr.io/fluxcd/notification-controller:v1.4.0 \
         ghcr.io/fluxcd/image-reflector-controller:v0.33.0 \
-        ghcr.io/fluxcd/image-automation-controller:v0.39.0; do
+        ghcr.io/fluxcd/image-automation-controller:v0.39.0 \
+        harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16; do
         "$CRICTL" pull "$img" >/dev/null 2>&1 || true
       done ) >/dev/null 2>&1 &
 %{ endif ~}
