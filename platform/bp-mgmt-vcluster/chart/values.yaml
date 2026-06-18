@@ -552,20 +552,39 @@ vcluster:
       # and safe. Independent of the existing `sync.toHost.secrets`
       # (vCluster→host); the two directions don't conflict.
       #
-      # ⚠️ openbao/* (hw161 converge-readiness fix, Refs #3760): openbao is the
-      # 7th NS#1 app re-homed into vc-mgmt (placement.yaml `hr: bp-openbao,
-      # vcluster: mgmt, namespace: openbao`). Its host-bridge mints
-      # `openbao-sso-oidc-credentials` in the `openbao` HOST namespace (the
-      # host ESO reconciles it from secret/sso/openbao), while the openbao
-      # sso-configure Deployment runs INSIDE vc-mgmt and mounts that Secret
-      # (templates/sso-configure-deployment.yaml `secretName:
-      # openbao-sso-oidc-credentials`, optional:true → it WAITS forever rather
-      # than CrashLoops). The 0.2.12 mapping shipped keycloak/gitea/harbor/
-      # newapi/grafana/catalyst-system but DROPPED openbao/* — so OpenBao SSO
-      # silently never configured (the #3737 secret-not-mirrored class, the
-      # soft-wait variant). Adding openbao/* mirrors the host Secret into
-      # vc-mgmt's openbao ns so sso-configure completes the OIDC auth-method
-      # wiring zero-touch.
+      # ⚠️ openbao — EXACT-NAME mappings, NOT `openbao/*` (#3838, the
+      # fresh-prov keycloak install-loop root cause). openbao is the 7th NS#1
+      # app re-homed into vc-mgmt (placement.yaml `hr: bp-openbao, vcluster:
+      # mgmt, namespace: openbao`). Its in-vc-mgmt workloads need exactly two
+      # HOST-minted Secrets:
+      #   - `openbao-sso-oidc-credentials` (host ESO reconciles it from
+      #     secret/sso/openbao; the sso-configure Deployment mounts it,
+      #     optional:true → WAITS rather than CrashLoops).
+      #   - `openbao-host-token-reviewer-static` (the Opaque copy of the host
+      #     SA token + host CA the auth-bootstrap Job mounts for cross-cluster
+      #     TokenReview — #3825).
+      # hw161's 0.2.13 used the namespace-wildcard `openbao/*`, which ALSO
+      # swept the host `openbao-host-token-reviewer` Secret — type
+      # `kubernetes.io/service-account-token`, carrying the
+      # `kubernetes.io/service-account.name` annotation. vCluster's
+      # `from-host-secret` syncer mirrors it into vc-mgmt, where the vCluster's
+      # OWN token-controller re-stamps the SA-token Secret (the referenced SA
+      # does not exist in the vCluster), so every reconcile sees host≠virtual
+      # drift and RE-CREATES it — an infinite hot loop (measured 2833 `Create
+      # virtual object` per 8000 syncer log lines on hw166, ~35% of ALL syncer
+      # work). That loop saturates the syncer queue + host k3s apiserver →
+      # `error syncing Secret keycloak/keycloak-database-secret to host
+      # cluster: context deadline exceeded` → `keycloak-database-secret-x-
+      # keycloak-x-mgmt-vcluster` never lands → keycloak-0 hangs
+      # `Init:0/2` (MountVolume.SetUp), the post-install config-cli hook times
+      # out at 30m, bp-keycloak install→remediate→reinstall loops, and the
+      # whole spine (gitea → bp-catalyst-platform → console) stalls ~49/64 HRs.
+      # The auth-bootstrap Job genuinely needs the token+CA, so the host slot
+      # (placement.yaml `openbao-host-token-reviewer-export` Job, #3838) copies
+      # them into the Opaque `openbao-host-token-reviewer-static` Secret — no
+      # `service-account.name` annotation, so the vCluster token-controller
+      # never touches it and the mirror is stable. Mirror that Opaque copy by
+      # EXACT name; never wildcard a namespace that holds an SA-token Secret.
       secrets:
         enabled: true
         mappings:
@@ -575,7 +594,8 @@ vcluster:
             "harbor/*": "harbor/*"
             "newapi/*": "newapi/*"
             "grafana/*": "grafana/*"
-            "openbao/*": "openbao/*"
+            "openbao/openbao-sso-oidc-credentials": "openbao/openbao-sso-oidc-credentials"
+            "openbao/openbao-host-token-reviewer-static": "openbao/openbao-host-token-reviewer-static"
             "catalyst-system/*": "catalyst-system/*"
 
   # ── In-vCluster CRD registration (#3373, OSS-native) ────────────────────

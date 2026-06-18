@@ -717,6 +717,156 @@ spec:
               annotations:
                 kubernetes.io/service-account.name: openbao-host-token-reviewer
             type: kubernetes.io/service-account-token
+          # ── #3838 mirror-stable Opaque copy of the token-reviewer ──────────
+          # The `kubernetes.io/service-account-token` Secret above CANNOT be
+          # fromHost-mirrored into vc-mgmt: vCluster's `from-host-secret`
+          # syncer copies it, then the vCluster's OWN token-controller
+          # re-stamps the SA-token Secret (the referenced SA does not exist in
+          # the vCluster), so every reconcile sees host≠virtual drift and
+          # RE-CREATES it — an infinite hot loop (2833 `Create virtual object`
+          # per 8000 syncer log lines on hw166) that saturates the syncer +
+          # host apiserver and starves the keycloak/harbor DB-secret toHost
+          # writes (`context deadline exceeded`) → keycloak-0 hangs Init:0/2 →
+          # bp-keycloak 30m install-loop stalls the spine ~49/64 HRs (#3838).
+          # This Job copies the SA-token's `token` + `ca.crt` into a PLAIN
+          # Opaque Secret with NO `kubernetes.io/service-account.name`
+          # annotation, so the vCluster token-controller never touches it and
+          # bp-mgmt-vcluster's exact-name fromHost mirror is stable. The
+          # auth-bootstrap Job mounts THIS Secret (slot 08 crossClusterToken-
+          # Review.tokenReviewerSecret.name = openbao-host-token-reviewer-static).
+          # Reconciled by bootstrap-kit-crs (dependsOn bootstrap-kit) — core
+          # resources only, no CRD risk.
+          - apiVersion: v1
+            kind: Role
+            metadata:
+              name: openbao-host-token-reviewer-export
+              namespace: openbao
+              labels:
+                catalyst.openova.io/blueprint: bp-openbao
+                catalyst.openova.io/component: openbao-host-token-reviewer
+                catalyst.openova.io/host-bridge: "mgmt"
+            rules:
+              # Read the SA-token source Secret; create/update the Opaque copy.
+              - apiGroups: [""]
+                resources: ["secrets"]
+                verbs: ["get", "create", "update", "patch"]
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: RoleBinding
+            metadata:
+              name: openbao-host-token-reviewer-export
+              namespace: openbao
+              labels:
+                catalyst.openova.io/blueprint: bp-openbao
+                catalyst.openova.io/component: openbao-host-token-reviewer
+                catalyst.openova.io/host-bridge: "mgmt"
+            roleRef:
+              apiGroup: rbac.authorization.k8s.io
+              kind: Role
+              name: openbao-host-token-reviewer-export
+            subjects:
+              # Reuse the existing host token-reviewer SA — least-privilege:
+              # this Role adds only same-namespace Secret read/write on top of
+              # its auth-delegator grant.
+              - kind: ServiceAccount
+                name: openbao-host-token-reviewer
+                namespace: openbao
+          - apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: openbao-host-token-reviewer-export
+              namespace: openbao
+              labels:
+                catalyst.openova.io/blueprint: bp-openbao
+                catalyst.openova.io/component: openbao-host-token-reviewer
+                catalyst.openova.io/host-bridge: "mgmt"
+                # kyverno `flux-managed` Enforce DENIES a Job without this.
+                app.kubernetes.io/managed-by: flux
+            spec:
+              backoffLimit: 30
+              ttlSecondsAfterFinished: 600
+              template:
+                metadata:
+                  labels:
+                    catalyst.openova.io/blueprint: bp-openbao
+                    catalyst.openova.io/component: openbao-host-token-reviewer
+                    app.kubernetes.io/managed-by: flux
+                spec:
+                  serviceAccountName: openbao-host-token-reviewer
+                  restartPolicy: OnFailure
+                  securityContext:
+                    runAsNonRoot: true
+                    runAsUser: 65532
+                    runAsGroup: 65532
+                    fsGroup: 65532
+                    seccompProfile:
+                      type: RuntimeDefault
+                  containers:
+                    - name: export
+                      # Tiny curl+sh image via the mothership Harbor proxy-cache
+                      # (MIRROR-EVERYTHING). Talks to the k8s API directly with
+                      # the pod's projected SA token — no kubectl needed.
+                      image: harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1
+                      imagePullPolicy: IfNotPresent
+                      securityContext:
+                        allowPrivilegeEscalation: false
+                        readOnlyRootFilesystem: true
+                        capabilities:
+                          drop: ["ALL"]
+                      command:
+                        - /bin/sh
+                        - -c
+                        - |
+                          set -eu
+                          API="https://kubernetes.default.svc"
+                          TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+                          CA=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+                          SRC="openbao-host-token-reviewer"
+                          DST="openbao-host-token-reviewer-static"
+                          NS="openbao"
+                          # The token controller populates the SA-token Secret
+                          # ASYNCHRONOUSLY — poll until token + ca.crt are both
+                          # present (the Job's backoffLimit covers a cold prov).
+                          echo "waiting for ${SRC} data keys (token + ca.crt)…"
+                          tok=""; ca=""
+                          for i in $(seq 1 120); do
+                            code=$(curl -s -o /tmp/src.json -w '%{http_code}' --cacert "${CA}" \
+                              -H "Authorization: Bearer ${TOKEN}" \
+                              "${API}/api/v1/namespaces/${NS}/secrets/${SRC}")
+                            if [ "${code}" = "200" ]; then
+                              tok=$(tr -d '\n' < /tmp/src.json | grep -oE '"token"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+                              ca=$(tr -d '\n' < /tmp/src.json | grep -oE '"ca\.crt"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+                              if [ -n "${tok}" ] && [ -n "${ca}" ]; then
+                                echo "source populated"; break
+                              fi
+                            fi
+                            if [ "${i}" = "120" ]; then
+                              echo "timeout: ${SRC} token/ca.crt absent after 10m" >&2
+                              exit 1
+                            fi
+                            sleep 5
+                          done
+                          # Build the Opaque destination Secret. Data values are
+                          # the ALREADY-base64 bytes from the source (token/ca.crt
+                          # under .data are base64-encoded), so reuse verbatim.
+                          cat > /tmp/dst.json <<EOF
+                          {"apiVersion":"v1","kind":"Secret","metadata":{"name":"${DST}","namespace":"${NS}","labels":{"catalyst.openova.io/blueprint":"bp-openbao","catalyst.openova.io/component":"openbao-host-token-reviewer","app.kubernetes.io/managed-by":"flux"}},"type":"Opaque","data":{"token":"${tok}","ca.crt":"${ca}"}}
+                          EOF
+                          # Create, or update if it already exists (idempotent).
+                          code=$(curl -s -o /tmp/out.json -w '%{http_code}' -X POST --cacert "${CA}" \
+                            -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
+                            --data @/tmp/dst.json \
+                            "${API}/api/v1/namespaces/${NS}/secrets")
+                          if [ "${code}" = "409" ]; then
+                            echo "${DST} exists — updating"
+                            code=$(curl -s -o /tmp/out.json -w '%{http_code}' -X PUT --cacert "${CA}" \
+                              -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
+                              --data @/tmp/dst.json \
+                              "${API}/api/v1/namespaces/${NS}/secrets/${DST}")
+                          fi
+                          case "${code}" in
+                            200|201) echo "wrote ${DST} (${code})";;
+                            *) echo "failed to write ${DST}: HTTP ${code}" >&2; cat /tmp/out.json >&2; exit 1;;
+                          esac
     - {file: 11a-bp-powerdns-admin.yaml, hr: bp-powerdns-admin, vcluster: host, target: mgmt,
        namespace: powerdns-admin}   # §4: UI not substrate — DEFAULT mgmt, listed for founder veto
     - {file: 13b-bp-sso-bridge.yaml, hr: bp-sso-bridge, vcluster: host, target: mgmt, namespace: sso-bridge}

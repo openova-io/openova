@@ -248,6 +248,19 @@ spec:
       kubernetesAuth:
         crossClusterTokenReview:
           enabled: true
+          # #3838: mount the Opaque COPY of the host token-reviewer
+          # (`openbao-host-token-reviewer-static`, minted by the placement.yaml
+          # `openbao-host-token-reviewer-export` Job), NOT the raw
+          # `kubernetes.io/service-account-token` Secret. The SA-token-typed
+          # Secret cannot be fromHost-mirrored into vc-mgmt without spinning an
+          # infinite vCluster token-controller re-stamp loop that starves the
+          # keycloak DB-secret sync (the 30m keycloak install-loop, ~49/64-HR
+          # spine stall). The Opaque copy carries the same `token`/`ca.crt`
+          # keys, so the auth-bootstrap Job behaviour is unchanged.
+          tokenReviewerSecret:
+            name: openbao-host-token-reviewer-static
+            tokenKey: token
+            caKey: ca.crt
     # Issue #517 (Phase-8a single-node): openbao upstream chart's
     # 3-replica StatefulSet uses required pod-anti-affinity by hostname.
     # On single-node Phase-8a Sovereigns this leaves 2/3 pods Pending
