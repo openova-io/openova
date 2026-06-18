@@ -182,3 +182,64 @@ func TestReadTopology_ObjectFormMode(t *testing.T) {
 		t.Fatalf("readTopology object-form = %q, want active-hotstandby", got)
 	}
 }
+
+// ── #3830 — dotted Org FQDN → slugged metadata.namespace on both CR
+// write paths. The CR must NEVER carry a dotted metadata.namespace (the
+// apiserver rejects it); the verbatim Org identity stays on the
+// organization label + environmentRef.
+
+func TestNewApplicationUnstructured_DottedOrgSlugsNamespace(t *testing.T) {
+	req := applicationInstallRequest{
+		BlueprintRef:    applicationBlueprintRef{Name: "bp-wp", Version: "1.0.0"},
+		Name:            "site",
+		OrganizationRef: "hw165.omani.works",
+		EnvironmentRef:  "hw165.omani.works-prod",
+		Placement:       applicationPlacement{Mode: "singleton", Regions: []string{"fsn"}},
+	}
+	obj := newApplicationUnstructured(req)
+	if ns := obj.GetNamespace(); ns != "hw165-omani-works" {
+		t.Fatalf("metadata.namespace = %q, want slugged hw165-omani-works", ns)
+	}
+	// The verbatim FQDN identity is preserved on the org label …
+	if org := obj.GetLabels()["catalyst.openova.io/organization"]; org != "hw165.omani.works" {
+		t.Fatalf("organization label = %q, want verbatim FQDN hw165.omani.works", org)
+	}
+	// … and on environmentRef (a Catalyst Environment ref, not a namespace).
+	if env, _, _ := unstructured.NestedString(obj.Object, "spec", "environmentRef"); env != "hw165.omani.works-prod" {
+		t.Fatalf("spec.environmentRef = %q, want verbatim hw165.omani.works-prod", env)
+	}
+}
+
+func TestNewApplicationCRFromSeed_DottedOrgSlugsNamespace(t *testing.T) {
+	seed := instances.ApplicationSeed{
+		Name:      "obs",
+		Namespace: "hw165.omani.works", // instances.Build sets Namespace = Org (the FQDN)
+		Blueprint: "bp-grafana",
+		Topology:  "singleton",
+		Labels:    map[string]string{"catalyst.openova.io/organization": "hw165.omani.works"},
+	}
+	obj := newApplicationCRFromSeed(seed)
+	if ns := obj.GetNamespace(); ns != "hw165-omani-works" {
+		t.Fatalf("metadata.namespace = %q, want slugged hw165-omani-works", ns)
+	}
+	// environmentRef keeps the FQDN form (seed.Namespace + "-prod").
+	if env, _, _ := unstructured.NestedString(obj.Object, "spec", "environmentRef"); env != "hw165.omani.works-prod" {
+		t.Fatalf("spec.environmentRef = %q, want hw165.omani.works-prod", env)
+	}
+}
+
+// #3830 — the install validator must ACCEPT a dotted Org FQDN (the Org
+// identity is a DNS subdomain; the namespace is derived from it). Before
+// the fix this 400'd with "must be a valid K8s name".
+func TestValidateApplicationInstall_AcceptsDottedOrgFQDN(t *testing.T) {
+	req := applicationInstallRequest{
+		BlueprintRef:    applicationBlueprintRef{Name: "bp-wp", Version: "1.0.0"},
+		Name:            "site",
+		OrganizationRef: "hw165.omani.works",
+		EnvironmentRef:  "hw165.omani.works-prod",
+		Placement:       applicationPlacement{Mode: "singleton", Regions: []string{"fsn"}},
+	}
+	if msg, ok := validateApplicationInstallRequest(req); !ok {
+		t.Fatalf("dotted Org FQDN must be accepted, got rejection: %q", msg)
+	}
+}

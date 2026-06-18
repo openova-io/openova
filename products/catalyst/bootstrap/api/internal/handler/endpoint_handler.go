@@ -895,7 +895,11 @@ func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	if len(dependsOnEntries) > 0 {
 		_ = unstructured.SetNestedSlice(obj.Object, dependsOnEntries, "spec", "dependsOn")
 	}
-	created, err := client.Resource(ApplicationGVR()).Namespace(body.Org).Create(
+	// #3830 — create into the slugged namespace, matching the CR's
+	// metadata.namespace (newApplicationCRFromSeed) and the namespace
+	// ensureOrgNamespace created above. body.Org (the FQDN) stays the Org
+	// identity in user-facing messages + labels.
+	created, err := client.Resource(ApplicationGVR()).Namespace(orgNamespace(body.Org)).Create(
 		r.Context(), obj, metav1.CreateOptions{})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
@@ -987,6 +991,11 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 	if len(body.Backing) == 0 {
 		return nil, nil
 	}
+	// #3830 — slugged namespace for this Org (body.Org is the FQDN Org
+	// identity). The reflected-credential target namespace, the backing CR
+	// create, and the consumer's dependsOn pointer all use this so they
+	// agree with where the consumer + backing CRs actually live.
+	orgNS := orgNamespace(body.Org)
 	dependsOn := make([]interface{}, 0, len(body.Backing))
 	for _, sel := range body.Backing {
 		bpFull := sel.Blueprint
@@ -1018,7 +1027,9 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 			},
 			"reflect": map[string]interface{}{
 				"secretName": credential,
-				"namespaces": []interface{}{body.Org},
+				// #3830 — reflect the credential into the slugged consumer
+				// namespace (where the consumer CR + its pods live).
+				"namespaces": []interface{}{orgNS},
 			},
 		}
 
@@ -1058,7 +1069,7 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 					_ = unstructured.SetNestedField(backingObj.Object, v, "spec", "blueprintRef", "version")
 				}
 			}
-			if _, cerr := client.Resource(ApplicationGVR()).Namespace(body.Org).Create(ctx, backingObj, metav1.CreateOptions{}); cerr != nil {
+			if _, cerr := client.Resource(ApplicationGVR()).Namespace(orgNS).Create(ctx, backingObj, metav1.CreateOptions{}); cerr != nil {
 				if !apierrors.IsAlreadyExists(cerr) {
 					return nil, &backingError{status: http.StatusInternalServerError, code: "backing-create-failed", message: cerr.Error()}
 				}
@@ -1072,7 +1083,7 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 			}
 			dependsOn = append(dependsOn, map[string]interface{}{
 				"name":      backingName,
-				"namespace": body.Org,
+				"namespace": orgNS,
 				"context":   ctxSchema.Kind + "/" + contextName,
 			})
 
@@ -2075,10 +2086,15 @@ func readMultiInstance(bp *blueprintMeta) multiInstanceDecl {
 	return *bp.MultiInstance
 }
 
-// listAppsInOrg lists Applications in `org` namespace whose
+// listAppsInOrg lists Applications in the `org` namespace whose
 // spec.blueprintRef.name matches `blueprint` (with or without bp-).
+//
+// #3830 — `org` is the Org ref (often a dotted FQDN); it is slugged via
+// orgNamespace() so this existing-instance lookup addresses the SAME
+// namespace the create path writes into (the admission name-collision
+// gate that consumes this list must see the already-installed CRs).
 func listAppsInOrg(ctx context.Context, c dynamic.Interface, org, blueprint string) ([]unstructured.Unstructured, error) {
-	list, err := c.Resource(ApplicationGVR()).Namespace(org).List(ctx, metav1.ListOptions{})
+	list, err := c.Resource(ApplicationGVR()).Namespace(orgNamespace(org)).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -2103,7 +2119,11 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 	obj.SetAPIVersion(ApplicationGVR().Group + "/" + ApplicationGVR().Version)
 	obj.SetKind("Application")
 	obj.SetName(seed.Name)
-	obj.SetNamespace(seed.Namespace)
+	// #3830 — seed.Namespace carries the Org ref (often a dotted FQDN).
+	// metadata.namespace must be the slugged RFC-1123 form; the verbatim
+	// Org identity is preserved on the catalyst.openova.io/organization
+	// label (set in instances.Build) and on environmentRef below.
+	obj.SetNamespace(orgNamespace(seed.Namespace))
 	obj.SetLabels(seed.Labels)
 	// One vocabulary (#3375 DoD-1): both the string AND object forms
 	// stamp the CANONICAL placement token. placementForTopology folds
