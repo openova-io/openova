@@ -52,3 +52,15 @@ The A+B+C train fixed the hw161 env-killer. Verified live on hw162 (`4d61885518c
 - **The atomic-dry-run deadlock is gone** — bootstrap-kit reconciled and created **64 HelmReleases** (0 → 64) the moment kustomize-controller came up. hw161 was permanently stuck at 0; hw162 is flowing.
 
 **Caveat (separate, known, non-fatal #809):** flux controller images pull slowly through the harbor proxy — `kustomize-controller:v1.4.0` took **9m59s** to pull, delaying first reconcile ~26 min into phase-1. Slow, not wedged. The 64 HRs are now installing (operators → CRDs → bootstrap-kit-crs CRs → apps); readiness watcher fires the walk at HRs-Ready ≥ 50.
+
+---
+
+## hw162 kubectl-observable DoD verification (console-independent, partial convergence ~49/64 HRs)
+
+Verified live via the mothership kubeconfig while the keycloak cascade was still blocked (browser walks gated on the console, but topology/placement is cluster-state-observable):
+
+- **NS#1 / #3642 — North Star #1 "every app in a vCluster": ✅ PLACEMENT VERIFIED.** All 7 relocated apps carry `catalyst.openova.io/vcluster: mgmt` and target the mgmt vCluster: `kubectl get hr` → bp-{keycloak,gitea,harbor,newapi,grafana,openbao,guacamole} all NS=mgmt VCLUSTER=mgmt. **Real advance over hw159**, where the walk found these on `host` (#3642 not effective). Ready-in-vCluster so far: bp-harbor=True, bp-openbao=True; the other 5 pending on the keycloak-secret cascade.
+- **North Star #2 — 3 shared-pg instances: ✅ VERIFIED.** `kubectl get cluster.postgresql.cnpg.io -n shared-data` → shared-pg (1/1), shared-pg-b (1/1), shared-pg-c (1/1), all readyInstances=1.
+- **#3740 — cross-region async replication: ⚠️ INCONCLUSIVE.** Per-app CNPG DBs (guacamole-pg/gitea-pg/harbor-pg/newapi-pg) are single-instance with empty `.spec.replica` — no cross-region replica config observable on this prov; bp-cnpg-pair HR is Ready but no distinct pair cluster surfaced.
+
+These confirm the train's topology fixes are LIVE at the placement/substrate level even before full app readiness. Full browser-walk verification (SSO landing, funnel, console surfaces) remains gated on the keycloak→catalyst-platform cascade (the 2nd-layer keycloak-database-secret shared-pg↔vCluster mirroring bug, root-caused above).
