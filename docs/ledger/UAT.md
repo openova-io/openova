@@ -1,4 +1,4 @@
-# UAT — browser walkthrough dashboard · `hw159` (2026-06-17) — fresh-prov walk (RESET 2026-06-18 — pending hw161)
+# UAT — browser walkthrough dashboard · `hw159` (2026-06-17) — fresh-prov walk (RESET 2026-06-18 — pending hw162)
 
 > **Env:** `hw159.omani.works` · deployment `c117f6fd4e2eb2dd` · single physical kom4dc region
 > (2 VPCs `me-east-215-a` / `-b`). On each wipe + re-prov this dashboard resets and the links flip
