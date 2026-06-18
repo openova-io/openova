@@ -2802,6 +2802,33 @@ name: bp-catalyst-platform
 # host-side keycloak). Catalyst-Zero render byte-unchanged when disabled.
 # Requires bp-keycloak ≥1.4.33 for the deterministic SA secret. Refs #3642
 # #3736.
+# 1.4.685 — #3811 (Refs #3642 #3760): CONSOLE-INSTALL UNBLOCK. After #3642
+# moved bp-gitea INTO vc-mgmt, the host `gitea` ns no longer holds the plain
+# `gitea-admin-secret` — only the vCluster-syncer-mangled
+# `gitea-admin-secret-x-gitea-x-mgmt-vcluster` (ns `mgmt`, reflected to
+# `catalyst`). The catalyst-gitea-token mint template gated its ENTIRE render
+# on `lookup "v1" "Secret" "gitea" "gitea-admin-secret"` → nil on a fresh
+# Sovereign → no catalyst-gitea-token Secret, no mint Job → the weight-12/13
+# consumer pre-install hooks (catalyst-gitea-tenants-repo-bootstrap +
+# catalyst-catalog-sovereign-repo-bootstrap) CrashLooped
+# `secret "catalyst-gitea-token" not found` → bp-catalyst-platform pre-install
+# timed out → console never came up (hw163 stuck 56/64, console 000). TWO
+# coupled changes: (1) NEW templates/catalyst-gitea-admin-secret-bridge.yaml —
+# a pre-install hook (weight 1, before the mint) that Helm-`lookup`s the
+# syncer-origin mangled host secret and re-publishes plain
+# `gitea/gitea-admin-secret`, restoring the pre-#3642 host contract the mint
+# hook's gate + RBAC + runtime kubectl expect (vCluster toHost MANGLES names
+# and emberstack reflector can't rename, so neither alone produces the plain
+# name); (2) catalyst-gitea-token-secret.yaml render gate widened to fire when
+# EITHER the plain host secret (steady state, contabo) OR the mangled host
+# secret (fresh Sovereign first install) is live — a Helm `lookup` can't see
+# the bridge's same-pass output, so the gate must accept the same source the
+# bridge reads. catalyst-api's runtime gitea path (CATALYST_GITEA_URL +
+# catalyst-gitea-token + CATALYST_GITOPS_TOKEN) resolves once the PAT mints —
+# it never reads gitea-admin-secret directly. Gated on giteaAdminBridge.enabled
+# (default true; flip false on Catalyst-Zero/contabo where gitea is host-side).
+# Builds on #3810 (bp-mgmt-vcluster 0.2.15 replicateServices.toHost gitea-http,
+# host reachability). Default `helm template` (lookups nil) renders identically.
 version: 1.4.687
 # 1.4.675 — #3383 ORGANIZATIONS rename (ZERO behavior change), rebased over
 # main's 1.4.674 (#3376 funnel + #3700/#3687 per-Org Flux loop + #3763

@@ -263,6 +263,57 @@ keycloakHostBridge:
   bitnamiSecretNamespace: mgmt
   bitnamiSecretName: keycloak-x-keycloak-x-mgmt-vcluster
   masterAdminUser: admin
+# ─── Gitea admin-secret host bridge (#3811, Refs #3642) ────────────────
+# #3642 moved bp-gitea INTO the mgmt vCluster (vc-mgmt). The gitea chart's
+# `gitea-admin-secret` (templates/admin-secret.yaml, random `randAlphaNum
+# 32` password, lookup-stable) now lives in vc-mgmt ns `gitea`; on the
+# HOST the vCluster syncer (`sync.toHost.secrets.enabled: true`) mirrors it
+# ONLY under the mangled name `<name>-x-<inner-ns>-x-<vcluster-release>`
+# (e.g. `gitea-admin-secret-x-gitea-x-mgmt-vcluster`) in the syncer's host
+# namespace (`mgmt`). Plain `gitea/gitea-admin-secret` — the name the
+# catalyst-gitea-token mint hook's render gate + RBAC + runtime kubectl all
+# expect (the pre-#3642 contract) — no longer exists on the host.
+#
+# Result on a fresh prov (hw163, 2026-06-18): the mint template's gate
+# `lookup "v1" "Secret" "gitea" "gitea-admin-secret"` returns nil → the
+# WHOLE catalyst-gitea-token-secret.yaml renders nothing (no Secret, no
+# mint Job) → the tenants-repo-bootstrap + catalog-sovereign-repo-bootstrap
+# pre-install hooks `secretKeyRef catalyst-gitea-token` hit
+# CreateContainerConfigError → bp-catalyst-platform pre-install times out →
+# console never comes up.
+#
+# Neither the vCluster syncer (toHost always MANGLES the name — vcluster
+# 0.23.0 `sync.toHost.secrets` has no `mappings.byName` rename, only
+# fromHost does) NOR the emberstack reflector (mirrors the SAME name to
+# other namespaces, can't rename) can produce a PLAIN-named host secret. So
+# templates/catalyst-gitea-admin-secret-bridge.yaml Helm-`lookup`s the
+# syncer-origin mangled host secret and re-publishes plain
+# `gitea/gitea-admin-secret`, restoring the pre-#3642 host contract with
+# zero per-secret special-casing. Same Helm-lookup-and-mirror seam as
+# provisioning-github-token.yaml / valkey-cross-ns-secret.yaml.
+giteaAdminBridge:
+  # Master gate. When false the bridge template renders nothing — set
+  # false on Catalyst-Zero (contabo, no vCluster, gitea-admin-secret is
+  # hand-rolled) or any topology where bp-gitea stays host-side. On a
+  # franchised Sovereign (gitea in vc-mgmt) leave true.
+  enabled: true
+  # The host namespace the bridge writes the PLAIN gitea-admin-secret into
+  # — MUST be where the mint hook's RBAC (catalyst-gitea-admin-reader Role)
+  # + its runtime `kubectl -n gitea get secret gitea-admin-secret` look.
+  destNamespace: gitea
+  # The plain Secret name the mint hook + the pre-#3642 contract expect.
+  destSecretName: gitea-admin-secret
+  # ── Source: the vCluster-syncer-mirrored mangled host secret ──────────
+  # The syncer writes the in-vCluster `gitea/gitea-admin-secret` to the
+  # host as `<name>-x-<inner-ns>-x-<vcluster-release>` in the syncer host
+  # namespace. For the MGMT vCluster (bp-mgmt-vcluster HR releaseName
+  # `mgmt-vcluster`, hostNamespace `mgmt`, inner ns `gitea`) that resolves
+  # to `mgmt/gitea-admin-secret-x-gitea-x-mgmt-vcluster`. Reading the
+  # syncer ORIGIN (ns `mgmt`) — not the reflector copy (ns `catalyst`) —
+  # makes the bridge independent of the gitea chart's reflector
+  # allow-namespaces config.
+  sourceNamespace: mgmt
+  sourceSecretName: gitea-admin-secret-x-gitea-x-mgmt-vcluster
 
 # ─── Multi-zone parent domains (issue #827, parent epic #825) ──────────
 # A franchised Sovereign supports N parent zones, NOT one. The operator
