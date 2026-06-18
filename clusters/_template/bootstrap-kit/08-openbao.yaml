@@ -16,6 +16,22 @@
 # CoreDNS forwards unknown queries to host kube-dns).
 
 ---
+# Host namespace for openbao's host-bridge Secret (openbao-sso-oidc-credentials).
+# #3642 re-homed openbao into the mgmt vCluster; its host-MINTED SSO Secret lands
+# in this HOST `openbao` namespace and the raw ExternalSecret (now in the
+# bootstrap-kit-crs tier) targets it. Flux applies Namespace kinds before
+# namespaced resources, so declaring it here guarantees it exists before
+# bootstrap-kit-crs applies the ExternalSecret — without it bootstrap-kit-crs
+# atomic-fails `namespaces "openbao" not found`, blocking ALL its CRs (caught
+# live on hw162). grafana/newapi declare theirs in their slots; gitea/harbor were
+# fixed in #3806; openbao was the remaining gap (Refs #3642 #3731 #3804).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openbao
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:

@@ -42,12 +42,13 @@ kustomizations:
       - bootstrap-kit
   - name: bootstrap-kit-crs
     # #3642/#3731/#3804 fresh-prov 0-HR deadlock fix: host-bridge CRD-dependent
-    # CRs (HTTPRoute/ExternalSecret/CNPG Cluster) split out of bootstrap-kit into
-    # this sibling tier so they validate/apply only AFTER bootstrap-kit installs
-    # the operators (bp-external-secrets/bp-cnpg/bp-gateway-api) that register
-    # their CRDs. Provider-agnostic (the deadlock is too — NOT optional).
-    depends_on:
-      - bootstrap-kit
+    # CRs (HTTPRoute/ExternalSecret/CNPG Cluster) split into this sibling tier.
+    # NO dependsOn (depends_on: []): it reconciles in parallel + retries until
+    # the operator CRDs exist. It must NOT depend on bootstrap-kit — several CRs
+    # are APP DBs the apps INSIDE bootstrap-kit need Ready, so a dependsOn
+    # deadlocks circularly (app→DB CR→bootstrap-kit Ready→app; caught live hw162).
+    # Provider-agnostic (NOT optional).
+    depends_on: []
   - name: infrastructure-config
     # Hetzner-only (HCL `%{ if provider == "hetzner" }` guard) — absent for
     # other providers, which is expected, not drift.
