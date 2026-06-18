@@ -59,6 +59,45 @@ sovereign:
   #    token still carried a mothership `iss`.
   consolePublicURL: "https://console.example.local"
 
+# ── mgmt-vCluster isolation carve-out for the cutover Job namespace ────
+# (#3821, Refs #3379 #3642)
+#
+# The cutover step Jobs are stamped by catalyst-api into THIS chart's
+# release namespace (`.Release.Namespace`, the `catalyst` ns). Several
+# steps must reach apps that the #3642 host->mgmt move re-homed INSIDE
+# the mgmt vCluster and surfaced to the host as ExternalName/headless
+# Services in the `mgmt` host namespace:
+#   - step 01 (gitea-mirror)        -> gitea-http.gitea.svc  (-> mgmt)
+#   - step 02/03 (harbor-projects/prewarm) -> harbor-core.harbor.svc (-> mgmt)
+#   - step 09 (gitea-token-mint)    -> gitea-http.gitea.svc  (-> mgmt)
+#
+# bp-mgmt-vcluster ships a default-deny-ingress NetworkPolicy
+# (`mgmt-vcluster-bp-mgmt-vcluster-isolation`, podSelector {}) whose
+# allow-list (`mgmtVcluster.networkPolicy.allowedIngressNamespaces`)
+# enumerates the host->mgmt consumer namespaces — it includes
+# `catalyst-system` but NOT `catalyst`. So every cutover Job's dial into
+# the mgmt vCluster pod network silently TIMES OUT (proven live on hw165:
+# from `catalyst` the gitea pod IP times out, from `catalyst-system` it
+# returns 403 i.e. datapath open). The cutover wedges at step 01/11 with
+# `watch Job catalyst/cutover-gitea-mirror-...: context deadline exceeded`.
+#
+# This chart-owned NetworkPolicy is PURELY ADDITIVE (Cilium unions every
+# NetworkPolicy + CiliumNetworkPolicy selecting an endpoint — same
+# additive idiom bp-mgmt-vcluster #3817 uses for its gateway-ingress CNP)
+# so it opens `catalyst -> mgmt` ingress WITHOUT editing bp-mgmt-vcluster
+# (owned separately). The canonical complement is to also add `catalyst`
+# to `mgmtVcluster.networkPolicy.allowedIngressNamespaces` (#3820 family);
+# carrying the carve-out here makes the cutover self-contained regardless.
+#
+# Disable on a Sovereign whose gitea/harbor are NOT inside the mgmt
+# vCluster (e.g. a pre-#3642 topology) by setting enabled: false.
+mgmtIsolationCarveOut:
+  enabled: true
+  # Host namespace that hosts the mgmt vCluster's synced Service mirrors
+  # (gitea-http-x-…/harbor-core-x-…/openbao-x-… live here behind the
+  # isolation netpol). Matches bp-mgmt-vcluster's hostNamespace.
+  mgmtNamespace: mgmt
+
 # Upstream openova-io read-only public clone — the source for cutover
 # step 01. Step-1 calls Gitea's /repos/migrate API with mirror=true so
 # Gitea itself owns the recurring upstream sync going forward; the local
