@@ -101,7 +101,14 @@ spec:
       # pdns-auth-50 + dnsdist-19 images to raw docker.io because proxy-docker is
       # not bootstrap-pullable on a fresh prov (#3380-D's reroute wedged hw131 +
       # hw132). powerdns stays subject to every OTHER policy (scoped carve-out).
-      version: 1.0.35
+      # 1.0.36 (#3825, hw165, 2026-06-19): EXEMPT `trivy-system` from BOTH
+      # flux-managed (10) + harbor-proxy-pull (11) Enforce policies. The
+      # trivy-operator spawns scan Jobs into trivy-system that carry no flux
+      # owner and use aquasec/trivy scanner images — both Enforce policies denied
+      # every scan-job create cluster-wide so trivy scanning was dead. Scoped
+      # per-policy carve-out (same shape as powerdns + cnpg); trivy-system stays
+      # subject to every other policy.
+      version: 1.0.36
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno
