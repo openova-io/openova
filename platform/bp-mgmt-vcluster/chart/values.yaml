@@ -339,6 +339,25 @@ vcluster:
           to: shared-data/shared-pg-c-rw
         - from: shared-data/shared-pg-c-ro
           to: shared-data/shared-pg-c-ro
+      # ── #3642 host→vCluster gitea reachability (the MIRROR of fromHost above) ──
+      # #3642 moved gitea INTO vc-mgmt, but bp-catalyst-platform stays HOST-side
+      # (catalyst-system). Its in-cluster gitea consumers — the
+      # `catalyst-gitea-token` mint hook (chart catalyst-gitea-token-secret.yaml:
+      # `url: http://gitea-http.gitea.svc.cluster.local:3000`), the
+      # `catalyst-gitea-tenants-repo-bootstrap` pre-install hook, and catalyst-api
+      # itself (CATALYST_GITEA_URL) — dial `gitea-http.gitea.svc.cluster.local`
+      # on the HOST. After #3642 the host `gitea` ns has only the CNPG DB; the
+      # real gitea-http runs INSIDE vc-mgmt → the host name does not resolve →
+      # the token never mints → the bp-catalyst-platform pre-install hook
+      # CrashLoops `secret "catalyst-gitea-token" not found` → install times out
+      # → CONSOLE NEVER COMES UP (root-caused live on hw163, 2026-06-18, the 5th
+      # convergence layer). replicateServices.toHost exports the in-vCluster
+      # gitea-http back to the HOST `gitea/gitea-http` Service so every host
+      # consumer resolves it natively — exactly symmetric to the shared-pg
+      # fromHost mirror above (there vCluster→host; here host→vCluster).
+      toHost:
+        - from: gitea/gitea-http
+          to: gitea/gitea-http
 
   # sync — what host-cluster resources sync into the vCluster. The
   # MGMT vCluster needs services + endpoints + configmaps + secrets

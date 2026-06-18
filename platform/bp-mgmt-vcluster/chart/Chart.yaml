@@ -157,7 +157,17 @@ name: bp-mgmt-vcluster
 # the host shared-pg FQDN resolves natively inside vc-mgmt (the Pod is a real
 # host pod → ClusterIP reachable; only the NAME was missing). Additive,
 # values-only; zero per-app special-casing (#3642 DoD-6).
-version: 0.2.14
+#
+# 0.2.15 (#3642 host→vCluster gitea reachability, hw163 2026-06-18, 5th layer):
+# the MIRROR of 0.2.14. bp-catalyst-platform stays HOST-side but its in-cluster
+# gitea consumers (the `catalyst-gitea-token` mint hook, the tenants-repo
+# bootstrap pre-install hook, catalyst-api's CATALYST_GITEA_URL) dial
+# `gitea-http.gitea.svc.cluster.local:3000` on the host — which after #3642 has
+# only the CNPG DB (gitea-http runs inside vc-mgmt). Token never mints → console
+# pre-install hook `secret "catalyst-gitea-token" not found` → install times out
+# → console never comes up. Adds `networking.replicateServices.toHost` exporting
+# the in-vCluster gitea-http back to the host `gitea/gitea-http` Service.
+version: 0.2.15
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT

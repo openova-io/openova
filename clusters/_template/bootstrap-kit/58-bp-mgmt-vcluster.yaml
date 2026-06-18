@@ -105,7 +105,13 @@ spec:
       # `shared-pg[-b|-c]-rw.shared-data.svc.cluster.local` RESOLVES inside the
       # vCluster — keycloak-0 CrashLooped `no such host` on hw163 without it
       # (the #3642-in-vcluster vs NorthStar-#2 host-shared-pg DNS collision).
-      version: 0.2.14
+      # 0.2.15 (#3642 5th layer): networking.replicateServices.toHost exports the
+      # in-vCluster gitea-http back to the host gitea/gitea-http Service so the
+      # HOST-side bp-catalyst-platform gitea-token mint hook + catalyst-api
+      # resolve gitea-http.gitea.svc.cluster.local — else the console pre-install
+      # hook CrashLoops `catalyst-gitea-token not found` and the console never
+      # installs (root-caused live hw163).
+      version: 0.2.15
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster
