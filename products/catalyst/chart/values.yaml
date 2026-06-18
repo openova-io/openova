@@ -418,9 +418,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "782ce66"
+    tag: "8911349"
   catalystUi:
-    tag: "782ce66"
+    tag: "8911349"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
