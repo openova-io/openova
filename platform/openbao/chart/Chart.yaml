@@ -119,7 +119,29 @@ name: bp-openbao
 # readTopology serves spec.placement VERBATIM to the Topology tab + the
 # Instances-table chip, so the legacy spelling leaked the banned word to the
 # operator (hw159 #3375).
-version: 1.2.48
+# 1.2.49 (#3825, Refs #3642, 2026-06-18): cross-cluster TokenReview for the
+# auth-bootstrap Job's k8s-auth config. After #3642 openbao runs INSIDE the
+# mgmt vCluster, but the ESO ServiceAccount whose JWT it validates
+# (external-secrets/external-secrets-system) is issued by the HOST apiserver.
+# The pod's `kubernetes.default.svc` is the VC-MGMT apiserver, which cannot
+# review the host token → every ESO login 403s → ALL *-oidc ExternalSecrets
+# (oidc-gate-*, hubble-ui-oauth2-proxy, the per-app SSO secrets) stay unsynced
+# → the per-app SSO walk stays broken (root-caused live hw163 2026-06-18).
+# New autoUnseal.kubernetesAuth.crossClusterTokenReview: when enabled the Job
+# points auth/kubernetes/config at the HOST apiserver
+# (kubernetes_host=hostApiserver, token_reviewer_jwt + kubernetes_ca_cert from
+# the mirrored openbao-host-token-reviewer Secret, disable_local_ca_jwt=true).
+# This is openbao's documented cross-cluster auth mode and RESTORES the
+# pre-#3642 contract (when openbao was host-side, kubernetes.default.svc WAS
+# the host apiserver and the host ESO token validated natively). The host SA
+# token + CA are minted HOST-side (bootstrap-kit slot-08 hostDocuments: a host
+# ServiceAccount bound to system:auth-delegator + a
+# kubernetes.io/service-account-token Secret) and mirrored host→vc-mgmt by
+# bp-mgmt-vcluster sync.fromHost.secrets (the existing openbao/* mapping). The
+# Job soft-waits (backoffLimit retries) for the mirror. DEFAULT false →
+# single-region / Catalyst-Zero / host-side-openbao render byte-identical +
+# in-cluster TokenReview path unchanged. Refs #3642 #3736.
+version: 1.2.49
 # 1.2.46 (#3629, 2026-06-16): the SECONDARY (fetch) snapshot CronJob no longer
 # performs an OpenBao k8s-auth login. The fetch path is PURE S3 I/O
 # (list-objects-v2 + `s3 cp` to the restore-staging PVC) and NEVER reads

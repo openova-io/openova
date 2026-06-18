@@ -646,6 +646,77 @@ spec:
                   remoteRef:
                     key: sso/openbao
                     property: issuer_url
+          # ── #3825 (Refs #3642) HOST token-reviewer for cross-cluster auth ──
+          # openbao now runs in vc-mgmt but must TokenReview the HOST-issued ESO
+          # ServiceAccount token (external-secrets/external-secrets-system) to
+          # let the `vault-region1` ClusterSecretStore authenticate. The pod's
+          # in-cluster `kubernetes.default.svc` is the VC-MGMT apiserver, which
+          # cannot review a host token → every ESO login 403s → ALL *-oidc
+          # ExternalSecrets (incl. openbao-sso-oidc-credentials ABOVE,
+          # oidc-gate-*, hubble-ui-oauth2-proxy, per-app SSO) stay unsynced.
+          # These three HOST resources supply OpenBao a HOST token_reviewer_jwt
+          # + the HOST CA so it can review against the HOST apiserver
+          # (auth/kubernetes/config kubernetes_host=https://10.96.0.1:443,
+          # disable_local_ca_jwt=true — bp-openbao 1.x crossClusterTokenReview).
+          #
+          # Delivery: the token Secret is minted in the HOST `openbao` ns; the
+          # bp-mgmt-vcluster `sync.fromHost.secrets` `openbao/*` mapping mirrors
+          # it into the vc-mgmt `openbao` ns under the SAME name, where the
+          # auth-bootstrap Job mounts it. Plain core resources (no operator
+          # CRD) so they are safe in this CRD-dependent CRS tier (they carry no
+          # `no matches for kind` risk) and land right after bootstrap-kit.
+          #
+          # 1. HOST ServiceAccount whose token OpenBao presents as the
+          #    token_reviewer_jwt. Distinct from the ESO SA — least-privilege:
+          #    its ONLY power is TokenReview (via the auth-delegator CRB below).
+          - apiVersion: v1
+            kind: ServiceAccount
+            metadata:
+              name: openbao-host-token-reviewer
+              namespace: openbao
+              labels:
+                catalyst.openova.io/blueprint: bp-openbao
+                catalyst.openova.io/component: openbao-host-token-reviewer
+                catalyst.openova.io/host-bridge: "mgmt"
+          # 2. Bind that HOST SA to system:auth-delegator (create on
+          #    tokenreviews.authentication.k8s.io) — the ONLY grant OpenBao's
+          #    cross-cluster TokenReview needs against the HOST apiserver.
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRoleBinding
+            metadata:
+              name: openbao-host-token-reviewer-auth-delegator
+              labels:
+                catalyst.openova.io/blueprint: bp-openbao
+                catalyst.openova.io/component: openbao-host-token-reviewer
+                catalyst.openova.io/host-bridge: "mgmt"
+            roleRef:
+              apiGroup: rbac.authorization.k8s.io
+              kind: ClusterRole
+              name: system:auth-delegator
+            subjects:
+              - kind: ServiceAccount
+                name: openbao-host-token-reviewer
+                namespace: openbao
+          # 3. Long-lived token Secret for that HOST SA. On k8s 1.24+ SA-token
+          #    Secrets are no longer auto-created, but an explicit
+          #    kubernetes.io/service-account-token Secret IS still populated by
+          #    the token controller with `token` (a non-expiring SA JWT) +
+          #    `ca.crt` (the HOST cluster CA) — exactly the two values the Job
+          #    needs. A non-expiring token is acceptable here: it is
+          #    auth-delegator-only (cannot read secrets / mutate anything) and
+          #    is the documented pattern for OpenBao's static token_reviewer_jwt.
+          - apiVersion: v1
+            kind: Secret
+            metadata:
+              name: openbao-host-token-reviewer
+              namespace: openbao
+              labels:
+                catalyst.openova.io/blueprint: bp-openbao
+                catalyst.openova.io/component: openbao-host-token-reviewer
+                catalyst.openova.io/host-bridge: "mgmt"
+              annotations:
+                kubernetes.io/service-account.name: openbao-host-token-reviewer
+            type: kubernetes.io/service-account-token
     - {file: 11a-bp-powerdns-admin.yaml, hr: bp-powerdns-admin, vcluster: host, target: mgmt,
        namespace: powerdns-admin}   # §4: UI not substrate — DEFAULT mgmt, listed for founder veto
     - {file: 13b-bp-sso-bridge.yaml, hr: bp-sso-bridge, vcluster: host, target: mgmt, namespace: sso-bridge}

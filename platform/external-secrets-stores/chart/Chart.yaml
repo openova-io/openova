@@ -47,7 +47,18 @@ name: bp-external-secrets-stores
 # the bootstrap-kit from upstream Docker Hub deletions (Bitnami 2025-08
 # is exactly such an incident) and satisfies the Kyverno
 # `harbor-proxy-pull` ClusterPolicy.
-version: 1.0.6
+#
+# 1.0.7 (#3825, Refs #3642, 2026-06-18): the vault-region1 ClusterSecretStore
+# `server` now points at the HOST-routable vCluster-syncer-mirrored openbao
+# Service `openbao-x-openbao-x-mgmt-vcluster.mgmt.svc.cluster.local:8200`
+# instead of `openbao.openbao.svc.cluster.local:8200`. After #3642 openbao
+# runs INSIDE the mgmt vCluster; ESO runs HOST-side (HOST-MINIMUM §4), so the
+# in-vCluster name no longer resolves from the host (vault-region1 store was
+# "unable to create client" on hw163). Catalyst-Zero overlays (openbao
+# host-side) override `clusterSecretStore.server` back. Paired with the
+# bp-openbao crossClusterTokenReview auth fix — BOTH required for vault-region1
+# to authenticate + resolve end-to-end. Refs #3642.
+version: 1.0.7
 description: |
   Catalyst-curated Blueprint chart for the default ESO ClusterSecretStore(s)
   that wire each Sovereign's bp-external-secrets controller to its bp-openbao

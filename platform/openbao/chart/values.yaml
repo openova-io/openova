@@ -193,6 +193,65 @@ autoUnseal:
       role: catalyst-api
       serviceAccountName: catalyst-api-cutover-driver
       serviceAccountNamespace: catalyst-system
+    # ─── #3825 (Refs #3642) — cross-cluster TokenReview ───────────────────
+    # After #3642 OpenBao runs INSIDE the mgmt vCluster, but the ESO
+    # ServiceAccount whose JWT it validates (external-secrets /
+    # external-secrets-system) is issued by the HOST apiserver. The pod's
+    # `kubernetes.default.svc` is the VC-MGMT apiserver, which cannot review
+    # the host-issued token (the token is unknown there and the host ns does
+    # not exist in vc-mgmt) → every ESO login 403s → all *-oidc
+    # ExternalSecrets (oidc-gate-*, hubble-ui-oauth2-proxy, the per-app SSO
+    # secrets) stay unsynced → the per-app SSO walk stays broken.
+    #
+    # When `enabled` the auth-bootstrap Job configures auth/kubernetes/config
+    # to TokenReview against the HOST apiserver instead: kubernetes_host =
+    # hostApiserver, token_reviewer_jwt + kubernetes_ca_cert read from the
+    # mirrored `tokenReviewerSecret`, disable_local_ca_jwt=true (so OpenBao
+    # does NOT fall back to its in-vCluster CA/token). This is OpenBao's
+    # documented cross-cluster auth mode and RESTORES the pre-#3642 behaviour
+    # (when openbao was host-side, `kubernetes.default.svc` WAS the host
+    # apiserver and the host ESO token validated natively).
+    #
+    # The host SA token + host CA are minted HOST-side by bootstrap-kit
+    # placement slot-08 hostDocuments (a host ServiceAccount bound to
+    # system:auth-delegator + a kubernetes.io/service-account-token Secret the
+    # host token-controller populates with `token` + `ca.crt`), then mirrored
+    # host→vc-mgmt by bp-mgmt-vcluster `sync.fromHost.secrets` (the existing
+    # `openbao/*` mapping). On a fresh prov the mirror lands eventually; the
+    # Job soft-waits (backoffLimit retries) until the Secret appears.
+    #
+    # DEFAULT false: single-region / Catalyst-Zero / any env where openbao
+    # stays HOST-side leaves this off → render byte-identical to pre-#3825 +
+    # the in-cluster TokenReview path is unchanged. The franchised multi-
+    # region Sovereign overlay (openbao in vc-mgmt) sets enabled=true — wired
+    # by the bootstrap-kit slot-08 HR values block on a vCluster placement.
+    crossClusterTokenReview:
+      enabled: false
+      # HOST apiserver address reachable from a vc-mgmt pod. vc-mgmt pods are
+      # real host pods (shared CNI), so the HOST kube-apiserver ClusterIP is
+      # reachable at the IP level even though the NAME kubernetes.default.svc
+      # resolves to the vc-mgmt apiserver inside the pod. 10.96.0.1 is the
+      # `kubernetes.default` ClusterIP (.1 of the service CIDR) — the SAME
+      # constant bp-network-policies allow-system-namespaces +
+      # bp-self-sovereign-cutover allow-lists encode as the host apiserver.
+      #
+      # ⚠️ PER-REGION CIDR: infra sets `--service-cidr=10.{96+regionIdx}.0.0/16`
+      # (infra/providers/{huawei,hetzner}/main.tf region_service_cidr), so the
+      # apiserver ClusterIP is 10.96.0.1 in the PRIMARY region, 10.97.0.1 in the
+      # SECOND region, etc. The mgmt vCluster (hence openbao + this
+      # auth-bootstrap Job) runs in the PRIMARY region, so 10.96.0.1 is correct
+      # for the canonical topology. If a future placement runs vc-mgmt in a
+      # non-primary region OR the service CIDR is customised, override this
+      # per-Sovereign to 10.{96+regionIdx}.0.1.
+      hostApiserver: "https://10.96.0.1:443"
+      # The mirrored host token-reviewer Secret (host SA JWT + host CA). Name
+      # MUST match the Secret minted by placement slot-08 hostDocuments in the
+      # HOST openbao ns; the `openbao/*` fromHost mapping mirrors it into the
+      # vc-mgmt openbao ns under the SAME name.
+      tokenReviewerSecret:
+        name: openbao-host-token-reviewer
+        tokenKey: token
+        caKey: ca.crt
 
 # ─── G91.openbao (#2655) SSO opt-in ───────────────────────────────────────
 # Per SECURITY.md §6.3 every Application Blueprint declares SSO support

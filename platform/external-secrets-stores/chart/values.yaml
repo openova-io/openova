@@ -15,7 +15,18 @@
 clusterSecretStore:
   enabled: true
   name: vault-region1
-  server: "http://openbao.openbao.svc.cluster.local:8200"
+  # #3825 (Refs #3642): openbao moved INTO the mgmt vCluster (vc-mgmt). ESO
+  # runs HOST-side (HOST-MINIMUM §4, external-secrets-system) so this store's
+  # `server` must be HOST-routable. The in-vCluster name
+  # `openbao.openbao.svc.cluster.local` no longer resolves from the host — from
+  # the host the openbao Service is the vCluster-syncer-mirrored
+  # `openbao-x-openbao-x-mgmt-vcluster` in ns `mgmt` (verified live hw163:
+  # healthy, initialized, unsealed, serving /v1/sys/health). A cluster overlay
+  # where openbao stays host-side (Catalyst-Zero) overrides this back to
+  # `http://openbao.openbao.svc.cluster.local:8200`. Paired with the openbao
+  # crossClusterTokenReview auth fix (bp-openbao) — BOTH are required for
+  # vault-region1 to authenticate + resolve end-to-end after #3642.
+  server: "http://openbao-x-openbao-x-mgmt-vcluster.mgmt.svc.cluster.local:8200"
   path: secret
   version: v2
   kubernetesAuth:
