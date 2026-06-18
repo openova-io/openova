@@ -1066,163 +1066,37 @@ spec:
                 enablePodMonitor: false
     - {file: 56-bp-openova-flow-server.yaml, hr: bp-openova-flow-server, vcluster: host, target: mgmt, namespace: catalyst-system}
     - {file: 57-bp-openova-flow-emitter.yaml, hr: bp-openova-flow-emitter, vcluster: host, target: mgmt, namespace: catalyst-system}
-    # ── #3642 HOST-BRIDGE PROMOTE — newapi into the mgmt vCluster ───────
-    # Route + 2 ExternalSecrets + CNPG `Cluster` host-bridge. `suppress` turns
-    # the chart's OWN in-vCluster public HTTPRoute (ingress.httpRoute.enabled:
-    # false), its two ExternalSecrets (catalystIntegration.externalSecret.enabled
-    # :false for catalyst-newapi-admin-token; auth.adminUI.keycloak.ssoBridgeSync
-    # .enabled:false for the newapi-oidc Merge ES), and the CNPG Cluster + DSN
-    # placeholder (cnpg.enabled:false) off; the host-side copies below are
-    # authoritative. The newapi Pod re-homes into vc-mgmt and reaches the host-
-    # reconciled newapi-bp-newapi-newapi-pg-rw.newapi.svc cross-cluster via
-    # host-DNS forwarding. backendRefs → the OSS-synced mangled Service
-    # newapi-bp-newapi-x-newapi-x-mgmt-vcluster. The route carries newapi's
-    # zero-click bridge rule (Exact / → sandbox-bridge :8080) + the SPA/API
-    # backend (PathPrefix / → :3000).
+    # ── #3642 HOST-BRIDGE — newapi reverted to HOST placement (Refs #3831) ──
+    # newapi is the ONLY NS#1 app that OWNS a dedicated CNPG cluster
+    # (cnpg.enabled) rather than CONSUMING a fixed-name shared-pg
+    # reflected secret like gitea/harbor/keycloak/openbao do. The #3642
+    # host-bridge was designed for shared-pg CONSUMERS (route + ES +
+    # reflected `<app>-database-secret`, mirrored into vc-mgmt via
+    # sync.fromHost.secrets) — it does NOT carry the two CNPG-owner
+    # seams newapi needs host-side: the database-secret-sync Job (reads
+    # the host CNPG `<cluster>-app` Secret, PATCHes the DSN placeholder)
+    # and the admin-sso-seed Job/CronJob (seeds the newapi DB). It also
+    # dropped the SSO AppRegistration ConfigMap (bp-sso-bridge registers
+    # the `newapi-admin` KC client + writes sso/sovereign/newapi-admin
+    # from it), and never wired database.existingSecret — so the
+    # Deployment render-gate ($effDbSecret empty) skip-renders. Verified
+    # LIVE on hw165 (`9ee307969c92452e`): host ns newapi = the CNPG db
+    # pod ONLY, 0 Deployment, both ExternalSecrets SecretSyncedError, no
+    # newapi-admin AppRegistration ConfigMap anywhere. Every OTHER NS#1
+    # app's *-sso ExternalSecret SecretSynced=True — newapi is the lone
+    # outlier. Reverting to HOST placement (the SHIPPED #3733 grafana /
+    # #3737 keycloak revert precedent) renders the chart NATIVELY —
+    # Deployment + CNPG Cluster + sso-registration ConfigMap +
+    # admin-sso-seed Job/CronJob + database-secret-sync Job + oidc-sync
+    # ExternalSecret — all in the host `newapi` ns where ESO /
+    # bp-sso-bridge / cnpg-operator already reconcile them, the identical
+    # recipe gitea/harbor use today. `target: mgmt` stays the #3642
+    # aspiration: re-promote into vc-mgmt once the host-bridge gains the
+    # CNPG-owner seams (host-side db-sync + admin-seed + AppRegistration)
+    # + vcluster 0.23.0 sync.fromHost.secrets newapi/* (already mapped at
+    # bp-mgmt-vcluster values.yaml) delivers the DSN/oidc Secrets.
     - file: 80-newapi.yaml
       hr: bp-newapi
-      vcluster: mgmt
+      vcluster: host
       target: mgmt
       namespace: newapi
-      hostBridge:
-        suppress:
-          ingress.httpRoute.enabled: false
-          cnpg.enabled: false
-          catalystIntegration.externalSecret.enabled: false
-          auth.adminUI.keycloak.ssoBridgeSync.enabled: false
-        hostDocuments:
-          - apiVersion: gateway.networking.k8s.io/v1
-            kind: HTTPRoute
-            metadata:
-              name: newapi-bp-newapi-public
-              namespace: mgmt
-              labels:
-                catalyst.openova.io/blueprint: bp-newapi
-                catalyst.openova.io/component: newapi-public-route
-                catalyst.openova.io/host-bridge: "mgmt"
-            spec:
-              parentRefs:
-                - name: cilium-gateway
-                  namespace: kube-system
-              hostnames:
-                - newapi.${SOVEREIGN_FQDN}
-              rules:
-                # Zero-click bare-URL: the sandbox-bridge sidecar serves the
-                # same-origin init page that runs newapi's own OIDC sequence
-                # (Exact / wins over PathPrefix /).
-                - matches:
-                    - path:
-                        type: Exact
-                        value: /
-                  backendRefs:
-                    - name: newapi-bp-newapi-x-newapi-x-mgmt-vcluster
-                      namespace: mgmt
-                      port: 8080
-                - matches:
-                    - path:
-                        type: PathPrefix
-                        value: /
-                  backendRefs:
-                    - name: newapi-bp-newapi-x-newapi-x-mgmt-vcluster
-                      namespace: mgmt
-                      port: 3000
-          # ExternalSecret #1 — catalyst-newapi-admin-token in the `newapi`
-          # host ns (HOST ESO reconciles it; reflector mirrors it to
-          # catalyst-system where catalyst-api reads ADMIN_API_TOKEN). Verbatim
-          # copy of external-secret.yaml default render. remoteRef.key is the
-          # per-Sovereign OpenBao path the slot supplies.
-          - apiVersion: external-secrets.io/v1beta1
-            kind: ExternalSecret
-            metadata:
-              name: catalyst-newapi-admin-token
-              namespace: newapi
-              labels:
-                catalyst.openova.io/blueprint: bp-newapi
-                catalyst.openova.io/host-bridge: "mgmt"
-            spec:
-              refreshInterval: 1h
-              secretStoreRef:
-                kind: ClusterSecretStore
-                name: vault-region1
-              target:
-                name: catalyst-newapi-admin-token
-                creationPolicy: Owner
-                template:
-                  metadata:
-                    annotations:
-                      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-                      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: catalyst-system
-                      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-                      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: catalyst-system
-              data:
-                - secretKey: ADMIN_API_TOKEN
-                  remoteRef:
-                    key: sovereign/${SOVEREIGN_FQDN}/newapi/admin-token
-                    property: ADMIN_API_TOKEN
-          # ExternalSecret #2 — newapi-oidc-sync (MERGE into newapi-oidc) in the
-          # `newapi` host ns. Verbatim copy of sso-externalsecret.yaml default
-          # render (clientId newapi-admin → sso/sovereign/newapi-admin).
-          - apiVersion: external-secrets.io/v1beta1
-            kind: ExternalSecret
-            metadata:
-              name: newapi-bp-newapi-oidc-sync
-              namespace: newapi
-              labels:
-                catalyst.openova.io/blueprint: bp-newapi
-                bp-sso-bridge.openova.io/consumer: bp-newapi
-                catalyst.openova.io/host-bridge: "mgmt"
-            spec:
-              refreshInterval: 1h
-              secretStoreRef:
-                name: vault-region1
-                kind: ClusterSecretStore
-              target:
-                name: newapi-oidc
-                creationPolicy: Merge
-                template:
-                  type: Opaque
-                  mergePolicy: Merge
-                  data:
-                    OIDC_CLIENT_SECRET: "{{ .client_secret }}"
-              data:
-                - secretKey: client_secret
-                  remoteRef:
-                    key: sso/sovereign/newapi-admin
-                    property: client_secret
-          # CNPG `Cluster` in the `newapi` host ns (HOST cnpg-operator
-          # reconciles it). Verbatim copy of cnpg-cluster.yaml default render
-          # (helm.sh/resource-policy:keep, db `newapi`, owner `newapi`,
-          # instances=1; no managed.roles/parameters block at chart defaults).
-          - apiVersion: postgresql.cnpg.io/v1
-            kind: Cluster
-            metadata:
-              name: newapi-bp-newapi-newapi-pg
-              namespace: newapi
-              annotations:
-                helm.sh/resource-policy: keep
-              labels:
-                catalyst.openova.io/blueprint: bp-newapi
-                catalyst.openova.io/host-bridge: "mgmt"
-            spec:
-              instances: 1
-              imageName: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16.4
-              storage:
-                size: 5Gi
-              bootstrap:
-                initdb:
-                  database: newapi
-                  owner: newapi
-          # DSN placeholder Secret in the `newapi` host ns (the host-side
-          # database-secret-sync-job PATCHes SQL_DSN once the host CNPG
-          # `-app` Secret lands). Verbatim copy of the chart placeholder.
-          - apiVersion: v1
-            kind: Secret
-            metadata:
-              name: newapi-bp-newapi-newapi-db-dsn
-              namespace: newapi
-              labels:
-                catalyst.openova.io/blueprint: bp-newapi
-                catalyst.openova.io/host-bridge: "mgmt"
-            type: Opaque
-            data:
-              SQL_DSN: ""
