@@ -148,7 +148,7 @@ spec:
       # chart renders the canonical apps.openova.io/v1 Application CR for
       # this slot's HelmRelease so the console /apps list, per-app Topology
       # tab + showback resolve openbao (no more "no Application CR").
-      version: 1.2.48
+      version: 1.2.49
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
@@ -228,6 +228,26 @@ spec:
       # so failed runs still surface as HR errors, not silent kit
       # timeouts.
       activeDeadlineSeconds: 1200
+      # ── #3825 (Refs #3642) cross-cluster TokenReview ───────────────────
+      # openbao runs in vc-mgmt (placement.yaml slot-08 vcluster: mgmt) but
+      # the ESO ServiceAccount whose JWT it validates is issued by the HOST
+      # apiserver. Without this the auth-bootstrap Job points k8s-auth at the
+      # VC-MGMT apiserver, which cannot review the host token → ESO 403s →
+      # ALL *-oidc ExternalSecrets stay unsynced → the per-app SSO walk stays
+      # broken. Enabled here because THIS slot places openbao in a vCluster;
+      # the auth-bootstrap Job then configures auth/kubernetes/config to
+      # TokenReview against the HOST apiserver using the host SA token + host
+      # CA mirrored from the HOST openbao ns (placement slot-08 hostDocuments
+      # `openbao-host-token-reviewer`) via bp-mgmt-vcluster
+      # sync.fromHost.secrets `openbao/*`. The chart default is `false`
+      # (host-side openbao / Catalyst-Zero) so single-region stays unchanged.
+      # If a future overlay returns openbao to host placement, flip this off
+      # in lockstep with placement.yaml (vcluster: host) — then
+      # kubernetes.default.svc IS the host apiserver and the in-cluster path
+      # is correct again.
+      kubernetesAuth:
+        crossClusterTokenReview:
+          enabled: true
     # Issue #517 (Phase-8a single-node): openbao upstream chart's
     # 3-replica StatefulSet uses required pod-anti-affinity by hostname.
     # On single-node Phase-8a Sovereigns this leaves 2/3 pods Pending
