@@ -206,7 +206,25 @@ name: bp-mgmt-vcluster
 # gateway-ingress CNP (one admits the gateway proxy identity for north-south app
 # reachability, the other admits the host ESO namespace for the OpenBao secret
 # chain) — both ship together in this release.
-version: 0.2.18
+# 0.2.19 (#3838, the fresh-prov keycloak install-loop fix): replace the
+# `openbao/*` sync.fromHost.secrets wildcard with two EXACT-NAME mappings
+# (`openbao-sso-oidc-credentials` + `openbao-host-token-reviewer-static`). The
+# wildcard swept the host `openbao-host-token-reviewer` Secret — type
+# `kubernetes.io/service-account-token` — into the fromHost mirror, where the
+# vCluster's own token-controller re-stamped it every reconcile (the referenced
+# SA does not exist in the vCluster), spinning an infinite `from-host-secret
+# Create virtual object` loop (2833 per 8000 syncer log lines on hw166, ~35% of
+# all syncer work). That saturated the syncer queue + host k3s apiserver →
+# `context deadline exceeded` on the keycloak/harbor DB-secret toHost writes →
+# `keycloak-database-secret-x-keycloak-x-mgmt-vcluster` never landed →
+# keycloak-0 hung `Init:0/2` → the config-cli post-install hook timed out at
+# 30m → bp-keycloak install→remediate→reinstall loop stalling the spine at
+# ~49/64 HRs. The companion host slot (placement.yaml
+# `openbao-host-token-reviewer-export` Job) materialises an Opaque
+# `openbao-host-token-reviewer-static` Secret (no `service-account.name`
+# annotation → mirror-stable) for the auth-bootstrap Job to mount. Never
+# wildcard a namespace that holds a `kubernetes.io/service-account-token`.
+version: 0.2.19
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT
