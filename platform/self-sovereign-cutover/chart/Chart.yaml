@@ -1,5 +1,45 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.76 (#3821 Refs #3379 #3642, hw165 cutover wedged step-01 by mgmt-vCluster
+# isolation netpol, 2026-06-19): the Pillar-5 cutover wedged at step 1/11
+# (gitea-mirror) on live hw165. `self-sovereign-cutover-status` showed
+# failedStep=gitea-mirror, lastError="watch Job catalyst/cutover-gitea-mirror-…:
+# context deadline exceeded", progressPercent=0. The step Job (ns `catalyst`)
+# logged `curl: (28) Failed to connect to gitea-http.gitea.svc.cluster.local
+# port 3000 after 131064 ms` then `FATAL: repo create failed`.
+#
+# ROOT CAUSE (same class as #3820, different consumer ns): the cutover step Jobs
+# are stamped by catalyst-api into THIS chart's release namespace (`catalyst`).
+# After the #3642 host->mgmt move, gitea/harbor/openbao run INSIDE the mgmt
+# vCluster; `gitea-http.gitea.svc` is an ExternalName -> the headless
+# `gitea-http-x-gitea-x-mgmt-vcluster.mgmt.svc` mirror. bp-mgmt-vcluster's
+# default-deny `-isolation` NetworkPolicy (podSelector {}) admits ingress only
+# from `mgmtVcluster.networkPolicy.allowedIngressNamespaces`, which lists
+# `catalyst-system` but NOT `catalyst`. So every cutover Job's dial into the
+# mgmt vCluster pod network silently times out. Proven live on hw165: a pod in
+# `catalyst` times out to the gitea pod IP 10.42.3.75:3000 while a pod in
+# `catalyst-system` returns 403 (datapath open) — and an authenticated
+# `GET /api/v1/user` with the cutover PAT from `catalyst` returns 200 once an
+# additive allow-ingress netpol is in place.
+#
+# THE FIX (chart-only, NEW template 00-mgmt-isolation-carveout.yaml): ship a
+# chart-owned NetworkPolicy in the `mgmt` namespace that allows ingress from the
+# cutover release namespace (`.Release.Namespace`). NetworkPolicies are ADDITIVE
+# under Cilium (every policy selecting an endpoint is unioned — same idiom as
+# bp-mgmt-vcluster #3817's companion gateway-ingress CNP), so this opens
+# `catalyst -> mgmt` WITHOUT editing bp-mgmt-vcluster (owned separately). The
+# cutover Job traffic is a real Pod with a namespace label, so a vanilla k8s
+# NetworkPolicy namespaceSelector matches it (no reserved-identity CNP needed).
+# New value block mgmtIsolationCarveOut.{enabled,mgmtNamespace} (default
+# enabled, mgmt). The canonical complement — adding `catalyst` to
+# mgmtVcluster.networkPolicy.allowedIngressNamespaces — is filed for the
+# bp-mgmt-vcluster owner (#3820 family); carrying the carve-out here makes the
+# cutover self-contained regardless. No cutover-step labels on the new resource,
+# so catalyst-api step discovery + the contract test's exact-step-count
+# assertion are unaffected (11 steps / 10 job-mode — verified). Live 11-step ->
+# cutoverComplete=true validation pends an operator re-drive of the wedged hw165
+# cutover with this chart pulled.
+# Refs #3821 #3379 #3642.
 # 0.1.74 (#3376 FUNNEL, Refs #3689/#3379 — the cutover sovereignty proof must
 # stop EXCLUDING the customer-onboarding path, 2026-06-17): two changes.
 #   (1) Step-08 egress-block-test (template 08) now ASSERTS
@@ -898,7 +938,7 @@ name: bp-self-sovereign-cutover
 # cutoverComplete while the customer journey was dead, PRINCIPLES A1/A2);
 # step-09 mint stamps the token-source annotation on the no-op path too.
 # Refs #3689 #3379.
-version: 0.1.75
+version: 0.1.76
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
