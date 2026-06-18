@@ -191,6 +191,79 @@ giteaWait:
   # gateway with rapid-fire probes during the cold-start window.
   intervalSeconds: 5
 
+# ─── Keycloak credentials host bridge (#3813, Refs #3642) ──────────────
+# #3642 moved bp-keycloak INTO the mgmt vCluster (vc-mgmt). The keycloak
+# chart emits three credential Secrets the HOST control plane needs —
+# catalyst-kc-sa-credentials (catalyst-api OIDC SA + the two host KC
+# lookup-templates + bp-sso-bridge), catalyst-pin-broker-credentials
+# (catalyst-api /oidc/* broker backing), catalyst-kc-master-admin-
+# credentials (bp-sso-bridge POST /admin/realms) — into its OWN namespace
+# inside vc-mgmt, relying on the emberstack reflector to mirror them to the
+# HOST catalyst-system + sso-bridge. After #3642 BOTH the Secrets AND that
+# reflector run inside vc-mgmt, so the host copies never appear → host
+# catalyst-system is missing all of them → catalyst-api CATALYST_KC_REALM
+# empty → /auth/handover 401 (zero-login dead); organization-controller
+# CrashLoops; sso-bridge-reconciler CreateContainerConfigError (root-caused
+# live hw163, 2026-06-18).
+#
+# templates/catalyst-keycloak-credentials-host-bridge.yaml re-creates the
+# three Secrets directly in the HOST `keycloak` ns (slot-09, host-side)
+# carrying the reflector annotations the keycloak chart already uses, so the
+# running HOST reflector mirrors them to catalyst-system + sso-bridge and
+# every downstream host lookup renders exactly as pre-#3642. The SA + pin-
+# broker client secrets are derived with the SAME deterministic sha256 seeds
+# bp-keycloak 1.4.33 uses (so the value byte-matches what the in-vCluster
+# realm import baked into Keycloak — no cross-cluster read); the master
+# password is read from the host-mirrored bitnami secret via lookup.
+keycloakHostBridge:
+  # Master gate. When false the bridge renders nothing — set false on
+  # Catalyst-Zero (contabo, keycloak-zero host-side) or any topology where
+  # bp-keycloak stays HOST-side and emits these Secrets natively (the bridge
+  # would otherwise collide with the chart's own output). On a franchised
+  # Sovereign (keycloak in vc-mgmt) leave true.
+  enabled: true
+  # The HOST namespace the bridge writes the three Secrets into — MUST be
+  # the namespace the keycloak chart's reflector source + the host
+  # catalyst-openova-kc-credentials / catalyst-organization-controller-
+  # keycloak lookups expect (`keycloak`). Created host-side by bootstrap-kit
+  # slot 09 before this chart installs.
+  destNamespace: keycloak
+  # ── Keycloak release coordinates (deterministic-secret seed inputs) ────
+  # The SA + pin-broker secrets are sha256(<release>|<namespace>|<label>),
+  # the SAME seed bp-keycloak derives. These MUST match the keycloak HR's
+  # releaseName + targetNamespace (bootstrap-kit slot 09: both `keycloak`).
+  # If a topology renames the keycloak release/namespace, move these in
+  # lockstep with the slot-09 releaseName/targetNamespace + the bp-keycloak
+  # helper inputs, or catalyst-api's client_credentials grant fails
+  # invalid_client.
+  keycloakReleaseName: keycloak
+  keycloakReleaseNamespace: keycloak
+  # The sovereign realm name baked into catalyst-kc-sa-credentials.realm —
+  # MUST match bp-keycloak slot-09 sovereignRealm.name (default `sovereign`;
+  # a tenant-short-name Sovereign sets SOVEREIGN_REALM_NAME). The
+  # bootstrap-kit slot-13 HR `values:` block overrides this with
+  # ${SOVEREIGN_REALM_NAME:=sovereign} (the postBuild.substitute envsubst
+  # runs on the slot HR manifest, not on this baked-in chart default), so
+  # the two never drift. This `sovereign` default is the correct value for
+  # the common case + Catalyst-Zero.
+  realmName: sovereign
+  # ── Host-routable Keycloak Service URL (addr field) ────────────────────
+  # keycloak now lives in vc-mgmt; from the HOST its Service is the
+  # vCluster-syncer-mirrored `<innerSvc>-x-<innerNs>-x-<vclusterRelease>` in
+  # the syncer host namespace (mgmt). For the MGMT vCluster that resolves to
+  # keycloak-x-keycloak-x-mgmt-vcluster.mgmt.svc.cluster.local (verified live
+  # serving the sovereign-realm OIDC discovery doc). The in-vCluster name
+  # `keycloak.keycloak.svc` does NOT resolve from the host. Browsers are
+  # unaffected (they use auth.<fqdn> via the host Gateway, slot-09 bridged).
+  keycloakAddr: http://keycloak-x-keycloak-x-mgmt-vcluster.mgmt.svc.cluster.local
+  # ── Source of the master admin password (the one non-derivable value) ──
+  # The bitnami `keycloak` Secret IS mounted by keycloak-0, so vCluster
+  # mirrors it host-side under the syncer-mangled name in ns `mgmt`. The
+  # bridge looks it up for `admin-password`.
+  bitnamiSecretNamespace: mgmt
+  bitnamiSecretName: keycloak-x-keycloak-x-mgmt-vcluster
+  masterAdminUser: admin
+
 # ─── Multi-zone parent domains (issue #827, parent epic #825) ──────────
 # A franchised Sovereign supports N parent zones, NOT one. The operator
 # brings 1+ parent domains at signup (`omani.works` for own use,

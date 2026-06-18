@@ -89,9 +89,25 @@ tenant emit; tenant takes precedence here.
   {{- $saSecret = .Values.catalystApiServerClientSecret -}}
 {{- end -}}
 {{- if not $saSecret -}}
-  {{- /* Genuine first install — generate 32-char random per
-         INVIOLABLE-PRINCIPLES #10. */ -}}
-  {{- $saSecret = randAlphaNum 32 -}}
+  {{- /* #3813 (Refs #3642): genuine first install. Was `randAlphaNum 32`,
+         but after #3642 keycloak runs in vc-mgmt, so this Secret + realm
+         client are stranded inside the vCluster — the host catalyst-api /
+         organization-controller / sso-bridge never see them. The durable
+         fix re-creates catalyst-kc-sa-credentials HOST-side from a bridge
+         in products/catalyst/chart; for that bridge to carry the SAME
+         value baked here it must be REPRODUCIBLE from the keycloak release
+         coordinates, which a random string is not. The
+         `bp-keycloak.catalystApiServerClientSecret` helper derives it
+         deterministically (same SHA256 seam as tier1ClientSecret /
+         pinBrokerClientSecret already use) so the host bridge re-derives
+         the identical secret. Still namespace+release-scoped (unique per
+         Sovereign) + honours .sso.tier1ClientSecretSalt rotation. The
+         lookup branch above still wins on upgrade so an already-installed
+         realm keeps its stored secret; this only sets the first-install
+         value. Per INVIOLABLE-PRINCIPLES #10 no plaintext credential is
+         committed — the value is computed at render time, never echoed to
+         chart source or disk. */ -}}
+  {{- $saSecret = include "bp-keycloak.catalystApiServerClientSecret" (dict "ctx" .) -}}
 {{- end -}}
 {{- /* Keycloak base URL — issue #781.
        This URL is consumed EXCLUSIVELY by the in-cluster catalyst-api Pod

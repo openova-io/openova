@@ -198,7 +198,7 @@ spec:
       # chart renders the canonical apps.openova.io/v1 Application CR for
       # this slot's HelmRelease so the console /apps list, per-app Topology
       # tab + showback resolve keycloak (no more "no Application CR").
-      version: 1.4.32
+      version: 1.4.33
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak

@@ -92,6 +92,61 @@ KV → ExternalSecret → per-app namespace.
 {{- end -}}
 
 {{/*
+#3813 (Refs #3642) — catalyst-api-server SA client secret, DETERMINISTIC.
+
+WHY THIS HELPER EXISTS
+======================
+#3642 moved bp-keycloak INTO the mgmt vCluster (vc-mgmt). The
+`catalyst-kc-sa-credentials` Secret + the matching `catalyst-api-server`
+realm-import client `secret` are emitted by configmap-sovereign-realm.yaml
+into the keycloak chart's `.Release.Namespace` — which is now a namespace
+INSIDE vc-mgmt, and the emberstack reflector that mirrored them to the HOST
+`catalyst-system` + `sso-bridge` also runs inside vc-mgmt. So the host
+catalyst-api / organization-controller / sso-bridge-reconciler never see
+the credential, and `/auth/handover` 401s (verified live hw163 2026-06-18).
+
+The durable fix re-creates `catalyst-kc-sa-credentials` HOST-side from a
+bridge in products/catalyst/chart. For that bridge to carry the SAME secret
+the in-vCluster realm import baked into Keycloak, the value MUST be
+reproducible from inputs the host bridge also knows (the keycloak release
+name + namespace) — a `randAlphaNum 32` (the prior behaviour, line ~94 of
+configmap-sovereign-realm.yaml) is NOT reproducible across two charts.
+
+So this helper derives the SA client secret deterministically, exactly like
+`bp-keycloak.tier1ClientSecret` / `bp-keycloak.pinBrokerClientSecret`
+already do for the per-app + pin-broker clients. The host bridge passes the
+keycloak release coordinates as values and re-derives the identical string.
+
+SECRET-VALUE RESOLUTION ORDER (preserved from the prior template):
+  1. operator override .Values.catalystApiServerClientSecret (overlay) —
+     handled by the CALLER, not here (kept first-wins in the realm template).
+  2. existing in-cluster Secret (helm lookup) — idempotent on upgrade,
+     handled by the CALLER.
+  3. this deterministic derivation — replaces the old randAlphaNum 32 for
+     genuine first-install, so the host bridge can reproduce it.
+
+The seed is namespace + release-scoped so each Sovereign (and each release
+name) gets a UNIQUE value — never a shared default across deployments —
+and honours the same .sso.tier1ClientSecretSalt rotation knob as the other
+derived secrets so an operator can atomically rotate on upgrade.
+
+Expects a dict: {ctx: .} (the keycloak chart root context). The host
+bridge constructs the same dict with a synthetic context carrying the
+keycloak Release.Name/Release.Namespace via values, so both derive equal.
+*/}}
+{{- define "bp-keycloak.catalystApiServerClientSecret" -}}
+{{- $ctx := .ctx -}}
+{{- $relName := .releaseName | default $ctx.Release.Name -}}
+{{- $relNs := .releaseNamespace | default $ctx.Release.Namespace -}}
+{{- $salt := default "" (((.ctx.Values).sso).tier1ClientSecretSalt) -}}
+{{- $seed := printf "%s|%s|catalyst-api-server-sa" $relName $relNs -}}
+{{- if ne $salt "" -}}
+{{- $seed = printf "%s|%s" $seed $salt -}}
+{{- end -}}
+{{- $seed | sha256sum -}}
+{{- end -}}
+
+{{/*
 G117.5 W3.D1 #2744 — Tier-2 silent-SSO Client secret (sovereign realm).
 
 Same shape as `bp-keycloak.tier1ClientSecret` but with a distinct seed
