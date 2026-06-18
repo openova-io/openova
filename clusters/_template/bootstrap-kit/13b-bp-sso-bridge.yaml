@@ -150,7 +150,8 @@ spec:
       # kind=reconciler HEALTH leaf. Label-only addition → render otherwise
       # byte-identical. Refs #3646.
       # 0.2.19: reconciler configmap generic gate coverage (#3374).
-      version: 0.2.20
+      # 0.2.21: keycloak/openbao egress namespace default → mgmt (#3820 #3642).
+      version: 0.2.21
       sourceRef:
         kind: HelmRepository
         name: bp-sso-bridge

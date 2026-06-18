@@ -125,7 +125,14 @@ spec:
       # → every gateway->app request silently dropped (curl 000/503) on every
       # #3642 env. The new CNP admits fromEntities [ingress,host,remote-node];
       # validated live hw165 (gitea 000/503->303, 7/11 surfaces recovered).
-      version: 0.2.17
+      # 0.2.18 (#3820 #3642): adds `external-secrets-system` to the
+      # -isolation NetworkPolicy ingress allow-list. OpenBao moved INTO vc-mgmt
+      # (#3642) but the host external-secrets-operator (ESO's ClusterSecretStore
+      # vault-region1, the PRIMARY OpenBao consumer) was never allowed in →
+      # InvalidProviderConfig (k8s-auth login deadline) → every
+      # *-sso-oidc-credentials ExternalSecret SecretSyncedError → per-app SSO
+      # 503 on hw165. Orthogonal to the 0.2.17 gateway-ingress CNP; both ship here.
+      version: 0.2.18
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster

@@ -1,6 +1,20 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.20
+version: 0.2.21
+# 0.2.21 (#3820 #3642, 2026-06-18): default networkPolicy.keycloakNamespace +
+# openbaoNamespace `keycloak`/`openbao` → `mgmt`. #3642 (+#3760/#3737) re-homed
+# BOTH keycloak and openbao INTO the mgmt vCluster; their workload Pods now run
+# in the `mgmt` HOST namespace (mangled `*-x-*-x-mgmt-vcluster`), the legacy
+# host namespaces being EMPTY of the actual workload. Cilium enforces egress
+# NetworkPolicy on the destination Pod's namespace+target-port, so the stale
+# `keycloak`/`openbao` selectors matched NOTHING — the reconciler's
+# `mint Keycloak admin token` curl timed out (curl(28)) every tick and NO
+# `secret/sso/*` bundle was written, leaving grafana/harbor/openbao/gitea +
+# every oidc-gate consumer without their SSO secret → 503. hw165 live RCA:
+# reconciler timed out to keycloak even co-located on keycloak's own node; a
+# probe Pod with a different name label (NOT selected by this policy) reached
+# keycloak fine — the egress namespace selector was the sole wall. Once flipped
+# to `mgmt` the reconciler minted tokens + reconciled all 7 SSO HRs.
 # 0.2.20 (#3646, 2026-06-17): stamp the `catalyst.openova.io/reconciler`
 # marker label on the sso-bridge-reconciler Deployment so the jobs canvas's
 # generic §5a reconciler ingestion surfaces it as a kind=reconciler leaf

@@ -198,6 +198,24 @@ mgmtVcluster:
       #     cross-vCluster DB wire) instead of owning its host-bridged Cluster,
       #     its in-mgmt Pod must reach rtz. Required once batch-C moves shared-pg.
       - rtz
+      #   external-secrets-system — the host external-secrets-operator (slot 15)
+      #     is the PRIMARY consumer of the now-in-vCluster OpenBao: its
+      #     ClusterSecretStore `vault-region1` dials
+      #     `openbao-x-openbao-x-mgmt-vcluster.mgmt.svc:8200` on EVERY reconcile
+      #     (K8s-auth login + every `secret/sso/*` read). Dropped here, the store
+      #     is `InvalidProviderConfig` (`unable to log in with Kubernetes auth:
+      #     context deadline exceeded`) and EVERY `*-sso-oidc-credentials`
+      #     ExternalSecret stays SecretSyncedError → the oidc-gate sidecars
+      #     (grafana/hubble) + the per-app SSO consumers CreateContainerConfigError
+      #     → the public surface 503s. The #3642 carve-out list shipped the
+      #     gateway/consumer namespaces but DROPPED external-secrets-system even
+      #     though openbao moved INTO vc-mgmt — the same secret-not-reachable
+      #     class as the openbao/* fromHost-mirror miss (#3760). hw165 live RCA
+      #     (#3820): a host pod pinned in external-secrets-system timed out to
+      #     openbao:8200 while a freshly-minted host ESO SA token logged in fine
+      #     from inside the openbao pod (cross-cluster TokenReview healthy) — the
+      #     ONLY wall was this ingress allow-list. Refs #3820 #3642.
+      - external-secrets-system
 
 # ─── Host→vCluster plain-name reachability aliases (#3642 hw164 fix) ───
 # Static host ExternalName Services that alias the PLAIN in-vCluster app
