@@ -16,6 +16,25 @@
 # from the same namespace (Flux v2 SecretReference contract).
 
 ---
+# Host namespace for keycloak's shared-pg connection Secret (keycloak-database-secret).
+# #3642 re-homed keycloak into the mgmt vCluster, but it consumes shared-pg (host).
+# bp-postgres-shared's connection-secret.yaml has bp-reflector AUTO-PUSH the
+# keycloak-database-secret into the keycloak namespace — but the reflector can only
+# push once that namespace EXISTS. With keycloak in the vCluster, its HOST namespace
+# is never created by its own HR, so the push silently no-ops → keycloak-0 hangs
+# Init with `secret "keycloak-database-secret" not found` → bp-keycloak never Ready
+# → bp-gitea/bp-catalyst-platform wait → console 000 (caught live on hw162, frozen
+# 49/64). Declaring it here (Flux applies Namespace kinds first) gives the reflector
+# its push target; the vCluster fromHost keycloak/* mirror then delivers it into the
+# vCluster. gitea/harbor/grafana/guacamole/newapi declare theirs; keycloak+openbao
+# were the gaps (Refs #3642 #3731 #3804).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keycloak
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
