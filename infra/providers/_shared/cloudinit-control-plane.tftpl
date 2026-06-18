@@ -145,6 +145,17 @@ write_files:
   # ── flux-system/ghcr-pull Secret ──────────────────────────────────────
   # imagePullSecret for ghcr.io/openova-io/*. bp-reflector (slot 05a) mirrors
   # it to every workload namespace so catalyst-* + bp-* pods pull cleanly.
+  #
+  # #3819 (rename sme→org-services fallout): the SME service mesh namespace was
+  # renamed `sme`→`org-services` in #3383 (commit 7f6dfca23). The companion DB
+  # secrets (`sme-database-secret` reflect target etc., 16d-bp-postgres-shared-c)
+  # were re-pointed at `org-services`, but THIS image-pull reflect list was left
+  # at the now-dead `sme` ns → `ghcr-pull` never landed in `org-services` →
+  # every org-services Deployment (imagePullSecrets:[ghcr-pull]) hit
+  # `FailedToRetrieveImagePullSecret (ghcr-pull)` → ImagePullBackOff for the whole
+  # funnel/BSS mesh (admin/auth/billing/catalog/console/domain/gateway/marketplace/
+  # notification/organization/provisioning) → marketplace 503. Point the reflect
+  # lists at the post-#3383 mesh namespace. Refs #3383.
   - path: /var/lib/catalyst/ghcr-pull-secret.yaml
     permissions: '0600'
     content: |
@@ -155,9 +166,9 @@ write_files:
         namespace: flux-system
         annotations:
           reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "sme,catalyst,catalyst-system,gitea,harbor,cert-manager,kube-system,flux-system,reflector,reloader,kyverno,opentelemetry,openbao,seaweedfs,powerdns,grafana,loki,mimir,tempo,alloy,coraza,crossplane-system,sigstore-system,trivy-system,syft-grype,falco,vpa,valkey,vllm,dmz,mgmt,rtz,external-dns,external-secrets,cnpg-system,velero,nats-system,sealed-secrets,newapi"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "org-services,catalyst,catalyst-system,gitea,harbor,cert-manager,kube-system,flux-system,reflector,reloader,kyverno,opentelemetry,openbao,seaweedfs,powerdns,grafana,loki,mimir,tempo,alloy,coraza,crossplane-system,sigstore-system,trivy-system,syft-grype,falco,vpa,valkey,vllm,dmz,mgmt,rtz,external-dns,external-secrets,cnpg-system,velero,nats-system,sealed-secrets,newapi"
           reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "sme,catalyst,catalyst-system,gitea,harbor,cert-manager,kube-system,reflector,reloader,kyverno,opentelemetry,openbao,seaweedfs,powerdns,grafana,loki,mimir,tempo,alloy,coraza,crossplane-system,sigstore-system,trivy-system,syft-grype,falco,vpa,valkey,vllm,dmz,mgmt,rtz,external-dns,external-secrets,cnpg-system,velero,nats-system,sealed-secrets,newapi"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "org-services,catalyst,catalyst-system,gitea,harbor,cert-manager,kube-system,reflector,reloader,kyverno,opentelemetry,openbao,seaweedfs,powerdns,grafana,loki,mimir,tempo,alloy,coraza,crossplane-system,sigstore-system,trivy-system,syft-grype,falco,vpa,valkey,vllm,dmz,mgmt,rtz,external-dns,external-secrets,cnpg-system,velero,nats-system,sealed-secrets,newapi"
       type: kubernetes.io/dockerconfigjson
       data:
         .dockerconfigjson: ${base64encode(jsonencode({
