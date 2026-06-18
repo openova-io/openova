@@ -48,6 +48,26 @@ Skip-render pattern (per #402): renders ONLY when both
 {{- $kvMount := $kAuth.kvMountPath | default "secret" -}}
 {{- $tokenTTL := $kAuth.tokenTTL | default "1h" -}}
 {{- $tokenMaxTTL := $kAuth.tokenMaxTTL | default "24h" -}}
+{{- /* #3825 (Refs #3642) — cross-cluster TokenReview inputs. After #3642
+       OpenBao runs INSIDE the mgmt vCluster, but the ESO ServiceAccount whose
+       JWT it must validate is issued by the HOST apiserver (host ns
+       external-secrets-system). `kubernetes.default.svc` inside the pod is the
+       vc-mgmt apiserver, which does NOT know that host token (and the host ns
+       does not even exist in vc-mgmt) → every ESO login fails 403, all *-oidc
+       ExternalSecrets stay unsynced. OpenBao's k8s-auth supports cross-cluster
+       validation: point kubernetes_host at the HOST apiserver + supply a HOST
+       token_reviewer_jwt + the HOST CA + disable_local_ca_jwt. The host SA
+       token + CA arrive via a Secret minted HOST-side (placement slot-08
+       hostDocuments) and mirrored into vc-mgmt by bp-mgmt-vcluster
+       sync.fromHost.secrets (`openbao/*`). Pre-#3642 single-region (openbao
+       host-side) leaves this disabled → render byte-identical. */ -}}
+{{- $xcr := $kAuth.crossClusterTokenReview | default dict -}}
+{{- $xcrEnabled := $xcr.enabled | default false -}}
+{{- $xcrHostApi := $xcr.hostApiserver | default "https://10.96.0.1:443" -}}
+{{- $xcrSecret := $xcr.tokenReviewerSecret | default dict -}}
+{{- $xcrSecretName := $xcrSecret.name | default "openbao-host-token-reviewer" -}}
+{{- $xcrTokenKey := $xcrSecret.tokenKey | default "token" -}}
+{{- $xcrCaKey := $xcrSecret.caKey | default "ca.crt" -}}
 {{- /* #3376 — catalyst-api handover-archive writer role inputs. */ -}}
 {{- $capi := $kAuth.catalystApi | default dict -}}
 {{- $capiEnabled := $capi.enabled | default false -}}
@@ -89,13 +109,43 @@ spec:
         runAsUser: 100
         runAsGroup: 1000
         fsGroup: 1000
+{{- if $xcrEnabled }}
+      # #3825 — mount the HOST token-reviewer Secret (host SA JWT + host CA),
+      # mirrored host→vc-mgmt by bp-mgmt-vcluster sync.fromHost.secrets. The
+      # Job reads token/ca.crt from here to configure cross-cluster TokenReview
+      # against the HOST apiserver. optional:true so a fresh prov where the
+      # mirror has not yet landed does not block scheduling — the script
+      # soft-waits for the files and the Job's backoffLimit retries until the
+      # synced Secret appears (eventually-consistent, same posture as the
+      # SHARED_PG fromHost mirror).
+      volumes:
+        - name: host-token-reviewer
+          secret:
+            secretName: {{ $xcrSecretName | quote }}
+            optional: true
+{{- end }}
       containers:
         - name: auth-bootstrap
           image: {{ printf "%s:%s" $repo $tag | quote }}
           imagePullPolicy: {{ $pullPolicy | quote }}
+{{- if $xcrEnabled }}
+          volumeMounts:
+            - name: host-token-reviewer
+              mountPath: /var/run/openbao/host-token-reviewer
+              readOnly: true
+{{- end }}
           env:
             - name: BAO_ADDR
               value: {{ $baoAddr | quote }}
+            # #3825 — cross-cluster TokenReview against the HOST apiserver.
+            - name: XCR_ENABLED
+              value: {{ $xcrEnabled | quote }}
+            - name: XCR_HOST_APISERVER
+              value: {{ $xcrHostApi | quote }}
+            - name: XCR_TOKEN_FILE
+              value: {{ printf "/var/run/openbao/host-token-reviewer/%s" $xcrTokenKey | quote }}
+            - name: XCR_CA_FILE
+              value: {{ printf "/var/run/openbao/host-token-reviewer/%s" $xcrCaKey | quote }}
             - name: AUTH_MOUNT_PATH
               value: {{ $mountPath | quote }}
             - name: AUTH_ROLE
@@ -188,15 +238,61 @@ spec:
                 bao auth enable -path=$AUTH_MOUNT_PATH kubernetes
               fi
 
-              # Configure the auth method against the in-cluster API
-              # server. K8s_HOST is the standard cluster-DNS endpoint;
-              # K8S_CA_CERT comes from the SA mount.
+              # Configure the auth method. Two modes:
+              #
+              #   (default, openbao host-side) Validate ServiceAccount JWTs
+              #   against the IN-CLUSTER apiserver — kubernetes_host is the
+              #   standard cluster-DNS endpoint, the CA comes from the pod's
+              #   own SA mount. This is correct whenever the ESO SA whose
+              #   token OpenBao validates is issued by the SAME apiserver
+              #   OpenBao runs against (single-region / Catalyst-Zero, and
+              #   every env before #3642).
+              #
+              #   (#3825 cross-cluster, openbao in vc-mgmt) After #3642
+              #   OpenBao runs INSIDE the mgmt vCluster but the ESO SA token
+              #   it must validate is issued by the HOST apiserver. The pod's
+              #   `kubernetes.default.svc` + local SA mount are the VC-MGMT
+              #   apiserver, which cannot review the host token (it is unknown
+              #   there, and ns external-secrets-system does not exist in
+              #   vc-mgmt) → every ESO login 403s and all *-oidc
+              #   ExternalSecrets stay unsynced. So point kubernetes_host at
+              #   the HOST apiserver, supply a HOST token_reviewer_jwt + the
+              #   HOST CA (from the mirrored openbao-host-token-reviewer
+              #   Secret), and disable_local_ca_jwt so OpenBao does NOT fall
+              #   back to its in-vCluster CA/token. The ESO role's
+              #   bound_service_account_namespaces stays external-secrets-system
+              #   (host ns) below — correct, because the review now runs
+              #   against the host. (Restores the pre-#3642 host-token-review
+              #   contract that `kubernetes.default.svc` provided natively when
+              #   openbao was host-side.)
               echo "[openbao-auth-bootstrap] writing auth/$AUTH_MOUNT_PATH/config"
-              KUBE_CA=$(cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
-              bao write auth/$AUTH_MOUNT_PATH/config \
-                kubernetes_host="https://kubernetes.default.svc" \
-                kubernetes_ca_cert="$KUBE_CA" \
-                disable_iss_validation=true
+              if [ "${XCR_ENABLED}" = "true" ]; then
+                echo "[openbao-auth-bootstrap] cross-cluster mode: TokenReview target = HOST apiserver ${XCR_HOST_APISERVER}"
+                # Soft-wait for the host-mirrored token-reviewer Secret. On a
+                # fresh prov the bp-mgmt-vcluster sync.fromHost mirror lands
+                # eventually; until the files appear we exit non-zero so the
+                # Job's backoffLimit retries (eventually-consistent, same
+                # posture as the SHARED_PG fromHost mirror) rather than baking
+                # an empty/local config.
+                if [ ! -s "${XCR_TOKEN_FILE}" ] || [ ! -s "${XCR_CA_FILE}" ]; then
+                  echo "[openbao-auth-bootstrap] host token-reviewer Secret not yet mirrored (${XCR_TOKEN_FILE} / ${XCR_CA_FILE} absent) — retry on next backoff once bp-mgmt-vcluster sync.fromHost lands it"
+                  exit 1
+                fi
+                HOST_TR_JWT=$(cat "${XCR_TOKEN_FILE}")
+                HOST_CA=$(cat "${XCR_CA_FILE}")
+                bao write auth/$AUTH_MOUNT_PATH/config \
+                  kubernetes_host="${XCR_HOST_APISERVER}" \
+                  kubernetes_ca_cert="$HOST_CA" \
+                  token_reviewer_jwt="$HOST_TR_JWT" \
+                  disable_local_ca_jwt=true \
+                  disable_iss_validation=true
+              else
+                KUBE_CA=$(cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
+                bao write auth/$AUTH_MOUNT_PATH/config \
+                  kubernetes_host="https://kubernetes.default.svc" \
+                  kubernetes_ca_cert="$KUBE_CA" \
+                  disable_iss_validation=true
+              fi
 
               # ─── Ensure kv-v2 backend at $KV_MOUNT_PATH/ ────────────────
               EXISTING_MOUNTS=$(bao secrets list -format=json 2>/dev/null || echo "{}")

@@ -112,3 +112,43 @@ spec:
     remoteRef:
       key: sso/openbao
       property: issuer_url
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openbao-host-token-reviewer
+  namespace: openbao
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-host-token-reviewer
+    catalyst.openova.io/host-bridge: mgmt
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: openbao-host-token-reviewer-auth-delegator
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-host-token-reviewer
+    catalyst.openova.io/host-bridge: mgmt
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+- kind: ServiceAccount
+  name: openbao-host-token-reviewer
+  namespace: openbao
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: openbao-host-token-reviewer
+  namespace: openbao
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-host-token-reviewer
+    catalyst.openova.io/host-bridge: mgmt
+  annotations:
+    kubernetes.io/service-account.name: openbao-host-token-reviewer
+type: kubernetes.io/service-account-token
