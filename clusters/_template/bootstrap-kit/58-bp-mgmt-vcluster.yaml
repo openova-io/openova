@@ -118,7 +118,14 @@ spec:
       # (templates/host-service-aliases.yaml) giving keycloak/gitea-http/openbao
       # plain->mangled reachability — verified live on hw164 (persist + resolve,
       # zero syncer crash).
-      version: 0.2.16
+      # 0.2.17 (#2940 FOUNDATIONAL app-plane wedge, hw159-hw165 RCA): adds the
+      # gateway-ingress CiliumNetworkPolicy. The -isolation NetworkPolicy
+      # default-denied ALL mgmt-pod ingress with a namespaceSelector-only
+      # allow-list, which CANNOT match Cilium's reserved:ingress proxy identity
+      # → every gateway->app request silently dropped (curl 000/503) on every
+      # #3642 env. The new CNP admits fromEntities [ingress,host,remote-node];
+      # validated live hw165 (gitea 000/503->303, 7/11 surfaces recovered).
+      version: 0.2.17
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster

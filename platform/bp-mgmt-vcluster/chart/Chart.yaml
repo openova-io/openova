@@ -167,7 +167,29 @@ name: bp-mgmt-vcluster
 # pre-install hook `secret "catalyst-gitea-token" not found` → install times out
 # → console never comes up. Adds `networking.replicateServices.toHost` exporting
 # the in-vCluster gitea-http back to the host `gitea/gitea-http` Service.
-version: 0.2.16
+#
+# 0.2.17 (#2940 FOUNDATIONAL app-plane wedge, hw159–hw165 RCA, 2026-06-19):
+# adds templates/gateway-ingress-cnp.yaml — a CiliumNetworkPolicy admitting
+# the gateway's reserved `ingress` identity (+ host / remote-node) to every
+# mgmt endpoint. ROOT CAUSE: the -isolation NetworkPolicy is podSelector:{}
+# default-deny-ingress over ALL mgmt pods with an allow-list built PURELY from
+# namespaceSelector rules. Cilium's Gateway API (envoy) proxies backend
+# traffic under the reserved:ingress identity, which is neither a pod nor a
+# namespace — so NO namespaceSelector can match it, and the 0.2.11 attempt to
+# fix this by ADDING gateway-system/kube-system to allowedIngressNamespaces was
+# structurally inert. Every gateway→app request (gitea/harbor/keycloak/openbao/
+# grafana/guacamole/pdns) was silently dropped → curl 000 (timeout) / 503
+# (envoy ejects the "unhealthy" backend). The host console worked only because
+# it sits outside this namespace. This shipped identically in every #3642 env,
+# so wipe-and-re-fire reproduced it every single time — the only fix is forward.
+# Validated LIVE on hw165 (2026-06-19): applying exactly these fromEntities
+# flipped gitea 000/503→303 and recovered 7 of 11 app surfaces instantly
+# (console/gitea/registry/auth/bao/guacamole/pdns up; the remaining 4 are a
+# separate missing-SSO-secret / no-frontend-pod cause, tracked apart). A
+# vanilla k8s NetworkPolicy cannot express reserved:ingress; Cilium unions all
+# policies selecting an endpoint, so this is purely ADDITIVE to -isolation —
+# gateway reachability without weakening tenant isolation (no `world`).
+version: 0.2.17
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT
