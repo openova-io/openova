@@ -350,14 +350,34 @@ vcluster:
       # real gitea-http runs INSIDE vc-mgmt → the host name does not resolve →
       # the token never mints → the bp-catalyst-platform pre-install hook
       # CrashLoops `secret "catalyst-gitea-token" not found` → install times out
-      # → CONSOLE NEVER COMES UP (root-caused live on hw163, 2026-06-18, the 5th
-      # convergence layer). replicateServices.toHost exports the in-vCluster
-      # gitea-http back to the HOST `gitea/gitea-http` Service so every host
-      # consumer resolves it natively — exactly symmetric to the shared-pg
-      # fromHost mirror above (there vCluster→host; here host→vCluster).
+      # → CONSOLE NEVER COMES UP (root-caused live on hw163, 2026-06-18).
+      #
+      # WALK-TIME EXTENSION (#3642 audit, 2026-06-18): `sync.toHost.services`
+      # only projects in-vCluster Services to the host as MANGLED
+      # `<svc>-x-<ns>-x-mgmt-vcluster.mgmt.svc` — the plain `<svc>.<ns>.svc` does
+      # NOT exist host-side (zero ExternalName aliases anywhere). So THREE host
+      # name families are stranded, dialled by every host-side controller, the
+      # gitea-token mint, AND the sso-bridge reconciler (THE walk-blocker — it
+      # mints every app's keycloak client + writes secret/sso/<app>; with these
+      # unreachable, all 6 SSO ExternalSecrets stay empty and zero-login
+      # collapses):
+      #   1. gitea-http.gitea.svc:3000  — org/app/env/blueprint controllers,
+      #      the catalyst-gitea-token mint, catalog-sovereign GitRepository.
+      #   2. keycloak.keycloak.svc:8080 — catalyst-api CATALYST_KC_ADDR,
+      #      org-controller keycloakAddr, sso-bridge KC_ADDR.
+      #   3. openbao.openbao.svc:8200   — catalyst-api openbaoAddr, sso-bridge
+      #      OPENBAO_ADDR (writes secret/sso/<app>).
+      # replicateServices.toHost exports each in-vCluster Service back to the
+      # HOST under its PLAIN name so every host consumer resolves it natively —
+      # symmetric to the shared-pg fromHost mirror above (there vCluster→host;
+      # here host→vCluster). One export per family closes ~15 walk-time wires.
       toHost:
         - from: gitea/gitea-http
           to: gitea/gitea-http
+        - from: keycloak/keycloak
+          to: keycloak/keycloak
+        - from: openbao/openbao
+          to: openbao/openbao
 
   # sync — what host-cluster resources sync into the vCluster. The
   # MGMT vCluster needs services + endpoints + configmaps + secrets
