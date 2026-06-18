@@ -17,6 +17,21 @@
 # Secret from the same namespace (Flux v2 SecretReference contract).
 
 ---
+# Host namespace for the gitea host-bridge Secret (gitea-oauth-source-credentials).
+# #3642 re-homed gitea into the mgmt vCluster, but its host-MINTED SSO Secret
+# still lands in this HOST `gitea` namespace (the raw ExternalSecret below targets
+# it). Flux applies Namespace kinds before namespaced resources, so declaring it
+# here guarantees it exists in the first pass — without it the ExternalSecret
+# dry-run fails `namespaces "gitea" not found`, which fails the ENTIRE bootstrap-kit
+# reconcile (0 HRs → fresh-prov wedge). grafana/newapi already declare theirs;
+# gitea/harbor were missed in the #3642 relocation (caught live on hw161, Refs #3804).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitea
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:

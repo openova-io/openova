@@ -806,11 +806,16 @@ runcmd:
   # GitRepository artifact → 0 HelmReleases in BOTH regions → Phase-1 watcher
   # times out + the kubeconfig is never PUT (the hw160 wedge). We inject a
   # `coredns-custom` ConfigMap — the k3s-native, restart/upgrade-surviving
-  # CoreDNS extension point: k3s imports `/etc/coredns/custom/*.override` into
-  # the default `.:53` server block — with a `hosts` plugin that force-resolves
-  # the github hosts to the SAME IPv4 the node pin just resolved (read back
-  # from the r4() side-file, so the resolver ladder is NOT duplicated).
-  # `fallthrough` keeps every other name resolving normally; this touches ONLY
+  # CoreDNS extension point. We emit a `*.server` file (a SEPARATE server block
+  # scoped to the github zones) — NOT a `*.override` file: k3s merges `.override`
+  # files into the default `.:53` block, which already carries a
+  # `hosts /etc/coredns/NodeHosts` plugin, and two `hosts` plugins in one block
+  # is illegal CoreDNS (crash-loop → 0 kube-dns endpoints → in-cluster DNS
+  # EPERMs → 0 HRs; the #3804 hw161 wedge). The dedicated `.server` block
+  # force-resolves the github hosts to the SAME IPv4 the node pin just resolved
+  # (read back from the r4() side-file, so the resolver ladder is NOT
+  # duplicated); `hosts ... fallthrough` + a `forward . 8.8.8.8 1.1.1.1` floor
+  # keeps every other name in those zones resolving over IPv4. This touches ONLY
   # CoreDNS config, never Cilium/CNI/kube-proxy, so ClusterMesh is unaffected.
   # Runs AFTER the CNI is up (CoreDNS pods can now go Ready + mount the
   # override) and BEFORE Flux is installed/bootstrapped below, so the
@@ -833,13 +838,24 @@ runcmd:
      printf '  name: coredns-custom\n'
      printf '  namespace: kube-system\n'
      printf 'data:\n'
-     printf '  github-ipv4.override: |\n'
-     printf '    hosts {\n'
+     # `.server` (NOT `.override`): k3s merges `*.override` files INTO the
+     # default `.:53` block, which ALREADY carries a `hosts /etc/coredns/NodeHosts`
+     # plugin — two `hosts` plugins in one server block is illegal CoreDNS
+     # ("plugin/hosts: this plugin can only be used once per Server Block") and
+     # CRASH-loops CoreDNS → kube-dns has 0 endpoints → every in-cluster DNS
+     # lookup EPERMs → source-controller can't resolve github → 0 HRs (the hw161
+     # wedge, #3804 regression). A `*.server` file is a SEPARATE server block
+     # scoped to ONLY the github zones, so it never collides with NodeHosts.
+     printf '  github-ipv4.server: |\n'
+     printf '    %s {\n' "$GH_HOSTS"
+     printf '        hosts {\n'
      for h in $GH_HOSTS; do
       ip=$(awk -v host="$h" '$2 == host {print $1; exit}' "$PIN_FILE" 2>/dev/null)
-      [ -n "$ip" ] && printf '        %s %s\n' "$ip" "$h"
+      [ -n "$ip" ] && printf '            %s %s\n' "$ip" "$h"
      done
-     printf '        fallthrough\n'
+     printf '            fallthrough\n'
+     printf '        }\n'
+     printf '        forward . 8.8.8.8 1.1.1.1\n'
      printf '    }\n'
     } >"$CM_FILE"
     # Wait (bounded) for the CoreDNS Deployment object — the k3s addon
