@@ -1035,7 +1035,7 @@ spec:
             # 1.4.675 — #3383 ORGANIZATIONS rename (ZERO behavior change), rebased over main's 1.4.674: ns sme→org-services, templates/sme-services→templates/org-services, Secret sme-secrets→org-services-secrets (dual-rendered one release, byte-identical JWT_SECRET), .sme.svc→.org-services.svc hosts, catalyst-system→org-services CNP allow. Wire-stable: CNPG sme-pg + sme-pg-app, DBs sme_auth/sme_billing/sme_documents, Tier "sme", GitOps branch/path sme-tenants, .Values.sme* keys.
             # 1.4.677 — #3383 publish-gate fix (Chart.yaml + tests/baseline-cnp-allowlist.sh): stale Case 5c asserted the pre-rename `sme` egress namespace (1.4.675 renamed it `org-services`) → chart/tests/*.sh failed → 1.4.675/676 never reached ghcr.
             # PIN-BACK to 1.4.674 (last PUBLISHED on ghcr): 1.4.675/676/677 are not published yet (the 1.4.677 publish lands in a SEPARATE push to avoid rolling the mothership mid-prov and abandoning the in-flight hw159), so fresh-prov hw159 pins the last-published chart — the full FUNCTIONAL train (hook-fix #3780, object-model #3786, topology #3784, funnel #3376, per-Org Flux loop #3687, RBAC #3664-via-#3376); missing ONLY the cosmetic #3707 sme→Organization rename. Re-bump this slot to 1.4.677 for the NEXT prov once it is on ghcr.
-      version: 1.4.683
+      version: 1.4.684
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
