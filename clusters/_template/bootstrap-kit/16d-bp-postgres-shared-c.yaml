@@ -123,11 +123,25 @@ spec:
         consumer:
           blueprint: bp-catalyst-platform
           mode: shared
-        # One hub Secret for the whole mesh — every SME service shares
-        # the `sme` credentials and derives its own database name.
+        # One hub Secret for the whole mesh — every Organization service
+        # shares the `sme` credentials and derives its own database name.
+        # #3383 (rename sme→org-services): the SME service mesh ns was
+        # renamed `sme`→`org-services` in bp-catalyst-platform 1.4.675
+        # (slot-13 smePostgres.cluster.namespace + ferretdb.namespace +
+        # every templates/org-services/* consumer), but this reflect target
+        # was left at `[sme]` — so the hub `sme-database-secret` was pushed
+        # into a namespace that no longer exists while ferretdb (ns
+        # org-services, env PG_USER/PG_PASSWORD secretKeyRef
+        # sme-database-secret, non-optional) hit
+        # `secret "sme-database-secret" not found` → CreateContainerConfigError
+        # (verified live hw163 2026-06-18: ns `sme` NotFound, and
+        # org-services/sme-database-secret NotFound — the reflector had no
+        # live target). Point the reflect target at the post-#3383 mesh
+        # namespace so the hub secret lands where ferretdb (and any other
+        # org-services SME consumer) mounts it. Refs #3383.
         reflect:
           secretName: sme-database-secret
-          namespaces: [sme]
+          namespaces: [org-services]
       - name: sme_billing       # billing service primary DB
         owner: sme
         consumer:
