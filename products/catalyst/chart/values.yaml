@@ -69,6 +69,23 @@ sovereign:
     host: mail.openova.io
     port: "587"
     from: noreply@openova.io
+  # silentOwner — North-Star #3 silent owner front door (#2940).
+  #
+  # When "true", a request to catalyst-api that carries NO valid session
+  # resolves to the Sovereign owner (email=OPERATOR_EMAIL, tier=owner)
+  # instead of 401 → a fresh/incognito browser hitting console.<fqdn>/
+  # lands signed-in at /dashboard with NO login UI and NO 6-digit-PIN
+  # form (the PIN form errors on a Sovereign: "CATALYST_OPENOVA_KC_SA_
+  # CLIENT_SECRET not set"). Wired into the catalyst-api Pod as the
+  # CATALYST_SOVEREIGN_SILENT_OWNER env (api-deployment.yaml).
+  #
+  # 🔓 SECURITY: enabling this makes the Sovereign console owner-
+  # accessible to ANYONE who can reach the URL — there is no credential
+  # check on the silent path. It is a deliberate per-Sovereign opt-in for
+  # the founder's North-Star #3 demo, gated behind this DEFAULT-OFF flag.
+  # Leave "false" on any Sovereign that must not expose owner access to
+  # unauthenticated reachers. Per-Sovereign overlays set it to "true".
+  silentOwner: "false"
   # ── Configured-but-not-active regions (qa-loop iter-16 Fix #88) ──
   # Hetzner regions the operator declared at provision time. The
   # provisioner's tofu module currently materialises the *first* entry

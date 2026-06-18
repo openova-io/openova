@@ -52,6 +52,19 @@ func RequireSession(cfg *Config, log *slog.Logger) func(http.Handler) http.Handl
 
 			rawToken := cfg.ReadSessionToken(r)
 			if rawToken == "" {
+				// North-Star #3 silent owner front door (#2940). On a
+				// Sovereign running with CATALYST_SOVEREIGN_SILENT_OWNER=true,
+				// a request that carries no session resolves to the Sovereign
+				// owner so a fresh browser lands signed-in at /dashboard
+				// zero-click — never the mothership email/PIN form (which
+				// errors on a Sovereign with "CATALYST_OPENOVA_KC_SA_CLIENT_
+				// SECRET not set"). Default-OFF: when the flag is unset this
+				// is a no-op and a no-session request 401s exactly as before.
+				if oc := silentOwnerClaims(); oc != nil {
+					log.Debug("silent owner: no session token; injecting Sovereign owner claims", "email", oc.Email)
+					injectClaimsAndServe(w, r, next, oc)
+					return
+				}
 				writeAuthError(w, "unauthenticated", http.StatusUnauthorized)
 				return
 			}
@@ -61,6 +74,15 @@ func RequireSession(cfg *Config, log *slog.Logger) func(http.Handler) http.Handl
 				log.Debug("session validation failed", "err", err)
 				// Clear the invalid cookie so the UI doesn't loop.
 				cfg.ClearSessionCookie(w)
+				// Silent owner front door (#2940): an invalid/expired token
+				// on a Sovereign with the flag set still resolves to the
+				// owner rather than bouncing to the PIN form. The stale
+				// cookie was cleared above.
+				if oc := silentOwnerClaims(); oc != nil {
+					log.Debug("silent owner: invalid session token; injecting Sovereign owner claims", "email", oc.Email)
+					injectClaimsAndServe(w, r, next, oc)
+					return
+				}
 				writeAuthError(w, "unauthenticated", http.StatusUnauthorized)
 				return
 			}
@@ -83,16 +105,21 @@ func RequireSession(cfg *Config, log *slog.Logger) func(http.Handler) http.Handl
 			// without a separate email check.
 			stampSovereignOperatorClaim(claims)
 
-			// Inject identity headers for downstream handlers (e.g. handover
-			// JWT signing in handler/handover_jwt.go reads X-User-Email).
-			r.Header.Set("X-User-Email", claims.Email)
-			r.Header.Set("X-User-Sub", claims.Sub)
-
-			// Inject into context for handlers that prefer context lookup.
-			ctx := context.WithValue(r.Context(), ClaimsKey, claims)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			injectClaimsAndServe(w, r, next, claims)
 		})
 	}
+}
+
+// injectClaimsAndServe wires the resolved Claims into the request the
+// same way for every authentication path (validated session token,
+// silent-owner front door): identity headers for downstream handlers
+// (e.g. handover JWT signing in handler/handover_jwt.go reads
+// X-User-Email) plus the context value handlers prefer to look up.
+func injectClaimsAndServe(w http.ResponseWriter, r *http.Request, next http.Handler, claims *Claims) {
+	r.Header.Set("X-User-Email", claims.Email)
+	r.Header.Set("X-User-Sub", claims.Sub)
+	ctx := context.WithValue(r.Context(), ClaimsKey, claims)
+	next.ServeHTTP(w, r.WithContext(ctx))
 }
 
 // ClaimsFromContext extracts the Claims from a request context injected by
@@ -146,6 +173,61 @@ func stampSovereignOperatorClaim(claims *Claims) {
 		}
 	}
 	claims.RealmAccess.Roles = append(claims.RealmAccess.Roles, sovereignOperatorRoleName)
+}
+
+// silentOwnerEnvFlag is the env var that opts a Sovereign into the
+// silent owner front door (#2940, North-Star #3). When set to "true"
+// (case-insensitive), a request that carries NO valid session resolves
+// to the Sovereign owner instead of 401 → the console SPA lands the
+// owner straight in /dashboard with no login UI / no PIN form.
+//
+// SECURITY: enabling this makes the Sovereign console owner-accessible
+// to ANYONE who can reach the URL. It is a deliberate per-Sovereign
+// opt-in for the founder's North-Star #3 demo, gated behind this
+// default-OFF flag. Never default it on.
+const silentOwnerEnvFlag = "CATALYST_SOVEREIGN_SILENT_OWNER"
+
+// silentOwnerRealmRoles is the realm-role set stamped onto a silent-owner
+// session — the canonical Sovereign-owner authority. catalyst-owner +
+// catalyst-admin light up the BSS + RBAC console nav; sovereign-admins
+// mirrors the /sovereign-admins group the per-app SSO group-claim keys
+// off. Matches the owner identity the handover path establishes.
+var silentOwnerRealmRoles = []string{
+	sovereignOperatorRoleName, // catalyst-owner
+	"catalyst-admin",
+	"sovereign-admins",
+}
+
+// silentOwnerClaims returns the Sovereign owner's Claims when the silent
+// owner front door is enabled (silentOwnerEnvFlag == "true") AND the
+// deployment is in Sovereign mode (OPERATOR_EMAIL is stamped by the
+// orchestrator at chroot install time from deployment.request.OrgEmail).
+// Returns nil — the no-op default — when either condition is unmet, so a
+// no-session request 401s exactly as before on the mothership and on any
+// Sovereign that has not opted in.
+//
+// The returned identity is the same one stampSovereignOperatorClaim
+// confers on a token-authenticated owner: email = OPERATOR_EMAIL,
+// tier = owner, realm roles = [catalyst-owner, catalyst-admin,
+// sovereign-admins]. EmailVerified is true so whoami reports verified.
+func silentOwnerClaims() *Claims {
+	if !strings.EqualFold(strings.TrimSpace(os.Getenv(silentOwnerEnvFlag)), "true") {
+		return nil
+	}
+	opEmail := strings.ToLower(strings.TrimSpace(os.Getenv("OPERATOR_EMAIL")))
+	if opEmail == "" {
+		// Not a Sovereign (no operator stamped) — never synthesize an owner.
+		return nil
+	}
+	return &Claims{
+		Sub:           opEmail,
+		Email:         opEmail,
+		EmailVerified: true,
+		Tier:          sovereignOperatorTier, // owner
+		RealmAccess: RealmAccess{
+			Roles: append([]string(nil), silentOwnerRealmRoles...),
+		},
+	}
 }
 
 func writeAuthError(w http.ResponseWriter, msg string, code int) {

@@ -2829,7 +2829,20 @@ name: bp-catalyst-platform
 # (default true; flip false on Catalyst-Zero/contabo where gitea is host-side).
 # Builds on #3810 (bp-mgmt-vcluster 0.2.15 replicateServices.toHost gitea-http,
 # host reachability). Default `helm template` (lookups nil) renders identically.
-version: 1.4.689
+version: 1.4.690
+# 1.4.690 — #2940 North-Star #3 SILENT OWNER front door. catalyst-api's
+# RequireSession middleware (internal/auth/middleware.go) gains a default-OFF
+# CATALYST_SOVEREIGN_SILENT_OWNER flag: when "true" AND OPERATOR_EMAIL is set
+# (Sovereign mode), a request carrying NO valid session resolves to the
+# Sovereign owner (email=OPERATOR_EMAIL, tier=owner, realm roles catalyst-owner/
+# catalyst-admin/sovereign-admins) instead of 401. So a fresh/incognito browser
+# on console.<fqdn>/ lands signed-in at /dashboard with NO login UI and NO
+# 6-digit-PIN form (the PIN form errors on a Sovereign: "CATALYST_OPENOVA_KC_SA_
+# CLIENT_SECRET not set"). Wired into the Pod via the new env (api-deployment.yaml,
+# inline-templated + quoted so the UNRENDERED strategy-flip test still parses),
+# driven by sovereign.silentOwner (default "false"), gated on global.sovereignFQDN
+# so it is ALWAYS off on the mothership. 🔓 SECURITY: enabling exposes owner
+# access to anyone who can reach the URL — a deliberate per-Sovereign opt-in.
 # 1.4.675 — #3383 ORGANIZATIONS rename (ZERO behavior change), rebased over
 # main's 1.4.674 (#3376 funnel + #3700/#3687 per-Org Flux loop + #3763
 # gitea-flux-auth-sync poll). The Organization-provisioning mesh's K8s namespace

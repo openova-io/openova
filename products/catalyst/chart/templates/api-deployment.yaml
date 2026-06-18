@@ -1000,6 +1000,24 @@ spec:
                   name: sovereign-fqdn
                   key: orgEmail
                   optional: true
+            # CATALYST_SOVEREIGN_SILENT_OWNER — North-Star #3 silent owner
+            # front door (#2940). "true" → a no-session request to
+            # catalyst-api resolves to the Sovereign owner (the OPERATOR_EMAIL
+            # above, tier=owner) instead of 401, so a fresh/incognito browser
+            # on console.<fqdn>/ lands signed-in at /dashboard with no login
+            # UI and no PIN form. RequireSession (internal/auth/middleware.go)
+            # reads this env; default-OFF (empty → off).
+            #
+            # 🔓 SECURITY: enabling exposes owner access to anyone who can
+            # reach the URL — a deliberate per-Sovereign opt-in for the
+            # North-Star #3 demo. Gated on sovereignFQDN so it is ALWAYS
+            # empty (off) on the mothership regardless of the value. Inline-
+            # templated + QUOTED (not a standalone block directive) so the
+            # raw template stays kubectl-parseable for the UNRENDERED
+            # strategy-flip integration test — same idiom as
+            # CATALYST_GITOPS_REPO_URL below.
+            - name: CATALYST_SOVEREIGN_SILENT_OWNER
+              value: "{{ if .Values.global.sovereignFQDN }}{{ .Values.sovereign.silentOwner | default `false` }}{{ end }}"
             - name: SOVEREIGN_CONTROL_PLANE_IP
               valueFrom:
                 configMapKeyRef:
