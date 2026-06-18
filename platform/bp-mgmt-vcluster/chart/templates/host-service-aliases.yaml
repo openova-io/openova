@@ -1,0 +1,57 @@
+{{- /*
+  Host→vCluster PLAIN-NAME reachability aliases (#3642 follow-up, 2026-06-18,
+  hw164 root-cause fix).
+
+  After #3642 keycloak/gitea/openbao run INSIDE vc-mgmt; their Services sync to
+  the host ONLY under the mangled `<svc>-x-<ns>-x-mgmt-vcluster.mgmt.svc` name
+  (`sync.toHost.services`). But ~20 host-side consumers dial the PLAIN
+  `<svc>.<ns>.svc` names, which no longer exist host-side:
+    • catalyst-api (org/app/env/blueprint controllers' giteaURL),
+    • the catalyst-gitea-token mint pre-install hook + catalog-sovereign
+      GitRepository (gitea-http.gitea.svc:3000),
+    • the sso-bridge reconciler (keycloak.keycloak.svc:8080,
+      openbao.openbao.svc:8200 — writes secret/sso/<app>).
+
+  These ExternalName Services alias each plain name to the mangled one, so every
+  consumer resolves it natively with ZERO vcluster-syncer involvement. This
+  REPLACES the prior `networking.replicateServices.toHost` (see values.yaml),
+  whose `{from,to}` form crash-loops the vcluster 0.23 syncer at runtime AND
+  whose target namespace would have been wrong anyway.
+
+  Ordering / safety:
+    • The host namespaces (keycloak/gitea/openbao) are created by the
+      bootstrap-kit Kustomization BEFORE this slot (58) renders (verified live:
+      they carry `kustomize.toolkit.fluxcd.io/name: bootstrap-kit`). This chart
+      only adds Services into them — no Namespace ownership conflict.
+    • The target mangled Services materialise once the in-vCluster app installs
+      (`sync.toHost.services`); until then the alias NXDOMAINs — eventually-
+      consistent, identical to every other bootstrap wire. Consumers already
+      retry (gitea-token mint loops on /api/v1/version).
+    • The aliases live in the APP namespaces, NOT the vcluster's mgmt namespace,
+      so the syncer never prunes them (verified live on hw164 — all three
+      persisted across vcluster restarts while in-mgmt-ns copies were pruned).
+*/ -}}
+{{- if .Values.hostServiceAliases.enabled }}
+{{- range $a := .Values.hostServiceAliases.aliases }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $a.name }}
+  namespace: {{ $a.namespace }}
+  labels:
+    {{- include "bp-mgmt-vcluster.labels" $ | nindent 4 }}
+    catalyst.openova.io/host-bridge: vcluster-service-alias
+  annotations:
+    catalyst.openova.io/purpose: >-
+      host->vc-mgmt plain-name reachability; replaces the crash-prone
+      replicateServices.toHost (#3642 hw164 root-cause)
+spec:
+  type: ExternalName
+  externalName: {{ $a.externalName | quote }}
+  ports:
+    - name: http
+      port: {{ $a.port | int }}
+      targetPort: {{ $a.port | int }}
+{{- end }}
+{{- end }}

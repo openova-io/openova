@@ -111,7 +111,14 @@ spec:
       # resolve gitea-http.gitea.svc.cluster.local — else the console pre-install
       # hook CrashLoops `catalyst-gitea-token not found` and the console never
       # installs (root-caused live hw163).
-      version: 0.2.15
+      # 0.2.16 (#3642 hw164 root-cause): replicateServices.toHost REMOVED — its
+      # {from,to} form crash-loops the vcluster 0.23 syncer at runtime (every
+      # fresh prov wedged ~42/64, mgmt-vcluster-0 CrashLoop, vc-mgmt never minted,
+      # whole spine blocked). Replaced by static host ExternalName aliases
+      # (templates/host-service-aliases.yaml) giving keycloak/gitea-http/openbao
+      # plain->mangled reachability — verified live on hw164 (persist + resolve,
+      # zero syncer crash).
+      version: 0.2.16
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster
