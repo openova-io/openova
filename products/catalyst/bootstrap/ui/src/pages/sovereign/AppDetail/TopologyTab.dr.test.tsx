@@ -186,4 +186,34 @@ describe('TopologyTab — reads back LIVE DR state (#3375)', () => {
     expect(screen.queryByTestId('topology-tab-observed-strip')).toBeNull()
     expect(getContinuum).not.toHaveBeenCalled()
   })
+
+  // #3829 - the "Effective class" honest-floor. A DR-capable mandate that is
+  // NOT realized by a live Continuums pair must read as a DEGRADED singleton,
+  // never the unbuilt mandate parroted as effective. openbao on a 2-region
+  // prov declares active-passive but (default-OFF Continuum, no cnpg-pair) has
+  // no live pair, so the field must say
+  // "singleton (DEGRADED ... active-passive mandate unbuilt)" rather than a
+  // realized "active-passive (multi-region ...)".
+  it('Effective class reads DEGRADED-singleton when the declared DR mandate has no live pair (#3829)', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue(TWO_REGION_INFRA)
+    // Bootstrap app: no Application CR, so the status fetch yields nothing.
+    getApplicationStatus.mockRejectedValue(new Error('application status: HTTP 404'))
+    // No live Continuum pair on this Sovereign: the backend 404s.
+    getContinuum.mockRejectedValue(new Error('continuum get: HTTP 404'))
+
+    render(
+      withProviders(
+        <TopologyTab sovereignId="hw165" applicationName="openbao" namespace="openbao" />,
+      ),
+    )
+
+    const eff = await screen.findByTestId('topology-tab-declared-effective')
+    await waitFor(() => {
+      expect(eff.textContent).toContain('DEGRADED')
+    })
+    expect(eff.textContent).toContain('singleton')
+    expect(eff.textContent).toContain('active-passive mandate unbuilt')
+    // Crucially NOT the mandate presented as a realized multi-region class.
+    expect(eff.textContent).not.toContain('multi-region')
+  })
 })

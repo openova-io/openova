@@ -691,15 +691,52 @@ function DeclaredTopologyPanel({
           <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
             <div className="flex justify-between gap-3 sm:block">
               <dt className="text-[var(--color-text-dim)]">Effective class</dt>
-              <dd
-                className="font-mono text-[var(--color-text)]"
-                data-testid="topology-tab-declared-effective"
-              >
-                {classLabel(declaredClass)}{' '}
-                <span className="text-[var(--color-text-dim)]">
-                  ({isMultiRegion ? `multi-region · ${sovereignRegionCount} regions` : 'single-region default'})
-                </span>
-              </dd>
+              {/* #3829 (DR-UI honesty floor) — the EFFECTIVE class is the
+                  REALIZED state, never the declared mandate parroted back. A
+                  DR-capable mandate (active-hot-standby / active-passive) is
+                  "effective" only when a live Continuums (dr.openova.io) CR /
+                  cnpg-pair actually backs it (liveDR.exists). When the mandate
+                  is declared but NOT realized — the openbao case: active-passive
+                  mandate, zero Continuum CR, two disconnected singletons — the
+                  honest effective state is a degraded singleton. We say so
+                  explicitly instead of printing "active-passive (2 regions…)"
+                  ahead of any built pair. While the live read is still in
+                  flight we show a neutral checking state, never a premature
+                  DEGRADED or a fabricated class. */}
+              {showDR && !liveDR.exists ? (
+                liveDR.loading ? (
+                  <dd
+                    className="font-mono text-[var(--color-text-dim)]"
+                    data-testid="topology-tab-declared-effective"
+                  >
+                    checking…{' '}
+                    <span className="text-[var(--color-text-dim)]">
+                      (resolving live {classLabel(declaredClass)} pair)
+                    </span>
+                  </dd>
+                ) : (
+                  <dd
+                    className="font-mono text-[var(--color-warning,#b45309)]"
+                    data-testid="topology-tab-declared-effective"
+                    title={`The ${classLabel(declaredClass)} mandate declared in this Blueprint is not yet realized by a live Continuums (dr.openova.io) pair on this Sovereign — the app currently runs as a single instance with no cross-region failover.`}
+                  >
+                    singleton{' '}
+                    <span className="text-[var(--color-text-dim)]">
+                      (DEGRADED — {classLabel(declaredClass)} mandate unbuilt)
+                    </span>
+                  </dd>
+                )
+              ) : (
+                <dd
+                  className="font-mono text-[var(--color-text)]"
+                  data-testid="topology-tab-declared-effective"
+                >
+                  {classLabel(declaredClass)}{' '}
+                  <span className="text-[var(--color-text-dim)]">
+                    ({isMultiRegion ? `multi-region · ${sovereignRegionCount} regions` : 'single-region default'})
+                  </span>
+                </dd>
+              )}
             </div>
             <div className="flex justify-between gap-3 sm:block">
               <dt className="text-[var(--color-text-dim)]">Supported</dt>
