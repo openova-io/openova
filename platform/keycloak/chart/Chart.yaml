@@ -298,7 +298,27 @@ name: bp-keycloak
 # readTopology serves spec.placement VERBATIM to the Topology tab + the
 # Instances-table chip, so the legacy spelling leaked the banned word to the
 # operator (hw159 #3375).
-version: 1.4.32
+# 1.4.33 (#3813, Refs #3642, 2026-06-18): the catalyst-api-server SA client
+# secret (the value baked into the sovereign realm import's
+# `catalyst-api-server` client + the catalyst-kc-sa-credentials Secret) is
+# now derived DETERMINISTICALLY via the new
+# `bp-keycloak.catalystApiServerClientSecret` helper instead of
+# `randAlphaNum 32`. After #3642 keycloak runs in the mgmt vCluster, so the
+# Secret + the reflector that mirrored it to the HOST catalyst-system /
+# sso-bridge are both inside vc-mgmt — the host catalyst-api never sees the
+# credential and /auth/handover 401s (zero-login dead; verified live hw163).
+# The durable fix re-creates catalyst-kc-sa-credentials HOST-side from a
+# bridge in bp-catalyst-platform; for that bridge to carry the SAME value
+# baked into Keycloak the value must be REPRODUCIBLE from the keycloak
+# release coordinates (release name + namespace), which a random string is
+# not. The helper uses the SAME SHA256-seed seam as the existing
+# tier1ClientSecret / pinBrokerClientSecret derivations (namespace+release
+# scoped → unique per Sovereign; honours .sso.tier1ClientSecretSalt). The
+# upgrade-lookup branch still wins on an already-installed realm, so no
+# rotation on existing envs. Default single-region render byte-identical
+# except the SA secret value (was random → now derived; both 64/32-char
+# opaque strings, no consumer cares about the literal). Refs #3642 #3736.
+version: 1.4.33
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
