@@ -1,0 +1,55 @@
+{{- /*
+mgmt-vCluster isolation carve-out for the cutover Job namespace.
+#3821 (Refs #3379 #3642).
+
+The cutover step Jobs run in THIS chart's release namespace (the
+`catalyst` ns). After the #3642 host->mgmt move, gitea / harbor /
+openbao live INSIDE the mgmt vCluster and are surfaced to the host as
+ExternalName/headless Services in the `mgmt` host namespace, behind
+bp-mgmt-vcluster's default-deny `-isolation` NetworkPolicy. That
+policy's namespace allow-list includes `catalyst-system` but NOT
+`catalyst`, so the cutover Jobs' dials into the mgmt vCluster pod
+network silently time out and the cutover wedges at step 01
+(gitea-mirror) / 02-03 (harbor) / 09 (gitea-token-mint).
+
+NetworkPolicies are ADDITIVE under Cilium (every NetworkPolicy +
+CiliumNetworkPolicy selecting an endpoint is unioned), so this
+chart-owned policy opens `<release-namespace> -> mgmt` ingress WITHOUT
+editing bp-mgmt-vcluster (owned separately; the canonical complement is
+to add `catalyst` to mgmtVcluster.networkPolicy.allowedIngressNamespaces
+too — #3820 family). The cutover Job traffic is a real Pod with a real
+namespace label, so a vanilla k8s NetworkPolicy namespaceSelector
+matches it (no reserved-identity CNP needed, unlike the gateway/envoy
+datapath of #3817).
+
+No cutover-step labels here (app.kubernetes.io/component / cutover-order
+/ cutover-mode) so catalyst-api's step discovery + the contract test's
+exact-step-count assertion are unaffected. The `00-` filename prefix
+sorts this network primitive ahead of the step ConfigMaps.
+*/ -}}
+{{- if .Values.mgmtIsolationCarveOut.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-self-sovereign-cutover.name" . }}-allow-cutover-to-mgmt
+  namespace: {{ .Values.mgmtIsolationCarveOut.mgmtNamespace | quote }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+spec:
+  # podSelector {} = all pods in the mgmt host namespace (the same scope
+  # bp-mgmt-vcluster's -isolation policy selects). This policy ONLY adds
+  # an ingress allow; it declares no Egress policyType, so it never
+  # constrains mgmt egress.
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow ingress from the cutover Job namespace (this chart's release
+    # namespace — the `catalyst` ns where catalyst-api stamps the step
+    # Jobs). Matches the kubernetes.io/metadata.name label the control
+    # plane auto-stamps on every namespace (since K8s 1.21).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+{{- end }}

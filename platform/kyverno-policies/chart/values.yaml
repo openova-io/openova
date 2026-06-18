@@ -189,6 +189,13 @@ compliancePolicies:
       - cnpg            # bp-cnpg-pair primary/replica Clusters → operator Services + Jobs
       - shared-data     # bp-postgres-shared (shared-pg) Cluster → operator Services + Jobs
       - powerdns-admin  # bp-powerdns-admin CNPG Cluster → operator Services + Jobs
+      # 2026-06-19 (#3825, hw165): trivy-operator-spawned scan Jobs carry no
+      # HelmRelease owner / flux label (operator-generated ephemera,
+      # definitionally not Flux-managed — same class as the CNPG operator
+      # Services/Jobs above). flux-managed (Enforce) denied every scan-job
+      # create cluster-wide → trivy scanning dead. Exempt the scan-job
+      # namespace here only; it stays subject to every other policy.
+      - trivy-system    # trivy-operator scan Jobs (operator-generated, no flux owner) (#3825)
 
   harborProxyPull:
     enabled: true
@@ -242,8 +249,22 @@ compliancePolicies:
     # Same shape as the `flux-managed` extraExcludeNamespaces carve-out.
     # Follow-up: making proxy-docker bootstrap-pullable (cred-free like
     # proxy-ghcr) would let us drop this exclude and re-do #3380-D correctly.
+    #
+    # 2026-06-19 (#3825, hw165): the trivy-operator dynamically SPAWNS
+    # vulnerability scan Jobs into `trivy-system`, imaged from
+    # `mirror.gcr.io/aquasec/trivy` plus an operator-injected initContainer —
+    # neither matches `*/proxy-*/*` or `*/openova-io/*`, so harbor-proxy-pull
+    # (Enforce) denied EVERY scan-job create cluster-wide and trivy scanning
+    # silently died (trivy-operator log: "creating scan job failed: …
+    # image-from-harbor-proxy-workload"). The operator cannot re-tag its own
+    # generated scan images through the Sovereign Harbor, so exempt the
+    # scan-job namespace here only — same operator-spawned-ephemera shape as
+    # the `powerdns` docker.io carve-out + the flux-managed cnpg/shared-data
+    # carve-out below. `trivy-system` stays subject to every OTHER policy
+    # (the operator Deployment + node-collector carry pinned images + requests).
     extraExcludeNamespaces:
       - powerdns
+      - trivy-system   # trivy-operator-spawned scan Jobs use aquasec/trivy scanner images (#3825)
 
   imageTagPinned:
     enabled: true

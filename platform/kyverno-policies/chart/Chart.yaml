@@ -1,5 +1,24 @@
 apiVersion: v2
 name: bp-kyverno-policies
+# 1.0.36 (#3825, hw165, 2026-06-19): EXEMPT the `trivy-system` namespace from
+# BOTH the flux-managed (10) and harbor-proxy-pull (11) Enforce policies via
+# the existing per-policy `extraExcludeNamespaces` carve-outs. The
+# trivy-operator dynamically SPAWNS vulnerability scan Jobs into `trivy-system`;
+# those Jobs (a) carry no HelmRelease owner / `app.kubernetes.io/managed-by:
+# flux` label (operator-generated ephemera — the operator definitionally cannot
+# make its dynamic jobs Flux-managed, same class as the CNPG operator's
+# Services/Jobs already exempted) and (b) are imaged from
+# `mirror.gcr.io/aquasec/trivy` + an operator-injected initContainer, neither
+# matching `*/proxy-*/*` or `*/openova-io/*`. On hw165 both Enforce policies
+# denied EVERY scan-job create cluster-wide (trivy-operator log: "creating scan
+# job failed: … workload-must-be-flux-managed … image-from-harbor-proxy-
+# workload"), so trivy vulnerability scanning was silently dead. Scoped to
+# THESE two policies only (operator-spawned scan-job ephemera) — `trivy-system`
+# stays subject to every OTHER policy (the operator Deployment + node-collector
+# pods carry pinned images + resource requests and still pass). Same proven
+# shape as the `powerdns` (harbor-proxy) + `cnpg`/`shared-data`/`powerdns-admin`
+# (flux-managed) carve-outs. values-only change; no template change.
+# Refs #3825 #3642.
 # 1.0.33 (2026-06-13): EXCLUDE the `powerdns` namespace from the
 # harbor-proxy-pull (11) Enforce policy via a new per-policy
 # `harborProxyPull.extraExcludeNamespaces` carve-out (same shape as the
@@ -193,7 +212,7 @@ type: application
 # CREATE/UPDATE only) — a truly fresh prov hits the same wall. Excluding on the
 # operator label exempts ONLY CNPG operator-owned Services + utility Jobs in any
 # namespace; every Flux/Helm/kubectl workload stays gated. Refs #3374 #3248.
-version: 1.0.35
+version: 1.0.36
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:

@@ -1,0 +1,42 @@
+{{- if and .Values.mgmtVcluster.enabled .Values.mgmtVcluster.networkPolicy.enabled -}}
+# Companion to the isolation NetworkPolicy (networkpolicy.yaml).
+#
+# ROOT CAUSE (hw159–hw165, #2940 — the foundational app-plane wedge):
+# the isolation NetworkPolicy is podSelector:{} default-deny-ingress over
+# ALL mgmt pods, and its allow-list is expressed PURELY as namespaceSelector
+# rules. The Cilium Gateway API (envoy) proxies external traffic to backend
+# pods under the reserved `ingress` security identity — which is NOT a pod
+# and NOT a namespace, so NO namespaceSelector can ever match it. Result:
+# every gateway→app request (gitea/harbor/keycloak/openbao/grafana/guacamole/
+# pdns/…) is silently dropped → curl 000 (timeout) / 503 (envoy ejects the
+# "unhealthy" backend). The host console works only because it lives outside
+# this namespace. This bug shipped identically in every #3642 env, so
+# re-firing reproduced it every time — the only fix is forward, here.
+#
+# A vanilla k8s NetworkPolicy cannot express reserved:ingress, so the gap is
+# closed with a CiliumNetworkPolicy that admits the ingress proxy (plus host /
+# remote-node, since envoy runs in the host netns and a backend pod may sit on
+# a peer node). Cilium computes the UNION of every policy selecting an
+# endpoint, so this is purely additive to the isolation policy — it grants
+# gateway reachability without weakening tenant isolation (note: no `world`,
+# so direct public ingress to MGMT stays forbidden per the DMZ design).
+#
+# Validated live on hw165 2026-06-19: applying exactly these fromEntities
+# flipped gitea 000/503→303 and recovered 7 of the app surfaces instantly.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "bp-mgmt-vcluster.fullname" . }}-allow-gateway-ingress
+  namespace: {{ include "bp-mgmt-vcluster.hostNamespace" . }}
+  labels:
+    {{- include "bp-mgmt-vcluster.labels" . | nindent 4 }}
+spec:
+  # endpointSelector {} = every endpoint in this namespace (the vCluster
+  # syncer + all synced app workloads), matching the isolation policy's scope.
+  endpointSelector: {}
+  ingress:
+    - fromEntities:
+        - ingress
+        - host
+        - remote-node
+{{- end }}

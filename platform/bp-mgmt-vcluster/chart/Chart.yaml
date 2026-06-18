@@ -1,18 +1,5 @@
 apiVersion: v2
 name: bp-mgmt-vcluster
-# 0.2.17 — Refs #3820 #3642: add `external-secrets-system` to
-# mgmtVcluster.networkPolicy.allowedIngressNamespaces. The #3642 host→vCluster
-# move re-homed OpenBao into vc-mgmt, but the isolation NetworkPolicy's ingress
-# carve-out list never allowed external-secrets-system — the host ESO's PRIMARY
-# consumer of OpenBao. Result on hw165: ClusterSecretStore vault-region1
-# InvalidProviderConfig (`unable to log in with Kubernetes auth: context
-# deadline exceeded`) → every *-sso-oidc-credentials ExternalSecret
-# SecretSyncedError → grafana/hubble oidc-gate sidecars + per-app SSO consumers
-# CreateContainerConfigError → public surface 503. Same class as the openbao/*
-# fromHost-mirror miss (#3760). Live-verified: a host pod in
-# external-secrets-system timed out to openbao:8200 while a freshly-minted host
-# ESO SA token logged in fine from inside the openbao pod (XCR TokenReview
-# healthy) — the ONLY wall was this ingress allow-list.
 # 0.1.0 — initial implementation of DoD A4 vCluster topology
 # (sovereign-multi-region-DoD invariant #4). Founder ruling
 # 2026-05-16: every Sovereign must materialise the MGMT + DMZ + RTZ
@@ -180,7 +167,46 @@ name: bp-mgmt-vcluster
 # pre-install hook `secret "catalyst-gitea-token" not found` → install times out
 # → console never comes up. Adds `networking.replicateServices.toHost` exporting
 # the in-vCluster gitea-http back to the host `gitea/gitea-http` Service.
-version: 0.2.17
+#
+# 0.2.17 (#2940 FOUNDATIONAL app-plane wedge, hw159–hw165 RCA, 2026-06-19):
+# adds templates/gateway-ingress-cnp.yaml — a CiliumNetworkPolicy admitting
+# the gateway's reserved `ingress` identity (+ host / remote-node) to every
+# mgmt endpoint. ROOT CAUSE: the -isolation NetworkPolicy is podSelector:{}
+# default-deny-ingress over ALL mgmt pods with an allow-list built PURELY from
+# namespaceSelector rules. Cilium's Gateway API (envoy) proxies backend
+# traffic under the reserved:ingress identity, which is neither a pod nor a
+# namespace — so NO namespaceSelector can match it, and the 0.2.11 attempt to
+# fix this by ADDING gateway-system/kube-system to allowedIngressNamespaces was
+# structurally inert. Every gateway→app request (gitea/harbor/keycloak/openbao/
+# grafana/guacamole/pdns) was silently dropped → curl 000 (timeout) / 503
+# (envoy ejects the "unhealthy" backend). The host console worked only because
+# it sits outside this namespace. This shipped identically in every #3642 env,
+# so wipe-and-re-fire reproduced it every single time — the only fix is forward.
+# Validated LIVE on hw165 (2026-06-19): applying exactly these fromEntities
+# flipped gitea 000/503→303 and recovered 7 of 11 app surfaces instantly
+# (console/gitea/registry/auth/bao/guacamole/pdns up; the remaining 4 are a
+# separate missing-SSO-secret / no-frontend-pod cause, tracked apart). A
+# vanilla k8s NetworkPolicy cannot express reserved:ingress; Cilium unions all
+# policies selecting an endpoint, so this is purely ADDITIVE to -isolation —
+# gateway reachability without weakening tenant isolation (no `world`).
+#
+# 0.2.18 (#3820 #3642 — merged with the 0.2.17 gateway-ingress CNP, 2026-06-19):
+# add `external-secrets-system` to mgmtVcluster.networkPolicy.allowedIngressNamespaces.
+# The #3642 host→vCluster move re-homed OpenBao into vc-mgmt, but the isolation
+# NetworkPolicy's ingress carve-out list never allowed external-secrets-system —
+# the host ESO's PRIMARY consumer of OpenBao. Result on hw165: ClusterSecretStore
+# vault-region1 InvalidProviderConfig (`unable to log in with Kubernetes auth:
+# context deadline exceeded`) → every *-sso-oidc-credentials ExternalSecret
+# SecretSyncedError → grafana/hubble oidc-gate sidecars + per-app SSO consumers
+# CreateContainerConfigError → public surface 503. Same class as the openbao/*
+# fromHost-mirror miss (#3760). Live-verified: a host pod in external-secrets-system
+# timed out to openbao:8200 while a freshly-minted host ESO SA token logged in fine
+# from inside the openbao pod (XCR TokenReview healthy) — the ONLY wall was this
+# ingress allow-list. Additive netpol-values change only; orthogonal to the 0.2.17
+# gateway-ingress CNP (one admits the gateway proxy identity for north-south app
+# reachability, the other admits the host ESO namespace for the OpenBao secret
+# chain) — both ship together in this release.
+version: 0.2.18
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT
