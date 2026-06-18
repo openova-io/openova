@@ -35,15 +35,39 @@
 | B5 | CoreDNS `.server` github-IPv4 pin | primary node PUTs kubeconfig (no IPv6 wedge) | ✅ on main (#3806/#3714) |
 | B6 | bootstrap-kit-crs (CRD-ordering) | raw ExternalSecret/HTTPRoute/CNPG don't dry-run-deadlock the atomic kit | ✅ on main (#3807) |
 
-## C. Walk-time wires — what a real UAT walk exercises (NEVER reached this session → highest risk)
+## C. Walk-time wires — validator `add534…` COMPLETE (26 wires audited). ROOT + systematic fix below.
 
-| # | Case | Expected | Status |
-|---|------|----------|:---:|
-| C1 | Funnel → per-Org vCluster install | per-Org `vcluster@0.33.3` StatefulSet not kyverno-denied (images proxy-globbed) | ✅ render-validated (#3760, both images proxy-ghcr) |
-| C2 | Funnel → per-Org gitea token / gitops | per-Org GitRepository auth works (mirror of the A3 break?) | ⏳ validator `add534…` auditing |
-| C3 | App launch into Org vCluster | app DB/SSO secrets delivered across the boundary | ⏳ validator `add534…` |
-| C4 | 17-surface zero-login SSO landing | each app redirect→keycloak→callback resolves end-to-end | ⏳ validator `add534…` + depends on A5/A6 |
-| C5 | Showback / Jobs / Topology / Orgs UI | live data reads from vCluster resources the host catalyst-api can see | ⏳ validator `add534…` |
+**ROOT (confirmed by 4 cross-checked traces):** `sync.toHost.services` projects in-vCluster Services to the
+host ONLY as mangled `<svc>-x-<ns>-x-mgmt-vcluster.mgmt.svc` — the plain `<svc>.<ns>.svc` does NOT exist
+host-side (zero ExternalName aliases anywhere). Three stranded host-name families break every host→vc-mgmt call:
+**(1) `keycloak.keycloak.svc`** · **(2) `gitea-http.gitea.svc`** · **(3) `openbao.openbao.svc`**.
+Migration was abandoned mid-way (Mimir/NATS mangled; gitea/openbao/newapi left plain — `api-deployment.yaml`).
+
+**SYSTEMATIC FIX (≈15 wires → 2 edits):** (a) extend `replicateServices.toHost` (PR #3810 pattern) to export
+**keycloak** + **openbao** to host plain names (gitea-http done in #3810); (b) Jobs `helmwatch.go` HR informer
+filter must include ns `mgmt`, not only `flux-system`.
+
+| # | Category | Wire | Won't-resolve name | Verdict |
+|---|----------|------|--------------------|:---:|
+| C-A1 | Funnel | per-Org vCluster `0.33.3` StatefulSet images | (kyverno proxy-glob) | ✅ #3760 render-validated |
+| C20🔴 | **SSO** | **sso-bridge → keycloak Admin (mint per-app clients)** | `keycloak.keycloak.svc` | ❌ AT-RISK — **THE walk-blocker** |
+| C21🔴 | **SSO** | **sso-bridge → openbao (write `secret/sso/<app>`)** | `openbao.openbao.svc:8200` | ❌ AT-RISK (6 SSO ExternalSecrets empty) |
+| C3 | Funnel | catalyst-gitea-token mint Job (→ all per-Org gitops) | `gitea-http.gitea.svc` + host gitea-admin-secret | ❌ AT-RISK — ROOT of funnel |
+| C1,C2,C4 | Funnel | org-controller → keycloak/gitea + per-Org Flux GitRepo | keycloak/gitea plain | ❌ AT-RISK (per-Org vcluster never provisions) |
+| C5 | Funnel | BSS provisioning → gitea | `gitea-http.gitea.svc` | ❌ AT-RISK |
+| C7,C8 | App-launch | application/env/blueprint controllers → gitea | `gitea-http.gitea.svc` | ❌ AT-RISK |
+| C13 | Console | Jobs canvas HR informer hard-filtered to `flux-system` | (11 mgmt HRs invisible) | ❌ AT-RISK (Jobs blind to migrated apps) |
+| C14,C15,C16 | Console | Catalog/Blueprint→gitea · Secrets/Handover→openbao · NewAPI | gitea/openbao/newapi plain | ❌ AT-RISK |
+| C9,C17,C18,C19,C24 | (mixed) | vc kubeconfig · Mimir(mangled) · Topology informer · Orgs · oidc-gate | — | ✅ BRIDGED |
+| C22,C23 | SSO | each app issuer `auth.<fqdn>` + the host-bridge route | (public, Gateway→mangled) | ✅ BRIDGED (browser flow only; client-provisioning still gated on C20/C21) |
+| **C10** | **App-launch** | **per-Org CUSTOMER vCluster — DB/SSO secret + shared-pg bridge** | per-Org vcluster has no audited bridge | ❓ **UNKNOWN — hw164 frontier (only a walk confirms)** |
+| **C11** | **App-launch** | **per-Org Application placement** (`DefaultVClusterPlacements` knows only dmz/mgmt/rtz) | no per-Org entry | ❓ **UNKNOWN** (apps may land in shared tier, not customer vCluster — N#1 risk) |
+| C25 | SSO | guacamole callback `/guacamole/` landed-logged-in | callback path | ❓ UNKNOWN (prior walk failure, live-confirm) |
+
+> **New gate rows from this audit (must be ✅ before fire):** the keycloak + openbao `replicateServices.toHost`
+> export (fixes C1–C5,C7,C8,C14–C16,C20,C21) and the Jobs `helmwatch` ns filter (C13). C10/C11/C25 are
+> UNKNOWN frontiers — acceptable to fire WITH them flagged (they need the walk to resolve), but NOT the
+> AT-RISK ❌ rows.
 
 ## D. Train assembly — PRs that MUST be merged (in order) before fire
 
