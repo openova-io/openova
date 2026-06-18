@@ -625,35 +625,37 @@ write_files:
       # CRDs never appeared → permanent 0-HelmRelease deadlock (diagnosed live
       # on hw161; pre-#3642 there were zero raw CRs in bootstrap-kit).
       #
-      # Fix: this SEPARATE Flux Kustomization carries those CRs and
-      # `dependsOn: [bootstrap-kit]`, so Flux validates + applies them only
-      # AFTER bootstrap-kit is Ready (every operator installed + its CRDs
-      # registered). Same CRD-ordering split shape as the sovereign-tls
-      # Kustomization above and the bp-cert-manager-issuers (02a) /
-      # crossplane-claims (14) / external-secrets-stores (15a) / cnpg-pair
-      # (16b) / kyverno-policies (27a) HelmRelease splits. wait:false — Flux
-      # only confirms the apply succeeds (CRDs present); per-CR health (CNPG
-      # cluster ready, ESO sync) reconciles asynchronously and must NOT gate
-      # this Kustomization. Provider-agnostic: the deadlock hits every cloud,
-      # so this is OUTSIDE the hetzner-only infrastructure-config block.
+      # Fix: this SEPARATE Flux Kustomization carries those CRs and reconciles
+      # in PARALLEL with bootstrap-kit (NO dependsOn), RETRYING (retryInterval)
+      # until the operator CRDs (cnpg / external-secrets / gateway-api) that
+      # bootstrap-kit installs are registered, then applies the CRs.
+      # It must NOT `dependsOn: [bootstrap-kit]`: several of these CRs are APP
+      # DATABASES (per-app CNPG `Cluster`s — keycloak-pg / guacamole-pg / …) that
+      # the apps INSIDE bootstrap-kit need Ready to come up, and bootstrap-kit
+      # (wait:true) cannot go Ready until those apps ARE Ready. A dependsOn would
+      # deadlock CIRCULARLY: app waits for its DB CR → DB CR (this Kustomization)
+      # waits for bootstrap-kit Ready → bootstrap-kit waits for the app. Caught
+      # live on hw162: keycloak-0 stuck Init:0/2 with no DB, convergence frozen
+      # at 49/64 HRs. Reconciling independently + retrying breaks the circle yet
+      # still applies the CRs only AFTER their CRDs exist. wait:false — per-CR
+      # health (CNPG cluster ready, ESO sync) reconciles async + must NOT gate
+      # this Kustomization. Provider-agnostic; OUTSIDE the hetzner-only block.
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
       metadata:
         name: bootstrap-kit-crs
         namespace: flux-system
       spec:
-        # retryInterval + timeout both default to `interval` (5m), so they are
-        # omitted here — for a wait:false, prune-only CR-applier the retry/
-        # timeout cadence is immaterial, and dropping them keeps the rendered
-        # cloud-init under Hetzner's 32256B cap (#3804 / Refs #3642).
         interval: 5m
+        # retryInterval short: with NO dependsOn (see header), the CRs fail the
+        # dry-run until the operators register their CRDs, so retry FAST to apply
+        # promptly after — not at the 5m interval. timeout defaults to interval.
+        retryInterval: 1m
         path: ./clusters/_template/bootstrap-kit-crs
         prune: true
         sourceRef:
           kind: GitRepository
           name: openova
-        dependsOn:
-          - name: bootstrap-kit
         wait: false
         postBuild:
           substitute:
