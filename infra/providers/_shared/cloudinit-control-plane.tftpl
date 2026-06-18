@@ -642,8 +642,11 @@ write_files:
         name: bootstrap-kit-crs
         namespace: flux-system
       spec:
+        # retryInterval + timeout both default to `interval` (5m), so they are
+        # omitted here — for a wait:false, prune-only CR-applier the retry/
+        # timeout cadence is immaterial, and dropping them keeps the rendered
+        # cloud-init under Hetzner's 32256B cap (#3804 / Refs #3642).
         interval: 5m
-        retryInterval: 1m
         path: ./clusters/_template/bootstrap-kit-crs
         prune: true
         sourceRef:
@@ -652,7 +655,6 @@ write_files:
         dependsOn:
           - name: bootstrap-kit
         wait: false
-        timeout: 5m
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
@@ -1021,17 +1023,22 @@ runcmd:
 
   # Apply the bootstrap secrets BEFORE Flux reconciles bootstrap-kit (each
   # is an idempotent `kubectl apply`; re-running cloud-init rewrites bytes).
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/ghcr-pull-secret.yaml'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/harbor-robot-token-secret.yaml'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/pdm-basicauth-secret.yaml'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace cert-manager --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/powerdns-api-credentials.yaml'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace catalyst-system --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/handover-jwt-public-secret.yaml'
+  #
+  # #3804 (Refs #3642) — create the three CRD-independent bootstrap namespaces
+  # (cert-manager, catalyst-system, openbao) in ONE idempotent apply FIRST so
+  # the namespaced secrets below land in an existing namespace. `kubectl create
+  # namespace` takes N positional names and emits N `---`-joined docs, so this
+  # is byte-identical in effect to three separate creates. The secret applies
+  # are then folded into a single multi-`-f` `kubectl apply` (each file is an
+  # independent Secret manifest; apply order among them is irrelevant), which
+  # drops ~6 repetitions of the `kubectl --kubeconfig=…` long-form and keeps the
+  # rendered cloud-init under Hetzner's 32256B cap. powerdns→cert-manager,
+  # handover-jwt→catalyst-system and recovery-seed→openbao all now resolve.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace cert-manager catalyst-system openbao --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/ghcr-pull-secret.yaml -f /var/lib/catalyst/harbor-robot-token-secret.yaml -f /var/lib/catalyst/pdm-basicauth-secret.yaml -f /var/lib/catalyst/powerdns-api-credentials.yaml -f /var/lib/catalyst/handover-jwt-public-secret.yaml -f /var/lib/catalyst/object-storage-secret.yaml -f /var/lib/catalyst/cloud-credentials-secret.yaml'
 
   # openbao-recovery-seed: one-shot 32-byte seed the bp-openbao init Job
   # consumes + deletes on first success. Never in tfstate; node-local only.
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace openbao --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
   - |
     OPENBAO_SEED=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
     kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n openbao create secret generic openbao-recovery-seed \
@@ -1041,9 +1048,9 @@ runcmd:
         openbao.openova.io/single-use=true -o yaml \
       | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -
     unset OPENBAO_SEED
-
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/object-storage-secret.yaml'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/cloud-credentials-secret.yaml'
+    # object-storage-secret + cloud-credentials-secret are applied above in the
+    # single folded `kubectl apply -f … -f …` (no namespace dependency on the
+    # openbao seed), so they are intentionally not re-applied here.
 %{ if crossplane_provider_yaml != "" ~}
   # Crossplane Provider CR — the Provider CRD lands later via bp-crossplane,
   # so apply with || true now + a detached background retry once core CRDs
