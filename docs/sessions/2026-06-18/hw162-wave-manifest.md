@@ -64,3 +64,12 @@ Verified live via the mothership kubeconfig while the keycloak cascade was still
 - **#3740 — cross-region async replication: ⚠️ INCONCLUSIVE.** Per-app CNPG DBs (guacamole-pg/gitea-pg/harbor-pg/newapi-pg) are single-instance with empty `.spec.replica` — no cross-region replica config observable on this prov; bp-cnpg-pair HR is Ready but no distinct pair cluster surfaced.
 
 These confirm the train's topology fixes are LIVE at the placement/substrate level even before full app readiness. Full browser-walk verification (SSO landing, funnel, console surfaces) remains gated on the keycloak→catalyst-platform cascade (the 2nd-layer keycloak-database-secret shared-pg↔vCluster mirroring bug, root-caused above).
+
+---
+
+## hw162 multi-region + in-vCluster DoD (kubectl, console-independent)
+
+- **NS#1 (apps genuinely RUNNING in the mgmt vCluster, not just HR-placed):** openbao-0 `1/1 Running` + agent-injector up (`*-x-openbao-x-mgmt-vcluster`); harbor portal/nginx/redis/registry Running (`*-x-harbor-x-mgmt-vcluster`); harbor-core + jobservice CrashLoopBackOff (secondary harbor-DB issue, separate from the keycloak linchpin). Concrete proof the #3642 vCluster relocation runs workloads inside vc-mgmt.
+- **North Star #4 — multi-region: ✅ both regions provisioned + meshed.** region-b kubeconfig present; region-b HRs-Ready 49/64 (converged in parallel with primary, same keycloak-gated point); **clustermesh-apiserver 3/3 Running in BOTH me-east-215-a AND -b** — the 2-region Cilium ClusterMesh substrate is live.
+
+Net: on hw162 (partial convergence, keycloak-gated), 3 of 4 North Stars have live kubectl evidence — #1 (vCluster placement + run), #2 (3 shared-pg), #4 (2-region mesh). North Star #3 (zero-login SSO) + the funnel/cutover browser walks remain gated on the console, which PR #3807's keycloak host-ns fix unblocks on hw163.
