@@ -72,28 +72,37 @@ collide["values"] = {"gateway.enabled": True}
 check("suppress wins on key collision",
       rsp.effective_values(collide)["gateway.enabled"] is False)
 
-# 3. hostbridge_block wraps in markers + transcribes the route.
-block = rsp.hostbridge_block(SLOT)
-check("block starts/ends with markers",
-      block[0] == rsp.HOSTBRIDGE_BEGIN and block[-1] == rsp.HOSTBRIDGE_END)
-check("block carries the syncer-mangled backendRef verbatim",
-      any("grafana-x-grafana-x-mgmt-vcluster" in l for l in block))
-check("block carries the public hostname (envsubst placeholder intact)",
-      any("grafana.${SOVEREIGN_FQDN}" in l for l in block))
+# 3. hostbridge_block is DEPRECATED (#3804) — host-bridge CRs now live in
+#    bootstrap-kit-crs/<slot> (see hostbridge_docs_yaml), NOT in-slot; the
+#    function returns None always (retained only so strip/extract can detect a
+#    stale in-slot block on a slot authored before the split).
+check("hostbridge_block deprecated (returns None)",
+      rsp.hostbridge_block(SLOT) is None)
 
-# 4. extract round-trips the same block (markers inclusive).
-got = rsp.extract_hostbridge(["  preamble"] + block + ["  trailer"])
-check("extract_hostbridge round-trips the block", got == block)
+# 3b. hostbridge_docs_yaml renders the hostDocuments as the bootstrap-kit-crs
+#     file body — verbatim transcription of the route.
+docs = rsp.hostbridge_docs_yaml(SLOT)
+check("hostbridge_docs_yaml carries the syncer-mangled backendRef verbatim",
+      docs is not None and "grafana-x-grafana-x-mgmt-vcluster" in docs)
+check("hostbridge_docs_yaml carries the public hostname (envsubst placeholder intact)",
+      "grafana.${SOVEREIGN_FQDN}" in docs)
+check("hostbridge_docs_yaml starts each doc with a --- separator",
+      docs.lstrip().startswith("---"))
 
-# 5. strip removes the block + its preceding blank line.
-with_block = ["a: 1", "", *block, ]
-stripped = rsp.strip_hostbridge(with_block)
+# 4. extract/strip still detect + remove a STALE in-slot block (a slot authored
+#    before the #3804 split) — feed a literal marker block.
+legacy_block = [rsp.HOSTBRIDGE_BEGIN, "  apiVersion: v1", "  kind: ConfigMap", rsp.HOSTBRIDGE_END]
+got = rsp.extract_hostbridge(["  preamble"] + legacy_block + ["  trailer"])
+check("extract_hostbridge round-trips a stale in-slot block", got == legacy_block)
+
+# 5. strip removes the stale block + its preceding blank line.
+stripped = rsp.strip_hostbridge(["a: 1", "", *legacy_block])
 check("strip_hostbridge removes markers + preceding blank",
       stripped == ["a: 1"] and rsp.extract_hostbridge(stripped) is None)
 
-# 6. a host placement (no hostBridge) yields no block.
-check("host placement yields no host-bridge block",
-      rsp.hostbridge_block(HOST_SLOT) is None)
+# 6. a host placement (no hostBridge) yields no host-bridge docs.
+check("host placement yields no host-bridge docs",
+      rsp.hostbridge_docs_yaml(HOST_SLOT) is None)
 
 # 7. booleans render lowercase.
 check("yaml_scalar(False) == 'false'", rsp.yaml_scalar(False) == "false")

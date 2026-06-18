@@ -1,0 +1,20 @@
+# placement-generated (#3804 / Refs #3642) — DO NOT hand-edit.
+# The bootstrap-kit-crs Flux Kustomization tier: host-bridge
+# CRD-dependent CRs (HTTPRoute / ExternalSecret / CNPG Cluster) for
+# vCluster-re-homed apps. Reconciled by the `bootstrap-kit-crs`
+# Kustomization (cloud-init flux-bootstrap), which dependsOn
+# bootstrap-kit so these CRs validate + apply only AFTER their
+# operator CRDs exist — keeping them OUT of the bootstrap-kit atomic
+# dry-run that would otherwise fail `no matches for kind` on a fresh
+# prov (hw161). Source of truth: bootstrap-kit/placement.yaml
+# hostBridge.hostDocuments + scripts/render-slot-placement.py fix.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - 09-keycloak.yaml
+  - 10-gitea.yaml
+  - 08-openbao.yaml
+  - 19-harbor.yaml
+  - 25-grafana.yaml
+  - 52-bp-guacamole.yaml
+  - 80-newapi.yaml

@@ -609,6 +609,55 @@ write_files:
             - kind: ConfigMap
               name: sovereign-tls-vars
               optional: false
+      ---
+      # bootstrap-kit-crs Kustomization (#3804 / Refs #3642) — the host-bridge
+      # CRD-dependent CRs tier. #3642 re-homed 7 host apps into the mgmt
+      # vCluster and extracted their host-side HTTPRoute / ExternalSecret /
+      # CNPG `Cluster` CRs OUT of the (now in-vCluster) Helm charts into RAW
+      # kustomize resources. Raw resources cannot carry the chart's
+      # `.Capabilities.APIVersions.Has` gate, so when they lived inside the
+      # bootstrap-kit kustomization they failed bootstrap-kit's atomic
+      # server-side dry-run with `no matches for kind "Cluster"/"HTTPRoute"/
+      # "ExternalSecret"` — because the gateway-api / external-secrets / cnpg
+      # CRDs are installed by HelmReleases that have NOT reconciled yet on a
+      # fresh prov's FIRST pass. That aborted the WHOLE bootstrap-kit
+      # reconcile → 0 HRs ever applied → the operators never installed → the
+      # CRDs never appeared → permanent 0-HelmRelease deadlock (diagnosed live
+      # on hw161; pre-#3642 there were zero raw CRs in bootstrap-kit).
+      #
+      # Fix: this SEPARATE Flux Kustomization carries those CRs and
+      # `dependsOn: [bootstrap-kit]`, so Flux validates + applies them only
+      # AFTER bootstrap-kit is Ready (every operator installed + its CRDs
+      # registered). Same CRD-ordering split shape as the sovereign-tls
+      # Kustomization above and the bp-cert-manager-issuers (02a) /
+      # crossplane-claims (14) / external-secrets-stores (15a) / cnpg-pair
+      # (16b) / kyverno-policies (27a) HelmRelease splits. wait:false — Flux
+      # only confirms the apply succeeds (CRDs present); per-CR health (CNPG
+      # cluster ready, ESO sync) reconciles asynchronously and must NOT gate
+      # this Kustomization. Provider-agnostic: the deadlock hits every cloud,
+      # so this is OUTSIDE the hetzner-only infrastructure-config block.
+      apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: bootstrap-kit-crs
+        namespace: flux-system
+      spec:
+        # retryInterval + timeout both default to `interval` (5m), so they are
+        # omitted here — for a wait:false, prune-only CR-applier the retry/
+        # timeout cadence is immaterial, and dropping them keeps the rendered
+        # cloud-init under Hetzner's 32256B cap (#3804 / Refs #3642).
+        interval: 5m
+        path: ./clusters/_template/bootstrap-kit-crs
+        prune: true
+        sourceRef:
+          kind: GitRepository
+          name: openova
+        dependsOn:
+          - name: bootstrap-kit
+        wait: false
+        postBuild:
+          substitute:
+            SOVEREIGN_FQDN: ${sovereign_fqdn}
 %{ if provider == "hetzner" ~}
       ---
       # infrastructure-config Kustomization — installs the Crossplane Provider
@@ -806,11 +855,16 @@ runcmd:
   # GitRepository artifact → 0 HelmReleases in BOTH regions → Phase-1 watcher
   # times out + the kubeconfig is never PUT (the hw160 wedge). We inject a
   # `coredns-custom` ConfigMap — the k3s-native, restart/upgrade-surviving
-  # CoreDNS extension point: k3s imports `/etc/coredns/custom/*.override` into
-  # the default `.:53` server block — with a `hosts` plugin that force-resolves
-  # the github hosts to the SAME IPv4 the node pin just resolved (read back
-  # from the r4() side-file, so the resolver ladder is NOT duplicated).
-  # `fallthrough` keeps every other name resolving normally; this touches ONLY
+  # CoreDNS extension point. We emit a `*.server` file (a SEPARATE server block
+  # scoped to the github zones) — NOT a `*.override` file: k3s merges `.override`
+  # files into the default `.:53` block, which already carries a
+  # `hosts /etc/coredns/NodeHosts` plugin, and two `hosts` plugins in one block
+  # is illegal CoreDNS (crash-loop → 0 kube-dns endpoints → in-cluster DNS
+  # EPERMs → 0 HRs; the #3804 hw161 wedge). The dedicated `.server` block
+  # force-resolves the github hosts to the SAME IPv4 the node pin just resolved
+  # (read back from the r4() side-file, so the resolver ladder is NOT
+  # duplicated); `hosts ... fallthrough` + a `forward . 8.8.8.8 1.1.1.1` floor
+  # keeps every other name in those zones resolving over IPv4. This touches ONLY
   # CoreDNS config, never Cilium/CNI/kube-proxy, so ClusterMesh is unaffected.
   # Runs AFTER the CNI is up (CoreDNS pods can now go Ready + mount the
   # override) and BEFORE Flux is installed/bootstrapped below, so the
@@ -833,13 +887,24 @@ runcmd:
      printf '  name: coredns-custom\n'
      printf '  namespace: kube-system\n'
      printf 'data:\n'
-     printf '  github-ipv4.override: |\n'
-     printf '    hosts {\n'
+     # `.server` (NOT `.override`): k3s merges `*.override` files INTO the
+     # default `.:53` block, which ALREADY carries a `hosts /etc/coredns/NodeHosts`
+     # plugin — two `hosts` plugins in one server block is illegal CoreDNS
+     # ("plugin/hosts: this plugin can only be used once per Server Block") and
+     # CRASH-loops CoreDNS → kube-dns has 0 endpoints → every in-cluster DNS
+     # lookup EPERMs → source-controller can't resolve github → 0 HRs (the hw161
+     # wedge, #3804 regression). A `*.server` file is a SEPARATE server block
+     # scoped to ONLY the github zones, so it never collides with NodeHosts.
+     printf '  github-ipv4.server: |\n'
+     printf '    %s {\n' "$GH_HOSTS"
+     printf '        hosts {\n'
      for h in $GH_HOSTS; do
       ip=$(awk -v host="$h" '$2 == host {print $1; exit}' "$PIN_FILE" 2>/dev/null)
-      [ -n "$ip" ] && printf '        %s %s\n' "$ip" "$h"
+      [ -n "$ip" ] && printf '            %s %s\n' "$ip" "$h"
      done
-     printf '        fallthrough\n'
+     printf '            fallthrough\n'
+     printf '        }\n'
+     printf '        forward . 8.8.8.8 1.1.1.1\n'
      printf '    }\n'
     } >"$CM_FILE"
     # Wait (bounded) for the CoreDNS Deployment object — the k3s addon
@@ -958,17 +1023,22 @@ runcmd:
 
   # Apply the bootstrap secrets BEFORE Flux reconciles bootstrap-kit (each
   # is an idempotent `kubectl apply`; re-running cloud-init rewrites bytes).
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/ghcr-pull-secret.yaml'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/harbor-robot-token-secret.yaml'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/pdm-basicauth-secret.yaml'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace cert-manager --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/powerdns-api-credentials.yaml'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace catalyst-system --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/handover-jwt-public-secret.yaml'
+  #
+  # #3804 (Refs #3642) — create the three CRD-independent bootstrap namespaces
+  # (cert-manager, catalyst-system, openbao) in ONE idempotent apply FIRST so
+  # the namespaced secrets below land in an existing namespace. `kubectl create
+  # namespace` takes N positional names and emits N `---`-joined docs, so this
+  # is byte-identical in effect to three separate creates. The secret applies
+  # are then folded into a single multi-`-f` `kubectl apply` (each file is an
+  # independent Secret manifest; apply order among them is irrelevant), which
+  # drops ~6 repetitions of the `kubectl --kubeconfig=…` long-form and keeps the
+  # rendered cloud-init under Hetzner's 32256B cap. powerdns→cert-manager,
+  # handover-jwt→catalyst-system and recovery-seed→openbao all now resolve.
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace cert-manager catalyst-system openbao --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/ghcr-pull-secret.yaml -f /var/lib/catalyst/harbor-robot-token-secret.yaml -f /var/lib/catalyst/pdm-basicauth-secret.yaml -f /var/lib/catalyst/powerdns-api-credentials.yaml -f /var/lib/catalyst/handover-jwt-public-secret.yaml -f /var/lib/catalyst/object-storage-secret.yaml -f /var/lib/catalyst/cloud-credentials-secret.yaml'
 
   # openbao-recovery-seed: one-shot 32-byte seed the bp-openbao init Job
   # consumes + deletes on first success. Never in tfstate; node-local only.
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace openbao --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
   - |
     OPENBAO_SEED=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
     kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n openbao create secret generic openbao-recovery-seed \
@@ -978,9 +1048,9 @@ runcmd:
         openbao.openova.io/single-use=true -o yaml \
       | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -
     unset OPENBAO_SEED
-
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/object-storage-secret.yaml'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/cloud-credentials-secret.yaml'
+    # object-storage-secret + cloud-credentials-secret are applied above in the
+    # single folded `kubectl apply -f … -f …` (no namespace dependency on the
+    # openbao seed), so they are intentionally not re-applied here.
 %{ if crossplane_provider_yaml != "" ~}
   # Crossplane Provider CR — the Provider CRD lands later via bp-crossplane,
   # so apply with || true now + a detached background retry once core CRDs

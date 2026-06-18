@@ -17,6 +17,21 @@
 # Secret from the same namespace (Flux v2 SecretReference contract).
 
 ---
+# Host namespace for the gitea host-bridge Secret (gitea-oauth-source-credentials).
+# #3642 re-homed gitea into the mgmt vCluster, but its host-MINTED SSO Secret
+# still lands in this HOST `gitea` namespace (the raw ExternalSecret below targets
+# it). Flux applies Namespace kinds before namespaced resources, so declaring it
+# here guarantees it exists in the first pass — without it the ExternalSecret
+# dry-run fails `namespaces "gitea" not found`, which fails the ENTIRE bootstrap-kit
+# reconcile (0 HRs → fresh-prov wedge). grafana/newapi already declare theirs;
+# gitea/harbor were missed in the #3642 relocation (caught live on hw161, Refs #3804).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitea
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
@@ -265,144 +280,3 @@ spec:
               secretKeyRef:
                 name: ${SOVEREIGN_GITEA_PG_SECRET:=gitea-pg-app}
                 key: password
-
-# ── HOST-BRIDGE BEGIN (#3642) — placement-generated host-side route/secret/CNPG; edit placement.yaml hostBridge: + run scripts/render-slot-placement.py fix ──
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: gitea
-  namespace: mgmt
-  labels:
-    catalyst.openova.io/blueprint: bp-gitea
-    catalyst.openova.io/component: gitea
-    catalyst.openova.io/host-bridge: mgmt
-spec:
-  parentRefs:
-  - name: cilium-gateway
-    namespace: kube-system
-  hostnames:
-  - gitea.${SOVEREIGN_FQDN}
-  rules:
-  - matches:
-    - path:
-        type: Exact
-        value: /user/login
-    filters:
-    - type: RequestRedirect
-      requestRedirect:
-        port: 443
-        path:
-          type: ReplaceFullPath
-          replaceFullPath: /user/oauth2/openova-sso
-        statusCode: 302
-  - matches:
-    - path:
-        type: PathPrefix
-        value: /
-    backendRefs:
-    - name: gitea-http-x-gitea-x-mgmt-vcluster
-      namespace: mgmt
-      port: 3000
----
-apiVersion: external-secrets.io/v1beta1
-kind: ExternalSecret
-metadata:
-  name: gitea-oauth-source-credentials
-  namespace: gitea
-  labels:
-    catalyst.openova.io/blueprint: bp-gitea
-    bp-sso-bridge.openova.io/consumer: bp-gitea
-    catalyst.openova.io/host-bridge: mgmt
-spec:
-  refreshInterval: 1h
-  secretStoreRef:
-    name: vault-region1
-    kind: ClusterSecretStore
-  target:
-    name: gitea-oauth-source-credentials
-    creationPolicy: Owner
-    template:
-      type: Opaque
-      metadata:
-        labels:
-          catalyst.openova.io/blueprint: bp-gitea
-          bp-sso-bridge.openova.io/consumer: bp-gitea
-      data:
-        key: '{{ .client_id }}'
-        secret: '{{ .client_secret }}'
-        issuer_url: '{{ .issuer_url }}'
-        authorize_url: '{{ .authorize_url }}?kc_idp_hint=catalyst-pin'
-        token_url: '{{ .token_url }}'
-        userinfo_url: '{{ .userinfo_url }}'
-  data:
-  - secretKey: client_id
-    remoteRef:
-      key: sso/gitea
-      property: client_id
-  - secretKey: client_secret
-    remoteRef:
-      key: sso/gitea
-      property: client_secret
-  - secretKey: issuer_url
-    remoteRef:
-      key: sso/gitea
-      property: issuer_url
-  - secretKey: authorize_url
-    remoteRef:
-      key: sso/gitea
-      property: authorize_url
-  - secretKey: token_url
-    remoteRef:
-      key: sso/gitea
-      property: token_url
-  - secretKey: userinfo_url
-    remoteRef:
-      key: sso/gitea
-      property: userinfo_url
----
-apiVersion: postgresql.cnpg.io/v1
-kind: Cluster
-metadata:
-  name: gitea-pg
-  namespace: gitea
-  labels:
-    catalyst.openova.io/blueprint: bp-gitea
-    catalyst.openova.io/component: gitea
-    catalyst.openova.io/host-bridge: mgmt
-spec:
-  instances: 1
-  imageName: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16
-  bootstrap:
-    initdb:
-      database: gitea
-      owner: gitea
-  managed:
-    roles:
-    - name: gitea
-      ensure: present
-      login: true
-      passwordSecret:
-        name: gitea-pg-app
-  inheritedMetadata:
-    annotations:
-      reflector.v1.k8s.emberstack.com/reflection-allowed: 'true'
-      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: gitea
-      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: 'true'
-      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: gitea
-  postgresql:
-    parameters:
-      max_connections: '100'
-      shared_buffers: 64MB
-      effective_cache_size: 192MB
-      work_mem: 4MB
-      maintenance_work_mem: 64MB
-      log_statement: ddl
-      log_min_duration_statement: '1000'
-  storage:
-    size: 5Gi
-    storageClass: local-path
-  enableSuperuserAccess: true
-  monitoring:
-    enablePodMonitor: false
-# ── HOST-BRIDGE END (#3642) ──
