@@ -144,7 +144,7 @@ for entry in "${CHARTS[@]}"; do
       }
     fi
   fi
-  rendered="$( (cd "$chart" && helm template guard . $setargs 2>/dev/null) )" || {
+  rendered="$( (cd "$chart" && helm template guard . $setargs --skip-schema-validation 2>/dev/null) )" || {
     echo "FATAL: helm template failed for $chart $setargs" >&2
     exit 2
   }
