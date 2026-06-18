@@ -40,3 +40,15 @@ it cannot be pre-decided for a walk-item).
 
 **Conclusion:** wave fully loaded; 21/22 fixed on main or in #3806, #3724 is a non-code config defer.
 hw162 walk is the verification gate — it produces the pass/fail per walk-item and any next-wave work.
+
+---
+
+## hw162 convergence result (live, 03:05Z) — DEADLOCK BROKEN ✅
+
+The A+B+C train fixed the hw161 env-killer. Verified live on hw162 (`4d61885518c38a4d`):
+
+- **Fix A (CoreDNS `.server`)** ✅ — `GitRepository openova` = **Ready/True**; github resolves + clones (the exact path that crash-froze hw161's CoreDNS → 0 kube-dns endpoints → 0 HRs is gone).
+- **Fix C (bootstrap-kit-crs dependsOn tier)** ✅ — kustomize-controller logged "Dependencies do not meet ready condition, retrying" for `bootstrap-kit-crs` + `sovereign-tls` — the ordering works as designed (CRD-dependent CRs wait for bootstrap-kit + its operators).
+- **The atomic-dry-run deadlock is gone** — bootstrap-kit reconciled and created **64 HelmReleases** (0 → 64) the moment kustomize-controller came up. hw161 was permanently stuck at 0; hw162 is flowing.
+
+**Caveat (separate, known, non-fatal #809):** flux controller images pull slowly through the harbor proxy — `kustomize-controller:v1.4.0` took **9m59s** to pull, delaying first reconcile ~26 min into phase-1. Slow, not wedged. The 64 HRs are now installing (operators → CRDs → bootstrap-kit-crs CRs → apps); readiness watcher fires the walk at HRs-Ready ≥ 50.
