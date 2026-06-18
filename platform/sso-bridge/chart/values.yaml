@@ -227,14 +227,30 @@ deploymentAnnotations:
 # NetworkPolicy template. Reviewer-agent verdict 2026-06-01T13:35Z flagged
 # the gap. This block configures the egress allow-list.
 #
-# Default keycloak/openbao Namespaces match the platform charts.
-# Post-G92.2 placement may move these inside the mgmt vCluster — operators
-# rewrite via per-Sovereign overlay in that case.
+# keycloak + openbao egress Namespaces.
+#
+# #3642 (and follow-ons #3760/#3737) re-homed BOTH keycloak and openbao INTO
+# the mgmt vCluster. Their workload Pods now run in the `mgmt` HOST namespace
+# as the syncer-mangled `keycloak-x-keycloak-x-mgmt-vcluster` /
+# `openbao-x-openbao-x-mgmt-vcluster` (the legacy `keycloak`/`openbao` host
+# namespaces still exist but are EMPTY of the actual workload). Cilium enforces
+# egress NetworkPolicy on the DESTINATION Pod's namespace+target-port, so a
+# `keycloakNamespace: keycloak` selector matches NOTHING the reconciler dials —
+# every `mint Keycloak admin token` curl times out (curl(28)) and NO
+# `secret/sso/*` bundle is ever written, leaving grafana/harbor/openbao/gitea
+# (+ every oidc-gate consumer) without their SSO secret → 503. hw165 live RCA
+# (#3820): the reconciler timed out to keycloak even co-located on keycloak's
+# own node, because this K8s NetworkPolicy egress targeted the wrong namespace;
+# a probe Pod with a different `app.kubernetes.io/name` label (so NOT selected
+# by this policy) reached keycloak fine. Default to `mgmt` — the post-#3642
+# canonical topology. A single-region / pre-#3642 placement that keeps keycloak
+# and openbao host-side in their own namespaces overrides these via per-Sovereign
+# overlay. Refs #3820 #3642.
 networkPolicy:
   enabled: true
-  keycloakNamespace: keycloak
+  keycloakNamespace: mgmt
   keycloakPort: 80
-  openbaoNamespace: openbao
+  openbaoNamespace: mgmt
   openbaoPort: 8200
 
 # #2989 residual (0.2.9): the Sovereign's own FQDN as a chart value, used

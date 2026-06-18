@@ -118,7 +118,7 @@ spec:
       # (templates/host-service-aliases.yaml) giving keycloak/gitea-http/openbao
       # plain->mangled reachability — verified live on hw164 (persist + resolve,
       # zero syncer crash).
-      version: 0.2.16
+      version: 0.2.17
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster

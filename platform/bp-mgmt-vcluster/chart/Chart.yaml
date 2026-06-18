@@ -1,5 +1,18 @@
 apiVersion: v2
 name: bp-mgmt-vcluster
+# 0.2.17 — Refs #3820 #3642: add `external-secrets-system` to
+# mgmtVcluster.networkPolicy.allowedIngressNamespaces. The #3642 host→vCluster
+# move re-homed OpenBao into vc-mgmt, but the isolation NetworkPolicy's ingress
+# carve-out list never allowed external-secrets-system — the host ESO's PRIMARY
+# consumer of OpenBao. Result on hw165: ClusterSecretStore vault-region1
+# InvalidProviderConfig (`unable to log in with Kubernetes auth: context
+# deadline exceeded`) → every *-sso-oidc-credentials ExternalSecret
+# SecretSyncedError → grafana/hubble oidc-gate sidecars + per-app SSO consumers
+# CreateContainerConfigError → public surface 503. Same class as the openbao/*
+# fromHost-mirror miss (#3760). Live-verified: a host pod in
+# external-secrets-system timed out to openbao:8200 while a freshly-minted host
+# ESO SA token logged in fine from inside the openbao pod (XCR TokenReview
+# healthy) — the ONLY wall was this ingress allow-list.
 # 0.1.0 — initial implementation of DoD A4 vCluster topology
 # (sovereign-multi-region-DoD invariant #4). Founder ruling
 # 2026-05-16: every Sovereign must materialise the MGMT + DMZ + RTZ
@@ -167,7 +180,7 @@ name: bp-mgmt-vcluster
 # pre-install hook `secret "catalyst-gitea-token" not found` → install times out
 # → console never comes up. Adds `networking.replicateServices.toHost` exporting
 # the in-vCluster gitea-http back to the host `gitea/gitea-http` Service.
-version: 0.2.16
+version: 0.2.17
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT
