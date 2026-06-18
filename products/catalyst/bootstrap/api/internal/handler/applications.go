@@ -69,6 +69,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/dynamic"
 
 	"github.com/openova-io/openova/core/controllers/pkg/validate"
@@ -443,39 +444,46 @@ func (h *Handler) HandleApplicationInstall(w http.ResponseWriter, r *http.Reques
 	// before creating the Application CR, so an install never fails with
 	// `namespaces "<org>" not found` when the organization controller's
 	// GitOps namespace reconcile hasn't landed yet. Idempotent.
+	//
+	// #3830 — the OrganizationRef is the Org identity (often a dotted
+	// FQDN, e.g. "hw165.omani.works"); the namespace is the slugged
+	// RFC-1123 form. ensureOrgNamespace + the create below + the CR's
+	// metadata.namespace (newApplicationUnstructured) all route through
+	// orgNamespace() so they resolve to ONE consistent namespace.
+	appNS := orgNamespace(body.OrganizationRef)
 	if nsErr := ensureOrgNamespace(r.Context(), client, body.OrganizationRef); nsErr != nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"kind":       "Application",
 			"name":       body.Name,
-			"namespace":  body.OrganizationRef,
+			"namespace":  appNS,
 			"error":      "namespace-ensure-failed",
 			"status":     "503",
 			"httpStatus": 503,
 			"applied":    false,
-			"detail":     fmt.Sprintf("could not ensure namespace %q: %v", body.OrganizationRef, nsErr),
+			"detail":     fmt.Sprintf("could not ensure namespace %q: %v", appNS, nsErr),
 		})
 		return
 	}
 
 	obj := newApplicationUnstructured(body)
-	created, err := client.Resource(ApplicationGVR()).Namespace(body.OrganizationRef).Create(
+	created, err := client.Resource(ApplicationGVR()).Namespace(appNS).Create(
 		r.Context(), obj, metav1.CreateOptions{})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"kind":       "Application",
 				"name":       body.Name,
-				"namespace":  body.OrganizationRef,
+				"namespace":  appNS,
 				"error":      "application-exists",
 				"status":     "409",
 				"httpStatus": 409,
 				"applied":    false,
-				"detail":     fmt.Sprintf("Application %q already exists in namespace %q", body.Name, body.OrganizationRef),
+				"detail":     fmt.Sprintf("Application %q already exists in namespace %q", body.Name, appNS),
 			})
 			return
 		}
 		h.log.Warn("application install: create CR failed",
-			"depId", depID, "name", body.Name, "ns", body.OrganizationRef, "err", err)
+			"depId", depID, "name", body.Name, "ns", appNS, "err", err)
 		writeApplicationInstallSoftError(w, "application-create-failed", http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -806,8 +814,13 @@ func validateApplicationInstallRequest(req applicationInstallRequest) (string, b
 	if strings.TrimSpace(req.OrganizationRef) == "" {
 		return "organizationRef is required", false
 	}
-	if !isValidK8sName(req.OrganizationRef) {
-		return "organizationRef must be a valid K8s name", false
+	// #3830 — the OrganizationRef is the Org identity, which is a DNS
+	// subdomain / FQDN (e.g. "hw165.omani.works"), NOT an RFC-1123 label.
+	// Validating it with isValidK8sName rejected every dotted Org and 400'd
+	// the create before it reached the (now slug-mapped) namespace seam.
+	// Accept a DNS subdomain; orgNamespace() slugs it for the namespace.
+	if !isValidOrgRef(req.OrganizationRef) {
+		return "organizationRef must be a valid DNS name (Org slug or FQDN, e.g. acme or hw165.omani.works)", false
 	}
 	if strings.TrimSpace(req.EnvironmentRef) == "" {
 		return "environmentRef is required", false
@@ -929,7 +942,10 @@ func newApplicationUnstructured(req applicationInstallRequest) *unstructured.Uns
 	obj.SetAPIVersion(ApplicationGVR().Group + "/" + ApplicationGVR().Version)
 	obj.SetKind("Application")
 	obj.SetName(req.Name)
-	obj.SetNamespace(req.OrganizationRef)
+	// #3830 — metadata.namespace is the slugged RFC-1123 form of the Org
+	// ref (which is often a dotted FQDN). The verbatim Org identity is
+	// preserved on the `catalyst.openova.io/organization` label below.
+	obj.SetNamespace(orgNamespace(req.OrganizationRef))
 	obj.SetLabels(map[string]string{
 		"catalyst.openova.io/managed-by":      "catalyst-api",
 		"catalyst.openova.io/organization":    req.OrganizationRef,
@@ -1080,6 +1096,18 @@ func isValidK8sName(s string) bool {
 		}
 	}
 	return true
+}
+
+// isValidOrgRef checks the Organization-reference shape (#3830). The Org
+// identity is a DNS subdomain — either a bare slug ("acme") or a dotted
+// FQDN ("hw165.omani.works"). This is intentionally looser than
+// isValidK8sName (which forbids dots): the namespace is *derived* from the
+// Org ref via orgNamespace(), so the ref itself must be allowed to carry
+// the FQDN. We delegate to k8s' canonical RFC-1123 subdomain validator so
+// the accepted set matches what the rest of the platform treats as a valid
+// hostname (lowercase, dot-separated labels, ≤253 chars).
+func isValidOrgRef(s string) bool {
+	return len(validation.IsDNS1123Subdomain(strings.TrimSpace(s))) == 0
 }
 
 // ── HTTP handler — get (GET /sovereigns/{id}/applications/{name}) ───

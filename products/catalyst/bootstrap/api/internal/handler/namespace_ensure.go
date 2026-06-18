@@ -22,6 +22,66 @@ func namespacesGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{Group: "", Version: "v1", Resource: "namespaces"}
 }
 
+// orgNamespace maps an Organization reference to the Kubernetes namespace
+// name that hosts that Org's Application CRs.
+//
+// Why this exists (#3830, EPIC #3376): every Sovereign Organization is
+// identified by a dotted FQDN (e.g. "hw165.omani.works"). Kubernetes
+// namespace names are RFC-1123 *labels* — they may NOT contain dots, must
+// be lowercase, ≤63 chars, and start/end with an alphanumeric. Passing the
+// FQDN straight through to `.Namespace(org).Create(...)` made the create
+// path fail UNIVERSALLY with `Namespace "<fqdn>" is invalid:
+// metadata.name: ... must not contain dots`. This helper is the single
+// canonical org→namespace seam: every place an Org ref becomes a namespace
+// routes through it, so create + lookup + the Application CR's
+// metadata.namespace always resolve to ONE consistent name (no split-brain
+// where an instance is created in one namespace and looked up in another).
+//
+// Mapping rules (sanitise, never reject — the Org identity stays on the
+// `catalyst.openova.io/organization` label as the verbatim FQDN; the
+// namespace is a derived artifact):
+//
+//   - lowercase
+//   - any character that is not [a-z0-9-] (dots included) → '-'
+//   - collapse runs of '-' to a single '-'
+//   - trim leading/trailing '-'
+//   - cap at 63 chars, then re-trim a trailing '-' the cap may have left
+//   - empty result (pathological all-illegal input) → "org" so the caller
+//     never addresses a cluster-scoped object with an empty name
+//
+// orgNamespace("hw165.omani.works") → "hw165-omani-works".
+func orgNamespace(ref string) string {
+	s := strings.ToLower(strings.TrimSpace(ref))
+
+	var sb strings.Builder
+	sb.Grow(len(s))
+	prevDash := false
+	for _, r := range s {
+		isAllowed := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if isAllowed {
+			sb.WriteRune(r)
+			prevDash = false
+			continue
+		}
+		// Every other rune (dots, slashes, spaces, underscores, unicode…)
+		// folds to a single dash; collapse consecutive dashes.
+		if !prevDash {
+			sb.WriteByte('-')
+			prevDash = true
+		}
+	}
+	out := strings.Trim(sb.String(), "-")
+
+	if len(out) > 63 {
+		out = out[:63]
+		out = strings.TrimRight(out, "-")
+	}
+	if out == "" {
+		return "org"
+	}
+	return out
+}
+
 // ensureOrgNamespace creates the target Organization/Environment
 // namespace if it does not already exist, returning nil when the
 // namespace is present (created-or-verified).
@@ -48,11 +108,17 @@ func namespacesGVR() schema.GroupVersionResource {
 // A blank namespace name is a programmer error (the caller validated the
 // Org slug upstream); we return an error rather than creating a
 // cluster-scoped object with an empty name.
+//
+// #3830 — the argument is an Organization reference (often a dotted FQDN);
+// it is run through orgNamespace() so the namespace this function
+// creates/verifies is always a valid RFC-1123 label and is byte-identical
+// to the name the Application-create call sites address via the same
+// helper (no split-brain).
 func ensureOrgNamespace(ctx context.Context, client dynamic.Interface, namespace string) error {
-	ns := strings.TrimSpace(namespace)
-	if ns == "" {
+	if strings.TrimSpace(namespace) == "" {
 		return fmt.Errorf("ensureOrgNamespace: empty namespace")
 	}
+	ns := orgNamespace(namespace)
 
 	// Fast path: already present.
 	if _, err := client.Resource(namespacesGVR()).Get(ctx, ns, metav1.GetOptions{}); err == nil {

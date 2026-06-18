@@ -208,8 +208,10 @@ func renderApplicationCRPreview(body applicationPreviewRequest) *applicationPrev
 		APIVersion: gvr.Group + "/" + gvr.Version,
 		Kind:       "Application",
 		Metadata: map[string]interface{}{
-			"name":      appName,
-			"namespace": body.OrganizationRef,
+			"name": appName,
+			// #3830 — preview the SLUGGED namespace the real create will
+			// land the CR in (the apiserver rejects a dotted namespace).
+			"namespace": orgNamespace(body.OrganizationRef),
 		},
 		Spec: map[string]interface{}{
 			"blueprintRef": map[string]interface{}{
@@ -500,8 +502,10 @@ func validateApplicationPreviewRequest(req applicationPreviewRequest) (string, b
 	if strings.TrimSpace(req.OrganizationRef) == "" {
 		return "organizationRef is required", false
 	}
-	if !isValidK8sName(req.OrganizationRef) {
-		return "organizationRef must be a valid K8s name", false
+	// #3830 — Org ref is a DNS subdomain / FQDN (slugged to a namespace via
+	// orgNamespace), kept in lockstep with validateApplicationInstallRequest.
+	if !isValidOrgRef(req.OrganizationRef) {
+		return "organizationRef must be a valid DNS name (Org slug or FQDN, e.g. acme or hw165.omani.works)", false
 	}
 	if strings.TrimSpace(req.EnvironmentRef) == "" {
 		return "environmentRef is required", false
