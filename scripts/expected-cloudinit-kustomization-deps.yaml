@@ -40,6 +40,14 @@ kustomizations:
   - name: sovereign-tls
     depends_on:
       - bootstrap-kit
+  - name: bootstrap-kit-crs
+    # #3642/#3731/#3804 fresh-prov 0-HR deadlock fix: host-bridge CRD-dependent
+    # CRs (HTTPRoute/ExternalSecret/CNPG Cluster) split out of bootstrap-kit into
+    # this sibling tier so they validate/apply only AFTER bootstrap-kit installs
+    # the operators (bp-external-secrets/bp-cnpg/bp-gateway-api) that register
+    # their CRDs. Provider-agnostic (the deadlock is too — NOT optional).
+    depends_on:
+      - bootstrap-kit
   - name: infrastructure-config
     # Hetzner-only (HCL `%{ if provider == "hetzner" }` guard) — absent for
     # other providers, which is expected, not drift.
