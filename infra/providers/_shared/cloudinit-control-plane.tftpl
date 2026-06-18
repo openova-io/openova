@@ -925,6 +925,32 @@ runcmd:
     kubectl --kubeconfig="$KC" -n kube-system rollout restart deploy/coredns >/dev/null 2>&1 || true
 %{ endif ~}
 
+%{ if provider == "huawei" ~}
+  # ── #809: BACKGROUND pre-pull the Flux v2.4.0 controller images BEFORE the
+  # `flux install` below (~line 1019). On Huawei they pull DIRECT from
+  # ghcr.io/fluxcd over the THROTTLED Huawei→ghcr egress — kustomize-controller
+  # :v1.4.0 took 9m59s on hw162, blowing the line-1024 300s readiness wait and
+  # serializing the WHOLE convergence ~26 min behind one image. Pulling them HERE
+  # (right after CNI, ahead of the openova-io render-pull + flux install) gives
+  # containerd minutes of head start so flux-system is Ready promptly. crictl is
+  # idempotent + non-fatal (kubelet still pulls on demand) and dedups against
+  # flux install's own pulls. Static list (no chart render) so it starts
+  # instantly. Public images — no ghcr auth. Huawei-gated: the slow egress is
+  # Huawei-specific and Hetzner's cloud-init is byte-tight. Versions track
+  # flux2 v2.4.0 — keep in lockstep with the install.yaml URL below.
+  - |
+    ( CRICTL="$(command -v crictl 2>/dev/null || echo /var/lib/rancher/k3s/data/current/bin/crictl)"
+      for img in \
+        ghcr.io/fluxcd/source-controller:v1.4.1 \
+        ghcr.io/fluxcd/kustomize-controller:v1.4.0 \
+        ghcr.io/fluxcd/helm-controller:v1.1.0 \
+        ghcr.io/fluxcd/notification-controller:v1.4.0 \
+        ghcr.io/fluxcd/image-reflector-controller:v0.33.0 \
+        ghcr.io/fluxcd/image-automation-controller:v0.39.0; do
+        "$CRICTL" pull "$img" >/dev/null 2>&1 || true
+      done ) >/dev/null 2>&1 &
+%{ endif ~}
+
   # ── BACKGROUND pre-pull of the PRIVATE openova-io/openova image set (#3534)
   # The ~19 ghcr.io/openova-io/openova/* images (catalyst-api/ui, the
   # catalyst-*-controllers, catalyst-catalog, projector, marketplace-api,
