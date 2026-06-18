@@ -98,25 +98,30 @@ options, to decide before committing the architecture long-term (NOT blocking hw
 - **(ii) Complete migration (console+sso-bridge → vc-mgmt):** §4 target; eliminates the boundary; console needs host access for provisioning/Crossplane → must verify.
 - **(iii) Keep bootstrap-critical apps (keycloak,gitea) host-side, vCluster the leaf apps:** eliminates the *console-bootstrap* boundary; partial North-Star-#1.
 
-## G. RECONCILED GATE STATUS (after the 3-family toHost fix, 2026-06-18)
+## G. RECONCILED GATE STATUS — both agents complete (2026-06-18)
 
-The walk-time audit proved ~15 AT-RISK rows reduce to **ONE root**: 3 stranded host-name families. PR #3810
-(extended, commit `ed165611e`, render.sh green) exports all three (gitea-http / keycloak / openbao) to host
-plain names — closing them at the source. The keycloak export specifically unblocks the sso-bridge → it can
-reach `keycloak.keycloak.svc` → mints the per-app clients → `catalyst-kc-sa-credentials` populates → A5/A6
-resolve. Remaining open surface is now a SMALL, bounded set:
+Two roots, two complementary fixes: **(1) service reachability** — `sync.toHost.services` only mangles names,
+so the 3 plain host-name families (gitea-http/keycloak/openbao) were stranded → **PR #3810** `replicateServices.
+toHost` exports all three. **(2) secret delivery** — keycloak/openbao emit their SA + SSO credential secrets
+into their OWN (now in-vCluster) namespaces and relied on the in-vCluster reflector to mirror to host; after
+#3642 the host never gets them (and `sync.toHost.secrets` only mirrors *pod-mounted* secrets) → **PR #3814**
+(bp-keycloak 1.4.33 + bp-catalyst-platform 1.4.686 host-bridge, byte-identical SA proven) + **PR #3815**
+(ferretdb ns + openbao endpoint/auth). The two are complementary: #3810 makes keycloak *reachable*, #3814
+makes the SA credential *present* — the sso-bridge needs BOTH to mint clients.
 
 | Bucket | Rows | Closed by | Gate |
 |---|------|-----------|:---:|
 | **CLOSED — merged on main** | A1, A4, B1, B5, B6 | #3808/#3807/#3806 + vcluster-0.23 | ✅ |
-| **CLOSED — fix pushed, merge-pending** | A2, A3, A5, A6, C1–C8, C14–C16, C20, C21 | PR #3810 (3-family toHost) + #3812 (gitea-admin) | ✅ fix-ready |
-| **OPEN — forward-fix agent `a09aed…` (in flight)** | A7 powerdns cert-cred · A8/B3 hcloud-HR gate · A9 sme-database-secret · A10 seaweedfs-s3 + oidc secrets · C13 Jobs ns-filter | agent | ⏳ BLOCKING |
-| **OPEN — mechanical pre-fire** | B2 render · B4 #3809 · D merge · E1–E5 | me, pre-fire | ⏳ |
+| **CLOSED — fix-ready (CLEAN/mergeable PRs)** | A2,A3 · **A5,A6 (THE walk gate)** · A9,A10 · C1–C8,C14–C16,C20,C21 | #3810 + #3812 + **#3814** + **#3815** | ✅ fix-ready |
+| **DISPROVEN — not chart bugs (hw163 hand-corruption)** | A7 powerdns cert-cred · A8/B3 hcloud-gate (HRs `suspend=true` → Flux skips → sovereign-tls past dep) | agent verified | ⚠️ verify-on-prov (not blocking) |
+| **NOT-FIXED — non-walk-blocking** | C13 Jobs ns-filter (console-read only) · openbao-snapshot (DR-gated) · org-services ImagePullBackOff (separate ghcr issue) | — | ⚠️ fire-with-flag |
 | **UNKNOWN — frontier, only a walk resolves** | C10 per-Org vCluster secret-bridge · C11 per-Org app placement · C25 guacamole callback | hw164 walk itself | ❓ fire-with-flag |
+| **OPEN — mechanical pre-fire** | D merge train · E1–E5 | me, pre-fire | ⏳ |
 
-**FIRE CONDITION:** every ❌/⏳-BLOCKING row → ✅. Currently blocking = **A7, A8, A9, A10, C13** (one agent)
-+ the mechanical D/E. The ❓ frontier rows are *acceptable to fire with*, flagged — they are the genuine
-unknowns a walk exists to answer, not regressions pre-closable by reading code.
+**TRAIN (must all merge before fire):** #3808 (merged) · #3810 · #3812 · #3814 · #3815 · #3809 — all CLEAN/mergeable.
 
-**GATE SUMMARY:** root-caused + systematically fixed; open surface is now **5 agent rows + merge/fire
-mechanics**, not an open-ended discovery loop. hw164 fires when those 5 land + the train merges + E1–E5 pass.
+**FIRE CONDITION — MET on the walk-blocker axis:** every walk-blocking row is fix-ready or disproven. **Zero
+BLOCKING rows remain.** hw164 fires after: merge the 6-PR train (D) → mothership stabilizes → E1–E5 → fire.
+The ⚠️/❓ rows (A7/A8 verify, C13/snapshot non-blocking, C10/C11/C25 frontier) are walk-observed, not
+pre-fire gates. **This is the first loop entering a prov with the passenger manifest complete + every
+walk-blocker root-caused at the chart source — not discovered mid-walk.**
