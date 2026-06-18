@@ -144,7 +144,20 @@ name: bp-mgmt-vcluster
 # mirror never delivered → OpenBao SSO silently never configures (the #3737
 # secret-not-mirrored class, soft-wait variant). Additive values-only change;
 # default render gains one mapping entry.
-version: 0.2.13
+#
+# 0.2.14 (#3737 4th-layer SHARED_PG DNS, hw163 2026-06-18): the secret mirror
+# (0.2.12/0.2.13) delivers `<app>-database-secret` into vc-mgmt, but that
+# secret's host field is the HOST FQDN `shared-pg[-b|-c]-rw.shared-data.svc.
+# cluster.local` — which does NOT resolve inside vc-mgmt (its CoreDNS only
+# knows vCluster-local services; the host shared-pg lives in the host
+# `shared-data` ns). keycloak-0 CrashLoopBackOff `cannot resolve host
+# shared-pg-rw.shared-data.svc.cluster.local … no such host` — the
+# #3642-vs-NorthStar-#2 collision (apps in vc-mgmt + host-level shared-pg).
+# Adds `networking.replicateServices.fromHost` for all 3 instances × rw/ro so
+# the host shared-pg FQDN resolves natively inside vc-mgmt (the Pod is a real
+# host pod → ClusterIP reachable; only the NAME was missing). Additive,
+# values-only; zero per-app special-casing (#3642 DoD-6).
+version: 0.2.14
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT

@@ -100,7 +100,12 @@ spec:
       # the 7 namespaces, so the in-vCluster openbao sso-configure Deployment
       # waited forever for the host-minted openbao-sso-oidc-credentials Secret
       # the mirror never delivered (the #3737 secret-not-mirrored class).
-      version: 0.2.13
+      # 0.2.14 (#3737 4th-layer): networking.replicateServices.fromHost mirrors
+      # the host shared-pg Services into vc-mgmt so the secret's host FQDN
+      # `shared-pg[-b|-c]-rw.shared-data.svc.cluster.local` RESOLVES inside the
+      # vCluster — keycloak-0 CrashLooped `no such host` on hw163 without it
+      # (the #3642-in-vcluster vs NorthStar-#2 host-shared-pg DNS collision).
+      version: 0.2.14
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster
