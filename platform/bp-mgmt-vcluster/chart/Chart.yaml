@@ -167,7 +167,7 @@ name: bp-mgmt-vcluster
 # pre-install hook `secret "catalyst-gitea-token" not found` → install times out
 # → console never comes up. Adds `networking.replicateServices.toHost` exporting
 # the in-vCluster gitea-http back to the host `gitea/gitea-http` Service.
-version: 0.2.15
+version: 0.2.16
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT

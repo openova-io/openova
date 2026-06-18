@@ -199,6 +199,27 @@ mgmtVcluster:
       #     its in-mgmt Pod must reach rtz. Required once batch-C moves shared-pg.
       - rtz
 
+# ─── Host→vCluster plain-name reachability aliases (#3642 hw164 fix) ───
+# Static host ExternalName Services that alias the PLAIN in-vCluster app
+# names (dialled by ~20 host-side consumers) to the `sync.toHost.services`
+# mangled names. Replaces the crash-prone replicateServices.toHost.
+# Rendered by templates/host-service-aliases.yaml (see its header).
+hostServiceAliases:
+  enabled: true
+  aliases:
+    - name: keycloak
+      namespace: keycloak
+      externalName: keycloak-x-keycloak-x-mgmt-vcluster.mgmt.svc.cluster.local
+      port: 8080
+    - name: gitea-http
+      namespace: gitea
+      externalName: gitea-http-x-gitea-x-mgmt-vcluster.mgmt.svc.cluster.local
+      port: 3000
+    - name: openbao
+      namespace: openbao
+      externalName: openbao-x-openbao-x-mgmt-vcluster.mgmt.svc.cluster.local
+      port: 8200
+
 # ─── Upstream chart values (subchart key: vcluster) ────────────────
 # `helm dependency build` resolves the upstream loft-sh/vcluster
 # chart as a subchart; values here under the `vcluster:` key flow
@@ -367,17 +388,23 @@ vcluster:
       #      org-controller keycloakAddr, sso-bridge KC_ADDR.
       #   3. openbao.openbao.svc:8200   — catalyst-api openbaoAddr, sso-bridge
       #      OPENBAO_ADDR (writes secret/sso/<app>).
-      # replicateServices.toHost exports each in-vCluster Service back to the
-      # HOST under its PLAIN name so every host consumer resolves it natively —
-      # symmetric to the shared-pg fromHost mirror above (there vCluster→host;
-      # here host→vCluster). One export per family closes ~15 walk-time wires.
-      toHost:
-        - from: gitea/gitea-http
-          to: gitea/gitea-http
-        - from: keycloak/keycloak
-          to: keycloak/keycloak
-        - from: openbao/openbao
-          to: openbao/openbao
+      # ⛔ replicateServices.toHost REMOVED (#3642 follow-up, 2026-06-18, hw164
+      # root-cause): the `{from,to}` object form CRASHES the vcluster 0.23 syncer
+      # at RUNTIME (`parse physical service mapping: invalid service mapping,
+      # please use namespace1/service1=service2`) — render-validation passes, the
+      # binary dies on boot, mgmt-vcluster-0 CrashLoops, vc-mgmt secret never
+      # mints, and EVERY in-vCluster app wedges. Worse, vcluster's toHost target
+      # is a bare service NAME placed in the vCluster's HOST-target namespace
+      # (not `<ns>/<svc>`), so it could never recreate `gitea-http.gitea.svc`
+      # anyway. The host→vCluster PLAIN-NAME reachability the 3 families need
+      # (gitea-http.gitea.svc:3000 / keycloak.keycloak.svc:8080 /
+      # openbao.openbao.svc:8200, dialled by catalyst-api, the org/app/env/
+      # blueprint controllers, the gitea-token mint, and the sso-bridge) is now
+      # delivered by static host ExternalName Services that alias the plain name
+      # to the `sync.toHost.services` mangled name (templates/host-service-
+      # aliases.yaml) — those mangled Services reliably exist (harbor proved it),
+      # so the alias resolves with zero syncer-crash risk. Proven live on hw164.
+      toHost: []
 
   # sync — what host-cluster resources sync into the vCluster. The
   # MGMT vCluster needs services + endpoints + configmaps + secrets
