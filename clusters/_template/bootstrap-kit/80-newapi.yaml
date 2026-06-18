@@ -44,7 +44,7 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-newapi
-  namespace: mgmt  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
     catalyst.openova.io/vcluster: mgmt
     catalyst.openova.io/slot: "80"
@@ -52,24 +52,7 @@ spec:
   interval: 15m
   releaseName: newapi
   targetNamespace: newapi
-  storageNamespace: newapi
   # vCluster pivot — the ONE generic render mechanism (placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix)
-  kubeConfig:
-    secretRef:
-      name: vc-mgmt
-      key: config
-  # bp-newapi depends on:
-  #   - bp-openbao(08): the secret backend the chart's ExternalSecret
-  #     pulls `ADMIN_API_TOKEN` from. Without OpenBao Ready, the
-  #     ExternalSecret never resolves and the Catalyst signup hook can't
-  #     reach the NewAPI admin API.
-  #   - bp-keycloak(09): the OIDC issuer for the ops-staff admin UI at
-  #     admin.<sovereign-fqdn>. Without Keycloak Ready, the OIDC
-  #     middleware can't redirect ops-staff requests.
-  #   - bp-cnpg(16): operator provisions the Postgres cluster for users,
-  #     credits, channels, and audit log via a Crossplane
-  #     PostgresqlInstance claim once cnpg is Ready. The DSN is mounted
-  #     into NewAPI via `database.existingSecret` (operator-set).
   dependsOn:
     # bp-mgmt-vcluster MUST be Ready first — the vc-mgmt
     # Secret doesn't exist until then. placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
@@ -352,7 +335,7 @@ spec:
     # Mirror the chart's value path. (Same shape for slot 81-sme if that
     # chart also reads cnpg.cluster.instances — track separately.)
     cnpg:
-      enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      enabled: true
       cluster:
         instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
     postgres:
@@ -378,14 +361,14 @@ spec:
       # API spec, so enabling this on every Sovereign restores LLM
       # reachability without touching the marketplace wildcard.
       httpRoute:
-        enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+        enabled: true
         host: newapi.${SOVEREIGN_FQDN}
     auth:
       adminUI:
         mode: keycloak
         keycloak:
           ssoBridgeSync:
-            enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+            enabled: true
           # #3374: was realms/ops — a realm that does not exist on any
           # Sovereign (bp-keycloak imports only `sovereign` + per-Org
           # realms; measured live on hw130 2026-06-13). The sovereign
@@ -400,7 +383,7 @@ spec:
       enabled: true
       existingSecret: catalyst-newapi-admin-token
       externalSecret:
-        enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+        enabled: true
         refreshInterval: "1h"
         secretStoreRef:
           kind: ClusterSecretStore

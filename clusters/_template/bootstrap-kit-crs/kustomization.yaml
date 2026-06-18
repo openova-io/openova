@@ -17,4 +17,3 @@ resources:
   - 19-harbor.yaml
   - 25-grafana.yaml
   - 52-bp-guacamole.yaml
-  - 80-newapi.yaml
