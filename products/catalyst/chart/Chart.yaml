@@ -2829,7 +2829,7 @@ name: bp-catalyst-platform
 # (default true; flip false on Catalyst-Zero/contabo where gitea is host-side).
 # Builds on #3810 (bp-mgmt-vcluster 0.2.15 replicateServices.toHost gitea-http,
 # host reachability). Default `helm template` (lookups nil) renders identically.
-version: 1.4.689
+version: 1.4.690
 # 1.4.675 — #3383 ORGANIZATIONS rename (ZERO behavior change), rebased over
 # main's 1.4.674 (#3376 funnel + #3700/#3687 per-Org Flux loop + #3763
 # gitea-flux-auth-sync poll). The Organization-provisioning mesh's K8s namespace
