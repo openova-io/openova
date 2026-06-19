@@ -734,9 +734,16 @@ spec:
           # bp-mgmt-vcluster's exact-name fromHost mirror is stable. The
           # auth-bootstrap Job mounts THIS Secret (slot 08 crossClusterToken-
           # Review.tokenReviewerSecret.name = openbao-host-token-reviewer-static).
-          # Reconciled by bootstrap-kit-crs (dependsOn bootstrap-kit) — core
-          # resources only, no CRD risk.
-          - apiVersion: v1
+          # Reconciled by bootstrap-kit-crs (dependsOn bootstrap-kit) — built-in
+          # resources only (core + rbac.authorization.k8s.io), no CRD risk.
+          # #3842: apiVersion MUST be rbac.authorization.k8s.io/v1 — `Role` does
+          # not exist in core `v1`. A `v1` here makes the WHOLE bootstrap-kit-crs
+          # atomic server-side dry-run fail `no matches for kind "Role" in
+          # version "v1"`, so NONE of slot-08's CRS resources land (SA, SA-token
+          # Secret, auth-delegator CRB, export Job, ExternalSecret, HTTPRoute) →
+          # the static token-reviewer Secret is never minted → openbao
+          # auth-bootstrap loops BackoffLimitExceeded → console 000 (live hw167).
+          - apiVersion: rbac.authorization.k8s.io/v1
             kind: Role
             metadata:
               name: openbao-host-token-reviewer-export
