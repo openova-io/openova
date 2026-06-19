@@ -1,5 +1,21 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.707 — #3906 (Refs #3642, #3848, #3813, 2026-06-19): FIX the passwordless
+# PIN-login secret catalyst-openova-kc-credentials hitting the SAME intra-release
+# lookup-ordering trap #3848 already fixed for the org-controller secret. Post-#3642
+# keycloak/catalyst-kc-sa-credentials is created by the keycloak host-bridge (block 1)
+# on the SAME helm apply, so templates/catalyst-openova-kc-credentials-secret.yaml's
+# render-time `lookup keycloak/catalyst-kc-sa-credentials` returned nil → the PIN
+# secret rendered EMPTY → never created → catalyst-api PIN-issue 503'd
+# "CATALYST_OPENOVA_KC_SA_CLIENT_SECRET not set" on every fresh prov (HR shows
+# Ready/InstallSucceeded yet the Secret absent — root-caused live hw170, deployment
+# 7dafca226f5bb7ae). FIX (the #3848 pattern, applied identically): the host-bridge
+# now emits catalyst-openova-kc-credentials DIRECTLY into catalyst-system from the
+# deterministic $saSecret (KC fields) + a sovereign-smtp-credentials lookup (SMTP,
+# seeded earlier — no intra-release ordering issue), landing on the SAME apply that
+# creates the source. The lookup template is gated `if not keycloakHostBridge.enabled`
+# (FALLBACK for contabo / host-side keycloak only) so exactly one Secret renders. New
+# values knob openovaKcSecretNamespace (default catalyst-system). Template-only.
 # 1.4.667 — #3763 (Refs #3749, 2026-06-17): FIX the catalyst-gitea-flux-auth-sync
 # hook crashloop that degraded the live hw158 spine. The post-install/post-upgrade
 # hook read catalyst-gitea-token.token ONCE and `exit 1` FATAL'd on empty →
