@@ -947,10 +947,10 @@ func newApplicationUnstructured(req applicationInstallRequest) *unstructured.Uns
 	// preserved on the `catalyst.openova.io/organization` label below.
 	obj.SetNamespace(orgNamespace(req.OrganizationRef))
 	obj.SetLabels(map[string]string{
-		"catalyst.openova.io/managed-by":      "catalyst-api",
-		"catalyst.openova.io/organization":    req.OrganizationRef,
-		"catalyst.openova.io/environment":     req.EnvironmentRef,
-		"catalyst.openova.io/blueprint":       req.BlueprintRef.Name,
+		"catalyst.openova.io/managed-by":        "catalyst-api",
+		"catalyst.openova.io/organization":      req.OrganizationRef,
+		"catalyst.openova.io/environment":       req.EnvironmentRef,
+		"catalyst.openova.io/blueprint":         req.BlueprintRef.Name,
 		"catalyst.openova.io/blueprint-version": req.BlueprintRef.Version,
 	})
 
@@ -1129,8 +1129,8 @@ func isValidOrgRef(s string) bool {
 // nothing returning the Application's full spec + identity, so the SPA
 // couldn't synthesise an ApplicationDescriptor on the fly.
 type applicationDetailResponse struct {
-	Name             string                   `json:"name"`
-	Namespace        string                   `json:"namespace"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
 	// UID — the Application CR's metadata.uid, lifted verbatim from
 	// the dynamic-client object. Required by the Catalyst Console's
 	// Launch button (PR #2839, G117.4): the FE calls
@@ -1142,20 +1142,20 @@ type applicationDetailResponse struct {
 	// synthesised from a HelmRelease (bootstrap-kit installs with no
 	// companion Application CR — those have no Application UID).
 	// Refs #2743 #2834 #2839.
-	UID              string                   `json:"uid"`
-	Blueprint        string                   `json:"blueprint,omitempty"`
-	Version          string                   `json:"version,omitempty"`
-	EnvironmentRef   string                   `json:"environmentRef,omitempty"`
-	Placement        string                   `json:"placement,omitempty"`
-	Regions          []string                 `json:"regions,omitempty"`
-	Parameters       map[string]interface{}   `json:"parameters,omitempty"`
-	Phase            string                   `json:"phase,omitempty"`
-	PrimaryRegion    string                   `json:"primaryRegion,omitempty"`
-	GiteaRepo        string                   `json:"giteaRepo,omitempty"`
-	LastReconciled   string                   `json:"lastReconciledAt,omitempty"`
-	Conditions       []map[string]interface{} `json:"conditions"`
-	RegionStatuses   []map[string]interface{} `json:"regionStatuses,omitempty"`
-	InstalledBlueprint map[string]interface{} `json:"installedBlueprint,omitempty"`
+	UID                string                   `json:"uid"`
+	Blueprint          string                   `json:"blueprint,omitempty"`
+	Version            string                   `json:"version,omitempty"`
+	EnvironmentRef     string                   `json:"environmentRef,omitempty"`
+	Placement          string                   `json:"placement,omitempty"`
+	Regions            []string                 `json:"regions,omitempty"`
+	Parameters         map[string]interface{}   `json:"parameters,omitempty"`
+	Phase              string                   `json:"phase,omitempty"`
+	PrimaryRegion      string                   `json:"primaryRegion,omitempty"`
+	GiteaRepo          string                   `json:"giteaRepo,omitempty"`
+	LastReconciled     string                   `json:"lastReconciledAt,omitempty"`
+	Conditions         []map[string]interface{} `json:"conditions"`
+	RegionStatuses     []map[string]interface{} `json:"regionStatuses,omitempty"`
+	InstalledBlueprint map[string]interface{}   `json:"installedBlueprint,omitempty"`
 
 	// Family B (2026-05-17 t10 founder bugs C4-003/005/007/013):
 	// AppDetail Resources/Logs tabs were querying the wrong namespace
@@ -1518,6 +1518,42 @@ func installLabelSelectorForHR(releaseName string) string {
 	return fmt.Sprintf("app.kubernetes.io/instance=%s", releaseName)
 }
 
+// placementFromHR — #3931. Project the placement CLASS for an
+// HR-synthesised (bootstrap-kit) Application that has NO companion
+// Application CR, so the CR-spec placement read in HandleApplicationGet
+// never runs for it.
+//
+// Source priority (most → least specific), normalised to the canonical
+// 4-class vocabulary (singleton / active-passive / active-hot-standby /
+// active-active) via placementForTopology so the FE Topology tab + editor
+// pre-select speak ONE dialect (#3375):
+//
+//	(1) spec.values.placement                 — explicit string posture
+//	(2) spec.values.topology.mode             — legacy object form
+//	(3) catalyst.openova.io/topology label    — stamped class, if any
+//	(4) "singleton"                           — the single-region default
+//	                                            every bootstrap front-door
+//	                                            app runs as
+//
+// The `catalyst.openova.io/vcluster` label (host/mgmt/dmz/rtz) records the
+// vCluster TIER the syncer placed the app in — orthogonal to the placement
+// CLASS, so it is NOT consulted here.
+func placementFromHR(hr *unstructured.Unstructured) string {
+	if v, ok, _ := unstructured.NestedString(hr.Object, "spec", "values", "placement"); ok && v != "" {
+		return placementForTopology(v)
+	}
+	values, _, _ := unstructured.NestedMap(hr.Object, "spec", "values")
+	if mode := readTopologyFromValues(values); mode != "" && mode != "singleton" {
+		return placementForTopology(mode)
+	}
+	if labels := hr.GetLabels(); labels != nil {
+		if v := labels["catalyst.openova.io/topology"]; v != "" {
+			return placementForTopology(v)
+		}
+	}
+	return "singleton"
+}
+
 // synthesiseAppFromHelmRelease — PR L (2026-05-17 t140 founder bug #2).
 //
 // Look up a HelmRelease by `name` in the chroot's k8sCache and synthesise
@@ -1584,6 +1620,20 @@ func (h *Handler) synthesiseAppFromHelmRelease(ctx context.Context, depID, name 
 			resp.ReleaseName = hr.GetName()
 		}
 		resp.InstallLabelSelector = installLabelSelectorForHR(resp.ReleaseName)
+		// #3931 — placement projection for HR-synthesised (bootstrap-kit) apps.
+		// These have NO Application CR, so the CR-spec placement read in
+		// HandleApplicationGet never runs for them and resp.Placement was left
+		// empty → the AppDetail Topology tab lost the live-placement signal for
+		// EVERY mgmt-vCluster app post-#3642 (the FE falls back to "singleton"
+		// but the read-back is dishonest about whether a value was actually
+		// projected). Project the create-time placement the same way the
+		// CR-spec path does: read an explicit spec.values.placement if the chart
+		// carries one, else default to the canonical single-region "singleton"
+		// (bootstrap-kit front-door apps run single-region per tier). The HR's
+		// `catalyst.openova.io/vcluster` label records the tier (host/mgmt/dmz/
+		// rtz) the syncer placed it in; surfaced for completeness but the
+		// placement CLASS is what the Topology tab reads.
+		resp.Placement = placementFromHR(hr)
 		// Map HR Ready condition → Application phase.
 		conds, _, _ := unstructured.NestedSlice(hr.Object, "status", "conditions")
 		phase := "Pending"
@@ -1705,6 +1755,54 @@ func (h *Handler) dependsOnFromHRGraph(ctx context.Context, hrs []*unstructured.
 	return out
 }
 
+// vClusterHostSyncNamespaces — the well-known HOST namespaces into which a
+// per-tier vCluster syncs its in-vCluster resources (HTTPRoutes, Services).
+//
+// #3642 moved the 7 front-door apps (gitea/grafana/harbor/keycloak/openbao/
+// newapi/guacamole) OUT of the host and INTO the `mgmt` vCluster. The loft-sh
+// syncer mirrors each app's HTTPRoute back onto the HOST cluster, but it lands
+// the mirror in the vCluster's HOST namespace (`hostNamespace: mgmt` in
+// bp-mgmt-vcluster values), NOT in the app's in-vCluster targetNamespace
+// (gitea/grafana/openbao/…). So on hw171 every front-door HTTPRoute lives in
+// host ns `mgmt` while the HelmRelease still declares
+// `spec.targetNamespace: gitea`. A namespace filter that requires
+// `route.namespace == targetNamespace` (the pre-#3642 invariant, since the app
+// AND its route shared a host namespace) therefore matches NOTHING post-#3642
+// → externalURL comes back empty → the AppDetail "Open" button + the AppsPage
+// card button vanish for EVERY mgmt-vCluster app, even though their front doors
+// (gitea.<fqdn>, bao.<fqdn>, …) are live. This is the same #3642 regression
+// family as the harbor-core cutover bug fixed in #3927 — the host-side lookup
+// must now also search the vCluster sync namespace.
+//
+// dmz/rtz tiers (bp-dmz-vcluster/bp-rtz-vcluster) sync into `dmz`/`rtz` host
+// namespaces respectively; included so the SAME fix covers apps that later move
+// into those tiers without another regression.
+var vClusterHostSyncNamespaces = []string{"mgmt", "dmz", "rtz"}
+
+// routeNamespaceMatchesApp decides whether an HTTPRoute living in routeNS may
+// front the app whose HelmRelease declares targetNS.
+//
+// The match is intentionally NOT "any namespace": the #3150 namespace filter
+// guards against a same-subdomain route in an UNRELATED namespace being
+// returned (the `namespace filter excludes other-ns route` lock-in). We only
+// widen it to the well-known vCluster HOST sync namespaces (mgmt/dmz/rtz) where
+// the syncer deterministically mirrors an app's route post-#3642 — never to
+// arbitrary namespaces. The downstream name/host-leftmost-label/backendRef
+// match rules still have to fire, and those are collision-free across apps
+// (each owns a distinct `<release>.<fqdn>` subdomain), so widening the
+// namespace set cannot false-positive one app onto another's route.
+func routeNamespaceMatchesApp(routeNS, targetNS string) bool {
+	if targetNS == "" || routeNS == targetNS {
+		return true
+	}
+	for _, syncNS := range vClusterHostSyncNamespaces {
+		if routeNS == syncNS {
+			return true
+		}
+	}
+	return false
+}
+
 // lookupExternalURL — G90 2026-06-01.
 //
 // Resolve the operator-visible front-door URL for an installed Application
@@ -1756,7 +1854,7 @@ func (h *Handler) lookupExternalURL(ctx context.Context, depID, targetNamespace,
 		return ""
 	}
 	for _, rt := range routes {
-		if targetNamespace != "" && rt.GetNamespace() != targetNamespace {
+		if !routeNamespaceMatchesApp(rt.GetNamespace(), targetNamespace) {
 			continue
 		}
 		hosts, _, _ := unstructured.NestedStringSlice(rt.Object, "spec", "hostnames")
