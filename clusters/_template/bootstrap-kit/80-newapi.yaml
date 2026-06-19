@@ -276,7 +276,7 @@ spec:
       # 1.4.109 (#3858): seed/promote Job pods no longer carry the workload
       # selector labels, so they stop leaking into the newapi + bridge Service
       # EndpointSlices → no more intermittent "upstream connect error 111".
-      version: 1.4.109
+      version: 1.4.110
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
