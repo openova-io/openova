@@ -55,7 +55,11 @@ Per-runbook deep probes (interaction: click/fill/filter → assert → screensho
 
 **#3646 jobs honest canvas — 8/8 ✅** (`scripts/uat-3646-deep-probe.mjs`): toolbar+table; populated canvas (≥10 rows → real HelmRelease installs); Kind `<select>` offers `[All,cron,install,lifecycle,reconcile,reconciler,step,task]` — **the 8× hw159 GAP kinds (task/cron/reconciler/step) are now LIVE**; Kind=lifecycle filters 88→5; search `openbao` 88→4; Status=failed → 3 honest FAILED rows each with a kind-specific Re-run button; inverse gating verified (succeeded rows: zero Re-run). Honest backend finding (real cluster state, not a probe bug): `catalog-sovereign` + `sme-tenants` reconciles FAILED ~2h. Maps UAT 3646-02/03/04/05/06/07/10/12/13.
 
-**In progress (live-validating now):** #3687 object-model deep · #3375 topology · #3642 placement (NS#1 — 7 apps in mgmt vCluster) · #3376 funnel surfaces.
+**#3687 object-model deep — 14/14 ✅** (`scripts/uat-3687-deep-probe.mjs`): org directory table (kind/tier/billing/isolation/status badges); org-detail identity CR card; Showback panel + honest empty-state; apps grid one-card-per-Application + BOOTSTRAP badges. Two LIVE advances past hw159: **treemap Layer-1=Organization / Layer-2=Application is now the default + a distinct "Platform overhead" roll-up** (flips the hw159 ❌ 3687-26/29/31 GREEN); **many-to-many master proof LIVE** — `/app/shared-pg` Contexts tab `3` = `db/registry`→harbor, `db/gitea`→gitea, `db/keycloak`→keycloak all sharing ONE PostgreSQL (North Star #2). Env fact: shared-PG instance id is the bare slug `shared-pg` (3 instances: shared-pg/-b/-c). Maps UAT 3687-05/09/10/20/21/26/27/28/30/34/35. No defects.
+
+**Running total this walk: 58/65 GREEN** — console-side 52/52 (structure 17 + #3668 13 + #3646 8 + #3687 14), SSO landing 6/13. The only RED is SSO app landing (7 apps mid-convergence / SSO-config).
+
+**In progress (live-validating now):** #3375 topology · #3642 placement (NS#1 — 7 apps in mgmt vCluster) · #3376 funnel surfaces.
 
 ---
 
