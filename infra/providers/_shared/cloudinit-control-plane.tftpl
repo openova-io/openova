@@ -240,8 +240,28 @@ write_files:
       data:
         token: ${base64encode(harbor_robot_token)}
 
-  # ── cert-manager/powerdns-api-credentials Secret ──────────────────────
+  # ── flux-system/powerdns-api-credentials Secret (#3847) ───────────────
   # bp-cert-manager-powerdns-webhook reads X-API-Key for DNS-01 challenges.
+  # The upstream webhook binary ALWAYS loads the key from a Secret named
+  # `powerdns-api-credentials` in the cert-manager cluster-resource-namespace
+  # (it ignores any `namespace:` on the issuer's apiKeySecretRef).
+  #
+  # #3847 (fresh-prov wildcard-cert wedge, hw167): this Secret was previously
+  # seeded DIRECTLY into the `cert-manager` namespace. That namespace is owned
+  # by the `bootstrap-kit` Flux Kustomization (path ./clusters/_template/
+  # bootstrap-kit, prune: true). An imperatively-applied Secret that is not in
+  # the reconciled Git tree is an orphan in a prune-managed namespace and gets
+  # pruned → DNS-01 solver "failed loading api key secret cert-manager/
+  # powerdns-api-credentials: not found" → no wildcard cert → cilium-envoy
+  # InvalidCertificateRef → console.<fqdn> HTTPS 000 on a fresh prov.
+  #
+  # Fix: mirror the resilient ghcr-pull pattern above — seed the central
+  # `pdns.openova.io` key into the NON-pruned `flux-system` namespace WITH
+  # reflector annotations that auto-reflect a copy (same name) into
+  # `cert-manager`. bp-reflector (slot 05a) keeps the cert-manager copy in
+  # sync, so it self-heals after any bootstrap-kit prune and survives a
+  # fresh prov. Preserve the CENTRAL key (len 48, pdns.openova.io) here, NOT
+  # the Sovereign-LOCAL powerdns/powerdns-api-credentials key (len 32). Refs #3847.
   - path: /var/lib/catalyst/powerdns-api-credentials.yaml
     permissions: '0600'
     content: |
@@ -249,7 +269,12 @@ write_files:
       kind: Secret
       metadata:
         name: powerdns-api-credentials
-        namespace: cert-manager
+        namespace: flux-system
+        annotations:
+          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "cert-manager"
+          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "cert-manager"
       type: Opaque
       data:
         api-key: ${base64encode(powerdns_api_key)}
