@@ -2881,7 +2881,7 @@ name: bp-catalyst-platform
 # 1.4.695 — #3849 (Refs #3848): org-controller reads the keycloak SA secret from
 # the host-bridge (catalyst-openova-kc-credentials) instead of an intra-release
 # helm lookup that lost the ordering race on a cold install.
-version: 1.4.715
+version: 1.4.716
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +
