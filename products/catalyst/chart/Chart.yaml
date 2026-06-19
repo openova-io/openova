@@ -2892,7 +2892,7 @@ name: bp-catalyst-platform
 # Catalyst-Zero render adds one namespace to one ingress matchExpression (no
 # behavior change on a host-placed guacamole). Renumbered past the deploy-bot
 # auto-bump to 1.4.717 (one above main's 1.4.716) to clear the pin collision.
-version: 1.4.719
+version: 1.4.720
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +
