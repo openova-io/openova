@@ -248,35 +248,46 @@ spec:
           \nDST=\"openbao-host-token-reviewer-static\"\nNS=\"openbao\"\n# The token\
           \ controller populates the SA-token Secret\n# ASYNCHRONOUSLY \u2014 poll\
           \ until token + ca.crt are both\n# present (the Job's backoffLimit covers\
-          \ a cold prov).\necho \"waiting for ${SRC} data keys (token + ca.crt)\u2026\
-          \"\ntok=\"\"; ca=\"\"\nfor i in $(seq 1 120); do\n  code=$(curl -s -o /tmp/src.json\
-          \ -w '%{http_code}' --cacert \"${CA}\" \\\n    -H \"Authorization: Bearer\
-          \ ${TOKEN}\" \\\n    \"${API}/api/v1/namespaces/${NS}/secrets/${SRC}\")\n\
-          \  if [ \"${code}\" = \"200\" ]; then\n    tok=$(tr -d '\\n' < /tmp/src.json\
+          \ a cold prov).\n#\n# \u26A0\uFE0F  Flux postBuild substitution: the bootstrap-kit-crs\n\
+          # Kustomization (cloudinit-control-plane.tftpl) runs\n# postBuild.substitute\
+          \ over THIS rendered manifest, and\n# Flux replaces EVERY ${VAR} token \u2014\
+          \ including shell vars it\n# has no value for \u2014 with the empty string.\
+          \ So every shell\n# ${...} below is escaped as $${...}: Flux turns $$ into\
+          \ a\n# literal $, leaving ${...} for /bin/sh to expand at runtime\n# (same\
+          \ idiom as sovereign-tls/cilium-envoy-tls-restart-job).\n# Without the escape\
+          \ the rendered script gets --cacert \"\",\n# Authorization: Bearer , and\
+          \ URL \u2026/namespaces//secrets/ \u2192\n# the export Job CrashLoops \u2192\
+          \ bootstrap-kit-crs never goes\n# Ready (Job spec.template immutable so\
+          \ Flux can't repair it)\n# \u2192 the whole platform spine wedges (Refs\
+          \ #3642).\necho \"waiting for $${SRC} data keys (token + ca.crt)\u2026\"\
+          \ntok=\"\"; ca=\"\"\nfor i in $(seq 1 120); do\n  code=$(curl -s -o /tmp/src.json\
+          \ -w '%{http_code}' --cacert \"$${CA}\" \\\n    -H \"Authorization: Bearer\
+          \ $${TOKEN}\" \\\n    \"$${API}/api/v1/namespaces/$${NS}/secrets/$${SRC}\"\
+          )\n  if [ \"$${code}\" = \"200\" ]; then\n    tok=$(tr -d '\\n' < /tmp/src.json\
           \ | grep -oE '\"token\"[[:space:]]*:[[:space:]]*\"[^\"]*\"' | head -1 |\
           \ sed 's/.*\"\\([^\"]*\\)\"$/\\1/')\n    ca=$(tr -d '\\n' < /tmp/src.json\
           \ | grep -oE '\"ca\\.crt\"[[:space:]]*:[[:space:]]*\"[^\"]*\"' | head -1\
-          \ | sed 's/.*\"\\([^\"]*\\)\"$/\\1/')\n    if [ -n \"${tok}\" ] && [ -n\
-          \ \"${ca}\" ]; then\n      echo \"source populated\"; break\n    fi\n  fi\n\
-          \  if [ \"${i}\" = \"120\" ]; then\n    echo \"timeout: ${SRC} token/ca.crt\
+          \ | sed 's/.*\"\\([^\"]*\\)\"$/\\1/')\n    if [ -n \"$${tok}\" ] && [ -n\
+          \ \"$${ca}\" ]; then\n      echo \"source populated\"; break\n    fi\n \
+          \ fi\n  if [ \"$${i}\" = \"120\" ]; then\n    echo \"timeout: $${SRC} token/ca.crt\
           \ absent after 10m\" >&2\n    exit 1\n  fi\n  sleep 5\ndone\n# Build the\
           \ Opaque destination Secret. Data values are\n# the ALREADY-base64 bytes\
           \ from the source (token/ca.crt\n# under .data are base64-encoded), so reuse\
           \ verbatim.\ncat > /tmp/dst.json <<EOF\n{\"apiVersion\":\"v1\",\"kind\"\
-          :\"Secret\",\"metadata\":{\"name\":\"${DST}\",\"namespace\":\"${NS}\",\"\
-          labels\":{\"catalyst.openova.io/blueprint\":\"bp-openbao\",\"catalyst.openova.io/component\"\
+          :\"Secret\",\"metadata\":{\"name\":\"$${DST}\",\"namespace\":\"$${NS}\"\
+          ,\"labels\":{\"catalyst.openova.io/blueprint\":\"bp-openbao\",\"catalyst.openova.io/component\"\
           :\"openbao-host-token-reviewer\",\"app.kubernetes.io/managed-by\":\"flux\"\
-          }},\"type\":\"Opaque\",\"data\":{\"token\":\"${tok}\",\"ca.crt\":\"${ca}\"\
+          }},\"type\":\"Opaque\",\"data\":{\"token\":\"$${tok}\",\"ca.crt\":\"$${ca}\"\
           }}\nEOF\n# Create, or update if it already exists (idempotent).\ncode=$(curl\
-          \ -s -o /tmp/out.json -w '%{http_code}' -X POST --cacert \"${CA}\" \\\n\
-          \  -H \"Authorization: Bearer ${TOKEN}\" -H \"Content-Type: application/json\"\
-          \ \\\n  --data @/tmp/dst.json \\\n  \"${API}/api/v1/namespaces/${NS}/secrets\"\
-          )\nif [ \"${code}\" = \"409\" ]; then\n  echo \"${DST} exists \u2014 updating\"\
+          \ -s -o /tmp/out.json -w '%{http_code}' -X POST --cacert \"$${CA}\" \\\n\
+          \  -H \"Authorization: Bearer $${TOKEN}\" -H \"Content-Type: application/json\"\
+          \ \\\n  --data @/tmp/dst.json \\\n  \"$${API}/api/v1/namespaces/$${NS}/secrets\"\
+          )\nif [ \"$${code}\" = \"409\" ]; then\n  echo \"$${DST} exists \u2014 updating\"\
           \n  code=$(curl -s -o /tmp/out.json -w '%{http_code}' -X PUT --cacert \"\
-          ${CA}\" \\\n    -H \"Authorization: Bearer ${TOKEN}\" -H \"Content-Type:\
-          \ application/json\" \\\n    --data @/tmp/dst.json \\\n    \"${API}/api/v1/namespaces/${NS}/secrets/${DST}\"\
-          )\nfi\ncase \"${code}\" in\n  200|201) echo \"wrote ${DST} (${code})\";;\n\
-          \  *) echo \"failed to write ${DST}: HTTP ${code}\" >&2; cat /tmp/out.json\
+          $${CA}\" \\\n    -H \"Authorization: Bearer $${TOKEN}\" -H \"Content-Type:\
+          \ application/json\" \\\n    --data @/tmp/dst.json \\\n    \"$${API}/api/v1/namespaces/$${NS}/secrets/$${DST}\"\
+          )\nfi\ncase \"$${code}\" in\n  200|201) echo \"wrote $${DST} ($${code})\"\
+          ;;\n  *) echo \"failed to write $${DST}: HTTP $${code}\" >&2; cat /tmp/out.json\
           \ >&2; exit 1;;\nesac\n"
       volumes:
       - name: scratch
