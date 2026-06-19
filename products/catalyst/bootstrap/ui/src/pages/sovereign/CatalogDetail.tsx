@@ -728,27 +728,58 @@ function readMultiInstance(cat: CatalogItem): boolean {
 // gone now that the editor is canonical end-to-end.
 
 function readTopologies(cat: CatalogItem): string[] {
-  const modes = cat.placementSchema?.modes
-  if (Array.isArray(modes) && modes.length > 0) return modes
+  // #3922 — the "Supported topologies" sidebar previously rendered the raw,
+  // un-canonicalized declaration verbatim: a Blueprint declaring the legacy
+  // dialect (placementSchema.modes: [single-region] / spec.topology.supported:
+  // [active-hotstandby]) showed garbled tokens that disagreed with the create
+  // <select> + the app-detail radio (both of which speak the ONE canonical
+  // vocabulary via canonicalizeMode). Fold every declared spelling onto the
+  // canonical token (#3856: singleton / active-passive / active-hot-standby /
+  // active-active) and dedupe so the sidebar matches the pickers. Prefer the
+  // richer spec.topology.supported over the legacy single-mode
+  // placementSchema.modes when present.
   const raw = cat.raw as Record<string, unknown> | undefined
   const spec = (raw?.spec as Record<string, unknown> | undefined) ?? undefined
   const topology = spec?.topology as { supported?: string[] } | undefined
-  return Array.isArray(topology?.supported) ? topology!.supported! : []
+  const declared =
+    Array.isArray(topology?.supported) && topology!.supported!.length > 0
+      ? topology!.supported!
+      : Array.isArray(cat.placementSchema?.modes)
+        ? cat.placementSchema!.modes!
+        : []
+  // Canonicalize + dedupe, preserving first-seen order.
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const m of declared) {
+    if (typeof m !== 'string') continue
+    const canon = canonicalizeMode(m)
+    if (!seen.has(canon)) {
+      seen.add(canon)
+      out.push(canon)
+    }
+  }
+  return out
 }
 
 function readDefaultTopology(cat: CatalogItem): string {
+  // #3922 — canonicalize the default marker too, so it matches the
+  // canonicalized supported set above (a legacy `single-region` default must
+  // mark the canonical `singleton` row, not a phantom un-canonical token).
   const def = cat.placementSchema?.default
-  if (typeof def === 'string' && def) return def
+  if (typeof def === 'string' && def) return canonicalizeMode(def)
   const raw = cat.raw as Record<string, unknown> | undefined
   const spec = (raw?.spec as Record<string, unknown> | undefined) ?? undefined
   const topology = spec?.topology as
     | { default?: string; defaults?: Record<string, string> }
     | undefined
-  if (typeof topology?.default === 'string' && topology.default) return topology.default
+  if (typeof topology?.default === 'string' && topology.default) {
+    return canonicalizeMode(topology.default)
+  }
   // Blueprint shape uses `defaults: { single-region, multi-region }` —
   // prefer the single-region default as the "default" marker.
   const defs = topology?.defaults
-  return defs?.['single-region'] ?? defs?.['multi-region'] ?? ''
+  const pick = defs?.['single-region'] ?? defs?.['multi-region'] ?? ''
+  return pick ? canonicalizeMode(pick) : ''
 }
 
 /**

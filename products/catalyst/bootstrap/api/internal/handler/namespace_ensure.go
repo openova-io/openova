@@ -82,6 +82,51 @@ func orgNamespace(ref string) string {
 	return out
 }
 
+// sanitizeEnvironmentRef maps an Environment reference (e.g. "<org>-prod",
+// often derived from a dotted Sovereign FQDN) to a value that satisfies the
+// Application CRD's spec.environmentRef pattern `^[a-z][a-z0-9-]{2,63}$`.
+//
+// Why this exists (#3922): the CRD constrains spec.environmentRef to the
+// RFC-1123 *label* pattern (no dots). On a chroot/operator-on-Sovereign
+// install there is no customer Organization, so both create paths derive the
+// env ref from the Sovereign FQDN (`<fqdn>-prod`, e.g.
+// "hw171.omantel.biz-prod"). Every FQDN carries dots, so the apiserver
+// rejected the create with HTTP 500:
+//
+//	spec.environmentRef: Invalid value: "hw171.omantel.biz-prod":
+//	spec.environmentRef in body should match '^[a-z][a-z0-9-]{2,63}$'
+//
+// blocking ALL instance creation. #3830 slugged metadata.namespace through
+// orgNamespace() but left environmentRef dotted (the FQDN identity stays on
+// the catalyst.openova.io/organization label + organizationRef — the env ref
+// is a derived, pattern-constrained artifact, exactly like the namespace).
+// This helper closes that gap: it slugs the value through the same character
+// rules orgNamespace() uses (lowercase, dots→'-', collapse, trim), then caps
+// it at the CRD's 63-char ceiling so a long FQDN can never overflow the
+// pattern. An already-valid label (e.g. "acme-prod") round-trips unchanged.
+//
+//	sanitizeEnvironmentRef("hw171.omantel.biz-prod") → "hw171-omantel-biz-prod"
+//	sanitizeEnvironmentRef("acme-prod")              → "acme-prod"
+//
+// orgNamespace already implements exactly these character rules + the 63-char
+// cap + the empty-input fallback, so we delegate to it rather than duplicate
+// the slugging loop. (orgNamespace's "org" empty-fallback is also a valid
+// environmentRef, so the contract holds for pathological all-illegal input.)
+func sanitizeEnvironmentRef(ref string) string {
+	return orgNamespace(ref)
+}
+
+// environmentRefForOrg derives a CRD-pattern-safe spec.environmentRef from an
+// Organization reference by appending the canonical "-prod" Environment suffix
+// (one Org, one Env per chroot Sovereign) and slugging the whole thing. See
+// sanitizeEnvironmentRef for the #3922 motivation.
+//
+//	environmentRefForOrg("hw171.omantel.biz") → "hw171-omantel-biz-prod"
+//	environmentRefForOrg("acme")              → "acme-prod"
+func environmentRefForOrg(ref string) string {
+	return sanitizeEnvironmentRef(strings.TrimSpace(ref) + "-prod")
+}
+
 // ensureOrgNamespace creates the target Organization/Environment
 // namespace if it does not already exist, returning nil when the
 // namespace is present (created-or-verified).

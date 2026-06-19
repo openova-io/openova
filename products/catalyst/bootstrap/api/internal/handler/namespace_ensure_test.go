@@ -7,6 +7,7 @@ package handler
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -186,5 +187,65 @@ func TestEnsureOrgNamespace_SlugsDottedFQDN(t *testing.T) {
 	// …and the raw dotted name was NEVER created.
 	if _, err := getNamespace(t, client, "hw165.omani.works"); !apierrors.IsNotFound(err) {
 		t.Fatalf("raw dotted namespace must not exist, got err=%v", err)
+	}
+}
+
+// ── #3922 — environmentRef must satisfy the Application CRD pattern ─────
+
+// applicationEnvironmentRefPattern is the EXACT pattern the Application CRD
+// (products/catalyst/chart/crds/application.yaml) applies to
+// spec.environmentRef. A dotted value (e.g. a Sovereign FQDN "<fqdn>-prod")
+// fails this server-side, surfacing as the HTTP 500 that blocked ALL instance
+// creation on hw171. We pin the literal here so the sanitizer's output is
+// asserted against the SAME rule the apiserver enforces.
+var applicationEnvironmentRefPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{2,63}$`)
+
+// TestEnvironmentRefForOrg_SlugsDottedFQDN — the headline #3922 contract: a
+// dotted Org FQDN yields a dash-joined, CRD-pattern-safe "<slug>-prod" env ref
+// (never the raw dotted "<fqdn>-prod" the apiserver 500s on).
+func TestEnvironmentRefForOrg_SlugsDottedFQDN(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"hw171.omantel.biz", "hw171-omantel-biz-prod"},
+		{"hw165.omani.works", "hw165-omani-works-prod"},
+		{"acme", "acme-prod"}, // bare slug + suffix, unchanged shape
+	}
+	for _, tc := range cases {
+		if got := environmentRefForOrg(tc.in); got != tc.want {
+			t.Fatalf("environmentRefForOrg(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestSanitizeEnvironmentRef_AlwaysMatchesCRDPattern asserts every output
+// satisfies the Application CRD's spec.environmentRef pattern — so the create
+// can never again 500 with "should match '^[a-z][a-z0-9-]{2,63}$'". Inputs are
+// deliberately abusive (the dotted FQDN that triggered #3922, uppercase, an
+// over-length FQDN, and an already-valid label that must round-trip).
+func TestSanitizeEnvironmentRef_AlwaysMatchesCRDPattern(t *testing.T) {
+	inputs := []string{
+		"hw171.omantel.biz-prod", // the exact value from the 500 on hw171
+		"hw165.omani.works-prod",
+		"acme-prod",                                 // already valid → round-trips
+		"HW171.Omantel.BIZ-prod",                    // uppercase folded
+		strings.Repeat("a", 70) + ".omani.works-prod", // > 63 chars pre-slug
+		"...___...-prod",                            // pathological
+	}
+	for _, in := range inputs {
+		got := sanitizeEnvironmentRef(in)
+		if !applicationEnvironmentRefPattern.MatchString(got) {
+			t.Fatalf("sanitizeEnvironmentRef(%q) = %q does NOT match the CRD pattern %s",
+				in, got, applicationEnvironmentRefPattern.String())
+		}
+	}
+	// An already-valid label round-trips byte-identically.
+	if got := sanitizeEnvironmentRef("acme-prod"); got != "acme-prod" {
+		t.Fatalf("sanitizeEnvironmentRef(\"acme-prod\") = %q, want unchanged acme-prod", got)
+	}
+	// environmentRefForOrg output also satisfies the CRD pattern (suffix path).
+	if got := environmentRefForOrg("hw171.omantel.biz"); !applicationEnvironmentRefPattern.MatchString(got) {
+		t.Fatalf("environmentRefForOrg output %q does NOT match the CRD pattern", got)
 	}
 }

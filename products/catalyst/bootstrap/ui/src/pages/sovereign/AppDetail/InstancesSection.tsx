@@ -537,7 +537,15 @@ export function NewInstanceDialog({
 
   // The blueprint's declared supported topologies, normalised to the
   // editor mode vocab so they intersect with ALL_MODES. When the
-  // blueprint declares none, every editor mode is offered.
+  // blueprint declares none, every editor mode is allowed.
+  //
+  // #3922 — `supportedModes` is the ALLOWED (selectable) subset; the
+  // <select> below renders the FULL canonical ALL_MODES set and merely
+  // DISABLES the unsupported options. This mirrors the app-detail
+  // "Change placement" radio picker (TopologyEditor), which always lists
+  // all four canonical classes and greys out the ones the Blueprint
+  // doesn't support — so the create dialog can no longer silently DROP
+  // active-passive / active-active and disagree with the app-detail view.
   const supportedModes = useMemo<string[]>(() => {
     const raw = bpQuery.data?.raw as
       | { spec?: { topology?: { supported?: string[] } } }
@@ -548,6 +556,10 @@ export function NewInstanceDialog({
     const allowed = declared.length > 0 ? new Set(declared) : null
     return ALL_MODES.filter((m) => (allowed ? allowed.has(m) : true))
   }, [bpQuery.data])
+
+  // The selectable-mode gate the <select> consults to disable (not drop)
+  // unsupported options.
+  const allowedModeSet = useMemo<Set<string>>(() => new Set(supportedModes), [supportedModes])
 
   const defaultMode = useMemo<string>(() => {
     const raw = bpQuery.data?.raw as
@@ -730,8 +742,15 @@ export function NewInstanceDialog({
           ) : null}
         </label>
 
-        {/* Topology mode — dropdown reusing the editor's ALL_MODES set,
-            constrained to the Blueprint's supported modes (#3599/#3600). */}
+        {/* Topology mode — dropdown over the editor's full canonical
+            ALL_MODES set (#3856 single vocabulary: singleton / active-passive /
+            active-hot-standby / active-active). #3922 — render ALL FOUR and
+            DISABLE the ones the Blueprint doesn't support, exactly like the
+            app-detail "Change placement" radio picker; the create <select>
+            previously DROPPED unsupported modes, so active-passive /
+            active-active vanished from it while the app-detail radio still
+            listed them. Disabled options carry a "(not supported)" suffix so
+            the operator sees the full vocabulary + why a mode is unavailable. */}
         <label style={{ display: 'block', marginBottom: '0.6rem', fontSize: '0.85rem' }}>
           <span style={{ display: 'block', marginBottom: '0.2rem' }}>Topology mode</span>
           <select
@@ -741,11 +760,15 @@ export function NewInstanceDialog({
             disabled={bpQuery.isPending}
             style={fieldStyle}
           >
-            {supportedModes.map((m) => (
-              <option key={m} value={m}>
-                {m} — {describeMode(m)}
-              </option>
-            ))}
+            {ALL_MODES.map((m) => {
+              const enabled = allowedModeSet.has(m)
+              return (
+                <option key={m} value={m} disabled={!enabled}>
+                  {m} — {describeMode(m)}
+                  {enabled ? '' : ' (not supported by this blueprint)'}
+                </option>
+              )
+            })}
           </select>
         </label>
 
