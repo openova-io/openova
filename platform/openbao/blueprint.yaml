@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.50  # lockstep with chart/Chart.yaml (#3374 openbao zero-click SSO: in-vCluster k8s-auth mount + gateway-decoupled landing)
+  version: 1.2.51  # lockstep with chart/Chart.yaml (#3888 prov-time openbao KV-seed mechanism for evicting inline cloud-init Secrets to Flux ExternalSecrets)
   card:
     title: openbao
     summary: OpenBao secret backend. 3-node Raft per region (independent quorum, async perf-replication across regions). MPL 2.0 — drop-in Vault replacement.
