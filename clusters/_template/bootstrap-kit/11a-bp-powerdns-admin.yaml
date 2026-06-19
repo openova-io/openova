@@ -147,7 +147,7 @@ spec:
       # initContainer that blocks the main container until
       # pda-sso-oidc-credentials is populated, so `envFrom` is never empty at
       # first serve and /oidc/login deterministically 302s to KC from t=0.
-      version: 0.1.16
+      version: 0.1.17
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns-admin
