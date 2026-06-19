@@ -802,7 +802,7 @@ name: bp-newapi
 # role=all keeps the gate "true" so standalone/host-placed installs are
 # byte-identical. Lockstep: 80-newapi.yaml + 80a-newapi-host-seams.yaml pins +
 # blueprint.yaml → 1.4.117.
-version: 1.4.117
+version: 1.4.118
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
