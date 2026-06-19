@@ -72,7 +72,14 @@ spec:
       # which sends redirect_uri=…/oidc/authorized; #3741 had over-stripped that
       # URI → KC 'Invalid parameter: redirect_uri' on hw167 (UAT row 3374-11).
       # powerdns-admin instance below sets appNativeCallbackPath:/oidc/authorized.
-      version: 0.1.4
+      # 0.1.5 (#3844, 2026-06-19): backchannel-via-internal-Service — the gate
+      # pods CrashLooped on Huawei/kom4dc because oauth2-proxy's OIDC discovery
+      # dialed the PUBLIC issuer EIP (auth.<fqdn>), which the cluster cannot
+      # hairpin (i/o timeout → openova-flow + powerdns-admin gates never
+      # initialised, hw167 UAT rows 3374-36/37/38). keycloakInternalURL below
+      # points the backchannel (discovery-skip + redeem/jwks/userinfo) at the
+      # in-cluster keycloak Service; the browser leg stays public.
+      version: 0.1.5
       sourceRef:
         kind: HelmRepository
         name: bp-oidc-gate
@@ -96,6 +103,11 @@ spec:
       registryMirror: ${REGISTRY_MIRROR:=harbor.openova.io}
     sovereignFQDN: ${SOVEREIGN_FQDN}
     realm: sovereign
+    # #3844 — the gate pods reach Keycloak for the backchannel legs over the
+    # in-cluster Service (the public auth.<fqdn> EIP does not hairpin from
+    # inside the cluster on Huawei/kom4dc). KC_HOSTNAME is pinned public by
+    # bp-keycloak so the token `iss` still matches the public issuer.
+    keycloakInternalURL: http://keycloak.keycloak.svc.cluster.local
     instances:
       # openova-flow (#3374 §3 row 9). Upstream is the slot-56 Service
       # in catalyst-system; the gate proxies it at the public hostname.

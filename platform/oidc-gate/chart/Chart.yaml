@@ -72,7 +72,25 @@ name: bp-oidc-gate
 # two URIs so config-cli FULL-managed reconcile keeps the client correct.
 # Login-less gated apps (openova-flow) leave it unset → only /oauth2/callback
 # registers (byte-identical to the pre-0.1.4 shape).
-version: 0.1.4
+# 0.1.5 (#3844, 2026-06-19): backchannel-via-internal-Service — stop the gate
+# pods CrashLooping on Huawei/kom4dc. oauth2-proxy did its OIDC discovery (and
+# every backchannel leg) at the PUBLIC issuer `https://auth.<fqdn>/realms/...`;
+# on Huawei a Pod cannot dial the Sovereign's own public EIP (ELB-DNAT'd, no
+# hairpin — same class as #3241), so startup discovery timed out ("error while
+# discovery OIDC configuration: dial tcp <eip>:443: i/o timeout") and EVERY
+# oidc-gate instance (openova-flow, powerdns-admin) never initialised — UAT
+# rows 3374-36/37/38 RED at the POD level regardless of realm/client/secret
+# correctness (proven live hw167, dep 28d4e96f96407bbb). New value
+# `keycloakInternalURL` (default the in-cluster keycloak Service, the proven
+# bp-gitea seam): when set, the gate uses `--skip-oidc-discovery` + explicit
+# `--redeem-url`/`--oidc-jwks-url`/`--profile-url` pointed at the in-cluster
+# Service, keeping `--oidc-issuer-url` + `--login-url` + `--redirect-url`
+# PUBLIC. bp-keycloak pins KC_HOSTNAME public so the token `iss` still matches
+# the public issuer even though the discovery doc is fetched internally — the
+# exact frontchannel-public/backchannel-internal split keycloak-frontend-env.yaml
+# already establishes. Set empty to restore the pre-#3844 public-discovery
+# path (clusters where the public issuer DOES hairpin).
+version: 0.1.5
 appVersion: "7.6.0"
 description: |
   Catalyst generic OIDC gate — a per-app oauth2-proxy instance set that
