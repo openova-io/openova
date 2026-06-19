@@ -27,6 +27,30 @@ sovereignFQDN: ""
 # Keycloak realm the gated clients live in.
 realm: sovereign
 
+# In-cluster Keycloak base URL the gate pods use for the BACKCHANNEL OIDC
+# legs (discovery + token redeem + JWKS + userinfo) — #3844.
+#
+# WHY: oauth2-proxy does its OIDC discovery (and every backchannel call) at
+# `--oidc-issuer-url` by default, which is the PUBLIC issuer
+# `https://auth.<fqdn>/realms/<realm>`. On Huawei/kom4dc a Pod cannot dial
+# the Sovereign's own public EIP — the EIP is ELB-DNAT'd and does NOT
+# hairpin back in (same class as #3241 nodeIPAM EIP-DNAT) — so startup
+# discovery times out and the gate NEVER initialises ("error while discovery
+# OIDC configuration: dial tcp <eip>:443: i/o timeout" → CrashLoop, hw167).
+#
+# FIX: dial the in-cluster keycloak Service for the backchannel legs while
+# keeping the PUBLIC issuer for the browser-facing auth/redirect URLs and for
+# the `iss`-claim validation. bp-keycloak pins KC_HOSTNAME to the public URL
+# (keycloak-frontend-env.yaml) so the public issuer matches the token `iss`
+# even when the endpoints are fetched internally; the gate uses
+# `--skip-oidc-discovery` + explicit `--redeem-url`/`--oidc-jwks-url`
+# (internal) and `--login-url` (public). This is the same internal-URL seam
+# bp-gitea uses (`sso.keycloakInternalURL`).
+#
+# Set empty to restore the pre-#3844 public-discovery behavior (non-Catalyst
+# installs / clusters where the public issuer DOES hairpin).
+keycloakInternalURL: "http://keycloak.keycloak.svc.cluster.local"
+
 image:
   # Rendered as <registryMirror>/<repository>:<tag> — matches the
   # harbor-proxy-pull `*/proxy-*/*` glob.

@@ -36,6 +36,19 @@ minted and pre-existing clients on the next reconcile tick — zero-touch.
 {{- $cid := $inst.clientId | default $inst.name }}
 {{- $gateName := printf "oidc-gate-%s" $inst.name }}
 {{- $issuer := printf "https://auth.%s/realms/%s" $root.Values.sovereignFQDN $root.Values.realm }}
+{{- /*
+#3844 — backchannel-via-internal-Service. When keycloakInternalURL is set,
+the gate SKIPS OIDC discovery (which otherwise dials the public issuer EIP —
+unhairpinnable from inside the cluster on Huawei/kom4dc → CrashLoop) and
+points the backchannel legs (redeem/jwks/userinfo) at the in-cluster
+keycloak Service, keeping `--oidc-issuer-url` + `--login-url` public (browser
+leg + `iss` validation). KC_HOSTNAME is pinned public by bp-keycloak so the
+public issuer matches the token `iss` even though the doc is fetched
+internally. Empty → restore pre-#3844 public-discovery behavior.
+*/ -}}
+{{- $kcInternal := trimSuffix "/" ($root.Values.keycloakInternalURL | default "") }}
+{{- $internalRealm := "" }}
+{{- if $kcInternal }}{{- $internalRealm = printf "%s/realms/%s" $kcInternal $root.Values.realm }}{{- end }}
 ---
 # ── cookie secret (gate-local; lookup-or-generate, survives uninstall) ──
 {{- $existing := lookup "v1" "Secret" $root.Release.Namespace (printf "%s-cookie" $gateName) }}
@@ -179,12 +192,26 @@ spec:
           args:
             - --http-address=0.0.0.0:4180
             - --provider=keycloak-oidc
+            # PUBLIC issuer — used for `iss`-claim validation + (when discovery
+            # is NOT skipped) the discovery fetch. KC_HOSTNAME is pinned public
+            # by bp-keycloak so tokens carry this `iss` even when the backchannel
+            # endpoints are dialed in-cluster (#3844).
             - --oidc-issuer-url={{ $issuer }}
             - --client-id={{ $cid }}
             - --redirect-url=https://{{ $hostname }}/oauth2/callback
             - --upstream={{ $inst.upstream }}
             - --email-domain=*
             - --scope=openid profile email groups
+{{- if $internalRealm }}
+            # #3844 — skip discovery against the public EIP (unhairpinnable
+            # from inside the cluster on Huawei/kom4dc → i/o timeout → gate
+            # CrashLoop). Backchannel legs dial the in-cluster keycloak Service;
+            # the browser-facing --login-url + --redirect-url stay public.
+            - --skip-oidc-discovery=true
+            - --redeem-url={{ $internalRealm }}/protocol/openid-connect/token
+            - --oidc-jwks-url={{ $internalRealm }}/protocol/openid-connect/certs
+            - --profile-url={{ $internalRealm }}/protocol/openid-connect/userinfo
+{{- end }}
             # Silent zero-click: the realm IDR defaultProvider plus the
             # explicit hint cover both realm-config drift directions
             # (G113 #2725 / G117.5 #2744).
