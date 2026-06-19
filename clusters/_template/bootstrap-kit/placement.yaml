@@ -734,9 +734,16 @@ spec:
           # bp-mgmt-vcluster's exact-name fromHost mirror is stable. The
           # auth-bootstrap Job mounts THIS Secret (slot 08 crossClusterToken-
           # Review.tokenReviewerSecret.name = openbao-host-token-reviewer-static).
-          # Reconciled by bootstrap-kit-crs (dependsOn bootstrap-kit) — core
-          # resources only, no CRD risk.
-          - apiVersion: v1
+          # Reconciled by bootstrap-kit-crs (dependsOn bootstrap-kit) — built-in
+          # resources only (core + rbac.authorization.k8s.io), no CRD risk.
+          # #3842: apiVersion MUST be rbac.authorization.k8s.io/v1 — `Role` does
+          # not exist in core `v1`. A `v1` here makes the WHOLE bootstrap-kit-crs
+          # atomic server-side dry-run fail `no matches for kind "Role" in
+          # version "v1"`, so NONE of slot-08's CRS resources land (SA, SA-token
+          # Secret, auth-delegator CRB, export Job, ExternalSecret, HTTPRoute) →
+          # the static token-reviewer Secret is never minted → openbao
+          # auth-bootstrap loops BackoffLimitExceeded → console 000 (live hw167).
+          - apiVersion: rbac.authorization.k8s.io/v1
             kind: Role
             metadata:
               name: openbao-host-token-reviewer-export
@@ -812,6 +819,24 @@ spec:
                         readOnlyRootFilesystem: true
                         capabilities:
                           drop: ["ALL"]
+                      # #3842: kyverno `requests-pod` Enforce DENIES a pod
+                      # whose containers omit resources.requests.
+                      resources:
+                        requests:
+                          cpu: "10m"
+                          memory: "32Mi"
+                        limits:
+                          cpu: "100m"
+                          memory: "64Mi"
+                      # #3842: the script curl-writes /tmp/src.json + /tmp/dst.json
+                      # + /tmp/out.json, but readOnlyRootFilesystem:true makes /tmp
+                      # unwritable → curl exit 23 (CURLE_WRITE_ERROR) → `set -eu`
+                      # aborts before the token is ever read → the static Secret is
+                      # never minted (the SA-token Secret IS populated; the wall was
+                      # purely a missing writable scratch dir). Mount an emptyDir.
+                      volumeMounts:
+                        - name: scratch
+                          mountPath: /tmp
                       command:
                         - /bin/sh
                         - -c
@@ -867,6 +892,11 @@ spec:
                             200|201) echo "wrote ${DST} (${code})";;
                             *) echo "failed to write ${DST}: HTTP ${code}" >&2; cat /tmp/out.json >&2; exit 1;;
                           esac
+                  # #3842: writable scratch for the curl -o targets above
+                  # (readOnlyRootFilesystem:true makes the image's own /tmp RO).
+                  volumes:
+                    - name: scratch
+                      emptyDir: {}
     - {file: 11a-bp-powerdns-admin.yaml, hr: bp-powerdns-admin, vcluster: host, target: mgmt,
        namespace: powerdns-admin}   # §4: UI not substrate — DEFAULT mgmt, listed for founder veto
     - {file: 13b-bp-sso-bridge.yaml, hr: bp-sso-bridge, vcluster: host, target: mgmt, namespace: sso-bridge}

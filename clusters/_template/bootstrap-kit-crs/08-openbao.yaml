@@ -153,7 +153,7 @@ metadata:
     kubernetes.io/service-account.name: openbao-host-token-reviewer
 type: kubernetes.io/service-account-token
 ---
-apiVersion: v1
+apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: openbao-host-token-reviewer-export
@@ -230,6 +230,16 @@ spec:
           capabilities:
             drop:
             - ALL
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        volumeMounts:
+        - name: scratch
+          mountPath: /tmp
         command:
         - /bin/sh
         - -c
@@ -268,3 +278,6 @@ spec:
           )\nfi\ncase \"${code}\" in\n  200|201) echo \"wrote ${DST} (${code})\";;\n\
           \  *) echo \"failed to write ${DST}: HTTP ${code}\" >&2; cat /tmp/out.json\
           \ >&2; exit 1;;\nesac\n"
+      volumes:
+      - name: scratch
+        emptyDir: {}
