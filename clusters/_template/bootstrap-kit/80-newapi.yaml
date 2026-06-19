@@ -295,7 +295,10 @@ spec:
       # vc-mgmt; the CNPG-owner seams render host-side via slot 80a host-seams.
       # database.existingSecret is wired (suppress) to the host-rendered,
       # mirrored-in DSN Secret so the Deployment render-gate resolves at mgmt.
-      version: 1.4.111
+      # 1.4.112: lockstep to the auto-bumped + published upstream-v0.13.2 chart
+      # (the auto-bump commit advanced the chart but its Blueprint-Release
+      # lockstep step failed, leaving this pin stale at 1.4.111).
+      version: 1.4.112
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
