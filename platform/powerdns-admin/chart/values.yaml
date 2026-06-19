@@ -252,5 +252,43 @@ config:
   proxyFix: true
   # Default landing page after sign-in.
   defaultLandingPage: dashboard
+  # ── SQLAlchemy connection resilience (#3374, 0.1.17) ──────────────────
+  # PDA (Flask + SQLAlchemy 1.4) holds a pooled DB connection. CNPG /
+  # PostgreSQL recycle idle SSL connections server-side, so a pooled
+  # connection PDA hands out can already be dead → the next query raises
+  # `psycopg2.OperationalError: SSL connection has been closed unexpectedly`,
+  # the transaction is left invalid, and EVERY subsequent request 500s with
+  # `PendingRollbackError` until the Pod restarts. PDA runs a `Setting().get()`
+  # DB query on EVERY request (routes/index.py before_request +
+  # __init__.py inject_sitename), so a single dropped connection bricks the
+  # whole UI — including the bare-URL `/` → /oidc/login zero-click entry and
+  # the OIDC callback that onboards the SSO user. Measured live on hw167 (dep
+  # 28d4e96f96407bbb): the OIDC redirect to Keycloak worked, but the
+  # DB-touching callback path 500'd on the recycled connection → never landed
+  # on /dashboard.
+  #
+  # `pool_pre_ping` makes SQLAlchemy issue a lightweight liveness check
+  # (SELECT 1) before handing out a pooled connection and transparently
+  # reconnect if it's dead — the canonical fix for server-side connection
+  # recycling. `pool_recycle` proactively discards connections older than N
+  # seconds so they never outlive the server's idle timeout. These are passed
+  # through to SQLAlchemy's create_engine() unchanged.
+  #
+  # INJECTION PATH: PDA's lib/settings.py `AppSettings.load_environment(app)`
+  # (called LAST in create_app, after from_object) iterates its `defaults`,
+  # uppercases each key, and for any matching env var assigns
+  # app.config[KEY] = convert_type(value). `sqlalchemy_engine_options` is a
+  # known default (type `dict`), so convert_type runs `json.loads()` on the
+  # env value and lands a real dict in `app.config['SQLALCHEMY_ENGINE_OPTIONS']`
+  # — exactly the key Flask-SQLAlchemy 2.5.1 reads to build the engine (db =
+  # SQLAlchemy() is constructed with NO engine_options arg, so the config dict
+  # is authoritative). The deployment renders this map to a JSON string env
+  # var. Verified live: settings.py reads SQLALCHEMY_ENGINE_OPTIONS, fsa 2.5.1
+  # passes app.config['SQLALCHEMY_ENGINE_OPTIONS'] into create_engine.
+  #
+  # Set sqlAlchemyEngineOptions to {} (empty) to omit the env var entirely.
+  sqlAlchemyEngineOptions:
+    pool_pre_ping: true
+    pool_recycle: 280
 
 extraEnv: []

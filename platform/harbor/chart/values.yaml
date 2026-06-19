@@ -474,8 +474,43 @@ sso:
   # binding (bp-keycloak 1.4.9+). Per-Sovereign overlay may override
   # (empty string disables defense-in-depth).
   idpHint: catalyst-pin
-  configureJob:
+  # ── True zero-click bare-URL entry (founder mandate 2026-06-12; #3374
+  # class; PROVEN GREEN live hw167 2026-06-19) ───────────────────────────
+  # With auth_mode=oidc_auth, Harbor's Angular SPA does a full-page
+  # navigation to /account/sign-in and renders a sign-in page with a
+  # "LOGIN VIA OIDC PROVIDER" button — Harbor has no native auto-redirect
+  # knob, so the operator must CLICK. When bareURL.enabled, the Catalyst
+  # HTTPRoute (templates/httproute.yaml) 302s the sign-in PAGE path to
+  # Harbor's server-side OIDC login endpoint (oidcLoginPath) for genuine
+  # zero-click. Mirrors the gitea / openbao / pdns-admin bare-URL idiom.
+  # NOTE: only signInPath is intercepted, never the bare `/` — Harbor's
+  # post-login callback lands on `/`, so redirecting `/` loops
+  # (ERR_TOO_MANY_REDIRECTS, measured live).
+  bareURL:
+    enabled: true
+    # Harbor's unauthenticated sign-in page path (the SPA navigates here
+    # with ?redirect_url=… when no session exists). The gateway 302s this
+    # to oidcLoginPath. An authenticated session never revisits it.
+    signInPath: /account/sign-in
+    # Harbor's server-side OIDC login initiation endpoint. It 302s to
+    # Keycloak carrying the kc_idp_hint set via oidc_extra_redirect_parms
+    # (so the realm IDR delegates silently to catalyst-pin), then
+    # /c/oidc/callback sets the session and lands on /harbor/projects.
+    oidcLoginPath: /c/oidc/login
+  # ── Continuous OIDC config reconciler (sso-configure-deployment.yaml) ──
+  # Replaces the former one-shot post-install/post-upgrade Helm hook Job
+  # (root-caused live hw167 2026-06-19): bp-harbor (slot 19) installs
+  # BEFORE bp-sso-bridge reconciles the harbor-sso-oidc-credentials Secret,
+  # so the hook fired ~1h before the OIDC creds existed → it could not
+  # source client_id/client_secret → Harbor stayed at auth_mode=db_auth and
+  # the post-upgrade hook never re-fired (chart unchanged since install).
+  # A continuous single-replica reconcile loop (the bp-openbao
+  # sso-configure-deployment.yaml pattern) tolerates the Secret being
+  # absent on early ticks and re-converges the config on any drift
+  # (e.g. a Harbor DB reset wiping the auth_mode back to db_auth).
+  configureReconciler:
     image: harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1
+    intervalSeconds: 60
 
 # ─── Catalyst HTTPRoute (Cilium Gateway API, issue #387) ──────────────────
 # Replaces the upstream chart's networking.k8s.io/v1.Ingress on Sovereigns.

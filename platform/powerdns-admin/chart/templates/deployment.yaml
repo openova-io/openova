@@ -180,6 +180,25 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.databaseSecret.name | default "pda-database-secret" }}
                   key: {{ .Values.databaseSecret.uriKey | default "uri" }}
+            # ─── SQLAlchemy connection resilience (#3374) ────────────────
+            # CNPG/PostgreSQL recycle idle SSL connections server-side. Without
+            # pool_pre_ping, PDA hands out a dead pooled connection on the next
+            # request → `psycopg2.OperationalError: SSL connection has been
+            # closed unexpectedly`, the transaction is left invalid, and EVERY
+            # subsequent request 500s with `PendingRollbackError` (PDA runs a
+            # Setting().get() DB query in before_request + inject_sitename on
+            # every request) — bricking the bare-URL zero-click `/` entry and
+            # the OIDC callback that onboards the SSO user, so the operator
+            # never lands on /dashboard. Measured live on hw167 (dep
+            # 28d4e96f96407bbb). PDA's lib/settings.py load_environment maps env
+            # `SQLALCHEMY_ENGINE_OPTIONS` (a known `dict`-typed default) ⇄
+            # app.config['SQLALCHEMY_ENGINE_OPTIONS'] via json.loads, which
+            # Flask-SQLAlchemy 2.5.1 passes straight to create_engine(). Render
+            # the values map as a JSON string. Omitted when the map is empty.
+            {{- with .Values.config.sqlAlchemyEngineOptions }}
+            - name: SQLALCHEMY_ENGINE_OPTIONS
+              value: {{ toJson . | quote }}
+            {{- end }}
             # The SQLA_DB_* vars below are retained for documentation +
             # forward/backward compatibility with the older ngoduykhanh
             # image; pda-legacy ignores them but they are harmless.

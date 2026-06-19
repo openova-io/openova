@@ -944,6 +944,15 @@ data:
             "        property: ${es_prop}" \
             | kubectl --request-timeout=15s apply -f - >/dev/null 2>&1; then
             log "app-registration[${cid}]: applied ExternalSecret ${es_ns}/${es_name} (key=${es_key} <- sso/${realm}/${cid}#${es_prop})"
+            # #3374-cleanup-race (2026-06-19): record this clientId in the
+            # app-registration keep-list so the main loop's cleanup_orphans
+            # does NOT treat the ES we just applied (labelled managed=true,
+            # client-id=${cid}) as an orphan. current_cids is built only
+            # from the HR-discovery loop, so without this the app-reg ES is
+            # created here then deleted ~3s later in the same tick. Append
+            # only on successful apply — a failed/deferred apply leaves the
+            # cid out, so a genuinely-gone declaration is still swept.
+            APP_REG_ES_CIDS="${APP_REG_ES_CIDS} ${cid}"
           else
             warn "app-registration[${cid}]: ExternalSecret apply ${es_ns}/${es_name} failed (CRD not ready yet? retry next tick)"
           fi
@@ -954,6 +963,22 @@ data:
     reconcile_app_registrations() {
       # List every ConfigMap with label sso.openova.io/app-registration
       # (any namespace, any value — value is the clientId).
+      #
+      # #3374-cleanup-race (2026-06-19): reset the keep-list of
+      # app-registration clientIds that own a bp-sso-bridge-managed
+      # ExternalSecret. upsert_per_org_client appends to APP_REG_ES_CIDS
+      # whenever it APPLIES an ExternalSecret (the `externalSecret.json`
+      # path — hubble-ui, newapi-admin, openova-flow, powerdns-admin). The
+      # main loop unions this into current_cids BEFORE cleanup_orphans so
+      # the orphan sweep does NOT delete an ES the app-registration phase
+      # just created this very tick. Without this the app-registration ESs
+      # carry the `managed=true` label but are never in current_cids (that
+      # set is built only from the HR-discovery loop), so cleanup_orphans
+      # deleted them every tick — create-then-delete churn that left the
+      # consuming Secret absent most of the time (SSO token-exchange
+      # intermittently broken). Reset here, not at loop top, so the global
+      # is fresh per tick regardless of early returns.
+      APP_REG_ES_CIDS=""
       local cms
       cms="$(kubectl --request-timeout=15s get configmaps -A \
         -l 'sso.openova.io/app-registration' \
@@ -994,6 +1019,11 @@ data:
 
     # ─── main loop ──────────────────────────────────────────────────────
     log "bp-sso-bridge reconciler starting; realm=${KC_REALM} addr=${KC_ADDR} interval=${INTERVAL_SECONDS}s"
+
+    # #3374-cleanup-race (2026-06-19): app-registration ES keep-list,
+    # repopulated each tick by reconcile_app_registrations. Init here so the
+    # global is always defined under `set -u` even before the first reset.
+    APP_REG_ES_CIDS=""
 
     while true; do
       tick_started="$(date +%s)"
@@ -1077,7 +1107,18 @@ data:
       log "tick: phase app-registrations"
       reconcile_app_registrations || true
 
-      cleanup_orphans "${current_cids}" || true
+      # #3374-cleanup-race (2026-06-19): the orphan sweep keeps any ES whose
+      # client-id is in the union of (a) the HR-discovery clientIds
+      # (current_cids) AND (b) the app-registration clientIds that own a
+      # bp-sso-bridge-applied ExternalSecret this tick (APP_REG_ES_CIDS,
+      # populated by upsert_per_org_client on a successful ES apply). The
+      # app-reg ESs (hubble-ui, newapi-admin, openova-flow, powerdns-admin)
+      # carry the managed=true label but never appeared in current_cids, so
+      # cleanup_orphans was deleting them every tick right after creating
+      # them. Uninstall semantics are preserved: when an app-registration
+      # ConfigMap is removed, its cid drops out of BOTH sets next tick and
+      # the orphan ES is correctly swept.
+      cleanup_orphans "${current_cids}${APP_REG_ES_CIDS}" || true
 
       tick_done="$(date +%s)"
       log "tick complete in $(( tick_done - tick_started ))s (discovered=${discovered:-0} reconciled=${reconciled_count:-0} managed=${current_cids:-none})"

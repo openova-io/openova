@@ -151,7 +151,8 @@ spec:
       # byte-identical. Refs #3646.
       # 0.2.19: reconciler configmap generic gate coverage (#3374).
       # 0.2.21: keycloak/openbao egress namespace default → mgmt (#3820 #3642).
-      version: 0.2.21
+      # 0.2.22: #3374 — app-registration ExternalSecrets no longer self-deleted by the orphan sweep each tick.
+      version: 0.2.22
       sourceRef:
         kind: HelmRepository
         name: bp-sso-bridge

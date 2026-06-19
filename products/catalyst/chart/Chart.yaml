@@ -2829,6 +2829,11 @@ name: bp-catalyst-platform
 # (default true; flip false on Catalyst-Zero/contabo where gitea is host-side).
 # Builds on #3810 (bp-mgmt-vcluster 0.2.15 replicateServices.toHost gitea-http,
 # host reachability). Default `helm template` (lookups nil) renders identically.
+# 1.4.697 — merge-train resolution (Refs #3376 #3848): lands #3859's
+# TENANT_PARENT_DOMAIN funnel-terminal fix (1.4.696) on top of main's #3849
+# org-controller KC-secret host-bridge (1.4.695). Both changes additive +
+# independent; version bumped to the higher 1.4.697 to publish a single
+# OCI artifact carrying both.
 # 1.4.696 — #3859 (Refs #3376): wire TENANT_PARENT_DOMAIN onto the provisioning
 # Deployment (new .Values.smeServices.provisioning.tenantParentDomain, default
 # ""). The provisioning consumer seeds spec.tenantPublic only when a parent
@@ -2836,7 +2841,10 @@ name: bp-catalyst-platform
 # HTTPRoute → the customer's own console + purchased app returned ERR_CONNECTION_
 # REFUSED (the funnel terminal failure on every prior env, first root-caused
 # driving walkorg/hw167). Catalyst-Zero render byte-identical (default "").
-version: 1.4.696
+# 1.4.695 — #3849 (Refs #3848): org-controller reads the keycloak SA secret from
+# the host-bridge (catalyst-openova-kc-credentials) instead of an intra-release
+# helm lookup that lost the ordering race on a cold install.
+version: 1.4.697
 # 1.4.675 — #3383 ORGANIZATIONS rename (ZERO behavior change), rebased over
 # main's 1.4.674 (#3376 funnel + #3700/#3687 per-Org Flux loop + #3763
 # gitea-flux-auth-sync poll). The Organization-provisioning mesh's K8s namespace
