@@ -294,6 +294,44 @@ spec:
                   disable_iss_validation=true
               fi
 
+              # ─── #3374 (Refs #3642 #3825) SECOND mount: in-vCluster TokenReview ─
+              # In cross-cluster mode the $AUTH_MOUNT_PATH mount above TokenReviews
+              # against the HOST apiserver (correct for ESO, a host-SA role). But
+              # the in-vCluster-SA roles — sso-configure (ns=this release ns),
+              # sso-bridge, openbao-snapshot — present a JWT signed by the VCLUSTER
+              # apiserver, which the host apiserver CANNOT validate ("invalid
+              # signature, no keys found") → those logins 403 → silent SSO never
+              # configures (measured live hw167 2026-06-19: openbao /sso/landing
+              # chrome-error). Enable a parallel `kubernetes-vcluster/` mount that
+              # validates against the IN-VCLUSTER apiserver using this Job's OWN
+              # local SA + local CA: `kubernetes.default.svc` from a Pod inside the
+              # vCluster IS the vCluster apiserver (NOT the host — that is only
+              # reachable via the explicit 10.96.0.1 host-bridge), and the Job's SA
+              # carries system:auth-delegator there (auto-unseal SA). disable_local_
+              # ca_jwt stays default(false) so OpenBao uses its own in-pod token to
+              # call the review. Runtime-gated on XCR_ENABLED: when XCR is off
+              # (host-side openbao / Catalyst-Zero) the block is INERT — no second
+              # mount is enabled and no role is rebound, so OpenBao behaviour is
+              # unchanged (the single `kubernetes/` mount is already the in-cluster
+              # apiserver). The gate is the same XCR_ENABLED env the host-bridge
+              # config block above keys on.
+              if [ "${XCR_ENABLED}" = "true" ]; then
+                VC_AUTH_MOUNT_PATH="kubernetes-vcluster"
+                VC_EXISTING_AUTH=$(bao auth list -format=json 2>/dev/null || echo "{}")
+                if echo "$VC_EXISTING_AUTH" | grep -qE "\"$VC_AUTH_MOUNT_PATH/\""; then
+                  echo "[openbao-auth-bootstrap] auth method $VC_AUTH_MOUNT_PATH/ already enabled"
+                else
+                  echo "[openbao-auth-bootstrap] enabling Kubernetes auth at $VC_AUTH_MOUNT_PATH/ (in-vCluster TokenReview)"
+                  bao auth enable -path=$VC_AUTH_MOUNT_PATH kubernetes
+                fi
+                VC_KUBE_CA=$(cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
+                echo "[openbao-auth-bootstrap] writing auth/$VC_AUTH_MOUNT_PATH/config (kubernetes_host=in-vCluster apiserver)"
+                bao write auth/$VC_AUTH_MOUNT_PATH/config \
+                  kubernetes_host="https://kubernetes.default.svc" \
+                  kubernetes_ca_cert="$VC_KUBE_CA" \
+                  disable_iss_validation=true
+              fi
+
               # ─── Ensure kv-v2 backend at $KV_MOUNT_PATH/ ────────────────
               EXISTING_MOUNTS=$(bao secrets list -format=json 2>/dev/null || echo "{}")
               if echo "$EXISTING_MOUNTS" | grep -qE "\"$KV_MOUNT_PATH/\""; then
@@ -349,6 +387,19 @@ spec:
                 policies=sso-bridge-write,external-secrets-read \
                 ttl=$TOKEN_TTL \
                 max_ttl=$TOKEN_MAX_TTL
+              # #3374 — sso-bridge runs in the mgmt vCluster (ns sso-bridge); in
+              # XCR mode its vCluster-signed SA token only validates on the
+              # in-vCluster mount. Bind the SAME role there too (idempotent;
+              # no-op when XCR off).
+              if [ "${XCR_ENABLED}" = "true" ]; then
+                bao write auth/$VC_AUTH_MOUNT_PATH/role/sso-bridge \
+                  bound_service_account_names=sso-bridge-reconciler \
+                  bound_service_account_namespaces=sso-bridge \
+                  policies=sso-bridge-write,external-secrets-read \
+                  ttl=$TOKEN_TTL \
+                  max_ttl=$TOKEN_MAX_TTL \
+                  && echo "[openbao-auth-bootstrap] sso-bridge role also bound on $VC_AUTH_MOUNT_PATH/"
+              fi
 
               # sso-configure: admin-scoped policy for the in-namespace
               # Deployment that enables + configures the oidc auth method
@@ -382,6 +433,24 @@ spec:
                 policies=sso-configure-admin \
                 ttl=$TOKEN_TTL \
                 max_ttl=$TOKEN_MAX_TTL
+              # #3374 (THE openbao zero-click fix) — the sso-configure reconciler
+              # is an in-vCluster Pod (ns=$NAMESPACE inside the mgmt vCluster); its
+              # vCluster-signed SA token is rejected by the HOST apiserver that the
+              # `kubernetes/` mount targets in XCR mode. Bind the role on the
+              # in-vCluster mount so its login succeeds (sso-configure-deployment.yaml
+              # sets BAO_K8S_AUTH_PATH=kubernetes-vcluster under the same XCR gate).
+              # Verified live hw167 2026-06-19: login → oidc/auth_url returns a real
+              # auth_url → /sso/landing → lands /ui/vault/secrets. Idempotent; no-op
+              # when XCR off.
+              if [ "${XCR_ENABLED}" = "true" ]; then
+                bao write auth/$VC_AUTH_MOUNT_PATH/role/sso-configure \
+                  bound_service_account_names=openbao-sso-configure \
+                  bound_service_account_namespaces=$NAMESPACE \
+                  policies=sso-configure-admin \
+                  ttl=$TOKEN_TTL \
+                  max_ttl=$TOKEN_MAX_TTL \
+                  && echo "[openbao-auth-bootstrap] sso-configure role also bound on $VC_AUTH_MOUNT_PATH/ (in-vCluster TokenReview — #3374)"
+              fi
 
               # ─── #3376 — catalyst-api handover-archive writer role ──────
               # The Sovereign's catalyst-api seals the phase0 tofu archive
@@ -437,6 +506,18 @@ spec:
                 policies=openbao-snapshot \
                 ttl=$TOKEN_TTL \
                 max_ttl=$TOKEN_MAX_TTL
+              # #3374 — the snapshot CronJob runs in the mgmt vCluster (ns=$NAMESPACE);
+              # in XCR mode its vCluster-signed SA token only validates on the
+              # in-vCluster mount. Bind the role there too (idempotent; no-op off).
+              if [ "${XCR_ENABLED}" = "true" ]; then
+                bao write auth/$VC_AUTH_MOUNT_PATH/role/{{ $srAuthRole }} \
+                  bound_service_account_names=openbao-snapshot \
+                  bound_service_account_namespaces=$NAMESPACE \
+                  policies=openbao-snapshot \
+                  ttl=$TOKEN_TTL \
+                  max_ttl=$TOKEN_MAX_TTL \
+                  && echo "[openbao-auth-bootstrap] {{ $srAuthRole }} role also bound on $VC_AUTH_MOUNT_PATH/"
+              fi
 {{- end }}
 
               # ─── Revoke + cleanup root token ──────────────────────────
