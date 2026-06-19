@@ -2865,7 +2865,7 @@ name: bp-catalyst-platform
 # 1.4.695 — #3849 (Refs #3848): org-controller reads the keycloak SA secret from
 # the host-bridge (catalyst-openova-kc-credentials) instead of an intra-release
 # helm lookup that lost the ordering race on a cold install.
-version: 1.4.703
+version: 1.4.706
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +
@@ -2970,7 +2970,7 @@ version: 1.4.703
 #   unsatisfiable on kom4dc (me-east-215-*), which kept the production
 #   Continuum seed unfireable. Backwards-compatible (all-letter labels
 #   still match). Flux CreateReplace flows it to live Sovereigns.
-appVersion: 1.4.668
+appVersion: 1.4.706
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
