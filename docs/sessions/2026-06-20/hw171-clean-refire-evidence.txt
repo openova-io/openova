@@ -91,3 +91,18 @@ ZERO-TOUCH VERDICT: YES. Single fire, no auto-re-fire, no second env, NO live-pa
   15min kubeconfig-arrival SUB-timeout (API briefly flipped 'failed' 17:14:48) but RECOVERED on
   its own when the kubeconfig PUT landed at 17:16 — exactly the documented RECOVERABLE case.
   I did NOT wipe (per memory L5). Convergence then proceeded to 55/65 entirely self-driven.
+
+*** FINAL (18:03 UTC) — CONSOLE LIVE, BOTH REGIONS CONVERGED ***
+Region A: HR 57/65 | Region B: HR 55/65 (both regions in lockstep)
+Console: https://console.hw171.omantel.biz/ -> HTTP 200 OK (server: envoy)
+  TLS: LE wildcard cert CN=hw171.omantel.biz, issuer=Let's Encrypt YR2 (omantel.biz, no rate-limit)
+  Body: OpenOva console SPA renders (<title>OpenOva Corporate</title>, #root mount, hashed bundles).
+  PIN-login is client-side (passwordless 6-digit email PIN per North Star #3) — driven by the JS bundle.
+catalyst-api + catalyst-ui pods 1/1 Running; httproute Accepted+ResolvedRefs=True; cilium-gateway Programmed.
+catalyst-platform 1.4.710 + bp-self-sovereign-cutover now Ready.
+Remaining not-ready (region A): cluster-autoscaler-hcloud / hcloud-ccm / velero (Hetzner/backup NO-OP on
+  Huawei — never flip True) + continuum / newapi / newapi-host-seams / sandbox (app-tier still finishing).
+
+HEADLINE: ZERO-TOUCH convergence from a clean fire on main HEAD d293384f (all 8 patches). No live-patches.
+  #3715 IPv6/CoreDNS wedge did NOT recur. #3908 console PIN-login serves. 3 shared-PG + keycloak/openbao
+  in the mgmt vCluster (#3642). 2 genuine regions. The slow-boot 15min kubeconfig-miss self-recovered.
