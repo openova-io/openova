@@ -371,6 +371,26 @@ vcluster:
   # prov the vCluster starts before shared-pg exists (no-op until present). All
   # 3 instances × rw/ro so EVERY SHARED_PG consumer (any instance) resolves
   # with zero per-app special-casing (#3642 DoD-6 "no per-app special-casing").
+  #
+  # ── #3374 hw167: ALSO mirror the ClusterMesh-global `-mesh-rw` / `-mesh`
+  # write/read services ──
+  # On a 2-region (active-hot-standby) Sovereign, bp-postgres mints a
+  # cross-region consumer's DB host to the GLOBAL write Service
+  # `<instance>-mesh-rw` (platform/postgres _helpers.tpl writeServiceName,
+  # gated on activeHotStandby) so writes resolve identically in either region
+  # and follow CNPG promotion. grafana is exactly such a consumer: its
+  # `grafana-database-env` Secret carries
+  # `GF_DATABASE_HOST=shared-pg-b-mesh-rw.shared-data.svc.cluster.local:5432`.
+  # The non-mesh `-rw` mirrors above DON'T cover this name, so grafana-in-vc-mgmt
+  # CrashLoopBackOff'd on hw167 — `dial tcp: lookup
+  # shared-pg-b-mesh-rw.shared-data.svc.cluster.local … no such host` — leaving
+  # the gateway with no Ready backend → `grafana.<fqdn>` 503 "no healthy
+  # upstream" (UAT 3374-05). keycloak/harbor survived only because they happen
+  # to dial the plain `shared-pg-rw` (instance "a", already mirrored). Mirror
+  # all 3 instances × {mesh-rw (global write), mesh (global read — note the read
+  # global is named `-mesh`, NOT `-mesh-ro`)} so every active-hot-standby
+  # consumer resolves with zero per-app special-casing. Same no-op-until-present
+  # semantics — the mesh Services only render once activeHotStandby is on.
   networking:
     replicateServices:
       fromHost:
@@ -407,6 +427,22 @@ vcluster:
           to: catalyst-system/guacamole-pg-rw
         - from: catalyst-system/guacamole-pg-ro
           to: catalyst-system/guacamole-pg-ro
+        # ClusterMesh-global write endpoints (active-hot-standby): the host
+        # FQDN cross-region SHARED_PG consumers (grafana et al.) actually dial.
+        - from: shared-data/shared-pg-mesh-rw
+          to: shared-data/shared-pg-mesh-rw
+        - from: shared-data/shared-pg-b-mesh-rw
+          to: shared-data/shared-pg-b-mesh-rw
+        - from: shared-data/shared-pg-c-mesh-rw
+          to: shared-data/shared-pg-c-mesh-rw
+        # ClusterMesh-global read endpoints (active-hot-standby) — named
+        # `<instance>-mesh` (the read global), no `-mesh-ro` variant exists.
+        - from: shared-data/shared-pg-mesh
+          to: shared-data/shared-pg-mesh
+        - from: shared-data/shared-pg-b-mesh
+          to: shared-data/shared-pg-b-mesh
+        - from: shared-data/shared-pg-c-mesh
+          to: shared-data/shared-pg-c-mesh
       # ── #3642 host→vCluster gitea reachability (the MIRROR of fromHost above) ──
       # #3642 moved gitea INTO vc-mgmt, but bp-catalyst-platform stays HOST-side
       # (catalyst-system). Its in-cluster gitea consumers — the

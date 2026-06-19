@@ -224,6 +224,18 @@ name: bp-mgmt-vcluster
 # `openbao-host-token-reviewer-static` Secret (no `service-account.name`
 # annotation → mirror-stable) for the auth-bootstrap Job to mount. Never
 # wildcard a namespace that holds a `kubernetes.io/service-account-token`.
+# 0.2.22 (#3374 cycle-1 train — COMBINE #3868 guacamole + #3872 grafana-mesh):
+# single version landing BOTH fromHost mirror extensions. #3868 added
+# `catalyst-system/guacamole-pg-rw`/`-ro` (un-wedge the host-bridged guacamole
+# JDBC schema-seed Job, hw167 32 installFailures). #3872 added the
+# ClusterMesh-global `<instance>-mesh-rw` (write) + `<instance>-mesh` (read)
+# Services for all 3 shared-pg instances (un-wedge grafana, which dials the
+# global `shared-pg-b-mesh-rw` write Service on a 2-region active-hot-standby
+# Sovereign, hw167 503 "no healthy upstream"). Both are additive,
+# eventually-consistent fromHost mirrors (no-op until the host renders the
+# target Service). Default `helm template` (mgmtVcluster.enabled=false) renders
+# byte-identical. Lockstep: 58-bp-mgmt-vcluster.yaml pin + blueprint.yaml →
+# 0.2.22. Refs #3374.
 # 0.2.21 (#3374, the hw167 guacamole zero-click 500/503 fix): add
 # `catalyst-system/guacamole-pg-rw` + `-ro` to
 # `networking.replicateServices.fromHost`. guacamole is host-bridged (#3642 —
@@ -243,7 +255,7 @@ name: bp-mgmt-vcluster
 # (`POSTGRESQL_HOSTNAME=guacamole-pg-rw.catalyst-system.svc.cluster.local`)
 # resolve. Additive + idempotent (no-op until the host-bridge renders the
 # Cluster). Lockstep: 58-bp-mgmt-vcluster.yaml pin → 0.2.21. Refs #3374.
-version: 0.2.21
+version: 0.2.22
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT

@@ -151,7 +151,7 @@ spec:
       # DeadlineExceeded → Helm rollback → no webapp → `guacamole.<fqdn>` edge
       # 500/503 on hw167 (32 installFailures). Same #3737 4th-layer DNS gap, now
       # extended to guacamole's host-rendered CNPG cluster.
-      version: 0.2.21
+      version: 0.2.22
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster
