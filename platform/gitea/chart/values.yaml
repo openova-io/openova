@@ -305,6 +305,19 @@ gateway:
 # (`gitea_admin`) still exists as a break-glass account for cutover step 1.
 sso:
   enabled: true
+  # #3934 (Refs #3642): split-gate for the host-bridge (mgmt-vCluster)
+  # placement. When gitea is host-bridged, the HOST renders the
+  # gitea-oauth-source-credentials ExternalSecret (external-secrets-operator
+  # + the OpenBao ClusterSecretStore are host resources) and placement.yaml's
+  # hostBridge.suppress sets `externalSecret.enabled: false` so the chart does
+  # NOT also render an in-vCluster copy (avoids two owners of one Secret name).
+  # `sso.enabled` STAYS true so the sso-configure Deployment still renders IN
+  # the vCluster — it kubectl-exec's the live gitea Pod (belongs alongside it)
+  # and mounts the host-bridged creds crossed in by bp-mgmt-vcluster's
+  # sync.fromHost mapping `gitea/gitea-oauth-source-credentials`. Default true
+  # → on a non-host-bridged prov the render is byte-identical to before.
+  externalSecret:
+    enabled: true
   # Keycloak realm. Defaults to the shared-sovereign realm shipped by
   # platform/keycloak/chart/templates/configmap-sovereign-realm.yaml.
   realm: sovereign

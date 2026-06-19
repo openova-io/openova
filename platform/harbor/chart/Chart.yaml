@@ -111,7 +111,18 @@ type: application
 #       `/service/token` untouched (401 auth-challenge, not redirected).
 #       PROVEN GREEN: probe landed registry.<fqdn>/harbor/projects
 #       signed-in on hw167.
-version: 1.2.33
+# 1.2.34 (#3934 / Refs #3642, 2026-06-20): SPLIT-GATE for the mgmt-vCluster
+# host-bridge. The #3642 promotion of harbor into the mgmt vCluster set
+# placement.yaml hostBridge.suppress `sso.enabled: false`, which ALSO killed
+# the 1.2.33 sso-configure Deployment — so auth_mode was never PUT to oidc_auth
+# and the bare registry URL showed the local-DB sign-in form (caught live
+# hw171 2026-06-19, /api/v2.0/systeminfo auth_mode=db_auth). New value
+# sso.externalSecret.enabled (default true) gates the chart's ExternalSecret
+# independently; the Deployment stays gated on sso.enabled. Host-bridge sets
+# externalSecret.enabled:false (host renders harbor-sso-oidc-credentials) while
+# sso.enabled stays true so the configurator runs IN the vCluster against
+# harbor-core. Non-host-bridged render byte-identical. Refs #3374 #3642.
+version: 1.2.34
 appVersion: "2.14.3"
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
 # `oidc_extra_redirect_parms` config field. The configure-oauth Job now

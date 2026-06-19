@@ -162,7 +162,12 @@ spec:
       # (openbao pattern) that re-asserts the `openova-sso` login source every
       # 60s, so a CNPG DB re-init no longer silently strands gitea's SSO at
       # `oauth2 source not found` 500 (caught live hw167). Refs #3374.
-      version: 1.2.38
+      # 1.2.39 (#3934 / Refs #3642, 2026-06-20): split-gate — the in-vCluster
+      # sso-configure Deployment now survives the host-bridge suppress (only
+      # the chart ExternalSecret is suppressed via sso.externalSecret.enabled,
+      # not sso.enabled), so the login_source row gets seeded in the mgmt
+      # vCluster placement (caught live hw171). Refs #3374 #3642.
+      version: 1.2.39
       sourceRef:
         kind: HelmRepository
         name: bp-gitea
@@ -213,7 +218,14 @@ spec:
     # chart values short-circuits the configure-oauth Job; the envsubst
     # below makes SSO work zero-touch on every fresh Sovereign.
     sso:
-      enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      externalSecret:
+        enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      # #3934 (Refs #3642): sso.enabled STAYS true so the in-vCluster
+      # sso-configure Deployment renders (it seeds the `openova-sso`
+      # login_source DB row via kubectl-exec into the live gitea Pod). Only
+      # the chart's ExternalSecret is suppressed above (host-rendered). NOT
+      # placement-generated — placement.yaml no longer declares sso.enabled.
+      enabled: true
       sovereignFqdn: ${SOVEREIGN_FQDN}
     # G87 #2634 (2026-06-01): multi-region Sovereigns default CNPG
     # instances to 2 so the operator spreads across regions via

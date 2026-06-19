@@ -254,7 +254,15 @@ spec:
       hostBridge:
         suppress:
           gateway.enabled: false
-          sso.enabled: false
+          # #3934 (Refs #3642): suppress ONLY the chart's in-vCluster
+          # ExternalSecret (the host renders gitea-oauth-source-credentials
+          # below) — NOT sso.enabled. The chart's sso-configure Deployment
+          # MUST render in-vCluster: it kubectl-exec's the live gitea Pod to
+          # seed the `openova-sso` login_source DB row (without it
+          # /user/oauth2/openova-sso 500s `oauth2 source not found`). Its creds
+          # arrive via bp-mgmt-vcluster sync.fromHost
+          # `gitea/gitea-oauth-source-credentials`.
+          sso.externalSecret.enabled: false
           postgres.cluster.enabled: false
         hostDocuments:
           # HTTPRoute in the `mgmt` host ns (same ns as the mangled backend
@@ -942,7 +950,14 @@ spec:
       hostBridge:
         suppress:
           gateway.enabled: false
-          sso.enabled: false
+          # #3934 (Refs #3642): suppress ONLY the chart's in-vCluster
+          # ExternalSecret (the host renders harbor-sso-oidc-credentials
+          # below) — NOT sso.enabled. The sso-configure Deployment MUST render
+          # in-vCluster: it PUTs auth_mode=oidc_auth to harbor-core
+          # /api/v2.0/configurations (without it harbor stays db_auth → login
+          # form, no SSO auto-land). Its creds arrive via bp-mgmt-vcluster
+          # sync.fromHost `harbor/harbor-sso-oidc-credentials`.
+          sso.externalSecret.enabled: false
           postgres.cluster.enabled: false
         hostDocuments:
           - apiVersion: gateway.networking.k8s.io/v1

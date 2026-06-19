@@ -447,6 +447,15 @@ harborOverlay:
 # remains as the break-glass account for Sovereign-recovery scenarios.
 sso:
   enabled: true
+  # #3934 (Refs #3642): split-gate for the host-bridge (mgmt-vCluster)
+  # placement. Host-bridged → the HOST renders the harbor-sso-oidc-credentials
+  # ExternalSecret; placement.yaml's hostBridge.suppress sets
+  # `externalSecret.enabled: false` so the chart skips the in-vCluster copy,
+  # while `sso.enabled` stays true so the sso-configure Deployment (which PUTs
+  # auth_mode=oidc_auth) still renders in the vCluster alongside harbor-core.
+  # Default true → non-host-bridged render byte-identical.
+  externalSecret:
+    enabled: true
   realm: sovereign
   # Per-Sovereign cluster overlay sets this (e.g. `hw86.omani.works`).
   # When empty the configure-oauth Job is suppressed so a half-configured

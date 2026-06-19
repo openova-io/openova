@@ -139,7 +139,20 @@ name: bp-gitea
 # a Pod roll. New value sso.reconcileIntervalSeconds (default 60). Every
 # hard-won fix from the hook (pod-selector #2818, TAB-stripping AUTH_ID #2816,
 # public-first discovery URL #3150) carried verbatim. Refs #3374.
-version: 1.2.38
+# 1.2.39 (#3934 / Refs #3642, 2026-06-20): SPLIT-GATE for the mgmt-vCluster
+# host-bridge. When #3642 promotes gitea into the mgmt vCluster, the host
+# renders gitea-oauth-source-credentials (ESO + the OpenBao ClusterSecretStore
+# are host resources) and placement.yaml's hostBridge.suppress set
+# `sso.enabled: false` — which ALSO killed the 1.2.38 sso-configure Deployment,
+# so the `openova-sso` login_source row was NEVER seeded and
+# `GET /user/oauth2/openova-sso` 500'd `oauth2 source not found` (caught live
+# hw171 2026-06-19). New value sso.externalSecret.enabled (default true) now
+# gates the chart's ExternalSecret independently; the Deployment stays gated on
+# sso.enabled. Host-bridge sets externalSecret.enabled:false (skip the duplicate
+# in-vCluster Secret) while sso.enabled stays true so the Deployment renders
+# IN the vCluster and seeds the row (its creds cross in via bp-mgmt-vcluster
+# sync.fromHost). Non-host-bridged render is byte-identical. Refs #3374 #3642.
+version: 1.2.39
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so
