@@ -277,14 +277,14 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 				slog.Warn("provisioning/gitops: active_hot_standby requested but region pair invalid — falling back to single-cluster postgres",
 					"app", "postgres", "primary_region", primaryRegion, "replica_region", replicaRegion)
 			}
-			vcFiles["db-postgres.yaml"] = generatePostgres(appNS, dbPassword, postgresApps, pgCfg)
+			vcFiles["db-postgres.yaml"] = generatePostgres(appNS, dbPassword, postgresApps, pgCfg, g.registryMirror())
 		}
 	}
 	if len(mysqlApps) > 0 {
-		vcFiles["db-mysql.yaml"] = generateMySQL(appNS, dbPassword, mysqlApps, appConfigs["mysql"])
+		vcFiles["db-mysql.yaml"] = generateMySQL(appNS, dbPassword, mysqlApps, appConfigs["mysql"], g.registryMirror())
 	}
 	if needsRedis {
-		vcFiles["db-redis.yaml"] = generateRedis(appNS)
+		vcFiles["db-redis.yaml"] = generateRedis(appNS, g.registryMirror())
 	}
 	for _, a := range appSlugs {
 		// Shareable database slugs are emitted as db-*.yaml above; skip
@@ -531,7 +531,19 @@ metadata:
 `, ns)
 }
 
-func generatePostgres(ns, password string, apps []string, cfg map[string]any) string {
+// generatePostgres / generateMySQL / generateRedis emit the single-Pod
+// DB-backing Deployments that co-install with a customer's purchased app
+// inside the per-Org vCluster. MIRROR-EVERYTHING (#3785, Refs #3376 #3761):
+// the vCluster syncer schedules the BACKING Pod on the HOST cluster (the
+// `tenant-<slug>` host namespace), where the `harbor-proxy-pull` Kyverno
+// ClusterPolicy (Enforce) DENIES any image not matching `*/proxy-*/*`. A raw
+// `postgres:16-alpine` / `mariadb:11` / `valkey/valkey:8-alpine` is therefore
+// blocked, the DB never starts, and the app it backs can never run — the
+// funnel terminal (#3376) stays connection-refused. proxyImage re-tags each
+// through the registry-appropriate Sovereign Harbor proxy project
+// (proxy-dockerhub here), identically to the app-deployment images; it is a
+// no-op when the mirror is empty or the reference is already proxied.
+func generatePostgres(ns, password string, apps []string, cfg map[string]any, registryMirror string) string {
 	// Per-app database isolation: create db_<appSlug> for each postgres-backed
 	// app so co-installed apps (e.g. gitea + nextcloud on the same tenant)
 	// don't collide on a shared schema. The first database is also created by
@@ -635,7 +647,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: postgres:16-alpine
+          image: %s
           ports:
             - containerPort: 5432
           envFrom:
@@ -672,7 +684,7 @@ spec:
   ports:
     - port: 5432
       targetPort: 5432
-`, ns, password, primaryDB, ns, indentBlock(initSQL, "    "), ns, diskGB, ns, backupsEnabled, replicas, ns)
+`, ns, password, primaryDB, ns, indentBlock(initSQL, "    "), ns, diskGB, ns, backupsEnabled, replicas, proxyImage("postgres:16-alpine", registryMirror), ns)
 }
 
 // generateCNPGPair renders the bp-cnpg-pair HelmRelease — the Pillar-3
@@ -835,7 +847,7 @@ spec:
 `, ns, password, primaryDB, ns, ns, ns, ns, primaryRegion, instances, diskGB, primaryDB, replicaRegion, instances, diskGB)
 }
 
-func generateMySQL(ns, password string, apps []string, cfg map[string]any) string {
+func generateMySQL(ns, password string, apps []string, cfg map[string]any, registryMirror string) string {
 	// Per-app database isolation: create db_<appSlug> for each mysql-backed
 	// app so co-installed apps (e.g. wordpress + ghost) don't collide on a
 	// shared schema. MYSQL_DATABASE bootstraps the first one; an init script
@@ -925,7 +937,7 @@ spec:
     spec:
       containers:
         - name: mysql
-          image: mariadb:11
+          image: %s
           ports:
             - containerPort: 3306
           envFrom:
@@ -962,7 +974,7 @@ spec:
   ports:
     - port: 3306
       targetPort: 3306
-`, ns, password, password, primaryDB, ns, indentBlock(initSQL, "    "), ns, diskGB, ns, backupsEnabled, replicas, ns)
+`, ns, password, password, primaryDB, ns, indentBlock(initSQL, "    "), ns, diskGB, ns, backupsEnabled, replicas, proxyImage("mariadb:11", registryMirror), ns)
 }
 
 // indentBlock prefixes every non-empty line of s with indent. Used to embed a
@@ -986,7 +998,7 @@ func indentBlock(s, indent string) string {
 	return out.String()
 }
 
-func generateRedis(ns string) string {
+func generateRedis(ns, registryMirror string) string {
 	return fmt.Sprintf(`apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -1004,7 +1016,7 @@ spec:
     spec:
       containers:
         - name: redis
-          image: valkey/valkey:8-alpine
+          image: %s
           ports:
             - containerPort: 6379
           resources:
@@ -1026,7 +1038,7 @@ spec:
   ports:
     - port: 6379
       targetPort: 6379
-`, ns, ns)
+`, ns, proxyImage("valkey/valkey:8-alpine", registryMirror), ns)
 }
 
 func generateAppDeployment(ns, slug, appSlug string, spec AppSpec, dbPassword string) string {
