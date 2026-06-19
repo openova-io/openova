@@ -240,44 +240,28 @@ write_files:
       data:
         token: ${base64encode(harbor_robot_token)}
 
-  # ── flux-system/powerdns-api-credentials Secret (#3847) ───────────────
-  # bp-cert-manager-powerdns-webhook reads X-API-Key for DNS-01 challenges.
-  # The upstream webhook binary ALWAYS loads the key from a Secret named
-  # `powerdns-api-credentials` in the cert-manager cluster-resource-namespace
-  # (it ignores any `namespace:` on the issuer's apiKeySecretRef).
+  # ── powerdns-api-credentials Secret — EVICTED to Flux (#3888 / Refs #3847)
+  # The cert-manager DNS-01 webhook (bp-cert-manager-powerdns-webhook, slot 49)
+  # reads `api-key` from a Secret named `powerdns-api-credentials` in the
+  # `cert-manager` namespace. It is NO LONGER seeded by cloud-init: it is
+  # delivered as a Flux-reconciled resource in clusters/_template/sovereign-tls
+  # (powerdns-api-credentials.yaml), rendered straight into `cert-manager` from
+  # the sovereign-tls Kustomization's POWERDNS_API_KEY postBuild substitute
+  # (set in the flux-bootstrap block below).
   #
-  # #3847 (fresh-prov wildcard-cert wedge, hw167): this Secret was previously
-  # seeded DIRECTLY into the `cert-manager` namespace. That namespace is owned
-  # by the `bootstrap-kit` Flux Kustomization (path ./clusters/_template/
-  # bootstrap-kit, prune: true). An imperatively-applied Secret that is not in
-  # the reconciled Git tree is an orphan in a prune-managed namespace and gets
-  # pruned → DNS-01 solver "failed loading api key secret cert-manager/
-  # powerdns-api-credentials: not found" → no wildcard cert → cilium-envoy
-  # InvalidCertificateRef → console.<fqdn> HTTPS 000 on a fresh prov.
-  #
-  # Fix: mirror the resilient ghcr-pull pattern above — seed the central
-  # `pdns.openova.io` key into the NON-pruned `flux-system` namespace WITH
-  # reflector annotations that auto-reflect a copy (same name) into
-  # `cert-manager`. bp-reflector (slot 05a) keeps the cert-manager copy in
-  # sync, so it self-heals after any bootstrap-kit prune and survives a
-  # fresh prov. Preserve the CENTRAL key (len 48, pdns.openova.io) here, NOT
-  # the Sovereign-LOCAL powerdns/powerdns-api-credentials key (len 32). Refs #3847.
-  - path: /var/lib/catalyst/powerdns-api-credentials.yaml
-    permissions: '0600'
-    content: |
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: powerdns-api-credentials
-        namespace: flux-system
-        annotations:
-          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "cert-manager"
-          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "cert-manager"
-      type: Opaque
-      data:
-        api-key: ${base64encode(powerdns_api_key)}
+  # WHY evicted (the THIN-cloud-init mandate + #3847 root-cause fix): seeding it
+  # imperatively (`kubectl apply`) made it an ORPHAN in the `cert-manager` ns,
+  # which the `bootstrap-kit` Flux Kustomization (prune: true) OWNS → it got
+  # pruned on a fresh prov → DNS-01 "failed loading api key secret cert-manager/
+  # powerdns-api-credentials: not found" → no wildcard cert → console HTTPS 000
+  # (hw167). #3884's flux-system+reflector workaround pushed the 3-region render
+  # 90 B over the 32256 cap. A Flux-reconciled Git resource is owned by
+  # `sovereign-tls` (NOT pruned by bootstrap-kit), lands directly in
+  # `cert-manager` (no reflector hop), needs NO openbao/ESO, and reclaims the
+  # cloud-init bytes. sovereign-tls is the wildcard-cert-datapath Kustomization
+  # (it issues the Certificate this key's DNS-01 solver fulfils), reconciles in
+  # PARALLEL with a 1m retryInterval, and retries until the `cert-manager` ns
+  # exists — so the Secret is present before the DNS-01 challenge fires.
 
   # ── flux-system/pdm-basicauth Secret (issue #879 Bug 2) ───────────────
   # catalyst-api calls PDM (Pool Domain Manager) with Basic auth for the
@@ -705,6 +689,22 @@ write_files:
             SOVEREIGN_FQDN_SLUG: "${sovereign_fqdn_slug}"
             SOVEREIGN_REGION_KEY: "${primary_region_canonical_label}"
             HCLOUD_LB_LOCATION: "${region}"
+            # POWERDNS_API_KEY (#3888 / Refs #3847) — the central pdns.openova.io
+            # DNS-01 API key, base64-encoded so it threads into the cert-manager/
+            # powerdns-api-credentials Secret's `data.api-key` cluster-side
+            # (clusters/_template/sovereign-tls/powerdns-api-credentials.yaml).
+            # sovereign-tls is the natural home: it OWNS the wildcard-cert
+            # datapath (the Certificate issued by $${WILDCARD_CERT_ISSUER} =
+            # letsencrypt-dns01-prod-powerdns), and the DNS-01 solver needs this
+            # key to PATCH the challenge TXT record. Carried via this postBuild
+            # channel so the raw key never lands in the reconciled Git tree —
+            # the same way cloud-init used to base64-seed it into the inline
+            # Secret. Evicting it OUT of cloud-init into this Flux-reconciled
+            # resource fixes #3847's prune-orphan (cloud-init applied it
+            # imperatively into the bootstrap-kit-pruned `cert-manager` ns) and
+            # reverts #3884 (whose flux-system+reflector workaround pushed the
+            # 3-region render past the 32256 cap).
+            POWERDNS_API_KEY: ${base64encode(powerdns_api_key)}
           substituteFrom:
             - kind: ConfigMap
               name: sovereign-tls-vars
@@ -1198,10 +1198,13 @@ runcmd:
   # are then folded into a single multi-`-f` `kubectl apply` (each file is an
   # independent Secret manifest; apply order among them is irrelevant), which
   # drops ~6 repetitions of the `kubectl --kubeconfig=…` long-form and keeps the
-  # rendered cloud-init under Hetzner's 32256B cap. powerdns→cert-manager,
-  # handover-jwt→catalyst-system and recovery-seed→openbao all now resolve.
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace cert-manager catalyst-system openbao --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/ghcr-pull-secret.yaml -f /var/lib/catalyst/harbor-robot-token-secret.yaml -f /var/lib/catalyst/pdm-basicauth-secret.yaml -f /var/lib/catalyst/powerdns-api-credentials.yaml -f /var/lib/catalyst/handover-jwt-public-secret.yaml -f /var/lib/catalyst/object-storage-secret.yaml -f /var/lib/catalyst/cloud-credentials-secret.yaml'
+  # rendered cloud-init under Hetzner's 32256B cap. handover-jwt→catalyst-system
+  # and recovery-seed→openbao resolve here. (powerdns-api-credentials no longer
+  # needs the `cert-manager` ns created here — #3888 evicted it to the Flux
+  # sovereign-tls Kustomization, which lands it in `cert-manager` after
+  # bp-cert-manager.)
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml create namespace catalyst-system openbao --dry-run=client -o yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/ghcr-pull-secret.yaml -f /var/lib/catalyst/harbor-robot-token-secret.yaml -f /var/lib/catalyst/pdm-basicauth-secret.yaml -f /var/lib/catalyst/handover-jwt-public-secret.yaml -f /var/lib/catalyst/object-storage-secret.yaml -f /var/lib/catalyst/cloud-credentials-secret.yaml'
 
   # openbao-recovery-seed: one-shot 32-byte seed the bp-openbao init Job
   # consumes + deletes on first success. Never in tfstate; node-local only.

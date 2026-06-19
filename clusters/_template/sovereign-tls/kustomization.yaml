@@ -3,6 +3,13 @@ kind: Kustomization
 resources:
   - cilium-gateway-cert.yaml
   - cilium-gateway.yaml
+  # powerdns-api-credentials Secret (#3888 / Refs #3847) — the DNS-01 API key
+  # the bp-cert-manager-powerdns-webhook solver reads to issue the wildcard
+  # cert above. Evicted OUT of cloud-init into this Flux-reconciled tier so it
+  # is no longer an imperative orphan pruned by bootstrap-kit (the #3847 wedge).
+  # Lands in `cert-manager`; value from the ${POWERDNS_API_KEY} postBuild
+  # substitute.
+  - powerdns-api-credentials.yaml
   # Watch+rollout-restart Job for cilium-envoy. cilium-envoy's xDS SDS
   # subscription does NOT recover after the initial-fetch timeout, so a
   # fresh Sovereign whose envoy started before the wildcard cert was
