@@ -141,7 +141,33 @@ name: bp-openbao
 # Job soft-waits (backoffLimit retries) for the mirror. DEFAULT false →
 # single-region / Catalyst-Zero / host-side-openbao render byte-identical +
 # in-cluster TokenReview path unchanged. Refs #3642 #3736.
-version: 1.2.49
+#
+# 1.2.50 (#3374, 2026-06-19): FIX openbao zero-click SSO on a vCluster Sovereign
+# — two independent #3642-fallout breaks, both measured live on hw167:
+#   (A) AUTH: #3825's cross-cluster mode points the SINGLE `kubernetes/` auth
+#       mount's TokenReview at the HOST apiserver (right for ESO's host SA, FATAL
+#       for the in-vCluster sso-configure SA — host rejects the vCluster-signed
+#       JWT: "invalid signature, no keys found" → every login 403s → the OIDC
+#       reconciler NEVER writes auth/oidc/config / default_role / role/operator →
+#       the landing page's unauth oidc/auth_url returns "permission denied" →
+#       /sso/landing fails → chrome-error). FIX: auth-bootstrap Job enables a
+#       SECOND `kubernetes-vcluster/` mount that TokenReviews against the
+#       IN-VCLUSTER apiserver (local SA+CA — kubernetes.default.svc IS the
+#       vCluster apiserver from openbao-0's view), binds the in-vCluster-SA roles
+#       (sso-configure/sso-bridge/openbao-snapshot) there, and the consumers log
+#       in against it under the SAME XCR gate.
+#   (B) LANDING: the chart's sso-landing.yaml gated the landing nginx
+#       Deployment/Service/ConfigMap on `gateway.enabled`, but the vCluster pivot
+#       sets gateway.enabled:false (the HTTPRoute is re-created host-side as a
+#       host-bridge resource pointing at openbao-sso-landing-x-…-mgmt-vcluster) →
+#       the landing nginx never rendered → the host-bridge HTTPRoute's backend was
+#       missing → /sso/landing 500. FIX: gate the landing WORKLOAD only on
+#       sso.bareURL.enabled (it has zero gateway dependency); the HTTPRoute stays
+#       gateway-gated in httproute.yaml.
+# Both default-OFF for host-side openbao (XCR off) → byte-identical render.
+# Verified GREEN live hw167 2026-06-19: bao.<fqdn>/ui/ → /sso/landing → lands
+# /ui/vault/secrets (sso-zero-click-probe openbao row GREEN). Pin in lockstep.
+version: 1.2.50
 # 1.2.46 (#3629, 2026-06-16): the SECONDARY (fetch) snapshot CronJob no longer
 # performs an OpenBao k8s-auth login. The fetch path is PURE S3 I/O
 # (list-objects-v2 + `s3 cp` to the restore-staging PVC) and NEVER reads
