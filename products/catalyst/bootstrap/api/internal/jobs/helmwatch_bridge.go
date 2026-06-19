@@ -136,6 +136,14 @@ type Bridge struct {
 	store        *Store
 	deploymentID string
 
+	// provider — the deployment's cloud provider (lower-cased, e.g.
+	// "hetzner"/"huawei"), used to derive the Phase-0 lifecycle parent
+	// group's display label so a Huawei prov shows "Provision Huawei"
+	// rather than a hardcoded "Provision Hetzner". Empty until the
+	// handler calls SetProvider; an empty value falls back to the
+	// package default (ProvisionerDisplay("")). Read under b.mu.
+	provider string
+
 	// mu serialises access to the in-memory cursors below.
 	// SeedJobsFromInformerList runs from the helmwatch.Watcher's
 	// post-Sync hook (fireOnSyncedHooks) while OnHelmReleaseEvent
@@ -166,6 +174,29 @@ func NewBridge(store *Store, deploymentID string) *Bridge {
 		activeExecID: map[string]string{},
 		lastState:    map[string]string{},
 	}
+}
+
+// SetProvider records the deployment's cloud provider so the Phase-0
+// lifecycle parent group renders "Provision <Provider>" instead of the
+// hardcoded Hetzner default. Idempotent + safe to call repeatedly (the
+// handler stamps it on every bridge construction / seed). A blank value
+// is ignored so a later real provider is never clobbered by an empty one.
+func (b *Bridge) SetProvider(provider string) {
+	p := strings.TrimSpace(provider)
+	if p == "" {
+		return
+	}
+	b.mu.Lock()
+	b.provider = p
+	b.mu.Unlock()
+}
+
+// provisionerDisplay returns the provider-aware label for the Phase-0
+// lifecycle parent group. Caller MUST hold b.mu (every call site is
+// already inside a b.mu critical section — SeedProvisionerJobs and the
+// lifecycle-event path both lock before ensuring the group).
+func (b *Bridge) provisionerDisplay() string {
+	return ProvisionerDisplay(b.provider)
 }
 
 // ensureGroupJob idempotently materialises a synthesised parent group
@@ -797,7 +828,7 @@ func (b *Bridge) OnProvisionerEvent(ev provisioner.Event) error {
 func (b *Bridge) SeedProvisionerJobs() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if err := b.ensureGroupJob(GroupProvisioner, GroupProvisionerDisplay); err != nil {
+	if err := b.ensureGroupJob(GroupProvisioner, b.provisionerDisplay()); err != nil {
 		return err
 	}
 	parent := JobID(b.deploymentID, GroupProvisioner)
@@ -833,7 +864,7 @@ func (b *Bridge) OnProvisionerLifecycleEvent(phase, level, message string, t tim
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if err := b.ensureGroupJob(GroupProvisioner, GroupProvisionerDisplay); err != nil {
+	if err := b.ensureGroupJob(GroupProvisioner, b.provisionerDisplay()); err != nil {
 		return err
 	}
 

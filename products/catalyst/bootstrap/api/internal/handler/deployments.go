@@ -1814,6 +1814,10 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 		}
 		bridge := dep.jobsBridge
 		dep.mu.Unlock()
+		// Stamp the deployment's cloud provider so the Phase-0 lifecycle
+		// parent group renders "Provision <Provider>" (e.g. "Provision
+		// Huawei") instead of a hardcoded Hetzner label (#3895).
+		bridge.SetProvider(firstProvider(dep.Request))
 		if seedErr := bridge.SeedProvisionerJobs(); seedErr != nil {
 			h.log.Warn("jobs bridge: seed Phase-0 lifecycle jobs failed",
 				"id", dep.ID, "err", seedErr)
@@ -2228,7 +2232,14 @@ func (h *Handler) emitWatchEvent(dep *Deployment, ev provisioner.Event) {
 		bridge = jobs.NewBridge(h.jobs, dep.ID)
 		dep.jobsBridge = bridge
 	}
+	provider := firstProvider(dep.Request)
 	dep.mu.Unlock()
+	// Stamp the provider on the bridge so a lifecycle event that lazily
+	// materialises the Phase-0 group still labels it "Provision
+	// <Provider>" rather than the Hetzner default (#3895).
+	if bridge != nil {
+		bridge.SetProvider(provider)
+	}
 
 	// Forward Phase-1 component events to the jobs bridge. Phase-0
 	// OpenTofu events have no Job analogue and are silently dropped

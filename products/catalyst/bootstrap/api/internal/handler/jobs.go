@@ -259,6 +259,9 @@ func (h *Handler) chrootSeedJobsStoreIfEmpty(ctx context.Context, dep *Deploymen
 		dep.jobsBridge = bridge
 	}
 	dep.mu.Unlock()
+	// Stamp the deployment's cloud provider so a chroot-replayed Phase-0
+	// lifecycle parent group still renders "Provision <Provider>" (#3895).
+	bridge.SetProvider(firstProvider(dep.Request))
 
 	// Phase-0 lifecycle history — independent of the bootstrap-kit
 	// seed because the lifecycle Jobs live on the mother only and the
@@ -554,6 +557,92 @@ func (h *Handler) chrootSeedReconcilerObservations(ctx context.Context, dep *Dep
 	)
 }
 
+// motherSeedInClusterReconcilers projects the live in-cluster §5a
+// reconciler activities (raw Jobs, recurring CronJobs, Flux
+// Kustomizations, reconciler-marked Deployments — issue #3646) into the
+// per-deployment jobs.Store while the mothership is still watching a
+// fresh prov (#3896).
+//
+// # Why this exists
+//
+// On the mothership the phase1 watcher surfaces ONLY HelmReleases
+// (install-* leaves). The raw in-cluster Jobs that drive convergence — the
+// 17 reconcile/seed/promote batch Jobs a fresh prov spins up — were
+// invisible on the Jobs page for the ENTIRE phase1-watching window, which
+// is precisely the most useful time to watch them. The §5a generic
+// ingestion already exists (helmwatch.ListReconcilerObservations →
+// Bridge.SeedReconcilerObservations) but was wired ONLY for the chroot
+// (Sovereign-side) path via chrootSeedReconcilerObservations, gated behind
+// SOVEREIGN_FQDN. This surfaces the same activities on the mother too.
+//
+// No-op when:
+//   - jobs store / handler isn't wired (h.jobs nil);
+//   - running in chroot mode (SOVEREIGN_FQDN matches dep — the chroot path
+//     already ingests reconcilers, so we never double-run);
+//   - the deployment's kubeconfig isn't reachable yet (sovereignDynamicClient
+//     errors — cloud-init still in flight, no PUT yet). The /jobs read
+//     simply returns the install-* + lifecycle rows it already has and the
+//     next poll retries once the kubeconfig lands.
+//
+// Best-effort + idempotent: SeedReconcilerObservations monotonic-merges
+// (UpsertJob + StartExecution reuse) so repeated /jobs polls never
+// duplicate rows, and every failure path logs at debug/warn and returns —
+// a /jobs read never fails because the projection couldn't run.
+func (h *Handler) motherSeedInClusterReconcilers(ctx context.Context, dep *Deployment) {
+	if h.jobs == nil || dep == nil {
+		return
+	}
+	// Chroot mode already covers this via chrootSeedReconcilerObservations
+	// (called from chrootSeedJobsStoreIfEmpty). Bail so we never run the
+	// same projection twice on a Sovereign-side catalyst-api.
+	if selfFQDN := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")); selfFQDN != "" &&
+		strings.EqualFold(selfFQDN, dep.Request.SovereignFQDN) {
+		return
+	}
+
+	dyn, err := h.sovereignDynamicClient(dep)
+	if err != nil {
+		// Kubeconfig not posted back yet (cloud-init in flight) — the
+		// reconcilers simply aren't reachable. Expected during the early
+		// phase1-watching window; the next poll retries.
+		h.log.Debug("mother seed: reconciler dynamic client unavailable",
+			"depId", dep.ID, "err", err)
+		return
+	}
+
+	dep.mu.Lock()
+	bridge := dep.jobsBridge
+	if bridge == nil {
+		bridge = jobs.NewBridge(h.jobs, dep.ID)
+		dep.jobsBridge = bridge
+	}
+	provider := firstProvider(dep.Request)
+	dep.mu.Unlock()
+	bridge.SetProvider(provider)
+
+	obs, err := helmwatch.ListReconcilerObservations(ctx, dyn)
+	if err != nil {
+		h.log.Warn("mother seed: list reconciler observations failed",
+			"depId", dep.ID, "err", err)
+		return
+	}
+	if len(obs) == 0 {
+		return
+	}
+	jobsCount, execsSeeded, err := bridge.SeedReconcilerObservations(reconcilerObsToBridge(obs))
+	if err != nil {
+		h.log.Warn("mother seed: reconciler bridge seed failed",
+			"depId", dep.ID, "err", err)
+		return
+	}
+	h.log.Info("mother seed: in-cluster reconciler activities projected",
+		"depId", dep.ID,
+		"observations", len(obs),
+		"jobsWritten", jobsCount,
+		"executionsSeeded", execsSeeded,
+	)
+}
+
 // reconcilerObsToBridge translates the helmwatch wire shape into the
 // jobs-local ReconcilerObservation the bridge consumes (the same
 // snapshot→seed indirection snapshotsToSeeds uses, keeping the jobs
@@ -635,6 +724,14 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 		// from a one-shot live HelmRelease list when running on the
 		// Sovereign cluster itself. Mother behaviour unchanged.
 		h.chrootSeedJobsStoreIfEmpty(r.Context(), dep)
+		// Mother-side in-cluster reconciler ingestion (#3896). During
+		// phase1-watching the mothership watches HelmReleases (install-*
+		// leaves) but never surfaces the raw in-cluster Jobs/CronJobs/
+		// Kustomizations/reconciler Deployments — the most useful rows to
+		// watch while a fresh prov converges. No-op on the chroot (the
+		// path above already covers it) and when the deployment's
+		// kubeconfig isn't reachable yet.
+		h.motherSeedInClusterReconcilers(r.Context(), dep)
 	}
 	out, err := st.ListJobs(depID)
 	if err != nil {
