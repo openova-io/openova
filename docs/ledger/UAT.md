@@ -57,9 +57,11 @@ Per-runbook deep probes (interaction: click/fill/filter → assert → screensho
 
 **#3687 object-model deep — 14/14 ✅** (`scripts/uat-3687-deep-probe.mjs`): org directory table (kind/tier/billing/isolation/status badges); org-detail identity CR card; Showback panel + honest empty-state; apps grid one-card-per-Application + BOOTSTRAP badges. Two LIVE advances past hw159: **treemap Layer-1=Organization / Layer-2=Application is now the default + a distinct "Platform overhead" roll-up** (flips the hw159 ❌ 3687-26/29/31 GREEN); **many-to-many master proof LIVE** — `/app/shared-pg` Contexts tab `3` = `db/registry`→harbor, `db/gitea`→gitea, `db/keycloak`→keycloak all sharing ONE PostgreSQL (North Star #2). Env fact: shared-PG instance id is the bare slug `shared-pg` (3 instances: shared-pg/-b/-c). Maps UAT 3687-05/09/10/20/21/26/27/28/30/34/35. No defects.
 
-**Running total this walk: 58/65 GREEN** — console-side 52/52 (structure 17 + #3668 13 + #3646 8 + #3687 14), SSO landing 6/13. The only RED is SSO app landing (7 apps mid-convergence / SSO-config).
+**#3376 funnel SURFACES — 11/11 ✅** (+ 14 not-reached) (`scripts/uat-3376-funnel-probe.mjs`): storefront (anon, sovereign-clean); junk-code redeem (honest "voucher not valid" + Browse-plans CTA); the 6-step wizard each deep-linked — Plans (5 tiers), Apps (incl. WordPress), Add-ons (omani.homes pool), **BCP/topology (both Single-region + Active-hot-standby radios; hot-standby reveals Primary/Replica region pickers)**, Review (monthly total), Checkout (passwordless, no password field); BSS vouchers (authed) → `/organizations/billing/vouchers` signed-in showback admin. The 14 NOT-REACHED rows need a driven provision (valid voucher → Org active → `console.<slug>`/`wordpress.<slug>` serving) — a separate heavier walk, honestly not-reached, never faked. Finding: the topology step lives at `/bcp` (runbook's `/topology` corrected). Maps UAT 3376-NN surfaces.
 
-**In progress (live-validating now):** #3375 topology · #3642 placement (NS#1 — 7 apps in mgmt vCluster) · #3376 funnel surfaces.
+**Running total this walk: 69/76 GREEN** (+14 funnel-provisioning rows honestly not-reached) — console-side 52/52, funnel surfaces 11/11, SSO landing 6/13. The only RED is SSO app landing (7 apps).
+
+**In progress (live-validating now):** #3375 topology · #3642 placement (NS#1 — 7 apps in mgmt vCluster).
 
 ---
 
