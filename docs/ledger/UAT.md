@@ -79,7 +79,11 @@ Per-runbook deep probes (interaction: click/fill/filter → assert → screensho
 - **#3374 SSO — 6/13 ✅** (console·newapi·openova-flow·openova-flow-anon-denied·keycloak-admin·marketplace) **· 7 ❌** (grafana·gitea·harbor·openbao·pdns-admin·guacamole·hubble).
 - **structure (console/#3383/#3375/#3646/#3668/#3687) — 17/17 ✅.**
 
-**Walk aggregate: 86 ✅ / 14 ❌ / 14 not-reached across 100 decidable rows.** Every ✅/❌ is screenshot-backed (87 distinct row screenshots in `docs/sessions/2026-06-19/evidence/`).
+- **#3379 cutover (Pillar-5) — 5/5 surfaces ✅ · 0 RED** (3379-01·02·02b·02c·05 — Cluster-sovereignty panel + "Achieve True Sovereignty" CTA, Sovereignty nav anchor, honest "Tethered" badge, confirm modal with the canonical **11-step** chain [probe clicks Cancel], /jobs canvas) **· 8 not-reached** (3379-03/04/06–11 — progress card + cutoverComplete + the 11 `cutover-step-*` rows need a driven cutover; 0 execution rows on hw167, correct dormant state) **· 5 GAP** (backend-only internals: deny-egress CCNP, registry pivot, OpenBao seal, audit fidelity, re-key).
+
+**Walk aggregate: 91 ✅ / 14 ❌ / 22 not-reached / 5 GAP across 105 decidable rows.** Every ✅/❌ is screenshot-backed (~100 row screenshots in `docs/sessions/2026-06-19/evidence/`). The 22 not-reached (funnel 14 + cutover 8) need DRIVEN flows.
+
+> **Convergence update:** the org-controller fix (PR #3849, bp-catalyst-platform 1.4.695) landed LIVE — root cause was a Helm `lookup` of an intra-release secret (render-time nil on first install) → org-controller secret never created → `mustEnv` panic → CrashLoop → platform oscillation. Now: org-controller 1/1 Running, **bp-catalyst-platform Ready (oscillation stopped), bp-continuum + bp-sandbox Ready, hw167 60/64**. Org-provisioning unblocked → the **funnel terminal is being driven now** (a `walkorg` Organization → active → console+app) to flip the 14 funnel not-reached rows. Second defect surfaced: the #3383 backend `sme`→`org-services` rename is incomplete (#3854, #3383 re-opened).
 
 ---
 
