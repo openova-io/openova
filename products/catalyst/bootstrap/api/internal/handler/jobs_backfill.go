@@ -189,9 +189,24 @@ func snapshotsToSeedsForRegion(snap []helmwatch.ComponentSnapshot, region string
 			}
 			regionDeps = rescoped
 		}
+		// Anti-flap (issue #3916): a HelmRelease whose Ready condition is
+		// transiently *Failed but whose Flux remediation.retries are NOT yet
+		// exhausted (Stalled==false) is STILL RECONCILING — Flux will flip it
+		// back installing→installed. The chroot /jobs page re-reads live
+		// state on every poll, so projecting that transient `failed` as a
+		// terminal Failed leaf made the row flap Failed↔Succeeded while the
+		// prov converged green. Downgrade a not-yet-stalled `failed` to
+		// `installing` (in-progress) here on the READ-side seed only; the
+		// live Watcher's own DeriveState still reports StateFailed so its
+		// late-poll/recovery machinery (issue #910) is untouched. A STABLY
+		// stalled HR (Stalled==true) keeps its terminal Failed leaf.
+		state := s.Status
+		if state == helmwatch.StateFailed && !s.Stalled {
+			state = helmwatch.StateInstalling
+		}
 		out = append(out, jobs.InformerSeed{
 			Component:  prefix + s.AppID,
-			State:      s.Status,
+			State:      state,
 			Message:    s.Message,
 			ObservedAt: s.LastTransitionAt,
 			DependsOn:  regionDeps,

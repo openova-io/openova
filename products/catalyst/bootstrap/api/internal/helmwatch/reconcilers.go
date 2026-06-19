@@ -61,6 +61,54 @@ var (
 // are in scope"). The reconciler chart stamps it via a render marker.
 const ReconcilerMarkerLabel = "catalyst.openova.io/reconciler"
 
+// Day-2 security-scanner namespaces (issue #3919 / #3925). The provisioning
+// Jobs view surfaces the FINITE job set (one-shot bootstrap/seed/migration
+// Jobs AND scheduled-recurring jobs like scans + backups). Day-2 background
+// scanners run FOREVER, minting a fresh Job per scan run — on a converged
+// Sovereign that is HUNDREDS of ever-growing per-run rows (614 trivy reports
+// observed live on hw171) that dwarf the ~100 real reconcilers.
+//
+// The #3925 model (jobs-convergence-monitor-model.md §4 Surface B): a
+// recurring scan is NOT a third nature and is NOT excluded — it is a finite
+// job that recurs. So each scanner COLLAPSES to exactly ONE identity-keyed
+// row carrying its run-history (run count + last-run + status), never 600
+// rows and never dropped. This supersedes the earlier #3919 disposition
+// (exclude entirely): the scanner identity is detected the same way
+// (isDay2ScannerJob), but its runs are folded onto ONE leaf as Executions
+// (the same collapse the cron + task leaves already use), so the Jobs view
+// shows "trivy security-scan · 600 runs" / "syft sbom · 37 runs" — one row
+// each. Two scanners collapse:
+//
+//   - trivy-operator — one short-lived scan-* Job per workload (+ per
+//     container), continuously re-scanned, in trivyScanNamespace. Detected by
+//     isTrivyScanJob; all runs fold onto the trivyScanIdentity row.
+//   - syft-grype     — a daily SBOM/vuln CronJob in syftGrypeNamespace whose
+//     spawned Jobs carry a CronJob ownerReference to syftGrypeCronName. The
+//     CronJob seeds the syftScanIdentity row in pass 2; its spawned + any
+//     namespace-resident scan Jobs fold on as Executions in pass 3.
+const (
+	// trivyScanNamespace — the namespace the trivy-operator runs its scan
+	// Jobs in. Scan Jobs anywhere else are still caught by the label/name
+	// checks in isDay2ScannerJob; this is the fast common-case match.
+	trivyScanNamespace = "trivy-system"
+	// syftGrypeNamespace — the namespace bp-syft-grype installs into
+	// (clusters/_template/bootstrap-kit/33-syft-grype.yaml targetNamespace).
+	syftGrypeNamespace = "syft-grype"
+	// syftGrypeCronName — the bp-syft-grype CronJob name (releaseName in the
+	// slot-33 HelmRelease). Its spawned Jobs carry it as a CronJob owner.
+	syftGrypeCronName = "syft-grype"
+
+	// trivyScanIdentity / syftScanIdentity — the STABLE identity the
+	// collapsed scanner row is keyed on (#3925). Every trivy scan Job folds
+	// onto trivyScanIdentity; every syft-grype run folds onto
+	// syftScanIdentity. These are the task-<identity> leaf names the Jobs
+	// view renders ONE row for, with all runs behind them as Executions.
+	// Names are operator-readable (DeriveLeafDisplayName humanises them to
+	// "Trivy Security Scan (task)" / "Syft SBOM (task)").
+	trivyScanIdentity = "trivy-security-scan"
+	syftScanIdentity  = "syft-sbom"
+)
+
 // Reconciler-observation Kind tags. These mirror the jobs.Kind* leaf
 // kinds 1:1 (kept as plain strings here so this package does not import
 // internal/jobs and create a cycle). The bridge maps them through.
@@ -182,9 +230,42 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 	// because pass 3 only ever appends AFTER the cron rows, so out[idx]
 	// always addresses the same logical element in the current array.
 	cronIdx := map[string]int{} // ns/name → index into out
+	// taskIdx indexes standalone task leaves by ns/base-name (issue #3916)
+	// so multiple runs of the same base Job collapse into ONE stable leaf
+	// with per-run Executions, never a fresh leaf per run. Indexed by
+	// position in `out` (never a cached pointer) for the same
+	// reallocation-safety reason cronIdx is.
+	taskIdx := map[string]int{} // ns/base → index into out
+	// scannerIdx indexes the ONE collapsed Day-2 scanner row per scanner
+	// identity (#3925) — trivyScanIdentity / syftScanIdentity. Every scan
+	// Job folds its run onto the single identity row as an Execution, so a
+	// 600-run trivy flood is ONE row + 600 runs, never 600 rows (and never
+	// dropped — a recurring scan is a finite job that recurs). Position-
+	// indexed for the same reallocation-safety reason cronIdx/taskIdx are.
+	scannerIdx := map[string]int{} // scanner-identity → index into out
 	if list, err := dyn.Resource(CronJobGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
 		for i := range list.Items {
 			u := &list.Items[i]
+			// Day-2 scanner CronJob (syft-grype) → COLLAPSES onto the single
+			// syftScanIdentity row (#3925), NOT a per-CronJob cron-* leaf.
+			// Seeding the identity row HERE (pending until its first run) means
+			// the Jobs view shows "syft sbom" even before any run lands, and
+			// the CronJob's spawned Jobs fold their runs onto this same row as
+			// Executions in pass 3 (keyed by scannerIdentity, not by owner).
+			if isDay2ScannerCronJob(u) {
+				key := syftScanIdentity
+				if _, ok := scannerIdx[key]; !ok {
+					out = append(out, ReconcilerObservation{
+						Kind:      ReconcilerKindTask,
+						Name:      syftScanIdentity,
+						Namespace: u.GetNamespace(),
+						Status:    ObsStatusPending,
+						Message:   "recurring SBOM scan: no run observed yet",
+					})
+					scannerIdx[key] = len(out) - 1
+				}
+				continue
+			}
 			obs := ReconcilerObservation{
 				Kind:      ReconcilerKindCron,
 				Name:      u.GetName(),
@@ -204,10 +285,27 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 	// Execution on an install leaf (HR install-hook), or a standalone
 	// task-<name> leaf. The ownership de-dup (issue #3646 §5a) keys off
 	// metadata.ownerReferences + the helm hook label.
+	//
+	// Day-2 security-scanner Jobs (trivy-operator + syft-grype, #3919/#3925)
+	// COLLAPSE onto ONE identity-keyed row per scanner — they never mint a
+	// per-run task-* leaf. The trivy-operator spawns one short-lived scan Job
+	// per workload (+ per container) and re-scans forever; syft-grype runs a
+	// daily SBOM CronJob. Both are finite jobs that RECUR (model §3): a
+	// recurring scan is one entity with a run-history behind it, not 600 rows
+	// and not excluded. So each scan Job folds its run onto the single
+	// scanner-identity row as an Execution (the same collapse the cron + task
+	// leaves use), recency-resolving the headline status — the Jobs view shows
+	// "trivy security-scan · N runs" / "syft sbom · N runs", one row each.
 	if list, err := dyn.Resource(JobGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
 		for i := range list.Items {
 			u := &list.Items[i]
 			status, started, finished := jobRunStatus(u)
+			// Day-2 scanner Job (trivy-operator scan-* OR a syft-grype run)
+			// → fold its run onto the ONE collapsed identity row (#3925).
+			if id, ok := scannerIdentity(u); ok {
+				foldScannerRun(&out, scannerIdx, id, u.GetNamespace(), u, status, started, finished)
+				continue
+			}
 			if cronName, ok := cronJobOwnerName(u); ok {
 				// Attach as an Execution under the owning cron leaf. Mutate
 				// through the index (out[idx]) so the write always lands on
@@ -245,6 +343,9 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 			}
 			if chart, ok := installHookOwnerChart(u); ok {
 				// HR install-hook Job — attaches under install-<chart>.
+				// Keyed by the OWNING chart (the install leaf), so per-run
+				// instance names never matter here — the install bridge
+				// dedups the Execution.
 				out = append(out, ReconcilerObservation{
 					Kind:              ReconcilerKindTask,
 					Name:              u.GetName(),
@@ -256,15 +357,60 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 				})
 				continue
 			}
-			// Standalone / cluster-owned batch Job → task-<name> leaf.
+			// Standalone / cluster-owned batch Job → a STABLE task-<base>
+			// leaf, NOT task-<per-run-name>.
+			//
+			// Accumulation bug (issue #3916): a Job created from a
+			// generateName (or re-created by Flux on each reconcile/retry)
+			// carries a fresh `-<hash>` run suffix every time. Keying the leaf
+			// on u.GetName() minted a brand-new task-* row per run → the /jobs
+			// model grew unbounded (region A 141→145 while the actual k8s Jobs
+			// stayed ~18-24/region). The fix keys the leaf on the STABLE base
+			// identity (taskBaseName) and records the per-run instance as an
+			// Execution under that one leaf — so N reruns = 1 row + N runs,
+			// never N rows. Identical structure across regions because the key
+			// no longer carries the run-instance entropy.
+			base := taskBaseName(u)
+			key := u.GetNamespace() + "/" + base
+			if idx, ok := taskIdx[key]; ok {
+				c := &out[idx]
+				c.Executions = append(c.Executions, ReconcilerExecution{
+					Name:       u.GetName(),
+					Status:     status,
+					StartedAt:  started,
+					FinishedAt: finished,
+					Message:    "run " + u.GetName() + ": " + status,
+				})
+				// Headline status reflects the MOST RECENT run (same recency
+				// rule as the cron leaf): a stale Succeeded run arriving after
+				// a fresh Failed one must not overwrite the failure. Recency =
+				// finish time, falling back to start for an in-flight run.
+				runAt := firstNonZero(finished, started)
+				if c.ObservedAt.IsZero() || runAt.IsZero() || !runAt.Before(c.ObservedAt) {
+					c.Status = status
+					c.Message = "last run " + u.GetName() + ": " + status
+					if !runAt.IsZero() {
+						c.ObservedAt = runAt
+					}
+				}
+				continue
+			}
 			out = append(out, ReconcilerObservation{
-				Kind:       ReconcilerKindTask,
-				Name:       u.GetName(),
-				Namespace:  u.GetNamespace(),
-				Status:     status,
-				Message:    "batch job: " + status,
+				Kind:      ReconcilerKindTask,
+				Name:      base,
+				Namespace: u.GetNamespace(),
+				Status:    status,
+				Message:   "batch job: " + status,
+				Executions: []ReconcilerExecution{{
+					Name:       u.GetName(),
+					Status:     status,
+					StartedAt:  started,
+					FinishedAt: finished,
+					Message:    "run " + u.GetName() + ": " + status,
+				}},
 				ObservedAt: firstNonZero(finished, started),
 			})
+			taskIdx[key] = len(out) - 1
 		}
 	}
 
@@ -292,10 +438,27 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 	return out, nil
 }
 
-// statusFromReadyCondition maps a Ready condition onto the one-shot
-// lifecycle status. Ready=True ⇒ succeeded; Ready=False with a terminal
-// reason ⇒ failed; otherwise running (reconcile in progress); no Ready
-// condition ⇒ pending.
+// statusFromReadyCondition maps a Flux Kustomization's Ready condition
+// onto the lifecycle status WITHOUT flapping a still-reconciling object
+// into a terminal Failed (issue #3916).
+//
+// Flux reconciles continuously: a healthy-but-converging Kustomization
+// oscillates Ready between False(reason=Progressing / BuildFailed /
+// HealthCheckFailed / DependencyNotReady, while it retries) and
+// True(reason=ReconciliationSucceeded). Because the chroot seed re-reads
+// live state on every /jobs poll and the later status wins, mapping each
+// transient False to terminal `failed` made the leaf flap Failed↔Succeeded
+// on the page even though the prov converged green.
+//
+// The mapping therefore only emits a TERMINAL status for a STABLE state:
+//   - Ready=True                       ⇒ succeeded (stably reconciled).
+//   - Ready=False, reason=Stalled      ⇒ failed (Flux's own permanent /
+//     terminal signal — it has GIVEN UP retrying; this is the only honest
+//     terminal failure for a continuously-reconciling object).
+//   - Ready=False, any other reason    ⇒ running (still reconciling /
+//     retrying — a transient build/health/dependency error Flux will
+//     re-attempt; NOT a terminal failure).
+//   - Ready=Unknown / no Ready cond    ⇒ running / pending.
 func statusFromReadyCondition(conds []metav1.Condition) string {
 	ready := findCondition(conds, "Ready")
 	if ready == nil {
@@ -305,11 +468,11 @@ func statusFromReadyCondition(conds []metav1.Condition) string {
 	case metav1.ConditionTrue:
 		return ObsStatusSucceeded
 	case metav1.ConditionFalse:
-		// A Kustomization that is progressing reports Ready=False with
-		// reason=Progressing/ReconciliationFailed. Treat an explicit
-		// failure reason as failed; anything else as still running.
-		r := strings.ToLower(ready.Reason)
-		if strings.Contains(r, "fail") || strings.Contains(r, "error") || strings.Contains(r, "stalled") {
+		// Only Flux's terminal "Stalled" reason (retries exhausted, no
+		// further automatic reconcile) is a genuine terminal failure. Every
+		// other Ready=False is an in-flight reconcile/retry — running, never
+		// a flapping terminal Failed.
+		if strings.EqualFold(strings.TrimSpace(ready.Reason), "Stalled") {
 			return ObsStatusFailed
 		}
 		return ObsStatusRunning
@@ -363,6 +526,249 @@ func jobStartTime(u *unstructured.Unstructured) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+// taskBaseName returns the STABLE base identity for a standalone batch
+// Job (issue #3916) — the key the task-<base> leaf is minted under, so
+// repeated runs of the same logical task collapse into one leaf with
+// per-run Executions instead of accumulating a fresh leaf per run.
+//
+// Resolution order:
+//  1. metadata.generateName — authoritative when present. The Job
+//     controller (and Flux's prune-and-recreate) sets generateName to the
+//     base and lets the apiserver append a "-<5-char-rand>" suffix, so the
+//     generateName (minus its trailing dash) IS the stable identity.
+//  2. otherwise strip a single trailing controller-appended run suffix
+//     from metadata.name: either a numeric CronJob-style "-<digits>"
+//     stamp or a lowercase-alphanumeric "-<hash>" (>=5 chars) the Job
+//     controller / generateName path leaves. A name with no such suffix
+//     (a human-authored fixed-name Job) is returned unchanged.
+//
+// The stripping is deliberately conservative — it removes AT MOST ONE
+// trailing segment and only when that segment looks machine-generated, so
+// a meaningful final segment of a fixed name (e.g. "cnpg-pair-primary-3-
+// join") is preserved.
+func taskBaseName(u *unstructured.Unstructured) string {
+	if gn := strings.TrimSpace(u.GetGenerateName()); gn != "" {
+		return strings.TrimRight(gn, "-")
+	}
+	name := u.GetName()
+	i := strings.LastIndexByte(name, '-')
+	if i <= 0 || i == len(name)-1 {
+		return name
+	}
+	suffix := name[i+1:]
+	if isRunSuffix(suffix) {
+		return name[:i]
+	}
+	return name
+}
+
+// isRunSuffix reports whether a trailing name segment looks like a
+// controller-appended run instance id: an all-digit stamp (CronJob unix
+// minute, e.g. "28912345") OR a lowercase base36-ish hash of length >=5
+// (the apiserver's generateName suffix is 5 lowercase alphanumerics, e.g.
+// "x7f2k"). Pure-alpha words shorter than the hash length, or any segment
+// containing an uppercase letter, are treated as MEANINGFUL (not a run id)
+// so a fixed-name Job like "...-join" or "...-migrate" is never truncated.
+func isRunSuffix(s string) bool {
+	if s == "" {
+		return false
+	}
+	allDigits := true
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			allDigits = false
+			break
+		}
+	}
+	if allDigits {
+		return true
+	}
+	// generateName random suffix: exactly-5 lowercase [a-z0-9], and NOT
+	// all-letters (an all-letters 5-char tail like "build" or "enrol" is a
+	// real word, not a hash). Require at least one digit to distinguish a
+	// random suffix from a meaningful trailing word.
+	if len(s) != 5 {
+		return false
+	}
+	hasDigit := false
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+			hasDigit = true
+		case r >= 'a' && r <= 'z':
+		default:
+			return false
+		}
+	}
+	return hasDigit
+}
+
+// isDay2ScannerJob reports whether a batch Job is a Day-2 security-scanner
+// run (trivy-operator OR syft-grype, #3919/#3925). A scanner run does NOT
+// mint its own per-run task-* leaf — instead it COLLAPSES onto ONE
+// identity-keyed row per scanner via scannerIdentity + foldScannerRun, so a
+// 600-run flood is one row with a run-history behind it (model §4 Surface B),
+// never 600 rows and never excluded.
+//
+// Day-2 scanners run forever: the trivy-operator spawns one short-lived scan
+// Job per workload (+ per container) and re-scans continuously (producing the
+// VulnerabilityReport / ConfigAuditReport / ExposedSecretReport /
+// RbacAssessmentReport CRs); syft-grype runs a daily SBOM/vuln CronJob whose
+// spawned Jobs accumulate under successfulJobsHistoryLimit. On a converged
+// Sovereign that is hundreds of ever-growing per-run rows that dwarf the ~100
+// real reconcilers. Collapsing them to one identity row each kills the flood
+// while keeping the recurring scan visible as the finite job it is.
+//
+// Detection is layered + conservative (any match ⇒ scanner Job), so a
+// TENANT's own Job named "scan-*" in some other namespace, or a non-scanner
+// user Job, is never swept up:
+//
+//	trivy-operator:
+//	 1. the trivy-operator managed-by label
+//	    (app.kubernetes.io/managed-by=trivy-operator) — stamped on every
+//	    scan Job the operator creates;
+//	 2. any trivy-operator.* label key (e.g. trivy-operator.resource.kind),
+//	    present on scan Jobs regardless of the managed-by value;
+//	 3. the well-known scan-* name prefix scoped to the trivy-system
+//	    namespace, a belt-and-braces fallback if a future operator release
+//	    strips the labels. Name-prefix alone OUTSIDE trivy-system is
+//	    intentionally NOT treated as a scan Job.
+//
+//	syft-grype:
+//	 4. a CronJob ownerReference to the syft-grype CronJob (the kube CronJob
+//	    controller stamps it on every spawned run) — authoritative;
+//	 5. the bp-syft-grype managed-by/instance label scoped to the
+//	    syft-grype namespace, for a Job that lost its owner ref;
+//	 6. residence in the syft-grype namespace, a final belt-and-braces
+//	    fallback (the whole namespace is the scanner's, so any Job there is a
+//	    scan run). Namespace-scoping keeps a same-named tenant Job elsewhere
+//	    surfaced as a real task.
+func isDay2ScannerJob(u *unstructured.Unstructured) bool {
+	return isTrivyScanJob(u) || isSyftGrypeScannerJob(u)
+}
+
+// scannerIdentity returns the STABLE collapse identity for a Day-2 scanner
+// Job (#3925) — trivyScanIdentity for any trivy-operator scan Job,
+// syftScanIdentity for any syft-grype run — and ok=false for a non-scanner
+// Job. Every run of a scanner maps to the SAME identity, which is what makes
+// the 600-run flood fold onto one row. Trivy is checked first; the two
+// detection sets are namespace-disjoint so order is immaterial in practice.
+func scannerIdentity(u *unstructured.Unstructured) (string, bool) {
+	if isTrivyScanJob(u) {
+		return trivyScanIdentity, true
+	}
+	if isSyftGrypeScannerJob(u) {
+		return syftScanIdentity, true
+	}
+	return "", false
+}
+
+// foldScannerRun records ONE scanner run as an Execution on the single
+// identity-keyed scanner row (#3925), creating the row on first sight. This
+// is the collapse: N scan Jobs sharing an identity ⇒ 1 row + N Executions
+// (run-history), never N rows. The headline status is recency-resolved (the
+// MOST RECENT run wins — a stale Succeeded arriving after a fresh Failed must
+// not overwrite the failure), identical to the cron + task leaf recency rule,
+// so the row never flaps on re-ingest. The row is indexed by position in
+// `out` (never a cached pointer) for the same reallocation-safety reason
+// cronIdx/taskIdx are.
+func foldScannerRun(out *[]ReconcilerObservation, scannerIdx map[string]int, identity, ns string, u *unstructured.Unstructured, status string, started, finished time.Time) {
+	run := ReconcilerExecution{
+		Name:       u.GetName(),
+		Status:     status,
+		StartedAt:  started,
+		FinishedAt: finished,
+		Message:    "scan run " + u.GetName() + ": " + status,
+	}
+	runAt := firstNonZero(finished, started)
+	if idx, ok := scannerIdx[identity]; ok {
+		c := &(*out)[idx]
+		c.Executions = append(c.Executions, run)
+		// Recency-resolve the headline so the collapsed row reflects the
+		// latest run, regardless of apiserver list order.
+		if c.ObservedAt.IsZero() || runAt.IsZero() || !runAt.Before(c.ObservedAt) {
+			c.Status = status
+			c.Message = "last scan run " + u.GetName() + ": " + status
+			if !runAt.IsZero() {
+				c.ObservedAt = runAt
+			}
+		}
+		return
+	}
+	*out = append(*out, ReconcilerObservation{
+		Kind:       ReconcilerKindTask,
+		Name:       identity,
+		Namespace:  ns,
+		Status:     status,
+		Message:    "recurring scan, last run " + u.GetName() + ": " + status,
+		Executions: []ReconcilerExecution{run},
+		ObservedAt: runAt,
+	})
+	scannerIdx[identity] = len(*out) - 1
+}
+
+// isTrivyScanJob — trivy-operator detection paths (1)-(3) above.
+func isTrivyScanJob(u *unstructured.Unstructured) bool {
+	labels := u.GetLabels()
+	if strings.EqualFold(strings.TrimSpace(labels["app.kubernetes.io/managed-by"]), "trivy-operator") {
+		return true
+	}
+	for k := range labels {
+		if strings.HasPrefix(k, "trivy-operator.") {
+			return true
+		}
+	}
+	if u.GetNamespace() == trivyScanNamespace && strings.HasPrefix(u.GetName(), "scan-") {
+		return true
+	}
+	return false
+}
+
+// isSyftGrypeScannerJob — syft-grype detection paths (4)-(6) above.
+func isSyftGrypeScannerJob(u *unstructured.Unstructured) bool {
+	// (4) spawned by the syft-grype CronJob — owner ref is authoritative
+	// regardless of namespace.
+	if owner, ok := cronJobOwnerName(u); ok && owner == syftGrypeCronName {
+		return true
+	}
+	// (5) bp-syft-grype-labelled Job in the syft-grype namespace. The
+	// bp-syft-grype helper labels stamp app.kubernetes.io/managed-by=Helm and
+	// app.kubernetes.io/instance=syft-grype + catalyst.openova.io/blueprint=
+	// bp-syft-grype; key off the blueprint/instance marker, namespace-scoped.
+	labels := u.GetLabels()
+	if u.GetNamespace() == syftGrypeNamespace {
+		if strings.EqualFold(strings.TrimSpace(labels["catalyst.openova.io/blueprint"]), "bp-syft-grype") {
+			return true
+		}
+		if strings.EqualFold(strings.TrimSpace(labels["app.kubernetes.io/instance"]), syftGrypeCronName) {
+			return true
+		}
+		// (6) any other Job in the syft-grype namespace — the namespace is
+		// exclusively the scanner's, so a stray Job there is still a scan run.
+		return true
+	}
+	return false
+}
+
+// isDay2ScannerCronJob reports whether a batch CronJob is a Day-2 scanner
+// CronJob (syft-grype) that must be excluded from the flow + diagram. The
+// trivy-operator does NOT use a CronJob (it self-spawns Jobs), so this only
+// matches syft-grype: by name+namespace, or by the bp-syft-grype blueprint
+// label, namespace-scoped so a tenant CronJob elsewhere is untouched.
+func isDay2ScannerCronJob(u *unstructured.Unstructured) bool {
+	if u.GetNamespace() != syftGrypeNamespace {
+		return false
+	}
+	if u.GetName() == syftGrypeCronName {
+		return true
+	}
+	labels := u.GetLabels()
+	if strings.EqualFold(strings.TrimSpace(labels["catalyst.openova.io/blueprint"]), "bp-syft-grype") {
+		return true
+	}
+	return false
 }
 
 // cronJobOwnerName returns the owning CronJob name when the Job carries a

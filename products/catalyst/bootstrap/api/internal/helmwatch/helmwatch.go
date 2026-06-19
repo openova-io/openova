@@ -687,6 +687,13 @@ type ComponentSnapshot struct {
 	// from spec.dependsOn[].name with the "bp-" prefix stripped.
 	// Drives the Jobs Flow view's edge graph (issue #204).
 	DependsOn        []string  `json:"dependsOn,omitempty"`
+	// Stalled — true when Status==StateFailed AND Flux has exhausted its
+	// remediation.retries (Stalled=True / RetriesExceeded). The READ-side
+	// /jobs seed uses this to distinguish a STABLY-failed HR (terminal
+	// Failed leaf) from a still-retrying transient failure (in-progress
+	// leaf), so a healthy-but-converging HR never flaps Failed↔Succeeded
+	// on the page (issue #3916). Meaningless when Status != StateFailed.
+	Stalled          bool      `json:"stalled,omitempty"`
 }
 
 // NewWatcher returns a Watcher with cfg applied. emit must be non-nil
@@ -1792,6 +1799,33 @@ func DeriveState(conds []metav1.Condition) string {
 	return StatePending
 }
 
+// IsStalledHelmRelease reports whether a HelmRelease has STABLY failed —
+// Flux's remediation.retries are exhausted and helm-controller will NOT
+// auto-reconcile again without a spec change or manual reconcile. Flux
+// signals this with the Stalled=True condition (and/or a RetriesExceeded
+// Ready reason).
+//
+// This is DISTINCT from DeriveState's StateFailed, which fires the instant
+// a transient InstallFailed/UpgradeFailed appears — even while retries
+// remain. The live Phase-1 Watcher WANTS that eager StateFailed so its
+// late-poll/recovery machinery (issue #910) engages; this helper is for
+// the READ-side /jobs projection, which must NOT flap a leaf Failed↔
+// Succeeded while a healthy-but-still-retrying HR oscillates (issue #3916).
+// A failed-but-not-stalled HR is reported to the jobs page as "installing"
+// (in-progress); only a stalled one becomes a terminal Failed leaf.
+func IsStalledHelmRelease(u *unstructured.Unstructured) bool {
+	conds, _ := extractConditions(u)
+	if c := findCondition(conds, "Stalled"); c != nil && c.Status == metav1.ConditionTrue {
+		return true
+	}
+	if ready := findCondition(conds, "Ready"); ready != nil &&
+		ready.Status == metav1.ConditionFalse &&
+		strings.EqualFold(strings.TrimSpace(ready.Reason), "RetriesExceeded") {
+		return true
+	}
+	return false
+}
+
 // isDependencyMessage matches helm-controller's standard "dependency 'X'
 // is not ready" message family. We pin on substring rather than reason
 // because helm-controller emits Reason=DependencyNotReady AND
@@ -2001,6 +2035,7 @@ func (w *Watcher) SnapshotComponents() []ComponentSnapshot {
 			LastTransitionAt: lastTransitionAt.UTC(),
 			Message:          message,
 			DependsOn:        extractDependsOn(u),
+			Stalled:          state == StateFailed && IsStalledHelmRelease(u),
 		})
 	}
 	return out
@@ -2058,6 +2093,7 @@ func ListAndSnapshotHelmReleases(ctx context.Context, dyn dynamic.Interface) ([]
 			LastTransitionAt: lastTransitionAt.UTC(),
 			Message:          message,
 			DependsOn:        extractDependsOn(u),
+			Stalled:          state == StateFailed && IsStalledHelmRelease(u),
 		})
 	}
 	return out, nil

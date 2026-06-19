@@ -569,6 +569,10 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter, deploymentId
               <th data-col="deps">Deps</th>
               <th data-col="parent">Parent</th>
               <th data-col="status">Status</th>
+              {/* Runs column (#3925) — run-history depth. A recurring job
+                  that collapses to ONE identity row (e.g. a trivy/syft
+                  scan) shows its full run count here; a one-shot shows 1. */}
+              <th data-col="runs">Runs</th>
               <th data-col="started">Started</th>
               <th data-col="duration">Duration</th>
               {/* Actions column (issue #3646 §5c) — per-row Retry control
@@ -580,11 +584,11 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter, deploymentId
           <tbody>
             {visibleJobs.length === 0 ? (
               <tr>
-                {/* base 7 cols (name,app,deps,parent,status,started,
+                {/* base 8 cols (name,app,deps,parent,status,runs,started,
                     duration) + Kind (+1) + Region (showRegion) + Actions
                     (deploymentId). */}
                 <td
-                  colSpan={8 + (showRegion ? 1 : 0) + (deploymentId ? 1 : 0)}
+                  colSpan={9 + (showRegion ? 1 : 0) + (deploymentId ? 1 : 0)}
                   className="jobs-empty"
                   data-testid="jobs-table-empty"
                 >
@@ -780,6 +784,22 @@ function JobRow({ job, parentLabel, showRegion, regionUnionByGroupId, deployment
       </td>
       <td className="jobs-cell jobs-cell-status">
         <StatusBadge status={job.status} jobId={job.id} provisional={job.provisional === true} />
+      </td>
+      <td className="jobs-cell jobs-cell-runs">
+        {/* Runs (#3925) — run-history depth. A collapsed recurring row
+            (scan/backup) shows its run count ("600"); a one-shot shows 1.
+            A pending row with no run yet (undefined/0) shows "—". */}
+        {job.runCount && job.runCount > 0 ? (
+          <span
+            className="jobs-runs-count"
+            data-testid={`jobs-cell-runs-${job.id}`}
+            title={`${job.runCount} run${job.runCount === 1 ? '' : 's'} recorded`}
+          >
+            {job.runCount}
+          </span>
+        ) : (
+          <span className="jobs-empty-cell" data-testid={`jobs-cell-runs-empty-${job.id}`}>—</span>
+        )}
       </td>
       <td className="jobs-cell jobs-cell-started" title={started.absolute}>
         <span data-testid={`jobs-cell-started-${job.id}`}>{started.display}</span>
@@ -1010,6 +1030,13 @@ const JOBS_TABLE_CSS = `
 }
 .jobs-cell-name { min-width: 220px; max-width: 360px; }
 .jobs-cell-deps { min-width: 120px; }
+.jobs-cell-runs { text-align: right; min-width: 56px; }
+.jobs-runs-count {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8rem;
+  color: var(--color-text);
+}
 .jobs-row-link {
   display: block;
   width: 100%;

@@ -34,9 +34,40 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
+
+// TestSnapshotsToSeeds_TransientFailedNotStalledIsInProgress pins the
+// read-side install-leaf anti-flap (issue #3916): a HelmRelease whose Ready
+// condition is transiently *Failed but whose Flux remediation.retries are
+// NOT yet exhausted (Stalled==false) is STILL RECONCILING, so the /jobs seed
+// must project it as in-progress ("installing"), never a terminal "failed"
+// that flaps back to "succeeded" on the next poll. A STABLY-stalled HR keeps
+// its terminal "failed".
+func TestSnapshotsToSeeds_TransientFailedNotStalledIsInProgress(t *testing.T) {
+	snap := []helmwatch.ComponentSnapshot{
+		{AppID: "keycloak", Status: helmwatch.StateFailed, Stalled: false},  // retrying
+		{AppID: "openbao", Status: helmwatch.StateFailed, Stalled: true},    // stalled
+		{AppID: "cilium", Status: helmwatch.StateInstalled, Stalled: false}, // green
+	}
+	seeds := snapshotsToSeeds(snap)
+	got := map[string]string{}
+	for _, s := range seeds {
+		got[s.Component] = s.State
+	}
+	if got["keycloak"] != helmwatch.StateInstalling {
+		t.Errorf("transient-failed-not-stalled keycloak seed = %q, want %q (in-progress, no flap)",
+			got["keycloak"], helmwatch.StateInstalling)
+	}
+	if got["openbao"] != helmwatch.StateFailed {
+		t.Errorf("stalled openbao seed = %q, want %q (terminal)", got["openbao"], helmwatch.StateFailed)
+	}
+	if got["cilium"] != helmwatch.StateInstalled {
+		t.Errorf("installed cilium seed = %q, want %q (unchanged)", got["cilium"], helmwatch.StateInstalled)
+	}
+}
 
 // newBackfillRouter wires the two new endpoints + a jobs.Store so the
 // /refresh-watch handler can write Jobs through the bridge.

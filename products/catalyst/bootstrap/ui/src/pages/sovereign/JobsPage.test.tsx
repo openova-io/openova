@@ -126,11 +126,12 @@ describe('JobsPage — table view (NOT accordion)', () => {
     renderJobs('d-1')
     const table = await screen.findByTestId('jobs-table')
     const headers = within(table).getAllByRole('columnheader').map((h) => (h.textContent ?? '').toLowerCase().trim())
-    // Kind inserted after Name (#3646); Parent (not the legacy "batch")
-    // is the canonical column; Actions trails when a deploymentId is
-    // threaded (JobsPage threads it). Assert the stable left columns.
-    expect(headers.slice(0, 8)).toEqual([
-      'name', 'kind', 'app', 'deps', 'parent', 'status', 'started', 'duration',
+    // Kind inserted after Name (#3646); Runs after Status (#3925 run-history
+    // depth); Parent (not the legacy "batch") is the canonical column;
+    // Actions trails when a deploymentId is threaded (JobsPage threads it).
+    // Assert the stable left columns.
+    expect(headers.slice(0, 9)).toEqual([
+      'name', 'kind', 'app', 'deps', 'parent', 'status', 'runs', 'started', 'duration',
     ])
   })
 
