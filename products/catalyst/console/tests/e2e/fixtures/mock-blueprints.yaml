@@ -55,8 +55,14 @@ blueprints:
       realm: sovereign
       silentLogin: true
     endpoints:
+      # Harbor's UI + API are served on the SAME host as the registry
+      # (registry.<fqdn>): the live bootstrap-kit overlay sets BOTH gateway.host
+      # AND externalURL to registry.${SOVEREIGN_FQDN}, and platform/harbor/
+      # blueprint.yaml renders BOTH endpoints from registry.{{.SovereignFQDN}}.
+      # The earlier harbor.<fqdn> value pointed at a host with NO HTTPRoute → the
+      # console launch-url 404'd. Keep this mock aligned with the live blueprint.
       - name: ui
-        hostnameTemplate: "harbor.{{.SovereignFQDN}}"
+        hostnameTemplate: "registry.{{.SovereignFQDN}}"
         port: 443
         protocol: https
         tls: true
