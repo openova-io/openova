@@ -1,513 +1,188 @@
-# UAT — browser walkthrough dashboard · `hw167` (2026-06-19) — live-probe walk
-
-> **Env:** `hw167.omantel.biz` · deployment `28d4e96f96407bbb` · single physical kom4dc region
-> (2 VPCs `me-east-215-a` / `-b`). Console externally reachable (Let's Encrypt wildcard cert) after
-> #3845/PR #3846 (`sovereign-tls` decoupled from bootstrap-kit) + #3843 (openbao Role apiVersion).
-
-## 🟢 LIVE-PROBE WALK — hw167 (2026-06-19) — 23/30 GREEN (console 17/17 · SSO 6/13)
-
-Run by the repeatable live-env probe harness: `scripts/uat-run.mjs` → `scripts/uat-console-probe.mjs`
-(console structure) + `scripts/sso-zero-click-probe.mjs` (SSO landing). Each row is a real browser
-**navigate → assert landing markers + absence of login/404 markers → screenshot** under the zero-click
-handover session. Screenshots: [`../sessions/2026-06-19/evidence/`](../sessions/2026-06-19/evidence/).
-A redirect ending on a login/PIN page = ❌ (the #3374 contract). The 7 SSO ❌ are honest gaps —
-apps mid-convergence (hw167 at 57/64, bp-catalyst-platform oscillating) or per-app SSO-config gaps.
-
-| TC | Surface checked (live) | Result | Evidence |
-|---|---|:---:|---|
-| 3687-01 | console bare URL → lands `/dashboard` signed-in (no PIN) | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3687-01.png) |
-| 3687-02 | full sidebar Apps/Catalog/Jobs/Organizations/Settings | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3687-02.png) |
-| 3687-20 | catalog grid renders | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3687-20.png) |
-| 3687-22 | apps grid renders | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3687-22.png) |
-| 3687-26 | dashboard treemap + layer vocabulary (Cluster/vCluster/Region/Sovereign) | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3687-26.png) |
-| 3687-35 | organizations directory renders | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3687-35.png) |
-| 3383-01 | orgs heading — NO "SME tenant"/"Tenants" wording | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3383-01.png) |
-| 3383-03 | sidebar reads "Organizations" not "Tenants" | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3383-03.png) |
-| 3383-07 | legacy `/bss/tenants` → redirects to `/organizations` | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3383-07.png) |
-| 3646-01 | `/jobs` canvas signed-in | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3646-01.png) |
-| 3646-02 | jobs populated with real lifecycle installs | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3646-02.png) |
-| 3646-03 | Kind + Status + Started columns present | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3646-03.png) |
-| 3668-02 | catalog grid (blueprint cards) | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3668-02.png) |
-| 3668-03 | grafana blueprint detail + "Edit IaC" affordance | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3668-03.png) |
-| 3668-30 | postgres blueprint detail | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3668-30.png) |
-| 3375-17 | apps grid (Topology-tab entry point) | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3375-17.png) |
-| 3375-22 | Settings page (Sovereign/Organization/API sections) | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3375-22.png) |
-| 3374-01 | console bare URL → signed-in admin | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3374-console.png) |
-| 3374-09 | keycloak bare URL → sovereign-realm admin console | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3374-keycloak-admin.png) |
-| 3374-12 | newapi bare URL → signed-in (`/console/token`) | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3374-newapi.png) |
-| 3374-14 | openova-flow bare URL → authed pass-through | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3374-openova-flow.png) |
-| 3374-26 | openova-flow ANON → correctly bounced to login (security) | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3374-openova-flow-anon-denied.png) |
-| 3374-16 | marketplace anonymous storefront renders | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3374-marketplace.png) |
-| 3374-05 | grafana bare URL → no Profile control (not SSO-landed) | ❌ | [shot](../sessions/2026-06-19/evidence/hw167-3374-grafana.png) |
-| 3374-06 | gitea bare URL → stuck on `/user/oauth2/openova-sso` callback | ❌ | [shot](../sessions/2026-06-19/evidence/hw167-3374-gitea.png) |
-| 3374-07 | harbor bare URL → `/account/sign-in` LOGIN page (FAIL) | ❌ | [shot](../sessions/2026-06-19/evidence/hw167-3374-harbor.png) |
-| 3374-08 | openbao bare URL → `/ui/` HTTP failure (not serving) | ❌ | [shot](../sessions/2026-06-19/evidence/hw167-3374-openbao.png) |
-| 3374-10 | guacamole bare URL → no Connections (HR still installing) | ❌ | [shot](../sessions/2026-06-19/evidence/hw167-3374-guacamole.png) |
-| 3374-11 | pdns-admin bare URL → auth-realm redirect, no `/dashboard` | ❌ | [shot](../sessions/2026-06-19/evidence/hw167-3374-pdns-admin.png) |
-| 3374-15 | hubble bare URL → no Hubble UI (not serving) | ❌ | [shot](../sessions/2026-06-19/evidence/hw167-3374-hubble.png) |
-
-> **Re-run any time:** `node scripts/uat-run.mjs --fqdn hw167.omantel.biz --jwt-key /tmp/hw-priv.pem --deployment-id 28d4e96f96407bbb --shots docs/sessions/2026-06-19/evidence`.
-### Deep-probe walk (live hw167) — extending coverage beyond structure
-
-Per-runbook deep probes (interaction: click/fill/filter → assert → screenshot), each live-validated against hw167. Screenshots `hw167-<runbook>-D*.png` under the evidence dir.
-
-**#3668 catalog single-source IaC editor — 13/13 ✅** (`scripts/uat-3668-deep-probe.mjs`): Edit-IaC full-CR editor opens with the whole `Blueprint` CR seeded + "writes the IaC source of truth" subtitle + Validate/Commit; Show-diff renders Current vs Proposed panes; inline summary/name editors (in-place, no modal); icon-picker light+dark grids → select cilium (in-draft, no live write); identical editor chrome on a 2nd blueprint (grafana). Maps UAT 3668-03/04/16/17/23/24/25/26/30/31. No defects.
-
-**#3646 jobs honest canvas — 8/8 ✅** (`scripts/uat-3646-deep-probe.mjs`): toolbar+table; populated canvas (≥10 rows → real HelmRelease installs); Kind `<select>` offers `[All,cron,install,lifecycle,reconcile,reconciler,step,task]` — **the 8× hw159 GAP kinds (task/cron/reconciler/step) are now LIVE**; Kind=lifecycle filters 88→5; search `openbao` 88→4; Status=failed → 3 honest FAILED rows each with a kind-specific Re-run button; inverse gating verified (succeeded rows: zero Re-run). Honest backend finding (real cluster state, not a probe bug): `catalog-sovereign` + `sme-tenants` reconciles FAILED ~2h. Maps UAT 3646-02/03/04/05/06/07/10/12/13.
-
-**#3687 object-model deep — 14/14 ✅** (`scripts/uat-3687-deep-probe.mjs`): org directory table (kind/tier/billing/isolation/status badges); org-detail identity CR card; Showback panel + honest empty-state; apps grid one-card-per-Application + BOOTSTRAP badges. Two LIVE advances past hw159: **treemap Layer-1=Organization / Layer-2=Application is now the default + a distinct "Platform overhead" roll-up** (flips the hw159 ❌ 3687-26/29/31 GREEN); **many-to-many master proof LIVE** — `/app/shared-pg` Contexts tab `3` = `db/registry`→harbor, `db/gitea`→gitea, `db/keycloak`→keycloak all sharing ONE PostgreSQL (North Star #2). Env fact: shared-PG instance id is the bare slug `shared-pg` (3 instances: shared-pg/-b/-c). Maps UAT 3687-05/09/10/20/21/26/27/28/30/34/35. No defects.
-
-**#3376 funnel SURFACES — 11/11 ✅** (+ 14 not-reached) (`scripts/uat-3376-funnel-probe.mjs`): storefront (anon, sovereign-clean); junk-code redeem (honest "voucher not valid" + Browse-plans CTA); the 6-step wizard each deep-linked — Plans (5 tiers), Apps (incl. WordPress), Add-ons (omani.homes pool), **BCP/topology (both Single-region + Active-hot-standby radios; hot-standby reveals Primary/Replica region pickers)**, Review (monthly total), Checkout (passwordless, no password field); BSS vouchers (authed) → `/organizations/billing/vouchers` signed-in showback admin. The 14 NOT-REACHED rows need a driven provision (valid voucher → Org active → `console.<slug>`/`wordpress.<slug>` serving) — a separate heavier walk, honestly not-reached, never faked. Finding: the topology step lives at `/bcp` (runbook's `/topology` corrected). Maps UAT 3376-NN surfaces.
-
-**#3375 topology/DR — 7/11 ✅** (`scripts/uat-3375-topology-probe.mjs`): catalog new-instance entry; shared-pg Topology tab Change-placement editor (all 4 mode radios + 2 region checkboxes); declared-topology strip (`singleton`); grafana declares active-hot-standby + honest "no live DR pair" strip; Switchover honestly hidden for singleton; `/cloud` true 2-region map (me-east-215-a + -b). 4 RED: **3375-04 REAL DEFECT** — catalog `bp-postgres` Instances table renders the BANNED `active-hotstandby` chip + "Supported topologies" lists only 2 of 4 (missing `active-passive`/`active-active`) — the surviving #3375 one-vocabulary gap; 3375-13/20/29 RED-by-design (shared-pg is a bootstrap HR with no Application CR → live primary/replica/lag/Switchover read n/a; single-physical-region + bp-continuum oscillating). Maps UAT 3375-NN.
-
-**#3642 placement (NS#1) — 10/13 ✅** (`scripts/uat-3642-placement-probe.mjs`): dashboard treemap LAYER1=vCluster; **NS#1 verdict — 6/7 apps now genuinely INSIDE the mgmt vCluster** (grafana, harbor, keycloak, gitea, openbao, guacamole) via the bp-mgmt-vcluster 0.2.19 fix (hw159 was 0/7 — all under host). 3 RED: **newapi host-placed BY DESIGN** (3642-09/11/12). NOT a missing migration — #3642 DID promote newapi to mgmt; it broke (newapi is the only NS#1 app that OWNS a dedicated CNPG cluster vs consuming a reflected shared-pg secret; the shared-pg-oriented host-bridge drops the CNPG-owner seams — `database-secret-sync` Job, `admin-sso-seed`, SSO AppRegistration, `database.existingSecret` — so the Deployment skip-renders), so **PR #3832 reverted it to host** (verified-broken on hw165). NS#1 is honestly **6/7**; a real 7/7 needs the CNPG-owner-seam host-bridge enhancement (OPEN **#3831**), NOT a naive re-promote — which would re-break newapi + fake-GREEN the geometry-only probe (the dispatched fix-agent correctly REFUSED on this evidence). newapi is healthy host-placed on hw167 (HR Ready, Deployment 1/1, dedicated CNPG up). Maps UAT 3642-NN.
-
-**Running total this walk: 94/105 GREEN** (+22 not-reached [funnel 14 being driven · cutover 8] + 5 GAP) — console-side 52/52, funnel surfaces 11/11, cutover surfaces 5/5, topology 7/11, placement 10/13, **SSO landing 9/13** (gitea/harbor/openbao flipped + live-confirmed this session). RED (11) = 4 SSO (grafana/guacamole convergence + pdns partial + hubble probe-false-RED) + 4 topology (1 vocab #3856 + 3 by-design runtime-DR) + 3 placement (newapi by-design #3831).
-
-> **2 real defects found mid-walk (fixing forward, not faked):** (1) `catalyst-organization-controller` CrashLoopBackOff — root cause **`required env var unset: CATALYST_KC_SA_CLIENT_ID`** → failed the bp-catalyst-platform helm upgrade (the oscillation) AND blocked org provisioning — now **FIXED (PR #3849, 1.4.695)**, platform converged; (2) catalog `bp-postgres` banned `active-hotstandby` vocabulary + 2-of-4 topologies (**#3856**). **Corrected:** newapi NS#1 6/7 is BY DESIGN (host-placed CNPG-owner; #3832 revert; a real 7/7 = the #3831 host-bridge seam enhancement) — NOT a defect; the naive-promote dispatch was refused on this evidence.
-
-**In progress:** SSO triage+fix (the 7 SSO RED apps).
-
-**Per-row deep evidence (hw167, every row live-walked — screenshots `hw167-<id>.png` under the evidence dir):**
-- **#3687 object-model — 14/14 ✅:** 3687-01·05·09·10·20·20b·21·26·26b·27·28·30·34·35 (org directory + detail CR cards, Showback + honest empty-state, apps one-card-per-Application, Org/App treemap + no-Job-cells, many-to-many shared-pg Contexts=3).
-- **#3668 catalog IaC — 13/13 ✅:** 3668-D00…D12 (Edit-IaC full-CR editor, Show-diff Current/Proposed panes, inline summary/name editors, icon-picker light+dark grids, generality on grafana).
-- **#3646 jobs canvas — 8/8 ✅:** 3646-D00…D07 (populated canvas, Kind + Status filters, search, failed→Retry gating + inverse gating).
-- **#3376 funnel — 11/11 surfaces ✅** (3376-00·01·05·06·07·08·09·10·11·12·13 — storefront/redeem/Plans/Apps/Add-ons/BCP/Review/Checkout/BSS) **· 14 not-reached** (3376-02·03·04·14–24 — need a driven provision).
-- **#3375 topology — 7/11 ✅** (3375-01·07·10·14·18·19·21) **· 4 ❌** (3375-04 banned `active-hotstandby` vocab; 3375-13·20·29 runtime-DR n/a by-design).
-- **#3642 placement (NS#1) — 10/13 ✅** (3642-01…08·10·13) **· 3 ❌** (3642-09·11·12 — newapi host-placed BY DESIGN: #3832 revert; real 7/7 = #3831 CNPG-owner seam work — NOT a missing migration).
-- **#3374 SSO — 9/13 ✅** (console·openova-flow·openova-flow-anon-denied·keycloak-admin·marketplace·**gitea·harbor·openbao·hubble**) — gitea/harbor/openbao flipped via PRs #3851/#3855/#3857; **6 LIVE-confirmed by direct browser_navigate** (console `/dashboard`, openbao vault, gitea dashboard, harbor projects, hubble UI, keycloak sovereign-console all signed-in — `hw167-3374-*-livewalk.png` + `hw167-3687-01-livewalk.png`) **· 4 ❌** (grafana + guacamole convergence-blocked [not SSO-config]; pdns 2nd-OIDC-hop partial [DB-500 fixed #3852]; **newapi REGRESSED LIVE** — the live walk caught `upstream connect error 111` at the gateway while the pod is `3/3 Running` [datapath/route break, likely the 1.4.695 catalyst-api roll] — was probe-GREEN→now RED; the direct browser_navigate caught what the probe's hours-old pass and the pod-health check both missed).
-- **structure (console/#3383/#3375/#3646/#3668/#3687) — 17/17 ✅.**
-
-- **#3379 cutover (Pillar-5) — 5/5 surfaces ✅ · 0 RED** (3379-01·02·02b·02c·05 — Cluster-sovereignty panel + "Achieve True Sovereignty" CTA, Sovereignty nav anchor, honest "Tethered" badge, confirm modal with the canonical **11-step** chain [probe clicks Cancel], /jobs canvas) **· 8 not-reached** (3379-03/04/06–11 — progress card + cutoverComplete + the 11 `cutover-step-*` rows need a driven cutover; 0 execution rows on hw167, correct dormant state) **· 5 GAP** (backend-only internals: deny-egress CCNP, registry pivot, OpenBao seal, audit fidelity, re-key).
-
-**Walk aggregate: 91 ✅ / 14 ❌ / 22 not-reached / 5 GAP across 105 decidable rows.** Every ✅/❌ is screenshot-backed (~100 row screenshots in `docs/sessions/2026-06-19/evidence/`). The 22 not-reached (funnel 14 + cutover 8) need DRIVEN flows.
-
-> **Convergence update:** the org-controller fix (PR #3849, bp-catalyst-platform 1.4.695) landed LIVE — root cause was a Helm `lookup` of an intra-release secret (render-time nil on first install) → org-controller secret never created → `mustEnv` panic → CrashLoop → platform oscillation. Now: org-controller 1/1 Running, **bp-catalyst-platform Ready (oscillation stopped), bp-continuum + bp-sandbox Ready, hw167 60/64**. Org-provisioning unblocked → the **funnel terminal is being driven now** (a `walkorg` Organization → active → console+app) to flip the 14 funnel not-reached rows. Second defect surfaced: the #3383 backend `sme`→`org-services` rename is incomplete (#3854, #3383 re-opened).
-
----
-
-> ⚠️ **The hw159 per-row matrix below is SUPERSEDED** (prior env, wiped). Per the founder flush rule no
-> hw159 ✅ carries to hw167; the authoritative current state is the **live-probe walk above**. The hw159
-> matrix is retained only as the row inventory the probes are progressively re-walking on hw167.
-
-## 📋 FULL PER-ROW MATRIX — all 243 canonical UAT rows (hw159, 2026-06-18)
-
-Every test from the 10 runbooks, one row each: **ID** (`<ticket>-<NN>`) · **Test** · **Result** (✅ PASS / ❌ FAIL / GAP=no-UI / ☐ not-reached) · **Evidence** (screenshot). Full detail + inline screenshots per runbook: [`uat-walkthrough/`](uat-walkthrough/). The per-runbook rollup is the **⭐ STANDARD SCOREBOARD** below.
-> 🎯 **How to reach 100%:** [`PATH-TO-100.md`](PATH-TO-100.md) — every ❌ mapped to its root-cause fix (issue + code path + owner), every GAP triaged, priority-ordered. Cheapest first move: re-prov on the published **1.4.677** (clears the stale-1.4.674-pin fails for free).
-
-> **Authoritative aggregate (hw159, this env): `119 ✅ / 61 ❌ / 56 GAP / 5 ☐` — the per-runbook walker tallies in the scoreboard below.** This row-level matrix re-parses each runbook table and lands at `116 ✅ / 64 ❌ / 57 GAP / 6 ☐` — a ±3 delta because a few runbook rows bundle multiple checks (e.g. `A1 ✅✅` = one row, two passes); the scoreboard counts checks, the matrix counts rows. Both are **hw159's real numbers**.
->
-> ⚠️ **These are NOT 97/80/49 — that figure is `hw158`'s aggregate (the wiped predecessor env), and it is NOT a target to hit.** Per the founder's standing rule (*"each new env flushes ALL prior evidence; never carry an old env's number"*), hw159 carries only hw159's own walked verdicts. Bending these counts to match hw158's 97/80/49 would be fabrication; this matrix reports what was actually walked on hw159, nothing else.
-
-| ID | Runbook | Test (what was checked) | Result | Evidence |
-|---|---|---|:---:|---|
-| 3687-01 | object-model | Open the console root. Expect: PIN-authenticated redirect lands directly on `/dashboard`,  | ⏳ | — |
-| 3687-02 | object-model | Full sidebar (Dashboard/Cloud/Apps/Catalog/Sandbox/Jobs/Compliance/Users/Organizations/Set | ⏳ | — |
-| 3687-03 | object-model | For the authed owner session the redeem URL server-redirected to `/dashboard` — no redeem  | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-signin-dashboard.png) |
-| 3687-04 | object-model | — | ⏳ | — |
-| 3687-05 | object-model | Acme Corp row: KIND **CUSTOMER**, TIER **Sme**, BILLING **REAL**, ISOLATION **vcluster**,  | ⏳ | — |
-| 3687-06 | object-model | **** — "the FerretDB `store.Tenant` row carries the CR's UID/owner-ref, proving it is a do | GAP | — |
-| 3687-07 | object-model | **** — "deleting the Organization GC's its vCluster + realm + repos" has **no operator-fac | GAP | — |
-| 3687-08 | object-model | **** — "ONE shared `TenantCreatedPayload` struct across publisher + consumer" is a code-in | GAP | — |
-| 3687-09 | object-model | Confirm the customer tenant is present as a real Organization in the directory (same surfa | ⏳ | — |
-| 3687-10 | object-model | Acme detail renders the canonical fields: **Slug `acme`** (NOT `sme-<uuid>`), Kind `custom | ⏳ | — |
-| 3687-11 | object-model | The Create-organization form renders fully (kind picker, slug, Company name, Admin email,  | ⏳ | — |
-| 3687-12 | object-model | Acme status = **active** (with a real `vcluster` isolation backing it — the directory + de | ⏳ | — |
-| 3687-13 | object-model | **** — "ONE Flux source reconciles both the funnel and console Orgs (one Git location, not | GAP | — |
-| 3687-14 | object-model | **** — "the NATS bridge no longer ack-and-skips" and "the parallel SME store/writer is del | GAP | — |
-| 3687-15 | object-model | `Acme Corp` is present + **ACTIVE**, backed by a real `vcluster` isolation. The create→Pro | ⏳ | — |
-| 3687-16 | object-model | Acme detail Status = **active**, and the directory + detail consistently show `vcluster` i | ⏳ | — |
-| 3687-17 | object-model | On re-load the Acme detail consistently reports **active** + `vcluster` (stable, no flicke | ⏳ | — |
-| 3687-18 | object-model | **** — "`status.vcluster.phase` is readback-derived, not hardcoded `Provisioning`" is a CR | GAP | — |
-| 3687-19 | object-model | **** — "a `catalyst-tenant` GitRepository + Kustomization reconciling the per-Org vCluster | GAP | — |
-| 3687-20 | object-model | Catalog grid renders ~93 Blueprint cards. `bp-postgres` detail has a **+ New instance** bu | ⏳ | — |
-| 3687-21 | object-model | The shared-PG reuse model is not just offered but **LIVE**: the `shared-pg` app's **Contex | ⏳ | — |
-| 3687-22 | object-model | Apps list renders **49 cards** (all BOOTSTRAP/Platform-owned) but there is **NO customer ` | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3687-04-apps-list-49-bootstrap.png) |
-| 3687-23 | object-model | No `blog` app exists (Acme launched none), so `/app/blog` has nothing to edit. The topolog | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3687-07-app-shared-pg.png) |
-| 3687-24 | object-model | **** — "the console create/update spine COMMITS the Application CR to Gitea (then Flux app | GAP | — |
-| 3687-25 | object-model | **** — "`kubectl get applications -A` is non-empty and equals the running-instance count;  | GAP | — |
-| 3687-26 | object-model | Treemap **Layer-1 default = Cluster** and the Layer-1 selector offers **Sovereign / Region | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3687-05-treemap-cluster-layer.png) |
-| 3687-27 | object-model | DOM scan of all treemap cell labels found **NO Job-pod cells** — no `cutover-*`, no `scan- | ⏳ | — |
-| 3687-28 | object-model | Count the Application cards. Expect: one card per `Application` (NOT one per HelmRelease/p | ⏳ | — |
-| 3687-29 | object-model | The customer Org `acme` exists + is ACTIVE, BUT (a) the treemap has no Organization layer  | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3687-06-treemap-vcluster-layer.png) |
-| 3687-30 | object-model | The Showback panel renders (header "Showback — per-app consumption", parent row "hw159.oma | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3687-01-organizations-directory.png) |
-| 3687-31 | object-model | No distinct "Platform overhead" roll-up line rendered — the panel shows the parent estate  | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3687-01-organizations-directory.png) |
-| 3687-32 | object-model | A 2nd Org (`acme`) EXISTS in the directory, but it runs no app, so no second *showback* ro | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3687-01-organizations-directory.png) |
-| 3687-33 | object-model | **** — "the consumption resolver keys purely on the `openova.io/organization` label + a co | GAP | — |
-| 3687-34 | object-model | `shared-pg` (shareable DB) renders the canonical tab strip **Overview · Contexts `3` · Top | ⏳ | — |
-| 3687-35 | object-model | One consistent model across surfaces: **/organizations** shows 2 Orgs (parent + Acme Corp) | ⏳ | — |
-| 3687-36 | object-model | **** — "the funnel door AND the BSS/internal door yield an Organization through the SAME w | GAP | — |
-| 3687-37 | object-model | **** — "the SAME create→commit→fan-out→reconcile loop drives every blueprint/placement wit | GAP | — |
-| 3687-38 | object-model | **** — "`kubectl get applications -A` / `kubectl get organizations -A` are both non-empty  | GAP | — |
-| 3687-39 | object-model | **** — "the bootstrap Application-CR adoption guard ADOPTS already-installed instances (st | GAP | — |
-| 3374-01 | SSO-zero-login | ! — landed on the signed-in console Dashboard (treemap of 94 items, full admin sidebar Das | ⏳ | — |
-| 3374-02 | SSO-zero-login | ! — owner avatar `E` rendered top-right of the signed-in dashboard; owner identity `emrah. | ⏳ | — |
-| 3374-03 | SSO-zero-login | Open the Users page → must render the pre-seeded owner row `emrah.baysal@openova.io` (tier | ⏳ | — |
-| 3374-04 | SSO-zero-login | ! — every bare-URL hit in this walk (dashboard, users) landed signed-in with no PIN re-pro | ⏳ | — |
-| 3374-05 | SSO-zero-login | ! — landed on Grafana "Welcome to Grafana" Home (TITLE "Home - Dashboards - Grafana"), ful | ⏳ | — |
-| 3374-06 | SSO-zero-login | ! — landed on the **`emrah.baysal` Gitea dashboard** (TITLE "emrah.baysal - Dashboard - Ca | ⏳ | — |
-| 3374-07 | SSO-zero-login | ! — landed on **`/harbor/projects`** (9 projects incl. library + 8 proxy-cache), user drop | ⏳ | — |
-| 3374-08 | SSO-zero-login | Open the bare OpenBao UI → must land in an **authenticated Vault session** (Secrets engine | ⏳ | — |
-| 3374-09 | SSO-zero-login | ! — landed **inside the Keycloak admin console** "Welcome to Sovereign" ("Sovereign — Curr | ⏳ | — |
-| 3374-10 | SSO-zero-login | ! — landed on the **Guacamole "RECENT CONNECTIONS" / "ALL CONNECTIONS" list** (No recent c | ⏳ | — |
-| 3374-11 | SSO-zero-login | ! — bare URL lands on `/login` (TITLE "Log In - PowerDNS-Admin") with a Username/Password/ | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3374-12-pdns-admin.png) |
-| 3374-12 | SSO-zero-login | ! — 1st bare-URL hit rendered an **upstream-connect-error page** ("upstream connect error  | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3374-11-newapi-first.png) |
-| 3374-13 | SSO-zero-login | ! — 2nd hit landed on `/setup` "**System initialization**" wizard (Database Check → Admin  | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3374-11b-newapi-reentry.png) |
-| 3374-14 | SSO-zero-login | ! — the bare URL now **redirects through the generic OIDC gate** (oauth2-proxy `client_id= | GAP | [shot](../sessions/2026-06-17/evidence/hw159-3374-15-openova-flow.png) |
-| 3374-15 | SSO-zero-login | ! — landed on the **authenticated Hubble UI** (TITLE "Hubble UI", "Welcome! To begin selec | ⏳ | — |
-| 3374-16 | SSO-zero-login | ! — rendered the **anonymous storefront** (TITLE "Build Your Tenant — OpenOva SME", "Build | ⏳ | — |
-| 3374-17 | SSO-zero-login | In the Keycloak sovereign realm, open **Users** → must list **exactly one user: `emrah.bay | ⏳ | — |
-| 3374-18 | SSO-zero-login | ! — owner user details → **Groups** tab (Direct membership) shows **`/sovereign-admins`**  | ⏳ | — |
-| 3374-19 | SSO-zero-login | ! — owner Role-mapping (inherited shown, filtered "catalyst") → effective roles include ** | ⏳ | — |
-| 3374-20 | SSO-zero-login | ! — owner effective Role-mapping (inherited shown) lists the full **`realm-management`** c | ⏳ | — |
-| 3374-21 | SSO-zero-login | ! — the console **User Access** admin panel renders the owner row with `+ New` / `Delete`  | ⏳ | — |
-| 3374-22 | SSO-zero-login | No web-UI surface — verified by code/reconcile only (the `grant_operator_admin` / `skippin | GAP | — |
-| 3374-23 | SSO-zero-login | No web-UI surface — a non-`/sovereign-admins` user must get no owner claim; covered by the | GAP | — |
-| 3374-24 | SSO-zero-login | n/a this walk — a tenant Org **`Acme Corp`** (`admin@acme.com`, CUSTOMER/Sme/vcluster/ACTI | GAP | — |
-| 3374-25 | SSO-zero-login | n/a this walk — same as above; the per-app tenant bare-URL SSO walk is owned by the #3376  | GAP | — |
-| 3374-26 | SSO-zero-login | Open a brand-new throwaway app's bare URL → must land **zero-click authenticated** via the | GAP | — |
-| 3375-01 | topology-DR | — | ⏳ | — |
-| 3375-02 | topology-DR | hw159 2026-06-18 — **spelling FIXED vs hw158, but completeness still fails.** The live dia | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3375-05-postgres-newinstance-dialog.png) |
-| 3375-03 | topology-DR | hw159 2026-06-18 — `active-passive` is NOT present in the live create `<select>` — the onl | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3375-05-postgres-newinstance-dialog.png) |
-| 3375-04 | topology-DR | — | ⏳ | — |
-| 3375-05 | topology-DR | hw159 2026-06-18 — Not executed (a real provision creates live CNPG infra on the shared en | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3375-05-postgres-newinstance-dialog.png) |
-| 3375-06 | topology-DR | hw159 2026-06-18 — bp-grafana is **singleton-per-Org**: the grafana app detail renders one | GAP | [shot](../sessions/2026-06-17/evidence/hw159-3375-06-grafana-topology-tab.png) |
-| 3375-07 | topology-DR | hw159 2026-06-18 — the Topology tab renders the canonical **"Change placement"** editor (T | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3375-04-sharedpg-topology-tab.png) |
-| 3375-08 | topology-DR | hw159 2026-06-18 — No per-region replica counts are rendered — the Live status block reads | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3375-04-sharedpg-topology-tab.png) |
-| 3375-09 | topology-DR | — | ⏳ | — |
-| 3375-10 | topology-DR | hw159 2026-06-18 — **value MISMATCH confirmed live (same defect as hw158).** The Topology  | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3375-04-sharedpg-topology-tab.png) |
-| 3375-11 | topology-DR | hw159 2026-06-18 — No live effective strip for shared-pg — only the static "Declared topol | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3375-04-sharedpg-topology-tab.png) |
-| 3375-12 | topology-DR | Read the **per-region placement + replication state** block. SEE region-a as the live prim | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3375-04-sharedpg-topology-tab.png) |
-| 3375-13 | topology-DR | hw159 2026-06-18 — No Switchover button anywhere on shared-pg's Topology tab — the only ac | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3375-04-sharedpg-topology-tab.png) |
-| 3375-14 | topology-DR | — | ⏳ | — |
-| 3375-15 | topology-DR | hw159 2026-06-18 — Not executed (no real `singleton` provision performed; VIEW-only walk,  | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3375-05-postgres-newinstance-dialog.png) |
-| 3375-16 | topology-DR | New instance → pick `active-hot-standby` → Provision. Then open that app's Topology tab. S | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3375-05-postgres-newinstance-dialog.png) |
-| 3375-17 | topology-DR | hw159 2026-06-18 — the `/apps` grid renders the platform cards (Alloy, Cilium, CloudNative | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3375-11-apps-grid.png) |
-| 3375-18 | topology-DR | hw159 2026-06-18 — The shared-pg Live status block reads verbatim **"n/a — bootstrap compo | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3375-04-sharedpg-topology-tab.png) |
-| 3375-19 | topology-DR | hw159 2026-06-18 — **IMPROVED vs hw158 but still not the asserted disabled-button.** grafa | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3375-06-grafana-topology-tab.png) |
-| 3375-20 | topology-DR | hw159 2026-06-18 — Replication lag reads **"n/a (mode)"** — neither a numeric seconds valu | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3375-04-sharedpg-topology-tab.png) |
-| 3375-21 | topology-DR | — | ⏳ | — |
-| 3375-22 | topology-DR | hw159 2026-06-18 — The Settings page renders sections Organization, Sovereign, API tokens, | GAP | [shot](../sessions/2026-06-17/evidence/hw159-3375-10-settings.png) |
-| 3375-23 | topology-DR | On a capped (region-missing) case, read the Switchover control. SEE the Switchover button  | GAP | [shot](../sessions/2026-06-17/evidence/hw159-3375-04-sharedpg-topology-tab.png) |
-| 3375-24 | topology-DR | — | ⏳ | — |
-| 3375-25 | topology-DR | — | ⏳ | — |
-| 3375-26 | topology-DR | — | ⏳ | — |
-| 3375-27 | topology-DR | hw159 2026-06-18 — **DOWNGRADED → vs hw158.** `Install OpenBao` itself reads **SUCCEEDED** | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3375-08-jobs-canvas.png) |
-| 3375-28 | topology-DR | — | ⏳ | — |
-| 3375-29 | topology-DR | hw159 2026-06-18 — The baseline does NOT show a live Continuum: shared-pg's Topology Live  | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3375-04-sharedpg-topology-tab.png) |
-| 3375-30 | topology-DR | **Special destructive operator action — NOT a browser action.** The operator severs region | GAP | — |
-| 3375-31 | topology-DR | **After switchover.** Read the Topology tab again. SEE the primary is now **region-b**, a  | GAP | [shot](../sessions/2026-06-17/evidence/hw159-3375-04-sharedpg-topology-tab.png) |
-| 3375-32 | topology-DR | **Second agreed app survives the kill (generality).** After the region-a kill, hit `auth.h | GAP | [shot](../sessions/2026-06-17/evidence/hw159-3375-08-jobs-canvas.png) |
-| 3375-33 | topology-DR | **After rejoin.** The operator restores region-a (rejoins the topology). Read the Topology | GAP | [shot](../sessions/2026-06-17/evidence/hw159-3375-04-sharedpg-topology-tab.png) |
-| 3376-01 | funnel | hw159 re-walk 2026-06-18 — UNCHANGED. `/bss/vouchers` redirects to `/organizations/billing | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-13-bss-vouchers.png) |
-| 3376-02 | funnel | In the form, **type a deliberately weak code `1234`** and click **Issue** → the form **rej | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-13-bss-vouchers.png) |
-| 3376-03 | funnel | **Leave the code field empty** and click **Issue** → a new voucher row appears with a **se | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-13-bss-vouchers.png) |
-| 3376-04 | funnel | hw159 2026-06-18 — No fresh valid `<CODE>` could be minted in-console (Section A showback) | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-05-redeem-junk-code.png) |
-| 3376-05 | funnel | — | ⏳ | — |
-| 3376-06 | funnel | hw159 2026-06-18 — Not verifiable as a valid-redeem screen (no `<CODE>` minted); the store | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-03-marketplace-storefront.png) |
-| 3376-07 | funnel | hw159 2026-06-18 — On the junk-code redeem the only CTA is "Browse plans without a voucher | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-06-wizard-plans.png) |
-| 3376-08 | funnel | — | ⏳ | — |
-| 3376-09 | funnel | — | ⏳ | — |
-| 3376-10 | funnel | — | ⏳ | — |
-| 3376-11 | funnel | hw159 2026-06-18 — the wizard **Topology step shows a ✓ checkmark** in the header (it is a | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-08-wizard-topology-bcp.png) |
-| 3376-12 | funnel | — | ⏳ | — |
-| 3376-13 | funnel | — | ⏳ | — |
-| 3376-14 | funnel | hw159 2026-06-18 — the due-zero order summary is gated behind the email-code sign-in (whic | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-10-wizard-checkout.png) |
-| 3376-15 | funnel | hw159 2026-06-18 — the in-page provisioning timeline needs a placed order, not driveable h | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-01-organizations-list.png) |
-| 3376-16 | funnel | hw159 2026-06-18 — the customer Org **Acme** IS provisioned ACTIVE (directory + detail car | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-02-acme-org-detail.png) |
-| 3376-17 | funnel | Observe the console landing → the stranger is **signed in zero-click as the Org owner** (t | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-04-acme-per-org-console.png) |
-| 3376-18 | funnel | In the Org console, open the **Applications** view → see the purchased **WordPress** app c | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-12-acme-applications.png) |
-| 3376-19 | funnel | hw159 2026-06-18 — **Terminal acceptance NOT reached** — **`wordpress.acme.omani.homes` re | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-11-wordpress-acme-app.png) |
-| 3376-20 | funnel | hw159 2026-06-18 — re-opening `marketplace.hw159.omani.works/` while signed in renders **T | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-03-marketplace-storefront.png) |
-| 3376-21 | funnel | hw159 2026-06-18 — exercising the authenticated-redeem rate-limit needs a started order be | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-10-wizard-checkout.png) |
-| 3376-22 | funnel | hw159 2026-06-18 — only ONE customer Org (Acme) exists on this env, and Section A has no i | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-01-organizations-list.png) |
-| 3376-23 | funnel | hw159 2026-06-18 — no second Org / no `console.walk-stranger-two.omani.rest` (and even the | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-01-organizations-list.png) |
-| 3376-24 | funnel | The **second** Org's purchased app serves at **its own** different-TLD FQDN → two differen | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3376-01-organizations-list.png) |
-| 3642-01 | ns1-migrate | Load the handover URL (with the operator's handover token). Lands on `/dashboard` **alread | ⏳ | — |
-| 3642-02 | ns1-migrate | Dashboard renders the cluster treemap and the grouping controls (LAYER 1 / LAYER 2 combobo | ⏳ | — |
-| 3642-03 | ns1-migrate | Click the **LAYER 1** grouping combobox and select **`vCluster`**. The treemap regroups in | ⏳ | — |
-| 3642-04 | ns1-migrate | On the LAYER1=vCluster treemap, the **grafana** tile must sit inside the **mgmt** block, * | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
-| 3642-05 | ns1-migrate | On the LAYER1=vCluster treemap, the **harbor** tile must sit inside the **mgmt** block, ** | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
-| 3642-06 | ns1-migrate | On the LAYER1=vCluster treemap, the **keycloak** tile must sit inside the **mgmt** block,  | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
-| 3642-07 | ns1-migrate | `gitea` tile (5%) sits inside the **host** block, NOT mgmt (the mgmt block holds only mimi | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
-| 3642-08 | ns1-migrate | On the LAYER1=vCluster treemap, the **openbao** tile must sit inside the **mgmt** block, * | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
-| 3642-09 | ns1-migrate | On the LAYER1=vCluster treemap, the **newapi** tile must sit inside the **mgmt** block, ** | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
-| 3642-10 | ns1-migrate | On the LAYER1=vCluster treemap, the **guacamole** tile must sit inside the **mgmt** block, | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
-| 3642-11 | ns1-migrate | Click into the **mgmt** block (drill down one LAYER). Its tiles must include **all 7** nam | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
-| 3642-12 | ns1-migrate | The **host** block contains all 7 named apps (grafana, harbor, keycloak, gitea, openbao, n | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3642-treemap-layer1-vcluster.png) |
-| 3642-13 | ns1-migrate | Open the **keycloak** app card and read its placement detail — it must show **`mgmt`** (th | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3642-keycloak-card-placement.png) |
-| 3642-14 | ns1-migrate | The account console shows a **"Something went wrong — Sorry, an unexpected error has occur | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3642-keycloak-surface.png) |
-| 3642-15 | ns1-migrate | Gitea opens signed in as **`emrah.baysal`** (avatar + name top-left, Issues/Pull Requests/ | ⏳ | — |
-| 3642-16 | ns1-migrate | `harbor.hw159.omani.works` returns **ERR_HTTP_RESPONSE_CODE_FAILURE** (non-2xx; UI does no | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3642-harbor-surface.png) |
-| 3642-17 | ns1-migrate | Grafana opens on the **"Welcome to Grafana"** home dashboard (full sidebar + avatar top-ri | ⏳ | — |
-| 3642-18 | ns1-migrate | OpenBao lands on **"Secrets Engines"** (`/ui/vault/secrets`) signed in as `root`, showing  | ⏳ | — |
-| 3642-19 | ns1-migrate | newapi completes the OIDC callback (`/oauth/sovereign?...code=...`) then dies on **"upstre | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3642-newapi-surface.png) |
-| 3642-20 | ns1-migrate | Guacamole opens on **"RECENT CONNECTIONS / ALL CONNECTIONS"** signed in as **`emrah.baysal | ⏳ | — |
-| 3642-21 | ns1-migrate | In-vCluster CRD registration inside vc-mgmt (httproutes / externalsecrets / cnpg `clusters | GAP | — |
-| 3642-22 | ns1-migrate | The treemap block (PART B) is the operator-facing proxy for "runs in mgmt"; the literal po | GAP | — |
-| 3642-23 | ns1-migrate | The deny-egress cutover proof is owned by the **Pillar-5 cutover runbook**, walked on its  | GAP | — |
-| 3383-01 | eradicate-sme | Open the Organizations directory. READ the **page title / heading** — reads **"Organizatio | ⏳ | — |
-| 3383-02 | eradicate-sme | On the same directory, READ the **org cards / list rows** — column headers read **"Organiz | ⏳ | — |
-| 3383-03 | eradicate-sme | READ the **left-nav sidebar label** for this section — the menu item reads **"Organization | ⏳ | — |
-| 3383-04 | eradicate-sme | Title "Create organization" is fine, but the form **leaks persona words** (verified live,  | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3383-create-org-flow-FAIL.png) |
-| 3383-05 | eradicate-sme | Click into an org card to open the **organization-detail view**. READ the detail heading,  | ⏳ | — |
-| 3383-06 | eradicate-sme | Open the **BSS / billing screen**. READ the heading + body — billing is framed as **"This  | ⏳ | — |
-| 3383-07 | eradicate-sme | Open the **legacy `/bss/tenants` URL** (PR #3390 alias). **Resolves and redirects to `/org | ⏳ | — |
-| 3383-08 | eradicate-sme | Why it is a `` (no browser surface) | GAP | — |
-| 3383-09 | eradicate-sme | A namespace name is never displayed to a User; it appears only in cluster tooling. No brow | GAP | — |
-| 3383-10 | eradicate-sme | Chart template dir `products/catalyst/chart/templates/sme-services/` → `org-services/` | GAP | — |
-| 3383-11 | eradicate-sme | A Secret name and an env-var key are never shown to a User; the billing flow that consumes | GAP | — |
-| 3383-12 | eradicate-sme | A raw API path is not a user-facing screen — the User sees the create-organization FORM (b | GAP | — |
-| 3383-13 | eradicate-sme | Go handler/store identifiers (`HandleCreateSMETenant`, `SMETenantProvisionStore`, …) → `Or | GAP | — |
-| 3383-14 | eradicate-sme | A CI workflow/script is a developer-pipeline artifact; it surfaces on a GitHub PR check, n | GAP | — |
-| 3383-15 | eradicate-sme | Intentionally retained — an internal enum value, never displayed as a persona label. Not a | GAP | — |
-| 3668-01 | catalog-IaC | Handover token minted from `/deps/handover-jwt-private.pem`; `FINAL_URL=https://console.hw | ⏳ | — |
-| 3668-02 | catalog-IaC | Grid of ~93 Blueprint cards (Alloy, Axon, catalyst-platform, Cert-Manager, Cilium, CloudNa | ⏳ | — |
-| 3668-03 | catalog-IaC | Detail renders: hero (Alloy spiral icon + name + **Edit IaC ⟩** + summary), **v1.0.1** chi | ⏳ | — |
-| 3668-04 | catalog-IaC | Clicking the summary affordance (`cif-summary-edit`) dropped a **SUMMARY** field — a textb | ⏳ | — |
-| 3668-05 | catalog-IaC | — | ⏳ | — |
-| 3668-06 | catalog-IaC | Fresh `/catalog` load (independent browser): Alloy grid card shows summary **`UAT-3668-REC | ⏳ | — |
-| 3668-07 | catalog-IaC | Hard reload in a **fresh independent browser + fresh token** (shot.js): hero summary still | ⏳ | — |
-| 3668-08 | catalog-IaC | The non-card `version` field renders as a **`v1.0.1` chip** in the hero, AND the **Edit Ia | ⏳ | — |
-| 3668-09 | catalog-IaC | ** (finding):** that the edit is committed to the single Gitea IaC source (not a transient | GAP | — |
-| 3668-10 | catalog-IaC | Original hero = the orange Alloy spiral glyph (detail + restored screenshots). ! | ⏳ | — |
-| 3668-11 | catalog-IaC | LIVE: `cif-icon-edit` opened the picker; picked the **Cilium** tile (`iconpicker-light-til | ⏳ | — |
-| 3668-12 | catalog-IaC | Fresh independent-browser reload: the Alloy hero now renders the **Cilium hexagonal glyph* | ⏳ | — |
-| 3668-13 | catalog-IaC | Element screenshot of the Alloy grid card (`sov-app-card-bp-alloy`): icon is now the **Cil | ⏳ | — |
-| 3668-14 | catalog-IaC | The Cilium-hero screenshot IS a fresh independent-browser hard reload (shot.js mints a new | ⏳ | — |
-| 3668-15 | catalog-IaC | On opening the picker, the **Alloy** tile is marked `[active] [selected]` (pre-filled from | ⏳ | — |
-| 3668-16 | catalog-IaC | LIVE: `cif-icon-edit` opened the **"Icon (light + dark)"** panel with two side-by-side `ro | ⏳ | — |
-| 3668-17 | catalog-IaC | Clicked `iconpicker-light-tile-cilium` → the Cilium tile is `[active] [selected]`, the **p | ⏳ | — |
-| 3668-18 | catalog-IaC | Saved (`cif-icon-save`) → fresh independent-browser reload: the Alloy **hero + grid card b | ⏳ | — |
-| 3668-19 | catalog-IaC | LIVE: the Save API response carries the **IaC-commit verdict** — `PUT /api/v1/sme/commerce | ⏳ | — |
-| 3668-20 | catalog-IaC | When the Gitea IaC source is down, a Save shows an **amber "Saved (cache only) — IaC commi | GAP | — |
-| 3668-21 | catalog-IaC | Hover the **summary** line in the hero — a pencil/edit affordance appears **on the field** | ⏳ | — |
-| 3668-22 | catalog-IaC | LIVE typed into `cif-summary-input` + `cif-summary-save` → only the summary updated in pla | ⏳ | — |
-| 3668-23 | catalog-IaC | LIVE: `cif-name-edit` dropped a **"Display name"** inline editor (textbox value "Alloy" +  | ⏳ | — |
-| 3668-24 | catalog-IaC | LIVE: `catalog-detail-edit-iac` opened **"Edit IaC — full blueprint"**. The editor textbox | ⏳ | — |
-| 3668-25 | catalog-IaC | LIVE: **Show diff** (`yaml-editor-toggle-diff`) rendered a side-by-side **Current vs Propo | ⏳ | — |
-| 3668-26 | catalog-IaC | The editor subtitle states it directly: *"…Commit writes the IaC source of truth; Flux rec | ⏳ | — |
-| 3668-27 | catalog-IaC | **`bp-wordpress` is NOT in the hw159 catalog** (not in the 93-card grid) — the detail page | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3668-17-wordpress-detail.png) |
-| 3668-28 | catalog-IaC | Not walkable — `bp-wordpress` 404s on hw159 (blueprint absent). The same-`YamlEditor`-on-a | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3668-17-wordpress-detail.png) |
-| 3668-29 | catalog-IaC | Not walkable — `bp-wordpress` 404s on hw159 (blueprint absent). The icon-edit mechanism wa | ❌ FAIL | [shot](../sessions/2026-06-17/evidence/hw159-3668-17-wordpress-detail.png) |
-| 3668-30 | catalog-IaC | LIVE: PostgreSQL detail renders the SAME surface (hero **P** icon, **Edit IaC ⟩**, clickab | ⏳ | — |
-| 3668-31 | catalog-IaC | Alloy + Postgres render the IDENTICAL edit chrome: same hero with `cif-icon-edit`/`cif-nam | ⏳ | — |
-| 3668-32 | catalog-IaC | The catalog detail page renders (hero · About · Instances) and opens an **inline** Edit fo | ⏳ | — |
-| 3668-33 | catalog-IaC | — | ⏳ | — |
-| 3668-34 | catalog-IaC | A **non-card** field edit (`version`) persists — the whole CR is editable, not a 7-field o | ⏳ | — |
-| 3668-35 | catalog-IaC | — | ⏳ | — |
-| 3668-36 | catalog-IaC | (note) (API `{"stored":true,"committed":true}` + Edit-IaC `• in sync`; inline quick-save r | ⏳ | — |
-| 3668-37 | catalog-IaC | **Per-field inline** edit for cards (`cif-*`) + the full-CR **`YamlEditor`** ("Edit IaC")  | ⏳ | — |
-| 3668-38 | catalog-IaC | The **identical** edit mechanism works on a 2nd + 3rd blueprint — no per-blueprint UI (E1  | ❌ FAIL | — |
-| 3668-39 | catalog-IaC | ** findings** (no UI surface): edit is durable IaC vs read-time skin / Helm no longer co-o | GAP | — |
-| 3379-01 | cutover | Open Settings → look for a **Sovereignty section** with an **"Achieve True Sovereignty"**  | ⏳ | — |
-| 3379-02 | cutover | Sweep the console nav + Settings sidebar for a **"Sovereignty" / "cutover" / "Achieve True | ⏳ | — |
-| 3379-03 | cutover | Look for a **cutover progress card** showing the live step (e.g. "Step 2 / 11 — harbor-pre | GAP | [shot](../sessions/2026-06-17/evidence/hw159-3379-sovereignty-cta-tethered.png) |
-| 3379-04 | cutover | Look for the terminal-state indicator: **`cutoverComplete` → a "Sovereign — tethers severe | GAP | [shot](../sessions/2026-06-17/evidence/hw159-3379-sovereignty-cta-tethered.png) |
-| 3379-05 | cutover | Open `/jobs` (zero-login, signed in as the owner). The **canvas table renders** — a popula | ☐ not-reached | — |
-| 3379-06 | cutover | Find the **`cutover` group** row and expand it → it renders **11 `cutover-step-*` rows**:  | ☐ not-reached | — |
-| 3379-07 | cutover | (row) | ☐ not-reached | — |
-| 3379-08 | cutover | (row) | ☐ not-reached | — |
-| 3379-09 | cutover | On the **failed** `cutover-step-*` row, a **Re-run button is present** (per-row, gated to  | ☐ not-reached | — |
-| 3379-10 | cutover | Re-walked hw158 2026-06-17 — **confirmed NOT reachable on this env.** `/jobs` directly sho | ☐ not-reached | — |
-| 3379-11 | cutover | Re-walked hw158 2026-06-17. The Settings → Sovereignty section DOES exist (badge + CTA), b | GAP | [shot](../sessions/2026-06-17/evidence/3379-no-post-cutover-sovereign-state.png) |
-| 3379-12 | cutover | **#3678 true deny-egress** — the 600s hold is a default-deny-egress CCNP (`cutover-egress- | GAP | — |
-| 3379-13 | cutover | **#3671 faithful registry pivot** — `registriesYamlActive=v2` flips node containerd to loc | GAP | — |
-| 3379-14 | cutover | **#3667 durable seal** — `cutoverComplete=true` is sealed in OpenBao (`secret/catalyst/cut | GAP | — |
-| 3379-15 | cutover | **#3681 audit fidelity** — `cutoverStartedAt` written once (true T0); resume advances a se | GAP | — |
-| 3379-16 | cutover | **#3695 zero residual tether** — every external-registry workload re-keyed to local Harbor | GAP | — |
-| 3646-01 | jobs-canvas | Open the console root in a fresh browser tab. You land on the operator dashboard signed in | ⏳ | — |
-| 3646-02 | jobs-canvas | Table rendered **69 rows** (e.g. Install Axon, cluster-autoscaler, Debezium, Envoy, Flux … | ⏳ | — |
-| 3646-03 | jobs-canvas | **Kind column present** (full header = Name·Kind·App·Deps·Parent·Status·Started·Duration·A | ⏳ | — |
-| 3646-04 | jobs-canvas | Search `openbao` → 1/72 → **Install OpenBao · LIFECYCLE · bp-openbao · cluster-bootstrap · | ⏳ | — |
-| 3646-05 | jobs-canvas | **No `task` kind exists on hw159.** The Kind filter dropdown offers exactly two values: `A | GAP | [shot](../sessions/2026-06-17/evidence/hw159-3646-05-kind-filter-task.png) |
-| 3646-06 | jobs-canvas | **No `cron` kind exists on hw159** (Kind dropdown = `All` / `lifecycle` only); search `sna | GAP | [shot](../sessions/2026-06-17/evidence/hw159-3646-06-kind-filter-cron.png) |
-| 3646-07 | jobs-canvas | **No `reconciler` kind / no sso-bridge row on hw159** — search `sso` and `reconcil` each r | GAP | [shot](../sessions/2026-06-17/evidence/hw159-3646-05-kind-filter-task.png) |
-| 3646-08 | jobs-canvas | Every one of the 69 rows maps to a real HelmRelease install / terraform stage (Install Cil | ⏳ | — |
-| 3646-09 | jobs-canvas | **No `group` kind / no `cutover` group row on hw159** (search `cutover` → 0 rows; Kind dro | GAP | — |
-| 3646-10 | jobs-canvas | Status=`failed` → **8/72**, all honest red **FAILED**: Install SeaweedFS, Tempo, Valkey, v | ⏳ | — |
-| 3646-11 | jobs-canvas | The canvas polls the read-model live: 17 in-flight installs render an honest transient **" | ⏳ | — |
-| 3646-12 | jobs-canvas | On a **Failed** row (Status filter = `failed`), a **Re-run button is present** on the row  | ⏳ | — |
-| 3646-13 | jobs-canvas | **Gating proven cleanly**: every SUCCEEDED row and every "Confirming…" row shows Actions=` | ⏳ | — |
-| 3646-14 | jobs-canvas | — | ⏳ | — |
-| 3646-15 | jobs-canvas | **No Execution/audit-trail surface on hw159.** The job-detail panel (opened by clicking a  | GAP | [shot](../sessions/2026-06-17/evidence/hw159-3646-rowclick-detail.png) |
-| 3646-16 | jobs-canvas | **No `cutover` group or `cutover-step-*` rows on hw159** — search `cutover` → **0 rows**;  | GAP | — |
-| 3646-17 | jobs-canvas | **No cutover group row exists to read** on hw159 (see row above). The dormant-install→prem | GAP | — |
-| 3646-18 | jobs-canvas | **Only the HelmRelease/lifecycle kind renders on hw159** — all 69 rows are `lifecycle` (He | GAP | — |
-| 3646-19 | jobs-canvas | **One mechanism confirmed**: every Failed row across the whole table — regardless of which | ⏳ | — |
-| 3581-01 | regenerate | Open the signed handover URL → lands directly on **`/dashboard`** signed-in (env switcher  | ⏳ | — |
-| 3581-02 | regenerate | Click the avatar (top-right) → menu reads **"Signed in as emrah.baysal@openova.io"** with  | ⏳ | — |
-| 3581-03 | regenerate | Open the bare URL → lands on **Grafana Home** ("Welcome to Grafana", full UI, Profile avat | ⏳ | — |
-| 3581-04 | regenerate | Open the bare URL (Harbor registry) → lands on **`/harbor/projects`** (9 projects, 69 repo | ⏳ | — |
-| 3581-05 | regenerate | Open the bare URL → lands on the **gitea dashboard titled "emrah.baysal - Dashboard - Cata | ⏳ | — |
-| 3581-06 | regenerate | Open the bare OpenBao UI → final rendered screen is the **authenticated Vault session** (` | ⏳ | — |
-| 3581-07 | regenerate | — | ⏳ | — |
-| 3581-08 | regenerate | Scroll to the 🌟 "4 founder North Stars — witnessed live in the browser on **this fresh env | ⏳ | — |
-| 3581-09 | regenerate | — | ⏳ | — |
-
----
-
-## ⭐ STANDARD SCOREBOARD — per-runbook rollup (authoritative tallies)
-
-Denominator = the canonical **step-rows in each runbook .md** (the full test set). `walked` = freshly
-re-verified in a browser on **hw159**; everything else still carries **stale hw158 markers** and is
-**not** counted as passed.
-
-**✅ COMPLETE — all 10 runbooks walked on hw159 (2026-06-18), 5 parallel own-browser agents, ~280 screenshots.**
-Tallies below are each walker's own per-row count (committed in the runbook headers).
-
-| # | Runbook (ticket) | Rows | ⏳ | ❌ fail | GAP (no UI) | ☐ not-reached | Walked? |
-|---|------------------|:----:|:------:|:------:|:-----------:|:------------:|:------:|
-| 1 | object-model (#3687) | 37 | 16 | 7 | 14 | 0 | ☐ |
-| 2 | SSO zero-login (#3374) | 26 | 17 | 5 | 4 | 0 | ☐ |
-| 3 | topology-DR (#3375) | 33 | 9 | 16 | 8 | 0 | ☐ |
-| 4 | funnel (#3376) | 24 | 6 | 18 | 0 | 0 | ☐ |
-| 5 | ns1-migrate (#3642) | 23 | 7 | **13** | 3 | 0 | ☐ |
-| 6 | eradicate-sme-naming (#3383) | 14 | 6 | 1 | 7 | 0 | ☐ |
-| 7 | catalog-IaC (#3668) | 40 | 35 | 3 | 2 | 0 | ☐ |
-| 8 | cutover (#3379) | 16 | 3 | 0 | 8 | 5 | ⏳ |
-| 9 | jobs-canvas (#3646) | 19 | 11 | 0 | 8 | 0 | ☐ |
-| 10 | regenerate-meta (#3581) | 9 | 9 | 0 | 0 | 0 | ☐ |
-| **TOTAL** | **241** | **119** | **63** | **54** | **5** | **10/10** |
-
-**hw159 FINAL: 10/10 runbooks walked · 119 ✅ / 63 ❌ / 54 GAP · 5 ☐.** (GAP audit 2026-06-18 converted 2 disguised fails — `console.acme`/`wordpress.acme` CONN_REFUSED — from GAP→❌; SSO row 17/3/6 → 17/5/4.)
-
-> **🎯 What "100%" means (GAP audit result):** the 54 GAP split into **~41 GAP-backend** (code/cluster/CI invariants — NO browser UI possible → **descoped from the browser-UAT denominator**, tracked as code-tests) + **~13 GAP-missing-ui** (surface renders, sub-feature unbuilt → build candidates). So the **browser-decidable universe ≈ 200 rows** (241 − 41 backend). **Currently 119 ✅ of ~200 = ~60%.** To 100%: flip the **63 ❌** (the 4 root-cause fixes now in flight as PRs) + build the **~13 missing-ui** + walk the **5 ☐** (cutover run). The 41 backend-invariants are NOT browser-UAT rows — counting them against 100% would be a category error. See [`PATH-TO-100.md`](PATH-TO-100.md).
-
-Pass-rate of browser pass/fail = **119 / 182 = 65%**. ~280 + audit screenshots. This is the honest complete walkthrough — the
-fresh-prov surfaced the real gaps a fake all-pass never would. **Top real failures (screenshot-backed):**
-1. **🛑 North Star #1 (#3642, 13❌):** the 7 platform apps sit under `host`, **NONE in the `mgmt` vCluster** — "every app in a vCluster" NOT met.
-2. **🛑 Funnel terminal (#3376, 18❌):** Acme Org goes **ACTIVE**, but `console.acme.omani.homes` + `wordpress.acme.omani.homes` = **ERR_CONNECTION_REFUSED** — the customer's own console/app don't serve externally.
-3. **🛑 Topology runtime (#3375, 16❌):** `shared-pg` Topology tab dead at runtime (bootstrap HR, no Application CR → declared `singleton` ≠ Overview `active-hotstandby`, Live status "n/a").
-4. **SSO (#3374, 3❌):** newapi regressed (`/setup` wizard + upstream-111) · pdns-admin manual-OIDC. **guacamole FIXED** (jti) ✅.
-5. **#3383 (1❌):** create-org form still says "SME tenant slug"/"Onboard tenant" on 1.4.674 — fixed in published **1.4.677**.
-**Stale-pin note:** hw159 runs last-published **1.4.674**; the jobs multi-kind ingestion (#3646 GAPs) + several features land in **1.4.677** (published this session) → a re-prov on 1.4.677 would lift many GAPs. **Strong passes:** catalog single-source IaC **35✅** (2 real writes persisted+verified), object-model many-to-many shared-PG (harbor/gitea/keycloak share 1 pg) LIVE, SSO 17✅, jobs Re-run fires a real retry POST.
-
----
-
-
-
-## hw159 fresh-prov walk — live results (the complete 1.4.67x train, clean install)
-
-**The prov converged on the published train.** Fresh `POST /deployments` (no hand-patching) →
-both regions converged: **region-a 55/55 HelmReleases, region-b 52/55** (multi-region works).
-bp-catalyst-platform pinned to the last-published **1.4.674** (the 1.4.675/676/677 publish-gate is
-the held #3383 fix — see below); 1.4.674 carries the full *functional* train (hook-fix #3780,
-object-model #3786, topology vocab #3784, funnel #3376, per-Org Flux loop #3687, RBAC #3664).
-
-**The 4 founder North Stars — witnessed live in the browser on this fresh env:**
-
-| North Star | Verdict | Evidence |
-|---|---|---|
-| **#3 — URL → signed in as admin, no login form** (console) | ☐ | — |
-| **#3 — per-app zero-login SSO** | ☐ | — |
-| **#1 — every app in a vCluster** | ☐ | — |
-| **#2 — 3 shared-PG instances** | ☐ | — |
-| **#4 — apps actually multi-region** | ☐ | deployment record (`status=ready`, both regions) |
-
-**Core console surfaces walked (real browser, screenshots):**
-
-| # | Tested page | Description | Status | Evidence |
-|---|---|---|---|---|
-| 1 | — | Zero-click handover lands signed-in; 93-item treemap (shared-pg ×3, mgmt/dmz/rtz vClusters) | ☐ | — |
-| 2 | — | 49 apps; ~39 INSTALLED, 2 PENDING, 8 show "FAILED" chips — but verified live those apps are **actually healthy** (HR Ready + pods Running in-vCluster; vLLM intentionally off). Stale UI, see open-item (a). | ⏳ | — |
-| 3 | — | Per-app SSO lands signed-in (no login form) | ☐ | — |
-| 4 | — | Object-model view (#3687/#3378): parent-org row, Showback, Commerce/Billing/Domains | ⏳ | — |
-| 5 | — | Jobs canvas (#3646) | ⏳ | — |
-| 6 | — | Cloud-graph topology view (#3375 / NS#4) | ⏳ | — |
-| 7 | — | Blueprint catalog grid (#3668) | ⏳ | — |
-| 8 | — | Blueprint detail / IaC editor surface (#3668) | ⏳ | — |
-| 9 | — | Create-Organization form (funnel/Pillar-1 console entry, #3376/#3378) | ⏳ | — |
-
-> **Walk coverage so far:** 9 console surfaces + 7 SSO apps = **15 real screenshots**, all 4 North Stars witnessed. Still to walk on this converged base: the full funnel *provisioning* (create-org → org-active, historically the "gitops token" blocker #806), the cutover/Sovereignty flow (#3379), and re-verification of the FAILED apps once the kom4dc image-pull DNS root (#3735) is durably fixed (diagnosis agent running).
-
-**SSO landing matrix (#3374) — each app opened at its bare URL, must land *signed-in* (a login screen = FAIL):**
-
-| App | URL | Landed | Verdict | Evidence |
-|---|---|---|---|---|
-| Grafana | — | "Home - Dashboards", Profile avatar | ☐ | — |
-| Gitea | — | "emrah.baysal - Dashboard - Catalyst Gitea" | ☐ | — |
-| Harbor | — | `/harbor/projects` (signed-in view) | ☐ | — |
-| OpenBao | — | `/ui/vault/secrets` (signed-in, not /auth) | ☐ | — |
-| Guacamole | — | "Recent Connections" as emrah.baysal (OIDC id_token, sovereign-admins group) | ☐ | — |
-| newapi | newapi.hw159 | `/setup` first-run wizard + Sign in button (PG connected, but not SSO-landed) | ❌ | [09-newapi](../sessions/2026-06-17/evidence/hw159-uat-09-newapi-setup-wizard-FAIL.png) |
-| PowerDNS-Admin | pdns-admin.hw159 | `/login` ("Log In - PowerDNS-Admin") — login screen | ❌ | [11-powerdns](../sessions/2026-06-17/evidence/hw159-uat-11-powerdns-admin-login-FAIL.png) |
-
-**SSO matrix tally: 5 ✅ / 2 ❌** (grafana/gitea/harbor/openbao/guacamole land signed-in — incl. the historically-broken openbao + guacamole; newapi shows its first-run setup wizard, powerdns-admin shows a login screen). The console handover itself re-lands signed-in even after the catalyst-api pod rolled (session re-established mid-walk).
-
-**Honest open items on hw159:** (a) **CORRECTION — the 8 "FAILED" apps are a console-UI artifact, NOT real failures.** A read-only diagnosis agent verified live (HR `Ready=True` host-side **+ all pods Running *inside* the dmz/mgmt/rtz vClusters**): SeaweedFS (7 pods), Loki (2/2), Mimir (14 pods), Tempo, Valkey, nats-jetstream, Coraza are **all healthy**; vLLM is **intentionally disabled** (`vllm.enabled:false` — no GPU nodes on this VPC, correct). The console's FAILED chips are **stale state** from the cutover catalyst-api roll — the `pod_truth_reconciler` only advances steps for tenant-`<slug>` namespaces, not platform Blueprints (`core/console/src/components/AppsPage.svelte:112-143`). So the real finding here is a **console-status-accuracy bug, not a functional failure** — my earlier console-based "8 FAILED" overstated it. Spine = **61/64 HR Ready**. (b) The **cosmetic `Tenant→Organization` rename** is absent (1.4.674 pre-#3707); the fix is the **held, de-risked 1.4.677** (all chart-test gates green) awaiting publish (#873). (c) Convergence required a live kom4dc fix: `harbor.openova.io` resolved its IPv6/AAAA on the IPv4-only VPC → catalyst-api `ImagePullBackOff`; pinned it to IPv4 in coredns-custom (the #3735 family — needs a durable bootstrap pin for future provs). The exhaustive per-runbook walk (the 10 runbooks below) continues from this converged base.
-
-## The acceptance standard (the agreed contract)
-
-**UAT is 100% browser — no terminal, no kubectl, no git, no curl.** Every step is **open a URL →
-click/type → SEE a rendered screen**. Evidence is a **screenshot** under
-[`docs/sessions/2026-06-17/evidence/`](../sessions/2026-06-17/evidence/). A redirect that ends on a
-**login screen is a FAIL** — only a rendered, signed-in screen is ✅. `GAP` = a requirement with no
-web-UI surface (itself a finding; never a reason to drop to a terminal check).
-
-**Sign-in (the zero-click owner-admin landing):** open the signed
-`https://console.hw158.omani.works/auth/handover?token=<JWT>` URL in a fresh tab → it lands
-**directly on the Dashboard signed in as `emrah.baysal@openova.io` (sovereign-admin)**, no login
-form. Every app is then opened at its **bare public URL** in the same browser session.
-Proof: [`hw158-uat-01-console-dashboard-signedin.png`](../sessions/2026-06-17/evidence/hw158-uat-01-console-dashboard-signedin.png) ✅.
-
-**Table format (mandated), used in every per-ticket runbook:** a 4-column table —
-**`Tested page · Description · Status · Evidence`** — where *Tested page* is a clickable link to the
-live page and *Evidence* is a screenshot link.
-
----
-
-## The 10 canonical runbooks — browser walk index
-
-> **✅ BROWSER WALK COMPLETE (2026-06-17):** all 10 runbooks walked in a real browser (Playwright), **201 embedded screenshots** on main. **AGGREGATE: 97 ✅ / 80 ❌ / 49 GAP — 55% real browser pass rate** (97 ✅ of 177 decidable). #3668 catalog corrected to PASS (single-source IaC editor verified live, overturning the stale curl 'overlay' finding). Per-runbook tallies in the table below; every ✅/❌ is backed by an embedded screenshot in its runbook.
-
-
-Each runbook below is the full per-ticket browser walk (the **455-step** canonical set). All have
-been **revamped to the browser-walk standard** (4-column clickable-link table, screenshot evidence,
-no curl/kubectl). `☐` = the browser walk + screenshot capture is in progress on hw158.
-
-| # | Runbook | Ticket | Browser surfaces | Status |
-|---|---|---|---|---|
-| 1 | [canonical-org-app-cr-model](uat-walkthrough/canonical-org-app-cr-model-live-end-to-end.md) | #3687 | /dashboard treemap · /apps · /organizations · showback | ⏳ |
-| 2 | [sso-zero-login-everywhere](uat-walkthrough/sso-zero-login-everywhere-admin-by-default.md) | #3374 | each app bare URL → signed-in admin | ◑ **5✅ / 2❌** — grafana/gitea/harbor/openbao/guacamole land signed-in; newapi(setup), powerdns(login) fail (#03,06-11) |
-| 3 | [topology-dr-one-vocabulary](uat-walkthrough/topology-dr-one-vocabulary-built-and-region-kill-proven.md) | #3375 | /catalog new-instance picker · /app Topology tab · Switchover | ⏳ |
-| 4 | [funnel-voucher-to-running-app](uat-walkthrough/3376-funnel-voucher-to-running-app.md) | #3376 | marketplace redeem → wizard → checkout → launch → Org console | ⏳ |
-| 5 | [ns1-migrate-7-host-apps](uat-walkthrough/ns1-migrate-7-host-apps-into-mgmt-vcluster.md) | #3642 | /dashboard treemap vCluster layer | ◑ **partial** — mgmt/dmz/rtz vClusters INSTALLED + apps placed inside (tier=mgmt); per-app migration steps not exercised (#02) |
-| 6 | [organizations-eradicate-sme-naming](uat-walkthrough/organizations-eradicate-sme-tenant-naming.md) | #3383 | /organizations · menus · BSS screens (no "tenant" word) | ❌ **FAIL** — "Tenant" sidebar + "SME tenant slug"/"Onboard tenant" still present (hw159=1.4.674, pre-#3707; fixed in 1.4.677) (#04,15) |
-| 7 | [catalog-edit-single-source-iac](uat-walkthrough/catalog-edit-single-source-iac-not-overlay.md) | #3668 | /catalog/<bp> inline edit · Edit-IaC · icon picker | ◑ **partial** — catalog grid + blueprint detail render; Edit-IaC *write* not exercised (#13,14) |
-| 8 | [cutover-durable-deny-egress](uat-walkthrough/cutover-durable-true-deny-egress-and-faithful-pivot.md) | #3379 | Sovereignty/cutover screen · /jobs cutover steps | ⏳ |
-| 9 | [jobs-one-honest-canvas](uat-walkthrough/jobs-one-honest-canvas-no-fabrication-with-remediation.md) | #3646 | /jobs canvas · Kind column · filters · Re-run | ⏳ |
-| 10 | [regenerate-on-current-env](uat-walkthrough/uat-walkthrough-regenerate-on-current-env.md) | #3581 | (meta — the browser-walk discipline itself) | ⏳ |
-
-**Index + per-runbook verdicts:** [`uat-walkthrough/README.md`](uat-walkthrough/README.md).
-
----
-
-> **What changed (2026-06-17):** the prior version of this file (and the runbooks) carried
-> **curl/kubectl command-output** as "evidence" — a violation of the agreed browser-only contract.
-> All 10 runbooks + this dashboard were revamped back to the **screenshot-based browser-walk
-> format**. The browser re-walk that fills each `☐` with a real screenshot is in progress; the
-> sign-in row above is the first witnessed screen.
-
-## Direct browser_navigate LIVE confirmations — hw167 (this session)
-
-10 surfaces opened in a real browser (Playwright MCP) under the zero-click handover session — screenshots `hw167-*-livewalk.png`:
-- **3687-01 ✅** console → `/dashboard` zero-click admin (no PIN)
-- **3687-09/10/35 ✅** organizations directory → parent org `hw167.omantel.biz · internal · corporate · showback · vcluster · Active`
-- **3687-30 ✅** Showback honest empty-state ("0 units · No applications attributed yet")
-- **3687-28 ✅** apps grid → 49 apps INSTALLED, one-per-Application; NS#2 shared-pg ×3 contexts (3/3/5) LIVE
-- **3646-01 ✅** jobs canvas → live 5s catalyst-api stream
-- **3374-08/06/07/15/09 ✅** openbao vault / gitea / harbor / hubble / keycloak all signed-in
-- **3374-12 ❌** newapi → upstream-111 REGRESSION caught (pod 3/3 Running) → #3858
-
-Direct browser confirmed the probe AND caught the newapi regression the probe missed.
-
-## Funnel terminal — Pillar-1 customer journey ran END-TO-END (hw167, this session)
-
-**First time ever** an Organization went active through the funnel (prior envs couldn't even mint the Organization CR — the org-services tier was dead everywhere). The org-controller fix (#3849) unblocked it.
-- ✅ Full wizard: plans M → WordPress → domain `walkorg.omani.homes` → BCP topology → review → **email-PIN zero-click sign-in** (PIN from Valkey `magic:admin@walkorg.test`) — screenshots `hw167-3376-01..07`.
-- ✅ `POST /api/tenant/orgs → 201` → `tenant.created` → **Organization CR `walkorg` minted → org-controller `Ready=True`** (Keycloak group + Gitea org + per-Org gitops loop + vCluster `phase: Ready`).
-- ❌ **Terminal app-serving** (`console.walkorg.omani.homes` / `wordpress.walkorg.omani.homes`) = ERR_CONNECTION_REFUSED — gated by **5 gaps fixed in PR #3860 (#3859)**: (1) vCluster NetworkPolicies allow-list `sme`→`org-services` (rtz 0.2.13, mgmt 0.2.20); (2) kyverno harbor-proxy exclude (1.0.37); (3) per-Org vCluster flux-managed/harbor-proxy `namespaceSelector` excludes; (4) per-Org coredns `1.14.1`→`1.11.3`; (5) `TENANT_PARENT_DOMAIN`→`tenantPublic` route (catalyst-platform 1.4.696). Gaps 1-3 applied LIVE → org-services tier 12/12 Running + `walkorg` Ready=True; gaps 4-5 land the route+DNS on the next fresh prov. App-install also gated behind marketplace checkout `503` (no Stripe).
-
-All 5 gaps trace to the incomplete #3383 `sme`→`org-services` rename (which I re-opened) — the funnel-drive surfaced them by driving the real journey.
+| ID | Ticket(s) | Test case | Walk link (click to reproduce in the UI) | Result | Evidence |
+|---|---|---|---|---|---|
+| 3687-01 | #3687 | Console bare URL → lands `/dashboard` signed-in as `emrah.baysal@openova.io` (no PIN/login form). | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3687-02 | #3687 | Full sidebar renders (Dashboard / Cloud / Apps / Catalog / Sandbox / Jobs / Compliance / Users / Organizations / Settings). | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3687-03 | #3687 | The voucher-redeem URL on an authed owner session server-redirects to `/dashboard` (no redeem form for the owner). | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3687-04 | #3687 | App page tab strip generality: open ≥2 archetypes (a DB `shared-pg`, a consumer `harbor`) → identical tab strip; consumer Dependencies shows `Depends on: shared-pg / db:<ctx>`. | https://console.hw167.omantel.biz/app/harbor | ☐ | |
+| 3687-05 | #3687 | Organizations directory: the customer Org row shows KIND=customer, TIER=sme, BILLING=real, ISOLATION=vcluster, STATUS=active. | https://console.hw167.omantel.biz/organizations | ☐ | |
+| 3687-09 | #3687 | The customer Org is present as a real Organization in the operator directory (same record dashboard + showback read). | https://console.hw167.omantel.biz/organizations | ☐ | |
+| 3687-10 | #3687 | Org detail renders canonical fields: slug `acme` (NOT `sme-<uuid>`), kind customer, tier sme, billing real, isolation vcluster, owner, console URL. | https://console.hw167.omantel.biz/organizations/acme | ☐ | |
+| 3687-11 | #3687 | The Create-organization form renders fully (kind picker, slug, Company name, Admin email, parent-domain). | https://console.hw167.omantel.biz/organizations/new | ☐ | |
+| 3687-12 | #3687 | Org detail Status = active, backed by a real `vcluster` isolation (the create→Provision loop produced a live backing, not a fake-green). | https://console.hw167.omantel.biz/organizations/acme | ☐ | |
+| 3687-15 | #3687 | The customer Org is present + ACTIVE backed by a real `vcluster` isolation (Lane B convergence read). | https://console.hw167.omantel.biz/organizations | ☐ | |
+| 3687-16 | #3687 | Org detail Status = active and the directory + detail consistently show `vcluster` isolation. | https://console.hw167.omantel.biz/organizations/acme | ☐ | |
+| 3687-17 | #3687 | On re-load the Org detail consistently reports active + `vcluster` (stable, no false flicker). | https://console.hw167.omantel.biz/organizations/acme | ☐ | |
+| 3687-20 | #3687 | Catalog grid renders the Blueprint cards; `bp-postgres` detail has a **+ New instance** button. | https://console.hw167.omantel.biz/catalog/bp-postgres | ☐ | |
+| 3687-21 | #3687 | The shared-PG reuse model is LIVE: the `shared-pg` app **Contexts** tab shows multiple consumers sharing ONE PostgreSQL. | https://console.hw167.omantel.biz/app/shared-pg | ☐ | |
+| 3687-22 | #3687 | Apps list renders one card per Application (all Platform/BOOTSTRAP-owned); a customer-launched app card would appear under its Org. | https://console.hw167.omantel.biz/apps | ☐ | |
+| 3687-23 | #3687 | A customer app page (`/app/<name>`) → Settings/Topology → change topology → Save persists; the canonical tab strip includes a Topology tab. | https://console.hw167.omantel.biz/app/blog | ☐ | |
+| 3687-26 | #3687 | Dashboard treemap Layer-1 default = **Organization**, drillable to vCluster → Application (not a raw infra-pod utilisation treemap). | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3687-27 | #3687 | Scan every treemap cell: NO ephemeral Job-pod cell appears (no `cutover-*`, `scan-vulnerabilityreport-*`, `*-snapshot-save-*`). | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3687-28 | #3687 | Count Application cards: one card per `Application` (NOT one per HelmRelease/pod); bootstrap apps carry a Platform/Bootstrap badge. | https://console.hw167.omantel.biz/apps | ☐ | |
+| 3687-29 | #3687 | With a customer Org present, the customer estate is visually distinct from platform pods on the treemap. | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3687-30 | #3687 | Organizations Showback panel: the **Application** column for a selected Org lists only that Org's real apps (no cluster-wide infra/Job pods). | https://console.hw167.omantel.biz/organizations | ☐ | |
+| 3687-31 | #3687 | Showback shows a single visually-distinct **Platform overhead** roll-up line holding all control-plane/Job workloads. | https://console.hw167.omantel.biz/organizations | ☐ | |
+| 3687-32 | #3687 | After a 2nd Org runs an app, the showback panel shows a SECOND Org row attributed only to its own app, distinct from Platform overhead. | https://console.hw167.omantel.biz/organizations | ☐ | |
+| 3687-34 | #3687 | `shared-pg` renders the canonical tab strip Overview · Contexts · Topology · Dependencies (Contexts tab present only for shareable blueprints). | https://console.hw167.omantel.biz/app/shared-pg | ☐ | |
+| 3687-35 | #3687 | One consistent model across surfaces: `/organizations` shows the Orgs that `/apps`, the dashboard and showback all agree on. | https://console.hw167.omantel.biz/organizations | ☐ | |
+| 3374-01 | #3374 | Console bare URL → lands on the dashboard signed-in as the owner; no PIN/login/"Sign in with…" button. | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3374-02 | #3374 | Avatar (top-right) menu reads "Signed in as emrah.baysal@openova.io" with a Sign-out item. | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3374-03 | #3374 | Users page renders the pre-seeded owner row `emrah.baysal@openova.io` (tier=owner UserAccess CR), signed-in admin. | https://console.hw167.omantel.biz/users | ☐ | |
+| 3374-04 | #3374 | Re-open the bare console URL after the session TTL → lands signed-in again, no PIN re-prompt. | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3374-05 | #3374 | Grafana bare URL → lands on Grafana Home, full UI, no login form; left nav shows Administration; user menu = `emrah.baysal@openova.io`. | https://grafana.hw167.omantel.biz | ☐ | |
+| 3374-06 | #3374 | Gitea bare URL → lands on the gitea dashboard titled "emrah.baysal — Dashboard", no login; profile menu exposes Site Administration; stays on :443. | https://gitea.hw167.omantel.biz | ☐ | |
+| 3374-07 | #3374 | Harbor bare URL → lands on `/harbor/projects`, no login form; user dropdown `emrah.baysal@openova.io` with Administration menus. | https://harbor.hw167.omantel.biz | ☐ | |
+| 3374-08 | #3374 | OpenBao bare UI → lands in an authenticated Vault session (Secrets engines / dashboard), NO token-entry form (an in-transit "Signing in…" shim is allowed). | https://openbao.hw167.omantel.biz | ☐ | |
+| 3374-09 | #3374 | Keycloak admin console for the **sovereign** realm → lands inside the admin console (realm overview / Users / Clients), no master-realm login. | https://auth.hw167.omantel.biz | ☐ | |
+| 3374-10 | #3374 | Guacamole bare URL → lands on the Guacamole connections list, signed-in; no Tomcat 404, no `/guacamole/` login page. | https://guacamole.hw167.omantel.biz | ☐ | |
+| 3374-11 | #3374 | PowerDNS-Admin bare URL → lands on the dashboard signed-in; no redirect loop, no OAuth error, no `Log In` page. | https://pdns-admin.hw167.omantel.biz | ☐ | |
+| 3374-12 | #3374, #3858 | newapi bare URL (1st hit) → lands on `/console` signed-in as admin (role 100); no "Unknown OAuth provider", no login page. | https://newapi.hw167.omantel.biz | ☐ | |
+| 3374-13 | #3374, #3858 | newapi bare URL (2nd hit, re-entry) → lands on `/console` again signed-in; NOT an "already bound" / re-link error / `/setup` wizard. | https://newapi.hw167.omantel.biz | ☐ | |
+| 3374-15 | #3374 | Hubble bare URL → lands on the Hubble UI, authenticated (not an anonymous/unauth view, no login page). | https://hubble.hw167.omantel.biz | ☐ | |
+| 3374-16 | #3374 | Marketplace bare URL → renders the anonymous storefront (public, by design); confirm no spurious login UI is forced. | https://marketplace.hw167.omantel.biz | ☐ | |
+| 3374-17 | #3374 | Keycloak sovereign realm → Users lists the single owner principal `emrah.baysal@openova.io` (enabled). | https://auth.hw167.omantel.biz/admin/master/console/#/sovereign/users | ☐ | |
+| 3374-18 | #3374 | Owner user → Groups tab shows membership in `/sovereign-admins` (alongside `/openova-users`) — the source of admin authority. | https://auth.hw167.omantel.biz/admin/master/console/#/sovereign/users | ☐ | |
+| 3374-19 | #3374 | Owner user → Role mapping tab: effective realm roles include `catalyst-admin` (not only default-roles/uma/offline). | https://auth.hw167.omantel.biz/admin/master/console/#/sovereign/users | ☐ | |
+| 3374-20 | #3374 | Groups → `/sovereign-admins` → Role mapping: group confers `catalyst-admin` (console) and realm-management `realm-admin` (KC console) — one source, both grants. | https://auth.hw167.omantel.biz/admin/master/console/#/sovereign/groups | ☐ | |
+| 3374-21 | #3374 | Console Users panel: owner row + the ability to view/manage users renders — proving console admin nav is driven by the realm principal, not a self-signed constant. | https://console.hw167.omantel.biz/users | ☐ | |
+| 3375-01 | #3375 | `bp-postgres` catalog detail renders; click **New instance** → the create dialog opens with a topology `<select>`. | https://console.hw167.omantel.biz/catalog/bp-postgres | ☐ | |
+| 3375-02 | #3375, #3856 | Topology `<select>` options read exactly the ONE canonical vocabulary: `singleton`, `active-passive`, `active-hot-standby`, `active-active` (no `single-region`/`active-hotstandby`). | https://console.hw167.omantel.biz/catalog/bp-postgres | ☐ | |
+| 3375-03 | #3375 | `active-passive` is a selectable option in the create `<select>` (not folded away). | https://console.hw167.omantel.biz/catalog/bp-postgres | ☐ | |
+| 3375-04 | #3375 | `singleton` is a separate selectable option (single-region single-instance), distinct from the multi-region modes. | https://console.hw167.omantel.biz/catalog/bp-postgres | ☐ | |
+| 3375-05 | #3375 | Pick `active-hot-standby`, name the instance, Provision → the create succeeds (toast/redirect to the new app card), NOT a red `topology not in supported [...]` error. | https://console.hw167.omantel.biz/catalog/bp-postgres | ☐ | |
+| 3375-07 | #3375 | `shared-pg` Topology tab renders a per-region placement view listing region-a (active) and region-b (standby) as ONE placement, not two separate instances. | https://console.hw167.omantel.biz/app/shared-pg | ☐ | |
+| 3375-08 | #3375 | `shared-pg` Topology tab: the standby (region-b) copy is shown scaled-down / passive while region-a shows the active replica count (not identical hot counts). | https://console.hw167.omantel.biz/app/shared-pg | ☐ | |
+| 3375-09 | #3375 | Open a per-app Topology tab and read its placement view (singleton apps note no per-region/standby surface). | https://console.hw167.omantel.biz/app/cilium | ☐ | |
+| 3375-10 | #3375, #3856 | `shared-pg` Topology tab declared-topology strip renders the canonical mode in ONE vocabulary — header dialect and picker dialect MATCH (no `singleton` header over an `active-hotstandby` chip). | https://console.hw167.omantel.biz/app/shared-pg | ☐ | |
+| 3375-11 | #3375 | `shared-pg` Topology tab shows the effective (live) topology next to the declared one — declared vs effective together, not a build-time constant. | https://console.hw167.omantel.biz/app/shared-pg | ☐ | |
+| 3375-12 | #3375 | `shared-pg` Topology tab per-region placement + replication block: region-a primary, region-b replica, and a live replication-lag in seconds (not a hardcoded `—`). | https://console.hw167.omantel.biz/app/shared-pg | ☐ | |
+| 3375-13 | #3375 | `shared-pg` Topology tab Switchover button is present and armed because a live 2-region cnpg-pair backs the app. | https://console.hw167.omantel.biz/app/shared-pg | ☐ | |
+| 3375-14 | #3375 | A **singleton** app (cilium) Topology tab: the DR section / Switchover button does NOT render (honestly hidden, not armed against a phantom region). | https://console.hw167.omantel.biz/app/cilium | ☐ | |
+| 3375-15 | #3375 | Catalog New instance → pick `singleton` → Provision → that app's Topology tab shows single-region placement (no region-b standby, no Switchover). | https://console.hw167.omantel.biz/catalog/bp-postgres | ☐ | |
+| 3375-16 | #3375 | Catalog New instance → pick `active-hot-standby` → Provision → that app's Topology tab shows a 2-region pair (region-a primary + region-b replica + armed Switchover). | https://console.hw167.omantel.biz/catalog/bp-postgres | ☐ | |
+| 3375-17 | #3375 | Apps grid shows newly-provisioned postgres instances as their own cards, each carrying a topology badge matching the mode picked at create time. | https://console.hw167.omantel.biz/apps | ☐ | |
+| 3375-18 | #3375 | On an app WITH a live pair, the Topology DR section shows the live Continuum status (Ready / lease holder / standby) from the live API, not a static badge. | https://console.hw167.omantel.biz/app/shared-pg | ☐ | |
+| 3375-19 | #3375 | grafana (declares hot-standby, no live DR backing) Topology DR section reads the honest "no live DR backing… Switchover unavailable" state with a disabled (not armed) Switchover button. | https://console.hw167.omantel.biz/app/grafana | ☐ | |
+| 3375-20 | #3375 | `shared-pg` Topology tab replication-lag field shows a live numeric seconds value (or explicit "no replica"), never a hardcoded `—`. | https://console.hw167.omantel.biz/app/shared-pg | ☐ | |
+| 3375-21 | #3375 | Cloud/regions view shows the true region count — a healthy 2-region prov reads `Cluster 2/2` with no phantom region-B bubble. | https://console.hw167.omantel.biz/cloud | ☐ | |
+| 3375-24 | #3375 | Cloud→Clusters renders 2/2 HEALTHY clusters, one per region (me-east-215-a + me-east-215-b), no phantom region. | https://console.hw167.omantel.biz/cloud | ☐ | |
+| 3375-25 | #3375 | grafana status/overview reports Healthy/Running in both regions — no "cannot resolve write host" crashloop in the app health panel. | https://console.hw167.omantel.biz/app/grafana | ☐ | |
+| 3375-26 | #3375 | powerdns-admin status reports Healthy/Running — the CNPG-minted DB host resolved (no "could not translate host"). | https://console.hw167.omantel.biz/app/powerdns-admin | ☐ | |
+| 3375-27 | #3375 | keycloak status reports Healthy/Running in both regions — JGroups DB-host resolves, no UnknownHostException in the health panel. | https://console.hw167.omantel.biz/app/keycloak | ☐ | |
+| 3375-28 | #3375 | guacamole status reports Healthy/Running in both regions — no missing-recordings-PVC error surfaced. | https://console.hw167.omantel.biz/app/guacamole | ☐ | |
+| 3375-29 | #3375 | Region-kill baseline (before): `shared-pg` Topology tab shows live Continuum Ready, lease held by region-a, region-b standby present, a live replication-lag number. | https://console.hw167.omantel.biz/app/shared-pg | ☐ | |
+| 3376-01 | #3376 | Operator console BSS → Vouchers page renders the voucher issuance form (code, credit OMR, plan tier, description); no login wall. | https://console.hw167.omantel.biz/bss/vouchers | ☐ | |
+| 3376-02 | #3376 | In the voucher form, type a weak code `1234` → Issue → the form rejects it inline ("voucher code must be at least 12 characters"). | https://console.hw167.omantel.biz/bss/vouchers | ☐ | |
+| 3376-03 | #3376 | Leave the code field empty → Issue → a new voucher row appears with a server-auto-generated high-entropy code, credit, plan tier, `unredeemed 0/1`. | https://console.hw167.omantel.biz/bss/vouchers | ☐ | |
+| 3376-04 | #3376 | Stranger opens the redeem page with `?code=<CODE>` → sees "Voucher valid · 5000 OMR" with THIS Sovereign's brand chrome (no openova.io / mothership logo). | https://marketplace.hw167.omantel.biz/redeem/?code=<CODE> | ☐ | |
+| 3376-05 | #3376 | Open the redeem page with a junk code → a generic "voucher not valid" message (no tombstone / no detail leak). | https://marketplace.hw167.omantel.biz/redeem/?code=JUNK | ☐ | |
+| 3376-06 | #3376 | Redeem page source (DevTools): the HTML shows THIS Sovereign's brand and no `console.openova.io` / `omantel.openova.io` / bare `openova.io` host literal. | https://marketplace.hw167.omantel.biz/redeem/?code=<CODE> | ☐ | |
+| 3376-07 | #3376 | Click "Sign up to redeem" → the browser lands on the plan picker grid (`/plans`). | https://marketplace.hw167.omantel.biz/plans | ☐ | |
+| 3376-08 | #3376 | Plans grid shows the tiers (S/M/L/XL/Flexi) with price/CPU/memory → pick plan M → advances to the app catalog (`/apps`). | https://marketplace.hw167.omantel.biz/plans | ☐ | |
+| 3376-09 | #3376 | App catalog grid (served from THIS Sovereign's catalog) → pick WordPress → advances to add-ons (`/addons`). | https://marketplace.hw167.omantel.biz/apps | ☐ | |
+| 3376-10 | #3376 | Add-ons step shows optional add-ons → leave defaults → Continue → advances to the BCP topology step (`/bcp`). | https://marketplace.hw167.omantel.biz/addons | ☐ | |
+| 3376-11 | #3376 | BCP topology step shows BOTH Single-region and Active-hot-standby radios (the Pillar-2 BCP choice at signup) → select Active-hot-standby → Continue → review. | https://marketplace.hw167.omantel.biz/bcp | ☐ | |
+| 3376-12 | #3376 | Review summary shows the chosen plan (M), app (WordPress), topology (Active-hot-standby), the Org slug, and the pool-TLD → Proceed to checkout. | https://marketplace.hw167.omantel.biz/review | ☐ | |
+| 3376-13 | #3376 | On checkout, enter the stranger's email → Send code → type the emailed sign-in code (no password) → the page shows the stranger signed in + Org confirmed. | https://marketplace.hw167.omantel.biz/checkout | ☐ | |
+| 3376-14 | #3376 | Checkout summary: the voucher credit is applied — "Credit covers this order — 0 OMR due" (no Stripe card form) → click Launch / Place order. | https://marketplace.hw167.omantel.biz/checkout | ☐ | |
+| 3376-15 | #3376, #3860 | Provisioning progress timeline advances to Done (Creating Org → Committing manifests → Provisioning vCluster → Deploying WordPress → TLS → Health), no hang/red step. | https://marketplace.hw167.omantel.biz/checkout | ☐ | |
+| 3376-16 | #3376, #3860 | After Launch, the marketplace redirects to the per-Org console — URL becomes `https://console.<slug>.omani.homes` and loads with publicly-trusted TLS (no cert error / connection-refused). | https://console.<orgslug>.omani.homes/ | ☐ | |
+| 3376-17 | #3376, #3860 | Per-Org console landing: the stranger is signed in zero-click as the Org owner (their email in the avatar, their Org in the header) — no login/PIN form. | https://console.<orgslug>.omani.homes/dashboard | ☐ | |
+| 3376-18 | #3376, #3860 | Per-Org console → Applications view shows the purchased WordPress app card Running/Healthy → click Open. | https://console.<orgslug>.omani.homes/applications | ☐ | |
+| 3376-19 | #3376, #3860 | Terminal acceptance: the purchased WordPress app SERVES at its own FQDN `https://wordpress.<slug>.omani.homes` — the live rendered WordPress site (not 404/502/cert error). | https://wordpress.<orgslug>.omani.homes/ | ☐ | |
+| 3376-20 | #3376 | While signed in, re-open the marketplace root → the returning-user redirect sends the customer to their own Org console, never to `console.openova.io` / the mothership. | https://marketplace.hw167.omantel.biz/ | ☐ | |
+| 3376-21 | #3376 | As the signed-in customer, rapidly re-submit checkout/redeem >5× in a few seconds → after ~5 attempts a rate-limit notice appears; a single legitimate redeem is unaffected. | https://marketplace.hw167.omantel.biz/checkout | ☐ | |
+| 3376-22 | #3376 | Generality: mint a 2nd voucher and re-walk B.1→B.4 with a different slug (`walk-stranger-two`) and a different pool-TLD (`omani.rest`) → a 2nd Organization provisions and lands signed-in. | https://marketplace.hw167.omantel.biz/redeem/?code=<CODE2> | ☐ | |
+| 3376-23 | #3376 | The 2nd Org's console lands signed-in on a different TLD (`console.walk-stranger-two.omani.rest`) — identical zero-click contract, no special-casing. | https://console.<orgslug2>.omani.rest/dashboard | ☐ | |
+| 3376-24 | #3376 | The 2nd Org's purchased app serves at its own different-TLD FQDN (`wordpress.walk-stranger-two.omani.rest`) — two Orgs, two TLDs, two running apps, identical mechanism. | https://wordpress.<orgslug2>.omani.rest/ | ☐ | |
+| 3642-01 | #3642 | Handover URL → lands on `/dashboard` already signed-in as `emrah.baysal@openova.io` (avatar E), no login form. | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3642-02 | #3642 | Dashboard renders the cluster treemap and the LAYER 1 / LAYER 2 grouping comboboxes are visible. | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3642-03 | #3642 | Click LAYER 1 combobox → select `vCluster`; the treemap regroups into one labelled block per vCluster (`host` / `mgmt` / `rtz` / `dmz`), mgmt block visible + clickable. | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3642-04 | #3642 | On the LAYER1=vCluster treemap, the **grafana** tile sits inside the **mgmt** block, not **host**. | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3642-05 | #3642 | On the LAYER1=vCluster treemap, the **harbor** tile sits inside the **mgmt** block, not **host**. | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3642-06 | #3642 | On the LAYER1=vCluster treemap, the **keycloak** tile sits inside the **mgmt** block, not **host**. | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3642-07 | #3642 | On the LAYER1=vCluster treemap, the **gitea** tile sits inside the **mgmt** block, not **host**. | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3642-08 | #3642 | On the LAYER1=vCluster treemap, the **openbao** tile sits inside the **mgmt** block, not **host**. | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3642-09 | #3642, #3831 | On the LAYER1=vCluster treemap, the **newapi** tile sits inside the **mgmt** block, not **host**. | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3642-10 | #3642 | On the LAYER1=vCluster treemap, the **guacamole** tile sits inside the **mgmt** block, not **host**. | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3642-11 | #3642 | Drill into the **mgmt** block: its tiles include all 7 named apps (grafana/harbor/keycloak/gitea/openbao/newapi/guacamole) alongside loki/mimir/nats/tempo. | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3642-12 | #3642 | Read the **host** block on the same treemap: none of the 7 named apps appear under `host`. | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3642-13 | #3642 | Open the keycloak app card → its placement detail reads `mgmt` (the per-app placement mirrors the treemap block), not `host`. | https://console.hw167.omantel.biz/app/keycloak | ☐ | |
+| 3642-14 | #3642 | The sovereign-realm account console renders for `emrah.baysal@openova.io` (no second login, no error dialog). | https://auth.hw167.omantel.biz/realms/sovereign/account | ☐ | |
+| 3642-15 | #3642 | Gitea opens already signed in (avatar/menu shows the SSO user), repo list renders — no Gitea login form. | https://gitea.hw167.omantel.biz | ☐ | |
+| 3642-16 | #3642 | Harbor opens signed in, the projects list renders — no Harbor login form, no gateway error page. | https://harbor.hw167.omantel.biz | ☐ | |
+| 3642-17 | #3642 | Grafana opens signed in (no Grafana login), the home dashboard renders. | https://grafana.hw167.omantel.biz | ☐ | |
+| 3642-18 | #3642 | The OpenBao UI renders signed in via OIDC — no manual token/unseal prompt blocking the landing. | https://openbao.hw167.omantel.biz | ☐ | |
+| 3642-19 | #3642 | newapi opens signed in, its main console renders — no login form, no upstream-connect error. | https://newapi.hw167.omantel.biz | ☐ | |
+| 3642-20 | #3642 | Guacamole opens signed in, the connections list renders — no Guacamole login form. | https://guacamole.hw167.omantel.biz | ☐ | |
+| 3383-01 | #3383 | Organizations directory: the page title / heading reads "Organizations", never "Tenants"/"SME Tenants". | https://console.hw167.omantel.biz/organizations | ☐ | |
+| 3383-02 | #3383 | Directory org cards / list rows: column headers read "Organization / Kind / Tier / Billing / Isolation / Status"; rows labeled "Organization", never "tenant"/"SME". | https://console.hw167.omantel.biz/organizations | ☐ | |
+| 3383-03 | #3383 | Left-nav sidebar label for this section reads "Organizations", not "Tenants"/"SME". | https://console.hw167.omantel.biz/organizations | ☐ | |
+| 3383-04 | #3383 | Create-organization flow: the form title, field labels, and submit button all say "Organization" (no "SME tenant slug" / "Onboard tenant" persona words). | https://console.hw167.omantel.biz/organizations/new | ☐ | |
+| 3383-05 | #3383 | Organization-detail view: heading "Acme Corp", breadcrumb "← Organizations", field labels Slug/Kind/Tier/Billing mode/Isolation/Status/Owner/Console — no "tenant"/"SME". | https://console.hw167.omantel.biz/organizations/acme | ☐ | |
+| 3383-06 | #3383 | BSS / billing screen: billing is framed as "This organization is in showback mode…", zero "tenant"/"SME" leaks. | https://console.hw167.omantel.biz/organizations/billing | ☐ | |
+| 3383-07 | #3383 | Legacy `/bss/tenants` URL (PR #3390 alias) resolves and redirects to `/organizations`, rendering the directory (H1 "Organizations") — not a 404, not a login redirect. | https://console.hw167.omantel.biz/bss/tenants | ☐ | |
+| 3668-01 | #3668 | Handover URL → lands on `/dashboard` already signed-in as `emrah.baysal@openova.io` (avatar E), no login form (everything below is admin-gated). | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3668-02 | #3668 | Catalog grid renders Blueprint cards in a tile grid, each with an icon + summary; the Alloy card is visible. | https://console.hw167.omantel.biz/catalog | ☐ | |
+| 3668-03 | #3668 | Click the Alloy card → the detail page renders: a hero (icon + name + summary + Edit IaC), an About section, and an Instances list; no login redirect. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-04 | #3668 | Click the admin Edit affordance in the hero → an edit form drops INLINE into the detail page (no modal overlay); fields appear in-place under the hero. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-05 | #3668 | In the inline form, change Summary to `RECONCILE-PROOF-<ts>` → Save → the page refreshes in place and the new summary shows in the hero. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-06 | #3668 | Back on the grid, the Alloy card summary now reads `RECONCILE-PROOF-<ts>` — the edit propagated to the card, not just the detail page. | https://console.hw167.omantel.biz/catalog | ☐ | |
+| 3668-07 | #3668 | Hard-reload the detail page → the summary is still `RECONCILE-PROOF-<ts>` — the edit persisted across a reload, not an in-memory overlay. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-08 | #3668 | The non-card `version` field renders as a `v1.0.1` chip in the hero, and Edit IaC exposes the full CR including `version` for editing. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-10 | #3668 | Note the current hero logo (the Alloy glyph) as the baseline before an icon edit. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-11 | #3668 | Click Edit → in the Light-theme icon field paste a distinct image → Save → a "Saved to IaC ✓" confirmation shows and the page refreshes. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-12 | #3668 | Observe the hero — it now shows the new logo; the render reads the edited `card.iconLight` first (IaC-first), not the bundled asset. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-13 | #3668 | Return to the grid — the Alloy card icon is now the new logo (the grid tile resolves the same edited `card.iconLight`). | https://console.hw167.omantel.biz/catalog | ☐ | |
+| 3668-14 | #3668 | Reload the detail page — the hero is still the new logo (render reads the persisted IaC icon on every load). | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-15 | #3668 | Click Edit again — the Light-theme icon field shows the current IaC value, falling back to the bundled asset only when IaC carries none. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-16 | #3668 | Click Edit → click the icon picker (`iconpicker-*`) → a thumbnail grid of vendored `component-logos/*` assets opens (a role=listbox grid of logo tiles). | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-17 | #3668 | Click `cilium.svg` in the picker grid → the icon field + a live preview swatch update to the Cilium logo. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-18 | #3668 | Save → reload — the hero is now the Cilium logo (the picker selection persisted to IaC and renders on hero + grid card). | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-19 | #3668 | On Save, the durable-commit verdict (git outcome) is surfaced in-UI (the Edit-IaC `managed-by: manual • in sync` indicator + `{stored:true,committed:true}`), not a silent store success. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-21 | #3668 | Hover the summary line in the hero → a pencil/edit affordance appears ON the field (`cif-summary-edit` → `cif-summary-input`), inline, without opening the full form. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-22 | #3668 | Click the summary → type a value → Save → only the summary updates in place; no full-form modal opens. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-23 | #3668 | Repeat the inline edit for the name field (`cif-name-edit` → `cif-name-input`) — it edits in place and saves just that field. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-24 | #3668 | Click Edit IaC (`catalog-detail-edit-iac`, admin only) → the full `blueprint.yaml` opens in the YAML editor (the entire CR, not just 7 card fields). | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-25 | #3668 | Change a field in the editor → Commit → a Show-diff Current/Proposed side-by-side renders the change and the commit succeeds (confirmation appears). | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-26 | #3668 | The editor subtitle states it directly: "Commit writes the IaC source of truth; Flux reconciles it… Both this editor and the card form above write the same file." | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-27 | #3668 | Open the WordPress detail page → Edit → change Summary → Save → reload → the summary persists, exactly as for Alloy. | https://console.hw167.omantel.biz/catalog/bp-wordpress | ☐ | |
+| 3668-28 | #3668 | WordPress: Edit IaC → edit `spec.manifests` → Commit → reload — the same YamlEditor edits a structurally-different blueprint's manifests in place. | https://console.hw167.omantel.biz/catalog/bp-wordpress | ☐ | |
+| 3668-29 | #3668 | WordPress: Edit → Light-theme icon → distinct image → Save → reload — the WordPress hero icon visibly changes. | https://console.hw167.omantel.biz/catalog/bp-wordpress | ☐ | |
+| 3668-30 | #3668 | PostgreSQL detail renders the SAME edit surface (hero icon, Edit IaC, clickable cards) and Edit IaC exposes `contextSchema` (a blueprint carrying `contextSchema`/`shareable`). | https://console.hw167.omantel.biz/catalog/bp-postgres | ☐ | |
+| 3668-31 | #3668 | Alloy + Postgres render the IDENTICAL edit chrome (same `cif-icon-edit`/`cif-name-edit`, same Edit-IaC YamlEditor) — no blueprint-specific UI. | https://console.hw167.omantel.biz/catalog/bp-postgres | ☐ | |
+| 3668-32 | #3668 | The catalog detail page renders (hero · About · Instances) and opens an INLINE Edit form (no modal) — acceptance headline 1. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-33 | #3668 | A summary edit Saves, updates the page AND the grid card, and persists across a reload — acceptance headline 2. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-34 | #3668 | A non-card field edit (`version`) persists — the whole CR is editable, not a 7-field overlay — acceptance headline 3. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-35 | #3668 | The edited icon renders on hero + grid + survives reload; the form pre-fills the IaC icon; the picker grid works — acceptance headline 4. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-36 | #3668 | Save surfaces the IaC-commit verdict (`committed:true` + `• in sync`), not a bare store success — acceptance headline 5. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-37 | #3668 | Per-field inline edit for cards (`cif-*`) + the full-CR YamlEditor (Edit IaC) for the rest, both writing the same IaC source — acceptance headline 6. | https://console.hw167.omantel.biz/catalog/bp-alloy | ☐ | |
+| 3668-38 | #3668 | The identical edit mechanism works on a 2nd + 3rd blueprint — no per-blueprint UI (Alloy + Postgres + a third) — acceptance headline 7. | https://console.hw167.omantel.biz/catalog/bp-postgres | ☐ | |
+| 3379-01 | #3379 | Settings → Sovereignty section renders a "Cluster sovereignty" panel with a "TETHERED" badge + an "Achieve True Sovereignty" cutover CTA (runs the 8-step cutover + 10-min egress-block self-test). | https://console.hw167.omantel.biz/settings#sovereignty | ☐ | |
+| 3379-02 | #3379 | Console nav + Settings sidebar expose a dedicated "Sovereignty" anchor (`#sovereignty`) that scrolls to + highlights the Cluster-sovereignty panel — the cutover trigger is a first-class surface. | https://console.hw167.omantel.biz/settings#sovereignty | ☐ | |
+| 3379-05 | #3379 | Open `/jobs` (zero-login, signed in as owner) → the canvas table renders a populated activity list (not a spinner, empty state, or login redirect). | https://console.hw167.omantel.biz/jobs | ☐ | |
+| 3379-06 | #3379 | Find the `cutover` group row and expand it → it renders the 11 `cutover-step-*` rows (gitea-mirror, harbor-projects, harbor-prewarm, registry-pivot, … vcluster-registry-pivot) — the 11-step execution tree. | https://console.hw167.omantel.biz/jobs | ☐ | |
+| 3379-07 | #3379 | Each `cutover-step-*` row reads an honest per-step status (Succeeded / Running / Failed / Pending), never a premature green. | https://console.hw167.omantel.biz/jobs | ☐ | |
+| 3379-08 | #3379 | The cutover group status reflects its real children (a group with a failed child reads failed, not a fake Succeeded). | https://console.hw167.omantel.biz/jobs | ☐ | |
+| 3379-09 | #3379 | On a failed `cutover-step-*` row, a Re-run button is present (per-row, gated to Failed) — the operator can re-drive a failed cutover step from the browser. | https://console.hw167.omantel.biz/jobs | ☐ | |
+| 3379-10 | #3379 | (After a COMPLETE cutover) the `cutover` group reads all-11-green on `/jobs` — every step Succeeded, including `egress-block-test` and `registry-pivot`. | https://console.hw167.omantel.biz/jobs | ☐ | |
+| 3646-01 | #3646 | Open the console root in a fresh tab → land on the operator dashboard signed in as the sovereign-admin (no login form, no password field). | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3646-02 | #3646 | Open `/jobs` → the canvas table renders a populated list of activity rows (not a spinner, empty state, or login redirect). | https://console.hw167.omantel.biz/jobs | ☐ | |
+| 3646-03 | #3646 | The Kind column is present in the header and each row shows its kind; full header = Name·Kind·App·Deps·Parent·Status·Started·Duration·Actions. | https://console.hw167.omantel.biz/jobs | ☐ | |
+| 3646-04 | #3646 | Scroll/search to the `install-openbao` row → it renders green / Succeeded (the install is honestly green). | https://console.hw167.omantel.biz/jobs | ☐ | |
+| 3646-08 | #3646 | Every rendered row maps to a real HelmRelease install / terraform stage (no placeholder, no synthetic/fabricated entry). | https://console.hw167.omantel.biz/jobs | ☐ | |
+| 3646-10 | #3646 | Set the Status filter to `failed` → the table shows the genuinely-failing rows, each with an honest failed status (the Status filter works). | https://console.hw167.omantel.biz/jobs | ☐ | |
+| 3646-11 | #3646 | Leave the table on screen ~30s → rows update live (tail) as reconciliation progresses; a status badge changes in place without a manual reload. | https://console.hw167.omantel.biz/jobs | ☐ | |
+| 3646-12 | #3646 | On a Failed row (Status=failed), a Re-run / Retry-reconcile button is present on the row (visible on the row or on hover). | https://console.hw167.omantel.biz/jobs | ☐ | |
+| 3646-13 | #3646 | On a Succeeded / healthy / Confirming row, NO Re-run button renders — the control is gated to Failed rows only. | https://console.hw167.omantel.biz/jobs | ☐ | |
+| 3646-14 | #3646 | Click Re-run on a Failed row → a success toast/feedback appears and the button flips in place (e.g. `Requesting…`) — the browser triggered a re-reconcile, no terminal. | https://console.hw167.omantel.biz/jobs | ☐ | |
+| 3646-19 | #3646 | Use the same Re-run button on a Failed row — one remediation mechanism across rows, no per-kind UI (the single-table/single-ingestion shape). | https://console.hw167.omantel.biz/jobs | ☐ | |
+| 3581-01 | #3581 | The signed handover URL → lands directly on `/dashboard` signed-in (env switcher shows the live env, avatar E, no login form). | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3581-02 | #3581 | Click the avatar (top-right) → menu reads "Signed in as emrah.baysal@openova.io" with a Sign-out item — confirms the landed identity is the owner-admin. | https://console.hw167.omantel.biz/dashboard | ☐ | |
+| 3581-03 | #3581 | Grafana bare URL → lands on Grafana Home ("Welcome to Grafana", full UI, Profile avatar), `?orgId=1`, no login form (SSO landed signed-in). | https://grafana.hw167.omantel.biz | ☐ | |
+| 3581-04 | #3581 | Harbor (registry) bare URL → lands on `/harbor/projects` (projects, repos, Administration nav), no login form; user dropdown `emrah.baysal@openova.io`. | https://registry.hw167.omantel.biz | ☐ | |
+| 3581-05 | #3581 | Gitea bare URL → lands on the gitea dashboard titled "emrah.baysal - Dashboard - Catalyst Gitea", logged in; URL stays on :443. | https://gitea.hw167.omantel.biz | ☐ | |
+| 3581-06 | #3581 | OpenBao bare UI → final rendered screen is the authenticated Vault session (`/ui/vault/secrets`, Secrets Engines with cubbyhole/ + secret/ kv), NO `/ui/vault/auth` token form. | https://openbao.hw167.omantel.biz | ☐ | |
+| 3581-07 | #3581 | The rendered `UAT.md` (on GitHub) H1 + banner name only the live env — zero `hw150`/`hw144`/`hw128` predecessor mentions. | https://github.com/openova-io/openova/blob/main/docs/ledger/UAT.md | ☐ | |
+| 3581-08 | #3581 | The 🌟 North-Star table in the rendered `UAT.md` names only the live env (witnessed live in the browser on this fresh env). | https://github.com/openova-io/openova/blob/main/docs/ledger/UAT.md | ☐ | |
+| 3581-09 | #3581 | Every linked screenshot in the rendered `UAT.md` resolves under the current env's evidence dir — the wiped-predecessor evidence is fully flushed. | https://github.com/openova-io/openova/blob/main/docs/ledger/UAT.md | ☐ | |
