@@ -280,9 +280,45 @@ describe('JobsTable — render', () => {
       .getAllByRole('columnheader')
       .map((h) => (h.textContent ?? '').toLowerCase().trim())
     // Kind is inserted after Name (#3646 typed activity discriminator).
-    // The Actions column appears only when a deploymentId is threaded,
-    // which this no-deploymentId render does not, so it's absent here.
-    expect(headers).toEqual(['name', 'kind', 'app', 'deps', 'parent', 'status', 'started', 'duration'])
+    // Runs (#3925) sits after Status — the run-history depth so a collapsed
+    // recurring row shows its run count. The Actions column appears only
+    // when a deploymentId is threaded, which this no-deploymentId render
+    // does not, so it's absent here.
+    expect(headers).toEqual(['name', 'kind', 'app', 'deps', 'parent', 'status', 'runs', 'started', 'duration'])
+  })
+
+  it('renders the run-history count in the Runs column, "—" when no runs (#3925)', async () => {
+    // A collapsed recurring scanner row (600 runs behind one identity) and a
+    // one-shot row (1 run) and a pending row (no run yet) — the Runs column
+    // must report each honestly so the collapse is legible.
+    const jobs: Job[] = [
+      {
+        id: 'd-1:task-trivy-security-scan', jobName: 'task-trivy-security-scan',
+        displayName: 'Trivy Security Scan (task)', appId: 'trivy-security-scan',
+        type: 'install', kind: 'task', parentId: 'd-1:reconcilers', childIds: [],
+        dependsOn: [], status: 'succeeded', startedAt: '2026-06-20T01:00:00Z',
+        finishedAt: '2026-06-20T01:00:05Z', durationMs: 5000, runCount: 600,
+      },
+      {
+        id: 'd-1:task-openbao-init', jobName: 'task-openbao-init',
+        appId: 'openbao-init', type: 'install', kind: 'task',
+        parentId: 'd-1:reconcilers', childIds: [], dependsOn: [],
+        status: 'succeeded', startedAt: '2026-06-20T01:00:00Z',
+        finishedAt: '2026-06-20T01:00:01Z', durationMs: 1000, runCount: 1,
+      },
+      {
+        id: 'd-1:task-pending', jobName: 'task-pending', appId: 'pending',
+        type: 'install', kind: 'task', parentId: 'd-1:reconcilers', childIds: [],
+        dependsOn: [], status: 'pending', startedAt: null, finishedAt: null,
+        durationMs: 0,
+      },
+    ]
+    renderTable({ jobs })
+    await screen.findByTestId('jobs-table')
+    expect(screen.getByTestId('jobs-cell-runs-d-1:task-trivy-security-scan').textContent).toBe('600')
+    expect(screen.getByTestId('jobs-cell-runs-d-1:task-openbao-init').textContent).toBe('1')
+    // Pending row with no run yet → em-dash, never "0".
+    expect(screen.getByTestId('jobs-cell-runs-empty-d-1:task-pending')).toBeTruthy()
   })
 
   it('row link stays scoped under /provision/$deploymentId on the mother surface (prov #59)', async () => {

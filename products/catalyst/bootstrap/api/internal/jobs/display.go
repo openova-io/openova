@@ -75,6 +75,9 @@ var acronyms = map[string]string{
 	"ha":       "HA",
 	"bcp":      "BCP",
 	"dr":       "DR",
+	"sbom":     "SBOM",
+	"trivy":    "Trivy",
+	"syft":     "Syft",
 }
 
 // humanizeToken renders one hyphen-separated slug token in its canonical

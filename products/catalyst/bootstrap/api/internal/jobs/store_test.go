@@ -221,6 +221,86 @@ func TestStore_StartAndFinishExecution(t *testing.T) {
 	}
 }
 
+// TestStore_RunCount_CountsExecutionsPerLeaf pins the #3925 run-history
+// depth: ListJobs + GetJob derive RunCount from the flat Execution index, so
+// a collapsed identity row (one Job, many runs) reports its full run count.
+func TestStore_RunCount_CountsExecutionsPerLeaf(t *testing.T) {
+	st := newTestStore(t)
+	depID := "dep-runcount"
+
+	if err := st.UpsertJob(Job{
+		DeploymentID: depID,
+		JobName:      "task-trivy-security-scan",
+		AppID:        "trivy-security-scan",
+		Type:         JobTypeInstall,
+		Kind:         KindTask,
+		ParentID:     JobID(depID, GroupReconcilers),
+		Status:       StatusPending,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A one-shot job with a single run, to prove RunCount=1 there.
+	if err := st.UpsertJob(Job{
+		DeploymentID: depID,
+		JobName:      "task-openbao-init",
+		AppID:        "openbao-init",
+		Type:         JobTypeInstall,
+		Kind:         KindTask,
+		ParentID:     JobID(depID, GroupReconcilers),
+		Status:       StatusPending,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	t0 := time.Now().UTC()
+	const scanRuns = 600
+	for i := 0; i < scanRuns; i++ {
+		e, err := st.StartExecution(depID, "task-trivy-security-scan", t0.Add(time.Duration(i)*time.Second))
+		if err != nil {
+			t.Fatalf("StartExecution[%d]: %v", i, err)
+		}
+		if err := st.FinishExecution(depID, e.ID, StatusSucceeded, t0.Add(time.Duration(i)*time.Second+time.Second)); err != nil {
+			t.Fatalf("FinishExecution[%d]: %v", i, err)
+		}
+	}
+	oneShot, err := st.StartExecution(depID, "task-openbao-init", t0)
+	if err != nil {
+		t.Fatalf("StartExecution(one-shot): %v", err)
+	}
+	if err := st.FinishExecution(depID, oneShot.ID, StatusSucceeded, t0.Add(time.Second)); err != nil {
+		t.Fatalf("FinishExecution(one-shot): %v", err)
+	}
+
+	// ListJobs: the collapsed scanner row reports all 600 runs; the one-shot 1.
+	jobsList, err := st.ListJobs(depID)
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	byName := map[string]Job{}
+	for _, j := range jobsList {
+		byName[j.JobName] = j
+	}
+	if got := byName["task-trivy-security-scan"].RunCount; got != scanRuns {
+		t.Errorf("collapsed scanner RunCount: want %d, got %d", scanRuns, got)
+	}
+	if got := byName["task-openbao-init"].RunCount; got != 1 {
+		t.Errorf("one-shot RunCount: want 1, got %d", got)
+	}
+	// The Reconcilers group row owns no Executions of its own → RunCount 0.
+	if grp, ok := byName[GroupReconcilers]; ok && grp.RunCount != 0 {
+		t.Errorf("group RunCount should be 0, got %d", grp.RunCount)
+	}
+
+	// GetJob mirrors ListJobs.
+	j, execs, err := st.GetJob(depID, JobID(depID, "task-trivy-security-scan"))
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if j.RunCount != scanRuns || len(execs) != scanRuns {
+		t.Errorf("GetJob RunCount/execs: want %d/%d, got %d/%d", scanRuns, scanRuns, j.RunCount, len(execs))
+	}
+}
+
 func TestStore_FinishExecution_RejectsNonTerminal(t *testing.T) {
 	st := newTestStore(t)
 	if err := st.UpsertJob(Job{DeploymentID: "d", JobName: "install-x"}); err != nil {

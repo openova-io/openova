@@ -192,10 +192,48 @@ func (b *Bridge) onReconcilerObservationLocked(o ReconcilerObservation) (jobsWri
 		if e != nil {
 			return jobsWritten, execsSeeded, e
 		}
-	case ObsKindReconcile, ObsKindTask:
-		// One-shot leaves get a single Execution carrying the status +
-		// message so the JobDetail log surface is non-empty and the row
-		// renders a duration cell rather than an em-dash. Pending leaves
+	case ObsKindTask:
+		// A task leaf is ONE STABLE entry keyed by its base identity
+		// (issue #3916). When the producer carried per-run instances
+		// (multiple Jobs sharing a generateName / run-suffix), each becomes
+		// an Execution on this single leaf — deduped by run name across
+		// re-reads, exactly like the cron leaf — so N reruns surface as 1
+		// row + N runs, never N rows. When no per-run list is present, fall
+		// back to a single status-carrying Execution.
+		if len(o.Executions) > 0 {
+			es, e := b.seedCronExecutionsLocked(jobName, o)
+			execsSeeded += es
+			if e != nil {
+				return jobsWritten, execsSeeded, e
+			}
+			// seedCronExecutionsLocked finishes each run in list order, so the
+			// LAST-processed run (not necessarily the most recent) would
+			// otherwise leave the headline. Re-assert the producer's
+			// recency-resolved status so the leaf reflects the latest run.
+			if err := b.store.UpsertJob(Job{
+				DeploymentID: b.deploymentID,
+				JobName:      jobName,
+				DisplayName:  reconcilerDisplay(o.Kind, o.Name),
+				AppID:        o.Name,
+				Type:         JobTypeInstall,
+				Kind:         kind,
+				ParentID:     JobID(b.deploymentID, GroupReconcilers),
+				DependsOn:    []string{},
+				Status:       status,
+			}); err != nil {
+				return jobsWritten, execsSeeded, err
+			}
+		} else if isTerminalOrRunningObs(status) {
+			es, e := b.seedSingleExecutionLocked(jobName, status, o.Message, at)
+			execsSeeded += es
+			if e != nil {
+				return jobsWritten, execsSeeded, e
+			}
+		}
+	case ObsKindReconcile:
+		// One-shot reconcile leaf gets a single Execution carrying the
+		// status + message so the JobDetail log surface is non-empty and the
+		// row renders a duration cell rather than an em-dash. Pending leaves
 		// stay Job-only (no empty NDJSON file).
 		if isTerminalOrRunningObs(status) {
 			es, e := b.seedSingleExecutionLocked(jobName, status, o.Message, at)

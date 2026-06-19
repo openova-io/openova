@@ -147,6 +147,17 @@ export interface Job {
   finishedAt: string | null
   durationMs: number
   /**
+   * Run-history depth (#3925) — the number of Executions (runs) behind
+   * this leaf row. A recurring job that collapses to ONE identity-keyed
+   * row (e.g. a trivy/syft scan) reports its full run count here ("600
+   * runs"); a one-shot job reports 1. Backend-derived at read time
+   * (Store.ListJobs / GetJob); omitted on the wire (and thus undefined
+   * here) for a pending job with no run yet and for group rows. The Jobs
+   * view renders this in the Runs column so the collapse is legible — one
+   * row, N runs behind it.
+   */
+  runCount?: number
+  /**
    * #3656 (founder #6) — FE-only provisional flag. The Jobs canvas merges
    * reducer-derived rows (folded from the SSE replay buffer) with the live
    * /jobs query, and the live source wins on conflict. Before the live
