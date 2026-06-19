@@ -443,6 +443,11 @@ export function TopologyTab({
         namespace={namespace}
         blueprint={blueprint}
         supportedCanonical={declaredTopology?.supported}
+        // #3905 — feed the SAME per-component topology matrix the card reads
+        // so the edit dropdown's per-mode helper text derives from the
+        // component's real DR contract (replication + switchover), never the
+        // generic "backup-restore" string that contradicted the card.
+        topology={declaredTopology}
         disableNetwork={disableNetwork}
         onApplied={() => {
           setRefreshTick((t) => t + 1)
