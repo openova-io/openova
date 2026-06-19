@@ -47,7 +47,15 @@ apps mid-convergence (hw167 at 57/64, bp-catalyst-platform oscillating) or per-a
 | 3374-15 | hubble bare URL → no Hubble UI (not serving) | ❌ | [shot](../sessions/2026-06-19/evidence/hw167-3374-hubble.png) |
 
 > **Re-run any time:** `node scripts/uat-run.mjs --fqdn hw167.omantel.biz --jwt-key /tmp/hw-priv.pem --deployment-id 28d4e96f96407bbb --shots docs/sessions/2026-06-19/evidence`.
-> Deep per-runbook probes (#3687/#3668/#3646 detail, then #3375/#3376/#3379/#3642) are being added to widen coverage toward the full set.
+### Deep-probe walk (live hw167) — extending coverage beyond structure
+
+Per-runbook deep probes (interaction: click/fill/filter → assert → screenshot), each live-validated against hw167. Screenshots `hw167-<runbook>-D*.png` under the evidence dir.
+
+**#3668 catalog single-source IaC editor — 13/13 ✅** (`scripts/uat-3668-deep-probe.mjs`): Edit-IaC full-CR editor opens with the whole `Blueprint` CR seeded + "writes the IaC source of truth" subtitle + Validate/Commit; Show-diff renders Current vs Proposed panes; inline summary/name editors (in-place, no modal); icon-picker light+dark grids → select cilium (in-draft, no live write); identical editor chrome on a 2nd blueprint (grafana). Maps UAT 3668-03/04/16/17/23/24/25/26/30/31. No defects.
+
+**#3646 jobs honest canvas — 8/8 ✅** (`scripts/uat-3646-deep-probe.mjs`): toolbar+table; populated canvas (≥10 rows → real HelmRelease installs); Kind `<select>` offers `[All,cron,install,lifecycle,reconcile,reconciler,step,task]` — **the 8× hw159 GAP kinds (task/cron/reconciler/step) are now LIVE**; Kind=lifecycle filters 88→5; search `openbao` 88→4; Status=failed → 3 honest FAILED rows each with a kind-specific Re-run button; inverse gating verified (succeeded rows: zero Re-run). Honest backend finding (real cluster state, not a probe bug): `catalog-sovereign` + `sme-tenants` reconciles FAILED ~2h. Maps UAT 3646-02/03/04/05/06/07/10/12/13.
+
+**In progress (live-validating now):** #3687 object-model deep · #3375 topology · #3642 placement (NS#1 — 7 apps in mgmt vCluster) · #3376 funnel surfaces.
 
 ---
 
