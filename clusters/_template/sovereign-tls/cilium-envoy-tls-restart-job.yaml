@@ -179,13 +179,27 @@ spec:
     spec:
       serviceAccountName: cilium-envoy-tls-restart
       restartPolicy: OnFailure
-      # alpine/k8s:1.31.4 — canonical kubectl image used across the
-      # Catalyst fleet (self-sovereign-cutover, seaweedfs, harbor have
-      # all converged on this after Bitnami deprecated public Docker
-      # Hub in 2025). Ships kubectl + sh + standard busybox toolchain.
+      # harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4 — canonical
+      # kubectl image used across the Catalyst fleet (self-sovereign-cutover,
+      # seaweedfs, harbor have all converged on alpine/k8s after Bitnami
+      # deprecated public Docker Hub in 2025). Ships kubectl + sh + standard
+      # busybox toolchain.
+      #
+      # MUST route through the Harbor proxy-dockerhub project: the
+      # harbor-proxy-pull Kyverno ClusterPolicy runs validationFailureAction:
+      # Enforce on every Sovereign and only admits images matching
+      # `*/proxy-*/*` or `*/openova-io/*`
+      # (platform/kyverno-policies/chart/values.yaml →
+      # harborProxyPull.allowedImagePatterns). A bare `alpine/k8s:1.31.4`
+      # matches NEITHER glob, so on a fresh prov this Job's pod ImagePull-
+      # BackOffs (kom4dc node containerd only proxies harbor.openova.io) —
+      # cilium-envoy never reloads the freshly-issued wildcard cert and
+      # console HTTPS stays 000. Matches the proxied form already used by the
+      # two sibling jobs in this directory (cert-stuck-nextprivatekey-guard,
+      # legacy-cert-cleanup). Refs #3296.
       containers:
         - name: wait-and-restart
-          image: alpine/k8s:1.31.4
+          image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
           imagePullPolicy: IfNotPresent
           resources:
             requests:
