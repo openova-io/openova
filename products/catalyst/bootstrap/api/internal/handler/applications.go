@@ -1810,6 +1810,102 @@ func routeNamespaceMatchesApp(routeNS, targetNS string) bool {
 	return false
 }
 
+// loft-sh / vCluster syncer annotation keys. When the per-tier vCluster
+// (#3642) syncs an in-vCluster resource down to its HOST namespace
+// (mgmt/dmz/rtz), it MANGLES the host name (`<name>-x-<vcns>-x-<vcluster>`,
+// truncated + hash-suffixed when too long) and stamps the authoritative
+// in-vCluster identity onto these annotations. We read them rather than
+// reverse-parsing the mangled name because the syncer truncates long names
+// and replaces the suffix with a hash (e.g.
+// `mimir-overrides-exporter-…-x-mimir-x--2baf76f56f`,
+// `guacamole-server-…-x-catalyst-system-x-533a6f8601`), so a pure
+// string-suffix parse is unreliable. The annotations are exact.
+const (
+	loftObjectNamespaceAnno = "vcluster.loft.sh/object-namespace"
+	loftObjectNameAnno      = "vcluster.loft.sh/object-name"
+	loftHostNamespaceAnno   = "vcluster.loft.sh/object-host-namespace"
+)
+
+// vClusterSyncedObjectNamespace returns the in-vCluster namespace a host
+// object was synced from (via the loft annotation), but ONLY when the
+// object actually lives in a known vCluster HOST sync namespace
+// (mgmt/dmz/rtz). For any object NOT in a sync namespace it returns "" —
+// so a non-vCluster object can never be reattributed to a different
+// namespace. This is the namespace-scoping guard that mirrors
+// routeNamespaceMatchesApp: we widen the lookup ONLY across the
+// deterministic sync namespaces, never arbitrarily.
+//
+// Returns "" when the object is nil, not in a sync namespace, or carries
+// no object-namespace annotation (a host-native object in mgmt/dmz/rtz,
+// e.g. the vcluster statefulset itself, has no such annotation).
+func vClusterSyncedObjectNamespace(obj *unstructured.Unstructured) string {
+	if obj == nil {
+		return ""
+	}
+	hostNS := obj.GetNamespace()
+	inSyncNS := false
+	for _, syncNS := range vClusterHostSyncNamespaces {
+		if hostNS == syncNS {
+			inSyncNS = true
+			break
+		}
+	}
+	if !inSyncNS {
+		return ""
+	}
+	anns := obj.GetAnnotations()
+	// Prefer the explicit object-host-namespace cross-check: only trust
+	// the object-namespace mapping when the syncer agrees the host
+	// namespace is this object's host landing zone. When the host-ns
+	// annotation is absent (older syncer) fall back to object-namespace
+	// alone — still gated by inSyncNS above.
+	if hn := anns[loftHostNamespaceAnno]; hn != "" && hn != hostNS {
+		return ""
+	}
+	return anns[loftObjectNamespaceAnno]
+}
+
+// vClusterSyncedDisplayName returns the de-mangled, in-vCluster object name
+// for a host-synced object (from the loft annotation), or "" when the
+// object is nil / not a synced object / carries no name annotation. Used to
+// surface the real name the operator knows (`gitea-75d9f486fb-g8hsr`)
+// instead of the mangled host name
+// (`gitea-75d9f486fb-g8hsr-x-gitea-x-mgmt-vcluster`).
+func vClusterSyncedDisplayName(obj *unstructured.Unstructured) string {
+	if obj == nil {
+		return ""
+	}
+	return obj.GetAnnotations()[loftObjectNameAnno]
+}
+
+// objectInAppNamespace decides whether a host object belongs to the app
+// installed in `targetNS`, accounting for the #3642 host→mgmt-vCluster
+// migration. It matches when EITHER:
+//
+//	(a) the object's own host namespace equals targetNS (pre-#3642
+//	    invariant — the app and its resources share a host namespace), OR
+//	(b) the object is synced from a per-tier vCluster (mgmt/dmz/rtz) and
+//	    its authoritative in-vCluster namespace (loft annotation) equals
+//	    targetNS — the post-#3642 case where the app's
+//	    `spec.targetNamespace` is the IN-vCluster namespace (gitea/grafana/
+//	    openbao/…) but the host-synced pods/services/etc. land in `mgmt`.
+//
+// The widening is strictly scoped: (b) only fires for objects already
+// living in a known sync namespace whose loft annotation matches targetNS,
+// so an unrelated object in another namespace can never false-positive
+// onto this app. This is the AppDetail Resources/Logs sibling of #3933's
+// routeNamespaceMatchesApp fix — same #3642 family, applied to the generic
+// resource-list namespace filter.
+func objectInAppNamespace(obj *unstructured.Unstructured, targetNS string) bool {
+	if obj == nil || targetNS == "" {
+		return false
+	}
+	if obj.GetNamespace() == targetNS {
+		return true
+	}
+	return vClusterSyncedObjectNamespace(obj) == targetNS
+}
+
 // lookupExternalURL — G90 2026-06-01.
 //
 // Resolve the operator-visible front-door URL for an installed Application

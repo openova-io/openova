@@ -217,11 +217,25 @@ func (h *Handler) HandleK8sList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Namespace pre-filter (cheap; before SAR loop).
+	//
+	// #3931 (#3642 sibling): a request for ns=<app targetNamespace> must
+	// ALSO surface the app's resources that the per-tier vCluster syncer
+	// mirrored onto the HOST under a sync namespace (mgmt/dmz/rtz). Those
+	// rows have `metadata.namespace=mgmt` but the authoritative
+	// `vcluster.loft.sh/object-namespace` annotation equals the requested
+	// in-vCluster namespace (e.g. `gitea`). objectInAppNamespace matches
+	// both the pre-#3642 same-namespace case AND the post-#3642 synced
+	// case, strictly scoped to the known sync namespaces — so the
+	// AppDetail Resources/Logs tabs stop coming back empty for every
+	// mgmt-vCluster app. We KEEP the host coordinates on each row
+	// (metadata.{name,namespace}) so the Logs/tree drill-down still
+	// resolves against the host apiserver; the de-mangled display name is
+	// surfaced separately in the flatten step.
 	if ns != "" {
 		fItems := items[:0]
 		fClusters := itemClusters[:0]
 		for i, it := range items {
-			if it.GetNamespace() == ns {
+			if objectInAppNamespace(it, ns) {
 				fItems = append(fItems, it)
 				fClusters = append(fClusters, itemClusters[i])
 			}
@@ -385,7 +399,7 @@ func flattenK8sListItemsWithClusters(kind string, items []*unstructured.Unstruct
 		// Shallow-copy the source map so we can decorate without
 		// mutating the cached Unstructured (the Indexer hands out the
 		// same pointer to every reader).
-		base := make(map[string]interface{}, len(it.Object)+6)
+		base := make(map[string]interface{}, len(it.Object)+8)
 		for k, v := range it.Object {
 			base[k] = v
 		}
@@ -399,6 +413,25 @@ func flattenK8sListItemsWithClusters(kind string, items []*unstructured.Unstruct
 			base["region"] = region
 		} else if region := it.GetLabels()["topology.kubernetes.io/region"]; region != "" {
 			base["region"] = region
+		}
+		// #3931 (#3642 sibling): for a per-tier vCluster (mgmt/dmz/rtz)
+		// host-synced object, surface the DE-MANGLED in-vCluster identity
+		// so the AppDetail Resources tab renders the real name the
+		// operator knows (`gitea-75d9f486fb-g8hsr`) instead of the loft
+		// syncer's mangled host name
+		// (`gitea-75d9f486fb-g8hsr-x-gitea-x-mgmt-vcluster`). The embedded
+		// `metadata.{name,namespace}` deliberately STAY the host
+		// coordinates — the Logs (`/k8s/logs/{ns}/{pod}/...`) and
+		// resource-tree (`/k8s/{kind}/{ns}/{name}/tree`) drill-downs
+		// resolve against the HOST apiserver (the mothership holds only
+		// the host kubeconfig), so they need `mgmt` + the mangled name.
+		// The SPA prefers `displayName`/`vclusterNamespace` for rendering
+		// and uses `metadata` for the drill-down hrefs.
+		if vcNS := vClusterSyncedObjectNamespace(it); vcNS != "" {
+			base["vclusterNamespace"] = vcNS
+			if dn := vClusterSyncedDisplayName(it); dn != "" {
+				base["displayName"] = dn
+			}
 		}
 		switch k8scache.CanonicalKindName(kind) {
 		case "pod":
