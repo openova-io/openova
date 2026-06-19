@@ -82,7 +82,16 @@ echo "[proxy-images] allowed globs (from $POLICY_VALUES): ${ALLOWED_GLOBS[*]}"
 #     Those step PodSpecs live in ConfigMaps and are stamped post-handover;
 #     the harbor-proxy-pull policy excludes the `catalyst` cutover namespace.
 #   - `{{...}}` and `${...}` are Helm/envsubst placeholders, not real refs.
-ALLOWLIST_REGEX='(\{\{)|(\$\{)|(alpine/k8s)|(alpine/git)|(curlimages/curl)|(library/alpine)|(library/busybox)'
+#   - mirror.gcr.io/aquasec/* (#3825, #3913): bp-trivy's operator + scanner
+#     images use `mirror.gcr.io` (the Google-run anonymous Docker Hub mirror,
+#     reachable from kom4dc). The trivy-operator DYNAMICALLY spawns scan Jobs
+#     into the `trivy-system` namespace, which harbor-proxy-pull EXCLUDES
+#     (harborProxyPull.extraExcludeNamespaces: [trivy-system]) precisely
+#     because the operator cannot re-tag its own generated scan images through
+#     the Sovereign Harbor. So these are NOT Enforce-denied — legitimately bare.
+#     (bp-trivy's node-collector IS proxied — it pulled from ghcr.io, which is
+#     unreachable on kom4dc; only the mirror.gcr.io operator/scanner stay bare.)
+ALLOWLIST_REGEX='(\{\{)|(\$\{)|(alpine/k8s)|(alpine/git)|(curlimages/curl)|(library/alpine)|(library/busybox)|(mirror\.gcr\.io/aquasec/)'
 
 # ── Charts to render, with the value that flips their top-level gate on.
 #   Format: "<chart-path>|<helm --set args>". These are the registry-sensitive
@@ -109,6 +118,13 @@ CHARTS=(
   # operator/prometheus-config-reloader) are post-handover Enforce-deniable.
   # Pinned through the Harbor proxy in values.yaml; this gate guards regressions.
   "platform/alloy/chart|"
+  # #3913 — the three charts that leaked the LATEST round of fresh-prov
+  # ImagePullBackOffs (bp-sigstore policy-controller ghcr.io, bp-trivy node-
+  # collector ghcr.io, bp-vpa registry.k8s.io). Now proxied; pinned here so a
+  # subchart-bump that re-introduces the upstream default fails at PR time.
+  "platform/sigstore/chart|"
+  "platform/trivy/chart|"
+  "platform/vpa/chart|"
 )
 
 matches_any_glob() {
@@ -166,9 +182,58 @@ for entry in "${CHARTS[@]}"; do
   )
 done
 
+# ════════════════════════════════════════════════════════════════════════
+# PASS 2 — raw cluster-manifest scan (#3903 / #3913 coverage gap).
+#
+# The curated CHARTS list above + the per-chart `helm template` render only
+# cover subchart-wrapping bp-* charts. It does NOT see images hard-coded in
+# the raw kustomize manifests under clusters/_template/ (bootstrap-kit/,
+# sovereign-tls/, infrastructure/, …) — exactly where the cilium-envoy-tls-
+# restart Job's bare `alpine/k8s` (#3904) and the slot-01 cilium sysctl
+# DaemonSet's bare `busybox` (#3904) leaked. Those are plain YAML, not Helm,
+# so no render is needed — a direct `image:` grep is reliable + fast and
+# needs zero subchart deps (so this pass can never FATAL on a CI dep-fetch
+# flake). This is the half of the #3903 gap the founder called out: the
+# kyverno-proxy check did not scan raw clusters/_template/ manifests.
+# ════════════════════════════════════════════════════════════════════════
+RAW_DIRS=(clusters/_template)
+
+# Exception allowlist for raw manifests — images that are LEGITIMATELY bare
+# by design (documented, do NOT route through proxy):
+#   - cilium/* : the CNI is installed (slot 01) BEFORE the local Harbor exists;
+#     on every provider the node containerd mirror resolves quay.io→Harbor at
+#     the mirror layer, so the chart ref stays bare. Not a leak.
+#   - the {{ }} / ${ } placeholders + the curated ALLOWLIST_REGEX bases
+#     (alpine/k8s, busybox, curl, …) which are already proxied or templated.
+# The cutover steps (self-sovereign-cutover ConfigMap PodSpecs) live under
+# platform/, not clusters/_template/, and run in the policy-excluded `catalyst`
+# ns — they are out of scope for this raw scan.
+RAW_ALLOWLIST_REGEX="${ALLOWLIST_REGEX}|(cilium/)|(quay\.io/cilium)"
+
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  while IFS= read -r img; do
+    [ -n "$img" ] || continue
+    if printf '%s' "$img" | grep -Eq "$RAW_ALLOWLIST_REGEX"; then
+      continue
+    fi
+    if ! matches_any_glob "$img"; then
+      echo "DENY: raw manifest ${f} hard-codes image '$img' — matches NO harbor-proxy-pull glob (${ALLOWED_GLOBS[*]}). On a fresh prov this ImagePullBackOffs (kom4dc containerd only mirrors harbor.openova.io + docker.io) and/or is Enforce-DENIED. Route it through the Harbor proxy-cache (e.g. harbor.openova.io/proxy-<upstream>/...)." >&2
+      rc=1
+    fi
+  done < <(
+    grep -oE '^[[:space:]]*-?[[:space:]]*image:[[:space:]]*"?[^"]+' "$f" \
+      | sed -E 's/^[[:space:]]*-?[[:space:]]*image:[[:space:]]*"?//' \
+      | sed -E "s/'//g" \
+      | sort -u
+  )
+done < <(
+  grep -rlE '^[[:space:]]*-?[[:space:]]*image:' "${RAW_DIRS[@]}" 2>/dev/null | sort
+)
+
 if [ "$rc" -eq 0 ]; then
-  echo "[proxy-images] PASS — every rendered image satisfies harbor-proxy-pull."
+  echo "[proxy-images] PASS — every rendered chart image AND every raw cluster-manifest image satisfies harbor-proxy-pull."
 else
-  echo "[proxy-images] FAIL — at least one image would be Enforce-DENIED by harbor-proxy-pull (#3380-D)." >&2
+  echo "[proxy-images] FAIL — at least one image would be Enforce-DENIED by harbor-proxy-pull (#3380-D / #3903)." >&2
 fi
 exit "$rc"

@@ -22,22 +22,27 @@ name: Kyverno admission drift-guard (proxy-images)
 #   fast (<1m) flake-free form (no kind cluster, no live kyverno).
 
 on:
+  # #3913 — widened from the 4 curated chart paths to the whole image-bearing
+  # surface. The check now ALSO scans raw clusters/_template/ manifests (the
+  # #3903 coverage gap: cilium-envoy-tls-restart + slot-01 busybox leaked
+  # there, invisible to the per-chart render), so a change to any chart values
+  # OR any raw cluster manifest must re-run the guard.
   push:
     branches: [main]
     paths:
-      - 'platform/bp-mgmt-vcluster/chart/**'
-      - 'platform/bp-dmz-vcluster/chart/**'
-      - 'platform/bp-rtz-vcluster/chart/**'
-      - 'platform/powerdns/chart/**'
+      - 'platform/**/chart/values.yaml'
+      - 'platform/**/chart/Chart.yaml'
+      - 'products/**/chart/values.yaml'
+      - 'clusters/_template/**'
       - 'platform/kyverno-policies/chart/values.yaml'
       - 'scripts/check-kyverno-proxy-images.sh'
       - '.github/workflows/check-kyverno-proxy-images.yaml'
   pull_request:
     paths:
-      - 'platform/bp-mgmt-vcluster/chart/**'
-      - 'platform/bp-dmz-vcluster/chart/**'
-      - 'platform/bp-rtz-vcluster/chart/**'
-      - 'platform/powerdns/chart/**'
+      - 'platform/**/chart/values.yaml'
+      - 'platform/**/chart/Chart.yaml'
+      - 'products/**/chart/values.yaml'
+      - 'clusters/_template/**'
       - 'platform/kyverno-policies/chart/values.yaml'
       - 'scripts/check-kyverno-proxy-images.sh'
       - '.github/workflows/check-kyverno-proxy-images.yaml'
