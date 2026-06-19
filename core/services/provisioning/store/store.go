@@ -150,6 +150,66 @@ func (s *Store) GetInFlightProvisionByTenant(ctx context.Context, tenantID strin
 	return &p, nil
 }
 
+// ReapStaleInFlightProvision (#3898) marks any in-flight provision for a tenant
+// whose updated_at is older than staleAfter as failed, returning the number of
+// rows reaped.
+//
+// Why this exists: startProvisioning inserts the provision row at status
+// "provisioning" then runs the actual work in a DETACHED goroutine
+// (runProvisioningWorkflow). The workflow refreshes updated_at on every step.
+// But if the provisioning Pod crashes or is rolled mid-workflow — a routine
+// event, since a deploy roll abandons the in-flight goroutine — the row is left
+// at "provisioning" forever; nothing ever transitions it to a terminal state.
+// From then on the partial unique index uniq_inflight_tenant
+// (EnsureProvisionIndexes) makes every legitimate re-provision collide in
+// CreateProvisionIfAbsent and short-circuit on the DEAD row, permanently
+// wedging that tenant out of the #3376 funnel with no operator-free recovery.
+//
+// The reaper closes that hole: a live workflow keeps updated_at fresh
+// (UpdateStep / UpdateProvision both stamp it), so only a genuinely abandoned
+// row — no progress for staleAfter — is reaped. Marking it "failed" drops it
+// out of inFlightProvisionStatuses, releasing the partial-unique index so a
+// re-issued CreateProvisionIfAbsent succeeds.
+//
+// Called from the CreateProvisionIfAbsent collision path before surfacing the
+// existing provision, so the cost is paid only on the rare double-trigger /
+// retry — never on the happy path.
+func (s *Store) ReapStaleInFlightProvision(ctx context.Context, tenantID string, staleAfter time.Duration) (int, error) {
+	if tenantID == "" {
+		// An unscoped reap would UpdateMany across EVERY tenant's stale
+		// provisions; the caller always has a concrete tenant here (the one
+		// whose re-provision collided), so a blank value is a programmer
+		// error, not a license to reap the whole collection.
+		return 0, fmt.Errorf("store: ReapStaleInFlightProvision requires tenantID")
+	}
+	cutoff := time.Now().UTC().Add(-staleAfter)
+	filter := bson.D{
+		{Key: "tenant_id", Value: tenantID},
+		{Key: "status", Value: bson.D{{Key: "$in", Value: inFlightProvisionStatuses}}},
+		{Key: "updated_at", Value: bson.D{{Key: "$lt", Value: cutoff}}},
+	}
+	update := bson.D{
+		{Key: "$set", Value: bson.D{
+			{Key: "status", Value: "failed"},
+			{Key: "updated_at", Value: time.Now().UTC()},
+		}},
+	}
+	res, err := s.provisions().UpdateMany(ctx, filter, update)
+	if err != nil {
+		return 0, fmt.Errorf("store: reap stale in-flight provision for tenant %s: %w", tenantID, err)
+	}
+	return int(res.ModifiedCount), nil
+}
+
+// provisionIsStale is the pure predicate the ReapStaleInFlightProvision Mongo
+// `updated_at < now-staleAfter` filter mirrors. Keeping it as a standalone,
+// directly-testable function pins down the boundary semantics — a row exactly
+// at the cutoff is NOT stale (strictly-older only), so a workflow that just
+// refreshed updated_at is never reaped — without requiring a live database.
+func provisionIsStale(updatedAt, now time.Time, staleAfter time.Duration) bool {
+	return updatedAt.Before(now.Add(-staleAfter))
+}
+
 // GetProvision returns a provision by ID.
 func (s *Store) GetProvision(ctx context.Context, id string) (*Provision, error) {
 	var p Provision
