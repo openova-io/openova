@@ -2881,7 +2881,18 @@ name: bp-catalyst-platform
 # 1.4.695 — #3849 (Refs #3848): org-controller reads the keycloak SA secret from
 # the host-bridge (catalyst-openova-kc-credentials) instead of an intra-release
 # helm lookup that lost the ordering race on a cold install.
-version: 1.4.716
+# 1.4.717 — #3934 (Refs #3642): baseline-default-deny CNP for catalyst-system
+# adds `mgmt` to allowedIngressNamespaces. The #3642 host-bridge promotes
+# guacamole into the mgmt vCluster (webapp Pod re-homes to host ns `mgmt`)
+# while its CNPG DB guacamole-pg stays in catalyst-system — the baseline
+# dropped webapp→guacamole-pg:5432, the postgresql auth provider halted, and
+# /guacamole/api/session 403'd (blank page, caught live hw171). Also split-gates
+# the gitea/harbor sso-configure Deployment on .Values.sso.externalSecret.enabled
+# so the #3642 mgmt-vCluster pivot stops breaking gitea/harbor SSO-landing.
+# Catalyst-Zero render adds one namespace to one ingress matchExpression (no
+# behavior change on a host-placed guacamole). Renumbered past the deploy-bot
+# auto-bump to 1.4.717 (one above main's 1.4.716) to clear the pin collision.
+version: 1.4.717
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +

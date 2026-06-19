@@ -82,7 +82,17 @@ when qaFixtures is disabled.
      BSS/funnel control-plane Deployments; the legacy `sme` entry stays one
      release for back-compat / any not-yet-migrated Sovereign. */}}
 {{- $allowedPlatform := .Values.security.baselineCnp.allowedPlatformNamespaces | default (list "keycloak" "gitea" "powerdns" "cnpg-system" "openbao" "harbor" "nats-system" "loki" "mimir" "tempo" "alloy" "opentelemetry" "external-secrets-system" "cert-manager" "org-services" "sme" "newapi" "mgmt") }}
-{{- $allowedIngressNs := .Values.security.baselineCnp.allowedIngressNamespaces | default (list "catalyst" "flux-system" "kube-system" "oidc-gate") }}
+{{- /* #3934 (Refs #3642): "mgmt" added to the INGRESS allow-list. The #3642
+     host-bridge promotes guacamole INTO the mgmt vCluster — its webapp Pod
+     now runs in host ns `mgmt` (synced `guacamole-server-x-catalyst-system-x-
+     mgmt-vcluster`) while its CNPG DB `guacamole-pg` stays host-rendered in
+     `catalyst-system`. With `mgmt` absent here this baseline default-deny
+     dropped the webapp→guacamole-pg:5432 connection → the postgresql auth
+     provider halted → /guacamole/api/session 403, blank page (caught live
+     hw171 2026-06-19). gitea-pg / harbor-pg sit in their OWN host namespaces
+     (gitea/harbor), already in $allowedPlatform's EGRESS list, so this single
+     INGRESS add covers the only DB that re-homed to catalyst-system. */}}
+{{- $allowedIngressNs := .Values.security.baselineCnp.allowedIngressNamespaces | default (list "catalyst" "flux-system" "kube-system" "oidc-gate" "mgmt") }}
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:

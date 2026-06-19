@@ -216,7 +216,12 @@ spec:
       # this slot's HelmRelease so the console /apps list, per-app Topology
       # tab + showback resolve harbor (no more "no Application CR").
       # 1.2.33: #3855 — durable zero-click SSO (continuous OIDC reconciler + bare-URL redirect).
-      version: 1.2.33
+      # 1.2.34 (#3934 / Refs #3642, 2026-06-20): split-gate — the in-vCluster
+      # sso-configure Deployment survives the host-bridge suppress (only the
+      # ExternalSecret is suppressed via sso.externalSecret.enabled), so
+      # auth_mode=oidc_auth is PUT in the mgmt vCluster placement (caught live
+      # hw171: systeminfo auth_mode=db_auth). Refs #3374 #3642.
+      version: 1.2.34
       sourceRef:
         kind: HelmRepository
         name: bp-harbor
@@ -308,7 +313,14 @@ spec:
     # post-install Job PUTs /api/v2.0/configurations with
     # auth_mode=oidc_auth + oidc_endpoint computed from sovereignFqdn.
     sso:
-      enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      externalSecret:
+        enabled: false  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      # #3934 (Refs #3642): sso.enabled STAYS true so the in-vCluster
+      # sso-configure Deployment renders (it PUTs auth_mode=oidc_auth to
+      # harbor-core /api/v2.0/configurations). Only the chart's ExternalSecret
+      # is suppressed above (host-rendered). NOT placement-generated —
+      # placement.yaml no longer declares sso.enabled.
+      enabled: true
       sovereignFqdn: ${SOVEREIGN_FQDN}
     # G87 #2634: multi-region CNPG instances default (1 single-region, 2 multi).
     postgres:

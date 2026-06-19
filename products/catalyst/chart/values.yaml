@@ -2190,11 +2190,22 @@ security:
     #     proxied request — oidc-gate authenticates the User but the
     #     app 502s on upstream timeout (hw133 #813, fresh prov
     #     2026-06-14; same isolation class as the sme→NATS #3423 block).
+    #   - mgmt (#3934 / Refs #3642) — the #3642 host-bridge promotes
+    #     guacamole INTO the mgmt vCluster: its webapp Pod runs in host ns
+    #     `mgmt` (synced `guacamole-server-x-catalyst-system-x-mgmt-vcluster`)
+    #     while its CNPG DB `guacamole-pg` stays host-rendered in
+    #     catalyst-system. Without `mgmt` here the baseline default-deny
+    #     dropped webapp→guacamole-pg:5432 → the postgresql auth provider
+    #     halted → /guacamole/api/session 403, blank page (caught live hw171
+    #     2026-06-19). The other re-homed apps' DBs (gitea-pg, harbor-pg)
+    #     live in their own host namespaces, not catalyst-system, so this
+    #     single ingress entry is the complete fix for the catalyst-system DB.
     allowedIngressNamespaces:
       - catalyst
       - flux-system
       - kube-system
       - oidc-gate
+      - mgmt
 
 # ── Migrations (post-install / post-upgrade Helm-hook Jobs) ──────────────
 # Per PR #2795 (G117.2 multi-instance Application CRD): backfill spec.instanceId
