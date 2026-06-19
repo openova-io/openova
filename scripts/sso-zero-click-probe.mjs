@@ -37,8 +37,25 @@
 
 import { chromium } from 'playwright';
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import crypto from 'node:crypto';
+
+// Resolve a Chromium binary: PROBE_CHROMIUM wins; else pick any installed
+// chromium-* build (shared runners/bastions where the pinned build is absent).
+function resolveChromium() {
+  if (process.env.PROBE_CHROMIUM) return process.env.PROBE_CHROMIUM;
+  try {
+    const base = `${process.env.HOME}/.cache/ms-playwright`;
+    for (const d of readdirSync(base)) {
+      if (!d.startsWith('chromium-')) continue;
+      for (const sub of ['chrome-linux64', 'chrome-linux']) {
+        const p = `${base}/${d}/${sub}/chrome`;
+        try { statSync(p); return p; } catch { /* next */ }
+      }
+    }
+  } catch { /* no cache */ }
+  return undefined;
+}
 
 // ── args ──────────────────────────────────────────────────────────────
 const args = {};
@@ -56,6 +73,9 @@ if (!FQDN) {
   process.exit(2);
 }
 const host = (sub) => `https://${sub}.${FQDN}`;
+const SHOTS = args.shots && args.shots !== 'true' ? args.shots : null;
+const ENVTAG = FQDN.split('.')[0];
+if (SHOTS) { try { mkdirSync(SHOTS, { recursive: true }); } catch { /* exists */ } }
 
 // ── handover URL (session bootstrap) ─────────────────────────────────
 function b64url(buf) {
@@ -230,7 +250,7 @@ async function evalMarker(page, m) {
 
 async function probeRow(ctx, row) {
   const page = await ctx.newPage();
-  const result = { name: row.name, url: row.url.replace(/token=[^&]+/, 'token=<redacted>'), status: 'RED', finalURL: '', details: [] };
+  const result = { name: row.name, url: row.url.replace(/token=[^&]+/, 'token=<redacted>'), status: 'RED', finalURL: '', shot: '', details: [] };
   try {
     await page.goto(row.url, { waitUntil: 'load', timeout: 45000 }).catch((e) => {
       result.details.push(`goto: ${e.message.split('\n')[0]}`);
@@ -239,6 +259,7 @@ async function probeRow(ctx, row) {
     await page.waitForTimeout(row.settleMs);
     await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     result.finalURL = page.url();
+    if (SHOTS) { result.shot = `${SHOTS}/${ENVTAG}-3374-${row.name}.png`; await page.screenshot({ path: result.shot, fullPage: true }).catch(() => {}); }
 
     const positives = [];
     for (const m of row.positive) positives.push([m, await evalMarker(page, m)]);
@@ -267,7 +288,7 @@ const rows = only ? ROWS.filter((r) => only.includes(r.name)) : ROWS;
 // but another build is — common on shared runners/bastions).
 const browser = await chromium.launch({
   headless: true,
-  executablePath: process.env.PROBE_CHROMIUM || undefined,
+  executablePath: resolveChromium(),
 });
 const authedCtx = await browser.newContext({ ignoreHTTPSErrors: false });
 const anonCtx = await browser.newContext({ ignoreHTTPSErrors: false });

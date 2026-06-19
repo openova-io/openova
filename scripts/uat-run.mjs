@@ -21,8 +21,26 @@
 // Exit 0 = all probed rows GREEN, 1 = ≥1 RED, 2 = harness error.
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+
+// Resolve a Chromium build once and export it so both child probes inherit it
+// (the SSO probe relies on PROBE_CHROMIUM; the console probe auto-detects).
+function resolveChromium() {
+  if (process.env.PROBE_CHROMIUM) return process.env.PROBE_CHROMIUM;
+  try {
+    const base = `${process.env.HOME}/.cache/ms-playwright`;
+    for (const d of readdirSync(base)) {
+      if (!d.startsWith('chromium-')) continue;
+      for (const sub of ['chrome-linux64', 'chrome-linux']) {
+        const p = `${base}/${d}/${sub}/chrome`;
+        try { statSync(p); return p; } catch { /* next */ }
+      }
+    }
+  } catch { /* no cache */ }
+  return undefined;
+}
+{ const c = resolveChromium(); if (c) process.env.PROBE_CHROMIUM = c; }
 
 const args = {};
 for (let i = 2; i < process.argv.length; i++) {
