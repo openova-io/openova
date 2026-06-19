@@ -52,6 +52,9 @@ import { useQuery } from '@tanstack/react-query'
 
 import { PortalShell } from './PortalShell'
 import { useDeploymentEvents } from './useDeploymentEvents'
+// #3925 surface A — state-aware Dashboard: the 5-phase convergence wizard
+// that ⇄ toggles with the treemap and auto-flips to it on `status==ready`.
+import { ConvergenceWizard } from './ConvergenceWizard'
 import {
   TreemapLayerController,
 } from '@/components/TreemapLayerController'
@@ -131,6 +134,11 @@ export interface DashboardProps {
   initialLayers?: readonly TreemapDimension[]
   initialColorBy?: TreemapColorBy
   initialSizeBy?: TreemapSizeBy
+  /** #3925 surface A — test seam: pin the Progress ⇄ Treemap view. When
+   *  set, the wizard/treemap toggle starts on this side regardless of the
+   *  (test-stubbed) deployment status. Production leaves this unset so the
+   *  view derives from status (auto-flip to treemap on ready). */
+  initialView?: 'progress' | 'treemap'
 }
 
 export function Dashboard({
@@ -139,6 +147,7 @@ export function Dashboard({
   initialLayers,
   initialColorBy,
   initialSizeBy,
+  initialView,
 }: DashboardProps = {}) {
   const { deploymentId: resolved } = useResolvedDeploymentId()
   const deploymentId = resolved ?? ''
@@ -150,6 +159,22 @@ export function Dashboard({
     disableStream,
   })
   const sovereignFQDN = snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? null
+
+  // #3925 surface A — state-aware view toggle. While the Sovereign is
+  // converging we render the 5-phase wizard; the moment status flips
+  // `ready` we AUTO-FLIP to the treemap. A persistent Progress ⇄ Treemap
+  // toggle lets the operator flip back/forth AFTER the auto-flip (DECISION:
+  // the user keeps control once they toggle — no auto-flip-back).
+  //
+  // Implementation: `userView` is null until the operator clicks the
+  // toggle. The effective view is the user's choice if set, else derived
+  // from status (treemap when ready, wizard otherwise). This auto-flips on
+  // ready WITHOUT a setState-in-effect storm and respects a manual override.
+  const isReady = (snapshot?.status ?? '').trim().toLowerCase() === 'ready'
+  const [userView, setUserView] = useState<'progress' | 'treemap' | null>(
+    initialView ?? null,
+  )
+  const view: 'progress' | 'treemap' = userView ?? (isReady ? 'treemap' : 'progress')
 
   // #3687 fold #3692 (2026-06-18): default Layer-1 = `organization` on the
   // Sovereign Console so the operator's landing treemap groups by the
@@ -396,6 +421,53 @@ export function Dashboard({
           Dashboard
         </span>
 
+        {/* #3925 surface A — persistent Progress ⇄ Treemap toggle. Always
+            present so the operator can flip either way; the active side is
+            driven by `view` (auto-flips to treemap on ready). */}
+        <div
+          className="mb-3 inline-flex rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] p-0.5"
+          role="tablist"
+          aria-label="Dashboard view"
+          data-testid="dashboard-view-toggle"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'progress'}
+            onClick={() => setUserView('progress')}
+            data-testid="dashboard-view-progress"
+            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+              view === 'progress'
+                ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
+                : 'text-[var(--color-text-dim)] hover:text-[var(--color-text)]'
+            }`}
+          >
+            Progress
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'treemap'}
+            onClick={() => setUserView('treemap')}
+            data-testid="dashboard-view-treemap"
+            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+              view === 'treemap'
+                ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
+                : 'text-[var(--color-text-dim)] hover:text-[var(--color-text)]'
+            }`}
+          >
+            Treemap
+          </button>
+        </div>
+
+        {/* Progress view — the 5-phase convergence wizard. */}
+        {view === 'progress' ? (
+          <ConvergenceWizard snapshot={snapshot} deploymentId={deploymentId} />
+        ) : null}
+
+        {/* Treemap view — the existing resource-utilisation surface. */}
+        {view === 'treemap' ? (
+        <>
         <TreemapLayerController
           layers={layers}
           setLayers={setLayers}
@@ -516,6 +588,8 @@ export function Dashboard({
 
         {/* Legend */}
         <Legend colorBy={colorBy} />
+        </>
+        ) : null}
       </div>
     </PortalShell>
   )

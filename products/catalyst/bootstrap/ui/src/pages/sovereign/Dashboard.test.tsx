@@ -53,6 +53,11 @@ function renderDashboard(
         disableStream
         initialDataOverride={dataOverride}
         initialLayers={opts.initialLayers}
+        // #3925 surface A — these tests assert the treemap surface; pin the
+        // view to treemap so the new Progress ⇄ Treemap toggle (which
+        // defaults to Progress while the test-stubbed status is non-ready)
+        // doesn't hide it. The wizard/auto-flip behaviour has its own suite.
+        initialView="treemap"
       />
     ),
   })
