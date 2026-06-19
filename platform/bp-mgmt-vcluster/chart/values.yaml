@@ -650,15 +650,52 @@ vcluster:
       # `service-account.name` annotation, so the vCluster token-controller
       # never touches it and the mirror is stable. Mirror that Opaque copy by
       # EXACT name; never wildcard a namespace that holds an SA-token Secret.
+      # ⚠️ NEVER namespace-wildcard a host ns whose pod-mounted DB Secret the
+      # in-vCluster pod also references (#3374 cycle-1, hw167 live RCA). On
+      # vcluster 0.23.0 a Secret that is BOTH (a) imported via a
+      # `sync.fromHost.secrets` wildcard AND (b) pod-mounted inside vc-mgmt
+      # (so the `sync.toHost.secrets` "necessary" auto-sync also claims the
+      # SAME virtual object) makes the from-host and to-host secret syncers
+      # FIGHT over ownership — a delete/recreate loop that on any pod restart
+      # ends in `context deadline exceeded`, the host projection never sticks,
+      # and the app sits `Init:0/2` for 20m+. It is latent until the
+      # mesh-secret regeneration (the #3872 `<instance>-mesh-rw` mirror) makes
+      # the emberstack reflector REPOINT the host DB Secret → the from-host
+      # importer rewrites the in-vCluster copy → pod restart → deadlock.
+      # The 4 host-bridged apps each mint a pod-mounted DB Secret via the
+      # shared-pg reflector (16a/16c) — `keycloak-database-secret`,
+      # `grafana-database-env`, `gitea-database-secret`,
+      # `harbor-database-secret` — every one previously swept in by the
+      # `<ns>/*` wildcard. The validation agent hand-removed ONLY the
+      # `keycloak/*` DB-secret import live on hw167 + created the DB Secret
+      # natively in-vCluster (toHost/syncer path only → single owner, no
+      # fight); this block applies that pattern durably to ALL 4: the DB
+      # Secret is NEVER fromHost-imported, so the from-host syncer never
+      # contends with the to-host syncer over it. Each namespace is narrowed
+      # from `<ns>/*` to EXACT-NAME mappings covering ONLY the host-minted
+      # Secrets an in-vCluster pod/reconciler still needs (the SSO/OIDC
+      # ExternalSecret-materialised creds — gitea/harbor/grafana sso-configure
+      # + grafana runtime mount them). keycloak has NO host-minted non-DB
+      # Secret (its IdP creds are issued, not mounted), so it drops out
+      # entirely. The DB Secret is delivered natively in-vCluster (the
+      # shared-pg reflector re-target, sibling slot-16 change) — the toHost
+      # syncer is then its sole owner. `newapi/*` + `catalyst-system/*` keep
+      # their wildcards (out of this de-conflict's 4-app scope, no observed
+      # rotation-driven deadlock); the openbao EXACT-NAME entries (#3838)
+      # remain unchanged.
       secrets:
         enabled: true
         mappings:
           byName:
-            "keycloak/*": "keycloak/*"
-            "gitea/*": "gitea/*"
-            "harbor/*": "harbor/*"
+            # gitea/harbor/grafana — host-minted SSO/OIDC creds ONLY
+            # (the pod-mounted DB Secret is intentionally NOT imported).
+            "gitea/gitea-oauth-source-credentials": "gitea/gitea-oauth-source-credentials"
+            "harbor/harbor-sso-oidc-credentials": "harbor/harbor-sso-oidc-credentials"
+            "grafana/grafana-sso-oidc-credentials": "grafana/grafana-sso-oidc-credentials"
+            # keycloak — NO entry: the only host-minted Secret it needs is
+            # `keycloak-database-secret` (excluded above); it has no host SSO
+            # Secret (Keycloak IS the IdP, it issues client creds, mounts none).
             "newapi/*": "newapi/*"
-            "grafana/*": "grafana/*"
             "openbao/openbao-sso-oidc-credentials": "openbao/openbao-sso-oidc-credentials"
             "openbao/openbao-host-token-reviewer-static": "openbao/openbao-host-token-reviewer-static"
             "catalyst-system/*": "catalyst-system/*"

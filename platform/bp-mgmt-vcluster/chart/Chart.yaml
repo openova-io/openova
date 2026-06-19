@@ -255,7 +255,35 @@ name: bp-mgmt-vcluster
 # (`POSTGRESQL_HOSTNAME=guacamole-pg-rw.catalyst-system.svc.cluster.local`)
 # resolve. Additive + idempotent (no-op until the host-bridge renders the
 # Cluster). Lockstep: 58-bp-mgmt-vcluster.yaml pin → 0.2.21. Refs #3374.
-version: 0.2.22
+# 0.2.23 (#3374 cycle-1 — the fromHost-vs-toHost DB-secret deadlock fix,
+# hw167 live RCA): de-conflict the 4 pod-mounted DB Secrets from the
+# `sync.fromHost.secrets.mappings.byName` namespace wildcards. On vcluster
+# 0.23.0 a Secret that matches BOTH a fromHost `<ns>/*` mapping AND is
+# pod-mounted inside vc-mgmt (so the toHost "necessary" auto-sync claims the
+# SAME virtual object) makes the from-host and to-host secret syncers fight
+# in a delete/recreate loop → `context deadline exceeded`, the host
+# projection never sticks, the app sits `Init:0/2` for 20m+ on any pod
+# restart. Latent until the #3872 mesh-secret regeneration makes the
+# emberstack reflector REPOINT the host DB Secret → the from-host importer
+# rewrites the in-vCluster copy → pod restart → deadlock. The validation
+# agent hand-fixed ONLY keycloak live (removed `keycloak/*` DB import +
+# created the DB Secret natively in-vCluster); this release applies that
+# pattern durably to ALL 4 host-bridged DB Secrets:
+# `keycloak-database-secret` / `grafana-database-env` /
+# `gitea-database-secret` / `harbor-database-secret`. Each app namespace is
+# narrowed from `<ns>/*` to EXACT-NAME mappings covering ONLY the host-minted
+# SSO/OIDC creds the in-vCluster pods/reconcilers still mount
+# (gitea-oauth-source-credentials / harbor-sso-oidc-credentials /
+# grafana-sso-oidc-credentials); keycloak has no host-minted non-DB Secret so
+# it drops out entirely. The DB Secret is no longer fromHost-imported (the
+# from-host syncer never contends with the to-host syncer over it) and is
+# delivered natively in-vCluster via the sibling slot-16 shared-pg reflector
+# re-target — toHost is then its sole owner. `newapi/*` + `catalyst-system/*`
+# wildcards and the openbao EXACT-NAME entries (#3838) are unchanged. No
+# secret name now double-matches a fromHost mapping AND a known
+# keycloak/grafana/gitea/harbor pod-mount. Lockstep:
+# 58-bp-mgmt-vcluster.yaml pin + blueprint.yaml → 0.2.23. Refs #3374 #3737.
+version: 0.2.23
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT
