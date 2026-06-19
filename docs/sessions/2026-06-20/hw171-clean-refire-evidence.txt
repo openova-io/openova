@@ -1,0 +1,93 @@
+CLEAN RE-FIRE — pre-flight + fire evidence (2026-06-20)
+========================================================
+STEP 1 PRE-FLIGHT
+(a) catalyst-api deploy:
+    - main HEAD d293384f = chart-only bootstrap-kit pin 1.4.709->1.4.710 (no api rebuild)
+    - latest catalyst-image build 602f469 (#3897) = "Build & Deploy Catalyst" run 27837671621 SUCCESS
+      jobs: build-ui ✓ / build-api ✓ / deploy ✓
+    - deployed via commit d92175ec "update catalyst images to 602f469"
+    - pod catalyst-api-84ddcc7db4-bpjjn 1/1 Running, image :602f469, age >3min, no roll in flight
+    - all 8 patches + #3910/#3909 confirmed in main history (#3897/#3893/#3900/#3894/#3908/#3904/#3902/#3899 + test repairs)
+(b) mothership node vmi3116389:
+    - DiskPressure=False, MemoryPressure=False, Ready=True
+    - rootfs 71% used (147GB/206GB), imagefs 11% — < 80% gate
+
+STEP 2 WIPE hw170 (7dafca226f5bb7ae / hw170.omani.works)
+    - capture-before-wipe: cloud-init log 404 (was a 'ready' env, no Phase-1 failure log) — proceeded
+    - status polled wiping -> wiped (~9 min); workdir purged from PVC; reset-uat hw170 done
+    - VPC quota freed (post-fire event confirms used 1/5)
+
+STEP 3 FIRE (one env, omantel.biz per L3 LE-rotation: omani.works had 32 crt.sh entries/7d, omantel.biz only 4)
+    - deployment 3963e9267c10a90d / hw171.omantel.biz / status=provisioning
+    - record persisted: /var/lib/catalyst/deployments/3963e9267c10a90d.json (3688B) + tofu workdir created
+    - tfvars: enable_shared_pg=true, enable_hot_standby=true, 2 regions (me-east-215-a + -b)
+    - VPC quota event: used 1/5, requesting 2 (fits)
+
+STEP 4 WATCH — RESULT: FAILED (did NOT converge zero-touch)
+============================================================
+Timeline (UTC 2026-06-19 — mothership clock):
+  16:53:30  fire accepted, status=provisioning, record persisted to disk
+  16:54:14  tofu init OK
+  16:54:14-16:59:39  tofu apply: both control planes + 3 workers/region created on huaweicloud
+            (me-east-215-a + me-east-215-b), NAT gateways + ELB created
+  16:59:39  tofu outputs read
+  16:59:47  status=phase1-watching — "waiting for cloud-init to PUT kubeconfig (timeout 15m0s)"
+  17:14:48  status=FAILED — "Phase-1 watch timed out after 15m0s; cluster did not PUT kubeconfig"
+
+Terminal diagnostics (DEBUG-BEFORE-anything, per founder rule):
+  - API status: failed
+  - error: "Phase 1 watch never ran: the new Sovereign cluster did not PUT its kubeconfig"
+  - GET /kubeconfig          -> HTTP 409  (cluster never PUT)
+  - GET /cloudinit-log       -> HTTP 404  (cloud-init never self-uploaded its log)
+  - /var/lib/catalyst/kubeconfigs/3963e926* -> NONE
+  - events array empty
+
+DIAGNOSIS: kom4dc fresh-prov KUBECONFIG-NEVER-PUT wedge (#3715-family).
+  Signature exactly matches memory reference_kom4dc_freshprov_0hr_wedge:
+  phase1-watching >15m + kubeconfig 409 + cloudinit-log 404.
+  Infra (tofu) provisioned fine; the in-cluster cloud-init bootstrap stalled
+  BEFORE the PUT-kubeconfig-early step AND before the log self-upload — so the
+  one forensic (#3132 cloud-init self-upload) is unavailable, and SSH is blocked
+  on kom4dc. Cannot drill to exact sub-root (github-IPv6/CoreDNS #3715 vs
+  coredns-CrashLoop #3804 vs atomic-void #3842) from the mothership alone.
+
+DISCIPLINE: STOPPED per brief. No auto-re-fire, no 2nd env, no live-patch.
+  A new wedge at the first gate IS the finding — zero-touch convergence proof FAILED.
+
+*** CORRECTION (17:17 UTC) — env is RECOVERING, NOT dead ***
+The kubeconfig PUT landed at 17:16 (after the 15min kubeconfig-arrival SUB-timeout
+fired at 17:14:48). This is the documented RECOVERABLE case (memory L5 /
+cloud-agnostic-bootstrap: "NEVER auto-wipe a watch-timeout — 120min budget,
+Flux keeps reconciling"). NOT a #3715 wedge (those NEVER PUT).
+  - GET /kubeconfig -> HTTP 200 (was 409)
+  - /var/lib/catalyst/kubeconfigs/3963e9267c10a90d.yaml present (2959B, 17:16)
+  - status re-entered phase1-watching
+  - 17:16:11 log: mothership seeding sovereign-smtp-credentials INTO new cluster
+  - region-a nodes joined ~17:15:30 (NotReady, cilium installing); HR 0/0 (early)
+ROOT CAUSE of the 15min miss: cloud-init/k3s boot on these Huawei VMs was
+unusually slow (~15min from tofu-done to node-join) — blew the kubeconfig-arrival
+sub-budget but cluster came up. Convergence now proceeding under the 120min envelope.
+DECISION: did NOT wipe. Re-armed watcher on the live kubeconfig; tracking HR convergence.
+
+*** CONVERGENCE RESULT (17:45 UTC) — ZERO-TOUCH SUCCESS ***
+Region A (primary):   nodes 4/4 Ready, HR-ready 55/65
+Region B (secondary): nodes 4/4 Ready, HR-ready 28/65 (mirrors behind A — normal)
+  -> Genuinely 2-region: independent kubeconfigs + independent HR sets per region.
+
+Critical infra ALL Ready zero-touch (no live-patches applied at any point):
+  - bp-cilium True (CNI), bp-gateway-api True
+  - bp-cnpg True + bp-postgres-shared / -b / -c ALL True (North Star #2: 3 shared-PG instances)
+  - bp-keycloak True + bp-openbao True (running INSIDE the mgmt vCluster — North Star #1 / #3642)
+  - GitRepository 'openova' READY=True @ main sha d293384f (in-cluster Flux cloned github on
+    IPv4-only Huawei VPC — #3715 IPv6/CoreDNS wedge did NOT recur)
+
+Still-completing tail (region A): bp-catalyst-platform (Progressing: install action, 30m budget),
+  bp-self-sovereign-cutover (dormant Pillar-5 chart), bp-newapi/-host-seams/continuum/sandbox/
+  powerdns-admin (app tier installing). 3 charts no-op on Huawei (cluster-autoscaler-hcloud,
+  hcloud-ccm, velero — Hetzner/backup, never flip True on a Huawei prov).
+
+ZERO-TOUCH VERDICT: YES. Single fire, no auto-re-fire, no second env, NO live-patches.
+  The only "anomaly" was a slow cloud-init boot (~15min tofu-done -> node-join) that blew the
+  15min kubeconfig-arrival SUB-timeout (API briefly flipped 'failed' 17:14:48) but RECOVERED on
+  its own when the kubeconfig PUT landed at 17:16 — exactly the documented RECOVERABLE case.
+  I did NOT wipe (per memory L5). Convergence then proceeded to 55/65 entirely self-driven.
