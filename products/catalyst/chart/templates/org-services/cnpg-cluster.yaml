@@ -75,7 +75,7 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: {{ .Values.smePostgres.cluster.name | default "sme-pg" }}
-  namespace: {{ .Values.smePostgres.cluster.namespace | default "sme" }}
+  namespace: {{ .Values.smePostgres.cluster.namespace | default "org-services" }}
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform
     catalyst.openova.io/component: sme-postgres
@@ -91,9 +91,9 @@ spec:
   inheritedMetadata:
     annotations:
       reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: {{ .Values.smePostgres.cluster.namespace | default "sme" | quote }}
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: {{ .Values.smePostgres.cluster.namespace | default "org-services" | quote }}
       reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: {{ .Values.smePostgres.cluster.namespace | default "sme" | quote }}
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: {{ .Values.smePostgres.cluster.namespace | default "org-services" | quote }}
 
   bootstrap:
     initdb:

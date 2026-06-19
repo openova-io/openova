@@ -46,6 +46,14 @@ allowSystemNamespaces:
   - openbao
   - opentelemetry
   - openova-system
+  # org-services (#3859, 2026-06-19): the BSS/funnel control-plane tier was
+  # renamed `sme` → `org-services` (#3383 commit 7f6dfca23). The org-services
+  # namespace carries the marketplace/auth/billing/provisioning Deployments
+  # that the #3376 funnel depends on; it needs the same coarse-grained
+  # allow as the other control-plane namespaces so default-deny doesn't sever
+  # its inter-platform flows. The legacy `sme` entry stays one release for
+  # back-compat / any not-yet-migrated Sovereign.
+  - org-services
   - powerdns
   - reflector
   - reloader
