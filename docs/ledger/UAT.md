@@ -489,3 +489,16 @@ no curl/kubectl). `☐` = the browser walk + screenshot capture is in progress o
 > All 10 runbooks + this dashboard were revamped back to the **screenshot-based browser-walk
 > format**. The browser re-walk that fills each `☐` with a real screenshot is in progress; the
 > sign-in row above is the first witnessed screen.
+
+## Direct browser_navigate LIVE confirmations — hw167 (this session)
+
+10 surfaces opened in a real browser (Playwright MCP) under the zero-click handover session — screenshots `hw167-*-livewalk.png`:
+- **3687-01 ✅** console → `/dashboard` zero-click admin (no PIN)
+- **3687-09/10/35 ✅** organizations directory → parent org `hw167.omantel.biz · internal · corporate · showback · vcluster · Active`
+- **3687-30 ✅** Showback honest empty-state ("0 units · No applications attributed yet")
+- **3687-28 ✅** apps grid → 49 apps INSTALLED, one-per-Application; NS#2 shared-pg ×3 contexts (3/3/5) LIVE
+- **3646-01 ✅** jobs canvas → live 5s catalyst-api stream
+- **3374-08/06/07/15/09 ✅** openbao vault / gitea / harbor / hubble / keycloak all signed-in
+- **3374-12 ❌** newapi → upstream-111 REGRESSION caught (pod 3/3 Running) → #3858
+
+Direct browser confirmed the probe AND caught the newapi regression the probe missed.
