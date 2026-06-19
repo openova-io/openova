@@ -90,6 +90,28 @@ write_files:
       fs.inotify.max_user_watches = 1048576
       fs.inotify.max_queued_events = 16384
 
+  # ── Disable IPv6 (#3840) — the WORKER half of the deterministic ghcr
+  # image-pull "Try again" fix. The flux controllers (source / notification /
+  # image-automation) land on WORKER nodes and pull from ghcr.io; on the
+  # IPv4-only Huawei VPC the dual-stack AAAA of ghcr's blob CDN
+  # (pkg-containers.githubusercontent.com → 2606:50c0:8002::154, unreachable
+  # here) makes containerd's Go resolver attempt an IPv6 dial that fails →
+  # `dial tcp: lookup ghcr.io: Try again` → ImagePullBackOff → 0 HelmReleases
+  # (proven live on hw167 worker w5c3dea). #3837 only touched the CP template,
+  # so this worker tier — where the flux controllers actually run — kept the
+  # AAAA path open. Disabling IPv6 makes the resolver return ONLY A records, so
+  # no image-pull host (ghcr.io / pkg-containers / harbor / future registries)
+  # can be reached over the unreachable IPv6 path. Drop-in survives any later
+  # `sysctl --system`; applied live below before the k3s-agent install + every
+  # pull. SAFE: kom4dc is IPv4-only end to end (no node IPv6 address, IPv4 k3s
+  # CIDRs, cilium ipam.mode=kubernetes, ClusterMesh over IPv4). Refs #3835.
+  - path: /etc/sysctl.d/99-catalyst-disable-ipv6.conf
+    permissions: '0644'
+    content: |
+      net.ipv6.conf.all.disable_ipv6 = 1
+      net.ipv6.conf.default.disable_ipv6 = 1
+      net.ipv6.conf.lo.disable_ipv6 = 1
+
   - path: /etc/ssh/sshd_config.d/99-catalyst-hardening.conf
     permissions: '0644'
     content: |
@@ -99,6 +121,13 @@ write_files:
       MaxAuthTries 3
 
 runcmd:
+  # #3840 — disable IPv6 FIRST (before the r4() DNS pin, the k3s-agent install,
+  # and every image pull below) so containerd's Go resolver never receives or
+  # dials an unreachable AAAA on this IPv4-only VPC (the `lookup ghcr.io: Try
+  # again` 0-HR wedge). The drop-in written above persists it; `sysctl -w` makes
+  # it live immediately. See the drop-in header for the full RCA + safety proof.
+  - sysctl -w net.ipv6.conf.all.disable_ipv6=1 net.ipv6.conf.default.disable_ipv6=1 net.ipv6.conf.lo.disable_ipv6=1 || true
+
   # ── IPv4-pin harbor + local registry (#3735, 2026-06-18 — the hw159
   # ImagePullBackOff). Huawei VPCs are IPv4-only; harbor.openova.io is
   # dual-stack (A=45.151.123.50 + AAAA). The k3s-agent containerd image-pull

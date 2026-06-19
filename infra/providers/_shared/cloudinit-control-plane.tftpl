@@ -72,6 +72,45 @@ write_files:
       fs.inotify.max_user_instances = 8192
       fs.inotify.max_user_watches = 1048576
       fs.inotify.max_queued_events = 16384
+%{ if provider == "huawei" ~}
+
+  # ── Disable IPv6 (#3840 — the DETERMINISTIC fix for the ghcr image-pull
+  # "Try again" wedge that #3837's per-host /etc/hosts pin could not close).
+  #
+  # ROOT CAUSE (proven live on hw167 worker w5c3dea, 2026-06-19): the Huawei
+  # VPC is IPv4-ONLY — the node has NO global IPv6 address — yet IPv6 was left
+  # ENABLED in the kernel (disable_ipv6=0). github's ghcr image-blob CDN host
+  # `pkg-containers.githubusercontent.com` (where ghcr.io redirects every blob)
+  # is dual-stack and resolves to a REAL global AAAA (2606:50c0:8002::154,
+  # verified on the node). The Go dual-stack resolver inside containerd/kubelet
+  # hands BOTH the A and the unreachable AAAA to the dialer; the IPv6 attempt
+  # fails on this IPv4-only VPC and containerd surfaces it as
+  # `dial tcp: lookup ghcr.io: Try again` → ImagePullBackOff → the bootstrap
+  # flux controllers never start → 0 HelmReleases → permanent fresh-prov wedge.
+  #
+  # Why #3837 (pin pkg-containers in /etc/hosts) was insufficient: (1) the live
+  # failing host is `ghcr.io` itself, pinned nowhere; (2) the flux controllers
+  # run on WORKER nodes, whose template pins only harbor/registry — no ghcr
+  # host at all; (3) the pin itself depends on the SAME flaky boot-time VPC
+  # resolver. Enumerating every image-pull host (ghcr.io + pkg-containers +
+  # codeload + harbor + every future registry) is a losing game. Removing the
+  # AAAA path entirely is deterministic and host-agnostic: with IPv6 off the
+  # resolver returns ONLY A records and containerd never dials IPv6.
+  #
+  # SAFE on kom4dc (verified): no node has a global IPv6 address, k3s
+  # cluster/service CIDRs are IPv4-only, cilium runs ipam.mode=kubernetes with
+  # no IPv6 toggles, and ClusterMesh peers over IPv4 EIPs/NodePorts. Nothing
+  # on kom4dc uses IPv6. Applied via a sysctl drop-in (survives any later
+  # `sysctl --system`) AND `sysctl -w` in the FIRST runcmd item below so it is
+  # in effect before the r4() DNS pin, the k3s install, and every image pull.
+  # Huawei-gated → the byte-tight Hetzner render stays byte-identical.
+  - path: /etc/sysctl.d/99-catalyst-disable-ipv6.conf
+    permissions: '0644'
+    content: |
+      net.ipv6.conf.all.disable_ipv6 = 1
+      net.ipv6.conf.default.disable_ipv6 = 1
+      net.ipv6.conf.lo.disable_ipv6 = 1
+%{ endif ~}
 
   # ── OS hardening: SSH daemon ──────────────────────────────────────────
   # The operator's only valid path in is the cloud-project SSH key injected
@@ -709,6 +748,15 @@ runcmd:
   - sed -i '/swap/d' /etc/fstab
   - update-alternatives --set iptables /usr/sbin/iptables-legacy || true
   - update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy || true
+%{ if provider == "huawei" ~}
+  # #3840 — disable IPv6 NOW (before the r4() DNS pin, k3s install + every image
+  # pull below) so containerd's Go resolver never receives/dials an unreachable
+  # AAAA on this IPv4-only VPC (the `lookup ghcr.io: Try again` 0-HR wedge that
+  # #3837's per-host /etc/hosts pin could not deterministically close). The
+  # sysctl drop-in written above persists it across any later `sysctl --system`;
+  # `sysctl -w` makes it live immediately. Huawei-gated (see the drop-in header).
+  - sysctl -w net.ipv6.conf.all.disable_ipv6=1 net.ipv6.conf.default.disable_ipv6=1 net.ipv6.conf.lo.disable_ipv6=1 || true
+%{ endif ~}
 
   # Apply inotify-limit bumps + hardened sshd written by write_files.
   - sysctl --system
