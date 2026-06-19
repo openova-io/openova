@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/openova-io/openova/core/services/provisioning/store"
 )
@@ -28,6 +29,17 @@ type fakeDedupStore struct {
 	// dropInFlight, when true, makes GetInFlightProvisionByTenant return
 	// (nil, nil) to model the "row terminated between collision and lookup" race.
 	dropInFlight bool
+	// reapStale, when true, makes ReapStaleInFlightProvision (#3898) clear the
+	// in-flight row and report 1 reaped — modelling a crashed/rolled provisioning
+	// Pod whose abandoned row is now older than staleProvisionTimeout. Default
+	// false: a live in-flight workflow is NOT reaped, preserving the #3744
+	// double-fire → single-provision semantics the other tests assert.
+	reapStale bool
+	// reapErr, when set, is returned by ReapStaleInFlightProvision to exercise
+	// the reap-failure branch (which falls back to surfacing the existing row).
+	reapErr error
+	// reapCalls counts every ReapStaleInFlightProvision attempt.
+	reapCalls int32
 }
 
 func newFakeDedupStore() *fakeDedupStore {
@@ -52,6 +64,23 @@ func (f *fakeDedupStore) CreateProvisionIfAbsent(_ context.Context, p *store.Pro
 	cp := *p
 	f.inflight[p.TenantID] = &cp
 	return nil
+}
+
+func (f *fakeDedupStore) ReapStaleInFlightProvision(_ context.Context, tenantID string, _ time.Duration) (int, error) {
+	atomic.AddInt32(&f.reapCalls, 1)
+	if f.reapErr != nil {
+		return 0, f.reapErr
+	}
+	if !f.reapStale {
+		return 0, nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.inflight[tenantID]; ok {
+		delete(f.inflight, tenantID)
+		return 1, nil
+	}
+	return 0, nil
 }
 
 func (f *fakeDedupStore) GetInFlightProvisionByTenant(_ context.Context, tenantID string) (*store.Provision, error) {
@@ -193,5 +222,64 @@ func TestDedupProvisionCreate_LookupErrorPropagates(t *testing.T) {
 	_, err := dedupProvisionCreate(ctx, st, &store.Provision{TenantID: tenant, Status: "provisioning"}, tenant)
 	if err != wantErr {
 		t.Fatalf("lookup error must propagate, got %v want %v", err, wantErr)
+	}
+}
+
+// TestDedupProvisionCreate_StaleRowReapedThenForks covers the #3898 funnel-wedge
+// escape: a prior provisioning Pod crashed/rolled, abandoning an in-flight row
+// older than staleProvisionTimeout. The collision MUST reap that dead row and
+// re-insert so the legitimate re-provision forks a fresh workflow — otherwise
+// the partial-unique index wedges the tenant out of the #3376 funnel forever.
+func TestDedupProvisionCreate_StaleRowReapedThenForks(t *testing.T) {
+	st := newFakeDedupStore()
+	ctx := context.Background()
+	const tenant = "walk-stranger-co"
+
+	// Seed the abandoned in-flight row left by the crashed Pod.
+	if _, err := dedupProvisionCreate(ctx, st, &store.Provision{TenantID: tenant, Status: "provisioning"}, tenant); err != nil {
+		t.Fatalf("seed stale provision errored: %v", err)
+	}
+	// The row is now stale → the reaper clears it on the next collision.
+	st.reapStale = true
+
+	reprov := &store.Provision{ID: "reprov-after-reap", TenantID: tenant, Status: "provisioning"}
+	d, err := dedupProvisionCreate(ctx, st, reprov, tenant)
+	if err != nil {
+		t.Fatalf("dedupProvisionCreate after reap errored: %v", err)
+	}
+	if !d.fork {
+		t.Fatal("a reaped stale row must let the re-provision fork a fresh workflow, got fork=false")
+	}
+	if d.provision != reprov {
+		t.Fatalf("post-reap fork must return the freshly-inserted provision, got %+v", d.provision)
+	}
+	if got := atomic.LoadInt32(&st.reapCalls); got != 1 {
+		t.Fatalf("exactly one reap attempt expected on the collision, got %d", got)
+	}
+}
+
+// TestDedupProvisionCreate_ReapFailureSurfacesExistingRow ensures a reap error
+// does not crash the dispatch: it falls back to surfacing the existing in-flight
+// row (fork=false), exactly as a non-stale collision would.
+func TestDedupProvisionCreate_ReapFailureSurfacesExistingRow(t *testing.T) {
+	st := newFakeDedupStore()
+	ctx := context.Background()
+	const tenant = "walk-stranger-co"
+
+	first := &store.Provision{TenantID: tenant, Status: "provisioning"}
+	if _, err := dedupProvisionCreate(ctx, st, first, tenant); err != nil {
+		t.Fatalf("seed provision errored: %v", err)
+	}
+	st.reapErr = context.DeadlineExceeded
+
+	d, err := dedupProvisionCreate(ctx, st, &store.Provision{TenantID: tenant, Status: "provisioning"}, tenant)
+	if err != nil {
+		t.Fatalf("reap-failure must not propagate as a dispatch error, got %v", err)
+	}
+	if d.fork {
+		t.Fatal("reap failure must surface the existing row without forking, got fork=true")
+	}
+	if d.provision.ID != first.ID {
+		t.Fatalf("reap failure must return the existing in-flight row, got %+v", d.provision)
 	}
 }

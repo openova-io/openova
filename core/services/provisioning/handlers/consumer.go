@@ -57,6 +57,15 @@ type orderPlacedData struct {
 
 const topicProvisionEvents = "sme.provision.events"
 
+// staleProvisionTimeout (#3898) is how long an in-flight provision row may go
+// without an updated_at refresh before the dedup collision path treats it as
+// abandoned and reaps it. The workflow refreshes updated_at on every step and
+// its longest single wait is 10 minutes (waitForHelmRelease / waitForVclusterApp),
+// so 30 minutes leaves a comfortable margin: a healthy provision is never
+// reaped, but a row stranded by a Pod crash/roll is recovered well before a
+// human would notice the tenant wedged out of the funnel.
+const staleProvisionTimeout = 30 * time.Minute
+
 // StartConsumer listens for tenant + order events and routes them to the
 // per-event handlers. The subscriber argument is whatever transport the
 // service was wired with — on Sovereigns this is a NATS-backed
@@ -933,6 +942,8 @@ func (h *Handler) startProvisioning(ctx context.Context, tenantID, orderID, plan
 	// forking a duplicate workflow — mirroring CreateJobIfAbsent's #71 dedup for
 	// day-2 Jobs. The decision is extracted into a pure helper so the exact
 	// double-fire → single-provision semantics are unit-testable without Mongo.
+	// The helper also folds in the #3898 stale-in-flight reap so a crashed/rolled
+	// provisioning Pod can't permanently wedge a tenant out of the #3376 funnel.
 	result, err := dedupProvisionCreate(ctx, h.Store, provision, tenantID)
 	if err != nil {
 		slog.Error("provision-create dedup failed", "tenant_id", tenantID, "error", err)
@@ -966,6 +977,10 @@ func (h *Handler) startProvisioning(ctx context.Context, tenantID, orderID, plan
 type provisionDedupStore interface {
 	CreateProvisionIfAbsent(ctx context.Context, p *store.Provision) error
 	GetInFlightProvisionByTenant(ctx context.Context, tenantID string) (*store.Provision, error)
+	// ReapStaleInFlightProvision (#3898) clears an abandoned in-flight row whose
+	// owning workflow goroutine died with its Pod, so the partial-unique index
+	// releases and a legitimate re-provision can proceed.
+	ReapStaleInFlightProvision(ctx context.Context, tenantID string, staleAfter time.Duration) (int, error)
 }
 
 // dedupDecision is the outcome of the #3744 provision-create dedup. When fork is
@@ -984,8 +999,10 @@ type dedupDecision struct {
 // loser returns it instead of forking a duplicate workflow → duplicate Gitea
 // commit → ref-lock race → failed tenant.
 //
-// Three outcomes:
+// Outcomes:
 //   - insert wins  → {provision, fork:true}   (start one workflow)
+//   - collision, stale row reaped + re-insert wins → {provision, fork:true}
+//     (#3898 — the prior owning Pod died; this re-provision legitimately forks)
 //   - collision, in-flight row found → {existing, fork:false}
 //   - collision, row already terminal → {provision, fork:false} (benign: the
 //     prior workflow owns the outcome; a later legitimate re-provision succeeds
@@ -993,6 +1010,34 @@ type dedupDecision struct {
 func dedupProvisionCreate(ctx context.Context, st provisionDedupStore, provision *store.Provision, tenantID string) (dedupDecision, error) {
 	if err := st.CreateProvisionIfAbsent(ctx, provision); err != nil {
 		if errors.Is(err, store.ErrProvisionExists) {
+			// #3898 — before surfacing the in-flight row, reap it if it is
+			// stale. A provisioning Pod crash/roll abandons the detached
+			// runProvisioningWorkflow goroutine, stranding the row at
+			// "provisioning" forever; the partial-unique index then wedges this
+			// tenant out of the funnel because every re-provision short-circuits
+			// on the dead row. A live workflow refreshes updated_at on every
+			// step, so only a genuinely abandoned row (no progress for
+			// staleProvisionTimeout) is reaped. If one was, retry the insert so
+			// the legitimate re-provision forks a fresh workflow.
+			if reaped, reapErr := st.ReapStaleInFlightProvision(ctx, tenantID, staleProvisionTimeout); reapErr != nil {
+				slog.Warn("duplicate provision dispatch: stale-provision reap failed — surfacing existing row",
+					"tenant_id", tenantID, "error", reapErr)
+			} else if reaped > 0 {
+				slog.Info("duplicate provision dispatch: reaped stale in-flight provision — re-forking workflow",
+					"tenant_id", tenantID, "reaped", reaped)
+				if reErr := st.CreateProvisionIfAbsent(ctx, provision); reErr != nil {
+					if !errors.Is(reErr, store.ErrProvisionExists) {
+						return dedupDecision{}, reErr
+					}
+					// Another writer won the post-reap insert race; fall through
+					// to surface whatever in-flight row now exists.
+					slog.Info("duplicate provision dispatch: lost the post-reap insert race — surfacing the winner",
+						"tenant_id", tenantID)
+				} else {
+					// Won the insert post-reap — fork as a fresh provision.
+					return dedupDecision{provision: provision, fork: true}, nil
+				}
+			}
 			existing, getErr := st.GetInFlightProvisionByTenant(ctx, tenantID)
 			if getErr != nil {
 				return dedupDecision{}, getErr
