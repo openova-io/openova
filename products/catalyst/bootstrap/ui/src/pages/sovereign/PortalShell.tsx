@@ -49,6 +49,7 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 import { NotificationBell } from '@/shared/ui/notifications'
 import { ProfileMenu } from '@/widgets/auth/ProfileMenu'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
+import { ReadinessChip, OperationBanner } from '@/components/ReadinessChip'
 
 interface PortalShellProps {
   /** Stable deploymentId from the URL parameter. */
@@ -118,6 +119,11 @@ export function PortalShell({
             className="flex shrink-0 items-center gap-3"
           >
             {headerSlotRight}
+            {/* #3925 surface D — readiness chip on every page. Click →
+                Dashboard. Only rendered once a deploymentId is resolved
+                (on the chroot it's empty for one render while
+                /sovereign/self resolves; the chip then mounts). */}
+            {deploymentId ? <ReadinessChip deploymentId={deploymentId} /> : null}
             <NotificationBell />
             <ThemeToggle />
             {/* Issue #750 — signed-in user identity in the top-right
@@ -126,6 +132,10 @@ export function PortalShell({
             <ProfileMenu />
           </div>
         </header>
+        {/* #3925 surface D — operation-in-progress banner. Renders null
+            in every state except `operation` (DECISION: banner + toggle,
+            not auto-flip-back). */}
+        {deploymentId ? <OperationBanner deploymentId={deploymentId} /> : null}
         <main className="flex-1 p-8">{children}</main>
       </div>
     </div>

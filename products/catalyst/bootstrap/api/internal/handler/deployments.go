@@ -1601,7 +1601,14 @@ func (h *Handler) GetDeployment(w http.ResponseWriter, r *http.Request) {
 	// freshly-signed. Best-effort: on mint failure, leave the existing
 	// URL in place so a transient signer error doesn't break polling.
 	h.remintHandoverURLForReadyDeployment(dep)
-	writeJSON(w, http.StatusOK, dep.State())
+	state := dep.State()
+	// #3925 surface D — enrich with `operationInProgress` so the
+	// Convergence-Monitor top-bar chip can render OPERATION-IN-PROGRESS
+	// distinctly from initial CONVERGING. Computed off the jobs store
+	// (cutover / DR-switchover group non-terminal), which lives on the
+	// Handler — so it's injected here rather than inside Deployment.State().
+	state["operationInProgress"] = h.operationInProgress(dep.ID)
+	writeJSON(w, http.StatusOK, state)
 }
 
 // remintHandoverURLForReadyDeployment re-signs the handover JWT on a
