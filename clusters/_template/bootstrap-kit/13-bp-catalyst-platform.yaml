@@ -1038,7 +1038,7 @@ spec:
             # 1.4.685 — #3811 (Refs #3642 #3760): host gitea-admin-secret bridge — restores the plain `gitea/gitea-admin-secret` the catalyst-gitea-token mint hook needs after #3642 moved bp-gitea into vc-mgmt (host now has only the syncer-mangled `gitea-admin-secret-x-gitea-x-mgmt-vcluster`). NEW templates/catalyst-gitea-admin-secret-bridge.yaml (pre-install weight 1, Helm-lookup re-publish) + widened mint render gate. Unwedges the install→fail→retry loop where catalyst-gitea-token never minted → console 000 (hw163). Builds on #3810 (bp-mgmt-vcluster 0.2.15 gitea-http host reachability). Catalyst-Zero render byte-unchanged.
             # 1.4.696 — #3859 (Refs #3376): wire TENANT_PARENT_DOMAIN onto the provisioning Deployment (smeServices.provisioning.tenantParentDomain ← ${TENANT_PARENT_DOMAIN}). The per-Org provisioning consumer seeds spec.tenantPublic ONLY when a parent domain is set; without it every customer Org minted with NO TenantPublic HTTPRoute → the customer's own console + purchased app returned ERR_CONNECTION_REFUSED (the funnel terminal failure on every prior env, first root-caused driving walkorg/hw167). Default "" = Catalyst-Zero byte-identical. NOTE re-pin: 1.4.686–1.4.695 publish-lag may apply — verify ghcr tag before a fresh prov pins this.
             # 1.4.697 — merge-train resolution (Refs #3376 #3848): supersedes the auto-bump hook's 1.4.695; lands #3859 (1.4.696, TENANT_PARENT_DOMAIN funnel terminal) on top of #3849 (1.4.695, org-controller KC-secret host-bridge). Both additive + independent; pin bumped lockstep with the published OCI artifact.
-      version: 1.4.697
+      version: 1.4.698
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
