@@ -45,6 +45,7 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
@@ -201,6 +202,28 @@ func (h *Handler) runPhase1Watch(dep *Deployment) {
 	dep.phase1Started = true
 	dep.mu.Unlock()
 
+	// Fill the ~30-minute "Bootstrapping cluster" window. The Phase-0
+	// lifecycle group ("Provision <provider>") flipped to Success the moment
+	// `tofu apply` returned; from here the real work runs cluster-side
+	// (cloud-init → k3s → kubeconfig PUT → Flux installs → HRs reconcile)
+	// for up to half an hour. Before this group existed the provisioning
+	// timeline showed a static "Provision <provider>: Success" with NO
+	// further motion for that whole window and the operator reasonably
+	// concluded the prov was dead. Seed the group + start the nodes-booting
+	// step NOW so the timeline advances the instant provision finishes; the
+	// kubeconfig-wait loop heartbeats it (numEvents / cloud-init log tail)
+	// and the watcher below drives the live HR X/Y counter.
+	if bb := h.bootstrapBridgeFor(dep); bb != nil {
+		if err := bb.Seed(); err != nil {
+			h.log.Warn("bootstrap window: seed failed", "id", dep.ID, "err", err)
+		}
+		if err := bb.StartStep(jobs.BootstrapStepNodesBooting,
+			"Nodes booting — cloud-init is bringing up k3s on the new Sovereign; waiting for the kubeconfig PUT-back.",
+			time.Now().UTC()); err != nil {
+			h.log.Warn("bootstrap window: start nodes-booting failed", "id", dep.ID, "err", err)
+		}
+	}
+
 	// Wait for the kubeconfig file to appear on disk. The path
 	// pointer (dep.Result.KubeconfigPath) is set by PutKubeconfig
 	// when cloud-init's postback succeeds. While waiting, dep.Status
@@ -215,8 +238,28 @@ func (h *Handler) runPhase1Watch(dep *Deployment) {
 		// Timeout elapsed — surface kubeconfig-missing as before.
 		// The warn event was emitted by waitForKubeconfig at the
 		// final tick.
+		// Fail the bootstrap-window steps honestly so the timeline stops
+		// showing a perpetually-running "Nodes booting" — the kubeconfig
+		// never arrived, which is the same failure markPhase1Done surfaces.
+		if bb := h.bootstrapBridgeFor(dep); bb != nil {
+			now := time.Now().UTC()
+			_ = bb.FinishStep(jobs.BootstrapStepNodesBooting, jobs.StatusFailed,
+				"cloud-init never PUT the kubeconfig within the arrival budget — see the Phase-1 timeout reason.", now)
+			_ = bb.FinishStep(jobs.BootstrapStepKubeconfig, jobs.StatusFailed,
+				"kubeconfig never received.", now)
+		}
 		h.markPhase1Done(dep, nil, helmwatch.OutcomeKubeconfigMissing)
 		return
+	}
+
+	// Kubeconfig landed — k3s is up. Advance the bootstrap window:
+	// nodes-booting + kubeconfig-received succeed, flux-installing starts.
+	if bb := h.bootstrapBridgeFor(dep); bb != nil {
+		if err := bb.MarkKubeconfigReceived(
+			fmt.Sprintf("k3s up; kubeconfig received from cloud-init (%d bytes).", len(kubeconfig)),
+			time.Now().UTC()); err != nil {
+			h.log.Warn("bootstrap window: mark kubeconfig received failed", "id", dep.ID, "err", err)
+		}
 	}
 
 	cfg := h.phase1WatchConfigForDeployment(dep, kubeconfig)
@@ -281,6 +324,14 @@ func (h *Handler) runPhase1Watch(dep *Deployment) {
 	// typically race within ~10s of each other but not always).
 	stopSecondaries := h.spawnSecondaryRegionWatchers(dep)
 	defer stopSecondaries()
+
+	// Drive the bootstrap-window "Flux installing — HR X/Y ready" counter
+	// live off the primary watcher's in-memory HelmRelease census. This is
+	// the third bootstrap-window signal: while the bootstrap-kit reconciles,
+	// the operator watches the climbing X/Y count on the provisioning
+	// timeline instead of a static row. Stops when the watch returns.
+	stopFluxProgress := h.driveBootstrapFluxProgress(dep, watcher)
+	defer stopFluxProgress()
 
 	// Use the background context so a finished HTTP request from the
 	// caller doesn't cancel a multi-minute Phase-1 watch. The watch
@@ -779,6 +830,27 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 	// persisted, so any state read from disk was stale.
 	h.persistDeployment(dep)
 
+	// Close the bootstrap-window's "Flux installing" step now that Phase-1
+	// has terminated — succeed it on a clean ready, fail it honestly on any
+	// non-ready terminal outcome so the timeline never leaves a perpetually-
+	// running "Flux installing" row behind a failed prov. This is the third
+	// and final bootstrap-window transition: once it lands the bootstrap-kit
+	// install rows own the timeline. Best-effort + idempotent.
+	if bb := h.bootstrapBridgeFor(dep); bb != nil {
+		now := time.Now().UTC()
+		if finalStatus == "ready" {
+			ready, total := installedCensus(finalStates)
+			_ = bb.SetFluxProgress(ready, total, now)
+			_ = bb.MarkConverged(
+				fmt.Sprintf("Bootstrap-kit converged — %d/%d HelmReleases ready; per-component install rows now drive the timeline.", ready, total),
+				now)
+		} else {
+			_ = bb.FinishStep(jobs.BootstrapStepFluxInstalling, jobs.StatusFailed,
+				fmt.Sprintf("Bootstrap-kit did not converge (Phase-1 outcome %q) — see the per-component install rows + the Phase-1 banner for the failure reason.", outcome),
+				now)
+		}
+	}
+
 	h.log.Info("phase 1 watch terminated",
 		"id", dep.ID,
 		"componentCount", len(finalStates),
@@ -994,6 +1066,19 @@ func formatRegionHealth(regions []provisioner.RegionHealth) string {
 		parts = append(parts, fmt.Sprintf("%s=%d/%d%s", r.Region, r.HRReady, r.HRTotal, tag))
 	}
 	return strings.Join(parts, " ")
+}
+
+// installedCensus counts the (installed, total) HelmReleases in a terminal
+// component-state map — the final "HR X/Y ready" figure the bootstrap-window's
+// flux step stamps on convergence.
+func installedCensus(states map[string]string) (installed, total int) {
+	for _, s := range states {
+		total++
+		if s == helmwatch.StateInstalled {
+			installed++
+		}
+	}
+	return installed, total
 }
 
 // runSecondaryBridgeBackfill walks every secondary watcher attached to
@@ -1687,6 +1772,21 @@ func (h *Handler) waitForKubeconfig(dep *Deployment) (string, bool) {
 			first = false
 		}
 
+		// Heartbeat the bootstrap-window "Nodes booting" step every tick so
+		// the provisioning timeline shows continuous motion (a fresh live
+		// log line) the whole time cloud-init runs — the SSE event bus stays
+		// quiet to avoid drowning the wizard, but the Jobs timeline's
+		// per-step Exec Log gets a tail line each poll. The line is driven by
+		// the deployment's numEvents counter (climbs while cloud-init runs)
+		// and, when present, the last line of the self-uploaded cloud-init
+		// log (#3132) so the operator can literally watch the bootstrap.
+		if !first {
+			if bb := h.bootstrapBridgeFor(dep); bb != nil {
+				_ = bb.Heartbeat(jobs.BootstrapStepNodesBooting,
+					h.bootstrapHeartbeatLine(dep), time.Now().UTC())
+			}
+		}
+
 		// Check the deadline AFTER an emit so the operator-visible
 		// log includes the final timeout reason.
 		if time.Now().After(deadline) {
@@ -1701,6 +1801,108 @@ func (h *Handler) waitForKubeconfig(dep *Deployment) (string, bool) {
 
 		time.Sleep(pollEvery)
 	}
+}
+
+// bootstrapHeartbeatLine builds the live "Nodes booting" heartbeat line for
+// the bootstrap-window step from the data catalyst-api already has during the
+// kubeconfig wait: the deployment's numEvents counter (which climbs while
+// cloud-init runs) and the last non-empty line of the self-uploaded cloud-init
+// log (#3132) when it is present on the PVC. The cloud-init tail is the
+// load-bearing signal — it lets the operator literally watch the bootstrap;
+// numEvents is the always-present fallback so the line is never static.
+func (h *Handler) bootstrapHeartbeatLine(dep *Deployment) string {
+	dep.mu.Lock()
+	n := len(dep.eventsBuf)
+	dep.mu.Unlock()
+
+	base := fmt.Sprintf("Bootstrapping new Sovereign — cloud-init in progress (%d provisioning events so far)…", n)
+	if tail := h.cloudInitLogTail(dep.ID); tail != "" {
+		return base + " cloud-init: " + tail
+	}
+	return base
+}
+
+// cloudInitLogTail returns the last non-empty line of the deployment's
+// self-uploaded cloud-init log (#3132), trimmed to a sane length, or "" when
+// the log isn't on the PVC yet / can't be read. Best-effort: any error yields
+// "" so the heartbeat falls back to the numEvents-only line.
+func (h *Handler) cloudInitLogTail(depID string) string {
+	if h.kubeconfigsDir == "" {
+		return ""
+	}
+	raw, err := os.ReadFile(filepath.Join(h.kubeconfigsDir, depID+"-cloudinit.log"))
+	if err != nil || len(raw) == 0 {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		ln := strings.TrimSpace(lines[i])
+		if ln == "" {
+			continue
+		}
+		const maxTail = 200
+		if len(ln) > maxTail {
+			ln = ln[len(ln)-maxTail:]
+		}
+		return ln
+	}
+	return ""
+}
+
+// bootstrapFluxProgressInterval — cadence at which the bootstrap-window
+// "Flux installing — HR X/Y ready" counter is recomputed from the watcher's
+// in-memory HelmRelease census. 5s matches the console's /jobs poll so the
+// operator sees the counter advance roughly once per poll. Test-overridable
+// via the Handler field so the path runs in milliseconds.
+const bootstrapFluxProgressInterval = 5 * time.Second
+
+// driveBootstrapFluxProgress starts a background goroutine that recomputes the
+// in-cluster HelmRelease census (ready = installed HRs, total = observed HRs)
+// from the primary watcher's SnapshotComponents() every tick and feeds it to
+// the bootstrap-window's flux-installing step, so the provisioning timeline
+// shows a climbing "HR X/Y ready" label while the bootstrap-kit reconciles.
+// Returns a stop function the caller defers; the watch returning closes it.
+//
+// SetFluxProgress is a no-op when the census is unchanged between ticks, so
+// this never churns the store at the poll cadence. Best-effort: a nil bridge
+// (no jobs store) or an empty snapshot (informer not yet synced) just skips
+// the tick.
+func (h *Handler) driveBootstrapFluxProgress(dep *Deployment, watcher *helmwatch.Watcher) func() {
+	bb := h.bootstrapBridgeFor(dep)
+	if bb == nil || watcher == nil {
+		return func() {}
+	}
+	interval := h.bootstrapFluxProgressInterval
+	if interval <= 0 {
+		interval = bootstrapFluxProgressInterval
+	}
+	stop := make(chan struct{})
+	var once sync.Once
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				snap := watcher.SnapshotComponents()
+				if len(snap) == 0 {
+					continue
+				}
+				ready := 0
+				for _, cs := range snap {
+					if cs.Status == helmwatch.StateInstalled {
+						ready++
+					}
+				}
+				if err := bb.SetFluxProgress(ready, len(snap), time.Now().UTC()); err != nil {
+					h.log.Warn("bootstrap window: flux progress update failed", "id", dep.ID, "err", err)
+				}
+			}
+		}
+	}()
+	return func() { once.Do(func() { close(stop) }) }
 }
 
 // certificateGVR — GroupVersionResource for cert-manager.io/v1.Certificate.

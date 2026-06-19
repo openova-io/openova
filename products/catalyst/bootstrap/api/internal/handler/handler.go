@@ -163,6 +163,12 @@ type Handler struct {
 	kubeconfigArrivalTimeout      time.Duration
 	kubeconfigArrivalPollInterval time.Duration
 
+	// bootstrapFluxProgressInterval — test-override for the cadence at which
+	// the bootstrap-window "Flux installing — HR X/Y ready" counter is
+	// recomputed from the watcher's HelmRelease census. Zero falls back to
+	// the bootstrapFluxProgressInterval constant (5s); tests inject a few ms.
+	bootstrapFluxProgressInterval time.Duration
+
 	// ClusterMesh level-triggered reconcile knobs (#3241). The
 	// runAutoEstablishClusterMesh wrapper re-runs the idempotent
 	// AutoEstablishClusterMesh until every region is fully meshed:

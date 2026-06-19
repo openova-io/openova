@@ -1527,6 +1527,26 @@ func (h *Handler) bridgeFor(dep *Deployment) *jobs.Bridge {
 	return bridge
 }
 
+// bootstrapBridgeFor — returns the per-deployment jobs.BootstrapBridge,
+// allocating one when the deployment doesn't have it yet. The bridge drives
+// the "Bootstrapping cluster" timeline group that fills the ~30-minute window
+// between "Provision <provider>: Success" and the first bp-* HelmRelease.
+// Returns nil when the Handler has no jobs store (tests without persistence)
+// so every drive site can no-op cheaply with a single nil-check.
+func (h *Handler) bootstrapBridgeFor(dep *Deployment) *jobs.BootstrapBridge {
+	if h.jobs == nil {
+		return nil
+	}
+	dep.mu.Lock()
+	defer dep.mu.Unlock()
+	if dep.bootstrapBridge != nil {
+		return dep.bootstrapBridge
+	}
+	bridge := jobs.NewBootstrapBridge(h.jobs, dep.ID)
+	dep.bootstrapBridge = bridge
+	return bridge
+}
+
 // registerMutation — thin wrapper around bridge.RegisterMutationJob
 // so the in-test no-op bridge can short-circuit without writing to
 // disk. Production passes through unchanged.

@@ -166,6 +166,15 @@ type Deployment struct {
 	// store is nil (tests without persistence).
 	jobsBridge *jobs.Bridge
 
+	// bootstrapBridge — per-deployment bridge that fills the ~30-minute
+	// "Bootstrapping cluster" window between "Provision <provider>: Success"
+	// (tofu apply returned) and the first bp-* HelmRelease appearing. Driven
+	// by runPhase1Watch's own phase1-watch signals so the provisioning
+	// timeline never shows a static Success with a silent void behind it.
+	// Allocated lazily by bootstrapBridgeFor. Nil-tolerant: every drive site
+	// no-ops when the Handler's jobs store is nil (tests without persistence).
+	bootstrapBridge *jobs.BootstrapBridge
+
 	// liveWatcher — pointer to the helmwatch.Watcher currently
 	// driving Phase-1 events for this deployment, populated by
 	// runPhase1Watch / resumePhase1Watch / refreshWatch. The

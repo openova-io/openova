@@ -210,6 +210,40 @@ const (
 	// green under bootstrap-kit — the operator sees the truth (issue
 	// #3646 §3a/§6).
 	GroupReconcilers = "reconcilers"
+	// GroupClusterConverge — the "Bootstrapping cluster" group that fills
+	// the ~30-minute window between "Provision <provider>: Success" (tofu
+	// apply returned) and the first bp-* HelmRelease appearing under
+	// bootstrap-kit. Before this group existed the provisioning timeline
+	// showed a static "Provision <provider>: Success" for half an hour
+	// with NO further motion while cloud-init → k3s → kubeconfig-PUT →
+	// Flux-install ran cluster-side, so the operator reasonably concluded
+	// the prov was dead. Its three step children (BootstrapStep* below)
+	// are driven LIVE by the phase1-watch loop's own signals so the
+	// operator always sees a status, an event line, or a climbing counter.
+	GroupClusterConverge = "cluster-converge"
+)
+
+// Bootstrap-window step slugs — the three sub-steps of the
+// GroupClusterConverge group. Each is an "<group>-step-<slug>" leaf so the
+// namespace stays disjoint from the install-/lifecycle leaves (matching the
+// ActivityBridge convention). Driven live by internal/handler's
+// runPhase1Watch via BootstrapBridge:
+//
+//   - BootstrapStepNodesBooting — Running the instant Phase-1 begins (right
+//     after tofu-apply returns Success); a heartbeat log line is appended
+//     each poll tick (numEvents climb / cloud-init log tail) so the operator
+//     sees motion. Succeeds when the kubeconfig PUT lands.
+//   - BootstrapStepKubeconfig — k3s came up and cloud-init PUT the kubeconfig
+//     back (the callback that ends the Phase-1 kubeconfig wait). Succeeds the
+//     moment the file is readable, per region.
+//   - BootstrapStepFluxInstalling — Flux is reconciling the bootstrap-kit; the
+//     leaf's DisplayName updates live to "Flux installing — HR X/Y ready"
+//     from the in-cluster HelmRelease census the helmwatch snapshot exposes.
+//     Succeeds at OutcomeReady.
+const (
+	BootstrapStepNodesBooting   = "nodes-booting"
+	BootstrapStepKubeconfig     = "kubeconfig-received"
+	BootstrapStepFluxInstalling = "flux-installing"
 )
 
 // Group display names — user-visible labels for the synthesised
@@ -230,6 +264,20 @@ const (
 	GroupHandoverDisplay    = "Handover"
 	GroupAppsDisplay        = "Apps"
 	GroupReconcilersDisplay = "Reconcilers"
+	// GroupClusterConvergeDisplay — operator-visible label for the window-
+	// filling group. "Bootstrapping cluster" reads as live activity, never a
+	// terminal verdict.
+	GroupClusterConvergeDisplay = "Bootstrapping cluster"
+)
+
+// Bootstrap-window step display names — the friendly labels rendered for the
+// three GroupClusterConverge step children. The Flux step's label is updated
+// live by BootstrapBridge.SetFluxProgress to carry the running "HR X/Y ready"
+// counter; the static value here is its pre-progress baseline.
+const (
+	BootstrapStepNodesBootingDisplay   = "Nodes booting · cloud-init running"
+	BootstrapStepKubeconfigDisplay     = "k3s up · kubeconfig received"
+	BootstrapStepFluxInstallingDisplay = "Flux installing"
 )
 
 // providerDisplayNames maps a canonical (lower-cased) cloud provider name

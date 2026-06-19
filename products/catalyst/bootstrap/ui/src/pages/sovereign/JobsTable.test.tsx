@@ -412,6 +412,61 @@ describe('JobsTable — render', () => {
     expect(badge.textContent).not.toContain('Confirming')
     expect(badge.getAttribute('data-status')).toBe('pending')
   })
+
+  // ──────────────────────────────────────────────────────────────────
+  // Bootstrap-window ("Bootstrapping cluster") — the catalyst-api writes a
+  // GroupClusterConverge group + 3 step children during the ~30-minute void
+  // between "Provision <provider>: Success" and the first bp-* HelmRelease.
+  // The table is fully generic, so the new group + its live "HR X/Y ready"
+  // flux step render through the existing /jobs poll with zero adapter
+  // changes — these assertions lock that in.
+  // ──────────────────────────────────────────────────────────────────
+  it('renders the "Bootstrapping cluster" step rows with their live labels', async () => {
+    const jobs: Job[] = [
+      {
+        id: 'd-1:cluster-converge', jobName: 'cluster-converge',
+        displayName: 'Bootstrapping cluster', type: 'group', appId: '',
+        parentId: '', dependsOn: [],
+        childIds: [
+          'd-1:cluster-converge-step-nodes-booting',
+          'd-1:cluster-converge-step-kubeconfig-received',
+          'd-1:cluster-converge-step-flux-installing',
+        ],
+        status: 'running', startedAt: '2026-04-29T10:00:00Z', finishedAt: null, durationMs: 0,
+      },
+      {
+        ...baseLeaf, appId: '', id: 'd-1:cluster-converge-step-nodes-booting',
+        jobName: 'cluster-converge-step-nodes-booting',
+        displayName: 'Nodes booting · cloud-init running',
+        parentId: 'd-1:cluster-converge', status: 'succeeded',
+        startedAt: '2026-04-29T10:00:00Z', finishedAt: '2026-04-29T10:05:00Z',
+      },
+      {
+        ...baseLeaf, appId: '', id: 'd-1:cluster-converge-step-kubeconfig-received',
+        jobName: 'cluster-converge-step-kubeconfig-received',
+        displayName: 'k3s up · kubeconfig received',
+        parentId: 'd-1:cluster-converge', status: 'succeeded',
+        startedAt: '2026-04-29T10:05:00Z', finishedAt: '2026-04-29T10:05:30Z',
+      },
+      {
+        ...baseLeaf, appId: '', id: 'd-1:cluster-converge-step-flux-installing',
+        jobName: 'cluster-converge-step-flux-installing',
+        // The live HR counter the operator watches climb.
+        displayName: 'Flux installing — HR 7/11 ready',
+        parentId: 'd-1:cluster-converge', status: 'running',
+        startedAt: '2026-04-29T10:05:30Z',
+      },
+    ]
+    renderTable({ jobs })
+    await screen.findByTestId('jobs-table')
+    // The live "HR X/Y ready" counter renders on the flux step row.
+    expect(screen.getByText('Flux installing — HR 7/11 ready')).toBeTruthy()
+    expect(screen.getByText('Nodes booting · cloud-init running')).toBeTruthy()
+    // The group is selectable as a Parent (its label resolves from displayName).
+    const parentSelect = screen.getByTestId('jobs-filter-parent') as HTMLSelectElement
+    const optionLabels = Array.from(parentSelect.options).map((o) => o.textContent)
+    expect(optionLabels).toContain('Bootstrapping cluster')
+  })
 })
 
 // ── C8-005 (2026-05-17 t143): region filter helpers + dropdown ───────
