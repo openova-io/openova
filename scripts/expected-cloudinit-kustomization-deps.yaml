@@ -7,13 +7,19 @@
 # only covers the HelmRelease documents inside clusters/_template/
 # bootstrap-kit/. The THREE top-level Flux Kustomizations created directly
 # by cloud-init — `bootstrap-kit`, `sovereign-tls`, `infrastructure-config`
-# — had ZERO drift protection. The hazard is PROVEN: `sovereign-tls`
-# dependsOn the whole `bootstrap-kit` Kustomization, so when shared-PG
-# stalled on hw130 the wildcard-TLS cert path was serialized behind it and
-# ALL TLS was delayed ~75 min. Once that dependsOn is narrowed (so the TLS
-# cert no longer waits for the slowest thing in the kit), nothing must let
-# it silently drift back to the broad `bootstrap-kit` edge — or silently
-# broaden any other top-level Kustomization. This file is the pinned
+# — had ZERO drift protection. The hazard is PROVEN TWICE: `sovereign-tls`
+# used to dependsOn the whole `bootstrap-kit` Kustomization, so (1) when
+# shared-PG stalled on hw130 the wildcard-TLS cert path was serialized behind
+# it and ALL TLS was delayed ~75 min, and (2) on hw167 a leaf app
+# (bp-guacamole slot 52, jdbc-seed Job DeadlineExceeded on a missing
+# guacamole-pg-app secret) wedged bootstrap-kit indefinitely → the wildcard
+# Certificate was NEVER created → cilium-envoy HTTPS listener
+# InvalidCertificateRef → console 000 for the whole Sovereign. #3845 SHIPPED
+# the narrowing (`sovereign-tls` now depends_on: [] — reconciles in parallel
+# with wait:false + retryInterval, the bootstrap-kit-crs idiom), so the TLS
+# cert no longer waits for the slowest/most-broken thing in the kit. Nothing
+# must let it silently drift back to the broad `bootstrap-kit` edge — or
+# silently broaden any other top-level Kustomization. This file is the pinned
 # expectation; scripts/check-cloudinit-kustomization-deps.sh fails CI on
 # any drift.
 #
@@ -38,8 +44,17 @@ kustomizations:
   - name: bootstrap-kit
     depends_on: []
   - name: sovereign-tls
-    depends_on:
-      - bootstrap-kit
+    # #3845 — NARROWED off the broad `bootstrap-kit` edge (the #3380 row-D
+    # narrowing). The Sovereign's wildcard TLS + Gateway must not be gated on
+    # all ~50 bootstrap-kit HRs being Ready: a single leaf app failing (caught
+    # live hw167 — bp-guacamole jdbc-seed Job DeadlineExceeded) wedged
+    # bootstrap-kit, blocked sovereign-tls, and the wildcard cert was never
+    # issued → cilium-envoy HTTPS listener InvalidCertificateRef → console 000.
+    # Same hazard class as the hw130 ~75-min TLS delay this guard's header
+    # documents. Now reconciles in parallel (wait:false + retryInterval),
+    # retrying the Certificate/Gateway apply until the cert-manager.io +
+    # gateway.networking.k8s.io CRDs register — the bootstrap-kit-crs idiom.
+    depends_on: []
   - name: bootstrap-kit-crs
     # #3642/#3731/#3804 fresh-prov 0-HR deadlock fix: host-bridge CRD-dependent
     # CRs (HTTPRoute/ExternalSecret/CNPG Cluster) split into this sibling tier.

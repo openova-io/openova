@@ -626,6 +626,28 @@ write_files:
       # sovereign-tls Kustomization — carries the cert-manager Certificate
       # that backs Cilium Gateway's wildcard-TLS listener. Split out so its
       # cert-manager.io CRD-dependent apply runs AFTER bp-cert-manager Ready.
+      #
+      # #3845 — does NOT `dependsOn: [bootstrap-kit]` (and runs wait:false +
+      # retryInterval, mirroring bootstrap-kit-crs above). RATIONALE: the
+      # Sovereign's wildcard TLS + Gateway are the datapath that the console
+      # and EVERY `*.<fqdn>` surface terminate on — they must NOT be gated on
+      # all ~50 bootstrap-kit HRs being Ready. With `dependsOn: [bootstrap-kit]
+      # + wait:true`, a SINGLE non-foundational leaf app failing (caught live
+      # hw167: bp-guacamole slot 52's jdbc-seed post-install Job stuck on a
+      # missing guacamole-pg-app secret → DeadlineExceeded → bp-guacamole
+      # never Ready → bootstrap-kit health-check never completes) wedged
+      # bootstrap-kit, which blocked sovereign-tls, so the wildcard Certificate
+      # was never created → cert Secret missing → cilium-envoy HTTPS listener
+      # InvalidCertificateRef → TLS reset on :443 → console 000 for the whole
+      # Sovereign. The ONLY real prerequisites here are the cert-manager.io
+      # (bp-cert-manager) + gateway.networking.k8s.io (bp-gateway-api/bp-cilium)
+      # CRDs plus the sovereign-tls-vars CM (bp-catalyst-platform) — all of
+      # which land early and independently of leaf apps. Reconciling in
+      # parallel with a short retryInterval RETRIES the apply until those CRDs
+      # are registered, then applies the Certificate + Gateway — exactly the
+      # bootstrap-kit-crs idiom (#3804/#3642). wait:false so the per-resource
+      # health (cert issuance, envoy restart Job) reconciles async + does not
+      # re-gate this Kustomization on the apps it never needed.
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
       metadata:
@@ -635,15 +657,18 @@ write_files:
           openova.io/wildcard-cert-issuer-tag: "${wildcard_cert_issuer}"
       spec:
         interval: 5m
+        # retryInterval short (cf. bootstrap-kit-crs): with NO dependsOn the
+        # Certificate/Gateway apply fails the dry-run until bp-cert-manager /
+        # bp-gateway-api register their CRDs + bp-catalyst-platform emits the
+        # sovereign-tls-vars CM, so retry FAST to issue the wildcard promptly
+        # after — not at the 5m interval.
+        retryInterval: 1m
         path: ./clusters/_template/sovereign-tls
         prune: true
         sourceRef:
           kind: GitRepository
           name: openova
-        dependsOn:
-          - name: bootstrap-kit
-        wait: true
-        timeout: 5m
+        wait: false
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
