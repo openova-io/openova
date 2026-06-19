@@ -1,8 +1,79 @@
-# UAT — browser walkthrough dashboard · `hw159` (2026-06-17) — fresh-prov walk (RESET 2026-06-18 — pending hw162)
+# UAT — browser walkthrough dashboard · `hw167` (2026-06-19) — live-probe walk
 
-> **Env:** `hw159.omani.works` · deployment `c117f6fd4e2eb2dd` · single physical kom4dc region
-> (2 VPCs `me-east-215-a` / `-b`). On each wipe + re-prov this dashboard resets and the links flip
-> to the new env.
+> **Env:** `hw167.omantel.biz` · deployment `28d4e96f96407bbb` · single physical kom4dc region
+> (2 VPCs `me-east-215-a` / `-b`). Console externally reachable (Let's Encrypt wildcard cert) after
+> #3845/PR #3846 (`sovereign-tls` decoupled from bootstrap-kit) + #3843 (openbao Role apiVersion).
+
+## 🟢 LIVE-PROBE WALK — hw167 (2026-06-19) — 23/30 GREEN (console 17/17 · SSO 6/13)
+
+Run by the repeatable live-env probe harness: `scripts/uat-run.mjs` → `scripts/uat-console-probe.mjs`
+(console structure) + `scripts/sso-zero-click-probe.mjs` (SSO landing). Each row is a real browser
+**navigate → assert landing markers + absence of login/404 markers → screenshot** under the zero-click
+handover session. Screenshots: [`../sessions/2026-06-19/evidence/`](../sessions/2026-06-19/evidence/).
+A redirect ending on a login/PIN page = ❌ (the #3374 contract). The 7 SSO ❌ are honest gaps —
+apps mid-convergence (hw167 at 57/64, bp-catalyst-platform oscillating) or per-app SSO-config gaps.
+
+| TC | Surface checked (live) | Result | Evidence |
+|---|---|:---:|---|
+| 3687-01 | console bare URL → lands `/dashboard` signed-in (no PIN) | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3687-01.png) |
+| 3687-02 | full sidebar Apps/Catalog/Jobs/Organizations/Settings | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3687-02.png) |
+| 3687-20 | catalog grid renders | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3687-20.png) |
+| 3687-22 | apps grid renders | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3687-22.png) |
+| 3687-26 | dashboard treemap + layer vocabulary (Cluster/vCluster/Region/Sovereign) | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3687-26.png) |
+| 3687-35 | organizations directory renders | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3687-35.png) |
+| 3383-01 | orgs heading — NO "SME tenant"/"Tenants" wording | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3383-01.png) |
+| 3383-03 | sidebar reads "Organizations" not "Tenants" | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3383-03.png) |
+| 3383-07 | legacy `/bss/tenants` → redirects to `/organizations` | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3383-07.png) |
+| 3646-01 | `/jobs` canvas signed-in | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3646-01.png) |
+| 3646-02 | jobs populated with real lifecycle installs | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3646-02.png) |
+| 3646-03 | Kind + Status + Started columns present | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3646-03.png) |
+| 3668-02 | catalog grid (blueprint cards) | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3668-02.png) |
+| 3668-03 | grafana blueprint detail + "Edit IaC" affordance | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3668-03.png) |
+| 3668-30 | postgres blueprint detail | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3668-30.png) |
+| 3375-17 | apps grid (Topology-tab entry point) | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3375-17.png) |
+| 3375-22 | Settings page (Sovereign/Organization/API sections) | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3375-22.png) |
+| 3374-01 | console bare URL → signed-in admin | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3374-console.png) |
+| 3374-09 | keycloak bare URL → sovereign-realm admin console | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3374-keycloak-admin.png) |
+| 3374-12 | newapi bare URL → signed-in (`/console/token`) | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3374-newapi.png) |
+| 3374-14 | openova-flow bare URL → authed pass-through | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3374-openova-flow.png) |
+| 3374-26 | openova-flow ANON → correctly bounced to login (security) | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3374-openova-flow-anon-denied.png) |
+| 3374-16 | marketplace anonymous storefront renders | ✅ | [shot](../sessions/2026-06-19/evidence/hw167-3374-marketplace.png) |
+| 3374-05 | grafana bare URL → no Profile control (not SSO-landed) | ❌ | [shot](../sessions/2026-06-19/evidence/hw167-3374-grafana.png) |
+| 3374-06 | gitea bare URL → stuck on `/user/oauth2/openova-sso` callback | ❌ | [shot](../sessions/2026-06-19/evidence/hw167-3374-gitea.png) |
+| 3374-07 | harbor bare URL → `/account/sign-in` LOGIN page (FAIL) | ❌ | [shot](../sessions/2026-06-19/evidence/hw167-3374-harbor.png) |
+| 3374-08 | openbao bare URL → `/ui/` HTTP failure (not serving) | ❌ | [shot](../sessions/2026-06-19/evidence/hw167-3374-openbao.png) |
+| 3374-10 | guacamole bare URL → no Connections (HR still installing) | ❌ | [shot](../sessions/2026-06-19/evidence/hw167-3374-guacamole.png) |
+| 3374-11 | pdns-admin bare URL → auth-realm redirect, no `/dashboard` | ❌ | [shot](../sessions/2026-06-19/evidence/hw167-3374-pdns-admin.png) |
+| 3374-15 | hubble bare URL → no Hubble UI (not serving) | ❌ | [shot](../sessions/2026-06-19/evidence/hw167-3374-hubble.png) |
+
+> **Re-run any time:** `node scripts/uat-run.mjs --fqdn hw167.omantel.biz --jwt-key /tmp/hw-priv.pem --deployment-id 28d4e96f96407bbb --shots docs/sessions/2026-06-19/evidence`.
+### Deep-probe walk (live hw167) — extending coverage beyond structure
+
+Per-runbook deep probes (interaction: click/fill/filter → assert → screenshot), each live-validated against hw167. Screenshots `hw167-<runbook>-D*.png` under the evidence dir.
+
+**#3668 catalog single-source IaC editor — 13/13 ✅** (`scripts/uat-3668-deep-probe.mjs`): Edit-IaC full-CR editor opens with the whole `Blueprint` CR seeded + "writes the IaC source of truth" subtitle + Validate/Commit; Show-diff renders Current vs Proposed panes; inline summary/name editors (in-place, no modal); icon-picker light+dark grids → select cilium (in-draft, no live write); identical editor chrome on a 2nd blueprint (grafana). Maps UAT 3668-03/04/16/17/23/24/25/26/30/31. No defects.
+
+**#3646 jobs honest canvas — 8/8 ✅** (`scripts/uat-3646-deep-probe.mjs`): toolbar+table; populated canvas (≥10 rows → real HelmRelease installs); Kind `<select>` offers `[All,cron,install,lifecycle,reconcile,reconciler,step,task]` — **the 8× hw159 GAP kinds (task/cron/reconciler/step) are now LIVE**; Kind=lifecycle filters 88→5; search `openbao` 88→4; Status=failed → 3 honest FAILED rows each with a kind-specific Re-run button; inverse gating verified (succeeded rows: zero Re-run). Honest backend finding (real cluster state, not a probe bug): `catalog-sovereign` + `sme-tenants` reconciles FAILED ~2h. Maps UAT 3646-02/03/04/05/06/07/10/12/13.
+
+**#3687 object-model deep — 14/14 ✅** (`scripts/uat-3687-deep-probe.mjs`): org directory table (kind/tier/billing/isolation/status badges); org-detail identity CR card; Showback panel + honest empty-state; apps grid one-card-per-Application + BOOTSTRAP badges. Two LIVE advances past hw159: **treemap Layer-1=Organization / Layer-2=Application is now the default + a distinct "Platform overhead" roll-up** (flips the hw159 ❌ 3687-26/29/31 GREEN); **many-to-many master proof LIVE** — `/app/shared-pg` Contexts tab `3` = `db/registry`→harbor, `db/gitea`→gitea, `db/keycloak`→keycloak all sharing ONE PostgreSQL (North Star #2). Env fact: shared-PG instance id is the bare slug `shared-pg` (3 instances: shared-pg/-b/-c). Maps UAT 3687-05/09/10/20/21/26/27/28/30/34/35. No defects.
+
+**#3376 funnel SURFACES — 11/11 ✅** (+ 14 not-reached) (`scripts/uat-3376-funnel-probe.mjs`): storefront (anon, sovereign-clean); junk-code redeem (honest "voucher not valid" + Browse-plans CTA); the 6-step wizard each deep-linked — Plans (5 tiers), Apps (incl. WordPress), Add-ons (omani.homes pool), **BCP/topology (both Single-region + Active-hot-standby radios; hot-standby reveals Primary/Replica region pickers)**, Review (monthly total), Checkout (passwordless, no password field); BSS vouchers (authed) → `/organizations/billing/vouchers` signed-in showback admin. The 14 NOT-REACHED rows need a driven provision (valid voucher → Org active → `console.<slug>`/`wordpress.<slug>` serving) — a separate heavier walk, honestly not-reached, never faked. Finding: the topology step lives at `/bcp` (runbook's `/topology` corrected). Maps UAT 3376-NN surfaces.
+
+**#3375 topology/DR — 7/11 ✅** (`scripts/uat-3375-topology-probe.mjs`): catalog new-instance entry; shared-pg Topology tab Change-placement editor (all 4 mode radios + 2 region checkboxes); declared-topology strip (`singleton`); grafana declares active-hot-standby + honest "no live DR pair" strip; Switchover honestly hidden for singleton; `/cloud` true 2-region map (me-east-215-a + -b). 4 RED: **3375-04 REAL DEFECT** — catalog `bp-postgres` Instances table renders the BANNED `active-hotstandby` chip + "Supported topologies" lists only 2 of 4 (missing `active-passive`/`active-active`) — the surviving #3375 one-vocabulary gap; 3375-13/20/29 RED-by-design (shared-pg is a bootstrap HR with no Application CR → live primary/replica/lag/Switchover read n/a; single-physical-region + bp-continuum oscillating). Maps UAT 3375-NN.
+
+**#3642 placement (NS#1) — 10/13 ✅** (`scripts/uat-3642-placement-probe.mjs`): dashboard treemap LAYER1=vCluster; **NS#1 verdict — 6/7 apps now genuinely INSIDE the mgmt vCluster** (grafana, harbor, keycloak, gitea, openbao, guacamole) via the bp-mgmt-vcluster 0.2.19 fix (hw159 was 0/7 — all under host). 3 RED: **newapi is still host-resident** (3642-09/11/12 — treemap tile in the `host` block + card reads `NAMESPACE: newapi` / `PRIMARY REGION: platform-bootstrap-owned-host`) — the real surviving NS#1 gap, the 1 app not yet migrated. Maps UAT 3642-NN.
+
+**Running total this walk: 86/100 GREEN** (+14 funnel-provisioning not-reached) — console-side 52/52, funnel surfaces 11/11, topology 7/11, placement 10/13, SSO landing 6/13. RED (14) = 7 SSO apps + 4 topology + 3 placement (newapi not in mgmt).
+
+> **3 real defects found mid-walk (fixing forward, not faked):** (1) `catalyst-organization-controller` CrashLoopBackOff — root cause **`required env var unset: CATALYST_KC_SA_CLIENT_ID`** → fails the bp-catalyst-platform 1.4.693 helm upgrade (the oscillation) AND blocks org provisioning (the funnel-terminal rows); (2) **newapi** not migrated into the mgmt vCluster (NS#1 6/7); (3) catalog `bp-postgres` renders the banned `active-hotstandby` vocabulary + 2-of-4 topologies.
+
+**In progress:** SSO triage+fix (the 7 SSO RED apps).
+
+---
+
+> ⚠️ **The hw159 per-row matrix below is SUPERSEDED** (prior env, wiped). Per the founder flush rule no
+> hw159 ✅ carries to hw167; the authoritative current state is the **live-probe walk above**. The hw159
+> matrix is retained only as the row inventory the probes are progressively re-walking on hw167.
 
 ## 📋 FULL PER-ROW MATRIX — all 243 canonical UAT rows (hw159, 2026-06-18)
 
