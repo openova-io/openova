@@ -273,7 +273,10 @@ spec:
       # warm-up retry-exhaustion. The setup wizard stays pre-completed by the
       # admin-sso-seed-job. This slot sets no sandboxBridge/service overrides,
       # so the chart defaults (native sidecar + bridge Service) are what render.
-      version: 1.4.108
+      # 1.4.109 (#3858): seed/promote Job pods no longer carry the workload
+      # selector labels, so they stop leaking into the newapi + bridge Service
+      # EndpointSlices → no more intermittent "upstream connect error 111".
+      version: 1.4.109
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

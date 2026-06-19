@@ -1,5 +1,38 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.109 (#3858, 2026-06-19): stop the seed/promote Jobs masquerading as
+# newapi Service endpoints → kill the intermittent "upstream connect error
+# 111" on newapi.<fqdn>.
+#
+# ROOT CAUSE (measured live on hw167, chart 1.4.108):
+#   The admin-seed Job, the per-minute admin-promote CronJob, and the
+#   channel-seed Job all stamped their POD TEMPLATE with
+#   `bp-newapi.selectorLabels` = {app.kubernetes.io/name: bp-newapi,
+#   app.kubernetes.io/instance: <release>}. That is EXACTLY the selector of
+#   both the `newapi-bp-newapi` Service (ports 3000/8080) and the
+#   `newapi-bp-newapi-bridge` Service (port 8080). Those Job pods are psql/curl
+#   one-shots with NO HTTP listener and NO readinessProbe, so the kubelet marks
+#   their running container ready-by-default and the endpoints controller
+#   adopts them into BOTH Services' EndpointSlices. The bridge Service's
+#   `publishNotReadyAddresses: true` (#3374) made the leak immediate. With the
+#   admin-promote CronJob firing every minute, the Cilium Gateway round-robined
+#   bare-URL `/` hits (Exact `/` → bridge:8080, PathPrefix `/` → newapi:3000)
+#   to the dead Job pod IP whenever one was alive → the gateway got
+#   connection-refused from the upstream → "upstream connect error 111".
+#   Intermittent by construction: a `/` hit landed on the real pod OR a
+#   transient Job pod depending on round-robin + whether a promote pod was
+#   alive that second (live evidence: the bridge EndpointSlice carried
+#   `10.42.0.116 → newapi-bp-newapi-admin-promote-…` next to the real pod).
+#
+# FIX: give each Job/CronJob pod template a DISTINCT `app.kubernetes.io/name`
+#   (`newapi-admin-seed` / `newapi-admin-promote` / `newapi-channel-seed`) so it
+#   matches NO Service selector — exactly the pattern the database-secret-sync
+#   Job already uses (`app.kubernetes.io/name: newapi-db-dsn-sync`, which is why
+#   that one never leaked). Pure pod-template-label change; the Jobs' own
+#   behavior, RBAC, volumes and the workload Deployment/Service are untouched.
+#   Provenance kept via `catalyst.openova.io/blueprint: bp-newapi` +
+#   `catalyst.openova.io/component`.
+#
 # 1.4.107 (#3374, 2026-06-18): REAL fix for the hw159 zero-click 1st-hit 111 +
 # /setup — eliminate the readiness race at its source instead of only retrying
 # in the landing page (1.4.102 was honest race-hardening, not a fix). ROOT
@@ -741,7 +774,7 @@ name: bp-newapi
 # fresh-prov readiness window the per-minute admin-promote CronJob self-heals
 # (#3767, 1.4.97) — this retry shrinks the human-visible window, it is not a
 # new SSO mechanism. Refs #3374.
-version: 1.4.108
+version: 1.4.109
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

@@ -528,7 +528,19 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "bp-newapi.selectorLabels" . | nindent 8 }}
+        # #3858 — DELIBERATELY NOT bp-newapi.selectorLabels. This one-shot
+        # admin-seed Pod is a psql container with NO HTTP listener; if it
+        # carried the workload's {app.kubernetes.io/name: bp-newapi,
+        # app.kubernetes.io/instance: <release>} selector it would be vacuumed
+        # into the newapi-bp-newapi + newapi-bp-newapi-bridge Service
+        # EndpointSlices (no readinessProbe ⇒ ready-by-default), and the Cilium
+        # gateway would round-robin bare-URL `/` hits to its dead :3000/:8080 ⇒
+        # "upstream connect error 111" (measured live hw167). A distinct
+        # app.kubernetes.io/name keeps it out of every Service selector. Mirrors
+        # the proven database-secret-sync-job pod-template pattern.
+        app.kubernetes.io/name: newapi-admin-seed
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        catalyst.openova.io/blueprint: bp-newapi
         catalyst.openova.io/component: admin-seed
     spec:
       restartPolicy: OnFailure
@@ -617,7 +629,20 @@ spec:
       template:
         metadata:
           labels:
-            {{- include "bp-newapi.selectorLabels" . | nindent 12 }}
+            # #3858 — DELIBERATELY NOT bp-newapi.selectorLabels. This CronJob
+            # fires EVERY MINUTE (schedule "* * * * *") and its Pod is a psql
+            # container with NO HTTP listener. With the workload selector labels
+            # it was adopted into the newapi-bp-newapi + newapi-bp-newapi-bridge
+            # Service EndpointSlices on every run (ready-by-default — no probe),
+            # so the Cilium gateway intermittently round-robined bare-URL `/`
+            # hits to its dead :3000/:8080 ⇒ "upstream connect error 111"
+            # (measured live hw167: bridge EndpointSlice carried the promote pod
+            # IP alongside the real pod; the bridge Service's
+            # publishNotReadyAddresses:true made the leak immediate). A distinct
+            # app.kubernetes.io/name keeps it out of every Service selector.
+            app.kubernetes.io/name: newapi-admin-promote
+            app.kubernetes.io/instance: {{ .Release.Name }}
+            catalyst.openova.io/blueprint: bp-newapi
             catalyst.openova.io/component: admin-promote
         spec:
           restartPolicy: OnFailure
