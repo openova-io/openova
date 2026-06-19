@@ -927,34 +927,25 @@ func (h *Handler) startProvisioning(ctx context.Context, tenantID, orderID, plan
 	// POST /provisioning/start) by design; without a guard both inserts fork a
 	// workflow and the two near-simultaneous Gitea commits race on the shared
 	// sme-tenants branch ("cannot lock ref"), marking the tenant failed even
-	// though the Org CR + winning commit land. CreateProvisionIfAbsent is backed
-	// by a partial unique index on (tenant_id, in-flight status), so the second
+	// though the Org CR + winning commit land. dedupProvisionCreate is backed by
+	// a partial unique index on (tenant_id, in-flight status), so the second
 	// trigger collides and we return the already-running provision without
 	// forking a duplicate workflow — mirroring CreateJobIfAbsent's #71 dedup for
-	// day-2 Jobs.
-	if err := h.Store.CreateProvisionIfAbsent(ctx, provision); err != nil {
-		if errors.Is(err, store.ErrProvisionExists) {
-			existing, getErr := h.Store.GetInFlightProvisionByTenant(ctx, tenantID)
-			if getErr != nil {
-				slog.Error("duplicate provision dispatch: failed to load in-flight provision",
-					"tenant_id", tenantID, "error", getErr)
-				return nil, getErr
-			}
-			if existing != nil {
-				slog.Info("duplicate provision dispatch — an in-flight provision already exists for this tenant; skipping",
-					"tenant_id", tenantID, "provision_id", existing.ID)
-				return existing, nil
-			}
-			// Lost the in-flight row between the collision and the lookup (it
-			// just reached a terminal state). Treat as benign: return the
-			// provision we built without forking — the prior workflow owns the
-			// outcome. A subsequent legitimate re-provision will succeed.
-			slog.Info("duplicate provision dispatch — prior provision terminated; not forking a new workflow",
-				"tenant_id", tenantID)
-			return provision, nil
-		}
-		slog.Error("failed to create provision record", "error", err)
+	// day-2 Jobs. The decision is extracted into a pure helper so the exact
+	// double-fire → single-provision semantics are unit-testable without Mongo.
+	result, err := dedupProvisionCreate(ctx, h.Store, provision, tenantID)
+	if err != nil {
+		slog.Error("provision-create dedup failed", "tenant_id", tenantID, "error", err)
 		return nil, err
+	}
+	if !result.fork {
+		// A concurrent trigger already owns the in-flight provision (or a prior
+		// one just terminated). Return the existing record WITHOUT forking a
+		// second workflow — this is the load-bearing guard that stops the
+		// self-race that marked stranger redeems failed.
+		slog.Info("duplicate provision dispatch — not forking a second workflow",
+			"tenant_id", tenantID, "provision_id", result.provision.ID)
+		return result.provision, nil
 	}
 
 	h.publishEvent(ctx, "provision.started", tenantID, map[string]string{
@@ -965,6 +956,59 @@ func (h *Handler) startProvisioning(ctx context.Context, tenantID, orderID, plan
 	go h.runProvisioningWorkflow(provision.ID, tenantID, subdomain, planSlug, depSlugs, appSlugs, len(steps), appConfigs)
 
 	return provision, nil
+}
+
+// provisionDedupStore is the narrow store surface dedupProvisionCreate needs.
+// *store.Store satisfies it in production; tests inject a fake that simulates
+// the partial-unique-index collision without a live Mongo. Keeping the surface
+// to exactly the two dedup methods means the test can model the double-fire
+// race deterministically.
+type provisionDedupStore interface {
+	CreateProvisionIfAbsent(ctx context.Context, p *store.Provision) error
+	GetInFlightProvisionByTenant(ctx context.Context, tenantID string) (*store.Provision, error)
+}
+
+// dedupDecision is the outcome of the #3744 provision-create dedup. When fork is
+// true the caller owns a freshly-inserted provision and MUST start exactly one
+// workflow; when fork is false the provision field is the already-running (or
+// just-terminated) record and the caller MUST NOT fork — returning it is the
+// no-op that defeats the self-race.
+type dedupDecision struct {
+	provision *store.Provision
+	fork      bool
+}
+
+// dedupProvisionCreate runs the #3744 create-once guard. It attempts the
+// insert; on an ErrProvisionExists collision (the second of the two
+// credit-covered checkout triggers) it surfaces the in-flight provision so the
+// loser returns it instead of forking a duplicate workflow → duplicate Gitea
+// commit → ref-lock race → failed tenant.
+//
+// Three outcomes:
+//   - insert wins  → {provision, fork:true}   (start one workflow)
+//   - collision, in-flight row found → {existing, fork:false}
+//   - collision, row already terminal → {provision, fork:false} (benign: the
+//     prior workflow owns the outcome; a later legitimate re-provision succeeds
+//     because the partial index only collides on in-flight statuses)
+func dedupProvisionCreate(ctx context.Context, st provisionDedupStore, provision *store.Provision, tenantID string) (dedupDecision, error) {
+	if err := st.CreateProvisionIfAbsent(ctx, provision); err != nil {
+		if errors.Is(err, store.ErrProvisionExists) {
+			existing, getErr := st.GetInFlightProvisionByTenant(ctx, tenantID)
+			if getErr != nil {
+				return dedupDecision{}, getErr
+			}
+			if existing != nil {
+				return dedupDecision{provision: existing, fork: false}, nil
+			}
+			// Lost the in-flight row between the collision and the lookup (it
+			// just reached a terminal state). Treat as benign: return the
+			// provision we built without forking — the prior workflow owns the
+			// outcome. A subsequent legitimate re-provision will succeed.
+			return dedupDecision{provision: provision, fork: false}, nil
+		}
+		return dedupDecision{}, err
+	}
+	return dedupDecision{provision: provision, fork: true}, nil
 }
 
 // runProvisioningWorkflow performs real K8s provisioning via GitOps and
