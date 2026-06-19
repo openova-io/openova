@@ -124,7 +124,22 @@ name: bp-gitea
 # readTopology serves spec.placement VERBATIM to the Topology tab + the
 # Instances-table chip, so the legacy spelling leaked the banned word to the
 # operator (hw159 #3375).
-version: 1.2.37
+# 1.2.38 (#3850, 2026-06-19): DURABLE SSO oauth source. The one-shot
+# post-install/post-upgrade hook Job (sso-configure-oauth-job.yaml) created
+# the `openova-sso` OAuth login source ONCE and was deleted on success — so
+# when gitea's CNPG DB re-initialized during convergence (losing the
+# login_source row) NOTHING re-asserted it until the next chart upgrade, and
+# `GET /user/oauth2/openova-sso` 500'd with `oauth2 source not found` (caught
+# live hw167 2026-06-19). Converted to a continuously-reconciling Deployment
+# (sso-configure-deployment.yaml) mirroring the proven openbao-sso-configure
+# pattern: a single-replica 60s loop re-asserts the source idempotently
+# (add-oauth if absent / update-oauth if present), tolerating the gitea Pod /
+# ESO Secret being absent on early ticks and reading the OAuth creds from a
+# mounted Secret each tick so rotation + late population are picked up without
+# a Pod roll. New value sso.reconcileIntervalSeconds (default 60). Every
+# hard-won fix from the hook (pod-selector #2818, TAB-stripping AUTH_ID #2816,
+# public-first discovery URL #3150) carried verbatim. Refs #3374.
+version: 1.2.38
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so
