@@ -318,7 +318,22 @@ name: bp-keycloak
 # rotation on existing envs. Default single-region render byte-identical
 # except the SA secret value (was random → now derived; both 64/32-char
 # opaque strings, no consumer cares about the literal). Refs #3642 #3736.
-version: 1.4.33
+# 1.4.34 (#3741/#3852, 2026-06-19): the realm-seed `powerdns-admin` client now
+# registers BOTH callbacks — `/oauth2/callback` (the oauth2-proxy gate) AND
+# `/oidc/authorized` (PDA's native authlib callback). 1.4.30 (#3741) had
+# stripped `/oidc/authorized` on the premise the app was 'gated, not
+# native-OIDC', but the bp-oidc-gate HTTPRoute 302s the bare root to PDA's
+# `/oidc/login` (rootRedirectPath), which fires pda-legacy's OWN OIDC flow —
+# PDA ignores oauth2-proxy's X-Auth-Request-* headers so it must session-auth
+# itself — and authlib sends redirect_uri=…/oidc/authorized. With only
+# /oauth2/callback registered, KC rejected that second hop ("Invalid parameter:
+# redirect_uri", measured live hw167 dep 28d4e96f96407bbb, UAT row 3374-11) →
+# the operator never landed on /dashboard. Restoring /oidc/authorized alongside
+# /oauth2/callback (the aud-mapper stays) makes config-cli FULL-managed reconcile
+# keep the correct two-URI shape, matching the bp-oidc-gate 0.1.4 AppRegistration
+# (appNativeCallbackPath:/oidc/authorized). The `/*` wildcard from the dead
+# pre-#3374 shape is NOT restored — the two explicit callbacks are exact.
+version: 1.4.34
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so

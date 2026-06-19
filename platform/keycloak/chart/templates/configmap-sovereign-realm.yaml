@@ -845,7 +845,7 @@ data:
         {
           "clientId": "powerdns-admin",
           "name": "PowerDNS-Admin (Tier-2 silent-SSO)",
-          "description": "#3741 — DNS UI silent-SSO, gate-fronted by bp-oidc-gate oauth2-proxy: /oauth2/callback redirectUri + oidc-audience-mapper (aud=powerdns-admin) matching the gate AppRegistration, so config-cli FULL-managed reconcile keeps the client correct.",
+          "description": "#3741/#3852 — DNS UI silent-SSO, gate-fronted by bp-oidc-gate oauth2-proxy. TWO callbacks register on this client: (1) /oauth2/callback — the oauth2-proxy gate's own callback (gate-level browser auth, aud=powerdns-admin via the mapper below); (2) /oidc/authorized — PDA's NATIVE authlib callback. The gate HTTPRoute 302s the bare root / to PDA's /oidc/login (rootRedirectPath), which fires pda-legacy's OWN OIDC flow (PDA ignores oauth2-proxy X-Auth-Request-* headers, so it must session-auth itself), and authlib sends redirect_uri=…/oidc/authorized. #3741 over-stripped /oidc/authorized on the wrong premise it was dead-design → KC 'Invalid parameter: redirect_uri' on the second hop (hw167 UAT row 3374-11). Both URIs + the aud-mapper match the gate AppRegistration so config-cli FULL-managed reconcile keeps the client correct.",
           "enabled": true,
           "publicClient": false,
           "standardFlowEnabled": true,
@@ -855,7 +855,8 @@ data:
           "authorizationServicesEnabled": false,
           "secret": {{ include "bp-keycloak.tier2ClientSecret" (dict "ctx" . "clientId" "powerdns-admin") | quote }},
           "redirectUris": [
-            "https://pdns-admin.{{ .Values.sovereignFQDN }}/oauth2/callback"
+            "https://pdns-admin.{{ .Values.sovereignFQDN }}/oauth2/callback",
+            "https://pdns-admin.{{ .Values.sovereignFQDN }}/oidc/authorized"
           ],
           "webOrigins": [
             "https://pdns-admin.{{ .Values.sovereignFQDN }}"

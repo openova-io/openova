@@ -79,11 +79,18 @@ for c in d.get('clients', []):
   fi
 }
 check_redirect guacamole      "https://guacamole.${SOV_FQDN}/*"
-# 1.4.30 (#3741/#3743): powerdns-admin is gate-fronted by the bp-oidc-gate
-# oauth2-proxy, so its ONLY valid redirectUri is /oauth2/callback (the dead
-# pre-#3374 native /oidc/authorized + /* shape was removed from the realm
-# seed). Mirror the hubble-ui gated precedent below.
+# 1.4.34 (#3741/#3852): powerdns-admin is gate-fronted by the bp-oidc-gate
+# oauth2-proxy, but the gate 302s the bare root to PDA's /oidc/login
+# (rootRedirectPath), which fires pda-legacy's OWN authlib OIDC flow
+# (redirect_uri=…/oidc/authorized — PDA ignores oauth2-proxy's
+# X-Auth-Request-* headers so it must session-auth itself). The client
+# therefore registers TWO callbacks: /oauth2/callback (the gate) AND
+# /oidc/authorized (PDA native). 1.4.30 had stripped /oidc/authorized → KC
+# 'Invalid parameter: redirect_uri' on that second hop (hw167 UAT row
+# 3374-11). Both must be present; the dead pre-#3374 `/*` is NOT (exact
+# callbacks only). Matches the bp-oidc-gate 0.1.4 AppRegistration.
 check_redirect powerdns-admin "https://pdns-admin.${SOV_FQDN}/oauth2/callback"
+check_redirect powerdns-admin "https://pdns-admin.${SOV_FQDN}/oidc/authorized"
 check_redirect hubble-ui      "https://hubble.${SOV_FQDN}/oauth2/callback"
 echo "  PASS"
 

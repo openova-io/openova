@@ -52,7 +52,27 @@ name: bp-oidc-gate
 # revisiting `/`. Default unset → byte-identical to a login-less gated
 # app (openova-flow renders no redirect rule). Slot 13c sets
 # rootRedirectPath:/oidc/login on the powerdns-admin instance.
-version: 0.1.3
+# 0.1.4 (#3741/#3852, 2026-06-19): appNativeCallbackPath — register the
+# gated app's OWN native-OIDC callback as a SECOND redirectUri on the KC
+# client. 0.1.3 made the bare root 302 to the app's /oidc/login, which
+# fires PDA's authlib OIDC flow; authlib sends
+# redirect_uri=https://<host>/oidc/authorized. But the AppRegistration
+# (and the keycloak realm seed, post-#3741) registered ONLY the gate's own
+# /oauth2/callback, so KC rejected that second hop with "Invalid parameter:
+# redirect_uri" (measured live hw167, dep 28d4e96f96407bbb, UAT row
+# 3374-11 — the gate-level browser auth succeeded but PDA's native hop
+# never landed). #3741 had stripped /oidc/authorized on the wrong premise
+# the app was "gated, not native-OIDC"; in fact pda-legacy authlib must
+# session-auth ITSELF (it ignores oauth2-proxy's X-Auth-Request-* headers),
+# so the native callback is load-bearing. New per-instance
+# `appNativeCallbackPath`: when set, the AppRegistration client.json adds
+# `https://<host><appNativeCallbackPath>` alongside /oauth2/callback. Slot
+# 13c sets appNativeCallbackPath:/oidc/authorized on the powerdns-admin
+# instance; the keycloak realm seed (bp-keycloak 1.4.34) carries the same
+# two URIs so config-cli FULL-managed reconcile keeps the client correct.
+# Login-less gated apps (openova-flow) leave it unset → only /oauth2/callback
+# registers (byte-identical to the pre-0.1.4 shape).
+version: 0.1.4
 appVersion: "7.6.0"
 description: |
   Catalyst generic OIDC gate — a per-app oauth2-proxy instance set that
