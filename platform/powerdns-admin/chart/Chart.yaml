@@ -138,7 +138,30 @@ name: bp-powerdns-admin
 # -> /oidc/login deterministically 302s to Keycloak from t=0. The Reloader
 # annotation is KEPT for live rotations. Event-deterministic, zero-touch,
 # fresh-prov-safe. Gated on sso.oidcReadinessGate.enabled (default true).
-version: 0.1.16
+# 0.1.17 (#3374, 2026-06-19): SQLAlchemy connection-resilience — the zero-click
+# bare-URL SSO redirect to Keycloak worked, but the OIDC callback (and EVERY
+# page) 500'd on a recycled DB connection, so the operator never landed on
+# /dashboard. ROOT CAUSE measured live on hw167 (dep 28d4e96f96407bbb): PDA
+# (Flask + SQLAlchemy 1.4) has NO pool_pre_ping, so when CNPG/PostgreSQL
+# recycle an idle SSL connection server-side, PDA hands out the dead pooled
+# connection → `psycopg2.OperationalError: SSL connection has been closed
+# unexpectedly`, the transaction is left invalid, and every subsequent request
+# 500s with `PendingRollbackError` until the Pod restarts. PDA runs a
+# `Setting().get()` DB query on EVERY request (routes/index.py:70 before_request
+# + __init__.py:95 inject_sitename → models/setting.py:103), so one dropped
+# connection bricks the whole UI — including the bare `/` → /oidc/login entry
+# and the SSO-onboarding callback. FIX: inject `SQLALCHEMY_ENGINE_OPTIONS`
+# (pool_pre_ping=true, pool_recycle=280) as a JSON env var. PDA's
+# lib/settings.py load_environment maps env `SQLALCHEMY_ENGINE_OPTIONS` (a
+# known `dict`-typed default) ⇄ app.config['SQLALCHEMY_ENGINE_OPTIONS'] via
+# json.loads (called LAST in create_app, after from_object, so it wins), and
+# Flask-SQLAlchemy 2.5.1 passes that config dict straight into create_engine()
+# (db = SQLAlchemy() is built with no engine_options arg → config is
+# authoritative). pool_pre_ping issues a SELECT 1 liveness check + transparent
+# reconnect before handing out any pooled connection — the canonical fix for
+# server-side connection recycling. NO DB-host/topology change (PDA stays on
+# shared-pg-b). Configurable via config.sqlAlchemyEngineOptions; set {} to omit.
+version: 0.1.17
 description: |
   PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI Blueprint for
   per-Sovereign PowerDNS zone + record management. Drives the
