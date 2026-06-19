@@ -265,6 +265,19 @@ compliancePolicies:
     extraExcludeNamespaces:
       - powerdns
       - trivy-system   # trivy-operator-spawned scan Jobs use aquasec/trivy scanner images (#3825)
+      # org-services (#3859, 2026-06-19): the BSS control-plane namespace was
+      # renamed from `sme` → `org-services` (#3383 commit 7f6dfca23) but this
+      # carve-out was NOT propagated. The `provisioning` Deployment (the
+      # Organization-CR minter) legitimately MIXES a proxy-* util init
+      # (harbor.openova.io/proxy-dockerhub/alpine/k8s — the wait-for-gitea-
+      # token gate) with a native ghcr.io/openova-io main image; harbor-proxy-
+      # pull's anyPattern requires per-Pod image HOMOGENEITY, so the mix is
+      # denied under Enforce → provisioning ReplicaFailure (FailedCreate) →
+      # tenant.created events are never consumed → NO Organization CR is
+      # minted → the #3376 funnel can never reach an ACTIVE Org. This is the
+      # exact mixed-source shape the stale `sme` exempt (line 89) was added
+      # for on hw130. org-services stays subject to every OTHER policy.
+      - org-services
 
   imageTagPinned:
     enabled: true

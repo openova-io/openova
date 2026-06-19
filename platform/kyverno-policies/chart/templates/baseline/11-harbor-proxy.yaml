@@ -94,6 +94,26 @@ spec:
                 {{- range $ns := $extraExcludeNs }}
                 - {{ $ns }}
                 {{- end }}
+          {{- /*
+            #3859 (2026-06-19, first proven walkorg on hw167): a per-Org CUSTOMER
+            vCluster syncs its OWN system pods (coredns, then the customer's apps)
+            DOWN to its host namespace (`<svc>-x-kube-system-x-vcluster`). Those
+            upstream images (coredns, the in-vCluster k8s payload) are NOT pulled
+            through the Sovereign Harbor, so harbor-proxy-pull (Enforce) denies the
+            synced pod → the vCluster never finishes bringing up its control plane
+            → the customer Org stays VClusterProvisioning → #3376 funnel can never
+            reach ACTIVE. Platform vClusters (mgmt/rtz/dmz) escape via the static
+            excludeNamespaces; customer Org namespaces are slug-named (UNBOUNDED),
+            so exempt by the `openova.io/organization` label the org-controller
+            stamps on every per-Org vCluster namespace. The image-supply-chain
+            governance for the CUSTOMER's chosen apps is enforced INSIDE the
+            vCluster's own policy set, not on the host syncer shadow Pods.
+          */}}
+          - resources:
+              namespaceSelector:
+                matchExpressions:
+                  - key: openova.io/organization
+                    operator: Exists
       validate:
         message: {{ $msg | quote }}
         anyPattern:
@@ -127,6 +147,12 @@ spec:
                 {{- range $ns := $extraExcludeNs }}
                 - {{ $ns }}
                 {{- end }}
+          {{- /* #3859: per-Org customer vCluster syncs upstream system pods to its host ns — exempt by the org-controller's namespace label (see image-from-harbor-proxy-pod rule above). */}}
+          - resources:
+              namespaceSelector:
+                matchExpressions:
+                  - key: openova.io/organization
+                    operator: Exists
       validate:
         message: {{ $msg | quote }}
         anyPattern:
@@ -156,6 +182,12 @@ spec:
                 {{- range $ns := $extraExcludeNs }}
                 - {{ $ns }}
                 {{- end }}
+          {{- /* #3859: per-Org customer vCluster syncs upstream system pods to its host ns — exempt by the org-controller's namespace label (see image-from-harbor-proxy-pod rule above). */}}
+          - resources:
+              namespaceSelector:
+                matchExpressions:
+                  - key: openova.io/organization
+                    operator: Exists
       validate:
         message: {{ $msg | quote }}
         anyPattern:

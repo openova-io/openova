@@ -224,7 +224,7 @@ name: bp-mgmt-vcluster
 # `openbao-host-token-reviewer-static` Secret (no `service-account.name`
 # annotation → mirror-stable) for the auth-bootstrap Job to mount. Never
 # wildcard a namespace that holds a `kubernetes.io/service-account-token`.
-version: 0.2.19
+version: 0.2.20
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT

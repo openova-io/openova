@@ -96,6 +96,31 @@ spec:
               selector:
                 matchLabels:
                   app.kubernetes.io/managed-by: cloudnative-pg
+          {{- /*
+            #3859 (2026-06-19, first proven walkorg on hw167): EVERY per-Org
+            CUSTOMER vCluster is denied here. vCluster's syncer (0.33.x) detects
+            the host service CIDR at startup by CREATING a throwaway probe
+            Service (`test-service-delete-me-*`) and reading the apiserver's
+            error — by design that probe can NEVER carry a flux label/ownerRef,
+            so flux-managed (Enforce) denies it → vcluster-0 syncer CrashLoops
+            ("failed to get service cidr") → the customer Org's vCluster never
+            comes up → the Organization stays VClusterProvisioning forever → the
+            #3376 funnel can never reach an ACTIVE Org. The platform vClusters
+            (mgmt/rtz/dmz) only escape because their namespaces are in the static
+            excludeNamespaces list above — but customer Org namespaces are named
+            after the org slug (walkorg, acme, …), an UNBOUNDED set that cannot
+            be a static list. The org-controller stamps every per-Org vCluster
+            namespace with `openova.io/organization: <slug>`; exclude by that
+            label so the CIDR-detection probe Service is admitted in ANY current
+            or future customer Org, while real customer workloads inside the
+            vCluster stay gated (they are synced objects, not host-namespace
+            Services). Mirrors the by-label CNPG carve-out above.
+          */}}
+          - resources:
+              namespaceSelector:
+                matchExpressions:
+                  - key: openova.io/organization
+                    operator: Exists
       validate:
         message: >-
           {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} is

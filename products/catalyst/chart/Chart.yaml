@@ -2829,7 +2829,14 @@ name: bp-catalyst-platform
 # (default true; flip false on Catalyst-Zero/contabo where gitea is host-side).
 # Builds on #3810 (bp-mgmt-vcluster 0.2.15 replicateServices.toHost gitea-http,
 # host reachability). Default `helm template` (lookups nil) renders identically.
-version: 1.4.695
+# 1.4.696 — #3859 (Refs #3376): wire TENANT_PARENT_DOMAIN onto the provisioning
+# Deployment (new .Values.smeServices.provisioning.tenantParentDomain, default
+# ""). The provisioning consumer seeds spec.tenantPublic only when a parent
+# domain is set; without this env every per-Org Org minted with NO TenantPublic
+# HTTPRoute → the customer's own console + purchased app returned ERR_CONNECTION_
+# REFUSED (the funnel terminal failure on every prior env, first root-caused
+# driving walkorg/hw167). Catalyst-Zero render byte-identical (default "").
+version: 1.4.696
 # 1.4.675 — #3383 ORGANIZATIONS rename (ZERO behavior change), rebased over
 # main's 1.4.674 (#3376 funnel + #3700/#3687 per-Org Flux loop + #3763
 # gitea-flux-auth-sync poll). The Organization-provisioning mesh's K8s namespace

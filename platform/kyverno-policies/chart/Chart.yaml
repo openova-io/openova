@@ -212,7 +212,10 @@ type: application
 # CREATE/UPDATE only) — a truly fresh prov hits the same wall. Excluding on the
 # operator label exempts ONLY CNPG operator-owned Services + utility Jobs in any
 # namespace; every Flux/Helm/kubectl workload stays gated. Refs #3374 #3248.
-version: 1.0.36
+# 1.0.37 (#3859): add `org-services` to harbor-proxy-pull extraExcludeNamespaces
+# (sme→org-services rename #3383 orphaned the mixed-image-Pod carve-out → the
+# provisioning CR-minter was Enforce-denied → #3376 funnel could not go ACTIVE).
+version: 1.0.37
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:

@@ -377,6 +377,23 @@ spec:
             # target — the binary's guard recognises that special case.
             - name: SOVEREIGN_FQDN
               value: {{ .Values.global.sovereignFQDN | default "" | quote }}
+            # #3859 (Refs #3376) THE TERMINAL ROUTE: the provisioning consumer
+            # seeds spec.tenantPublic.{parentDomain,subdomain} on the Organization
+            # CR ONLY when a parent domain is configured (organization_create.go
+            # ~L115-169) — and tenant-service deliberately leaves ParentDomain
+            # empty on the SME-pool wizard path (handlers.go ~L265). So WITHOUT
+            # this env the consumer logs "no parent domain configured — Organization
+            # will mint without TenantPublic HTTPRoute", the per-Org console
+            # (`console.<slug>.<parentDomain>`) and app (`<app>.<slug>.<parentDomain>`)
+            # get NO HTTPRoute, and both return ERR_CONNECTION_REFUSED — the exact
+            # funnel-terminal failure observed on every prior env (hw159 Acme) and
+            # first root-caused driving `walkorg` on hw167. Set it to the
+            # Sovereign's tenant-pool parent domain (domains-canon default
+            # `omani.homes`; overridable per-Sovereign via the bootstrap-kit
+            # postBuild substitute). Empty preserves the Catalyst-Zero/contabo
+            # behaviour (no per-Org public route).
+            - name: TENANT_PARENT_DOMAIN
+              value: {{ .Values.smeServices.provisioning.tenantParentDomain | default "" | quote }}
             # #3760 (Refs #3376 #3754) MIRROR-EVERYTHING: the Sovereign-local
             # Harbor host the per-tenant vCluster images (the loft-sh/kubernetes
             # k8s-distro initContainer + the loft-sh/vcluster-oss syncer) pull

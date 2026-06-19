@@ -1036,7 +1036,8 @@ spec:
             # 1.4.677 — #3383 publish-gate fix (Chart.yaml + tests/baseline-cnp-allowlist.sh): stale Case 5c asserted the pre-rename `sme` egress namespace (1.4.675 renamed it `org-services`) → chart/tests/*.sh failed → 1.4.675/676 never reached ghcr.
             # PIN-BACK to 1.4.674 (last PUBLISHED on ghcr): 1.4.675/676/677 are not published yet (the 1.4.677 publish lands in a SEPARATE push to avoid rolling the mothership mid-prov and abandoning the in-flight hw159), so fresh-prov hw159 pins the last-published chart — the full FUNCTIONAL train (hook-fix #3780, object-model #3786, topology #3784, funnel #3376, per-Org Flux loop #3687, RBAC #3664-via-#3376); missing ONLY the cosmetic #3707 sme→Organization rename. Re-bump this slot to 1.4.677 for the NEXT prov once it is on ghcr.
             # 1.4.685 — #3811 (Refs #3642 #3760): host gitea-admin-secret bridge — restores the plain `gitea/gitea-admin-secret` the catalyst-gitea-token mint hook needs after #3642 moved bp-gitea into vc-mgmt (host now has only the syncer-mangled `gitea-admin-secret-x-gitea-x-mgmt-vcluster`). NEW templates/catalyst-gitea-admin-secret-bridge.yaml (pre-install weight 1, Helm-lookup re-publish) + widened mint render gate. Unwedges the install→fail→retry loop where catalyst-gitea-token never minted → console 000 (hw163). Builds on #3810 (bp-mgmt-vcluster 0.2.15 gitea-http host reachability). Catalyst-Zero render byte-unchanged.
-      version: 1.4.694
+            # 1.4.696 — #3859 (Refs #3376): wire TENANT_PARENT_DOMAIN onto the provisioning Deployment (smeServices.provisioning.tenantParentDomain ← ${TENANT_PARENT_DOMAIN}). The per-Org provisioning consumer seeds spec.tenantPublic ONLY when a parent domain is set; without it every customer Org minted with NO TenantPublic HTTPRoute → the customer's own console + purchased app returned ERR_CONNECTION_REFUSED (the funnel terminal failure on every prior env, first root-caused driving walkorg/hw167). Default "" = Catalyst-Zero byte-identical. NOTE re-pin: 1.4.686–1.4.695 publish-lag may apply — verify ghcr tag before a fresh prov pins this.
+      version: 1.4.696
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
@@ -1274,6 +1275,19 @@ spec:
     # zero-touch flow), cloud-init pre-renders this variable to a
     # single-entry array derived from ${sovereign_fqdn}.
     parentZones: ${PARENT_DOMAINS_YAML}
+    # ─── Per-Org tenant-pool parent domain (#3859, Refs #3376) ─────────
+    # The single parent domain the provisioning consumer stamps onto every
+    # per-Org Organization CR's spec.tenantPublic → the customer's own console
+    # + purchased-app HTTPRoutes (`console.<slug>.<domain>`, `<app>.<slug>.
+    # <domain>`). WITHOUT it the per-Org Org mints with no public route and the
+    # customer console + app return ERR_CONNECTION_REFUSED — the funnel terminal
+    # failure on every prior env, first root-caused on walkorg/hw167. Set by the
+    # per-Sovereign overlay to the SME tenant-pool TLD the marketplace wizard
+    # offers (domains-canon default `omani.homes`; the wider PARENT_DOMAINS_YAML
+    # carries the full zone set, this is the single default pool for new Orgs).
+    smeServices:
+      provisioning:
+        tenantParentDomain: ${TENANT_PARENT_DOMAIN:-}
     # ─── Wildcard cert issuer environment (Fix #123, LE rate-limit) ────
     # Default-OFF (production LE issuer); flipped to true via envsubst
     # WILDCARD_CERT_USE_STAGING=true on the per-Sovereign overlay for any
