@@ -48,12 +48,13 @@ interface SidebarProps {
 /* ── Top-level (flat) nav items ─────────────────────────────────── */
 
 interface FlatNavItem {
-  id: 'apps' | 'catalog' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'settings'
+  id: 'apps' | 'catalog' | 'jobs' | 'reconciliation' | 'dashboard' | 'cloud' | 'users' | 'settings'
   label: string
   to:
     | '/provision/$deploymentId'
     | '/provision/$deploymentId/catalog'
     | '/provision/$deploymentId/jobs'
+    | '/provision/$deploymentId/reconciliation'
     | '/provision/$deploymentId/dashboard'
     | '/provision/$deploymentId/cloud'
     | '/provision/$deploymentId/users'
@@ -105,6 +106,17 @@ const FLAT_NAV: FlatNavItem[] = [
     to: '/provision/$deploymentId/cloud',
     icon: CLOUD_ICON,
   },
+  // #3925 surface B — Reconciliation (the Flux convergence spine). Sits
+  // under Cloud: Cloud is the infra estate, Reconciliation is the GitOps
+  // desired-state DAG that converges onto it.
+  {
+    id: 'reconciliation',
+    label: 'Reconciliation',
+    to: '/provision/$deploymentId/reconciliation',
+    // Tabler IconRefresh — verbatim path data, viewBox 24x24. A circular
+    // refresh glyph reads as "continuous reconcile".
+    icon: 'M20 11A8.1 8.1 0 004.5 9M4 5v4h4M4 13a8.1 8.1 0 0015.5 2M20 19v-4h-4',
+  },
   {
     id: 'users',
     label: 'Users',
@@ -123,7 +135,7 @@ const SETTINGS_ITEM: FlatNavItem = {
 
 /* ── Active-state derivation ────────────────────────────────────── */
 
-type ActiveSection = 'apps' | 'catalog' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'settings'
+type ActiveSection = 'apps' | 'catalog' | 'jobs' | 'reconciliation' | 'dashboard' | 'cloud' | 'users' | 'settings'
 
 // Cloud section is active when the path matches any of the
 // `/cloud[/...]` or legacy `/infrastructure[/...]` segments. We use a
@@ -135,6 +147,8 @@ const CLOUD_PATH_RE = /\/(cloud|infrastructure)(\/|$)/
 function deriveActiveSection(pathname: string): ActiveSection {
   if (CLOUD_PATH_RE.test(pathname)) return 'cloud'
   if (pathname.endsWith('/dashboard')) return 'dashboard'
+  // #3925 surface B — /reconciliation highlights the Reconciliation entry.
+  if (/\/reconciliation(\/|$)/.test(pathname)) return 'reconciliation'
   // Catalog (#3601) — /catalog and /catalog/<blueprint> both count.
   if (/\/catalog(\/|$)/.test(pathname)) return 'catalog'
   if (pathname.endsWith('/jobs')) return 'jobs'
