@@ -2844,7 +2844,17 @@ name: bp-catalyst-platform
 # 1.4.695 — #3849 (Refs #3848): org-controller reads the keycloak SA secret from
 # the host-bridge (catalyst-openova-kc-credentials) instead of an intra-release
 # helm lookup that lost the ordering race on a cold install.
-version: 1.4.698
+version: 1.4.699
+# 1.4.699 — #3856 (Refs #3375 #3581): ONE canonical DR vocabulary in the catalog.
+# catalog-seed/blueprints.yaml bp-cnpg-pair + bp-continuum carried the banned
+# un-hyphenated `active-hotstandby` topology token (modes/default/tags) → the
+# operator console's bp-postgres Instances table rendered the banned chip; the
+# cnpgpair.yaml CRD enum kept the same legacy value. Seed + CRD now carry only
+# the canonical hyphenated `active-hot-standby` (the four canonical classes:
+# singleton | active-passive | active-hot-standby | active-active), and the
+# catalyst-ui Instances table canonicalizes any value for display (#3856 belt-
+# and-suspenders so a stale seeded value still renders the clean chip). No
+# behavior change for already-canonical Blueprints; Catalyst-Zero render unaffected.
 # 1.4.675 — #3383 ORGANIZATIONS rename (ZERO behavior change), rebased over
 # main's 1.4.674 (#3376 funnel + #3700/#3687 per-Org Flux loop + #3763
 # gitea-flux-auth-sync poll). The Organization-provisioning mesh's K8s namespace

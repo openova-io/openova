@@ -277,14 +277,17 @@ spec:
     description: "Catalyst-curated Blueprint that renders a primary postgresql.cnpg.io/v1.Cluster CR in region A + a replica Cluster CR in region B configured as a CNPG replica cluster (replica.enabled=true + externalCluster) streaming WAL over a Cilium ClusterMesh-shared Service. Failover-readiness probe Pod flips Ready when WAL lag < threshold so Continuum K-Cont-2 can promote on operator-triggered switchover."
     icon: cnpg-pair.svg
     license: "Apache-2.0"
-    tags: [database, postgres, ha, dr, disaster-recovery, multi-region, active-hotstandby, clustermesh, cnpg]
+    tags: [database, postgres, ha, dr, disaster-recovery, multi-region, active-hot-standby, clustermesh, cnpg]
     docs: "https://cloudnative-pg.io/documentation/"
   placementSchema:
     # The cluster-pair IS the placement — primary + replica are the
     # two regions. CNPG's replication model is asynchronous-streaming
     # primary + 1 replica region; multi-replica-region is out of scope.
-    modes: [active-hotstandby]
-    default: active-hotstandby
+    # #3856 — ONE canonical DR vocabulary (#3375 DoD-1): the canonical
+    # hyphenated `active-hot-standby` token (never the banned un-hyphenated
+    # form) so the operator console's Instances table renders the clean chip.
+    modes: [active-hot-standby]
+    default: active-hot-standby
     minRegions: 2
     maxRegions: 2
   manifests:
@@ -5711,8 +5714,10 @@ spec:
     summary: "Cross-region failover orchestrator — promotes CNPG replicas, flips DNS lua-records, and drives switchover for active-hot-standby Blueprints on operator-triggered region-kill."
     icon: continuum.svg
   placementSchema:
-    modes: [active-hotstandby]
-    default: active-hotstandby
+    # #3856 — ONE canonical DR vocabulary (#3375 DoD-1): canonical
+    # hyphenated `active-hot-standby` (never the banned un-hyphenated form).
+    modes: [active-hot-standby]
+    default: active-hot-standby
     minRegions: 2
     maxRegions: 2
   manifests:

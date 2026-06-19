@@ -29,7 +29,7 @@ import {
 import { listOrganizations, type OrgRow } from '@/lib/organizations.api'
 import { getHierarchicalInfrastructure } from '@/lib/infrastructure.types'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
-import { ALL_MODES, describeMode } from '@/widgets/topology/TopologyEditor'
+import { ALL_MODES, canonicalizeMode, describeMode } from '@/widgets/topology/TopologyEditor'
 import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
 
 // #3599 / #3600 — the vCluster/zone options the catalyst-api backend
@@ -238,7 +238,14 @@ export function InstancesSection({
                 </td>
                 <td style={{ padding: '0.45rem 0.5rem' }}>{inst.org}</td>
                 <td style={{ padding: '0.45rem 0.5rem' }}>
-                  <span className="chip chip-bp">{inst.topology}</span>
+                  {/* #3856 — canonicalize the topology token for DISPLAY so a
+                      seeded/legacy CR carrying the banned un-hyphenated
+                      `active-hotstandby` (or `single-region`) still renders the
+                      ONE canonical chip (#3375 DoD-1: singleton | active-active |
+                      active-hot-standby | active-passive). Belt-and-suspenders:
+                      flips the Instances-table chip green even before the seed is
+                      re-applied on a fresh prov. */}
+                  <span className="chip chip-bp">{canonicalizeMode(inst.topology)}</span>
                 </td>
                 <td style={{ padding: '0.45rem 0.5rem' }}>
                   <span className={`chip ${statusChipClass(inst.status)}`}>
@@ -1026,7 +1033,7 @@ function BackingServiceSelector({
         >
           {items.map((inst) => (
             <option key={inst.id || inst.name} value={inst.name}>
-              {inst.name} · {inst.topology} · {(inst.contexts ?? []).length}{' '}
+              {inst.name} · {canonicalizeMode(inst.topology)} · {(inst.contexts ?? []).length}{' '}
               context{(inst.contexts ?? []).length === 1 ? '' : 's'}
             </option>
           ))}
