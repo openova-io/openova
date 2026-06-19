@@ -144,7 +144,14 @@ spec:
       # 0.2.20 (#3859): add `org-services` to the NATS isolation allow-list
       # (was only `sme`; the BSS tier was renamed to org-services) — unblocks
       # tenant/provisioning → NATS, the #3376 funnel back-half.
-      version: 0.2.20
+      # 0.2.21 (#3374): mirror `catalyst-system/guacamole-pg-rw` + `-ro` into
+      # vc-mgmt via networking.replicateServices.fromHost. The host-bridged
+      # (#3642) guacamole-pg Service was NXDOMAIN inside vc-mgmt → the JDBC
+      # schema-seed Job (and the webapp) could not reach postgres → seed Job
+      # DeadlineExceeded → Helm rollback → no webapp → `guacamole.<fqdn>` edge
+      # 500/503 on hw167 (32 installFailures). Same #3737 4th-layer DNS gap, now
+      # extended to guacamole's host-rendered CNPG cluster.
+      version: 0.2.21
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster
