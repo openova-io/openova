@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Catalyst — Topology Tab (final UX design review)</title>
+<!--
+  DESIGN-REVIEW ARTIFACT — issue #3905.
+  Self-contained, no build step. All matrix values below are VERBATIM from the
+  source of truth: docs/topology-matrix.md (promoted into
+  products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts).
+  This mock does NOT touch the real console code — it is the agreement surface
+  the founder signs off before code lands.
+
+  THE BUG THIS FIXES (the founder's fury): the topology CARD derives
+  openbao active-passive from the matrix (raft · async, raft-transition,
+  60s/30s, warm-standby — CORRECT). The "Change placement" EDIT dropdown
+  used a generic hardcoded describeMode() that said "cold/warm standby
+  (backup-restore)" — WRONG, matrix-blind, and logically contradicting the
+  card. THE FIX: BOTH the card AND the editor read the SAME perTopology
+  contract. One source, zero contradiction.
+-->
+<style>
+  :root{
+    --bg:#0b0f17; --bg-2:#111726; --bg-3:#0e1421; --bg-elev:#0a0e16;
+    --border:#1e2738; --border-soft:#1a2230;
+    --text:#e6edf6; --text-strong:#f5f9ff; --text-dim:#8a97ac;
+    --accent:#7c9cff; --accent-2:#5b7cff;
+    --green:#3fb950; --green-bg:rgba(63,185,80,.12);
+    --yellow:#d29922; --yellow-bg:rgba(210,153,34,.12);
+    --red:#f85149; --red-bg:rgba(248,81,73,.12);
+    --purple:#bc8cff; --purple-bg:rgba(188,140,255,.12);
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
+    font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent)}
+  code,.mono{font-family:var(--mono)}
+  .wrap{max-width:1180px;margin:0 auto;padding:24px 20px 80px}
+
+  /* ── design-review banner ── */
+  .review-banner{background:linear-gradient(90deg,#1a1030,#10142a);
+    border:1px solid #36306a;border-radius:10px;padding:14px 18px;margin-bottom:22px}
+  .review-banner h1{margin:0 0 4px;font-size:16px;color:#cdbcff}
+  .review-banner p{margin:0;color:var(--text-dim);font-size:12.5px}
+  .review-banner .tag{display:inline-block;background:#2a1f55;color:#cdbcff;
+    border-radius:5px;padding:1px 7px;font-size:11px;font-weight:600;margin-right:6px}
+
+  /* ── faux browser chrome ── */
+  .browser{border:1px solid var(--border);border-radius:12px;overflow:hidden;
+    background:var(--bg-2);box-shadow:0 8px 40px rgba(0,0,0,.4)}
+  .chrome{display:flex;align-items:center;gap:10px;background:#0a0e16;
+    padding:9px 14px;border-bottom:1px solid var(--border)}
+  .dots{display:flex;gap:6px}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .dot.r{background:#ff5f57}.dot.y{background:#febc2e}.dot.g{background:#28c840}
+  .addr{flex:1;background:#070a11;border:1px solid var(--border);border-radius:6px;
+    padding:5px 12px;font-family:var(--mono);font-size:12px;color:var(--text-dim)}
+  .addr b{color:var(--text)}
+
+  /* ── app shell ── */
+  .app{padding:20px 22px}
+  .hero{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    padding-bottom:14px;border-bottom:1px solid var(--border-soft)}
+  .hero-icon{width:46px;height:46px;border-radius:11px;background:#1f2937;
+    display:grid;place-items:center;font-size:22px}
+  .hero h2{margin:0;font-size:19px;color:var(--text-strong)}
+  .hero .sub{color:var(--text-dim);font-weight:400}
+  .hero .tagline{margin:3px 0 0;color:var(--text-dim);font-size:12.5px;max-width:640px}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .chip{font-size:11px;padding:2px 8px;border-radius:5px;background:#16203a;
+    color:#aebfe0;border:1px solid var(--border)}
+  .chip.ns{background:#0e1d18;color:#7fd1a8;border-color:#1d3a2c}
+  .chip.bp{background:#1a1830;color:#b9aaf0;border-color:#2c2750}
+  .chip.ready{background:var(--green-bg);color:var(--green);border-color:#1d3a2c}
+  .hero-cta{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+  .btn-open{background:var(--accent);color:#0a0e16;border:0;border-radius:7px;
+    padding:8px 16px;font-weight:700;font-size:13px;cursor:pointer}
+  .hero-cta .hint{font-size:11px;color:var(--text-dim)}
+
+  /* ── component picker (mock-only control) ── */
+  .picker{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    margin:16px 0 4px;padding:10px 12px;border:1px dashed #34406a;border-radius:9px;
+    background:#0d1426}
+  .picker .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.05em;
+    color:#8aa0e0;font-weight:700}
+  .picker select{background:#070a11;color:var(--text);border:1px solid var(--border);
+    border-radius:6px;padding:6px 10px;font-family:var(--mono);font-size:13px}
+  .picker .note{font-size:11px;color:var(--text-dim)}
+
+  /* ── tab strip ── */
+  .tabs{display:flex;gap:2px;margin:16px 0 0;border-bottom:1px solid var(--border);
+    overflow-x:auto}
+  .tab{padding:9px 14px;font-size:13px;color:var(--text-dim);cursor:default;
+    border-bottom:2px solid transparent;white-space:nowrap}
+  .tab.active{color:var(--text-strong);border-bottom-color:var(--accent);font-weight:600}
+
+  /* ── panels ── */
+  .panel{margin-top:18px}
+  .card{border:1px solid var(--border);background:var(--bg-3);border-radius:10px;
+    padding:16px 18px;margin-bottom:16px}
+  .card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .card-head h3{margin:0;font-size:14px;color:var(--text-strong)}
+  .badge{font-size:12px;font-weight:700;padding:3px 11px;border-radius:6px}
+  .badge.dr{background:rgba(124,156,255,.16);color:var(--accent)}
+  .badge.single{background:rgba(138,151,172,.16);color:var(--text-dim)}
+  .badge.degraded{background:var(--yellow-bg);color:var(--yellow)}
+  .lead{color:var(--text-dim);font-size:12.5px;margin:0 0 14px}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px 28px}
+  @media(max-width:640px){.grid2{grid-template-columns:1fr}}
+  .kv{display:flex;justify-content:space-between;gap:14px;padding:4px 0;
+    border-bottom:1px dashed var(--border-soft)}
+  .kv dt{color:var(--text-dim);font-size:12.5px}
+  .kv dd{margin:0;font-family:var(--mono);font-size:12.5px;color:var(--text);text-align:right}
+  .kv dd.warn{color:var(--yellow)}
+  .kv .src-tag{font-size:10.5px;color:#5d6b82;margin-left:6px}
+
+  /* observed strip */
+  .observed{margin-top:12px;border:1px solid var(--border);background:var(--bg-elev);
+    border-radius:8px;padding:12px 14px}
+  .observed .ohead{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;
+    color:var(--text-dim);font-weight:700;margin:0 0 9px}
+  .ph{display:inline-flex;padding:2px 8px;border-radius:5px;font-size:10px;
+    font-weight:700;text-transform:uppercase}
+  .ph.degraded{background:var(--yellow-bg);color:var(--yellow)}
+  .ph.healthy{background:var(--green-bg);color:var(--green)}
+  .nopair{color:var(--text-dim);font-size:12.5px;margin:0}
+  .nopair strong{color:var(--text)}
+
+  /* cluster pills */
+  .clusters{display:flex;gap:7px;flex-wrap:wrap;margin-top:6px}
+  .cpill{display:inline-flex;align-items:center;gap:7px;border-radius:7px;
+    padding:3px 9px;font-size:12px;border:1px solid var(--border)}
+  .cpill.active{background:var(--green-bg);color:var(--green);border-color:#1d3a2c}
+  .cpill.passive{background:var(--yellow-bg);color:var(--yellow);border-color:#3a2f1d}
+  .cpill.singleton{background:#161b27;color:var(--text-dim)}
+  .cpill .role{font-size:9.5px;font-weight:800;text-transform:uppercase;opacity:.85}
+  .ulabel{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;
+    color:var(--text-dim);font-weight:700;margin:14px 0 6px}
+
+  .note-box{margin-top:12px;border:1px solid var(--border);background:var(--bg-elev);
+    border-radius:7px;padding:9px 12px;font-size:11.5px;color:var(--text-dim)}
+  .note-box strong{color:var(--text)}
+
+  /* ── editor ── */
+  .editor h4{margin:18px 0 4px;font-size:13.5px;color:var(--text-strong)}
+  .editor .ehint{font-size:12px;color:var(--text-dim);margin:0 0 12px}
+  .modes{display:flex;flex-direction:column;gap:8px}
+  .mode{display:flex;align-items:flex-start;gap:10px;border:1px solid var(--border);
+    border-radius:8px;padding:10px 12px;cursor:pointer;transition:.12s}
+  .mode:hover{border-color:#2e3a55}
+  .mode.sel{background:rgba(124,156,255,.08);border-color:var(--accent)}
+  .mode.disabled{opacity:.4;cursor:not-allowed}
+  .mode input{margin-top:3px}
+  .mode .mname{font-family:var(--mono);font-size:13px;color:var(--text);font-weight:600;
+    min-width:142px}
+  .mode .mdesc{font-size:12px;color:var(--text-dim)}
+  .mode.sel .mdesc{color:#c3d0e8}
+  .mode .mdesc .from-matrix{color:var(--accent);font-weight:600}
+
+  .regions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:6px 0 4px}
+  @media(max-width:640px){.regions{grid-template-columns:1fr}}
+  .region{display:flex;align-items:center;gap:9px;border:1px solid var(--border);
+    border-radius:7px;padding:7px 11px;font-family:var(--mono);font-size:12.5px;cursor:pointer}
+  .region.on{background:rgba(124,156,255,.08);border-color:var(--accent)}
+  .region .rrole{margin-left:auto;font-size:9.5px;font-weight:800;text-transform:uppercase;
+    padding:1px 6px;border-radius:4px}
+  .region .rrole.active{background:var(--green-bg);color:var(--green)}
+  .region .rrole.passive{background:var(--yellow-bg);color:var(--yellow)}
+
+  .actions{display:flex;gap:9px;margin-top:14px}
+  .btn{border:1px solid var(--border);background:transparent;color:var(--text);
+    border-radius:7px;padding:7px 15px;font-size:12.5px;cursor:pointer}
+  .btn:hover{border-color:var(--accent)}
+  .btn.primary{background:var(--accent);color:#0a0e16;border-color:var(--accent);font-weight:700}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+
+  /* preview modal */
+  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;
+    align-items:center;justify-content:center;padding:24px;z-index:50}
+  .scrim.show{display:flex}
+  .modal{max-width:760px;width:100%;max-height:84vh;overflow:auto;
+    background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:20px 22px}
+  .modal h3{margin:0 0 4px;font-size:15px;color:var(--text-strong)}
+  .modal .msub{color:var(--text-dim);font-size:12px;margin:0 0 14px}
+  .modal pre{background:var(--bg-elev);border:1px solid var(--border);border-radius:8px;
+    padding:12px 14px;font-size:11.5px;line-height:1.55;overflow:auto;color:#c8d4ea;margin:6px 0 14px}
+  .modal .mpath{font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-bottom:2px}
+  .apply-note{border:1px solid #2c2750;background:rgba(124,156,255,.06);border-radius:8px;
+    padding:11px 13px;font-size:12px;color:#c3d0e8;margin-bottom:14px}
+  .apply-note b{color:var(--text-strong)}
+  .modal .mclose{float:right;background:transparent;border:0;color:var(--text-dim);
+    cursor:pointer;font-size:13px}
+
+  /* annotations */
+  .annot{margin:26px 0 0;border:1px solid #2a3350;border-radius:10px;background:#0c1120;
+    padding:16px 18px}
+  .annot h3{margin:0 0 10px;font-size:14px;color:#bcd}
+  .annot ol{margin:0;padding-left:20px}
+  .annot li{margin-bottom:9px;font-size:13px;color:var(--text-dim)}
+  .annot li b{color:var(--text)}
+  .annot .pin{display:inline-block;width:18px;height:18px;border-radius:50%;
+    background:var(--accent);color:#0a0e16;font-size:11px;font-weight:800;
+    text-align:center;line-height:18px;margin-right:7px;vertical-align:1px}
+  .consistency{margin-top:14px;border:1px solid #1d3a2c;background:var(--green-bg);
+    border-radius:8px;padding:11px 13px;font-size:12.5px;color:#9fe0b4}
+  .consistency b{color:#d6ffe4}
+  footer{margin-top:30px;color:#5d6b82;font-size:11.5px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="review-banner">
+    <h1>Catalyst · Application Topology tab — FINAL UX (design review)</h1>
+    <p>
+      <span class="tag">#3905</span>
+      <span class="tag">clickable mock</span>
+      Source of truth: <code>docs/topology-matrix.md</code> → per-component
+      <code>perTopology</code> contract. The card AND the editor now read the
+      <b>same</b> matrix, so they can never contradict. Switch the component below to
+      see openbao (active-passive), keycloak (active-hot-standby) and strimzi
+      (active-active) all stay consistent.
+    </p>
+  </div>
+
+  <div class="browser">
+    <div class="chrome">
+      <div class="dots"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
+      <div class="addr">console.<b id="addr-sov">hw165</b>.omani.works/app/<b id="addr-app">bp-openbao</b>/<b>topology</b></div>
+    </div>
+
+    <div class="app">
+      <!-- hero -->
+      <div class="hero">
+        <span class="hero-icon" id="hero-icon">🔐</span>
+        <div>
+          <h2><span id="hero-name">bp-openbao</span> <span class="sub">— <span id="hero-title">OpenBao</span></span></h2>
+          <p class="tagline" id="hero-tagline"></p>
+          <div class="chips">
+            <span class="chip">Platform</span>
+            <span class="chip ns" id="hero-ns">openbao</span>
+            <span class="chip bp" id="hero-ver">bp-openbao@1.2.46</span>
+            <span class="chip ready">Ready</span>
+            <span class="chip" id="hero-region-a">mgmt-A</span>
+            <span class="chip" id="hero-region-b">mgmt-B</span>
+          </div>
+        </div>
+        <div class="hero-cta">
+          <button class="btn-open">↗ Open <span id="hero-open-label">OpenBao</span></button>
+          <span class="hint">Single sign-in — no second login.</span>
+        </div>
+      </div>
+
+      <!-- mock-only component switcher -->
+      <div class="picker">
+        <span class="lbl">Mock control</span>
+        <span class="note">Component:</span>
+        <select id="comp-select" onchange="selectComponent(this.value)"></select>
+        <span class="note" id="picker-note"></span>
+      </div>
+
+      <!-- tab strip -->
+      <div class="tabs">
+        <div class="tab">Overview</div>
+        <div class="tab active">Topology</div>
+        <div class="tab">Resources</div>
+        <div class="tab">Compliance</div>
+        <div class="tab">Logs</div>
+        <div class="tab">Settings</div>
+        <div class="tab">Members</div>
+        <div class="tab">Endpoints</div>
+      </div>
+
+      <div class="panel">
+
+        <!-- ───────── DECLARED TOPOLOGY CARD (matrix-derived) ───────── -->
+        <div class="card">
+          <div class="card-head">
+            <h3>Declared topology <span class="src-tag" style="font-weight:400">· from blueprint.yaml spec.topology (matrix)</span></h3>
+            <span class="badge dr" id="declared-badge">active-passive</span>
+          </div>
+
+          <!-- OBSERVED / live strip -->
+          <div class="observed">
+            <p class="ohead">Observed (live on this Sovereign)</p>
+            <div id="observed-body"></div>
+          </div>
+
+          <p class="lead" id="declared-desc" style="margin-top:14px"></p>
+
+          <dl class="grid2" id="declared-grid"></dl>
+
+          <p class="ulabel">Per-cluster placement</p>
+          <div class="clusters" id="declared-clusters"></div>
+
+          <div class="note-box" id="declared-note"></div>
+        </div>
+
+        <!-- ───────── CHANGE PLACEMENT (editor) ───────── -->
+        <div class="card editor">
+          <div class="card-head">
+            <h3>Change placement</h3>
+          </div>
+          <p class="ehint">
+            Edit the placement mode and region set for
+            <code id="editor-appname">bp-openbao</code>. Apply commits the change to the
+            Application CR; the application-controller fans out per-region HelmReleases
+            and reconciles the rollout.
+          </p>
+
+          <h4>Topology mode</h4>
+          <div class="modes" id="editor-modes"></div>
+
+          <h4>Regions</h4>
+          <div class="regions" id="editor-regions"></div>
+
+          <div class="actions">
+            <button class="btn" id="preview-btn" onclick="openPreview()" disabled>Preview</button>
+            <button class="btn primary" id="apply-btn" onclick="openPreview()" disabled>Apply</button>
+            <span style="font-size:12px;color:var(--text-dim);align-self:center" id="dirty-hint">
+              Pick a different mode or region set to enable Preview / Apply.
+            </span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────── annotation block ───────── -->
+  <div class="annot">
+    <h3>Key design decisions (annotated)</h3>
+    <ol>
+      <li><span class="pin">1</span><b>One matrix, two readers.</b> The
+        <b>Declared topology card</b> and the <b>Change-placement editor</b> both read the
+        component's <code>perTopology[mode]</code> contract from the same
+        <code>docs/topology-matrix.md</code> source. The editor's per-mode helper text is
+        produced by <code>describeModeForComponent(mode, topology)</code> — it is
+        <i>derived</i>, never hardcoded. The old generic
+        <code>describeMode('active-passive') = "…backup-restore"</code> string is dead.</li>
+      <li><span class="pin">2</span><b>openbao active-passive now reads identically in both
+        places:</b> <span style="color:var(--accent)">raft · async replication; raft-transition
+        switchover (RTO 60s / RPO 30s)</span> — a <i>warm standby holding live KV via stretched
+        raft</i>, NOT "cold/warm backup-restore". The card said this all along; the editor now
+        agrees.</li>
+      <li><span class="pin">3</span><b>Declared vs Observed is explicit.</b> The card shows the
+        build-time <i>mandate</i>; the Observed strip shows what's <i>actually built</i> on this
+        Sovereign read from the live Continuum / cnpg-pair record. When the mandate is declared but
+        unbuilt (openbao today: no DR pair), <b>Effective class = singleton (DEGRADED — active-passive
+        mandate unbuilt)</b> with a clear "what's needed" line. No green badge over a phantom pair.</li>
+      <li><span class="pin">4</span><b>The editor can't offer a mode the component doesn't support.</b>
+        Options are gated on <code>topology.supported[]</code>; unsupported modes render disabled.
+        Region roles (active / passive) are previewed inline from the selected mode's
+        <code>placement.roles</code>.</li>
+      <li><span class="pin">5</span><b>Preview → Apply is honest about the commit.</b> Preview renders
+        the exact per-region HelmRelease manifests; Apply explains it writes
+        <code>spec.placement</code> on the Application CR → the application-controller fans out the
+        per-region HelmReleases. No silent magic.</li>
+    </ol>
+    <div class="consistency" id="consistency-line"></div>
+  </div>
+
+  <footer>
+    Design-review mock for #3905 · matrix source: <code>docs/topology-matrix.md</code> ·
+    no real console code modified · generated for founder sign-off.
+  </footer>
+</div>
+
+<!-- preview modal -->
+<div class="scrim" id="scrim" onclick="if(event.target===this)closePreview()">
+  <div class="modal">
+    <button class="mclose" onclick="closePreview()">Close ✕</button>
+    <h3 id="modal-title">Topology preview</h3>
+    <p class="msub" id="modal-sub"></p>
+    <div class="apply-note" id="modal-apply-note"></div>
+    <div id="modal-manifests"></div>
+    <div class="actions" style="margin-top:4px">
+      <button class="btn" onclick="closePreview()">Cancel</button>
+      <button class="btn primary" onclick="confirmApply()">Apply — commit to Application CR</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   DATA — verbatim from docs/topology-matrix.md → catalog.generated.ts.
+   Each component carries its real `topology` block (supported / multiRegion /
+   singleRegion / perTopology). The mock renders the card AND the editor from
+   THIS single object, exactly as the real components do post-#3905.
+   ───────────────────────────────────────────────────────────────────────── */
+const COMPONENTS = {
+  "bp-openbao": {
+    icon:"🔐", title:"OpenBao", ns:"openbao", version:"1.2.46",
+    tagline:"OpenBao secret backend. 3-node Raft per region (independent quorum, async perf-replication across regions). MPL 2.0 — drop-in Vault replacement.",
+    // Observed/live truth on this Sovereign — openbao today: mandate declared, pair UNBUILT.
+    observed:{ exists:false, declaredButUnbuilt:true },
+    topology:{
+      supported:["active-passive","singleton"],
+      multiRegion:"active-passive", singleRegion:"singleton",
+      perTopology:{
+        "active-passive":{
+          replication:{ backend:"raft", mode:"async", lagSloSeconds:30 },
+          switchover:{ mechanism:"raft-transition", rtoSeconds:60, rpoSeconds:30 },
+          placement:{ tier:"mgmt", clusters:["mgmt-A","mgmt-B"], roles:{ "mgmt-A":"active","mgmt-B":"passive" } }
+        },
+        "singleton":{ replication:null, switchover:null,
+          placement:{ tier:"mgmt", clusters:["mgmt-A"], roles:{ "mgmt-A":"singleton" } } }
+      }
+    }
+  },
+  "bp-keycloak": {
+    icon:"🔑", title:"Keycloak", ns:"keycloak", version:"1.4.30",
+    tagline:"Identity & access — sovereign realm SSO. PG-backed; sync hot standby via bp-cnpg-pair.",
+    observed:{ exists:true, primaryRegion:"me-east-215-a", replicaRegion:"me-east-215-b",
+      phase:"Healthy", lagSeconds:0, source:"live cnpg cluster-pair" },
+    topology:{
+      supported:["active-hot-standby","singleton"],
+      multiRegion:"active-hot-standby", singleRegion:"singleton",
+      perTopology:{
+        "active-hot-standby":{
+          replication:{ backend:"cnpg-pair", mode:"sync", lagSloSeconds:0 },
+          switchover:{ mechanism:"bp-continuum", rtoSeconds:30, rpoSeconds:0 },
+          placement:{ tier:"mgmt", clusters:["mgmt-A","mgmt-B"], roles:{ "mgmt-A":"active","mgmt-B":"passive" } }
+        },
+        "singleton":{ replication:null, switchover:null,
+          placement:{ tier:"mgmt", clusters:["mgmt-A"], roles:{ "mgmt-A":"singleton" } } }
+      }
+    }
+  },
+  "bp-strimzi": {
+    icon:"📨", title:"Strimzi", ns:"strimzi", version:"0.0.0",
+    tagline:"Apache Kafka on Kubernetes. Cross-region topic mirroring via MirrorMaker2.",
+    observed:{ exists:false, declaredButUnbuilt:true },
+    topology:{
+      supported:["active-active","active-passive","singleton"],
+      multiRegion:"active-active", singleRegion:"singleton",
+      perTopology:{
+        "active-active":{
+          replication:{ backend:"mirrormaker2", mode:"async", lagSloSeconds:null },
+          switchover:{ mechanism:"mm2-symmetric", rtoSeconds:null, rpoSeconds:null },
+          placement:{ tier:"rtz", clusters:["rtz-A","rtz-B"], roles:{ "rtz-A":"active","rtz-B":"active" } }
+        },
+        "active-passive":{
+          replication:{ backend:"mirrormaker2", mode:"async", lagSloSeconds:null },
+          switchover:{ mechanism:"mm2-symmetric", rtoSeconds:null, rpoSeconds:null },
+          placement:{ tier:"rtz", clusters:["rtz-A","rtz-B"], roles:{ "rtz-A":"active","rtz-B":"passive" } }
+        },
+        "singleton":{ replication:null, switchover:null,
+          placement:{ tier:"rtz", clusters:["rtz-A"], roles:{ "rtz-A":"singleton" } } }
+      }
+    }
+  }
+};
+
+const ALL_MODES = ["singleton","active-active","active-hot-standby","active-passive"];
+const SOVEREIGN_REGION_COUNT = 2; // this mock renders a 2-region Sovereign
+
+/* ── matrix-derived describers (mirror the real FE/Go canonical logic) ── */
+function canon(m){
+  m=(m||"").trim().toLowerCase();
+  if(m==="active-hotstandby"||m==="active-hot-standby")return"active-hot-standby";
+  if(m==="active-passive")return"active-passive";
+  if(m==="active-active")return"active-active";
+  if(m==="singleton"||m==="single-region")return"singleton";
+  return m;
+}
+function classLabel(k){return canon(k);}
+
+// The CARD's one-liner.
+function describeTopologyClass(k){
+  switch(canon(k)){
+    case"active-hot-standby":return"Primary serves; a synchronous hot standby in the second region is ready for near-zero-RTO switchover.";
+    case"active-passive":return"Primary serves; a warm standby in the second region promotes on failure (some replication lag).";
+    case"active-active":return"Both regions serve live traffic; data syncs between them.";
+    default:return"One instance in one region; no cross-region failover (cluster-local or stateless).";
+  }
+}
+
+// THE FIX (#3905): the EDITOR's per-mode helper text derives from the SAME
+// perTopology contract the card reads. NEVER the generic "backup-restore".
+function describeModeForComponent(mode, topology){
+  const c = canon(mode);
+  const generic = {
+    "singleton":"one cluster; lowest cost; no failover",
+    "active-active":"every region serves traffic; horizontal scaling",
+    "active-hot-standby":"primary serves; standby ready for switchover",
+    "active-passive":"primary serves; standby in the second region promotes on failover"
+  }[c] || "";
+  if(!topology) return {text:generic, derived:false};
+  let variant;
+  for(const [k,v] of Object.entries(topology.perTopology)){
+    if(canon(k)===c){ variant=v; break; }
+  }
+  if(!variant || c==="singleton") return {text:generic, derived:false};
+  const parts=[];
+  parts.push(c==="active-active"
+    ? "every region serves traffic"
+    : "primary serves; second-region standby promotes on failover");
+  const r=variant.replication, s=variant.switchover;
+  if(r && r.backend){ parts.push(`${r.mode?`${r.backend} · ${r.mode}`:r.backend} replication`); }
+  if(s && s.mechanism && s.mechanism.toLowerCase()!=="none"){
+    const rto=s.rtoSeconds!=null?`RTO ${s.rtoSeconds}s`:null;
+    const rpo=s.rpoSeconds!=null?`RPO ${s.rpoSeconds}s`:null;
+    const slo=[rto,rpo].filter(Boolean).join(" / ");
+    parts.push(slo?`${s.mechanism} switchover (${slo})`:`${s.mechanism} switchover`);
+  }
+  return {text:parts.join("; "), derived:true};
+}
+
+/* ── state ── */
+let currentId="bp-openbao";
+let editMode=null;          // editor's selected mode
+let editRegions=[];         // editor's selected regions
+
+function declaredClassFor(c){
+  const t=c.topology;
+  const pick = SOVEREIGN_REGION_COUNT>1
+    ? (t.multiRegion||t.singleRegion||t.supported[0])
+    : (t.singleRegion||t.supported[0]);
+  return canon(pick);
+}
+function variantFor(c, klass){
+  for(const [k,v] of Object.entries(c.topology.perTopology)){
+    if(canon(k)===canon(klass)) return v;
+  }
+  return null;
+}
+
+/* ── render ── */
+function render(){
+  const c=COMPONENTS[currentId];
+  const dClass=declaredClassFor(c);
+  const dVar=variantFor(c, dClass);
+
+  // hero + address
+  document.getElementById("addr-app").textContent=currentId;
+  document.getElementById("hero-icon").textContent=c.icon;
+  document.getElementById("hero-name").textContent=currentId;
+  document.getElementById("hero-title").textContent=c.title;
+  document.getElementById("hero-open-label").textContent=c.title;
+  document.getElementById("hero-tagline").textContent=c.tagline;
+  document.getElementById("hero-ns").textContent=c.ns;
+  document.getElementById("hero-ver").textContent=`${currentId}@${c.version}`;
+  document.getElementById("editor-appname").textContent=currentId;
+  const pcl=(dVar&&dVar.placement&&dVar.placement.clusters)||["mgmt-A","mgmt-B"];
+  document.getElementById("hero-region-a").textContent=pcl[0]||"—";
+  document.getElementById("hero-region-b").textContent=pcl[1]||pcl[0]||"—";
+  document.getElementById("hero-region-b").style.display=pcl[1]?"":"none";
+
+  // ── DECLARED CARD ──
+  const badge=document.getElementById("declared-badge");
+  badge.textContent=classLabel(dClass);
+  badge.className="badge "+(dClass==="singleton"?"single":"dr");
+  document.getElementById("declared-desc").textContent=describeTopologyClass(dClass);
+
+  // observed strip
+  renderObserved(c, dClass);
+
+  // declared grid — EFFECTIVE class is honest about declared-but-unbuilt
+  const grid=document.getElementById("declared-grid");
+  const repl=dVar&&dVar.replication, sw=dVar&&dVar.switchover, plc=dVar&&dVar.placement;
+  let effHtml;
+  if(canon(dClass)!=="singleton" && c.observed && !c.observed.exists){
+    effHtml=`<dd class="warn">singleton <span class="src-tag">(DEGRADED — ${classLabel(dClass)} mandate unbuilt)</span></dd>`;
+  }else{
+    effHtml=`<dd>${classLabel(dClass)} <span class="src-tag">(multi-region · ${SOVEREIGN_REGION_COUNT} regions)</span></dd>`;
+  }
+  const rows=[];
+  rows.push(["Effective class", effHtml, true]);
+  rows.push(["Supported", `<dd>${c.topology.supported.map(classLabel).join(" · ")}</dd>`, true]);
+  if(plc&&plc.tier) rows.push(["Tier", `<dd>${plc.tier}</dd>`, true]);
+  if(repl&&repl.backend) rows.push(["State preservation",
+    `<dd>${repl.backend}${repl.mode?` · ${repl.mode}`:""}<span class="src-tag">matrix</span></dd>`, true]);
+  if(sw&&sw.mechanism) rows.push(["Switchover", `<dd>${sw.mechanism}<span class="src-tag">matrix</span></dd>`, true]);
+  if(sw&&(sw.rtoSeconds!=null||sw.rpoSeconds!=null)) rows.push(["RTO / RPO",
+    `<dd>${sw.rtoSeconds!=null?sw.rtoSeconds+"s":"—"} / ${sw.rpoSeconds!=null?sw.rpoSeconds+"s":"—"}</dd>`, true]);
+  grid.innerHTML=rows.map(([k,dd])=>`<div class="kv"><dt>${k}</dt>${dd}</div>`).join("");
+
+  // per-cluster placement pills
+  const cwrap=document.getElementById("declared-clusters");
+  cwrap.innerHTML=(plc&&plc.clusters||[]).map(cl=>{
+    const role=(plc.roles&&plc.roles[cl])||"active";
+    return `<span class="cpill ${role}"><code>${cl}</code><span class="role">${role}</span></span>`;
+  }).join("");
+
+  // note
+  const note=document.getElementById("declared-note");
+  if(canon(dClass)!=="singleton" && c.observed && !c.observed.exists){
+    note.innerHTML=`<strong>To reach the declared ${classLabel(dClass)} state:</strong> a healthy
+      ${pcl[1]||"second-region"} standby must come up and a Continuum (dr.openova.io) pair must
+      reconcile. Until then this app runs as a single instance with no cross-region failover.`;
+    note.style.display="";
+  }else{
+    note.style.display="none";
+  }
+
+  // ── EDITOR ──
+  // default the editor selection to the declared class on (re)load
+  editMode = canon(dClass);
+  editRegions = (plc&&plc.clusters)? [...plc.clusters] : [];
+  renderEditor();
+
+  // component picker note
+  document.getElementById("picker-note").textContent =
+    `supported: ${c.topology.supported.join(" · ")}`;
+
+  // consistency line
+  if(dVar && dVar.replication){
+    const e=describeModeForComponent(dClass, c.topology);
+    document.getElementById("consistency-line").innerHTML =
+      `<b>Card ⇄ Editor consistency check (${currentId} · ${classLabel(dClass)}):</b> both render
+       <code>${dVar.replication.backend} · ${dVar.replication.mode}</code>${dVar.switchover?` + <code>${dVar.switchover.mechanism}</code> switchover`:""}.
+       Editor helper text = "<i>${e.text}</i>". Zero contradiction.`;
+  }else{
+    document.getElementById("consistency-line").innerHTML =
+      `<b>Card ⇄ Editor consistency check (${currentId}):</b> singleton — no DR contract; both surfaces say "no cross-region failover".`;
+  }
+}
+
+function renderObserved(c, dClass){
+  const body=document.getElementById("observed-body");
+  const o=c.observed||{};
+  if(o.exists){
+    body.innerHTML=`
+      <dl class="grid2">
+        <div class="kv"><dt>Primary region</dt><dd>${o.primaryRegion}</dd></div>
+        <div class="kv"><dt>Standby region</dt><dd>${o.replicaRegion}</dd></div>
+        <div class="kv"><dt>Replication</dt><dd><span class="ph healthy">${o.phase||"healthy"}</span></dd></div>
+        <div class="kv"><dt>Replication lag</dt><dd>${o.lagSeconds==null?"— (not reported)":o.lagSeconds+"s"}</dd></div>
+        <div class="kv" style="grid-column:1/-1"><dt>Source</dt><dd>${o.source||"—"}</dd></div>
+      </dl>`;
+  }else{
+    body.innerHTML=`<p class="nopair">No live DR pair for <strong>${currentId}</strong> on this Sovereign.
+      The declared <strong>${classLabel(dClass)}</strong> contract activates a cross-region pair only
+      once a healthy standby comes up — until then there is nothing to switch over.
+      <span class="ph degraded" style="margin-left:6px">DEGRADED</span></p>`;
+  }
+}
+
+function renderEditor(){
+  const c=COMPONENTS[currentId];
+  const supported=new Set(c.topology.supported.map(canon));
+  // modes
+  const wrap=document.getElementById("editor-modes");
+  wrap.innerHTML=ALL_MODES.map(m=>{
+    const enabled=supported.has(canon(m));
+    const sel=canon(m)===canon(editMode);
+    const d=describeModeForComponent(m, c.topology);
+    const descHtml = d.derived
+      ? `<span class="from-matrix">${d.text}</span>`
+      : `${d.text}`;
+    return `<label class="mode ${sel?"sel":""} ${enabled?"":"disabled"}"
+        ${enabled?`onclick="pickMode('${m}')"`:""}>
+        <input type="radio" name="mode" ${sel?"checked":""} ${enabled?"":"disabled"}>
+        <span><span class="mname">${m}</span>
+        <span class="mdesc">${descHtml}</span></span>
+      </label>`;
+  }).join("");
+
+  // regions — derive role preview from the SELECTED mode's placement.roles
+  const v=variantFor(c, editMode);
+  const roleMap=(v&&v.placement&&v.placement.roles)||{};
+  // region universe = union of all clusters this component can place into
+  const universe=new Set();
+  Object.values(c.topology.perTopology).forEach(pt=>{
+    (pt.placement&&pt.placement.clusters||[]).forEach(cl=>universe.add(cl));
+  });
+  const rwrap=document.getElementById("editor-regions");
+  rwrap.innerHTML=[...universe].sort().map(cl=>{
+    const on=editRegions.includes(cl);
+    const role=roleMap[cl];
+    const roleTag=on&&role?`<span class="rrole ${role}">${role}</span>`:"";
+    return `<label class="region ${on?"on":""}" onclick="toggleRegion('${cl}')">
+        <input type="checkbox" ${on?"checked":""}><code>${cl}</code>${roleTag}</label>`;
+  }).join("");
+
+  // dirty state → enable Preview/Apply
+  const dClass=declaredClassFor(c);
+  const dVar=variantFor(c, dClass);
+  const baseRegions=(dVar&&dVar.placement&&dVar.placement.clusters)||[];
+  const dirty = canon(editMode)!==canon(dClass) || !sameSet(editRegions, baseRegions);
+  document.getElementById("preview-btn").disabled=!dirty || editRegions.length===0;
+  document.getElementById("apply-btn").disabled=!dirty || editRegions.length===0;
+  document.getElementById("dirty-hint").style.display=dirty?"none":"";
+}
+
+function sameSet(a,b){ if(a.length!==b.length)return false; const s=new Set(a); return b.every(x=>s.has(x)); }
+
+/* ── interactions ── */
+function selectComponent(id){ currentId=id; render(); }
+function pickMode(m){ editMode=canon(m);
+  // when switching to a mode, default the regions to that mode's declared clusters
+  const v=variantFor(COMPONENTS[currentId], m);
+  editRegions = (v&&v.placement&&v.placement.clusters)? [...v.placement.clusters] : editRegions;
+  renderEditor();
+}
+function toggleRegion(cl){
+  editRegions = editRegions.includes(cl)? editRegions.filter(x=>x!==cl) : [...editRegions, cl];
+  renderEditor();
+}
+
+function openPreview(){
+  const c=COMPONENTS[currentId];
+  const v=variantFor(c, editMode);
+  document.getElementById("modal-title").textContent=`Topology preview — ${currentId}@${c.version}`;
+  document.getElementById("modal-sub").textContent=
+    `Proposed mode: ${editMode} · regions: ${editRegions.join(", ")||"(none)"}`;
+
+  // Apply explainer — exactly what Apply does
+  let mech="";
+  if(v&&v.replication){ mech=`This commits <code>spec.placement.mode=${editMode}</code> with
+    <code>${v.replication.backend} · ${v.replication.mode}</code> replication${v.switchover?` and
+    <code>${v.switchover.mechanism}</code> switchover`:""} — all read from the component's matrix
+    contract.`; }
+  else { mech=`This commits <code>spec.placement.mode=${editMode}</code> (singleton — no replication).`; }
+  document.getElementById("modal-apply-note").innerHTML=
+    `<b>What Apply does:</b> writes the new placement to the <b>Application CR</b>
+     (<code>${currentId}</code>). ${mech} The <b>application-controller</b> then fans out one
+     <code>HelmRelease</code> per selected region and reconciles the rollout. You can watch progress
+     in the Live status panel.`;
+
+  // per-region manifests (render the selected regions)
+  const roleMap=(v&&v.placement&&v.placement.roles)||{};
+  document.getElementById("modal-manifests").innerHTML=editRegions.map(r=>{
+    const role=roleMap[r]||"active";
+    const repl=v&&v.replication?`\n  replication: { backend: ${v.replication.backend}, mode: ${v.replication.mode} }`:"";
+    return `<div class="mpath">clusters/${r}/applications/${currentId}/helmrelease.yaml</div>
+<pre># role: ${role}
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ${currentId}
+  labels: { topology.catalyst/mode: ${editMode}, topology.catalyst/role: ${role} }
+spec:
+  values:
+    placement: { region: ${r}, role: ${role} }${repl}</pre>`;
+  }).join("") || `<p class="nopair">No regions selected — choose at least one region.</p>`;
+
+  document.getElementById("scrim").classList.add("show");
+}
+function closePreview(){ document.getElementById("scrim").classList.remove("show"); }
+function confirmApply(){
+  closePreview();
+  // mock: reflect the applied mode into the card by treating it as the new declared selection
+  alert(`(mock) Applied: ${currentId} → ${editMode} across [${editRegions.join(", ")}].\n\nIn the real console this PUTs spec.placement on the Application CR and the application-controller fans out per-region HelmReleases.`);
+}
+
+/* ── boot ── */
+(function(){
+  const sel=document.getElementById("comp-select");
+  sel.innerHTML=Object.keys(COMPONENTS).map(id=>{
+    const dc=declaredClassFor(COMPONENTS[id]);
+    return `<option value="${id}">${id} — ${dc}</option>`;
+  }).join("");
+  render();
+})();
+</script>
+</body>
+</html>
