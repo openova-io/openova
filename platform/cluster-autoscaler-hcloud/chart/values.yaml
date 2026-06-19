@@ -29,6 +29,15 @@ catalystBlueprint:
 # `helm dependency build` resolves the upstream as a subchart; values here
 # under the `cluster-autoscaler:` key flow into that subchart unchanged.
 cluster-autoscaler:
+  # Route the upstream autoscaler image through the Sovereign Harbor
+  # proxy-cache so it pulls on a fresh IPv4-only kom4dc prov and satisfies
+  # the harbor-proxy-pull Kyverno ClusterPolicy (Enforce). Host swap only —
+  # repository path + tag preserved verbatim (registry.k8s.io ->
+  # harbor.openova.io/proxy-k8s). Refs #3296 #3903.
+  image:
+    repository: harbor.openova.io/proxy-k8s/autoscaling/cluster-autoscaler
+    tag: v1.32.0
+
   # Hetzner Cloud cloud-provider — built into the upstream image. Selecting
   # `hetzner` here switches the deployment template's --nodes argument to
   # the Hetzner-specific shape (minSize:maxSize:instanceType:region:name)

@@ -14,6 +14,15 @@ catalystBlueprint:
 
 # ─── Upstream chart values (subchart key: reflector) ──────────────────────
 reflector:
+  # ─── Harbor proxy-cache pull (#3296, #3903) ──────────────────────────────
+  # The upstream subchart's image.repository defaults to the bare Docker Hub
+  # ref `emberstack/kubernetes-reflector` — un-proxied, fails to pull on an
+  # IPv4-only kom4dc prov and is DENIED by kyverno `harbor-proxy-pull`
+  # (Enforce; globs `*/proxy-*/*`, `*/openova-io/*`). Swap the host to the
+  # Harbor proxy-dockerhub cache, preserving the repository path. Tag stays
+  # empty so it resolves to the chart appVersion (7.1.288 — pinned).
+  image:
+    repository: harbor.openova.io/proxy-dockerhub/emberstack/kubernetes-reflector
   # Single replica is sufficient for a single-node Sovereign (cpx52).
   # Reflector uses a watch loop, not a controller-manager with leader
   # election — extra replicas would cause duplicate reconcile storms.

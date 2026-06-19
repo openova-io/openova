@@ -19,7 +19,10 @@ catalystBlueprint:
 syft:
   enabled: true
   image:
-    repository: ghcr.io/anchore/syft
+    # Harbor proxy-cache pull (#3296, #3903): `ghcr.io/anchore/syft` is an
+    # un-proxied ref that fails to pull on an IPv4-only kom4dc prov and is
+    # DENIED by kyverno `harbor-proxy-pull` (Enforce). Swap host to proxy-ghcr.
+    repository: harbor.openova.io/proxy-ghcr/anchore/syft
     tag: "v1.43.0"
     pullPolicy: IfNotPresent
   resources:
@@ -34,7 +37,10 @@ syft:
 grype:
   enabled: true
   image:
-    repository: ghcr.io/anchore/grype
+    # Harbor proxy-cache pull (#3296, #3903): `ghcr.io/anchore/grype` is an
+    # un-proxied ref that fails to pull on an IPv4-only kom4dc prov and is
+    # DENIED by kyverno `harbor-proxy-pull` (Enforce). Swap host to proxy-ghcr.
+    repository: harbor.openova.io/proxy-ghcr/anchore/grype
     tag: "v0.111.1"
     pullPolicy: IfNotPresent
   resources:

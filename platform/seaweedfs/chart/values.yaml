@@ -36,9 +36,19 @@ seaweedfs:
     # _helpers.tpl seaweedfs.image renders `printf "%s/%s:%s" registry name tag`.
     # A trailing slash in registry produces a double slash: "chrislusf//seaweedfs:4.22"
     # which is an invalid image reference (issue #568).
-    registry: "chrislusf"
+    #
+    # ─── Harbor proxy-cache pull (#3296, #3903) ────────────────────────────
+    # The upstream default `chrislusf/seaweedfs:4.22` is a bare Docker Hub ref
+    # — un-proxied, fails to pull on an IPv4-only kom4dc prov and is DENIED by
+    # kyverno `harbor-proxy-pull` (Enforce; globs `*/proxy-*/*`,
+    # `*/openova-io/*`). The vendored subchart composes the image as
+    # `<registry>/<imageName>:<tag>`, so route the registry through the Harbor
+    # proxy-dockerhub cache and move the `chrislusf` namespace into imageName.
+    # Result renders `harbor.openova.io/proxy-dockerhub/chrislusf/seaweedfs:4.22`
+    # — the canonical proxied form already referenced by the gitea chart.
+    registry: "harbor.openova.io/proxy-dockerhub"
     repository: ""
-    imageName: seaweedfs
+    imageName: chrislusf/seaweedfs
     imageTag: "4.22"
     imagePullPolicy: IfNotPresent
     # Cluster role label — used by upstream chart for affinity rules.

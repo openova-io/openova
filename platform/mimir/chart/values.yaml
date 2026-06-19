@@ -16,8 +16,12 @@ catalystBlueprint:
 # ─── Upstream chart values (subchart key: mimir-distributed) ─────────────
 mimir-distributed:
   # Pin the global image tag — DO NOT use floating tags.
+  # Route through the Sovereign Harbor proxy-cache (IPv4-only kom4dc pull +
+  # harbor-proxy-pull Kyverno admit). The upstream image block has no
+  # `registry:` key, so host-swap docker.io -> harbor.openova.io/proxy-dockerhub
+  # in the repository path itself. Refs #3296 #3903.
   image:
-    repository: grafana/mimir
+    repository: harbor.openova.io/proxy-dockerhub/grafana/mimir
     tag: "3.0.4"
     pullPolicy: IfNotPresent
 
@@ -51,9 +55,17 @@ mimir-distributed:
     replicas: 1
 
   # Gateway (nginx in front of Mimir) — keep enabled, scale to 1.
+  # Route the nginx image via the Harbor proxy-cache. The upstream
+  # gateway.nginx.image has a `registry:` key — set it to proxy-dockerhub
+  # and keep the repository path. Refs #3296 #3903.
   gateway:
     enabled: true
     replicas: 1
+    nginx:
+      image:
+        registry: harbor.openova.io/proxy-dockerhub
+        repository: nginxinc/nginx-unprivileged
+        tag: 1.29-alpine
 
   # Bundled MinIO — DEFAULT ON only as a stop-gap so the chart renders;
   # Catalyst routes object storage through SeaweedFS. Per-Sovereign
@@ -61,8 +73,18 @@ mimir-distributed:
   # pointing at SeaweedFS (or cloud object storage) before production use.
   # The bundled MinIO is single-replica, ephemeral-friendly, and not for
   # production data.
+  #
+  # Route the MinIO server + `mc` client images via the Harbor proxy-cache.
+  # Both upstream fields are single `repository:` with the host embedded, so
+  # host-swap quay.io -> harbor.openova.io/proxy-quay in place. Refs #3296 #3903.
   minio:
     enabled: true
+    image:
+      repository: harbor.openova.io/proxy-quay/minio/minio
+      tag: RELEASE.2024-12-18T13-15-44Z
+    mcImage:
+      repository: harbor.openova.io/proxy-quay/minio/mc
+      tag: RELEASE.2024-11-21T17-21-54Z
 
   # Kafka (ingest-storage architecture) — DISABLED. The classic blocks-
   # storage architecture is the Catalyst default; Kafka ingest-storage is
@@ -112,9 +134,15 @@ mimir-distributed:
 
   # rollout-operator subchart — keep enabled (it manages zone-aware rollouts
   # and is referenced by the upstream chart even with zone-awareness off).
+  # Route via the Harbor proxy-cache. The subchart image has an empty
+  # `registry: ""`; set it to proxy-dockerhub (grafana/rollout-operator is a
+  # Docker Hub image). Refs #3296 #3903.
   rollout_operator:
     enabled: true
     replicas: 1
+    image:
+      registry: harbor.openova.io/proxy-dockerhub
+      repository: grafana/rollout-operator
 
   # Service account — chart manages its own.
   serviceAccount:
@@ -172,5 +200,7 @@ webhookGate:
     namespace: mimir
   timeoutSeconds: 300
   intervalSeconds: 2
-  image: "bitnamilegacy/kubectl:1.30.7"
+  # Route via the Harbor proxy-cache. Bare Docker Hub ref -> proxy-dockerhub
+  # (host-swap in place, path preserved). Refs #3296 #3903.
+  image: "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7"
   imagePullPolicy: IfNotPresent

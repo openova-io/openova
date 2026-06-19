@@ -19,7 +19,19 @@ global:
   # (image references use upstream defaults). The upstream valkey subchart
   # (Bitnami-style) exposes `valkey.image.registry` for registry override.
   # Per-Sovereign overlays wire that alongside this value. Tracked under #560.
+  #
+  # NOTE: left EMPTY on purpose — the per-image `valkey.image.registry`
+  # override below routes the proxy host. Setting a non-empty
+  # global.imageRegistry would DOUBLE the already-proxied ref. Refs #3296 #3903.
   imageRegistry: ""
+  # The upstream Bitnami valkey chart's NOTES.txt hard-errors when the image
+  # registry/repository is not on its recognized "secure images" list —
+  # which now includes our Sovereign Harbor proxy host. Allow the proxied
+  # image so the chart renders + deploys (the image is the same upstream
+  # bitnami/valkey payload, just pulled through the proxy-cache).
+  # Refs #3296 #3903.
+  security:
+    allowInsecureImages: true
 
 catalystBlueprint:
   upstream: { chart: valkey, version: "5.5.1", repo: "https://charts.bitnami.com/bitnami" }
@@ -28,6 +40,19 @@ catalystBlueprint:
 # `helm dependency build` resolves the upstream as a subchart; values here
 # under the `valkey:` key flow into that subchart unchanged.
 valkey:
+  # Route the Bitnami valkey image through the Sovereign Harbor proxy-cache
+  # (IPv4-only kom4dc + harbor-proxy-pull Kyverno Enforce) and PIN the tag —
+  # upstream bitnami/valkey ships a floating `:latest` which both fails the
+  # policy intent and is non-reproducible. registry-1.docker.io ->
+  # harbor.openova.io/proxy-dockerhub, repository path preserved, tag pinned
+  # to the chart appVersion (9.0.3). Per-image override (NOT
+  # global.imageRegistry, which would double already-proxied refs).
+  # Refs #3296 #3903.
+  image:
+    registry: harbor.openova.io/proxy-dockerhub
+    repository: bitnami/valkey
+    tag: 9.0.3
+
   # Replication architecture (one primary + N replicas). Solo Sovereigns
   # use replicaCount: 0 to keep the StatefulSet shape stable while
   # paying for only one pod. Multi-node host clusters bump replicaCount

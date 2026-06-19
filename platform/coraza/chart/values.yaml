@@ -22,8 +22,15 @@ coraza:
 
   # Pin upstream image tag — DO NOT use floating tags per
   # docs/INVIOLABLE-PRINCIPLES.md.
+  #
+  # Harbor proxy-cache routing (Refs #3296 #3903) — canonical idiom
+  # ghcr.io/X -> harbor.openova.io/proxy-ghcr/X (host swapped in-place,
+  # repository path + tag preserved verbatim). Routes the pull through the
+  # Sovereign Harbor proxy-ghcr project so it resolves on a fresh IPv4-only
+  # kom4dc prov AND satisfies the harbor-proxy-pull Kyverno ClusterPolicy
+  # (Enforce; glob */proxy-*/*).
   image:
-    repository: ghcr.io/corazawaf/coraza-spoa
+    repository: harbor.openova.io/proxy-ghcr/corazawaf/coraza-spoa
     tag: "0.7.0"
     pullPolicy: IfNotPresent
 

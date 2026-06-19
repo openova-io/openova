@@ -54,6 +54,30 @@ cert-manager:
   crds:
     enabled: true
     keep: true
+  # ─── Harbor proxy-cache routing (Refs #3296 #3903) ──────────────────────
+  # Canonical proxy idiom (quay.io/X -> harbor.openova.io/proxy-quay/X): route
+  # all four cert-manager component images through the Sovereign Harbor
+  # proxy-quay project so they pull on a fresh IPv4-only kom4dc prov AND
+  # satisfy the harbor-proxy-pull Kyverno ClusterPolicy (Enforce; glob
+  # */proxy-*/*). The upstream "image" helper renders `<registry>/<repository>`
+  # when .registry is set, so registry MUST be the proxy host+project and
+  # repository MUST be the host-stripped path (jetstack/cert-manager-*).
+  # Tags stay pinned to the chart appVersion (v1.16.5) via the subchart default.
+  # Do NOT set a chart-wide global.imageRegistry — it would double-prefix.
+  image:
+    registry: harbor.openova.io/proxy-quay
+    repository: jetstack/cert-manager-controller
+  cainjector:
+    image:
+      registry: harbor.openova.io/proxy-quay
+      repository: jetstack/cert-manager-cainjector
+  startupapicheck:
+    image:
+      registry: harbor.openova.io/proxy-quay
+      repository: jetstack/cert-manager-startupapicheck
+  # NOTE: the webhook component's image override lives in the existing
+  # `webhook:` block below (alongside webhook.resources) to avoid a
+  # duplicate YAML key.
   # Prometheus scraping + ServiceMonitor — DEFAULT OFF.
   #
   # Per docs/INVIOLABLE-PRINCIPLES.md #4 and docs/BLUEPRINT-AUTHORING.md
@@ -86,6 +110,12 @@ cert-manager:
       # shape.
       memory: 1Gi
   webhook:
+    # Harbor proxy-cache routing (Refs #3296 #3903) — quay.io idiom, see the
+    # `image:` block above. registry = proxy host+project, repository =
+    # host-stripped path; tag stays the chart appVersion default.
+    image:
+      registry: harbor.openova.io/proxy-quay
+      repository: jetstack/cert-manager-webhook
     resources:
       requests:
         cpu: 50m

@@ -33,9 +33,33 @@ nats:
         pvc:
           size: 10Gi
   container:
+    # Route the official Docker Hub `nats` image through the Sovereign
+    # Harbor proxy-cache (IPv4-only kom4dc + harbor-proxy-pull Kyverno
+    # Enforce). The nats subchart's image helper joins `registry/repository`
+    # — set registry to proxy-dockerhub and qualify the official image with
+    # the `library/` namespace Docker Hub applies to official images.
+    # Refs #3296 #3903.
+    image:
+      registry: harbor.openova.io/proxy-dockerhub
+      repository: library/nats
+      tag: 2.10.16-alpine
     resources:
       requests: { cpu: 100m, memory: 256Mi }
       limits: { memory: 1Gi }
+  # natsio/nats-server-config-reloader sidecar — route via proxy-dockerhub
+  # (Docker Hub natsio org). Refs #3296 #3903.
+  reloader:
+    image:
+      registry: harbor.openova.io/proxy-dockerhub
+      repository: natsio/nats-server-config-reloader
+      tag: 0.14.3
+  # natsio/nats-box debug pod — route via proxy-dockerhub. Refs #3296 #3903.
+  natsBox:
+    container:
+      image:
+        registry: harbor.openova.io/proxy-dockerhub
+        repository: natsio/nats-box
+        tag: 0.14.3
   # Prometheus exporter + PodMonitor — DEFAULT OFF.
   #
   # Per docs/INVIOLABLE-PRINCIPLES.md #4 and docs/BLUEPRINT-AUTHORING.md
@@ -50,6 +74,14 @@ nats:
     enabled: false
     podMonitor:
       enabled: false
+    # natsio/prometheus-nats-exporter — DEFAULT OFF (enabled: false above)
+    # but pin the registry so an opt-in overlay still pulls via the
+    # Sovereign Harbor proxy-cache (Docker Hub natsio org -> proxy-dockerhub).
+    # Refs #3296 #3903.
+    image:
+      registry: harbor.openova.io/proxy-dockerhub
+      repository: natsio/prometheus-nats-exporter
+      tag: 0.15.0
 
 # ─── Catalyst-curated JetStream Streams + KV buckets ─────────────────────
 #
@@ -135,6 +167,15 @@ catalystStreams:
 nack:
   enabled: true
   jetstream:
+    # Route the natsio/jetstream-controller image through the Sovereign
+    # Harbor proxy-cache (Docker Hub natsio org -> proxy-dockerhub). The
+    # nack `jsc.image` helper joins `registry/repository:tag`; pin the tag
+    # to the chart appVersion (0.18.2) so the floating default cannot drift.
+    # Refs #3296 #3903.
+    image:
+      registry: harbor.openova.io/proxy-dockerhub
+      repository: natsio/jetstream-controller
+      tag: "0.18.2"
     # Point at the broker subchart's Service. Same-namespace, no auth
     # required (NATS auth is operator-config'd separately if at all).
     nats:

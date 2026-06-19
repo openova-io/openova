@@ -31,6 +31,20 @@ catalystBlueprint:
 # `helm dependency build` resolves the upstream as a subchart; values here
 # under the `external-dns:` key flow into that subchart unchanged.
 external-dns:
+  # Harbor proxy-cache routing (Refs #3296 #3903) — canonical idiom
+  # registry.k8s.io/X -> harbor.openova.io/proxy-k8s/X (host swapped
+  # in-place on the single `image.repository` field; the upstream
+  # "external-dns.image" helper just concatenates repository:tag with no
+  # separate registry prefix). Tag is left unset so it defaults to
+  # v{{ .Chart.AppVersion }} = v0.15.1 (the pinned upstream appVersion).
+  # Routes the pull through the Sovereign Harbor proxy-k8s project so it
+  # resolves on a fresh IPv4-only kom4dc prov AND satisfies the
+  # harbor-proxy-pull Kyverno ClusterPolicy (Enforce; glob */proxy-*/*).
+  # NOTE: the `registry: txt` knob further down is the TXT-record-registry
+  # ownership config, NOT a container image — left untouched.
+  image:
+    repository: harbor.openova.io/proxy-k8s/external-dns/external-dns
+
   # Native PowerDNS provider — talks to the in-cluster bp-powerdns Service
   # (powerdns.openova-system.svc.cluster.local:8081) over the REST API.
   # Per the user-facing brief: PowerDNS webhook adapter or native `pdns`

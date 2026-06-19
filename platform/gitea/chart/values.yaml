@@ -48,6 +48,16 @@ gitea:
   image:
     registry: harbor.openova.io
     repository: proxy-dockerhub/gitea/gitea
+  # ─── test-connection Pod image (#3296, #3903) ────────────────────────────
+  # The upstream subchart's test-connection helm-hook Pod (test.image) defaults
+  # to bare `busybox:latest` — an un-proxied docker.io ref that fails to pull
+  # on an IPv4-only kom4dc prov and is DENIED by kyverno `harbor-proxy-pull`
+  # (Enforce). Route through the Harbor proxy-cache (official image → library/)
+  # and PIN off floating :latest.
+  test:
+    image:
+      name: harbor.openova.io/proxy-dockerhub/library/busybox
+      tag: "1.36"
   gitea:
     admin:
       username: gitea_admin

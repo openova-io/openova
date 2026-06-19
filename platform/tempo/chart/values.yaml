@@ -18,8 +18,11 @@ tempo:
   replicas: 1
 
   # Pin upstream Tempo image tag — DO NOT use floating tags.
+  # Route through the Sovereign Harbor proxy-cache (IPv4-only kom4dc pull +
+  # harbor-proxy-pull Kyverno admit). Host-swap docker.io ->
+  # harbor.openova.io/proxy-dockerhub. Refs #3296 #3903.
   tempo:
-    registry: docker.io
+    registry: harbor.openova.io/proxy-dockerhub
     repository: grafana/tempo
     tag: "2.9.0"
     pullPolicy: IfNotPresent

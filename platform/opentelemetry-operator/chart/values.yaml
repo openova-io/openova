@@ -38,15 +38,25 @@ defaultInstrumentation:
     enabled: false
 
 # ─── Upstream subchart values (subchart key: opentelemetry-operator) ──
+# Every image below is routed through the Sovereign Harbor proxy-cache so a
+# fresh IPv4-only kom4dc prov can pull + the harbor-proxy-pull Kyverno policy
+# admits it. Host-swap rules: ghcr.io -> proxy-ghcr, quay.io -> proxy-quay,
+# Docker Hub -> proxy-dockerhub (official `library/` images keep the
+# `library/` segment). Refs #3296 #3903.
 opentelemetry-operator:
   manager:
+    # Operator image — host-swap ghcr.io -> proxy-ghcr, path preserved.
+    # Refs #3296 #3903.
+    image:
+      repository: harbor.openova.io/proxy-ghcr/open-telemetry/opentelemetry-operator/opentelemetry-operator
     # The upstream chart REQUIRES manager.collectorImage.repository to
     # be set (the operator needs to know which collector image to deploy
     # when an OpenTelemetryCollector CR is created without an explicit
-    # image). Pin to the upstream contrib distribution; operators bump
-    # via overlay per docs/INVIOLABLE-PRINCIPLES.md #4.
+    # image). Pin to the upstream contrib distribution, routed via the
+    # proxy-dockerhub cache; operators bump via overlay per
+    # docs/INVIOLABLE-PRINCIPLES.md #4. Refs #3296 #3903.
     collectorImage:
-      repository: "otel/opentelemetry-collector-contrib"
+      repository: "harbor.openova.io/proxy-dockerhub/otel/opentelemetry-collector-contrib"
     # cert-manager is the canonical webhook cert provider (bp-cert-manager
     # is in every Sovereign's bootstrap-kit). Operator uses
     # cert-manager-issued cert for its admission webhook.
@@ -55,6 +65,25 @@ opentelemetry-operator:
     resources:
       requests: { cpu: 50m, memory: 64Mi }
       limits: { memory: 256Mi }
+  # kube-rbac-proxy sidecar — host-swap quay.io -> proxy-quay. Refs #3296 #3903.
+  kubeRBACProxy:
+    image:
+      repository: harbor.openova.io/proxy-quay/brancz/kube-rbac-proxy
+      tag: v0.15.0
+  # helm-test connection-probe Jobs use this image. Upstream default is the
+  # floating `busybox:latest`; pin to a concrete version AND route via
+  # proxy-dockerhub (official image -> `library/busybox`). Refs #3296 #3903.
+  testFramework:
+    image:
+      repository: harbor.openova.io/proxy-dockerhub/library/busybox
+      tag: "1.36"
   admissionWebhooks:
     certManager:
       enabled: true
+
+# ─── Catalyst-side webhook-gate hook (templates/webhook-gate-hook.yaml) ──
+# The post-install/upgrade Job that kubectl-polls the operator's webhook
+# Endpoints. Route its image via the Harbor proxy-cache; bare Docker Hub
+# ref -> proxy-dockerhub (host-swap in place). Refs #3296 #3903.
+webhookGate:
+  image: "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7"

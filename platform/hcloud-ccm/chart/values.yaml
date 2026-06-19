@@ -56,6 +56,16 @@ hcloudCcm:
 # unchanged. The upstream values schema is documented at
 # https://github.com/hetznercloud/hcloud-cloud-controller-manager/blob/main/chart/values.yaml
 hcloud-cloud-controller-manager:
+  # ─── Harbor proxy-cache pull (#3296, #3903) ──────────────────────────────
+  # The upstream subchart's image.repository defaults to the bare docker.io
+  # ref `docker.io/hetznercloud/hcloud-cloud-controller-manager` — un-proxied,
+  # fails to pull on an IPv4-only kom4dc prov and is DENIED by kyverno
+  # `harbor-proxy-pull` (Enforce; globs `*/proxy-*/*`, `*/openova-io/*`).
+  # Swap the host to the Harbor proxy-dockerhub cache, preserving the
+  # repository path. Tag is left at the upstream `v{{ .Chart.Version }}`
+  # template (resolves to v1.20.0 — # x-release-please-version).
+  image:
+    repository: harbor.openova.io/proxy-dockerhub/hetznercloud/hcloud-cloud-controller-manager
   # Reference the in-namespace Secret rendered by templates/hcloud-token-
   # secret.yaml in this umbrella chart. Upstream chart's deployment template
   # mounts this as the HCLOUD_TOKEN env var.

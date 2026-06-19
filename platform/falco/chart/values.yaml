@@ -16,11 +16,22 @@ catalystBlueprint:
 falco:
   # Pin upstream image tag — DO NOT use floating tags per
   # docs/INVIOLABLE-PRINCIPLES.md.
+  # Route through the Sovereign Harbor proxy-cache so a fresh IPv4-only
+  # kom4dc prov can pull, and the harbor-proxy-pull Kyverno policy admits
+  # it. Host-swap docker.io -> harbor.openova.io/proxy-dockerhub, repo
+  # path preserved verbatim. Refs #3296 #3903.
   image:
-    registry: docker.io
+    registry: harbor.openova.io/proxy-dockerhub
     repository: falcosecurity/falco
     tag: "0.43.1"
     pullPolicy: IfNotPresent
+
+  # falcoctl (rules/plugin installer init+sidecar container) — same
+  # proxy-dockerhub host-swap. Refs #3296 #3903.
+  falcoctl:
+    image:
+      registry: harbor.openova.io/proxy-dockerhub
+      repository: falcosecurity/falcoctl
 
   # eBPF driver — modern-bpf is the default since Falco 0.35; runs in
   # kernel-space without compiling kernel modules. Per-Sovereign overlays

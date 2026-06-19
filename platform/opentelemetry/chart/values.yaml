@@ -26,8 +26,12 @@ opentelemetry-collector:
   # exporters for Loki / Mimir / Tempo / Prometheus / Kafka are bundled
   # without requiring a custom build. The `command.name` MUST match the
   # binary inside the contrib image (`otelcol-contrib`).
+  # Route through the Sovereign Harbor proxy-cache (IPv4-only kom4dc pull +
+  # harbor-proxy-pull Kyverno admit). The upstream `repository` is a bare
+  # Docker Hub path with no `registry:` key, so host-swap docker.io ->
+  # harbor.openova.io/proxy-dockerhub in the repository path. Refs #3296 #3903.
   image:
-    repository: otel/opentelemetry-collector-contrib
+    repository: harbor.openova.io/proxy-dockerhub/otel/opentelemetry-collector-contrib
     tag: "0.150.1"
     pullPolicy: IfNotPresent
   command:

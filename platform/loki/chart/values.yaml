@@ -44,11 +44,22 @@ loki:
         ruler: ruler
         admin: admin
     # Pin upstream image — DO NOT use floating tags.
+    # Route through the Sovereign Harbor proxy-cache so a fresh IPv4-only
+    # kom4dc prov can pull + the harbor-proxy-pull Kyverno policy admits it.
+    # Host-swap docker.io -> harbor.openova.io/proxy-dockerhub. Refs #3296 #3903.
     image:
-      registry: docker.io
+      registry: harbor.openova.io/proxy-dockerhub
       repository: grafana/loki
       tag: "3.6.7"
       pullPolicy: IfNotPresent
+
+  # k8s-sidecar (kiwigrid) — watches ConfigMaps for rules/dashboards.
+  # Same proxy-dockerhub host-swap. Refs #3296 #3903.
+  sidecar:
+    image:
+      registry: harbor.openova.io/proxy-dockerhub
+      repository: kiwigrid/k8s-sidecar
+      tag: "2.5.0"
 
   # SingleBinary StatefulSet — 1 replica, 10Gi PVC for chunks + index.
   singleBinary:

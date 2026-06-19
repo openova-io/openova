@@ -26,18 +26,22 @@ catalystBlueprint:
 
 # ─── Upstream chart values (subchart key: velero) ────────────────────────
 velero:
-  # Pin upstream Velero image — DO NOT use floating tags.
+  # Pin upstream Velero image — DO NOT use floating tags. Host swapped to
+  # the Sovereign Harbor proxy-cache (IPv4-only kom4dc + harbor-proxy-pull
+  # Kyverno Enforce): docker.io/velero -> harbor.openova.io/proxy-dockerhub/
+  # velero, repository path + tag preserved verbatim. Refs #3296 #3903.
   image:
-    repository: docker.io/velero/velero
+    repository: harbor.openova.io/proxy-dockerhub/velero/velero
     tag: "v1.18.0"
     pullPolicy: IfNotPresent
 
   # kubectl image (used by upgradeCRDs Job) — pin to a known-stable
   # registry.k8s.io/kubectl version. Per-Sovereign overlays MAY pin a
-  # specific tag.
+  # specific tag. Host swapped to proxy-k8s (registry.k8s.io ->
+  # harbor.openova.io/proxy-k8s). Refs #3296 #3903.
   kubectl:
     image:
-      repository: registry.k8s.io/kubectl
+      repository: harbor.openova.io/proxy-k8s/kubectl
 
   # Plugin init containers — REQUIRED for Velero to talk to ANY backup
   # backend. The AWS plugin (S3-compatible) is the Catalyst standard
@@ -46,8 +50,10 @@ velero:
   # plugin init containers if a CSI snapshotter / cloud-native plugin is
   # also needed.
   initContainers:
+    # Docker Hub velero/velero-plugin-for-aws routed via the Sovereign
+    # Harbor proxy-cache (proxy-dockerhub). Tag preserved. Refs #3296 #3903.
     - name: velero-plugin-for-aws
-      image: velero/velero-plugin-for-aws:v1.14.0
+      image: harbor.openova.io/proxy-dockerhub/velero/velero-plugin-for-aws:v1.14.0
       imagePullPolicy: IfNotPresent
       volumeMounts:
         - mountPath: /target

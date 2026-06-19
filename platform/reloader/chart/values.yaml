@@ -14,20 +14,25 @@ catalystBlueprint:
 
 # ─── Upstream chart values (subchart key: reloader) ──────────────────────
 reloader:
+  # ─── Harbor proxy-cache pull (#3296, #3903) ──────────────────────────────
+  # The upstream subchart renders its image from `image.repository` (when no
+  # digest is set), which defaults to the un-proxied `ghcr.io/stakater/reloader`
+  # — fails to pull on an IPv4-only kom4dc prov and is DENIED by kyverno
+  # `harbor-proxy-pull` (Enforce; globs `*/proxy-*/*`, `*/openova-io/*`). Swap
+  # the host to the Harbor proxy-ghcr cache, preserving the repo path. We do
+  # NOT set global.imageRegistry (that path would re-introduce the bare
+  # `image.name` host-less ref). Tag stays pinned at v1.4.16.
+  image:
+    repository: harbor.openova.io/proxy-ghcr/stakater/reloader
+    tag: "v1.4.16"
+    pullPolicy: IfNotPresent
   # Reloader controller — single replica (the upstream chart uses leader
   # election when scaled, but a single-pod restart only delays a rotation
   # by ≤30s in practice).
   reloader:
     replicaCount: 1
 
-    # Pin upstream image tag — DO NOT use floating tags per
-    # docs/INVIOLABLE-PRINCIPLES.md.
     deployment:
-      image:
-        name: ghcr.io/stakater/reloader
-        tag: "v1.4.16"
-        pullPolicy: IfNotPresent
-
       resources:
         requests:
           cpu: 50m

@@ -57,8 +57,19 @@ webhook:
   # Catalyst Sovereign's pull path is documented in
   # docs/INVIOLABLE-PRINCIPLES.md #4a; operators that mirror to a
   # private registry override `repository` here.
+  #
+  # Harbor proxy-cache routing (Refs #3296 #3903) — canonical idiom for a
+  # Docker Hub image: docker.io/X -> harbor.openova.io/proxy-dockerhub/X
+  # (host swapped in-place, repository path + tag preserved verbatim). The
+  # deployment.yaml template composes `<global.imageRegistry>/<repository>`
+  # only when global.imageRegistry is non-empty, so we bake the proxy host
+  # into `repository` here and KEEP global.imageRegistry empty (a non-empty
+  # global would double-prefix). Routes the pull through the Sovereign Harbor
+  # proxy-dockerhub project so it resolves on a fresh IPv4-only kom4dc prov
+  # AND satisfies the harbor-proxy-pull Kyverno ClusterPolicy (Enforce; glob
+  # */proxy-*/*).
   image:
-    repository: zachomedia/cert-manager-webhook-pdns
+    repository: harbor.openova.io/proxy-dockerhub/zachomedia/cert-manager-webhook-pdns
     # Default tag tracks the chart's appVersion. Override per-Sovereign
     # to pin a specific upstream tag without rebuilding this blueprint.
     tag: ""
