@@ -143,15 +143,23 @@ mgmtVcluster:
       # tcp …:443 i/o timeout") on their next reconcile — they only appear
       # healthy until Cilium starts enforcing the netpol. #3055
       - flux-system
-      # REQUIRED: the host `sme` namespace runs the BSS control-plane
-      # services (billing/tenant/domain/notification/provisioning/
-      # marketplace) whose event bus is NATS. #3373 placement moved
-      # nats-jetstream INTO this MGMT vCluster, so its host-synced
-      # Service (nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc)
-      # now sits behind this isolation policy. Without this entry every
-      # SME service CrashLoops on "failed to connect to NATS … i/o
-      # timeout" → the voucher/billing funnel back-half (#3376) is dead.
-      # Endpoints are healthy; the policy is the wall. #3376
+      # REQUIRED: the host BSS control-plane services (billing/tenant/
+      # domain/notification/provisioning/marketplace) whose event bus is
+      # NATS. #3373 placement moved nats-jetstream INTO this MGMT vCluster,
+      # so its host-synced Service
+      # (nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc) now sits
+      # behind this isolation policy. Without this entry every such service
+      # CrashLoops on "failed to connect to NATS … i/o timeout" → the
+      # voucher/billing funnel back-half (#3376) is dead. Endpoints are
+      # healthy; the policy is the wall. #3376
+      #
+      # #3859 (2026-06-19): the BSS tier moved from the legacy `sme`
+      # namespace to `org-services` (eradicate-sme-naming), but this
+      # allow-list still only admitted `sme` → on hw167 tenant/provisioning
+      # CrashLoopBackOff'd on NATS i/o-timeout, blocking the #3376 funnel.
+      # `org-services` is the live namespace; `sme` is kept one release for
+      # back-compat / any not-yet-migrated Sovereign.
+      - org-services
       - sme
       # ── #3642 host-bridge carve-outs ──────────────────────────────────
       # The #3642 host→mgmt move re-homes keycloak (auth.) + grafana into

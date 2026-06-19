@@ -141,7 +141,10 @@ spec:
       # install-loop stalling the spine at ~49/64 HRs. Companion: placement.yaml
       # `openbao-host-token-reviewer-export` Job mints the mirror-stable Opaque
       # `openbao-host-token-reviewer-static` Secret.
-      version: 0.2.19
+      # 0.2.20 (#3859): add `org-services` to the NATS isolation allow-list
+      # (was only `sme`; the BSS tier was renamed to org-services) — unblocks
+      # tenant/provisioning → NATS, the #3376 funnel back-half.
+      version: 0.2.20
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster

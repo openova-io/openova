@@ -77,7 +77,10 @@ spec:
       # bp-mgmt-vcluster + bp-dmz-vcluster (sibling tag parity). The active
       # fromHost.secrets mappings live in bp-mgmt-vcluster; RTZ takes the
       # version bump only.
-      version: 0.2.12
+      # 0.2.13 (#3859): add `org-services` to the valkey isolation allow-list
+      # (was only `sme`; the BSS tier was renamed to org-services) — unblocks
+      # auth/billing/domain/notification → valkey, the #3376 funnel.
+      version: 0.2.13
       sourceRef:
         kind: HelmRepository
         name: bp-rtz-vcluster

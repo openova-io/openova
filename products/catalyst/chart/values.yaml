@@ -1705,6 +1705,18 @@ smeServices:
     # start with `clusters/<SOVEREIGN_FQDN>/` on Sovereigns — the
     # cross-cluster pollution defence (#944 critical).
     gitBasePath: ""
+    # tenantParentDomain (#3859, Refs #3376): the Sovereign's tenant-pool
+    # parent domain that seeds spec.tenantPublic.{parentDomain,subdomain} on
+    # every per-Org Organization CR → the per-Org console + app HTTPRoutes
+    # (`console.<slug>.<parentDomain>`, `<app>.<slug>.<parentDomain>`). WITHOUT
+    # it the provisioning consumer mints the Org with NO TenantPublic route and
+    # the customer's own console + purchased app return ERR_CONNECTION_REFUSED
+    # (the funnel-terminal failure on every prior env; first root-caused on
+    # walkorg/hw167). Domains-canon default is `omani.homes`; set per-Sovereign
+    # via the bootstrap-kit postBuild substitute (the same pool TLD the
+    # marketplace wizard offers). Empty preserves Catalyst-Zero/contabo (no
+    # per-Org public route).
+    tenantParentDomain: ""
     # vclusterImageRegistry (#3760, Refs #3376 #3754): the Sovereign-local
     # Harbor host the per-tenant vCluster images pull through (proxy-cache).
     # vcluster 0.33.x renders TWO ghcr.io images in the StatefulSet

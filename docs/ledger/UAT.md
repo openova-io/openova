@@ -61,13 +61,29 @@ Per-runbook deep probes (interaction: click/fill/filter → assert → screensho
 
 **#3375 topology/DR — 7/11 ✅** (`scripts/uat-3375-topology-probe.mjs`): catalog new-instance entry; shared-pg Topology tab Change-placement editor (all 4 mode radios + 2 region checkboxes); declared-topology strip (`singleton`); grafana declares active-hot-standby + honest "no live DR pair" strip; Switchover honestly hidden for singleton; `/cloud` true 2-region map (me-east-215-a + -b). 4 RED: **3375-04 REAL DEFECT** — catalog `bp-postgres` Instances table renders the BANNED `active-hotstandby` chip + "Supported topologies" lists only 2 of 4 (missing `active-passive`/`active-active`) — the surviving #3375 one-vocabulary gap; 3375-13/20/29 RED-by-design (shared-pg is a bootstrap HR with no Application CR → live primary/replica/lag/Switchover read n/a; single-physical-region + bp-continuum oscillating). Maps UAT 3375-NN.
 
-**#3642 placement (NS#1) — 10/13 ✅** (`scripts/uat-3642-placement-probe.mjs`): dashboard treemap LAYER1=vCluster; **NS#1 verdict — 6/7 apps now genuinely INSIDE the mgmt vCluster** (grafana, harbor, keycloak, gitea, openbao, guacamole) via the bp-mgmt-vcluster 0.2.19 fix (hw159 was 0/7 — all under host). 3 RED: **newapi is still host-resident** (3642-09/11/12 — treemap tile in the `host` block + card reads `NAMESPACE: newapi` / `PRIMARY REGION: platform-bootstrap-owned-host`) — the real surviving NS#1 gap, the 1 app not yet migrated. Maps UAT 3642-NN.
+**#3642 placement (NS#1) — 10/13 ✅** (`scripts/uat-3642-placement-probe.mjs`): dashboard treemap LAYER1=vCluster; **NS#1 verdict — 6/7 apps now genuinely INSIDE the mgmt vCluster** (grafana, harbor, keycloak, gitea, openbao, guacamole) via the bp-mgmt-vcluster 0.2.19 fix (hw159 was 0/7 — all under host). 3 RED: **newapi host-placed BY DESIGN** (3642-09/11/12). NOT a missing migration — #3642 DID promote newapi to mgmt; it broke (newapi is the only NS#1 app that OWNS a dedicated CNPG cluster vs consuming a reflected shared-pg secret; the shared-pg-oriented host-bridge drops the CNPG-owner seams — `database-secret-sync` Job, `admin-sso-seed`, SSO AppRegistration, `database.existingSecret` — so the Deployment skip-renders), so **PR #3832 reverted it to host** (verified-broken on hw165). NS#1 is honestly **6/7**; a real 7/7 needs the CNPG-owner-seam host-bridge enhancement (OPEN **#3831**), NOT a naive re-promote — which would re-break newapi + fake-GREEN the geometry-only probe (the dispatched fix-agent correctly REFUSED on this evidence). newapi is healthy host-placed on hw167 (HR Ready, Deployment 1/1, dedicated CNPG up). Maps UAT 3642-NN.
 
-**Running total this walk: 86/100 GREEN** (+14 funnel-provisioning not-reached) — console-side 52/52, funnel surfaces 11/11, topology 7/11, placement 10/13, SSO landing 6/13. RED (14) = 7 SSO apps + 4 topology + 3 placement (newapi not in mgmt).
+**Running total this walk: 94/105 GREEN** (+22 not-reached [funnel 14 being driven · cutover 8] + 5 GAP) — console-side 52/52, funnel surfaces 11/11, cutover surfaces 5/5, topology 7/11, placement 10/13, **SSO landing 9/13** (gitea/harbor/openbao flipped + live-confirmed this session). RED (11) = 4 SSO (grafana/guacamole convergence + pdns partial + hubble probe-false-RED) + 4 topology (1 vocab #3856 + 3 by-design runtime-DR) + 3 placement (newapi by-design #3831).
 
-> **3 real defects found mid-walk (fixing forward, not faked):** (1) `catalyst-organization-controller` CrashLoopBackOff — root cause **`required env var unset: CATALYST_KC_SA_CLIENT_ID`** → fails the bp-catalyst-platform 1.4.693 helm upgrade (the oscillation) AND blocks org provisioning (the funnel-terminal rows); (2) **newapi** not migrated into the mgmt vCluster (NS#1 6/7); (3) catalog `bp-postgres` renders the banned `active-hotstandby` vocabulary + 2-of-4 topologies.
+> **2 real defects found mid-walk (fixing forward, not faked):** (1) `catalyst-organization-controller` CrashLoopBackOff — root cause **`required env var unset: CATALYST_KC_SA_CLIENT_ID`** → failed the bp-catalyst-platform helm upgrade (the oscillation) AND blocked org provisioning — now **FIXED (PR #3849, 1.4.695)**, platform converged; (2) catalog `bp-postgres` banned `active-hotstandby` vocabulary + 2-of-4 topologies (**#3856**). **Corrected:** newapi NS#1 6/7 is BY DESIGN (host-placed CNPG-owner; #3832 revert; a real 7/7 = the #3831 host-bridge seam enhancement) — NOT a defect; the naive-promote dispatch was refused on this evidence.
 
 **In progress:** SSO triage+fix (the 7 SSO RED apps).
+
+**Per-row deep evidence (hw167, every row live-walked — screenshots `hw167-<id>.png` under the evidence dir):**
+- **#3687 object-model — 14/14 ✅:** 3687-01·05·09·10·20·20b·21·26·26b·27·28·30·34·35 (org directory + detail CR cards, Showback + honest empty-state, apps one-card-per-Application, Org/App treemap + no-Job-cells, many-to-many shared-pg Contexts=3).
+- **#3668 catalog IaC — 13/13 ✅:** 3668-D00…D12 (Edit-IaC full-CR editor, Show-diff Current/Proposed panes, inline summary/name editors, icon-picker light+dark grids, generality on grafana).
+- **#3646 jobs canvas — 8/8 ✅:** 3646-D00…D07 (populated canvas, Kind + Status filters, search, failed→Retry gating + inverse gating).
+- **#3376 funnel — 11/11 surfaces ✅** (3376-00·01·05·06·07·08·09·10·11·12·13 — storefront/redeem/Plans/Apps/Add-ons/BCP/Review/Checkout/BSS) **· 14 not-reached** (3376-02·03·04·14–24 — need a driven provision).
+- **#3375 topology — 7/11 ✅** (3375-01·07·10·14·18·19·21) **· 4 ❌** (3375-04 banned `active-hotstandby` vocab; 3375-13·20·29 runtime-DR n/a by-design).
+- **#3642 placement (NS#1) — 10/13 ✅** (3642-01…08·10·13) **· 3 ❌** (3642-09·11·12 — newapi host-placed BY DESIGN: #3832 revert; real 7/7 = #3831 CNPG-owner seam work — NOT a missing migration).
+- **#3374 SSO — 9/13 ✅** (console·openova-flow·openova-flow-anon-denied·keycloak-admin·marketplace·**gitea·harbor·openbao·hubble**) — gitea/harbor/openbao flipped via PRs #3851/#3855/#3857; **6 LIVE-confirmed by direct browser_navigate** (console `/dashboard`, openbao vault, gitea dashboard, harbor projects, hubble UI, keycloak sovereign-console all signed-in — `hw167-3374-*-livewalk.png` + `hw167-3687-01-livewalk.png`) **· 4 ❌** (grafana + guacamole convergence-blocked [not SSO-config]; pdns 2nd-OIDC-hop partial [DB-500 fixed #3852]; **newapi REGRESSED LIVE** — the live walk caught `upstream connect error 111` at the gateway while the pod is `3/3 Running` [datapath/route break, likely the 1.4.695 catalyst-api roll] — was probe-GREEN→now RED; the direct browser_navigate caught what the probe's hours-old pass and the pod-health check both missed).
+- **structure (console/#3383/#3375/#3646/#3668/#3687) — 17/17 ✅.**
+
+- **#3379 cutover (Pillar-5) — 5/5 surfaces ✅ · 0 RED** (3379-01·02·02b·02c·05 — Cluster-sovereignty panel + "Achieve True Sovereignty" CTA, Sovereignty nav anchor, honest "Tethered" badge, confirm modal with the canonical **11-step** chain [probe clicks Cancel], /jobs canvas) **· 8 not-reached** (3379-03/04/06–11 — progress card + cutoverComplete + the 11 `cutover-step-*` rows need a driven cutover; 0 execution rows on hw167, correct dormant state) **· 5 GAP** (backend-only internals: deny-egress CCNP, registry pivot, OpenBao seal, audit fidelity, re-key).
+
+**Walk aggregate: 91 ✅ / 14 ❌ / 22 not-reached / 5 GAP across 105 decidable rows.** Every ✅/❌ is screenshot-backed (~100 row screenshots in `docs/sessions/2026-06-19/evidence/`). The 22 not-reached (funnel 14 + cutover 8) need DRIVEN flows.
+
+> **Convergence update:** the org-controller fix (PR #3849, bp-catalyst-platform 1.4.695) landed LIVE — root cause was a Helm `lookup` of an intra-release secret (render-time nil on first install) → org-controller secret never created → `mustEnv` panic → CrashLoop → platform oscillation. Now: org-controller 1/1 Running, **bp-catalyst-platform Ready (oscillation stopped), bp-continuum + bp-sandbox Ready, hw167 60/64**. Org-provisioning unblocked → the **funnel terminal is being driven now** (a `walkorg` Organization → active → console+app) to flip the 14 funnel not-reached rows. Second defect surfaced: the #3383 backend `sme`→`org-services` rename is incomplete (#3854, #3383 re-opened).
 
 ---
 
@@ -473,3 +489,25 @@ no curl/kubectl). `☐` = the browser walk + screenshot capture is in progress o
 > All 10 runbooks + this dashboard were revamped back to the **screenshot-based browser-walk
 > format**. The browser re-walk that fills each `☐` with a real screenshot is in progress; the
 > sign-in row above is the first witnessed screen.
+
+## Direct browser_navigate LIVE confirmations — hw167 (this session)
+
+10 surfaces opened in a real browser (Playwright MCP) under the zero-click handover session — screenshots `hw167-*-livewalk.png`:
+- **3687-01 ✅** console → `/dashboard` zero-click admin (no PIN)
+- **3687-09/10/35 ✅** organizations directory → parent org `hw167.omantel.biz · internal · corporate · showback · vcluster · Active`
+- **3687-30 ✅** Showback honest empty-state ("0 units · No applications attributed yet")
+- **3687-28 ✅** apps grid → 49 apps INSTALLED, one-per-Application; NS#2 shared-pg ×3 contexts (3/3/5) LIVE
+- **3646-01 ✅** jobs canvas → live 5s catalyst-api stream
+- **3374-08/06/07/15/09 ✅** openbao vault / gitea / harbor / hubble / keycloak all signed-in
+- **3374-12 ❌** newapi → upstream-111 REGRESSION caught (pod 3/3 Running) → #3858
+
+Direct browser confirmed the probe AND caught the newapi regression the probe missed.
+
+## Funnel terminal — Pillar-1 customer journey ran END-TO-END (hw167, this session)
+
+**First time ever** an Organization went active through the funnel (prior envs couldn't even mint the Organization CR — the org-services tier was dead everywhere). The org-controller fix (#3849) unblocked it.
+- ✅ Full wizard: plans M → WordPress → domain `walkorg.omani.homes` → BCP topology → review → **email-PIN zero-click sign-in** (PIN from Valkey `magic:admin@walkorg.test`) — screenshots `hw167-3376-01..07`.
+- ✅ `POST /api/tenant/orgs → 201` → `tenant.created` → **Organization CR `walkorg` minted → org-controller `Ready=True`** (Keycloak group + Gitea org + per-Org gitops loop + vCluster `phase: Ready`).
+- ❌ **Terminal app-serving** (`console.walkorg.omani.homes` / `wordpress.walkorg.omani.homes`) = ERR_CONNECTION_REFUSED — gated by **5 gaps fixed in PR #3860 (#3859)**: (1) vCluster NetworkPolicies allow-list `sme`→`org-services` (rtz 0.2.13, mgmt 0.2.20); (2) kyverno harbor-proxy exclude (1.0.37); (3) per-Org vCluster flux-managed/harbor-proxy `namespaceSelector` excludes; (4) per-Org coredns `1.14.1`→`1.11.3`; (5) `TENANT_PARENT_DOMAIN`→`tenantPublic` route (catalyst-platform 1.4.696). Gaps 1-3 applied LIVE → org-services tier 12/12 Running + `walkorg` Ready=True; gaps 4-5 land the route+DNS on the next fresh prov. App-install also gated behind marketplace checkout `503` (no Stripe).
+
+All 5 gaps trace to the incomplete #3383 `sme`→`org-services` rename (which I re-opened) — the funnel-drive surfaced them by driving the real journey.

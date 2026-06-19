@@ -108,7 +108,10 @@ spec:
       # every scan-job create cluster-wide so trivy scanning was dead. Scoped
       # per-policy carve-out (same shape as powerdns + cnpg); trivy-system stays
       # subject to every other policy.
-      version: 1.0.36
+      # 1.0.37 (#3859): add org-services to harbor-proxy-pull exclude (sme→
+      # org-services rename orphaned the mixed-image carve-out → provisioning
+      # CR-minter Enforce-denied → #3376 funnel could not reach ACTIVE).
+      version: 1.0.37
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno

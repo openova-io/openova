@@ -67,7 +67,7 @@ name: bp-rtz-vcluster
 # (valkey/seaweedfs/vllm) mint no host-side DB/SSO Secret, so no
 # fromHost.secrets mapping is needed here. Syncer image tag bumped to 0.23.0
 # to match. Default render unchanged in shape (subchart version only).
-version: 0.2.12
+version: 0.2.13
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign RTZ

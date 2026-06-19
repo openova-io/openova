@@ -129,6 +129,20 @@ spec:
           image:
             registry: {{ .VClusterImageRegistry }}
             repository: proxy-ghcr/loft-sh/kubernetes
+      coredns:
+        # #3859 (first proven walkorg/hw167): vcluster 0.33.x's baked-in default
+        # coredns is coredns/coredns:1.14.1 — a tag that does NOT exist on
+        # docker.io (real tags are 1.11.x/1.12.x). The per-Org vCluster's coredns
+        # then ImagePullBackOffs ("unexpected media type text/html … not found"),
+        # the vCluster never gets cluster DNS, and the customer's purchased app
+        # can never resolve/serve → the #3376 funnel terminal is unreachable.
+        # The platform vClusters (mgmt/rtz/dmz) only escape because they pin the
+        # vcluster subchart at 0.23.0 (baked-in coredns 1.11.3, valid). Pin the
+        # same valid 1.11.3 through the Sovereign Harbor proxy-cache (docker.io →
+        # proxy-dockerhub, the same project the provisioning alpine/k8s init uses)
+        # so it ALSO satisfies the harbor-proxy-pull Kyverno Enforce (*/proxy-*/*).
+        deployment:
+          image: {{ .VClusterImageRegistry }}/proxy-dockerhub/coredns/coredns:1.11.3
       backingStore:
         database:
           embedded:

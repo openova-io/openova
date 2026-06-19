@@ -148,6 +148,7 @@ spec:
       # chart renders the canonical apps.openova.io/v1 Application CR for
       # this slot's HelmRelease so the console /apps list, per-app Topology
       # tab + showback resolve openbao (no more "no Application CR").
+      # 1.2.50: #3374 — in-vCluster k8s-auth mount + gateway-decoupled zero-click SSO landing.
       version: 1.2.50
       sourceRef:
         kind: HelmRepository
