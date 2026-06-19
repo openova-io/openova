@@ -37,15 +37,24 @@ import (
 )
 
 // TestKustomizationTimeout_AllAtFiveMinutes locks the bootstrap Flux
-// Kustomization timeouts. All three of bootstrap-kit, sovereign-tls,
-// and infrastructure-config must declare `timeout: 5m`.
+// Kustomization timeouts. The two health-gating (`wait: true`)
+// Kustomizations — bootstrap-kit and infrastructure-config — must each
+// declare `timeout: 5m`.
+//
+// #3845/#3888 — sovereign-tls was deliberately re-homed onto the
+// bootstrap-kit-crs idiom (`wait: false` + `retryInterval: 1m`, NO
+// dependsOn, NO timeout: an async, self-retrying applier that must not be
+// gated on the ~50 leaf-app HRs). A `wait: false` Kustomization does not
+// hold the revision lock the way a `wait: true` one does, so the issue
+// #492 deadlock pathology this test guards simply does not apply to it —
+// it has no operative `timeout:` line and is excluded from the count.
 //
 // Implementation note: we don't bother locating each Kustomization by
 // name and inspecting the next `timeout:` line beneath it. The
-// cloud-init template is small and the only `timeout:` lines outside
-// commentary are the three Kustomization timeouts. We assert presence
-// of three `timeout: 5m` lines AND absence of any `timeout: 30m` lines
-// (the pre-issue-492 form).
+// cloud-init template is small and the only operative `timeout:` lines
+// outside commentary are the two health-gating Kustomization timeouts. We
+// assert presence of two `timeout: 5m` lines AND absence of any
+// `timeout: 30m` lines (the pre-issue-492 form).
 func TestKustomizationTimeout_AllAtFiveMinutes(t *testing.T) {
 	tpl := readCloudInit(t)
 
@@ -65,15 +74,16 @@ func TestKustomizationTimeout_AllAtFiveMinutes(t *testing.T) {
 		}
 	}
 
-	// Expect exactly THREE operative timeout lines (bootstrap-kit +
-	// sovereign-tls + infrastructure-config). A higher count means a
-	// new Kustomization was added without updating this test —
-	// promote the new one into the spec by extending the wanted
-	// fixture; do not loosen the test.
-	const wantCount = 3
+	// Expect exactly TWO operative timeout lines (bootstrap-kit +
+	// infrastructure-config). sovereign-tls + bootstrap-kit-crs are the
+	// `wait: false` async-applier tier and carry no timeout (#3845/#3888).
+	// A higher count means a new health-gating Kustomization was added
+	// without updating this test — promote the new one into the spec by
+	// extending the wanted fixture; do not loosen the test.
+	const wantCount = 2
 	if got := len(operativeTimeouts); got != wantCount {
 		t.Fatalf("expected exactly %d operative `timeout:` lines in cloud-init template (got %d): %v\n"+
-			"If a new Kustomization was added, extend this test to assert its timeout matches the others.",
+			"If a new health-gating Kustomization was added, extend this test to assert its timeout matches the others.",
 			wantCount, got, operativeTimeouts)
 	}
 
@@ -124,42 +134,54 @@ func TestKustomizationTimeout_NoThirtyMinuteRegression(t *testing.T) {
 // `wait: true`. The issue #492 fix was Option A (reduce timeout) NOT
 // Option B (set wait: false). Downstream `dependsOn: bootstrap-kit`
 // relies on the Kustomization-level Ready=True signal aggregating its
-// HelmReleases' Ready states; flipping bootstrap-kit / sovereign-tls /
-// infrastructure-config to `wait: false` would break that contract and
-// let infrastructure-config apply before its HRs are actually Ready.
+// HelmReleases' Ready states; flipping bootstrap-kit / infrastructure-config
+// to `wait: false` would break that contract and let infrastructure-config
+// apply before its HRs are actually Ready.
 //
 // This test catches a future "drive-by simplification" that flips
 // wait: false thinking it's harmless.
 //
-// EXCEPTION (#3804 / Refs #3642) — `bootstrap-kit-crs` is the ONE
-// Kustomization that legitimately runs `wait: false`. It carries the
-// raw CRD-dependent CRs (HTTPRoute / ExternalSecret / CNPG `Cluster`)
-// that were extracted out of the now-in-vCluster Helm charts. Those CRs
-// reconcile to health ASYNCHRONOUSLY (CNPG cluster provisioning, ESO
-// sync) and MUST NOT gate the Kustomization — Flux only needs to confirm
-// the apply succeeded (the CRDs are present, which `dependsOn:
-// bootstrap-kit` already guarantees). It carries no `wait: true`, so the
-// three load-bearing Kustomizations are still asserted below.
+// EXCEPTIONS — two Kustomizations legitimately run `wait: false`:
+//   - `bootstrap-kit-crs` (#3804 / Refs #3642): carries the raw
+//     CRD-dependent CRs (HTTPRoute / ExternalSecret / CNPG `Cluster`)
+//     extracted out of the now-in-vCluster Helm charts. Those CRs reconcile
+//     to health ASYNCHRONOUSLY (CNPG cluster provisioning, ESO sync) and
+//     MUST NOT gate the Kustomization — Flux only needs to confirm the apply
+//     succeeded.
+//   - `sovereign-tls` (#3845 / Refs #3888): re-homed onto the same async
+//     idiom. The wildcard-TLS + Gateway datapath must NOT be gated on the
+//     ~50 bootstrap-kit leaf-app HRs (a single non-foundational app failing
+//     would otherwise wedge the whole Sovereign's :443). It reconciles in
+//     parallel with a short retryInterval until the cert-manager.io /
+//     gateway.networking.k8s.io CRDs register, then applies — with per-CR
+//     health (cert issuance, envoy restart) reconciling async, so `wait:
+//     false` is correct.
+//
+// Both carry no `wait: true`, so the two load-bearing (health-gating)
+// Kustomizations are the ones asserted below.
 func TestKustomizationTimeout_WaitTrueRetained(t *testing.T) {
 	tpl := readCloudInit(t)
 
-	// We expect at least 3 `wait: true` lines (bootstrap-kit +
-	// sovereign-tls + infrastructure-config). Cheap presence-count
-	// rather than per-name extraction; combined with the timeout test
-	// above, a missing `wait: true` would mean the count drops below 3.
+	// We expect at least 2 `wait: true` lines (bootstrap-kit +
+	// infrastructure-config). Cheap presence-count rather than per-name
+	// extraction; combined with the timeout test above, a missing
+	// `wait: true` would mean the count drops below 2.
 	const want = "wait: true"
 	count := strings.Count(tpl, want)
-	if count < 3 {
-		t.Errorf("expected `wait: true` on each of the 3 health-gating Kustomizations (got %d occurrences). Issue #492 fix is Option A (timeout reduction); Option B (wait: false) would break the dependsOn chain.", count)
+	if count < 2 {
+		t.Errorf("expected `wait: true` on each of the 2 health-gating Kustomizations (got %d occurrences). Issue #492 fix is Option A (timeout reduction); Option B (wait: false) would break the dependsOn chain.", count)
 	}
 
-	// NO operative `wait: false` EXCEPT on bootstrap-kit-crs. Track the
-	// owning Kustomization via its metadata.name — recognised as the
-	// `name:` line whose previous non-comment line is `metadata:` (so the
-	// `sourceRef.name` / `dependsOn[].name` lines that also say "name:"
+	// NO operative `wait: false` EXCEPT on the two async-applier tiers.
+	// Track the owning Kustomization via its metadata.name — recognised as
+	// the `name:` line whose previous non-comment line is `metadata:` (so
+	// the `sourceRef.name` / `dependsOn[].name` lines that also say "name:"
 	// don't shadow it). The allowlist is name-scoped, not a blanket
 	// relaxation. As with the 30m guard, comments are fine.
-	const allowWaitFalseFor = "bootstrap-kit-crs"
+	allowWaitFalseFor := map[string]bool{
+		"bootstrap-kit-crs": true, // #3804 / Refs #3642 — async CR applier
+		"sovereign-tls":     true, // #3845 / Refs #3888 — async wildcard-TLS applier
+	}
 	currentName := ""
 	prevNonComment := ""
 	for i, line := range strings.Split(tpl, "\n") {
@@ -171,11 +193,11 @@ func TestKustomizationTimeout_WaitTrueRetained(t *testing.T) {
 			currentName = strings.TrimSpace(strings.TrimPrefix(trimmed, "name:"))
 		}
 		if strings.HasPrefix(trimmed, "wait: false") {
-			if currentName == allowWaitFalseFor {
+			if allowWaitFalseFor[currentName] {
 				prevNonComment = trimmed
-				continue // intentional async CR-applier tier (#3804 / Refs #3642)
+				continue // intentional async applier tier (#3804/#3642, #3845/#3888)
 			}
-			t.Errorf("line %d carries operative `wait: false` on Kustomization %q — issue #492 fix is Option A (timeout reduction), NOT Option B. Flipping wait breaks the `dependsOn: bootstrap-kit` Ready contract (only bootstrap-kit-crs may use wait:false):\n  %s",
+			t.Errorf("line %d carries operative `wait: false` on Kustomization %q — issue #492 fix is Option A (timeout reduction), NOT Option B. Flipping wait breaks the `dependsOn: bootstrap-kit` Ready contract (only bootstrap-kit-crs + sovereign-tls may use wait:false):\n  %s",
 				i+1, currentName, line)
 		}
 		prevNonComment = trimmed

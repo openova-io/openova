@@ -541,7 +541,14 @@ spec:
         - operator: Exists
       initContainers:
         - name: set-sysctl
-          image: busybox:1.36
+          # docker.io library/busybox routed through the Harbor proxy-dockerhub
+          # project so the ref satisfies the harbor-proxy-pull glob (`*/proxy-*/*`)
+          # and survives the post-handover registry pivot (bare `busybox:1.36`
+          # resolves to the upstream docker.io after the local Harbor takes over,
+          # which the cutover registries.yaml v2 no longer mirrors). Matches the
+          # canonical `harbor.openova.io/proxy-dockerhub/library/...` idiom
+          # (self-sovereign-cutover/chart/values.yaml). Refs #3296.
+          image: harbor.openova.io/proxy-dockerhub/library/busybox:1.36
           securityContext:
             privileged: true
           command:
@@ -557,7 +564,9 @@ spec:
               mountPath: /host
       containers:
         - name: pause
-          image: busybox:1.36
+          # Same docker.io library/busybox via Harbor proxy-dockerhub as the
+          # set-sysctl initContainer above. Refs #3296.
+          image: harbor.openova.io/proxy-dockerhub/library/busybox:1.36
           command: ["/bin/sh", "-c", "sleep infinity"]
           resources:
             requests:

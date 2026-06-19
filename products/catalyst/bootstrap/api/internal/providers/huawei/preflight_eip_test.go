@@ -110,7 +110,13 @@ func TestEIPBlocklistStore_RecordThenLoadRoundtrip(t *testing.T) {
 	store := filepath.Join(t.TempDir(), "nat-eip-blocklist.json")
 	t.Setenv("CATALYST_HUAWEI_NAT_EIP_STATE", store)
 
-	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	// Anchor `now` to the REAL wall clock, not a fixed past date: the
+	// blocklist() merged-accessor below reads loadPersistedBlocklist with
+	// time.Now() internally, so a hardcoded timestamp older than the TTL
+	// (default 24h) would age the just-recorded entries out by the time
+	// the test runs on a later calendar day, failing spuriously. Recording
+	// at "just now" keeps the round-trip within TTL regardless of the date.
+	now := time.Now()
 	// Prov N rotates away from a freshly-poisoned address NOT in the seed.
 	if err := recordPoisonedEIPs([]string{"212.72.24.8", "212.72.24.59"}, "depN", now); err != nil {
 		t.Fatalf("recordPoisonedEIPs: %v", err)

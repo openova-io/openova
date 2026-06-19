@@ -7,7 +7,7 @@ metadata:
     catalyst.openova.io/section: pts-4-6-llm-serving
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.4.114
+  version: 1.4.116
   card:
     title: NewAPI
     summary: |
@@ -259,7 +259,6 @@ spec:
   defaultPlacement:
     vcluster: mgmt
   allowedPlacements: [host, mgmt]
-
   manifests:
     chart: ./chart
   depends:
@@ -284,7 +283,6 @@ spec:
   observability:
     metrics: prometheus
     logs: stdout
-
   # ── G117.1: Topology declaration ────────────────────────────────────────
   # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
   #   mgmt-A=Active, mgmt-B=Passive. Stateless API; config from CRDs +
@@ -319,12 +317,10 @@ spec:
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
-
   # ── G117.3: Endpoints ──────────────────────────────────────────────────
   # Per audit row: internal — exposed via Catalyst's API ingress (api.<sov>)
   # not as a standalone external hostname.
   endpoints: []
-
   # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
   # NewAPI admin UI gated by KC OIDC; customer-API uses Catalyst-issued
   # API keys (not OIDC).
@@ -346,7 +342,6 @@ spec:
       enabled: true
       providerSlug: sovereign
       enforceAdminGroup: false
-
   # ── G117.6: Multi-instance ─────────────────────────────────────────────
   # Singleton per Sovereign — one NewAPI instance per Sovereign control plane.
   multiInstance:
