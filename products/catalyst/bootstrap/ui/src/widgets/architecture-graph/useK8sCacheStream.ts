@@ -102,6 +102,23 @@ export interface K8sObject {
   // EndpointSlice carries `endpoints` + `ports` at the top level.
   endpoints?: unknown
   ports?: unknown
+  /**
+   * #3939/#3931 (#3642 sibling): for a per-tier vCluster (mgmt/dmz/rtz)
+   * host-synced object, the catalyst-api flatten step surfaces the
+   * DE-MANGLED in-vCluster identity at the top level so the SPA can
+   * render the real name the operator knows
+   * (`gitea-75d9f486fb-g8hsr`) instead of the loft syncer's mangled
+   * host name (`gitea-75d9f486fb-g8hsr-x-gitea-x-mgmt-vcluster`).
+   *
+   * IMPORTANT: `metadata.{name,namespace}` deliberately stay the HOST
+   * coordinates — the Logs (`/k8s/logs/{ns}/{pod}/...`) and
+   * resource-tree (`/k8s/{kind}/{ns}/{name}/tree`) drill-downs resolve
+   * against the HOST apiserver (the mothership holds only the host
+   * kubeconfig). Prefer `displayName`/`vclusterNamespace` for DISPLAY,
+   * `metadata` for the drill-down hrefs.
+   */
+  displayName?: string
+  vclusterNamespace?: string
   [key: string]: unknown
 }
 

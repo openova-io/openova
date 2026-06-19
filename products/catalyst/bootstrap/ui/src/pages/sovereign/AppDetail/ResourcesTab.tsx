@@ -310,21 +310,35 @@ function ResourceKindTable({
           </thead>
           <tbody>
             {items.map((obj) => {
-              const name = obj.metadata?.name ?? '?'
-              const ns = obj.metadata?.namespace ?? namespace
+              // HOST coordinates — these resolve against the host
+              // apiserver (the mothership holds only the host
+              // kubeconfig), so the resource-tree drill-down href and
+              // the React key MUST use them.
+              const hostName = obj.metadata?.name ?? '?'
+              const hostNs = obj.metadata?.namespace ?? namespace
+              // #3939 (#3642 sibling): prefer the de-mangled in-vCluster
+              // identity for DISPLAY. For pre-#3642 (non-synced) rows the
+              // catalyst-api omits these fields, so we fall back to the
+              // host coordinates and the rendering is unchanged.
+              const displayName = obj.displayName ?? hostName
+              const displayNs = obj.vclusterNamespace ?? hostNs
               const status = kind.status ? kind.status(obj) ?? '' : ''
               const href = `${cloudPath}/resource/${encodeURIComponent(
                 kind.plural,
-              )}/${encodeURIComponent(ns)}/${encodeURIComponent(name)}/overview`
+              )}/${encodeURIComponent(hostNs)}/${encodeURIComponent(
+                hostName,
+              )}/overview`
               return (
                 <tr
-                  key={`${ns}/${name}`}
-                  data-testid={`app-detail-resource-row-${kind.singular}-${ns}-${name}`}
+                  key={`${hostNs}/${hostName}`}
+                  data-testid={`app-detail-resource-row-${kind.singular}-${hostNs}-${hostName}`}
                 >
                   <td>
-                    <a href={href}>{name}</a>
+                    <a href={href} data-host-name={hostName} data-host-namespace={hostNs}>
+                      {displayName}
+                    </a>
                   </td>
-                  <td>{ns}</td>
+                  <td>{displayNs}</td>
                   <td>{status}</td>
                 </tr>
               )
