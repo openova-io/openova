@@ -851,21 +851,40 @@ spec:
                           # The token controller populates the SA-token Secret
                           # ASYNCHRONOUSLY — poll until token + ca.crt are both
                           # present (the Job's backoffLimit covers a cold prov).
-                          echo "waiting for ${SRC} data keys (token + ca.crt)…"
+                          #
+                          # FLUX POSTBUILD SUBSTITUTION (Refs #3642): the
+                          # bootstrap-kit-crs Kustomization (cloudinit-control-
+                          # plane.tftpl) runs postBuild.substitute (drone/envsubst)
+                          # over THIS rendered manifest, replacing every shell-var
+                          # reference it sees with the empty string. So each shell
+                          # variable below is written with a DOUBLED leading dollar
+                          # (the documented escape): envsubst collapses the double
+                          # dollar to a single literal one and leaves the brace ref
+                          # for /bin/sh to expand at runtime. Same idiom as
+                          # sovereign-tls/cilium-envoy-tls-restart-job. Without the
+                          # escape the rendered script got a blank --cacert, a blank
+                          # bearer token, and an empty-namespace URL, so the export
+                          # Job CrashLooped, the immutable Job blocked the whole
+                          # bootstrap-kit-crs tier, and the platform spine wedged.
+                          # NOTE: keep this comment free of a single-dollar brace
+                          # reference — drone/envsubst parses comments too and fails
+                          # hard ("unable to parse variable name") on a dollar-brace
+                          # that is not a valid identifier.
+                          echo "waiting for $${SRC} data keys (token + ca.crt)…"
                           tok=""; ca=""
                           for i in $(seq 1 120); do
-                            code=$(curl -s -o /tmp/src.json -w '%{http_code}' --cacert "${CA}" \
-                              -H "Authorization: Bearer ${TOKEN}" \
-                              "${API}/api/v1/namespaces/${NS}/secrets/${SRC}")
-                            if [ "${code}" = "200" ]; then
+                            code=$(curl -s -o /tmp/src.json -w '%{http_code}' --cacert "$${CA}" \
+                              -H "Authorization: Bearer $${TOKEN}" \
+                              "$${API}/api/v1/namespaces/$${NS}/secrets/$${SRC}")
+                            if [ "$${code}" = "200" ]; then
                               tok=$(tr -d '\n' < /tmp/src.json | grep -oE '"token"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
                               ca=$(tr -d '\n' < /tmp/src.json | grep -oE '"ca\.crt"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
-                              if [ -n "${tok}" ] && [ -n "${ca}" ]; then
+                              if [ -n "$${tok}" ] && [ -n "$${ca}" ]; then
                                 echo "source populated"; break
                               fi
                             fi
-                            if [ "${i}" = "120" ]; then
-                              echo "timeout: ${SRC} token/ca.crt absent after 10m" >&2
+                            if [ "$${i}" = "120" ]; then
+                              echo "timeout: $${SRC} token/ca.crt absent after 10m" >&2
                               exit 1
                             fi
                             sleep 5
@@ -874,23 +893,23 @@ spec:
                           # the ALREADY-base64 bytes from the source (token/ca.crt
                           # under .data are base64-encoded), so reuse verbatim.
                           cat > /tmp/dst.json <<EOF
-                          {"apiVersion":"v1","kind":"Secret","metadata":{"name":"${DST}","namespace":"${NS}","labels":{"catalyst.openova.io/blueprint":"bp-openbao","catalyst.openova.io/component":"openbao-host-token-reviewer","app.kubernetes.io/managed-by":"flux"}},"type":"Opaque","data":{"token":"${tok}","ca.crt":"${ca}"}}
+                          {"apiVersion":"v1","kind":"Secret","metadata":{"name":"$${DST}","namespace":"$${NS}","labels":{"catalyst.openova.io/blueprint":"bp-openbao","catalyst.openova.io/component":"openbao-host-token-reviewer","app.kubernetes.io/managed-by":"flux"}},"type":"Opaque","data":{"token":"$${tok}","ca.crt":"$${ca}"}}
                           EOF
                           # Create, or update if it already exists (idempotent).
-                          code=$(curl -s -o /tmp/out.json -w '%{http_code}' -X POST --cacert "${CA}" \
-                            -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
+                          code=$(curl -s -o /tmp/out.json -w '%{http_code}' -X POST --cacert "$${CA}" \
+                            -H "Authorization: Bearer $${TOKEN}" -H "Content-Type: application/json" \
                             --data @/tmp/dst.json \
-                            "${API}/api/v1/namespaces/${NS}/secrets")
-                          if [ "${code}" = "409" ]; then
-                            echo "${DST} exists — updating"
-                            code=$(curl -s -o /tmp/out.json -w '%{http_code}' -X PUT --cacert "${CA}" \
-                              -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
+                            "$${API}/api/v1/namespaces/$${NS}/secrets")
+                          if [ "$${code}" = "409" ]; then
+                            echo "$${DST} exists — updating"
+                            code=$(curl -s -o /tmp/out.json -w '%{http_code}' -X PUT --cacert "$${CA}" \
+                              -H "Authorization: Bearer $${TOKEN}" -H "Content-Type: application/json" \
                               --data @/tmp/dst.json \
-                              "${API}/api/v1/namespaces/${NS}/secrets/${DST}")
+                              "$${API}/api/v1/namespaces/$${NS}/secrets/$${DST}")
                           fi
-                          case "${code}" in
-                            200|201) echo "wrote ${DST} (${code})";;
-                            *) echo "failed to write ${DST}: HTTP ${code}" >&2; cat /tmp/out.json >&2; exit 1;;
+                          case "$${code}" in
+                            200|201) echo "wrote $${DST} ($${code})";;
+                            *) echo "failed to write $${DST}: HTTP $${code}" >&2; cat /tmp/out.json >&2; exit 1;;
                           esac
                   # #3842: writable scratch for the curl -o targets above
                   # (readOnlyRootFilesystem:true makes the image's own /tmp RO).
