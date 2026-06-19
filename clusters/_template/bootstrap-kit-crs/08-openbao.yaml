@@ -248,21 +248,23 @@ spec:
           \nDST=\"openbao-host-token-reviewer-static\"\nNS=\"openbao\"\n# The token\
           \ controller populates the SA-token Secret\n# ASYNCHRONOUSLY \u2014 poll\
           \ until token + ca.crt are both\n# present (the Job's backoffLimit covers\
-          \ a cold prov).\n#\n# \u26A0\uFE0F  Flux postBuild substitution: the bootstrap-kit-crs\n\
-          # Kustomization (cloudinit-control-plane.tftpl) runs\n# postBuild.substitute\
-          \ over THIS rendered manifest, and\n# Flux replaces EVERY ${VAR} token \u2014\
-          \ including shell vars it\n# has no value for \u2014 with the empty string.\
-          \ So every shell\n# ${...} below is escaped as $${...}: Flux turns $$ into\
-          \ a\n# literal $, leaving ${...} for /bin/sh to expand at runtime\n# (same\
-          \ idiom as sovereign-tls/cilium-envoy-tls-restart-job).\n# Without the escape\
-          \ the rendered script gets --cacert \"\",\n# Authorization: Bearer , and\
-          \ URL \u2026/namespaces//secrets/ \u2192\n# the export Job CrashLoops \u2192\
-          \ bootstrap-kit-crs never goes\n# Ready (Job spec.template immutable so\
-          \ Flux can't repair it)\n# \u2192 the whole platform spine wedges (Refs\
-          \ #3642).\necho \"waiting for $${SRC} data keys (token + ca.crt)\u2026\"\
-          \ntok=\"\"; ca=\"\"\nfor i in $(seq 1 120); do\n  code=$(curl -s -o /tmp/src.json\
-          \ -w '%{http_code}' --cacert \"$${CA}\" \\\n    -H \"Authorization: Bearer\
-          \ $${TOKEN}\" \\\n    \"$${API}/api/v1/namespaces/$${NS}/secrets/$${SRC}\"\
+          \ a cold prov).\n#\n# FLUX POSTBUILD SUBSTITUTION (Refs #3642): the\n# bootstrap-kit-crs\
+          \ Kustomization (cloudinit-control-\n# plane.tftpl) runs postBuild.substitute\
+          \ (drone/envsubst)\n# over THIS rendered manifest, replacing every shell-var\n\
+          # reference it sees with the empty string. So each shell\n# variable below\
+          \ is written with a DOUBLED leading dollar\n# (the documented escape): envsubst\
+          \ collapses the double\n# dollar to a single literal one and leaves the\
+          \ brace ref\n# for /bin/sh to expand at runtime. Same idiom as\n# sovereign-tls/cilium-envoy-tls-restart-job.\
+          \ Without the\n# escape the rendered script got a blank --cacert, a blank\n\
+          # bearer token, and an empty-namespace URL, so the export\n# Job CrashLooped,\
+          \ the immutable Job blocked the whole\n# bootstrap-kit-crs tier, and the\
+          \ platform spine wedged.\n# NOTE: keep this comment free of a single-dollar\
+          \ brace\n# reference \u2014 drone/envsubst parses comments too and fails\n\
+          # hard (\"unable to parse variable name\") on a dollar-brace\n# that is\
+          \ not a valid identifier.\necho \"waiting for $${SRC} data keys (token +\
+          \ ca.crt)\u2026\"\ntok=\"\"; ca=\"\"\nfor i in $(seq 1 120); do\n  code=$(curl\
+          \ -s -o /tmp/src.json -w '%{http_code}' --cacert \"$${CA}\" \\\n    -H \"\
+          Authorization: Bearer $${TOKEN}\" \\\n    \"$${API}/api/v1/namespaces/$${NS}/secrets/$${SRC}\"\
           )\n  if [ \"$${code}\" = \"200\" ]; then\n    tok=$(tr -d '\\n' < /tmp/src.json\
           \ | grep -oE '\"token\"[[:space:]]*:[[:space:]]*\"[^\"]*\"' | head -1 |\
           \ sed 's/.*\"\\([^\"]*\\)\"$/\\1/')\n    ca=$(tr -d '\\n' < /tmp/src.json\

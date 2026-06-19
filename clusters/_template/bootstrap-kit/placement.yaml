@@ -852,19 +852,24 @@ spec:
                           # ASYNCHRONOUSLY — poll until token + ca.crt are both
                           # present (the Job's backoffLimit covers a cold prov).
                           #
-                          # ⚠️  Flux postBuild substitution: the bootstrap-kit-crs
-                          # Kustomization (cloudinit-control-plane.tftpl) runs
-                          # postBuild.substitute over THIS rendered manifest, and
-                          # Flux replaces EVERY ${VAR} token — including shell vars it
-                          # has no value for — with the empty string. So every shell
-                          # ${...} below is escaped as $${...}: Flux turns $$ into a
-                          # literal $, leaving ${...} for /bin/sh to expand at runtime
-                          # (same idiom as sovereign-tls/cilium-envoy-tls-restart-job).
-                          # Without the escape the rendered script gets --cacert "",
-                          # Authorization: Bearer , and URL …/namespaces//secrets/ →
-                          # the export Job CrashLoops → bootstrap-kit-crs never goes
-                          # Ready (Job spec.template immutable so Flux can't repair it)
-                          # → the whole platform spine wedges (Refs #3642).
+                          # FLUX POSTBUILD SUBSTITUTION (Refs #3642): the
+                          # bootstrap-kit-crs Kustomization (cloudinit-control-
+                          # plane.tftpl) runs postBuild.substitute (drone/envsubst)
+                          # over THIS rendered manifest, replacing every shell-var
+                          # reference it sees with the empty string. So each shell
+                          # variable below is written with a DOUBLED leading dollar
+                          # (the documented escape): envsubst collapses the double
+                          # dollar to a single literal one and leaves the brace ref
+                          # for /bin/sh to expand at runtime. Same idiom as
+                          # sovereign-tls/cilium-envoy-tls-restart-job. Without the
+                          # escape the rendered script got a blank --cacert, a blank
+                          # bearer token, and an empty-namespace URL, so the export
+                          # Job CrashLooped, the immutable Job blocked the whole
+                          # bootstrap-kit-crs tier, and the platform spine wedged.
+                          # NOTE: keep this comment free of a single-dollar brace
+                          # reference — drone/envsubst parses comments too and fails
+                          # hard ("unable to parse variable name") on a dollar-brace
+                          # that is not a valid identifier.
                           echo "waiting for $${SRC} data keys (token + ca.crt)…"
                           tok=""; ca=""
                           for i in $(seq 1 120); do
