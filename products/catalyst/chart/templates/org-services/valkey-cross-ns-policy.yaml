@@ -71,7 +71,7 @@ metadata:
   annotations:
     description: |
       Allow ingress on TCP/{{ $valkey.port | default 6379 }} from pods in
-      the `{{ $valkey.crossNsPolicy.sourceNamespace | default "sme" }}`
+      the `{{ $valkey.crossNsPolicy.sourceNamespace | default "org-services" }}`
       namespace to bp-valkey workloads. Defense-in-depth — bp-valkey's
       upstream NetworkPolicy already permits port 6379 from any source.
 spec:
@@ -85,7 +85,7 @@ spec:
   ingress:
     - fromEndpoints:
         - matchLabels:
-            k8s:io.kubernetes.pod.namespace: {{ $valkey.crossNsPolicy.sourceNamespace | default "sme" }}
+            k8s:io.kubernetes.pod.namespace: {{ $valkey.crossNsPolicy.sourceNamespace | default "org-services" }}
       toPorts:
         - ports:
             - port: {{ $valkey.port | default 6379 | quote }}

@@ -56,7 +56,7 @@
   all of which are platform namespaces that legitimately host pods
   with privileged-class capabilities (CSI drivers, CNI, etc.).
 */ -}}
-{{- $excludedNamespaces := list "kube-system" "cnpg-system" "flux-system" "catalyst-system" "catalyst" "kyverno" "cilium" "openbao" "keycloak" "gitea" "powerdns" "sme" }}
+{{- $excludedNamespaces := list "kube-system" "cnpg-system" "flux-system" "catalyst-system" "catalyst" "kyverno" "cilium" "openbao" "keycloak" "gitea" "powerdns" "org-services" "sme" }}
 {{- $enforceMode := .Values.qaFixtures.kyvernoEnforceMode | default "Enforce" }}
 {{- $auditMode := "Audit" }}
 ---

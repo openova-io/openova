@@ -1620,7 +1620,7 @@ smeServices:
     # or key.
     sourceSecretName: valkey
     sourcePasswordKey: valkey-password
-    destNamespace: sme
+    destNamespace: org-services       # #3383: was `sme`
     destSecretName: sme-valkey-auth
     crossNsPolicy:
       # Render templates/org-services/valkey-cross-ns-policy.yaml — a
@@ -1637,7 +1637,7 @@ smeServices:
       # carve-out). Re-enable + override `namespace` only for a
       # host-placed valkey.
       enabled: false
-      sourceNamespace: sme
+      sourceNamespace: org-services   # #3383: was `sme`
   # ─── provisioning service GitHub token (issue #866) ──────────────────
   # The SME `provisioning` service Deployment references
   # `secret/provisioning-github-token` with key `GITHUB_TOKEN`. On
@@ -1685,7 +1685,7 @@ smeServices:
       # Destination: the Secret + key shape that the provisioning
       # Deployment's secretKeyRef in
       # templates/org-services/provisioning.yaml reads.
-      destNamespace: sme
+      destNamespace: org-services     # #3383: was `sme`
       destSecretName: provisioning-github-token
       destKey: GITHUB_TOKEN
     # ─── Provisioning service GitOps env (issues #940 + #944) ──────────

@@ -2865,7 +2865,14 @@ name: bp-catalyst-platform
 # 1.4.695 — #3849 (Refs #3848): org-controller reads the keycloak SA secret from
 # the host-bridge (catalyst-openova-kc-credentials) instead of an intra-release
 # helm lookup that lost the ordering race on a cold install.
-version: 1.4.701
+version: 1.4.702
+# 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
+#   funnel/BSS control-plane templates + values default the namespace to `org-services`
+#   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +
+#   -policy destNamespace+sourceNamespace, ferretdb + cnpg-cluster + configmap POSTGRES_HOST
+#   namespace fallbacks, the pdm-basicauth + baseline-catalyst-system + kyverno-qa-fixture +
+#   network-policies allowSystemNamespaces lists. The `sme` tier-enum value + the wire-stable
+#   sme-pg cluster/owner role names are intentionally preserved.
 # 1.4.699 — #3856 (Refs #3375 #3581): ONE canonical DR vocabulary in the catalog.
 # catalog-seed/blueprints.yaml bp-cnpg-pair + bp-continuum carried the banned
 # un-hyphenated `active-hotstandby` topology token (modes/default/tags) → the
