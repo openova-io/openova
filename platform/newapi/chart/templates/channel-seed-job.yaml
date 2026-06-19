@@ -218,7 +218,18 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "bp-newapi.selectorLabels" . | nindent 8 }}
+        # #3858 — DELIBERATELY NOT bp-newapi.selectorLabels. This one-shot
+        # channel-seed Pod (curl container, no HTTP listener) must not carry the
+        # workload's {app.kubernetes.io/name: bp-newapi, .../instance: <release>}
+        # selector, or it gets adopted into the newapi-bp-newapi +
+        # newapi-bp-newapi-bridge Service EndpointSlices (ready-by-default, no
+        # probe) and the gateway round-robins bare-URL `/` to its dead port ⇒
+        # "upstream connect error 111". A distinct app.kubernetes.io/name keeps
+        # it out of every Service selector (same pattern as the admin-seed /
+        # admin-promote / database-secret-sync pods).
+        app.kubernetes.io/name: newapi-channel-seed
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        catalyst.openova.io/blueprint: bp-newapi
         catalyst.openova.io/component: channel-seed
     spec:
       restartPolicy: OnFailure
