@@ -214,4 +214,62 @@ If the primary region fails, a replica is explicitly promoted (sovereign-admin a
 
 ---
 
+## Bootstrap KV-seed (#3888, Refs #3847)
+
+### Why it exists
+
+The founder mandate is *"keep every item possible in Flux"* — thin the control-plane
+cloud-init. [#3890](https://github.com/openova-io/openova/issues/3890) evicted
+`powerdns-api-credentials` from cloud-init into a Flux-reconciled Secret, but ~5
+other inline Secrets STAYED because they are consumed by HelmReleases that
+reconcile **at or before** the `openbao(08) → ESO(15) → ClusterSecretStore(15a)`
+pipeline becomes functional, **and there was no way to land a per-deployment cred
+into openbao KV at provision time** — the `auth-bootstrap` Job revokes the init
+root token at the end of slot-08 install, after which no token can write to
+`secret/*`. So an `ExternalSecret` had nothing to read FROM.
+
+### The mechanism
+
+`autoUnseal.bootstrapSeed` (default **OFF**) closes that gap. When enabled AND the
+control-plane cloud-init writes a one-shot Secret (`openbao-bootstrap-seed`) into
+the `openbao` namespace, the `auth-bootstrap` Job — which still holds the **valid
+root token** — reads every `data` key from that Secret and writes it into KV at
+`<kvMountPath>/<kvPrefix>/<key>` **BEFORE** revoking the root token. An
+`ExternalSecret` referencing the `vault-region1` ClusterSecretStore can then
+materialise the cred in any consumer namespace. The seed Secret is **single-use**:
+its keys are deleted from K8s after a successful KV write so no plaintext cred
+lingers in etcd (same posture as `openbao-recovery-seed`). Writes are idempotent
+(`bao kv put` overwrites), so Job retries + chart upgrades are safe. Default-OFF
+plus an `optional: true` seed mount means the prod-posture render is behaviourally
+byte-identical to the pre-#3888 chart (only 3 inert env vars + an env-gated script
+block are added). See `autoUnseal.bootstrapSeed.*` in `chart/values.yaml`.
+
+**Seed Secret shape:** each `data` key is a KV path with `__` standing in for `/`
+(k8s Secret keys cannot contain `/`); the value body is `field=value` lines. e.g.
+a key `harbor-robot__token` with body `token=<robot-token>` lands at
+`secret/bootstrap/harbor-robot` field `token`, readable by an ExternalSecret
+`remoteRef.key: bootstrap/harbor-robot`, `property: token`.
+
+### Eviction status of the #3890 STAY secrets
+
+**#3888 ships the mechanism but evicts NO secret** — each of the 5 STAY secrets
+still has an ordering or cycle blocker that cannot be closed without a change that
+itself requires a fresh-prov walk to validate (out of #3888's no-prov scope). The
+next eviction becomes a pure data change (one cloud-init `__`-key + one
+ExternalSecret CR) once its blocker is cleared:
+
+| Secret | Earliest consumer | Mechanism | Blocker (why not yet evictable) |
+|--------|-------------------|-----------|---------------------------------|
+| `object-storage` | openbao **slot 08** (its own HR), keycloak 09, gitea 10 | Flux `valuesFrom` | **Hard cycle** — openbao consumes it before openbao/ESO exist. Unbreakable via ESO. |
+| `cloud-credentials` | cluster-autoscaler 50, hcloud-ccm 55, Crossplane | Flux `valuesFrom` | Not a flat cred — carries live IaC data (`hcloud-cloud-init: base64(worker-cloud-init)`, network/firewall/ssh-key names). Recomputed per-apply by Terraform; cannot be a static KV value. |
+| `harbor-robot-token` | catalyst-api **slot 13** | Pod `secretKeyRef` (**required**) | Hard-required at Pod start (issue #557 `Validate()`), slot 13 < 15a, NOT in catalyst-api's reloader watch list → a late ESO delivery wedges the Pod (`CreateContainerConfigError`). Needs reloader wiring + a prov to prove. |
+| `pdm-basicauth` | catalyst-api slot 13 | Pod `secretKeyRef` (optional) | Optional at start but NOT in the reloader watch list → late arrival is never picked up. Needs a reloader-annotation change to the bp-catalyst-platform umbrella + a prov. |
+| `handover-jwt-public` | catalyst-api slot 13 | optional volume mount | Reloader annotation lists volume-name `handover-jwt-public`, but the actual Secret is `catalyst-handover-jwt-public` — the names mismatch, so a late ESO delivery does NOT roll the Pod. Needs the reloader name corrected in the umbrella chart + a prov. |
+
+`ghcr-pull` + `openbao-recovery-seed` are genuine bootstrap chicken-and-egg
+(the image-pull cred + the openbao recovery seed itself) and are **never**
+evictable to ESO.
+
+---
+
 *Part of [OpenOva](https://openova.io)*

@@ -158,6 +158,49 @@ autoUnseal:
   # leave the Job pending indefinitely.
   activeDeadlineSeconds: 600
   backoffLimit: 6
+  # ─── #3888 (Refs #3847) prov-time openbao KV-seed ─────────────────────
+  # The MISSING mechanism #3890 flagged: there is no way to land a
+  # per-deployment cred into openbao KV at provision time, because the
+  # auth-bootstrap Job revokes the init root token at the end of its run
+  # (no other token holds write access to `secret/*`). Result: any inline
+  # cloud-init Secret whose consumer reconciles at/before the
+  # openbao→ESO→ClusterSecretStore pipeline (slots 08→15a) could not be
+  # evicted to an ExternalSecret — there was nothing to read FROM.
+  #
+  # This block closes that gap. When `enabled: true` AND the cloud-init
+  # writes a one-shot Secret (default name `openbao-bootstrap-seed`) into
+  # the openbao namespace, the auth-bootstrap Job (which still holds the
+  # valid root token) reads every `data` key from that Secret and writes it
+  # into openbao KV at `<kvMountPath>/<kvPrefix>/<key>` BEFORE it revokes
+  # the root token. ExternalSecrets can then materialise those creds via the
+  # `vault-region1` ClusterSecretStore — exactly the delivery path #3888
+  # wants so future inline Secrets can be evicted from cloud-init to Flux.
+  #
+  # Default-OFF + inert: when disabled, OR when the seed Secret is absent
+  # (the seed mount is `optional: true`), the Job seeds nothing and behaves
+  # byte-identically to the pre-#3888 chart. The seed Secret is single-use:
+  # its keys are deleted from K8s after a successful KV write so no plaintext
+  # cred lingers in etcd (same posture as openbao-recovery-seed). Each KV
+  # write is idempotent (`bao kv put` overwrites), so Job retries + chart
+  # upgrades are safe.
+  #
+  # Per-key shape: the seed Secret's data keys are openbao KV PATHS with
+  # `__` standing in for `/` (k8s Secret keys cannot contain `/`), and each
+  # value is a flat `field=value` newline-separated body. e.g. a data key
+  # `harbor-robot__token` with value `token=<robot-token>` lands at
+  # `secret/bootstrap/harbor-robot/token` with field `token`. A future
+  # eviction adds one cloud-init `__`-key per evicted Secret + one
+  # ExternalSecret CR reading it back. NO secret is evicted in #3888 itself
+  # (each of the 5 #3890 STAY secrets still has an ordering/cycle blocker —
+  # see platform/openbao/README.md §Bootstrap-KV-seed); this ships the
+  # mechanism so the NEXT eviction is a pure data change.
+  bootstrapSeed:
+    enabled: false
+    # One-shot Secret the cloud-init writes into the openbao namespace.
+    secretName: openbao-bootstrap-seed
+    # KV sub-path under <kvMountPath> the seeded creds land at. ESO
+    # remoteRef.key values resolve to `<kvPrefix>/<name>`.
+    kvPrefix: bootstrap
   # Enable Kubernetes auth method bootstrap as a second post-install Job.
   # When true the Job waits for `bao operator init` to succeed, then
   # `bao auth enable kubernetes` + `bao write auth/kubernetes/config …`,

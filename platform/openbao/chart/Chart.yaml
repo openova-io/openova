@@ -167,7 +167,16 @@ name: bp-openbao
 # Both default-OFF for host-side openbao (XCR off) → byte-identical render.
 # Verified GREEN live hw167 2026-06-19: bao.<fqdn>/ui/ → /sso/landing → lands
 # /ui/vault/secrets (sso-zero-click-probe openbao row GREEN). Pin in lockstep.
-version: 1.2.50
+version: 1.2.51
+# 1.2.51 (#3888, Refs #3847): prov-time openbao KV-seed mechanism — the
+# auth-bootstrap Job reads a one-shot cloud-init `openbao-bootstrap-seed`
+# Secret + writes its keys into KV at secret/<prefix>/* with the still-valid
+# root token BEFORE revoking it, so future inline cloud-init Secrets can be
+# evicted to Flux ExternalSecrets (vault-region1). Default-OFF + optional
+# mount → prod posture render is behaviourally byte-identical (only 3 inert
+# env vars + an env-gated script block added). NO secret evicted in #3888
+# itself — each #3890 STAY secret still has an ordering/cycle blocker (see
+# README §Bootstrap-KV-seed). Pin bump deferred until publish.
 # 1.2.46 (#3629, 2026-06-16): the SECONDARY (fetch) snapshot CronJob no longer
 # performs an OpenBao k8s-auth login. The fetch path is PURE S3 I/O
 # (list-objects-v2 + `s3 cp` to the restore-staging PVC) and NEVER reads
