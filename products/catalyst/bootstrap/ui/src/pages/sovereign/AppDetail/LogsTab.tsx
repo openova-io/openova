@@ -57,8 +57,21 @@ export interface LogsTabProps {
 }
 
 interface PodOption {
+  /**
+   * HOST pod name — the value passed into the log-stream WS URL, which
+   * resolves against the HOST apiserver (the mothership holds only the
+   * host kubeconfig). For mgmt-vCluster-synced pods this is the loft
+   * syncer's mangled name (`<pod>-x-gitea-x-mgmt-vcluster`).
+   */
   name: string
+  /** HOST namespace — same host-coordinate rule as `name`. */
   namespace: string
+  /**
+   * #3939 (#3642 sibling): de-mangled in-vCluster name to SHOW in the
+   * picker (`gitea-75d9f486fb-g8hsr`). Falls back to the host `name`
+   * for pre-#3642 (non-synced) pods where the API omits `displayName`.
+   */
+  displayName: string
   containers: string[]
 }
 
@@ -90,7 +103,14 @@ async function fetchAppPods(
     if (!podName) continue
     const spec = (item.spec ?? {}) as { containers?: Array<{ name: string }> }
     const containers = (spec.containers ?? []).map((c) => c.name).filter(Boolean)
-    pods.push({ name: podName, namespace: podNs, containers })
+    // host coords (`name`/`namespace`) drive the WS log-stream URL;
+    // `displayName` is the de-mangled label shown in the picker (#3939).
+    pods.push({
+      name: podName,
+      namespace: podNs,
+      displayName: item.displayName ?? podName,
+      containers,
+    })
   }
   return pods
 }
@@ -256,8 +276,10 @@ export function LogsTab({
             >
               {pods.length === 0 ? <option value="">no pods found</option> : null}
               {pods.map((p) => (
+                // value = HOST pod name (drives the log-stream WS URL);
+                // label = de-mangled in-vCluster name (#3939).
                 <option key={p.name} value={p.name}>
-                  {p.name}
+                  {p.displayName}
                 </option>
               ))}
             </select>
