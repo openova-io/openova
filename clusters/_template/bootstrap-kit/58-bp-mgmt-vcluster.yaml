@@ -170,7 +170,13 @@ spec:
       # harbor/grafana natively without a fromHost mirror. This pin bump only
       # refreshes the fromHost-block RCA comment; sync config byte-identical.
       # Refs #3876 #3374 #3737.
-      version: 0.2.24
+      # 0.2.25 (#3831, Refs #3642): + the newapi-pg `-rw`/`-ro` Service mirror —
+      # the SERVICE half for re-homing newapi (the CNPG-OWNER app) into vc-mgmt
+      # (slot 80 flips to placement.role=vcluster-app; slot 80a host-renders the
+      # CNPG-owner seams). The `newapi/*` secret mapping already delivers the DSN.
+      # Cycle-1.5 train combines this with the 0.2.23 DB-secret de-conflict
+      # (#3876) + the 0.2.24 RCA-comment refresh (#3878).
+      version: 0.2.25
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster

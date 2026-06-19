@@ -1246,37 +1246,110 @@ spec:
                 enablePodMonitor: false
     - {file: 56-bp-openova-flow-server.yaml, hr: bp-openova-flow-server, vcluster: host, target: mgmt, namespace: catalyst-system}
     - {file: 57-bp-openova-flow-emitter.yaml, hr: bp-openova-flow-emitter, vcluster: host, target: mgmt, namespace: catalyst-system}
-    # ── #3642 HOST-BRIDGE — newapi reverted to HOST placement (Refs #3831) ──
+    # ── #3831 CNPG-OWNER HOST-BRIDGE — newapi re-homed INTO vc-mgmt ──
     # newapi is the ONLY NS#1 app that OWNS a dedicated CNPG cluster
-    # (cnpg.enabled) rather than CONSUMING a fixed-name shared-pg
-    # reflected secret like gitea/harbor/keycloak/openbao do. The #3642
-    # host-bridge was designed for shared-pg CONSUMERS (route + ES +
-    # reflected `<app>-database-secret`, mirrored into vc-mgmt via
-    # sync.fromHost.secrets) — it does NOT carry the two CNPG-owner
-    # seams newapi needs host-side: the database-secret-sync Job (reads
-    # the host CNPG `<cluster>-app` Secret, PATCHes the DSN placeholder)
-    # and the admin-sso-seed Job/CronJob (seeds the newapi DB). It also
-    # dropped the SSO AppRegistration ConfigMap (bp-sso-bridge registers
-    # the `newapi-admin` KC client + writes sso/sovereign/newapi-admin
-    # from it), and never wired database.existingSecret — so the
-    # Deployment render-gate ($effDbSecret empty) skip-renders. Verified
-    # LIVE on hw165 (`9ee307969c92452e`): host ns newapi = the CNPG db
-    # pod ONLY, 0 Deployment, both ExternalSecrets SecretSyncedError, no
-    # newapi-admin AppRegistration ConfigMap anywhere. Every OTHER NS#1
-    # app's *-sso ExternalSecret SecretSynced=True — newapi is the lone
-    # outlier. Reverting to HOST placement (the SHIPPED #3733 grafana /
-    # #3737 keycloak revert precedent) renders the chart NATIVELY —
-    # Deployment + CNPG Cluster + sso-registration ConfigMap +
-    # admin-sso-seed Job/CronJob + database-secret-sync Job + oidc-sync
-    # ExternalSecret — all in the host `newapi` ns where ESO /
-    # bp-sso-bridge / cnpg-operator already reconcile them, the identical
-    # recipe gitea/harbor use today. `target: mgmt` stays the #3642
-    # aspiration: re-promote into vc-mgmt once the host-bridge gains the
-    # CNPG-owner seams (host-side db-sync + admin-seed + AppRegistration)
-    # + vcluster 0.23.0 sync.fromHost.secrets newapi/* (already mapped at
-    # bp-mgmt-vcluster values.yaml) delivers the DSN/oidc Secrets.
+    # (`newapi-bp-newapi-newapi-pg`, cnpg.enabled) rather than CONSUMING a
+    # fixed-name shared-pg reflected secret like gitea/harbor/keycloak/openbao.
+    # The #3642 host-bridge was built for shared-pg CONSUMERS, so a NAIVE
+    # promote (just flipping vcluster: mgmt) dropped newapi's CNPG-owner seams
+    # — the database-secret-sync Job, the admin-sso-seed Job/CronJob, the
+    # newapi-admin AppRegistration ConfigMap, and the database.existingSecret
+    # wiring — so the Deployment render-gate ($effDbSecret empty) skip-rendered
+    # (0 Deployment; #3832 reverted it to host on hw165).
+    #
+    # The #3831 fix mirrors the guacamole host-bridge precedent (#3868) and
+    # extends it for a CNPG-OWNER app via a chart `placement.role` render-split
+    # (bp-newapi 1.4.111). TWO cooperating HRs share releaseName: newapi +
+    # chart bp-newapi (different clusters → no Helm-storage collision, fullname
+    # lines up):
+    #   - THIS slot 80 (vcluster: mgmt, placement.role=vcluster-app) → the
+    #     Deployment + Service run INSIDE vc-mgmt; cnpg + ssoBridgeSync + the
+    #     catalyst ExternalSecret are suppressed there + database.existingSecret
+    #     is wired to the host-rendered, mirrored-in DSN Secret so $effDbSecret
+    #     resolves non-empty → the Deployment RENDERS at mgmt.
+    #   - slot 80a (vcluster: host, placement.role=host-seams) → the CNPG
+    #     Cluster + DSN-sync Job + admin-sso-seed Job/CronJob + AppRegistration
+    #     ConfigMap + both ExternalSecrets render in the HOST `newapi` ns where
+    #     cnpg-operator / ESO / OpenBao / bp-sso-bridge reconcile them.
+    # The bp-mgmt-vcluster 0.2.23 `newapi/*` secret mirror delivers the DSN/OIDC
+    # Secrets into vc-mgmt and its newapi-pg `-rw`/`-ro` replicateServices make
+    # the host-style CNPG FQDN resolve inside the vCluster. target == vcluster
+    # == mgmt → newapi is no longer staged-for-promotion; NS#1 is 7/7.
     - file: 80-newapi.yaml
       hr: bp-newapi
-      vcluster: host
+      vcluster: mgmt
       target: mgmt
       namespace: newapi
+      hostBridge:
+        suppress:
+          # render-split: app workload only inside vc-mgmt
+          placement.role: vcluster-app
+          # the CNPG Cluster + DSN-sync + admin-seed render host-side (slot 80a)
+          cnpg.enabled: false
+          # the SSO AppRegistration ConfigMap + oidc-sync ES render host-side
+          auth.adminUI.keycloak.ssoBridgeSync.enabled: false
+          # the catalyst-newapi-admin-token ES renders host-side
+          catalystIntegration.externalSecret.enabled: false
+          # the public front door is the host-bridge HTTPRoute below
+          ingress.httpRoute.enabled: false
+          # wire the Deployment to the host-rendered, mirrored-in DSN Secret so
+          # the render-gate $effDbSecret is non-empty even with cnpg suppressed
+          database.existingSecret: newapi-bp-newapi-newapi-db-dsn
+        hostDocuments:
+          # Public front door: HTTPRoute in host ns `mgmt`, backendRefs → the
+          # syncer-mangled in-vCluster Services (mirror of guacamole slot 52).
+          # Exact `/` → the bridge (zero-click landing page,
+          # publishNotReadyAddresses) so the 1st bare-URL hit is reachable
+          # during warm-up; PathPrefix `/` → the app Service.
+          - apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            metadata:
+              name: newapi-server
+              namespace: mgmt
+              labels:
+                catalyst.openova.io/blueprint: bp-newapi
+                catalyst.openova.io/component: newapi
+                catalyst.openova.io/host-bridge: "mgmt"
+            spec:
+              parentRefs:
+                - name: cilium-gateway
+                  namespace: kube-system
+              hostnames:
+                - newapi.${SOVEREIGN_FQDN}
+              rules:
+                - matches:
+                    - path:
+                        type: Exact
+                        value: /
+                  backendRefs:
+                    - name: newapi-bp-newapi-bridge-x-newapi-x-mgmt-vcluster
+                      namespace: mgmt
+                      port: 8080
+                - matches:
+                    - path:
+                        type: PathPrefix
+                        value: /
+                  backendRefs:
+                    - name: newapi-bp-newapi-x-newapi-x-mgmt-vcluster
+                      namespace: mgmt
+                      port: 3000
+    # ── #3831 host-seams companion — CNPG-owner seams stay HOST-reconciled ──
+    # Renders the CNPG Cluster + DSN-sync Job + admin-sso-seed Job/CronJob +
+    # newapi-admin AppRegistration ConfigMap + both ExternalSecrets in the host
+    # `newapi` ns (placement.role=host-seams). MUST be host: host cnpg-operator
+    # owns <cluster>-app, host bp-sso-bridge watches the AppRegistration CM
+    # cluster-wide (vCluster toHost is Pro-gated/INERT on OSS), host ESO +
+    # OpenBao ClusterSecretStore vault-region1 back both ExternalSecrets.
+    - file: 80a-newapi-host-seams.yaml
+      hr: bp-newapi-host-seams
+      vcluster: host
+      target: host
+      namespace: newapi
+      justification: >-
+        CNPG-owner seams (CNPG Cluster + DSN-sync Job + admin-sso-seed
+        Job/CronJob + newapi-admin AppRegistration ConfigMap + both
+        ExternalSecrets) are intrinsically HOST-reconciled — host cnpg-operator
+        owns the <cluster>-app Secret + DB, host bp-sso-bridge watches the
+        AppRegistration ConfigMap (OSS vCluster toHost sync is INERT), and host
+        ESO + OpenBao back both ExternalSecrets (vc-mgmt runs no ESO). The app
+        Deployment/Service run IN vc-mgmt (slot 80); this is the host seam half.

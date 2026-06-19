@@ -306,6 +306,12 @@ resources:
   # See clusters/_template/bootstrap-kit/80-newapi.yaml for full
   # dependsOn rationale and per-Sovereign override surface.
   - 80-newapi.yaml
+  # bp-newapi-host-seams (slot 80a, #3831) — the HOST-reconciled CNPG-owner
+  # seams (CNPG Cluster + DSN-sync Job + admin-sso-seed Job/CronJob +
+  # newapi-admin AppRegistration ConfigMap + both ExternalSecrets) for newapi.
+  # Slot 80 now re-homes newapi's app workload INTO vc-mgmt (placement.role=
+  # vcluster-app); this companion renders the seams host-side (host-seams).
+  - 80a-newapi-host-seams.yaml
   # bp-stalwart-sovereign (slot 95) — REMOVED 2026-05-05.
   # Phase-2 Sovereign-local mail (per-Sovereign Stalwart for Console
   # PIN/magic-link delivery, umbrella #924) is OUT OF SCOPE for the

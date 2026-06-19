@@ -14,7 +14,7 @@ gap as "no Ingress object materialised" — caught by the bootstrap-kit
 smoke test, not by render-time fail.
 */ -}}
 {{- /* Wave 5.81 (#2412): adminHost dropped — ops-staff admin via Catalyst BSS console only. */ -}}
-{{- if and .Values.newapi.enabled .Values.ingress.enabled .Values.ingress.host }}
+{{- if and (eq (include "bp-newapi.renderApp" .) "true") .Values.newapi.enabled .Values.ingress.enabled .Values.ingress.host }}
 {{- $fullName := include "bp-newapi.fullname" . -}}
 {{- $svcPort := .Values.service.port -}}
 {{- $apiHost := .Values.ingress.host -}}

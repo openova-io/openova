@@ -819,9 +819,26 @@ slots:
   # hostBridge:); the route + 2 ExternalSecrets + CNPG Cluster are HOST-rendered
   # so no loft.sh license is needed. The runtime edge gates on the vc-mgmt
   # Secret being Ready first.
+  # #3831 (2026-06-19): newapi is the CNPG-OWNER mgmt-vCluster app. The chart now
+  # render-splits (placement.role): slot 80 runs the app workload INSIDE vc-mgmt
+  # (vcluster-app), slot 80a renders the CNPG-owner seams host-side (host-seams).
+  # The app HR gains a bp-newapi-host-seams edge so the host CNPG Cluster + the
+  # database-secret-sync Job PATCH the DSN before the app's SQL_DSN gate waits.
   - slot: 80
     name: bp-newapi
-    depends_on: [bp-openbao, bp-keycloak, bp-cnpg, bp-mgmt-vcluster]
+    depends_on: [bp-openbao, bp-keycloak, bp-cnpg, bp-mgmt-vcluster, bp-newapi-host-seams]
+    wave: present
+
+  # ---- Slot 80a — bp-newapi-host-seams (#3831). The HOST-reconciled
+  # CNPG-owner seams for newapi: the CNPG Cluster + DSN-sync Job +
+  # admin-sso-seed Job/CronJob + newapi-admin AppRegistration ConfigMap + both
+  # ExternalSecrets, all in the host `newapi` ns. Gates on the host operators
+  # that reconcile them: bp-cnpg (Cluster + <cluster>-app), bp-external-secrets
+  # (both ExternalSecrets), bp-openbao + bp-keycloak (the admin-seed OIDC +
+  # AppRegistration realm), and bp-sso-bridge (the AppRegistration watcher).
+  - slot: 80a
+    name: bp-newapi-host-seams
+    depends_on: [bp-cnpg, bp-external-secrets, bp-openbao, bp-keycloak, bp-sso-bridge]
     wave: present
 
   # ---- Slot 95 — bp-stalwart-sovereign REMOVED 2026-05-05.

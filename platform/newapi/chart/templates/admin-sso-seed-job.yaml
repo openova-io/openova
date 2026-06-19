@@ -68,7 +68,7 @@ nothing.
 {{- if hasKey $ssoBootstrap "enabled" -}}{{- $seedEnabled = $ssoBootstrap.enabled -}}
 {{- else if hasKey $seed "enabled" -}}{{- $seedEnabled = $seed.enabled -}}{{- end -}}
 {{- $kcMode := eq .Values.auth.adminUI.mode "keycloak" -}}
-{{- if and $seedEnabled .Values.newapi.enabled $kcMode .Values.cnpg.enabled .Values.sovereignFQDN -}}
+{{- if and (eq (include "bp-newapi.renderSeams" .) "true") $seedEnabled .Values.newapi.enabled $kcMode .Values.cnpg.enabled .Values.sovereignFQDN -}}
 {{- $clusterName := printf "%s-newapi-pg" (include "bp-newapi.fullname" .) -}}
 {{- $cnpgSecretName := printf "%s-app" $clusterName -}}
 {{- $jobName := include "bp-newapi.adminSeedJobName" . -}}

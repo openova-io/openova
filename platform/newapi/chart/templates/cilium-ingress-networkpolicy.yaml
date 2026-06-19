@@ -19,7 +19,7 @@ policy already allowed stays allowed, everything else stays denied.
 Gated on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so
 the chart still installs on CRD-less clusters (kind CI).
 */ -}}
-{{- if and .Values.newapi.enabled .Values.networkPolicy.enabled .Values.networkPolicy.ingress.allowGatewayEntity (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+{{- if and (eq (include "bp-newapi.renderApp" .) "true") .Values.newapi.enabled .Values.networkPolicy.enabled .Values.networkPolicy.ingress.allowGatewayEntity (.Capabilities.APIVersions.Has "cilium.io/v2") }}
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:

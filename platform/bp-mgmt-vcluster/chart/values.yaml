@@ -427,6 +427,26 @@ vcluster:
           to: catalyst-system/guacamole-pg-rw
         - from: catalyst-system/guacamole-pg-ro
           to: catalyst-system/guacamole-pg-ro
+        # ── #3831 newapi-pg host→vCluster reachability (the SERVICE half) ──
+        # newapi is the ONLY NorthStar-#1 app that OWNS a dedicated CNPG cluster
+        # (it does NOT consume a reflected shared-pg secret like the other 6).
+        # Re-homed into vc-mgmt like guacamole (#3642 host-bridge): slot 80
+        # ships placement.role=vcluster-app + cnpg.enabled=false, so the CNPG
+        # `newapi-bp-newapi-newapi-pg` Cluster is HOST-rendered in the host
+        # `newapi` ns by the slot-80a host-seams HR while the app Deployment +
+        # Service run INSIDE vc-mgmt. The `newapi/*` from-host secret mapping
+        # (below) already mirrors the DSN Secret, but the CNPG `-rw`/`-ro`
+        # SERVICES live host-side only — and the DSN baked by the host
+        # database-secret-sync Job points at
+        # `newapi-bp-newapi-newapi-pg-rw.newapi.svc.cluster.local:5432`, which is
+        # NXDOMAIN inside vc-mgmt without this mirror → the app's GORM connect
+        # fails. Mirroring both Services makes that host-style FQDN resolve in
+        # the vCluster. No-op until the host-seams HR renders the Cluster
+        # (additive). Same 4th-layer DNS gap fixed for guacamole-pg above.
+        - from: newapi/newapi-bp-newapi-newapi-pg-rw
+          to: newapi/newapi-bp-newapi-newapi-pg-rw
+        - from: newapi/newapi-bp-newapi-newapi-pg-ro
+          to: newapi/newapi-bp-newapi-newapi-pg-ro
         # ClusterMesh-global write endpoints (active-hot-standby): the host
         # FQDN cross-region SHARED_PG consumers (grafana et al.) actually dial.
         - from: shared-data/shared-pg-mesh-rw

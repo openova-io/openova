@@ -1,4 +1,4 @@
-{{- if .Values.newapi.enabled }}
+{{- if and (eq (include "bp-newapi.renderApp" .) "true") .Values.newapi.enabled }}
 apiVersion: v1
 kind: Service
 metadata:

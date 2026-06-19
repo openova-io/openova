@@ -29,7 +29,7 @@ data.realm = "sovereign": the watcher only requires the realm to EXIST
    hardening disables wildcard redirectUris). providerSlug == sso.bootstrap.providerSlug. */ -}}
 {{- /* #3648 — standard sso.bootstrap.providerSlug first, then legacy adminSeed. */ -}}
 {{- $providerSlug := ((.Values.sso | default dict).bootstrap | default dict).providerSlug | default (.Values.adminSeed | default dict).providerSlug | default "sovereign" -}}
-{{- if and .Values.newapi.enabled $kcMode $sync.enabled .Values.sovereignFQDN }}
+{{- if and (eq (include "bp-newapi.renderSeams" .) "true") .Values.newapi.enabled $kcMode $sync.enabled .Values.sovereignFQDN }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

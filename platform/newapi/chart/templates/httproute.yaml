@@ -29,7 +29,7 @@ Per docs/INVIOLABLE-PRINCIPLES.md #4 every operationally-meaningful
 value (hostname, parentRef name/namespace/sectionName, backend port) is
 operator-overridable via values.yaml.
 */ -}}
-{{- if and .Values.newapi.enabled .Values.ingress.httpRoute .Values.ingress.httpRoute.enabled -}}
+{{- if and (eq (include "bp-newapi.renderApp" .) "true") .Values.newapi.enabled .Values.ingress.httpRoute .Values.ingress.httpRoute.enabled -}}
 {{- $host := .Values.ingress.httpRoute.host -}}
 {{- if and (not $host) .Values.sovereignFQDN -}}
 {{- $host = printf "newapi.%s" .Values.sovereignFQDN -}}

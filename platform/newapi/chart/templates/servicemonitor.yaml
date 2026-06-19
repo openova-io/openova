@@ -17,7 +17,7 @@ reached Phase 2 yet. The `.Capabilities.APIVersions.Has` guard also
 skip-renders on a cluster where the CRD has not yet reconciled — pattern
 matches platform/harbor/chart/templates/servicemonitor.yaml.
 */}}
-{{- if and .Values.newapi.enabled .Values.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+{{- if and (eq (include "bp-newapi.renderApp" .) "true") .Values.newapi.enabled .Values.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:

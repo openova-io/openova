@@ -298,7 +298,17 @@ name: bp-mgmt-vcluster
 # fromHost-block RCA comment to cite the implemented companion; the sync config
 # is byte-identical to 0.2.23. Lockstep: 58-bp-mgmt-vcluster.yaml pin +
 # blueprint.yaml → 0.2.24. Refs #3876 #3374 #3737.
-version: 0.2.24
+# 0.2.25 (#3831, Refs #3642): mirror the newapi-pg CNPG `-rw`/`-ro` Services
+# (host ns `newapi`) into vc-mgmt — the SERVICE half for re-homing newapi (the
+# CNPG-OWNER app) into the mgmt vCluster. Same 4th-layer host→vCluster DNS gap
+# as the guacamole-pg entries above; the `newapi/*` fromHost.secrets mapping
+# already delivers the DSN Secret. Additive + idempotent. Combined with the
+# 0.2.23 fromHost DB-secret de-conflict (#3876) + the 0.2.24 RCA-comment
+# refresh (#3878) in this cycle-1.5 train — all three values.yaml edits coexist
+# (the replicateServices.fromHost mirror, the narrowed exact-name SSO secret
+# mappings, and the refreshed fromHost-block RCA comment). Lockstep:
+# 58-bp-mgmt-vcluster.yaml pin + blueprint.yaml → 0.2.25. Refs #3831 #3876 #3878 #3374 #3737.
+version: 0.2.25
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT

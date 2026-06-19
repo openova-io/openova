@@ -79,7 +79,7 @@ Issue #915, 2026-05-05.
 {{- $vllmReady := and $vllm.enabled (ne (default "" $vllm.endpoint) "") -}}
 {{- $hasDefaults := or $qpReady $vllmReady -}}
 {{- $masterKeySecret := .Values.auth.adminUI.masterKeySecret | default "" -}}
-{{- if and $cs.enabled $hasDefaults $masterKeySecret -}}
+{{- if and (eq (include "bp-newapi.renderApp" .) "true") $cs.enabled $hasDefaults $masterKeySecret -}}
 {{- $jobName := include "bp-newapi.channelSeedJobName" . -}}
 ---
 {{- /*
