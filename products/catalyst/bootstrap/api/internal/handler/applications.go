@@ -993,7 +993,14 @@ func newApplicationUnstructured(req applicationInstallRequest) *unstructured.Uns
 		placementValue = pl
 	}
 	spec := map[string]any{
-		"environmentRef": req.EnvironmentRef,
+		// #3922 — the CR's spec.environmentRef is RFC-1123-label-constrained
+		// (^[a-z][a-z0-9-]{2,63}$, no dots). On a chroot/operator install the
+		// env ref defaults to the Sovereign FQDN (e.g. "hw171.omantel.biz-prod"),
+		// which the apiserver rejected with HTTP 500. Slug it the same way the
+		// namespace is slugged (preserving whatever Environment the caller
+		// asked for, just made pattern-safe); the verbatim Org identity stays
+		// on the organization label + organizationRef.
+		"environmentRef": sanitizeEnvironmentRef(req.EnvironmentRef),
 		"blueprintRef": map[string]any{
 			"name":    req.BlueprintRef.Name,
 			"version": req.BlueprintRef.Version,

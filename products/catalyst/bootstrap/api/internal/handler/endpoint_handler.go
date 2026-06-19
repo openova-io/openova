@@ -2158,7 +2158,12 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 		placementValue = pl
 	}
 	spec := map[string]interface{}{
-		"environmentRef": seed.Namespace + "-prod",
+		// #3922 — slug the env ref so a dotted Sovereign FQDN (seed.Namespace
+		// is the Org, often an FQDN like "hw171.omantel.biz") does not produce
+		// a dotted spec.environmentRef the apiserver rejects against the CRD
+		// pattern ^[a-z][a-z0-9-]{2,63}$ (HTTP 500). environmentRefForOrg
+		// appends the canonical "-prod" suffix and slugs the whole value.
+		"environmentRef": environmentRefForOrg(seed.Namespace),
 		"blueprintRef": map[string]interface{}{
 			"name": seed.Blueprint,
 		},
