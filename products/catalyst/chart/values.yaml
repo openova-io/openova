@@ -222,6 +222,15 @@ keycloakHostBridge:
   # would otherwise collide with the chart's own output). On a franchised
   # Sovereign (keycloak in vc-mgmt) leave true.
   enabled: true
+  # #3848 — the namespace the bridge writes the organization-controller's
+  # KC service-account Secret (catalyst-organization-controller-keycloak)
+  # into. MUST equal the org-controller Deployment's namespace
+  # (.Release.Namespace = catalyst-system) so its secretKeyRef resolves.
+  # When the bridge is enabled it emits this Secret directly (deterministic
+  # SA bytes, no cluster lookup), superseding the lookup-based
+  # templates/secret-organization-controller-keycloak.yaml which now renders
+  # only when the bridge is DISABLED (contabo / host-side keycloak).
+  orgControllerSecretNamespace: catalyst-system
   # The HOST namespace the bridge writes the three Secrets into — MUST be
   # the namespace the keycloak chart's reflector source + the host
   # catalyst-openova-kc-credentials / catalyst-organization-controller-
@@ -418,9 +427,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "1e81bd8"
+    tag: "6e4b9fb"
   catalystUi:
-    tag: "1e81bd8"
+    tag: "6e4b9fb"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
