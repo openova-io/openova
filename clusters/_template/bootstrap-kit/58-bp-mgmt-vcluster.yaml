@@ -151,7 +151,17 @@ spec:
       # DeadlineExceeded → Helm rollback → no webapp → `guacamole.<fqdn>` edge
       # 500/503 on hw167 (32 installFailures). Same #3737 4th-layer DNS gap, now
       # extended to guacamole's host-rendered CNPG cluster.
-      version: 0.2.22
+      # 0.2.23 (#3374 cycle-1): de-conflict the 4 pod-mounted DB Secrets
+      # (keycloak-database-secret / grafana-database-env / gitea-database-secret /
+      # harbor-database-secret) from the sync.fromHost.secrets namespace
+      # wildcards. On vcluster 0.23.0 a Secret that is BOTH fromHost-imported
+      # AND pod-mounted in vc-mgmt makes the from-host + to-host secret syncers
+      # fight (delete/recreate → context deadline exceeded → app Init:0/2 20m+),
+      # triggered live (hw167) by the #3872 mesh-secret regeneration repointing
+      # the DB Secret. Each app ns narrowed `<ns>/*` → EXACT-NAME SSO/OIDC creds
+      # only; keycloak drops out (no host non-DB Secret). DB Secret delivered
+      # natively in-vCluster (toHost sole owner).
+      version: 0.2.23
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster
