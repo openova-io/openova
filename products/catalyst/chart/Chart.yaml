@@ -2829,27 +2829,6 @@ name: bp-catalyst-platform
 # (default true; flip false on Catalyst-Zero/contabo where gitea is host-side).
 # Builds on #3810 (bp-mgmt-vcluster 0.2.15 replicateServices.toHost gitea-http,
 # host reachability). Default `helm template` (lookups nil) renders identically.
-# 1.4.700 — cycle-1 train COMBINE of #3856 (vocab) + #3870 (wordpress) into one
-#   bp-catalyst-platform version. #3856: ONE canonical DR vocabulary — catalog-seed
-#   (bp-cnpg-pair + bp-continuum) + cnpgpair.yaml CRD enum drop the banned
-#   un-hyphenated `active-hotstandby` for `active-hot-standby`; the Instances table
-#   canonicalizes for display. #3870: seed an always-on `bp-wordpress` alias
-#   Blueprint CR + bump the bp-wordpress-tenant seed pin 0.2.0→0.4.1 so the bare
-#   `wordpress`/`bp-wordpress` marketplace slug resolves on a fresh production prov
-#   (was 404). Both are catalog-seed / CRD-enum / UI changes; Catalyst-Zero render
-#   byte-unchanged. Refs #3856 #3870 #3375 #3581 #3668 #3376.
-# 1.4.699 — #3870 (Refs #3668 #3376): bp-wordpress catalog 404 on production.
-#   catalog-seed/blueprints.yaml seeded only `bp-wordpress-tenant` (pinned
-#   STALE 0.2.0 vs published 0.4.1), while the marketplace funnel + operator
-#   docs + qa-loop literal install resolve the BARE slug `wordpress`/`bp-wordpress`
-#   (CatalogDetail strips `bp-`; catalog-client retries bare→`bp-` → looks up
-#   `bp-wordpress`). That CR was seeded ONLY by qa-fixtures (qaFixtures.enabled
-#   default FALSE on production) → `GET /api/v1/catalog/wordpress` 404 on a fresh
-#   production prov ("Couldn't load wordpress", caught live hw167). Fix: (1) bump
-#   the bp-wordpress-tenant seed pin 0.2.0→0.4.1, (2) ADD an always-on
-#   `bp-wordpress` alias Blueprint CR pointing at the same bp-wordpress-tenant
-#   chart bytes so the bare slug resolves on every Sovereign. catalog-seed-only;
-#   Catalyst-Zero render byte-unchanged. Rebased over main's 1.4.698.
 # 1.4.697 — merge-train resolution (Refs #3376 #3848): lands #3859's
 # TENANT_PARENT_DOMAIN funnel-terminal fix (1.4.696) on top of main's #3849
 # org-controller KC-secret host-bridge (1.4.695). Both changes additive +
