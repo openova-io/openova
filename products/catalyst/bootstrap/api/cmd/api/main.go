@@ -1295,6 +1295,13 @@ func main() {
 		// than only on state transitions.
 		rg.Post("/api/v1/deployments/{depId}/refresh-watch", h.RefreshWatch)
 		rg.Get("/api/v1/deployments/{depId}/components/state", h.GetComponentsState)
+		// #3925 surface B — the bounded Flux dependency DAG for the
+		// Convergence-Monitor Reconciliation page. Nodes = HelmReleases +
+		// Kustomizations (the declared desired set), edges = real
+		// dependsOn, coloured by live reconcile state (Reconciled /
+		// Reconciling / Drifted / Degraded). Read-only. Scanner/Job nodes
+		// are EXCLUDED by construction (it's built from reconcilers only).
+		rg.Get("/api/v1/deployments/{depId}/reconciliation", h.GetReconciliationDAG)
 		// OpenovaFlow proxy (Agent #3 integration — PR #1389/#1390
 		// follow-up). Proxies the FlowPage canvas's snapshot/stream/
 		// ingest path to the bp-openova-flow-server inside the
