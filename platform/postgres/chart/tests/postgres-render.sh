@@ -24,7 +24,13 @@
 
 set -euo pipefail
 
-CHART_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+# Canonicalize to an ABSOLUTE path: CI invokes this as
+# `bash postgres-render.sh platform/postgres/chart` (a RELATIVE arg), and the
+# `cd "$CHART_DIR"` below would otherwise make the later `$CHART_DIR/../blueprint.yaml`
+# (Case 12) resolve against the post-cd cwd → blueprint.yaml-not-found, silently
+# gating the bp-postgres helm-push (no 0.2.3/0.2.4 ever published). Absolute-izing
+# here makes every `$CHART_DIR/...` reference stable regardless of the cd.
+CHART_DIR="$(cd "${1:-$(dirname "$0")/..}" && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 

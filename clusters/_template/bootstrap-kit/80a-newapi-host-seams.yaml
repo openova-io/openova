@@ -69,7 +69,8 @@ spec:
       chart: bp-newapi
       # 1.4.111 (#3831): the placement.role render-split chart. Lockstep with
       # slot 80's pin + platform/newapi blueprint.yaml.
-      version: 1.4.111
+      # 1.4.112: lockstep to the auto-bumped + published upstream-v0.13.2 chart.
+      version: 1.4.112
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
