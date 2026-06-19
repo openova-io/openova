@@ -452,7 +452,7 @@ images:
   # carries the server-side filter and is published for every services-* image
   # (verified: services-auth, unchanged by #3157, also has c96f998 → the SME
   # build is all-services, not path-filtered). Refs #3156.
-  smeTag: "574d7a5"
+  smeTag: "5335576"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────
