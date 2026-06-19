@@ -165,6 +165,15 @@ export function LogsTab({
     if (disableNetwork) return
     if (!selectedPod || !selectedContainer || !sovereignId || !namespace) return
 
+    // #3939 (#3642 sibling): the log stream resolves against the HOST
+    // apiserver, so it needs the pod's HOST namespace — which for a
+    // mgmt-vCluster-synced pod is the sync namespace (`mgmt`/`dmz`/`rtz`),
+    // NOT the app's targetNamespace (`gitea`). The selected pod row
+    // carries its host namespace verbatim; fall back to the app
+    // namespace prop for pre-#3642 (non-synced) pods.
+    const hostNamespace =
+      pods.find((p) => p.name === selectedPod)?.namespace ?? namespace
+
     let aborted = false
     setLines([])
     setStreamState('connecting')
@@ -198,7 +207,7 @@ export function LogsTab({
       if (accessToken) params.set('access_token', accessToken)
       const url = `${apiPath}/v1/sovereigns/${encodeURIComponent(
         sovereignId,
-      )}/k8s/logs/${encodeURIComponent(namespace)}/${encodeURIComponent(
+      )}/k8s/logs/${encodeURIComponent(hostNamespace)}/${encodeURIComponent(
         selectedPod,
       )}/${encodeURIComponent(selectedContainer)}?${params.toString()}`
 
@@ -252,7 +261,7 @@ export function LogsTab({
       }
       wsRef.current = null
     }
-  }, [disableNetwork, selectedPod, selectedContainer, sovereignId, namespace])
+  }, [disableNetwork, selectedPod, selectedContainer, sovereignId, namespace, pods])
 
   // Header sentence — surfaces both the matrix-asserted `Logs` and
   // `wordpress` tokens (TC-073) on EVERY render, regardless of WS
