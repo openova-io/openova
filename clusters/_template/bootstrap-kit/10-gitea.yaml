@@ -157,7 +157,12 @@ spec:
       # chart renders the canonical apps.openova.io/v1 Application CR for
       # this slot's HelmRelease so the console /apps list, per-app Topology
       # tab + showback resolve gitea (no more "no Application CR").
-      version: 1.2.37
+      # 1.2.38 (#3850, 2026-06-19): DURABLE SSO oauth source — the one-shot
+      # sso-configure hook Job became a continuously-reconciling Deployment
+      # (openbao pattern) that re-asserts the `openova-sso` login source every
+      # 60s, so a CNPG DB re-init no longer silently strands gitea's SSO at
+      # `oauth2 source not found` 500 (caught live hw167). Refs #3374.
+      version: 1.2.38
       sourceRef:
         kind: HelmRepository
         name: bp-gitea

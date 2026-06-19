@@ -354,6 +354,12 @@ sso:
   # overlay may override (empty string disables defense-in-depth and
   # falls back to --auto-discover-url at OAuth-source configure time).
   idpHint: catalyst-pin
+  # #3850 — the sso-configure reconciler (templates/sso-configure-
+  # deployment.yaml) re-asserts the `openova-sso` OAuth login source on this
+  # cadence so it survives a CNPG DB re-init. 60s balances convergence speed
+  # after a DB churn against gitea-API call volume; the assert is a no-op
+  # `update-oauth` once the source already matches.
+  reconcileIntervalSeconds: 60
 
 # ─── DR-7 (#3375) Git-blob object storage on SeaweedFS S3 + cross-region ──
 # mirror ───────────────────────────────────────────────────────────────────
