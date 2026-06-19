@@ -784,7 +784,7 @@ name: bp-newapi
 # host-placed install is byte-identical to 1.4.110. The split mirrors the
 # guacamole host-bridge precedent (#3868) for a host-rendered CNPG + in-vCluster
 # app, extended to a CNPG-OWNER app. See _helpers.tpl renderSeams/renderApp.
-version: 1.4.113
+version: 1.4.114
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
