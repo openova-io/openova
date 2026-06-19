@@ -31,6 +31,22 @@ catalystBlueprint:
 # overlays (set to `[]` for clusters that pull from public repos only).
 imagePullSecrets:
   - name: ghcr-pull
+# ─── Placement role (#3831) ──────────────────────────────────────────────
+# Splits the chart's render across two cooperating HelmReleases when newapi
+# is re-homed INTO the mgmt vCluster (NorthStar #1: every app in a vCluster)
+# while its CNPG-owner seams must stay HOST-side. See _helpers.tpl
+# bp-newapi.renderSeams / bp-newapi.renderApp for the full contract.
+#   all          (DEFAULT) — render everything (standalone / host-placed; a
+#                no-op gate, fully backward-compatible).
+#   host-seams   — render ONLY the host-reconciled seams (CNPG Cluster +
+#                DSN-sync Job + admin-sso-seed Job/Cron + AppRegistration
+#                ConfigMap + both ExternalSecrets). No app workload.
+#   vcluster-app — render ONLY the app (Deployment + Service + HTTPRoute +
+#                Application CR). No seams; the DSN Secret + CNPG Service are
+#                delivered into the vCluster by the bp-mgmt-vcluster
+#                sync.fromHost.secrets `newapi/*` mirror + replicateServices.
+placement:
+  role: all
 # ─── NewAPI application ──────────────────────────────────────────────────
 newapi:
   enabled: true

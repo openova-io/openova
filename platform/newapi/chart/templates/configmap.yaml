@@ -1,4 +1,9 @@
 {{- include "bp-newapi.assertChannelAttestation" . -}}
+{{- /* #3831: the app config ConfigMap is consumed by the Deployment, so it
+   renders with the app (placement.role all|vcluster-app); under host-seams it
+   is suppressed (no Pod to consume it). assertChannelAttestation above stays a
+   render-time guard under every role. */ -}}
+{{- if eq (include "bp-newapi.renderApp" .) "true" }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -76,3 +81,4 @@ data:
         owner: {{ .attestation.owner | quote }}
         {{- end }}
 {{- end }}
+{{- end }}{{- /* #3831 renderApp wrapper */}}

@@ -161,7 +161,22 @@ spec:
       # the DB Secret. Each app ns narrowed `<ns>/*` → EXACT-NAME SSO/OIDC creds
       # only; keycloak drops out (no host non-DB Secret). DB Secret delivered
       # natively in-vCluster (toHost sole owner).
-      version: 0.2.23
+      # 0.2.24 (#3878, companion to #3876 — comment-only chart change): the
+      # native in-vCluster DB-secret delivery #3876 promised is now IMPLEMENTED
+      # in the sibling slot-16 change (bp-postgres 0.2.4 `reflect.mangledTarget`,
+      # slots 16a/16c). The shared-pg reflector materialises the syncer-mangled
+      # host object `<secret>-x-<ns>-x-mgmt-vcluster` in host ns `mgmt` (the
+      # object the in-vc pod mounts), so the 4 DB Secrets reach keycloak/gitea/
+      # harbor/grafana natively without a fromHost mirror. This pin bump only
+      # refreshes the fromHost-block RCA comment; sync config byte-identical.
+      # Refs #3876 #3374 #3737.
+      # 0.2.25 (#3831, Refs #3642): + the newapi-pg `-rw`/`-ro` Service mirror —
+      # the SERVICE half for re-homing newapi (the CNPG-OWNER app) into vc-mgmt
+      # (slot 80 flips to placement.role=vcluster-app; slot 80a host-renders the
+      # CNPG-owner seams). The `newapi/*` secret mapping already delivers the DSN.
+      # Cycle-1.5 train combines this with the 0.2.23 DB-secret de-conflict
+      # (#3876) + the 0.2.24 RCA-comment refresh (#3878).
+      version: 0.2.25
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster

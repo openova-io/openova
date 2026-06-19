@@ -82,7 +82,12 @@ spec:
       # primary NetworkPolicy default-denied every consumer's shared-pg-b-rw:5432
       # (grafana/powerdns hub on hw144). Adds TCP 5432 from any in-cluster Pod;
       # replication/own-cluster/operator carve-outs unchanged. Lockstep 16a/16d.
-      version: 0.2.2
+      # 0.2.4 (#3878, companion to #3876): the grafana binding declares
+      # reflect.mangledTarget so grafana-database-env is delivered natively into
+      # vc-mgmt as the syncer-mangled host object (no fromHost mirror → no
+      # vcluster-0.23.0 deadlock, no missing GF_DATABASE_* env). Lockstep with
+      # 16a/16d. Refs #3876 #3374 #3737.
+      version: 0.2.4
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -149,6 +154,16 @@ spec:
           # of a region-local literal that NXDOMAIN'd grafana in region-B.
           hostPortKeys: [GF_DATABASE_HOST]
           passwordAliases: [GF_DATABASE_PASSWORD]
+          # #3878 (companion to #3876): grafana runs INSIDE vc-mgmt (#3642).
+          # Deliver grafana-database-env natively into vc-mgmt by reflecting
+          # the vCluster-syncer-mangled host object into ns `mgmt` (the object
+          # the grafana pod mounts via envFromSecrets). The env Secret is NOT
+          # fromHost-imported (#3876 dropped the grafana/* wildcard), so the
+          # from-host/to-host syncers never deadlock over it AND the GF_DATABASE_*
+          # env is present on a fresh prov. The mangled copy carries the SAME
+          # GF_DATABASE_* keys as the consumer-namespace copy.
+          mangledTarget:
+            vclusterNamespace: grafana
       # pdns — READY-TO-ADOPT (schema-bootstrap follow-up, see header).
       - name: pdns
         owner: pdns
