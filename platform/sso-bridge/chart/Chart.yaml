@@ -1,6 +1,29 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.21
+version: 0.2.22
+# 0.2.22 (#3374 cleanup-race, 2026-06-19): STOP the app-registration
+# ExternalSecret create-then-delete churn. cleanup_orphans() deletes any ES
+# labelled `bp-sso-bridge.openova.io/managed=true` whose client-id is NOT in
+# `current_cids` — but current_cids is built ONLY from the HR-discovery loop,
+# so the 4 app-registration ESs (hubble-ui, newapi-admin, openova-flow,
+# powerdns-admin), which ALSO carry that managed label (applied by
+# upsert_per_org_client's externalSecret.json path), were created each tick by
+# the app-registration phase then DELETED ~3s later by the orphan sweep in the
+# SAME tick. The ES + backing Secret therefore did not exist most of the time,
+# so the consuming oauth2-proxy (hubble-ui) had no client_secret →
+# zero-click SSO token-exchange intermittently failed. Fix: track the set of
+# app-registration clientIds whose ExternalSecret was successfully applied this
+# tick in a new global APP_REG_ES_CIDS (reset at the top of
+# reconcile_app_registrations, appended on a successful apply in
+# upsert_per_org_client), and UNION it into current_cids before the
+# cleanup_orphans call. Uninstall semantics preserved: a removed
+# app-registration ConfigMap drops its cid from BOTH sets next tick and its ES
+# is correctly swept. Verified live hw167 (28d4e96f): hubble-ui ES went from
+# recreated-every-tick to a single stable creationTimestamp across 5+ ticks,
+# Ready=True, and the Hubble UI lands the operator signed-in via zero-click SSO
+# (namespace selector renders, no unauthorized_client). Pure script change, no
+# values-default change, strictly an improvement for all 4 app-reg ESs. Refs
+# #3374.
 # 0.2.21 (#3820 #3642, 2026-06-18): default networkPolicy.keycloakNamespace +
 # openbaoNamespace `keycloak`/`openbao` → `mgmt`. #3642 (+#3760/#3737) re-homed
 # BOTH keycloak and openbao INTO the mgmt vCluster; their workload Pods now run
