@@ -182,6 +182,12 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 	// because pass 3 only ever appends AFTER the cron rows, so out[idx]
 	// always addresses the same logical element in the current array.
 	cronIdx := map[string]int{} // ns/name → index into out
+	// taskIdx indexes standalone task leaves by ns/base-name (issue #3916)
+	// so multiple runs of the same base Job collapse into ONE stable leaf
+	// with per-run Executions, never a fresh leaf per run. Indexed by
+	// position in `out` (never a cached pointer) for the same
+	// reallocation-safety reason cronIdx is.
+	taskIdx := map[string]int{} // ns/base → index into out
 	if list, err := dyn.Resource(CronJobGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
 		for i := range list.Items {
 			u := &list.Items[i]
@@ -245,6 +251,9 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 			}
 			if chart, ok := installHookOwnerChart(u); ok {
 				// HR install-hook Job — attaches under install-<chart>.
+				// Keyed by the OWNING chart (the install leaf), so per-run
+				// instance names never matter here — the install bridge
+				// dedups the Execution.
 				out = append(out, ReconcilerObservation{
 					Kind:              ReconcilerKindTask,
 					Name:              u.GetName(),
@@ -256,15 +265,60 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 				})
 				continue
 			}
-			// Standalone / cluster-owned batch Job → task-<name> leaf.
+			// Standalone / cluster-owned batch Job → a STABLE task-<base>
+			// leaf, NOT task-<per-run-name>.
+			//
+			// Accumulation bug (issue #3916): a Job created from a
+			// generateName (or re-created by Flux on each reconcile/retry)
+			// carries a fresh `-<hash>` run suffix every time. Keying the leaf
+			// on u.GetName() minted a brand-new task-* row per run → the /jobs
+			// model grew unbounded (region A 141→145 while the actual k8s Jobs
+			// stayed ~18-24/region). The fix keys the leaf on the STABLE base
+			// identity (taskBaseName) and records the per-run instance as an
+			// Execution under that one leaf — so N reruns = 1 row + N runs,
+			// never N rows. Identical structure across regions because the key
+			// no longer carries the run-instance entropy.
+			base := taskBaseName(u)
+			key := u.GetNamespace() + "/" + base
+			if idx, ok := taskIdx[key]; ok {
+				c := &out[idx]
+				c.Executions = append(c.Executions, ReconcilerExecution{
+					Name:       u.GetName(),
+					Status:     status,
+					StartedAt:  started,
+					FinishedAt: finished,
+					Message:    "run " + u.GetName() + ": " + status,
+				})
+				// Headline status reflects the MOST RECENT run (same recency
+				// rule as the cron leaf): a stale Succeeded run arriving after
+				// a fresh Failed one must not overwrite the failure. Recency =
+				// finish time, falling back to start for an in-flight run.
+				runAt := firstNonZero(finished, started)
+				if c.ObservedAt.IsZero() || runAt.IsZero() || !runAt.Before(c.ObservedAt) {
+					c.Status = status
+					c.Message = "last run " + u.GetName() + ": " + status
+					if !runAt.IsZero() {
+						c.ObservedAt = runAt
+					}
+				}
+				continue
+			}
 			out = append(out, ReconcilerObservation{
-				Kind:       ReconcilerKindTask,
-				Name:       u.GetName(),
-				Namespace:  u.GetNamespace(),
-				Status:     status,
-				Message:    "batch job: " + status,
+				Kind:      ReconcilerKindTask,
+				Name:      base,
+				Namespace: u.GetNamespace(),
+				Status:    status,
+				Message:   "batch job: " + status,
+				Executions: []ReconcilerExecution{{
+					Name:       u.GetName(),
+					Status:     status,
+					StartedAt:  started,
+					FinishedAt: finished,
+					Message:    "run " + u.GetName() + ": " + status,
+				}},
 				ObservedAt: firstNonZero(finished, started),
 			})
+			taskIdx[key] = len(out) - 1
 		}
 	}
 
@@ -292,10 +346,27 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 	return out, nil
 }
 
-// statusFromReadyCondition maps a Ready condition onto the one-shot
-// lifecycle status. Ready=True ⇒ succeeded; Ready=False with a terminal
-// reason ⇒ failed; otherwise running (reconcile in progress); no Ready
-// condition ⇒ pending.
+// statusFromReadyCondition maps a Flux Kustomization's Ready condition
+// onto the lifecycle status WITHOUT flapping a still-reconciling object
+// into a terminal Failed (issue #3916).
+//
+// Flux reconciles continuously: a healthy-but-converging Kustomization
+// oscillates Ready between False(reason=Progressing / BuildFailed /
+// HealthCheckFailed / DependencyNotReady, while it retries) and
+// True(reason=ReconciliationSucceeded). Because the chroot seed re-reads
+// live state on every /jobs poll and the later status wins, mapping each
+// transient False to terminal `failed` made the leaf flap Failed↔Succeeded
+// on the page even though the prov converged green.
+//
+// The mapping therefore only emits a TERMINAL status for a STABLE state:
+//   - Ready=True                       ⇒ succeeded (stably reconciled).
+//   - Ready=False, reason=Stalled      ⇒ failed (Flux's own permanent /
+//     terminal signal — it has GIVEN UP retrying; this is the only honest
+//     terminal failure for a continuously-reconciling object).
+//   - Ready=False, any other reason    ⇒ running (still reconciling /
+//     retrying — a transient build/health/dependency error Flux will
+//     re-attempt; NOT a terminal failure).
+//   - Ready=Unknown / no Ready cond    ⇒ running / pending.
 func statusFromReadyCondition(conds []metav1.Condition) string {
 	ready := findCondition(conds, "Ready")
 	if ready == nil {
@@ -305,11 +376,11 @@ func statusFromReadyCondition(conds []metav1.Condition) string {
 	case metav1.ConditionTrue:
 		return ObsStatusSucceeded
 	case metav1.ConditionFalse:
-		// A Kustomization that is progressing reports Ready=False with
-		// reason=Progressing/ReconciliationFailed. Treat an explicit
-		// failure reason as failed; anything else as still running.
-		r := strings.ToLower(ready.Reason)
-		if strings.Contains(r, "fail") || strings.Contains(r, "error") || strings.Contains(r, "stalled") {
+		// Only Flux's terminal "Stalled" reason (retries exhausted, no
+		// further automatic reconcile) is a genuine terminal failure. Every
+		// other Ready=False is an in-flight reconcile/retry — running, never
+		// a flapping terminal Failed.
+		if strings.EqualFold(strings.TrimSpace(ready.Reason), "Stalled") {
 			return ObsStatusFailed
 		}
 		return ObsStatusRunning
@@ -363,6 +434,83 @@ func jobStartTime(u *unstructured.Unstructured) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+// taskBaseName returns the STABLE base identity for a standalone batch
+// Job (issue #3916) — the key the task-<base> leaf is minted under, so
+// repeated runs of the same logical task collapse into one leaf with
+// per-run Executions instead of accumulating a fresh leaf per run.
+//
+// Resolution order:
+//  1. metadata.generateName — authoritative when present. The Job
+//     controller (and Flux's prune-and-recreate) sets generateName to the
+//     base and lets the apiserver append a "-<5-char-rand>" suffix, so the
+//     generateName (minus its trailing dash) IS the stable identity.
+//  2. otherwise strip a single trailing controller-appended run suffix
+//     from metadata.name: either a numeric CronJob-style "-<digits>"
+//     stamp or a lowercase-alphanumeric "-<hash>" (>=5 chars) the Job
+//     controller / generateName path leaves. A name with no such suffix
+//     (a human-authored fixed-name Job) is returned unchanged.
+//
+// The stripping is deliberately conservative — it removes AT MOST ONE
+// trailing segment and only when that segment looks machine-generated, so
+// a meaningful final segment of a fixed name (e.g. "cnpg-pair-primary-3-
+// join") is preserved.
+func taskBaseName(u *unstructured.Unstructured) string {
+	if gn := strings.TrimSpace(u.GetGenerateName()); gn != "" {
+		return strings.TrimRight(gn, "-")
+	}
+	name := u.GetName()
+	i := strings.LastIndexByte(name, '-')
+	if i <= 0 || i == len(name)-1 {
+		return name
+	}
+	suffix := name[i+1:]
+	if isRunSuffix(suffix) {
+		return name[:i]
+	}
+	return name
+}
+
+// isRunSuffix reports whether a trailing name segment looks like a
+// controller-appended run instance id: an all-digit stamp (CronJob unix
+// minute, e.g. "28912345") OR a lowercase base36-ish hash of length >=5
+// (the apiserver's generateName suffix is 5 lowercase alphanumerics, e.g.
+// "x7f2k"). Pure-alpha words shorter than the hash length, or any segment
+// containing an uppercase letter, are treated as MEANINGFUL (not a run id)
+// so a fixed-name Job like "...-join" or "...-migrate" is never truncated.
+func isRunSuffix(s string) bool {
+	if s == "" {
+		return false
+	}
+	allDigits := true
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			allDigits = false
+			break
+		}
+	}
+	if allDigits {
+		return true
+	}
+	// generateName random suffix: exactly-5 lowercase [a-z0-9], and NOT
+	// all-letters (an all-letters 5-char tail like "build" or "enrol" is a
+	// real word, not a hash). Require at least one digit to distinguish a
+	// random suffix from a meaningful trailing word.
+	if len(s) != 5 {
+		return false
+	}
+	hasDigit := false
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+			hasDigit = true
+		case r >= 'a' && r <= 'z':
+		default:
+			return false
+		}
+	}
+	return hasDigit
 }
 
 // cronJobOwnerName returns the owning CronJob name when the Job carries a

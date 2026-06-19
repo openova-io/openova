@@ -236,3 +236,196 @@ func TestListReconcilerObservations_CronJobWithNoRunIsPending(t *testing.T) {
 		t.Errorf("never-run cron should carry no Executions, got %d", len(cron.Executions))
 	}
 }
+
+// makeKustomization constructs a Flux Kustomization unstructured object with
+// a single Ready condition (status + reason) so statusFromReadyCondition can
+// be driven through ListReconcilerObservations.
+func makeKustomization(namespace, name string, readyStatus metav1.ConditionStatus, reason string) *unstructured.Unstructured {
+	u := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+			"kind":       "Kustomization",
+			"metadata": map[string]any{
+				"name":      name,
+				"namespace": namespace,
+			},
+			"status": map[string]any{
+				"conditions": []any{
+					map[string]any{
+						"type":               "Ready",
+						"status":             string(readyStatus),
+						"reason":             reason,
+						"lastTransitionTime": time.Now().UTC().Format(time.RFC3339),
+					},
+				},
+			},
+		},
+	}
+	u.SetGroupVersionKind(schema.GroupVersionKind{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Kind: "Kustomization"})
+	return u
+}
+
+func findReconcile(obs []ReconcilerObservation, name string) *ReconcilerObservation {
+	for i := range obs {
+		if obs[i].Kind == ReconcilerKindReconcile && obs[i].Name == name {
+			return &obs[i]
+		}
+	}
+	return nil
+}
+
+func findTask(obs []ReconcilerObservation, name string) *ReconcilerObservation {
+	for i := range obs {
+		if obs[i].Kind == ReconcilerKindTask && obs[i].Name == name {
+			return &obs[i]
+		}
+	}
+	return nil
+}
+
+// TestStatusFromReadyCondition_TransientFalseIsRunningNotFailed pins the
+// anti-flap contract (issue #3916): a Kustomization that is still
+// reconciling — Ready=False with a transient build/health/dependency reason
+// Flux will RETRY — must read as running (in-progress), NEVER a terminal
+// Failed that flaps back to Succeeded on the next poll. Only Flux's terminal
+// "Stalled" reason is a genuine terminal failure.
+func TestStatusFromReadyCondition_TransientFalseIsRunningNotFailed(t *testing.T) {
+	transient := []string{
+		"BuildFailed", "HealthCheckFailed", "ReconciliationFailed",
+		"Progressing", "DependencyNotReady", "ArtifactFailed",
+	}
+	for _, reason := range transient {
+		obs, err := ListReconcilerObservations(context.Background(),
+			reconcilerFakeClient(makeKustomization("flux-system", "apps-"+reason, metav1.ConditionFalse, reason)))
+		if err != nil {
+			t.Fatalf("ListReconcilerObservations(%s): %v", reason, err)
+		}
+		rec := findReconcile(obs, "apps-"+reason)
+		if rec == nil {
+			t.Fatalf("reason=%s: no reconcile observation", reason)
+		}
+		if rec.Status == ObsStatusFailed {
+			t.Errorf("reason=%s: a still-reconciling Kustomization read TERMINAL failed — this is the flap (#3916); want running", reason)
+		}
+		if rec.Status != ObsStatusRunning {
+			t.Errorf("reason=%s: status = %q, want %q (in-progress)", reason, rec.Status, ObsStatusRunning)
+		}
+	}
+}
+
+// TestStatusFromReadyCondition_StalledIsTerminalFailed pins the converse: a
+// Kustomization Flux has GIVEN UP on (Ready=False, reason=Stalled) is a
+// genuine terminal failure and must surface as Failed.
+func TestStatusFromReadyCondition_StalledIsTerminalFailed(t *testing.T) {
+	obs, err := ListReconcilerObservations(context.Background(),
+		reconcilerFakeClient(makeKustomization("flux-system", "apps-dead", metav1.ConditionFalse, "Stalled")))
+	if err != nil {
+		t.Fatalf("ListReconcilerObservations: %v", err)
+	}
+	rec := findReconcile(obs, "apps-dead")
+	if rec == nil {
+		t.Fatal("no reconcile observation for the stalled Kustomization")
+	}
+	if rec.Status != ObsStatusFailed {
+		t.Errorf("stalled Kustomization status = %q, want %q (terminal)", rec.Status, ObsStatusFailed)
+	}
+}
+
+// TestStatusFromReadyCondition_ReadyTrueIsSucceeded keeps the happy path
+// honest: Ready=True is a stable terminal success.
+func TestStatusFromReadyCondition_ReadyTrueIsSucceeded(t *testing.T) {
+	obs, err := ListReconcilerObservations(context.Background(),
+		reconcilerFakeClient(makeKustomization("flux-system", "apps-ok", metav1.ConditionTrue, "ReconciliationSucceeded")))
+	if err != nil {
+		t.Fatalf("ListReconcilerObservations: %v", err)
+	}
+	rec := findReconcile(obs, "apps-ok")
+	if rec == nil || rec.Status != ObsStatusSucceeded {
+		t.Fatalf("Ready=True Kustomization want succeeded, got %+v", rec)
+	}
+}
+
+// TestListReconcilerObservations_TaskRunsCollapseToOneStableLeaf pins the
+// accumulation fix (issue #3916): N standalone Jobs that share a base
+// identity (a generateName, or a controller-appended run suffix) collapse
+// into ONE task-<base> leaf carrying N Executions — NOT N separate leaves.
+// Before the fix each run minted task-<unique-run-name>, growing the /jobs
+// model unbounded as Flux re-created the Jobs on every reconcile.
+func TestListReconcilerObservations_TaskRunsCollapseToOneStableLeaf(t *testing.T) {
+	t0 := time.Date(2026, 6, 19, 1, 0, 0, 0, time.UTC)
+
+	// Three runs of the same logical task, named via the generateName
+	// convention base + "-<5-rand>" the apiserver appends.
+	objs := []runtime.Object{}
+	mk := func(name string, gen string, fin time.Time) *unstructured.Unstructured {
+		u := makeBatchJob("data", name, "", "Complete", metav1.ConditionTrue, fin)
+		if gen != "" {
+			meta := u.Object["metadata"].(map[string]any)
+			meta["generateName"] = gen
+		}
+		return u
+	}
+	objs = append(objs,
+		mk("db-migrate-a1b2c", "db-migrate-", t0),
+		mk("db-migrate-d3e4f", "db-migrate-", t0.Add(time.Hour)),
+		mk("db-migrate-g5h6j", "db-migrate-", t0.Add(2*time.Hour)),
+	)
+
+	obs, err := ListReconcilerObservations(context.Background(), reconcilerFakeClient(objs...))
+	if err != nil {
+		t.Fatalf("ListReconcilerObservations: %v", err)
+	}
+
+	// Exactly ONE task leaf, keyed by the stable base "db-migrate".
+	taskCount := 0
+	for i := range obs {
+		if obs[i].Kind == ReconcilerKindTask {
+			taskCount++
+		}
+	}
+	if taskCount != 1 {
+		t.Fatalf("accumulation bug: want exactly 1 stable task leaf, got %d (one per run = the #3916 unbounded growth)", taskCount)
+	}
+	task := findTask(obs, "db-migrate")
+	if task == nil {
+		t.Fatalf("no task leaf keyed by the stable base name 'db-migrate'; got %d task observations", taskCount)
+	}
+	if len(task.Executions) != 3 {
+		t.Errorf("the 3 runs must record as 3 Executions under the one leaf, got %d", len(task.Executions))
+	}
+}
+
+// TestListReconcilerObservations_TaskRunSuffixStrippedFromName pins the
+// run-suffix stripping for Jobs without a generateName (re-created by Flux):
+// a numeric CronJob-style stamp and a 5-char random hash both collapse to the
+// same base, while a meaningful trailing word is preserved.
+func TestListReconcilerObservations_TaskRunSuffixStrippedFromName(t *testing.T) {
+	fin := time.Date(2026, 6, 19, 1, 0, 0, 0, time.UTC)
+	objs := []runtime.Object{
+		makeBatchJob("data", "snapshot-28999111", "", "Complete", metav1.ConditionTrue, fin),
+		makeBatchJob("data", "snapshot-29000222", "", "Complete", metav1.ConditionTrue, fin.Add(time.Hour)),
+		// A fixed-name Job whose final segment is a real word — must NOT
+		// be truncated.
+		makeBatchJob("data", "cnpg-pair-primary-join", "", "Complete", metav1.ConditionTrue, fin),
+	}
+	obs, err := ListReconcilerObservations(context.Background(), reconcilerFakeClient(objs...))
+	if err != nil {
+		t.Fatalf("ListReconcilerObservations: %v", err)
+	}
+	if findTask(obs, "snapshot") == nil {
+		t.Error("numeric run-suffix Jobs should collapse to task 'snapshot'")
+	}
+	if findTask(obs, "cnpg-pair-primary-join") == nil {
+		t.Error("a fixed-name Job's meaningful trailing word was wrongly stripped")
+	}
+	// And the two numeric runs are ONE leaf.
+	n := 0
+	for i := range obs {
+		if obs[i].Kind == ReconcilerKindTask && obs[i].Name == "snapshot" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("numeric-suffix runs want 1 stable leaf, got %d", n)
+	}
+}

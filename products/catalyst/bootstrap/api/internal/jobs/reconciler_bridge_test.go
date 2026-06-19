@@ -217,3 +217,80 @@ func TestReconcilerBridge_KindBackfillOnRead(t *testing.T) {
 		t.Errorf("kind back-fill: want %q, got %q", KindReconcile, j.Kind)
 	}
 }
+
+// TestReconcilerBridge_RepeatedSeedsKeepStableCount pins the accumulation
+// fix at the bridge layer (issue #3916): re-seeding the SAME reconciler
+// identities across many polls (the chroot /jobs re-read on every request)
+// must UPDATE one entry per identity in place — never append a new row per
+// poll. The reconciler-observation producer already collapses per-run Job
+// instances to a stable base name; this asserts the bridge's UpsertJob keying
+// holds the leaf count flat across repeated seeds.
+func TestReconcilerBridge_RepeatedSeedsKeepStableCount(t *testing.T) {
+	b, st := newTestBridge(t)
+
+	obs := []ReconcilerObservation{
+		{Kind: ObsKindReconcile, Name: "flux-system", Namespace: "flux-system", Status: "installing", Message: "reconciling"},
+		{Kind: ObsKindTask, Name: "db-migrate", Namespace: "data", Status: "installing", Message: "running"},
+		{Kind: ObsKindReconciler, Name: "sso-bridge", Namespace: "sso-bridge", Status: "healthy", Health: true, Message: "1/1"},
+	}
+
+	countLeaves := func() int {
+		all, err := st.ListJobs("dep-recon")
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		n := 0
+		for _, j := range all {
+			if j.Type != JobTypeGroup {
+				n++
+			}
+		}
+		return n
+	}
+
+	// First poll establishes the leaves.
+	if _, _, err := b.SeedReconcilerObservations(obs); err != nil {
+		t.Fatalf("seed 1: %v", err)
+	}
+	first := countLeaves()
+	if first != 3 {
+		t.Fatalf("first poll leaf count = %d, want 3", first)
+	}
+
+	// 20 more polls of the SAME identities (status may even change) must not
+	// grow the count — one stable entry per reconciler identity.
+	for i := 0; i < 20; i++ {
+		if _, _, err := b.SeedReconcilerObservations(obs); err != nil {
+			t.Fatalf("seed repeat %d: %v", i, err)
+		}
+	}
+	if got := countLeaves(); got != first {
+		t.Errorf("accumulation: leaf count grew from %d to %d across repeated polls (#3916)", first, got)
+	}
+}
+
+// TestReconcilerBridge_StillReconcilingTaskIsRunningNotTerminal pins the
+// anti-flap contract at the bridge layer: an observation carrying the
+// in-progress status ("installing") writes a RUNNING leaf, never a terminal
+// failed/succeeded. The leaf only becomes terminal when the observation
+// itself is terminal.
+func TestReconcilerBridge_StillReconcilingTaskIsRunningNotTerminal(t *testing.T) {
+	b, st := newTestBridge(t)
+	if err := b.OnReconcilerObservation(ReconcilerObservation{
+		Kind: ObsKindReconcile, Name: "apps", Namespace: "flux-system",
+		Status: "installing", Message: "reconcile in progress",
+	}); err != nil {
+		t.Fatalf("observe: %v", err)
+	}
+	all, _ := st.ListJobs("dep-recon")
+	rec, ok := findByName(all, "reconcile-apps")
+	if !ok {
+		t.Fatal("reconcile-apps leaf missing")
+	}
+	if rec.Status != StatusRunning {
+		t.Errorf("still-reconciling leaf status = %q, want %q (no flapping terminal)", rec.Status, StatusRunning)
+	}
+	if IsTerminal(rec.Status) {
+		t.Errorf("a still-reconciling leaf must NOT be terminal, got %q", rec.Status)
+	}
+}
