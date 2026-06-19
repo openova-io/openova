@@ -30,6 +30,15 @@ vertical-pod-autoscaler:
       # be `registry.k8s.io/registry.k8s.io/autoscaling/...` (doubled
       # prefix) and pulls fail with "image not found" (caught live on
       # otech26).
+      #
+      # Route registry.k8s.io through the Sovereign Harbor `proxy-k8s` cache
+      # via the chart's own `.image.registry` knob (canonical idiom
+      # `registry.k8s.io/X` → `harbor.openova.io/proxy-k8s/X`, Refs #3296
+      # #3903). Bare `registry.k8s.io/...` (a) ImagePullBackOffs on the
+      # IPv4-only Huawei VPC and (b) matches NEITHER harbor-proxy-pull glob
+      # (`*/proxy-*/*` | `*/openova-io/*`, Enforce) → denied on the next roll.
+      # Same `proxy-k8s` project the vCluster control-plane images use.
+      registry: harbor.openova.io/proxy-k8s
       repository: autoscaling/vpa-recommender
       tag: "1.5.0"
       pullPolicy: IfNotPresent
@@ -59,6 +68,8 @@ vertical-pod-autoscaler:
     enabled: true
     replicaCount: 1
     image:
+      # registry.k8s.io → Harbor proxy-k8s (see recommender note, Refs #3296).
+      registry: harbor.openova.io/proxy-k8s
       repository: autoscaling/vpa-updater
       tag: "1.5.0"
       pullPolicy: IfNotPresent
@@ -81,6 +92,8 @@ vertical-pod-autoscaler:
     enabled: true
     replicaCount: 1
     image:
+      # registry.k8s.io → Harbor proxy-k8s (see recommender note, Refs #3296).
+      registry: harbor.openova.io/proxy-k8s
       repository: autoscaling/vpa-admission-controller
       tag: "1.5.0"
       pullPolicy: IfNotPresent
@@ -161,6 +174,25 @@ vertical-pod-autoscaler:
   crds:
     install: true
     keep: true
+    # The CRD-install Job (templates/crds/job.yaml) runs a kubectl image at
+    # install time — upstream default `docker.io/bitnamilegacy/kubectl`. Route
+    # it through the Sovereign Harbor `proxy-dockerhub` cache (canonical idiom,
+    # same as cnpg's webhookCertBootstrap kubectl, Refs #3296 #3903) so the
+    # install Job pulls on a fresh IPv4-only prov and satisfies harbor-proxy-
+    # pull. The chart prepends `.image.registry` to `.image.repository`.
+    image:
+      registry: harbor.openova.io/proxy-dockerhub
+      repository: bitnamilegacy/kubectl
+      tag: "1.29.3"
+
+  # Helm-test pod image (`helm test` only — NOT auto-deployed at runtime).
+  # Proxied for completeness so an operator-run test never ImagePullBackOffs
+  # nor trips harbor-proxy-pull. ghcr.io → Harbor proxy-ghcr (Refs #3296).
+  tests:
+    image:
+      registry: harbor.openova.io/proxy-ghcr
+      repository: cowboysysop/pytest
+      tag: "1.2.0"
 
   # RBAC — chart manages its own ClusterRole + ServiceAccount.
   rbac:

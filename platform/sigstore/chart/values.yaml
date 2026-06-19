@@ -28,8 +28,18 @@ policy-controller:
     replicaCount: 1
     # Pin upstream image — DO NOT use floating tags per
     # docs/INVIOLABLE-PRINCIPLES.md.
+    #
+    # Route the GHCR ref through the Sovereign Harbor `proxy-ghcr` cache
+    # (canonical idiom `ghcr.io/X` → `harbor.openova.io/proxy-ghcr/X`, Refs
+    # #3296 #3903 #3904). A bare `ghcr.io/...` ref (a) ImagePullBackOffs on the
+    # IPv4-only Huawei VPC (ghcr.io's AAAA-only edge is unreachable on a fresh
+    # kom4dc prov), and (b) matches NEITHER glob in the harbor-proxy-pull
+    # Kyverno ClusterPolicy (`*/proxy-*/*` | `*/openova-io/*`, Enforce on every
+    # Sovereign) → denied on the next pod roll. The sha256 digest is preserved
+    # verbatim; only the registry host changes. proxy-ghcr serves this PUBLIC
+    # image cred-free at bootstrap.
     image:
-      repository: ghcr.io/sigstore/policy-controller/policy-controller
+      repository: harbor.openova.io/proxy-ghcr/sigstore/policy-controller/policy-controller
       version: "sha256:0bcd60beb93f4427c29cf3a669743caf58490e98ded4380c33c09f092734a6ab"
       pullPolicy: IfNotPresent
     # failurePolicy=Ignore on solo-Sovereign so a single-pod webhook
@@ -53,6 +63,22 @@ policy-controller:
   # ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2.
   serviceMonitor:
     enabled: false
+
+  # leasescleanup — the upstream subchart ships a pre-delete Job that wipes
+  # the webhook's coordination leases, imaged from a FLOATING
+  # `cgr.dev/chainguard/kubectl:latest-dev` ref. That ref (a) violates the
+  # pin-tags principle (docs/INVIOLABLE-PRINCIPLES.md — `latest-dev`), (b) has
+  # no Harbor proxy-cache project (`cgr.dev` is the Chainguard registry), and
+  # (c) matches NEITHER harbor-proxy-pull glob → Enforce-denied. Swap it for
+  # the canonical Catalyst proxied+pinned kubectl image (same
+  # `harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl` the cnpg webhook
+  # bootstrap uses, Refs #3296 #3903). The cleanup Job only runs `kubectl
+  # delete lease`, so any kubectl image works.
+  leasescleanup:
+    image:
+      repository: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl
+      version: "1.31.4"
+      pullPolicy: IfNotPresent
 
 # ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
 # Reserved for Catalyst-side overlays (NetworkPolicy, default

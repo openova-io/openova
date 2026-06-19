@@ -100,6 +100,21 @@ trivy-operator:
   # collector sits Pending forever (issue #769). On solo Sovereigns
   # (worker_count=0) the CP is untainted, so this toleration is a no-op.
   nodeCollector:
+    # Route the node-collector image through the Sovereign Harbor `proxy-ghcr`
+    # cache. Upstream default is `ghcr.io/aquasecurity/node-collector:0.3.1`
+    # (operator.yaml ConfigMap `node.collector.imageRef`, built from
+    # `.registry/.repository:.tag`). The operator spawns ONE node-collector
+    # DaemonSet-style pod per node; on a fresh IPv4-only Huawei prov the bare
+    # `ghcr.io/...` ref ImagePullBackOffs (ghcr.io AAAA-only edge unreachable),
+    # leaving the trivy HR degraded and infra-assessment reports empty.
+    # `registry.k8s.io`-style host swap via the chart's own `.registry` knob
+    # (canonical idiom `ghcr.io/X` → `harbor.openova.io/proxy-ghcr/X`, Refs
+    # #3296 #3903). NOTE the `trivy-system` ns is harbor-proxy-pull-EXCLUDED
+    # (#3825) so this is NOT a Kyverno-admission fix — it is the reachability
+    # fix: the kom4dc node can only pull from harbor.openova.io.
+    registry: harbor.openova.io/proxy-ghcr
+    repository: aquasecurity/node-collector
+    tag: "0.3.1"
     tolerations:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists
