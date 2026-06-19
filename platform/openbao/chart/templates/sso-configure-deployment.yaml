@@ -47,6 +47,34 @@ the server → the oidc auth method was never configured → silent SSO never
 worked. (#3150)
 */}}
 {{- $baoAddrSSO := (.Values.autoUnseal | default dict).baoAddress | default (printf "http://%s-openbao.%s.svc.cluster.local:8200" .Release.Name .Release.Namespace) -}}
+{{- /*
+#3374 (Refs #3642 #3825) — the k8s-auth MOUNT this reconciler logs in against.
+
+ROOT CAUSE (measured live hw167 2026-06-19): after #3642 OpenBao runs INSIDE the
+mgmt vCluster, and THIS reconciler is also a vCluster Pod — its ServiceAccount
+JWT is signed by the VCLUSTER apiserver (iss=kubernetes.default.svc of the
+vCluster, sub=system:serviceaccount:<ns>:openbao-sso-configure). But #3825's
+cross-cluster mode points the `kubernetes/` auth mount's TokenReview at the HOST
+apiserver (kubernetes_host=10.96.0.1 + a host token_reviewer_jwt) — correct for
+ESO (a HOST-SA role) but FATAL for this in-vCluster SA: the host apiserver
+rejects the vCluster-signed token ("invalid signature, no keys found") → every
+login 403s → the reconciler NEVER writes auth/oidc/config / default_role /
+role/operator → the landing page's unauthenticated oidc/auth_url POST returns
+"permission denied" → /sso/landing hard-fails → chrome-error. (ESO worked,
+sso-configure/sso-bridge/openbao-snapshot all silently broke.)
+
+THE FIX: when XCR is on, the auth-bootstrap Job ALSO enables a SECOND mount
+`kubernetes-vcluster/` configured to TokenReview against the IN-VCLUSTER
+apiserver (OpenBao's own local SA + local CA — `kubernetes.default.svc` IS the
+vCluster apiserver from openbao-0's pod view; verified it both reaches it and
+holds system:auth-delegator there). The in-vCluster-SA roles are bound on THAT
+mount, so this reconciler must log in there. When XCR is OFF (openbao host-side
+/ Catalyst-Zero) there is no second mount and the single `kubernetes/` mount is
+the in-cluster apiserver already → keep the default path → byte-identical.
+*/}}
+{{- $xcrSSO := ((((.Values.autoUnseal | default dict).kubernetesAuth | default dict).crossClusterTokenReview | default dict).enabled | default false) -}}
+{{- $authMountSSO := ((.Values.autoUnseal | default dict).kubernetesAuth | default dict).mountPath | default "kubernetes" -}}
+{{- if $xcrSSO -}}{{- $authMountSSO = "kubernetes-vcluster" -}}{{- end -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -376,8 +404,14 @@ spec:
           env:
             - name: BAO_ADDR
               value: {{ $baoAddrSSO | quote }}
+            # #3374 (Refs #3642 #3825) — vCluster-validated mount when XCR is on
+            # (see the $authMountSSO derivation at the top of this template). The
+            # in-vCluster SA token this Pod presents is rejected by the HOST
+            # apiserver that the `kubernetes/` mount targets in cross-cluster
+            # mode, so log in against `kubernetes-vcluster/` (TokenReview = the
+            # in-vCluster apiserver). Host-side openbao keeps the default mount.
             - name: BAO_K8S_AUTH_PATH
-              value: {{ .Values.autoUnseal.kubernetesAuth.mountPath | default "kubernetes" | quote }}
+              value: {{ $authMountSSO | quote }}
             - name: BAO_K8S_AUTH_ROLE
               value: "sso-configure"
             - name: OIDC_NAME

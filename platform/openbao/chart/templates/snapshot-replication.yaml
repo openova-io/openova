@@ -65,6 +65,14 @@ objects). The primary vs secondary CronJob is selected by
 {{- $backoff := $sr.backoffLimit | default 3 -}}
 {{- $kAuth := $sr.kubernetesAuth | default dict -}}
 {{- $authMount := $kAuth.mountPath | default "kubernetes" -}}
+{{- /* #3374 (Refs #3642 #3825) — this CronJob runs in the mgmt vCluster; in
+       cross-cluster mode its vCluster-signed SA token only validates on the
+       in-vCluster `kubernetes-vcluster/` mount (the `kubernetes/` mount
+       TokenReviews against the HOST apiserver, which rejects it). Switch the
+       login path under the same XCR gate the auth-bootstrap Job binds the role
+       on. No-op (default `kubernetes`) when XCR is off → byte-identical. */ -}}
+{{- $xcrSnap := ((((.Values.autoUnseal | default dict).kubernetesAuth | default dict).crossClusterTokenReview | default dict).enabled | default false) -}}
+{{- if $xcrSnap -}}{{- $authMount = "kubernetes-vcluster" -}}{{- end -}}
 {{- $authRole := $kAuth.role | default "openbao-snapshot" -}}
 {{- $s3 := $sr.s3 | default dict -}}
 {{- /* #3373 Batch A: seaweedfs moved into the rtz vCluster → synced host Service name. */ -}}

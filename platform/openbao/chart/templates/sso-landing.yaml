@@ -38,8 +38,25 @@ WHAT THIS PAGE DOES (gesture-free, popup-free, version-stable):
   the OIDC callback. The bare-path HTTPRoute (/, /ui, /ui/) redirects HERE;
   a re-entry that already holds a valid token short-circuits to
   /ui/vault/secrets (idempotent). API clients use /v1/* — never touched.
+
+  GATE — DO NOT re-add `.Values.gateway.enabled`/`.Values.gateway.host` here
+  (#3374, the hw167 2026-06-19 zero-click regression): the landing
+  ConfigMap/Deployment/Service are pure in-cluster workloads that serve the
+  static page on the OpenBao origin — they have ZERO dependency on the Cilium
+  Gateway. Only the bare-URL HTTPRoute (templates/httproute.yaml) is gated on
+  `gateway.enabled` (it attaches to the gateway). After #3642 the vCluster pivot
+  sets `gateway.enabled:false` on the in-vCluster HelmRelease and re-creates the
+  HTTPRoute as a HOST-BRIDGE resource (clusters/_template/bootstrap-kit-crs/
+  08-openbao.yaml, label host-bridge:mgmt) whose backendRef is
+  `openbao-sso-landing-x-<ns>-x-mgmt-vcluster` — i.e. THIS Service, vCluster-
+  synced to the host. If this gate ALSO required gateway.enabled the landing
+  nginx would NOT render in the vCluster → the host-bridge HTTPRoute's backend
+  would be missing → `/ui/` -> 302 `/sso/landing` -> 500 (no backend) ->
+  chrome-error (the exact break measured live on hw167). So gate ONLY on
+  bare-URL SSO being enabled; the HTTPRoute's owner (chart-side when openbao is
+  host-placed, host-bridge when in a vCluster) is orthogonal to this workload.
 */ -}}
-{{- if and .Values.gateway .Values.gateway.enabled .Values.gateway.host .Values.sso .Values.sso.enabled .Values.sso.bareURL .Values.sso.bareURL.enabled }}
+{{- if and .Values.sso .Values.sso.enabled .Values.sso.bareURL .Values.sso.bareURL.enabled }}
 {{- $mount := .Values.sso.bareURL.oidcMount | default "oidc" }}
 {{- $role := .Values.sso.bareURL.oidcRole | default "operator" }}
 {{- $landingPath := .Values.sso.bareURL.landingPath | default "/sso/landing" }}
