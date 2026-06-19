@@ -69,6 +69,18 @@ Per-runbook deep probes (interaction: click/fill/filter → assert → screensho
 
 **In progress:** SSO triage+fix (the 7 SSO RED apps).
 
+**Per-row deep evidence (hw167, every row live-walked — screenshots `hw167-<id>.png` under the evidence dir):**
+- **#3687 object-model — 14/14 ✅:** 3687-01·05·09·10·20·20b·21·26·26b·27·28·30·34·35 (org directory + detail CR cards, Showback + honest empty-state, apps one-card-per-Application, Org/App treemap + no-Job-cells, many-to-many shared-pg Contexts=3).
+- **#3668 catalog IaC — 13/13 ✅:** 3668-D00…D12 (Edit-IaC full-CR editor, Show-diff Current/Proposed panes, inline summary/name editors, icon-picker light+dark grids, generality on grafana).
+- **#3646 jobs canvas — 8/8 ✅:** 3646-D00…D07 (populated canvas, Kind + Status filters, search, failed→Retry gating + inverse gating).
+- **#3376 funnel — 11/11 surfaces ✅** (3376-00·01·05·06·07·08·09·10·11·12·13 — storefront/redeem/Plans/Apps/Add-ons/BCP/Review/Checkout/BSS) **· 14 not-reached** (3376-02·03·04·14–24 — need a driven provision).
+- **#3375 topology — 7/11 ✅** (3375-01·07·10·14·18·19·21) **· 4 ❌** (3375-04 banned `active-hotstandby` vocab; 3375-13·20·29 runtime-DR n/a by-design).
+- **#3642 placement (NS#1) — 10/13 ✅** (3642-01…08·10·13) **· 3 ❌** (3642-09·11·12 — newapi host-resident).
+- **#3374 SSO — 6/13 ✅** (console·newapi·openova-flow·openova-flow-anon-denied·keycloak-admin·marketplace) **· 7 ❌** (grafana·gitea·harbor·openbao·pdns-admin·guacamole·hubble).
+- **structure (console/#3383/#3375/#3646/#3668/#3687) — 17/17 ✅.**
+
+**Walk aggregate: 86 ✅ / 14 ❌ / 14 not-reached across 100 decidable rows.** Every ✅/❌ is screenshot-backed (87 distinct row screenshots in `docs/sessions/2026-06-19/evidence/`).
+
 ---
 
 > ⚠️ **The hw159 per-row matrix below is SUPERSEDED** (prior env, wiped). Per the founder flush rule no
