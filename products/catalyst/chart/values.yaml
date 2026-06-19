@@ -231,6 +231,18 @@ keycloakHostBridge:
   # templates/secret-organization-controller-keycloak.yaml which now renders
   # only when the bridge is DISABLED (contabo / host-side keycloak).
   orgControllerSecretNamespace: catalyst-system
+  # #3906 — the namespace the bridge writes the catalyst-api PIN-LOGIN Secret
+  # (catalyst-openova-kc-credentials) into. MUST equal the catalyst-api
+  # Deployment's namespace (.Release.Namespace = catalyst-system) so its
+  # PIN-auth secretKeyRef block resolves. When the bridge is enabled it emits
+  # this Secret directly (deterministic SA bytes + SMTP from sovereign-smtp-
+  # credentials, no lookup of the same-apply keycloak/catalyst-kc-sa-
+  # credentials), superseding the lookup-based templates/catalyst-openova-kc-
+  # credentials-secret.yaml which now renders only when the bridge is DISABLED
+  # (contabo / host-side keycloak). Without this fix the PIN login 503s
+  # "CATALYST_OPENOVA_KC_SA_CLIENT_SECRET not set" on every fresh #3642 prov
+  # (root-caused live hw170, 2026-06-19).
+  openovaKcSecretNamespace: catalyst-system
   # The HOST namespace the bridge writes the three Secrets into — MUST be
   # the namespace the keycloak chart's reflector source + the host
   # catalyst-openova-kc-credentials / catalyst-organization-controller-
