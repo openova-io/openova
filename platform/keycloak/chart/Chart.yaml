@@ -318,6 +318,14 @@ name: bp-keycloak
 # rotation on existing envs. Default single-region render byte-identical
 # except the SA secret value (was random → now derived; both 64/32-char
 # opaque strings, no consumer cares about the literal). Refs #3642 #3736.
+# 1.4.35 (#3741/#3852, 2026-06-19): SHORTEN the 1.4.34 powerdns-admin client
+# `description` from 831 -> ~190 chars. Keycloak stores public.CLIENT.DESCRIPTION
+# as varchar(255); the 1.4.34 prose (full two-callback rationale) blew the cap →
+# the blueprint-release `g117-e2e-realm-client-description-255-cap.sh` gate failed
+# → bp-keycloak:1.4.34 NEVER published (slot-09 pinned an unpublished tag). The
+# behavioural fix (BOTH /oauth2/callback + /oidc/authorized) is unchanged; only the
+# description string is trimmed so the import batch no longer aborts. The full
+# rationale lives in this changelog + PR #3869.
 # 1.4.34 (#3741/#3852, 2026-06-19): the realm-seed `powerdns-admin` client now
 # registers BOTH callbacks — `/oauth2/callback` (the oauth2-proxy gate) AND
 # `/oidc/authorized` (PDA's native authlib callback). 1.4.30 (#3741) had
@@ -333,7 +341,7 @@ name: bp-keycloak
 # keep the correct two-URI shape, matching the bp-oidc-gate 0.1.4 AppRegistration
 # (appNativeCallbackPath:/oidc/authorized). The `/*` wildcard from the dead
 # pre-#3374 shape is NOT restored — the two explicit callbacks are exact.
-version: 1.4.34
+version: 1.4.35
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so

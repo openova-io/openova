@@ -203,7 +203,7 @@ spec:
       #         the native authlib callback, so the gate's bare-root→/oidc/login
       #         redirect 'Invalid parameter: redirect_uri'd on PDA's own OIDC
       #         hop (hw167 UAT row 3374-11). Lockstep with bp-oidc-gate 0.1.4.
-      version: 1.4.34
+      version: 1.4.35
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
