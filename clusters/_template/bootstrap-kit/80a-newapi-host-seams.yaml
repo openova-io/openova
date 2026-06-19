@@ -70,7 +70,12 @@ spec:
       # 1.4.111 (#3831): the placement.role render-split chart. Lockstep with
       # slot 80's pin + platform/newapi blueprint.yaml.
       # 1.4.112: lockstep to the auto-bumped + published upstream-v0.13.2 chart.
-      version: 1.4.112
+      # 1.4.114 (#3831 deadlock fix, Refs #3858): admin-sso-seed Job/CronJob no
+      # longer render under host-seams (they moved to vcluster-app) — this HR now
+      # renders only the genuine host seams (CNPG Cluster + DSN-sync Job +
+      # AppRegistration + ExternalSecrets), so its post-install no longer blocks
+      # on a schema the host never migrates.
+      version: 1.4.114
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

@@ -1,5 +1,23 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.114 (#3831 deadlock fix, Refs #3858, 2026-06-20): the admin-sso-seed
+# Job/CronJob now render with the APP (placement.role vcluster-app), NOT the
+# host seams (host-seams). Under the #3831 render-split they were left on the
+# host where seed.sh's wait_for_users_table blocked on the `public.users` table
+# (created by the app's GORM AutoMigrate, which runs only inside vc-mgmt) → the
+# 420s activeDeadline elapsed → DeadlineExceeded → the host-seams HR install
+# FAILED → uninstall/retry forever; and the vcluster-app HR dependsOn the
+# host-seams HR, so the app could never install to migrate the schema → CIRCULAR
+# DEADLOCK (measured live hw171 dep 3963e9267c10a90d: host-seams Unknown/failed
+# x6, vcluster-app False "Fulfilling prerequisites", 0 tables in the CNPG public
+# schema, newapi.<fqdn> → HTTP 500). Co-locating the seed with the app fires the
+# post-install hook AFTER the Deployment installs+migrates, and the
+# Deployment-patch RBAC (reload_newapi_provider) now targets a Deployment that
+# exists. The mounted CNPG `-app` + OIDC Secrets are mirrored host→vCluster by
+# bp-mgmt-vcluster sync.fromHost.secrets `"newapi/*"` (#3879). Mirrors the
+# channel-seed-job precedent (also renderApp, also schema-dependent). role=all
+# (DEFAULT) renders both as before → standalone/host-placed installs unchanged.
+#
 # 1.4.109 (#3858, 2026-06-19): stop the seed/promote Jobs masquerading as
 # newapi Service endpoints → kill the intermittent "upstream connect error
 # 111" on newapi.<fqdn>.
@@ -784,7 +802,7 @@ name: bp-newapi
 # host-placed install is byte-identical to 1.4.110. The split mirrors the
 # guacamole host-bridge precedent (#3868) for a host-rendered CNPG + in-vCluster
 # app, extended to a CNPG-OWNER app. See _helpers.tpl renderSeams/renderApp.
-version: 1.4.113
+version: 1.4.114
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
