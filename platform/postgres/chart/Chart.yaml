@@ -1,5 +1,30 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.4 — #3878 (companion to #3876, the cycle-1 vc-mgmt DB-secret deadlock):
+#   add the optional `reflect.mangledTarget` knob. When a binding declares it,
+#   the chart emits a SECOND hub connection Secret named with the vCluster
+#   syncer-mangled object name `<secretName>-x-<vclusterNamespace>-x-<vcluster>`
+#   (default vcluster `mgmt-vcluster`) and auto-pushes it (emberstack reflector
+#   annotations) into the vCluster's host namespace (default `mgmt`). That
+#   mangled object is EXACTLY the host Secret an in-vc-mgmt pod mounts in
+#   single-namespace mode (`MountVolume.SetUp … secret
+#   "<secretName>-x-<ns>-x-mgmt-vcluster" not found`). WHY: #3642 re-homed
+#   keycloak/gitea/harbor/grafana INTO vc-mgmt; their pod-mounted DB Secrets
+#   reached the in-vc pod ONLY via the bp-mgmt-vcluster `sync.fromHost.secrets`
+#   namespace wildcards, which #3876 REMOVED because on vcluster 0.23.0 a Secret
+#   that is BOTH fromHost-imported AND pod-mounted (so the toHost necessary-sync
+#   ALSO claims it) makes the from-host/to-host syncers fight → context deadline
+#   exceeded → app `Init:0/2` 20m+. With #3876 alone the DB Secret reaches the
+#   pod NOWHERE. This mangled-name reflect is the native delivery #3876's RCA
+#   promised: the DB Secret is NEVER fromHost-imported (no syncer contention →
+#   no deadlock) yet the live-password object the kubelet mounts is materialised
+#   by the host reflector (no missing credential on a fresh prov). It is the
+#   durable form of the hw167 hand-fix (validation agent created the keycloak DB
+#   Secret natively in-vCluster). The mangled copy carries byte-identical data
+#   to the consumer-namespace copy ($data assembled once in role-secrets.yaml).
+#   Bindings WITHOUT mangledTarget render byte-identical to 0.2.3 — additive.
+#   tests/postgres-render.sh Case 13 added. Lockstep: 16a (keycloak/gitea/
+#   harbor) + 16c (grafana) HR pins → 0.2.4. Refs #3876 #3374 #3737.
 # 0.2.3 — #3375 / #3768 follow-up (ONE canonical placement vocabulary on the
 #   wire): the hw158 #3375 browser-walk caught the bp-postgres New-instance
 #   picker serving the BANNED legacy dialect — `placementSchema.modes`
@@ -87,7 +112,7 @@ name: bp-postgres
 #   regions so it admits under BOTH the pre-#3370 CRD (hard-required) and the
 #   #3370 CRD (CEL-waived) — breaks the live upgrade-rollback deadlock that
 #   blocked keycloak->gitea->catalyst-platform on hw130.
-version: 0.2.3
+version: 0.2.4
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable

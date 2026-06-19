@@ -594,4 +594,51 @@ if echo "$default_line" | grep -qE '\bsingle-region\b'; then
   fail "#3375 REGRESSION: placementSchema.default is the banned 'single-region' (use canonical 'singleton')"
 fi
 
-echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty; 3-instance shapes locked; #3370 Application-CR self-registration locked; #3375 underscore-owner role-Secret sanitization locked; #3375/#3768 ONE canonical placement vocabulary locked)"
+# ── Case 13: #3878 — reflect.mangledTarget vc-mgmt native DB-secret delivery ─
+# Companion to #3876. A binding declaring reflect.mangledTarget emits a SECOND
+# hub Secret named `<secretName>-x-<vclusterNamespace>-x-<vcluster>` (default
+# vcluster `mgmt-vcluster`) that auto-pushes (reflection-auto-namespaces) into
+# the vCluster's host ns (default `mgmt`) — the exact object an in-vc-mgmt pod
+# mounts in single-namespace mode. Its data MUST be byte-identical to the plain
+# consumer-namespace copy. A binding WITHOUT mangledTarget emits NO mangled copy
+# (additive — pre-0.2.4 bindings render unchanged).
+echo "[render] Case 13: #3878 — reflect.mangledTarget → mangled vc-mgmt copy w/ identical data; no-mangle binding unchanged"
+cat > "$TMP/mangled.values.yaml" <<'YAML'
+enabled: true
+instance: { name: shared-pg, namespace: shared-data }
+topology: { mode: singleton, instances: 1 }
+databases:
+  - name: keycloak
+    owner: keycloak
+    consumer: { blueprint: bp-keycloak, mode: shared }
+    reflect:
+      secretName: keycloak-database-secret
+      namespaces: [keycloak]
+      mangledTarget: { vclusterNamespace: keycloak }
+  - name: gitea
+    owner: gitea
+    consumer: { blueprint: bp-gitea, mode: shared }
+    reflect: { secretName: gitea-database-secret, namespaces: [gitea] }
+YAML
+helm template shared-pg . -f "$TMP/mangled.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 \
+  --show-only templates/role-secrets.yaml > "$TMP/mangled.yaml" 2> "$TMP/mangled.err" || {
+  cat "$TMP/mangled.err" >&2; fail "mangledTarget render errored"; }
+# (a) the mangled copy exists with the canonical syncer name.
+grep -qE '^  name: "keycloak-database-secret-x-keycloak-x-mgmt-vcluster"$' "$TMP/mangled.yaml" \
+  || fail "#3878: keycloak mangled hub Secret 'keycloak-database-secret-x-keycloak-x-mgmt-vcluster' not rendered"
+# (b) the mangled copy auto-pushes into the vc-mgmt host ns 'mgmt'.
+awk '/name: "keycloak-database-secret-x-keycloak-x-mgmt-vcluster"/{f=1} f&&/reflection-auto-namespaces: "mgmt"/{print "OK"; exit}' "$TMP/mangled.yaml" | grep -q OK \
+  || fail "#3878: mangled keycloak Secret must reflection-auto-namespaces into 'mgmt'"
+# (c) data parity — the mangled copy carries the SAME password as the plain copy
+#     (so the in-vc pod gets a credential that matches the host CNPG role).
+plain_pw=$(awk '/^  name: "keycloak-database-secret"$/{f=1} f&&/^  password:/{print $2; exit}' "$TMP/mangled.yaml")
+mangled_pw=$(awk '/name: "keycloak-database-secret-x-keycloak-x-mgmt-vcluster"/{f=1} f&&/^  password:/{print $2; exit}' "$TMP/mangled.yaml")
+[ -n "$plain_pw" ] || fail "#3878: plain keycloak hub Secret password not found"
+[ "$plain_pw" = "$mangled_pw" ] || fail "#3878: mangled copy password ($mangled_pw) MUST equal the plain copy ($plain_pw) — a drift hands the pod a wrong credential"
+# (d) the no-mangle binding (gitea here) emits NO mangled copy — additive.
+if grep -qE 'gitea-database-secret-x-' "$TMP/mangled.yaml"; then
+  fail "#3878 REGRESSION: a binding WITHOUT reflect.mangledTarget must NOT emit a mangled copy"
+fi
+
+echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty; 3-instance shapes locked; #3370 Application-CR self-registration locked; #3375 underscore-owner role-Secret sanitization locked; #3375/#3768 ONE canonical placement vocabulary locked; #3878 reflect.mangledTarget vc-mgmt native DB-secret delivery locked)"

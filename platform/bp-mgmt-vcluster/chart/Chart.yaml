@@ -283,7 +283,22 @@ name: bp-mgmt-vcluster
 # secret name now double-matches a fromHost mapping AND a known
 # keycloak/grafana/gitea/harbor pod-mount. Lockstep:
 # 58-bp-mgmt-vcluster.yaml pin + blueprint.yaml → 0.2.23. Refs #3374 #3737.
-version: 0.2.23
+# 0.2.24 (#3878, the implemented COMPANION to #3876 — comment-only here): #3876
+# (0.2.23) removed the 4 DB Secrets from the `sync.fromHost.secrets` wildcards
+# to kill the vcluster-0.23.0 from-host/to-host deadlock, and its RCA promised
+# the DB Secret would be "delivered natively in-vCluster (the shared-pg reflector
+# re-target, sibling slot-16 change)" — but #3876 did NOT contain that re-target,
+# so with #3876 alone keycloak/grafana/gitea/harbor get NO DB credential inside
+# vc-mgmt on a fresh prov. #3878 ships the re-target in bp-postgres 0.2.4
+# (`reflect.mangledTarget`, wired in slots 16a keycloak/gitea/harbor + 16c
+# grafana): the shared-pg reflector now materialises the vCluster-syncer-mangled
+# host object `<secret>-x-<ns>-x-mgmt-vcluster` in host ns `mgmt` — the exact
+# Secret the in-vc-mgmt pod mounts — carrying the live password, NEVER
+# fromHost-imported (no syncer contention). This release only updates the
+# fromHost-block RCA comment to cite the implemented companion; the sync config
+# is byte-identical to 0.2.23. Lockstep: 58-bp-mgmt-vcluster.yaml pin +
+# blueprint.yaml → 0.2.24. Refs #3876 #3374 #3737.
+version: 0.2.24
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT
