@@ -245,6 +245,26 @@ hostServiceAliases:
       namespace: openbao
       externalName: openbao-x-openbao-x-mgmt-vcluster.mgmt.svc.cluster.local
       port: 8200
+    # ── #3926 harbor-core host→vc-mgmt plain-name reachability ──
+    # #3642 moved Harbor INTO vc-mgmt; harbor-core syncs to the host ONLY as the
+    # mangled `harbor-core-x-harbor-x-mgmt-vcluster.mgmt.svc` (the host `harbor`
+    # ns carries only the CNPG `harbor-pg-*`). But the bp-self-sovereign-cutover
+    # step-02 (harbor-projects) Job runs on the HOST (catalyst ns) and dials the
+    # PLAIN `harbor-core.harbor.svc.cluster.local` (the chart default +
+    # 06a overlay harborInternalURL) → NXDOMAIN → curl can't reach Harbor → the
+    # Pillar-5 cutover wedges at step-02 on EVERY post-#3642 prov (root-caused
+    # live on hw171, dep 3963e9267c10a90d: pod exit 137, all 7 proxy-cache
+    # projects un-created). gitea-http/keycloak/openbao got their plain-name
+    # aliases in the #3642 hw164 audit but harbor-core was MISSED — step-02 is
+    # the sole host consumer of harbor-core (the harbor HTTPRoute uses
+    # harbor-nginx, not harbor-core). This ExternalName aliases the plain name to
+    # the mangled one so the cutover chart's default URL resolves with ZERO
+    # cutover-chart change. Same no-op-until-present + never-pruned semantics as
+    # the 3 aliases above. Refs #3379. port 80 = harbor-core's API listener.
+    - name: harbor-core
+      namespace: harbor
+      externalName: harbor-core-x-harbor-x-mgmt-vcluster.mgmt.svc.cluster.local
+      port: 80
 
 # ─── Upstream chart values (subchart key: vcluster) ────────────────
 # `helm dependency build` resolves the upstream loft-sh/vcluster

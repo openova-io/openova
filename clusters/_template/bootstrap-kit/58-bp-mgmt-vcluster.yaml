@@ -176,7 +176,13 @@ spec:
       # CNPG-owner seams). The `newapi/*` secret mapping already delivers the DSN.
       # Cycle-1.5 train combines this with the 0.2.23 DB-secret de-conflict
       # (#3876) + the 0.2.24 RCA-comment refresh (#3878).
-      version: 0.2.25
+      # 0.2.26 (#3926, Refs #3379 #3642): add a `harbor-core.harbor` host→vc-mgmt
+      # ExternalName alias so the bp-self-sovereign-cutover step-02
+      # (harbor-projects) Job — which runs host-side and dials the PLAIN
+      # `harbor-core.harbor.svc` — resolves Harbor again post-#3642 (it now runs
+      # INSIDE vc-mgmt; the host name NXDOMAIN'd → cutover wedged at step-02 on
+      # hw171). Same proven host-service-aliases mechanism as gitea/keycloak/openbao.
+      version: 0.2.26
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster

@@ -308,7 +308,24 @@ name: bp-mgmt-vcluster
 # (the replicateServices.fromHost mirror, the narrowed exact-name SSO secret
 # mappings, and the refreshed fromHost-block RCA comment). Lockstep:
 # 58-bp-mgmt-vcluster.yaml pin + blueprint.yaml → 0.2.25. Refs #3831 #3876 #3878 #3374 #3737.
-version: 0.2.25
+# 0.2.26 (#3926, Refs #3379 #3642): add a `harbor-core.harbor` host→vc-mgmt
+# ExternalName alias to hostServiceAliases.aliases. Post-#3642 Harbor runs INSIDE
+# vc-mgmt; harbor-core syncs to the host ONLY as the mangled
+# `harbor-core-x-harbor-x-mgmt-vcluster.mgmt.svc` (the host `harbor` ns holds only
+# the CNPG `harbor-pg-*`). The bp-self-sovereign-cutover step-02 (harbor-projects)
+# Job runs on the HOST (catalyst ns) and dials the PLAIN `harbor-core.harbor.svc`
+# → NXDOMAIN → curl can't reach Harbor → the Pillar-5 cutover WEDGED at step-02 on
+# every post-#3642 prov (root-caused live on hw171, dep 3963e9267c10a90d: pod exit
+# 137, zero proxy-cache projects created, cutoverComplete=false). gitea-http /
+# keycloak / openbao got their plain-name aliases in the #3642 hw164 audit but
+# harbor-core was MISSED — step-02 is the sole host consumer of harbor-core (the
+# harbor HTTPRoute uses harbor-nginx). Same proven crash-safe ExternalName
+# mechanism (templates/host-service-aliases.yaml), never-pruned, no-op-until-
+# present. Lockstep: 58-bp-mgmt-vcluster.yaml pin + blueprint.yaml → 0.2.26.
+# Paired with the 06a-bp-self-sovereign-cutover.yaml overlay change that points
+# harbor.adminSecretRef.name at the synced `harbor-admin-x-harbor-x-mgmt-vcluster`
+# Secret. Refs #3926 #3379 #3642.
+version: 0.2.26
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT

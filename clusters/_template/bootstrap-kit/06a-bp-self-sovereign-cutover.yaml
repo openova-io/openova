@@ -580,6 +580,16 @@ spec:
   values:
     sovereign:
       fqdn: ${SOVEREIGN_FQDN}
+      # #3642/#3926: Harbor runs INSIDE vc-mgmt post-#3642, so harbor-core
+      # syncs to the host ONLY as the mangled
+      # `harbor-core-x-harbor-x-mgmt-vcluster.mgmt.svc` (the host `harbor` ns
+      # holds only the CNPG `harbor-pg-*`). The plain `harbor-core.harbor.svc`
+      # NXDOMAIN'd → step-02 (harbor-projects, runs host-side in catalyst ns)
+      # wedged the cutover on every post-#3642 prov (root-caused live on hw171,
+      # dep 3963e9267c10a90d). bp-mgmt-vcluster (slot 58) now ships a
+      # `harbor-core.harbor` ExternalName alias to the mangled name (the proven
+      # gitea/keycloak/openbao host-service-aliases mechanism, hw164), so this
+      # plain URL resolves again with ZERO change here. Refs #3379 #3926.
       harborInternalURL: http://harbor-core.harbor.svc.cluster.local
       # NB: Harbor HTTPRoute publishes at `registry.<sov>` (see
       # `clusters/_template/bootstrap-kit/19-harbor.yaml` gateway.host),
@@ -614,6 +624,19 @@ spec:
       # hw91. This is the missing lockstep half of #3012; mirror of
       # harbor/giteaPublicURL.
       consolePublicURL: https://console.${SOVEREIGN_FQDN}
+    # #3642/#3926: post-#3642 the bp-harbor `harbor-admin` Secret is minted
+    # INSIDE vc-mgmt (with reflector `reflectionAllowedNamespaces: catalyst`);
+    # it reaches the HOST `catalyst` ns — where step-02 (harbor-projects) runs —
+    # ONLY under the vCluster-synced mangled name
+    # `harbor-admin-x-harbor-x-mgmt-vcluster` (toHost secret sync + reflector,
+    # `reflects: mgmt/harbor-admin-x-...`, verified deterministic on hw171). The
+    # chart default `harbor-admin` does NOT exist host-side, so the Job's
+    # same-namespace secretKeyRef would fail. Point it at the synced name so the
+    # password resolves. (HARBOR_ADMIN_USERNAME stays optional → the Job defaults
+    # `admin`, matching upstream Harbor's hardcoded admin user.) Refs #3379 #3926.
+    harbor:
+      adminSecretRef:
+        name: harbor-admin-x-harbor-x-mgmt-vcluster
     # #3379 (2026-06-13): enable the REAL 10-minute deny-egress hold for
     # Step-08 (egress-block-test). The chart default
     # (egressTest.enforceCIDRBlock: false, values.yaml) ships the passive
