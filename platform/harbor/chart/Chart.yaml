@@ -84,7 +84,34 @@ type: application
 # readTopology serves spec.placement VERBATIM to the Topology tab + the
 # Instances-table chip, so the legacy spelling leaked the banned word to the
 # operator (hw159 #3375).
-version: 1.2.32
+# 1.2.33 (harbor zero-click SSO, root-caused live hw167 2026-06-19): TWO
+# durable fixes so the bare registry URL lands the operator signed-in on
+# /harbor/projects instead of the local-DB sign-in page.
+#   (1) sso-configure-oauth-job.yaml (one-shot post-install/post-upgrade
+#       Helm hook Job) -> sso-configure-deployment.yaml (continuous
+#       single-replica reconcile loop, the bp-openbao #2655 pattern). The
+#       hook fired at slot-19 install (~1h BEFORE bp-sso-bridge rendered
+#       harbor-sso-oidc-credentials), could not source client_id/secret,
+#       and left auth_mode=db_auth forever (the post-upgrade hook never
+#       re-fired). Measured live: HR Ready 00:33:22Z vs OIDC creds Secret
+#       01:38:46Z (65 min race lost). The reconciler tolerates the Secret
+#       being absent on early ticks, applies oidc_auth the instant the
+#       creds land, and self-heals on any drift (a DB restore wiping
+#       auth_mode back to db_auth).
+#   (2) httproute.yaml: bare-URL zero-click (the gitea idiom). With
+#       auth_mode=oidc_auth Harbor's Angular SPA does a full-page
+#       navigation to /account/sign-in and renders a "LOGIN VIA OIDC
+#       PROVIDER" button (Harbor has no native auto-redirect knob) — one
+#       click, not zero. The gateway now 302s Exact `/account/sign-in`
+#       -> Harbor's server-side `/c/oidc/login` (gated sso.bareURL.enabled)
+#       -> KC silent broker (kc_idp_hint=catalyst-pin) -> /c/oidc/callback
+#       -> /harbor/projects. The bare `/` is deliberately NOT intercepted:
+#       Harbor's post-login callback lands on `/`, so redirecting `/` loops
+#       (ERR_TOO_MANY_REDIRECTS, measured live). Docker `/v2/` +
+#       `/service/token` untouched (401 auth-challenge, not redirected).
+#       PROVEN GREEN: probe landed registry.<fqdn>/harbor/projects
+#       signed-in on hw167.
+version: 1.2.33
 appVersion: "2.14.3"
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
 # `oidc_extra_redirect_parms` config field. The configure-oauth Job now
