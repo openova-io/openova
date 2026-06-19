@@ -1047,7 +1047,7 @@ spec:
       #   gates the gitea/harbor sso-configure Deployment (sso.externalSecret.enabled).
       #   Renumbered past the deploy-bot auto-bump to 1.4.717 (one above main's
       #   1.4.716) to clear the pin collision.
-      version: 1.4.718
+      version: 1.4.719
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
