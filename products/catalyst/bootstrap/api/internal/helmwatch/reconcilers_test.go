@@ -450,22 +450,46 @@ func makeScanJob(name, label string, fin time.Time) *unstructured.Unstructured {
 	return u
 }
 
-// TestListReconcilerObservations_SecurityScansCollapseToOneSummary pins the
-// #3919 fix: trivy-operator security-scan Jobs (hundreds, one per workload,
-// ever-growing) MUST NOT each mint a task-* row — they collapse into ONE
-// "security-scans" summary leaf, so the /jobs canvas shows the real platform
-// reconcilers, not a scan flood. A handful of genuine reconciler Jobs in the
-// same list are unaffected.
-func TestListReconcilerObservations_SecurityScansCollapseToOneSummary(t *testing.T) {
+// makeSyftJob constructs a syft-grype SBOM-scan Job (issue #3919). variant
+// drives the syft detection path exercised: "owner" (a CronJob ownerReference
+// to the syft-grype CronJob — authoritative), "label" (the bp-syft-grype
+// blueprint label, namespace-scoped), or "namespace-only" (a bare Job that
+// only resides in the syft-grype namespace — the belt-and-braces fallback).
+func makeSyftJob(name, variant string, fin time.Time) *unstructured.Unstructured {
+	owner := ""
+	if variant == "owner" {
+		owner = syftGrypeCronName
+	}
+	u := makeBatchJob(syftGrypeNamespace, name, owner, "Complete", metav1.ConditionTrue, fin)
+	meta := u.Object["metadata"].(map[string]any)
+	switch variant {
+	case "label":
+		meta["labels"] = map[string]any{
+			"catalyst.openova.io/blueprint": "bp-syft-grype",
+			"app.kubernetes.io/instance":    "syft-grype",
+		}
+	case "namespace-only":
+		// no labels, no owner — relies solely on the syft-grype namespace
+	}
+	return u
+}
+
+// TestListReconcilerObservations_Day2ScannersExcludedFromFlow pins the founder
+// mandate (issue #3919): Day-2 security-scanner Jobs (trivy-operator AND
+// syft-grype) must be EXCLUDED ENTIRELY from the provisioning flow — not
+// collapsed into an inline summary leaf that still pollutes the convergence
+// view. After the fix the observation set contains ZERO scanner leaves (no
+// per-workload row, no summary row, no cron leaf) while every genuine
+// reconciler Job + HR survives with its own stable leaf + correct status.
+func TestListReconcilerObservations_Day2ScannersExcludedFromFlow(t *testing.T) {
 	t0 := time.Date(2026, 6, 20, 1, 0, 0, 0, time.UTC)
 	objs := []runtime.Object{}
 
-	// Simulate the live hw171 flood: a large fleet of scan Jobs across the
-	// three trivy detection paths (managed-by label, trivy-operator.* label,
-	// and scan-* name in trivy-system). 200 scan Jobs stands in for the ~600
-	// reports observed live.
-	scanFleet := 200
-	for i := 0; i < scanFleet; i++ {
+	// Simulate the live hw171 flood: a large fleet of trivy scan Jobs across
+	// all three trivy detection paths. 200 stands in for the ~600 reports
+	// observed live.
+	trivyFleet := 200
+	for i := 0; i < trivyFleet; i++ {
 		var label string
 		switch i % 3 {
 		case 0:
@@ -478,11 +502,32 @@ func TestListReconcilerObservations_SecurityScansCollapseToOneSummary(t *testing
 		objs = append(objs, makeScanJob("scan-vulnerabilityreport-"+itoaTest(i), label, t0))
 	}
 
-	// A handful of REAL reconciler Jobs that must each still surface.
+	// A fleet of syft-grype SBOM Jobs across all three syft detection paths,
+	// PLUS the syft-grype CronJob itself (which must also be excluded — no
+	// cron-syft-grype leaf).
+	syftFleet := 30
+	for i := 0; i < syftFleet; i++ {
+		var variant string
+		switch i % 3 {
+		case 0:
+			variant = "owner"
+		case 1:
+			variant = "label"
+		default:
+			variant = "namespace-only"
+		}
+		objs = append(objs, makeSyftJob("syft-grype-2900"+itoaTest(i), variant, t0))
+	}
+	objs = append(objs, makeCronJob(syftGrypeNamespace, syftGrypeCronName))
+
+	// A handful of REAL reconciler Jobs that must each still surface — incl. a
+	// fixed-name Job whose name starts "scan-" but lives in a TENANT namespace
+	// (NOT trivy-system) so it is a genuine task, not a scanner.
 	objs = append(objs,
 		makeBatchJob("cnpg", "cnpg-pair-primary-join", "", "Complete", metav1.ConditionTrue, t0),
 		makeBatchJob("openbao", "openbao-init-29000111", "", "Complete", metav1.ConditionTrue, t0),
 		makeBatchJob("gitea", "gitea-sso-configure", "", "Failed", metav1.ConditionTrue, t0),
+		makeBatchJob("acme-prod", "scan-invoices-nightly", "", "Complete", metav1.ConditionTrue, t0),
 	)
 
 	obs, err := ListReconcilerObservations(context.Background(), reconcilerFakeClient(objs...))
@@ -490,39 +535,63 @@ func TestListReconcilerObservations_SecurityScansCollapseToOneSummary(t *testing
 		t.Fatalf("ListReconcilerObservations: %v", err)
 	}
 
-	// Count task leaves. With 200 scan Jobs + 3 real Jobs, the PRE-FIX model
-	// would yield ~203 task rows; the fix yields 3 real + 1 summary = 4.
-	taskCount := 0
+	// Count task + cron leaves. Pre-fix: ~200 trivy task rows + 1 syft cron leaf
+	// (the 30 syft Jobs attach as Executions, or — for the labelled/namespace
+	// ones with no owner — as their own task rows). After full exclusion the
+	// ONLY leaves are the real reconcilers: 4 task leaves, 0 scanner cron leaf.
+	taskLeaves := []string{}
+	cronLeaves := []string{}
 	for i := range obs {
-		if obs[i].Kind == ReconcilerKindTask {
-			taskCount++
-		}
-	}
-	if taskCount > 10 {
-		t.Fatalf("scan flood NOT collapsed: got %d task leaves (≈the %d scan Jobs). The #3919 fix must drop these to ~the real-reconciler count.", taskCount, scanFleet)
-	}
-
-	// Exactly ONE collapsed summary leaf, carrying the scan count.
-	summary := findTask(obs, SecurityScanSummaryName)
-	if summary == nil {
-		t.Fatalf("no collapsed '%s' summary leaf — scanning must still be visible to the operator as one row", SecurityScanSummaryName)
-	}
-	if !strings.Contains(summary.Message, itoaTest(scanFleet)) {
-		t.Errorf("summary leaf must report the scan count %d, got message %q", scanFleet, summary.Message)
-	}
-
-	// The 3 real reconciler Jobs each survived as their own leaf.
-	for _, want := range []string{"cnpg-pair-primary-join", "openbao-init", "gitea-sso-configure"} {
-		if findTask(obs, want) == nil {
-			t.Errorf("real reconciler Job %q was wrongly swept into the scan collapse", want)
+		switch obs[i].Kind {
+		case ReconcilerKindTask:
+			taskLeaves = append(taskLeaves, obs[i].Name)
+		case ReconcilerKindCron:
+			cronLeaves = append(cronLeaves, obs[i].Name)
 		}
 	}
 
-	// And NO scan-* per-workload leaf leaked through.
+	// Exactly the 4 real reconciler Jobs survive as task leaves — nothing more.
+	wantTasks := map[string]bool{
+		"cnpg-pair-primary-join": true,
+		"openbao-init":           true, // run-suffix stripped from -29000111
+		"gitea-sso-configure":    true,
+		"scan-invoices-nightly":  true, // tenant "scan-*" Job is a REAL task
+	}
+	if len(taskLeaves) != len(wantTasks) {
+		t.Fatalf("Day-2 scanners NOT fully excluded: got %d task leaves %v, want exactly the %d real reconcilers. (pre-fix ≈ %d trivy scan rows)",
+			len(taskLeaves), taskLeaves, len(wantTasks), trivyFleet)
+	}
+	for _, name := range taskLeaves {
+		if !wantTasks[name] {
+			t.Errorf("unexpected task leaf %q survived — only the 4 real reconcilers should remain", name)
+		}
+	}
+
+	// ZERO scanner cron leaf — the syft-grype CronJob must not surface.
+	for _, name := range cronLeaves {
+		if name == syftGrypeCronName {
+			t.Errorf("the syft-grype scanner CronJob leaked a cron-%s leaf — it must be fully excluded", name)
+		}
+	}
+
+	// No scanner leaf of ANY kind leaked through (no per-workload trivy row, no
+	// collapsed summary row, no syft row).
 	for i := range obs {
-		if obs[i].Kind == ReconcilerKindTask && strings.HasPrefix(obs[i].Name, "scan-vulnerabilityreport-") {
-			t.Errorf("a per-workload scan leaf leaked: %q — every scan Job must fold into the summary", obs[i].Name)
+		n := obs[i].Name
+		if strings.HasPrefix(n, "scan-vulnerabilityreport-") ||
+			strings.HasPrefix(n, "syft-grype-") ||
+			n == "security-scans" {
+			t.Errorf("a scanner leaf leaked into the flow: kind=%q name=%q — Day-2 scanners must be excluded entirely (not collapsed)", obs[i].Kind, n)
 		}
+	}
+
+	// The genuine reconciler Jobs each survived with the right status (no
+	// flapping): gitea-sso-configure is Failed; the rest Succeeded.
+	if g := findTask(obs, "gitea-sso-configure"); g == nil || g.Status != ObsStatusFailed {
+		t.Errorf("gitea-sso-configure should survive as a Failed task, got %+v", g)
+	}
+	if c := findTask(obs, "cnpg-pair-primary-join"); c == nil || c.Status != ObsStatusSucceeded {
+		t.Errorf("cnpg-pair-primary-join should survive as a Succeeded task, got %+v", c)
 	}
 }
 
