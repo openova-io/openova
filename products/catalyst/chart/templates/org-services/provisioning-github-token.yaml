@@ -130,7 +130,7 @@ Cutover ownership handover (TBD-C18b, 2026-05-18):
 {{- $sourceNamespace := .Values.smeServices.provisioning.gitToken.patSourceNamespace | default .Release.Namespace -}}
 {{- $sourceSecretName := .Values.smeServices.provisioning.gitToken.patSourceSecretName | default "catalyst-gitea-token" -}}
 {{- $sourcePatKey := .Values.smeServices.provisioning.gitToken.patSourceKey | default "token" -}}
-{{- $destNamespace := .Values.smeServices.provisioning.gitToken.destNamespace | default "sme" -}}
+{{- $destNamespace := .Values.smeServices.provisioning.gitToken.destNamespace | default "org-services" -}}
 {{- $destSecretName := .Values.smeServices.provisioning.gitToken.destSecretName | default "provisioning-github-token" -}}
 {{- $destKey := .Values.smeServices.provisioning.gitToken.destKey | default "GITHUB_TOKEN" -}}
 {{- /* Lookup the destination Secret first to detect whether Step 09 of
