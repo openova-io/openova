@@ -38,6 +38,65 @@ spec:
   hostnames:
     - {{ .Values.gateway.host | quote }}
   rules:
+{{- if and .Values.sso .Values.sso.enabled .Values.sso.bareURL .Values.sso.bareURL.enabled }}
+{{- $oidcLoginPath := .Values.sso.bareURL.oidcLoginPath | default "/c/oidc/login" }}
+{{- /*
+ROOT-URL zero-click SSO (founder mandate 2026-06-12; #3374 class).
+PROVEN GREEN on the live wire — hw167 2026-06-19, deployment
+28d4e96f96407bbb: the sso-zero-click-probe.mjs `harbor` row landed on
+https://registry.<fqdn>/harbor/projects signed-in (Projects text, no
+login_username marker).
+
+WHY: with auth_mode=oidc_auth Harbor's portal is a client-side Angular
+SPA. Typing the bare registry URL loads index.html; the SPA detects no
+session and does a FULL-PAGE navigation to /account/sign-in?redirect_url=…
+(gateway-visible — NOT a pure client-side route) and renders a sign-in
+page with a "LOGIN VIA OIDC PROVIDER" button. Harbor has NO native
+auto-redirect knob, so absent this route the operator must CLICK that
+button and the probe lands on the sign-in page (input[name=login_username]
+present) = RED.
+
+THE FIX (the gitea httproute idiom): the gateway 302s Harbor's sign-in
+page path into Harbor's server-side OIDC login initiation endpoint
+`/c/oidc/login`, which 302s straight to Keycloak (carrying the
+kc_idp_hint=catalyst-pin from oidc_extra_redirect_parms) → silent broker
+→ /c/oidc/callback → Harbor sets the session cookie → /harbor/projects.
+Top-level redirect flow (NOT popup-based like openbao), so no landing-page
+shim is needed.
+
+Loop-safety — redirect ONLY Exact `/account/sign-in`:
+  - The bare `/` is deliberately NOT intercepted. Harbor's OIDC callback,
+    on success, 302s the browser to `/` (its default post-login landing),
+    where the SPA then routes internally to /harbor/projects. Intercepting
+    `/` re-fed that post-login `/` back into /c/oidc/login → infinite
+    bounce (measured live: net::ERR_TOO_MANY_REDIRECTS). Only the
+    unauthenticated sign-in PAGE path is redirected; an authenticated
+    session never visits /account/sign-in again.
+  - /c/oidc/login, /c/oidc/callback, /harbor/*, /api/*, /v2/*,
+    /service/token all fall through to the PathPrefix `/` backend →
+    straight to harbor-core. Docker/OCI clients (/v2/ + /service/token,
+    Basic/Bearer auth) never hit /account/sign-in — registry pull/push is
+    untouched (verified live: /v2/ → 401 auth-challenge, not redirected).
+
+Port is explicit 443 — Gateway API otherwise copies the cilium LISTENER
+port (e.g. 30443) into Location, which nothing serves externally (the
+#3310 pdns lesson, re-confirmed on the hw167 wire check).
+*/}}
+{{- $signInPath := .Values.sso.bareURL.signInPath | default "/account/sign-in" }}
+    - matches:
+        - path:
+            type: Exact
+            value: {{ $signInPath | quote }}
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            hostname: {{ $.Values.gateway.host | quote }}
+            port: 443
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: {{ $oidcLoginPath | quote }}
+            statusCode: 302
+{{- end }}
     - matches:
         - path:
             type: PathPrefix
