@@ -162,6 +162,25 @@ describe('NewInstanceDialog — dropdowns (#3600)', () => {
     expect(values).not.toContain('active-hotstandby')
   })
 
+  it('#3922 — the create <select> enumerates ALL FOUR canonical modes (parity with the app-detail radio)', async () => {
+    await openDialog()
+    const sel = (await screen.findByTestId('select-instance-topology')) as HTMLSelectElement
+    const options = Array.from(sel.querySelectorAll('option'))
+    const values = options.map((o) => o.getAttribute('value'))
+    // The full #3856 single vocabulary is present — the create dialog no
+    // longer DROPS active-passive / active-active (the truncation bug).
+    expect(values).toEqual(['singleton', 'active-active', 'active-hot-standby', 'active-passive'])
+    // Modes the blueprint does NOT support (this fixture: only singleton +
+    // active-hot-standby) are present-but-disabled, exactly like the
+    // app-detail "Change placement" radio greys them out — they are never
+    // silently removed.
+    const byValue = (v: string) => options.find((o) => o.getAttribute('value') === v)!
+    expect((byValue('singleton') as HTMLOptionElement).disabled).toBe(false)
+    expect((byValue('active-hot-standby') as HTMLOptionElement).disabled).toBe(false)
+    expect((byValue('active-passive') as HTMLOptionElement).disabled).toBe(true)
+    expect((byValue('active-active') as HTMLOptionElement).disabled).toBe(true)
+  })
+
   it('vCluster is a <select>', async () => {
     await openDialog()
     expect(((await screen.findByTestId('select-instance-vcluster')) as HTMLSelectElement).tagName).toBe('SELECT')

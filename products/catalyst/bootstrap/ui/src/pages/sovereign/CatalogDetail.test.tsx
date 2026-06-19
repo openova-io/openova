@@ -239,6 +239,47 @@ describe('CatalogDetail — #3090 class page', () => {
     expect(screen.getByTestId('catalog-dep-loki')).toBeTruthy()
   })
 
+  it('#3922 — the "Supported topologies" sidebar canonicalizes legacy/garbled spellings', async () => {
+    // A Blueprint declaring the LEGACY dialect (placementSchema.modes:
+    // [single-region] preferred-first historically + spec.topology.supported
+    // carrying the un-hyphenated active-hotstandby) must render the ONE
+    // canonical vocabulary in the sidebar — matching the create <select> + the
+    // app-detail radio — never the raw garbled tokens.
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      if (url.includes('/instances')) return jsonRes({ items: [] })
+      if (url.includes('/catalog/')) {
+        return jsonRes({
+          ...GRAFANA_CATALOG,
+          // Legacy single-mode placementSchema (the historically-preferred,
+          // narrower source) + a richer but legacy-spelled topology.supported.
+          placementSchema: { modes: ['single-region'], default: 'single-region' },
+          raw: {
+            spec: {
+              ...GRAFANA_CATALOG.raw.spec,
+              topology: {
+                supported: ['single-region', 'active-hotstandby'],
+                defaults: { 'single-region': 'single-region' },
+              },
+            },
+          },
+        })
+      }
+      return jsonRes({})
+    }) as typeof fetch
+
+    renderCatalog('grafana')
+    await screen.findByTestId('catalog-section-topologies')
+    // Canonical rows render…
+    expect(screen.getByTestId('catalog-topology-singleton')).toBeTruthy()
+    expect(screen.getByTestId('catalog-topology-active-hot-standby')).toBeTruthy()
+    // …and the raw garbled legacy tokens NEVER do.
+    expect(screen.queryByTestId('catalog-topology-single-region')).toBeNull()
+    expect(screen.queryByTestId('catalog-topology-active-hotstandby')).toBeNull()
+    // The default marker is canonicalized too (single-region → singleton).
+    expect(screen.getByTestId('catalog-topology-default-singleton')).toBeTruthy()
+  })
+
   it('instances table exposes Version + Actions columns and an Open link', async () => {
     renderCatalog('grafana')
     await screen.findByTestId('sov-instances-table')
