@@ -174,6 +174,47 @@ func TestLookupExternalURL_MatchRules(t *testing.T) {
 			releaseName:     "guacamole",
 			want:            "",
 		},
+		{
+			// #3931 — post-#3642 the app moved INTO the mgmt vCluster: its HR
+			// still declares targetNamespace `gitea`, but the syncer mirrors the
+			// HTTPRoute onto the HOST in the `mgmt` sync namespace (keeping the
+			// route's plain name `gitea`). The host-side lookup must search the
+			// mgmt sync namespace even though it differs from targetNamespace.
+			name: "mgmt-vcluster synced route resolves via sync namespace",
+			routes: []*unstructured.Unstructured{
+				newHTTPRoute("mgmt", "gitea", "gitea.hw171.omantel.biz", "gitea-http"),
+			},
+			targetNamespace: "gitea",
+			releaseName:     "gitea",
+			want:            "https://gitea.hw171.omantel.biz",
+		},
+		{
+			// #3931 — the same widening must work via the hostname-leftmost
+			// label rule (openbao's route on the host carries host bao.<fqdn>?
+			// no — openbao keeps `openbao.<fqdn>`; use a name-divergent case:
+			// route mirrored as `guacamole-server` in mgmt, releaseName
+			// `guacamole`).
+			name: "mgmt-vcluster synced route resolves via hostname label",
+			routes: []*unstructured.Unstructured{
+				newHTTPRoute("mgmt", "guacamole-server", "guacamole.hw171.omantel.biz", "guacamole-server"),
+			},
+			targetNamespace: "guacamole",
+			releaseName:     "guacamole",
+			want:            "https://guacamole.hw171.omantel.biz",
+		},
+		{
+			// #3931 — the widening is bounded to the well-known vCluster sync
+			// namespaces (mgmt/dmz/rtz), NOT arbitrary ones. A same-subdomain
+			// route in an UNRELATED namespace stays excluded (the #3150
+			// namespace-filter protection must survive the #3642 fix).
+			name: "unrelated namespace still excluded after mgmt widening",
+			routes: []*unstructured.Unstructured{
+				newHTTPRoute("totally-other", "gitea", "gitea.hw171.omantel.biz", "gitea-http"),
+			},
+			targetNamespace: "gitea",
+			releaseName:     "gitea",
+			want:            "",
+		},
 	}
 
 	for _, tc := range cases {
@@ -186,6 +227,111 @@ func TestLookupExternalURL_MatchRules(t *testing.T) {
 			got := h.lookupExternalURL(context.Background(), "alpha", tc.targetNamespace, tc.releaseName)
 			if got != tc.want {
 				t.Fatalf("lookupExternalURL(%q, %q) = %q, want %q", tc.targetNamespace, tc.releaseName, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRouteNamespaceMatchesApp — #3931. Pure-function coverage for the
+// namespace-widening guard that fixes the #3642 mgmt-vCluster regression
+// without re-opening the #3150 cross-namespace false-positive.
+func TestRouteNamespaceMatchesApp(t *testing.T) {
+	cases := []struct {
+		name     string
+		routeNS  string
+		targetNS string
+		want     bool
+	}{
+		{"exact match", "gitea", "gitea", true},
+		{"empty target accepts any (CI / unset)", "anything", "", true},
+		{"mgmt sync namespace accepted for in-vcluster targetNS", "mgmt", "gitea", true},
+		{"dmz sync namespace accepted", "dmz", "someapp", true},
+		{"rtz sync namespace accepted", "rtz", "someapp", true},
+		{"arbitrary unrelated namespace rejected", "totally-other", "gitea", false},
+		{"host app in its own namespace still matches", "catalyst-system", "catalyst-system", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := routeNamespaceMatchesApp(tc.routeNS, tc.targetNS); got != tc.want {
+				t.Fatalf("routeNamespaceMatchesApp(%q, %q) = %v, want %v", tc.routeNS, tc.targetNS, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPlacementFromHR — #3931. The HR-synthesised (bootstrap-kit) placement
+// projection: front-door mgmt-vCluster apps with no Application CR must still
+// project a canonical placement class so the AppDetail Topology read-back is
+// honest (was empty → dishonest "no value projected").
+func TestPlacementFromHR(t *testing.T) {
+	mkHR := func(mutate func(obj map[string]any)) *unstructured.Unstructured {
+		obj := map[string]any{
+			"apiVersion": "helm.toolkit.fluxcd.io/v2",
+			"kind":       "HelmRelease",
+			"metadata": map[string]any{
+				"name":      "bp-gitea",
+				"namespace": "mgmt",
+				"labels": map[string]any{
+					"catalyst.openova.io/vcluster": "mgmt",
+				},
+			},
+			"spec": map[string]any{},
+		}
+		if mutate != nil {
+			mutate(obj)
+		}
+		return &unstructured.Unstructured{Object: obj}
+	}
+
+	cases := []struct {
+		name string
+		hr   *unstructured.Unstructured
+		want string
+	}{
+		{
+			// The default front-door mgmt-vCluster app (gitea/openbao/grafana):
+			// no explicit placement in values → canonical single-region class.
+			name: "bootstrap mgmt-vcluster app defaults to singleton",
+			hr:   mkHR(nil),
+			want: "singleton",
+		},
+		{
+			name: "explicit spec.values.placement string wins",
+			hr: mkHR(func(o map[string]any) {
+				o["spec"].(map[string]any)["values"] = map[string]any{"placement": "active-hot-standby"}
+			}),
+			want: "active-hot-standby",
+		},
+		{
+			name: "legacy spec.values.topology.mode object form",
+			hr: mkHR(func(o map[string]any) {
+				o["spec"].(map[string]any)["values"] = map[string]any{
+					"topology": map[string]any{"mode": "active-passive"},
+				}
+			}),
+			want: "active-passive",
+		},
+		{
+			name: "catalyst.openova.io/topology label fallback",
+			hr: mkHR(func(o map[string]any) {
+				o["metadata"].(map[string]any)["labels"].(map[string]any)["catalyst.openova.io/topology"] = "active-active"
+			}),
+			want: "active-active",
+		},
+		{
+			// An unknown / legacy spelling normalises to a canonical class
+			// (never leaks a raw dialect to the FE).
+			name: "unknown placement normalises to singleton",
+			hr: mkHR(func(o map[string]any) {
+				o["spec"].(map[string]any)["values"] = map[string]any{"placement": "gibberish"}
+			}),
+			want: "singleton",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := placementFromHR(tc.hr); got != tc.want {
+				t.Fatalf("placementFromHR = %q, want %q", got, tc.want)
 			}
 		})
 	}

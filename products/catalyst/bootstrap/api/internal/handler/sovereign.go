@@ -579,8 +579,8 @@ type sovereignAppsResponse struct {
 //   - "installed"  — HR present & Ready=True
 //   - "installing" — HR present, Ready=False (or absent condition)
 //   - "bootstrap"  — visibility=unlisted AND part of bootstrap kit
-//                     (these always render as installed; the operator
-//                      cannot uninstall the spine)
+//     (these always render as installed; the operator
+//     cannot uninstall the spine)
 //   - "available"  — listed catalog entry, no matching HR yet
 func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 	listed, err := catalog.ListedBlueprints()
@@ -757,7 +757,30 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 			return v
 		}
 		for hrName, info := range hrInfo {
+			// #3931 — resolve the front-door route by (namespace, releaseName).
+			// Pre-#3642 the app's HTTPRoute shared its targetNamespace, so a
+			// single lookup sufficed. Post-#3642 the 7 front-door apps moved
+			// INTO the mgmt vCluster and the syncer mirrors each route onto the
+			// HOST under the vCluster sync namespace (`mgmt`/`dmz`/`rtz`), NOT
+			// the app's in-vCluster targetNamespace (gitea/grafana/openbao/…).
+			// Probe targetNamespace FIRST (the host-placed apps + the canonical
+			// pre-#3642 layout), then fall back to the well-known vCluster sync
+			// namespaces. Same widening — and same collision-free guarantee
+			// (each app owns a distinct `<release>.<fqdn>` host) — as
+			// lookupExternalURL's routeNamespaceMatchesApp. Without this the
+			// AppsPage grid Open button vanishes for every mgmt-vCluster app.
 			url, ok := hrURL[[2]string{info.targetNamespace, info.releaseName}]
+			if !ok {
+				for _, syncNS := range vClusterHostSyncNamespaces {
+					if syncNS == info.targetNamespace {
+						continue
+					}
+					if u, hit := hrURL[[2]string{syncNS, info.releaseName}]; hit {
+						url, ok = u, true
+						break
+					}
+				}
+			}
 			if !ok {
 				continue
 			}
@@ -1177,11 +1200,11 @@ type sovereignLB struct {
 }
 
 type sovereignSC struct {
-	Cluster        string `json:"cluster,omitempty"`
-	Name           string `json:"name"`
-	Provisioner    string `json:"provisioner"`
-	IsDefault      bool   `json:"isDefault"`
-	ReclaimPolicy  string `json:"reclaimPolicy"`
+	Cluster       string `json:"cluster,omitempty"`
+	Name          string `json:"name"`
+	Provisioner   string `json:"provisioner"`
+	IsDefault     bool   `json:"isDefault"`
+	ReclaimPolicy string `json:"reclaimPolicy"`
 }
 
 type sovereignPVC struct {
@@ -1461,4 +1484,3 @@ func humanizeSlug(s string) string {
 	}
 	return strings.Join(parts, " ")
 }
-
