@@ -29,8 +29,8 @@ import {
 import { listOrganizations, type OrgRow } from '@/lib/organizations.api'
 import { getHierarchicalInfrastructure } from '@/lib/infrastructure.types'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
-import { ALL_MODES, canonicalizeMode, describeMode } from '@/widgets/topology/TopologyEditor'
-import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
+import { ALL_MODES, canonicalizeMode, describeModeForComponent } from '@/widgets/topology/TopologyEditor'
+import { BLUEPRINT_BY_ID, TOPOLOGY_BY_ID } from '@/shared/constants/catalog.generated'
 
 // #3599 / #3600 — the vCluster/zone options the catalyst-api backend
 // validates (`placement.vcluster ∈ {host, mgmt, dmz, rtz}`,
@@ -569,6 +569,12 @@ export function NewInstanceDialog({
 
   const requiresMultiRegion = MULTI_REGION_MODES.has(topology)
 
+  // #3905 — the per-component topology matrix (same source the declared-
+  // topology card reads) so the instance-create mode picker derives each
+  // mode's helper text from THIS component's DR contract, never the generic
+  // "backup-restore" string that contradicted the card.
+  const componentTopology = TOPOLOGY_BY_ID[`bp-${bpName}`] ?? TOPOLOGY_BY_ID[bpName]
+
   // #3370 — required backing services (declared depends[] that are
   // themselves shareable). One generic selector each.
   const backingBlueprints = useMemo<string[]>(() => {
@@ -743,7 +749,7 @@ export function NewInstanceDialog({
           >
             {supportedModes.map((m) => (
               <option key={m} value={m}>
-                {m} — {describeMode(m)}
+                {m} — {describeModeForComponent(m, componentTopology)}
               </option>
             ))}
           </select>

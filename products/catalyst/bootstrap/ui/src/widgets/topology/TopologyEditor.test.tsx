@@ -14,7 +14,8 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-import { TopologyEditor } from './TopologyEditor'
+import { TopologyEditor, describeModeForComponent } from './TopologyEditor'
+import { TOPOLOGY_BY_ID } from '@/shared/constants/catalog.generated'
 
 function withProviders(node: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -134,6 +135,69 @@ describe('TopologyEditor — preview', () => {
     fireEvent.click(screen.getByTestId('topology-editor-region-hz-hel-rtz-prod-checkbox'))
     fireEvent.click(screen.getByTestId('topology-editor-preview-btn'))
     expect(screen.getByTestId('topology-editor-preview-modal')).toBeTruthy()
+  })
+})
+
+describe('TopologyEditor — matrix-derived mode descriptions (#3905)', () => {
+  // The exact bug the founder flagged: the card derived openbao's
+  // active-passive as `raft · async` warm-standby from the topology matrix,
+  // while the edit dropdown printed a GENERIC "…(backup-restore)" string for
+  // every component. The dropdown now reads the SAME matrix, so its
+  // active-passive helper text must mirror the matrix contract and never say
+  // "backup-restore".
+  const openbaoTopology = TOPOLOGY_BY_ID['bp-openbao']
+
+  it('the openbao active-passive option derives raft/async/raft-transition from the matrix (no backup-restore)', () => {
+    expect(openbaoTopology).toBeTruthy()
+    render(
+      withProviders(
+        <TopologyEditor
+          sovereignId="dep-1"
+          applicationName="openbao"
+          currentMode="active-passive"
+          currentRegions={['mgmt-A']}
+          availableRegions={['mgmt-A', 'mgmt-B']}
+          supportedCanonical={openbaoTopology.supported}
+          topology={openbaoTopology}
+          disableNetwork
+        />,
+      ),
+    )
+    const desc = screen.getByTestId('topology-editor-mode-active-passive-desc')
+    const text = (desc.textContent ?? '').toLowerCase()
+    // Matches the CARD's matrix-derived semantics (raft · async + raft-transition + 60s/30s).
+    expect(text).toContain('raft')
+    expect(text).toContain('async')
+    expect(text).toContain('raft-transition')
+    expect(text).toContain('60s')
+    expect(text).toContain('30s')
+    // The contradiction is gone: no generic "backup-restore" anywhere.
+    expect(text).not.toContain('backup-restore')
+  })
+
+  it('describeModeForComponent for openbao active-passive exactly matches the matrix variant', () => {
+    const text = describeModeForComponent('active-passive', openbaoTopology).toLowerCase()
+    const v = openbaoTopology.perTopology['active-passive']
+    // Every field the dropdown shows is sourced from the matrix, not hardcoded.
+    expect(v?.replication?.backend).toBe('raft')
+    expect(v?.replication?.mode).toBe('async')
+    expect(v?.switchover?.mechanism).toBe('raft-transition')
+    expect(text).toContain(`${v!.replication!.backend} · ${v!.replication!.mode}`.toLowerCase())
+    expect(text).toContain('raft-transition switchover')
+    expect(text).not.toContain('backup-restore')
+  })
+
+  it('falls back to the generic one-liner when no matrix is supplied', () => {
+    // An app with no spec.topology block → no `topology` prop → generic copy.
+    const text = describeModeForComponent('active-passive', undefined).toLowerCase()
+    expect(text).toContain('promotes on failover')
+    // The generic fallback is mechanism-neutral; it must not claim backup-restore.
+    expect(text).not.toContain('backup-restore')
+  })
+
+  it('singleton uses the generic one-liner even with a matrix (no DR contract to derive)', () => {
+    const text = describeModeForComponent('singleton', openbaoTopology).toLowerCase()
+    expect(text).toContain('one cluster')
   })
 })
 

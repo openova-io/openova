@@ -33,6 +33,7 @@ import {
   type ApplicationPreviewResponse,
   type CatalogItem,
 } from '@/lib/catalog.api'
+import type { BlueprintTopology } from '@/shared/constants/catalog.generated'
 
 export interface TopologyEditorProps {
   sovereignId: string
@@ -55,6 +56,18 @@ export interface TopologyEditorProps {
    * contradiction). Falls back to placementSchema.modes / ALL_MODES.
    */
   supportedCanonical?: string[]
+  /**
+   * #3905 — the Blueprint's declared topology matrix (the SAME
+   * `BlueprintTopology` the declared-topology CARD reads from
+   * `TOPOLOGY_BY_ID`). When provided, each mode's helper text is DERIVED
+   * from this component's `perTopology` contract (replication backend/mode +
+   * switchover mechanism + RTO/RPO) so the edit dropdown can NEVER
+   * contradict the card. Without it (an app with no matrix entry) the
+   * picker falls back to the generic `describeMode` one-liners. This kills
+   * the openbao bug where the card said `raft · async` warm-standby while
+   * the dropdown said "backup-restore".
+   */
+  topology?: BlueprintTopology
   /** Fired after a successful Apply. */
   onApplied?: () => void
   /** Test seam — bypass the network call for snapshot testing. */
@@ -120,6 +133,7 @@ export function TopologyEditor({
   namespace,
   blueprint,
   supportedCanonical,
+  topology,
   onApplied,
   disableNetwork = false,
 }: TopologyEditorProps) {
@@ -274,7 +288,9 @@ export function TopologyEditor({
                 data-testid={`topology-editor-mode-${m}-radio`}
               />
               <span className="text-sm font-medium text-[var(--color-text)]">{m}</span>
-              <span className="ml-2 text-xs text-[var(--color-text-dim)]">{describeMode(m)}</span>
+              <span className="ml-2 text-xs text-[var(--color-text-dim)]" data-testid={`topology-editor-mode-${m}-desc`}>
+                {describeModeForComponent(m, topology)}
+              </span>
             </label>
           )
         })}
@@ -423,10 +439,84 @@ export function describeMode(mode: string): string {
     case 'active-hot-standby':
       return 'primary serves; standby ready for switchover'
     case 'active-passive':
-      return 'primary serves; passive cold/warm standby (backup-restore)'
+      // Generic FALLBACK only — used when an app declares no per-component
+      // topology matrix. Most active-passive apps in the catalog replicate
+      // (raft/streaming/cnpg), so the matrix-derived describer below
+      // ALWAYS wins for them. Kept deliberately mechanism-neutral.
+      return 'primary serves; standby in the second region promotes on failover'
     default:
       return ''
   }
+}
+
+/**
+ * describeModeForComponent (#3905) — the per-mode helper text the placement
+ * edit dropdown actually renders. It DERIVES the description from the SAME
+ * per-component `BlueprintTopology` matrix the declared-topology CARD reads
+ * (the component's `perTopology[variant]` contract: replication backend/mode
+ * + switchover mechanism + RTO/RPO), so the card and the edit UI can NEVER
+ * contradict for any component.
+ *
+ * The root bug this fixes: `describeMode('active-passive')` returned a
+ * GENERIC, hardcoded, component-agnostic "…(backup-restore)" string for
+ * EVERY component, while the card derived openbao's real `raft · async`
+ * warm-standby semantics from the matrix. Now the dropdown reads the matrix
+ * too, so openbao's active-passive option shows raft/async/raft-transition,
+ * not backup-restore.
+ *
+ * Falls back to the generic `describeMode` one-liner when the component
+ * declares no matrix entry for the mode (the singleton class, or an app with
+ * no `spec.topology` block at all).
+ */
+export function describeModeForComponent(mode: string, topology?: BlueprintTopology): string {
+  const canon = canonicalizeMode(mode)
+  const generic = describeMode(mode)
+  if (!topology) return generic
+
+  // perTopology keys use the matrix dialect (active-hot-standby /
+  // active-passive / active-active / singleton); match canonically so the
+  // editor's canonical token resolves the right contract.
+  let variant: BlueprintTopology['perTopology'][string] | undefined
+  for (const [key, contract] of Object.entries(topology.perTopology)) {
+    if (canonicalizeMode(key) === canon) {
+      variant = contract
+      break
+    }
+  }
+  if (!variant) return generic
+
+  // singleton carries no DR contract — the generic one-liner is correct and
+  // there is nothing matrix-specific to add.
+  if (canon === 'singleton') return generic
+
+  const repl = variant.replication
+  const sw = variant.switchover
+  const parts: string[] = []
+
+  // Lead with the operative posture per class, then append the component's
+  // concrete replication + switchover contract from the matrix.
+  if (canon === 'active-active') {
+    parts.push('every region serves traffic')
+  } else {
+    // active-hot-standby / active-passive: one region serves, the other is
+    // the standby. The replication mode (sync vs async) is what separates a
+    // hot standby from a warm one — and it comes from the matrix, never a
+    // hardcoded "backup-restore".
+    parts.push('primary serves; second-region standby promotes on failover')
+  }
+
+  if (repl?.backend) {
+    const mode = repl.mode ? `${repl.backend} · ${repl.mode}` : repl.backend
+    parts.push(`${mode} replication`)
+  }
+  if (sw?.mechanism && sw.mechanism.toLowerCase() !== 'none') {
+    const rto = sw.rtoSeconds != null ? `RTO ${sw.rtoSeconds}s` : null
+    const rpo = sw.rpoSeconds != null ? `RPO ${sw.rpoSeconds}s` : null
+    const slo = [rto, rpo].filter(Boolean).join(' / ')
+    parts.push(slo ? `${sw.mechanism} switchover (${slo})` : `${sw.mechanism} switchover`)
+  }
+
+  return parts.join('; ')
 }
 
 function sameRegionSet(a: string[], b: string[]): boolean {
