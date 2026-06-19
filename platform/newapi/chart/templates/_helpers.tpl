@@ -79,18 +79,23 @@ the chart renders in one of three roles, selected by `.Values.placement.role`:
                every host-placed Sovereign keeps the historic single-HR
                behaviour; both gates below return "true" so they are no-ops.
   host-seams   — render ONLY the host-reconciled seams: the CNPG Cluster +
-               DSN-placeholder Secret + database-secret-sync Job +
-               admin-sso-seed Job/CronJob (+ their RBAC) + the newapi-admin
-               AppRegistration ConfigMap + the oidc-sync ExternalSecret + the
-               catalyst-newapi-admin-token ExternalSecret. NO Deployment /
-               Service / HTTPRoute / Ingress / Application CR.
+               DSN-placeholder Secret + database-secret-sync Job (+ their RBAC) +
+               the newapi-admin AppRegistration ConfigMap + the oidc-sync
+               ExternalSecret + the catalyst-newapi-admin-token ExternalSecret.
+               NO Deployment / Service / HTTPRoute / Ingress / Application CR.
+               NOT the admin-sso-seed Job/CronJob — those operate on the migrated
+               schema + rollout-restart the app Deployment, so they render WITH
+               the app (vcluster-app), reading the CNPG `-app` + OIDC Secrets
+               mirrored host→vCluster (#3831 deadlock fix, Refs #3858).
   vcluster-app — render ONLY the app: Deployment + Service + (HTTPRoute via the
                host-bridge) + NetworkPolicy + the Application CR + the
                in-cluster placeholder Secrets the Pod reads (credentials,
-               token-signing-key). NO CNPG / Jobs / ExternalSecrets /
-               AppRegistration (those render host-side under host-seams; the
-               host→vCluster secret mirror + replicateServices deliver the DSN
-               Secret + CNPG Service into the vCluster).
+               token-signing-key) + the admin-sso-seed Job/CronJob + the
+               channel-seed Job (both operate on the app's migrated DB schema).
+               NO CNPG / DSN-sync Job / ExternalSecrets / AppRegistration (those
+               render host-side under host-seams; the host→vCluster secret mirror
+               + replicateServices deliver the DSN/`-app`/OIDC Secrets + CNPG
+               Service into the vCluster).
 
 The two HRs share `releaseName: newapi` + chart `bp-newapi` (in DIFFERENT
 clusters — host k3s vs vc-mgmt apiserver, so NO Helm-storage collision), so

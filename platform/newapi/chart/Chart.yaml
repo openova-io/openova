@@ -784,7 +784,25 @@ name: bp-newapi
 # host-placed install is byte-identical to 1.4.110. The split mirrors the
 # guacamole host-bridge precedent (#3868) for a host-rendered CNPG + in-vCluster
 # app, extended to a CNPG-OWNER app. See _helpers.tpl renderSeams/renderApp.
-version: 1.4.116
+# 1.4.117 (#3858, Refs #3831): render the admin-sso-seed Job/CronJob WITH the
+# app (renderApp), NOT the host seams (renderSeams). Under the 1.4.111 split the
+# seed was left on the host where seed.sh/promote.sh block on `public.users` —
+# a table the host side NEVER migrates (GORM AutoMigrate runs in vc-mgmt) →
+# activeDeadline → host-seams HR install FAILS; meanwhile the vcluster-app HR
+# `dependsOn: bp-newapi-host-seams` so the app never installs to migrate the
+# schema → CIRCULAR DEADLOCK (DeadlineExceeded, measured live hw171). Moving the
+# seed to renderApp co-locates seed+migrate in the same release/cluster: the
+# post-install hook fires after the app installs+migrates, the `public.users`
+# poll resolves, and the Deployment-patch RBAC targets a Deployment that exists.
+# The CNPG `-app` + OIDC Secrets the Job mounts are mirrored host→vCluster by
+# bp-mgmt-vcluster (0.2.26) sync.fromHost.secrets `newapi/*`; the CNPG `-rw`/`-ro`
+# Services by replicateServices — both already on main. `cnpg.enabled` is dropped
+# from the gate (vcluster-app ships cnpg.enabled=false; the Job needs only the
+# MIRRORED `-app` Secret). Mirrors the channel-seed-job renderApp precedent.
+# role=all keeps the gate "true" so standalone/host-placed installs are
+# byte-identical. Lockstep: 80-newapi.yaml + 80a-newapi-host-seams.yaml pins +
+# blueprint.yaml → 1.4.117.
+version: 1.4.117
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

@@ -68,7 +68,37 @@ nothing.
 {{- if hasKey $ssoBootstrap "enabled" -}}{{- $seedEnabled = $ssoBootstrap.enabled -}}
 {{- else if hasKey $seed "enabled" -}}{{- $seedEnabled = $seed.enabled -}}{{- end -}}
 {{- $kcMode := eq .Values.auth.adminUI.mode "keycloak" -}}
-{{- if and (eq (include "bp-newapi.renderSeams" .) "true") $seedEnabled .Values.newapi.enabled $kcMode .Values.cnpg.enabled .Values.sovereignFQDN -}}
+{{- /* #3831 deadlock fix (Refs #3858): render with the APP (renderApp), NOT the
+   host seams (renderSeams). The seed/promote pair operates on the migrated DB
+   schema — seed.sh/promote.sh both call wait_for_users_table, which polls
+   `public.users` (created by the app's GORM AutoMigrate on first boot) — AND
+   it rollout-restarts the app Deployment (reload_newapi_provider patches
+   <release> Deployment to reload custom_oauth_providers). The Deployment only
+   exists under vcluster-app, and the schema is only migrated once the app boots.
+   Under the #3831 split the seed was left on the host (renderSeams), where:
+     (1) the post-install hook blocks on wait_for_users_table for a schema the
+         host side NEVER migrates (the app runs in vc-mgmt) → activeDeadline
+         (420s) → DeadlineExceeded → the host-seams HR install FAILS → uninstall
+         remediation → retry forever; and
+     (2) the vcluster-app HR `dependsOn: bp-newapi-host-seams`, so the app can
+         never install to migrate the schema → CIRCULAR DEADLOCK (measured live
+         hw171, dep 3963e9267c10a90d: host-seams HR Unknown/install-failed x6,
+         vcluster-app HR False "Fulfilling prerequisites", 0 tables in the CNPG
+         `public` schema, newapi.<fqdn> → 500).
+   Rendering with the app co-locates seed+migrate in the SAME release/cluster:
+   the post-install hook fires AFTER the app Deployment installs+migrates, the
+   `public.users` poll resolves, and the Deployment-patch RBAC targets a
+   Deployment that actually exists. The CNPG `<cluster>-app` Secret + OIDC Secret
+   the Job mounts are mirrored host→vCluster by bp-mgmt-vcluster
+   sync.fromHost.secrets `"newapi/*": "newapi/*"` (#3879), and the CNPG `-rw`/`-ro`
+   Services by sync.fromHost.mappings — so everything the Job reads resolves
+   vcluster-side. This mirrors the channel-seed-job precedent (also renderApp,
+   also operates on the migrated schema). `cnpg.enabled` is dropped from the gate
+   because vcluster-app ships cnpg.enabled=false (the CNPG Cluster is host-rendered
+   by the host-seams HR); the Job needs only the MIRRORED `-app` Secret, not the
+   Cluster CR. role=all keeps both gates "true" so standalone/host-placed installs
+   are byte-identical. */ -}}
+{{- if and (eq (include "bp-newapi.renderApp" .) "true") $seedEnabled .Values.newapi.enabled $kcMode .Values.sovereignFQDN -}}
 {{- $clusterName := printf "%s-newapi-pg" (include "bp-newapi.fullname" .) -}}
 {{- $cnpgSecretName := printf "%s-app" $clusterName -}}
 {{- $jobName := include "bp-newapi.adminSeedJobName" . -}}

@@ -298,7 +298,12 @@ spec:
       # 1.4.112: lockstep to the auto-bumped + published upstream-v0.13.2 chart
       # (the auto-bump commit advanced the chart but its Blueprint-Release
       # lockstep step failed, leaving this pin stale at 1.4.111).
-      version: 1.4.112
+      # 1.4.117 (#3858, Refs #3831): the admin-sso-seed Job/CronJob now renders
+      # with the APP (renderApp) — this vcluster-app slot is exactly where the
+      # seed must run (it polls public.users + rollout-restarts the Deployment,
+      # both vcluster-side). Kills the slot-80↔slot-80a circular deadlock. Also
+      # absorbs the 1.4.113–1.4.116 deploy-bot upstream-v0.13.2 chart bumps.
+      version: 1.4.117
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
