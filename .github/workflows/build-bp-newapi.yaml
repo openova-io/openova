@@ -50,6 +50,7 @@ env:
   NEWAPI_IMAGE: ghcr.io/openova-io/openova/newapi-mirror
   CHART_VALUES: platform/newapi/chart/values.yaml
   CHART_YAML: platform/newapi/chart/Chart.yaml
+  BLUEPRINT_YAML: platform/newapi/blueprint.yaml
   # v0.13.2 is the latest stable (non-rc) Calcium-Ion/new-api release on
   # Docker Hub at the time this workflow was authored (2026-04-27 upstream
   # publish date). Bump in both this default AND in the chart Chart.yaml
@@ -132,7 +133,7 @@ jobs:
           echo "values.yaml after update:"
           yq eval '.newapi.image' "${CHART_VALUES}"
 
-      - name: Bump Chart.yaml patch version + appVersion
+      - name: Bump Chart.yaml patch version + appVersion + blueprint.yaml lockstep
         env:
           UPSTREAM_VER: ${{ steps.vars.outputs.upstream_version }}
         run: |
@@ -147,7 +148,13 @@ jobs:
           # actual NewAPI release running in their Sovereign.
           app_ver="${UPSTREAM_VER#v}"
           yq eval -i ".appVersion = \"${app_ver}\"" "${CHART_YAML}"
+          # Keep blueprint.yaml spec.version in LOCKSTEP with the chart version
+          # (TBD-A20 / #1856). Without this the manifest-validation lockstep
+          # sweep goes red on main after every deploy-bot bump and re-breaks
+          # every open PR's manifest-validation until manually re-synced.
+          yq eval -i ".spec.version = \"${next}\"" "${BLUEPRINT_YAML}"
           echo "Chart.yaml: version ${current} -> ${next}, appVersion -> ${app_ver}"
+          echo "blueprint.yaml: spec.version -> ${next} (lockstep)"
           echo "CHART_NEW_VERSION=${next}" >> "$GITHUB_ENV"
 
       # TBD-V32 / openova-io/openova#2062 — race-safe push via the shared
@@ -159,6 +166,7 @@ jobs:
           paths: |
             ${{ env.CHART_VALUES }}
             ${{ env.CHART_YAML }}
+            ${{ env.BLUEPRINT_YAML }}
           commit-message: "deploy: bump bp-newapi upstream ${{ steps.vars.outputs.upstream_version }} chart ${{ env.CHART_NEW_VERSION }}"
 
       - name: Trigger blueprint-release for the chart bump
