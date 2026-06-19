@@ -51,7 +51,11 @@ metadata:
     # must not claw it back (DoD §9.4).
     helm.sh/resource-policy: keep
 spec:
-  version: "0.2.0"
+  # 2026-06-19 (#3870): lockstep with platform/wordpress-tenant/blueprint.yaml
+  # spec.version 0.4.1 + the published chart ghcr.io/openova-io/bp-wordpress-tenant:0.4.1.
+  # The prior 0.2.0 pin was stale (chart had moved 0.2.0→0.4.1) — the operator
+  # catalog card would fetch an old chart on a fresh production prov.
+  version: "0.4.1"
   visibility: listed
   card:
     title: "WordPress (Tenant)"
@@ -73,7 +77,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: 0.2.0
+    version: 0.4.1
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/wordpress-tenant/blueprint.yaml. Uses {{.AppName}} so
   # multi-instance tenants get distinct hostnames per Application.
@@ -129,6 +133,132 @@ spec:
       smeDomain:
         type: string
         description: "SME tenant domain (e.g. acme.<sov-fqdn>)."
+      replicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 8
+      adminUser:
+        type: object
+        required: [email]
+        properties:
+          email:
+            type: string
+            description: "Admin email (must match Keycloak realm email claim)."
+---
+# bp-wordpress — production alias for the bare `wordpress` / `bp-wordpress`
+# slug (2026-06-19, #3870 / #3376). The customer-facing marketplace funnel
+# (core/marketplace AppsStep.svelte) sells WordPress under `slug: wordpress`,
+# and operator docs + the qa-loop matrix POST `"blueprint":"bp-wordpress"`.
+# The console resolves both via the catalog-client bare→`bp-` prefix retry
+# (catalog_client_cluster_fallback.go) → it looks up a CR named `bp-wordpress`.
+# Pre-fix that CR was seeded ONLY by templates/qa-fixtures/blueprint-bp-wordpress.yaml,
+# which is gated on qaFixtures.enabled (default FALSE on production Sovereigns).
+# Result: on a fresh production prov, `GET /api/v1/catalog/wordpress` 404'd
+# ("Couldn't load wordpress / catalog get: HTTP 404", caught live hw167).
+# Seeding the alias here (always-on via catalogSeed.enabled) makes the bare
+# slug resolve to the REAL bp-wordpress-tenant chart on every Sovereign. The
+# canonical `bp-wordpress-tenant` entry above remains the operator-grid card;
+# this alias is the marketplace/funnel/literal-install entrypoint pointing at
+# the same OCI chart bytes (no separate chart). Per INVIOLABLE-PRINCIPLES #1
+# the chart ref is the published 0.4.1 — not a placeholder.
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-wordpress
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: tenant-app
+    catalyst.openova.io/section: pts-7-sme-tenant
+    catalyst.openova.io/alias-of: bp-wordpress-tenant
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+  annotations:
+    # #3668 — Helm→Flux ownership handoff. Keep this seeded CR if a later
+    # helm reconcile would prune it AFTER the catalog-sovereign Flux
+    # Kustomization (force:true SSA) has adopted the same-named CR from a
+    # console edit/curate.
+    helm.sh/resource-policy: keep
+spec:
+  version: "0.4.1"
+  visibility: listed
+  card:
+    title: "WordPress"
+    category: tenant-app
+    family: cms
+    summary: "Turnkey, SSO-pre-wired WordPress. Postgres + cert-manager TLS pre-wired. The marketplace funnel's flagship CMS."
+    description: "Runs in the Org's vcluster. SSO via the per-Org Keycloak realm (openid-connect-generic). Default theme + admin user pre-seeded at install time so the first browser hit lands on /wp-admin authenticated. Aliases the bp-wordpress-tenant chart."
+    icon: wordpress.svg
+    license: "GPL-2.0-or-later"
+    tags: [wordpress, cms, sme, tenant, sso, keycloak, postgres]
+    docs: "https://wordpress.org/documentation/"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-wordpress-tenant
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-wordpress-tenant
+    version: 0.4.1
+  # Lockstep with the bp-wordpress-tenant entry above + platform/wordpress-tenant/
+  # blueprint.yaml. Same chart bytes; this is the bare-slug entrypoint only.
+  topology:
+    supported:
+      - active-passive
+      - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton
+    perTopology:
+      active-passive:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 60
+          rpoSeconds: 0
+        placement:
+          tier: rtz
+          clusters: [rtz-A, rtz-B]
+          roles:
+            rtz-A: active
+            rtz-B: passive
+      singleton:
+        placement:
+          tier: rtz
+          clusters: [rtz-A]
+          roles:
+            rtz-A: singleton
+  endpoints:
+    - name: ui
+      hostnameTemplate: "{{ "{{" }}.AppName{{ "}}" }}.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+  sso:
+    realm: "{{ "{{" }}.OrgSlug{{ "}}" }}"
+    protocolMapper: oidc
+    silentLogin: true
+  multiInstance:
+    enabled: true
+    maxPerOrg: 10
+  configSchema:
+    type: object
+    required: [smeDomain, adminUser]
+    properties:
+      smeDomain:
+        type: string
+        description: "Org tenant domain (e.g. acme.<sov-fqdn>)."
       replicas:
         type: integer
         default: 1
