@@ -148,7 +148,7 @@ spec:
       # chart renders the canonical apps.openova.io/v1 Application CR for
       # this slot's HelmRelease so the console /apps list, per-app Topology
       # tab + showback resolve openbao (no more "no Application CR").
-      version: 1.2.49
+      version: 1.2.50
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
