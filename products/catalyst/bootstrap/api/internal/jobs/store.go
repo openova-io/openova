@@ -536,6 +536,22 @@ func (s *Store) ListJobs(deploymentID string) ([]Job, error) {
 	out := make([]Job, len(idx.Jobs))
 	copy(out, idx.Jobs)
 	out = deriveTreeView(out)
+	// RunCount — derive the per-leaf run-history depth (#3925) from the
+	// flat Execution index so a collapsed identity row (e.g. a recurring
+	// scan with 600 runs behind it) reports its run count on the row
+	// without the FE having to load the full Execution list. Group rows
+	// own no Executions of their own, so they stay 0 (omitempty drops them
+	// from the wire). Counted post-deriveTreeView so synthesized group
+	// rows are present but simply match nothing.
+	runCounts := make(map[string]int, len(idx.Jobs))
+	for i := range idx.Executions {
+		runCounts[idx.Executions[i].JobID]++
+	}
+	for i := range out {
+		if n := runCounts[out[i].ID]; n > 0 {
+			out[i].RunCount = n
+		}
+	}
 	sort.SliceStable(out, func(i, j int) bool {
 		// Pending (no StartedAt) sort last.
 		ai, bi := out[i].StartedAt, out[j].StartedAt
@@ -885,6 +901,10 @@ func (s *Store) GetJob(deploymentID, jobID string) (Job, []Execution, error) {
 			sort.Slice(execs, func(a, b int) bool {
 				return execs[a].StartedAt.After(execs[b].StartedAt)
 			})
+			// RunCount mirrors ListJobs (#3925) — the run-history depth so
+			// a single GetJob also reports a collapsed identity row's run
+			// count without re-counting the returned execs FE-side.
+			j.RunCount = len(execs)
 			return j, execs, nil
 		}
 	}

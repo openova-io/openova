@@ -61,22 +61,31 @@ var (
 // are in scope"). The reconciler chart stamps it via a render marker.
 const ReconcilerMarkerLabel = "catalyst.openova.io/reconciler"
 
-// Day-2 security-scanner namespaces (issue #3919 / founder mandate). The
-// provisioning flow + diagram surface the FINITE convergence set (platform
-// HRs, Kustomization tiers, real bootstrap/seed/migration Jobs). Day-2
-// background scanners run FOREVER, minting a fresh Job per scan run and never
-// completing — they are security activity, not provisioning convergence, so
-// they are EXCLUDED ENTIRELY from the flow (not collapsed into an inline
-// summary leaf that still pollutes the convergence DAG). Two scanners are
-// excluded:
+// Day-2 security-scanner namespaces (issue #3919 / #3925). The provisioning
+// Jobs view surfaces the FINITE job set (one-shot bootstrap/seed/migration
+// Jobs AND scheduled-recurring jobs like scans + backups). Day-2 background
+// scanners run FOREVER, minting a fresh Job per scan run — on a converged
+// Sovereign that is HUNDREDS of ever-growing per-run rows (614 trivy reports
+// observed live on hw171) that dwarf the ~100 real reconcilers.
+//
+// The #3925 model (jobs-convergence-monitor-model.md §4 Surface B): a
+// recurring scan is NOT a third nature and is NOT excluded — it is a finite
+// job that recurs. So each scanner COLLAPSES to exactly ONE identity-keyed
+// row carrying its run-history (run count + last-run + status), never 600
+// rows and never dropped. This supersedes the earlier #3919 disposition
+// (exclude entirely): the scanner identity is detected the same way
+// (isDay2ScannerJob), but its runs are folded onto ONE leaf as Executions
+// (the same collapse the cron + task leaves already use), so the Jobs view
+// shows "trivy security-scan · 600 runs" / "syft sbom · 37 runs" — one row
+// each. Two scanners collapse:
 //
 //   - trivy-operator — one short-lived scan-* Job per workload (+ per
 //     container), continuously re-scanned, in trivyScanNamespace. Detected by
-//     isDay2ScannerJob's trivy paths.
+//     isTrivyScanJob; all runs fold onto the trivyScanIdentity row.
 //   - syft-grype     — a daily SBOM/vuln CronJob in syftGrypeNamespace whose
-//     spawned Jobs carry a CronJob ownerReference to syftGrypeCronName.
-//     The CronJob itself AND its spawned Jobs are excluded (the cron leaf is
-//     dropped in pass 2; the spawned Jobs in pass 3).
+//     spawned Jobs carry a CronJob ownerReference to syftGrypeCronName. The
+//     CronJob seeds the syftScanIdentity row in pass 2; its spawned + any
+//     namespace-resident scan Jobs fold on as Executions in pass 3.
 const (
 	// trivyScanNamespace — the namespace the trivy-operator runs its scan
 	// Jobs in. Scan Jobs anywhere else are still caught by the label/name
@@ -88,6 +97,16 @@ const (
 	// syftGrypeCronName — the bp-syft-grype CronJob name (releaseName in the
 	// slot-33 HelmRelease). Its spawned Jobs carry it as a CronJob owner.
 	syftGrypeCronName = "syft-grype"
+
+	// trivyScanIdentity / syftScanIdentity — the STABLE identity the
+	// collapsed scanner row is keyed on (#3925). Every trivy scan Job folds
+	// onto trivyScanIdentity; every syft-grype run folds onto
+	// syftScanIdentity. These are the task-<identity> leaf names the Jobs
+	// view renders ONE row for, with all runs behind them as Executions.
+	// Names are operator-readable (DeriveLeafDisplayName humanises them to
+	// "Trivy Security Scan (task)" / "Syft SBOM (task)").
+	trivyScanIdentity = "trivy-security-scan"
+	syftScanIdentity  = "syft-sbom"
 )
 
 // Reconciler-observation Kind tags. These mirror the jobs.Kind* leaf
@@ -217,15 +236,34 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 	// position in `out` (never a cached pointer) for the same
 	// reallocation-safety reason cronIdx is.
 	taskIdx := map[string]int{} // ns/base → index into out
+	// scannerIdx indexes the ONE collapsed Day-2 scanner row per scanner
+	// identity (#3925) — trivyScanIdentity / syftScanIdentity. Every scan
+	// Job folds its run onto the single identity row as an Execution, so a
+	// 600-run trivy flood is ONE row + 600 runs, never 600 rows (and never
+	// dropped — a recurring scan is a finite job that recurs). Position-
+	// indexed for the same reallocation-safety reason cronIdx/taskIdx are.
+	scannerIdx := map[string]int{} // scanner-identity → index into out
 	if list, err := dyn.Resource(CronJobGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
 		for i := range list.Items {
 			u := &list.Items[i]
-			// Day-2 scanner CronJob (syft-grype) → EXCLUDED from the
-			// provisioning flow + diagram entirely (founder mandate, #3919).
-			// Dropping the cron leaf here also keeps its spawned Jobs from
-			// orphaning onto a missing cron leaf in pass 3 — those Jobs are
-			// independently excluded by isDay2ScannerJob below.
+			// Day-2 scanner CronJob (syft-grype) → COLLAPSES onto the single
+			// syftScanIdentity row (#3925), NOT a per-CronJob cron-* leaf.
+			// Seeding the identity row HERE (pending until its first run) means
+			// the Jobs view shows "syft sbom" even before any run lands, and
+			// the CronJob's spawned Jobs fold their runs onto this same row as
+			// Executions in pass 3 (keyed by scannerIdentity, not by owner).
 			if isDay2ScannerCronJob(u) {
+				key := syftScanIdentity
+				if _, ok := scannerIdx[key]; !ok {
+					out = append(out, ReconcilerObservation{
+						Kind:      ReconcilerKindTask,
+						Name:      syftScanIdentity,
+						Namespace: u.GetNamespace(),
+						Status:    ObsStatusPending,
+						Message:   "recurring SBOM scan: no run observed yet",
+					})
+					scannerIdx[key] = len(out) - 1
+				}
 				continue
 			}
 			obs := ReconcilerObservation{
@@ -248,26 +286,26 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 	// task-<name> leaf. The ownership de-dup (issue #3646 §5a) keys off
 	// metadata.ownerReferences + the helm hook label.
 	//
-	// Day-2 security-scanner Jobs (trivy-operator + syft-grype, issue #3919)
-	// are EXCLUDED ENTIRELY here — they never mint a task-* leaf, never attach
-	// as an Execution, and (because the flow diagram is derived strictly from
-	// the leaves in jobs.Store) never become a node or edge in the convergence
-	// DAG. The trivy-operator spawns one short-lived scan Job per workload
-	// (+ per container) and re-scans forever; syft-grype runs a daily SBOM
-	// CronJob. Both are continuous background security activity, NOT the finite
-	// provisioning-convergence set the flow surfaces — so they are dropped, not
-	// collapsed into an inline summary row that would still pollute the DAG
-	// (founder mandate, #3919). This mirrors the dashboard treemap's scan
-	// exclusion (#3869) applied to the jobs ingestion.
+	// Day-2 security-scanner Jobs (trivy-operator + syft-grype, #3919/#3925)
+	// COLLAPSE onto ONE identity-keyed row per scanner — they never mint a
+	// per-run task-* leaf. The trivy-operator spawns one short-lived scan Job
+	// per workload (+ per container) and re-scans forever; syft-grype runs a
+	// daily SBOM CronJob. Both are finite jobs that RECUR (model §3): a
+	// recurring scan is one entity with a run-history behind it, not 600 rows
+	// and not excluded. So each scan Job folds its run onto the single
+	// scanner-identity row as an Execution (the same collapse the cron + task
+	// leaves use), recency-resolving the headline status — the Jobs view shows
+	// "trivy security-scan · N runs" / "syft sbom · N runs", one row each.
 	if list, err := dyn.Resource(JobGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
 		for i := range list.Items {
 			u := &list.Items[i]
-			// Day-2 scanner Job (trivy-operator scan-* OR a syft-grype
-			// CronJob-spawned run) → fully excluded from the flow + diagram.
-			if isDay2ScannerJob(u) {
+			status, started, finished := jobRunStatus(u)
+			// Day-2 scanner Job (trivy-operator scan-* OR a syft-grype run)
+			// → fold its run onto the ONE collapsed identity row (#3925).
+			if id, ok := scannerIdentity(u); ok {
+				foldScannerRun(&out, scannerIdx, id, u.GetNamespace(), u, status, started, finished)
 				continue
 			}
-			status, started, finished := jobRunStatus(u)
 			if cronName, ok := cronJobOwnerName(u); ok {
 				// Attach as an Execution under the owning cron leaf. Mutate
 				// through the index (out[idx]) so the write always lands on
@@ -568,20 +606,20 @@ func isRunSuffix(s string) bool {
 }
 
 // isDay2ScannerJob reports whether a batch Job is a Day-2 security-scanner
-// run (trivy-operator OR syft-grype, issue #3919) that must be EXCLUDED
-// ENTIRELY from the provisioning flow + diagram — never a task-* leaf, never
-// an Execution, never a DAG node/edge.
+// run (trivy-operator OR syft-grype, #3919/#3925). A scanner run does NOT
+// mint its own per-run task-* leaf — instead it COLLAPSES onto ONE
+// identity-keyed row per scanner via scannerIdentity + foldScannerRun, so a
+// 600-run flood is one row with a run-history behind it (model §4 Surface B),
+// never 600 rows and never excluded.
 //
 // Day-2 scanners run forever: the trivy-operator spawns one short-lived scan
 // Job per workload (+ per container) and re-scans continuously (producing the
 // VulnerabilityReport / ConfigAuditReport / ExposedSecretReport /
 // RbacAssessmentReport CRs); syft-grype runs a daily SBOM/vuln CronJob whose
 // spawned Jobs accumulate under successfulJobsHistoryLimit. On a converged
-// Sovereign that is hundreds of ever-growing rows that dwarf the ~100 real
-// platform reconcilers. They are security activity, not provisioning
-// convergence, so they do not belong in the finite convergence set the flow
-// surfaces. This is the jobs-ingestion analogue of the dashboard treemap's
-// scan exclusion (#3869).
+// Sovereign that is hundreds of ever-growing per-run rows that dwarf the ~100
+// real reconcilers. Collapsing them to one identity row each kills the flood
+// while keeping the recurring scan visible as the finite job it is.
 //
 // Detection is layered + conservative (any match ⇒ scanner Job), so a
 // TENANT's own Job named "scan-*" in some other namespace, or a non-scanner
@@ -609,6 +647,66 @@ func isRunSuffix(s string) bool {
 //	    surfaced as a real task.
 func isDay2ScannerJob(u *unstructured.Unstructured) bool {
 	return isTrivyScanJob(u) || isSyftGrypeScannerJob(u)
+}
+
+// scannerIdentity returns the STABLE collapse identity for a Day-2 scanner
+// Job (#3925) — trivyScanIdentity for any trivy-operator scan Job,
+// syftScanIdentity for any syft-grype run — and ok=false for a non-scanner
+// Job. Every run of a scanner maps to the SAME identity, which is what makes
+// the 600-run flood fold onto one row. Trivy is checked first; the two
+// detection sets are namespace-disjoint so order is immaterial in practice.
+func scannerIdentity(u *unstructured.Unstructured) (string, bool) {
+	if isTrivyScanJob(u) {
+		return trivyScanIdentity, true
+	}
+	if isSyftGrypeScannerJob(u) {
+		return syftScanIdentity, true
+	}
+	return "", false
+}
+
+// foldScannerRun records ONE scanner run as an Execution on the single
+// identity-keyed scanner row (#3925), creating the row on first sight. This
+// is the collapse: N scan Jobs sharing an identity ⇒ 1 row + N Executions
+// (run-history), never N rows. The headline status is recency-resolved (the
+// MOST RECENT run wins — a stale Succeeded arriving after a fresh Failed must
+// not overwrite the failure), identical to the cron + task leaf recency rule,
+// so the row never flaps on re-ingest. The row is indexed by position in
+// `out` (never a cached pointer) for the same reallocation-safety reason
+// cronIdx/taskIdx are.
+func foldScannerRun(out *[]ReconcilerObservation, scannerIdx map[string]int, identity, ns string, u *unstructured.Unstructured, status string, started, finished time.Time) {
+	run := ReconcilerExecution{
+		Name:       u.GetName(),
+		Status:     status,
+		StartedAt:  started,
+		FinishedAt: finished,
+		Message:    "scan run " + u.GetName() + ": " + status,
+	}
+	runAt := firstNonZero(finished, started)
+	if idx, ok := scannerIdx[identity]; ok {
+		c := &(*out)[idx]
+		c.Executions = append(c.Executions, run)
+		// Recency-resolve the headline so the collapsed row reflects the
+		// latest run, regardless of apiserver list order.
+		if c.ObservedAt.IsZero() || runAt.IsZero() || !runAt.Before(c.ObservedAt) {
+			c.Status = status
+			c.Message = "last scan run " + u.GetName() + ": " + status
+			if !runAt.IsZero() {
+				c.ObservedAt = runAt
+			}
+		}
+		return
+	}
+	*out = append(*out, ReconcilerObservation{
+		Kind:       ReconcilerKindTask,
+		Name:       identity,
+		Namespace:  ns,
+		Status:     status,
+		Message:    "recurring scan, last run " + u.GetName() + ": " + status,
+		Executions: []ReconcilerExecution{run},
+		ObservedAt: runAt,
+	})
+	scannerIdx[identity] = len(*out) - 1
 }
 
 // isTrivyScanJob — trivy-operator detection paths (1)-(3) above.

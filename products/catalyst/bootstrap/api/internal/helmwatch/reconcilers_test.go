@@ -474,21 +474,36 @@ func makeSyftJob(name, variant string, fin time.Time) *unstructured.Unstructured
 	return u
 }
 
-// TestListReconcilerObservations_Day2ScannersExcludedFromFlow pins the founder
-// mandate (issue #3919): Day-2 security-scanner Jobs (trivy-operator AND
-// syft-grype) must be EXCLUDED ENTIRELY from the provisioning flow — not
-// collapsed into an inline summary leaf that still pollutes the convergence
-// view. After the fix the observation set contains ZERO scanner leaves (no
-// per-workload row, no summary row, no cron leaf) while every genuine
-// reconciler Job + HR survives with its own stable leaf + correct status.
-func TestListReconcilerObservations_Day2ScannersExcludedFromFlow(t *testing.T) {
+// setJobFailed flips a batch Job's terminal condition from "Complete" to
+// "Failed" in place (status.conditions[0].type), so jobRunStatus reports it
+// as a failed run. Used to model a scan run that errored.
+func setJobFailed(u *unstructured.Unstructured) {
+	status, _ := u.Object["status"].(map[string]any)
+	conds, _ := status["conditions"].([]any)
+	if len(conds) > 0 {
+		if c, ok := conds[0].(map[string]any); ok {
+			c["type"] = "Failed"
+		}
+	}
+}
+
+// TestListReconcilerObservations_Day2ScannersCollapseToOneIdentityRow pins
+// the #3925 model (jobs-convergence-monitor-model.md §4 Surface B): Day-2
+// security-scanner Jobs (trivy-operator AND syft-grype) are NOT excluded and
+// are NOT one-row-per-run — each scanner COLLAPSES to exactly ONE
+// identity-keyed task row carrying its run-history (all runs as Executions),
+// so a 600-run flood is one row + 600 runs. This supersedes the earlier #3919
+// "exclude entirely" disposition: a recurring scan is a finite job that
+// recurs, so it belongs in the Jobs view as one row, never dropped.
+func TestListReconcilerObservations_Day2ScannersCollapseToOneIdentityRow(t *testing.T) {
 	t0 := time.Date(2026, 6, 20, 1, 0, 0, 0, time.UTC)
 	objs := []runtime.Object{}
 
 	// Simulate the live hw171 flood: a large fleet of trivy scan Jobs across
-	// all three trivy detection paths. 200 stands in for the ~600 reports
-	// observed live.
-	trivyFleet := 200
+	// all three trivy detection paths. 600 stands in for the ~614 reports
+	// observed live — this is the exact "600 runs behind it" case the model
+	// names.
+	trivyFleet := 600
 	for i := 0; i < trivyFleet; i++ {
 		var label string
 		switch i % 3 {
@@ -499,12 +514,14 @@ func TestListReconcilerObservations_Day2ScannersExcludedFromFlow(t *testing.T) {
 		default:
 			label = "name-only"
 		}
-		objs = append(objs, makeScanJob("scan-vulnerabilityreport-"+itoaTest(i), label, t0))
+		// Each run finishes at a distinct minute so recency is well-defined;
+		// run i finishes at t0+i minutes, so the LAST one is the most recent.
+		objs = append(objs, makeScanJob("scan-vulnerabilityreport-"+itoaTest(i), label, t0.Add(time.Duration(i)*time.Minute)))
 	}
 
 	// A fleet of syft-grype SBOM Jobs across all three syft detection paths,
-	// PLUS the syft-grype CronJob itself (which must also be excluded — no
-	// cron-syft-grype leaf).
+	// PLUS the syft-grype CronJob itself (which seeds the identity row but
+	// must NOT mint its own cron-syft-grype leaf).
 	syftFleet := 30
 	for i := 0; i < syftFleet; i++ {
 		var variant string
@@ -516,7 +533,7 @@ func TestListReconcilerObservations_Day2ScannersExcludedFromFlow(t *testing.T) {
 		default:
 			variant = "namespace-only"
 		}
-		objs = append(objs, makeSyftJob("syft-grype-2900"+itoaTest(i), variant, t0))
+		objs = append(objs, makeSyftJob("syft-grype-2900"+itoaTest(i), variant, t0.Add(time.Duration(i)*time.Minute)))
 	}
 	objs = append(objs, makeCronJob(syftGrypeNamespace, syftGrypeCronName))
 
@@ -535,10 +552,9 @@ func TestListReconcilerObservations_Day2ScannersExcludedFromFlow(t *testing.T) {
 		t.Fatalf("ListReconcilerObservations: %v", err)
 	}
 
-	// Count task + cron leaves. Pre-fix: ~200 trivy task rows + 1 syft cron leaf
-	// (the 30 syft Jobs attach as Executions, or — for the labelled/namespace
-	// ones with no owner — as their own task rows). After full exclusion the
-	// ONLY leaves are the real reconcilers: 4 task leaves, 0 scanner cron leaf.
+	// Count task + cron leaves. After collapse the task leaves are: the 4 real
+	// reconcilers + exactly the 2 scanner identity rows. ZERO cron leaf for
+	// syft (its CronJob folds onto the syft identity task row instead).
 	taskLeaves := []string{}
 	cronLeaves := []string{}
 	for i := range obs {
@@ -550,39 +566,61 @@ func TestListReconcilerObservations_Day2ScannersExcludedFromFlow(t *testing.T) {
 		}
 	}
 
-	// Exactly the 4 real reconciler Jobs survive as task leaves — nothing more.
+	// Exactly the 4 real reconciler Jobs + 2 collapsed scanner rows survive.
 	wantTasks := map[string]bool{
 		"cnpg-pair-primary-join": true,
 		"openbao-init":           true, // run-suffix stripped from -29000111
 		"gitea-sso-configure":    true,
 		"scan-invoices-nightly":  true, // tenant "scan-*" Job is a REAL task
+		trivyScanIdentity:        true, // collapsed trivy row
+		syftScanIdentity:         true, // collapsed syft row
 	}
 	if len(taskLeaves) != len(wantTasks) {
-		t.Fatalf("Day-2 scanners NOT fully excluded: got %d task leaves %v, want exactly the %d real reconcilers. (pre-fix ≈ %d trivy scan rows)",
+		t.Fatalf("scanners NOT collapsed to one identity row: got %d task leaves %v, want exactly %d (4 real + 2 scanner). (pre-collapse ≈ %d trivy per-run rows)",
 			len(taskLeaves), taskLeaves, len(wantTasks), trivyFleet)
 	}
 	for _, name := range taskLeaves {
 		if !wantTasks[name] {
-			t.Errorf("unexpected task leaf %q survived — only the 4 real reconcilers should remain", name)
+			t.Errorf("unexpected task leaf %q — only the 4 real reconcilers + 2 collapsed scanner rows should exist", name)
 		}
 	}
 
-	// ZERO scanner cron leaf — the syft-grype CronJob must not surface.
+	// ZERO per-run scanner leaf leaked — no scan-vulnerabilityreport-* row, no
+	// syft-grype-<n> row, no legacy security-scans summary row, no cron leaf.
 	for _, name := range cronLeaves {
 		if name == syftGrypeCronName {
-			t.Errorf("the syft-grype scanner CronJob leaked a cron-%s leaf — it must be fully excluded", name)
+			t.Errorf("the syft-grype scanner CronJob leaked a cron-%s leaf — it must collapse onto the %s row", name, syftScanIdentity)
 		}
 	}
-
-	// No scanner leaf of ANY kind leaked through (no per-workload trivy row, no
-	// collapsed summary row, no syft row).
 	for i := range obs {
 		n := obs[i].Name
 		if strings.HasPrefix(n, "scan-vulnerabilityreport-") ||
 			strings.HasPrefix(n, "syft-grype-") ||
 			n == "security-scans" {
-			t.Errorf("a scanner leaf leaked into the flow: kind=%q name=%q — Day-2 scanners must be excluded entirely (not collapsed)", obs[i].Kind, n)
+			t.Errorf("a per-run scanner leaf leaked into the flow: kind=%q name=%q — scanner runs must fold onto the identity row as Executions", obs[i].Kind, n)
 		}
+	}
+
+	// The collapsed trivy row carries ALL 600 runs as run-history (run count =
+	// number of Executions), exactly ONE row, Succeeded headline.
+	trivy := findTask(obs, trivyScanIdentity)
+	if trivy == nil {
+		t.Fatalf("expected one collapsed %q task row; got none", trivyScanIdentity)
+	}
+	if len(trivy.Executions) != trivyFleet {
+		t.Errorf("collapsed trivy row should carry %d runs (run-history); got %d Executions", trivyFleet, len(trivy.Executions))
+	}
+	if trivy.Status != ObsStatusSucceeded {
+		t.Errorf("collapsed trivy row headline should be Succeeded (all runs complete); got %q", trivy.Status)
+	}
+
+	// The collapsed syft row carries all 30 spawned runs as run-history.
+	syft := findTask(obs, syftScanIdentity)
+	if syft == nil {
+		t.Fatalf("expected one collapsed %q task row; got none", syftScanIdentity)
+	}
+	if len(syft.Executions) != syftFleet {
+		t.Errorf("collapsed syft row should carry %d runs (run-history); got %d Executions", syftFleet, len(syft.Executions))
 	}
 
 	// The genuine reconciler Jobs each survived with the right status (no
@@ -592,6 +630,50 @@ func TestListReconcilerObservations_Day2ScannersExcludedFromFlow(t *testing.T) {
 	}
 	if c := findTask(obs, "cnpg-pair-primary-join"); c == nil || c.Status != ObsStatusSucceeded {
 		t.Errorf("cnpg-pair-primary-join should survive as a Succeeded task, got %+v", c)
+	}
+}
+
+// TestListReconcilerObservations_ScannerStickyHeadlineNoFlap pins the
+// sticky-terminal property of the collapsed scanner row (#3925/#3918): the
+// headline reflects the MOST RECENT run and never flaps to a stale run's
+// status. A fresh Failed run arriving after an older Succeeded one must leave
+// the row Failed; a later Succeeded run then recovers it — recency, not list
+// order, decides.
+func TestListReconcilerObservations_ScannerStickyHeadlineNoFlap(t *testing.T) {
+	t0 := time.Date(2026, 6, 20, 1, 0, 0, 0, time.UTC)
+
+	// List order is deliberately NON-chronological: the older Succeeded run is
+	// listed AFTER the newer Failed run, so a naive last-wins would wrongly
+	// report Succeeded. Recency resolution must pick the newer Failed.
+	older := makeScanJob("scan-vulnerabilityreport-old", "managed-by", t0)                       // succeeded, older
+	newer := makeScanJob("scan-vulnerabilityreport-new", "managed-by", t0.Add(10*time.Minute))   // failed, newer
+	// flip the newer run to a failed condition.
+	setJobFailed(newer)
+
+	obs, err := ListReconcilerObservations(context.Background(), reconcilerFakeClient(newer, older))
+	if err != nil {
+		t.Fatalf("ListReconcilerObservations: %v", err)
+	}
+	trivy := findTask(obs, trivyScanIdentity)
+	if trivy == nil {
+		t.Fatalf("expected one collapsed %q row", trivyScanIdentity)
+	}
+	if len(trivy.Executions) != 2 {
+		t.Errorf("expected 2 runs in run-history; got %d", len(trivy.Executions))
+	}
+	if trivy.Status != ObsStatusFailed {
+		t.Errorf("sticky headline should reflect the most-recent (Failed) run regardless of list order; got %q", trivy.Status)
+	}
+
+	// A still-later Succeeded run recovers the headline (real run status, not a
+	// frozen terminal — finite jobs ARE finite, the latest run wins).
+	recovered := makeScanJob("scan-vulnerabilityreport-recover", "managed-by", t0.Add(20*time.Minute))
+	obs2, err := ListReconcilerObservations(context.Background(), reconcilerFakeClient(newer, older, recovered))
+	if err != nil {
+		t.Fatalf("ListReconcilerObservations(recover): %v", err)
+	}
+	if r := findTask(obs2, trivyScanIdentity); r == nil || r.Status != ObsStatusSucceeded {
+		t.Errorf("a newer Succeeded run should recover the headline; got %+v", r)
 	}
 }
 

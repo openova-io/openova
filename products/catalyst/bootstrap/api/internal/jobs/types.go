@@ -368,6 +368,15 @@ type Job struct {
 	// jobs (groups don't run Executions of their own).
 	LatestExecutionID string `json:"latestExecutionId,omitempty"`
 
+	// RunCount — number of Executions (runs) recorded for this leaf
+	// Job. DERIVED at read time by Store.ListJobs / Store.GetJob from
+	// the flat Execution index; never persisted on the Job row. This is
+	// the run-history depth the Jobs view (#3925) shows behind an
+	// identity-keyed row: a recurring scan that collapses to one row
+	// reports "600 runs" here; a one-shot job reports 1. Zero (omitted on
+	// the wire) for a pending job with no run yet and for group jobs.
+	RunCount int `json:"runCount,omitempty"`
+
 	// ChildIDs — full IDs of jobs whose ParentID == this Job's ID.
 	// DERIVED at read time by Store.ListJobs / Store.GetJob; never
 	// persisted. Empty for leaf install jobs.
