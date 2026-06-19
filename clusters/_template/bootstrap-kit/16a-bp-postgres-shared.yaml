@@ -137,7 +137,13 @@ spec:
       # ingress rule (TCP 5432 from any in-cluster Pod) so the SHARED engine's
       # consumers reach it again; replication/own-cluster/operator carve-outs
       # unchanged; singleton stays byte-identical. Lockstep bump with 16c/16d.
-      version: 0.2.2
+      # 0.2.4 (#3878, companion to #3876): chart gains reflect.mangledTarget;
+      # the keycloak/gitea/harbor bindings below declare it so each DB Secret
+      # is delivered natively into vc-mgmt as the syncer-mangled host object
+      # (no fromHost mirror of a pod-mounted Secret → no vcluster-0.23.0
+      # from-host/to-host deadlock, and no missing credential). Lockstep with
+      # 16c/16d. Refs #3876 #3374 #3737.
+      version: 0.2.4
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -224,6 +230,14 @@ spec:
         reflect:
           secretName: harbor-database-secret
           namespaces: [harbor]
+          # #3878 (companion to #3876): harbor runs INSIDE vc-mgmt (#3642).
+          # Deliver harbor-database-secret natively into vc-mgmt by reflecting
+          # the vCluster-syncer-mangled host object into ns `mgmt` (the object
+          # the in-vc pod mounts). The DB Secret is NOT fromHost-imported, so
+          # the from-host/to-host syncers never fight over it (the #3876
+          # deadlock) AND the credential is present on a fresh prov.
+          mangledTarget:
+            vclusterNamespace: harbor
       - name: gitea             # gitea's database
         owner: gitea
         consumer:
@@ -232,6 +246,10 @@ spec:
         reflect:
           secretName: gitea-database-secret
           namespaces: [gitea]
+          # #3878: gitea runs INSIDE vc-mgmt — native DB-secret delivery (see
+          # harbor binding above for the full rationale).
+          mangledTarget:
+            vclusterNamespace: gitea
       # keycloak (#3188 three-instance model): the bitnami keycloak
       # subchart flips to externalDatabase mode off this hub Secret —
       # slot 09 gates its bundled keycloak-postgresql StatefulSet on
@@ -247,3 +265,11 @@ spec:
         reflect:
           secretName: keycloak-database-secret
           namespaces: [keycloak]
+          # #3878: keycloak runs INSIDE vc-mgmt — native DB-secret delivery.
+          # This is the durable form of the hw167 hand-fix the cycle-1
+          # validation agent applied live (created keycloak-database-secret
+          # natively in-vCluster, single toHost owner). #3876 dropped the
+          # keycloak/* fromHost wildcard entirely (keycloak has no host SSO
+          # Secret); this mangled copy is its ONLY in-vc DB-secret source.
+          mangledTarget:
+            vclusterNamespace: keycloak
