@@ -502,3 +502,12 @@ no curl/kubectl). `☐` = the browser walk + screenshot capture is in progress o
 - **3374-12 ❌** newapi → upstream-111 REGRESSION caught (pod 3/3 Running) → #3858
 
 Direct browser confirmed the probe AND caught the newapi regression the probe missed.
+
+## Funnel terminal — Pillar-1 customer journey ran END-TO-END (hw167, this session)
+
+**First time ever** an Organization went active through the funnel (prior envs couldn't even mint the Organization CR — the org-services tier was dead everywhere). The org-controller fix (#3849) unblocked it.
+- ✅ Full wizard: plans M → WordPress → domain `walkorg.omani.homes` → BCP topology → review → **email-PIN zero-click sign-in** (PIN from Valkey `magic:admin@walkorg.test`) — screenshots `hw167-3376-01..07`.
+- ✅ `POST /api/tenant/orgs → 201` → `tenant.created` → **Organization CR `walkorg` minted → org-controller `Ready=True`** (Keycloak group + Gitea org + per-Org gitops loop + vCluster `phase: Ready`).
+- ❌ **Terminal app-serving** (`console.walkorg.omani.homes` / `wordpress.walkorg.omani.homes`) = ERR_CONNECTION_REFUSED — gated by **5 gaps fixed in PR #3860 (#3859)**: (1) vCluster NetworkPolicies allow-list `sme`→`org-services` (rtz 0.2.13, mgmt 0.2.20); (2) kyverno harbor-proxy exclude (1.0.37); (3) per-Org vCluster flux-managed/harbor-proxy `namespaceSelector` excludes; (4) per-Org coredns `1.14.1`→`1.11.3`; (5) `TENANT_PARENT_DOMAIN`→`tenantPublic` route (catalyst-platform 1.4.696). Gaps 1-3 applied LIVE → org-services tier 12/12 Running + `walkorg` Ready=True; gaps 4-5 land the route+DNS on the next fresh prov. App-install also gated behind marketplace checkout `503` (no Stripe).
+
+All 5 gaps trace to the incomplete #3383 `sme`→`org-services` rename (which I re-opened) — the funnel-drive surfaced them by driving the real journey.
