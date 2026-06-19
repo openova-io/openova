@@ -1041,7 +1041,7 @@ spec:
             # 1.4.699 — #3856 (Refs #3375 #3581): ONE canonical DR vocabulary — catalog-seed (bp-cnpg-pair + bp-continuum) + cnpgpair.yaml CRD enum drop the banned un-hyphenated `active-hotstandby` for the canonical `active-hot-standby`; catalyst-ui Instances table canonicalizes for display so the bp-postgres chip renders clean. Catalyst-Zero render byte-unchanged. NOTE re-pin: the catalyst-build auto-bump may publish a higher patch (it increments from Chart.yaml at merge) — verify the ghcr tag before a fresh prov pins this.
       # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — funnel/BSS
       #   control-plane namespace defaults + reflector/policy allow-lists re-pointed at org-services.
-      version: 1.4.714
+      version: 1.4.715
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
