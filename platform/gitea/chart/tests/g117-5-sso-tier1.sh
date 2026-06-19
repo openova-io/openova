@@ -8,12 +8,16 @@
 #   2. The ExternalSecret's `authorize_url` template appends
 #      `?kc_idp_hint=catalyst-pin` (defense-in-depth to the bp-keycloak
 #      1.4.9+ realm-config IDR `defaultProvider` binding).
-#   3. The sso-configure-oauth-job mounts the SSO Secret as a Projected
-#      Volume (so it can read authorize_url alongside the env-var
-#      key+secret) and ships IDP_HINT env defaulting to catalyst-pin.
-#   4. The Job script uses `--use-custom-url-mapping --custom-auth-url`
-#      when IDP_HINT is non-empty AND the bundle files exist.
-#   5. Opt-out: sso.idpHint="" reverts to --auto-discover-url path.
+#   3. The sso-configure reconciler (a Deployment post-#3851) mounts the
+#      SSO Secret gitea-oauth-source-credentials at /etc/sso-creds so it can
+#      read authorize_url (kc_idp_hint already baked in by the ExternalSecret).
+#   4. The reconcile script uses `--use-custom-url-mapping --custom-auth-url`
+#      when the idp hint is set AND the bundle files exist.
+#   5. Opt-out: sso.idpHint="" drops kc_idp_hint + reverts to --auto-discover-url.
+#
+# NOTE (#3851): the one-shot configure-oauth Job was refactored into a
+# continuously-reconciling Deployment (the openbao file-read posture). The
+# cases below assert the rendered reconciler manifest, not a Job.
 
 set -euo pipefail
 
@@ -54,14 +58,20 @@ if ! grep -q 'authorize_url:.*kc_idp_hint=catalyst-pin' "${tmpdir}/default.yaml"
 fi
 echo "  PASS"
 
-# Case 3: Job mounts SSO Secret + IDP_HINT env present
-echo "[g117-5-sso-tier1] Case 3: configure-oauth Job mounts sso-bundle + has IDP_HINT env"
-if ! grep -q 'name: sso-bundle' "${tmpdir}/default.yaml"; then
-  echo "FAIL: configure-oauth Job missing sso-bundle volume" >&2
+# Case 3: the sso-configure reconciler mounts the SSO Secret as files.
+# #3851 refactored the one-shot configure-oauth Job into a continuously-
+# reconciling Deployment (the openbao file-read posture): instead of a
+# projected volume named `sso-bundle` + an IDP_HINT env var, the bundle
+# Secret `gitea-oauth-source-credentials` is mounted at /etc/sso-creds and
+# the reconcile script reads authorize_url (kc_idp_hint already baked in by
+# the ExternalSecret — Case 2) from those files.
+echo "[g117-5-sso-tier1] Case 3: sso-configure reconciler mounts gitea-oauth-source-credentials at /etc/sso-creds"
+if ! grep -q 'secretName: gitea-oauth-source-credentials' "${tmpdir}/default.yaml"; then
+  echo "FAIL: sso-configure reconciler does not mount the gitea-oauth-source-credentials Secret" >&2
   exit 1
 fi
-if ! grep -q 'name: IDP_HINT' "${tmpdir}/default.yaml"; then
-  echo "FAIL: configure-oauth Job missing IDP_HINT env var" >&2
+if ! grep -q 'mountPath: /etc/sso-creds' "${tmpdir}/default.yaml"; then
+  echo "FAIL: sso-configure reconciler missing the /etc/sso-creds bundle mount" >&2
   exit 1
 fi
 echo "  PASS"
@@ -78,17 +88,20 @@ if ! grep -q '\-\-custom-auth-url' "${tmpdir}/default.yaml"; then
 fi
 echo "  PASS"
 
-# Case 5: Opt-out — idpHint="" still renders + Job still uses --auto-discover-url fallback
+# Case 5: Opt-out — idpHint="" drops the hint from authorize_url AND the
+# reconciler falls back to the --auto-discover-url path (post-#3851 the
+# obsolete IDP_HINT env var is gone; the opt-out signal is the absence of
+# kc_idp_hint in the ExternalSecret + the auto-discover-url codepath).
 echo "[g117-5-sso-tier1] Case 5: opt-out path (idpHint='') falls back to --auto-discover-url"
-"$helm" template smoke "$chart_dir" --set sso.sovereignFqdn=smoke.omani.works --set sso.idpHint='' 2>/dev/null > "${tmpdir}/optout.yaml"
+"$helm" template smoke "$chart_dir" --set sso.sovereignFqdn=smoke.omani.works --set sso.idpHint='' --api-versions "external-secrets.io/v1beta1" 2>/dev/null > "${tmpdir}/optout.yaml"
 # The ExternalSecret template should not carry "kc_idp_hint=" anymore
 if grep -q 'authorize_url:.*kc_idp_hint=' "${tmpdir}/optout.yaml"; then
   echo "FAIL: opt-out (idpHint='') still appends kc_idp_hint to authorize_url" >&2
   exit 1
 fi
-# The Job's IDP_HINT env should be empty string
-if ! grep -A1 'name: IDP_HINT' "${tmpdir}/optout.yaml" | grep -q 'value: ""'; then
-  echo "FAIL: opt-out (idpHint='') IDP_HINT env did not render as empty" >&2
+# The reconciler must still render the --auto-discover-url fallback codepath.
+if ! grep -q 'auto-discover-url' "${tmpdir}/optout.yaml"; then
+  echo "FAIL: opt-out (idpHint='') did not render the --auto-discover-url fallback codepath" >&2
   exit 1
 fi
 echo "  PASS"
@@ -97,9 +110,9 @@ echo "  PASS"
 # pod/gitea-0 — upstream gitea 10.5.0 renders a Deployment, not a
 # StatefulSet, so the index-name lookup never matches and the hook
 # times out. Job must instead resolve the live Pod by label selector.
-echo "[g117-5-sso-tier1] Case 6: configure-oauth Job does not hard-code pod/gitea-0"
+echo "[g117-5-sso-tier1] Case 6: sso-configure reconciler does not hard-code pod/gitea-0"
 if grep -q 'pod/gitea-0\|exec.*gitea-0' "${tmpdir}/default.yaml"; then
-  echo "FAIL: configure-oauth Job still references the hard-coded pod/gitea-0 name." >&2
+  echo "FAIL: sso-configure reconciler still references the hard-coded pod/gitea-0 name." >&2
   echo "  upstream gitea 10.5.0 renders a Deployment; pod is gitea-<rs-hash>-<id>." >&2
   exit 1
 fi

@@ -29,9 +29,12 @@ CHART_DIR="$(cd "${1:-$(dirname "$0")/..}" && pwd)"
 # per Gitea source: cmd/admin_auth.go writes "%d\t|%s\t\t|%s\t|%v\t").
 SAMPLE_LIST="$(printf 'ID\t|Name\t\t|Type\t|Enabled\n1\t|openova-sso\t|OAuth2\t|true\n')"
 
-# Extract the awk one-liner used in templates/sso-configure-oauth-job.yaml.
-# We assert it strips ALL whitespace from $1 (not just spaces), so the
-# resulting AUTH_ID is the bare "1" without trailing tab.
+# Extract the awk one-liner used in templates/sso-configure-deployment.yaml
+# (the #3851 refactor moved the one-shot configure-oauth Job into a
+# continuously-reconciling Deployment — the openbao pattern — carrying this
+# AUTH_ID awk idiom with it). We assert it strips ALL whitespace from $1
+# (not just spaces), so the resulting AUTH_ID is the bare "1" without
+# trailing tab.
 AUTH_ID="$(printf '%s\n' "$SAMPLE_LIST" \
   | awk -F '|' -v name="openova-sso" \
     '$2 ~ name && $3 ~ /OAuth2/ {gsub(/[[:space:]]+/,"",$1); print $1}' \
@@ -46,10 +49,10 @@ fi
 echo "PASS 1: awk extraction strips tabs+spaces from AUTH_ID (got '${AUTH_ID}')"
 
 # Sanity check: the actual template ALSO uses [[:space:]]+ (not just bare " "),
-# so the live Job runs the same logic as this unit test.
+# so the live reconciler runs the same logic as this unit test.
 if ! grep -qF 'gsub(/[[:space:]]+/,"",$1)' \
-     "$CHART_DIR/templates/sso-configure-oauth-job.yaml"; then
-  echo "FAIL: configure-oauth-job.yaml does not use gsub(/[[:space:]]+/,...) for AUTH_ID extraction"
+     "$CHART_DIR/templates/sso-configure-deployment.yaml"; then
+  echo "FAIL: sso-configure-deployment.yaml does not use gsub(/[[:space:]]+/,...) for AUTH_ID extraction"
   echo "  The chart template has drifted from this test's contract — re-apply the"
   echo "  whitespace-strip pattern to the AUTH_ID awk script and re-run."
   exit 1
