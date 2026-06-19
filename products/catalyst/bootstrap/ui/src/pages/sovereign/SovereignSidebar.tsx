@@ -38,7 +38,7 @@ const CLOUD_ICON =
   'M6.657 18c-2.572 0 -4.657 -2.007 -4.657 -4.483c0 -2.475 2.085 -4.482 4.657 -4.482c.393 -1.762 1.794 -3.2 3.675 -3.773c1.88 -.572 3.956 -.193 5.444 1c1.488 1.19 2.162 3.007 1.77 4.769h.99c1.913 0 3.464 1.56 3.464 3.486c0 1.927 -1.551 3.487 -3.465 3.487h-11.878'
 
 interface FlatNavItem {
-  id: 'apps' | 'catalog' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'settings'
+  id: 'apps' | 'catalog' | 'sandbox' | 'jobs' | 'reconciliation' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'settings'
   label: string
   to: string
   icon: string
@@ -102,6 +102,16 @@ const FLAT_NAV: FlatNavItem[] = [
     label: 'Jobs',
     to: '/jobs',
     icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
+  },
+  // #3925 surface B — Reconciliation (the Flux convergence spine). The
+  // bounded GitOps desired-state DAG; sits with Jobs in the operations
+  // band. Icon: Tabler IconRefresh (circular refresh = continuous
+  // reconcile).
+  {
+    id: 'reconciliation',
+    label: 'Reconciliation',
+    to: '/reconciliation',
+    icon: 'M20 11A8.1 8.1 0 004.5 9M4 5v4h4M4 13a8.1 8.1 0 0015.5 2M20 19v-4h-4',
   },
   // Compliance (Wave 5.62a, Refs #2318 / #1096): expose the existing
   // SRE / SecLead compliance dashboards (mounted at /sre/compliance +
@@ -185,7 +195,7 @@ const SETTINGS_SUB_NAV: SubNavItem[] = [
 
 // ── Active-state derivation ───────────────────────────────────────────────────
 
-type ActiveSection = 'apps' | 'catalog' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'settings'
+type ActiveSection = 'apps' | 'catalog' | 'sandbox' | 'jobs' | 'reconciliation' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'settings'
 
 const CLOUD_PATH_RE = /^\/(cloud|infrastructure)(\/|$)/
 
@@ -200,6 +210,8 @@ function deriveActiveSection(pathname: string): ActiveSection {
   // /sandbox/$id, and /sandbox/settings (Wave 3).
   if (/^\/sandbox(\/|$)/.test(pathname)) return 'sandbox'
   if (/^\/jobs(\/|$)/.test(pathname)) return 'jobs'
+  // #3925 surface B — /reconciliation highlights the Reconciliation entry.
+  if (/^\/reconciliation(\/|$)/.test(pathname)) return 'reconciliation'
   // /sre/compliance + /sec/compliance + /compliance/* all highlight
   // the Compliance nav entry (Wave 5.62a, Refs #2318 / #1096). The
   // entry's to: '/sre/compliance' is the SRE dashboard landing; the
