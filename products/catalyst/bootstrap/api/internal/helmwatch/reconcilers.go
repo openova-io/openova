@@ -61,6 +61,20 @@ var (
 // are in scope"). The reconciler chart stamps it via a render marker.
 const ReconcilerMarkerLabel = "catalyst.openova.io/reconciler"
 
+// SecurityScanSummaryName — the stable Name of the SINGLE collapsed
+// security-scan task leaf (issue #3919). Every trivy-operator scan Job is
+// counted into this one leaf instead of minting its own task-* row, so the
+// /jobs canvas shows "scanning is happening" without the hundreds of
+// ever-growing per-workload rows. The jobs bridge keys leaves by Kind+Name,
+// so a fixed Name guarantees the count refreshes the same row across
+// re-reads rather than accumulating new ones.
+const SecurityScanSummaryName = "security-scans"
+
+// trivyScanNamespace — the namespace the trivy-operator runs its scan Jobs
+// in. Scan Jobs anywhere else are still caught by the label/name checks in
+// isSecurityScanJob; this is the fast common-case match.
+const trivyScanNamespace = "trivy-system"
+
 // Reconciler-observation Kind tags. These mirror the jobs.Kind* leaf
 // kinds 1:1 (kept as plain strings here so this package does not import
 // internal/jobs and create a cycle). The bridge maps them through.
@@ -210,9 +224,27 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 	// Execution on an install leaf (HR install-hook), or a standalone
 	// task-<name> leaf. The ownership de-dup (issue #3646 §5a) keys off
 	// metadata.ownerReferences + the helm hook label.
+	//
+	// scanJobCount accumulates trivy/aquasecurity security-scan Jobs
+	// (issue #3919) so they NEVER mint per-Job task-* leaves — they are
+	// collapsed into ONE "security-scans" summary leaf after the loop. The
+	// trivy-operator spawns one scan Job per workload (+ per container) and
+	// continuously re-scans, so without this they flood the /jobs canvas with
+	// hundreds of ever-growing rows that dwarf the real ~100 platform
+	// reconcilers. This mirrors the dashboard treemap's `dropEphemeralRows`
+	// scan exclusion (#3869) — same class of filter, applied to the jobs
+	// ingestion. Collapse (not drop) so the operator still sees scanning is
+	// running without the per-report flood.
+	scanJobCount := 0
 	if list, err := dyn.Resource(JobGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
 		for i := range list.Items {
 			u := &list.Items[i]
+			// Security-scan Job (trivy-operator) → counted into the single
+			// summary leaf, never a per-Job task-* row (#3919).
+			if isSecurityScanJob(u) {
+				scanJobCount++
+				continue
+			}
 			status, started, finished := jobRunStatus(u)
 			if cronName, ok := cronJobOwnerName(u); ok {
 				// Attach as an Execution under the owning cron leaf. Mutate
@@ -320,6 +352,25 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 			})
 			taskIdx[key] = len(out) - 1
 		}
+	}
+
+	// (3b) Collapsed security-scan summary (issue #3919). When trivy-operator
+	// scan Jobs were observed, emit exactly ONE task leaf carrying the count
+	// so the operator sees "scanning is happening" without the per-workload
+	// flood. A stable Name keeps it as a single leaf across re-reads (the
+	// jobs bridge upserts by Kind+Name); the count lives in the Message so a
+	// growing scan fleet refreshes the same row instead of adding new ones.
+	// Succeeded because the scans themselves are not a provisioning gate —
+	// their job is to run continuously, never to "complete".
+	if scanJobCount > 0 {
+		out = append(out, ReconcilerObservation{
+			Kind:       ReconcilerKindTask,
+			Name:       SecurityScanSummaryName,
+			Namespace:  "trivy-system",
+			Status:     ObsStatusSucceeded,
+			Message:    "security scans: " + itoa(int64(scanJobCount)) + " scan jobs (collapsed)",
+			ObservedAt: time.Now().UTC(),
+		})
 	}
 
 	// (4) reconciler-marked Deployments → reconciler-<name> HEALTH leaf.
@@ -511,6 +562,46 @@ func isRunSuffix(s string) bool {
 		}
 	}
 	return hasDigit
+}
+
+// isSecurityScanJob reports whether a batch Job is a trivy/aquasecurity
+// security-scan Job (issue #3919) that must be COLLAPSED into the single
+// security-scans summary leaf rather than minting its own task-* row.
+//
+// The trivy-operator spawns one short-lived scan Job per workload (and per
+// container) and re-scans continuously, producing the VulnerabilityReport /
+// ConfigAuditReport / ExposedSecretReport / RbacAssessmentReport CRs — on a
+// converged Sovereign that is hundreds of ever-growing Jobs that flood and
+// dwarf the ~100 real platform reconcilers on the /jobs canvas. They are
+// security activity, not provisioning/convergence, so they do not belong as
+// individual rows. This is the jobs-ingestion analogue of the dashboard
+// treemap's scan exclusion (#3869).
+//
+// Detection is layered (any match ⇒ scan Job), most-authoritative first:
+//  1. the trivy-operator managed-by label
+//     (app.kubernetes.io/managed-by=trivy-operator) — the operator stamps
+//     it on every scan Job it creates;
+//  2. any trivy-operator.* label key (e.g. trivy-operator.resource.kind),
+//     present on scan Jobs regardless of the managed-by value;
+//  3. the well-known scan-* name prefix in the trivy-system namespace, a
+//     belt-and-braces fallback if labels are stripped by a future operator
+//     release. Name-prefix alone OUTSIDE trivy-system is intentionally NOT
+//     treated as a scan Job so an unrelated user Job named "scan-*" in a
+//     tenant namespace still surfaces as a real task.
+func isSecurityScanJob(u *unstructured.Unstructured) bool {
+	labels := u.GetLabels()
+	if strings.EqualFold(strings.TrimSpace(labels["app.kubernetes.io/managed-by"]), "trivy-operator") {
+		return true
+	}
+	for k := range labels {
+		if strings.HasPrefix(k, "trivy-operator.") {
+			return true
+		}
+	}
+	if u.GetNamespace() == trivyScanNamespace && strings.HasPrefix(u.GetName(), "scan-") {
+		return true
+	}
+	return false
 }
 
 // cronJobOwnerName returns the owning CronJob name when the Job carries a

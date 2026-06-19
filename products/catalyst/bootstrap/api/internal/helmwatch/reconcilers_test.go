@@ -17,6 +17,7 @@ package helmwatch
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -429,3 +430,102 @@ func TestListReconcilerObservations_TaskRunSuffixStrippedFromName(t *testing.T) 
 		t.Errorf("numeric-suffix runs want 1 stable leaf, got %d", n)
 	}
 }
+
+// makeScanJob constructs a trivy-operator security-scan Job (issue #3919) —
+// the kind that floods the /jobs canvas. label drives which detection path
+// is exercised: "managed-by" (app.kubernetes.io/managed-by=trivy-operator),
+// "resource-label" (a trivy-operator.* label key), or "name-only" (scan-*
+// name in trivy-system with NO trivy labels — the belt-and-braces fallback).
+func makeScanJob(name, label string, fin time.Time) *unstructured.Unstructured {
+	u := makeBatchJob(trivyScanNamespace, name, "", "Complete", metav1.ConditionTrue, fin)
+	meta := u.Object["metadata"].(map[string]any)
+	switch label {
+	case "managed-by":
+		meta["labels"] = map[string]any{"app.kubernetes.io/managed-by": "trivy-operator"}
+	case "resource-label":
+		meta["labels"] = map[string]any{"trivy-operator.resource.kind": "Pod", "trivy-operator.resource.name": "some-pod"}
+	case "name-only":
+		// no labels — relies on the scan-* name + trivy-system namespace
+	}
+	return u
+}
+
+// TestListReconcilerObservations_SecurityScansCollapseToOneSummary pins the
+// #3919 fix: trivy-operator security-scan Jobs (hundreds, one per workload,
+// ever-growing) MUST NOT each mint a task-* row — they collapse into ONE
+// "security-scans" summary leaf, so the /jobs canvas shows the real platform
+// reconcilers, not a scan flood. A handful of genuine reconciler Jobs in the
+// same list are unaffected.
+func TestListReconcilerObservations_SecurityScansCollapseToOneSummary(t *testing.T) {
+	t0 := time.Date(2026, 6, 20, 1, 0, 0, 0, time.UTC)
+	objs := []runtime.Object{}
+
+	// Simulate the live hw171 flood: a large fleet of scan Jobs across the
+	// three trivy detection paths (managed-by label, trivy-operator.* label,
+	// and scan-* name in trivy-system). 200 scan Jobs stands in for the ~600
+	// reports observed live.
+	scanFleet := 200
+	for i := 0; i < scanFleet; i++ {
+		var label string
+		switch i % 3 {
+		case 0:
+			label = "managed-by"
+		case 1:
+			label = "resource-label"
+		default:
+			label = "name-only"
+		}
+		objs = append(objs, makeScanJob("scan-vulnerabilityreport-"+itoaTest(i), label, t0))
+	}
+
+	// A handful of REAL reconciler Jobs that must each still surface.
+	objs = append(objs,
+		makeBatchJob("cnpg", "cnpg-pair-primary-join", "", "Complete", metav1.ConditionTrue, t0),
+		makeBatchJob("openbao", "openbao-init-29000111", "", "Complete", metav1.ConditionTrue, t0),
+		makeBatchJob("gitea", "gitea-sso-configure", "", "Failed", metav1.ConditionTrue, t0),
+	)
+
+	obs, err := ListReconcilerObservations(context.Background(), reconcilerFakeClient(objs...))
+	if err != nil {
+		t.Fatalf("ListReconcilerObservations: %v", err)
+	}
+
+	// Count task leaves. With 200 scan Jobs + 3 real Jobs, the PRE-FIX model
+	// would yield ~203 task rows; the fix yields 3 real + 1 summary = 4.
+	taskCount := 0
+	for i := range obs {
+		if obs[i].Kind == ReconcilerKindTask {
+			taskCount++
+		}
+	}
+	if taskCount > 10 {
+		t.Fatalf("scan flood NOT collapsed: got %d task leaves (≈the %d scan Jobs). The #3919 fix must drop these to ~the real-reconciler count.", taskCount, scanFleet)
+	}
+
+	// Exactly ONE collapsed summary leaf, carrying the scan count.
+	summary := findTask(obs, SecurityScanSummaryName)
+	if summary == nil {
+		t.Fatalf("no collapsed '%s' summary leaf — scanning must still be visible to the operator as one row", SecurityScanSummaryName)
+	}
+	if !strings.Contains(summary.Message, itoaTest(scanFleet)) {
+		t.Errorf("summary leaf must report the scan count %d, got message %q", scanFleet, summary.Message)
+	}
+
+	// The 3 real reconciler Jobs each survived as their own leaf.
+	for _, want := range []string{"cnpg-pair-primary-join", "openbao-init", "gitea-sso-configure"} {
+		if findTask(obs, want) == nil {
+			t.Errorf("real reconciler Job %q was wrongly swept into the scan collapse", want)
+		}
+	}
+
+	// And NO scan-* per-workload leaf leaked through.
+	for i := range obs {
+		if obs[i].Kind == ReconcilerKindTask && strings.HasPrefix(obs[i].Name, "scan-vulnerabilityreport-") {
+			t.Errorf("a per-workload scan leaf leaked: %q — every scan Job must fold into the summary", obs[i].Name)
+		}
+	}
+}
+
+// itoaTest — tiny local int→string for the test (avoids a strconv import for
+// one call site and matches the package's no-fmt helper style).
+func itoaTest(n int) string { return itoa(int64(n)) }
