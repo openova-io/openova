@@ -198,7 +198,12 @@ spec:
       # chart renders the canonical apps.openova.io/v1 Application CR for
       # this slot's HelmRelease so the console /apps list, per-app Topology
       # tab + showback resolve keycloak (no more "no Application CR").
-      version: 1.4.33
+      # 1.4.34 (#3741/#3852): powerdns-admin realm client registers BOTH
+      #         /oauth2/callback AND /oidc/authorized — 1.4.30 over-stripped
+      #         the native authlib callback, so the gate's bare-root→/oidc/login
+      #         redirect 'Invalid parameter: redirect_uri'd on PDA's own OIDC
+      #         hop (hw167 UAT row 3374-11). Lockstep with bp-oidc-gate 0.1.4.
+      version: 1.4.34
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak

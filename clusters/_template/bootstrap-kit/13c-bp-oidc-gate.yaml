@@ -66,7 +66,13 @@ spec:
       # PDA's own silent KC round-trip and lands signed-in (hw159: bare URL had
       # been landing on PDA's /login FORM — zero-click FAIL; PDA ships authlib
       # OIDC and ignores oauth2-proxy's X-Auth-Request-* headers).
-      version: 0.1.3
+      # 0.1.4 (#3741/#3852, 2026-06-19): appNativeCallbackPath — register the
+      # gated app's OWN native-OIDC callback as a SECOND redirectUri on the KC
+      # client. The rootRedirectPath→/oidc/login hop fires PDA's authlib flow
+      # which sends redirect_uri=…/oidc/authorized; #3741 had over-stripped that
+      # URI → KC 'Invalid parameter: redirect_uri' on hw167 (UAT row 3374-11).
+      # powerdns-admin instance below sets appNativeCallbackPath:/oidc/authorized.
+      version: 0.1.4
       sourceRef:
         kind: HelmRepository
         name: bp-oidc-gate
@@ -143,12 +149,24 @@ spec:
       # redirected; /oidc/login, /oidc/authorized, /login, /dashboard all
       # flow through untouched and PDA's post-login lands on /dashboard/
       # which never revisits `/`. bp-oidc-gate 0.1.3.
+      #
+      # #3741/#3852 (2026-06-19, hw167 UAT row 3374-11) — appNativeCallbackPath.
+      # rootRedirectPath sends the bare root to PDA's /oidc/login, which fires
+      # pda-legacy's OWN authlib OIDC flow (authlib sends
+      # redirect_uri=https://pdns-admin.<fqdn>/oidc/authorized). #3741 stripped
+      # /oidc/authorized from the KC client on the wrong premise it was 'gated,
+      # not native-OIDC' → KC 'Invalid parameter: redirect_uri' on that second
+      # hop, so the operator never landed (the /oauth2/callback the gate itself
+      # uses was the ONLY registered URI). Declaring the native callback here
+      # makes the AppRegistration register BOTH /oauth2/callback AND
+      # /oidc/authorized on the powerdns-admin client. bp-oidc-gate 0.1.4.
       - name: powerdns-admin
         enabled: true
         clientId: powerdns-admin
         hostname: "pdns-admin.${SOVEREIGN_FQDN}"
         upstream: http://powerdns-admin-bp-powerdns-admin.powerdns-admin.svc.cluster.local:80
         rootRedirectPath: /oidc/login
+        appNativeCallbackPath: /oidc/authorized
 
       # ── GENERALITY PROOF (#3374 DoD box 10a) ──────────────────────────
       # A brand-new throwaway app gated with ONLY a name + hostname +

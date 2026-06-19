@@ -69,4 +69,17 @@ resources:
 #     # unset → no root redirect (byte-identical to a login-less app).
 #     rootRedirectPath: ""          # e.g. "/oidc/login"
 #     rootRedirectPort: 443         # the Sovereign HTTPS listener port
+#     # appNativeCallbackPath (#3741/#3852): the gated app's OWN native-OIDC
+#     # callback path. Set ONLY for apps that ship their own OIDC (pda-legacy
+#     # authlib = `/oidc/authorized`) and are reached via rootRedirectPath. The
+#     # gate 302s the bare root to the app's `/oidc/login`, which fires the
+#     # app's NATIVE OIDC flow (the app ignores oauth2-proxy X-Auth-Request-*
+#     # headers, so it must session-auth itself); authlib then sends
+#     # redirect_uri=https://<host><appNativeCallbackPath>. This path is added
+#     # as a SECOND redirectUri on the KC client (alongside the gate's
+#     # /oauth2/callback) so KC accepts the app's native hop — without it KC
+#     # returns "Invalid parameter: redirect_uri" (hw167 UAT row 3374-11).
+#     # Login-less gated apps (openova-flow) leave this unset → only
+#     # /oauth2/callback registers (byte-identical to the pre-#3741 shape).
+#     appNativeCallbackPath: ""     # e.g. "/oidc/authorized"
 instances: []

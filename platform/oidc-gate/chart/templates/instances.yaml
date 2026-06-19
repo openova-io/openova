@@ -77,8 +77,24 @@ data:
       "publicClient": false,
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
+      {{- /*
+      #3741/#3852 (hw167 UAT row 3374-11) — TWO callbacks register when the
+      gated app ships its OWN native OIDC (appNativeCallbackPath set):
+        1. /oauth2/callback — the oauth2-proxy gate's own callback.
+        2. <appNativeCallbackPath> — the app's native callback (pda-legacy
+           authlib = /oidc/authorized). The gate 302s the bare root to the
+           app's /oidc/login (rootRedirectPath); that fires the app's OWN
+           OIDC flow (the app ignores oauth2-proxy X-Auth-Request-* headers
+           and must session-auth itself), and its authlib sends
+           redirect_uri=https://<host><appNativeCallbackPath>. #3741 stripped
+           this on the wrong premise the app was 'gated, not native-OIDC' →
+           KC 'Invalid parameter: redirect_uri' on the second hop. Login-less
+           gated apps (openova-flow) leave appNativeCallbackPath unset → only
+           /oauth2/callback registers (byte-identical to the old shape).
+      */ -}}
       "redirectUris": [
-        "https://{{ $hostname }}/oauth2/callback"
+        "https://{{ $hostname }}/oauth2/callback"{{- if $inst.appNativeCallbackPath }},
+        "https://{{ $hostname }}{{ $inst.appNativeCallbackPath }}"{{- end }}
       ],
       "webOrigins": [
         "https://{{ $hostname }}"
