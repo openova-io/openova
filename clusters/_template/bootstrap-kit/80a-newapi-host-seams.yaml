@@ -1,0 +1,126 @@
+# bp-newapi-host-seams — bootstrap-kit slot 80a (#3831, Refs #3642).
+#
+# newapi is the ONLY NorthStar-#1 app that OWNS a dedicated CNPG cluster
+# (`newapi-bp-newapi-newapi-pg`) rather than CONSUMING a reflected shared-pg
+# secret like the other 6 mgmt-vCluster apps. To run newapi's app workload
+# INSIDE the mgmt vCluster (NorthStar #1: every app in a vCluster) while its
+# CNPG-owner seams stay HOST-reconciled, the chart renders in two cooperating
+# roles (platform/newapi/chart/_helpers.tpl renderSeams/renderApp):
+#
+#   - slot 80  (HR bp-newapi, vcluster: mgmt) ships placement.role=vcluster-app
+#     → the Deployment + Service + HTTPRoute run inside vc-mgmt; cnpg +
+#       ssoBridgeSync + the catalyst ExternalSecret are suppressed there.
+#   - slot 80a (THIS HR, host placement)      ships placement.role=host-seams
+#     → the CNPG Cluster + DSN-placeholder Secret + database-secret-sync Job +
+#       admin-sso-seed Job/CronJob + the newapi-admin AppRegistration ConfigMap
+#       + the oidc-sync ExternalSecret + the catalyst-newapi-admin-token
+#       ExternalSecret all render in the HOST `newapi` ns, where the host
+#       cnpg-operator owns the `<cluster>-app` Secret + DB, host bp-sso-bridge
+#       watches the AppRegistration ConfigMap cluster-wide (the OSS vCluster
+#       toHost sync is Pro-gated/INERT), and host ESO + OpenBao
+#       ClusterSecretStore vault-region1 back both ExternalSecrets.
+#
+# Both HRs share `releaseName: newapi` + chart `bp-newapi` but live in
+# DIFFERENT clusters (host k3s vs vc-mgmt apiserver), so there is NO
+# Helm-storage collision and `bp-newapi.fullname` resolves identically
+# (`newapi-bp-newapi`) on both sides — every cross-render object name (the DSN
+# Secret `newapi-bp-newapi-newapi-db-dsn`, the CNPG Cluster, the CNPG `-rw`/`-ro`
+# Services) lines up. The bp-mgmt-vcluster `sync.fromHost.secrets` `newapi/*`
+# mapping delivers the DSN/OIDC/creds/catalyst-token Secrets into vc-mgmt, and
+# its `replicateServices.fromHost` newapi-pg `-rw`/`-ro` entries make the
+# host-style CNPG FQDN resolve inside the vCluster (bp-mgmt-vcluster 0.2.23).
+#
+# The Namespace `newapi` and the HelmRepository `bp-newapi` are declared once by
+# slot 80 (host-applied) — NOT redeclared here to avoid a duplicate-resource
+# clash in the host kustomize set. This HR's `install.createNamespace: true`
+# provisions the HOST `newapi` ns idempotently.
+#
+# Wrapper chart: platform/newapi/chart/  (placement.role: host-seams)
+# Reconciled by: Flux on the Sovereign's k3s control plane (host cluster).
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-newapi-host-seams
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "80a"
+spec:
+  interval: 15m
+  releaseName: newapi
+  targetNamespace: newapi
+  dependsOn:
+    # The CNPG-owner seams need: host cnpg-operator (Cluster + <cluster>-app),
+    # host ESO + OpenBao (both ExternalSecrets), host Keycloak (the admin-seed
+    # OIDC provider + the AppRegistration target realm), and bp-sso-bridge (the
+    # AppRegistration ConfigMap watcher). Gate on all of them.
+    - name: bp-cnpg
+      namespace: flux-system
+    - name: bp-external-secrets
+      namespace: flux-system
+    - name: bp-openbao
+      namespace: mgmt
+    - name: bp-keycloak
+      namespace: mgmt
+    - name: bp-sso-bridge
+      namespace: flux-system
+  chart:
+    spec:
+      chart: bp-newapi
+      # 1.4.111 (#3831): the placement.role render-split chart. Lockstep with
+      # slot 80's pin + platform/newapi blueprint.yaml.
+      version: 1.4.111
+      sourceRef:
+        kind: HelmRepository
+        name: bp-newapi
+        namespace: flux-system
+  install:
+    createNamespace: true
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: -1
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  values:
+    # ── #3831 host-seams role: render ONLY the host-reconciled CNPG-owner seams.
+    placement:
+      role: host-seams
+    sovereignFQDN: ${SOVEREIGN_FQDN}
+    # The dedicated CNPG cluster newapi OWNS (single-region 1, multi-region 2).
+    cnpg:
+      enabled: true
+      cluster:
+        instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
+    postgres:
+      cluster:
+        instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
+    auth:
+      adminUI:
+        mode: keycloak
+        keycloak:
+          ssoBridgeSync:
+            enabled: true
+          # Same sovereign-realm wiring as slot 80 (#3374) — the admin-sso-seed
+          # writes the OIDC provider + root user into newapi's DB, and the
+          # AppRegistration ConfigMap registers the newapi-admin KC client.
+          issuer: https://auth.${SOVEREIGN_FQDN}/realms/sovereign
+          clientId: newapi-admin
+          existingSecret: newapi-oidc
+      customerAPI:
+        keyIssuer: catalyst
+    catalystIntegration:
+      enabled: true
+      existingSecret: catalyst-newapi-admin-token
+      externalSecret:
+        enabled: true
+        refreshInterval: "1h"
+        secretStoreRef:
+          kind: ClusterSecretStore
+          name: vault-region1
+        remoteRef:
+          key: sovereign/${SOVEREIGN_FQDN}/newapi/admin-token
+          property: ADMIN_API_TOKEN

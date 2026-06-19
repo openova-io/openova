@@ -774,7 +774,17 @@ name: bp-newapi
 # fresh-prov readiness window the per-minute admin-promote CronJob self-heals
 # (#3767, 1.4.97) — this retry shrinks the human-visible window, it is not a
 # new SSO mechanism. Refs #3374.
-version: 1.4.110
+# 1.4.111 (#3831, Refs #3642): placement.role render split — the chart now
+# renders in one of three roles (all|host-seams|vcluster-app) so newapi can run
+# its app workload INSIDE the mgmt vCluster (NorthStar #1: every app in a
+# vCluster — newapi was the lone 6/7 host-placed exception) while its
+# CNPG-owner seams (CNPG Cluster + DSN-sync Job + admin-sso-seed Job/CronJob +
+# newapi-admin AppRegistration ConfigMap + both ExternalSecrets) stay
+# HOST-reconciled. role=all (DEFAULT) is a no-op gate → every standalone /
+# host-placed install is byte-identical to 1.4.110. The split mirrors the
+# guacamole host-bridge precedent (#3868) for a host-rendered CNPG + in-vCluster
+# app, extended to a CNPG-OWNER app. See _helpers.tpl renderSeams/renderApp.
+version: 1.4.111
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

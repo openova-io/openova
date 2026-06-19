@@ -255,7 +255,12 @@ name: bp-mgmt-vcluster
 # (`POSTGRESQL_HOSTNAME=guacamole-pg-rw.catalyst-system.svc.cluster.local`)
 # resolve. Additive + idempotent (no-op until the host-bridge renders the
 # Cluster). Lockstep: 58-bp-mgmt-vcluster.yaml pin → 0.2.21. Refs #3374.
-version: 0.2.22
+# 0.2.23 (#3831, Refs #3642): mirror the newapi-pg CNPG `-rw`/`-ro` Services
+# (host ns `newapi`) into vc-mgmt — the SERVICE half for re-homing newapi (the
+# CNPG-OWNER app) into the mgmt vCluster. Same 4th-layer host→vCluster DNS gap
+# as the guacamole-pg entries above; the `newapi/*` fromHost.secrets mapping
+# already delivers the DSN Secret. Additive + idempotent.
+version: 0.2.23
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT

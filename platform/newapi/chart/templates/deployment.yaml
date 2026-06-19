@@ -49,7 +49,11 @@ the configmap mirrors this gate.
 {{- if and (not $effTokenSigningKeySecret) .Values.sandboxTokenSigningKey.autoProvision -}}
 {{- $effTokenSigningKeySecret = default (printf "%s-token-signing-key" (include "bp-newapi.fullname" .)) .Values.sandboxTokenSigningKey.autoSecretName -}}
 {{- end -}}
-{{- $deployReady := and .Values.newapi.enabled $effDbSecret $effCredsSecret -}}
+{{- /* #3831: the app Deployment renders ONLY under placement.role all|vcluster-app
+   (the seams + CNPG render host-side under host-seams). In vcluster-app the slot
+   suppresses cnpg.enabled and wires database.existingSecret to the mirrored DSN
+   Secret, so $effDbSecret still resolves non-empty above. */ -}}
+{{- $deployReady := and (eq (include "bp-newapi.renderApp" .) "true") .Values.newapi.enabled $effDbSecret $effCredsSecret -}}
 {{- if and $kcMode (not $kcConfigured) -}}
 {{- $deployReady = false -}}
 {{- end -}}
@@ -119,8 +123,16 @@ spec:
         an external DB via database.existingSecret populate it up-front, so
         the gate passes immediately). databaseDsnGate.enabled=false opts out.
       */}}
+      {{- /* #3831: gate on cnpg.enabled OR an explicit database.existingSecret.
+         Pre-#3831 the SQLite-fallback gate only fired for the chart-owned CNPG
+         DSN; under placement.role=vcluster-app cnpg.enabled is false but the
+         Pod still reads a (host-rendered, mirrored-in) DSN Secret whose SQL_DSN
+         starts empty until the host db-dsn-sync Job PATCHes it — so the same
+         silent-SQLite-fallback race applies. Firing the gate whenever
+         $effDbSecret is set keeps NewAPI from booting on ephemeral SQLite in
+         the vCluster too. */ -}}
       {{- $dsnGate := .Values.databaseDsnGate | default dict -}}
-      {{- $dsnGateOn := and (default true $dsnGate.enabled) .Values.cnpg.enabled -}}
+      {{- $dsnGateOn := and (default true $dsnGate.enabled) (or .Values.cnpg.enabled $effDbSecret) -}}
       {{- /*
         #3374 (2026-06-18) — sandbox-bridge as a NATIVE sidecar (initContainer
         with restartPolicy:Always), so the zero-click bare-URL landing page is

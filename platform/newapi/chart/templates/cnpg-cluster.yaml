@@ -50,7 +50,7 @@ Without the gate, a cold install fails with "no matches for kind
 Cluster". Same pattern the bp-external-dns chart uses (issue #190) and
 the platform/powerdns/chart/templates/cnpg-cluster.yaml mirror.
 */}}
-{{- if .Values.cnpg.enabled -}}
+{{- if and (eq (include "bp-newapi.renderSeams" .) "true") .Values.cnpg.enabled -}}
 {{- $clusterName := printf "%s-newapi-pg" (include "bp-newapi.fullname" .) -}}
 {{- $dsnSecretName := default (printf "%s-newapi-db-dsn" (include "bp-newapi.fullname" .)) .Values.cnpg.dsnSecretName -}}
 {{- $database := .Values.cnpg.database | default "newapi" -}}

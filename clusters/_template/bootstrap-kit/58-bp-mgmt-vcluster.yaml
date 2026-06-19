@@ -151,7 +151,11 @@ spec:
       # DeadlineExceeded → Helm rollback → no webapp → `guacamole.<fqdn>` edge
       # 500/503 on hw167 (32 installFailures). Same #3737 4th-layer DNS gap, now
       # extended to guacamole's host-rendered CNPG cluster.
-      version: 0.2.22
+      # 0.2.23 (#3831, Refs #3642): + the newapi-pg `-rw`/`-ro` Service mirror —
+      # the SERVICE half for re-homing newapi (the CNPG-OWNER app) into vc-mgmt
+      # (slot 80 flips to placement.role=vcluster-app; slot 80a host-renders the
+      # CNPG-owner seams). The `newapi/*` secret mapping already delivers the DSN.
+      version: 0.2.23
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster

@@ -68,6 +68,51 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Placement-role render gates (#3831).
+
+newapi is the ONLY NorthStar-#1 app that OWNS a dedicated CNPG cluster rather
+than CONSUMING a reflected shared-pg secret. To re-home it INTO the mgmt
+vCluster (every app in a vCluster) while its CNPG-owner seams stay host-side,
+the chart renders in one of three roles, selected by `.Values.placement.role`:
+
+  all          (DEFAULT) — render EVERYTHING. Every standalone install and
+               every host-placed Sovereign keeps the historic single-HR
+               behaviour; both gates below return "true" so they are no-ops.
+  host-seams   — render ONLY the host-reconciled seams: the CNPG Cluster +
+               DSN-placeholder Secret + database-secret-sync Job +
+               admin-sso-seed Job/CronJob (+ their RBAC) + the newapi-admin
+               AppRegistration ConfigMap + the oidc-sync ExternalSecret + the
+               catalyst-newapi-admin-token ExternalSecret. NO Deployment /
+               Service / HTTPRoute / Ingress / Application CR.
+  vcluster-app — render ONLY the app: Deployment + Service + (HTTPRoute via the
+               host-bridge) + NetworkPolicy + the Application CR + the
+               in-cluster placeholder Secrets the Pod reads (credentials,
+               token-signing-key). NO CNPG / Jobs / ExternalSecrets /
+               AppRegistration (those render host-side under host-seams; the
+               host→vCluster secret mirror + replicateServices deliver the DSN
+               Secret + CNPG Service into the vCluster).
+
+The two HRs share `releaseName: newapi` + chart `bp-newapi` (in DIFFERENT
+clusters — host k3s vs vc-mgmt apiserver, so NO Helm-storage collision), so
+`bp-newapi.fullname` resolves identically (`newapi-bp-newapi`) on both sides
+and every cross-render object name (DSN Secret, CNPG Cluster) lines up.
+
+Helm has no boolean return; these emit the strings "true"/"false". Test with
+`{{- if eq (include "bp-newapi.renderSeams" .) "true" }}`.
+*/}}
+{{- define "bp-newapi.placementRole" -}}
+{{- (.Values.placement | default dict).role | default "all" -}}
+{{- end -}}
+{{- define "bp-newapi.renderSeams" -}}
+{{- $r := include "bp-newapi.placementRole" . -}}
+{{- if or (eq $r "all") (eq $r "host-seams") -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+{{- define "bp-newapi.renderApp" -}}
+{{- $r := include "bp-newapi.placementRole" . -}}
+{{- if or (eq $r "all") (eq $r "vcluster-app") -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{/*
 ServiceAccount name.
 */}}
 {{- define "bp-newapi.serviceAccountName" -}}
