@@ -386,6 +386,27 @@ vcluster:
           to: shared-data/shared-pg-c-rw
         - from: shared-data/shared-pg-c-ro
           to: shared-data/shared-pg-c-ro
+        # ── #3374 guacamole-pg host→vCluster reachability (the SERVICE half) ──
+        # guacamole is host-bridged (#3642): slot 52 ships
+        # `guacamole.database.cluster.enabled=false` + `httproute.enabled=false`,
+        # so the CNPG `guacamole-pg` Cluster is HOST-rendered in host
+        # `catalyst-system` while the webapp + the JDBC schema-seed Job run INSIDE
+        # vc-mgmt. The `sync.fromHost.secrets` `catalyst-system/*` mapping already
+        # mirrors the `guacamole-pg-app` Secret in, but the CNPG `-rw`/`-ro`
+        # SERVICES live host-side only — so `guacamole-pg-rw` did NOT resolve
+        # inside vc-mgmt (`getent hosts guacamole-pg-rw` → NXDOMAIN, hw167). The
+        # seed Job's psql looped its 5-min wait_for_db, hit
+        # activeDeadlineSeconds → DeadlineExceeded → Helm rolled the whole install
+        # back → no webapp/guacd/HTTPRoute backend → `guacamole.<fqdn>` edge
+        # 500/503 (32 installFailures on hw167). Same 4th-layer DNS gap fixed for
+        # shared-pg above; mirroring these two Services makes BOTH the seed Job's
+        # short-name `guacamole-pg-rw` AND the webapp's
+        # `POSTGRESQL_HOSTNAME=guacamole-pg-rw.catalyst-system.svc.cluster.local`
+        # resolve. No-op until the host-bridge renders the Cluster (additive).
+        - from: catalyst-system/guacamole-pg-rw
+          to: catalyst-system/guacamole-pg-rw
+        - from: catalyst-system/guacamole-pg-ro
+          to: catalyst-system/guacamole-pg-ro
       # ── #3642 host→vCluster gitea reachability (the MIRROR of fromHost above) ──
       # #3642 moved gitea INTO vc-mgmt, but bp-catalyst-platform stays HOST-side
       # (catalyst-system). Its in-cluster gitea consumers — the

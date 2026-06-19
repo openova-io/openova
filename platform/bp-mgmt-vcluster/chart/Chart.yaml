@@ -224,7 +224,26 @@ name: bp-mgmt-vcluster
 # `openbao-host-token-reviewer-static` Secret (no `service-account.name`
 # annotation → mirror-stable) for the auth-bootstrap Job to mount. Never
 # wildcard a namespace that holds a `kubernetes.io/service-account-token`.
-version: 0.2.20
+# 0.2.21 (#3374, the hw167 guacamole zero-click 500/503 fix): add
+# `catalyst-system/guacamole-pg-rw` + `-ro` to
+# `networking.replicateServices.fromHost`. guacamole is host-bridged (#3642 —
+# slot 52 ships `database.cluster.enabled=false`), so its CNPG `guacamole-pg`
+# Cluster is HOST-rendered in `catalyst-system` while the webapp + JDBC
+# schema-seed Job run INSIDE vc-mgmt. The `guacamole-pg-app` Secret was already
+# mirrored (the `catalyst-system/*` fromHost.secrets mapping), but the CNPG
+# `-rw`/`-ro` SERVICES were not — so `guacamole-pg-rw` resolved to NXDOMAIN
+# inside vc-mgmt (verified live on hw167: seed pod stuck at `waiting for
+# postgres (57/60)`, `getent hosts guacamole-pg-rw` → NXDOMAIN). The seed Job's
+# 5-min wait_for_db exhausted, hit activeDeadlineSeconds → DeadlineExceeded →
+# Helm rolled the entire install back → no webapp/guacd/HTTPRoute backend →
+# `https://guacamole.<fqdn>` returned edge 500/503 (32 installFailures). This is
+# the same 4th-layer host→vCluster DNS gap fixed for shared-pg (#3737) but never
+# extended to guacamole's host-rendered CNPG cluster. Mirroring these two
+# Services makes both the seed Job (short name) and the webapp runtime
+# (`POSTGRESQL_HOSTNAME=guacamole-pg-rw.catalyst-system.svc.cluster.local`)
+# resolve. Additive + idempotent (no-op until the host-bridge renders the
+# Cluster). Lockstep: 58-bp-mgmt-vcluster.yaml pin → 0.2.21. Refs #3374.
+version: 0.2.21
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT
