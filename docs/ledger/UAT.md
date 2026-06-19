@@ -59,9 +59,15 @@ Per-runbook deep probes (interaction: click/fill/filter → assert → screensho
 
 **#3376 funnel SURFACES — 11/11 ✅** (+ 14 not-reached) (`scripts/uat-3376-funnel-probe.mjs`): storefront (anon, sovereign-clean); junk-code redeem (honest "voucher not valid" + Browse-plans CTA); the 6-step wizard each deep-linked — Plans (5 tiers), Apps (incl. WordPress), Add-ons (omani.homes pool), **BCP/topology (both Single-region + Active-hot-standby radios; hot-standby reveals Primary/Replica region pickers)**, Review (monthly total), Checkout (passwordless, no password field); BSS vouchers (authed) → `/organizations/billing/vouchers` signed-in showback admin. The 14 NOT-REACHED rows need a driven provision (valid voucher → Org active → `console.<slug>`/`wordpress.<slug>` serving) — a separate heavier walk, honestly not-reached, never faked. Finding: the topology step lives at `/bcp` (runbook's `/topology` corrected). Maps UAT 3376-NN surfaces.
 
-**Running total this walk: 69/76 GREEN** (+14 funnel-provisioning rows honestly not-reached) — console-side 52/52, funnel surfaces 11/11, SSO landing 6/13. The only RED is SSO app landing (7 apps).
+**#3375 topology/DR — 7/11 ✅** (`scripts/uat-3375-topology-probe.mjs`): catalog new-instance entry; shared-pg Topology tab Change-placement editor (all 4 mode radios + 2 region checkboxes); declared-topology strip (`singleton`); grafana declares active-hot-standby + honest "no live DR pair" strip; Switchover honestly hidden for singleton; `/cloud` true 2-region map (me-east-215-a + -b). 4 RED: **3375-04 REAL DEFECT** — catalog `bp-postgres` Instances table renders the BANNED `active-hotstandby` chip + "Supported topologies" lists only 2 of 4 (missing `active-passive`/`active-active`) — the surviving #3375 one-vocabulary gap; 3375-13/20/29 RED-by-design (shared-pg is a bootstrap HR with no Application CR → live primary/replica/lag/Switchover read n/a; single-physical-region + bp-continuum oscillating). Maps UAT 3375-NN.
 
-**In progress (live-validating now):** #3375 topology · #3642 placement (NS#1 — 7 apps in mgmt vCluster).
+**#3642 placement (NS#1) — 10/13 ✅** (`scripts/uat-3642-placement-probe.mjs`): dashboard treemap LAYER1=vCluster; **NS#1 verdict — 6/7 apps now genuinely INSIDE the mgmt vCluster** (grafana, harbor, keycloak, gitea, openbao, guacamole) via the bp-mgmt-vcluster 0.2.19 fix (hw159 was 0/7 — all under host). 3 RED: **newapi is still host-resident** (3642-09/11/12 — treemap tile in the `host` block + card reads `NAMESPACE: newapi` / `PRIMARY REGION: platform-bootstrap-owned-host`) — the real surviving NS#1 gap, the 1 app not yet migrated. Maps UAT 3642-NN.
+
+**Running total this walk: 86/100 GREEN** (+14 funnel-provisioning not-reached) — console-side 52/52, funnel surfaces 11/11, topology 7/11, placement 10/13, SSO landing 6/13. RED (14) = 7 SSO apps + 4 topology + 3 placement (newapi not in mgmt).
+
+> **3 real defects found mid-walk (fixing forward, not faked):** (1) `catalyst-organization-controller` CrashLoopBackOff — root cause **`required env var unset: CATALYST_KC_SA_CLIENT_ID`** → fails the bp-catalyst-platform 1.4.693 helm upgrade (the oscillation) AND blocks org provisioning (the funnel-terminal rows); (2) **newapi** not migrated into the mgmt vCluster (NS#1 6/7); (3) catalog `bp-postgres` renders the banned `active-hotstandby` vocabulary + 2-of-4 topologies.
+
+**In progress:** SSO triage+fix (the 7 SSO RED apps).
 
 ---
 
