@@ -1,0 +1,288 @@
+# Mothership disk auto-prune (#3889).
+#
+# THE DURABLE FIX FOR "NO FUEL BEFORE TAKEOFF"
+# ────────────────────────────────────────────
+# The mothership node (the k3s control plane that runs catalyst-api + the
+# deployment provisioner) accumulates unbounded disk:
+#   1. containerd image layers from dead/wiped deployments' bp-* pulls, and
+#   2. /var/lib/catalyst/{tofu,executions} workdirs + logs belonging to
+#      deployments that have already been wiped (record gone).
+#
+# On hw168 the node crossed ~93% → DiskPressure → kubelet evicted pods →
+# the pool-domain-manager's ghcr token went dead → a deployment record
+# failed to persist → orphaned Huawei infra (#3889). This CronJob makes the
+# disk SELF-MAINTAIN so that cascade never recurs.
+#
+# It runs HOURLY on the mothership control-plane node and, ONLY when the
+# node root filesystem is above the high-water mark (default 75%):
+#   A) `k3s crictl rmi --prune` — removes UNUSED containerd images (the
+#      safe form: never an image referenced by a running container).
+#   B) Vacuums /var/lib/catalyst/tofu/<id> and /var/lib/catalyst/executions/<id>
+#      for every <id> whose /var/lib/catalyst/deployments/<id>.json record is
+#      ABSENT (deployment wiped / never persisted). A LIVE deployment's
+#      record, kubeconfig, and workdir are NEVER touched.
+#
+# SAFETY INVARIANTS
+#   - crictl rmi --prune is the documented "remove only unused images" form;
+#     it cannot delete a layer referenced by a running container.
+#   - The PVC vacuum is gated on "deployments/<id>.json does not exist". As
+#     long as a deployment is alive its JSON record is on disk, so its
+#     workdir is preserved. A grace window (mtime > 6h) further protects an
+#     in-flight prov whose record write is momentarily lagging.
+#   - The whole job is gated on a >high-water-mark check, so a healthy node
+#     does nothing (cheap no-op).
+#   - Pinned to the control-plane node; tolerates the control-plane taint.
+#     It never runs on a worker and never touches the bastion (the bastion
+#     is not a k3s node in this cluster).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mothership-disk-prune
+  namespace: catalyst-system
+  labels:
+    app.kubernetes.io/name: mothership-ops
+    app.kubernetes.io/component: disk-prune
+    app.kubernetes.io/part-of: catalyst
+  annotations:
+    catalyst.openova.io/issue: "https://github.com/openova-io/openova/issues/3889"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mothership-disk-prune-script
+  namespace: catalyst-system
+  labels:
+    app.kubernetes.io/name: mothership-ops
+    app.kubernetes.io/component: disk-prune
+    app.kubernetes.io/part-of: catalyst
+data:
+  prune.sh: |
+    #!/bin/sh
+    # Mothership disk auto-prune (#3889). POSIX sh — runs in the host-exec
+    # image. set -u (not -e): a single sub-step failure must not abort the
+    # whole sweep, so each risky call guards its own exit code.
+    set -u
+
+    HIGH_WATER="${DISK_HIGH_WATER_PCT:-75}"
+    CATALYST_DIR="${CATALYST_DIR:-/host-catalyst}"      # catalyst-api PVC, mounted RW
+    CONTAINERD_SOCK="${CONTAINERD_SOCK:-/run/k3s/containerd/containerd.sock}"
+    GRACE_HOURS="${VACUUM_GRACE_HOURS:-6}"
+
+    log() { echo "[mothership-disk-prune] $*"; }
+
+    # ── 0. Read the host root-fs usage (the volume containerd + kubelet
+    #       evict against). The host '/' is bind-mounted read-only at
+    #       /host-root so `df` sees the real node filesystem, not the
+    #       container's overlay. ───────────────────────────────────────────
+    ROOT_TARGET="/host-root"
+    [ -d "$ROOT_TARGET" ] || ROOT_TARGET="/"
+    USED_PCT="$(df -P "$ROOT_TARGET" 2>/dev/null | awk 'NR==2 {gsub("%","",$5); print $5}')"
+    [ -n "$USED_PCT" ] || USED_PCT=0
+    log "node root fs usage = ${USED_PCT}% (high-water ${HIGH_WATER}%)"
+
+    if [ "$USED_PCT" -lt "$HIGH_WATER" ]; then
+      log "below high-water mark — nothing to do (healthy)"
+      exit 0
+    fi
+
+    log "AT/ABOVE high-water mark — pruning"
+
+    # ── A. Prune UNUSED containerd images. The --prune form removes only
+    #       dangling/unreferenced images; a layer in use by a RUNNING
+    #       container is never removed. Prefer `k3s crictl` (the binary the
+    #       node ships); fall back to a bare `crictl` if present. ──────────
+    CRICTL=""
+    if command -v k3s >/dev/null 2>&1; then
+      CRICTL="k3s crictl"
+    elif command -v crictl >/dev/null 2>&1; then
+      CRICTL="crictl"
+    fi
+    if [ -n "$CRICTL" ]; then
+      log "running: ${CRICTL} rmi --prune (socket ${CONTAINERD_SOCK})"
+      if $CRICTL --runtime-endpoint "unix://${CONTAINERD_SOCK}" rmi --prune 2>&1; then
+        log "containerd image prune OK"
+      else
+        log "WARN containerd image prune returned non-zero (continuing)"
+      fi
+    else
+      log "WARN no k3s/crictl on PATH — skipping containerd image prune"
+    fi
+
+    # ── B. Vacuum tofu workdirs + execution logs for WIPED deployments.
+    #       A deployment is LIVE iff its record exists at
+    #       ${CATALYST_DIR}/deployments/<id>.json. For any <id> dir under
+    #       tofu/ or executions/ with NO such record, AND not modified in
+    #       the last ${GRACE_HOURS}h (protects an in-flight prov whose
+    #       record write is momentarily lagging), remove it. ──────────────
+    DEPLOY_DIR="${CATALYST_DIR}/deployments"
+    vacuum_dir() {
+      base="$1"   # e.g. .../tofu or .../executions
+      [ -d "$base" ] || { log "skip vacuum: ${base} absent"; return 0; }
+      removed=0
+      kept=0
+      # Iterate immediate child entries (each is a per-deployment workdir).
+      for entry in "$base"/*; do
+        [ -e "$entry" ] || continue          # empty-glob guard
+        [ -d "$entry" ] || continue          # only directories are per-id workdirs
+        id="$(basename "$entry")"
+        # Some non-id sidecar files live alongside (e.g. tofu/nat-eip-
+        # blocklist.json, tofu-plugin-cache). Only act on entries that look
+        # like a deployment id (uuid-ish: hex + dashes, >= 8 chars). This is
+        # a belt-and-braces guard against nuking the shared plugin cache.
+        case "$id" in
+          *[!0-9a-fA-F-]* ) log "  keep ${base}/${id} (not an id-shaped dir)"; kept=$((kept+1)); continue ;;
+        esac
+        [ ${#id} -ge 8 ] || { log "  keep ${base}/${id} (id too short)"; kept=$((kept+1)); continue; }
+        # LIVE? record present → keep, untouched.
+        if [ -f "${DEPLOY_DIR}/${id}.json" ]; then
+          kept=$((kept+1))
+          continue
+        fi
+        # Record ABSENT → wiped/never-persisted. Apply grace window on mtime
+        # so a brand-new prov (record write lagging by seconds) is safe.
+        if [ -n "$(find "$entry" -maxdepth 0 -mmin +$((GRACE_HOURS*60)) 2>/dev/null)" ]; then
+          if rm -rf "$entry"; then
+            log "  vacuumed ${base}/${id} (no deployment record, age>${GRACE_HOURS}h)"
+            removed=$((removed+1))
+          else
+            log "  WARN failed to remove ${base}/${id}"
+          fi
+        else
+          log "  keep ${base}/${id} (no record but within ${GRACE_HOURS}h grace)"
+          kept=$((kept+1))
+        fi
+      done
+      log "vacuum ${base}: removed=${removed} kept=${kept}"
+    }
+
+    if [ -d "$DEPLOY_DIR" ]; then
+      vacuum_dir "${CATALYST_DIR}/tofu"
+      vacuum_dir "${CATALYST_DIR}/executions"
+    else
+      # The deployments record dir is the LIVENESS oracle. If it's missing
+      # we refuse to vacuum (we cannot tell live from dead) — fail safe.
+      log "WARN ${DEPLOY_DIR} absent — refusing to vacuum (cannot determine live deployments)"
+    fi
+
+    USED_AFTER="$(df -P "$ROOT_TARGET" 2>/dev/null | awk 'NR==2 {gsub("%","",$5); print $5}')"
+    log "done. node root fs usage now = ${USED_AFTER:-?}% (was ${USED_PCT}%)"
+    exit 0
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mothership-disk-prune
+  namespace: catalyst-system
+  labels:
+    app.kubernetes.io/name: mothership-ops
+    app.kubernetes.io/component: disk-prune
+    app.kubernetes.io/part-of: catalyst
+  annotations:
+    catalyst.openova.io/issue: "https://github.com/openova-io/openova/issues/3889"
+spec:
+  # Hourly. concurrencyPolicy=Forbid so a long prune never overlaps itself.
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 120
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: mothership-ops
+            app.kubernetes.io/component: disk-prune
+        spec:
+          serviceAccountName: mothership-disk-prune
+          restartPolicy: Never
+          # Pin to the mothership control-plane node and tolerate its taint.
+          # The mothership is a single-CP k3s; this is the node whose disk
+          # cascaded hw168.
+          nodeSelector:
+            node-role.kubernetes.io/control-plane: "true"
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+              effect: NoSchedule
+            - key: node-role.kubernetes.io/master
+              operator: Exists
+              effect: NoSchedule
+            - key: CriticalAddonsOnly
+              operator: Exists
+          containers:
+            - name: prune
+              # busybox provides df/awk/find/rm/basename; `k3s crictl` is
+              # invoked through the host PATH via the hostPath bin mount, so
+              # the image itself stays minimal. Pinned digest-friendly tag.
+              image: busybox:1.36
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "/scripts/prune.sh"]
+              env:
+                - name: DISK_HIGH_WATER_PCT
+                  value: "75"
+                - name: VACUUM_GRACE_HOURS
+                  value: "6"
+                - name: CATALYST_DIR
+                  value: /host-catalyst
+                - name: CONTAINERD_SOCK
+                  value: /run/k3s/containerd/containerd.sock
+              securityContext:
+                # crictl talks to the host containerd socket → needs root +
+                # privileged. Scoped to a single hourly Job on the CP node.
+                privileged: true
+                runAsUser: 0
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+                # catalyst-api PVC (RW) — the deployments/tofu/executions
+                # store. Vacuum target. Same claim the catalyst-api pod
+                # mounts; RWO single-attach, but this Job only runs hourly
+                # and the catalyst-api Deployment is single-replica Recreate,
+                # so contention is bounded (k3s local-path PVCs are hostPath
+                # under the hood and DO allow concurrent mounts on the same
+                # node — both pods are pinned to the CP node).
+                - name: catalyst
+                  mountPath: /host-catalyst
+                # Host root fs (RO) — for the df high-water read against the
+                # REAL node filesystem, not the container overlay.
+                - name: host-root
+                  mountPath: /host-root
+                  readOnly: true
+                # Host containerd socket — crictl rmi --prune target.
+                - name: containerd-sock
+                  mountPath: /run/k3s/containerd/containerd.sock
+                # Host bin dir so `k3s` (and thus `k3s crictl`) is on PATH.
+                - name: host-bin
+                  mountPath: /usr/local/bin
+                  readOnly: true
+              resources:
+                requests: { cpu: 25m, memory: 32Mi }
+                limits:   { memory: 128Mi }
+          volumes:
+            - name: script
+              configMap:
+                name: mothership-disk-prune-script
+                defaultMode: 0555
+            - name: catalyst
+              persistentVolumeClaim:
+                claimName: catalyst-api-deployments
+            - name: host-root
+              hostPath:
+                path: /
+                type: Directory
+            - name: containerd-sock
+              hostPath:
+                path: /run/k3s/containerd/containerd.sock
+                type: Socket
+            - name: host-bin
+              hostPath:
+                # k3s installs its self-extracting binary here; `k3s crictl`
+                # shells out to the bundled containerd tooling.
+                path: /usr/local/bin
+                type: Directory

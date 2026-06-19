@@ -1254,6 +1254,24 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Pre-fire resource preflight gate (#3889). The provisioning
+	// goroutine runs INSIDE this mothership catalyst-api process; firing
+	// a fresh prov into a disk- or memory-starved mothership node is the
+	// "take off with the tank empty" mistake that cascaded hw168
+	// (DiskPressure → pod evictions → dead pdm ghcr token → un-persisted
+	// deployment record → orphaned Huawei infra). REFUSE the create with
+	// an actionable error instead of starting a prov that dies mid-flight.
+	// Fail-open: when the in-cluster client is unavailable (CI / dev) the
+	// gate allows the create, matching every other sovereignDeps path.
+	if err := h.checkResourcePreflight(r.Context()); err != nil {
+		h.log.Warn("deployment create refused by resource preflight", "id", id, "reason", err.Error())
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "mothership-resource-pressure",
+			"detail": err.Error(),
+		})
+		return
+	}
+
 	// Mint the cloud-init kubeconfig postback bearer token (issue
 	// #183, Option D) BEFORE kicking off the provisioner so
 	// writeTfvars renders the plaintext into the Sovereign's

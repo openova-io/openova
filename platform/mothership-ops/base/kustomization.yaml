@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# mothership-ops base (#3889) — self-maintaining mothership housekeeping.
+#
+# This base is consumed from openova-private's Flux tree (the mothership's
+# manifests live there — see docs/ARCHITECTURE.md §8.9.7), e.g.:
+#
+#   # openova-private/clusters/contabo-mkt/apps/mothership-ops/kustomization.yaml
+#   resources:
+#     - github.com/openova-io/openova/platform/mothership-ops/base?ref=main
+#
+# Keeping the base HERE makes it versioned + repo-tracked (NOT a one-off
+# `kubectl apply`) while the mothership-specific overlay/HelmRelease wiring
+# stays in the private cluster tree.
+resources:
+  - disk-prune-cronjob.yaml
+
+namespace: catalyst-system
+
+# `labels` (not the deprecated `commonLabels`) with the default
+# includeSelectors:false so these labels are NOT injected into the
+# CronJob's immutable Job pod-selector.
+labels:
+  - pairs:
+      app.kubernetes.io/name: mothership-ops
+      app.kubernetes.io/part-of: catalyst
+    includeSelectors: false
