@@ -16,6 +16,7 @@
 
 import type { JSX } from 'react'
 
+import { GRAPH_K8S_KINDS } from '@/widgets/architecture-graph/useK8sCacheStream'
 import { ClustersPage } from '../cloud-compute/ClustersPage'
 import { VClustersPage } from '../cloud-compute/VClustersPage'
 import { NodePoolsPage } from '../cloud-compute/NodePoolsPage'
@@ -146,6 +147,50 @@ export const KIND_TO_REGISTRY: Partial<Record<CloudListKind, string>> = {
   continuums: 'continuum',
   useraccesses: 'useraccess',
 }
+
+/**
+ * CLOUD_PAGE_K8S_KINDS — the COMPLETE set of k8scache registry kinds the
+ * CloudPage's single SSE subscription must watch (#3987).
+ *
+ * Root cause #3987: the per-kind list (K8sListPage) and the chip-count
+ * badges both read the live `k8sSnapshot` Map that CloudPage hydrates
+ * from ONE `useK8sCacheStream` subscription. That subscription defaulted
+ * to GRAPH_K8S_KINDS — the 15 kinds the architecture GRAPH needs — which
+ * omits every kind in KIND_TO_REGISTRY that the graph doesn't draw
+ * (secret, policyreport, clusterpolicyreport, and ALL the reconciler /
+ * Catalyst-CR kinds: helmrelease, kustomization, gitrepository,
+ * certificate, externalsecret, cnpgcluster, cnpgdatabase, application,
+ * environment, organization, continuum, useraccess). The snapshot
+ * therefore never held a single `helmrelease:` key, so
+ * `/cloud?view=list&kind=helmreleases` filtered to zero rows and rendered
+ * "No helmrelease objects in this cluster" even with 49+ live — while the
+ * GRAPH showed them, because the graph sources reconcilers from a
+ * SEPARATE endpoint (GET /deployments/{id}/reconciliation), not the SSE
+ * snapshot.
+ *
+ * The backend already registers every one of these GVRs
+ * (api/internal/k8scache/kinds.go) and the SSE handler fans the
+ * initialState snapshot out across all registered regions, so simply
+ * widening the subscription to the union below makes every per-kind list
+ * AND every chip count read its real live objects — no backend change.
+ *
+ * Built as the de-duplicated union of:
+ *   1. GRAPH_K8S_KINDS — the graph's structural kinds (incl. replicaset
+ *      ownerRef hops, persistentvolumeclaim, server.hcloud, volume.hcloud)
+ *      that have no KIND_TO_REGISTRY chip but the graph still draws.
+ *   2. every registry Name in KIND_TO_REGISTRY — exactly the set each
+ *      per-kind K8sListPage filters by (`${name}:` snapshot-key prefix)
+ *      and the chip-count derivation tallies.
+ *
+ * Derived (never hardcoded twice) so a new per-kind page added to
+ * KIND_TO_REGISTRY is auto-subscribed — no second list to keep in sync.
+ */
+export const CLOUD_PAGE_K8S_KINDS: readonly string[] = Array.from(
+  new Set<string>([
+    ...GRAPH_K8S_KINDS,
+    ...Object.values(KIND_TO_REGISTRY),
+  ]),
+)
 
 export interface CloudKindEntry {
   id: CloudListKind
