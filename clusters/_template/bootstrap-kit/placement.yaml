@@ -228,7 +228,7 @@ spec:
                     - name: keycloak-x-keycloak-x-mgmt-vcluster
                       namespace: mgmt
                       port: 80
-    # extraNamespaces: the umbrella renders the SME service set into ns
+    # extraNamespaces: the umbrella renders the Organization service set into ns
     # `sme` and cutover artifacts into ns `catalyst` alongside its own
     # catalyst-system — declared so the live conformance audit can
     # attribute those workloads (multi-namespace chart, not undeclared).

@@ -26,7 +26,7 @@
 # host-side Namespace YAML is dropped — createNamespace:true provisions
 # the inner `valkey` ns inside the vCluster.
 #
-# Host-side consumer (the SME control-plane services in host ns `sme`,
+# Host-side consumer (the Organization control-plane services in host ns `sme`,
 # still host-placed in Batch A) re-points to the syncer-mangled Service
 # name `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc.cluster.local:6379`
 # — rewired in products/catalyst values (orgServices.valkey.host +

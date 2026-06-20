@@ -27,10 +27,10 @@ Org-B's apps whose discovery URL specifies the Org-B issuer.
 Why a separate template (vs. extending configmap-tenant-realm.yaml)
 ─────────────────────────────────────────────────────────────────
 `configmap-tenant-realm.yaml` (issue #915) implements a DIFFERENT
-topology — single SME-tenant mode where the chart is installed PER
+topology — single Organization-tenant mode where the chart is installed PER
 tenant under a per-tenant Namespace + Keycloak Pod and a SINGLE realm
 replaces the sovereign realm import (mutual exclusion). That mode is
-for the SME-fleet Sovereigns (one Sovereign per tenant).
+for the Organization-fleet Sovereigns (one Sovereign per tenant).
 
 W2.C4 is for SHARED-Sovereign topology: one Sovereign hosts many Orgs,
 all in the same KC instance, each with its own realm federating to a

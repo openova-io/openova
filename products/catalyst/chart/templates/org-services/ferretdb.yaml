@@ -1,17 +1,17 @@
 {{- /*
 FerretDB — MongoDB-wire-compatible front-end backed by Postgres for the
-SME microservice mesh (issue #861).
+Organization microservice mesh (issue #861).
 
 Why this template exists:
-  Three SME services (catalog, tenant, domain) and provisioning use a
+  Three Organization services (catalog, tenant, domain) and provisioning use a
   MongoDB-wire driver to talk to a `ferretdb.org-services.svc.cluster.local:27017`
   service. On contabo-mkt this Deployment is shipped via
   clusters/contabo-mkt/apps/sme/data/ferretdb.yaml. On a freshly
-  franchised Sovereign nothing equivalent exists, so 4 of the 11 SME
+  franchised Sovereign nothing equivalent exists, so 4 of the 11 Organization
   pods crashloop with `failed to ping MongoDB error=...lookup
   ferretdb.org-services.svc.cluster.local on 10.43.0.10:53: no such host`.
   Caught live on otech103 (2026-05-04) after #859 landed org-pg —
-  every SME pod that uses MONGODB_URI was still down.
+  every Organization pod that uses MONGODB_URI was still down.
 
 Image pinning:
   ghcr.io/ferretdb/ferretdb:1.24 mirrors contabo's data/ferretdb.yaml.

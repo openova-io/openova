@@ -7,7 +7,7 @@ Cov-bench audit confirmed that the live Sovereign cluster ships only 2
 CiliumNetworkPolicies cluster-wide, and ZERO of them target the two
 namespaces that carry the public-facing traffic plane:
   - catalyst-system (catalyst-api, catalyst-ui, marketplace-api,
-    organization-controller, sme-orchestrator) — every public Console
+    organization-controller, org-orchestrator) — every public Console
     hit lands here.
   - kube-system (the cilium-gateway Gateway resource + Cilium DaemonSet
     that terminates *.<sovereignFQDN>) — every public request enters
@@ -30,7 +30,7 @@ This template renders TWO CiliumNetworkPolicies:
          this every public-facing API + UI returns 403 at the
          envoy gateway because L7-policy denies forwarding)
        - ingress from same-namespace Pods (controllers ↔ APIs,
-         sme-orchestrator ↔ catalyst-api intra-control-plane
+         org-orchestrator ↔ catalyst-api intra-control-plane
          calls)
        - egress to kube-apiserver (every controller informer)
        - egress to kube-dns (every Pod resolves DNS)
@@ -125,7 +125,7 @@ spec:
         - matchLabels:
             reserved.ingress: ""
     # 2. Allow ingress from same-namespace Pods (catalyst-api ↔
-    #    catalyst-ui, sme-orchestrator ↔ catalyst-api, organization-
+    #    catalyst-ui, org-orchestrator ↔ catalyst-api, organization-
     #    controller ↔ catalyst-api etc. — all intra-control-plane).
     - fromEndpoints:
         - matchLabels:

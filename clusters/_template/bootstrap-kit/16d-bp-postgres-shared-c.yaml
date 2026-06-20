@@ -3,16 +3,16 @@
 # THREE-INSTANCE MODEL (founder NS-2, Refs #3188): instance C of three.
 # A third install of the SAME bp-postgres chart (slot 16a header has the
 # full model): CNPG Cluster `shared-pg-c` in shared-data carrying the
-# SME microservice mesh (bp-catalyst-platform, slot 13) — READY-TO-ADOPT.
+# Organization microservice mesh (bp-catalyst-platform, slot 13) — READY-TO-ADOPT.
 #
-# The SME mesh today bootstraps its own `org-pg` Cluster (products/
+# The Organization mesh today bootstraps its own `org-pg` Cluster (products/
 # catalyst/chart/templates/org-services/cnpg-cluster.yaml) with the
 # primary org_auth database plus org_billing + org_documents via initdb
 # postInitApplicationSQL, all owned by ONE role `sme` and gated on
 # marketplace.enabled. This slot declares the SAME shape on shared-pg-c
 # (three Database CRs, one deduped `sme` role — chart 0.1.5 same-owner
 # bindings) so the adoption flip is a per-app follow-up that points the
-# SME services' secret/host values at `org-database-secret` /
+# Organization services' secret/host values at `org-database-secret` /
 # shared-pg-c-rw without re-modelling anything. FerretDB (org_documents)
 # rides the same role.
 #
@@ -28,7 +28,7 @@
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  # bp-postgres-shared-c is the instance-C data-instance HR. The SME
+  # bp-postgres-shared-c is the instance-C data-instance HR. The Organization
   # mesh (bp-catalyst-platform) dependsOn THIS post-adoption, per
   # ADR-0010. releaseName matches instance.name so Cluster + Secrets
   # are named consistently.
@@ -61,16 +61,16 @@ spec:
       # slot's Stalled upgrade (Secret "shared-pg-c-openova_flow" invalid).
       # 0.2.0 (#3571, Refs #3375 North-Star-4): active-hot-standby = REAL
       # bp-cnpg-pair split-side cross-region shape (shared-pg-c primary keeps
-      # its name so the SME mesh / newapi / openova-flow hosts are unchanged +
+      # its name so the Organization mesh / newapi / openova-flow hosts are unchanged +
       # shared-pg-c-mesh global Service + shared-pg-c-replica follower). Gated
       # by topology.crossRegion below (SOVEREIGN_ENABLE_CNPG_PAIR). Single-
       # region stays a byte-identical singleton. Lockstep bump with 16a/16c.
       # 0.2.1 (#3577, Refs #3572 #3322): consumer-ingress carve-out — the 0.2.0
       # primary NetworkPolicy default-denied every consumer's shared-pg-c-rw:5432
-      # (SME mesh / newapi / openova-flow on hw144). Adds TCP 5432 from any
+      # (Organization mesh / newapi / openova-flow on hw144). Adds TCP 5432 from any
       # in-cluster Pod; replication/own-cluster/operator carve-outs unchanged.
       # Lockstep bump with 16a/16c.
-      # 0.2.4 (#3878): pure lockstep pin bump — shared-c's bindings (SME mesh /
+      # 0.2.4 (#3878): pure lockstep pin bump — shared-c's bindings (Organization mesh /
       # newapi / openova-flow) declare NO reflect.mangledTarget (they are not
       # the 4 vc-mgmt-homed deadlock apps; newapi keeps its `newapi/*` fromHost
       # wildcard per #3876), so this slot renders byte-identical to 0.2.2 on the
@@ -105,7 +105,7 @@ spec:
     # crossRegion rides SOVEREIGN_ENABLE_CNPG_PAIR (catalyst-api post-mesh
     # flip); OFF/single-region renders a byte-identical singleton. side from
     # SOVEREIGN_REGION_ROLE; regions from the canonical node labels. When ON:
-    # side=primary → named shared-pg-c Cluster (SME mesh / newapi / openova-flow
+    # side=primary → named shared-pg-c Cluster (Organization mesh / newapi / openova-flow
     # host shared-pg-c-rw unchanged) + shared-pg-c-mesh; side=secondary →
     # shared-pg-c-replica follower streaming WAL over the mesh.
     topology:
@@ -117,7 +117,7 @@ spec:
         region: '${SOVEREIGN_PRIMARY_REGION:-}'
       replica:
         region: '${SOVEREIGN_REPLICA_REGION:-}'
-    # The SME-mesh bindings: three isolated databases, ONE role `sme`
+    # The Organization-mesh bindings: three isolated databases, ONE role `org`
     # (chart 0.1.5 dedupes the role + password Secret across same-owner
     # bindings). Database names mirror orgPostgres.cluster.database +
     # additionalDatabases in products/catalyst/chart/values.yaml so the
@@ -129,8 +129,8 @@ spec:
           blueprint: bp-catalyst-platform
           mode: shared
         # One hub Secret for the whole mesh — every Organization service
-        # shares the `sme` credentials and derives its own database name.
-        # #3383 (rename sme→org-services): the SME service mesh ns was
+        # shares the `org` credentials and derives its own database name.
+        # #3383 (rename sme→org-services): the Organization service mesh ns was
         # renamed `sme`→`org-services` in bp-catalyst-platform 1.4.675
         # (slot-13 orgPostgres.cluster.namespace + ferretdb.namespace +
         # every templates/org-services/* consumer), but this reflect target
@@ -143,7 +143,7 @@ spec:
         # org-services/org-database-secret NotFound — the reflector had no
         # live target). Point the reflect target at the post-#3383 mesh
         # namespace so the hub secret lands where ferretdb (and any other
-        # org-services SME consumer) mounts it. Refs #3383.
+        # org-services Organization consumer) mounts it. Refs #3383.
         reflect:
           secretName: org-database-secret
           namespaces: [org-services]

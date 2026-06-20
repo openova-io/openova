@@ -4,13 +4,13 @@ version: 0.2.1
 appVersion: "0.2.0"
 description: |
   Catalyst Blueprint chart for the OpenClaw workspace controller pattern
-  — a multi-tenant controller deployment in an SME tenant namespace plus
+  — a multi-tenant controller deployment in an Organization tenant namespace plus
   per-user runtime pods spawned on demand. Implements decision [A] of
   epic #795 (locked) and the user-side of ADR-0003 (consumes the
   `newapi-key-{user-uuid}` Secrets rendered by the unified-rbac hook).
 
   Deployment shape:
-    - One controller Deployment per SME tenant namespace. Authenticates
+    - One controller Deployment per Organization tenant namespace. Authenticates
       end users via the per-tenant Keycloak realm (OIDC) and validates
       the JWT signature + sub claim before spawning a per-user pod.
     - Per-user pods carry NEWAPI_BASE_URL + NEWAPI_KEY (plus their
@@ -46,7 +46,7 @@ description: |
     - Initial chart: controller Deployment + per-user pod ConfigMap.
 
 type: application
-keywords: [catalyst, blueprint, openclaw, sme, workspace-controller, per-user-pod, llm, agent]
+keywords: [catalyst, blueprint, openclaw, organization, workspace-controller, per-user-pod, llm, agent]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io

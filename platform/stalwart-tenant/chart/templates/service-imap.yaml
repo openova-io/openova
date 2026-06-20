@@ -1,6 +1,6 @@
 {{- /*
 IMAP / IMAPS Service — LoadBalancer for authenticated mail-client
-access (Thunderbird, Apple Mail, mobile clients). For SMEs that prefer
+access (Thunderbird, Apple Mail, mobile clients). For Organizations that prefer
 to keep IMAP behind the gateway / VPN, the operator overlay can switch
 .Values.service.imap.type to ClusterIP and add a separate Tailscale-
 fronted route. Default = LoadBalancer (mail clients usually expect

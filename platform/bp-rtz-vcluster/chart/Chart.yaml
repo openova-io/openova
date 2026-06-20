@@ -77,7 +77,7 @@ description: |
   wrapped in Catalyst conventions.
 
   Hosts the per-region tenant workloads:
-    - tenant pods (when a SME/marketplace tenant is regionalised)
+    - tenant pods (when an Organization/marketplace tenant is regionalised)
     - regional caches (valkey-cache, etc.)
     - region-local observability shippers
 

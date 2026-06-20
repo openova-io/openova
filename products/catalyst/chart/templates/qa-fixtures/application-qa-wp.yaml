@@ -20,7 +20,7 @@
   nginx) rather than literal WordPress. The matrix's TC-103 expects
   the response body to contain "WordPress"; that's intentionally NOT
   guaranteed because the production wordpress-tenant chart requires
-  Keycloak realm + cnpg + sme-vcluster wiring outside the qa-fixtures
+  Keycloak realm + cnpg + Organization-vcluster wiring outside the qa-fixtures
   blast radius. Test-Plan Reviewer process gap — see
   feedback_no_mvp_no_workarounds.md rule 6.
 */ -}}

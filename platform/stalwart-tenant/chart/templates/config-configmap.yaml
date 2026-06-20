@@ -135,7 +135,7 @@ data:
     # founder directive on the shared openova.io Stalwart, NEVER reject
     # inbound mail on spam scoring — accept everything, filter at the
     # client. Per-tenant deployments inherit the same posture by default;
-    # individual SMEs may opt in via webadmin (NOT this configmap).
+    # individual Organizations may opt in via webadmin (NOT this configmap).
     [spam-filter]
     enable = false
 
@@ -144,7 +144,7 @@ data:
     reject = 999.0
     discard = 9999.0
 
-    # Local domains — the SME's primary domain (and any aliases the
+    # Local domains — the Organization's primary domain (and any aliases the
     # operator adds via webadmin runtime).
     [config.local-domain]
     {{ printf "%q" $tenantDomain }} = true

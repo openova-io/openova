@@ -177,7 +177,7 @@ spec:
           # step on every push to main, so Sovereigns AND contabo both
           # roll to the latest catalyst-api SHA. The matching
           # values.yaml `images.catalystApi.tag` is also bumped (but
-          # unused for catalyst-api; kept for SME services that DO read
+          # unused for catalyst-api; kept for Organization services that DO read
           # from values).
           image: "ghcr.io/openova-io/openova/catalyst-api:e6194fe"
           imagePullPolicy: IfNotPresent
@@ -585,7 +585,7 @@ spec:
                   optional: true
             # CATALYST_POWERDNS_API_URL — base URL of the per-Sovereign
             # PowerDNS REST API (issue #827). Used by:
-            #   - the SME-tenant pipeline's PATCH-RRset writer
+            #   - the Organization-tenant pipeline's PATCH-RRset writer
             #     (sme_tenant_dns.go) for free-subdomain provisioning
             #   - the multi-zone parent-domain handler
             #     (parent_domains.go) for runtime add-zone
@@ -694,21 +694,21 @@ spec:
                   key: token
                   optional: true
             # CATALYST_ORG_JWT_SECRET — bridge secret for /api/v1/sme/*
-            # proxies (PR #1625 follow-up). The SME microservice mesh
+            # proxies (PR #1625 follow-up). The Organization microservice mesh
             # (core/services/{gateway,billing,catalog,...}) validates HS256
             # tokens signed with sme-secrets/JWT_SECRET; catalyst-api's
             # operator session is RS256 Keycloak. proxySMEVoucher (and
             # future siblings) mint a short-lived HS256 token from the
             # operator's already-validated session via
             # core/services/shared/auth.MintSMEAccessToken and forward
-            # the bridged token to the SME gateway.
+            # the bridged token to the Organization gateway.
             #
             # Source Secret is sme-secrets in the `sme` namespace; the
             # reflector annotation block on
             # products/catalyst/chart/templates/org-services/org-services-secrets.yaml
             # mirrors it into catalyst-system at the SAME secret name so
             # the secretKeyRef below resolves to the same JWT_SECRET
-            # bytes the SME gateway validates against.
+            # bytes the Organization gateway validates against.
             #
             # optional: true — Sovereigns without marketplace
             # (ingress.marketplace.enabled=false) never materialise
@@ -734,7 +734,7 @@ spec:
             # NewAPI admin-API client in
             # products/catalyst/bootstrap/api/cmd/api/main.go around the
             # `if addr != "" && token != ""` guard. Both env vars must
-            # land non-empty for the SME-user create hook (step 2:
+            # land non-empty for the Organization-user create hook (step 2:
             # POST /api/v1/admin/users) to actually fire — when token
             # is empty catalyst-api logs `CATALYST_NEWAPI_ADMIN_TOKEN
             # unset; NewAPI hook step 2 will fail-closed` at startup
@@ -926,14 +926,14 @@ spec:
                   key: orgName
                   optional: true
             # CATALYST_OTECH_FQDN — same value as SOVEREIGN_FQDN, but read by
-            # the SME tenant create handler (sme_tenant.go) and the
+            # the Organization tenant create handler (sme_tenant.go) and the
             # sovereign-parent-domains seed (sovereign_parent_domains.go).
             # The two envs exist for historical reasons: SOVEREIGN_FQDN is the
             # Phase-8b handover-flow JWT-audience env; CATALYST_OTECH_FQDN is
-            # the SME-tier tenant-pipeline env (epic #795 / #804). Both
+            # the Organization-tier tenant-pipeline env (epic #795 / #804). Both
             # ultimately point at the Sovereign's public FQDN. Wired from the
             # same `sovereign-fqdn` ConfigMap (key `fqdn`). optional=true since
-            # Catalyst-Zero (contabo) doesn't run the SME tenant pipeline.
+            # Catalyst-Zero (contabo) doesn't run the Organization tenant pipeline.
             # Issue #876 — without this, POST /api/v1/sme/tenants returns
             # 503 {"error":"otech-fqdn-unconfigured"} on every Sovereign.
             - name: CATALYST_OTECH_FQDN
@@ -979,7 +979,7 @@ spec:
                   key: lbIP
                   optional: true
             # CATALYST_OTECH_INGRESS_IPV4 — Sovereign's load-balancer public
-            # IPv4, consumed by the SME tenant pipeline's DNS provisioner
+            # IPv4, consumed by the Organization tenant pipeline's DNS provisioner
             # (sme_tenant_dns.go DefaultSMETenantDNSProvisioner.ProvisionFreeSubdomain).
             # main.go reads this into SMETenantDeps.OTECHIngressIPv4 and the
             # per-tenant flow PATCHes `console|wordpress|openclaw|mail|keycloak.<slug>.<pool>`
@@ -993,7 +993,7 @@ spec:
             #
             # Sourced from the same `sovereign-fqdn` ConfigMap key `lbIP` already
             # used by SOVEREIGN_LB_IP above (chart renders from `global.sovereignLBIP`).
-            # optional=true: Catalyst-Zero (contabo) doesn't run the SME tenant
+            # optional=true: Catalyst-Zero (contabo) doesn't run the Organization tenant
             # pipeline; the env stays empty and the DNS step degrades to the
             # "otech ingress IPv4 unconfigured" transient error that the
             # orchestrator retries until handover stamps the value.
@@ -1025,7 +1025,7 @@ spec:
                   key: configuredRegions
                   optional: true
             # ── D31 active-hot-standby toggle + region pair ────────────
-            # Read by the SME tenant gitops writer (sme_tenant_gitops.go
+            # Read by the Organization tenant gitops writer (sme_tenant_gitops.go
             # renderSMETenantOverlay) at render time. When the toggle is
             # `true` AND both regions are non-empty AND distinct, every
             # freshly-created tenant's bp-wordpress-tenant HelmRelease
@@ -1112,7 +1112,7 @@ spec:
             # token lookup (sha1 against `users` table), not as a
             # password — so the admin PASSWORD authenticates over Basic
             # but always 401s as a Bearer/token. Pre-#1745 this caused
-            # both /api/v1/sovereigns/{id}/marketplace AND every SME
+            # both /api/v1/sovereigns/{id}/marketplace AND every Organization
             # tenant gitops commit to return 503 "gitops token
             # unconfigured" because the gitea-admin-secret reflection
             # target is `catalyst` (not `catalyst-system`) — the

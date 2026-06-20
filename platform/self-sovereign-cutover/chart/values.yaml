@@ -877,7 +877,7 @@ crossplaneProviderPivot:
   registryPath: "proxy-xpkg"
 
 # Step 09 (gitea-token-mint, TBD-C18) — bootstrap the Gitea API token
-# that the SME provisioning service uses for tenant repo materialisation.
+# that the Organization provisioning service uses for tenant repo materialisation.
 #
 # Root cause this addresses: the catalyst-platform chart's
 # `provisioning-github-token.yaml` template mirrors gitea-admin-secret's
@@ -898,7 +898,7 @@ giteaTokenMint:
   # so re-running the cutover (chart upgrade, manual replay) rotates
   # the token cleanly.
   tokenName: "catalyst-platform-bootstrap"
-  # Comma-separated Gitea API scope list. `all` is broadest — the SME
+  # Comma-separated Gitea API scope list. `all` is broadest — the Organization
   # provisioning service needs to create orgs/repos/branches/commits/
   # webhooks under arbitrary tenant paths the marketplace wizard
   # generates. Narrowing scopes (e.g. `write:repository,write:user`)

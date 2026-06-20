@@ -8,12 +8,12 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: sme-auth
+      app: org-auth
   template:
     metadata:
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
-        app: sme-auth
+        app: org-auth
     spec:
       serviceAccountName: auth
       automountServiceAccountToken: false
@@ -172,7 +172,7 @@ metadata:
   namespace: org-services
 spec:
   selector:
-    app: sme-auth
+    app: org-auth
   ports:
     - port: 8081
       targetPort: 8081

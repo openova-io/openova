@@ -1,7 +1,7 @@
 {{- /*
 Marketplace exposure HTTPRoutes (issue #710).
 
-bp-catalyst-platform 1.3.0 ships the SME marketplace stack
+bp-catalyst-platform 1.3.0 ships the Organization marketplace stack
 (templates/org-services/{marketplace,admin,console,...}.yaml) on every
 Sovereign as Pods + ClusterIPs. This template attaches public hostnames
 when the operator opts in via .Values.ingress.marketplace.enabled=true.
@@ -28,7 +28,7 @@ platform HTTPRoutes (`auth.<sov>` → Keycloak, `console.<sov>` →
 catalyst-ui, `api.<sov>` → catalyst-api, `pdns.<sov>` → powerdns,
 `grafana.<sov>` → grafana, etc.) even though Gateway API spec §5.2.1
 says exact > wildcard. The admission-order-dependent precedence on
-Cilium meant `auth.t31.omani.works` returned the SME console Astro
+Cilium meant `auth.t31.omani.works` returned the Organization console Astro
 HTML instead of Keycloak's login page, breaking D4 SSO PIN-bounce.
 
 Fix: emit one explicit `tenant-<slug>` HTTPRoute per slug in
@@ -79,7 +79,7 @@ spec:
         - path:
             type: PathPrefix
             value: "/api/"
-      # /api/* is the SME BSS REST surface (auth, catalog, tenant, billing,
+      # /api/* is the Organization BSS REST surface (auth, catalog, tenant, billing,
       # provisioning) served by the gateway Pod in the sme namespace, NOT
       # the catalyst-system marketplace-api Service. Live debugging on
       # otech103 (issue #868) showed catalyst-system/marketplace-api had

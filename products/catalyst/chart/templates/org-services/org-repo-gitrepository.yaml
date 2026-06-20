@@ -4,7 +4,7 @@ Flux GitRepository tracking the dedicated `org-tenants` branch
 
 WHY THIS FILE EXISTS
 --------------------
-The SME-tenant provisioning service writes per-tenant Kustomize overlays
+The Organization-tenant provisioning service writes per-tenant Kustomize overlays
 to `clusters/<sovereignFQDN>/org-tenants/<sme_tenant_id>/` on every
 successful `POST /api/v1/sme/tenants`. Before this PR all writes landed
 on the same `main` branch the rest of the Sovereign reconciles from.
@@ -38,7 +38,7 @@ The existing `flux-system/openova` GitRepository serves three roles:
   2. Per-Sovereign cluster manifests
      (clusters/<sovereignFQDN>/) — anything checked into the public repo
      for this Sovereign.
-  3. (Pre-fix) SME tenant overlays under org-tenants/.
+  3. (Pre-fix) Organization tenant overlays under org-tenants/.
 
 Roles 1 and 2 MUST stay on `main` (that's where chart upgrades, infra
 fixes, and operator overlays land). Only role 3 needs the protected
@@ -54,7 +54,7 @@ CONTRACT
             — the cutover step's flux-gitrepository-patch sets the same
             URL on `openova`; we hardcode the same shape here so this
             CR is correct on first apply (no second cutover step needed).
-  ref.branch: .Values.smeTenants.gitRepository.branch (default
+  ref.branch: .Values.orgTenants.gitRepository.branch (default
               "org-tenants"). Operator may override if the provisioning
               service is also flipped to a different branch.
   interval: matches the bootstrap GitRepository (1m) so the tenant
@@ -70,13 +70,13 @@ GATING
 ------
 Rendered when:
   - .Values.ingress.marketplace.enabled = true (same flag as the rest of
-    the SME bundle — non-marketplace Sovereigns don't run the tenant
+    the Organization bundle — non-marketplace Sovereigns don't run the tenant
     pipeline so they don't need this GitRepository).
   - .Values.global.sovereignFQDN non-empty (contabo path keeps writing
     to `main`; no mirror Job exists there so the clobber risk is absent).
 
 Per Inviolable Principle #4, every operationally-meaningful value is
-operator-overridable via .Values.smeTenants.gitRepository.*.
+operator-overridable via .Values.orgTenants.gitRepository.*.
 
 References:
   - Issue #1794 (TBD-C18e — 5th C18 layer, customer-journey blocker)
@@ -87,7 +87,7 @@ References:
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
 {{- $sovFQDN := .Values.global.sovereignFQDN -}}
 {{- if $sovFQDN -}}
-{{- $gr := (.Values.smeTenants).gitRepository | default dict -}}
+{{- $gr := (.Values.orgTenants).gitRepository | default dict -}}
 {{- $apiURL := ($gr.apiURL | default "http://gitea-http.gitea.svc.cluster.local:3000") -}}
 {{- $org := ($gr.org | default "openova") -}}
 {{- $repo := ($gr.repo | default "openova") -}}

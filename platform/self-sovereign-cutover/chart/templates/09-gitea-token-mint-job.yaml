@@ -6,7 +6,7 @@ Why this step exists (TBD-C18, journey step 16 unblock)
 The catalyst-platform chart's
 templates/org-services/provisioning-github-token.yaml mirrors the Gitea
 admin Secret's `password` byte into Secret `sme/provisioning-github-token`
-under key `GITHUB_TOKEN`. The SME provisioning service then sends
+under key `GITHUB_TOKEN`. The Organization provisioning service then sends
 
     Authorization: token <X>
 
@@ -57,7 +57,7 @@ wget/sh (to call Gitea's REST API).
 Order rationale: 9 (after step 08 egress-block-test) — the token mint
 does NOT need to land before any of the existing cutover steps (none of
 steps 02-08 read the provisioning-github-token Secret; they touch
-Harbor, Flux, kubectl, CiliumNetworkPolicy). The SME provisioning
+Harbor, Flux, kubectl, CiliumNetworkPolicy). The Organization provisioning
 service first consumes the token at TENANT CHECKOUT TIME, which always
 postdates cutover by minutes-to-hours. Sliding into slot 9 (vs 1b) lets
 us ship without renumbering the existing 01..08 chain (which would

@@ -5,7 +5,7 @@
 # as the customer surface; NewAPI's admin UI at admin.<sovereign-fqdn>
 # is exposed only to ops staff (Keycloak-gated).
 #
-# This slot enables the SME-tenant turnkey experience (epic #795). The
+# This slot enables the Organization-tenant turnkey experience (epic #795). The
 # Catalyst signup hook (delivered by unified-rbac in #802 against the
 # contract recorded in ADR-0003) reads the `catalyst-newapi-admin-token`
 # Secret rendered by this chart's ExternalSecret to issue per-user API
@@ -94,7 +94,7 @@ spec:
       # 1.3.0: defaultChannels.qwenPartner (channel #1 = a partner-hosted
       # Qwen3-family model at an operator-supplied endpoint) + post-install
       # /post-upgrade `channel-seed` Helm hook Job that idempotently POSTs
-      # default channels into NewAPI's admin API. Issue #915 (epic SME
+      # default channels into NewAPI's admin API. Issue #915 (epic Organization
       # tenant integration DoD: alice → OpenClaw → NewAPI → partner-hosted
       # Qwen end-to-end).
       # 1.2.0: Traefik Middleware gated behind ingress.middleware.enabled.
@@ -230,7 +230,7 @@ spec:
       # `valkey-primary.valkey.svc` → FATAL Redis-ping no-such-host →
       # CrashLoopBackOff (live hw133, 10+ restarts). Chart default now targets
       # the syncer-mangled `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc`
-      # (mirrors the SME VALKEY_ADDR rewire #3476). This slot's valkey block
+      # (mirrors the Organization VALKEY_ADDR rewire #3476). This slot's valkey block
       # sets no `valkey.url` override, so the chart default IS what newapi uses.
       # 1.4.83 — Refs #3374: NetworkPolicy valkey-egress selector rewire. #3483
       # rewired the connection string to the rtz-synced valkey but LEFT the

@@ -141,10 +141,10 @@ smtp:
   starttls: "true"
   auth: "true"
 
-# ─── Per-tenant realm configuration (issue #915, SME multi-tenant SSO) ────
+# ─── Per-tenant realm configuration (issue #915, Organization multi-tenant SSO) ────
 #
-# When the bp-keycloak chart is installed for an SME tenant (one Keycloak
-# Pod per SME under a per-tenant Namespace), the Sovereign realm import
+# When the bp-keycloak chart is installed for an Organization tenant (one Keycloak
+# Pod per Organization under a per-tenant Namespace), the Sovereign realm import
 # is NOT what we want — the tenant has its own realm with per-app OIDC
 # clients (wordpress / openclaw / stalwart) so each app federates against
 # THIS tenant's identity store, not the Sovereign-wide one.
@@ -214,9 +214,9 @@ realmConfig:
     enabled: false
     # Realm name in the tenant Keycloak (e.g. `sme-acme`). REQUIRED when
     # enabled=true. Convention: `sme-<subdomain>` matching the tenant
-    # subdomain registered in the SME pool (multi-domain Sovereign #826).
+    # subdomain registered in the Organization pool (multi-domain Sovereign #826).
     realmName: ""
-    # Display name shown in the Keycloak login UI — typically the SME's
+    # Display name shown in the Keycloak login UI — typically the Organization's
     # company name. Falls back to realmName if blank.
     displayName: ""
     # Tenant admin's email — receives the welcome / password-reset mail
@@ -229,7 +229,7 @@ realmConfig:
     parentDomain: ""
     subdomain: ""
     # Default groups bootstrapped in the tenant realm. Mirror the
-    # sovereign-admins/sovereign-ops/sovereign-viewers triad at the SME
+    # sovereign-admins/sovereign-ops/sovereign-viewers triad at the Organization
     # level so RBAC scaffolding is consistent.
     groups:
       - org-admins
@@ -605,7 +605,7 @@ keycloak:
     # keeps the reference correct on EVERY install topology:
     #   - Sovereign-mothership bootstrap-kit: releaseName=keycloak →
     #     "keycloak-sovereign-realm-config"
-    #   - Per-tenant SME (issue #899): releaseName=bp-keycloak →
+    #   - Per-tenant Organization (issue #899): releaseName=bp-keycloak →
     #     "bp-keycloak-sovereign-realm-config"
     # Issue #899 root cause: this was a literal "keycloak-sovereign-realm-config"
     # which broke whenever the operator-supplied releaseName != "keycloak".

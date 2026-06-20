@@ -93,7 +93,7 @@ spec:
         #   b) `pg4wp` (mu-plugin) — translates WordPress's MySQL
         #      queries to PostgreSQL so the official `wordpress:*`
         #      image runs against bp-cnpg without a MySQL footprint
-        #      in the SME tenant namespace. Source: PostgreSQL-For-
+        #      in the Organization tenant namespace. Source: PostgreSQL-For-
         #      Wordpress on GitHub. Installed under wp-content/pg4wp
         #      and chain-loaded via wp-content/db.php drop-in.
         - name: wp-plugin-install

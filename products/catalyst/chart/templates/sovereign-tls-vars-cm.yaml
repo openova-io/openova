@@ -14,7 +14,7 @@ That value scales O(N) with the parent_domains count: ~440 bytes per
 parent zone (HTTPS+HTTP listener objects with cert refs + allowedRoutes)
 plus the per-prov 2-label wildcard pair (TBD-A32 #1886) when the
 sovereign FQDN is not itself one of the parent zones. For a 4-zone
-SME-pool Sovereign (primary + 3 org-pool, e.g. omantel.biz + omani.{homes,
+Org-pool Sovereign (primary + 3 org-pool, e.g. omantel.biz + omani.{homes,
 rest,trade}) the value renders to ~2,210 bytes inside cloud-init — and
 Hetzner caps user_data at HARD 32 KiB. Cloud-init for t39's exact body
 overshot the post-#1985 guardrail (32,256) at 33,656 bytes (audit
@@ -44,7 +44,7 @@ in infra/hetzner/main.tf historically):
                           `https` / `http` (every platform HTTPRoute
                           hardcodes `parentRefs[0].sectionName: https`
                           on single-zone Sovereigns).
-  - MULTIPLE parent zones (SME pool present) → unique names per zone:
+  - MULTIPLE parent zones (Org pool present) → unique names per zone:
                           `https-<sanitised>` / `http-<sanitised>`
                           where sanitised = zone.replace(".", "-").
   - certificateRefs ALWAYS targets the per-prov per-name TLS Secret

@@ -113,7 +113,7 @@ sovereign:
   # Sovereign-level opt-in for the active-hot-standby Postgres shape
   # on every CNPG-backed tenant app the marketplace installs. When
   # `enableHotStandby` is truthy AND both region keys are non-empty
-  # AND distinct, the SME-tenant gitops writer (sme_tenant_gitops.go
+  # AND distinct, the Organization-tenant gitops writer (sme_tenant_gitops.go
   # renderSMETenantOverlay) injects a
   # `pg.activeHotStandby.{enabled,primaryRegion,replicaRegion}` block
   # into every freshly-rendered bp-wordpress-tenant HelmRelease. The
@@ -339,7 +339,7 @@ giteaAdminBridge:
 # ─── Multi-zone parent domains (issue #827, parent epic #825) ──────────
 # A franchised Sovereign supports N parent zones, NOT one. The operator
 # brings 1+ parent domains at signup (`omani.works` for own use,
-# `omani.trade` for the SME pool, etc.) and may add more post-handover
+# `omani.trade` for the Org pool, etc.) and may add more post-handover
 # via the admin console (#829). The wildcard Certificate template
 # (templates/sovereign-wildcard-certs.yaml) renders ONE Certificate
 # resource per entry below, each requesting `*.<zone>` + apex from the
@@ -447,22 +447,22 @@ images:
   console:
     tag: "3c2f7e4"
   # Admin pod has a separate tag from the orgTag bundle because the admin
-  # image build is decoupled from the SME microservices CI run — when
+  # image build is decoupled from the Organization microservices CI run — when
   # orgTag is bumped, admin may not have published for that SHA. Caught
   # live on t132 2026-05-16 (ImagePullBackOff on admin:b0ed216 — admin
   # image for that SHA never landed in GHCR even though the other 10
-  # SME services did). Default to a known-published tag; bump in lockstep
+  # Organization services did). Default to a known-published tag; bump in lockstep
   # with marketplaceApi/console when admin's UI changes.
   admin:
     tag: "3c2f7e4"
-  # All 10 SME microservices share one SHA tag (built from the same mono-repo commit).
+  # All 10 Organization microservices share one SHA tag (built from the same mono-repo commit).
   # 2026-06-09: 41e02c8 → c96f998 (#3157 merge SHA). 41e02c8 (built 2026-06-05)
   # predates the #3157 marketplace-plans fix, so services-catalog:41e02c8 lacks
   # filterPlansByProduct → the generic Org-provisioning picker rendered all 8
   # plans (5 generic + 3 Sandbox dupes) instead of 5. A later catalyst-platform
   # roll had re-pinned the stale 41e02c8, reverting the live filter. c96f998
   # carries the server-side filter and is published for every services-* image
-  # (verified: services-auth, unchanged by #3157, also has c96f998 → the SME
+  # (verified: services-auth, unchanged by #3157, also has c96f998 → the Organization
   # build is all-services, not path-filtered). Refs #3156.
   orgTag: "c068e6a"
 
@@ -866,8 +866,8 @@ controllers:
 # ─── catalyst-catalog HTTP service (EPIC-2 Slice L, #1097) ───────────────
 # Multi-source Blueprint catalog backed by Gitea (3 sources: public mirror,
 # sovereign-curated, per-Org private). Fed by the unified Gitea client at
-# core/controllers/pkg/gitea (CC2 #1136). REPLACES the per-Org SME catalog
-# per ADR-0001 §4.3 (different scope: SME's was Org-bound; catalyst-catalog
+# core/controllers/pkg/gitea (CC2 #1136). REPLACES the per-Org Organization catalog
+# per ADR-0001 §4.3 (different scope: the Organization's was Org-bound; catalyst-catalog
 # is Sovereign-wide multi-source).
 #
 # Default OFF per docs/INVIOLABLE-PRINCIPLES.md (operators flip on per-
@@ -1083,7 +1083,7 @@ catalystApi:
   # canonical "catalyst-api" role bound by bp-openbao's auth-bootstrap Job.
   openbaoK8sAuthRole: ""
   # PowerDNS REST API base URL used by:
-  #   - SME-tenant pipeline's PATCH-RRset writer (sme_tenant_dns.go)
+  #   - Organization-tenant pipeline's PATCH-RRset writer (sme_tenant_dns.go)
   #   - Multi-zone parent-domain handler (parent_domains.go, issue #827)
   # Empty = in-code default (in-cluster Service FQDN of the Sovereign's
   # own PowerDNS, http://powerdns.powerdns.svc.cluster.local:8081).
@@ -1121,7 +1121,7 @@ ingress:
       # before #2118 / TBD-V48 hoisted the render into the chart)
       # names HTTPS listeners as follows:
       #   - SINGLE parent zone → bare `https` / `http`
-      #   - MULTIPLE parent zones (SME pool present) → unique
+      #   - MULTIPLE parent zones (Org pool present) → unique
       #     `https-<sanitised-zone>` / `http-<sanitised-zone>`
       #     (e.g. `https-omani-works`, `https-omani-homes`)
       # Pinning `sectionName: https` here broke every catalyst-system
@@ -1178,7 +1178,7 @@ ingress:
   # marketplace.<sov>/{,api/,back-office/} (storefront + BSS) and one
   # HTTPRoute per entry in `tenantSlugs` (each scoped to
   # `<slug>.<sov>` exactly — NO wildcard) via Cilium Gateway. Default
-  # OFF — non-marketplace Sovereigns get the SME workloads but no
+  # OFF — non-marketplace Sovereigns get the Organization workloads but no
   # public ingress.
   #
   # TBD-A42 (issue #1905, 2026-05-19): tenant-wildcard previously
@@ -1199,7 +1199,7 @@ ingress:
   marketplace:
     enabled: false
     # Explicit list of marketplace tenant slugs that should receive a
-    # public HTTPRoute pointing at the SME `console` Service (which
+    # public HTTPRoute pointing at the Organization `console` Service (which
     # host-routes per tenant by `<slug>.<sov>`). One HTTPRoute per
     # entry, hostname=`<slug>.<global.sovereignFQDN>` exact. Examples:
     #   tenantSlugs: ["acme", "beta", "gamma"]
@@ -1225,7 +1225,7 @@ ingress:
 # 2026-05-04.
 #
 # Gated on ingress.marketplace.enabled (non-marketplace Sovereigns
-# don't run the SME tenant pipeline).
+# don't run the Organization tenant pipeline).
 #
 # Per Inviolable Principle #4 (never hardcode), every operationally-
 # meaningful value is operator-overridable. Defaults match the
@@ -1233,7 +1233,7 @@ ingress:
 # clusters/_template/bootstrap-kit/03-flux.yaml + the cloud-init
 # flux-bootstrap.yaml block (which seeds flux-system/openova
 # GitRepository).
-smeTenants:
+orgTenants:
   kustomization:
     # Resource name. Default `org-tenants` — short, ops-readable,
     # appears in `kubectl get kustomization -n flux-system`.
@@ -1249,7 +1249,7 @@ smeTenants:
     # continues to read `main` so chart upgrades + infra fixes reconcile
     # as before — only this Kustomization reads from the protected
     # branch. Operator may flip back to `openova` for a single-branch
-    # debug session without losing the rest of the SME-tenant pipeline.
+    # debug session without losing the rest of the Organization-tenant pipeline.
     sourceRef:
       name: openova-org-tenants
       namespace: flux-system
@@ -1271,7 +1271,7 @@ smeTenants:
     # Kustomization's prune contract.
     prune: true
     # Each tenant overlay's HelmReleases install asynchronously and
-    # have their own readiness watcher in the SME-tenant orchestrator.
+    # have their own readiness watcher in the Organization-tenant orchestrator.
     # Blocking this top-level Kustomization on every tenant's full
     # readiness would let one stuck tenant gate every other tenant's
     # reconcile — a single CrashLooping bp-keycloak in tenant A would
@@ -1325,7 +1325,7 @@ smeTenants:
       patSourceSecretName: catalyst-gitea-token
       patSourceKey: token
   # ─── Pre-cutover local-Gitea repo bootstrap (#3454, Refs #3376) ─────
-  # The SME-tenant gitops chain (catalyst-api push target + the
+  # The Organization-tenant gitops chain (catalyst-api push target + the
   # openova-org-tenants GitRepository above) targets the local Gitea
   # repo `openova/openova`@`org-tenants`. PRE-cutover that repo does not
   # exist — bp-self-sovereign-cutover Step 01 (the gitea-mirror Job)
@@ -1409,11 +1409,11 @@ marketplace:
         name: ""
         key: "client-secret"
 
-# ─── SME Postgres cluster (issue #859) ────────────────────────────────────
+# ─── Organization Postgres cluster (issue #859) ───────────────────────────
 # When ingress.marketplace.enabled=true the chart renders a
-# CloudNativePG `Cluster` resource backing the SME microservice mesh. CNPG
+# CloudNativePG `Cluster` resource backing the Organization microservice mesh. CNPG
 # auto-creates the `<cluster>-app` Secret (basic-auth shape: username +
-# password) the SME services consume via secretKeyRef.
+# password) the Organization services consume via secretKeyRef.
 #
 # Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
 # meaningful value flows through .Values.orgPostgres so per-Sovereign
@@ -1421,12 +1421,12 @@ marketplace:
 # the chart.
 orgPostgres:
   # ── #3370 embedded-DB elimination seams ───────────────────────────────
-  # externalHost — when set (slot 13 in shared mode), every SME service
+  # externalHost — when set (slot 13 in shared mode), every Organization service
   # + FerretDB dials this host instead of the bundled org-pg-rw Service
   # (e.g. shared-pg-c-rw.shared-data.svc.cluster.local). Empty = the
   # bundled Cluster (byte-identical default).
   externalHost: ""
-  # credentialSecret — when set, the SME services + FerretDB read
+  # credentialSecret — when set, the Organization services + FerretDB read
   # username/password from this Secret instead of the CNPG-generated
   # org-pg-app (the slot-16d hub `org-database-secret`, reflector-PUSHED
   # into ns sme, carries the same keys). Empty = org-pg-app.
@@ -1450,7 +1450,7 @@ orgPostgres:
     owner: org                      # role name + secret username
     # Secondary DBs created via postInitApplicationSQL (1.4.4 — added
     # org_documents for FerretDB, see ferretdb.yaml + cnpg-cluster.yaml).
-    # Adding a new SME service is a values-only change.
+    # Adding a new Organization service is a values-only change.
     additionalDatabases:
       - org_billing                 # billing service primary DB
       - org_documents               # FerretDB (MongoDB-wire) backing DB — issue #861
@@ -1464,9 +1464,9 @@ orgPostgres:
         cpu: "2"
         memory: 1Gi
 
-# ─── SME secrets bundle (issue #859) ──────────────────────────────────────
+# ─── Organization secrets bundle (issue #859) ─────────────────────────────
 # When ingress.marketplace.enabled=true the chart renders a `sme-secrets`
-# Kubernetes Secret in the `sme` namespace consumed by 10 of the 11 SME
+# Kubernetes Secret in the `sme` namespace consumed by 10 of the 11 Organization
 # service Deployments (auth, billing, catalog, console, domain, gateway,
 # marketplace, notification, provisioning, tenant).
 #
@@ -1474,7 +1474,7 @@ orgPostgres:
 # first install via sprig randAlphaNum and PERSIST across reconciles via
 # Helm `lookup` (same pattern as platform/gitea/chart/templates/
 # admin-secret.yaml — see issue #830 Bug 2). Without lookup every
-# reconcile would invalidate every active SME session and lock out every
+# reconcile would invalidate every active Organization session and lock out every
 # admin.
 #
 # GOOGLE_CLIENT_* and SMTP_* are operator-supplied at provision time
@@ -1487,16 +1487,16 @@ orgPostgres:
 # Secret is canonically `org-services-secrets`. The legacy `sme-secrets`
 # alias is now OFF by default (fresh provs emit ONLY the canonical name).
 # An operator upgrading a LIVE env in place may set
-# `compat.smeSecretsAlias=true` for ONE release so the legacy name is
+# `compat.orgSecretsAlias=true` for ONE release so the legacy name is
 # re-emitted byte-identical mid-roll; this branch is removed post-Sunset.
 compat:
-  smeSecretsAlias: false
+  orgSecretsAlias: false
 #
 # Per docs/INVIOLABLE-PRINCIPLES.md #4 + #10: no hardcoded plaintext
-# credentials; every value flows from .Values.smeSecrets or via lookup'd
+# credentials; every value flows from .Values.orgSecrets or via lookup'd
 # external Secret refs.
-smeSecrets:
-  secretName: org-services-secrets   # #3985: canonical name; legacy `sme-secrets` alias default-OFF (compat.smeSecretsAlias)
+orgSecrets:
+  secretName: org-services-secrets   # #3985: canonical name; legacy `sme-secrets` alias default-OFF (compat.orgSecretsAlias)
   namespace: org-services            # #3383: was `sme`
   smtp:
     # ─── Sovereign source-Secret (issue #934) ────────────────────────
@@ -1510,7 +1510,7 @@ smeSecrets:
     sovereignNamespace: catalyst-system
     sovereignSecretName: sovereign-smtp-credentials
     # Defaults match `.Values.sovereign.smtp.*` (the catalyst-api PIN
-    # delivery path) so the SME auth service uses the same mothership
+    # delivery path) so the Organization auth service uses the same mothership
     # relay coordinates as the catalyst Console PIN flow until the
     # Sovereign-local Stalwart relay (slot 95 bp-stalwart-sovereign)
     # lands. The SMTP source-Secret (catalyst-system/sovereign-smtp-
@@ -1538,7 +1538,7 @@ smeSecrets:
     # values per Inviolable Principle #10.
     email: "admin@openova.io"
 
-# ─── SME service backing-store endpoints (issue #861) ─────────────────────
+# ─── Organization service backing-store endpoints (issue #861) ────────────
 # When ingress.marketplace.enabled=true the chart renders:
 #   - templates/org-services/ferretdb.yaml — FerretDB Deployment + Service
 #     in `sme` ns, MongoDB-wire-compatible front end backed by org-pg.
@@ -1555,7 +1555,7 @@ smeSecrets:
 orgServices:
   # ─── Event bus (issue #942) ────────────────────────────────────────────
   # Per ADR-0001 the OpenOva architecture uses NATS JetStream as the only
-  # local bus on Sovereigns. On Catalyst-Zero (contabo) the legacy SME
+  # local bus on Sovereigns. On Catalyst-Zero (contabo) the legacy Organization
   # services still target a Redpanda Service in the talentmesh namespace
   # (migration #68). The configmap.yaml template selects the default at
   # render time based on .Values.global.sovereignFQDN:
@@ -1566,7 +1566,7 @@ orgServices:
   #       (legacy Kafka transport remains the bus on contabo)
   # `brokers` overrides the default outright — operator MAY wire any
   # NATS-protocol or Kafka-protocol broker without forking the chart.
-  # `protocol` is an explicit hint for SME services that want to switch
+  # `protocol` is an explicit hint for Organization services that want to switch
   # wire format independently (e.g. a Sovereign with a Kafka-compatible
   # broker outside the cluster).
   eventBus:
@@ -1599,7 +1599,7 @@ orgServices:
     postgresPort: 5432
     postgresDatabase: org_documents
     sslmode: disable                          # ClusterIP traffic is overlay-encrypted; CNPG default issuer chain not bundled
-    # Service FQDN exposed to other SME services via configmap MONGODB_URI.
+    # Service FQDN exposed to other Organization services via configmap MONGODB_URI.
     # Per-Sovereign overlays MAY swap to an external MongoDB endpoint.
     host: ferretdb.org-services.svc.cluster.local
     port: 27017
@@ -1623,9 +1623,9 @@ orgServices:
     # Service to the HOST under the syncer-mangled name
     # `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc`, so the host
     # `valkey` namespace no longer carries a `valkey-primary` Service. The
-    # SME control-plane services (host ns `sme`, still host-placed in
+    # Organization control-plane services (host ns `sme`, still host-placed in
     # Batch A) consume valkey across the vCluster boundary → pin to the
-    # synced name. SME services pin to the primary so writes succeed; per-
+    # synced name. Organization services pin to the primary so writes succeed; per-
     # Sovereign overlays MAY split read traffic to -replicas via a second
     # VALKEY_READ_ADDR (separate ticket). Override `host` for a
     # host-placed valkey.
@@ -1663,7 +1663,7 @@ orgServices:
       enabled: false
       sourceNamespace: org-services   # #3383: was `sme`
   # ─── provisioning service GitHub token (issue #866) ──────────────────
-  # The SME `provisioning` service Deployment references
+  # The Organization `provisioning` service Deployment references
   # `secret/provisioning-github-token` with key `GITHUB_TOKEN`. On
   # contabo-mkt this is pre-provisioned via SealedSecret. On a freshly
   # franchised Sovereign, templates/org-services/provisioning-github-
@@ -1672,7 +1672,7 @@ orgServices:
   # lookup-persistence pattern) into `sme` ns under the canonical
   # GITHUB_TOKEN key the provisioning service reads. This unblocks the
   # provisioning Pod reaching Running 1/1 on a fresh Sovereign — the
-  # last 1/13 SME pod that #859 + #861 + #863 didn't already cover.
+  # last 1/13 Organization pod that #859 + #861 + #863 didn't already cover.
   #
   # Per Inviolable Principle #4 (never hardcode), every source/dest
   # name + key is operator-overridable so a Sovereign that points
@@ -1713,7 +1713,7 @@ orgServices:
       destSecretName: provisioning-github-token
       destKey: GITHUB_TOKEN
     # ─── Provisioning service GitOps env (issues #940 + #944) ──────────
-    # The SME provisioning service Deployment env block is rendered from
+    # The Organization provisioning service Deployment env block is rendered from
     # these keys. Every value is operator-overridable per Inviolable
     # Principle #4. Defaults are topology-aware:
     #   - Sovereign install (global.sovereignFQDN non-empty) defaults
@@ -1791,7 +1791,7 @@ orgServices:
       # so a platform-wide bump only needs to land in one place at a time.
       image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
       # giteaInternalURL: the in-cluster Gitea REST base the probe hits.
-      # Same default as the rest of the SME bundle's Gitea coordinates.
+      # Same default as the rest of the Organization bundle's Gitea coordinates.
       giteaInternalURL: "http://gitea-http.gitea.svc.cluster.local:3000"
       # intervalSeconds + timeoutSeconds: poll cadence + wall-clock cap.
       # Default 10s × 180 iters = 1800s (30m) — covers the slowest cutover
@@ -2132,7 +2132,7 @@ security:
     # Platform namespaces catalyst-system Pods are allowed to egress to.
     # Override to add tenant-specific or per-Sovereign namespaces.
     #
-    # `sme` — the bp-sme-platform chart deploys the SME control-plane
+    # `sme` — the bp-sme-platform chart deploys the Organization control-plane
     # (auth, billing, catalog, console, domain, gateway, marketplace,
     # notification, provisioning, tenant) into namespace `sme`. Console
     # in catalyst-system reaches `gateway.org-services.svc.cluster.local:8080`

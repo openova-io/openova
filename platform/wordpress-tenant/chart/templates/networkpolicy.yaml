@@ -13,7 +13,7 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Traffic from the SME's ingress namespace (default: traefik).
+    # Traffic from the Organization's ingress namespace (default: traefik).
     - from:
         - namespaceSelector:
             matchLabels:
@@ -37,7 +37,7 @@ spec:
         - port: {{ .Values.networkPolicy.egress.cnpgPort }}
           protocol: TCP
     # ── bp-keycloak (OIDC discovery + token endpoints) ────────────
-    # Tenant Keycloak realm in the SME vcluster. WordPress's PHP
+    # Tenant Keycloak realm in the Organization vcluster. WordPress's PHP
     # backchannel hits the token endpoint at install time (auto-
     # discovery) and on every login refresh.
     - to:

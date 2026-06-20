@@ -60,7 +60,7 @@ Canonical seam: platform/keycloak/chart/templates/configmap-sovereign-realm.yaml
 Tenant-mode mutual exclusion (issue #915, C1)
 ─────────────────────────────────────────────
 When `realmConfig.tenant.enabled=true` the chart is being installed for an
-SME tenant (per-tenant Keycloak with a tenant realm + per-app OIDC clients
+Organization tenant (per-tenant Keycloak with a tenant realm + per-app OIDC clients
 for wordpress / openclaw / stalwart). In that mode the tenant realm
 ConfigMap (templates/configmap-tenant-realm.yaml) emits a ConfigMap with
 the SAME name expected by `keycloakConfigCli.existingConfigmap`

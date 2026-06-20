@@ -1,9 +1,9 @@
-# Catalyst Blueprint scratch chart for per-SME (per-vcluster) Stalwart mail.
+# Catalyst Blueprint scratch chart for per-Org (per-vcluster) Stalwart mail.
 #
 # Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
 # meaningful value is operator-supplied at install time; cluster overlays
 # in clusters/<sovereign>/sme-overlays/<tenant>/ may override any of these
-# without rebuilding the Blueprint OCI artifact. The SME's domain, the
+# without rebuilding the Blueprint OCI artifact. The Organization's domain, the
 # Keycloak realm URL, the admin secret name, and the webmail/SMTP hosts are
 # all required values surfaced by configSchema in blueprint.yaml.
 
@@ -18,8 +18,8 @@ catalystBlueprint:
 # ─── Stalwart application ──────────────────────────────────────────────────
 # Single replica per tenant (footprint trade-off registered in #795).
 # Stalwart stores all state in RocksDB on a PVC — no horizontal-scale
-# requirement at the SME tier. Resource requests are sized for a small
-# SME (≤ 50 mailboxes, ≤ 5 GB mail spool); operators may bump per-tenant.
+# requirement at the Organization tier. Resource requests are sized for a small
+# Organization (≤ 50 mailboxes, ≤ 5 GB mail spool); operators may bump per-tenant.
 stalwart:
   enabled: true
   replicas: 1
@@ -101,14 +101,14 @@ stalwart:
       failureThreshold: 3
 
 # ─── Domain configuration ────────────────────────────────────────────────
-# `domain.primary` is the SME's mail domain — every mailbox is
+# `domain.primary` is the Organization's mail domain — every mailbox is
 # `<user>@<domain.primary>`. Two modes:
 #   - Free subdomain (default): operator overlay sets
 #     `acme.<otech-fqdn>` (e.g. acme.omantel.omani.works). The chart
 #     emits `stalwart-dns-records-required` ConfigMap and a follow-up
 #     Job posts MX/SPF/DKIM/DMARC to the otech PowerDNS API.
-#   - BYO domain: operator overlay sets the SME's own domain
-#     (e.g. acme.com). The ConfigMap is still emitted; the SME admin
+#   - BYO domain: operator overlay sets the Organization's own domain
+#     (e.g. acme.com). The ConfigMap is still emitted; the Organization admin
 #     pastes the records into their public DNS provider. Smoke test
 #     in #804 asserts the records are reachable post-creation.
 domain:
@@ -120,20 +120,20 @@ domain:
   # When "free-subdomain", the dns-records-job.yaml hook attempts a
   # PowerDNS API call (operator-supplied creds via dns.powerdns.*).
   # When "byo", the chart only renders the records ConfigMap and the
-  # job no-ops (records become the SME admin's responsibility).
+  # job no-ops (records become the Organization admin's responsibility).
   mode: "free-subdomain"
 
-# ─── Keycloak OIDC integration (SME-vcluster Keycloak) ─────────────────
+# ─── Keycloak OIDC integration (Organization-vcluster Keycloak) ─────────────────
 #
-# Stalwart's webmail and admin API authenticate against the SME's
+# Stalwart's webmail and admin API authenticate against the Organization's
 # vcluster-local Keycloak realm. The clientID is registered as a
 # confidential OIDC client during vcluster provisioning (#804); the
 # chart consumes the client secret from `keycloak.clientSecretName`.
 keycloak:
-  # REQUIRED — SME-vcluster Keycloak realm issuer URL.
+  # REQUIRED — Organization-vcluster Keycloak realm issuer URL.
   # Example: "https://auth.acme.<otech-fqdn>/realms/sme"
   realmURL: ""
-  # OIDC client ID registered in the SME realm. Convention: "stalwart".
+  # OIDC client ID registered in the Organization realm. Convention: "stalwart".
   clientID: "stalwart"
   # ExternalSecret/Secret name carrying the OIDC client secret.
   # Required key: OIDC_CLIENT_SECRET.
@@ -311,7 +311,7 @@ ingress:
 
 # ─── Mailbox provisioning hook (event-driven, ADR-0003 §3) ─────────────
 # When the unified-rbac service in the OTECH control plane creates an
-# SME user, it publishes a `org.user.created` event to NATS. The
+# Organization user, it publishes a `org.user.created` event to NATS. The
 # subscriber that lives alongside this Stalwart calls Stalwart's
 # `/api/principal` admin API to provision the mailbox.
 #
@@ -355,7 +355,7 @@ mailboxProvisioner:
     activeDeadlineSeconds: 600
     backoffLimit: 6
   # Continuous NATS subscriber Deployment. OFF by default at chart
-  # level — turned on by the per-tenant overlay in #804 once the SME
+  # level — turned on by the per-tenant overlay in #804 once the Organization
   # vcluster's NATS subject is known.
   natsSubscriber:
     enabled: false
@@ -369,9 +369,9 @@ mailboxProvisioner:
 #     `stalwart-dns-records-required` AND ships a Job that POSTs them
 #     to the operator's PowerDNS API (creds via secret reference). The
 #     unified-rbac console UI reads the ConfigMap to display "DNS
-#     setup complete" status to the SME admin.
+#     setup complete" status to the Organization admin.
 #   - BYO: the same ConfigMap is emitted; the Job no-ops (mode flag);
-#     SME admin copies the records into their own DNS provider.
+#     Organization admin copies the records into their own DNS provider.
 dns:
   # PowerDNS API endpoint (free-subdomain mode only). Empty for BYO.
   powerdns:

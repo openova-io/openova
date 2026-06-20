@@ -8,12 +8,12 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: sme-billing
+      app: org-billing
   template:
     metadata:
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
-        app: sme-billing
+        app: org-billing
     spec:
       serviceAccountName: billing
       automountServiceAccountToken: false
@@ -134,7 +134,7 @@ metadata:
   namespace: org-services
 spec:
   selector:
-    app: sme-billing
+    app: org-billing
   ports:
     - port: 8085
       targetPort: 8085

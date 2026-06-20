@@ -8,12 +8,12 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: sme-tenant
+      app: org-tenant
   template:
     metadata:
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
-        app: sme-tenant
+        app: org-tenant
     spec:
       serviceAccountName: tenant
       # TBD-D35a — must be true so the SandboxOrchestrator
@@ -104,7 +104,7 @@ metadata:
   namespace: org-services
 spec:
   selector:
-    app: sme-tenant
+    app: org-tenant
   ports:
     - port: 8083
       targetPort: 8083

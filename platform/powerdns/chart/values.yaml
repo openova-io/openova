@@ -506,7 +506,7 @@ crossplane:
 # ─── Multi-zone bootstrap (issue #827, parent epic #825) ──────────────────
 # A Sovereign supports N parent zones, NOT one. The operator brings 1+
 # parent domains at signup (`omani.works` for own use, `omani.trade` for
-# the SME pool, etc.) and may add more post-handover via the admin
+# the Org pool, etc.) and may add more post-handover via the admin
 # console (#829). Each zone listed below is created in PowerDNS at
 # install time by a Helm post-install/post-upgrade hook Job
 # (templates/zone-bootstrap-job.yaml) which POSTs each zone to
@@ -527,7 +527,7 @@ crossplane:
 #     the trailing dot at API call time per the PowerDNS contract.
 #   - role (optional): operator-meaningful tag — "primary" for the
 #     operator's own console/api hostnames, "org-pool" for zones
-#     offered to SME tenants. Not consumed by PowerDNS itself; carried
+#     offered to Organization tenants. Not consumed by PowerDNS itself; carried
 #     in the Job's audit ConfigMap so the admin console can show role
 #     per zone without an extra source of truth.
 #   - kind (optional, default "Native"): PowerDNS zone kind. "Native"

@@ -8,12 +8,12 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: sme-domain
+      app: org-domain
   template:
     metadata:
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
-        app: sme-domain
+        app: org-domain
     spec:
       serviceAccountName: domain
       automountServiceAccountToken: false
@@ -99,7 +99,7 @@ metadata:
   namespace: org-services
 spec:
   selector:
-    app: sme-domain
+    app: org-domain
   ports:
     - port: 8086
       targetPort: 8086

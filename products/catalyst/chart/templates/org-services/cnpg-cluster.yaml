@@ -1,8 +1,8 @@
 {{- /*
-CNPG-managed Postgres cluster for the SME microservice mesh (issue #859).
+CNPG-managed Postgres cluster for the Organization microservice mesh (issue #859).
 
 Why this template exists:
-  bp-catalyst-platform's SME services (auth, billing, catalog, console,
+  bp-catalyst-platform's Organization services (auth, billing, catalog, console,
   domain, gateway, marketplace, notification, provisioning, tenant) all
   reference a `org-pg-app` Secret to obtain Postgres credentials and a
   `org-pg-rw.org-services.svc.cluster.local` Service for the connection. On
@@ -26,7 +26,7 @@ Capabilities gate:
   See feedback_inviolable_principles.md #4.
 
 Why N databases (org_auth primary, org_billing + org_documents secondary):
-  The SME auth service uses org_auth as its primary store; billing uses
+  The Organization auth service uses org_auth as its primary store; billing uses
   org_billing; FerretDB (the MongoDB-wire-compatible front-end shipped
   by templates/org-services/ferretdb.yaml in 1.4.4) uses org_documents.
   On contabo a separate Job (data/init-databases.yaml) creates the
@@ -36,7 +36,7 @@ Why N databases (org_auth primary, org_billing + org_documents secondary):
   race against pod readiness.
 
   The secondary-DB list is data-driven via
-  .Values.orgPostgres.cluster.additionalDatabases so adding a new SME
+  .Values.orgPostgres.cluster.additionalDatabases so adding a new Organization
   service is a values-only change (Inviolable Principle #4).
 
 Credential persistence:
@@ -60,7 +60,7 @@ All operationally-meaningful values are overridable via
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
 {{- /*
 Embedded-cluster gate (1.4.596, #3370): orgPostgres.cluster.enabled=false
-skips the bundled org-pg Cluster — the SME mesh then runs against the
+skips the bundled org-pg Cluster — the Organization mesh then runs against the
 shared-pg-c instance's org_auth/org_billing/org_documents Contexts
 (slot 16d) via the reflected org-database-secret hub +
 orgPostgres.externalHost/credentialSecret flips in slot 13. Default
@@ -99,7 +99,7 @@ spec:
     initdb:
       database: {{ .Values.orgPostgres.cluster.database | default "org_auth" | quote }}
       owner: {{ .Values.orgPostgres.cluster.owner | default "org" | quote }}
-      # Create the secondary DBs the SME mesh needs.
+      # Create the secondary DBs the Organization mesh needs.
       # postInitApplicationSQL runs as the postgres superuser AFTER
       # initdb has created the primary DB + owner role, so CREATE
       # DATABASE here is the canonical CNPG-blessed extension point
@@ -129,7 +129,7 @@ spec:
     size: {{ .Values.orgPostgres.cluster.storageSize | default "10Gi" }}
     storageClass: {{ .Values.orgPostgres.cluster.storageClass | default "local-path" | quote }}
 
-  # SME init-databases Job (when enabled — see init-databases.yaml below)
+  # Organization init-databases Job (when enabled — see init-databases.yaml below)
   # connects as superuser to CREATE DATABASE / GRANT. Disabling this
   # would force every operator to script a backdoor; keep it on.
   enableSuperuserAccess: true

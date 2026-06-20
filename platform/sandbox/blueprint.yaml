@@ -23,7 +23,7 @@ spec:
     tags: [sandbox, ide, devtools, mcp, claude-code, qwen-code, agents, openova]
     documentation: products/sandbox/docs/architecture.md
     license: AGPL-3.0-or-later
-  # `marketplace` — surfaces the card in the SME tenant catalogue so a
+  # `marketplace` — surfaces the card in the Organization catalogue so a
   # User can land on /app?slug=sandbox and provision a personal Sandbox
   # session. The controller itself is auto-installed by bootstrap-kit
   # slot 19a on every Sovereign; the marketplace card represents the

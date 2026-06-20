@@ -64,7 +64,7 @@ mgmtVcluster:
   # primary regions never landed, and is no longer needed.
   #
   # Default ON: this slot renders on every region of every Sovereign.
-  # Operators who want to opt out (single-region SME tier) flip this
+  # Operators who want to opt out (single-region Organization tier) flip this
   # to false via per-Sovereign overlay.
   enabled: true
 

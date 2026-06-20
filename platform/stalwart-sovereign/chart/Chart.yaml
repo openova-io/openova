@@ -5,9 +5,9 @@ name: bp-stalwart-sovereign
 # Stalwart so Console PIN/magic-link mail originates from
 # `noreply@<sovereignFQDN>` with per-Sovereign SPF/DKIM/DMARC posture.
 #
-# Distinct from bp-stalwart-tenant (per-SME/vcluster instance):
+# Distinct from bp-stalwart-tenant (per-Org/vcluster instance):
 #   - bp-stalwart-tenant: customer mailboxes, OIDC-authn against per-
-#     tenant Keycloak realm, webmail UI exposed at `mail.<sme-domain>`.
+#     tenant Keycloak realm, webmail UI exposed at `mail.<org-domain>`.
 #   - bp-stalwart-sovereign (this): single instance per Sovereign,
 #     scoped to Sovereign Console system mail (PIN delivery, ops
 #     alerts, the `noreply@<sovereignFQDN>` mailbox). NO Keycloak OIDC,

@@ -2,7 +2,7 @@
 //
 // Per locked decision [A] of openova-io/openova#795, this binary reads
 // ONLY two env vars (NEWAPI_BASE_URL + NEWAPI_KEY). It carries NO
-// Keycloak code, NO key-management code, NO SME-tenant model knowledge.
+// Keycloak code, NO key-management code, NO Organization-tenant model knowledge.
 // Identity flows in through the Secret-mounted env vars; the runtime
 // trusts what the controller injected at pod-spawn time.
 //
@@ -150,7 +150,7 @@ func proxyHandler(upstream *url.URL, apiKey string) http.Handler {
 			// NEWAPI_KEY (mounted at startup from the per-user
 			// Secret), regardless of who the original caller is. The
 			// controller upstream of this pod is responsible for
-			// authenticating the SME end-user via Keycloak before
+			// authenticating the Organization end-user via Keycloak before
 			// proxying any traffic here.
 			pr.Out.Header.Set("Authorization", "Bearer "+apiKey)
 			pr.Out.Header.Del("Cookie")

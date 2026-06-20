@@ -138,12 +138,12 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: sme-provisioning
+      app: org-provisioning
   template:
     metadata:
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
-        app: sme-provisioning
+        app: org-provisioning
     spec:
       serviceAccountName: provisioning
       imagePullSecrets:
@@ -339,7 +339,7 @@ spec:
             # ── GitOps target path — issue #944 ───────────────────────────
             # Pre-#944 GIT_BASE_PATH was hardcoded to
             # `clusters/contabo-mkt/tenants` here. On a freshly franchised
-            # Sovereign (the SME marketplace runs on the Sovereign too) that
+            # Sovereign (the Organization marketplace runs on the Sovereign too) that
             # path points at CONTABO's clusters/ tree — every alice tenant
             # commit landed in upstream openova/openova's contabo overlay,
             # which contabo Flux would then install on the contabo cluster.
@@ -349,7 +349,7 @@ spec:
             # Fix: data-driven via .Values.orgServices.provisioning.gitBasePath
             # with a topology-aware default. Sovereign installs default to
             # clusters/<sovereignFQDN>/org-tenants/ (matches the existing
-            # catalyst-api SME-tenant orchestrator path in
+            # catalyst-api Organization-tenant orchestrator path in
             # sme_tenant_gitops.go and the Flux Kustomization spec.path the
             # chart 1.4.13 org-repo-kustomization.yaml watches). Catalyst-
             # Zero (contabo) keeps the legacy `clusters/contabo-mkt/tenants`
@@ -381,7 +381,7 @@ spec:
             # seeds spec.tenantPublic.{parentDomain,subdomain} on the Organization
             # CR ONLY when a parent domain is configured (organization_create.go
             # ~L115-169) — and tenant-service deliberately leaves ParentDomain
-            # empty on the SME-pool wizard path (handlers.go ~L265). So WITHOUT
+            # empty on the Org-pool wizard path (handlers.go ~L265). So WITHOUT
             # this env the consumer logs "no parent domain configured — Organization
             # will mint without TenantPublic HTTPRoute", the per-Org console
             # (`console.<slug>.<parentDomain>`) and app (`<app>.<slug>.<parentDomain>`)
@@ -522,7 +522,7 @@ metadata:
   namespace: org-services
 spec:
   selector:
-    app: sme-provisioning
+    app: org-provisioning
   ports:
     - port: 8084
       targetPort: 8084

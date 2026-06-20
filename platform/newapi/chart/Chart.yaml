@@ -539,7 +539,7 @@ name: bp-newapi
 # default channels into NewAPI's admin API at /api/channel/. Bridges
 # the previous documentation-only channels.yaml ConfigMap → the actual
 # Postgres-backed channel rows the upstream binary reads at runtime.
-# Issue #915 (epic SME tenant integration DoD: alice → OpenClaw →
+# Issue #915 (epic Organization integration DoD: alice → OpenClaw →
 # NewAPI → partner-hosted Qwen end-to-end).
 # 1.2.0: Traefik Middleware gated behind ingress.middleware.enabled.
 # 1.4.6 (Fix #163, 2026-05-11, MIRROR-EVERYTHING): 000-external-secrets-
@@ -674,14 +674,14 @@ name: bp-newapi
 # 80-newapi.yaml pin → 1.4.77.
 # 1.4.81 (#3482 / Refs #3373 Batch A, 2026-06-14): rewire newapi→valkey to the
 # rtz-vCluster syncer-mangled Service name. #3373 Batch A moved bp-valkey INTO
-# the rtz vCluster but MISSED this consumer (the migration rewired SME, the
+# the rtz vCluster but MISSED this consumer (the migration rewired the Organization, the
 # projector, gitea→seaweedfs, newapi→vLLM — but not newapi→valkey). newapi's
 # valkey default-ON URL still pointed at the OLD `valkey-primary.valkey.svc`
 # which is now NXDOMAIN → FATAL `Redis ping test failed: ... no such host` →
 # CrashLoopBackOff (observed live on hw133, 10+ restarts). values.yaml
 # `valkey.url` + blueprint.yaml configSchema default now point at
 # `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc.cluster.local:6379` (mirrors
-# the SME VALKEY_ADDR rewire #3476). Lockstep: 80-newapi.yaml pin → 1.4.81.
+# the Organization VALKEY_ADDR rewire #3476). Lockstep: 80-newapi.yaml pin → 1.4.81.
 # 1.4.83 (Refs #3374, 2026-06-14): rewire the NetworkPolicy valkey egress
 # selector to match the #3483 connection-string rewire. #3483 repointed
 # `valkey.url` at the rtz-vCluster syncer-mangled

@@ -246,8 +246,8 @@ description: |
   0.1.5 (2026-06-12, Refs #3188 — founder NS-2 three-instance model)
     - Same-owner bindings: managed.roles + the role-password Secret are
       deduped per UNIQUE owner, so one role can own N isolated databases
-      (the SME-mesh shape: org_auth + org_billing + org_documents all
-      owned by role `sme`). One password per owner, stable across the
+      (the Organization-mesh shape: org_auth + org_billing + org_documents all
+      owned by role `org`). One password per owner, stable across the
       dedupe (lookup role Secret -> lookup any hub of that owner -> mint).
     - Database CR k8s names sanitized (`replace "_" "-"`) so databases
       with legal-Postgres underscores render valid RFC-1123 CR names;

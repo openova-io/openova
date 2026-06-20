@@ -8,12 +8,12 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: sme-notification
+      app: org-notification
   template:
     metadata:
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
-        app: sme-notification
+        app: org-notification
     spec:
       imagePullSecrets:
         - name: ghcr-pull
@@ -134,7 +134,7 @@ metadata:
   namespace: org-services
 spec:
   selector:
-    app: sme-notification
+    app: org-notification
   ports:
     - port: 8087
       targetPort: 8087

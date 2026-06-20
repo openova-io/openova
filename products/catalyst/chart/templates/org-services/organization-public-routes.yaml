@@ -22,7 +22,7 @@ controller's live reconcile loop.
 
 Default OFF: `tenantRoutes` is an empty list. Sovereigns that don't
 yet have any Orgs with a public hostname render nothing. Once the
-SME-tenant orchestrator stamps the Helm values (or the
+Organization-tenant orchestrator stamps the Helm values (or the
 organization-controller writes the HTTPRoute live), traffic for
 `<slug>.<parentDomain>` lands on the tenant's product Service.
 

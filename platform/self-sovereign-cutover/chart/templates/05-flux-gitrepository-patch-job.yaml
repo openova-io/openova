@@ -60,7 +60,7 @@ data:
           # Issue #891 — the GitRepository ignore filter must be widened to
           # include the Sovereign's own clusters/<sov-fqdn>/ subtree, or
           # source-controller filters out every Sovereign-specific manifest
-          # (incl. SME tenant overlays at clusters/<sov-fqdn>/org-tenants/
+          # (incl. Organization tenant overlays at clusters/<sov-fqdn>/org-tenants/
           # <tenant-id>/) and Flux Kustomizations downstream all hit
           # "kustomization path not found".
           - name: SOVEREIGN_FQDN

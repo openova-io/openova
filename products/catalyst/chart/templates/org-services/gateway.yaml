@@ -8,12 +8,12 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: sme-gateway
+      app: org-gateway
   template:
     metadata:
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
-        app: sme-gateway
+        app: org-gateway
     spec:
       serviceAccountName: gateway
       automountServiceAccountToken: false
@@ -136,7 +136,7 @@ metadata:
   namespace: org-services
 spec:
   selector:
-    app: sme-gateway
+    app: org-gateway
   ports:
     - port: 8080
       targetPort: 8080

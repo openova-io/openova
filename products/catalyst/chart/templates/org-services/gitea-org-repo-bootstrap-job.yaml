@@ -1,11 +1,11 @@
 {{- /*
 Pre-install/pre-upgrade hook that bootstraps the local Sovereign Gitea
-`openova/openova` repo + `org-tenants` branch the SME-tenant gitops chain
+`openova/openova` repo + `org-tenants` branch the Organization-tenant gitops chain
 targets — issue #3454 (Refs #3376 / #3378 FUNNEL).
 
 WHY THIS FILE EXISTS
 ====================
-#3122 wired BOTH ends of the SME-tenant gitops chain at the local Gitea
+#3122 wired BOTH ends of the Organization-tenant gitops chain at the local Gitea
 on a Sovereign, intended to work PRE-cutover:
 
   - catalyst-api push target (templates/api-deployment.yaml):
@@ -53,7 +53,7 @@ mirror-job only mirrors openova-io/openova").
 FIX
 ===
 Create the repo + branch PRE-cutover, independent of the cutover engine,
-so the SME-tenant gitops chain is live from first convergence exactly as
+so the Organization-tenant gitops chain is live from first convergence exactly as
 #3122 intended. This pre-install/pre-upgrade hook Job (modeled on the
 proven catalyst-gitea-token-secret.yaml mint Job — same gitea-admin-secret
 source, same Gitea API surface) idempotently:
@@ -82,7 +82,7 @@ Rendered ONLY when BOTH:
     has no local Gitea). Same discriminator the #3122 REPO_URL override,
     the openova-org-tenants GitRepository, and the org-tenants
     Kustomization already use.
-  - .Values.ingress.marketplace.enabled  → the SME tenant pipeline is on.
+  - .Values.ingress.marketplace.enabled  → the Organization tenant pipeline is on.
     Non-marketplace Sovereigns don't run the pipeline, so they don't need
     the repo.
 
@@ -93,7 +93,7 @@ gitea/gitea-admin-secret and fed to curl via an Authorization: Basic
 header; it never appears in chart source or rendered manifests. Per #4
 (never hardcode): org/repo/branch + the in-cluster Gitea URL all flow
 through operator-overridable values with the same defaults the rest of
-the SME bundle uses.
+the Organization bundle uses.
 
 CREDENTIAL (no kubectl, no RBAC)
 ================================
@@ -119,7 +119,7 @@ References:
 */}}
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
 {{- if .Values.global.sovereignFQDN -}}
-{{- $bs := (.Values.smeTenants).repoBootstrap | default dict -}}
+{{- $bs := (.Values.orgTenants).repoBootstrap | default dict -}}
 {{- $giteaURL := $bs.giteaInternalURL | default "http://gitea-http.gitea.svc.cluster.local:3000" -}}
 {{- $org := $bs.org | default "openova" -}}
 {{- $repo := $bs.repo | default "openova" -}}
@@ -263,7 +263,7 @@ spec:
                 curl -sS -o /dev/null -w '[repo-bootstrap] POST /orgs/repos -> %{http_code}\n' \
                   -H "Authorization: token ${GITEA_TOKEN}" -H "Content-Type: application/json" \
                   -X POST "${API}/orgs/${GITEA_ORG}/repos" \
-                  -d "{\"name\":\"${GITEA_REPO}\",\"auto_init\":true,\"private\":false,\"default_branch\":\"main\",\"description\":\"Sovereign-local clone of openova-io/openova (SME-tenant gitops target; seeded pre-cutover by bp-catalyst-platform #3454, full content mirrored by cutover Step 01)\"}" || true
+                  -d "{\"name\":\"${GITEA_REPO}\",\"auto_init\":true,\"private\":false,\"default_branch\":\"main\",\"description\":\"Sovereign-local clone of openova-io/openova (Organization-tenant gitops target; seeded pre-cutover by bp-catalyst-platform #3454, full content mirrored by cutover Step 01)\"}" || true
                 # Verify the repo is now visible + non-empty before branching.
                 for i in $(seq 1 30); do
                   META=$(curl -sS -H "Authorization: token ${GITEA_TOKEN}" "${API}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null || echo '{}')
@@ -348,7 +348,7 @@ spec:
                   # base64 wraps at 76 cols by default → strip newlines with tr.
                   SEED_BODY=$(printf '%s\n' \
                     "# Seeded empty by bp-catalyst-platform repo-bootstrap (#3376)." \
-                    "# The catalyst-api SME-tenant pipeline (WriteTenantOverlay)" \
+                    "# The catalyst-api Organization-tenant pipeline (WriteTenantOverlay)" \
                     "# OVERWRITES this file on the first tenant signup with the" \
                     "# helmrepositories.yaml + per-tenant overlay subdirectories." \
                     "# Present so the Flux Kustomization org-tenants path exists" \
@@ -372,7 +372,7 @@ spec:
                 fi
               fi
 
-              echo "[repo-bootstrap] done — ${GITEA_ORG}/${GITEA_REPO}@${TENANTS_BRANCH} ready for SME-tenant gitops"
+              echo "[repo-bootstrap] done — ${GITEA_ORG}/${GITEA_REPO}@${TENANTS_BRANCH} ready for Organization-tenant gitops"
           resources:
             requests: { cpu: 50m, memory: 64Mi }
             limits:   { memory: 256Mi }

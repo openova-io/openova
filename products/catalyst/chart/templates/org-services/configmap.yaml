@@ -2,13 +2,13 @@
 {{- /*
 Event-bus default — issue #942 (2026-05-05).
 
-On Catalyst-Zero (contabo, global.sovereignFQDN empty) the SME services
+On Catalyst-Zero (contabo, global.sovereignFQDN empty) the Organization services
 historically point at a cross-namespace Redpanda in `talentmesh` (migration
 tracked in #68). On franchised Sovereigns the talentmesh namespace does
 not exist and the OpenOva architecture uses NATS JetStream as the only
 local bus per ADR-0001 — slot 09 ships bp-nats-jetstream into namespace
 `nats-jetstream`. Pre-#942 the value was hardcoded to the talentmesh
-Service, which made every SME service crashloop on a fresh Sovereign at
+Service, which made every Organization service crashloop on a fresh Sovereign at
 startup with `lookup redpanda.talentmesh.svc.cluster.local: no such host`,
 blocking alice signup gate 3 (tenant ready).
 
@@ -21,13 +21,13 @@ topology so the contabo + Sovereign render paths both work out of the box:
   - Catalyst-Zero install (global.sovereignFQDN empty) defaults to the
     legacy Redpanda Service in talentmesh so contabo keeps working.
 
-Per-Sovereign overlays MAY override either default to wire SME services
+Per-Sovereign overlays MAY override either default to wire Organization services
 at any NATS-protocol or Kafka-protocol broker without forking the chart.
 
 The ConfigMap key name stays REDPANDA_BROKERS for backwards-compatibility
-with existing SME service Go env wiring (the env name is historical; the
+with existing Organization service Go env wiring (the env name is historical; the
 value is whatever broker is actually wired). A future ticket may rename
-the env to EVENT_BUS_BROKERS once every SME service binary reads the new
+the env to EVENT_BUS_BROKERS once every Organization service binary reads the new
 name; that rename can ship without re-touching this template because the
 key name is the only thing this template promises to its consumers.
 */ -}}
@@ -35,7 +35,7 @@ key name is the only thing this template promises to its consumers.
 Convergence fix 2026-05-18 — Sovereign event bus wiring:
 
 (1) Sovereign default of REDPANDA_BROKERS is now EMPTY (not the NATS URL
-    poked into a Kafka env). The SME services' Kafka client cannot speak
+    poked into a Kafka env). The Organization services' Kafka client cannot speak
     the NATS wire protocol; the previous default value of
     `nats-jetstream.nats-jetstream.svc.cluster.local:4222` made every
     franz-go dial fail at startup, which on the publish side silently
@@ -52,13 +52,13 @@ Convergence fix 2026-05-18 — Sovereign event bus wiring:
     pointed at `.nats-jetstream.svc` resolved to NXDOMAIN.
 
 Catalyst-Zero (contabo, global.sovereignFQDN empty) keeps the legacy
-Redpanda default so contabo's existing SME consumers keep functioning.
+Redpanda default so contabo's existing Organization consumers keep functioning.
 */ -}}
 {{- $defaultBrokers := "redpanda.talentmesh.svc.cluster.local:9092" -}}
 {{- $defaultNATS := "" -}}
 {{- if .Values.global.sovereignFQDN -}}
   {{- /* Sovereign default: no Redpanda exists in cluster — leave empty
-       so the SME services skip the legacy Kafka transport entirely. */ -}}
+       so the Organization services skip the legacy Kafka transport entirely. */ -}}
   {{- $defaultBrokers = "" -}}
   {{- /* Sovereign default NATS URL (#3376 funnel fix). #3373/#2697 moved
        bp-nats-jetstream INSIDE the mgmt vCluster (placement.yaml:
@@ -68,13 +68,13 @@ Redpanda default so contabo's existing SME consumers keep functioning.
        `nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc`, so the
        host `nats-system` namespace no longer carries a `nats-jetstream`
        Service — the old default `nats-jetstream.nats-system.svc`
-       resolves NXDOMAIN and EVERY SME service (billing/tenant/
+       resolves NXDOMAIN and EVERY Organization service (billing/tenant/
        provisioning/domain/notification) CrashLoops on `nats connect:
        no such host`, wedging the funnel (measured live hw130
        2026-06-13: provisioning Init:0/1, billing/tenant/domain/
        notification CrashLoopBackOff). The catalyst-api/continuum config
        (values.yaml catalystApi.nats.url) was already updated to the
-       synced name in #2697; the SME default was missed in the move.
+       synced name in #2697; the Organization default was missed in the move.
        Align it here. Override via orgServices.eventBus.natsURL for a
        host-placed NATS. */ -}}
   {{- $defaultNATS = "nats://nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc.cluster.local:4222" -}}
@@ -152,15 +152,15 @@ metadata:
   namespace: org-services
   annotations:
     description: |
-      Central source of truth for SME service URLs, DB URIs, and external
-      dependencies. All SME Deployments reference keys here via
+      Central source of truth for Organization service URLs, DB URIs, and external
+      dependencies. All Organization Deployments reference keys here via
       envFrom/valueFrom.configMapKeyRef — see issue #87.
 
       Forking this manifest to a new environment (staging, other clusters)
       should require editing only THIS file, not every service YAML.
 data:
   # ---- cluster-internal service endpoints -----------------------------------
-  # The SME microservice mesh. All services run in the `sme` namespace and
+  # The Organization microservice mesh. All services run in the `sme` namespace and
   # expose their own ports. Gateway fan-out uses these URLs; services call
   # each other directly using these too.
   AUTH_URL: "http://auth.org-services.svc.cluster.local:8081"
@@ -195,16 +195,16 @@ data:
   # ---- event bus ------------------------------------------------------------
   # See header comment for the topology-aware default selection (issue #942
   # + 2026-05-18 convergence fix). On Sovereigns REDPANDA_BROKERS is
-  # intentionally empty — the SME services treat empty as "skip the
+  # intentionally empty — the Organization services treat empty as "skip the
   # legacy Kafka transport" (NATS-only mode).
   REDPANDA_BROKERS: {{ $brokers | quote }}
   # NATS JetStream URL — canonical event bus per ADR-0001 §6. Wired
-  # into tenant + billing Deployments (and any future SME service
+  # into tenant + billing Deployments (and any future Organization service
   # publishing `catalyst.<domain>.<event>` subjects via
   # events.MultiPublisher). Empty on Catalyst-Zero (no NATS yet);
   # populated on Sovereigns by the default above.
   NATS_URL: {{ $natsURL | quote }}
-  # Protocol hint for SME services that want to switch wire formats per
+  # Protocol hint for Organization services that want to switch wire formats per
   # broker without re-reading the URL — `kafka` for Redpanda (legacy
   # contabo), `nats` for NATS JetStream (Sovereign default). Operator-
   # overridable via .Values.orgServices.eventBus.protocol.

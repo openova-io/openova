@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-stalwart-tenant
 # 0.1.2 (#915) — wire Keycloak OIDC SSO end-to-end so the per-tenant
-# Stalwart authenticates webmail / IMAP / SMTP users against the SME's
+# Stalwart authenticates webmail / IMAP / SMTP users against the Organization's
 # vcluster-local Keycloak realm (epic #915 DoD #2 — alice's mailbox
 # logs in via her tenant Keycloak, NOT a shared otech-level IdP).
 #
@@ -58,25 +58,25 @@ name: bp-stalwart-tenant
 version: 0.1.3
 appVersion: "0.16.3"
 description: |
-  Catalyst Blueprint scratch chart for a per-SME (per-vcluster) dedicated
+  Catalyst Blueprint scratch chart for a per-Org (per-vcluster) dedicated
   Stalwart mail server. Implements locked decision [Q3] of EPIC #795
-  (SME-tenant turnkey experience) — every SME on a Sovereign gets its
+  (Organization-tenant turnkey experience) — every Organization on a Sovereign gets its
   OWN Stalwart instance in its tenant namespace, with its OWN domain,
   OWN MTA reputation, and OWN queue. NOT a shared otech-level multi-
   domain Stalwart.
 
-  Footprint trade-off (registered in #795): per-SME Stalwart multiplies
+  Footprint trade-off (registered in #795): per-Org Stalwart multiplies
   mail-server resources by N tenants. The trade buys stronger isolation,
   per-customer DKIM/SPF/DMARC posture, and clean blast-radius separation
   on outbound IP reputation.
 
   Connects to:
-    - bp-keycloak           (per-SME-vcluster Keycloak realm — OIDC SSO
+    - bp-keycloak           (per-Org-vcluster Keycloak realm — OIDC SSO
                              for webmail and admin API)
     - bp-external-secrets   (admin password + JMAP/IMAP signing material;
                              remoteRef under
                              kv/sovereign/<sov>/stalwart/<tenant>/admin)
-    - bp-cert-manager       (TLS for mail.<sme-domain> webmail Ingress
+    - bp-cert-manager       (TLS for mail.<org-domain> webmail Ingress
                              via cert-manager ClusterIssuer)
     - bp-powerdns           (free-subdomain mode: chart records DKIM/SPF/
                              DMARC required values in a ConfigMap; the
@@ -88,7 +88,7 @@ description: |
 
   Per-tenant mailbox provisioning is event-driven (ADR-0003 §3): the
   unified-rbac service POSTs Stalwart's `/api/principal` admin API when
-  the SME admin creates a new user. The chart ships an ExternalSecret
+  the Organization admin creates a new user. The chart ships an ExternalSecret
   binding the admin API token a follow-up controller mints during install.
 
   Stalwart expression-language gotcha (per stalwart_expression_syntax.md
@@ -97,9 +97,9 @@ description: |
   config.toml in templates/config-configmap.yaml audits clean for this.
 
   See platform/stalwart-tenant/README.md for DKIM/SPF/DMARC setup,
-  free-subdomain vs BYO domain mode, and the SME admin runbook.
+  free-subdomain vs BYO domain mode, and the Organization admin runbook.
 type: application
-keywords: [catalyst, blueprint, stalwart, mail, smtp, imap, jmap, sme, multi-tenant, vcluster]
+keywords: [catalyst, blueprint, stalwart, mail, smtp, imap, jmap, organization, multi-tenant, vcluster]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io

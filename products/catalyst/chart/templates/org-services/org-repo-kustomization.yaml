@@ -1,9 +1,9 @@
 {{- /*
-Flux Kustomization watching the SME-tenant overlay tree (issue #882).
+Flux Kustomization watching the Organization-tenant overlay tree (issue #882).
 
 WHY THIS FILE EXISTS
 --------------------
-The catalyst-api SME-tenant pipeline's GitOps writer
+The catalyst-api Organization-tenant pipeline's GitOps writer
 (products/catalyst/bootstrap/api/internal/handler/sme_tenant_gitops.go,
 function `WriteTenantOverlay`) commits a 9-file Kustomize overlay per
 tenant to:
@@ -54,16 +54,16 @@ a new tenant is a pure git-commit operation — no chart upgrade needed.
                     resources accordingly)
   wait:      false (tenant overlays each install ~5 bp-* HelmReleases
                     independently; per-tenant readiness is owned by the
-                    SME-tenant orchestrator's own watcher loop, not by
+                    Organization-tenant orchestrator's own watcher loop, not by
                     this top-level Kustomization. Avoids a stuck tenant
                     blocking every other tenant's reconcile)
 
 GATING
 ------
 Rendered ONLY when `.Values.ingress.marketplace.enabled=true` — same
-flag the rest of the SME bundle (configmap.yaml, marketplace.yaml,
+flag the rest of the Organization bundle (configmap.yaml, marketplace.yaml,
 ferretdb.yaml, org-services-secrets.yaml, …) is gated on. Non-marketplace
-Sovereigns don't run the SME tenant pipeline so they don't need this
+Sovereigns don't run the Organization tenant pipeline so they don't need this
 Kustomization.
 
 Per Inviolable Principle #4 (never hardcode):
@@ -71,9 +71,9 @@ Per Inviolable Principle #4 (never hardcode):
     (populated from $${SOVEREIGN_FQDN} envsubst by the bootstrap-kit
     slot 13 overlay)
   - GitRepository name + namespace are operator-overridable via
-    .Values.smeTenants.kustomization.sourceRef.{name,namespace}
+    .Values.orgTenants.kustomization.sourceRef.{name,namespace}
   - All cadence/timeout knobs (interval, retryInterval, timeout) are
-    operator-overridable via .Values.smeTenants.kustomization.*
+    operator-overridable via .Values.orgTenants.kustomization.*
 
 Per Inviolable Principle #3, the chart templates the resource and
 Flux owns the apply — we do NOT shell out to `kubectl apply`.
@@ -87,7 +87,7 @@ References:
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
 {{- $sovFQDN := .Values.global.sovereignFQDN -}}
 {{- if $sovFQDN -}}
-{{- $kt := (.Values.smeTenants).kustomization | default dict -}}
+{{- $kt := (.Values.orgTenants).kustomization | default dict -}}
 {{- $sourceRef := ($kt.sourceRef | default dict) -}}
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -105,7 +105,7 @@ spec:
   path: ./clusters/{{ $sovFQDN }}/org-tenants
   prune: {{ $kt.prune | default true }}
   # wait: false — each tenant overlay's bp-* HelmReleases install
-  # asynchronously and have their own readiness watcher in the SME
+  # asynchronously and have their own readiness watcher in the Organization
   # tenant orchestrator. Blocking this Kustomization on every tenant's
   # full readiness would let one stuck tenant gate every other tenant.
   wait: {{ $kt.wait | default false }}
@@ -118,7 +118,7 @@ spec:
   # leaving the Org CR un-materialised and the customer journey hung at
   # step 16. Operator may override back to the unified `openova`
   # GitRepository (single-branch debug mode) via
-  # .Values.smeTenants.kustomization.sourceRef.name.
+  # .Values.orgTenants.kustomization.sourceRef.name.
   sourceRef:
     kind: GitRepository
     name: {{ $sourceRef.name | default "openova-org-tenants" | quote }}

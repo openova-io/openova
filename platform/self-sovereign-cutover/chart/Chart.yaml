@@ -459,7 +459,7 @@ name: bp-self-sovereign-cutover
 # bootstraps a real Gitea API token at cutover and patches Secret
 # `sme/provisioning-github-token.GITHUB_TOKEN`. The catalyst-platform
 # chart's existing provisioning-github-token.yaml template mirrors the
-# Gitea admin PASSWORD into that Secret; the SME provisioning service
+# Gitea admin PASSWORD into that Secret; the Organization provisioning service
 # then sends `Authorization: token <PWD>` to Gitea, which 401s because
 # the password is not an API token. Result on t22: voucher checkout
 # completed, /jobs redirect fired, but NO Organization CR was ever
@@ -469,7 +469,7 @@ name: bp-self-sovereign-cutover
 # kubectl-patch the dest Secret with stringData, rollout-restart
 # provisioning Deployment (best-effort). Order 9 (last) is fine
 # functionally — none of steps 02-08 read the provisioning-github-token
-# Secret, and the SME provisioning service first consumes the token at
+# Secret, and the Organization provisioning service first consumes the token at
 # voucher checkout time (always postdates cutover). Order 9 avoids
 # renumbering 01..08 which would invalidate operator history.
 #

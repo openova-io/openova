@@ -10,16 +10,16 @@ spec:
   card:
     title: OpenClaw
     summary: |
-      Per-user agentic workspace for SME tenants. A multi-tenant
-      controller deployment in the SME tenant namespace authenticates
-      end users via the SME-vcluster Keycloak realm and spawns one
+      Per-user agentic workspace for Organization tenants. A multi-tenant
+      controller deployment in the Organization tenant namespace authenticates
+      end users via the Organization-vcluster Keycloak realm and spawns one
       runtime pod per active session. Each runtime pod reads ONLY two
       env vars (NEWAPI_BASE_URL + NEWAPI_KEY) mounted from the per-user
       `newapi-key-{uuid}` Secret rendered by the unified-rbac user-create
       hook (ADR-0003). Identity-blind by construction.
     icon: openclaw.svg
     category: ai-runtime
-    tags: [openclaw, agentic, workspace, sme, keycloak, newapi, multi-tenant, per-user-pod]
+    tags: [openclaw, agentic, workspace, organization, keycloak, newapi, multi-tenant, per-user-pod]
     documentation: https://github.com/openova-io/openova/blob/main/platform/openclaw/README.md
     license: Apache-2.0
   visibility: listed
@@ -51,7 +51,7 @@ spec:
         properties:
           realmURL:
             type: string
-            description: Full SME-vcluster Keycloak realm issuer URL (e.g. https://keycloak.acme.example/realms/acme).
+            description: Full Organization-vcluster Keycloak realm issuer URL (e.g. https://keycloak.acme.example/realms/acme).
           clientID:
             type: string
             default: openclaw
@@ -71,7 +71,7 @@ spec:
         properties:
           namespace:
             type: string
-            description: SME tenant namespace where per-user pods are spawned and newapi-key-{uuid} Secrets are read.
+            description: Organization tenant namespace where per-user pods are spawned and newapi-key-{uuid} Secrets are read.
       perUserPod:
         type: object
         properties:
@@ -94,7 +94,7 @@ spec:
         properties:
           host:
             type: string
-            description: Controller public hostname (e.g. openclaw.<sme-domain>).
+            description: Controller public hostname (e.g. openclaw.<org-domain>).
           tls:
             type: object
             properties:

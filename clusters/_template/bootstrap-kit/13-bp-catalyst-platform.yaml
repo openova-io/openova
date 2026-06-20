@@ -95,8 +95,8 @@ spec:
     # state on a fresh roll.
     - name: bp-crossplane-claims
       namespace: flux-system
-    # bp-postgres-shared-c (#3370 adoption): when the SME mesh SHARES
-    # the shared-pg-c instance (SOVEREIGN_SME_PG_OWN_CLUSTER=false),
+    # bp-postgres-shared-c (#3370 adoption): when the Organization mesh SHARES
+    # the shared-pg-c instance (SOVEREIGN_ORG_PG_OWN_CLUSTER=false),
     # gate on it so the org_auth/org_billing/org_documents Databases +
     # role + reflected org-database-secret exist first. Harmless in the
     # default 1:1 path — bp-postgres-shared-c is an empty Ready release
@@ -117,14 +117,14 @@ spec:
       # 1.4.1 (PR #839): RBAC dual-mode render fix (Helm + Kustomize).
       # 1.4.2 (PR #841): POWERDNS env literal (no envsubst-mid-render).
       # 1.4.3 (issue #859): auto-provision org-pg CNPG Cluster +
-      # sme-secrets when ingress.marketplace.enabled=true so SME
+      # sme-secrets when ingress.marketplace.enabled=true so Organization
       # services land Ready on a fresh Sovereign without hand-rolled
       # SealedSecrets. Catalyst-Zero (contabo) keeps its pre-existing
       # clusters/contabo-mkt/apps/sme/data/* manifests — those are
       # outside templates/kustomization.yaml's resource list so the
       # contabo Kustomize-mode build is unaffected.
       # 1.4.4 (issue #861): deploy FerretDB in `sme` ns + cross-ns
-      # CiliumNetworkPolicy from sme → valkey. Unblocks the 4 SME
+      # CiliumNetworkPolicy from sme → valkey. Unblocks the 4 Organization
       # services (catalog, tenant, domain, provisioning) that pin to
       # ferretdb.sme.svc.cluster.local for the MongoDB wire and the 2
       # services (auth, gateway) that pin to valkey for session/state.
@@ -141,9 +141,9 @@ spec:
       # with the OLD image SHA baked in due to a race between the
       # blueprint-release pipeline and the services-build deploy step.
       # 1.4.7 (issue #866): mirror the gitea-admin password into
-      # `sme/provisioning-github-token` so the last 1/13 SME pod
+      # `sme/provisioning-github-token` so the last 1/13 Organization pod
       # (provisioning) reaches Running 1/1 on a fresh Sovereign,
-      # completing the SME stack 12/13 → 13/13. Same lookup-and-mirror
+      # completing the Organization stack 12/13 → 13/13. Same lookup-and-mirror
       # pattern as valkey-cross-ns-secret.yaml (#863).
       # 1.4.8 (issue #868): fix marketplace UI PIN-signin — /api/*
       # HTTPRoute now backendRefs sme/gateway:8080 (cross-namespace,
@@ -156,13 +156,13 @@ spec:
       # 1.4.13 (issue #882): NEW templates/org-services/org-repo-
       # kustomization.yaml renders a Flux Kustomization in flux-system
       # that watches ./clusters/<sov-fqdn>/org-tenants — the path the
-      # catalyst-api SME-tenant orchestrator (sme_tenant_gitops.go)
+      # catalyst-api Organization-tenant orchestrator (sme_tenant_gitops.go)
       # commits per-tenant overlays to. Without this, POST
       # /api/v1/sme/tenants reached state=done optimistically but no
       # K8s resources materialised because nothing reconciled the
       # orchestrator's write target. Gated on
       # ingress.marketplace.enabled — non-marketplace Sovereigns don't
-      # run the SME tenant pipeline.
+      # run the Organization tenant pipeline.
       # 1.4.14 (issue #879 follow-up): chart-version-only republish to
       # bake catalyst-api image SHA 7bfd6df (the #879 fix commit) into
       # values.yaml. 1.4.13 OCI bytes still reference the OLD image SHA
@@ -248,7 +248,7 @@ spec:
       # and (b) canonical key shape `smtp-user`/`smtp-pass` in addition
       # to the legacy `user`/`password` source key shape — the new
       # chart writes both shapes, this chart reads either.
-      # 1.4.22 (#915 SME blockers): six chart + orchestrator fixes
+      # 1.4.22 (#915 Organization blockers): six chart + orchestrator fixes
       # unblocking alice signup gates 2-6 on franchised Sovereigns —
       # issues #934 (auth SMTP empty), #940 (provisioning placeholder
       # GITHUB_TOKEN + hardcoded upstream github.com), #941 (catalog
@@ -264,7 +264,7 @@ spec:
       # 1.4.23: deploy-bot auto-bump (services-auth image SHA roll).
       # 1.4.24 (#934 follow-up): smeSecrets.smtp.{host,port,from,user}
       # defaults populated with mothership relay (mail.openova.io:587)
-      # so SME auth Pod's PIN delivery (gate 2) works on Sovereigns
+      # so Organization auth Pod's PIN delivery (gate 2) works on Sovereigns
       # whose A5-seeded sovereign-smtp-credentials Secret only carries
       # smtp-user + smtp-pass without host/port/from. 2026-05-05.
       # 1.4.25: deploy-bot auto-bump (org-services 94ffe01 image roll).
@@ -521,7 +521,7 @@ spec:
       #   flow is broken without this)
       # 1.4.144 (D27 admin tag override + D28 voucher email wire):
       # - PR #1557 decouples admin tag from orgTag bundle (admin image
-      #   may not publish for every SME services CI SHA — caught t132
+      #   may not publish for every Organization services CI SHA — caught t132
       #   2026-05-16 with admin:b0ed216 stuck in ImagePullBackOff)
       # - PR #1556 adds the billing→notification wire so the voucher
       #   issuance flow emails the recipient (D28 zero-touch contract)
@@ -617,7 +617,7 @@ spec:
       # mirroring gitea-admin-secret.password over them on every Flux
       # reconcile. Pre-fix on t22: Step 09 minted a real token at
       # 13:43:33Z; ~5 min later helm reconcile rewrote GITHUB_TOKEN back
-      # to the admin password byte, so every subsequent SME provisioning
+      # to the admin password byte, so every subsequent Organization provisioning
       # call to Gitea returned 401 "user does not exist" and journey
       # step 16 (tenant repo creation) silently stuck.
       # 1.4.179 (TBD-A14/A15/A10b, 2026-05-18): three t24 zero-touch
@@ -654,7 +654,7 @@ spec:
       # (auth/console/api/pdns/grafana/...). Operator opts slugs in
       # via `ingress.marketplace.tenantSlugs[]`; default empty list
       # emits zero catch-all routes, so `auth.<sov>` can no longer be
-      # hijacked by the SME console SPA — unblocks D4 SSO PIN-bounce
+      # hijacked by the Organization console SPA — unblocks D4 SSO PIN-bounce
       # (#1807).
       # 1.4.192: TBD-C15 (issue #1750) wires /billing/purchase route
       # aliases on billing service + catalyst-api so the close-audit
@@ -746,7 +746,7 @@ spec:
       # Operator may still opt-OUT by overriding MARKETPLACE_ENABLED=false
       # on the per-Sovereign bootstrap-kit overlay's postBuild.substitute
       # map. Unblocks D29 customer-journey: marketplace.<sov> 404 →
-      # storefront; voucher endpoint 503 → 2xx; SME tenant pipeline
+      # storefront; voucher endpoint 503 → 2xx; Organization tenant pipeline
       # reconciliation. Refs #1966 #1741 #1949 #1943.
       # 1.4.210 — TBD-A67 (issue #1990): restore canonical `console.`
       # infix on per-tenant HTTPRoute hostname + drop `.openova.io`
@@ -789,7 +789,7 @@ spec:
       # changelog for full trace. Bumped on rebase 1.4.214 → 1.4.215
       # to claim next slot above TBD-V11/#2002 (also 1.4.214 on main).
       # 1.4.214 (TBD-V11 / #2002): add init container
-      # `wait-for-cutover-token` to the SME provisioning Deployment.
+      # `wait-for-cutover-token` to the Organization provisioning Deployment.
       # The Pod now blocks on Secret sme/provisioning-github-token
       # carrying `catalyst.openova.io/token-source:
       # self-sovereign-cutover-step-09` (set by Step 09 of bp-self-
@@ -875,7 +875,7 @@ spec:
       # 1.4.232 — #2118 (TBD-V48): render Cilium Gateway listener YAML
       # in the chart (templates/sovereign-tls-vars-cm.yaml) so cloud-init
       # no longer carries the O(N)-per-parent-zone listener block.
-      # Removes ~2.1 KiB from cloud-init on 4-zone SME-pool Sovereigns
+      # Removes ~2.1 KiB from cloud-init on 4-zone Org-pool Sovereigns
       # (omantel.biz + .omani.{homes,rest,trade}); brings t39-class
       # provisions back under Hetzner's 32 KiB user_data cap.
       # 1.4.233 — TBD-V57 / #2133 (2026-05-21) Pillar 2: marketplace
@@ -1018,18 +1018,18 @@ spec:
       # fields (spec.bootstrap/helmRelease/dependsOn + CEL waiver) +
       # catalog-seed shareable/contextSchema (bp-postgres, bp-valkey).
             # 1.4.598 — #3374: CATALYST_OPENBAO_ADDR onto catalyst-api (openbao bare-URL SSO shim).
-            # 1.4.612 — #3454: pre-cutover local-Gitea openova/openova@org-tenants repo bootstrap (SME gitops chain).
+            # 1.4.612 — #3454: pre-cutover local-Gitea openova/openova@org-tenants repo bootstrap (Organization gitops chain).
             # 1.4.613 — #3454: add managed-by:flux on the repo-bootstrap hook Job (kyverno flux-managed Enforce).
             # 1.4.615 — #3454: secretRef on openova-org-tenants GitRepo + authed probe (REQUIRE_SIGNIN_VIEW=true → anon clone 401).
             # 1.4.617 — #3454: repo-bootstrap hook PAT via secretKeyRef (no cross-ns RBAC race; 1.4.616 was a deploy-bot sweep of the old hook).
             # 1.4.618 — deploy-bot auto pin-bump (no chart-content change; Refs TBD-A6).
             # 1.4.619 — #3374: baseline-default-deny allows ingress from the oidc-gate host ns → oidc-gate auth-proxy can reach openova-flow-server in catalyst-system (was dropped → SSO OK but app 502'd on upstream timeout; same class as sme→NATS #3423).
-            # 1.4.621 — #3373 Batch A: SME valkey consumer + projector addr → rtz-vCluster syncer-mangled name (bp-valkey moved into rtz); valkey-cross-ns CNP disabled (rtz isolation netpol `sme` carve-out governs the wire).
+            # 1.4.621 — #3373 Batch A: Organization valkey consumer + projector addr → rtz-vCluster syncer-mangled name (bp-valkey moved into rtz); valkey-cross-ns CNP disabled (rtz isolation netpol `sme` carve-out governs the wire).
             # 1.4.623 — #3373 Batch A: qa-fixtures CNPG barman backup endpoint default → rtz-vCluster synced seaweedfs-s3 name (seaweedfs moved into rtz; 1.4.622 was a content-free deploy-bot sweep).
             # 1.4.626 — #3492: Continuum CRD gains spec.switchover.{mechanism,raftTransition} (bp-openbao raft-transition DR contract); additive, slot-13 crds:CreateReplace propagates the schema. Render byte-unchanged.
             # 1.4.645 — #3626: catalog-seed repoints bp-openbao launch ssoInitPath → /sso/landing (was /ui/vault/auth?with=oidc) so the console "Open" button lands signed-in instead of the popup-only Vault OIDC callback's window.opener=null error. Lockstep with platform/openbao/blueprint.yaml; template-only, default render byte-unchanged.
             # 1.4.648 — #3638 (Refs #3379): catalyst-runtime-config ConfigMap DERIVES sovereign-console-url + sovereign-api-public-url from global.sovereignFQDN on a Sovereign (was always the mothership runtime.sovereignConsoleURL default, never overridden here) — so Flux render == bp-self-sovereign-cutover step-07 Phase-3a's patch → step-07 is idempotent (no revert → no FATAL re-run → no catalyst-api re-roll → cutover engine reaches step-08). Catalyst-Zero (empty FQDN) render byte-unchanged.
-            # 1.4.656 — #3668 (Refs #3702): the deferred load-bearing half — Flux GitRepository (openova-catalog-sovereign) + Kustomization (catalog-sovereign, force:true SSA) reconcile the catalog-sovereign aggregator tree into LIVE Blueprint CRs so a console catalog edit reaches the in-cluster CR + survives helm upgrade; catalog-seed CRs gain helm.sh/resource-policy:keep (Helm→Flux ownership handoff, DoD §9.4); catalyst-api mirrors each edited/curated CR via writeCatalogSovereignAggregator. New templates/catalog-sovereign-flux/ (mirrors the SME-tenants family) + values.catalogSovereign; rendered only on a Sovereign + ingress.marketplace.enabled — Catalyst-Zero render byte-unchanged.
+            # 1.4.656 — #3668 (Refs #3702): the deferred load-bearing half — Flux GitRepository (openova-catalog-sovereign) + Kustomization (catalog-sovereign, force:true SSA) reconcile the catalog-sovereign aggregator tree into LIVE Blueprint CRs so a console catalog edit reaches the in-cluster CR + survives helm upgrade; catalog-seed CRs gain helm.sh/resource-policy:keep (Helm→Flux ownership handoff, DoD §9.4); catalyst-api mirrors each edited/curated CR via writeCatalogSovereignAggregator. New templates/catalog-sovereign-flux/ (mirrors the Organization-tenants family) + values.catalogSovereign; rendered only on a Sovereign + ingress.marketplace.enabled — Catalyst-Zero render byte-unchanged.
             # 1.4.657 — PR #3700 §4.3 (Refs #3687): close the per-Org vCluster Flux loop (deferred half of the object-model-LIVE master). The organization-controller already PUT the vCluster Namespace + HelmRelease into the per-Org `<slug>/catalyst-tenant` Gitea repo, but nothing on the host cluster watched it (the design assumed a manual one-off `clusters/<host>/tenants/<slug>/` Kustomization that never ran on a fresh prov) → orphaned bytes, vclusterReadiness() stuck at phase=Pending forever. The controller now find-or-creates a host-cluster Flux GitRepository (catalyst-tenant-<slug>) + Kustomization (catalyst-tenant-<slug>-vcluster, path ./vcluster, prune:true, no cross-namespace ownerRef per the Fix #42 GC-trap idiom) that reconcile that repo's ./vcluster tree onto the host cluster → the vCluster HR is APPLIED + the Org walks Pending→Provisioning→Ready. New org-controller env (CATALYST_GITEA_INCLUSTER_URL / CATALYST_FLUX_*) + ClusterRole grants for gitrepositories + kustomizations. Render identical on Catalyst-Zero + Sovereign.
             # 1.4.667 — #3763 (Refs #3749): fix the catalyst-gitea-flux-auth-sync hook crashloop degrading the live spine. The post-* hook FATAL'd on a single empty read of catalyst-gitea-token.token → BackoffLimitExceeded → bp-catalyst-platform upgrade failed/rolled-back/oscillated (held bp-continuum/bp-sandbox/sovereign-tls non-Ready). pre-/post-* hook weights are independent phases (no weight can sequence post after pre's PAT mint) AND the mint Secret's before-hook-creation delete-policy re-creates it each upgrade → transient empty-read window. The job now POLLS for a non-empty .token (bounded ~300s) before failing instead of FATAL-on-first-empty + RBAC weight 5→20. PAT off argv; Catalyst-Zero render byte-unchanged.
             # 1.4.675 — #3383 ORGANIZATIONS rename (ZERO behavior change), rebased over main's 1.4.674: ns sme→org-services, templates/sme-services→templates/org-services, Secret sme-secrets→org-services-secrets (dual-rendered one release, byte-identical JWT_SECRET), .sme.svc→.org-services.svc hosts, catalyst-system→org-services CNP allow. Wire-stable: CNPG org-pg + org-pg-app, DBs org_auth/org_billing/org_documents, Tier "sme", GitOps branch/path org-tenants, .Values.sme* keys.
@@ -1065,7 +1065,7 @@ spec:
   #
   # Issue #910 (otech105 incident, 2026-05-05): 15m was too tight for
   # bp-catalyst-platform on a fresh franchised Sovereign with the full
-  # SME service stack (org-services + tenant-orchestration + post-install
+  # Organization service stack (org-services + tenant-orchestration + post-install
   # secret mirror Jobs). The chart genuinely needs ~20 minutes worst
   # case before remediation.retries kicks in. Bumped to 25m
   # specifically for this umbrella chart — every other bp-* chart
@@ -1103,7 +1103,7 @@ spec:
   # still mid-retry (failures=3) at the catalyst-api 60m phase1 watch
   # cap on d9399223c3caa4f9. Total bootstrap-kit install on a fresh
   # cpx42×1 Sovereign genuinely exceeds the 15m PR #221 ceiling when
-  # the umbrella chart's full SME + Catalyst service stack rolls
+  # the umbrella chart's full Organization + Catalyst service stack rolls
   # without a warm Harbor proxy-cache. Paired with the F8 catalyst-api
   # DefaultWatchTimeout bump (60m → 120m) so the outer watch budget
   # comfortably contains the new 30m × 3-retry inner HR ceiling.
@@ -1192,13 +1192,13 @@ spec:
     # G87 #2634: multi-region CNPG instances default (1 single-region, 2 multi).
     # Applies to org-services' CNPG cluster (org-pg).
     # #2840-followup (2026-06-03): the chart reads `.Values.orgPostgres.
-    # cluster.instances` (templates/org-services/cnpg-cluster.yaml:2)
-    # NOT `.Values.sme.postgres.cluster.instances`. Pre-fix the value
-    # was set correctly under the wrong key path and silently ignored
+    # cluster.instances` (templates/org-services/cnpg-cluster.yaml:2).
+    # The pre-fix value was once set under the wrong key path
+    # (`.Values.sme.postgres.cluster.instances`) and silently ignored
     # → org-pg stayed instances=1 on multi-region. Caught live on hw86
     # 2026-06-03 in same root-cause-batch as newapi (#2840-followup PR).
-    # Set BOTH paths (belt-and-suspenders) so any future chart-side
-    # rename doesn't silently regress.
+    # #3985: the legacy belt-and-suspenders `.Values.sme.postgres.*` path
+    # was removed — `orgPostgres.cluster.instances` is now the only path.
     orgPostgres:
       # ── Shared-instance flip (#3370 — the gitea/harbor/keycloak/pda
       # one-flag contract). Defaults keep the bundled org-pg Cluster
@@ -1206,17 +1206,13 @@ spec:
       # resolve the `:=` defaults). Cloud-init computes the flips from
       # the SAME enable_shared_pg var that turns slot 16d ON: the mesh
       # then dials shared-pg-c-rw with credentials from the
-      # reflector-PUSHED org-database-secret hub (the 16d `sme` role,
+      # reflector-PUSHED org-database-secret hub (the 16d `org` role,
       # one password across org_auth/org_billing/org_documents).
-      externalHost: ${SOVEREIGN_SME_PG_HOST:=}
-      credentialSecret: ${SOVEREIGN_SME_PG_SECRET:=}
+      externalHost: ${SOVEREIGN_ORG_PG_HOST:=}
+      credentialSecret: ${SOVEREIGN_ORG_PG_SECRET:=}
       cluster:
-        enabled: ${SOVEREIGN_SME_PG_OWN_CLUSTER:=true}
+        enabled: ${SOVEREIGN_ORG_PG_OWN_CLUSTER:=true}
         instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
-    sme:
-      postgres:
-        cluster:
-          instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
     global:
       sovereignFQDN: ${SOVEREIGN_FQDN}
       # sovereignLBIP — Sovereign's load-balancer public IPv4. Issue #900:
@@ -1297,7 +1293,7 @@ spec:
     # <domain>`). WITHOUT it the per-Org Org mints with no public route and the
     # customer console + app return ERR_CONNECTION_REFUSED — the funnel terminal
     # failure on every prior env, first root-caused on walkorg/hw167. Set by the
-    # per-Sovereign overlay to the SME tenant-pool TLD the marketplace wizard
+    # per-Sovereign overlay to the Organization tenant-pool TLD the marketplace wizard
     # offers (domains-canon default `omani.homes`; the wider PARENT_DOMAINS_YAML
     # carries the full zone set, this is the single default pool for new Orgs).
     orgServices:
@@ -1370,7 +1366,7 @@ spec:
       # Default-OFF — every Sovereign that has not flipped
       # SOVEREIGN_ENABLE_HOT_STANDBY=true on the per-Sovereign overlay
       # keeps rendering single-Cluster CNPG (no regression). When ON
-      # AND both region keys are non-empty AND distinct, the SME-tenant
+      # AND both region keys are non-empty AND distinct, the Organization-tenant
       # gitops writer injects pg.activeHotStandby.* into every fresh
       # bp-wordpress-tenant HelmRelease so the chart's
       # cnpg-cluster.yaml template renders a primary + replica

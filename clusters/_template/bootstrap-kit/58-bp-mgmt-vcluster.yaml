@@ -76,7 +76,7 @@ spec:
       # 0.2.8 (#3380-D): k8s distro control-plane images pinned off
       # registry.k8s.io onto Harbor proxy-k8s (harbor-proxy-pull Enforce).
       # 0.2.9 (#3376): add `sme` to the isolation netpol ingress allow-list
-      # — #3373 moved NATS into this vCluster, walling off the host SME/BSS
+      # — #3373 moved NATS into this vCluster, walling off the host Organization/BSS
       # services that use it as their event bus (funnel back-half was dead).
       # 0.2.10 (#3373): in-vCluster CRD registration via OSS init-manifests
       # (experimental.deploy.vcluster.manifests) — the toHost block alone does NOT

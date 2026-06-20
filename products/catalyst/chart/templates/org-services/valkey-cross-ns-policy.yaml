@@ -1,5 +1,5 @@
 {{- /*
-CiliumNetworkPolicy — explicit allow for sme-namespace Pods to reach the
+CiliumNetworkPolicy — explicit allow for Organization-namespace Pods to reach the
 bp-valkey workload in the `valkey` namespace (issue #861).
 
 Why this template exists:
@@ -10,7 +10,7 @@ Why this template exists:
     - valkey-headless.valkey.svc.cluster.local:6379
     - valkey-primary.valkey.svc.cluster.local:6379  (read/write)
     - valkey-replicas.valkey.svc.cluster.local:6379
-  None named just `valkey.valkey.svc.cluster.local` exists; the SME
+  None named just `valkey.valkey.svc.cluster.local` exists; the Organization
   configmap is updated to point at `valkey-primary` accordingly (see
   configmap.yaml + .Values.orgServices.valkey.host).
 
@@ -24,10 +24,10 @@ Why this template exists:
   Cilium-native rule scoping the cross-ns allow to ONLY pods in the
   `sme` namespace (no other workload should ever reach valkey
   cross-ns). If a future bp-valkey bump tightens the upstream
-  NetworkPolicy to require namespaced sources, this CNP keeps the SME
+  NetworkPolicy to require namespaced sources, this CNP keeps the Organization
   wire working without coordinated chart changes. If a future bp-valkey
   bump REMOVES the upstream NetworkPolicy entirely (and a Cilium
-  cluster-wide default-deny were applied), this CNP keeps the SME
+  cluster-wide default-deny were applied), this CNP keeps the Organization
   ingress allowed.
 
   Cilium uses union semantics across multiple policies — adding this
@@ -78,7 +78,7 @@ spec:
   endpointSelector:
     matchLabels:
       # bitnami valkey 5.5.1 labels every Pod (primary + replicas +
-      # headless) with these. We grant ingress to all of them so SME
+      # headless) with these. We grant ingress to all of them so Organization
       # services that route to any topology (read primary, replicas
       # via -replicas Service) all work.
       app.kubernetes.io/name: valkey

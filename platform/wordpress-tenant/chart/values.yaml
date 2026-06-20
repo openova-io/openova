@@ -1,5 +1,5 @@
 # Catalyst Blueprint scratch chart for bp-wordpress-tenant — in-vcluster
-# turnkey WordPress per SME tenant, SSO-pre-wired against the SME's
+# turnkey WordPress per Organization tenant, SSO-pre-wired against the Organization's
 # vcluster-local Keycloak realm.
 #
 # Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every
@@ -33,8 +33,8 @@ catalystBlueprint:
     images:
       wordpress: "wordpress"
 
-# ─── SME tenant identity ────────────────────────────────────────────────
-# `smeDomain` is the customer's free-subdomain (e.g. acme.<otech-fqdn>)
+# ─── Organization tenant identity ────────────────────────────────────────────────
+# `orgDomain` is the customer's free-subdomain (e.g. acme.<otech-fqdn>)
 # OR BYO domain (e.g. acme.com); supplied by the tenant-provisioning
 # pipeline. Used to derive the default ingress host.
 #
@@ -44,7 +44,7 @@ catalystBlueprint:
 # `helm template` smoke render in the Blueprint Release workflow
 # (which runs with no overrides) produces valid YAML; per-Sovereign
 # overlays MUST override.
-smeDomain: "sme.local"
+orgDomain: "sme.local"
 
 # ─── WordPress application ──────────────────────────────────────────────
 wordpress:
@@ -146,7 +146,7 @@ database:
   mode: ""
 
   # CNPG Cluster name & topology — operator-overridable via cluster
-  # overlay. Defaults to a tenant-isolated cluster sized for SME usage.
+  # overlay. Defaults to a tenant-isolated cluster sized for Organization usage.
   cnpgClusterName: "wordpress-db"
   cluster:
     enabled: true
@@ -257,10 +257,10 @@ pg:
     # bumps `database.cluster.instances` to >=3 + storageSize to >=100Gi
     # when ticking the HA checkbox per the D31 sizing guidance.
 
-# ─── SSO via SME-vcluster Keycloak (openid-connect-generic plugin) ──────
+# ─── SSO via Organization-vcluster Keycloak (openid-connect-generic plugin) ──────
 # The plugin is installed + activated + configured by the post-install
 # `oidc-config` Job (templates/oidc-config-job.yaml) using `wp-cli` so
-# the SME admin never sees the WordPress setup wizard.
+# the Organization admin never sees the WordPress setup wizard.
 #
 # Canonical block — `oidc.*`. The legacy `keycloak.*` block below is
 # kept as a backward-compat alias for clusters that haven't been
@@ -273,11 +273,11 @@ oidc:
   # production installs are SSO-on by default; per-Sovereign overlays
   # (e.g. an air-gapped install) may flip false.
   enabled: true
-  # Discovery URL of the SME-vcluster Keycloak realm. Example:
-  #   https://keycloak.<sme-domain>/realms/org-<subdomain>
+  # Discovery URL of the Organization-vcluster Keycloak realm. Example:
+  #   https://keycloak.<org-domain>/realms/org-<subdomain>
   #
   # G117.5 W3.D3 (Refs #2744): when this is left empty AND
-  # `sovereign.fqdn` + `org.realm` (or `smeSubdomain` legacy) are
+  # `sovereign.fqdn` + `org.realm` (or `orgSubdomain` legacy) are
   # populated, `_helpers.tpl bp-wordpress-tenant.oidcIssuerURL`
   # auto-derives `https://auth.<sovereign.fqdn>/realms/<realm>`. The
   # placeholder default below remains so existing chart 0.3.x overlays
@@ -303,7 +303,7 @@ oidc:
   # to a WP user. `preferred_username` is the canonical KC claim;
   # `email` is also valid when KC's email-as-username is enforced.
   identityKey: "preferred_username"
-  # Keycloak group → WP role mapping. Default mirrors the SME unified-
+  # Keycloak group → WP role mapping. Default mirrors the Organization unified-
   # RBAC tier names. Operator may extend per their RBAC posture. The
   # plugin's `acl` setting consumes this when `acl_enabled=1`; default
   # ACL is OFF (every authenticated SSO user lands with `defaultRole`).
@@ -344,8 +344,8 @@ keycloak:
 # Refs #2744. When `oidc.issuerURL` is left at the placeholder default,
 # `_helpers.tpl bp-wordpress-tenant.oidcIssuerURL` derives the issuer
 # URL as `https://auth.<sovereign.fqdn>/realms/<org.realm>` (or falls
-# back to `sme-<smeSubdomain>` when `org.realm` is empty for back-compat
-# with chart 0.3.x SME-fleet overlays). G117 locked-decision #6:
+# back to `sme-<orgSubdomain>` when `org.realm` is empty for back-compat
+# with chart 0.3.x Organization-fleet overlays). G117 locked-decision #6:
 # per-Catalyst-Org Keycloak realm. The orchestrator emit at
 # `core/services/catalyst-api/internal/handler/sme_tenant_gitops.go`
 # `smeTenantBPWordPress` will be updated to populate these in a follow-
@@ -355,7 +355,7 @@ sovereign:
 org:
   slug: ""
   realm: ""
-smeSubdomain: ""
+orgSubdomain: ""
 
 # ─── G117.5 W3.D3 — kc_idp_hint defense-in-depth ────────────────────────
 # When the per-Org realm has its IDR `defaultProvider=sovereign-broker`
@@ -369,14 +369,14 @@ ssoIdpHint: "sovereign-broker"
 
 # ─── First-install admin user (created via SSO mapping) ─────────────────
 # The admin-user-job pre-seeds a wp_users row with `user_login = email`
-# and the SSO email mapping so the SME admin's first Keycloak login
+# and the SSO email mapping so the Organization admin's first Keycloak login
 # logs them in as the WP administrator without seeing the install wizard.
 adminUser:
-  # Operator-supplied, e.g. `admin@acme.com`. Same email as the SME
+  # Operator-supplied, e.g. `admin@acme.com`. Same email as the Organization
   # admin's Keycloak account — that's how openid-connect-generic
   # matches the Keycloak `email` claim back to a wp_user. Empty
   # default means the admin-user Job is skipped (no admin pre-seed)
-  # — the SME's tenant-provisioning pipeline MUST set this value.
+  # — the Organization's tenant-provisioning pipeline MUST set this value.
   email: ""
   # Display name shown in the WP admin bar. Defaults to the local-part
   # of the email (job-side) if left empty.
@@ -410,12 +410,12 @@ serviceAccount:
   name: ""
 
 # ─── Ingress + cert-manager TLS ─────────────────────────────────────────
-# Default host is `wordpress.<smeDomain>`; operator may override
+# Default host is `wordpress.<orgDomain>`; operator may override
 # `ingress.host` directly when BYO domain shapes differ.
 ingress:
   enabled: true
   className: "traefik"
-  # Empty string → templates derive `wordpress.{{ .Values.smeDomain }}`.
+  # Empty string → templates derive `wordpress.{{ .Values.orgDomain }}`.
   # Operator may set explicitly when BYO requires a non-derived host.
   host: ""
   tls:
@@ -442,7 +442,7 @@ networkPolicy:
     cnpgNamespaceLabel: ""        # empty → match Release.Namespace
     cnpgPort: 5432
     # bp-keycloak — same as cnpg, defaults to .Release.Namespace
-    # because the tenant Keycloak runs in the SME vcluster's keycloak
+    # because the tenant Keycloak runs in the Organization vcluster's keycloak
     # namespace; operator overrides if it lives elsewhere.
     keycloakNamespaceLabel: "keycloak"
     keycloakPort: 8443

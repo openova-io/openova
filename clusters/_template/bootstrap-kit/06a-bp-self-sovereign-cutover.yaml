@@ -294,7 +294,7 @@ spec:
       # sme/provisioning-github-token.GITHUB_TOKEN. The catalyst-
       # platform chart's provisioning-github-token.yaml template
       # previously mirrored the Gitea admin PASSWORD verbatim into
-      # that Secret; SME provisioning then sent `Authorization: token
+      # that Secret; Organization provisioning then sent `Authorization: token
       # <PWD>` to Gitea which 401s ("user does not exist [uid: 0]").
       # On t22 2026-05-18: voucher checkout completed 200 + /jobs
       # redirect fired, but no Organization CR was ever created.
@@ -302,7 +302,7 @@ spec:
       # gitea_admin/tokens, capture .sha1, GET /api/v1/user validate,
       # kubectl patch dest Secret, rollout-restart provisioning
       # Deployment. Order=9 (last) is fine — none of steps 02-08 read
-      # the Secret and the SME provisioning service first consumes
+      # the Secret and the Organization provisioning service first consumes
       # the token at voucher checkout time (always postdates cutover).
       # 0.1.31 (TBD-C19, 2026-05-18): step-06 now also pivots
       # openova-catalog HelmRepository (rendered by bp-catalyst-

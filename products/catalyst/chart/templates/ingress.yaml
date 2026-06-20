@@ -50,7 +50,7 @@ spec:
 # assets as /assets/*.js — the browser requests console.openova.io/assets/*
 # directly (no /sovereign/ prefix). The strip-sovereign middleware on
 # console-sovereign only applies to /sovereign/* paths, so /assets/* would
-# fall through to the SME console's catch-all and return 404.
+# fall through to the Organization console's catch-all and return 404.
 #
 # This ingress routes /assets/* and /favicon.svg to catalyst-ui WITHOUT
 # stripping any prefix (no middleware), so nginx receives /assets/* directly.

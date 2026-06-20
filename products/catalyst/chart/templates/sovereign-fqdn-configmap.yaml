@@ -144,7 +144,7 @@ data:
   gitopsRepoURL: {{ default "" .Values.sovereign.gitopsRepoURL | quote }}
   # D31 active-hot-standby — Sovereign-level opt-in for the cross-
   # region CNPG ReplicaCluster shape on CNPG-backed tenant apps. Read
-  # by the catalyst-api SME-tenant pipeline (sme_tenant_gitops.go
+  # by the catalyst-api Organization-tenant pipeline (sme_tenant_gitops.go
   # renderSMETenantOverlay) at render time. When `enableHotStandby`
   # parses truthy AND both region keys are non-empty AND distinct,
   # every fresh tenant's bp-wordpress-tenant HelmRelease carries

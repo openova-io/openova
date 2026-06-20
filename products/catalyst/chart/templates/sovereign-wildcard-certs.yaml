@@ -3,7 +3,7 @@ Per-zone wildcard Certificate(s) for the Cilium Gateway listener.
 
 Issue #827 (parent epic #825): a franchised Sovereign now supports
 N parent zones, NOT one. The operator brings 1+ parent domains at
-signup (`omani.works` for own use, `omani.trade` for the SME pool,
+signup (`omani.works` for own use, `omani.trade` for the Org pool,
 etc.) and may add more post-handover via the admin console (#829).
 This template renders one cert-manager.io/v1.Certificate resource
 per entry in `.Values.parentZones`, each requesting `*.<zone>` plus
