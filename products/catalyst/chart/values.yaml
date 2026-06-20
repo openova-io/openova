@@ -596,7 +596,7 @@ controllers:
       # 300d853 (2026-06-19) — controller-image-tag freshness sweep: the
       # pinned fc38403 had drifted 139 commits behind latest GHCR; bumped to
       # the current organization-controller GHCR tag to clear the staleness gate.
-      tag: "300d853"
+      tag: "34ff594"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -715,7 +715,7 @@ controllers:
       # — adds EnsureBranch before PutFile so Gitea's branch-missing
       # 404 (mapped to ErrRepoNotFound by the client) no longer dead-
       # loops the env-controller.
-      tag: "34ff594"
+      tag: "01db043"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
