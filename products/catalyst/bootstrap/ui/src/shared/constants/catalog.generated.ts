@@ -628,7 +628,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "supported": [
         "singleton"
       ],
-      "multiRegion": null,
+      "multiRegion": "singleton",
       "singleRegion": "singleton",
       "perTopology": {
         "singleton": {
