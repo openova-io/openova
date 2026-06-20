@@ -148,7 +148,7 @@ keys). No other CORS rule lives off these prefixes today.
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: sme-services-config
+  name: org-services-config
   namespace: org-services
   annotations:
     description: |

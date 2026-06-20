@@ -33,7 +33,7 @@ spec:
             - name: REDPANDA_BROKERS
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: REDPANDA_BROKERS
             # NATS JetStream URL — canonical event bus per ADR-0001 §6.
             # PR #1627 wired notification's full subscriber fan-in
@@ -43,7 +43,7 @@ spec:
             - name: NATS_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: NATS_URL
             - name: JWT_SECRET
               valueFrom:
@@ -101,7 +101,7 @@ spec:
             - name: CORS_ORIGIN
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: CORS_ORIGIN_PUBLIC
           resources:
             requests:

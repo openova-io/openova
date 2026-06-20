@@ -39,19 +39,19 @@ spec:
             - name: POSTGRES_HOST
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: POSTGRES_HOST
             - name: POSTGRES_PORT
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: POSTGRES_PORT
             - name: DATABASE_URL
               value: "postgres://$(PG_USER):$(PG_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/sme_billing?sslmode=disable"
             - name: REDPANDA_BROKERS
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: REDPANDA_BROKERS
             # NATS JetStream URL — canonical event bus per ADR-0001 §6.
             # Used for BOTH (a) the existing catalyst.usage.recorded
@@ -63,7 +63,7 @@ spec:
             - name: NATS_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: NATS_URL
             - name: JWT_SECRET
               valueFrom:
@@ -73,27 +73,27 @@ spec:
             - name: CORS_ORIGIN
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: CORS_ORIGIN_PUBLIC
             - name: SUCCESS_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: CHECKOUT_SUCCESS_URL
             - name: CANCEL_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: CHECKOUT_CANCEL_URL
             - name: CATALOG_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: CATALOG_URL
             - name: TENANT_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: TENANT_URL
             # D28 — voucher gifting email wire. NEVER hardcoded: the
             # service URL is canonical K8s ClusterIP DNS, and the

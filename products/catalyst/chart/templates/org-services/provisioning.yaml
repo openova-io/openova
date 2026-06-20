@@ -298,14 +298,14 @@ spec:
             - name: MONGODB_URI
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: MONGODB_URI
             - name: MONGODB_DB
               value: "provisioning"
             - name: REDPANDA_BROKERS
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: REDPANDA_BROKERS
             # NATS JetStream URL — canonical event bus per ADR-0001 §6.
             # PR #1627 wired provisioning's tenant + order subscriber
@@ -318,12 +318,12 @@ spec:
             - name: NATS_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: NATS_URL
             - name: EVENT_BUS_PROTOCOL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: EVENT_BUS_PROTOCOL
                   optional: true
             - name: JWT_SECRET
@@ -334,7 +334,7 @@ spec:
             - name: CORS_ORIGIN
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: CORS_ORIGIN_PUBLIC
             # ── GitOps target path — issue #944 ───────────────────────────
             # Pre-#944 GIT_BASE_PATH was hardcoded to
@@ -409,7 +409,7 @@ spec:
             - name: CATALOG_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: CATALOG_URL
             # ── GitOps token — issue #940 ─────────────────────────────────
             # On contabo this Secret is hand-rolled (clusters/contabo-mkt/

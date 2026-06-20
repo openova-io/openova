@@ -39,14 +39,14 @@ spec:
             - name: MONGODB_URI
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: MONGODB_URI
             - name: MONGODB_DB
               value: "tenants"
             - name: REDPANDA_BROKERS
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: REDPANDA_BROKERS
             # NATS JetStream URL — canonical event bus per ADR-0001 §6.
             # On Sovereigns the ConfigMap default resolves to
@@ -56,7 +56,7 @@ spec:
             - name: NATS_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: NATS_URL
             - name: JWT_SECRET
               valueFrom:
@@ -66,12 +66,12 @@ spec:
             - name: CORS_ORIGIN
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: CORS_ORIGIN_PUBLIC
             - name: PROVISIONING_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: PROVISIONING_URL
           resources:
             requests:

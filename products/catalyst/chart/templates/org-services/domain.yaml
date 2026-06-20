@@ -29,14 +29,14 @@ spec:
             - name: MONGODB_URI
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: MONGODB_URI
             - name: MONGODB_DB
               value: "domains"
             - name: REDPANDA_BROKERS
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: REDPANDA_BROKERS
             # NATS JetStream URL — canonical event bus per ADR-0001 §6.
             # PR #1627 wired domain's tenant.deleted subscriber to
@@ -46,22 +46,22 @@ spec:
             - name: NATS_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: NATS_URL
             - name: CORS_ORIGIN
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: CORS_ORIGIN_PUBLIC
             - name: CNAME_TARGET
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: CNAME_TARGET
             - name: TENANT_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: TENANT_URL
             - name: JWT_SECRET
               valueFrom:

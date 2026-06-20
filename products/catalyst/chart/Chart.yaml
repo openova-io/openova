@@ -759,7 +759,7 @@ name: bp-catalyst-platform
 #      `sme.openova.io` byte-identical so contabo doesn't drift.
 #   4. products/catalyst/chart/templates/org-services/notification.yaml —
 #      Notification Deployment's CORS_ORIGIN env now sources from the
-#      shared `sme-services-config.CORS_ORIGIN_PUBLIC` key instead of
+#      shared `org-services-config.CORS_ORIGIN_PUBLIC` key instead of
 #      hardcoding `https://sme.openova.io`. Per-Sovereign substitution
 #      flows through automatically.
 # Validation: `helm template ... --set global.sovereignFQDN=t38.omani.works`
@@ -3802,7 +3802,7 @@ description: |
       error=...lookup ferretdb.sme.svc.cluster.local on 10.43.0.10:53:
       no such host
 
-  Root cause: SME service ConfigMap (sme-services-config) hardcoded
+  Root cause: SME service ConfigMap (org-services-config) hardcoded
   two URLs that have no Sovereign-side workload behind them:
     - MONGODB_URI: mongodb://ferretdb.sme.svc.cluster.local:27017
       (FerretDB has no Deployment on Sovereigns — only on contabo-mkt
