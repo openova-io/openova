@@ -1052,7 +1052,7 @@ spec:
       #   Jobs so the Kyverno flux-managed (Enforce) policy admits them in
       #   catalyst-system. Pre-1.4.722 the pre-install hook was DENIED →
       #   console install failed pre-install on every Enforce Sovereign (hw172).
-      version: 1.4.737
+      version: 1.4.738
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
