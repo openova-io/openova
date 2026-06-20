@@ -533,7 +533,25 @@ export function applicationStreamURL(
 export interface ApplicationUpdateRequest {
   blueprintRef?: { name?: string; version: string }
   parameters?: Record<string, unknown>
-  placement?: { mode: string; regions: string[] }
+  /**
+   * #3969 — the placement desired state. `targets[]` is the canonical
+   * shape (region × cluster × vCluster × role Primary|Standby, standby
+   * type Hot|Cold) plus per-owned-dep cascade overrides. `mode`/`regions`
+   * remain accepted for back-compat with older clients; the server projects
+   * whichever is present. The pattern is DERIVED, never sent.
+   */
+  placement?: {
+    mode?: string
+    regions?: string[]
+    targets?: Array<{
+      region: string
+      cluster: string
+      vcluster?: string
+      role: 'Primary' | 'Standby'
+      standbyType?: 'Hot' | 'Cold'
+    }>
+    ownedDependencies?: Array<{ name: string; follow: boolean }>
+  }
 }
 
 export interface ApplicationUpdateResponse {
@@ -918,7 +936,7 @@ export interface BackingSelection {
 }
 
 /** Mirrors `application` 201-response body at endpoint_handler.go:729. */
-export interface CreateApplicationInstanceResponse extends ApplicationInstance {}
+export type CreateApplicationInstanceResponse = ApplicationInstance
 
 /**
  * getApplicationInstances — list every Application installed from a

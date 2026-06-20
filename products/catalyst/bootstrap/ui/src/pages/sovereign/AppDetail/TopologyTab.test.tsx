@@ -1,22 +1,13 @@
 /**
- * TopologyTab.test.tsx — #3656 regression lock (founder #6, UI-faithfulness).
+ * TopologyTab.test.tsx — #3969 + #3656 regression locks.
  *
- * Founder report (hw150, 2026-06-16): on a bootstrap-kit HelmRelease with NO
- * Application CR (e.g. bp-alloy — the AppDetail hero shows
- * `source: HelmRelease`), the Topology tab's "Live status" panel stuck on
- * "Loading status…" while the browser console accumulated 59+ errors in ~2 min,
- * all `GET /applications/{name}/status?namespace=flux-system → 404`. The status
- * poller assumed an Application CR exists and retried in a tight loop forever.
+ * #3969: the Topology tab is EXACTLY two panels { Placement, Status }. It
+ * renders the derived pattern + recon status, with NO declared/observed/
+ * effective/DR machinery (the deleted "mandate unbuilt" contradiction).
  *
- * These tests lock the fix:
- *   1. When `isBootstrap`, the status endpoint is NEVER called (no poll, no
- *      404 loop) and the panel renders the calm n/a message.
- *   2. When NOT bootstrap, the status endpoint IS called (normal behaviour
- *      preserved).
- *
- * The fix is GENERIC — it gates on "no Application CR" (the `isBootstrap`
- * signal the parent derives from `apiApp.bootstrap`), never on a blueprint
- * name.
+ * #3656: a bootstrap-kit HelmRelease with NO Application CR must NOT poll
+ * the status endpoint (the 404 loop). Keys on `isBootstrap`, never a
+ * blueprint name.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, waitFor } from '@testing-library/react'
@@ -37,13 +28,10 @@ vi.mock('@/lib/infrastructure.types', () => ({
   getHierarchicalInfrastructure: (...a: unknown[]) => getHierarchicalInfrastructure(...a),
 }))
 
-// Stub the heavy child widgets — the poller behaviour is what we assert,
-// not the editor / DR section internals (covered by their own tests).
-vi.mock('@/widgets/topology/TopologyEditor', () => ({
-  TopologyEditor: () => <div data-testid="stub-topology-editor" />,
-}))
-vi.mock('@/widgets/continuum/DRSection', () => ({
-  DRSection: () => <div data-testid="stub-dr-section" />,
+// Stub the editor — the tab's panel structure + status are what we assert,
+// not the editor internals (covered by PlacementEditor's own tests).
+vi.mock('@/widgets/topology/PlacementEditor', () => ({
+  PlacementEditor: () => <div data-testid="stub-placement-editor" />,
 }))
 
 import { TopologyTab } from './TopologyTab'
@@ -58,28 +46,97 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+describe('TopologyTab — #3969 { Placement, Status }', () => {
+  it('renders exactly two panels (Placement + Status), no DR/effective machinery', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+
+    const initialApp = {
+      name: 'keycloak',
+      namespace: 'keycloak',
+      spec: {
+        placement: {
+          targets: [
+            { region: 'region-a', cluster: 'mgmt-A', vcluster: 'mgmt', role: 'Primary' },
+            { region: 'region-b', cluster: 'mgmt-B', vcluster: 'mgmt', role: 'Standby', standbyType: 'Hot' },
+          ],
+        },
+      },
+      status: { placement: 'Reconciled' },
+    }
+
+    render(
+      withProviders(
+        <TopologyTab
+          sovereignId="test-sov"
+          applicationName="keycloak"
+          namespace="keycloak"
+          initialApp={initialApp as never}
+          disableNetwork
+        />,
+      ),
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-placement-panel')).toBeTruthy()
+    })
+    expect(screen.getByTestId('topology-tab-status-panel')).toBeTruthy()
+
+    // Derived pattern is active-hot-standby (1 Primary + 1 Hot standby).
+    expect(screen.getByTestId('topology-tab-pattern').textContent).toBe('active-hot-standby')
+
+    // Recon status renders as a single value — no second contradictory value.
+    expect(screen.getByTestId('topology-tab-recon-status').textContent).toContain('Reconciled')
+
+    // The deleted contradiction must NOT appear anywhere on the screen.
+    expect(document.body.textContent).not.toContain('mandate unbuilt')
+    expect(document.body.textContent).not.toContain('Effective class')
+    expect(document.body.textContent).not.toContain('Disaster Recovery')
+
+    // Two target cards rendered.
+    expect(screen.getByTestId('topology-tab-target-card-0')).toBeTruthy()
+    expect(screen.getByTestId('topology-tab-target-card-1')).toBeTruthy()
+  })
+
+  it('singleton placement shows one card, pattern singleton, no contradiction', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    const initialApp = {
+      name: 'grafana',
+      namespace: 'grafana',
+      spec: { placement: { targets: [{ region: 'region-a', cluster: 'mgmt-A', vcluster: 'mgmt', role: 'Primary' }] } },
+      status: { placement: 'Reconciled' },
+    }
+    render(
+      withProviders(
+        <TopologyTab
+          sovereignId="test-sov"
+          applicationName="grafana"
+          initialApp={initialApp as never}
+          disableNetwork
+        />,
+      ),
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-pattern').textContent).toBe('singleton')
+    })
+    expect(screen.queryByTestId('topology-tab-target-card-1')).toBeNull()
+    expect(document.body.textContent).not.toContain('DEGRADED')
+  })
+})
+
 describe('TopologyTab — bootstrap HelmRelease status poll (#3656)', () => {
   it('does NOT poll the status endpoint for a bootstrap component (no 404 loop)', async () => {
     getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
 
     render(
       withProviders(
-        <TopologyTab
-          sovereignId="test-sov"
-          applicationName="bp-alloy"
-          namespace="flux-system"
-          isBootstrap
-        />,
+        <TopologyTab sovereignId="test-sov" applicationName="bp-alloy" namespace="flux-system" isBootstrap />,
       ),
     )
 
-    // The calm n/a panel renders instead of a perpetual "Loading status…".
     await waitFor(() => {
       expect(screen.getByTestId('topology-tab-status-bootstrap')).toBeTruthy()
     })
     expect(screen.queryByTestId('topology-tab-status-loading')).toBeNull()
-
-    // Crucially: the status endpoint was never called, so it can never 404-loop.
     expect(getApplicationStatus).not.toHaveBeenCalled()
   })
 
@@ -92,20 +149,11 @@ describe('TopologyTab — bootstrap HelmRelease status poll (#3656)', () => {
       status: {},
     })
 
-    render(
-      withProviders(
-        <TopologyTab
-          sovereignId="test-sov"
-          applicationName="wordpress"
-          namespace="qa-omantel"
-        />,
-      ),
-    )
+    render(withProviders(<TopologyTab sovereignId="test-sov" applicationName="wordpress" namespace="qa-omantel" />))
 
     await waitFor(() => {
       expect(getApplicationStatus).toHaveBeenCalled()
     })
-    // The bootstrap panel must NOT show for a CR-backed app.
     expect(screen.queryByTestId('topology-tab-status-bootstrap')).toBeNull()
   })
 })
