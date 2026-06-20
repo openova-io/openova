@@ -147,10 +147,17 @@ func handleGetApplication(ctx context.Context, id *identity.Identity, api *catal
 		return nil, err
 	}
 	// Org scoping: reject an app whose namespace is not the caller's Org
-	// (defense in depth — the endpoint already scopes, but the facade
-	// double-checks so a cross-Org name leak cannot pass through).
+	// (defense in depth — the get-by-name endpoint resolves across
+	// namespaces and does NOT scope, so the facade MUST: a cross-Org name
+	// must not leak another Org's data). The catalyst-api get response
+	// carries `namespace` at the top level (HandleApplicationGet wire
+	// shape); fall back to metadata.namespace for the raw-CR shape.
 	if id.Context == identity.ContextOrganization {
-		if ns := nestedString(obj, "metadata", "namespace"); ns != "" && !namespaceBelongsToOrg(ns, id.OrgID) {
+		ns := nestedString(obj, "namespace")
+		if ns == "" {
+			ns = nestedString(obj, "metadata", "namespace")
+		}
+		if ns != "" && !namespaceBelongsToOrg(ns, id.OrgID) {
 			return nil, fmt.Errorf("%w: application %q is not in organization %q", ErrForbidden, in.Name, id.OrgID)
 		}
 	}

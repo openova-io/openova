@@ -171,18 +171,43 @@ func TestParity403(t *testing.T) {
 }
 
 // TestGetApplicationCrossOrgDenied — a name resolving to another Org's
-// namespace is denied by the facade's defense-in-depth scope check.
+// namespace is denied by the facade's defense-in-depth scope check. The
+// catalyst-api get-by-name response carries `namespace` at the top level
+// (the real HandleApplicationGet wire shape, confirmed on hw173); the
+// metadata.namespace fallback covers the raw-CR shape.
 func TestGetApplicationCrossOrgDenied(t *testing.T) {
+	for _, body := range []string{
+		`{"name":"leak","namespace":"globex-prod","blueprint":"bp-gitea"}`, // top-level (real endpoint shape)
+		`{"metadata":{"name":"leak","namespace":"globex-prod"},"spec":{}}`, // raw-CR shape
+	} {
+		rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			return jsonResp(200, body), nil
+		})
+		api := catalystapi.New("https://console.test").WithHTTPClient(&http.Client{Transport: rt})
+		reg := NewRegistry(api)
+
+		args, _ := json.Marshal(map[string]string{"name": "leak"})
+		_, err := reg.Call(context.Background(), orgIdentity("acme", "dep1", identity.TierViewer), "get_application", args)
+		if !errors.Is(err, ErrForbidden) {
+			t.Fatalf("cross-org get should be ErrForbidden for body %q, got %v", body, err)
+		}
+	}
+}
+
+// TestGetApplicationOwnOrgAllowed — the caller's own Org app is returned.
+func TestGetApplicationOwnOrgAllowed(t *testing.T) {
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		return jsonResp(200, `{"metadata":{"name":"leak","namespace":"globex-prod"},"spec":{}}`), nil
+		return jsonResp(200, `{"name":"shop","namespace":"acme-prod","blueprint":"bp-wordpress"}`), nil
 	})
 	api := catalystapi.New("https://console.test").WithHTTPClient(&http.Client{Transport: rt})
 	reg := NewRegistry(api)
-
-	args, _ := json.Marshal(map[string]string{"name": "leak"})
-	_, err := reg.Call(context.Background(), orgIdentity("acme", "dep1", identity.TierViewer), "get_application", args)
-	if !errors.Is(err, ErrForbidden) {
-		t.Fatalf("cross-org get should be ErrForbidden, got %v", err)
+	args, _ := json.Marshal(map[string]string{"name": "shop"})
+	out, err := reg.Call(context.Background(), orgIdentity("acme", "dep1", identity.TierViewer), "get_application", args)
+	if err != nil {
+		t.Fatalf("own-org get should succeed, got %v", err)
+	}
+	if out.(map[string]any)["namespace"] != "acme-prod" {
+		t.Fatalf("wrong app returned: %+v", out)
 	}
 }
 
