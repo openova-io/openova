@@ -13,7 +13,7 @@
 //
 //   products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
 //
-// The separate SME marketplace at core/marketplace renders SaaS *Apps*
+// The separate Organization marketplace at core/marketplace renders SaaS *Apps*
 // (WordPress, Ghost, Nextcloud, …), NOT bp-<x> Blueprints — that's a
 // different product surface and is intentionally out of scope for this
 // ticket.

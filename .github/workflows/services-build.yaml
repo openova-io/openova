@@ -19,7 +19,7 @@ jobs:
     strategy:
       matrix:
         # `metering-sidecar` (#798) builds on the same Containerfile
-        # convention as the SME services but its image is consumed by
+        # convention as the Organization services but its image is consumed by
         # the bp-newapi chart (chart/values.yaml `meteringSidecar.image`),
         # NOT by products/catalyst/chart/templates/org-services. The
         # deploy job below skips it for that reason.
@@ -105,7 +105,7 @@ jobs:
           #
           # Pre-#953 this loop only ran a sed against the hardcoded
           # form. The 7 templated services silently no-op'd and the
-          # deploy commit reported "update sme service images to
+          # deploy commit reported "update org service images to
           # ${SHA}" while only auth.yaml actually rolled. Result:
           # every fix to catalog/tenant/etc. shipped the merge but
           # the live Pod kept running pre-fix bytes (caught live on
@@ -225,7 +225,7 @@ jobs:
             exit 0
           fi
           NEXT="${{ steps.rewrite.outputs.next_version }}"
-          git commit -m "deploy: update sme service images to ${SHA} + bump chart to ${NEXT}"
+          git commit -m "deploy: update org service images to ${SHA} + bump chart to ${NEXT}"
 
           # TBD-V32 / openova-io/openova#2062 — race-safe push loop.
           # NOTE: this workflow deliberately does NOT use the shared
@@ -254,7 +254,7 @@ jobs:
               echo "pushed=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            git commit -m "deploy: update sme service images to ${SHA} + bump chart to ${NEXT}"
+            git commit -m "deploy: update org service images to ${SHA} + bump chart to ${NEXT}"
             sleep $((i * 2))
           done
           echo "push failed after 5 attempts"

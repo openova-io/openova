@@ -13,8 +13,8 @@
 // Defence-in-depth: if the operator enables the toggle but the region
 // pair is degenerate (empty primary, empty replica, primary==replica),
 // hotStandbyActive() returns false and the legacy single-Cluster shape
-// is rendered instead. Same rule as the SME-tenant gitops writer's
-// renderSMETenantOverlay defence — better to degrade silently to non-
+// is rendered instead. Same rule as the Organization-tenant gitops writer's
+// renderOrgTenantOverlay defence — better to degrade silently to non-
 // HA than to render unschedulable resources.
 
 package tools

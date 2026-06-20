@@ -82,7 +82,7 @@ func NewEnvFromOS() *Env {
 		KeycloakParentRealm: os.Getenv("KEYCLOAK_PARENT_REALM"),
 		DomainAPIURL:        os.Getenv("SANDBOX_DOMAIN_API_URL"),
 		MarketplaceAPIURL:   os.Getenv("SANDBOX_MARKETPLACE_API_URL"),
-		// TenantAPIURL — root URL of the SME tenant-service. The
+		// TenantAPIURL — root URL of the Organization tenant-service. The
 		// marketplace.app.install MCP tool POSTs `/orgs/<TenantID>/apps`
 		// against this URL with the Sandbox HS256 bearer to invoke the
 		// canonical install path (tenant-service publishes the
@@ -90,7 +90,7 @@ func NewEnvFromOS() *Env {
 		// consumes — see core/services/tenant/handlers/apps.go:195 and
 		// core/services/provisioning/handlers/consumer.go::handleAppInstallRequested).
 		// Default unset; sandbox-controller injects via SANDBOX_TENANT_API_URL
-		// pointing at the SME gateway `http://gateway.org-services.svc.cluster.local:8080/api/tenant`.
+		// pointing at the Organization gateway `http://gateway.org-services.svc.cluster.local:8080/api/tenant`.
 		// Empty → marketplace.app.install surfaces a clear "not configured" error.
 		TenantAPIURL:        os.Getenv("SANDBOX_TENANT_API_URL"),
 		TenantID:            os.Getenv("SANDBOX_TENANT_ID"),
@@ -119,7 +119,7 @@ func NewEnvFromOS() *Env {
 	// (case-insensitive); every other value (including empty) leaves the
 	// flag false. PrimaryRegion / ReplicaRegion are stored verbatim;
 	// sandbox.db.provision applies the same defence-in-depth rule the
-	// SME-tenant gitops writer does (block is rendered only when toggle
+	// Organization-tenant gitops writer does (block is rendered only when toggle
 	// is true AND both regions are non-empty AND distinct).
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("SOVEREIGN_ENABLE_HOT_STANDBY"))) {
 	case "true", "1", "yes", "on":

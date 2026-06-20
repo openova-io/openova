@@ -1,14 +1,14 @@
-name: SME demo end-to-end (issue #805)
+name: Organization demo end-to-end (issue #805)
 
-# Playwright spec for the FIRST SME tenant happy path on a healthy
+# Playwright spec for the FIRST Organization tenant happy path on a healthy
 # otech (parent epic openova-io/openova#795). Lives next to
 # .github/workflows/cosmetic-guards.yaml — same dev-server pattern,
-# but tagged @sme-demo so the two suites run independently.
+# but tagged @org-demo so the two suites run independently.
 #
 # Mock-mode today: every back-end surface (tenant discovery,
-# /api/v1/sme/users, /api/v1/sme/tenants, /api/v1/sme/billing/ledger,
+# /api/v1/org/users, /api/v1/org/tenants, /api/v1/org/billing/ledger,
 # WordPress/OpenClaw/Webmail placeholders) is stubbed via page.route
-# (see e2e/lib/sme-fixtures.ts). The screenshot evidence the DoD
+# (see e2e/lib/org-fixtures.ts). The screenshot evidence the DoD
 # checklist requires is captured AT CI time and uploaded as an
 # artefact.
 #
@@ -27,16 +27,16 @@ on:
     branches: [main]
     paths:
       - 'products/catalyst/bootstrap/ui/**'
-      - '.github/workflows/sme-demo-e2e.yaml'
+      - '.github/workflows/org-demo-e2e.yaml'
   pull_request:
     paths:
       - 'products/catalyst/bootstrap/ui/**'
-      - '.github/workflows/sme-demo-e2e.yaml'
+      - '.github/workflows/org-demo-e2e.yaml'
   workflow_dispatch:
 
 jobs:
-  sme-demo:
-    name: SME demo Playwright happy path
+  org-demo:
+    name: Organization demo Playwright happy path
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -85,12 +85,12 @@ jobs:
           cat /tmp/catalyst-ui-dev.log || true
           exit 1
 
-      - name: Run SME demo Playwright spec
+      - name: Run Organization demo Playwright spec
         working-directory: products/catalyst/bootstrap/ui
         env:
           PLAYWRIGHT_HOST: http://localhost:5173
           PLAYWRIGHT_BASEPATH: /
-        run: npx playwright test e2e/sme-demo.spec.ts --grep "@sme-demo" --reporter=list
+        run: npx playwright test e2e/org-demo.spec.ts --grep "@org-demo" --reporter=list
 
       - name: Stop Catalyst UI
         if: always()
@@ -103,7 +103,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: sme-demo-screenshots
+          name: org-demo-screenshots
           path: products/catalyst/bootstrap/ui/e2e/screenshots/805-*
           retention-days: 30
 
@@ -111,7 +111,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: sme-demo-report
+          name: org-demo-report
           path: |
             products/catalyst/bootstrap/ui/playwright-report/
             products/catalyst/bootstrap/ui/test-results/

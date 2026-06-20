@@ -215,7 +215,7 @@ func buildClusterCR(env *Env, name string, plan cnpgPlan) *unstructured.Unstruct
 // hotStandbyActive reports whether the Sovereign-level toggle + region
 // pair is in the valid happy-path shape (toggle on AND both regions
 // non-empty AND distinct). Mirrors the defence-in-depth rule the
-// SME-tenant gitops writer applies (renderSMETenantOverlay): if the
+// Organization-tenant gitops writer applies (renderOrgTenantOverlay): if the
 // operator opted in but the region pair is degenerate we fall back to
 // single-Cluster shape rather than rendering a Cluster CR pair that
 // can't schedule (replica's nodeAffinity wouldn't match anywhere).

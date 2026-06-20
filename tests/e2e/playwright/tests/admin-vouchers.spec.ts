@@ -2,7 +2,7 @@
 //
 // What this test asserts:
 //
-//   1. The SME Admin app (core/admin) is reachable at `${ADMIN_BASE_URL}/billing`
+//   1. The Organization Admin app (core/admin) is reachable at `${ADMIN_BASE_URL}/billing`
 //      (Astro page billing.astro hosts BillingPage.svelte).
 //
 //   2. The "Vouchers (Promo Codes)" section renders — this is the
@@ -49,7 +49,7 @@ test.describe('#143 admin vouchers UI smoke', () => {
     expect(res, 'page navigation produced a response').not.toBeNull()
     expect(res!.status()).toBeLessThan(500)
 
-    // The admin shell hydrates, fails to find an `sme-admin-token` in
+    // The admin shell hydrates, fails to find an `org-admin-token` in
     // localStorage, and client-side-redirects to `${ADMIN_PATH_PREFIX}/login`.
     // We accept BOTH outcomes (authenticated → Vouchers heading; unauthenticated
     // → Admin Login heading) — either proves the app is rendering its real

@@ -10,7 +10,7 @@
 #
 # Output: ghcr.io/openova-io/openova/openclaw-runtime:<sha>
 #
-# Tracking: openova-io/openova#803 (SME-4 bp-openclaw)
+# Tracking: openova-io/openova#803 (Org-4 bp-openclaw)
 
 name: Build openclaw-runtime
 
