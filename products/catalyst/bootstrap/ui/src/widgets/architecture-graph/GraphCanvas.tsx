@@ -151,6 +151,13 @@ export interface GraphCanvasProps {
    * on (#3958).
    */
   showLegend?: boolean
+  /**
+   * Live per-relation edge counts. When provided the legend renders the
+   * merged "ArchiMate connections" relations section (#3980 fix 3 — the
+   * standalone bottom EdgeLegendPopover button is retired and folded into
+   * the Legend). Omitting it keeps the 3-channel legend only.
+   */
+  edgeTypeCounts?: Map<ArchEdgeType, number>
 }
 
 /**
@@ -181,6 +188,13 @@ function radiusForDegree(degree: number): number {
   // 6 + sqrt(degree) * 2.8, clamped 6..20 — locked by spec.
   const r = 6 + Math.sqrt(Math.max(0, degree)) * 2.8
   return Math.max(6, Math.min(20, r))
+}
+
+/** Monotonic-ish wall clock in ms. Module-level so it's never treated as
+ *  a render-impure call inside the component (the convergence deadline
+ *  bookkeeping reads it only from event handlers / the rAF loop). */
+function nowMs(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now()
 }
 
 /**
@@ -430,6 +444,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
     testIdPrefix = 'arch-graph',
     nodeColorFn,
     showLegend = false,
+    edgeTypeCounts,
   },
   ref,
 ) {
@@ -440,6 +455,52 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
   const liveNodesRef = useRef<Map<string, LiveNode>>(new Map())
   const liveEdgesRef = useRef<Map<string, LiveEdge>>(new Map())
   const simRef = useRef<Simulation<LiveNode, LiveEdge> | null>(null)
+
+  // ── Convergence bookkeeping (#3980 fix 2) ──────────────────────────
+  // The force sim must CONVERGE in ~2-4s and then STOP — no perpetual
+  // oscillation. We arm a deadline on every warm-up (initial layout,
+  // drag, add/remove, relax). The rAF render loop runs ONLY while the
+  // sim is warm: it re-renders every frame until either alpha decays
+  // below alphaMin (settled) OR the hard time cap elapses, at which
+  // point we stop the sim, freeze positions (zero the velocities so
+  // there's no residual jitter), and idle the render loop. A fresh
+  // warm-up re-arms the deadline and re-starts the loop via
+  // `wantFrameRef`.
+  /** Wall-clock ms by which the sim must be force-stopped even if alpha
+   *  hasn't yet crossed alphaMin (the hard ~3.5s settle cap). 0 = idle. */
+  const settleDeadlineRef = useRef<number>(0)
+  /** Set true by every warm-up to (re)start the render loop; the loop
+   *  clears it once it has fully idled the sim. */
+  const wantFrameRef = useRef<boolean>(false)
+
+  /** Hard settle cap — the sim is force-stopped this many ms after the
+   *  most recent warm-up regardless of alpha (#3980 fix 2). */
+  const SETTLE_CAP_MS = 3500
+
+  /** Re-warm the simulation to `alpha` and (re)arm the convergence
+   *  deadline + render loop. Centralises every place that needs the sim
+   *  to move again so the stop logic stays consistent. */
+  function warmUp(alpha: number) {
+    const sim = simRef.current
+    if (!sim) return
+    settleDeadlineRef.current = nowMs() + SETTLE_CAP_MS
+    wantFrameRef.current = true
+    sim.alphaTarget(0).alpha(alpha).restart()
+  }
+
+  /** Freeze the layout: stop the sim and zero every node's velocity so
+   *  the render is perfectly static (no sub-pixel jitter) after settle.
+   *  Pinned positions (fx/fy) are preserved. */
+  function freezeSimulation() {
+    const sim = simRef.current
+    if (!sim) return
+    sim.stop()
+    for (const n of liveNodesRef.current.values()) {
+      n.vx = 0
+      n.vy = 0
+    }
+    settleDeadlineRef.current = 0
+  }
 
   // Drag state (pin-on-drag + shift-drag-to-create-edge).
   const dragState = useRef<{
@@ -629,19 +690,47 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
     // we capture the latest size by closure (#348 item 5).
     sim.force('bound', makeForceBound(size.width, size.height, BOUND_PADDING))
 
-    sim.alphaDecay(phys.alphaDecay).alphaTarget(0).alpha(0.7).restart()
+    // CONVERGE-AND-STOP (#3980 fix 2): alphaDecay tuned by physicsFor so
+    // alpha geometrically decays toward alphaMin; alphaMin is bumped a
+    // touch above the d3 default (0.001) so the sim crosses the settle
+    // threshold in ~2-4s rather than dragging on for ~5-10s. The render
+    // loop below force-stops + freezes once settled (or at the hard cap),
+    // so after convergence the layout is perfectly static — no perpetual
+    // alphaTarget>0 oscillation.
+    sim.alphaDecay(phys.alphaDecay).alphaMin(0.02)
+    warmUp(0.7)
   }, [visibleNodes, visibleEdges, size.width, size.height])
 
-  /* ── Drive the render via the simulation tick ─────────────────── */
+  /* ── Drive the render via the simulation tick, then STOP ───────── */
 
+  // The rAF loop re-renders ONLY while the sim is warm (#3980 fix 2).
+  // Each frame: if the sim has settled (alpha ≤ alphaMin) or the hard
+  // settle cap has elapsed, we freeze the layout (stop + zero velocities)
+  // and idle the loop — a static, jitter-free final render. A fresh
+  // warm-up (drag / add / relax) re-arms `wantFrameRef` and resumes.
   const [, forceRender] = useState({})
   useEffect(() => {
     let raf = 0
-    const tick = () => {
-      forceRender({})
-      raf = requestAnimationFrame(tick)
+    const frame = () => {
+      const sim = simRef.current
+      const now = nowMs()
+      if (sim && wantFrameRef.current) {
+        const settledByAlpha = sim.alpha() <= sim.alphaMin()
+        const settledByCap =
+          settleDeadlineRef.current > 0 && now >= settleDeadlineRef.current
+        if (settledByAlpha || settledByCap) {
+          // Settle: stop the sim, freeze velocities, idle the loop. One
+          // final render below paints the static layout.
+          freezeSimulation()
+          wantFrameRef.current = false
+        }
+        // Re-snapshot positions into the React render while warm (and
+        // once more on the settling frame so the frozen layout paints).
+        forceRender({})
+      }
+      raf = requestAnimationFrame(frame)
     }
-    raf = requestAnimationFrame(tick)
+    raf = requestAnimationFrame(frame)
     return () => cancelAnimationFrame(raf)
   }, [])
 
@@ -682,7 +771,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
         for (const edge of e) {
           if (!liveEdges.has(edge.id)) liveEdges.set(edge.id, { ...edge })
         }
-        simRef.current?.alpha(0.5).restart()
+        // Re-warm + re-arm the convergence cap (#3980 fix 2): the sim
+        // moves, settles within the cap, then stops.
+        warmUp(0.5)
       },
       removeElements(ids) {
         const idSet = new Set(ids)
@@ -694,17 +785,17 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
             liveEdges.delete(eid)
           }
         }
-        simRef.current?.alpha(0.5).restart()
+        warmUp(0.5)
       },
       unpinNode(id) {
         const n = liveNodesRef.current.get(id)
         if (!n) return
         n.fx = null
         n.fy = null
-        simRef.current?.alpha(0.4).restart()
+        warmUp(0.4)
       },
       relax() {
-        simRef.current?.alpha(0.7).restart()
+        warmUp(0.7)
       },
       fit() {
         // No camera transform — the whole graph already fills the
@@ -714,7 +805,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
         const cx = size.width / 2
         const cy = size.height / 2
         ;(sim.force('center') as ReturnType<typeof forceCenter>).x(cx).y(cy)
-        sim.alpha(0.3).restart()
+        warmUp(0.3)
       },
     }),
     [size.width, size.height],
@@ -744,6 +835,12 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
       n.fx = n.x
       n.fy = n.y
     }
+    // Keep the sim warm + the render loop alive for the duration of the
+    // drag. We hold the settle deadline OPEN (0) so the hard cap can't
+    // fire mid-drag; onMouseUp re-arms it via warmUp so the sim settles
+    // and stops shortly after the operator releases (#3980 fix 2).
+    settleDeadlineRef.current = 0
+    wantFrameRef.current = true
     simRef.current?.alphaTarget(0.3).restart()
   }
 
@@ -816,7 +913,12 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
       shift: false,
       overId: null,
     }
+    // Drag released — drop alphaTarget to 0 and re-arm the settle cap so
+    // the layout converges and STOPS shortly after release (#3980 fix 2)
+    // instead of leaving the render loop spinning forever.
     simRef.current?.alphaTarget(0)
+    settleDeadlineRef.current = nowMs() + SETTLE_CAP_MS
+    wantFrameRef.current = true
 
     // Suppress click if we actually dragged (>4px)
     if (ds.movedPx > 4) {
@@ -1043,9 +1145,13 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
       </svg>
 
       {/* Three-channel legend (#3958) — shape→category, border→family,
-          fill→status. Opt-in via showLegend; the unified Cloud-graph
-          turns it on. Collapsible so it never blocks the canvas. */}
-      {showLegend && <GraphLegend testIdPrefix={testIdPrefix} />}
+          fill→status — PLUS the merged ArchiMate-relations section
+          (#3980 fix 3) when edgeTypeCounts is supplied. Opt-in via
+          showLegend; the unified Cloud-graph turns it on. Collapsible so
+          it never blocks the canvas. */}
+      {showLegend && (
+        <GraphLegend testIdPrefix={testIdPrefix} edgeTypeCounts={edgeTypeCounts} />
+      )}
 
       {/* Stats overlay — bottom-left badges. */}
       <div
