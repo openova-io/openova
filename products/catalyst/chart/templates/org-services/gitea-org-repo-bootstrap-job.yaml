@@ -14,7 +14,7 @@ on a Sovereign, intended to work PRE-cutover:
       CATALYST_GITOPS_USER     = gitea_admin
       CATALYST_GITOPS_TOKEN    = catalyst-gitea-token PAT (via the mirrored
                                  provisioning-github-token Secret)
-    consumed by internal/handler/sme_tenant_gitops.go WriteTenantOverlay.
+    consumed by internal/handler/org_tenant_gitops.go WriteTenantOverlay.
 
   - Flux source (templates/org-services/org-repo-gitrepository.yaml):
       GitRepository openova-org-tenants → same URL, branch org-tenants.

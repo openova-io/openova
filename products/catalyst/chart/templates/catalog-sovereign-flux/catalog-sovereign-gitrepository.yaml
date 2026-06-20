@@ -70,7 +70,7 @@ overridable via .Values.catalogSovereign.gitRepository.*.
 
 References:
   - Issue #3668 (this fix), the deferred half of PR #3702 / #3648
-  - templates/sme-services/org-tenants-gitrepository.yaml (the exact pattern)
+  - templates/org-services/org-tenants-gitrepository.yaml (the exact pattern)
   - internal/handler/catalog_edit_git.go (writeCatalogSovereignAggregator)
   - catalog-sovereign-kustomization.yaml (consumer of this GitRepository)
 */}}

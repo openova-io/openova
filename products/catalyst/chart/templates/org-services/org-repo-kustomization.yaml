@@ -4,15 +4,15 @@ Flux Kustomization watching the Organization-tenant overlay tree (issue #882).
 WHY THIS FILE EXISTS
 --------------------
 The catalyst-api Organization-tenant pipeline's GitOps writer
-(products/catalyst/bootstrap/api/internal/handler/sme_tenant_gitops.go,
+(products/catalyst/bootstrap/api/internal/handler/org_tenant_gitops.go,
 function `WriteTenantOverlay`) commits a 9-file Kustomize overlay per
 tenant to:
 
-  clusters/<sovereign-fqdn>/org-tenants/<sme_tenant_id>/
+  clusters/<sovereign-fqdn>/org-tenants/<org_tenant_id>/
 
-…on every successful POST /api/v1/sme/tenants. The overlay carries:
+…on every successful POST /api/v1/organizations. The overlay carries:
 
-  - namespace.yaml          → `sme-<tenant-id>` Namespace
+  - namespace.yaml          → `org-<tenant-id>` Namespace
   - vcluster.yaml           → vCluster CR for the tenant control plane
   - bp-keycloak.yaml        → fresh realm + clients
   - bp-cnpg.yaml            → tenant Postgres
@@ -43,13 +43,13 @@ a new tenant is a pure git-commit operation — no chart upgrade needed.
                                     in-cluster Gitea at
                                     http://gitea-http.gitea.svc.cluster.local:3000/openova/openova,
                                     which is precisely where
-                                    sme_tenant_gitops.go pushes via
+                                    org_tenant_gitops.go pushes via
                                     CATALYST_GITOPS_REPO_URL)
   path:      ./clusters/<sov-fqdn>/org-tenants
   interval:  1m  (matches the orchestrator's "Flux on the OTECH
                   cluster reconciles within ~1 min" SLA documented at
-                  the top of sme_tenant_gitops.go)
-  prune:     true  (a DELETE /api/v1/sme/tenants/<id> removes the
+                  the top of org_tenant_gitops.go)
+  prune:     true  (a DELETE /api/v1/organizations/<id> removes the
                     overlay directory; we want Flux to GC the tenant
                     resources accordingly)
   wait:      false (tenant overlays each install ~5 bp-* HelmReleases
@@ -80,7 +80,7 @@ Flux owns the apply — we do NOT shell out to `kubectl apply`.
 
 References:
   - Issue #882
-  - sme_tenant_gitops.go (WriteTenantOverlay write target)
+  - org_tenant_gitops.go (WriteTenantOverlay write target)
   - clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml (slot pin)
   - clusters/_template/bootstrap-kit/03-flux.yaml (Kustomization shape)
 */}}

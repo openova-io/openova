@@ -2,7 +2,7 @@
 Pre-install/pre-upgrade hook that bootstraps the `catalog-sovereign` branch +
 an empty aggregator directory the catalog-sovereign Flux source reconciles —
 issue #3668 (the load-bearing half of PR #3702). Modeled on the proven
-templates/sme-services/gitea-tenants-repo-bootstrap-job.yaml.
+templates/org-services/gitea-tenants-repo-bootstrap-job.yaml.
 
 WHY THIS FILE EXISTS
 ====================
@@ -60,7 +60,7 @@ all flow through operator-overridable values.
 
 References:
   - Issue #3668 (this fix), #3454 (the Organization repo-bootstrap + auth precedent)
-  - templates/sme-services/gitea-tenants-repo-bootstrap-job.yaml (weight 12,
+  - templates/org-services/gitea-tenants-repo-bootstrap-job.yaml (weight 12,
     the repo auto-init this job front-runs to the catalog-sovereign branch)
   - templates/catalyst-gitea-token-secret.yaml (PAT source, hook-weight 10)
   - catalog-sovereign-gitrepository.yaml / catalog-sovereign-kustomization.yaml
