@@ -89,10 +89,9 @@ rtzVcluster:
       # allow-list still only admitted `sme` → on hw167 the WHOLE org-services
       # tier (auth/billing/domain/notification) CrashLoopBackOff'd on valkey
       # i/o-timeout, blocking the #3376 org-provisioning funnel. `org-services`
-      # is the live namespace; `sme` is kept one release for back-compat /
-      # any not-yet-migrated Sovereign.
+      # is the live namespace (#3985: legacy `sme` back-compat entry removed —
+      # fresh provs only use org-services).
       - org-services
-      - sme
       # REQUIRED (#3373 Batch A, 2026-06-14): bp-seaweedfs moved INTO this
       # RTZ vCluster. Its host-synced S3 Service
       # (seaweedfs-s3-x-seaweedfs-x-rtz-vcluster.rtz.svc:8333) now sits

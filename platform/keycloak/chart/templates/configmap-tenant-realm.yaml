@@ -69,7 +69,7 @@ Canonical seam: platform/keycloak/chart/templates/configmap-tenant-realm.yaml
 {{- /* ── Validate required tenant fields ──────────────────────────────── */}}
 {{- $t := .Values.realmConfig.tenant -}}
 {{- if not $t.realmName -}}
-  {{- fail "realmConfig.tenant.enabled=true requires realmConfig.tenant.realmName (convention: sme-<subdomain>) — Inviolable Principle #4 (never hardcode)" -}}
+  {{- fail "realmConfig.tenant.enabled=true requires realmConfig.tenant.realmName (convention: org-<subdomain>) — Inviolable Principle #4 (never hardcode)" -}}
 {{- end -}}
 {{- if not $t.parentDomain -}}
   {{- fail "realmConfig.tenant.enabled=true requires realmConfig.tenant.parentDomain — Inviolable Principle #4 (never hardcode)" -}}

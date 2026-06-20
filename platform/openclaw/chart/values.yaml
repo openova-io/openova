@@ -166,7 +166,7 @@ newapi:
 #   - newapi-key-{uuid} Secrets are read by the controller's ServiceAccount
 tenant:
   # Required at install time. Placeholder default lets smoke render pass.
-  namespace: "sme-example"
+  namespace: "org-example"
 
 # ─── Per-user pod template ───────────────────────────────────────────────
 # These values are baked into a ConfigMap; the controller renders the

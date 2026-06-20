@@ -157,10 +157,9 @@ mgmtVcluster:
       # namespace to `org-services` (eradicate-sme-naming), but this
       # allow-list still only admitted `sme` → on hw167 tenant/provisioning
       # CrashLoopBackOff'd on NATS i/o-timeout, blocking the #3376 funnel.
-      # `org-services` is the live namespace; `sme` is kept one release for
-      # back-compat / any not-yet-migrated Sovereign.
+      # `org-services` is the live namespace (#3985: the legacy `sme`
+      # back-compat entry was removed — fresh provs only use org-services).
       - org-services
-      - sme
       # ── #3642 host-bridge carve-outs ──────────────────────────────────
       # The #3642 host→mgmt move re-homes keycloak (auth.) + grafana into
       # this vCluster behind the isolation netpol. Their HOST-side

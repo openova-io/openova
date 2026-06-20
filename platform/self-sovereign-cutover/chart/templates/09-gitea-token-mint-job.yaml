@@ -113,7 +113,7 @@ data:
             # journey step 16 unblocks today.
             value: {{ .Values.giteaTokenMint.tokenScopes | default "all" | quote }}
           - name: DEST_SECRET_NAMESPACE
-            value: {{ .Values.giteaTokenMint.destSecretNamespace | default "sme" | quote }}
+            value: {{ .Values.giteaTokenMint.destSecretNamespace | default "org-services" | quote }}
           - name: DEST_SECRET_NAME
             value: {{ .Values.giteaTokenMint.destSecretName | default "provisioning-github-token" | quote }}
           - name: DEST_SECRET_KEY

@@ -86,7 +86,6 @@ compliancePolicies:
       # reinstall under Enforce (hw130 umbrella install blocked live). It is
       # NOT tenant workload — it provisions tenants. catalyst-system carries
       # the same shape (catalyst-api + util inits).
-      - sme
       - kyverno
       - monitoring
       - ingress

@@ -233,7 +233,7 @@ spec:
     # catalyst-system — declared so the live conformance audit can
     # attribute those workloads (multi-namespace chart, not undeclared).
     - {file: 13-bp-catalyst-platform.yaml, hr: bp-catalyst-platform, vcluster: host, target: mgmt,
-       namespace: catalyst-system, extraNamespaces: [sme, catalyst]}
+       namespace: catalyst-system, extraNamespaces: [org-services, catalyst]}
     # ── #3642 HOST-BRIDGE PROMOTE — gitea into the mgmt vCluster ────────
     # Route + SSO ExternalSecret + CNPG `Cluster` host-bridge. `suppress` turns
     # the chart's OWN in-vCluster HTTPRoute (gateway.enabled:false), SSO

@@ -912,7 +912,7 @@ giteaTokenMint:
   # NB: This Secret is created by the catalyst-platform chart with
   # helm.sh/resource-policy: keep, so it survives chart uninstall and
   # this Step's patch is non-destructive on re-run.
-  destSecretNamespace: "sme"
+  destSecretNamespace: "org-services"
   destSecretName: "provisioning-github-token"
   destSecretKey: "GITHUB_TOKEN"
 
