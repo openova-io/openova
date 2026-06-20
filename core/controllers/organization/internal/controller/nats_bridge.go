@@ -3,7 +3,7 @@
 //
 // PR #1626 closed the publish-side of D35 — tenant + billing services
 // now emit `catalyst.tenant.created` + `catalyst.billing.order.placed`
-// on the NATS JetStream `CATALYST_SME` stream per ADR-0001 §6. The
+// on the NATS JetStream `CATALYST_ORG` stream per ADR-0001 §6. The
 // consume-side was missing: no in-cluster controller subscribed, so the
 // envelopes accumulated on the broker and the only path that
 // reconciled an Organization CR was the 30s informer requeue plus

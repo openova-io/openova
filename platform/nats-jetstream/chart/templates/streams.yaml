@@ -24,7 +24,7 @@ time so they can scale per tenant.
   Wave 5.52 (#2283) gate: separately from catalystStreams.enabled (which
   drives kv-buckets.yaml + the entire JetStream KV family), the 3
   Stream CRs are gated on `streamsEnabled` because they architecturally
-  conflict with the in-code CATALYST_SME wildcard stream
+  conflict with the in-code CATALYST_ORG wildcard stream
   (subjects `catalyst.>` declared in core/services/shared/events/nats.go).
   Surfaced live on hw01 2026-05-24T06:30Z when both attempted to claim
   overlapping subjects. Default-OFF preserves the current production
