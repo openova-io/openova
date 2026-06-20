@@ -1672,10 +1672,6 @@ func main() {
 		rg.Post("/api/v1/org/users", h.HandleCreateSMEUser)
 		rg.Get("/api/v1/org/users", h.HandleListSMEUsers)
 		rg.Delete("/api/v1/org/users/{uuid}", h.HandleDeleteSMEUser)
-		// naming-guard: alias — legacy SME paths, one-release deprecation.
-		rg.Post("/api/v1/sme/users", deprecatedAlias("/api/v1/org/users", h.HandleCreateSMEUser))
-		rg.Get("/api/v1/sme/users", deprecatedAlias("/api/v1/org/users", h.HandleListSMEUsers))
-		rg.Delete("/api/v1/sme/users/{uuid}", deprecatedAlias("/api/v1/org/users/{uuid}", h.HandleDeleteSMEUser))
 
 		// Organization provisioning pipeline (issue #804). Marketplace
 		// signup → vCluster + bp-* charts + DNS + cert + SSO clients
@@ -1696,12 +1692,6 @@ func main() {
 		rg.Get("/api/v1/organizations/{id}", h.HandleGetOrganization)
 		rg.Post("/api/v1/organizations/{id}/reconcile", h.HandleReconcileOrganization)
 		rg.Delete("/api/v1/organizations/{id}", h.HandleDeleteOrganization)
-		// naming-guard: alias — legacy SME paths, one-release deprecation.
-		rg.Post("/api/v1/sme/tenants", deprecatedAlias("/api/v1/organizations", h.HandleCreateOrganization))
-		rg.Get("/api/v1/sme/tenants", deprecatedAlias("/api/v1/organizations", h.HandleListOrganizations))
-		rg.Get("/api/v1/sme/tenants/{id}", deprecatedAlias("/api/v1/organizations/{id}", h.HandleGetOrganization))
-		rg.Post("/api/v1/sme/tenants/{id}/reconcile", deprecatedAlias("/api/v1/organizations/{id}/reconcile", h.HandleReconcileOrganization))
-		rg.Delete("/api/v1/sme/tenants/{id}", deprecatedAlias("/api/v1/organizations/{id}", h.HandleDeleteOrganization))
 
 		// BSS landing KPI rollup (Refs #1949, TBD-A58). Read-only feed
 		// for the /console/bss landing surface (BssLandingPage.tsx →
@@ -1718,7 +1708,6 @@ func main() {
 		// #3383: canonical `/api/v1/org/*`; legacy `/api/v1/sme/*` aliased.
 		rg.Get("/api/v1/org/bss/overview", h.HandleGetSMEBssOverview)
 		// naming-guard: alias — legacy SME path, one-release deprecation.
-		rg.Get("/api/v1/sme/bss/overview", deprecatedAlias("/api/v1/org/bss/overview", h.HandleGetSMEBssOverview))
 
 		// BSS Orders rollup (Wave 6 PR 3). Read-only feed for the
 		// /console/bss/orders native React table. Today the handler
@@ -1728,7 +1717,6 @@ func main() {
 		// projection lands with the marketplace/billing wire.
 		rg.Get("/api/v1/org/orders", h.HandleListSMEOrders)
 		// naming-guard: alias — legacy SME path, one-release deprecation.
-		rg.Get("/api/v1/sme/orders", deprecatedAlias("/api/v1/org/orders", h.HandleListSMEOrders))
 
 		// BSS Revenue rollup (Wave 6 PR 4). Read-only feed for the
 		// /console/bss/revenue native React surface (KPI strip + line
@@ -1739,7 +1727,6 @@ func main() {
 		// with the marketplace/billing wire.
 		rg.Get("/api/v1/org/billing/revenue", h.HandleGetSMEBillingRevenue)
 		// naming-guard: alias — legacy SME path, one-release deprecation.
-		rg.Get("/api/v1/sme/billing/revenue", deprecatedAlias("/api/v1/org/billing/revenue", h.HandleGetSMEBillingRevenue))
 
 		// BSS Vouchers proxy (Wave 6 PR 5 — follow-up to FE PR #1609).
 		// Forwards to the SME gateway (gateway.org-services.svc.cluster.local:8080)
@@ -1757,11 +1744,6 @@ func main() {
 		rg.Post("/api/v1/org/billing/vouchers/issue", h.HandleIssueSMEBillingVoucher)
 		rg.Post("/api/v1/org/billing/vouchers/revoke/{code}", h.HandleRevokeSMEBillingVoucher)
 		rg.Delete("/api/v1/org/billing/vouchers/revoke/{code}", h.HandleRevokeSMEBillingVoucher)
-		// naming-guard: alias — legacy SME paths, one-release deprecation.
-		rg.Get("/api/v1/sme/billing/vouchers/list", deprecatedAlias("/api/v1/org/billing/vouchers/list", h.HandleListSMEBillingVouchers))
-		rg.Post("/api/v1/sme/billing/vouchers/issue", deprecatedAlias("/api/v1/org/billing/vouchers/issue", h.HandleIssueSMEBillingVoucher))
-		rg.Post("/api/v1/sme/billing/vouchers/revoke/{code}", deprecatedAlias("/api/v1/org/billing/vouchers/revoke/{code}", h.HandleRevokeSMEBillingVoucher))
-		rg.Delete("/api/v1/sme/billing/vouchers/revoke/{code}", deprecatedAlias("/api/v1/org/billing/vouchers/revoke/{code}", h.HandleRevokeSMEBillingVoucher))
 
 		// BSS Purchase proxy (TBD-C15 / #1750). Mirrors the vouchers proxy
 		// shape above — catalyst-api forwards to the SME gateway which
@@ -1784,7 +1766,6 @@ func main() {
 		rg.Post("/api/v1/billing/purchase", h.HandleSMEBillingPurchase)
 		rg.Post("/api/v1/org/billing/purchase", h.HandleSMEBillingPurchase)
 		// naming-guard: alias — legacy SME path, one-release deprecation.
-		rg.Post("/api/v1/sme/billing/purchase", deprecatedAlias("/api/v1/org/billing/purchase", h.HandleSMEBillingPurchase))
 
 		// Sovereign Console populated views (issue #933). Read-only
 		// endpoints the Console pages on console.<sov-fqdn>/console/*
@@ -1830,11 +1811,6 @@ func main() {
 		rg.Post("/api/v1/org/commerce/{kind}", h.HandleSMECommerceCreate)
 		rg.Put("/api/v1/org/commerce/{kind}/{id}", h.HandleSMECommerceUpdate)
 		rg.Delete("/api/v1/org/commerce/{kind}/{id}", h.HandleSMECommerceDelete)
-		// naming-guard: alias — legacy SME paths, one-release deprecation.
-		rg.Get("/api/v1/sme/commerce/{kind}", deprecatedAlias("/api/v1/org/commerce/{kind}", h.HandleSMECommerceList))
-		rg.Post("/api/v1/sme/commerce/{kind}", deprecatedAlias("/api/v1/org/commerce/{kind}", h.HandleSMECommerceCreate))
-		rg.Put("/api/v1/sme/commerce/{kind}/{id}", deprecatedAlias("/api/v1/org/commerce/{kind}/{id}", h.HandleSMECommerceUpdate))
-		rg.Delete("/api/v1/sme/commerce/{kind}/{id}", deprecatedAlias("/api/v1/org/commerce/{kind}/{id}", h.HandleSMECommerceDelete))
 
 		// Organizations metering feed (issue #3378 B3) — per-org
 		// consumption aggregation, parent self-showback first. Lean
@@ -1845,7 +1821,6 @@ func main() {
 		// #3383: canonical `/api/v1/org/consumption`; legacy aliased.
 		rg.Get("/api/v1/org/consumption", h.HandleSovereignConsumption)
 		// naming-guard: alias — legacy SME path, one-release deprecation.
-		rg.Get("/api/v1/sme/consumption", deprecatedAlias("/api/v1/org/consumption", h.HandleSovereignConsumption))
 
 		// Organizations Enter-org support session (issue #3378 B2) —
 		// mints the audited, time-boxed (≤60min) impersonation into a
@@ -1856,7 +1831,6 @@ func main() {
 		// #3383: canonical `/api/v1/org/organizations/{slug}/enter`; legacy aliased.
 		rg.Post("/api/v1/org/organizations/{slug}/enter", h.HandleEnterOrg)
 		// naming-guard: alias — legacy SME path, one-release deprecation.
-		rg.Post("/api/v1/sme/organizations/{slug}/enter", deprecatedAlias("/api/v1/org/organizations/{slug}/enter", h.HandleEnterOrg))
 
 		// EPIC-3 (#1098) — Sovereign-prefix RBAC access-matrix surface
 		// (TBD-F4 / C6-007). Chroot-friendly mirror of
@@ -2227,29 +2201,11 @@ func waitForKeycloak(ctx context.Context, kc *keycloak.Client, timeout time.Dura
 	return fmt.Errorf("keycloak readiness timeout (no error captured)")
 }
 
-// deprecatedAlias wraps a handler registered on a LEGACY route path so
-// the response carries RFC-8594 deprecation signalling. #3383 renamed the
-// `/api/v1/sme/*` machinery to `/api/v1/org/*` + `/api/v1/organizations`;
-// the old paths stay registered as aliases to the SAME handler for exactly
-// ONE release so in-flight clients (the marketplace SPA, the funnel walk
-// evidence) keep working across the rename. Each alias response sets:
-//   - Deprecation: true                 (the path is deprecated)
-//   - Sunset: <one release from now>    (when it will be removed)
-//   - Link: <canonical>; rel="successor-version"
-// The removal of these aliases is a checklist row on #3383 for next release.
-// The naming-guard exempts these alias registrations (annotated below).
-func deprecatedAlias(canonical string, next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Deprecation", "true")
-		// One release window. Fixed date so the header is deterministic
-		// (not a moving target each deploy); next release drops the alias.
-		w.Header().Set("Sunset", "Wed, 01 Jul 2026 00:00:00 GMT")
-		if canonical != "" {
-			w.Header().Add("Link", fmt.Sprintf("<%s>; rel=\"successor-version\"", canonical))
-		}
-		next(w, r)
-	}
-}
+// #3985: the legacy `/api/v1/sme/*` deprecatedAlias machinery (added by
+// #3383 as a one-release bridge, Sunset 01 Jul 2026) has been REMOVED.
+// Only the canonical `/api/v1/org/*` + `/api/v1/organizations` routes
+// remain; the marketplace SPA + funnel walk now call the canonical paths
+// directly.
 
 // pathOnlyLogFormatter implements chi's middleware.LogFormatter so the
 // access log line includes r.URL.Path but never the query string. The

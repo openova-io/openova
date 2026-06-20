@@ -66,7 +66,7 @@ func newSMETenantHandlerWithDynamic(t *testing.T) (*Handler, *dynamicfake.FakeDy
 func TestCreateSMETenant_MintsOrganizationCR(t *testing.T) {
 	h, dyn := newSMETenantHandlerWithDynamic(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sme/tenants",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations",
 		bytes.NewReader([]byte(`{
 			"subdomain":     "acme",
 			"admin_email":   "owner@acme.test",

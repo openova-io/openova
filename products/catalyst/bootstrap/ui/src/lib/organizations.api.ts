@@ -278,7 +278,7 @@ const EMPTY_CONSUMPTION: SovereignConsumption = {
 export async function getConsumption(): Promise<SovereignConsumption> {
   let res: Response
   try {
-    res = await authedFetch(`${API_BASE}/v1/sme/consumption`, {
+    res = await authedFetch(`${API_BASE}/v1/org/consumption`, {
       headers: { Accept: 'application/json' },
     })
   } catch {
@@ -319,7 +319,7 @@ export interface EnterOrgResult {
  */
 export async function enterOrg(slug: string): Promise<EnterOrgResult> {
   const res = await authedFetch(
-    `${API_BASE}/v1/sme/organizations/${encodeURIComponent(slug)}/enter`,
+    `${API_BASE}/v1/org/organizations/${encodeURIComponent(slug)}/enter`,
     {
       method: 'POST',
       headers: { Accept: 'application/json' },

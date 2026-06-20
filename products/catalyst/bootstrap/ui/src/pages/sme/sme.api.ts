@@ -59,7 +59,7 @@ export interface SMEUserCreateRequest {
   roles?: Record<string, string>
 }
 
-const SME_USERS_PATH = '/v1/sme/users'
+const SME_USERS_PATH = '/v1/org/users'
 
 function tenantHeaders(): HeadersInit {
   const host =
@@ -204,7 +204,7 @@ export function isParentDomainReady(p: SovereignParentDomain): boolean {
   return p.flipStatus === 'ready' || p.flipStatus === 'flipped'
 }
 
-const SME_TENANTS_PATH = '/v1/sme/tenants'
+const SME_TENANTS_PATH = '/v1/organizations'
 const SOVEREIGN_PARENT_DOMAINS_PATH = '/v1/sovereign/parent-domains'
 
 /**

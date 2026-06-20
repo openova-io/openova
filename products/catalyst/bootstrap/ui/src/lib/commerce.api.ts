@@ -117,7 +117,7 @@ const apiRoot = `${BASE}api`
 async function readList<T>(kind: CommerceKind): Promise<T[]> {
   // apps must NOT pass ?published=true here — the editor lists EVERY app
   // (published + unpublished) so the operator can toggle either way.
-  const res = await authedFetch(`${apiRoot}/v1/sme/commerce/${kind}`, {
+  const res = await authedFetch(`${apiRoot}/v1/org/commerce/${kind}`, {
     headers: { Accept: 'application/json' },
   })
   if (!res.ok) {
@@ -147,8 +147,8 @@ async function writeCommerce<T>(
 ): Promise<unknown> {
   const path =
     id && id.length > 0
-      ? `${apiRoot}/v1/sme/commerce/${kind}/${encodeURIComponent(id)}`
-      : `${apiRoot}/v1/sme/commerce/${kind}`
+      ? `${apiRoot}/v1/org/commerce/${kind}/${encodeURIComponent(id)}`
+      : `${apiRoot}/v1/org/commerce/${kind}`
   const res = await authedFetch(path, {
     method,
     headers: body

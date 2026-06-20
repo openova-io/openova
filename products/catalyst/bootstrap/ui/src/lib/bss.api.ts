@@ -82,7 +82,7 @@ const ZERO_OVERVIEW: BssOverview = {
 export async function getBssOverview(): Promise<BssOverview> {
   let res: Response
   try {
-    res = await authedFetch(`${API_BASE}/v1/sme/bss/overview`, {
+    res = await authedFetch(`${API_BASE}/v1/org/bss/overview`, {
       headers: { Accept: 'application/json' },
     })
   } catch {
@@ -203,7 +203,7 @@ const ZERO_REVENUE: BssRevenue = {
 export async function getRevenue(): Promise<BssRevenue> {
   let res: Response
   try {
-    res = await authedFetch(`${API_BASE}/v1/sme/billing/revenue`, {
+    res = await authedFetch(`${API_BASE}/v1/org/billing/revenue`, {
       headers: { Accept: 'application/json' },
     })
   } catch {
@@ -310,7 +310,7 @@ export interface IssueVoucherRequest {
   recipient_email?: string
 }
 
-const VOUCHERS_BASE = `${API_BASE}/v1/sme/billing/vouchers`
+const VOUCHERS_BASE = `${API_BASE}/v1/org/billing/vouchers`
 
 /**
  * listVouchers — GET /v1/sme/billing/vouchers/list. Returns live + soft-
@@ -431,7 +431,7 @@ const EMPTY_ORDERS: OrdersResponse = { pendingApi: true, orders: [] }
 export async function getOrders(): Promise<OrdersResponse> {
   let res: Response
   try {
-    res = await authedFetch(`${API_BASE}/v1/sme/orders`, {
+    res = await authedFetch(`${API_BASE}/v1/org/orders`, {
       headers: { Accept: 'application/json' },
     })
   } catch {
@@ -533,7 +533,7 @@ const EMPTY_SUBSCRIPTIONS: SubscriptionsResponse = {
 export async function getBillingSubscriptions(): Promise<SubscriptionsResponse> {
   let res: Response
   try {
-    res = await authedFetch(`${API_BASE}/v1/sme/billing/subscriptions`, {
+    res = await authedFetch(`${API_BASE}/v1/org/billing/subscriptions`, {
       headers: { Accept: 'application/json' },
     })
   } catch {
@@ -755,7 +755,7 @@ function mapTenant(raw: RawTenant): Tenant {
 export async function listTenants(): Promise<Tenant[]> {
   let res: Response
   try {
-    res = await authedFetch(`${API_BASE}/v1/sme/tenants`, {
+    res = await authedFetch(`${API_BASE}/v1/organizations`, {
       headers: { Accept: 'application/json' },
     })
   } catch {
