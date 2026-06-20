@@ -94,7 +94,7 @@ import {
 } from './types'
 import { shapeForCategory } from './shapes'
 import { GraphLegend } from './GraphLegend'
-import { BOUND_PADDING, NODE_R, physicsFor } from './layout'
+import { BOUND_PADDING, NODE_R, physicsFor, phyllotaxisSeed } from './layout'
 import { markerId, uniqueMarkerDefs } from './markers'
 
 /* ── Public types ────────────────────────────────────────────────── */
@@ -245,58 +245,6 @@ function makeForceBound(
     nodes = nextNodes
   }
   return force as (() => void) & {
-    initialize: (n: LiveNode[]) => void
-  }
-}
-
-/**
- * Soft ELLIPTICAL containment (#3958). A GENTLE inward force for any node
- * whose normalized position leaves the field ellipse
- * `(dx/fieldRadiusX)² + (dy/fieldRadiusY)² > 1`. Unlike makeForceBound (a
- * hard clamp at the literal viewport edge), this is a spring that grows
- * with how far the node has strayed past the target field — so the cloud
- * settles into an ellipse filling ~85% of BOTH the canvas width and
- * height, with the natural force-directed topology intact, never flung to
- * the edges and never crushed into the centre. On a wide-short canvas the
- * X radius is materially larger than the Y radius, so the cloud fills the
- * empty left/right margin instead of collapsing into a short-dim disc.
- * Inside the ellipse it does nothing (the charge/link/gravity balance owns
- * the layout there).
- */
-function makeForceRadialCap(cx: number, cy: number, fieldRadiusX: number, fieldRadiusY: number) {
-  let nodes: LiveNode[] = []
-  const force = (alpha: number) => {
-    if (fieldRadiusX <= 0 || fieldRadiusY <= 0) return
-    for (const n of nodes) {
-      // Pinned nodes are operator-controlled — never nudge them.
-      if (n.fx !== null || n.fy !== null) continue
-      const dx = n.x - cx
-      const dy = n.y - cy
-      // Normalized elliptical distance: == 1 on the field boundary, > 1
-      // outside it. Squaring avoids a sqrt on the common in-field path.
-      const nx = dx / fieldRadiusX
-      const ny = dy / fieldRadiusY
-      const norm2 = nx * nx + ny * ny
-      if (norm2 <= 1 || norm2 === 0) continue
-      // overshoot = how far past the boundary, as a fraction. norm is the
-      // elliptical radius (1 at the boundary); (norm-1) is the fractional
-      // overshoot, identical in spirit to the old (dist-R)/R.
-      const norm = Math.sqrt(norm2)
-      const overshoot = norm - 1
-      // Spring strength scales with the overshoot fraction so a node just
-      // past the field barely feels it, while a far-flung node is pulled
-      // firmly back. k tuned to be gentle (founder: keep the organic feel
-      // — no snapping). Push back along the true displacement (dx, dy) so
-      // the restoring force points at the centre.
-      const k = Math.min(0.25, overshoot) * alpha
-      n.vx -= dx * k
-      n.vy -= dy * k
-    }
-  }
-  ;(force as unknown as { initialize: (n: LiveNode[]) => void }).initialize = (nextNodes) => {
-    nodes = nextNodes
-  }
-  return force as ((alpha: number) => void) & {
     initialize: (n: LiveNode[]) => void
   }
 }
@@ -571,6 +519,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
     // Add or update.
     const cx = size.width / 2
     const cy = size.height / 2
+    // Walks the phyllotaxis spiral across nodes seeded in THIS pass so a
+    // batch of new nodes lands evenly spread, not stacked at the centroid.
+    let seedIndex = liveNodes.size
     for (const n of visibleNodes) {
       const existing = liveNodes.get(n.id)
       if (existing) {
@@ -582,16 +533,26 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
         existing.type = n.type
         existing.degree = degMap.get(n.id) ?? 0
       } else {
-        // Seed at the CENTROID with a small jitter proportional to the
-        // target field — small graphs start as a tight centred cluster,
-        // never flung outward (#3958 constant-density seeding).
-        const seedR = Math.min(60, physicsFor(visibleNodes.length, size.width, size.height).fieldRadius * 0.5)
-        const ang = Math.random() * 2 * Math.PI
-        const rad = Math.sqrt(Math.random()) * seedR
+        // EVEN phyllotaxis seed (#3970) — spread new nodes uniformly over
+        // the field with the golden-angle sunflower so they RELAX into a
+        // homogeneous fill under collision instead of starting clustered
+        // at the centroid and being flung to a ring. `seedIndex` walks the
+        // spiral across nodes added in this pass.
+        const phys0 = physicsFor(visibleNodes.length, size.width, size.height)
+        const pos = phyllotaxisSeed(
+          seedIndex,
+          Math.max(visibleNodes.length, liveNodes.size + 1),
+          cx,
+          cy,
+          phys0.fieldRadiusX,
+          phys0.fieldRadiusY,
+          1,
+        )
+        seedIndex += 1
         liveNodes.set(n.id, {
           ...n,
-          x: cx + Math.cos(ang) * rad,
-          y: cy + Math.sin(ang) * rad,
+          x: pos.x,
+          y: pos.y,
           vx: 0,
           vy: 0,
           fx: null,
@@ -643,22 +604,24 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
         .strength(phys.linkStrength)
     }
     ;(sim.force('charge') as ReturnType<typeof forceManyBody>).strength(phys.charge)
-    // Hard collision floor — radius is the per-node draw radius + the
-    // physics collide pad, so no two bubbles ever overlap (#3958).
+    // COLLISION is the DOMINANT, even-density spacing force (#3970): the
+    // radius is half the uniform gap (so two centres settle ~uniformGap
+    // apart) but never below the per-node draw radius + pad (no overlap).
+    // A strong (1.0) collide owns the homogeneous spread; charge is mild.
     ;(sim.force('collide') as ReturnType<typeof forceCollide>)
-      .radius((d) => Math.max(NODE_R, radiusForDegree((d as LiveNode).degree)) + 4)
-      .strength(0.9)
+      .radius((d) =>
+        Math.max(phys.collide, Math.max(NODE_R, radiusForDegree((d as LiveNode).degree)) + 4),
+      )
+      .strength(1)
     ;(sim.force('center') as ReturnType<typeof forceCenter>).x(cx).y(cy)
     ;(sim.force('gravityX') as ReturnType<typeof forceX>).x(cx).strength(phys.centerGravity)
     ;(sim.force('gravityY') as ReturnType<typeof forceY>).y(cy).strength(phys.centerGravity)
 
-    // Soft ELLIPTICAL containment — a GENTLE inward nudge for any node that
-    // strays past the target field ellipse (~85% of width AND height). This
-    // is the "stay in-field, don't fling to edges" force; the hard bound
-    // clamp below is only the absolute safety net at the true viewport edge
-    // (#3958 — fill the canvas on BOTH axes, never collapse to a short-dim
-    // disc with empty left/right margin).
-    sim.force('field', makeForceRadialCap(cx, cy, phys.fieldRadiusX, phys.fieldRadiusY))
+    // No radial cap (#3970): the elliptical-cap edge-ring generator is
+    // DELETED. Even density comes from collision + gentle centering + the
+    // even phyllotaxis seed; the only boundary force is the hard viewport
+    // clamp below (absolute safety net at the true edge).
+    sim.force('field', null)
 
     // Bounded-physics force — re-install every tick-tune so the box
     // matches the current container size. d3-force's `force()` setter

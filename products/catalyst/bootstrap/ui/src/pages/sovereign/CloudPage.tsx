@@ -56,15 +56,8 @@ import { useDeploymentEvents } from './useDeploymentEvents'
 import { Architecture } from './Architecture'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { CloudListView } from './cloud-list/CloudListView'
-import { CloudKindChips } from './cloud-list/CloudKindChips'
-import {
-  DEFAULT_KIND,
-  KIND_TO_REGISTRY,
-  isValidKind,
-  readPersistedKind,
-  type CloudListKind,
-} from './cloud-list/kinds'
 import { useK8sCacheStream } from '@/widgets/architecture-graph/useK8sCacheStream'
+import { CloudLensProvider } from '@/widgets/architecture-graph/useCloudLens'
 import {
   getHierarchicalInfrastructure,
   listDeployments,
@@ -385,108 +378,6 @@ export function CloudPage({
     })
   }
 
-  /* ── Resource-kind chip strip (issue #366 item 1) ──────────────── */
-  const activeKind: CloudListKind = useMemo(() => {
-    if (isValidKind(search.kind)) return search.kind
-    return readPersistedKind() ?? DEFAULT_KIND
-  }, [search.kind])
-
-  const kindCounts = useMemo<Record<CloudListKind, number | null>>(() => {
-    const c: Record<CloudListKind, number | null> = {
-      'clusters': 0,
-      'vclusters': 0,
-      'node-pools': 0,
-      'worker-nodes': 0,
-      'load-balancers': 0,
-      'services': null,
-      'ingresses': null,
-      'dns-zones': null,
-      'pvcs': 0,
-      'buckets': 0,
-      'volumes': 0,
-      'storage-classes': null,
-      'pods': null,
-      'deployments': null,
-      'statefulsets': null,
-      'daemonsets': null,
-      'replicasets': null,
-      'configmaps': null,
-      'secrets': null,
-      'namespaces': null,
-      'nodes': null,
-      'persistentvolumes': null,
-      'endpointslices': null,
-      // Wave 8 hotfix 2026-05-18: Family E PR #1602 added these two as
-      // first-class CloudListKinds (PolicyReports + ClusterPolicyReports)
-      // for EPIC-1 Compliance, but never updated this counts seed object.
-      // tsc failed for every subsequent UI build, the deploy-bot couldn't
-      // auto-bump values.yaml, and chart 1.4.155 published with stale UI
-      // image SHA 898305f (PR #1600 Family C era). Wave 5+6 UI changes
-      // never reached fresh provs t11/t12 — caught on the t12 5-agent
-      // test scorecard (W5-1/2/3/4 + W6-1 all FAIL).
-      'policyreports': null,
-      'clusterpolicyreports': null,
-    }
-    if (data) {
-      let clusters = 0
-      let vclusters = 0
-      let nodePools = 0
-      let workerNodes = 0
-      let lb = 0
-      for (const region of data.topology.regions ?? []) {
-        for (const cluster of region.clusters ?? []) {
-          clusters += 1
-          vclusters += cluster.vclusters?.length ?? 0
-          nodePools += cluster.nodePools?.length ?? 0
-          workerNodes += cluster.nodes?.length ?? 0
-          lb += cluster.loadBalancers?.length ?? 0
-        }
-      }
-      c['clusters'] = clusters
-      c['vclusters'] = vclusters
-      c['node-pools'] = nodePools
-      c['worker-nodes'] = workerNodes
-      c['load-balancers'] = lb
-      c['pvcs'] = data.storage?.pvcs?.length ?? 0
-      c['buckets'] = data.storage?.buckets?.length ?? 0
-      c['volumes'] = data.storage?.volumes?.length ?? 0
-    }
-    // Override every K8s-backed count from the live snapshot. Counts
-    // start at null until the SSE connection delivers initialState=1.
-    if (k8sStream.snapshot.size > 0) {
-      const liveCounts: Partial<Record<CloudListKind, number>> = {}
-      for (const key of k8sStream.snapshot.keys()) {
-        const kind = key.split(':', 1)[0]
-        for (const [chipId, registryKind] of Object.entries(KIND_TO_REGISTRY)) {
-          if (registryKind === kind) {
-            const id = chipId as CloudListKind
-            liveCounts[id] = (liveCounts[id] ?? 0) + 1
-          }
-        }
-      }
-      // Always set to 0 (not null) for K8s-backed kinds once the
-      // stream has *any* data — that means initialState=1 has
-      // arrived and a kind with 0 count is genuinely empty, not
-      // unconnected.
-      for (const chipId of Object.keys(KIND_TO_REGISTRY) as CloudListKind[]) {
-        c[chipId] = liveCounts[chipId] ?? 0
-      }
-    }
-    return c
-  }, [data, k8sStream.snapshot, k8sStream.revision])
-
-  const setKind = useCallback(
-    (next: CloudListKind) => {
-      navigate({
-        to: cloudPath(deploymentId) as never,
-        params: { deploymentId } as never,
-        search: { view: 'list', kind: next } as never,
-        replace: false,
-      })
-    },
-    [navigate, deploymentId],
-  )
-
   /* ── Fullscreen ─────────────────────────────────────────────── */
   const contentRef = useRef<HTMLDivElement | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -649,15 +540,10 @@ export function CloudPage({
             </button>
           </div>
 
-          {activeView === 'list' ? (
-            <CloudKindChips
-              activeKind={activeKind}
-              counts={kindCounts}
-              onChange={setKind}
-            />
-          ) : (
-            <span aria-hidden className="cloud-page-toolbar-spacer" />
-          )}
+          {/* #3970 — the list view now owns its own lens dropdown + chip
+              strip (CloudUnifiedList), shared with the graph via the lens
+              context. The legacy per-kind CloudKindChips strip is gone. */}
+          <span aria-hidden className="cloud-page-toolbar-spacer" />
 
           <button
             type="button"
@@ -689,6 +575,7 @@ export function CloudPage({
         </div>
 
         <CloudContext.Provider value={ctx}>
+          <CloudLensProvider>
           <div
             id="cloud-page-content"
             ref={contentRef}
@@ -728,6 +615,7 @@ export function CloudPage({
               {outletSlot}
             </div>
           </div>
+          </CloudLensProvider>
         </CloudContext.Provider>
       </div>
     </PortalShell>

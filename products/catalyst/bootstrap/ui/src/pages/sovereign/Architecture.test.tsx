@@ -100,23 +100,38 @@ describe('Architecture — empty', () => {
 })
 
 describe('Architecture — force graph render', () => {
-  it('renders the canvas + node groups for every type in the fixture', async () => {
+  it('renders the canvas + the Cloud-lens nodes by default (#3970)', async () => {
     renderArchitecturePage(infrastructureTopologyFixture)
     expect(await screen.findByTestId('arch-graph-canvas')).toBeTruthy()
     expect(screen.getByTestId('arch-graph-svg')).toBeTruthy()
 
-    // Composite ids: ${type}:${elementId}
+    // The default Cloud lens shows the cloud-provider nodes. Composite
+    // ids: ${type}:${elementId}.
     expect(screen.getByTestId('arch-graph-node-Cloud-Cloud:cloud-hetzner')).toBeTruthy()
     expect(screen.getByTestId('arch-graph-node-Region-Region:region-eu-central')).toBeTruthy()
     expect(
       screen.getByTestId('arch-graph-node-Cluster-Cluster:cluster-eu-central-primary'),
     ).toBeTruthy()
-    expect(screen.getByTestId('arch-graph-node-vCluster-vCluster:vc-eu-central-dmz')).toBeTruthy()
     expect(screen.getByTestId('arch-graph-node-WorkerNode-WorkerNode:node-eu-cp-0')).toBeTruthy()
     expect(
       screen.getByTestId('arch-graph-node-LoadBalancer-LoadBalancer:lb-eu-central-edge'),
     ).toBeTruthy()
-    expect(screen.getByTestId('arch-graph-node-Network-Network:net-eu-central')).toBeTruthy()
+    // vCluster (catalyst family) + Network (cilium family) are NOT in the
+    // Cloud lens, so they're not on the canvas by default.
+    expect(
+      screen.queryByTestId('arch-graph-node-vCluster-vCluster:vc-eu-central-dmz'),
+    ).toBeNull()
+    expect(screen.queryByTestId('arch-graph-node-Network-Network:net-eu-central')).toBeNull()
+  })
+
+  it('+Add vCluster renders the vCluster node on the canvas', async () => {
+    renderArchitecturePage(infrastructureTopologyFixture)
+    await screen.findByTestId('arch-graph-svg')
+    fireEvent.click(screen.getByTestId('cloud-architecture-add-chip-button'))
+    fireEvent.click(screen.getByTestId('cloud-architecture-add-chip-item-vCluster'))
+    expect(
+      await screen.findByTestId('arch-graph-node-vCluster-vCluster:vc-eu-central-dmz'),
+    ).toBeTruthy()
   })
 
   it('renders the edge legend with every relation type (popover, issue #366 item 3)', async () => {
@@ -227,27 +242,70 @@ describe('Architecture — context menu', () => {
 })
 
 describe('Architecture — density slider', () => {
-  it('exposes the global density slider with the default 50%', async () => {
+  it('exposes the global density slider with the default 100% (#3970)', async () => {
     renderArchitecturePage(infrastructureTopologyFixture)
     await screen.findByTestId('arch-graph-svg')
     const slider = screen.getByTestId(
       'cloud-architecture-global-density',
     ) as HTMLInputElement
     expect(slider).toBeTruthy()
-    expect(slider.value).toBe('50')
+    expect(slider.value).toBe('100')
   })
+})
 
-  it('exposes per-type badges for every type', async () => {
+describe('Architecture — default Cloud lens (#3970)', () => {
+  it('opens on the Cloud lens — the strip shows ONLY the Cloud-lens chips', async () => {
     renderArchitecturePage(infrastructureTopologyFixture)
     await screen.findByTestId('arch-graph-svg')
+    // Default lens = Cloud.
+    const lens = screen.getByTestId('cloud-architecture-lens') as HTMLSelectElement
+    expect(lens.value).toBe('cloud')
+    // Cloud-lens members (scope/compute/network ∩ cloud family) are in the
+    // strip…
     expect(screen.getByTestId('cloud-architecture-type-badge-Cloud')).toBeTruthy()
     expect(screen.getByTestId('cloud-architecture-type-badge-Region')).toBeTruthy()
     expect(screen.getByTestId('cloud-architecture-type-badge-Cluster')).toBeTruthy()
-    expect(screen.getByTestId('cloud-architecture-type-badge-vCluster')).toBeTruthy()
     expect(screen.getByTestId('cloud-architecture-type-badge-NodePool')).toBeTruthy()
     expect(screen.getByTestId('cloud-architecture-type-badge-WorkerNode')).toBeTruthy()
     expect(screen.getByTestId('cloud-architecture-type-badge-LoadBalancer')).toBeTruthy()
-    expect(screen.getByTestId('cloud-architecture-type-badge-Network')).toBeTruthy()
+    // …and NON-members are ABSENT from the strip (removed, not greyed):
+    // vCluster (catalyst family) + Network (cilium family) + the workloads.
+    expect(screen.queryByTestId('cloud-architecture-type-badge-vCluster')).toBeNull()
+    expect(screen.queryByTestId('cloud-architecture-type-badge-Network')).toBeNull()
+    expect(screen.queryByTestId('cloud-architecture-type-badge-Pod')).toBeNull()
+    expect(screen.queryByTestId('cloud-architecture-type-badge-HelmRelease')).toBeNull()
+  })
+
+  it('selecting the Reconciliation lens SWAPS the strip to the control chips', async () => {
+    renderArchitecturePage(infrastructureTopologyFixture)
+    await screen.findByTestId('arch-graph-svg')
+    const lens = screen.getByTestId('cloud-architecture-lens') as HTMLSelectElement
+    fireEvent.change(lens, { target: { value: 'reconciliation' } })
+    expect(lens.value).toBe('reconciliation')
+    // Cloud chips are GONE from the strip…
+    expect(screen.queryByTestId('cloud-architecture-type-badge-Cloud')).toBeNull()
+    expect(screen.queryByTestId('cloud-architecture-type-badge-Region')).toBeNull()
+    // …and the Reconciliation (control-category) chips are present.
+    expect(screen.getByTestId('cloud-architecture-type-badge-HelmRelease')).toBeTruthy()
+    expect(screen.getByTestId('cloud-architecture-type-badge-Kustomization')).toBeTruthy()
+    expect(screen.getByTestId('cloud-architecture-type-badge-Application')).toBeTruthy()
+  })
+
+  it('+Add grows the lens and marks Custom; removing reverts', async () => {
+    renderArchitecturePage(infrastructureTopologyFixture)
+    await screen.findByTestId('arch-graph-svg')
+    // No Custom marker on the pure Cloud lens.
+    expect(screen.queryByTestId('cloud-architecture-lens-custom')).toBeNull()
+    // Open the +Add menu and add a Database chip (not in the Cloud lens).
+    fireEvent.click(screen.getByTestId('cloud-architecture-add-chip-button'))
+    fireEvent.click(screen.getByTestId('cloud-architecture-add-chip-item-Database'))
+    // The Database chip now appears + the Custom marker shows.
+    expect(screen.getByTestId('cloud-architecture-type-badge-Database')).toBeTruthy()
+    expect(screen.getByTestId('cloud-architecture-lens-custom')).toBeTruthy()
+    // Remove it → back to the pure lens (Custom clears).
+    fireEvent.click(screen.getByTestId('cloud-architecture-type-badge-Database-remove'))
+    expect(screen.queryByTestId('cloud-architecture-type-badge-Database')).toBeNull()
+    expect(screen.queryByTestId('cloud-architecture-lens-custom')).toBeNull()
   })
 })
 

@@ -26,8 +26,10 @@ export { reconcilersToGraph } from './reconcilerAdapter'
 export {
   edgeNodeId,
   DEFAULT_INACTIVE_TYPES,
+  ALL_NODE_TYPES,
   NODE_CATEGORY,
   NODE_FAMILY,
+  NODE_FILL,
   STATUS_FILL,
   FAMILY_BORDER,
   FAMILY_LABEL,
