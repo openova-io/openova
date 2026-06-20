@@ -60,6 +60,8 @@ import { LogViewer } from '@/widgets/cloud-list/LogViewer'
 import { ExecPanel } from '@/widgets/cloud-list/ExecPanel'
 // Wave-2 Family-E (#1583, C11-010): per-Pod SBOM + CVE drill-down.
 import { SBOMTab } from './SBOMTab'
+// #3996 — the lightweight ArgoCD/Flux management tab (Flux reconciler kinds).
+import { ReconcileTab, isReconcilerManageable } from './ReconcileTab'
 import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
 import {
   RESOURCE_DETAIL_TABS,
@@ -245,7 +247,13 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
         {/* G79 #2626: 'exec' tab is only meaningful for Pods. Hide it on
             non-Pod kinds rather than rendering a tab whose content is
             "Drill into the Tree tab and pick a child Pod." */}
-        {RESOURCE_DETAIL_TABS.filter((t) => t !== 'exec' || apiKind === 'pod').map((t) => {
+        {RESOURCE_DETAIL_TABS.filter(
+          (t) =>
+            (t !== 'exec' || apiKind === 'pod') &&
+            // #3996 — the 'reconcile' management tab is only meaningful for
+            // the Flux reconciler kinds; hide it everywhere else.
+            (t !== 'reconcile' || isReconcilerManageable(apiKind)),
+        ).map((t) => {
           const active = t === tab
           return (
             <button
@@ -364,6 +372,23 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
                 Open in Compliance Dashboard →
               </a>
             </div>
+          )}
+          {tab === 'reconcile' && (
+            isReconcilerManageable(apiKind) ? (
+              <ReconcileTab
+                deploymentId={deploymentId}
+                apiKind={apiKind}
+                ns={ns}
+                name={name}
+                obj={obj}
+                isTierAdmin={isTierAdmin}
+              />
+            ) : (
+              <PlaceholderTab
+                testId="resource-detail-reconcile-not-flux"
+                note="Reconcile / suspend / resume are available only for Flux reconciler kinds (HelmRelease, Kustomization, GitRepository, OCIRepository, HelmRepository, HelmChart)."
+              />
+            )
           )}
           {tab === 'tree' && (
             <ResourceTree basePath={basePath} tree={tree} isError={!!treeErr} isLoading={!tree && !treeErr} />
@@ -926,6 +951,8 @@ function tabLabel(tab: ResourceDetailTab): string {
       return 'Metrics'
     case 'sbom':
       return 'SBOM'
+    case 'reconcile':
+      return 'Reconcile'
     case 'tree':
       return 'Tree'
     default:
