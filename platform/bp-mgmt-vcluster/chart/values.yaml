@@ -467,6 +467,57 @@ vcluster:
           to: newapi/newapi-bp-newapi-newapi-pg-rw
         - from: newapi/newapi-bp-newapi-newapi-pg-ro
           to: newapi/newapi-bp-newapi-newapi-pg-ro
+        # ── #3952 gitea-pg + harbor-pg host→vCluster reachability (SERVICE half) ──
+        # gitea + harbor each own a DEDICATED embedded CNPG `Cluster` HOST-rendered
+        # in host ns `gitea`/`harbor` (NOT shared-pg). After #3642 both apps run
+        # INSIDE vc-mgmt and dial the CNPG primary at
+        # `<app>-pg-rw.<ns>.svc.cluster.local:5432` (gitea values.yaml
+        # `gitea.database.HOST`; harbor values.yaml `database.host`
+        # `harbor-pg-rw.harbor.svc.cluster.local`). The CNPG `-rw`/`-ro` Services
+        # live HOST-side only and DON'T reliably resolve inside vc-mgmt:
+        # PROVEN on hw172 — region-B `gitea` `Init:CrashLoopBackOff`
+        # `Failed to initialize ORM engine: dial tcp: lookup
+        # gitea-pg-rw.gitea.svc.cluster.local: no such host` while the host CNPG
+        # `gitea-pg` is 1/1 healthy. (Region-A gitea resolved transiently — the
+        # vCluster CoreDNS host-service fallthrough is timing-dependent; the
+        # replicateServices mirror is the deterministic fix.) harbor-core hits the
+        # identical NXDOMAIN on `harbor-pg-rw.harbor.svc` the moment its
+        # `harbor-database-secret` lands (the secret fix above). Same 4th-layer
+        # DNS gap already fixed for guacamole-pg/newapi-pg above — mirror the
+        # gitea-pg + harbor-pg `-rw`/`-ro` Services so both apps' host-style
+        # FQDNs resolve natively inside vc-mgmt. Additive / no-op until each
+        # host-bridged CNPG Cluster renders. Folds #3950 (SERVICE half). Refs
+        # #3952 #3948 #3642.
+        - from: gitea/gitea-pg-rw
+          to: gitea/gitea-pg-rw
+        - from: gitea/gitea-pg-ro
+          to: gitea/gitea-pg-ro
+        - from: harbor/harbor-pg-rw
+          to: harbor/harbor-pg-rw
+        - from: harbor/harbor-pg-ro
+          to: harbor/harbor-pg-ro
+        # ── #3952 CROSS-vCLUSTER (rtz→mgmt) SERVICE reachability ──
+        # Two vc-mgmt apps depend on Services that live in the RTZ vCluster
+        # (#3373 Batch A re-homed valkey + seaweedfs INTO vc-rtz), so their host
+        # projections are the rtz-syncer-mangled names in HOST ns `rtz`. Pre-#3642
+        # these apps ran HOST-side and resolved the host ns-`rtz` Service; after
+        # #3642 they run inside vc-mgmt, whose CoreDNS has NO ns `rtz` → NXDOMAIN.
+        # Mirror each host `rtz/<svc>` into vc-mgmt ns `rtz` (same name) so the
+        # baked FQDN resolves natively:
+        #   • valkey-primary — newapi's `REDIS_CONN_STRING` (chart 1.4.81/#3482)
+        #     is `redis://valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc:6379`;
+        #     without this newapi `[FATAL] Redis ping test failed: lookup … no
+        #     such host` CrashLoops (hw172, BOTH regions).
+        #   • seaweedfs-s3 — openbao snapshot-replication's `S3_ENDPOINT` is
+        #     `http://seaweedfs-s3-x-seaweedfs-x-rtz-vcluster.rtz.svc:8333`; the
+        #     companion creds Secret is delivered by the fromHost.secrets entry
+        #     above. Both are needed for the raft-snapshot S3 backup to work.
+        # No-op until bp-valkey/bp-seaweedfs render in vc-rtz (additive). Refs
+        # #3952 #3482 #3629 #3373.
+        - from: rtz/valkey-primary-x-valkey-x-rtz-vcluster
+          to: rtz/valkey-primary-x-valkey-x-rtz-vcluster
+        - from: rtz/seaweedfs-s3-x-seaweedfs-x-rtz-vcluster
+          to: rtz/seaweedfs-s3-x-seaweedfs-x-rtz-vcluster
         # ClusterMesh-global write endpoints (active-hot-standby): the host
         # FQDN cross-region SHARED_PG consumers (grafana et al.) actually dial.
         - from: shared-data/shared-pg-mesh-rw
@@ -773,6 +824,33 @@ vcluster:
             # `gitea/*`) so the #3374 DB-hub-Secret exclusion stays intact.
             "gitea/gitea-pg-app": "gitea/gitea-pg-app"
             "harbor/harbor-sso-oidc-credentials": "harbor/harbor-sso-oidc-credentials"
+            # ── #3952 harbor-pg-app delivery (hw172 spine wedge) ──
+            # EXACT analog of the gitea-pg-app fix above (#3948/#3949). Harbor
+            # runs its OWN embedded CNPG `harbor-pg` (host ns `harbor`) — it is
+            # NOT a shared-pg consumer, so bp-postgres `mangledTarget` (#3879)
+            # does NOT mint a `harbor-database-secret` for it. Instead the harbor
+            # chart's in-vc-mgmt `harbor-database-secret-sync` post-install Job
+            # (templates/database-secret-sync-job.yaml) copies the raw CNPG-app
+            # Secret `harbor-pg-app` → `harbor-database-secret`, which harbor-core
+            # then mounts (values.yaml `database.password` secretKeyRef). After
+            # #3642 moved Harbor INTO vc-mgmt, `harbor-pg-app` is minted by CNPG
+            # in the HOST ns `harbor` (emberstack reflector scoped to `harbor`
+            # only) and is NOT visible inside vc-mgmt → the sync-Job's source
+            # poll never resolves → `harbor-database-secret` is never created →
+            # harbor-core `CreateContainerConfigError` (secret
+            # "harbor-database-secret-x-harbor-x-mgmt-vcluster" not found) →
+            # harbor-jobservice CrashLoops on it (hw172 RCA, dep
+            # b50ba61d9cb9e157, BOTH regions). SAFE to fromHost-import (single
+            # in-vCluster owner, no from-host↔to-host fight): like gitea-pg-app
+            # it is the RAW CNPG-generated app Secret — NO emberstack
+            # `reflection-*` annotation targeting ns `mgmt`, NOT materialised
+            # there by any bp-postgres mangledTarget — so the from-host syncer is
+            # its only in-vc owner. Proven by the byte-identical working analogs
+            # `gitea-pg-app` (above) + `guacamole-pg-app` (catalyst-system/*).
+            # EXACT-NAME (not `harbor/*`) so the #3374 `harbor-database-secret`
+            # DB-hub exclusion stays intact (that hub Secret must NEVER be
+            # fromHost-imported — it is reflector-owned). Refs #3952 #3642.
+            "harbor/harbor-pg-app": "harbor/harbor-pg-app"
             "grafana/grafana-sso-oidc-credentials": "grafana/grafana-sso-oidc-credentials"
             # keycloak — NO entry: the only host-minted Secret it needs is
             # `keycloak-database-secret` (excluded above); it has no host SSO
@@ -781,6 +859,32 @@ vcluster:
             "openbao/openbao-sso-oidc-credentials": "openbao/openbao-sso-oidc-credentials"
             "openbao/openbao-host-token-reviewer-static": "openbao/openbao-host-token-reviewer-static"
             "catalyst-system/*": "catalyst-system/*"
+            # ── #3952 CROSS-vCLUSTER (rtz→mgmt): seaweedfs-s3-secret ──
+            # openbao's snapshot-replication CronJob (templates/snapshot-
+            # replication.yaml) backs its raft snapshots to the SeaweedFS S3
+            # endpoint. SeaweedFS lives in the RTZ vCluster (#3373 Batch A), so
+            # its S3 admin Secret is the rtz-syncer-mangled host object
+            # `seaweedfs-s3-secret-x-seaweedfs-x-rtz-vcluster` in HOST ns `rtz`.
+            # The openbao chart ships an `openbao-snapshot-s3-seed` Job that does
+            # a cross-namespace `get secret -n rtz
+            # seaweedfs-s3-secret-x-seaweedfs-x-rtz-vcluster` and copies the
+            # admin keys into the openbao ns as `seaweedfs-s3-secret` (the
+            # CronJob reads creds via secretKeyRef, which K8s resolves only in
+            # the Pod's own namespace). Pre-#3642 openbao ran HOST-side so that
+            # ns-`rtz` read resolved against the host apiserver. After #3642
+            # openbao runs INSIDE vc-mgmt, whose apiserver has NO ns `rtz` and
+            # cannot see that host Secret → the seeder Job loops its 30-min wait
+            # forever (`secrets "seaweedfs-s3-secret-x-seaweedfs-x-rtz-vcluster"
+            # not found`) → `seaweedfs-s3-secret` never lands →
+            # `openbao-snapshot-save`/`-fetch` `CreateContainerConfigError`
+            # (hw172 RCA, BOTH regions). Mirroring the host `rtz/<src>` Secret
+            # into vc-mgmt ns `rtz` (same name) makes the seeder's cross-ns read
+            # resolve natively inside vc-mgmt with ZERO openbao-chart change
+            # ($seederSrcNs=`rtz`, $seederSrcName=`seaweedfs-s3-secret-x-...`).
+            # No-op until bp-seaweedfs (a later rtz-vCluster slot) renders the
+            # source — additive. The companion S3-ENDPOINT Service is mirrored
+            # via replicateServices.fromHost below. Refs #3952 #3629 #3373.
+            "rtz/seaweedfs-s3-secret-x-seaweedfs-x-rtz-vcluster": "rtz/seaweedfs-s3-secret-x-seaweedfs-x-rtz-vcluster"
 
   # ── In-vCluster CRD registration (#3373, OSS-native) ────────────────────
   # The init-manifests deployer (`loft-sh/vcluster` controllers

@@ -328,7 +328,28 @@ name: bp-mgmt-vcluster
 # 0.2.27 (#3948): fromHost-import gitea/gitea-pg-app (exact-name) so the
 # gitea pod's GITEA__database__PASSWD secretKeyRef resolves inside vc-mgmt —
 # unblocks gitea → bp-catalyst-platform gitea-token-mint hook → console (hw172).
-version: 0.2.27
+# 0.2.28 (#3952, Refs #3642 #3737 #3948 — SUPERSEDES #3950/#3951): comprehensive
+# fix for the #3642 secret+service cross-boundary cascade root-caused live on
+# hw172 (dep b50ba61d9cb9e157, BOTH regions). Two delivery mechanisms:
+#   sync.fromHost.secrets.mappings.byName:
+#     + harbor/harbor-pg-app (host→mgmt, exact-name analog of 0.2.27 gitea-pg-app):
+#       harbor's in-vc database-secret-sync Job copies this raw CNPG-app Secret →
+#       harbor-database-secret; without it harbor-core CreateContainerConfigError.
+#     + rtz/seaweedfs-s3-secret-x-seaweedfs-x-rtz-vcluster (CROSS-vc rtz→mgmt):
+#       openbao snapshot-replication's S3-creds seeder reads it from ns rtz;
+#       invisible inside vc-mgmt after #3642 → openbao-snapshot-save stuck.
+#   networking.replicateServices.fromHost:
+#     + gitea-pg-rw/-ro + harbor-pg-rw/-ro (host→mgmt): the dedicated embedded
+#       CNPG -rw/-ro Services don't reliably resolve inside vc-mgmt — PROVEN by
+#       region-B gitea Init:CrashLoop `lookup gitea-pg-rw.gitea.svc: no such host`.
+#       Folds #3950 (the SERVICE half).
+#     + valkey-primary + seaweedfs-s3 rtz-mangled (CROSS-vc rtz→mgmt): newapi
+#       Redis URL + openbao S3 endpoint point at vc-rtz Services that NXDOMAIN
+#       inside vc-mgmt → newapi `[FATAL] Redis ping test failed` CrashLoop.
+# All additions are additive / no-op-until-the-source-renders (the established
+# replicateServices + fromHost-secrets semantics). #3951 (gitea-token-mint
+# 403-tolerant probe) is folded into bp-catalyst-platform, NOT here.
+version: 0.2.28
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT

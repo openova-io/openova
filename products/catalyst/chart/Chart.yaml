@@ -2912,7 +2912,15 @@ name: bp-catalyst-platform
 # Catalyst-Zero render adds one namespace to one ingress matchExpression (no
 # behavior change on a host-placed guacamole). Renumbered past the deploy-bot
 # auto-bump to 1.4.717 (one above main's 1.4.716) to clear the pin collision.
-version: 1.4.723
+# 1.4.724 — #3952 (folds #3951, Refs #3642 #3948): the catalyst-gitea-token-mint
+# pre-install hook's gitea-API readiness probe is now 403-tolerant. With gitea's
+# REQUIRE_SIGNIN_VIEW the unauthenticated /api/v1/version returns HTTP 403, and
+# the old `curl -sSf` (fail on >=400) NEVER broke the wait loop → it burned the
+# full 168x5s=14min budget on every prov before falling through to the
+# authenticated mint (verified live hw172, dep b50ba61d9cb9e157). Now any HTTP
+# answer (non-000 code) = reachable; only a connect failure keeps waiting —
+# removing a 14min dead-wait from the console-up critical path.
+version: 1.4.724
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +
