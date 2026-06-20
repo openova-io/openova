@@ -2920,7 +2920,7 @@ name: bp-catalyst-platform
 # authenticated mint (verified live hw172, dep b50ba61d9cb9e157). Now any HTTP
 # answer (non-000 code) = reachable; only a connect failure keeps waiting —
 # removing a 14min dead-wait from the console-up critical path.
-version: 1.4.739
+version: 1.4.740
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +
