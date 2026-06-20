@@ -51,11 +51,21 @@ export interface CloudLensState {
  * useCloudLensState — the state implementation. Used directly by the
  * provider; exposed so the graph widget can also fall back to a private
  * instance when it's rendered standalone (no provider).
+ *
+ * `initialLensId` seeds the opening lens (#3996 follow-up: the
+ * ConvergenceWizard reconciliation deep-link arrives with
+ * `?lens=reconciliation`, which CloudPage threads down here so the surface
+ * opens on the Reconciliation chip-set instead of the default Cloud lens).
+ * It is honoured ONLY for the initial state — once the operator selects a
+ * lens or edits chips, that interaction owns the state (we never re-seed on
+ * a re-render, so navigating chips never snaps back to the URL lens).
  */
-export function useCloudLensState(): CloudLensState {
-  const [lensId, setLensId] = useState<LensId>(DEFAULT_LENS_ID)
+export function useCloudLensState(initialLensId?: LensId): CloudLensState {
+  const seedId: LensId =
+    initialLensId && LENSES[initialLensId] ? initialLensId : DEFAULT_LENS_ID
+  const [lensId, setLensId] = useState<LensId>(seedId)
   const [activeTypes, setActiveTypes] = useState<Set<ArchNodeType>>(
-    () => lensChips(LENSES[DEFAULT_LENS_ID]),
+    () => lensChips(LENSES[seedId]),
   )
 
   const api = useMemo<CloudLensState>(() => {
@@ -90,8 +100,20 @@ export function useCloudLensState(): CloudLensState {
 
 const CloudLensContext = createContext<CloudLensState | null>(null)
 
-export function CloudLensProvider({ children }: { children: ReactNode }) {
-  const value = useCloudLensState()
+export function CloudLensProvider({
+  children,
+  initialLensId,
+}: {
+  children: ReactNode
+  /**
+   * Seed the opening lens from the URL (`?lens=<id>`). #3996 follow-up:
+   * the reconciliation deep-link opens the surface on the Reconciliation
+   * lens. Honoured only for the initial mount — operator chip/lens
+   * interactions own the state thereafter.
+   */
+  initialLensId?: LensId
+}) {
+  const value = useCloudLensState(initialLensId)
   return <CloudLensContext.Provider value={value}>{children}</CloudLensContext.Provider>
 }
 

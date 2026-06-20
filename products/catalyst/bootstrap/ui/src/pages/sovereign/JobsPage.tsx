@@ -5,14 +5,26 @@
  *   • Header: <h1>Jobs</h1> + tagline + back-to-apps link.
  *   • <JobsTable /> — table view with search/sort/filter + per-row Retry.
  *
+ * # FINITE work only (#3996 follow-up)
+ *
+ * /jobs is the list of FINITE work — things that start, run, and END:
+ * provision steps, cutover steps, batch Jobs, CronJob runs, and one-shot
+ * Day-2 mutations. The CONTINUOUS reconcilers — Flux HelmRelease installs,
+ * Flux Kustomization reconciles, and long-running reconciler Deployments —
+ * are NOT finite work; they run forever by design. They are now EXCLUDED
+ * from `/jobs` by the catalyst-api `ListJobs` handler
+ * (`jobs.FilterFiniteJobs`) and surface ONLY on the Cloud surface's
+ * Reconciliation lens + the ArgoCD-like reconciler-management surface
+ * (#3996), which reads them LIVE from the cluster. So this page no longer
+ * drowns its finite rows in an ever-growing wall of "running" reconcilers.
+ *
  * # One honest list — no client-side mashup (issue #3646)
  *
  * This page renders ONE backend list: the catalyst-api `/jobs` REST
- * payload (`liveJobs`), which — after the §5a generic ingestion — already
- * carries EVERY reconciler activity (HelmRelease installs, Flux
- * Kustomizations, recurring CronJobs, batch Jobs, reconciler Deployments,
- * the cutover steps) with a backend-derived, honest status. The previous
- * four-feed mashup is GONE:
+ * payload (`liveJobs`), now narrowed to the finite-work set described
+ * above (recurring CronJobs + batch Jobs + the provision/cutover steps),
+ * each with a backend-derived, honest status. The previous four-feed
+ * mashup is GONE:
  *
  *   ✗ `flowJobs` (`synthesizeJobFromFlowNode` as a list source) — the
  *     openova-flow rows are now written into the jobs Store by the

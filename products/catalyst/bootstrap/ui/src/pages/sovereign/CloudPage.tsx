@@ -68,6 +68,7 @@ import {
 } from './cloud-list/kinds'
 import { useK8sCacheStream } from '@/widgets/architecture-graph/useK8sCacheStream'
 import { CloudLensProvider } from '@/widgets/architecture-graph/useCloudLens'
+import type { LensId } from '@/widgets/architecture-graph/presets'
 import {
   getHierarchicalInfrastructure,
   listDeployments,
@@ -206,7 +207,15 @@ export function CloudPage({
   const navigate = useNavigate()
 
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const search = useSearch({ strict: false }) as { view?: string; kind?: string }
+  const search = useSearch({ strict: false }) as {
+    view?: string
+    kind?: string
+    // #3996 follow-up — the reconciliation deep-link opens the surface on
+    // the Reconciliation lens; the route's validateSearch already
+    // closed-set-validated this against LENSES, so we thread it straight
+    // into CloudLensProvider as the initial chip-set.
+    lens?: LensId
+  }
 
   const { snapshot } = useDeploymentEvents({
     deploymentId,
@@ -689,7 +698,7 @@ export function CloudPage({
         </div>
 
         <CloudContext.Provider value={ctx}>
-          <CloudLensProvider>
+          <CloudLensProvider initialLensId={search.lens}>
           <div
             id="cloud-page-content"
             ref={contentRef}

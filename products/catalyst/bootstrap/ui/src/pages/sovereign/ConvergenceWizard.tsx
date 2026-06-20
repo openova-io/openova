@@ -169,11 +169,15 @@ export function ConvergenceWizard({ snapshot, deploymentId }: ConvergenceWizardP
                   {' · '}
                   {/* #3958 — the standalone /reconciliation DAG page is
                       gone; reconcilers now live on the unified Cloud
-                      graph. Deep-link there. */}
+                      graph. #3996 follow-up: deep-link must select the
+                      Reconciliation LENS (not the default Cloud lens) so
+                      the operator lands on the reconciler chip-set —
+                      `lens=reconciliation` is carried through the cloud
+                      route's validateSearch and seeds CloudLensProvider. */}
                   <Link
                     to={'/provision/$deploymentId/cloud' as never}
                     params={{ deploymentId } as never}
-                    search={{ view: 'graph' } as never}
+                    search={{ view: 'graph', lens: 'reconciliation' } as never}
                     data-testid="wizard-link-reconciliation"
                     className="text-[var(--color-accent)] no-underline hover:underline"
                   >

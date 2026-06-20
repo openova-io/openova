@@ -151,10 +151,15 @@ describe('ResourceDetailPage', () => {
     )
     // URL-kind shape preserved on the wrapper for deep-link asserts.
     expect(screen.getByTestId('resource-detail-services-kube-dns')).toBeTruthy()
-    // Tab strip still uses the canonical 7 testids.
-    for (const t of ['overview', 'yaml', 'logs', 'exec', 'events', 'metrics', 'tree']) {
+    // Tab strip for a non-Pod, non-reconcilable kind (Service): the
+    // Pod-only 'exec' tab (#2626) and the Flux-only 'reconcile' tab (#3996)
+    // are hidden; every other tab renders.
+    for (const t of ['overview', 'yaml', 'logs', 'events', 'metrics', 'sbom', 'compliance', 'tree']) {
       expect(screen.getByTestId(`resource-detail-tab-${t}`)).toBeTruthy()
     }
+    // exec is Pod-only and reconcile is Flux-only — neither shows on a Service.
+    expect(screen.queryByTestId('resource-detail-tab-exec')).toBeNull()
+    expect(screen.queryByTestId('resource-detail-tab-reconcile')).toBeNull()
   })
 
   it('renders YamlEditor with singular kind for plural URL kind', () => {

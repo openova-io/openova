@@ -72,19 +72,34 @@ func TestHandler_ListJobs_Empty(t *testing.T) {
 	}
 }
 
+// TestHandler_ListJobs_Populated asserts the FINITE-work view (#3996
+// follow-up): the continuous-reconciler install leaves (KindInstall) are
+// dropped from /jobs and surface only on the Cloud Reconciliation lens,
+// while genuinely finite work (provision steps, batch Jobs, CronJob runs,
+// Day-2 mutations) still renders. A finite-work group with surviving
+// children keeps its rolled-up status + ChildIDs; the bootstrap-kit group,
+// left with only install leaves, is pruned entirely.
 func TestHandler_ListJobs_Populated(t *testing.T) {
 	r, st, _ := newJobsAPIRouter(t)
 	depID := "dep-populated"
 
 	t0 := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
-	parentID := jobs.JobID(depID, jobs.GroupBootstrapKit)
+	// bootstrap-kit group holds ONLY install leaves (continuous Flux
+	// HelmReleases) — it must be pruned from /jobs after filtering.
+	bkParent := jobs.JobID(depID, jobs.GroupBootstrapKit)
+	// reconcilers group holds finite work (provisioner steps, a batch
+	// task) that MUST still render on /jobs.
+	finiteParent := jobs.JobID(depID, jobs.GroupProvisioner)
 	jobsToSeed := []jobs.Job{
-		// Parent group materialised explicitly — exactly what the
-		// helmwatch bridge does on first seed.
+		// bootstrap-kit group + its continuous install leaves → all dropped.
 		{DeploymentID: depID, JobName: jobs.GroupBootstrapKit, DisplayName: jobs.GroupBootstrapKitDisplay, Type: jobs.JobTypeGroup, Status: jobs.StatusPending},
-		{DeploymentID: depID, JobName: "install-cilium", AppID: "cilium", Type: jobs.JobTypeInstall, ParentID: parentID, Status: jobs.StatusSucceeded, StartedAt: &t0, FinishedAt: ptrTime(t0.Add(20 * time.Second))},
-		{DeploymentID: depID, JobName: "install-flux", AppID: "flux", Type: jobs.JobTypeInstall, ParentID: parentID, Status: jobs.StatusRunning, StartedAt: ptrTime(t0.Add(time.Minute))},
-		{DeploymentID: depID, JobName: "install-keycloak", AppID: "keycloak", Type: jobs.JobTypeInstall, ParentID: parentID, Status: jobs.StatusPending},
+		{DeploymentID: depID, JobName: "install-cilium", AppID: "cilium", Kind: jobs.KindInstall, Type: jobs.JobTypeInstall, ParentID: bkParent, Status: jobs.StatusSucceeded, StartedAt: &t0, FinishedAt: ptrTime(t0.Add(20 * time.Second))},
+		{DeploymentID: depID, JobName: "install-flux", AppID: "flux", Kind: jobs.KindInstall, Type: jobs.JobTypeInstall, ParentID: bkParent, Status: jobs.StatusRunning, StartedAt: ptrTime(t0.Add(time.Minute))},
+		// Finite-work group + surviving children (a provision step + a
+		// batch task) → kept on /jobs.
+		{DeploymentID: depID, JobName: jobs.GroupProvisioner, Type: jobs.JobTypeGroup, Status: jobs.StatusPending},
+		{DeploymentID: depID, JobName: "provisioner-step-tofu-init", Kind: jobs.KindStep, Type: jobs.JobTypeInstall, ParentID: finiteParent, Status: jobs.StatusSucceeded, StartedAt: &t0, FinishedAt: ptrTime(t0.Add(10 * time.Second))},
+		{DeploymentID: depID, JobName: "task-snapshot-once", Kind: jobs.KindTask, Type: jobs.JobTypeInstall, ParentID: finiteParent, Status: jobs.StatusRunning, StartedAt: ptrTime(t0.Add(time.Minute))},
 	}
 	for _, j := range jobsToSeed {
 		if err := st.UpsertJob(j); err != nil {
@@ -101,10 +116,21 @@ func TestHandler_ListJobs_Populated(t *testing.T) {
 		Jobs []jobs.Job `json:"jobs"`
 	}
 	decodeJSON(t, rec.Body, &resp)
-	if len(resp.Jobs) != 4 {
-		t.Fatalf("expected 4 jobs (group + 3 leaves), got %d", len(resp.Jobs))
+
+	// Expect the finite group + its 2 finite leaves; bootstrap-kit + the 2
+	// install leaves are gone.
+	if len(resp.Jobs) != 3 {
+		t.Fatalf("expected 3 jobs (finite group + 2 finite leaves), got %d: %+v", len(resp.Jobs), resp.Jobs)
 	}
-	// Find the group job and assert its rolled-up status.
+	for _, j := range resp.Jobs {
+		if jobs.IsContinuousReconciler(j.Kind) {
+			t.Errorf("continuous reconciler leaked into /jobs: %q (kind=%q)", j.JobName, j.Kind)
+		}
+		if j.JobName == jobs.GroupBootstrapKit {
+			t.Errorf("empty bootstrap-kit group should have been pruned, still present")
+		}
+	}
+	// The finite group survives with both finite children + a running rollup.
 	var group *jobs.Job
 	for i := range resp.Jobs {
 		if resp.Jobs[i].Type == jobs.JobTypeGroup {
@@ -113,21 +139,17 @@ func TestHandler_ListJobs_Populated(t *testing.T) {
 		}
 	}
 	if group == nil {
-		t.Fatalf("group job missing in response: %+v", resp.Jobs)
+		t.Fatalf("finite group job missing in response: %+v", resp.Jobs)
 	}
-	// Mixed children (succeeded + running + pending) → rolled-up
-	// status must be running (failed > running > pending > succeeded).
+	if group.JobName != jobs.GroupProvisioner {
+		t.Errorf("surviving group: want %q, got %q", jobs.GroupProvisioner, group.JobName)
+	}
+	// Children: succeeded step + running task → rolled-up running.
 	if group.Status != jobs.StatusRunning {
 		t.Errorf("group rolled-up Status: want running, got %q", group.Status)
 	}
-	if len(group.ChildIDs) != 3 {
-		t.Errorf("group ChildIDs: want 3, got %d (%v)", len(group.ChildIDs), group.ChildIDs)
-	}
-	// Verify all leaf jobs carry parentId.
-	for _, j := range resp.Jobs {
-		if j.Type == jobs.JobTypeInstall && j.ParentID != parentID {
-			t.Errorf("leaf %q parentId: want %q, got %q", j.JobName, parentID, j.ParentID)
-		}
+	if len(group.ChildIDs) != 2 {
+		t.Errorf("group ChildIDs: want 2, got %d (%v)", len(group.ChildIDs), group.ChildIDs)
 	}
 }
 
