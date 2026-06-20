@@ -328,6 +328,19 @@ func main() {
 			log.Info("k8scache: data plane started",
 				"sovereigns", len(k8sFactory.Clusters()),
 			)
+			// #4000 — durable self-heal of secondary-region kubeconfigs.
+			// FactoryFromEnv just loaded every <depID>-<region>.yaml from
+			// disk VERBATIM (LoadClustersFromDir applies no rewrite). On a
+			// chroot whose secondary kubeconfig still carries the unroutable
+			// PUBLIC EIP (cloud-init predating #3991, or a restart re-reading
+			// the un-rewritten on-disk file), the secondary region's
+			// informers never sync → every per-app Topology placement
+			// collapses to a false `singleton`. Probe each secondary, and
+			// where the server host is an unreachable EIP, heal it to a
+			// reachable private SAN read off the apiserver cert, persist, and
+			// re-register. Async so the dial probes never delay readiness;
+			// a no-op on a healthy/mothership env.
+			go h.SelfHealSecondaryKubeconfigsOnDisk(log)
 			// G95.1 (Refs #2642) — wire the ExecStreamFactory so the
 			// /api/v1/sovereigns/{id}/k8s/exec/{ns}/{pod}/{container}
 			// WebSocket handler can actually dial the apiserver's
