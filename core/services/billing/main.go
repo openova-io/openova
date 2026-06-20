@@ -29,7 +29,7 @@ func main() {
 	cancelURL := getEnv("CANCEL_URL", "https://sme.openova.io/checkout")
 	catalogURL := getEnv("CATALOG_URL", "http://catalog.org-services.svc.cluster.local:8082")
 	tenantURL := getEnv("TENANT_URL", "http://tenant.org-services.svc.cluster.local:8083")
-	// NOTIFICATION_SERVICE_URL — sme-notification's POST /notification/send
+	// NOTIFICATION_SERVICE_URL — org-notification's POST /notification/send
 	// endpoint, used by D28 (voucher-issued gifting email). Default points at
 	// the in-cluster ClusterIP DNS the chart wires per sovereign.
 	notificationURL := getEnv("NOTIFICATION_SERVICE_URL", "http://notification.org-services.svc.cluster.local:8087/notification/send")

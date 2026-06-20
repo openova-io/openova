@@ -1,6 +1,6 @@
 // Billing currency helpers — shared by every OMR display in the marketplace app.
 //
-// The authoritative money unit across SME services is the baisa (1/1000 OMR).
+// The authoritative money unit across Organization services is the baisa (1/1000 OMR).
 // The marketplace previously defined THREE near-identical helpers —
 // formatPrice (rounded to integer OMR) in PlanStep/AddonsStep/ReviewStep, and
 // formatOMR (toFixed(3)) in CheckoutStep (#85). That meant the same plan

@@ -19,7 +19,7 @@ package events
 //
 // This file mirrors bridge.go on the subscribe side. It defines:
 //
-//   - BrokerSubscriber: the single Subscribe surface every SME service
+//   - BrokerSubscriber: the single Subscribe surface every Organization service
 //     consumer is migrating to. Matches the existing
 //     events.Consumer.Subscribe + events.DLQSubscriber.Subscribe shape
 //     so call sites only need a type swap, not a handler rewrite.
@@ -51,7 +51,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// BrokerSubscriber is the unified subscribe surface every SME service
+// BrokerSubscriber is the unified subscribe surface every Organization service
 // consumer (provisioning, notification, domain, billing tenant-events)
 // uses. Implementations:
 //
@@ -145,13 +145,13 @@ type MultiSubscriberConfig struct {
 }
 
 // StreamCatalystSME is the canonical JetStream Stream backing every
-// SME convergence event (catalyst.tenant.*, catalyst.billing.*,
+// Organization convergence event (catalyst.tenant.*, catalyst.billing.*,
 // catalyst.domain.*, catalyst.provision.*). Created idempotently by
 // MultiSubscriber if it does not already exist — first consumer to
 // start on a fresh Sovereign owns lifecycle.
 const StreamCatalystSME = "CATALYST_SME"
 
-// ensureSMEStream creates an SME-side JetStream Stream listening on
+// ensureSMEStream creates an Organization-side JetStream Stream listening on
 // the supplied subject filter (defaulting to `catalyst.>`). Idempotent
 // — calling it on a Sovereign whose Stream was provisioned in a prior
 // startup is a no-op. Lives here (rather than in nats.go) because the
@@ -174,7 +174,7 @@ func (c *NATSConn) ensureSMEStream(ctx context.Context, name string, subjects []
 	}
 	_, err := c.js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 		Name:        name,
-		Description: "Catalyst SME convergence events (catalyst.<domain>.<event>).",
+		Description: "Catalyst Organization convergence events (catalyst.<domain>.<event>).",
 		Subjects:    subjects,
 		Retention:   jetstream.LimitsPolicy,
 		Storage:     jetstream.FileStorage,
@@ -182,7 +182,7 @@ func (c *NATSConn) ensureSMEStream(ctx context.Context, name string, subjects []
 		Replicas:    1,
 	})
 	if err != nil {
-		return fmt.Errorf("events: ensure SME stream %s: %w", name, err)
+		return fmt.Errorf("events: ensure Organization stream %s: %w", name, err)
 	}
 	return nil
 }
@@ -244,7 +244,7 @@ func NewMultiSubscriber(cfg MultiSubscriberConfig) (*MultiSubscriber, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := cfg.NATS.ensureSMEStream(ctx, cfg.StreamName, cfg.StreamSubjects); err != nil {
-			return nil, fmt.Errorf("events: ensure SME stream: %w", err)
+			return nil, fmt.Errorf("events: ensure Organization stream: %w", err)
 		}
 	}
 	if kafkaEnabled {

@@ -45,14 +45,14 @@ type MeteringProxy struct {
 	Publisher             Publisher
 	PriceMicroOMRPerToken int64
 	// TenantIDHeader is the lower-case HTTP header name carrying the
-	// SME tenant id (default "x-tenant-id"). NewAPI's customer-API
+	// Organization tenant id (default "x-tenant-id"). NewAPI's customer-API
 	// admin layer or the cluster ingress is expected to inject it on
 	// every authenticated request — the sidecar does not extract it
 	// from the bearer token because that would tie us to a specific
 	// IdP token shape.
 	TenantIDHeader string
 	// CustomerIDHeader is the lower-case HTTP header name carrying
-	// the SME-vcluster Keycloak user UUID (default "x-customer-id").
+	// the Organization-vcluster Keycloak user UUID (default "x-customer-id").
 	// Same injection contract as TenantIDHeader.
 	CustomerIDHeader string
 

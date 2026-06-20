@@ -64,8 +64,8 @@ func TestCommitFiles_GiteaTarget_RetriesOnRefLock(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClientWithAPIURL("token", "openova-io", "openova", srv.URL)
-	err := c.CommitFiles(context.Background(), "org-tenants", "sme-tenant: provision alice", map[string]string{
-		"clusters/otech.omani.works/org-tenants/alice/namespace.yaml": "kind: Namespace\nmetadata:\n  name: sme-alice\n",
+	err := c.CommitFiles(context.Background(), "org-tenants", "org-tenant: provision alice", map[string]string{
+		"clusters/otech.omani.works/org-tenants/alice/namespace.yaml": "kind: Namespace\nmetadata:\n  name: org-alice\n",
 	})
 	if err != nil {
 		t.Fatalf("CommitFiles should have retried past the ref-lock and succeeded, got: %v", err)
@@ -110,7 +110,7 @@ func TestCommitFiles_GiteaTarget_RefLockPersists(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClientWithAPIURL("token", "openova-io", "openova", srv.URL)
-	err := c.CommitFiles(context.Background(), "org-tenants", "sme-tenant: provision bob", map[string]string{
+	err := c.CommitFiles(context.Background(), "org-tenants", "org-tenant: provision bob", map[string]string{
 		"clusters/otech.omani.works/org-tenants/bob/namespace.yaml": "kind: Namespace\n",
 	})
 	if err == nil {
@@ -158,7 +158,7 @@ func TestCommitFiles_GiteaTarget_RefLockRetryHonoursContext(t *testing.T) {
 
 	c := NewClientWithAPIURL("token", "openova-io", "openova", srv.URL)
 	start := time.Now()
-	err := c.CommitFiles(ctx, "org-tenants", "sme-tenant: provision carol", map[string]string{
+	err := c.CommitFiles(ctx, "org-tenants", "org-tenant: provision carol", map[string]string{
 		"clusters/otech.omani.works/org-tenants/carol/namespace.yaml": "kind: Namespace\n",
 	})
 	elapsed := time.Since(start)

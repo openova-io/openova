@@ -1145,8 +1145,8 @@ func (s *Store) GetCreditBalance(ctx context.Context, customerID string) (int, e
 // fractional-baisa amounts into amount_micro_omr; the legacy whole-OMR
 // rows are projected upward via amount_omr * 1,000,000. The sum is what
 // the synchronous HTTP handler returns as `balance_after_micro_omr` so
-// SME-admin pre-flight checks have full precision. Negative balances are
-// permitted (post-paid SME tier may be charged before top-up).
+// Organization-admin pre-flight checks have full precision. Negative balances are
+// permitted (post-paid Organization tier may be charged before top-up).
 //
 // CAST(... AS BIGINT) — see GetCreditBalance comment.
 func (s *Store) GetCreditBalanceMicroOMR(ctx context.Context, customerID string) (int64, error) {
@@ -1272,7 +1272,7 @@ func (s *Store) RecordUsage(ctx context.Context, entry UsageEntry) (ledgerID str
 	}
 
 	// Sum the running balance INSIDE the same tx so concurrent writers see
-	// a consistent snapshot. Negative balances are permitted (post-paid SME
+	// a consistent snapshot. Negative balances are permitted (post-paid Organization
 	// tier; balance enforcement is a policy decision at a higher layer).
 	// CAST(... AS BIGINT) so lib/pq scans a Go int64 instead of a numeric
 	// string — see GetCreditBalanceMicroOMR.

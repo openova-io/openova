@@ -1,5 +1,5 @@
 // Package gitguard centralises the cross-cluster pollution guard that
-// keeps the SME provisioning service from committing per-tenant overlays
+// keeps the Organization provisioning service from committing per-tenant overlays
 // into a foreign cluster's clusters/<fqdn>/ tree (issue #944).
 //
 // Background:

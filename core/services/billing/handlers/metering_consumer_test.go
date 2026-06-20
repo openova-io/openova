@@ -314,7 +314,7 @@ func TestDefaultCustomerResolver_LooksUpExisting(t *testing.T) {
 
 // TestDefaultCustomerResolver_AutoCreatesOnMiss: when no customer
 // matches the userID, the resolver auto-creates one. This is the
-// cold-start path for SME-tier provisioning where the first metered
+// cold-start path for Organization-tier provisioning where the first metered
 // LLM call may arrive before the rbac org.user.created envelope.
 func TestDefaultCustomerResolver_AutoCreatesOnMiss(t *testing.T) {
 	db, mock, err := sqlmock.New()

@@ -48,7 +48,7 @@ func newTestOrg(slug string) *orgapi.Organization {
 	o.SetName(slug)
 	o.Spec.Slug = slug
 	o.Spec.SovereignRef = "t99.omani.works"
-	o.Spec.Tier = "sme"
+	o.Spec.Tier = "org"
 	return o
 }
 

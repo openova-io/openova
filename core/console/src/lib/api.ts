@@ -277,7 +277,7 @@ export const uninstallApp = (orgId: string, slug: string) =>
 // G117.4 #2743 AC3 — Launch button calls catalyst-api which mints the
 // signed silent-SSO URL (carries `prompt=none` + `kc_idp_hint=catalyst-pin`).
 // The handler lives on the catalyst-api at `/catalyst/v1/apps/{id}/launch-url`
-// (NOT under the SME `/api` namespace), so we bypass `request()` and hit
+// (NOT under the Organization `/api` namespace), so we bypass `request()` and hit
 // the route directly from the same origin.
 //
 // Error surfaces (per `endpoint_handler.go:HandleGetLaunchURL`):

@@ -286,7 +286,7 @@ func TestCreateOrganizationCR_PayloadShape(t *testing.T) {
 
 // TestCreateOrganizationCR_DefaultsForOptionalFields — when payload
 // omits Tier / BillingMode / Name / ParentDomain the handler must fill
-// sensible defaults (sme / real / slug / Handler.TenantParentDomain).
+// sensible defaults (org / real / slug / Handler.TenantParentDomain).
 // We can't observe the wire bytes without a fake apiserver, so we
 // drive the helper to its early-exit on the cluster-env scrub and
 // assert it emits the right log line. The unit-level guarantee is the
@@ -320,7 +320,7 @@ func TestCreateOrganizationCR_DefaultsForOptionalFields(t *testing.T) {
 }
 
 // TestCreateOrganizationCR_EmptyParentDomain_StillMints — a Sovereign
-// that hasn't opted into the SME-pool flow has Handler.TenantParentDomain
+// that hasn't opted into the Organization-pool flow has Handler.TenantParentDomain
 // empty. The Organization CR must still mint (the controller skips the
 // HTTPRoute step when parent is empty; everything else — vCluster /
 // Keycloak / Gitea — must still reconcile). Asserts no

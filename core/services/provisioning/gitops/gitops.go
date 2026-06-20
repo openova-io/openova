@@ -1271,7 +1271,7 @@ spec:
 }
 
 // generateProvisioningTenantRBAC emits a Role + RoleBinding that gives the
-// sme/provisioning ServiceAccount the minimum tenant-scoped permissions it
+// org-services/provisioning ServiceAccount the minimum tenant-scoped permissions it
 // needs during teardown:
 //
 //   - patch/delete on the HelmRelease named "vcluster" (to strip finalizers

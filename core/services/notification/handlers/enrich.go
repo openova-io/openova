@@ -19,8 +19,8 @@ import (
 //
 // Implementation calls the tenant and auth services over the internal
 // cluster network using a short-lived superadmin JWT minted with the
-// shared JWT_SECRET. Only services inside the sme namespace can hit
-// these endpoints; the gateway does not expose /tenant/admin or
+// shared JWT_SECRET. Only services inside the org-services namespace can
+// hit these endpoints; the gateway does not expose /tenant/admin or
 // /auth/admin.
 type Enricher struct {
 	TenantURL string // e.g. http://tenant.org-services.svc.cluster.local:8083
@@ -101,7 +101,7 @@ func (e *Enricher) Lookup(ctx context.Context, tenantID string) (*TenantInfo, er
 
 // workspaceURL renders the canonical per-tenant console URL using the
 // Sovereign's parent zone — `https://console.<subdomain>.<parentZone>`.
-// Mirrors sme_tenant_gitops.go:536 (chart-side host derivation) and
+// Mirrors org_tenant_gitops.go:536 (chart-side host derivation) and
 // tenant_route.go:113 (controller-side HTTPRoute hostname) so the
 // notification email's clickable link lands on the exact host the
 // Cilium Gateway routes to the tenant's console Service.

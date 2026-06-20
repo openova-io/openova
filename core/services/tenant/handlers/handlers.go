@@ -262,8 +262,8 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 	// consumer decodes into and the bootstrap-API funnel maps onto —
 	// instead of a per-service anonymous struct embedding *store.Tenant
 	// (which flattened a dozen unused fields onto the wire). Tier /
-	// BillingMode / ParentDomain stay empty here (the SME-pool wizard
-	// default); the consumer applies the canonical defaults (tier→"sme",
+	// BillingMode / ParentDomain stay empty here (the Organization-pool wizard
+	// default); the consumer applies the canonical defaults (tier→"org",
 	// billing→"real"), so every door defaults identically.
 	tenantCreatedPayload := events.NewTenantCreatedPayload(
 		tenant.ID, tenant.Slug, tenant.Name, tenant.OwnerID, ownerEmail,

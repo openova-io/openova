@@ -78,9 +78,9 @@ func main() {
 		slog.Warn("NATS unavailable at startup — metering will spool to disk",
 			"url", natsURL, "error", err)
 	} else {
-		// Per ADR-0001 §6 the canonical consumer (sme-billing) owns
+		// Per ADR-0001 §6 the canonical consumer (org-billing) owns
 		// the Stream lifecycle. The sidecar does NOT call
-		// EnsureUsageStream — if the Stream is missing, sme-billing
+		// EnsureUsageStream — if the Stream is missing, org-billing
 		// will create it on its next startup and the spool drain
 		// will succeed afterward.
 		defer natsConn.Close()

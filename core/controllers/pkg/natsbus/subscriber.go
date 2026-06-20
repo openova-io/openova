@@ -57,7 +57,7 @@ import (
 )
 
 // StreamCatalystSME is the canonical JetStream Stream backing every
-// SME convergence event (catalyst.tenant.*, catalyst.billing.*,
+// Organization convergence event (catalyst.tenant.*, catalyst.billing.*,
 // catalyst.domain.*, catalyst.provision.*). Mirrors
 // core/services/shared/events.StreamCatalystSME — kept in sync by the
 // constant lifting up to the chart / per-Sovereign overlay.

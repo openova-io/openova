@@ -81,7 +81,7 @@ func renderTemplate(tmpl, subject string, data json.RawMessage) (string, string,
 			return "", "", err
 		}
 		if subject == "" {
-			subject = "Welcome to OpenOva SME"
+			subject = "Welcome to OpenOva"
 		}
 		return templates.WelcomeEmail(d.Name), subject, nil
 
@@ -165,7 +165,7 @@ func renderTemplate(tmpl, subject string, data json.RawMessage) (string, string,
 		return templates.PaymentReceivedEmail(d.OrgName, d.Amount), subject, nil
 
 	case "voucher-issued":
-		// D28 — voucher gifting email. sme-billing's IssueVoucher handler
+		// D28 — voucher gifting email. org-billing's IssueVoucher handler
 		// POSTs here whenever a successful upsert carries a non-empty
 		// `recipient_email`. The `sovereign_fqdn` value is per-Sovereign
 		// and originates from the chart `billing.sovereignFQDN` env var;
@@ -181,7 +181,7 @@ func renderTemplate(tmpl, subject string, data json.RawMessage) (string, string,
 			return "", "", err
 		}
 		if subject == "" {
-			subject = "You've been gifted a voucher for OpenOva SME"
+			subject = "You've been gifted a voucher for OpenOva"
 		}
 		return templates.VoucherIssuedEmail(d.Code, d.CreditOMR, d.Description, d.SovereignFQDN, d.ValidityHint), subject, nil
 

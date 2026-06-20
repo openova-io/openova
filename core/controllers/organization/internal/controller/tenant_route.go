@@ -2,7 +2,7 @@
 //
 // Issue #1629 follow-up. PowerDNS now resolves
 // `console.<slug>.<parentDomain>` (e.g. `console.acme.omani.homes`) for
-// every Org whose Sovereign has a parent_domains entry with role=sme-
+// every Org whose Sovereign has a parent_domains entry with role=org-
 // pool, but no HTTPRoute attaches that hostname to the Org's installed
 // product Service. Result: the Cilium Gateway happily terminates TLS
 // on the wildcard cert, then returns the storefront landing page (the
@@ -20,7 +20,7 @@
 // hostname so the Cilium Gateway hostname matcher picks the per-
 // tenant route over the wildcard for any request matching the exact
 // host. The `console.` prefix is the canonical per-tenant console
-// hostname per CLAUDE.md §0 and matches sme_tenant_gitops.go:536
+// hostname per CLAUDE.md §0 and matches org_tenant_gitops.go:536
 // (chart-side host derivation for bp-wordpress-tenant et al.) so the
 // runtime reconciler and the GitOps overlay agree byte-for-byte.
 // TBD-A67 issue #1990.
@@ -131,7 +131,7 @@ func (r *Reconciler) reconcileTenantRoute(ctx context.Context, org *orgapi.Organ
 
 	// TBD-A67 issue #1990: hostname is `console.<subdomain>.<parentDomain>`
 	// — the `console.` infix is the canonical per-tenant console host
-	// per CLAUDE.md §0 + sme_tenant_gitops.go:536. Without it, the
+	// per CLAUDE.md §0 + org_tenant_gitops.go:536. Without it, the
 	// runtime reconciler emitted `<slug>.<parent>` while the chart-side
 	// overlay emitted `console.<slug>.<parent>` and the two drifted.
 	hostname := fmt.Sprintf("console.%s.%s", subdomain, parentDomain)

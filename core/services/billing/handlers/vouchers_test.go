@@ -489,7 +489,7 @@ func TestIssueVoucher_SendsAuthorizationHeader(t *testing.T) {
 	// (see chart templates) so the values are guaranteed identical at
 	// runtime. The test exercises the symmetric-bytes property: same
 	// bytes on the mint side as the verify side.
-	secret := []byte("test-sme-jwt-secret-aligned-bytes-32x")
+	secret := []byte("test-org-jwt-secret-aligned-bytes-32x")
 
 	rt := &captureRoundTripper{}
 	h := &Handler{
@@ -560,8 +560,8 @@ func TestIssueVoucher_SendsAuthorizationHeader(t *testing.T) {
 	if !ok {
 		t.Fatalf("claims not jwt.MapClaims: %T", parsed.Claims)
 	}
-	if sub, _ := claims["sub"].(string); sub != "sme-billing" {
-		t.Errorf("sub claim: got %q, want sme-billing", sub)
+	if sub, _ := claims["sub"].(string); sub != "org-billing" {
+		t.Errorf("sub claim: got %q, want org-billing", sub)
 	}
 	if role, _ := claims["role"].(string); role != "superadmin" {
 		t.Errorf("role claim: got %q, want superadmin", role)

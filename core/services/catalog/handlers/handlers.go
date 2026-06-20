@@ -24,13 +24,13 @@ type Handler struct {
 //
 //   - "superadmin"      — direct OpenOva operations (Catalyst-Zero
 //     operators). Mints a token with role=superadmin via
-//     sharedauth.SMERoleFor when the bearer holds the `catalyst-owner`
+//     sharedauth.OrgRoleFor when the bearer holds the `catalyst-owner`
 //     realm role.
 //   - "sovereign-admin" — franchisee operations on a franchised
 //     Sovereign. The chroot's catalyst-api bridges an operator's
-//     RS256 session into the SME mesh's HS256 wire contract
-//     (org_billing_vouchers.go::mintSMEBridgeToken) and stamps the
-//     SME-vocabulary role from the operator's realm roles (per
+//     RS256 session into the Organization mesh's HS256 wire contract
+//     (org_billing_vouchers.go::mintOrgBridgeToken) and stamps the
+//     Organization-vocabulary role from the operator's realm roles (per
 //     docs/FRANCHISE-MODEL.md §3 — sovereign-admin owns the franchise's
 //     marketplace catalog). Without this widening the chroot's bridge
 //     token is rejected with 403 on every publish toggle (C4-012 /

@@ -34,26 +34,26 @@ import (
 // NATS canonical subjects. Canonical convention from ADR-0001 §6:
 //
 //	catalyst.<domain>.<event>            // platform / control-plane events
-//	sme.<producer>.events                // legacy SME bus (RedPanda topics)
+//	org.<producer>.events                // legacy Organization bus (RedPanda topics)
 //
 // New subjects MUST follow the catalyst.<domain>.<event> shape.
 const (
 	// SubjectUsageRecorded carries one metered LLM-request envelope per
 	// completed customer call. Produced by the NewAPI metering sidecar
-	// (#798 §A); consumed by sme-billing's metering_consumer (#798 §B).
+	// (#798 §A); consumed by org-billing's metering_consumer (#798 §B).
 	// Payload shape: see UsageRecordedPayload below.
 	SubjectUsageRecorded = "catalyst.usage.recorded"
 
 	// StreamCatalystUsage is the JetStream Stream that retains envelopes
 	// on SubjectUsageRecorded. The Stream is created idempotently by
-	// EnsureUsageStream during sme-billing startup (and by any other
+	// EnsureUsageStream during org-billing startup (and by any other
 	// service that publishes/consumes it on cold start). 14-day retention
 	// gives ample replay window for billing reconciliation; storage stays
 	// bounded via MaxBytes set in the JetStream chart.
 	StreamCatalystUsage = "CATALYST_USAGE"
 
 	// ConsumerOrgBillingMetering is the durable consumer name on
-	// StreamCatalystUsage that sme-billing reads from. Durable name lives
+	// StreamCatalystUsage that org-billing reads from. Durable name lives
 	// here so the publisher (sidecar) and the consumer (billing) cannot
 	// drift on naming.
 	ConsumerOrgBillingMetering = "org-billing-metering"
@@ -64,7 +64,7 @@ const (
 // NewAPI metering sidecar (Go) and any future non-Go publisher emit the
 // same envelope.
 type UsageRecordedPayload struct {
-	// CustomerID is the SME-vcluster Keycloak user UUID propagated from
+	// CustomerID is the Organization-vcluster Keycloak user UUID propagated from
 	// NewAPI's `external_id` field (ADR-0003 §3.2). When the upstream
 	// request did not carry an authenticated user (admin probe, health
 	// check), this MUST be empty and the subscriber will skip the row.
@@ -103,7 +103,7 @@ type UsageRecordedMetadata struct {
 	CompletedAt  string `json:"completed_at,omitempty"`
 }
 
-// NATSPublisher is the interface sme-billing's HTTP handler and the
+// NATSPublisher is the interface org-billing's HTTP handler and the
 // metering sidecar use for at-least-once publication. Tests substitute
 // a fake; production wires NATSConn.
 type NATSPublisher interface {
@@ -133,7 +133,7 @@ type NATSConn struct {
 //
 // On success the returned NATSConn is ready for PublishUsage calls.
 // EnsureUsageStream MUST be called once at startup by whichever
-// service owns the Stream lifecycle (sme-billing); publishers that do
+// service owns the Stream lifecycle (org-billing); publishers that do
 // not own the Stream may rely on the consumer side to have created it.
 func ConnectNATS(url string) (*NATSConn, error) {
 	if url == "" {
@@ -209,7 +209,7 @@ func (c *NATSConn) EnsureUsageStream(ctx context.Context) error {
 // the Stream at process start — first-writer-wins is fine because the
 // underlying CreateOrUpdateStream call is a no-op on second invocation.
 //
-// Specifically: sme-billing calls this at startup so the metering sidecar
+// Specifically: org-billing calls this at startup so the metering sidecar
 // (which deliberately does NOT call any Ensure* — see
 // services/metering-sidecar/main.go) can begin publishing immediately
 // after a fresh Sovereign cold-start, with billing-side bootstrap
@@ -321,7 +321,7 @@ type natsSub struct {
 func (c *NATSConn) SubscribeUsageRecorded(ctx context.Context) (NATSSubscription, error) {
 	cons, err := c.js.CreateOrUpdateConsumer(ctx, StreamCatalystUsage, jetstream.ConsumerConfig{
 		Durable:       ConsumerOrgBillingMetering,
-		Description:   "sme-billing metering consumer (#798).",
+		Description:   "org-billing metering consumer (#798).",
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		AckWait:       30 * time.Second,
 		FilterSubject: SubjectUsageRecorded,
@@ -345,15 +345,15 @@ func (c *NATSConn) SubscribeUsageRecorded(ctx context.Context) (NATSSubscription
 // observed delivery semantics are identical to the deprecated path.
 //
 // Stream ownership: CATALYST_SME is bootstrapped by
-// EnsureCatalystSMEStream (which sme-billing calls at startup) AND by
-// NewMultiSubscriber (which every other SME service's tenant-events
+// EnsureCatalystSMEStream (which org-billing calls at startup) AND by
+// NewMultiSubscriber (which every other Organization service's tenant-events
 // consumer calls). First-writer-wins is fine because the underlying
 // CreateOrUpdateStream call is idempotent on the (`catalyst.>` subject
 // filter, file storage, 14d retention) tuple.
 func (c *NATSConn) SubscribeUsageRecordedOnSME(ctx context.Context) (NATSSubscription, error) {
 	cons, err := c.js.CreateOrUpdateConsumer(ctx, StreamCatalystSME, jetstream.ConsumerConfig{
 		Durable:       ConsumerOrgBillingMetering,
-		Description:   "sme-billing metering consumer (#798) — CATALYST_SME filter scope.",
+		Description:   "org-billing metering consumer (#798) — CATALYST_SME filter scope.",
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		AckWait:       30 * time.Second,
 		FilterSubject: SubjectUsageRecorded,

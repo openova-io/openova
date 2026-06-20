@@ -62,7 +62,7 @@ type OrganizationSpec struct {
 	// Kind is "customer" (external) or "internal" (department).
 	Kind string `json:"kind"`
 
-	// Tier is "sme" or "corporate". Drives DMZ-vCluster auto-provisioning
+	// Tier is "org" or "corporate". Drives DMZ-vCluster auto-provisioning
 	// in EPIC-5 — out of scope here.
 	Tier string `json:"tier"`
 

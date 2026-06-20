@@ -16,7 +16,7 @@ import (
 // 3 in-memory retries instead of blocking the partition (issue #72).
 //
 // Topic fan-in bridges the transition described in issues #69 and #70:
-// both the canonical sme.*.events names and the legacy auth.events /
+// both the canonical org.*.events names and the legacy auth.events /
 // domain-events names are subscribed, so this service does not depend
 // on publisher-side renames landing first.
 func (h *Handler) StartConsumer(ctx context.Context, sub Subscriber) error {
@@ -108,7 +108,7 @@ func (h *Handler) handleUserLogin(event *events.Event) error {
 		return nil
 	}
 	body := templates.WelcomeEmail(data.Name)
-	return h.Mailer.Send(data.Email, "Welcome to OpenOva SME", body)
+	return h.Mailer.Send(data.Email, "Welcome to OpenOva", body)
 }
 
 // ---------------------------------------------------------------------------

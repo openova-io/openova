@@ -62,7 +62,7 @@ func TestNewTenantCreatedPayload_TrimsWhitespace(t *testing.T) {
 }
 
 // TestTenantCreatedPayload_OptionalFieldsOmitEmpty proves tier/billing/
-// parent omit when empty (the SME-pool default path), so the consumer's
+// parent omit when empty (the Organization-pool default path), so the consumer's
 // canonical defaulting applies rather than an explicit empty string.
 func TestTenantCreatedPayload_OptionalFieldsOmitEmpty(t *testing.T) {
 	p := NewTenantCreatedPayload("tid", "acme", "ACME", "uid", "a@b.c", "plan", "", "", "")

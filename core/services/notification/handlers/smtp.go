@@ -248,7 +248,7 @@ func (m *Mailer) Send(to, subject, htmlBody string) error {
 	headers := []string{
 		"MIME-Version: 1.0",
 		"Content-Type: text/html; charset=UTF-8",
-		fmt.Sprintf("From: OpenOva SME <%s>", m.From),
+		fmt.Sprintf("From: OpenOva <%s>", m.From),
 		fmt.Sprintf("To: %s", to),
 		fmt.Sprintf("Subject: %s", subject),
 	}

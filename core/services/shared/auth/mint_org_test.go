@@ -1,7 +1,7 @@
-// Package auth — mint_sme_test.go: round-trip + role-mapping tests
-// for the SME bridge mint helper. Sanity contract:
+// Package auth — mint_org_test.go: round-trip + role-mapping tests
+// for the Organization bridge mint helper. Sanity contract:
 //
-//	MintSMEAccessToken → parse with same secret via HS256 →
+//	MintOrgAccessToken → parse with same secret via HS256 →
 //	claims expose the same sub/email/role we minted.
 //
 // And the failure paths:
@@ -11,7 +11,7 @@
 //	                    we assert signature is real by recomputing
 //	                    with a different secret).
 //
-// SMERoleFor is data-driven: every documented mapping in the helper
+// OrgRoleFor is data-driven: every documented mapping in the helper
 // godoc plus the conservative-by-default fall-through.
 package auth
 
@@ -23,9 +23,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-func TestMintSMEAccessToken_RoundTrip(t *testing.T) {
+func TestMintOrgAccessToken_RoundTrip(t *testing.T) {
 	secret := []byte("test-secret-do-not-use-in-prod-32b")
-	tok, err := MintSMEAccessToken(secret, "user-uuid-1", "alice@example.com", "sovereign-admin")
+	tok, err := MintOrgAccessToken(secret, "user-uuid-1", "alice@example.com", "sovereign-admin")
 	if err != nil {
 		t.Fatalf("mint: unexpected error: %v", err)
 	}
@@ -58,35 +58,35 @@ func TestMintSMEAccessToken_RoundTrip(t *testing.T) {
 	if got, _ := claims["typ"].(string); got != "session" {
 		t.Errorf("typ: got %q want session", got)
 	}
-	// exp is in the future and within the SMETokenTTL window.
+	// exp is in the future and within the OrgTokenTTL window.
 	expF, _ := claims["exp"].(float64)
 	exp := time.Unix(int64(expF), 0)
-	if time.Until(exp) > SMETokenTTL+time.Second {
+	if time.Until(exp) > OrgTokenTTL+time.Second {
 		t.Errorf("exp too far in future: %s", exp)
 	}
-	if time.Until(exp) < SMETokenTTL-time.Minute {
+	if time.Until(exp) < OrgTokenTTL-time.Minute {
 		t.Errorf("exp too close: %s", exp)
 	}
 }
 
-func TestMintSMEAccessToken_EmptySecretRejected(t *testing.T) {
-	_, err := MintSMEAccessToken(nil, "sub", "email", "role")
+func TestMintOrgAccessToken_EmptySecretRejected(t *testing.T) {
+	_, err := MintOrgAccessToken(nil, "sub", "email", "role")
 	if err == nil {
 		t.Fatal("expected error for nil secret, got nil")
 	}
 	if !strings.Contains(err.Error(), "empty") {
 		t.Errorf("error message should mention empty secret: %v", err)
 	}
-	_, err = MintSMEAccessToken([]byte{}, "sub", "email", "role")
+	_, err = MintOrgAccessToken([]byte{}, "sub", "email", "role")
 	if err == nil {
 		t.Fatal("expected error for empty []byte secret, got nil")
 	}
 }
 
-func TestMintSMEAccessToken_WrongSecretFailsParse(t *testing.T) {
+func TestMintOrgAccessToken_WrongSecretFailsParse(t *testing.T) {
 	a := []byte("secret-A")
 	b := []byte("secret-B")
-	tok, err := MintSMEAccessToken(a, "sub", "email", "member")
+	tok, err := MintOrgAccessToken(a, "sub", "email", "member")
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestMintSMEAccessToken_WrongSecretFailsParse(t *testing.T) {
 	}
 }
 
-func TestSMERoleFor(t *testing.T) {
+func TestOrgRoleFor(t *testing.T) {
 	cases := []struct {
 		name       string
 		realmRoles []string
@@ -124,9 +124,9 @@ func TestSMERoleFor(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := SMERoleFor(tc.realmRoles, tc.tier)
+			got := OrgRoleFor(tc.realmRoles, tc.tier)
 			if got != tc.want {
-				t.Errorf("SMERoleFor(%v, %q) = %q, want %q", tc.realmRoles, tc.tier, got, tc.want)
+				t.Errorf("OrgRoleFor(%v, %q) = %q, want %q", tc.realmRoles, tc.tier, got, tc.want)
 			}
 		})
 	}

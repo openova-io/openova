@@ -97,7 +97,7 @@ func TestExpectedSandboxPlans_Shape(t *testing.T) {
 
 // TestDeployableAppSlugs_OpenclawStalwartDisabled asserts that openclaw and
 // stalwart-mail are NOT in the deployable map. They were briefly enabled by
-// #941 (catalog flag flipped) but the SME provisioning generator at
+// #941 (catalog flag flipped) but the Organization provisioning generator at
 // core/services/provisioning/gitops/apps.go has no AppSpec for either, so
 // the rendered Deployment manifests are invalid (missing image + ports).
 // Live failure 2026-05-06 on tenant "test11":
@@ -111,7 +111,7 @@ func TestDeployableAppSlugs_OpenclawStalwartDisabled(t *testing.T) {
 	d := DeployableAppSlugs()
 	for _, slug := range []string{"openclaw", "stalwart-mail"} {
 		if d[slug] {
-			t.Errorf("%q must NOT be deployable until per-app overlay exists in the SME provisioning generator", slug)
+			t.Errorf("%q must NOT be deployable until per-app overlay exists in the Organization provisioning generator", slug)
 		}
 	}
 }

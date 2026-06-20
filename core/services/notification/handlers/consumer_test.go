@@ -119,7 +119,7 @@ func TestStartConsumer_DispatchTable(t *testing.T) {
 				"is_first": true,
 			}),
 			wantTo:  "new@example.com",
-			wantSub: "Welcome to OpenOva SME",
+			wantSub: "Welcome to OpenOva",
 		},
 		{
 			name: "user.login later login skips",

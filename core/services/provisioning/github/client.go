@@ -565,7 +565,7 @@ func (c *Client) ensureBranchExists(ctx context.Context, branch string) error {
 // Gitea returns 409 Conflict or 422 with a body containing phrases like
 // "branch has been changed" / "stale base" / "ref has been updated".
 //
-// hw158 funnel re-validation (Refs #3376): the production SME funnel commits
+// hw158 funnel re-validation (Refs #3376): the production Organization funnel commits
 // every per-tenant overlay to the SINGLE shared `org-tenants` branch. When two
 // provisioning commits (or the funnel's own multi-step commit racing a
 // concurrent teardown) try to update refs/heads/org-tenants at once, Gitea's

@@ -35,7 +35,7 @@ type Inputs struct {
 	// or annotation only — display strings don't go in resource names).
 	DisplayName string
 
-	// Tier is sme | corporate.
+	// Tier is org | corporate.
 	Tier string
 
 	// SovereignFQDN is the Sovereign domain (e.g. omantel.omani.works).

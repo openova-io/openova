@@ -35,8 +35,8 @@
 // Per docs/INVIOLABLE-PRINCIPLES.md #4 every knob flows through env →
 // Handler field → CR — no hardcoded parent domain / tier / billing
 // mode. The parent domain comes from Handler.TenantParentDomain (set
-// by main.go from TENANT_PARENT_DOMAIN env). Tier defaults to "sme"
-// (the only tier the SME-pool wizard issues vouchers for as of TBD-C16)
+// by main.go from TENANT_PARENT_DOMAIN env). Tier defaults to "org"
+// (the only tier the Organization-pool wizard issues vouchers for as of TBD-C16)
 // and is overridable via the message payload when a corporate flow
 // emits the same event later.
 
@@ -108,7 +108,7 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 	}
 	// Parent domain resolution: payload override → Handler default.
 	// Both may legitimately be empty on a Sovereign that hasn't opted
-	// into the SME-pool flow yet. In that case the Organization CR
+	// into the Organization-pool flow yet. In that case the Organization CR
 	// still mints (the controller skips the HTTPRoute step on empty
 	// parent), so we do NOT fail here — but we log loud so operators
 	// notice they're running half-configured.
@@ -123,7 +123,7 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 
 	tier := strings.TrimSpace(data.Tier)
 	if tier == "" {
-		tier = "sme"
+		tier = "org"
 	}
 	billingMode := strings.TrimSpace(data.BillingMode)
 	if billingMode == "" {

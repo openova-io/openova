@@ -1,9 +1,9 @@
 package events
 
 // Per ADR-0001 §6, the OpenOva canonical event spine is NATS JetStream with
-// subject convention `catalyst.<domain>.<event>`. Historically the SME
+// subject convention `catalyst.<domain>.<event>`. Historically the Organization
 // services (tenant, billing, notification, provisioning) emitted to
-// Redpanda topics under the legacy `sme.<producer>.events` shape because
+// Redpanda topics under the legacy `org.<producer>.events` shape because
 // the bus was Redpanda on contabo. On Sovereigns there IS no Redpanda —
 // only NATS at nats-jetstream.nats-system.svc.cluster.local:4222 — so
 // every event the tenant + billing services published was silently lost,
@@ -17,7 +17,7 @@ package events
 //     subjects (catalyst.<event.Type>) per the canonical convention.
 //   - On legacy contabo the REDPANDA_BROKERS env is non-empty (and may
 //     point at a real Redpanda) — Publish ALSO writes to the legacy
-//     sme.<producer>.events topic so any not-yet-migrated consumers
+//     org.<producer>.events topic so any not-yet-migrated consumers
 //     keep receiving events.
 //   - Both can run together. NATS wins for new subscribers; Redpanda
 //     keeps legacy consumers alive during the migration window.
@@ -36,7 +36,7 @@ import (
 	"strings"
 )
 
-// BrokerPublisher is the unified publish surface every SME service uses
+// BrokerPublisher is the unified publish surface every Organization service uses
 // for outbound domain events. Implementations:
 //
 //   - MultiPublisher (this file): fans out to NATS + optional Redpanda.

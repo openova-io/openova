@@ -4,7 +4,7 @@ package events
 // constants instead of string literals so topic symmetry is enforced at
 // compile time. Every change here must be mirrored on the subscriber side.
 //
-// Naming rule: sme.<producer>.events for standard domain topics, org.dlq
+// Naming rule: org.<producer>.events for standard domain topics, org.dlq
 // for the cross-service dead-letter topic (see dlq.go).
 const (
 	// TopicUserEvents carries auth + user lifecycle events (user.login,
@@ -46,7 +46,7 @@ const (
 )
 
 // LegacyTopics lists topic names that were in use before the
-// sme.<producer>.events convention was adopted. Consumers can fan in both
+// org.<producer>.events convention was adopted. Consumers can fan in both
 // the canonical and legacy names to bridge a publisher-side rename without
 // an atomic flag day.
 //

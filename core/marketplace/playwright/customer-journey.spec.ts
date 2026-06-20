@@ -363,7 +363,7 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
   })
 
   test('06 signup email input + button (checkout sign-in surface)', async ({ page }) => {
-    // CheckoutStep renders the sign-in form when no `sme-token` exists.
+    // CheckoutStep renders the sign-in form when no `org-token` exists.
     await page.goto('/checkout')
     await expect(page.getByPlaceholder(/you@company.com/i)).toBeVisible({ timeout: 10_000 })
     await expect(page.getByRole('button', { name: /Send sign-in code/i })).toBeVisible()
