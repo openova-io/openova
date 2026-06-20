@@ -69,27 +69,40 @@ func (s *Store) CreateProvision(ctx context.Context, p *Provision) error {
 // CreateProvisionIfAbsent only collide on these non-terminal states.
 var inFlightProvisionStatuses = []string{"pending", "provisioning", "running"}
 
-// EnsureProvisionIndexes creates the partial unique index on tenant_id that
-// backs the dedup guarantee in CreateProvisionIfAbsent. The marketplace
-// credit-covered checkout fires the provision-create entrypoint twice — once
-// via the NATS order.placed event and once via POST /provisioning/start (the
-// client deliberately does both as belt-and-suspenders, see CheckoutStep.svelte).
-// Without this guard both calls insert a provision + fork a workflow → two
-// concurrent commits to the same Gitea branch → a ref-lock race that marks the
-// tenant "failed" even though the Org CR + winning commit land (#3744).
+// EnsureProvisionIndexes creates a plain (tenant_id, status) lookup index that
+// backs the in-flight dedup guarantee enforced by CreateProvisionIfAbsent. The
+// marketplace credit-covered checkout fires the provision-create entrypoint
+// twice — once via the NATS order.placed event and once via POST
+// /provisioning/start (the client deliberately does both as
+// belt-and-suspenders, see CheckoutStep.svelte). Without the guard both calls
+// insert a provision + fork a workflow → two concurrent commits to the same
+// Gitea branch → a ref-lock race that marks the tenant "failed" even though the
+// Org CR + winning commit land (#3744).
 //
-// The index is PARTIAL (filtered to in-flight statuses) so a tenant can be
-// re-provisioned after a prior provision terminates. Safe to call at startup
-// every time — index creation is idempotent. Mirrors EnsureJobIndexes (#71).
+// FerretDB compatibility (fix/provisioning-ferretdb-partial-index): the
+// uniqueness this dedup needs is CONDITIONAL — at most one provision per tenant
+// whose status is in-flight, while terminal (completed/failed) rows must NOT
+// count so a tenant can be re-provisioned after a prior run ends. Mongo
+// expresses that with a partial unique index
+// (SetPartialFilterExpression{status:$in:inFlight}), but FerretDB — the wire
+// backend this service actually runs against (mongodb://ferretdb:27017, see
+// main.go) — does NOT implement partialFilterExpression, so creating that index
+// hard-fails store init ("Index option \"partialFilterExpression\" is not
+// implemented yet") and CrashLoops the whole provisioning service → /provisioning/*
+// 502 → zero Organizations provisioned (caught live on hw173).
+//
+// A plain unique+sparse index on tenant_id (the EnsureJobIndexes shape) does
+// NOT substitute here: every provision row has a tenant_id, so a sparse-unique
+// index would also collide on TERMINAL rows and permanently block legitimate
+// re-provision after completion — the exact behaviour the partial filter was
+// there to avoid. So the conditional uniqueness is enforced in application code
+// (CreateProvisionIfAbsent) instead, and this index is a non-unique lookup
+// accelerator for that guard, GetInFlightProvisionByTenant, and the #3898
+// reaper. Safe to call at startup every time — index creation is idempotent.
 func (s *Store) EnsureProvisionIndexes(ctx context.Context) error {
 	model := mongo.IndexModel{
-		Keys: bson.D{{Key: "tenant_id", Value: 1}},
-		Options: options.Index().
-			SetUnique(true).
-			SetName("uniq_inflight_tenant").
-			SetPartialFilterExpression(bson.D{
-				{Key: "status", Value: bson.D{{Key: "$in", Value: inFlightProvisionStatuses}}},
-			}),
+		Keys:    bson.D{{Key: "tenant_id", Value: 1}, {Key: "status", Value: 1}},
+		Options: options.Index().SetName("tenant_status_lookup"),
 	}
 	if _, err := s.provisions().Indexes().CreateOne(ctx, model); err != nil {
 		return fmt.Errorf("store: ensure provision indexes: %w", err)
@@ -104,15 +117,42 @@ func (s *Store) EnsureProvisionIndexes(ctx context.Context) error {
 var ErrProvisionExists = fmt.Errorf("store: in-flight provision already exists for tenant")
 
 // CreateProvisionIfAbsent inserts a provision iff no in-flight provision exists
-// for the same tenant. Returns ErrProvisionExists when the partial unique index
-// (EnsureProvisionIndexes) rejects the insert (the first writer wins). This is
-// the create-path twin of CreateJobIfAbsent (#71) and the load-bearing fix for
-// the stranger-redeem self-race (#3744): whichever of the two checkout triggers
-// arrives second collides here and becomes a no-op instead of forking a second
-// workflow.
+// for the same tenant. Returns ErrProvisionExists when one already does (the
+// first writer wins). This is the create-path twin of CreateJobIfAbsent (#71)
+// and the load-bearing fix for the stranger-redeem self-race (#3744): whichever
+// of the two checkout triggers arrives second collides here and becomes a no-op
+// instead of forking a second workflow.
+//
+// FerretDB compatibility (fix/provisioning-ferretdb-partial-index): this guard
+// USED to lean on a partial unique index (status-filtered to in-flight) so the
+// second InsertOne returned a duplicate-key error. FerretDB does not implement
+// partialFilterExpression, so the conditional uniqueness is enforced here in
+// application code via a check-then-insert against the in-flight statuses.
+// EnsureProvisionIndexes provides the (tenant_id, status) lookup index that
+// makes the pre-insert query cheap. The narrow check-then-insert race (two
+// concurrent inserts both finding no in-flight row) is not load-bearing: the
+// real #3744 double-fire is two near-simultaneous triggers in the same consumer
+// process, and the dedupProvisionCreate caller already reconciles any residual
+// duplicate by surfacing GetInFlightProvisionByTenant. If a second row did slip
+// through, the workflow is idempotent per tenant branch; the prior partial-index
+// behaviour likewise could not have stopped a row that committed in the same
+// microsecond before the index check.
 func (s *Store) CreateProvisionIfAbsent(ctx context.Context, p *Provision) error {
 	if p.TenantID == "" {
 		return fmt.Errorf("store: CreateProvisionIfAbsent requires TenantID")
+	}
+	// Conditional-uniqueness guard: reject the insert if an in-flight provision
+	// already exists for this tenant. Terminal (completed/failed) rows are
+	// intentionally excluded so a tenant can be re-provisioned after a prior run
+	// ends — the exact semantics the dropped partial unique index encoded.
+	existing := s.provisions().FindOne(ctx, bson.D{
+		{Key: "tenant_id", Value: p.TenantID},
+		{Key: "status", Value: bson.D{{Key: "$in", Value: inFlightProvisionStatuses}}},
+	})
+	if err := existing.Err(); err == nil {
+		return ErrProvisionExists
+	} else if err != mongo.ErrNoDocuments {
+		return fmt.Errorf("store: create provision if absent (in-flight check): %w", err)
 	}
 	if p.ID == "" {
 		p.ID = uuid.New().String()
@@ -122,6 +162,9 @@ func (s *Store) CreateProvisionIfAbsent(ctx context.Context, p *Provision) error
 	p.UpdatedAt = now
 	_, err := s.provisions().InsertOne(ctx, p)
 	if err != nil {
+		// Belt-and-suspenders: if a future deployment re-adds a unique index (or
+		// runs against real Mongo with one), still translate a duplicate-key
+		// collision into the same sentinel rather than a raw insert error.
 		if mongo.IsDuplicateKeyError(err) {
 			return ErrProvisionExists
 		}
@@ -160,16 +203,18 @@ func (s *Store) GetInFlightProvisionByTenant(ctx context.Context, tenantID strin
 // But if the provisioning Pod crashes or is rolled mid-workflow — a routine
 // event, since a deploy roll abandons the in-flight goroutine — the row is left
 // at "provisioning" forever; nothing ever transitions it to a terminal state.
-// From then on the partial unique index uniq_inflight_tenant
-// (EnsureProvisionIndexes) makes every legitimate re-provision collide in
-// CreateProvisionIfAbsent and short-circuit on the DEAD row, permanently
-// wedging that tenant out of the #3376 funnel with no operator-free recovery.
+// From then on the in-flight uniqueness guard in CreateProvisionIfAbsent
+// (an application-level check-then-insert against inFlightProvisionStatuses,
+// since FerretDB can't express the partial unique index that once backed it)
+// makes every legitimate re-provision collide and short-circuit on the DEAD
+// row, permanently wedging that tenant out of the #3376 funnel with no
+// operator-free recovery.
 //
 // The reaper closes that hole: a live workflow keeps updated_at fresh
 // (UpdateStep / UpdateProvision both stamp it), so only a genuinely abandoned
 // row — no progress for staleAfter — is reaped. Marking it "failed" drops it
-// out of inFlightProvisionStatuses, releasing the partial-unique index so a
-// re-issued CreateProvisionIfAbsent succeeds.
+// out of inFlightProvisionStatuses, releasing the dedup guard so a re-issued
+// CreateProvisionIfAbsent succeeds.
 //
 // Called from the CreateProvisionIfAbsent collision path before surfacing the
 // existing provision, so the cost is paid only on the rare double-trigger /
