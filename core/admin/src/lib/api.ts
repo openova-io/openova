@@ -4,7 +4,7 @@ import { API_BASE, path as routePath } from './config';
 // refresh). Components in the same tab cannot rely on the native `storage`
 // event — it only fires for cross-tab writes — so they listen for this
 // custom event instead. Mirrors the marketplace pattern from #51 (#83).
-export const AUTH_CHANGED_EVENT = 'sme-admin-auth-changed';
+export const AUTH_CHANGED_EVENT = 'org-admin-auth-changed';
 
 export function notifyAuthChanged(): void {
   if (typeof window === 'undefined') return;
@@ -12,15 +12,15 @@ export function notifyAuthChanged(): void {
 }
 
 export function setAuthTokens(token: string, refreshToken: string): void {
-  localStorage.setItem('sme-admin-token', token);
-  if (refreshToken) localStorage.setItem('sme-admin-refresh-token', refreshToken);
+  localStorage.setItem('org-admin-token', token);
+  if (refreshToken) localStorage.setItem('org-admin-refresh-token', refreshToken);
   notifyAuthChanged();
 }
 
 let refreshing: Promise<void> | null = null;
 
 async function tryRefresh(): Promise<void> {
-  const rt = localStorage.getItem('sme-admin-refresh-token');
+  const rt = localStorage.getItem('org-admin-refresh-token');
   if (!rt) return;
   try {
     const res = await fetch(`${API_BASE}/auth/refresh`, {
@@ -34,19 +34,19 @@ async function tryRefresh(): Promise<void> {
       // the same shape as the other apps so the response is interchangeable.
       setAuthTokens(data.token, data.refresh_token);
     } else {
-      localStorage.removeItem('sme-admin-token');
-      localStorage.removeItem('sme-admin-refresh-token');
+      localStorage.removeItem('org-admin-token');
+      localStorage.removeItem('org-admin-refresh-token');
       notifyAuthChanged();
     }
   } catch {
-    localStorage.removeItem('sme-admin-token');
-    localStorage.removeItem('sme-admin-refresh-token');
+    localStorage.removeItem('org-admin-token');
+    localStorage.removeItem('org-admin-refresh-token');
     notifyAuthChanged();
   }
 }
 
 async function request<T>(path: string, opts?: RequestInit): Promise<T> {
-  const token = localStorage.getItem('sme-admin-token');
+  const token = localStorage.getItem('org-admin-token');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -60,7 +60,7 @@ async function request<T>(path: string, opts?: RequestInit): Promise<T> {
       refreshing = tryRefresh().finally(() => { refreshing = null; });
     }
     await refreshing;
-    const newToken = localStorage.getItem('sme-admin-token');
+    const newToken = localStorage.getItem('org-admin-token');
     if (newToken && newToken !== token) {
       const retryHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -68,8 +68,8 @@ async function request<T>(path: string, opts?: RequestInit): Promise<T> {
       };
       const retry = await fetch(`${API_BASE}${path}`, { ...opts, headers: retryHeaders });
       if (retry.status === 401) {
-        localStorage.removeItem('sme-admin-token');
-        localStorage.removeItem('sme-admin-refresh-token');
+        localStorage.removeItem('org-admin-token');
+        localStorage.removeItem('org-admin-refresh-token');
         notifyAuthChanged();
         if (typeof window !== 'undefined' && !window.location.pathname.startsWith(routePath('login'))) {
           window.location.href = routePath('login');
@@ -86,8 +86,8 @@ async function request<T>(path: string, opts?: RequestInit): Promise<T> {
     throw new Error('Unauthorized');
   }
   if (res.status === 401) {
-    localStorage.removeItem('sme-admin-token');
-    localStorage.removeItem('sme-admin-refresh-token');
+    localStorage.removeItem('org-admin-token');
+    localStorage.removeItem('org-admin-refresh-token');
     notifyAuthChanged();
     if (typeof window !== 'undefined' && !window.location.pathname.startsWith(routePath('login'))) {
       window.location.href = routePath('login');
@@ -105,7 +105,7 @@ export const getMe = async (): Promise<User> => {
 };
 
 export const logout = () => {
-  const rt = localStorage.getItem('sme-admin-refresh-token');
+  const rt = localStorage.getItem('org-admin-refresh-token');
   if (rt) {
     fetch(`${API_BASE}/auth/logout`, {
       method: 'POST',
@@ -114,8 +114,8 @@ export const logout = () => {
       keepalive: true,
     }).catch(() => {});
   }
-  localStorage.removeItem('sme-admin-token');
-  localStorage.removeItem('sme-admin-refresh-token');
+  localStorage.removeItem('org-admin-token');
+  localStorage.removeItem('org-admin-refresh-token');
   notifyAuthChanged();
   window.location.href = routePath('login');
 };

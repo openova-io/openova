@@ -143,7 +143,7 @@ func TestRealmFromIssuer(t *testing.T) {
 	cases := map[string]string{
 		"https://console.openova.io/auth/realms/openova":  "openova",
 		"https://console.openova.io/auth/realms/openova/": "openova",
-		"https://kc.example.com/realms/sme":               "sme",
+		"https://kc.example.com/realms/org":               "org",
 		"":                                                "",
 		"plainstring":                                     "plainstring",
 	}

@@ -493,7 +493,7 @@ func recordToUnstructured(rec Record, namespace string) *unstructured.Unstructur
 	}
 
 	// Multi-domain pool (issue #826). Persisted on the CRD so the
-	// admin add-domain flow (#829) + the SME signup parent-pool
+	// admin add-domain flow (#829) + the Organization signup parent-pool
 	// dropdown can read the live pool from the K8s API without
 	// rehydrating the full deployment record. RegistrarCredsRef
 	// points at a SealedSecret name; the plaintext registrar

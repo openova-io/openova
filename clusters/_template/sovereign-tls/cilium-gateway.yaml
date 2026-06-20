@@ -11,7 +11,7 @@
 # HTTP) on `*.${SOVEREIGN_FQDN}`. That worked for legacy single-zone
 # Sovereigns but BROKE every tenant URL under a non-primary parent zone:
 #   - Primary zone: omani.works   → console.omani.works  ✅ TLS terminates
-#   - SME pool:    omani.homes    → wp-foo.omani.homes  ❌ TLS handshake
+#   - Org pool:    omani.homes    → wp-foo.omani.homes  ❌ TLS handshake
 #                                                       mismatch (cert
 #                                                       exists per chart's
 #                                                       sovereign-wildcard-
@@ -37,7 +37,7 @@
 # #1883) — the listener and the cert resource stay in lockstep.
 #
 # Why moved out of cloud-init: the inline value scaled O(N) with parent-
-# zone count and pushed 4-zone SME-pool Sovereigns over Hetzner's 32 KiB
+# zone count and pushed 4-zone Org-pool Sovereigns over Hetzner's 32 KiB
 # user_data cap (t39 audit, 2026-05-20: 33,656 bytes overshot the post-
 # #1985 guardrail of 32,256). Render-in-chart drops ~2.1 KiB out of
 # cloud-init with safety margin.
@@ -152,7 +152,7 @@ spec:
   #   - For multi-region Sovereigns the per-region cilium-gateway in each
   #     secondary cluster ALSO needs a public LB so external clients can
   #     reach region-local listeners directly (the omani.homes / omani.rest
-  #     SME-pool subdomains attach to the secondary region's gateway).
+  #     Org-pool subdomains attach to the secondary region's gateway).
   #     `${SOVEREIGN_REGION_KEY:=primary}` segments the LB name per region
   #     (mirrors the clustermesh-apiserver LB naming in
   #     clusters/_template/bootstrap-kit/01-cilium.yaml:237).

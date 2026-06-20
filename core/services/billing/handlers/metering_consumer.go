@@ -7,7 +7,7 @@ package handlers
 //
 //  1. Validate the payload — request_id (idempotency key), customer_id,
 //     reason, and a non-zero amount in either OMR or micro-OMR.
-//  2. Resolve the SME-vcluster Keycloak user UUID (CustomerID) to the
+//  2. Resolve the Organization-vcluster Keycloak user UUID (CustomerID) to the
 //     billing service's customer row (auto-create if missing — the
 //     ADR-0003 hook may publish the user-create event AFTER the first
 //     usage event lands during a cold start).
@@ -40,7 +40,7 @@ import (
 type MeteringConsumer struct {
 	Store *store.Store
 
-	// CustomerResolver resolves the SME-vcluster Keycloak user UUID
+	// CustomerResolver resolves the Organization-vcluster Keycloak user UUID
 	// (the payload's CustomerID) to the billing customer row. Defaults
 	// to a Postgres-backed lookup that auto-creates a customer row on
 	// first sighting; tests substitute a fake.
@@ -52,12 +52,12 @@ type MeteringConsumer struct {
 }
 
 // CustomerResolver looks up (or auto-creates) the billing customer for
-// a NewAPI external_id. The metering envelope carries the SME-vcluster
+// a NewAPI external_id. The metering envelope carries the Organization-vcluster
 // Keycloak user UUID as customer_id; that maps to the billing-service
 // customer row by user_id (which carries the same UUID per ADR-0003).
 type CustomerResolver interface {
 	// Resolve returns the billing customer row for the given userID
-	// (= SME-vcluster Keycloak user UUID = NewAPI external_id). When
+	// (= Organization-vcluster Keycloak user UUID = NewAPI external_id). When
 	// no row exists AND tenantID is non-empty, an empty Customer is
 	// auto-created so the metering insert can succeed.
 	Resolve(ctx context.Context, userID, tenantID string) (*store.Customer, error)
@@ -70,10 +70,10 @@ type DefaultCustomerResolver struct {
 }
 
 // Resolve implements CustomerResolver. Auto-creates the customer row
-// on first sighting. The auto-create path is critical for SME-tier
+// on first sighting. The auto-create path is critical for Organization-tier
 // cold starts where the first metered LLM call may arrive before the
 // unified-rbac NATS publisher (#802) has emitted the corresponding
-// sme.user.created event into billing.
+// org.user.created event into billing.
 func (r DefaultCustomerResolver) Resolve(ctx context.Context, userID, tenantID string) (*store.Customer, error) {
 	if userID == "" {
 		return nil, errors.New("metering: empty user_id")
@@ -100,7 +100,7 @@ func (r DefaultCustomerResolver) Resolve(ctx context.Context, userID, tenantID s
 		UserID:   userID,
 		TenantID: tenantID,
 		// Email is unknown at this point; rbac fills it on the
-		// canonical sme.user.created envelope. Empty email is allowed
+		// canonical org.user.created envelope. Empty email is allowed
 		// by the customers schema (TEXT NOT NULL with DEFAULT '' is
 		// effectively the same once we update via rbac).
 		Email: "",
@@ -232,7 +232,7 @@ func (c *MeteringConsumer) Handle(ctx context.Context, body []byte) error {
 func (c *MeteringConsumer) Start(ctx context.Context, sub events.NATSSubscription) error {
 	slog.Info("metering: starting consumer",
 		"subject", events.SubjectUsageRecorded,
-		"durable", events.ConsumerSMEBillingMetering)
+		"durable", events.ConsumerOrgBillingMetering)
 	return sub.Consume(ctx, func(msg jetstream.Msg) {
 		// Per-message ctx with a budget so a hung handler cannot stall
 		// the consumer indefinitely. AckWait on the consumer side is

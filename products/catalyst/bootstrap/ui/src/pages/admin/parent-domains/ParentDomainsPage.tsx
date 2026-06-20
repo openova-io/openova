@@ -86,7 +86,7 @@ export function ParentDomainsPage({
     }
     if (
       !confirm(
-        `Remove parent domain "${item.name}"? SMEs already using subdomains under this zone will continue to work; only NEW SME signups stop being offered this domain.`,
+        `Remove parent domain "${item.name}"? Organizations already using subdomains under this zone will continue to work; only NEW Organization signups stop being offered this domain.`,
       )
     ) {
       return
@@ -300,7 +300,7 @@ interface AddDomainModalProps {
 
 function AddDomainModal({ onClose, onCreated }: AddDomainModalProps) {
   const [name, setName] = useState('')
-  const [role, setRole] = useState<ParentDomainRole>('sme-pool')
+  const [role, setRole] = useState<ParentDomainRole>('org-pool')
   const [registrarKind, setRegistrarKind] = useState('dynadot')
   const [token, setToken] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -381,7 +381,7 @@ function AddDomainModal({ onClose, onCreated }: AddDomainModalProps) {
             onChange={(e) => setRole(e.target.value as ParentDomainRole)}
             className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-3 py-2 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none"
           >
-            <option value="sme-pool">pool — offered to Organizations</option>
+            <option value="org-pool">pool — offered to Organizations</option>
             <option value="primary">primary — operator's own domain</option>
           </select>
         </label>

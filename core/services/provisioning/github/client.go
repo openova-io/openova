@@ -57,7 +57,7 @@ const commitAttemptsMax = 5
 // Backoff bounds for the ref-race retry. Without a delay every concurrent
 // writer that lost the compare-and-swap retries simultaneously and re-loses
 // against the SAME winner — a thundering herd that can burn all
-// commitAttemptsMax attempts in milliseconds on the shared `sme-tenants`
+// commitAttemptsMax attempts in milliseconds on the shared `org-tenants`
 // branch (Refs #3376). A short jittered exponential backoff staggers the
 // racers so each gets a clear shot at the moved HEAD. Bounds are small —
 // Gitea ref updates land in tens of ms — so the worst-case total added
@@ -354,7 +354,7 @@ func (c *Client) commitOnceContents(ctx context.Context, branch, message string,
 	//
 	// TBD-C18e (2026-05-18): when the target branch doesn't exist yet
 	// (first tenant commit after switching from `main` to a dedicated
-	// `sme-tenants` branch), Gitea returns 404 here. Auto-create the
+	// `org-tenants` branch), Gitea returns 404 here. Auto-create the
 	// branch from the repo's default branch (typically `main`) and
 	// retry the ref lookup so the rest of the commit flow can proceed.
 	// This makes the customer-journey fix self-bootstrapping — no
@@ -501,7 +501,7 @@ func (c *Client) commitOnceContents(ctx context.Context, branch, message string,
 
 // isBranchMissingError returns true iff the wrapped error from c.getRef
 // indicates the target branch simply doesn't exist yet (a fresh
-// `sme-tenants` branch on a Sovereign that has only ever had a `main`).
+// `org-tenants` branch on a Sovereign that has only ever had a `main`).
 // Two shapes are accepted: the Gitea/GitHub 404 ("Not Found") and the
 // empty-array case getRef reports for an array response with zero
 // elements. TBD-C18e (2026-05-18).
@@ -532,7 +532,7 @@ func isBranchMissingError(err error) bool {
 func (c *Client) ensureBranchExists(ctx context.Context, branch string) error {
 	// Identify the source branch to fork from. Default to `main` (the
 	// chart's bootstrap branch) — operators who run a different default
-	// can flip the source branch by pre-creating `sme-tenants` manually
+	// can flip the source branch by pre-creating `org-tenants` manually
 	// once, after which this auto-create path is a no-op.
 	const sourceBranch = "main"
 	sourceSHA, err := c.getRef(ctx, sourceBranch)
@@ -565,12 +565,12 @@ func (c *Client) ensureBranchExists(ctx context.Context, branch string) error {
 // Gitea returns 409 Conflict or 422 with a body containing phrases like
 // "branch has been changed" / "stale base" / "ref has been updated".
 //
-// hw158 funnel re-validation (Refs #3376): the production SME funnel commits
-// every per-tenant overlay to the SINGLE shared `sme-tenants` branch. When two
+// hw158 funnel re-validation (Refs #3376): the production Organization funnel commits
+// every per-tenant overlay to the SINGLE shared `org-tenants` branch. When two
 // provisioning commits (or the funnel's own multi-step commit racing a
-// concurrent teardown) try to update refs/heads/sme-tenants at once, Gitea's
+// concurrent teardown) try to update refs/heads/org-tenants at once, Gitea's
 // git backend rejects the loser at the ref-lock layer with the git-native
-// message `cannot lock ref 'refs/heads/sme-tenants': ...` (a `.lock` file /
+// message `cannot lock ref 'refs/heads/org-tenants': ...` (a `.lock` file /
 // compare-and-swap contention) rather than any of the higher-level phrases
 // above. That string was NOT matched here, so the error fell through to the
 // fatal `change files` branch and the outer retry loop never engaged — the
@@ -591,7 +591,7 @@ func isGiteaRefRaceError(err error) bool {
 		strings.Contains(s, "stale base") ||
 		strings.Contains(s, "ref has been updated") ||
 		strings.Contains(s, "not a fast forward") ||
-		// git-native ref-lock contention on the shared sme-tenants branch
+		// git-native ref-lock contention on the shared org-tenants branch
 		// (Refs #3376). Any of these means a concurrent writer won the CAS;
 		// a fresh fetch-rebuild-retry against the new HEAD resolves it.
 		strings.Contains(s, "cannot lock ref") ||

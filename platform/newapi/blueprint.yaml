@@ -83,7 +83,7 @@ spec:
           url:
             type: string
             default: redis://valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc.cluster.local:6379
-            description: Valkey URL for session and rate-limit cache. #3373 Batch A — bp-valkey is in the rtz vCluster; the syncer mangles the host-synced Service name to `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc` (mirrors the SME VALKEY_ADDR rewire #3476).
+            description: Valkey URL for session and rate-limit cache. #3373 Batch A — bp-valkey is in the rtz vCluster; the syncer mangles the host-synced Service name to `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc` (mirrors the Organization VALKEY_ADDR rewire #3476).
       auth:
         type: object
         properties:

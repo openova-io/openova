@@ -114,9 +114,9 @@ spec:
                     (chargeback or showback only).
                 tier:
                   type: string
-                  enum: [sme, corporate]
+                  enum: [org, corporate]
                   description: |
-                    sme = self-service signup, no DMZ, per-Org Keycloak realm.
+                    org = self-service signup, no DMZ, per-Org Keycloak realm.
                     corporate = managed onboarding, dedicated DMZ vCluster
                     auto-provisioned (EPIC-5 #1100), per-Sovereign realm
                     federation.
@@ -263,7 +263,7 @@ spec:
 
                     Motivating fix: issue #1629 follow-up. PowerDNS
                     now resolves `<slug>.<parentDomain>` for every
-                    Org mapped onto a Sovereign's role=sme-pool parent
+                    Org mapped onto a Sovereign's role=org-pool parent
                     domain, but without an HTTPRoute attached the
                     Cilium Gateway falls through to the marketplace
                     tenant-wildcard route and serves the storefront

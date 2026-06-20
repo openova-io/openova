@@ -231,7 +231,7 @@ func TestRecordMetering_RejectsCustomerRole(t *testing.T) {
 	}
 }
 
-// TestRecordMetering_AcceptsSovereignAdmin: the franchisee SME-admin
+// TestRecordMetering_AcceptsSovereignAdmin: the franchisee Organization-admin
 // pre-flight balance check uses sovereign-admin — must be accepted.
 func TestRecordMetering_AcceptsSovereignAdmin(t *testing.T) {
 	db, mock, err := sqlmock.New()

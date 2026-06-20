@@ -87,7 +87,7 @@ resources:
   # THREE-INSTANCE MODEL (founder NS-2, Refs #3188): slots 16a + 16c +
   # 16d are THREE installs of the same bp-postgres chart — engines
   # shared-pg (gitea + harbor + keycloak), shared-pg-b (grafana +
-  # powerdns + powerdns-admin) and shared-pg-c (the SME mesh) — all
+  # powerdns + powerdns-admin) and shared-pg-c (the Organization mesh) — all
   # riding the ONE SOVEREIGN_ENABLE_SHARED_PG gate. All three MUST be
   # registered here: bp-keycloak (09) / bp-gitea (10) / bp-harbor (19)
   # dependsOn bp-postgres-shared and bp-grafana (25) dependsOn

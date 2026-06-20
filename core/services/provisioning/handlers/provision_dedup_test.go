@@ -140,7 +140,7 @@ func TestDedupProvisionCreate_DoubleFire_SingleProvision(t *testing.T) {
 
 // TestDedupProvisionCreate_ConcurrentDoubleFire_ExactlyOneFork proves the guard
 // holds when both triggers land near-simultaneously — the actual race that
-// produced two concurrent sme-tenants commits on hw158. Across N concurrent
+// produced two concurrent org-tenants commits on hw158. Across N concurrent
 // calls for one tenant, exactly ONE may return fork=true.
 func TestDedupProvisionCreate_ConcurrentDoubleFire_ExactlyOneFork(t *testing.T) {
 	st := newFakeDedupStore()

@@ -36,7 +36,7 @@
 #     this Job is a single-PR delete.
 #   - bp-cilium chart has wide blast radius; bumping its OCI artifact for
 #     a Sovereign-bootstrap-only behaviour would force every cluster
-#     (including SME, contabo) to take the change.
+#     (including Organization, contabo) to take the change.
 #   - The SDS Secret name + namespace are the contract between this
 #     Kustomization (cert producer) and cilium-envoy (cert consumer);
 #     keeping the restart trigger here keeps both ends of the contract

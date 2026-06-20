@@ -10,7 +10,7 @@
 #   - oidc.clientSecret.name     (ExternalSecret with OIDC client_secret)
 #   - llm.baseURL                (per-tenant NewAPI OpenAI-compatible endpoint)
 #   - llm.apiKey.name            (Secret carrying NewAPI bearer token)
-#   - tenant.namespace           (SME tenant namespace where per-user pods run)
+#   - tenant.namespace           (Organization tenant namespace where per-user pods run)
 #   - ingress.host               (controller public hostname)
 #   - controller.image.tag       (SHA-pinned tag)
 #   - perUserPod.image.tag       (SHA-pinned tag)
@@ -87,9 +87,9 @@ controller:
       failureThreshold: 3
 
 # ─── Auth: per-tenant Keycloak (OIDC) — canonical block ─────────────────
-# The controller validates inbound end-user JWTs against the SME's own
+# The controller validates inbound end-user JWTs against the Organization's own
 # Keycloak realm. It NEVER uses the OTECH-ops realm, NEVER trusts a JWT
-# from outside the SME vcluster.
+# from outside the Organization vcluster.
 #
 # Per umbrella epic #915 the orchestrator (catalyst-api smeTenantBPOpenClaw
 # template) emits this block per-tenant: `oidc.issuerURL` resolves to
@@ -106,7 +106,7 @@ oidc:
   # OIDC client_secret. Loaded from a K8s Secret via secretKeyRef so the
   # plaintext NEVER lands in the HelmRelease values block (Inviolable
   # Principle 10 — credential hygiene). Required Secret key:
-  # OIDC_CLIENT_SECRET. Provisioned by the SME-tenant onboarding pipeline
+  # OIDC_CLIENT_SECRET. Provisioned by the Organization-tenant onboarding pipeline
   # (epic #795 ticket #804).
   clientSecret:
     # Secret name (defaults to legacy `keycloak.clientSecretName` if
@@ -161,12 +161,12 @@ newapi:
   baseURL: ""
 
 # ─── Tenant namespace ────────────────────────────────────────────────────
-# SME tenant namespace where:
+# Organization tenant namespace where:
 #   - per-user pods are created and deleted
 #   - newapi-key-{uuid} Secrets are read by the controller's ServiceAccount
 tenant:
   # Required at install time. Placeholder default lets smoke render pass.
-  namespace: "sme-example"
+  namespace: "org-example"
 
 # ─── Per-user pod template ───────────────────────────────────────────────
 # These values are baked into a ConfigMap; the controller renders the
@@ -211,7 +211,7 @@ serviceAccount:
 
 # ─── Ingress + cert-manager TLS ──────────────────────────────────────────
 # Public hostname for the controller. Per Q-mine-1 of #795:
-# `openclaw.<sme-domain-or-subdomain>`. cert-manager auto-issues a
+# `openclaw.<org-domain-or-subdomain>`. cert-manager auto-issues a
 # per-host certificate via the operator's ACME issuer.
 ingress:
   enabled: true
@@ -227,7 +227,7 @@ ingress:
 # ─── NetworkPolicy ───────────────────────────────────────────────────────
 # Default-allow ingress from the platform's gateway namespace (traefik).
 # Egress from CONTROLLER:
-#   - SME-vcluster Keycloak (OIDC discovery + JWKS)
+#   - Organization-vcluster Keycloak (OIDC discovery + JWKS)
 #   - K8s api-server (pod create/delete; goes to kube-system endpoint)
 #   - per-user pod range in tenant namespace (proxy WebSocket/SSE)
 #   - DNS
@@ -245,7 +245,7 @@ networkPolicy:
     ingress:
       fromNamespaceLabels:
         kubernetes.io/metadata.name: traefik
-    # Egress targets — operator may extend if SME-vcluster Keycloak
+    # Egress targets — operator may extend if Organization-vcluster Keycloak
     # reaches the controller via a different namespace label.
     egress:
       keycloakNamespaceLabel: "keycloak"

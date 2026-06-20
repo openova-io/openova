@@ -113,7 +113,7 @@ sovereign:
   # Sovereign-level opt-in for the active-hot-standby Postgres shape
   # on every CNPG-backed tenant app the marketplace installs. When
   # `enableHotStandby` is truthy AND both region keys are non-empty
-  # AND distinct, the SME-tenant gitops writer (sme_tenant_gitops.go
+  # AND distinct, the Organization-tenant gitops writer (sme_tenant_gitops.go
   # renderSMETenantOverlay) injects a
   # `pg.activeHotStandby.{enabled,primaryRegion,replicaRegion}` block
   # into every freshly-rendered bp-wordpress-tenant HelmRelease. The
@@ -339,7 +339,7 @@ giteaAdminBridge:
 # ─── Multi-zone parent domains (issue #827, parent epic #825) ──────────
 # A franchised Sovereign supports N parent zones, NOT one. The operator
 # brings 1+ parent domains at signup (`omani.works` for own use,
-# `omani.trade` for the SME pool, etc.) and may add more post-handover
+# `omani.trade` for the Org pool, etc.) and may add more post-handover
 # via the admin console (#829). The wildcard Certificate template
 # (templates/sovereign-wildcard-certs.yaml) renders ONE Certificate
 # resource per entry below, each requesting `*.<zone>` + apex from the
@@ -361,7 +361,7 @@ giteaAdminBridge:
 #   - name (required): apex domain. The Certificate is requested for
 #     `*.<name>` + `<name>` (apex).
 #   - role (optional): operator-meaningful tag — "primary" or
-#     "sme-pool". Carried in resource labels for ops visibility.
+#     "org-pool". Carried in resource labels for ops visibility.
 #   - secretName (optional): K8s Secret name the Cert is written to.
 #     Defaults to `sovereign-wildcard-tls-<sanitised-name>` when
 #     unset. The Cilium Gateway listener for that zone references
@@ -446,25 +446,25 @@ images:
     tag: "3c2f7e4"
   console:
     tag: "3c2f7e4"
-  # Admin pod has a separate tag from the smeTag bundle because the admin
-  # image build is decoupled from the SME microservices CI run — when
-  # smeTag is bumped, admin may not have published for that SHA. Caught
+  # Admin pod has a separate tag from the orgTag bundle because the admin
+  # image build is decoupled from the Organization microservices CI run — when
+  # orgTag is bumped, admin may not have published for that SHA. Caught
   # live on t132 2026-05-16 (ImagePullBackOff on admin:b0ed216 — admin
   # image for that SHA never landed in GHCR even though the other 10
-  # SME services did). Default to a known-published tag; bump in lockstep
+  # Organization services did). Default to a known-published tag; bump in lockstep
   # with marketplaceApi/console when admin's UI changes.
   admin:
     tag: "3c2f7e4"
-  # All 10 SME microservices share one SHA tag (built from the same mono-repo commit).
+  # All 10 Organization microservices share one SHA tag (built from the same mono-repo commit).
   # 2026-06-09: 41e02c8 → c96f998 (#3157 merge SHA). 41e02c8 (built 2026-06-05)
   # predates the #3157 marketplace-plans fix, so services-catalog:41e02c8 lacks
   # filterPlansByProduct → the generic Org-provisioning picker rendered all 8
   # plans (5 generic + 3 Sandbox dupes) instead of 5. A later catalyst-platform
   # roll had re-pinned the stale 41e02c8, reverting the live filter. c96f998
   # carries the server-side filter and is published for every services-* image
-  # (verified: services-auth, unchanged by #3157, also has c96f998 → the SME
+  # (verified: services-auth, unchanged by #3157, also has c96f998 → the Organization
   # build is all-services, not path-filtered). Refs #3156.
-  smeTag: "c068e6a"
+  orgTag: "c068e6a"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────
@@ -661,25 +661,25 @@ controllers:
     # (e.g. WordPress) never come up — the funnel's terminal acceptance fails
     # (proven live on hw158 by the #3687 + #3376 walkers).
     #
-    # `openova-sme-tenants-git-auth` is a Flux basic-auth Secret in flux-system
+    # `openova-org-tenants-git-auth` is a Flux basic-auth Secret in flux-system
     # holding the `gitea_admin` PAT (sourced from catalyst-gitea-token). Because
     # gitea_admin is the Gitea admin it can clone EVERY Org's private
     # catalyst-tenant repo, so this single shared secret authenticates the
     # per-Org GitRepository for all Organizations — no per-Org secret needed.
-    # It is the exact credential the top-level openova-sme-tenants
+    # It is the exact credential the top-level openova-org-tenants
     # GitRepository already clones with successfully on every Sovereign (the
     # proven #3454 pattern). The Secret is guaranteed to exist in flux-system
     # by the catalog-sovereign-flux/gitea-flux-auth-secrets-sync-job.yaml
     # post-install/post-upgrade hook (#3749 / #3668), which reads the
     # runtime-minted catalyst-gitea-token PAT via secretKeyRef (NOT a render-
-    # time `lookup`) and idempotently applies BOTH openova-sme-tenants-git-auth
+    # time `lookup`) and idempotently applies BOTH openova-org-tenants-git-auth
     # and openova-catalog-sovereign-git-auth — so a fresh prov gets it the
     # first time and any chart bump re-asserts it. The PAT never touches argv.
     #
     # Per Inviolable Principle #4 the secret name stays operator-overridable;
     # set to "" to force anonymous clone (only valid if bp-gitea ever drops
     # REQUIRE_SIGNIN_VIEW AND the per-Org repo is made public).
-    fluxGiteaSecretRef: "openova-sme-tenants-git-auth"
+    fluxGiteaSecretRef: "openova-org-tenants-git-auth"
     # MIRROR-EVERYTHING (#3760, Refs #3376 #3754 — hw158 funnel blocker)
     # ---------------------------------------------------------------------
     # The Sovereign-local Harbor host the per-Org vCluster images pull
@@ -866,8 +866,8 @@ controllers:
 # ─── catalyst-catalog HTTP service (EPIC-2 Slice L, #1097) ───────────────
 # Multi-source Blueprint catalog backed by Gitea (3 sources: public mirror,
 # sovereign-curated, per-Org private). Fed by the unified Gitea client at
-# core/controllers/pkg/gitea (CC2 #1136). REPLACES the per-Org SME catalog
-# per ADR-0001 §4.3 (different scope: SME's was Org-bound; catalyst-catalog
+# core/controllers/pkg/gitea (CC2 #1136). REPLACES the per-Org Organization catalog
+# per ADR-0001 §4.3 (different scope: the Organization's was Org-bound; catalyst-catalog
 # is Sovereign-wide multi-source).
 #
 # Default OFF per docs/INVIOLABLE-PRINCIPLES.md (operators flip on per-
@@ -1083,7 +1083,7 @@ catalystApi:
   # canonical "catalyst-api" role bound by bp-openbao's auth-bootstrap Job.
   openbaoK8sAuthRole: ""
   # PowerDNS REST API base URL used by:
-  #   - SME-tenant pipeline's PATCH-RRset writer (sme_tenant_dns.go)
+  #   - Organization-tenant pipeline's PATCH-RRset writer (sme_tenant_dns.go)
   #   - Multi-zone parent-domain handler (parent_domains.go, issue #827)
   # Empty = in-code default (in-cluster Service FQDN of the Sovereign's
   # own PowerDNS, http://powerdns.powerdns.svc.cluster.local:8081).
@@ -1121,7 +1121,7 @@ ingress:
       # before #2118 / TBD-V48 hoisted the render into the chart)
       # names HTTPS listeners as follows:
       #   - SINGLE parent zone → bare `https` / `http`
-      #   - MULTIPLE parent zones (SME pool present) → unique
+      #   - MULTIPLE parent zones (Org pool present) → unique
       #     `https-<sanitised-zone>` / `http-<sanitised-zone>`
       #     (e.g. `https-omani-works`, `https-omani-homes`)
       # Pinning `sectionName: https` here broke every catalyst-system
@@ -1178,7 +1178,7 @@ ingress:
   # marketplace.<sov>/{,api/,back-office/} (storefront + BSS) and one
   # HTTPRoute per entry in `tenantSlugs` (each scoped to
   # `<slug>.<sov>` exactly — NO wildcard) via Cilium Gateway. Default
-  # OFF — non-marketplace Sovereigns get the SME workloads but no
+  # OFF — non-marketplace Sovereigns get the Organization workloads but no
   # public ingress.
   #
   # TBD-A42 (issue #1905, 2026-05-19): tenant-wildcard previously
@@ -1199,7 +1199,7 @@ ingress:
   marketplace:
     enabled: false
     # Explicit list of marketplace tenant slugs that should receive a
-    # public HTTPRoute pointing at the SME `console` Service (which
+    # public HTTPRoute pointing at the Organization `console` Service (which
     # host-routes per tenant by `<slug>.<sov>`). One HTTPRoute per
     # entry, hostname=`<slug>.<global.sovereignFQDN>` exact. Examples:
     #   tenantSlugs: ["acme", "beta", "gamma"]
@@ -1216,7 +1216,7 @@ ingress:
 # orchestrator (organization_gitops.go::WriteTenantOverlay) commits
 # per-tenant overlays to:
 #
-#   ./clusters/<global.sovereignFQDN>/sme-tenants
+#   ./clusters/<global.sovereignFQDN>/org-tenants
 #
 # Without it, every POST /api/v1/sme/tenants reaches state=done
 # optimistically but the per-tenant K8s resources (Namespace, vCluster,
@@ -1225,7 +1225,7 @@ ingress:
 # 2026-05-04.
 #
 # Gated on ingress.marketplace.enabled (non-marketplace Sovereigns
-# don't run the SME tenant pipeline).
+# don't run the Organization tenant pipeline).
 #
 # Per Inviolable Principle #4 (never hardcode), every operationally-
 # meaningful value is operator-overridable. Defaults match the
@@ -1233,25 +1233,25 @@ ingress:
 # clusters/_template/bootstrap-kit/03-flux.yaml + the cloud-init
 # flux-bootstrap.yaml block (which seeds flux-system/openova
 # GitRepository).
-smeTenants:
+orgTenants:
   kustomization:
-    # Resource name. Default `sme-tenants` — short, ops-readable,
+    # Resource name. Default `org-tenants` — short, ops-readable,
     # appears in `kubectl get kustomization -n flux-system`.
-    name: sme-tenants
+    name: org-tenants
     # Lives in flux-system alongside the cluster's other Kustomizations
     # (bootstrap-kit, sovereign-tls, infrastructure-config) so operator
     # tooling can discover it via the standard `-n flux-system` flag.
     namespace: flux-system
     # TBD-C18e (2026-05-18): default flipped from `openova` to the
-    # dedicated `openova-sme-tenants` GitRepository (rendered by sibling
-    # template sme-tenants-gitrepository.yaml), tracking the
-    # `sme-tenants` branch. The bootstrap GitRepository (`openova`)
+    # dedicated `openova-org-tenants` GitRepository (rendered by sibling
+    # template org-tenants-gitrepository.yaml), tracking the
+    # `org-tenants` branch. The bootstrap GitRepository (`openova`)
     # continues to read `main` so chart upgrades + infra fixes reconcile
     # as before — only this Kustomization reads from the protected
     # branch. Operator may flip back to `openova` for a single-branch
-    # debug session without losing the rest of the SME-tenant pipeline.
+    # debug session without losing the rest of the Organization-tenant pipeline.
     sourceRef:
-      name: openova-sme-tenants
+      name: openova-org-tenants
       namespace: flux-system
     # Reconcile cadence. 1m matches the orchestrator's documented
     # "Flux on the OTECH cluster reconciles within ~1 min" SLA at the
@@ -1271,7 +1271,7 @@ smeTenants:
     # Kustomization's prune contract.
     prune: true
     # Each tenant overlay's HelmReleases install asynchronously and
-    # have their own readiness watcher in the SME-tenant orchestrator.
+    # have their own readiness watcher in the Organization-tenant orchestrator.
     # Blocking this top-level Kustomization on every tenant's full
     # readiness would let one stuck tenant gate every other tenant's
     # reconcile — a single CrashLooping bp-keycloak in tenant A would
@@ -1282,18 +1282,18 @@ smeTenants:
   # Tracks a SEPARATE branch from the bootstrap GitRepository so the
   # cutover-gitea-mirror Job (which `git push --mirror --force`s `main`
   # from upstream every ≤10 min) cannot clobber per-tenant overlays
-  # committed by the provisioning service. The sme-tenants Kustomization
-  # above defaults to sourceRef.name = `openova-sme-tenants` to consume
+  # committed by the provisioning service. The org-tenants Kustomization
+  # above defaults to sourceRef.name = `openova-org-tenants` to consume
   # this CR; flip it back to `openova` for a single-branch debug session.
   gitRepository:
-    name: openova-sme-tenants
+    name: openova-org-tenants
     namespace: flux-system
     # Branch the provisioning service writes per-tenant overlays to and
     # this GitRepository pulls from. MUST stay in sync with the
     # provisioning Deployment's GITHUB_BRANCH env (see
     # templates/org-services/provisioning.yaml — defaults to
-    # `sme-tenants` on Sovereign install, `main` on Catalyst-Zero).
-    branch: sme-tenants
+    # `org-tenants` on Sovereign install, `main` on Catalyst-Zero).
+    branch: org-tenants
     # In-cluster Gitea base URL. Matches what
     # platform/self-sovereign-cutover/chart/templates/
     # 05-flux-gitrepository-patch-job.yaml patches into the existing
@@ -1310,24 +1310,24 @@ smeTenants:
     # which makes ANONYMOUS git clone return 401 (proven live on hw133: a
     # fresh public repo's info/refs?service=git-upload-pack = 401 anon, 200
     # authed). The bp-gitea values comment confirms the intent: "Git/Flux/
-    # API clients are unaffected (token auth)". So the openova-sme-tenants
+    # API clients are unaffected (token auth)". So the openova-org-tenants
     # GitRepository carries a secretRef to a Flux basic-auth Secret holding
-    # the catalyst-gitea-token PAT (rendered by sme-tenants-gitrepo-auth-
+    # the catalyst-gitea-token PAT (rendered by org-tenants-gitrepo-auth-
     # secret.yaml). Without this the GitRepository sits "authentication
     # required" forever and every sub-org hangs in Provisioning.
     secretRef:
       # Name of the Flux basic-auth Secret in this GitRepository's namespace
-      # (flux-system). Rendered by sme-tenants-gitrepo-auth-secret.yaml.
-      name: openova-sme-tenants-git-auth
+      # (flux-system). Rendered by org-tenants-gitrepo-auth-secret.yaml.
+      name: openova-org-tenants-git-auth
       # Gitea account the PAT belongs to (matches CATALYST_GITOPS_USER in
       # api-deployment.yaml). The PAT is sourced from catalyst-gitea-token.
       username: gitea_admin
       patSourceSecretName: catalyst-gitea-token
       patSourceKey: token
   # ─── Pre-cutover local-Gitea repo bootstrap (#3454, Refs #3376) ─────
-  # The SME-tenant gitops chain (catalyst-api push target + the
-  # openova-sme-tenants GitRepository above) targets the local Gitea
-  # repo `openova/openova`@`sme-tenants`. PRE-cutover that repo does not
+  # The Organization-tenant gitops chain (catalyst-api push target + the
+  # openova-org-tenants GitRepository above) targets the local Gitea
+  # repo `openova/openova`@`org-tenants`. PRE-cutover that repo does not
   # exist — bp-self-sovereign-cutover Step 01 (the gitea-mirror Job)
   # creates it only POST-handover, so the GitRepository sits in
   # "authentication required" (missing-repo → Gitea 401) and every
@@ -1343,11 +1343,11 @@ smeTenants:
     giteaInternalURL: "http://gitea-http.gitea.svc.cluster.local:3000"
     org: openova
     repo: openova
-    branch: sme-tenants
+    branch: org-tenants
 
 # ─── Per-Organization public HTTPRoutes (issue #1629 follow-up) ───────
 # PowerDNS now resolves `<slug>.<parentDomain>` for every Org that maps
-# onto a Sovereign's role=sme-pool parent domain, but without a
+# onto a Sovereign's role=org-pool parent domain, but without a
 # corresponding HTTPRoute the Cilium Gateway terminates TLS on the
 # wildcard cert and falls through to the marketplace tenant-wildcard
 # route (which sends the request to the marketplace `console` Service).
@@ -1409,33 +1409,33 @@ marketplace:
         name: ""
         key: "client-secret"
 
-# ─── SME Postgres cluster (issue #859) ────────────────────────────────────
+# ─── Organization Postgres cluster (issue #859) ───────────────────────────
 # When ingress.marketplace.enabled=true the chart renders a
-# CloudNativePG `Cluster` resource backing the SME microservice mesh. CNPG
+# CloudNativePG `Cluster` resource backing the Organization microservice mesh. CNPG
 # auto-creates the `<cluster>-app` Secret (basic-auth shape: username +
-# password) the SME services consume via secretKeyRef.
+# password) the Organization services consume via secretKeyRef.
 #
 # Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
-# meaningful value flows through .Values.smePostgres so per-Sovereign
+# meaningful value flows through .Values.orgPostgres so per-Sovereign
 # overlays can right-size storage / instances / pgVersion without forking
 # the chart.
-smePostgres:
+orgPostgres:
   # ── #3370 embedded-DB elimination seams ───────────────────────────────
-  # externalHost — when set (slot 13 in shared mode), every SME service
-  # + FerretDB dials this host instead of the bundled sme-pg-rw Service
+  # externalHost — when set (slot 13 in shared mode), every Organization service
+  # + FerretDB dials this host instead of the bundled org-pg-rw Service
   # (e.g. shared-pg-c-rw.shared-data.svc.cluster.local). Empty = the
   # bundled Cluster (byte-identical default).
   externalHost: ""
-  # credentialSecret — when set, the SME services + FerretDB read
+  # credentialSecret — when set, the Organization services + FerretDB read
   # username/password from this Secret instead of the CNPG-generated
-  # sme-pg-app (the slot-16d hub `sme-database-secret`, reflector-PUSHED
-  # into ns sme, carries the same keys). Empty = sme-pg-app.
+  # org-pg-app (the slot-16d hub `org-database-secret`, reflector-PUSHED
+  # into ns sme, carries the same keys). Empty = org-pg-app.
   credentialSecret: ""
   cluster:
-    # false → the bundled sme-pg Cluster is skipped entirely (#3370
+    # false → the bundled org-pg Cluster is skipped entirely (#3370
     # shared mode: the mesh runs on shared-pg-c's sme_* Contexts).
     enabled: true
-    name: sme-pg                    # produces sme-pg-rw / sme-pg-app / sme-pg-superuser (wire-stable persisted data — #3383 keeps the CNPG cluster + secret names)
+    name: org-pg                    # produces org-pg-rw / org-pg-app / org-pg-superuser (wire-stable persisted data — #3985 renames the CNPG cluster + secret names sme->org, fresh-prov-forward)
     namespace: org-services         # the Organization services live here too (#3383: was `sme`)
     instances: 1                    # single-node by default; HA is a per-overlay decision
     # CNPG postgres image. Defaults to the mothership Harbor proxy cache
@@ -1446,14 +1446,14 @@ smePostgres:
     # The tag is set separately via pgVersion.
     imageName: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql
     pgVersion: "16"                 # tracks contabo data/postgresql.yaml + ADR-0003
-    database: sme_auth              # primary DB owned by the `sme` user; secondary DBs below
-    owner: sme                      # role name + secret username
+    database: org_auth              # primary DB owned by the `org` user; secondary DBs below
+    owner: org                      # role name + secret username
     # Secondary DBs created via postInitApplicationSQL (1.4.4 — added
-    # sme_documents for FerretDB, see ferretdb.yaml + cnpg-cluster.yaml).
-    # Adding a new SME service is a values-only change.
+    # org_documents for FerretDB, see ferretdb.yaml + cnpg-cluster.yaml).
+    # Adding a new Organization service is a values-only change.
     additionalDatabases:
-      - sme_billing                 # billing service primary DB
-      - sme_documents               # FerretDB (MongoDB-wire) backing DB — issue #861
+      - org_billing                 # billing service primary DB
+      - org_documents               # FerretDB (MongoDB-wire) backing DB — issue #861
     storageSize: 10Gi
     storageClass: local-path        # k3s default; per-Sovereign overlays may override
     resources:
@@ -1464,9 +1464,9 @@ smePostgres:
         cpu: "2"
         memory: 1Gi
 
-# ─── SME secrets bundle (issue #859) ──────────────────────────────────────
+# ─── Organization secrets bundle (issue #859) ─────────────────────────────
 # When ingress.marketplace.enabled=true the chart renders a `sme-secrets`
-# Kubernetes Secret in the `sme` namespace consumed by 10 of the 11 SME
+# Kubernetes Secret in the `sme` namespace consumed by 10 of the 11 Organization
 # service Deployments (auth, billing, catalog, console, domain, gateway,
 # marketplace, notification, provisioning, tenant).
 #
@@ -1474,7 +1474,7 @@ smePostgres:
 # first install via sprig randAlphaNum and PERSIST across reconciles via
 # Helm `lookup` (same pattern as platform/gitea/chart/templates/
 # admin-secret.yaml — see issue #830 Bug 2). Without lookup every
-# reconcile would invalidate every active SME session and lock out every
+# reconcile would invalidate every active Organization session and lock out every
 # admin.
 #
 # GOOGLE_CLIENT_* and SMTP_* are operator-supplied at provision time
@@ -1483,11 +1483,20 @@ smePostgres:
 # the operator hasn't wired OAuth or SMTP yet — non-marketplace
 # Sovereigns simply don't render this Secret.
 #
+# #3985 backward-compat switch. The Organization-services credential
+# Secret is canonically `org-services-secrets`. The legacy `sme-secrets`
+# alias is now OFF by default (fresh provs emit ONLY the canonical name).
+# An operator upgrading a LIVE env in place may set
+# `compat.orgSecretsAlias=true` for ONE release so the legacy name is
+# re-emitted byte-identical mid-roll; this branch is removed post-Sunset.
+compat:
+  orgSecretsAlias: false
+#
 # Per docs/INVIOLABLE-PRINCIPLES.md #4 + #10: no hardcoded plaintext
-# credentials; every value flows from .Values.smeSecrets or via lookup'd
+# credentials; every value flows from .Values.orgSecrets or via lookup'd
 # external Secret refs.
-smeSecrets:
-  secretName: org-services-secrets   # #3383: was `sme-secrets`; chart dual-renders the legacy name for one release
+orgSecrets:
+  secretName: org-services-secrets   # #3985: canonical name; legacy `sme-secrets` alias default-OFF (compat.orgSecretsAlias)
   namespace: org-services            # #3383: was `sme`
   smtp:
     # ─── Sovereign source-Secret (issue #934) ────────────────────────
@@ -1501,7 +1510,7 @@ smeSecrets:
     sovereignNamespace: catalyst-system
     sovereignSecretName: sovereign-smtp-credentials
     # Defaults match `.Values.sovereign.smtp.*` (the catalyst-api PIN
-    # delivery path) so the SME auth service uses the same mothership
+    # delivery path) so the Organization auth service uses the same mothership
     # relay coordinates as the catalyst Console PIN flow until the
     # Sovereign-local Stalwart relay (slot 95 bp-stalwart-sovereign)
     # lands. The SMTP source-Secret (catalyst-system/sovereign-smtp-
@@ -1529,10 +1538,10 @@ smeSecrets:
     # values per Inviolable Principle #10.
     email: "admin@openova.io"
 
-# ─── SME service backing-store endpoints (issue #861) ─────────────────────
+# ─── Organization service backing-store endpoints (issue #861) ────────────
 # When ingress.marketplace.enabled=true the chart renders:
 #   - templates/org-services/ferretdb.yaml — FerretDB Deployment + Service
-#     in `sme` ns, MongoDB-wire-compatible front end backed by sme-pg.
+#     in `sme` ns, MongoDB-wire-compatible front end backed by org-pg.
 #   - templates/org-services/valkey-cross-ns-policy.yaml —
 #     CiliumNetworkPolicy in `valkey` ns allowing ingress from `sme` ns.
 #   - templates/org-services/configmap.yaml — MONGODB_URI + VALKEY_ADDR
@@ -1543,10 +1552,10 @@ smeSecrets:
 # the known-working contabo-mkt shape (FerretDB v1.24 against vanilla
 # CNPG postgres:16; valkey-primary as the bp-valkey 1.0.0 read/write
 # Service name).
-smeServices:
+orgServices:
   # ─── Event bus (issue #942) ────────────────────────────────────────────
   # Per ADR-0001 the OpenOva architecture uses NATS JetStream as the only
-  # local bus on Sovereigns. On Catalyst-Zero (contabo) the legacy SME
+  # local bus on Sovereigns. On Catalyst-Zero (contabo) the legacy Organization
   # services still target a Redpanda Service in the talentmesh namespace
   # (migration #68). The configmap.yaml template selects the default at
   # render time based on .Values.global.sovereignFQDN:
@@ -1557,7 +1566,7 @@ smeServices:
   #       (legacy Kafka transport remains the bus on contabo)
   # `brokers` overrides the default outright — operator MAY wire any
   # NATS-protocol or Kafka-protocol broker without forking the chart.
-  # `protocol` is an explicit hint for SME services that want to switch
+  # `protocol` is an explicit hint for Organization services that want to switch
   # wire format independently (e.g. a Sovereign with a Kafka-compatible
   # broker outside the cluster).
   eventBus:
@@ -1574,7 +1583,7 @@ smeServices:
     namespace: org-services          # #3383: was `sme`
     # FerretDB v1.24 — works against vanilla CNPG postgres:16. v2.x
     # requires PostgreSQL with the DocumentDB extension which the
-    # sme-pg cluster does not ship; bumping is a separate change that
+    # org-pg cluster does not ship; bumping is a separate change that
     # also needs a custom CNPG image. See Chart.yaml 1.4.4 changelog.
     # 1.4.600 — kyverno harbor-proxy-pull (Enforce): raw ghcr.io denied on
     # tonight's umbrella reinstall (hw130 live). Same proxy-ghcr pattern as
@@ -1583,14 +1592,14 @@ smeServices:
     tag: "1.24"
     imagePullPolicy: IfNotPresent
     replicas: 1
-    # Postgres connection target — sme-pg-rw read/write Service in
-    # `sme` ns, sme_documents DB created by sme-pg's
-    # postInitApplicationSQL block (see smePostgres.cluster.
+    # Postgres connection target — org-pg-rw read/write Service in
+    # `sme` ns, org_documents DB created by org-pg's
+    # postInitApplicationSQL block (see orgPostgres.cluster.
     # additionalDatabases above).
     postgresPort: 5432
-    postgresDatabase: sme_documents
+    postgresDatabase: org_documents
     sslmode: disable                          # ClusterIP traffic is overlay-encrypted; CNPG default issuer chain not bundled
-    # Service FQDN exposed to other SME services via configmap MONGODB_URI.
+    # Service FQDN exposed to other Organization services via configmap MONGODB_URI.
     # Per-Sovereign overlays MAY swap to an external MongoDB endpoint.
     host: ferretdb.org-services.svc.cluster.local
     port: 27017
@@ -1614,9 +1623,9 @@ smeServices:
     # Service to the HOST under the syncer-mangled name
     # `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc`, so the host
     # `valkey` namespace no longer carries a `valkey-primary` Service. The
-    # SME control-plane services (host ns `sme`, still host-placed in
+    # Organization control-plane services (host ns `sme`, still host-placed in
     # Batch A) consume valkey across the vCluster boundary → pin to the
-    # synced name. SME services pin to the primary so writes succeed; per-
+    # synced name. Organization services pin to the primary so writes succeed; per-
     # Sovereign overlays MAY split read traffic to -replicas via a second
     # VALKEY_READ_ADDR (separate ticket). Override `host` for a
     # host-placed valkey.
@@ -1628,7 +1637,7 @@ smeServices:
     # random password and exposes it via the `valkey` Secret in the
     # `valkey` namespace. The catalyst chart renders templates/
     # org-services/valkey-cross-ns-secret.yaml which uses Helm `lookup`
-    # to read that password and re-emit it as `sme-valkey-auth` in
+    # to read that password and re-emit it as `org-valkey-auth` in
     # `sme` ns — auth.yaml + gateway.yaml then wire VALKEY_PASSWORD via
     # secretKeyRef. Each knob below is operator-overridable in case a
     # Sovereign uses a forked bp-valkey with a different Secret name
@@ -1636,7 +1645,7 @@ smeServices:
     sourceSecretName: valkey
     sourcePasswordKey: valkey-password
     destNamespace: org-services       # #3383: was `sme`
-    destSecretName: sme-valkey-auth
+    destSecretName: org-valkey-auth
     crossNsPolicy:
       # Render templates/org-services/valkey-cross-ns-policy.yaml — a
       # CiliumNetworkPolicy in the `valkey` namespace allowing ingress
@@ -1654,7 +1663,7 @@ smeServices:
       enabled: false
       sourceNamespace: org-services   # #3383: was `sme`
   # ─── provisioning service GitHub token (issue #866) ──────────────────
-  # The SME `provisioning` service Deployment references
+  # The Organization `provisioning` service Deployment references
   # `secret/provisioning-github-token` with key `GITHUB_TOKEN`. On
   # contabo-mkt this is pre-provisioned via SealedSecret. On a freshly
   # franchised Sovereign, templates/org-services/provisioning-github-
@@ -1663,7 +1672,7 @@ smeServices:
   # lookup-persistence pattern) into `sme` ns under the canonical
   # GITHUB_TOKEN key the provisioning service reads. This unblocks the
   # provisioning Pod reaching Running 1/1 on a fresh Sovereign — the
-  # last 1/13 SME pod that #859 + #861 + #863 didn't already cover.
+  # last 1/13 Organization pod that #859 + #861 + #863 didn't already cover.
   #
   # Per Inviolable Principle #4 (never hardcode), every source/dest
   # name + key is operator-overridable so a Sovereign that points
@@ -1704,11 +1713,11 @@ smeServices:
       destSecretName: provisioning-github-token
       destKey: GITHUB_TOKEN
     # ─── Provisioning service GitOps env (issues #940 + #944) ──────────
-    # The SME provisioning service Deployment env block is rendered from
+    # The Organization provisioning service Deployment env block is rendered from
     # these keys. Every value is operator-overridable per Inviolable
     # Principle #4. Defaults are topology-aware:
     #   - Sovereign install (global.sovereignFQDN non-empty) defaults
-    #     gitBasePath to clusters/<sovereignFQDN>/sme-tenants and points
+    #     gitBasePath to clusters/<sovereignFQDN>/org-tenants and points
     #     git.{apiURL,owner} at the local Gitea bp-gitea installs.
     #   - Catalyst-Zero install (global.sovereignFQDN empty) keeps the
     #     legacy contabo-mkt write target.
@@ -1782,7 +1791,7 @@ smeServices:
       # so a platform-wide bump only needs to land in one place at a time.
       image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
       # giteaInternalURL: the in-cluster Gitea REST base the probe hits.
-      # Same default as the rest of the SME bundle's Gitea coordinates.
+      # Same default as the rest of the Organization bundle's Gitea coordinates.
       giteaInternalURL: "http://gitea-http.gitea.svc.cluster.local:3000"
       # intervalSeconds + timeoutSeconds: poll cadence + wall-clock cap.
       # Default 10s × 180 iters = 1800s (30m) — covers the slowest cutover
@@ -1802,12 +1811,12 @@ smeServices:
       repo: openova
       # branch: leave empty to inherit topology-aware default from the
       # provisioning Deployment template (TBD-C18e, 2026-05-18):
-      #   - Sovereign install (global.sovereignFQDN non-empty) → "sme-tenants"
+      #   - Sovereign install (global.sovereignFQDN non-empty) → "org-tenants"
       #   - Catalyst-Zero install (global.sovereignFQDN empty)  → "main"
-      # The dedicated `sme-tenants` branch on Sovereigns prevents the
+      # The dedicated `org-tenants` branch on Sovereigns prevents the
       # cutover-gitea-mirror Job's force-push of main from clobbering
       # per-tenant overlays committed by this service. The paired
-      # Flux GitRepository (openova-sme-tenants) + Kustomization read
+      # Flux GitRepository (openova-org-tenants) + Kustomization read
       # the same branch.
       branch: ""
 
@@ -2123,7 +2132,7 @@ security:
     # Platform namespaces catalyst-system Pods are allowed to egress to.
     # Override to add tenant-specific or per-Sovereign namespaces.
     #
-    # `sme` — the bp-sme-platform chart deploys the SME control-plane
+    # `sme` — the bp-sme-platform chart deploys the Organization control-plane
     # (auth, billing, catalog, console, domain, gateway, marketplace,
     # notification, provisioning, tenant) into namespace `sme`. Console
     # in catalyst-system reaches `gateway.org-services.svc.cluster.local:8080`

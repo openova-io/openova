@@ -1,7 +1,7 @@
 name: Build catalyst-catalog
 
 # catalyst-catalog — multi-source Blueprint catalog HTTP REST service
-# (EPIC-2 Slice L of #1097). REPLACES the per-Org SME catalog per
+# (EPIC-2 Slice L of #1097). REPLACES the per-Organization catalog per
 # ADR-0001 §4.3.
 #
 # Per docs/PRINCIPLES.md #4a "GitHub Actions is the only

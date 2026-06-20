@@ -1031,7 +1031,7 @@ func TestSeedJobsFromInformerList_reseedRecoversFailedToSucceeded(t *testing.T) 
 
 	// Bootstrap-window seed: the HR was observed at a terminal failure.
 	if _, _, err := br.SeedJobsFromInformerList([]InformerSeed{
-		{Component: "catalyst-platform", State: HelmStateFailed, Message: "InstallFailed: missing sme namespace", ObservedAt: t0},
+		{Component: "catalyst-platform", State: HelmStateFailed, Message: "InstallFailed: missing org-services namespace", ObservedAt: t0},
 	}); err != nil {
 		t.Fatalf("first (failed) seed: %v", err)
 	}

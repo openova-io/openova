@@ -1,4 +1,4 @@
-// Package handler — organization_dns.go: DNS provisioner for the SME
+// Package handler — organization_dns.go: DNS provisioner for the Organization
 // tenant pipeline (issue #804).
 //
 // Two flows:
@@ -38,7 +38,7 @@ import (
 )
 
 // PowerDNSWriter is a minimal PowerDNS API client matching the subset
-// the SME-tenant pipeline needs: PATCH zones/<zone> with one or more
+// the Organization pipeline needs: PATCH zones/<zone> with one or more
 // RRsets. Kept narrow on purpose — the orchestrator never lists,
 // creates, or deletes whole zones (the otech zone already exists).
 type PowerDNSWriter struct {
@@ -142,7 +142,7 @@ type Resolver interface {
 // chosen parent zone so the per-tenant overlay's ingress hostnames
 // resolve as soon as Flux finishes reconciling. Per epic #825 the
 // parentZone is operator-supplied (one of the Sovereign's
-// role:sme-pool entries) — never inferred from a hardcoded OTECHFQDN.
+// role:org-pool entries) — never inferred from a hardcoded OTECHFQDN.
 func (p DefaultOrganizationDNSProvisioner) ProvisionFreeSubdomain(ctx context.Context, subdomain, parentZone, ingressIPv4 string) error {
 	if p.Writer == nil {
 		return errors.New("powerdns writer not wired (CATALYST_POWERDNS_URL / CATALYST_POWERDNS_API_KEY)")
@@ -151,7 +151,7 @@ func (p DefaultOrganizationDNSProvisioner) ProvisionFreeSubdomain(ctx context.Co
 		return errors.New("otech ingress IPv4 unconfigured")
 	}
 	if strings.TrimSpace(parentZone) == "" {
-		return errors.New("parent zone unconfigured (multi-domain Sovereign requires a sme-pool parent_domain)")
+		return errors.New("parent zone unconfigured (multi-domain Sovereign requires a org-pool parent_domain)")
 	}
 	zone := parentZone
 	rrsets := []pdnsRRSet{}
@@ -174,7 +174,7 @@ func (p DefaultOrganizationDNSProvisioner) ProvisionFreeSubdomain(ctx context.Co
 // `console.<byo_domain>` and confirms its CNAME target ends with one
 // of the operator-supplied accepted targets (or, with no targets, the
 // legacy single-target path). The multi-target shape backs epic #825
-// (multi-domain Sovereign) where any parent in the role:sme-pool list
+// (multi-domain Sovereign) where any parent in the role:org-pool list
 // is a valid CNAME target.
 func (p DefaultOrganizationDNSProvisioner) ValidateBYOCNAME(ctx context.Context, byoDomain, legacyTarget string, acceptedTargets ...string) error {
 	resolver := p.Resolver

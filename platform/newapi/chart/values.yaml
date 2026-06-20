@@ -290,7 +290,7 @@ valkey:
   # `valkey-primary.valkey.svc` now resolves NXDOMAIN (same FATAL Redis-ping
   # CrashLoop, observed live on hw133). newapi is host-placed in Batch A and
   # this consumer is default-ON (`valkey.enabled: true`), so this default
-  # must point at the synced name. Mirrors the SME `VALKEY_ADDR` /
+  # must point at the synced name. Mirrors the Organization `VALKEY_ADDR` /
   # projector `valkey.addr` rewire (#3476). Override `url` for a host-placed
   # valkey.
   url: "redis://valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc.cluster.local:6379"
@@ -1103,7 +1103,7 @@ sandboxBridge:
 meteringSidecar:
   enabled: true
   image:
-    # services-build CI publishes this image alongside the SME services
+    # services-build CI publishes this image alongside the Organization services
     # on every push to core/services/metering-sidecar/**.
     repository: ghcr.io/openova-io/openova/services-metering-sidecar
     # Pinned SHA, not :latest — a mutable :latest tag forces a fresh manifest

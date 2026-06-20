@@ -8,9 +8,9 @@ realm. The client.json shape matches the per-Org realm template's
 client expectations (standard browser flow, direct-access-grants OFF,
 redirect URI to WP's openid-connect-generic callback).
 
-When chart 0.3.x is installed against a legacy SME-fleet Sovereign that
-populates `smeSubdomain` (no Catalyst per-Org realm), `data.realm`
-resolves to `sme-<smeSubdomain>` via `bp-wordpress-tenant.orgRealm`
+When chart 0.3.x is installed against a legacy Organization-fleet Sovereign that
+populates `orgSubdomain` (no Catalyst per-Org realm), `data.realm`
+resolves to `org-<orgSubdomain>` via `bp-wordpress-tenant.orgRealm`
 (see _helpers.tpl). When chart 0.4.0+ is installed against a Catalyst
 per-Org Sovereign that populates `org.realm`, `data.realm` resolves to
 the Org slug (G117 locked-decision #6).
@@ -35,7 +35,7 @@ data:
   client.json: |
     {
       "clientId": {{ $clientId | quote }},
-      "name": "WordPress ({{ .Values.smeDomain }})",
+      "name": "WordPress ({{ .Values.orgDomain }})",
       "enabled": true,
       "publicClient": false,
       "serviceAccountsEnabled": false,

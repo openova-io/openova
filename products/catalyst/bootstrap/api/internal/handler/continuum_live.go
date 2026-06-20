@@ -88,7 +88,7 @@ const (
 	cnpgRegionLabel = "openova.io/region"
 
 	// cnpgAppLabel — when a cnpg-pair is provisioned as the state store of
-	// a specific Application (the SME-tenant / per-app path), the pair
+	// a specific Application (the Organization / per-app path), the pair
 	// carries this label so we can associate it back without a name match.
 	// Optional: pairs that don't carry it are matched by name convention.
 	cnpgAppLabel = "openova.io/application"

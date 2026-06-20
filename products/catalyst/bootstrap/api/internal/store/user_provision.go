@@ -3,7 +3,7 @@
 //
 // ADR-0003 §3.4 specifies the canonical state shape:
 //
-//	user_provision_state(sme_user_uuid PK, sme_tenant_id, email,
+//	user_provision_state(org_user_uuid PK, org_tenant_id, email,
 //	                     state, kc_user_id, newapi_user_id,
 //	                     retry_count, last_error, created_at, updated_at)
 //
@@ -16,7 +16,7 @@
 //	          failed
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #3 this implementation uses a flat
-// JSON file indexed by sme_user_uuid (one file per user) instead of
+// JSON file indexed by org_user_uuid (one file per user) instead of
 // the Postgres table specified in the ADR. The semantic contract — the
 // state column values, the idempotent re-run semantics, the retry
 // counter — is identical; only the persistence engine differs. When
@@ -54,14 +54,14 @@ const (
 // UserProvisionRecord is the per-user state row described in
 // ADR-0003 §3.4.
 type UserProvisionRecord struct {
-	SMEUserUUID  string             `json:"sme_user_uuid"`
-	OrganizationID  string             `json:"sme_tenant_id"`
+	OrgUserUUID  string             `json:"org_user_uuid"`
+	OrganizationID  string             `json:"org_tenant_id"`
 	Email        string             `json:"email"`
 	State        UserProvisionState `json:"state"`
 	KCUserID     string             `json:"kc_user_id,omitempty"`
 	NewAPIUserID string             `json:"newapi_user_id,omitempty"`
 	// SecretName is the name of the K8s Secret created in step 3
-	// (ADR-0003 §3.3 — name pattern `newapi-key-<sme_user_uuid>`).
+	// (ADR-0003 §3.3 — name pattern `newapi-key-<org_user_uuid>`).
 	SecretName string    `json:"secret_name,omitempty"`
 	RetryCount int       `json:"retry_count"`
 	LastError  string    `json:"last_error,omitempty"`
@@ -99,11 +99,11 @@ func NewUserProvisionStore(dir string) (*UserProvisionStore, error) {
 // Put upserts a record. The CreatedAt timestamp is preserved on
 // upsert; UpdatedAt is bumped to now.
 func (s *UserProvisionStore) Put(rec UserProvisionRecord) error {
-	if strings.TrimSpace(rec.SMEUserUUID) == "" {
-		return errors.New("user-provision: sme_user_uuid is required")
+	if strings.TrimSpace(rec.OrgUserUUID) == "" {
+		return errors.New("user-provision: org_user_uuid is required")
 	}
 	if strings.TrimSpace(rec.OrganizationID) == "" {
-		return errors.New("user-provision: sme_tenant_id is required")
+		return errors.New("user-provision: org_tenant_id is required")
 	}
 	if rec.State == "" {
 		rec.State = UPSPending
@@ -117,7 +117,7 @@ func (s *UserProvisionStore) Put(rec UserProvisionRecord) error {
 	if err := os.MkdirAll(tenantDir, 0o700); err != nil {
 		return fmt.Errorf("user-provision: mkdir tenant %q: %w", tenantDir, err)
 	}
-	path := filepath.Join(tenantDir, sanitizeID(rec.SMEUserUUID)+".json")
+	path := filepath.Join(tenantDir, sanitizeID(rec.OrgUserUUID)+".json")
 
 	// Preserve CreatedAt across upserts.
 	if rec.CreatedAt.IsZero() {
@@ -151,7 +151,7 @@ func (s *UserProvisionStore) Get(tenantID, uuid string) (UserProvisionRecord, bo
 }
 
 // List returns every record for the given tenant, sorted by
-// CreatedAt descending (newest first) — the order the SME admin's UI
+// CreatedAt descending (newest first) — the order the Organization admin's UI
 // renders.
 func (s *UserProvisionStore) List(tenantID string) []UserProvisionRecord {
 	tenantDir := filepath.Join(s.dir, sanitizeID(tenantID))

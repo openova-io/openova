@@ -89,7 +89,7 @@ var previewImageRE = regexp.MustCompile(`^[A-Za-z0-9._\-/:@]{1,512}$`)
 // previewPort is the canonical containerPort the Deployment + Service
 // agree on. Apps that listen on a different port need a future
 // `port` argument or an env override — for Wave 12 we standardise on
-// 8080 (matches the convention every catalyst sme-service uses).
+// 8080 (matches the convention every catalyst org-service uses).
 const previewPort int32 = 8080
 
 // previewReplicas is the default replica count. Preview Deployments are

@@ -24,7 +24,7 @@ name: bp-valkey
 # Redis ping probe — 45× CrashLoopBackOff on t38 — blocking every
 # Sandbox session (Pillar 4 qwen-code + MCP) and acting as the
 # verifier-killing bug for the end-user DoD (#1986). Consumers that
-# DO supply a password (catalyst sme-services, projector) tolerate
+# DO supply a password (catalyst org-services, projector) tolerate
 # the change via `secretKeyRef optional: true` and `{{- with }}`
 # gates that fall back to the no-auth connect path. See
 # values.yaml under `valkey.auth` for the full rationale +

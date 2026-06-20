@@ -3,7 +3,7 @@ Provisioning service GitHub-token Secret for franchised Sovereigns
 (issue #866).
 
 Why this template exists:
-  The SME `provisioning` service Deployment references
+  The Organization `provisioning` service Deployment references
   `secret/provisioning-github-token` with key `GITHUB_TOKEN` as a
   required env (provisioning.yaml). On contabo-mkt this Secret is
   pre-provisioned via SealedSecret. On a freshly franchised Sovereign
@@ -14,13 +14,13 @@ Why this template exists:
 
   This template materialises the Secret as part of the chart so any
   Sovereign that flips MARKETPLACE_ENABLED=true gets a working
-  provisioning Pod out of the box, completing the SME stack
+  provisioning Pod out of the box, completing the Organization stack
   (12/13 → 13/13 Running 1/1).
 
 Approach (issue #866 Option C — local Gitea target; corrected by #3122):
   Post-cutover the canonical Git target on a Sovereign IS the local
   Gitea instance (the GitRepository CRs already point there), not
-  upstream GitHub. We mirror a REAL Gitea PAT into the `sme` namespace
+  upstream GitHub. We mirror a REAL Gitea PAT into the `org-services` namespace
   under the canonical key name `GITHUB_TOKEN` that the provisioning
   service + catalyst-api read. The env-var name stays GITHUB_TOKEN
   because the provisioning service code (core/services/provisioning/
@@ -36,7 +36,7 @@ Approach (issue #866 Option C — local Gitea target; corrected by #3122):
   is NOT a Gitea API token: Gitea rejects password-auth for git
   operations ("Password authentication is not supported for Git
   operations"), so the first tenant gitops push 401'd. Proven live on
-  hw101 (operator POST /sme/tenants, deployment e19b083c): the 32-char
+  hw101 (operator POST /api/v1/organizations, deployment e19b083c): the 32-char
   admin password -> 401 vs Gitea /api/v1/user; the 40-char
   catalyst-gitea-token PAT -> 200 as gitea_admin.
 
@@ -44,7 +44,7 @@ Approach (issue #866 Option C — local Gitea target; corrected by #3122):
   REST-API target support in core/services/provisioning/github/
   client.go (which currently hardcodes https://api.github.com) is a
   separate follow-up. This Secret unblocks the Pod reaching Running
-  1/1 — completing the SME stack — and now carries a credential that
+  1/1 — completing the Organization stack — and now carries a credential that
   actually authenticates against the local Gitea.
 
 Why a lookup-and-mirror (not Reflector on catalyst-gitea-token)?
@@ -80,7 +80,7 @@ via lookup; the bytes never appear in chart source or rendered
 manifests on disk.
 
 Per #4 (never hardcode): source/destination namespace + Secret names
-flow through .Values.smeServices.provisioning.gitToken.* with sensible
+flow through .Values.orgServices.provisioning.gitToken.* with sensible
 defaults (the PAT source defaults to the release namespace +
 catalyst-gitea-token/token; an operator pointing provisioning at a
 non-Gitea Git host overrides patSource* without forking).
@@ -127,12 +127,12 @@ Cutover ownership handover (TBD-C18b, 2026-05-18):
        PAT is already populated by the time this lookup runs. An empty
        patSourceNamespace resolves to the release namespace where the
        minter writes the Secret (catalyst-system). */ -}}
-{{- $sourceNamespace := .Values.smeServices.provisioning.gitToken.patSourceNamespace | default .Release.Namespace -}}
-{{- $sourceSecretName := .Values.smeServices.provisioning.gitToken.patSourceSecretName | default "catalyst-gitea-token" -}}
-{{- $sourcePatKey := .Values.smeServices.provisioning.gitToken.patSourceKey | default "token" -}}
-{{- $destNamespace := .Values.smeServices.provisioning.gitToken.destNamespace | default "org-services" -}}
-{{- $destSecretName := .Values.smeServices.provisioning.gitToken.destSecretName | default "provisioning-github-token" -}}
-{{- $destKey := .Values.smeServices.provisioning.gitToken.destKey | default "GITHUB_TOKEN" -}}
+{{- $sourceNamespace := .Values.orgServices.provisioning.gitToken.patSourceNamespace | default .Release.Namespace -}}
+{{- $sourceSecretName := .Values.orgServices.provisioning.gitToken.patSourceSecretName | default "catalyst-gitea-token" -}}
+{{- $sourcePatKey := .Values.orgServices.provisioning.gitToken.patSourceKey | default "token" -}}
+{{- $destNamespace := .Values.orgServices.provisioning.gitToken.destNamespace | default "org-services" -}}
+{{- $destSecretName := .Values.orgServices.provisioning.gitToken.destSecretName | default "provisioning-github-token" -}}
+{{- $destKey := .Values.orgServices.provisioning.gitToken.destKey | default "GITHUB_TOKEN" -}}
 {{- /* Lookup the destination Secret first to detect whether Step 09 of
        bp-self-sovereign-cutover has already taken ownership. If yes,
        preserve the minted token bytes verbatim — the chart MUST NOT
@@ -190,7 +190,7 @@ metadata:
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform
     catalyst.openova.io/component: provisioning-github-token
-    app.kubernetes.io/part-of: sme
+    app.kubernetes.io/part-of: org
   annotations:
     # Identifies the upstream source for ops visibility — `kubectl describe
     # secret provisioning-github-token -n sme` makes the provenance obvious
@@ -206,7 +206,7 @@ metadata:
     # secretKeyRef to source CATALYST_GITOPS_TOKEN — the real Gitea
     # API token minted by bp-self-sovereign-cutover Step 09. Without
     # this mirror, catalyst-api's POST /api/v1/sovereigns/{id}/
-    # marketplace and the SME tenant gitops writer both return 503
+    # marketplace and the Organization tenant gitops writer both return 503
     # "gitops token unconfigured — set CATALYST_GITOPS_TOKEN" because
     # K8s secretKeyRef is same-namespace-only and Step 09's destination
     # lives in `sme`.

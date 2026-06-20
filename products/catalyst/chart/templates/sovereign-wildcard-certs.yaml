@@ -3,7 +3,7 @@ Per-zone wildcard Certificate(s) for the Cilium Gateway listener.
 
 Issue #827 (parent epic #825): a franchised Sovereign now supports
 N parent zones, NOT one. The operator brings 1+ parent domains at
-signup (`omani.works` for own use, `omani.trade` for the SME pool,
+signup (`omani.works` for own use, `omani.trade` for the Org pool,
 etc.) and may add more post-handover via the admin console (#829).
 This template renders one cert-manager.io/v1.Certificate resource
 per entry in `.Values.parentZones`, each requesting `*.<zone>` plus
@@ -82,7 +82,7 @@ Skip-render takes precedence over `.Values.wildcardCert.enabled` —
 operators that opt OUT (enabled=false) still get zero output, and
 operators that opt IN (enabled=true) now get zero output too.
 */}}
-{{- /* #3376 re-enable for sme-pool zones ONLY.
+{{- /* #3376 re-enable for org-pool zones ONLY.
 
 The A29 skip-render guard (`{{- if false }}`) above was added because
 this template minted `*.<parent>` for EVERY zone — including the PRIMARY
@@ -91,19 +91,19 @@ cert `sovereign-wildcard-tls-<fqdnDashed>` from cilium-gateway-cert.yaml
 (both wrote a `*.<primary>` identifier set) and burned a second LE
 5/168h slot on every reprov.
 
-#3376 root cause: a role=sme-pool zone (omani.homes / omani.rest /
+#3376 root cause: a role=org-pool zone (omani.homes / omani.rest /
 omani.trade) carries the per-Org tenant subdomains (`<slug>.<pool-tld>`,
 `console.<slug>.<pool-tld>`). The Cilium Gateway renders a `*.<pool-tld>`
 listener for it (sovereign-tls-vars-cm.yaml), but NO cert covered that
 hostname — the per-prov cert is `*.<primary-fqdn>` only — so the listener
 sat Programmed=False and tenant hosts under the pool zone were
-connection-refused. The fix is a `*.<pool-tld>` cert PER sme-pool zone,
+connection-refused. The fix is a `*.<pool-tld>` cert PER org-pool zone,
 bound to that zone's listener (sovereign-tls-vars-cm.yaml change in this
 same PR).
 
 We render this template again, but the zone loop below now SKIPS the
 primary zone (role=primary or name==sovereignFQDN) so the A29 dual-cert
-collision never returns — only the sme-pool zones, which the per-prov
+collision never returns — only the org-pool zones, which the per-prov
 cert legitimately does not cover, get a Certificate here. Each is a
 DISTINCT LE identifier set (`{*.omani.homes, omani.homes}`) in its own
 5/168h bucket, independent of the primary-zone bucket.
@@ -164,15 +164,15 @@ remaining work in this ticket (see PR body) — this template closes the
 {{- end }}
 
 {{- range $i, $z := $zones }}
-{{- /* #3376: render the per-zone wildcard cert ONLY for sme-pool zones.
+{{- /* #3376: render the per-zone wildcard cert ONLY for org-pool zones.
        The PRIMARY zone (role=primary, or name == the Sovereign FQDN) is
        already covered by the per-prov cert sovereign-wildcard-tls-
        <fqdnDashed> from cilium-gateway-cert.yaml; minting `*.<primary>`
        here too is the exact A29 dual-cert collision + LE double-burn the
-       skip-render guard was added to avoid. Skip it. sme-pool zones are
+       skip-render guard was added to avoid. Skip it. org-pool zones are
        NOT covered by the per-prov cert, so they get their own cert here.
        Keys only off the `role` field (data) — generic for any pool TLD. */}}
-{{- if and (ne $z.name $.Values.global.sovereignFQDN) (eq (default "primary" $z.role) "sme-pool") }}
+{{- if and (ne $z.name $.Values.global.sovereignFQDN) (eq (default "primary" $z.role) "org-pool") }}
 {{- /* Sanitise the zone name into a DNS-1123-compatible label suffix.
        PowerDNS zone names contain dots; K8s resource names cannot.
        `sovereign-wildcard-tls-omani.works` -> `sovereign-wildcard-tls-omani-works`.
@@ -183,7 +183,7 @@ remaining work in this ticket (see PR body) — this template closes the
        The Cilium Gateway listener for each zone references the
        corresponding sovereign-wildcard-tls-<sanitised-zone> Secret in
        its certificateRefs block — sovereign-tls-vars-cm.yaml binds the
-       sme-pool zone listeners to exactly this Secret (#3376). */}}
+       org-pool zone listeners to exactly this Secret (#3376). */}}
 {{- $sanitised := replace "." "-" $z.name }}
 {{- $secretName := default (printf "sovereign-wildcard-tls-%s" $sanitised) $z.secretName }}
 ---
@@ -214,6 +214,6 @@ spec:
   {{- with $renewBefore }}
   renewBefore: {{ . }}
   {{- end }}
-{{- end }}{{/* end #3376 sme-pool-only gate */}}
+{{- end }}{{/* end #3376 org-pool-only gate */}}
 {{- end }}{{/* end range $zones */}}
 {{- end }}{{/* end if .Values.wildcardCert.enabled */}}

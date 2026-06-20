@@ -69,7 +69,7 @@ name: bp-mgmt-vcluster
 # services in the host `sme` namespace (billing/tenant/domain/notification/
 # provisioning/marketplace) use NATS as their event bus → every one
 # CrashLooped on "failed to connect to NATS … i/o timeout" (confirmed LIVE
-# on hw133: all 4 SME pods, endpoints healthy, policy is the wall) → the
+# on hw133: all 4 Organization-services pods, endpoints healthy, policy is the wall) → the
 # voucher/billing funnel back-half (#3376) was dead. Additive allow-list
 # entry only; no other behaviour changes.
 # 0.2.10 — Refs #3373 (hw130 2026-06-13): EMPIRICAL FIX of the

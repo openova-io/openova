@@ -8,7 +8,7 @@
 // feature so updating the IaC from the catalog UI as well."
 //
 // BEFORE this file the catalog edit (UI saveCatalogEdit → PUT/POST
-// /api/v1/sme/commerce/apps → proxyCommerce → the SME commerce catalog's
+// /api/v1/org/commerce/apps → proxyCommerce → the Organization commerce catalog's
 // /catalog/admin/apps) persisted to a SEPARATE commerce-overlay store
 // (core/services/catalog store.App). That store is NOT IaC: an edit
 // never reached the catalog git, and an out-of-band git edit never
@@ -77,15 +77,15 @@ const catalogEditGitBranch = blueprintBranch // "main"
 // + the Kustomization's force:true SSA adoption). This is the load-bearing
 // half PR #3702 explicitly deferred.
 //
-// The aggregator repo + branch reuse the SAME local Gitea repo the SME
+// The aggregator repo + branch reuse the SAME local Gitea repo the Organization
 // tenant gitops chain bootstraps (`openova/openova`, seeded pre-cutover by
 // the chart's repo-bootstrap hook + clonable by Flux via catalyst-gitea-
 // token basic-auth, #3454). A DEDICATED branch is immune to the cutover-
 // gitea-mirror Job's `git push --mirror --force` of `main` (same isolation
-// rationale as the SME `sme-tenants` branch, TBD-C18e).
+// rationale as the Organization `org-tenants` branch, TBD-C18e).
 const (
 	// catalogSovereignAggOrg/Repo — the local Gitea repo holding the Flux-
-	// reconciled aggregator tree. Reuses the SME gitops repo coordinates so
+	// reconciled aggregator tree. Reuses the Organization gitops repo coordinates so
 	// the chart's repo-bootstrap + Flux clone-auth are already wired.
 	catalogSovereignAggOrg  = "openova"
 	catalogSovereignAggRepo = "openova"
@@ -121,7 +121,7 @@ func catalogSovereignAggPath(sovereignFQDN, bpName string) string {
 //
 // The branch is ensured by the chart's catalog-sovereign repo-bootstrap
 // hook pre-cutover; PutFile creates the file on first write. The repo
-// (openova/openova) is auto-init'd by the SME repo-bootstrap hook, so the
+// (openova/openova) is auto-init'd by the Organization repo-bootstrap hook, so the
 // branch always has a base commit to write onto.
 func (h *Handler) writeCatalogSovereignAggregator(ctx context.Context, bpName string, merged []byte) (bool, error) {
 	if h.giteaClient == nil {

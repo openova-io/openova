@@ -47,7 +47,7 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
-    # SME-vcluster Keycloak (OIDC discovery + JWKS).
+    # Organization-vcluster Keycloak (OIDC discovery + JWKS).
     - to:
         - namespaceSelector:
             matchLabels:

@@ -232,7 +232,7 @@ function FieldGrid({
 
 /* ── Per-component mini card (one card per selected component) ────
    Pixel-mirrors the canonical `.stack-card` on
-   https://marketplace.openova.io/review/ — the SME marketplace's review
+   https://marketplace.openova.io/review/ — the Organization marketplace's review
    surface. Same horizontal flex layout, same 40×40 logo tile, same
    semibold name + low-key category pill + single-line description. The
    review is the launch-confirmation surface and inherits the marketplace

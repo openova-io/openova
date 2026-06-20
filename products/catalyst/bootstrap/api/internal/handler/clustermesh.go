@@ -319,7 +319,7 @@ const (
 var sharedPGInstanceNames = []string{
 	"shared-pg",   // slot 16a — gitea / harbor / keycloak
 	"shared-pg-b", // slot 16c — grafana / powerdns / powerdns-admin
-	"shared-pg-c", // slot 16d — the SME mesh / newapi / openova-flow
+	"shared-pg-c", // slot 16d — the Organization mesh / newapi / openova-flow
 }
 
 // sharedPGReplicaAuthSecrets — the per-instance `-replication` + `-ca` Secret
@@ -370,7 +370,7 @@ var sharedPGConsumerHubSecrets = []string{
 	"pdns-database-secret",
 	"pda-shared-database-secret",
 	// instance C (shared-pg-c, slot 16d)
-	"sme-database-secret",
+	"org-database-secret",
 	"newapi-database-secret",
 	"openova-flow-database-secret",
 }

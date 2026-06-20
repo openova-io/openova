@@ -8,12 +8,12 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: sme-catalog
+      app: org-catalog
   template:
     metadata:
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
-        app: sme-catalog
+        app: org-catalog
     spec:
       serviceAccountName: catalog
       automountServiceAccountToken: false
@@ -21,7 +21,7 @@ spec:
         - name: ghcr-pull
       containers:
         - name: catalog
-          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-catalog:{{ .Values.images.smeTag }}"
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-catalog:{{ .Values.images.orgTag }}"
           imagePullPolicy: Always
           ports:
             - containerPort: 8082
@@ -29,14 +29,14 @@ spec:
             - name: MONGODB_URI
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: MONGODB_URI
             - name: MONGODB_DB
               value: "catalog"
             - name: REDPANDA_BROKERS
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: REDPANDA_BROKERS
             - name: JWT_SECRET
               valueFrom:
@@ -46,7 +46,7 @@ spec:
             - name: CORS_ORIGIN
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: CORS_ORIGIN_PUBLIC
           resources:
             requests:
@@ -79,7 +79,7 @@ metadata:
   namespace: org-services
 spec:
   selector:
-    app: sme-catalog
+    app: org-catalog
   ports:
     - port: 8082
       targetPort: 8082

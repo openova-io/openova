@@ -43,7 +43,7 @@ func main() {
 	gitBasePath := getEnv("GIT_BASE_PATH", "clusters/contabo-mkt/tenants")
 	sovereignFQDN := getEnv("SOVEREIGN_FQDN", "")
 	catalogURL := getEnv("CATALOG_URL", "http://catalog.org-services.svc.cluster.local:8082")
-	// Per-Sovereign sme-pool parent zone (e.g. "omani.homes"). Empty
+	// Per-Sovereign org-pool parent zone (e.g. "omani.homes"). Empty
 	// disables the Organization.spec.tenantPublic patch in
 	// handlers/tenant_public_patch.go — the existing
 	// Sovereign-wide tenant-wildcard route keeps legacy tenants
@@ -153,7 +153,7 @@ func main() {
 	// Ensure the partial unique index on (tenant_id, in-flight status) backing
 	// the provision-dedup guarantee (#3744) so a credit-covered checkout that
 	// fires the create entrypoint twice (event + HTTP) can't race itself into a
-	// failed tenant via a duplicate Gitea commit on the shared sme-tenants branch.
+	// failed tenant via a duplicate Gitea commit on the shared org-tenants branch.
 	if err := provisionStore.EnsureProvisionIndexes(idxCtx); err != nil {
 		idxCancel()
 		slog.Error("failed to create provision indexes", "error", err)
@@ -217,7 +217,7 @@ func main() {
 		kc, err := events.NewConsumer(
 			strings.Split(redpandaBrokersRaw, ","),
 			"provisioning",
-			[]string{"sme.order.events", "sme.tenant.events"},
+			[]string{"org.order.events", "org.tenant.events"},
 		)
 		if err != nil {
 			slog.Error("failed to create kafka consumer", "error", err)
@@ -258,7 +258,7 @@ func main() {
 			"catalyst.tenant.app_uninstall_requested",
 			"catalyst.billing.order.placed",
 		},
-		"kafka_topics", []string{"sme.order.events", "sme.tenant.events"},
+		"kafka_topics", []string{"org.order.events", "org.tenant.events"},
 		"kafka_enabled", kafkaConsumer != nil,
 		"nats_enabled", natsConn != nil,
 		"group", "provisioning",

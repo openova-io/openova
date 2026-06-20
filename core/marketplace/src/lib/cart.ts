@@ -37,7 +37,7 @@ export interface CartState {
   appConfigs: Record<string, Record<string, number | string | boolean>>;
 }
 
-const STORAGE_KEY = 'sme-cart';
+const STORAGE_KEY = 'org-cart';
 
 // Default parent domain — kept in sync with the picker in AddonsStep.svelte
 // (`tlds` array). Single source of truth so a future change to the default

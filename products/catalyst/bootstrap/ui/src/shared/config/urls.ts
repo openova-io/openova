@@ -15,7 +15,7 @@
 // Issue #494 (2026-05-01): the antipattern this file prevents is any
 // fetch / EventSource argument that begins with a bare `/api/`. A bare
 // `/api/...` path looks absolute, but on contabo-mkt it bypasses the
-// /sovereign Traefik rule and hits the SME console instead. Always use
+// /sovereign Traefik rule and hits the Organization console instead. Always use
 // `API_BASE` (or `apiUrl()`) so the prefix is resolved once, here, at
 // module-init. A vitest regression guardrail in
 // src/test/no-hardcoded-api.test.ts fails CI if the antipattern returns.

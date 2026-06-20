@@ -8,12 +8,12 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: sme-tenant
+      app: org-tenant
   template:
     metadata:
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
-        app: sme-tenant
+        app: org-tenant
     spec:
       serviceAccountName: tenant
       # TBD-D35a — must be true so the SandboxOrchestrator
@@ -31,7 +31,7 @@ spec:
         - name: ghcr-pull
       containers:
         - name: tenant
-          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-tenant:{{ .Values.images.smeTag }}"
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-tenant:{{ .Values.images.orgTag }}"
           imagePullPolicy: Always
           ports:
             - containerPort: 8083
@@ -39,14 +39,14 @@ spec:
             - name: MONGODB_URI
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: MONGODB_URI
             - name: MONGODB_DB
               value: "tenants"
             - name: REDPANDA_BROKERS
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: REDPANDA_BROKERS
             # NATS JetStream URL — canonical event bus per ADR-0001 §6.
             # On Sovereigns the ConfigMap default resolves to
@@ -56,7 +56,7 @@ spec:
             - name: NATS_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: NATS_URL
             - name: JWT_SECRET
               valueFrom:
@@ -66,12 +66,12 @@ spec:
             - name: CORS_ORIGIN
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: CORS_ORIGIN_PUBLIC
             - name: PROVISIONING_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: PROVISIONING_URL
           resources:
             requests:
@@ -104,7 +104,7 @@ metadata:
   namespace: org-services
 spec:
   selector:
-    app: sme-tenant
+    app: org-tenant
   ports:
     - port: 8083
       targetPort: 8083

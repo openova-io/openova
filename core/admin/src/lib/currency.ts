@@ -1,6 +1,6 @@
 // Billing currency helpers — shared by every OMR display in the admin app.
 //
-// The authoritative money unit across SME services is the baisa (1/1000 OMR).
+// The authoritative money unit across Organization services is the baisa (1/1000 OMR).
 // Revenue and order amounts arrive from the billing API as baisa and render
 // through this single helper so the admin dashboard never disagrees with the
 // customer-facing console or marketplace views. See issue #85.

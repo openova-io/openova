@@ -3,7 +3,7 @@ Multi-zone bootstrap Job (issue #827, parent epic #825).
 
 A franchised Sovereign supports N parent zones, NOT one. The operator
 brings 1+ parent domains at signup (`omani.works` for own use,
-`omani.trade` for the SME pool, etc.). Each zone listed under
+`omani.trade` for the Org pool, etc.). Each zone listed under
 .Values.zones is created in PowerDNS at install time by this Job
 which POSTs to /api/v1/servers/localhost/zones via the in-cluster
 PowerDNS REST API.

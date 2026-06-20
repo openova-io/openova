@@ -158,7 +158,7 @@ topology:
 # isolated databases + two roles).
 #
 # 0.1.5 (#3188): bindings may SHARE one owner (N databases, ONE role +
-# ONE password — the SME-mesh shape). The role Secret + managed.roles
+# ONE password — the Organization-mesh shape). The role Secret + managed.roles
 # entry are deduped per unique owner; database names with underscores
 # are legal (the Database CR's k8s name is sanitized, spec.name keeps
 # the real Postgres name).

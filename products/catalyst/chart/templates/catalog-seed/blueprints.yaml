@@ -39,7 +39,7 @@ metadata:
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
     catalyst.openova.io/category: tenant-app
-    catalyst.openova.io/section: pts-7-sme-tenant
+    catalyst.openova.io/section: pts-7-org-tenant
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
   annotations:
@@ -61,11 +61,11 @@ spec:
     title: "WordPress (Tenant)"
     category: tenant-app
     family: cms
-    summary: "Turnkey, SSO-pre-wired WordPress per SME tenant. Postgres + cert-manager TLS pre-wired."
-    description: "Runs in the SME's vcluster, namespace = SME tenant namespace. SSO via the SME-vcluster Keycloak realm. Default theme + admin user pre-seeded at install time."
+    summary: "Turnkey, SSO-pre-wired WordPress per Organization tenant. Postgres + cert-manager TLS pre-wired."
+    description: "Runs in the Organization's vcluster, namespace = Organization tenant namespace. SSO via the Organization-vcluster Keycloak realm. Default theme + admin user pre-seeded at install time."
     icon: wordpress.svg
     license: "GPL-2.0-or-later"
-    tags: [wordpress, cms, sme, tenant, sso, keycloak, postgres]
+    tags: [wordpress, cms, org, tenant, sso, keycloak, postgres]
     docs: "https://wordpress.org/documentation/"
   placementSchema:
     modes: [single-region]
@@ -128,11 +128,11 @@ spec:
     maxPerOrg: 10
   configSchema:
     type: object
-    required: [smeDomain, adminUser]
+    required: [orgDomain, adminUser]
     properties:
-      smeDomain:
+      orgDomain:
         type: string
-        description: "SME tenant domain (e.g. acme.<sov-fqdn>)."
+        description: "Organization tenant domain (e.g. acme.<sov-fqdn>)."
       replicas:
         type: integer
         default: 1
@@ -171,7 +171,7 @@ metadata:
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
     catalyst.openova.io/category: tenant-app
-    catalyst.openova.io/section: pts-7-sme-tenant
+    catalyst.openova.io/section: pts-7-org-tenant
     catalyst.openova.io/alias-of: bp-wordpress-tenant
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
@@ -192,7 +192,7 @@ spec:
     description: "Runs in the Org's vcluster. SSO via the per-Org Keycloak realm (openid-connect-generic). Default theme + admin user pre-seeded at install time so the first browser hit lands on /wp-admin authenticated. Aliases the bp-wordpress-tenant chart."
     icon: wordpress.svg
     license: "GPL-2.0-or-later"
-    tags: [wordpress, cms, sme, tenant, sso, keycloak, postgres]
+    tags: [wordpress, cms, org, tenant, sso, keycloak, postgres]
     docs: "https://wordpress.org/documentation/"
   placementSchema:
     modes: [single-region]
@@ -254,9 +254,9 @@ spec:
     maxPerOrg: 10
   configSchema:
     type: object
-    required: [smeDomain, adminUser]
+    required: [orgDomain, adminUser]
     properties:
-      smeDomain:
+      orgDomain:
         type: string
         description: "Org tenant domain (e.g. acme.<sov-fqdn>)."
       replicas:
@@ -648,7 +648,7 @@ spec:
     properties:
       realmName:
         type: string
-        description: "Keycloak realm name (e.g. sme-<tenant>)."
+        description: "Keycloak realm name (e.g. org-<tenant>)."
       adminUser:
         type: string
         default: admin
@@ -2574,17 +2574,17 @@ spec:
   card:
     title: "OpenClaw"
     category: "ai-runtime"
-    summary: "Per-user agentic workspace for SME tenants. A multi-tenant
-controller deployment in the SME tenant namespace authenticates
-end users via the SME-vcluster Keycloak realm and spawns one
+    summary: "Per-user agentic workspace for Organization tenants. A multi-tenant
+controller deployment in the Organization tenant namespace authenticates
+end users via the Organization-vcluster Keycloak realm and spawns one
 runtime pod per active session. Each runtime pod reads ONLY two
 env vars (NEWAPI_BASE_URL + NEWAPI_KEY) mounted from the per-user
 `newapi-key-{uuid}` Secret rendered by the unified-rbac user-create
 hook (ADR-0003). Identity-blind by construction.
 "
-    description: "Per-user agentic workspace for SME tenants. A multi-tenant
-controller deployment in the SME tenant namespace authenticates
-end users via the SME-vcluster Keycloak realm and spawns one
+    description: "Per-user agentic workspace for Organization tenants. A multi-tenant
+controller deployment in the Organization tenant namespace authenticates
+end users via the Organization-vcluster Keycloak realm and spawns one
 runtime pod per active session. Each runtime pod reads ONLY two
 env vars (NEWAPI_BASE_URL + NEWAPI_KEY) mounted from the per-user
 `newapi-key-{uuid}` Secret rendered by the unified-rbac user-create
@@ -2592,7 +2592,7 @@ hook (ADR-0003). Identity-blind by construction.
 "
     icon: "openclaw.svg"
     license: "Apache-2.0"
-    tags: ["openclaw", "agentic", "workspace", "sme", "keycloak", "newapi", "multi-tenant", "per-user-pod"]
+    tags: ["openclaw", "agentic", "workspace", "org", "keycloak", "newapi", "multi-tenant", "per-user-pod"]
     docs: "https://github.com/openova-io/openova/blob/main/platform/openclaw/README.md"
   placementSchema:
     modes: [single-region]
@@ -2899,31 +2899,31 @@ spec:
   card:
     title: "Stalwart (per-tenant)"
     category: "communication"
-    summary: "Dedicated per-SME (per-vcluster) Stalwart mail server. Implements
-locked decision [Q3] of EPIC #795 — every SME on a Sovereign gets
+    summary: "Dedicated per-Org (per-vcluster) Stalwart mail server. Implements
+locked decision [Q3] of EPIC #795 — every Organization on a Sovereign gets
 its OWN Stalwart instance in its tenant namespace, with its OWN
 domain, OWN MTA reputation, and OWN queue. NOT a shared otech-
 level multi-domain Stalwart.
 
-Webmail UI at `https://mail.<sme-domain>`; SMTP/IMAP via
-LoadBalancer. SSO authenticated against the SME-vcluster Keycloak
+Webmail UI at `https://mail.<org-domain>`; SMTP/IMAP via
+LoadBalancer. SSO authenticated against the Organization-vcluster Keycloak
 realm (NOT otech-level Keycloak). Per-user mailbox provisioning
 is event-driven (ADR-0003 §3).
 "
-    description: "Dedicated per-SME (per-vcluster) Stalwart mail server. Implements
-locked decision [Q3] of EPIC #795 — every SME on a Sovereign gets
+    description: "Dedicated per-Org (per-vcluster) Stalwart mail server. Implements
+locked decision [Q3] of EPIC #795 — every Organization on a Sovereign gets
 its OWN Stalwart instance in its tenant namespace, with its OWN
 domain, OWN MTA reputation, and OWN queue. NOT a shared otech-
 level multi-domain Stalwart.
 
-Webmail UI at `https://mail.<sme-domain>`; SMTP/IMAP via
-LoadBalancer. SSO authenticated against the SME-vcluster Keycloak
+Webmail UI at `https://mail.<org-domain>`; SMTP/IMAP via
+LoadBalancer. SSO authenticated against the Organization-vcluster Keycloak
 realm (NOT otech-level Keycloak). Per-user mailbox provisioning
 is event-driven (ADR-0003 §3).
 "
     icon: "stalwart.svg"
     license: "AGPL-3.0"
-    tags: ["mail", "smtp", "imap", "jmap", "sme", "multi-tenant", "vcluster", "sso", "oidc"]
+    tags: ["mail", "smtp", "imap", "jmap", "org", "multi-tenant", "vcluster", "sso", "oidc"]
     docs: "https://stalw.art/"
   placementSchema:
     modes: [single-region]

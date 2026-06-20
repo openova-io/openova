@@ -3,7 +3,7 @@ Channel-seed Job (issue #915, parent epic #915).
 
 Per-Sovereign NewAPI MUST come up with channel #1 (the partner-hosted
 Qwen channel) already wired, so the FIRST customer request from an
-SME's OpenClaw → NewAPI hits a real upstream LLM rather than a 404 /
+Organization's OpenClaw → NewAPI hits a real upstream LLM rather than a 404 /
 "no channel found" error. The chart's existing ConfigMap (channels.yaml
 mounted at /etc/newapi/channels.yaml) is a documentation surface only —
 the upstream NewAPI binary persists channel state to its Postgres

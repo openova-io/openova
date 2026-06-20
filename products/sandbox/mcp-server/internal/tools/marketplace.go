@@ -374,14 +374,14 @@ type marketplaceAppInstallArgs struct {
 }
 
 // marketplaceAppInstall — Pillar 4 step 2d (#2040). Forwards an app
-// install request to the SME tenant-service `POST /tenant/orgs/{id}/apps`
+// install request to the Organization tenant-service `POST /tenant/orgs/{id}/apps`
 // canonical handler (core/services/tenant/handlers/apps.go::InstallApp)
 // which publishes `tenant.app_install_requested` on NATS; provisioning
 // consumes + creates the Flux HelmRelease on the tenant's vCluster.
 //
-// Auth: SandboxToken forwarded as `Authorization: Bearer …` (HS256 SME
+// Auth: SandboxToken forwarded as `Authorization: Bearer …` (HS256 Organization
 // wire contract). The tenant-service jwtMiddleware validates against
-// its own SME_JWT_SECRET; the Sandbox's per-Org claims propagate
+// its own Organization JWT secret; the Sandbox's per-Org claims propagate
 // downstream into the provisioning consumer (org_id, owner_id audit).
 func marketplaceAppInstall(ctx context.Context, raw json.RawMessage) (any, error) {
 	var args marketplaceAppInstallArgs
@@ -406,7 +406,7 @@ func marketplaceAppInstall(ctx context.Context, raw json.RawMessage) (any, error
 		return nil, errors.New("marketplace.app.install: SANDBOX_TENANT_ID not set (controller hasn't bound this Sandbox to a tenant)")
 	}
 	if strings.TrimSpace(env.SandboxToken) == "" {
-		return nil, errors.New("marketplace.app.install: SANDBOX_TOKEN not set (no SME bearer to forward to tenant-service)")
+		return nil, errors.New("marketplace.app.install: SANDBOX_TOKEN not set (no Organization bearer to forward to tenant-service)")
 	}
 	payload := map[string]any{
 		"slug": args.Slug,

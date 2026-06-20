@@ -32,9 +32,9 @@ describe('TenantID branded type', () => {
 describe('TenantKind', () => {
   it('parses both legal kinds', () => {
     const otech: TenantKind = parseTenantKind('otech')
-    const sme: TenantKind = parseTenantKind('sme')
+    const org: TenantKind = parseTenantKind('org')
     expect(otech).toBe('otech')
-    expect(sme).toBe('sme')
+    expect(org).toBe('org')
   })
 
   it('rejects anything else', () => {
@@ -45,7 +45,7 @@ describe('TenantKind', () => {
 
   it('isTenantKind narrows correctly', () => {
     expect(isTenantKind('otech')).toBe(true)
-    expect(isTenantKind('sme')).toBe(true)
+    expect(isTenantKind('org')).toBe(true)
     expect(isTenantKind('foo')).toBe(false)
     expect(isTenantKind(null)).toBe(false)
   })

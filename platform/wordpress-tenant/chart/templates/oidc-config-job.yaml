@@ -37,7 +37,7 @@ Why post-install / weight 10
   secret` from the CNPG-emitted `<cluster>-app` Secret.
 - weight 10: this Job — DB Secret is now real, WordPress Pod is up,
   PVC initContainers seeded wp-content + db.php drop-in.
-- weight 15: admin-user-job pre-seeds the SME admin's wp_users row.
+- weight 15: admin-user-job pre-seeds the Organization admin's wp_users row.
 
 Canonical seam — see umbrella issue #915 (D1 sub-task) and the
 matching tenant-realm Keycloak client registration in
@@ -183,7 +183,7 @@ spec:
               #    when the install row in wp_options is present.
               if ! wp core is-installed --allow-root >/dev/null 2>&1; then
                 echo "[oidc-config] wp_options/install row absent — running wp core install"
-                # Generate a strong throwaway admin password — the SME
+                # Generate a strong throwaway admin password — the Organization
                 # admin will only ever log in via Keycloak SSO; this
                 # password is never used. NEVER printed (Inviolable
                 # Principle #10).

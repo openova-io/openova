@@ -10,7 +10,7 @@ package events
 //     anonymous struct embedding *store.Tenant + owner_email.
 //   - core/services/provisioning/handlers/organization_create.go — decoded
 //     a local `tenantCreatedPayload` (slug/owner_email/tier/…).
-//   - products/catalyst/bootstrap/api .../sme_tenant.go — built its own
+//   - products/catalyst/bootstrap/api .../org_tenant.go — built its own
 //     `orgShape` (Tier/BillingMode/ParentDomain).
 //
 // #3687 §2 (the law): "One unified primitive, no per-path special-case."
@@ -48,8 +48,8 @@ type TenantCreatedPayload struct {
 	OwnerEmail string `json:"owner_email"`
 	// PlanID is the selected plan (informational; tier drives RBAC).
 	PlanID string `json:"plan_id"`
-	// Tier is the Organization tier (defaults to "sme" when empty — the
-	// only tier the SME-pool wizard issues vouchers for today).
+	// Tier is the Organization tier (defaults to "org" when empty — the
+	// only tier the Organization-pool wizard issues vouchers for today).
 	Tier string `json:"tier,omitempty"`
 	// BillingMode defaults to "real" when empty.
 	BillingMode string `json:"billing_mode,omitempty"`
@@ -61,7 +61,7 @@ type TenantCreatedPayload struct {
 
 // NewTenantCreatedPayload builds a canonical payload from the raw fields a
 // producer has (the tenant-service maps its store.Tenant onto this). It
-// trims whitespace; downstream defaulting (tier→"sme", billing→"real",
+// trims whitespace; downstream defaulting (tier→"org", billing→"real",
 // name→slug) stays in the consumer so every door defaults identically.
 func NewTenantCreatedPayload(id, slug, name, ownerID, ownerEmail, planID, tier, billingMode, parentDomain string) TenantCreatedPayload {
 	return TenantCreatedPayload{

@@ -1,6 +1,6 @@
 {{- /*
 Run-once setup Job — bootstraps the Stalwart admin principal, seeds
-the SME's primary domain, AND seeds the Keycloak OIDC directory entry
+the Organization's primary domain, AND seeds the Keycloak OIDC directory entry
 (#915). Runs as a Helm post-install hook so it fires exactly once per
 fresh release; the upstream Stalwart instance is expected to be Ready
 before the Job's API calls succeed (activeDeadlineSeconds covers the
@@ -8,7 +8,7 @@ cold-start window).
 
 Per ADR-0003 §3, ongoing per-user mailbox provisioning is event-driven:
 unified-rbac POSTs `/api/principal` against this Stalwart's HTTP admin
-API when the SME admin creates a user. The continuous subscriber
+API when the Organization admin creates a user. The continuous subscriber
 (natsSubscriber.enabled below) is OFF by default; the Job here covers
 the bootstrap admin principal AND the OIDC directory definition so
 that webmail / IMAP / SMTP login flows through Keycloak from t=0.

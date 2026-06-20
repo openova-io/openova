@@ -3,17 +3,17 @@
  *
  * Wire paths:
  *
- *   browser ──/api/v1/sme/bss/overview──▶ catalyst-api ──▶ per-tenant rollups
- *   browser ──/api/v1/sme/billing/revenue──▶ catalyst-api ──▶ rollup
- *   browser ──/api/v1/sme/billing/vouchers/{issue,list,revoke}──▶ catalyst-api
+ *   browser ──/api/v1/org/bss/overview──▶ catalyst-api ──▶ per-tenant rollups
+ *   browser ──/api/v1/org/billing/revenue──▶ catalyst-api ──▶ rollup
+ *   browser ──/api/v1/org/billing/vouchers/{issue,list,revoke}──▶ catalyst-api
  *           ──▶ billing service (#117 — core/services/billing/handlers/vouchers.go)
- *   browser ──/api/v1/sme/orders──▶ catalyst-api ──▶ sme orders rollup
- *   browser ──/api/v1/sme/tenants──▶ catalyst-api ──▶ HandleListSMETenants
+ *   browser ──/api/v1/org/orders──▶ catalyst-api ──▶ org orders rollup
+ *   browser ──/api/v1/organizations──▶ catalyst-api ──▶ HandleListOrganizations
  *
  * The overview / revenue / orders endpoints are FE-facing rollups for
  * the matching BSS sections. The vouchers endpoints back the Wave 6 PR 5
  * vouchers surface. The tenants endpoint backs Wave 6 PR 6 and ships
- * today via HandleListSMETenants in sme_tenant.go. All endpoints
+ * today via HandleListOrganizations in organization_provisioning.go. All endpoints
  * gracefully tolerate 404 / 5xx so the page still renders its target-
  * state chrome on first paint (per INVIOLABLE-PRINCIPLES.md #1) —
  * overview / revenue / orders / tenants return zero-filled / empty
@@ -82,7 +82,7 @@ const ZERO_OVERVIEW: BssOverview = {
 export async function getBssOverview(): Promise<BssOverview> {
   let res: Response
   try {
-    res = await authedFetch(`${API_BASE}/v1/sme/bss/overview`, {
+    res = await authedFetch(`${API_BASE}/v1/org/bss/overview`, {
       headers: { Accept: 'application/json' },
     })
   } catch {
@@ -198,12 +198,12 @@ const ZERO_REVENUE: BssRevenue = {
  * without crashing (mirrors getBssOverview).
  *
  * Backend wire path (when shipped):
- *   browser ──/api/v1/sme/billing/revenue──▶ catalyst-api ──▶ rollup
+ *   browser ──/api/v1/org/billing/revenue──▶ catalyst-api ──▶ rollup
  */
 export async function getRevenue(): Promise<BssRevenue> {
   let res: Response
   try {
-    res = await authedFetch(`${API_BASE}/v1/sme/billing/revenue`, {
+    res = await authedFetch(`${API_BASE}/v1/org/billing/revenue`, {
       headers: { Accept: 'application/json' },
     })
   } catch {
@@ -310,10 +310,10 @@ export interface IssueVoucherRequest {
   recipient_email?: string
 }
 
-const VOUCHERS_BASE = `${API_BASE}/v1/sme/billing/vouchers`
+const VOUCHERS_BASE = `${API_BASE}/v1/org/billing/vouchers`
 
 /**
- * listVouchers — GET /v1/sme/billing/vouchers/list. Returns live + soft-
+ * listVouchers — GET /v1/org/billing/vouchers/list. Returns live + soft-
  * deleted rows (the BE filter omits soft-deleted; the table renders
  * tombstones only when the BE chooses to include them in a future
  * audit-view expansion). Throws on non-2xx so the page can render the
@@ -333,7 +333,7 @@ export async function listVouchers(): Promise<Voucher[]> {
 }
 
 /**
- * issueVoucher — POST /v1/sme/billing/vouchers/issue. Upserts (re-issue
+ * issueVoucher — POST /v1/org/billing/vouchers/issue. Upserts (re-issue
  * of the same code resurrects a soft-deleted row per #91). Returns the
  * persisted Voucher row on success. Surfaces the BE's `detail` / `error`
  * field on non-2xx so the modal shows the registrar's actual message.
@@ -358,7 +358,7 @@ export async function issueVoucher(req: IssueVoucherRequest): Promise<Voucher> {
 }
 
 /**
- * revokeVoucher — DELETE /v1/sme/billing/vouchers/revoke/{code}. Soft-
+ * revokeVoucher — DELETE /v1/org/billing/vouchers/revoke/{code}. Soft-
  * deletes (preserves the audit trail for promo_redemptions FK). Past
  * redemptions remain attributed; only NEW redemptions are blocked.
  */
@@ -426,12 +426,12 @@ const EMPTY_ORDERS: OrdersResponse = { pendingApi: true, orders: [] }
  * waterfall, first paint is the target-state shape).
  *
  * Backend wire path (when shipped):
- *   browser ──/api/v1/sme/orders──▶ catalyst-api ──▶ sme orders rollup
+ *   browser ──/api/v1/org/orders──▶ catalyst-api ──▶ org orders rollup
  */
 export async function getOrders(): Promise<OrdersResponse> {
   let res: Response
   try {
-    res = await authedFetch(`${API_BASE}/v1/sme/orders`, {
+    res = await authedFetch(`${API_BASE}/v1/org/orders`, {
       headers: { Accept: 'application/json' },
     })
   } catch {
@@ -528,12 +528,12 @@ const EMPTY_SUBSCRIPTIONS: SubscriptionsResponse = {
  * target-state shape).
  *
  * Backend wire path (when shipped):
- *   browser ──/api/v1/sme/billing/subscriptions──▶ catalyst-api
+ *   browser ──/api/v1/org/billing/subscriptions──▶ catalyst-api
  */
 export async function getBillingSubscriptions(): Promise<SubscriptionsResponse> {
   let res: Response
   try {
-    res = await authedFetch(`${API_BASE}/v1/sme/billing/subscriptions`, {
+    res = await authedFetch(`${API_BASE}/v1/org/billing/subscriptions`, {
       headers: { Accept: 'application/json' },
     })
   } catch {
@@ -585,10 +585,10 @@ function normalizeSubscriptionStatus(raw: unknown): SubscriptionStatus {
 
 /* ── Tenants — Wave 6 PR 6 ───────────────────────────────────────────
  *
- * Source-of-truth: GET /api/v1/sme/tenants (HandleListSMETenants in
- * products/catalyst/bootstrap/api/internal/handler/sme_tenant.go).
- * That handler returns `{items: [smeTenantResponse, ...]}` where each
- * row mirrors store.SMETenantProvisionRecord — id, state, subdomain,
+ * Source-of-truth: GET /api/v1/organizations (HandleListOrganizations in
+ * products/catalyst/bootstrap/api/internal/handler/organization_provisioning.go).
+ * That handler returns `{items: [orgTenantResponse, ...]}` where each
+ * row mirrors store.OrganizationProvisionRecord — id, state, subdomain,
  * domain mode, parent domain, admin email, company name, OTECH FQDN,
  * vCluster name, console host, timestamps.
  *
@@ -606,7 +606,7 @@ function normalizeSubscriptionStatus(raw: unknown): SubscriptionStatus {
  * row to avoid faking presence.
  */
 
-/** Provisioning lifecycle state mirroring store.SMETenantProvisionState. */
+/** Provisioning lifecycle state mirroring store.OrganizationProvisionState. */
 export type TenantStatus =
   | 'active'
   | 'trial'
@@ -616,7 +616,7 @@ export type TenantStatus =
   | 'unknown'
 
 export interface Tenant {
-  /** Stable identifier (sme_tenant_id from the orchestrator). */
+  /** Stable identifier (org_tenant_id from the orchestrator). */
   id: string
   /** Display name, falling back to the slug when company name absent. */
   orgName: string
@@ -633,7 +633,7 @@ export interface Tenant {
   plan: string | null
   /**
    * Organizations-model spec fields (issue #3378 B1). The orchestrator
-   * stamps these on the SMETenantProvisionRecord and the tenants feed
+   * stamps these on the OrganizationProvisionRecord and the tenants feed
    * surfaces them as kind / tier / billing_mode / isolation. Empty string
    * when the record predates the B1 fields (older provisioning runs) — the
    * Organizations directory then falls back to kind-derived defaults so a
@@ -689,10 +689,10 @@ export function mapStateToStatus(state: string): TenantStatus {
   }
 }
 
-/** Wire-shape mirror of smeTenantResponse — Partial so future BE
+/** Wire-shape mirror of orgTenantResponse — Partial so future BE
  *  additions don't break the FE parse. */
 interface RawTenant {
-  sme_tenant_id?: string
+  org_tenant_id?: string
   state?: string
   subdomain?: string
   domain_mode?: string
@@ -707,8 +707,8 @@ interface RawTenant {
   plan?: string
   region?: string
   // Organizations-model spec fields (issue #3378 B1) — already emitted by
-  // smeTenantResponse (products/catalyst/bootstrap/api/internal/handler/
-  // sme_tenant.go:329-332). Optional so older payloads still parse.
+  // orgTenantResponse (products/catalyst/bootstrap/api/internal/handler/
+  // organization_provisioning.go). Optional so older payloads still parse.
   kind?: string
   tier?: string
   billing_mode?: string
@@ -722,9 +722,9 @@ function mapTenant(raw: RawTenant): Tenant {
   const subdomain = String(raw.subdomain ?? '')
   const parentDomain = String(raw.parent_domain ?? '')
   const companyName = String(raw.company_name ?? '').trim()
-  const orgName = companyName !== '' ? companyName : subdomain || String(raw.sme_tenant_id ?? '')
+  const orgName = companyName !== '' ? companyName : subdomain || String(raw.org_tenant_id ?? '')
   return {
-    id: String(raw.sme_tenant_id ?? ''),
+    id: String(raw.org_tenant_id ?? ''),
     orgName,
     consoleHost: String(raw.console_host ?? ''),
     subdomain,
@@ -755,7 +755,7 @@ function mapTenant(raw: RawTenant): Tenant {
 export async function listTenants(): Promise<Tenant[]> {
   let res: Response
   try {
-    res = await authedFetch(`${API_BASE}/v1/sme/tenants`, {
+    res = await authedFetch(`${API_BASE}/v1/organizations`, {
       headers: { Accept: 'application/json' },
     })
   } catch {

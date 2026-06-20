@@ -89,7 +89,7 @@ data:
           - name: CALL_HOME_HOSTS
             value: {{ .Values.egressTest.callHomeAssertion.hosts | default (list "https://console.openova.io/healthz") | join " " | quote }}
           # #3695 — host GitOps loop gate. The root bootstrap-kit Kustomization
-          # (+ sovereign-tls + sme-tenants) MUST be Ready=True at the
+          # (+ sovereign-tls + org-tenants) MUST be Ready=True at the
           # post-cutover revision or the proof fails BEFORE the window.
           - name: HOST_KS_GATE_ENABLED
             value: {{ eq (toString .Values.egressTest.hostKustomizationGate.enabled) "true" | quote }}
@@ -619,9 +619,9 @@ data:
               echo "[egress-block-test] #3647: FRESH-PULL proof requested but egressDeny not applied (enforce off / fail-safe fallback) — skipping the fresh pull, survival-poll only"
             fi
 
-            # ── #3376 (Refs #3689): sme-tenants MUST be Ready BEFORE the hold ─
+            # ── #3376 (Refs #3689): org-tenants MUST be Ready BEFORE the hold ─
             # The customer-onboarding Flux Kustomization `flux-system/
-            # sme-tenants` reconciles the per-tenant overlay tree. On hw150 it
+            # org-tenants` reconciles the per-tenant overlay tree. On hw150 it
             # was NotReady ("kustomization path not found") and the baseline
             # capture below silently EXCLUDED it from the regression check —
             # declaring sovereignty GREEN while the customer journey was dead
@@ -632,37 +632,37 @@ data:
             # is actually Ready, loudly, before the proof — never as "baseline
             # noise". Bounded poll (the GitRepository may still be pulling the
             # freshly-seeded index when step-08 starts). Operator-gated so a
-            # non-marketplace Sovereign (no sme-tenants Kustomization) is not
+            # non-marketplace Sovereign (no org-tenants Kustomization) is not
             # forced to grow one: SKIP when the Kustomization is absent.
-            sme_tenants_ks="${SME_TENANTS_KUSTOMIZATION:-sme-tenants}"
-            sme_tenants_ns="${SME_TENANTS_KUSTOMIZATION_NAMESPACE:-flux-system}"
-            if kubectl -n "${sme_tenants_ns}" get kustomization "${sme_tenants_ks}" >/dev/null 2>&1; then
-              echo "[egress-block-test] #3376: asserting ${sme_tenants_ns}/${sme_tenants_ks} Ready before the sovereignty hold (no baseline exclusion of the customer path)"
+            org_tenants_ks="${ORG_TENANTS_KUSTOMIZATION:-org-tenants}"
+            org_tenants_ns="${ORG_TENANTS_KUSTOMIZATION_NAMESPACE:-flux-system}"
+            if kubectl -n "${org_tenants_ns}" get kustomization "${org_tenants_ks}" >/dev/null 2>&1; then
+              echo "[egress-block-test] #3376: asserting ${org_tenants_ns}/${org_tenants_ks} Ready before the sovereignty hold (no baseline exclusion of the customer path)"
               st_start=$(date +%s)
               st_deadline=$(( st_start + 300 ))
               st_ready=""
               while [ "$(date +%s)" -lt "${st_deadline}" ]; do
-                st_status=$(kubectl -n "${sme_tenants_ns}" get kustomization "${sme_tenants_ks}" \
+                st_status=$(kubectl -n "${org_tenants_ns}" get kustomization "${org_tenants_ks}" \
                   -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
                 if [ "${st_status}" = "True" ]; then
                   st_ready="yes"
-                  echo "[egress-block-test] #3376: ${sme_tenants_ns}/${sme_tenants_ks} Ready — customer-onboarding reconciler healthy"
+                  echo "[egress-block-test] #3376: ${org_tenants_ns}/${org_tenants_ks} Ready — customer-onboarding reconciler healthy"
                   break
                 fi
-                echo "[egress-block-test] #3376: ${sme_tenants_ns}/${sme_tenants_ks} Ready=${st_status:-<none>} at $(($(date +%s) - st_start))s; re-checking in 15s (bounded ${st_deadline}s)"
-                kubectl -n "${sme_tenants_ns}" annotate --overwrite kustomization "${sme_tenants_ks}" \
+                echo "[egress-block-test] #3376: ${org_tenants_ns}/${org_tenants_ks} Ready=${st_status:-<none>} at $(($(date +%s) - st_start))s; re-checking in 15s (bounded ${st_deadline}s)"
+                kubectl -n "${org_tenants_ns}" annotate --overwrite kustomization "${org_tenants_ks}" \
                   "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null 2>&1 || true
                 sleep 15
               done
               if [ -z "${st_ready}" ]; then
-                st_msg=$(kubectl -n "${sme_tenants_ns}" get kustomization "${sme_tenants_ks}" \
+                st_msg=$(kubectl -n "${org_tenants_ns}" get kustomization "${org_tenants_ks}" \
                   -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null || echo "")
-                echo "[egress-block-test] FAIL — ${sme_tenants_ns}/${sme_tenants_ks} not Ready before the sovereignty hold: ${st_msg}"
+                echo "[egress-block-test] FAIL — ${org_tenants_ns}/${org_tenants_ks} not Ready before the sovereignty hold: ${st_msg}"
                 echo "[egress-block-test] the customer-onboarding path is dead; refusing to declare cutover sovereignty GREEN (#3376)"
                 exit 1
               fi
             else
-              echo "[egress-block-test] #3376: ${sme_tenants_ns}/${sme_tenants_ks} absent (non-marketplace Sovereign) — skipping the customer-path readiness assertion"
+              echo "[egress-block-test] #3376: ${org_tenants_ns}/${org_tenants_ks} absent (non-marketplace Sovereign) — skipping the customer-path readiness assertion"
             fi
 
             # ── #3695 HOST GITOPS LOOP GATE ───────────────────────────────

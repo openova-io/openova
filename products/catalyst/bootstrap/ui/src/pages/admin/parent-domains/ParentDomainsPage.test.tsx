@@ -25,7 +25,7 @@ const sampleItems: ParentDomain[] = [
   },
   {
     name: 'omani.trade',
-    role: 'sme-pool',
+    role: 'org-pool',
     flipStatus: 'flipping',
     registrarKind: 'dynadot',
     addedAt: '2026-05-04T09:00:00Z',
@@ -45,7 +45,7 @@ describe('ParentDomainsPage', () => {
     expect(screen.getByTestId('parent-domain-row-omani.works')).toBeTruthy()
     expect(screen.getByTestId('parent-domain-row-omani.trade')).toBeTruthy()
     expect(screen.getByTestId('parent-domain-role-omani.works').textContent).toContain('primary')
-    expect(screen.getByTestId('parent-domain-role-omani.trade').textContent).toContain('sme-pool')
+    expect(screen.getByTestId('parent-domain-role-omani.trade').textContent).toContain('org-pool')
     expect(screen.getByTestId('parent-domain-status-omani.works').textContent).toContain('Ready')
     expect(screen.getByTestId('parent-domain-status-omani.trade').textContent).toContain('Flipping')
   })

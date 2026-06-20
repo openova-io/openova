@@ -4,7 +4,7 @@ package handlers
 // and surrounding shape. Other templates are exercised by
 // consumer_test.go (which runs them end-to-end via the events
 // consumer); the voucher-issued template is exclusively reachable via
-// the synchronous POST /notification/send path from sme-billing, so we
+// the synchronous POST /notification/send path from org-billing, so we
 // test it here directly.
 
 import (
@@ -21,7 +21,7 @@ func TestRenderTemplate_VoucherIssued(t *testing.T) {
 	data, _ := json.Marshal(map[string]any{
 		"code":           "GIFT-50",
 		"credit_omr":     50,
-		"description":    "Welcome to OpenOva SME",
+		"description":    "Welcome to OpenOva",
 		"sovereign_fqdn": "omani.works",
 		"validity_hint":  "Use within 30 days",
 	})
@@ -31,7 +31,7 @@ func TestRenderTemplate_VoucherIssued(t *testing.T) {
 		t.Fatalf("renderTemplate: %v", err)
 	}
 
-	if subject != "You've been gifted a voucher for OpenOva SME" {
+	if subject != "You've been gifted a voucher for OpenOva" {
 		t.Errorf("subject: got %q, want default D28 copy", subject)
 	}
 
@@ -44,7 +44,7 @@ func TestRenderTemplate_VoucherIssued(t *testing.T) {
 		t.Errorf("rendered body missing '50 OMR' credit line: body=%s", body)
 	}
 	// Must include the description.
-	if !strings.Contains(body, "Welcome to OpenOva SME") {
+	if !strings.Contains(body, "Welcome to OpenOva") {
 		t.Error("rendered body missing description")
 	}
 	// Must include the redeem URL built from the sovereign FQDN —

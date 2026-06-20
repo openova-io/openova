@@ -386,7 +386,7 @@ func (h *Handler) HandleFleetApplications(w http.ResponseWriter, r *http.Request
 //
 // Per ADR-0001 §2.7 — no separate fleet database. The deployments map
 // IS the source of truth on this Pod; tenant_registry is the secondary
-// source for SME-tier Sovereigns the same map doesn't track (those are
+// source for Organization-tier Sovereigns the same map doesn't track (those are
 // collapsed into the same shape so the caller sees one fleet view).
 //
 // 2026-05-17 t143 (C10-002) — adopted Sovereigns INCLUDED.

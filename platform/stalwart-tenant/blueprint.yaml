@@ -19,19 +19,19 @@ spec:
   card:
     title: Stalwart (per-tenant)
     summary: |
-      Dedicated per-SME (per-vcluster) Stalwart mail server. Implements
-      locked decision [Q3] of EPIC #795 — every SME on a Sovereign gets
+      Dedicated per-Org (per-vcluster) Stalwart mail server. Implements
+      locked decision [Q3] of EPIC #795 — every Organization on a Sovereign gets
       its OWN Stalwart instance in its tenant namespace, with its OWN
       domain, OWN MTA reputation, and OWN queue. NOT a shared otech-
       level multi-domain Stalwart.
 
-      Webmail UI at `https://mail.<sme-domain>`; SMTP/IMAP via
-      LoadBalancer. SSO authenticated against the SME-vcluster Keycloak
+      Webmail UI at `https://mail.<org-domain>`; SMTP/IMAP via
+      LoadBalancer. SSO authenticated against the Organization-vcluster Keycloak
       realm (NOT otech-level Keycloak). Per-user mailbox provisioning
       is event-driven (ADR-0003 §3).
     icon: stalwart.svg
     category: communication
-    tags: [mail, smtp, imap, jmap, sme, multi-tenant, vcluster, sso, oidc]
+    tags: [mail, smtp, imap, jmap, organization, multi-tenant, vcluster, sso, oidc]
     documentation: https://stalw.art/
     license: AGPL-3.0
   visibility: listed
@@ -78,7 +78,7 @@ spec:
         properties:
           realmURL:
             type: string
-            description: SME-vcluster Keycloak realm issuer URL (e.g. https://auth.<sme-domain>/realms/sme).
+            description: Organization-vcluster Keycloak realm issuer URL (e.g. https://auth.<org-domain>/realms/org).
           clientID:
             type: string
             default: stalwart

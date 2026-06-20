@@ -8,7 +8,7 @@
 #
 # THREE-INSTANCE MODEL (founder NS-2, Refs #3188): this slot is instance
 # A of three. Slots 16c (`shared-pg-b`: grafana + powerdns + powerdns-
-# admin) and 16d (`shared-pg-c`: the SME mesh) are two more installs of
+# admin) and 16d (`shared-pg-c`: the Organization mesh) are two more installs of
 # the SAME bp-postgres chart, all gated on SOVEREIGN_ENABLE_SHARED_PG.
 # Three engines, 7 consumer applications, 3+3+1.
 #

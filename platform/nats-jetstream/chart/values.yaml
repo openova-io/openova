@@ -81,10 +81,10 @@ catalystStreams:
   enabled: true
   # Wave 5.52 (#2283) sub-gate: the 3 chart-managed Streams
   # (catalyst-audit / catalyst-events / catalyst-billing) architecturally
-  # conflict with the in-code CATALYST_SME wildcard stream that
+  # conflict with the in-code CATALYST_ORG wildcard stream that
   # core/services/shared/events/nats.go declares with subjects
   # `catalyst.>`. Default-OFF preserves the current production shape
-  # (CATALYST_SME + FilterSubject consumers per t20 fix). Operators
+  # (CATALYST_ORG + FilterSubject consumers per t20 fix). Operators
   # opt-in only when migrating sme/billing to the 3-stream model per
   # original ADR-0001 §6 design. Surfaced live on hw01 2026-05-24T06:30Z
   # when Wave 5.50 rolled chart 1.3.1 and both attempted to claim

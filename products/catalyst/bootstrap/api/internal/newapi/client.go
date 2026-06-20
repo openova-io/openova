@@ -12,7 +12,7 @@
 //
 // Idempotency:
 //
-//   - POST /api/v1/admin/users with X-Idempotency-Key=<sme_user_uuid>:
+//   - POST /api/v1/admin/users with X-Idempotency-Key=<org_user_uuid>:
 //     201 → return new {user_id, api_key}; 409 → look up existing via
 //     GET /api/v1/admin/users?external_id=<uuid> and return that.
 //     Per ADR-0003 §3.2: NewAPI does NOT rotate api_key on conflict.

@@ -48,14 +48,14 @@ func newParentDomainsRouter(h *Handler) *chi.Mux {
 // Sovereign with finalised handover) so the swap from in-memory store
 // to Deployment.parentDomains[] (issue #837) exercises the same code
 // path tests do.
-func seedActiveDeployment(t *testing.T, h *Handler, primaryFQDN string, smePool ...string) *Deployment {
+func seedActiveDeployment(t *testing.T, h *Handler, primaryFQDN string, orgPool ...string) *Deployment {
 	t.Helper()
 	now := time.Now().UTC()
 	pds := []provisioner.ParentDomain{}
-	for _, name := range smePool {
+	for _, name := range orgPool {
 		pds = append(pds, provisioner.ParentDomain{
 			Name:          name,
-			Role:          provisioner.ParentDomainRoleSMEPool,
+			Role:          provisioner.ParentDomainRoleOrgPool,
 			RegistrarKind: "dynadot",
 			AddedAt:       now,
 		})
@@ -157,7 +157,7 @@ func TestAddParentDomain_ValidationErrors(t *testing.T) {
 		},
 		{
 			name:     "unsupported registrar",
-			body:     `{"name":"omani.works","role":"sme-pool","registrarKind":"bogus","registrarToken":"x"}`,
+			body:     `{"name":"omani.works","role":"org-pool","registrarKind":"bogus","registrarToken":"x"}`,
 			wantHTTP: http.StatusUnprocessableEntity,
 			wantErr:  "unsupported-registrar",
 		},
@@ -208,7 +208,7 @@ func TestAddParentDomain_DuplicateConflict(t *testing.T) {
 	// 409 to fire.
 	seedActiveDeployment(t, h, "omani.works")
 
-	body := `{"name":"omani.trade","role":"sme-pool","registrarKind":"dynadot","registrarToken":"abc"}`
+	body := `{"name":"omani.trade","role":"org-pool","registrarKind":"dynadot","registrarToken":"abc"}`
 	first := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereign/parent-domains", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -245,7 +245,7 @@ func TestAddParentDomain_PDMSetNSFail(t *testing.T) {
 	h := &Handler{log: slog.Default()}
 	dep := seedActiveDeployment(t, h, "omani.works")
 
-	body := `{"name":"oman.tel","role":"sme-pool","registrarKind":"dynadot","registrarToken":"abc"}`
+	body := `{"name":"oman.tel","role":"org-pool","registrarKind":"dynadot","registrarToken":"abc"}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereign/parent-domains", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -360,7 +360,7 @@ func TestAddParentDomain_PersistsAcrossRestart(t *testing.T) {
 	// deployment record at all.
 	h1.persistDeployment(dep)
 
-	body := `{"name":"omani.trade","role":"sme-pool","registrarKind":"dynadot","registrarToken":"abc"}`
+	body := `{"name":"omani.trade","role":"org-pool","registrarKind":"dynadot","registrarToken":"abc"}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereign/parent-domains", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -406,7 +406,7 @@ func TestAddParentDomain_PersistsAcrossRestart(t *testing.T) {
 	foundOnDep := false
 	for _, pd := range pds {
 		if strings.EqualFold(pd.Name, "omani.trade") &&
-			pd.Role == provisioner.ParentDomainRoleSMEPool {
+			pd.Role == provisioner.ParentDomainRoleOrgPool {
 			foundOnDep = true
 			break
 		}
@@ -583,7 +583,7 @@ func TestAddParentDomain_ForwardsGlueIP(t *testing.T) {
 	h := &Handler{log: slog.Default()}
 	seedActiveDeployment(t, h, "omani.works")
 
-	body := `{"name":"customer-acme.tld","role":"sme-pool","registrarKind":"dynadot","registrarToken":"abc"}`
+	body := `{"name":"customer-acme.tld","role":"org-pool","registrarKind":"dynadot","registrarToken":"abc"}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereign/parent-domains", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -636,7 +636,7 @@ func TestAddParentDomain_OmitsGlueIPWhenNoLBIP(t *testing.T) {
 	// resolves to "" so glueIP is omitted from the wire payload.
 	seedActiveDeployment(t, h, "omani.works")
 
-	body := `{"name":"customer-acme.tld","role":"sme-pool","registrarKind":"dynadot","registrarToken":"abc"}`
+	body := `{"name":"customer-acme.tld","role":"org-pool","registrarKind":"dynadot","registrarToken":"abc"}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereign/parent-domains", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -680,7 +680,7 @@ func TestAddParentDomain_GlueIPFromDeploymentResult(t *testing.T) {
 	dep := seedActiveDeployment(t, h, "omani.works")
 	dep.Result = &provisioner.Result{LoadBalancerIP: "198.51.100.7"}
 
-	body := `{"name":"customer-acme.tld","role":"sme-pool","registrarKind":"dynadot","registrarToken":"abc"}`
+	body := `{"name":"customer-acme.tld","role":"org-pool","registrarKind":"dynadot","registrarToken":"abc"}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereign/parent-domains", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")

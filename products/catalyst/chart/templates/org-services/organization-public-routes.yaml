@@ -2,7 +2,7 @@
 Per-Organization public HTTPRoutes (issue #1629 follow-up).
 
 PowerDNS now resolves `console.<slug>.<parentDomain>` for every Org
-that maps onto a Sovereign's role=sme-pool parent domain. Without an
+that maps onto a Sovereign's role=org-pool parent domain. Without an
 attached HTTPRoute the Cilium Gateway terminates TLS on the
 wildcard cert and falls through to the marketplace `tenant-wildcard`
 route — which sends the request to the marketplace `console` Service
@@ -22,7 +22,7 @@ controller's live reconcile loop.
 
 Default OFF: `tenantRoutes` is an empty list. Sovereigns that don't
 yet have any Orgs with a public hostname render nothing. Once the
-SME-tenant orchestrator stamps the Helm values (or the
+Organization-tenant orchestrator stamps the Helm values (or the
 organization-controller writes the HTTPRoute live), traffic for
 `<slug>.<parentDomain>` lands on the tenant's product Service.
 

@@ -396,7 +396,7 @@ async function mockProvisionDeploymentAPI(page: Page): Promise<void> {
     })
   })
 
-  // Tenant discovery — sme-tier-rbac.spec uses the mother kind to boot
+  // Tenant discovery — org-tier-rbac.spec uses the mother kind to boot
   // the SPA past its tenant-detection gate.
   await page.route(/.*\/api\/v1\/tenant\/discover.*/, async (route: Route) => {
     await route.fulfill({
@@ -544,7 +544,7 @@ async function mockProvisionDeploymentAPI(page: Page): Promise<void> {
 }
 
 /* ──────────────────────────────────────────────────────────────────
- * Test 1 — Card height = 108px (canonical SME marketplace value)
+ * Test 1 — Card height = 108px (canonical Organization marketplace value)
  * Test 2 — Card body has no reserved right padding
  * Test 3 — Logo tile uses brand colour, not pure white
  * Test 4 — Logo tile glyph is visible (luminance contrast)
@@ -602,7 +602,7 @@ test.describe('@cosmetic-guard StepComponents card geometry', () => {
     // ~9.6px on each side. Logo tile is on the left ⇒ body right
     // edge MUST sit within ~card-right-edge - card-padding (i.e. NOT
     // pulled in further to reserve space for an absolute-positioned
-    // affordance the way SME .app-body { padding-right: 72px } does).
+    // affordance the way Organization .app-body { padding-right: 72px } does).
     // Allow 16px slack for sub-pixel + the 0.6rem padding.
     const cardRight = cardBox!.x + cardBox!.width
     const bodyRight = bodyBox!.x + bodyBox!.width
@@ -610,7 +610,7 @@ test.describe('@cosmetic-guard StepComponents card geometry', () => {
 
     expect(
       reservedGap,
-      `card body right edge sits ${reservedGap.toFixed(1)}px from card right edge — anything beyond ~16px means a vertical column was reserved for an Add button (regression of the SME-style absolute overlay; canonical contract is inline toggle on line 1, see StepComponents.tsx .corp-comp-body rule).`,
+      `card body right edge sits ${reservedGap.toFixed(1)}px from card right edge — anything beyond ~16px means a vertical column was reserved for an Add button (regression of the Organization-style absolute overlay; canonical contract is inline toggle on line 1, see StepComponents.tsx .corp-comp-body rule).`,
     ).toBeLessThanOrEqual(16)
 
     expect(
@@ -793,7 +793,7 @@ test.describe('@cosmetic-guard wizard step flow', () => {
 
     expect(
       chooseN,
-      'StepComponents still renders text "Choose Your Stack" — that label was retired in favour of the canonical SME marketplace single-grid layout (core/marketplace/src/components/AppsStep.svelte). Update src/pages/wizard/steps/stepComponentsCopy.ts (tabChooseLabel) and remove the top-level role=tablist div.',
+      'StepComponents still renders text "Choose Your Stack" — that label was retired in favour of the canonical Organization marketplace single-grid layout (core/marketplace/src/components/AppsStep.svelte). Update src/pages/wizard/steps/stepComponentsCopy.ts (tabChooseLabel) and remove the top-level role=tablist div.',
     ).toBe(0)
     expect(
       alwaysN,

@@ -4,23 +4,23 @@ metadata:
   name: bp-wordpress-tenant
   labels:
     catalyst.openova.io/category: tenant-app
-    catalyst.openova.io/section: pts-7-sme-tenant
+    catalyst.openova.io/section: pts-7-org-tenant
 spec:
   version: 0.4.1
   card:
     title: WordPress Tenant
     summary: |
-      Turnkey, SSO-pre-wired WordPress per SME tenant. Runs in the SME's
-      vcluster, namespace = SME tenant namespace. SSO via the SME-vcluster
+      Turnkey, SSO-pre-wired WordPress per Organization tenant. Runs in the Organization's
+      vcluster, namespace = Organization tenant namespace. SSO via the Organization-vcluster
       Keycloak realm (openid-connect-generic plugin), Postgres via bp-cnpg
       (Cluster CR in tenant ns), persistent /var/www/html/wp-content via
-      PVC (default 10Gi), ingress at https://wordpress.<sme-domain> with
+      PVC (default 10Gi), ingress at https://wordpress.<org-domain> with
       cert-manager TLS. Default theme + admin user pre-seeded at install
-      time so the SME admin's first browser hit lands on /wp-admin
+      time so the Organization admin's first browser hit lands on /wp-admin
       authenticated. No install wizard, no manual config.
     icon: wordpress.svg
     category: tenant-app
-    tags: [wordpress, cms, sme, tenant, sso, keycloak, oidc, postgres]
+    tags: [wordpress, cms, organization, tenant, sso, keycloak, oidc, postgres]
     documentation: https://wordpress.org/documentation/
     license: GPL-2.0-or-later
   visibility: listed
@@ -29,14 +29,14 @@ spec:
     contact: catalyst@openova.io
   configSchema:
     type: object
-    required: [smeDomain, oidc, adminUser]
+    required: [orgDomain, oidc, adminUser]
     properties:
-      smeDomain:
+      orgDomain:
         type: string
         description: |
-          The SME tenant's domain (e.g. `acme.<otech-fqdn>` for free-
+          The Organization tenant's domain (e.g. `acme.<otech-fqdn>` for free-
           subdomain tenants, or `acme.com` for BYO). Used to derive the
-          default ingress host as `wordpress.<smeDomain>`. Per
+          default ingress host as `wordpress.<orgDomain>`. Per
           docs/INVIOLABLE-PRINCIPLES.md #4 there is no default — the
           tenant-provisioning pipeline supplies this at install time.
       replicas:
@@ -56,7 +56,7 @@ spec:
             type: string
             description: |
               Discovery URL of the per-tenant Keycloak realm. Example:
-              `https://keycloak.<sme-domain>/realms/sme-<subdomain>`.
+              `https://keycloak.<org-domain>/realms/org-<subdomain>`.
               The openid-connect-generic plugin uses this to derive the
               token / userinfo / authorization / end-session endpoints.
           clientId:
@@ -121,7 +121,7 @@ spec:
             default: wordpress-db
             description: |
               Name of the `Cluster.postgresql.cnpg.io` provisioned for
-              this WordPress instance. Per-tenant unique within the SME
+              this WordPress instance. Per-tenant unique within the Organization
               namespace.
       adminUser:
         type: object
@@ -130,7 +130,7 @@ spec:
           email:
             type: string
             description: |
-              Email of the SME admin (must match the `email` claim
+              Email of the Organization admin (must match the `email` claim
               Keycloak issues). The admin-user Job pre-seeds a wp_user
               row with this email and the administrator role.
           displayName:
@@ -157,7 +157,7 @@ spec:
         properties:
           host:
             type: string
-            description: Override the derived `wordpress.<smeDomain>` ingress host.
+            description: Override the derived `wordpress.<orgDomain>` ingress host.
           tls:
             type: object
             properties:

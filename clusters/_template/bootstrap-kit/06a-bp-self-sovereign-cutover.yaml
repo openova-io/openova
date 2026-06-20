@@ -294,7 +294,7 @@ spec:
       # sme/provisioning-github-token.GITHUB_TOKEN. The catalyst-
       # platform chart's provisioning-github-token.yaml template
       # previously mirrored the Gitea admin PASSWORD verbatim into
-      # that Secret; SME provisioning then sent `Authorization: token
+      # that Secret; Organization provisioning then sent `Authorization: token
       # <PWD>` to Gitea which 401s ("user does not exist [uid: 0]").
       # On t22 2026-05-18: voucher checkout completed 200 + /jobs
       # redirect fired, but no Organization CR was ever created.
@@ -302,7 +302,7 @@ spec:
       # gitea_admin/tokens, capture .sha1, GET /api/v1/user validate,
       # kubectl patch dest Secret, rollout-restart provisioning
       # Deployment. Order=9 (last) is fine — none of steps 02-08 read
-      # the Secret and the SME provisioning service first consumes
+      # the Secret and the Organization provisioning service first consumes
       # the token at voucher checkout time (always postdates cutover).
       # 0.1.31 (TBD-C19, 2026-05-18): step-06 now also pivots
       # openova-catalog HelmRepository (rendered by bp-catalyst-
@@ -546,7 +546,7 @@ spec:
       # so cutoverComplete never flipped. Fixed with POSIX `grep -vxF -f` on the
       # writable /work emptyDir. Found auditing the never-run steps 08-11 to
       # pre-empt hw147's cutover wedge. Chart-only.
-      # 0.1.75 — #3376 FUNNEL: step-08 egress-block-test ALSO asserts flux-system/sme-tenants
+      # 0.1.75 — #3376 FUNNEL: step-08 egress-block-test ALSO asserts flux-system/org-tenants
       # Ready BEFORE the 600s hold (woven with #3695's host-GitOps-loop gate; no longer
       # swallows its NotReady as baseline noise — hw150 declared cutoverComplete while the
       # customer path was dead, PRINCIPLES A1/A2); step-09 mint stamps the token-source

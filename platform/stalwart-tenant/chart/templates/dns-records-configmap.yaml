@@ -1,8 +1,8 @@
 {{- /*
-DNS records the SME admin must publish for this mail server.
+DNS records the Organization admin must publish for this mail server.
 
 The unified-rbac console UI reads this ConfigMap to render the "Mail
-domain DNS setup" pane to the SME admin (BYO-domain mode) or to display
+domain DNS setup" pane to the Organization admin (BYO-domain mode) or to display
 "DNS setup complete" status (free-subdomain mode, where the chart's
 PowerDNS Job already published the records to the otech zone).
 
@@ -28,7 +28,7 @@ data:
   domain: {{ $tenantDomain | quote }}
   mode: {{ $tenantMode | quote }}
   records.yaml: |
-    # MX record — points the SME's domain at this Stalwart's mail Service.
+    # MX record — points the Organization's domain at this Stalwart's mail Service.
     # The hostname is the LoadBalancer-assigned address (filled in at
     # runtime by the unified-rbac controller once the LB IP is known).
     - kind: MX

@@ -174,7 +174,7 @@ spec:
                     carry `role=primary` (the entry that hosts
                     console/api/marketplace — matches `spec.fqdn`'s
                     registered apex). Zero-or-more entries may carry
-                    `role=sme-pool` (offered to SME tenants for free
+                    `role=org-pool` (offered to Organization tenants for free
                     subdomains). Mirrors the wire shape provisioner.go
                     ParentDomain emits.
                   items:
@@ -190,7 +190,7 @@ spec:
                         type: string
                         enum:
                           - primary
-                          - sme-pool
+                          - org-pool
                   x-kubernetes-list-type: map
                   x-kubernetes-list-map-keys: [name]
                 provider:

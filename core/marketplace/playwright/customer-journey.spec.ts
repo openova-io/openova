@@ -285,7 +285,7 @@ async function seedCart(page: Page, overrides?: Partial<Record<string, unknown>>
   }
   await page.addInitScript((value) => {
     try {
-      localStorage.setItem('sme-cart', JSON.stringify(value))
+      localStorage.setItem('org-cart', JSON.stringify(value))
     } catch (_) {}
   }, cart)
 }
@@ -363,7 +363,7 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
   })
 
   test('06 signup email input + button (checkout sign-in surface)', async ({ page }) => {
-    // CheckoutStep renders the sign-in form when no `sme-token` exists.
+    // CheckoutStep renders the sign-in form when no `org-token` exists.
     await page.goto('/checkout')
     await expect(page.getByPlaceholder(/you@company.com/i)).toBeVisible({ timeout: 10_000 })
     await expect(page.getByRole('button', { name: /Send sign-in code/i })).toBeVisible()
@@ -439,8 +439,8 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     // on the launch panel directly.
     await page.addInitScript(() => {
       try {
-        localStorage.setItem('sme-token', 'mock-jwt-token')
-        localStorage.setItem('sme-refresh-token', 'mock-refresh-token')
+        localStorage.setItem('org-token', 'mock-jwt-token')
+        localStorage.setItem('org-refresh-token', 'mock-refresh-token')
       } catch (_) {}
     })
     await seedCart(page)
@@ -503,8 +503,8 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
 
     await page.addInitScript(() => {
       try {
-        localStorage.setItem('sme-token', 'mock-jwt-token')
-        localStorage.setItem('sme-refresh-token', 'mock-refresh-token')
+        localStorage.setItem('org-token', 'mock-jwt-token')
+        localStorage.setItem('org-refresh-token', 'mock-refresh-token')
       } catch (_) {}
     })
     await seedCart(page)
@@ -586,8 +586,8 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
 
     await page.addInitScript(() => {
       try {
-        localStorage.setItem('sme-token', 'mock-jwt-token')
-        localStorage.setItem('sme-refresh-token', 'mock-refresh-token')
+        localStorage.setItem('org-token', 'mock-jwt-token')
+        localStorage.setItem('org-refresh-token', 'mock-refresh-token')
       } catch (_) {}
     })
     // Seed cart with appConfigs as if the customer mutated the
@@ -701,7 +701,7 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     expect(result.empty).toBe('https://console.' + ['openova', 'io'].join('.') + '/nova')
 
     // ── TBD-V10 #2001 (new) ───────────────────────────────────────────
-    // Sovereign sme-pool host + known slug → per-tenant console host.
+    // Sovereign org-pool host + known slug → per-tenant console host.
     // Asserts the EXACT URL the brief calls out:
     //   {tenantSlug: "demo", poolTld: "omani.homes"}
     //     → https://console.demo.omani.homes
@@ -741,8 +741,8 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     // derived from the marketplace's host (no hardcoded mothership).
     await page.addInitScript(() => {
       try {
-        localStorage.setItem('sme-token', 'mock-jwt-token')
-        localStorage.setItem('sme-refresh-token', 'mock-refresh-token')
+        localStorage.setItem('org-token', 'mock-jwt-token')
+        localStorage.setItem('org-refresh-token', 'mock-refresh-token')
       } catch (_) {}
     })
     await seedCart(page)

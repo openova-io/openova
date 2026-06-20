@@ -5,7 +5,7 @@
 // Default tenant ('openova') matches the historical OpenOva brand.
 //
 // #3376 (Refs #3691): the per-partner brand table is DATA, injected at
-// runtime via `window.__SME_BRANDS__` (seeded from Sovereign config by the
+// runtime via `window.__ORG_BRANDS__` (seeded from Sovereign config by the
 // page bootstrap), never a source literal. The previous build hardcoded a
 // `'omantel.openova.io'` entry — a banned mothership/partner literal that
 // shipped into (and was served by) EVERY franchised bundle. The franchised
@@ -40,8 +40,8 @@ const DEFAULT_TENANT: TenantConfig = {
  */
 function runtimeBrands(): Record<string, TenantConfig> {
   if (typeof window === 'undefined') return {};
-  const w = window as unknown as { __SME_BRANDS__?: Record<string, TenantConfig> };
-  return (w.__SME_BRANDS__ && typeof w.__SME_BRANDS__ === 'object') ? w.__SME_BRANDS__ : {};
+  const w = window as unknown as { __ORG_BRANDS__?: Record<string, TenantConfig> };
+  return (w.__ORG_BRANDS__ && typeof w.__ORG_BRANDS__ === 'object') ? w.__ORG_BRANDS__ : {};
 }
 
 /** Resolve tenant from a hostname (lowercased). Falls back to OpenOva. */

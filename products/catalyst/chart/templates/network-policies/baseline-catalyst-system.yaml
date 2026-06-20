@@ -7,7 +7,7 @@ Cov-bench audit confirmed that the live Sovereign cluster ships only 2
 CiliumNetworkPolicies cluster-wide, and ZERO of them target the two
 namespaces that carry the public-facing traffic plane:
   - catalyst-system (catalyst-api, catalyst-ui, marketplace-api,
-    organization-controller, sme-orchestrator) — every public Console
+    organization-controller, org-orchestrator) — every public Console
     hit lands here.
   - kube-system (the cilium-gateway Gateway resource + Cilium DaemonSet
     that terminates *.<sovereignFQDN>) — every public request enters
@@ -30,7 +30,7 @@ This template renders TWO CiliumNetworkPolicies:
          this every public-facing API + UI returns 403 at the
          envoy gateway because L7-policy denies forwarding)
        - ingress from same-namespace Pods (controllers ↔ APIs,
-         sme-orchestrator ↔ catalyst-api intra-control-plane
+         org-orchestrator ↔ catalyst-api intra-control-plane
          calls)
        - egress to kube-apiserver (every controller informer)
        - egress to kube-dns (every Pod resolves DNS)
@@ -38,7 +38,7 @@ This template renders TWO CiliumNetworkPolicies:
        - egress to platform namespaces that catalyst-system
          legitimately needs to reach: keycloak (OIDC), gitea
          (Application gitops pulls), powerdns (DNS record CRUD),
-         cnpg-system (smePostgres connection), openbao (secrets),
+         cnpg-system (orgPostgres connection), openbao (secrets),
          harbor (registry pulls), nats-system (event bus),
          observability (loki/mimir/tempo/alloy), mgmt (#2745 —
          loki/mimir/tempo run INSIDE the mgmt vCluster; their
@@ -79,9 +79,9 @@ when qaFixtures is disabled.
      The plain loki/mimir/tempo entries stay for Sovereigns that keep
      the host-side placement via per-Sovereign overlay. */}}
 {{- /* #3859: ns `sme` → `org-services` (#3383). org-services hosts the
-     BSS/funnel control-plane Deployments; the legacy `sme` entry stays one
-     release for back-compat / any not-yet-migrated Sovereign. */}}
-{{- $allowedPlatform := .Values.security.baselineCnp.allowedPlatformNamespaces | default (list "keycloak" "gitea" "powerdns" "cnpg-system" "openbao" "harbor" "nats-system" "loki" "mimir" "tempo" "alloy" "opentelemetry" "external-secrets-system" "cert-manager" "org-services" "sme" "newapi" "mgmt") }}
+     BSS/funnel control-plane Deployments. #3985: the legacy `sme` entry
+     was removed — fresh provs allow only `org-services`. */}}
+{{- $allowedPlatform := .Values.security.baselineCnp.allowedPlatformNamespaces | default (list "keycloak" "gitea" "powerdns" "cnpg-system" "openbao" "harbor" "nats-system" "loki" "mimir" "tempo" "alloy" "opentelemetry" "external-secrets-system" "cert-manager" "org-services" "newapi" "mgmt") }}
 {{- /* #3934 (Refs #3642): "mgmt" added to the INGRESS allow-list. The #3642
      host-bridge promotes guacamole INTO the mgmt vCluster — its webapp Pod
      now runs in host ns `mgmt` (synced `guacamole-server-x-catalyst-system-x-
@@ -125,7 +125,7 @@ spec:
         - matchLabels:
             reserved.ingress: ""
     # 2. Allow ingress from same-namespace Pods (catalyst-api ↔
-    #    catalyst-ui, sme-orchestrator ↔ catalyst-api, organization-
+    #    catalyst-ui, org-orchestrator ↔ catalyst-api, organization-
     #    controller ↔ catalyst-api etc. — all intra-control-plane).
     - fromEndpoints:
         - matchLabels:

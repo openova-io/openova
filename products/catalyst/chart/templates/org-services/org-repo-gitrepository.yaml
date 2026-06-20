@@ -1,12 +1,12 @@
 {{- /*
-Flux GitRepository tracking the dedicated `sme-tenants` branch
+Flux GitRepository tracking the dedicated `org-tenants` branch
 (TBD-C18e, 2026-05-18).
 
 WHY THIS FILE EXISTS
 --------------------
-The SME-tenant provisioning service writes per-tenant Kustomize overlays
-to `clusters/<sovereignFQDN>/sme-tenants/<sme_tenant_id>/` on every
-successful `POST /api/v1/sme/tenants`. Before this PR all writes landed
+The Organization-tenant provisioning service writes per-tenant Kustomize overlays
+to `clusters/<sovereignFQDN>/org-tenants/<org_tenant_id>/` on every
+successful `POST /api/v1/organizations`. Before this PR all writes landed
 on the same `main` branch the rest of the Sovereign reconciles from.
 
 Journey v5b (2026-05-18) discovery: the `cutover-gitea-mirror` Job runs
@@ -15,16 +15,16 @@ github.com mirror into the in-cluster Gitea. That force-push OVERWRITES
 Gitea's `main` with whatever upstream main looks like AT THAT INSTANT —
 clobbering every tenant commit provisioning landed in between mirror
 runs. Live evidence: commit `69d64e48` at 17:46:13Z (containing the
-clusters/t22.omantel.biz/sme-tenants/ tree) was gone from Gitea main by
+clusters/t22.omantel.biz/org-tenants/ tree) was gone from Gitea main by
 17:54:55Z, the very next mirror tick. The Organization CR never
-materialised, `Flux Kustomization sme-tenants` went ArtifactFailed, and
+materialised, `Flux Kustomization org-tenants` went ArtifactFailed, and
 the customer journey hung indefinitely at step 16.
 
 FIX
 ---
-Tenant commits land on a DEDICATED branch (`sme-tenants`) that the
+Tenant commits land on a DEDICATED branch (`org-tenants`) that the
 mirror Job never touches (it only force-pushes `main`). This template
-ships a NEW Flux GitRepository named `openova-sme-tenants` tracking that
+ships a NEW Flux GitRepository named `openova-org-tenants` tracking that
 branch. The paired Flux Kustomization
 (templates/org-services/org-repo-kustomization.yaml) is repointed at
 this GitRepository instead of the shared `openova` one, so the tenant
@@ -38,7 +38,7 @@ The existing `flux-system/openova` GitRepository serves three roles:
   2. Per-Sovereign cluster manifests
      (clusters/<sovereignFQDN>/) — anything checked into the public repo
      for this Sovereign.
-  3. (Pre-fix) SME tenant overlays under sme-tenants/.
+  3. (Pre-fix) Organization tenant overlays under org-tenants/.
 
 Roles 1 and 2 MUST stay on `main` (that's where chart upgrades, infra
 fixes, and operator overlays land). Only role 3 needs the protected
@@ -54,8 +54,8 @@ CONTRACT
             — the cutover step's flux-gitrepository-patch sets the same
             URL on `openova`; we hardcode the same shape here so this
             CR is correct on first apply (no second cutover step needed).
-  ref.branch: .Values.smeTenants.gitRepository.branch (default
-              "sme-tenants"). Operator may override if the provisioning
+  ref.branch: .Values.orgTenants.gitRepository.branch (default
+              "org-tenants"). Operator may override if the provisioning
               service is also flipped to a different branch.
   interval: matches the bootstrap GitRepository (1m) so the tenant
             reconcile latency is identical pre/post-fix.
@@ -70,41 +70,41 @@ GATING
 ------
 Rendered when:
   - .Values.ingress.marketplace.enabled = true (same flag as the rest of
-    the SME bundle — non-marketplace Sovereigns don't run the tenant
+    the Organization bundle — non-marketplace Sovereigns don't run the tenant
     pipeline so they don't need this GitRepository).
   - .Values.global.sovereignFQDN non-empty (contabo path keeps writing
     to `main`; no mirror Job exists there so the clobber risk is absent).
 
 Per Inviolable Principle #4, every operationally-meaningful value is
-operator-overridable via .Values.smeTenants.gitRepository.*.
+operator-overridable via .Values.orgTenants.gitRepository.*.
 
 References:
   - Issue #1794 (TBD-C18e — 5th C18 layer, customer-journey blocker)
   - Journey v5b root-cause memo (mirror clobbers main every ≤10 min)
-  - sme_tenant_gitops.go (write target)
+  - org_tenant_gitops.go (write target)
   - org-repo-kustomization.yaml (consumer of this GitRepository)
 */}}
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
 {{- $sovFQDN := .Values.global.sovereignFQDN -}}
 {{- if $sovFQDN -}}
-{{- $gr := (.Values.smeTenants).gitRepository | default dict -}}
+{{- $gr := (.Values.orgTenants).gitRepository | default dict -}}
 {{- $apiURL := ($gr.apiURL | default "http://gitea-http.gitea.svc.cluster.local:3000") -}}
 {{- $org := ($gr.org | default "openova") -}}
 {{- $repo := ($gr.repo | default "openova") -}}
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
 metadata:
-  name: {{ $gr.name | default "openova-sme-tenants" | quote }}
+  name: {{ $gr.name | default "openova-org-tenants" | quote }}
   namespace: {{ $gr.namespace | default "flux-system" | quote }}
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform
-    catalyst.openova.io/component: sme-tenants-source
-    app.kubernetes.io/part-of: sme
+    catalyst.openova.io/component: org-tenants-source
+    app.kubernetes.io/part-of: org
 spec:
   interval: {{ $gr.interval | default "1m" | quote }}
   url: {{ printf "%s/%s/%s" $apiURL $org $repo | quote }}
   ref:
-    branch: {{ $gr.branch | default "sme-tenants" | quote }}
+    branch: {{ $gr.branch | default "org-tenants" | quote }}
   ignore: |
     /*
     !/clusters/_template

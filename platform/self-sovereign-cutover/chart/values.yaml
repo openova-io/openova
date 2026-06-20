@@ -151,7 +151,7 @@ gitea:
 # clones anonymously). bp-gitea sets service.REQUIRE_SIGNIN_VIEW=true
 # (platform/gitea/chart/values.yaml) — anonymous clone of the local Gitea
 # 401s "authentication required" even for a PUBLIC repo (PROVEN live on
-# hw133, see products/catalyst/.../sme-tenants-gitrepo-auth-secret.yaml).
+# hw133, see products/catalyst/.../org-tenants-gitrepo-auth-secret.yaml).
 # So after the pivot, source-controller can never fetch the local source →
 # step 06's HelmRepository URL rewrites never reconcile → step 08's bounded
 # pivot-wait can never converge → the 600s deny-egress hold never runs →
@@ -163,7 +163,7 @@ gitea:
 # `catalyst-gitea-token` PAT (key `token`) that bp-catalyst-platform's
 # pre-install hook already minted at BOOTSTRAP — long before cutover fires.
 # This is the identical credential + pattern issue #3454 used for the
-# openova-sme-tenants GitRepository. A Gitea PAT is accepted as the HTTP
+# openova-org-tenants GitRepository. A Gitea PAT is accepted as the HTTP
 # git password (REQUIRE_SIGNIN_VIEW=true → anonymous 401, PAT → 200).
 #
 # Flux GitRepository.spec.secretRef accepts only `name` (no namespace) and
@@ -185,7 +185,7 @@ gitRepositorySecretRef:
   patSourceKey: "token"
   # Git HTTP username for the basic-auth pair. Matches the Gitea admin
   # account (CATALYST_GITOPS_USER literal `gitea_admin`, per
-  # api-deployment.yaml + sme-tenants-gitrepo-auth-secret.yaml).
+  # api-deployment.yaml + org-tenants-gitrepo-auth-secret.yaml).
   username: "gitea_admin"
 
 # Local Harbor target — admin credentials + proxy_cache projects to create.
@@ -590,7 +590,7 @@ egressTest:
     names:
       - "bootstrap-kit"
       - "sovereign-tls"
-      - "sme-tenants"
+      - "org-tenants"
   # #3695 — the fresh-pull proof must roll EVERY workload whose image host is
   # NOT the local registry, not one hand-picked openova-io Deployment. When
   # true, Step-08 enumerates all Deployments/DaemonSets/StatefulSets across
@@ -877,7 +877,7 @@ crossplaneProviderPivot:
   registryPath: "proxy-xpkg"
 
 # Step 09 (gitea-token-mint, TBD-C18) — bootstrap the Gitea API token
-# that the SME provisioning service uses for tenant repo materialisation.
+# that the Organization provisioning service uses for tenant repo materialisation.
 #
 # Root cause this addresses: the catalyst-platform chart's
 # `provisioning-github-token.yaml` template mirrors gitea-admin-secret's
@@ -898,7 +898,7 @@ giteaTokenMint:
   # so re-running the cutover (chart upgrade, manual replay) rotates
   # the token cleanly.
   tokenName: "catalyst-platform-bootstrap"
-  # Comma-separated Gitea API scope list. `all` is broadest — the SME
+  # Comma-separated Gitea API scope list. `all` is broadest — the Organization
   # provisioning service needs to create orgs/repos/branches/commits/
   # webhooks under arbitrary tenant paths the marketplace wizard
   # generates. Narrowing scopes (e.g. `write:repository,write:user`)
@@ -908,11 +908,11 @@ giteaTokenMint:
   # today; narrowing follows in TBD-C18-narrow.
   tokenScopes: "all"
   # Destination Secret coordinates — must match the catalyst-platform
-  # chart's smeServices.provisioning.gitToken.* defaults.
+  # chart's orgServices.provisioning.gitToken.* defaults.
   # NB: This Secret is created by the catalyst-platform chart with
   # helm.sh/resource-policy: keep, so it survives chart uninstall and
   # this Step's patch is non-destructive on re-run.
-  destSecretNamespace: "sme"
+  destSecretNamespace: "org-services"
   destSecretName: "provisioning-github-token"
   destSecretKey: "GITHUB_TOKEN"
 

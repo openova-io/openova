@@ -19,13 +19,13 @@ import (
 //
 // Implementation calls the tenant and auth services over the internal
 // cluster network using a short-lived superadmin JWT minted with the
-// shared JWT_SECRET. Only services inside the sme namespace can hit
-// these endpoints; the gateway does not expose /tenant/admin or
+// shared JWT_SECRET. Only services inside the org-services namespace can
+// hit these endpoints; the gateway does not expose /tenant/admin or
 // /auth/admin.
 type Enricher struct {
 	TenantURL string // e.g. http://tenant.org-services.svc.cluster.local:8083
 	AuthURL   string // e.g. http://auth.org-services.svc.cluster.local:8081
-	// ParentZone is the Sovereign's sme-pool parent domain (e.g.
+	// ParentZone is the Sovereign's org-pool parent domain (e.g.
 	// "omani.homes" / "talents.scope") used to render WorkspaceURL.
 	// TBD-A67 issue #1990 removed the hardcoded `.openova.io` suffix —
 	// the parent zone is per-Sovereign and the notification service
@@ -40,7 +40,7 @@ type Enricher struct {
 
 // NewEnricher constructs an Enricher. Leave URLs empty to disable — in
 // that case Lookup returns zero values without error and the caller
-// will skip the email. parentZone is the Sovereign's sme-pool parent
+// will skip the email. parentZone is the Sovereign's org-pool parent
 // domain used to build per-tenant WorkspaceURL strings; empty parent
 // zone results in an empty WorkspaceURL (template-side guard).
 // TBD-A67 issue #1990: NEVER hardcode `.openova.io` here — every
@@ -101,7 +101,7 @@ func (e *Enricher) Lookup(ctx context.Context, tenantID string) (*TenantInfo, er
 
 // workspaceURL renders the canonical per-tenant console URL using the
 // Sovereign's parent zone — `https://console.<subdomain>.<parentZone>`.
-// Mirrors sme_tenant_gitops.go:536 (chart-side host derivation) and
+// Mirrors org_tenant_gitops.go:536 (chart-side host derivation) and
 // tenant_route.go:113 (controller-side HTTPRoute hostname) so the
 // notification email's clickable link lands on the exact host the
 // Cilium Gateway routes to the tenant's console Service.

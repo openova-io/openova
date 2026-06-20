@@ -12,7 +12,7 @@
 //   2. POST to /api/billing/vouchers/redeem-preview to validate the code.
 //   3. Show {credit_omr, description, accepting_redemptions}.
 //   4. "Sign up to redeem" stashes the code in localStorage under
-//      `sme-pending-voucher` and routes the user to /plans (the start of
+//      `org-pending-voucher` and routes the user to /plans (the start of
 //      the existing signup wizard). The CheckoutStep at the end of the
 //      wizard already supports the `promo_code` field on POST
 //      /billing/checkout — that's where actual redemption happens, inside
@@ -120,7 +120,7 @@ import Layout from '../layouts/Layout.astro';
   <script>
     // Storage key shared with CheckoutStep: when a pending voucher is set,
     // the checkout step will pre-fill the promo_code field.
-    const PENDING_VOUCHER_KEY = 'sme-pending-voucher';
+    const PENDING_VOUCHER_KEY = 'org-pending-voucher';
 
     function show(id: string) {
       ['redeem-loading', 'redeem-missing', 'redeem-not-valid', 'redeem-ended', 'redeem-valid'].forEach(x => {
@@ -164,7 +164,7 @@ import Layout from '../layouts/Layout.astro';
 
         // Wire the CTA: stash the code, then route into the existing signup
         // wizard. The wizard ends at /checkout where CheckoutStep reads
-        // sme-pending-voucher and applies it at POST /billing/checkout.
+        // org-pending-voucher and applies it at POST /billing/checkout.
         const cta = document.getElementById('redeem-cta');
         if (cta) {
           cta.addEventListener('click', () => {

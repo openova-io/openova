@@ -5,9 +5,9 @@
 //
 //   BASE_URL                — root for the deployed apps (default
 //                             http://localhost:4321 — Catalyst UI vite dev port)
-//   ADMIN_BASE_URL          — root for the SME admin Astro app (default
+//   ADMIN_BASE_URL          — root for the Organization admin Astro app (default
 //                             http://localhost:4323 — see core/admin/package.json)
-//   MARKETPLACE_BASE_URL    — root for the SME marketplace Astro app (default
+//   MARKETPLACE_BASE_URL    — root for the Organization marketplace Astro app (default
 //                             http://localhost:4322 — Astro default for second app)
 //
 // Workers=1 because the wizard test mutates a shared zustand store via

@@ -9,7 +9,7 @@
  *
  * Wire path (rides EXISTING endpoints): listOrganizations() composes the
  * parent row from GET /api/v1/sovereign/self + every sub-org row from
- * GET /api/v1/sme/tenants. No new directory endpoint (#3378 §6).
+ * GET /api/v1/organizations. No new directory endpoint (#3378 §6).
  *
  * Chrome + design tokens inherited from the sibling sovereign surfaces
  * (TenantsPage / JobsPage / ParentDomainsPage) — no bespoke chrome, no

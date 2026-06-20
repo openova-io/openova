@@ -69,15 +69,15 @@ import Layout from '../layouts/Layout.astro';
           throw new Error(text || 'Login failed');
         }
         const data = await res.json();
-        localStorage.setItem('sme-admin-token', data.token);
+        localStorage.setItem('org-admin-token', data.token);
         // Admin now stores the refresh token so /lib/api.ts can silently
         // refresh when the 15-min access token expires (#84). Fires the
-        // sme-admin-auth-changed event so any mounted island re-evaluates
+        // org-admin-auth-changed event so any mounted island re-evaluates
         // its "is signed in?" state without a page reload (#83).
         if (data.refresh_token) {
-          localStorage.setItem('sme-admin-refresh-token', data.refresh_token);
+          localStorage.setItem('org-admin-refresh-token', data.refresh_token);
         }
-        window.dispatchEvent(new Event('sme-admin-auth-changed'));
+        window.dispatchEvent(new Event('org-admin-auth-changed'));
         window.location.href = import.meta.env.BASE_URL;
       } catch (err: any) {
         errorEl.textContent = err.message;

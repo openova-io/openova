@@ -100,7 +100,7 @@ type Handler struct {
 
 	// SovereignFQDN is the per-Sovereign apex domain (e.g. "omani.works")
 	// used to build the public redeem landing URL in voucher-issued
-	// emails. NEVER hardcoded; sme-billing reads it from chart env
+	// emails. NEVER hardcoded; org-billing reads it from chart env
 	// `billing.sovereignFQDN`. Empty = best-effort fallback that omits the
 	// redeem URL (the template handles it).
 	SovereignFQDN string
@@ -111,8 +111,8 @@ type Handler struct {
 	NotificationClient *http.Client
 
 	// MeteringCustomerResolver is the resolver POST
-	// /billing/metering/record uses to map NewAPI external_id (the SME-
-	// vcluster Keycloak user UUID) to the billing customer row. Tests
+	// /billing/metering/record uses to map NewAPI external_id (the
+	// Organization-vcluster Keycloak user UUID) to the billing customer row. Tests
 	// substitute a fake; production leaves it nil so RecordMetering
 	// falls back to DefaultCustomerResolver wired against h.Store.
 	MeteringCustomerResolver CustomerResolver
@@ -1171,7 +1171,7 @@ func (h *Handler) dispatchOrderPlaced(tenantID string, order *store.Order) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := h.Producer.Publish(ctx, "sme.order.events", evt); err != nil {
+	if err := h.Producer.Publish(ctx, "org.order.events", evt); err != nil {
 		slog.Warn("dispatch order.placed", "error", err)
 	}
 }

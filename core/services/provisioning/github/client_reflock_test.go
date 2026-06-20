@@ -12,8 +12,8 @@ import (
 
 // TestCommitFiles_GiteaTarget_RetriesOnRefLock proves the funnel fix for the
 // hw158 re-validation (Refs #3376): when Gitea rejects a batch ChangeFiles
-// commit to the shared `sme-tenants` branch with the git-native
-// `cannot lock ref 'refs/heads/sme-tenants'` error (a concurrent-writer
+// commit to the shared `org-tenants` branch with the git-native
+// `cannot lock ref 'refs/heads/org-tenants'` error (a concurrent-writer
 // ref-lock race), the client must fetch-rebuild-retry rather than fail the
 // whole commit. Pre-fix isGiteaRefRaceError did NOT match that string, so the
 // outer retry loop never engaged and the funnel step "Committing manifests to
@@ -30,7 +30,7 @@ func TestCommitFiles_GiteaTarget_RetriesOnRefLock(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/git/refs/heads/sme-tenants"):
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/git/refs/heads/org-tenants"):
 			// Branch exists; HEAD moves between attempts in reality, but the
 			// SHA value is immaterial to this test (the create op carries no
 			// stale base for a fresh path).
@@ -46,11 +46,11 @@ func TestCommitFiles_GiteaTarget_RetriesOnRefLock(t *testing.T) {
 			mu.Unlock()
 			if n == 1 {
 				// First writer lost the compare-and-swap on the shared
-				// sme-tenants branch — Gitea's git backend surfaces the
+				// org-tenants branch — Gitea's git backend surfaces the
 				// ref-lock failure. 409 Conflict + the git-native body.
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusConflict)
-				_, _ = w.Write([]byte(`{"message":"cannot lock ref 'refs/heads/sme-tenants': is at 1111111111111111111111111111111111111111 but expected 2222222222222222222222222222222222222222"}`))
+				_, _ = w.Write([]byte(`{"message":"cannot lock ref 'refs/heads/org-tenants': is at 1111111111111111111111111111111111111111 but expected 2222222222222222222222222222222222222222"}`))
 				return
 			}
 			// Retry against the moved HEAD succeeds.
@@ -64,8 +64,8 @@ func TestCommitFiles_GiteaTarget_RetriesOnRefLock(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClientWithAPIURL("token", "openova-io", "openova", srv.URL)
-	err := c.CommitFiles(context.Background(), "sme-tenants", "sme-tenant: provision alice", map[string]string{
-		"clusters/otech.omani.works/sme-tenants/alice/namespace.yaml": "kind: Namespace\nmetadata:\n  name: sme-alice\n",
+	err := c.CommitFiles(context.Background(), "org-tenants", "org-tenant: provision alice", map[string]string{
+		"clusters/otech.omani.works/org-tenants/alice/namespace.yaml": "kind: Namespace\nmetadata:\n  name: org-alice\n",
 	})
 	if err != nil {
 		t.Fatalf("CommitFiles should have retried past the ref-lock and succeeded, got: %v", err)
@@ -91,7 +91,7 @@ func TestCommitFiles_GiteaTarget_RefLockPersists(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/git/refs/heads/sme-tenants"):
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/git/refs/heads/org-tenants"):
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`[{"object":{"sha":"c3f4799deadbeef0000000000000000deadbeef"}}]`))
 		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/contents/"):
@@ -102,7 +102,7 @@ func TestCommitFiles_GiteaTarget_RefLockPersists(t *testing.T) {
 			mu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
-			_, _ = w.Write([]byte(`{"message":"cannot lock ref 'refs/heads/sme-tenants'"}`))
+			_, _ = w.Write([]byte(`{"message":"cannot lock ref 'refs/heads/org-tenants'"}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -110,8 +110,8 @@ func TestCommitFiles_GiteaTarget_RefLockPersists(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClientWithAPIURL("token", "openova-io", "openova", srv.URL)
-	err := c.CommitFiles(context.Background(), "sme-tenants", "sme-tenant: provision bob", map[string]string{
-		"clusters/otech.omani.works/sme-tenants/bob/namespace.yaml": "kind: Namespace\n",
+	err := c.CommitFiles(context.Background(), "org-tenants", "org-tenant: provision bob", map[string]string{
+		"clusters/otech.omani.works/org-tenants/bob/namespace.yaml": "kind: Namespace\n",
 	})
 	if err == nil {
 		t.Fatalf("expected a ref-race error after exhausting retries, got nil")
@@ -133,7 +133,7 @@ func TestCommitFiles_GiteaTarget_RefLockPersists(t *testing.T) {
 func TestCommitFiles_GiteaTarget_RefLockRetryHonoursContext(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/git/refs/heads/sme-tenants"):
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/git/refs/heads/org-tenants"):
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`[{"object":{"sha":"c3f4799deadbeef0000000000000000deadbeef"}}]`))
 		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/contents/"):
@@ -141,7 +141,7 @@ func TestCommitFiles_GiteaTarget_RefLockRetryHonoursContext(t *testing.T) {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/contents"):
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
-			_, _ = w.Write([]byte(`{"message":"cannot lock ref 'refs/heads/sme-tenants'"}`))
+			_, _ = w.Write([]byte(`{"message":"cannot lock ref 'refs/heads/org-tenants'"}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -158,8 +158,8 @@ func TestCommitFiles_GiteaTarget_RefLockRetryHonoursContext(t *testing.T) {
 
 	c := NewClientWithAPIURL("token", "openova-io", "openova", srv.URL)
 	start := time.Now()
-	err := c.CommitFiles(ctx, "sme-tenants", "sme-tenant: provision carol", map[string]string{
-		"clusters/otech.omani.works/sme-tenants/carol/namespace.yaml": "kind: Namespace\n",
+	err := c.CommitFiles(ctx, "org-tenants", "org-tenant: provision carol", map[string]string{
+		"clusters/otech.omani.works/org-tenants/carol/namespace.yaml": "kind: Namespace\n",
 	})
 	elapsed := time.Since(start)
 	if err == nil {
@@ -176,10 +176,10 @@ func TestCommitFiles_GiteaTarget_RefLockRetryHonoursContext(t *testing.T) {
 // retryable ref-race (Refs #3376), while genuinely fatal errors are not.
 func TestIsGiteaRefRaceError_RefLockShapes(t *testing.T) {
 	retryable := []string{
-		"GitHub API POST .../contents: 409 {\"message\":\"cannot lock ref 'refs/heads/sme-tenants'\"}",
-		"change files: cannot lock ref 'refs/heads/sme-tenants': is at aaaa but expected bbbb",
-		"unable to create '.../refs/heads/sme-tenants.lock': File exists",
-		"failed to update ref refs/heads/sme-tenants",
+		"GitHub API POST .../contents: 409 {\"message\":\"cannot lock ref 'refs/heads/org-tenants'\"}",
+		"change files: cannot lock ref 'refs/heads/org-tenants': is at aaaa but expected bbbb",
+		"unable to create '.../refs/heads/org-tenants.lock': File exists",
+		"failed to update ref refs/heads/org-tenants",
 		// pre-existing shapes must still match
 		"GitHub API POST x: 409 Conflict",
 		"the branch has been changed",

@@ -2,8 +2,8 @@ package events
 
 // Per #795 [Q-mine-3] + #798 + ADR-0001 §6, NATS JetStream is the canonical
 // event bus going forward. The legacy RedPanda producer/consumer in
-// events.go remains for backward compatibility with sme.tenant.events,
-// sme.order.events, sme.user.events (consumed by services that have not
+// events.go remains for backward compatibility with org.tenant.events,
+// org.order.events, org.user.events (consumed by services that have not
 // yet migrated). NEW topics — starting with `catalyst.usage.recorded` —
 // flow through the JetStream surface defined here.
 //
@@ -34,29 +34,29 @@ import (
 // NATS canonical subjects. Canonical convention from ADR-0001 §6:
 //
 //	catalyst.<domain>.<event>            // platform / control-plane events
-//	sme.<producer>.events                // legacy SME bus (RedPanda topics)
+//	org.<producer>.events                // legacy Organization bus (RedPanda topics)
 //
 // New subjects MUST follow the catalyst.<domain>.<event> shape.
 const (
 	// SubjectUsageRecorded carries one metered LLM-request envelope per
 	// completed customer call. Produced by the NewAPI metering sidecar
-	// (#798 §A); consumed by sme-billing's metering_consumer (#798 §B).
+	// (#798 §A); consumed by org-billing's metering_consumer (#798 §B).
 	// Payload shape: see UsageRecordedPayload below.
 	SubjectUsageRecorded = "catalyst.usage.recorded"
 
 	// StreamCatalystUsage is the JetStream Stream that retains envelopes
 	// on SubjectUsageRecorded. The Stream is created idempotently by
-	// EnsureUsageStream during sme-billing startup (and by any other
+	// EnsureUsageStream during org-billing startup (and by any other
 	// service that publishes/consumes it on cold start). 14-day retention
 	// gives ample replay window for billing reconciliation; storage stays
 	// bounded via MaxBytes set in the JetStream chart.
 	StreamCatalystUsage = "CATALYST_USAGE"
 
-	// ConsumerSMEBillingMetering is the durable consumer name on
-	// StreamCatalystUsage that sme-billing reads from. Durable name lives
+	// ConsumerOrgBillingMetering is the durable consumer name on
+	// StreamCatalystUsage that org-billing reads from. Durable name lives
 	// here so the publisher (sidecar) and the consumer (billing) cannot
 	// drift on naming.
-	ConsumerSMEBillingMetering = "sme-billing-metering"
+	ConsumerOrgBillingMetering = "org-billing-metering"
 )
 
 // UsageRecordedPayload is the JSON shape published on
@@ -64,7 +64,7 @@ const (
 // NewAPI metering sidecar (Go) and any future non-Go publisher emit the
 // same envelope.
 type UsageRecordedPayload struct {
-	// CustomerID is the SME-vcluster Keycloak user UUID propagated from
+	// CustomerID is the Organization-vcluster Keycloak user UUID propagated from
 	// NewAPI's `external_id` field (ADR-0003 §3.2). When the upstream
 	// request did not carry an authenticated user (admin probe, health
 	// check), this MUST be empty and the subscriber will skip the row.
@@ -103,7 +103,7 @@ type UsageRecordedMetadata struct {
 	CompletedAt  string `json:"completed_at,omitempty"`
 }
 
-// NATSPublisher is the interface sme-billing's HTTP handler and the
+// NATSPublisher is the interface org-billing's HTTP handler and the
 // metering sidecar use for at-least-once publication. Tests substitute
 // a fake; production wires NATSConn.
 type NATSPublisher interface {
@@ -133,7 +133,7 @@ type NATSConn struct {
 //
 // On success the returned NATSConn is ready for PublishUsage calls.
 // EnsureUsageStream MUST be called once at startup by whichever
-// service owns the Stream lifecycle (sme-billing); publishers that do
+// service owns the Stream lifecycle (org-billing); publishers that do
 // not own the Stream may rely on the consumer side to have created it.
 func ConnectNATS(url string) (*NATSConn, error) {
 	if url == "" {
@@ -158,9 +158,9 @@ func ConnectNATS(url string) (*NATSConn, error) {
 }
 
 // EnsureUsageStream is DEPRECATED — kept only as a back-compat shim for
-// any caller that has not yet migrated to the canonical CATALYST_SME
+// any caller that has not yet migrated to the canonical CATALYST_ORG
 // Stream (subjects `catalyst.>`). t20 (2026-05-18) caught the bug this
-// deprecation exists to prevent: when CATALYST_SME already exists with
+// deprecation exists to prevent: when CATALYST_ORG already exists with
 // subject filter `catalyst.>` (created by the tenant / notification /
 // provisioning MultiSubscribers — any consumer of `catalyst.tenant.*`),
 // creating CATALYST_USAGE with subject `catalyst.usage.recorded` fails
@@ -168,15 +168,15 @@ func ConnectNATS(url string) (*NATSConn, error) {
 // JetStream forbids two Streams from owning overlapping subject filters.
 //
 // New code MUST NOT call EnsureUsageStream. Billing now consumes
-// `catalyst.usage.recorded` directly off CATALYST_SME via
-// SubscribeUsageRecordedOnSME, which uses a consumer-side FilterSubject
+// `catalyst.usage.recorded` directly off CATALYST_ORG via
+// SubscribeUsageRecordedOnOrg, which uses a consumer-side FilterSubject
 // to scope reads to the metering envelopes only. The metering sidecar
 // publishes to the same subject — JetStream routes the envelope to
-// CATALYST_SME on the basis of its `catalyst.>` filter.
+// CATALYST_ORG on the basis of its `catalyst.>` filter.
 //
-// Use EnsureCatalystSMEStream instead.
+// Use EnsureCatalystOrgStream instead.
 //
-// Deprecated: use EnsureCatalystSMEStream + SubscribeUsageRecordedOnSME.
+// Deprecated: use EnsureCatalystOrgStream + SubscribeUsageRecordedOnOrg.
 func (c *NATSConn) EnsureUsageStream(ctx context.Context) error {
 	_, err := c.js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 		Name:        StreamCatalystUsage,
@@ -193,29 +193,29 @@ func (c *NATSConn) EnsureUsageStream(ctx context.Context) error {
 	return nil
 }
 
-// EnsureCatalystSMEStream creates the canonical CATALYST_SME Stream
+// EnsureCatalystOrgStream creates the canonical CATALYST_ORG Stream
 // (subjects `catalyst.>`) if it does not already exist. Idempotent — safe
 // to call on every startup.
 //
-// CATALYST_SME backs every `catalyst.<domain>.<event>` subject on a
+// CATALYST_ORG backs every `catalyst.<domain>.<event>` subject on a
 // Sovereign — tenant events, billing events, domain events, AND the
 // `catalyst.usage.recorded` metering envelopes that previously lived on
 // the now-deprecated CATALYST_USAGE Stream (see EnsureUsageStream
 // comment above for the t20 incident).
 //
-// This is the public wrapper around the package-private ensureSMEStream
+// This is the public wrapper around the package-private ensureOrgStream
 // helper used by NewMultiSubscriber. Exposed so services that own a
 // publish OR consume relationship to `catalyst.*` subjects can bootstrap
 // the Stream at process start — first-writer-wins is fine because the
 // underlying CreateOrUpdateStream call is a no-op on second invocation.
 //
-// Specifically: sme-billing calls this at startup so the metering sidecar
+// Specifically: org-billing calls this at startup so the metering sidecar
 // (which deliberately does NOT call any Ensure* — see
 // services/metering-sidecar/main.go) can begin publishing immediately
 // after a fresh Sovereign cold-start, with billing-side bootstrap
 // guaranteeing the Stream exists.
-func (c *NATSConn) EnsureCatalystSMEStream(ctx context.Context) error {
-	return c.ensureSMEStream(ctx, StreamCatalystSME, []string{"catalyst.>"})
+func (c *NATSConn) EnsureCatalystOrgStream(ctx context.Context) error {
+	return c.ensureOrgStream(ctx, StreamCatalystOrg, []string{"catalyst.>"})
 }
 
 // PublishUsage publishes one usage envelope on SubjectUsageRecorded
@@ -313,15 +313,15 @@ type natsSub struct {
 
 // SubscribeUsageRecorded is DEPRECATED — kept only as a back-compat
 // shim for the legacy CATALYST_USAGE Stream layout. New code MUST call
-// SubscribeUsageRecordedOnSME instead. See the comment on
+// SubscribeUsageRecordedOnOrg instead. See the comment on
 // EnsureUsageStream for the t20 stream-overlap incident this deprecation
 // prevents.
 //
-// Deprecated: use SubscribeUsageRecordedOnSME.
+// Deprecated: use SubscribeUsageRecordedOnOrg.
 func (c *NATSConn) SubscribeUsageRecorded(ctx context.Context) (NATSSubscription, error) {
 	cons, err := c.js.CreateOrUpdateConsumer(ctx, StreamCatalystUsage, jetstream.ConsumerConfig{
-		Durable:       ConsumerSMEBillingMetering,
-		Description:   "sme-billing metering consumer (#798).",
+		Durable:       ConsumerOrgBillingMetering,
+		Description:   "org-billing metering consumer (#798).",
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		AckWait:       30 * time.Second,
 		FilterSubject: SubjectUsageRecorded,
@@ -334,26 +334,26 @@ func (c *NATSConn) SubscribeUsageRecorded(ctx context.Context) (NATSSubscription
 	return &natsSub{cons: cons}, nil
 }
 
-// SubscribeUsageRecordedOnSME creates (or attaches to) the durable
-// consumer ConsumerSMEBillingMetering on the canonical CATALYST_SME
+// SubscribeUsageRecordedOnOrg creates (or attaches to) the durable
+// consumer ConsumerOrgBillingMetering on the canonical CATALYST_ORG
 // Stream and returns a NATSSubscription ready to Consume. The consumer
 // uses FilterSubject = `catalyst.usage.recorded` so it ONLY receives
-// metering envelopes even though CATALYST_SME also carries tenant,
+// metering envelopes even though CATALYST_ORG also carries tenant,
 // billing, domain, and provisioning events.
 //
 // AckPolicy + AckWait + MaxDeliver match SubscribeUsageRecorded so the
 // observed delivery semantics are identical to the deprecated path.
 //
-// Stream ownership: CATALYST_SME is bootstrapped by
-// EnsureCatalystSMEStream (which sme-billing calls at startup) AND by
-// NewMultiSubscriber (which every other SME service's tenant-events
+// Stream ownership: CATALYST_ORG is bootstrapped by
+// EnsureCatalystOrgStream (which org-billing calls at startup) AND by
+// NewMultiSubscriber (which every other Organization service's tenant-events
 // consumer calls). First-writer-wins is fine because the underlying
 // CreateOrUpdateStream call is idempotent on the (`catalyst.>` subject
 // filter, file storage, 14d retention) tuple.
-func (c *NATSConn) SubscribeUsageRecordedOnSME(ctx context.Context) (NATSSubscription, error) {
-	cons, err := c.js.CreateOrUpdateConsumer(ctx, StreamCatalystSME, jetstream.ConsumerConfig{
-		Durable:       ConsumerSMEBillingMetering,
-		Description:   "sme-billing metering consumer (#798) — CATALYST_SME filter scope.",
+func (c *NATSConn) SubscribeUsageRecordedOnOrg(ctx context.Context) (NATSSubscription, error) {
+	cons, err := c.js.CreateOrUpdateConsumer(ctx, StreamCatalystOrg, jetstream.ConsumerConfig{
+		Durable:       ConsumerOrgBillingMetering,
+		Description:   "org-billing metering consumer (#798) — CATALYST_ORG filter scope.",
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		AckWait:       30 * time.Second,
 		FilterSubject: SubjectUsageRecorded,
@@ -361,7 +361,7 @@ func (c *NATSConn) SubscribeUsageRecordedOnSME(ctx context.Context) (NATSSubscri
 		MaxDeliver:    -1,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("events: subscribe usage on CATALYST_SME: %w", err)
+		return nil, fmt.Errorf("events: subscribe usage on CATALYST_ORG: %w", err)
 	}
 	return &natsSub{cons: cons}, nil
 }

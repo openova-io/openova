@@ -31,7 +31,7 @@ func main() {
 	jwtSecret := []byte(getEnv("JWT_SECRET", ""))
 	corsOrigin := getEnv("CORS_ORIGIN", "*")
 	port := getEnv("PORT", "8086")
-	cnameTarget := getEnv("CNAME_TARGET", "sme.openova.io")
+	cnameTarget := getEnv("CNAME_TARGET", "openova.io")
 	tenantURL := getEnv("TENANT_URL", "http://tenant.org-services.svc.cluster.local:8083")
 
 	// Connect to MongoDB (FerretDB).
@@ -97,13 +97,13 @@ func main() {
 	// Start the tenant-events consumer so tenant.deleted cascades remove
 	// domain records (subdomains + BYOD). See issue #95. Listens on
 	// `catalyst.tenant.deleted` (NATS, Sovereign default) AND legacy
-	// `sme.tenant.events` (Kafka, Catalyst-Zero default).
+	// `org.tenant.events` (Kafka, Catalyst-Zero default).
 	var kafkaConsumer *events.Consumer
 	if redpandaBrokersRaw != "" {
 		kc, err := events.NewConsumer(
 			strings.Split(redpandaBrokersRaw, ","),
 			"domain-tenant-events",
-			[]string{"sme.tenant.events"},
+			[]string{"org.tenant.events"},
 		)
 		if err != nil {
 			slog.Error("failed to create kafka consumer", "error", err)
@@ -130,7 +130,7 @@ func main() {
 	}()
 	slog.Info("domain tenant-events consumer started",
 		"nats_subject", "catalyst.tenant.deleted",
-		"kafka_topic", "sme.tenant.events",
+		"kafka_topic", "org.tenant.events",
 		"kafka_enabled", kafkaConsumer != nil,
 		"nats_enabled", natsConn != nil,
 		"group", "domain-tenant-events")

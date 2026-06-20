@@ -308,7 +308,7 @@ locals {
   wildcard_cert_issuer = var.wildcard_cert_use_staging == "true" ? "letsencrypt-dns01-staging-powerdns" : "letsencrypt-dns01-prod-powerdns"
 
   # ── Cilium Gateway listeners per parent zone (issue #831, parent #827) ───
-  # The Sovereign supports N parent zones (primary + 0..N sme-pool). For
+  # The Sovereign supports N parent zones (primary + 0..N org-pool). For
   # each zone the Cilium Gateway must declare a listener pair (HTTPS:30443
   # + HTTP:30080) hostnamed `*.<zone>` so cilium-envoy programs the SDS
   # subscription against the per-zone cert. Without these listeners,
@@ -351,7 +351,7 @@ locals {
   #     etc. are unreachable at the Gateway. Keeping the bare names for
   #     the single-zone case is the safer rollback. (Was broken between
   #     PR #1640 and this fix.)
-  #   - MULTIPLE parent zones (SME pool present) → unique names per zone
+  #   - MULTIPLE parent zones (Org pool present) → unique names per zone
   #     (`https-<sanitised-zone>` / `http-<sanitised-zone>`) so the
   #     Gateway controller programs all of them (duplicate listener names
   #     produce a Conflicting status condition and silently skip every
@@ -408,7 +408,7 @@ locals {
   # tied to the parent-zone wildcard.
   #
   # Hostname semantics for the PARENT-ZONE listener: `hostname: *.<parent>`
-  # matches exactly one label depth (`foo.omani.works`), so SME-tenant
+  # matches exactly one label depth (`foo.omani.works`), so Org-tenant
   # 1-label subdomains on the parent zone still hit it. cilium-envoy's
   # SNI dispatch picks the per-prov cert whose SAN list includes the
   # requested hostname. For PER-PROV 2-label-deep operator FQDNs
@@ -425,7 +425,7 @@ locals {
   # locals.per_prov_listeners, locals.parent_domains_includes_sovereign_fqdn)
   # and threaded into cloud-init as an inline postBuild.substitute value.
   # That scaled O(N) with parent-zone count and pushed cloud-init over
-  # Hetzner's 32 KiB user_data cap on 4-zone SME-pool Sovereigns (t39
+  # Hetzner's 32 KiB user_data cap on 4-zone Org-pool Sovereigns (t39
   # audit, 2026-05-20: 33,656 bytes for omantel.biz + 3-zone .omani.X).
   #
   # The listener block is now rendered inside bp-catalyst-platform's

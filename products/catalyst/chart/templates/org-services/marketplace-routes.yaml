@@ -1,7 +1,7 @@
 {{- /*
 Marketplace exposure HTTPRoutes (issue #710).
 
-bp-catalyst-platform 1.3.0 ships the SME marketplace stack
+bp-catalyst-platform 1.3.0 ships the Organization marketplace stack
 (templates/org-services/{marketplace,admin,console,...}.yaml) on every
 Sovereign as Pods + ClusterIPs. This template attaches public hostnames
 when the operator opts in via .Values.ingress.marketplace.enabled=true.
@@ -9,15 +9,15 @@ when the operator opts in via .Values.ingress.marketplace.enabled=true.
 HTTPRoutes emitted:
 
 1. marketplace.<sov> → routes:
-   - /api/             → sme/gateway     (BSS REST)
-   - /back-office/     → sme/admin       (Otech-staff BSS UI; "back-office"
+   - /api/             → org-services/gateway     (BSS REST)
+   - /back-office/     → org-services/admin       (Otech-staff BSS UI; "back-office"
                                             not "admin" per founder rule
                                             2026-05-03)
-   - /                 → sme/marketplace  (storefront landing + signup)
+   - /                 → org-services/marketplace  (storefront landing + signup)
 
 2. tenant-<slug> per entry in ingress.marketplace.tenantSlugs:
      hostname = <slug>.<sov>   (EXACT, no wildcard)
-     backend  = sme/console
+     backend  = org-services/console
    (per-tenant SaaS dashboard; the console Pod host-routes by slug
    internally — one HTTPRoute per slug.)
 
@@ -28,7 +28,7 @@ platform HTTPRoutes (`auth.<sov>` → Keycloak, `console.<sov>` →
 catalyst-ui, `api.<sov>` → catalyst-api, `pdns.<sov>` → powerdns,
 `grafana.<sov>` → grafana, etc.) even though Gateway API spec §5.2.1
 says exact > wildcard. The admission-order-dependent precedence on
-Cilium meant `auth.t31.omani.works` returned the SME console Astro
+Cilium meant `auth.t31.omani.works` returned the Organization console Astro
 HTML instead of Keycloak's login page, breaking D4 SSO PIN-bounce.
 
 Fix: emit one explicit `tenant-<slug>` HTTPRoute per slug in
@@ -44,8 +44,8 @@ which already has hostname `*.${SOVEREIGN_FQDN}` from
 sovereign-tls/cilium-gateway.yaml, so the wildcard cert covers every
 emitted `<slug>.<sov>` automatically.
 
-Service backends live in the `sme` namespace (see
-sme-services/{marketplace,admin,console}.yaml).
+Service backends live in the `org-services` namespace (see
+org-services/{marketplace,admin,console}.yaml).
 
 Default OFF: ingress.marketplace.enabled=false in values.yaml so non-
 marketplace Sovereigns don't render these routes.
@@ -79,15 +79,15 @@ spec:
         - path:
             type: PathPrefix
             value: "/api/"
-      # /api/* is the SME BSS REST surface (auth, catalog, tenant, billing,
-      # provisioning) served by the gateway Pod in the sme namespace, NOT
+      # /api/* is the Organization BSS REST surface (auth, catalog, tenant, billing,
+      # provisioning) served by the gateway Pod in the org-services namespace, NOT
       # the catalyst-system marketplace-api Service. Live debugging on
       # otech103 (issue #868) showed catalyst-system/marketplace-api had
       # zero backing Pods (selector matched nothing), so PIN-signin POSTs
       # 503'd at the gateway before ever reaching the auth service. The
-      # gateway in sme already proxies /auth/* to services-auth, so we
+      # gateway in org-services already proxies /auth/* to services-auth, so we
       # cross-namespace backendRef directly. ReferenceGrant
-      # marketplace-routes-to-sme (in sme ns) authorises this hop.
+      # marketplace-routes-to-org (in org-services ns) authorises this hop.
       backendRefs:
         - name: gateway
           namespace: org-services

@@ -8,12 +8,12 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: sme-gateway
+      app: org-gateway
   template:
     metadata:
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
-        app: sme-gateway
+        app: org-gateway
     spec:
       serviceAccountName: gateway
       automountServiceAccountToken: false
@@ -21,7 +21,7 @@ spec:
         - name: ghcr-pull
       containers:
         - name: gateway
-          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-gateway:{{ .Values.images.smeTag }}"
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-gateway:{{ .Values.images.orgTag }}"
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
@@ -34,7 +34,7 @@ spec:
             - name: VALKEY_ADDR
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: VALKEY_ADDR
             # bp-valkey ships auth.enabled=true (bitnami default); the
             # `default` ACL user uses requirepass, so VALKEY_USERNAME stays
@@ -47,48 +47,48 @@ spec:
             - name: VALKEY_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: sme-valkey-auth
+                  name: org-valkey-auth
                   key: valkey-password
                   optional: true
             - name: CORS_ORIGIN
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: CORS_ORIGIN_GATEWAY
             - name: AUTH_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: AUTH_URL
             - name: CATALOG_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: CATALOG_URL
             - name: TENANT_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: TENANT_URL
             - name: PROVISIONING_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: PROVISIONING_URL
             - name: BILLING_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: BILLING_URL
             - name: DOMAIN_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: DOMAIN_URL
             - name: NOTIFICATION_URL
               valueFrom:
                 configMapKeyRef:
-                  name: sme-services-config
+                  name: org-services-config
                   key: NOTIFICATION_URL
             - name: RATE_LIMIT_RPM
               # A single console tab polls /tenant/orgs + /provisioning/jobs
@@ -136,7 +136,7 @@ metadata:
   namespace: org-services
 spec:
   selector:
-    app: sme-gateway
+    app: org-gateway
   ports:
     - port: 8080
       targetPort: 8080

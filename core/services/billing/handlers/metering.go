@@ -6,7 +6,7 @@ package handlers
 // path. Same payload shape as the NATS subscriber consumes; same
 // idempotency guard (request_id → external_ref → UNIQUE partial index).
 //
-// Use case: SME-admin pre-flight checks and the future bp-aider worker
+// Use case: Organization-admin pre-flight checks and the future bp-aider worker
 // that wants the balance materialised before issuing an LLM request.
 // The async NATS path is the canonical metering channel; this HTTP
 // path is a sync escape hatch for callers that need immediate balance

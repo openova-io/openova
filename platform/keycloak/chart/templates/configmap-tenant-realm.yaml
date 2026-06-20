@@ -1,11 +1,11 @@
 {{- /*
-Catalyst bp-keycloak — Per-tenant SME realm import ConfigMap + per-app
+Catalyst bp-keycloak — Per-tenant Organization realm import ConfigMap + per-app
 OIDC client Secrets (issue #915).
 
 When a tenant is provisioned on a Sovereign (per-tenant Namespace, single
 Keycloak Pod + Postgres backend), the Keycloak realm imported by the
 upstream bitnami/keycloak chart's keycloak-config-cli post-install Job
-MUST register OIDC clients for the SME's downstream apps so first-login
+MUST register OIDC clients for the Organization's downstream apps so first-login
 SSO works end-to-end:
 
   - wordpress  (confidential client; auth-code flow; redirect URI to the
@@ -19,7 +19,7 @@ SSO works end-to-end:
                  webmail uses auth-code)
 
 The orchestrator (products/catalyst/bootstrap/api/internal/handler/
-sme_tenant_gitops.go, smeTenantBPKeycloak) emits
+org_tenant_gitops.go, orgTenantBPKeycloak) emits
 realmConfig.tenant.enabled=true alongside sovereignRealm.enabled=true on
 the per-tenant HelmRelease (PR #911). When tenant mode is on,
 configmap-sovereign-realm.yaml SKIPS (mutual exclusion) and this template
@@ -69,7 +69,7 @@ Canonical seam: platform/keycloak/chart/templates/configmap-tenant-realm.yaml
 {{- /* ── Validate required tenant fields ──────────────────────────────── */}}
 {{- $t := .Values.realmConfig.tenant -}}
 {{- if not $t.realmName -}}
-  {{- fail "realmConfig.tenant.enabled=true requires realmConfig.tenant.realmName (convention: sme-<subdomain>) — Inviolable Principle #4 (never hardcode)" -}}
+  {{- fail "realmConfig.tenant.enabled=true requires realmConfig.tenant.realmName (convention: org-<subdomain>) — Inviolable Principle #4 (never hardcode)" -}}
 {{- end -}}
 {{- if not $t.parentDomain -}}
   {{- fail "realmConfig.tenant.enabled=true requires realmConfig.tenant.parentDomain — Inviolable Principle #4 (never hardcode)" -}}
@@ -164,7 +164,7 @@ metadata:
     {{- end }}
   annotations:
     catalyst.openova.io/comment: |
-      Tenant-mode realm import for SME `{{ $t.realmName }}`. Replaces
+      Tenant-mode realm import for Organization `{{ $t.realmName }}`. Replaces
       the Sovereign realm import (configmap-sovereign-realm.yaml is
       gated off when realmConfig.tenant.enabled=true). Imported by the
       upstream keycloak-config-cli post-install Job referenced via
@@ -276,8 +276,8 @@ data:
       "clients": [
         {
           "clientId": {{ ($t.wordpress.clientID | default "wordpress") | quote }},
-          "name": "WordPress (SME tenant — openid-connect-generic plugin)",
-          "description": "Confidential OIDC client for the SME tenant's WordPress instance. Auth-code flow with PKCE optional. Redirect URIs cover the openid-connect-generic plugin's admin-ajax.php callback (default when alternate_redirect_uri=0) plus /wp-login.php fallback.",
+          "name": "WordPress (Organization tenant — openid-connect-generic plugin)",
+          "description": "Confidential OIDC client for the Organization tenant's WordPress instance. Auth-code flow with PKCE optional. Redirect URIs cover the openid-connect-generic plugin's admin-ajax.php callback (default when alternate_redirect_uri=0) plus /wp-login.php fallback.",
           "enabled": true,
           "publicClient": false,
           "standardFlowEnabled": true,
@@ -316,8 +316,8 @@ data:
         },
         {
           "clientId": {{ ($t.openclaw.clientID | default "openclaw") | quote }},
-          "name": "OpenClaw (SME tenant — Claude UI)",
-          "description": "Confidential OIDC client for the SME tenant's OpenClaw deployment. Auth-code flow; redirect URI per #915 spec is /oauth/callback.",
+          "name": "OpenClaw (Organization tenant — Claude UI)",
+          "description": "Confidential OIDC client for the Organization tenant's OpenClaw deployment. Auth-code flow; redirect URI per #915 spec is /oauth/callback.",
           "enabled": true,
           "publicClient": false,
           "standardFlowEnabled": true,
@@ -357,8 +357,8 @@ data:
         },
         {
           "clientId": {{ ($t.stalwart.clientID | default "stalwart") | quote }},
-          "name": "Stalwart (SME tenant — mail server OIDC)",
-          "description": "Confidential OIDC client for SME tenant Stalwart mail (client_credentials for IMAP/SMTP introspect + auth-code for webmail).",
+          "name": "Stalwart (Organization tenant — mail server OIDC)",
+          "description": "Confidential OIDC client for Organization tenant Stalwart mail (client_credentials for IMAP/SMTP introspect + auth-code for webmail).",
           "enabled": true,
           "publicClient": false,
           "standardFlowEnabled": true,

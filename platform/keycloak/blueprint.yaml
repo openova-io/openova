@@ -9,7 +9,7 @@ spec:
   version: 1.4.35
   card:
     title: keycloak
-    summary: Keycloak — user identity. Topology decided by Sovereign CRD spec.keycloakTopology (per-organization for SME, shared-sovereign for corporate).
+    summary: Keycloak — user identity. Topology decided by Sovereign CRD spec.keycloakTopology (per-organization for Organizations, shared-sovereign for corporate).
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
   # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
   # Placement is an INSTANCE property (Application.spec.placement); this is

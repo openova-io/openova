@@ -826,15 +826,15 @@ func (h *Handler) migrateAppDependencies(ctx context.Context) {
 // blueprints.json. The result on a fresh Sovereign was the marketplace UI
 // drawing a "COMING SOON" overlay on every "AI" + "Communication" card —
 // alice signup gates 4 (LLM) and 5 (mail) blocked before alice could click
-// Install. Both are SME-tenant-pipeline-installable per the per-tenant
-// overlay templates emitted by sme_tenant_gitops.go (bp-openclaw +
+// Install. Both are Organization-tenant-pipeline-installable per the per-tenant
+// overlay templates emitted by org_tenant_gitops.go (bp-openclaw +
 // bp-stalwart-tenant HelmRelease emit), so they MUST appear as Available
 // to install. The marketplace shows the customer-app slug (`stalwart-mail`,
 // matching seedApps line 48) — bp-stalwart-sovereign is the Sovereign-side
 // realisation; bp-stalwart-tenant is the per-tenant one driven by the
-// SME-tenant orchestrator.
+// Organization-tenant orchestrator.
 // DeployableAppSlugs returns the canonical map of catalog app slugs the
-// SME provisioning service / SME-tenant orchestrator can install end to
+// Organization provisioning service / Organization-tenant orchestrator can install end to
 // end. Apps NOT in this map are flagged with Deployable=false on the
 // catalog rows so the marketplace UI overlays them with "COMING SOON"
 // per issue #102. The map is exported as a function so unit tests can
@@ -843,8 +843,8 @@ func (h *Handler) migrateAppDependencies(ctx context.Context) {
 // Issue #941 (2026-05-05): added `openclaw` + `stalwart-mail` after
 // C5-final hit "27 apps COMING SOON" on otech113 — both blueprints
 // (bp-openclaw, bp-stalwart-{sovereign,tenant}) ship with visibility=
-// listed in the embedded blueprints.json AND have working SME-tenant
-// overlay templates in sme_tenant_gitops.go, but the catalog handler
+// listed in the embedded blueprints.json AND have working Organization-tenant
+// overlay templates in org_tenant_gitops.go, but the catalog handler
 // silently filtered them out because they were missing here.
 func DeployableAppSlugs() map[string]bool {
 	return map[string]bool{
@@ -863,7 +863,7 @@ func DeployableAppSlugs() map[string]bool {
 		"listmonk":      true, // fixed in #101 — DBEnvStyle:"listmonk" + InitCommand
 		// openclaw + stalwart-mail were flagged Deployable in #941 but have
 		// no entry in core/services/provisioning/gitops/apps.go KnownApps —
-		// the SME provisioning service generates manifests via a single
+		// the Organization provisioning service generates manifests via a single
 		// Deployment template that requires Image + Port; both apps need
 		// HelmRelease-shaped overlays (controller + runtime for openclaw;
 		// IMAP/SMTP services for stalwart-mail). Live failure 2026-05-06

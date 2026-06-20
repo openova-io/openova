@@ -846,7 +846,7 @@ interface AppCardProps {
   environment: string
   /**
    * Marketplace publish state for this app's slug. `null` ⇒ this app
-   * isn't in the SME marketplace catalog (bootstrap component, or
+   * isn't in the Organization marketplace catalog (bootstrap component, or
    * marketplace not deployed on this Sovereign) → don't render the
    * Publish chip. true/false ⇒ render the toggle.
    */

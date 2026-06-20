@@ -64,7 +64,7 @@ describe('subOrgRowFromTenant', () => {
     parentDomain: 'omani.homes',
     plan: 'pro',
     kind: 'customer',
-    tier: 'sme',
+    tier: 'org',
     billingMode: 'real',
     isolation: 'vcluster',
     status: 'active',
@@ -79,7 +79,7 @@ describe('subOrgRowFromTenant', () => {
     const row = subOrgRowFromTenant(tenant)
     expect(row.isParent).toBe(false)
     expect(row.kind).toBe('customer')
-    expect(row.tier).toBe('sme')
+    expect(row.tier).toBe('org')
     expect(row.billingMode).toBe('real')
     expect(row.isolation).toBe('vcluster')
     expect(row.displayName).toBe('ACME Corp')
@@ -132,7 +132,7 @@ describe('subOrgRowFromTenant', () => {
       isolation: '',
     })
     expect(row.kind).toBe('customer')
-    expect(row.tier).toBe('sme')
+    expect(row.tier).toBe('org')
     expect(row.billingMode).toBe('real')
     expect(row.isolation).toBe('vcluster')
   })

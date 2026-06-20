@@ -14,7 +14,7 @@ spec:
   # DMARC posture is per-Sovereign, eliminating the mothership-as-SPOF.
   #
   # Distinct from `bp-stalwart-tenant`:
-  #   - bp-stalwart-tenant — per-SME (per-vcluster) instance, OIDC-authn
+  #   - bp-stalwart-tenant — per-Org (per-vcluster) instance, OIDC-authn
   #     against the per-tenant Keycloak realm, customer mailboxes.
   #   - bp-stalwart-sovereign (THIS) — single instance per Sovereign,
   #     scoped to Sovereign Console mail (PIN delivery, ops alerts, the

@@ -3,7 +3,7 @@
  * Sovereign Console SPA (issue #802, #795 [Q-mine-1]).
  *
  * The same SPA bundle serves both otech-admin (`console.<otech-fqdn>`)
- * and SME-admin (`console.<sme-domain>` — free-subdomain
+ * and Organization-admin (`console.<org-domain>` — free-subdomain
  * `console.acme.<otech-fqdn>` OR BYO domain `console.acme.com`).
  * Tenant context is discovered from `window.location.host` against
  * the back-end's tenant registry — NOT from path/subdomain string
@@ -20,7 +20,7 @@
  *   4. On 404 — host is not registered. Show the SPA's generic
  *      "unknown tenant" landing.
  *   5. On network failure — render the catalyst-zero default surface.
- *      The SPA must NEVER assume otech vs SME without an authoritative
+ *      The SPA must NEVER assume otech vs Organization without an authoritative
  *      registry response.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the

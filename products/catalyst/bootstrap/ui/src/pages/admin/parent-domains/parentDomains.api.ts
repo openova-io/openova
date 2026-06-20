@@ -12,7 +12,7 @@
 
 import { API_BASE } from '@/shared/config/urls'
 
-export type ParentDomainRole = 'primary' | 'sme-pool'
+export type ParentDomainRole = 'primary' | 'org-pool'
 
 export type FlipStatus =
   | 'queued'

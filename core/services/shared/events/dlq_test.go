@@ -16,7 +16,7 @@ import (
 // topic/partition/offset coordinates.
 func TestDLQSubscriber_attemptKey(t *testing.T) {
 	s := &DLQSubscriber{Group: "test"}
-	rec := &kgo.Record{Topic: "sme.provision.events", Partition: 2, Offset: 42}
+	rec := &kgo.Record{Topic: "org.provision.events", Partition: 2, Offset: 42}
 
 	t.Run("prefers event ID", func(t *testing.T) {
 		evt := &Event{ID: "evt-123"}
@@ -28,7 +28,7 @@ func TestDLQSubscriber_attemptKey(t *testing.T) {
 
 	t.Run("falls back to offset when event is unparseable", func(t *testing.T) {
 		got := s.attemptKey(rec, nil)
-		want := "sme.provision.events:2:42"
+		want := "org.provision.events:2:42"
 		if got != want {
 			t.Fatalf("want %q, got %q", want, got)
 		}
@@ -37,7 +37,7 @@ func TestDLQSubscriber_attemptKey(t *testing.T) {
 	t.Run("falls back when event ID is empty", func(t *testing.T) {
 		evt := &Event{}
 		got := s.attemptKey(rec, evt)
-		want := "sme.provision.events:2:42"
+		want := "org.provision.events:2:42"
 		if got != want {
 			t.Fatalf("want %q, got %q", want, got)
 		}
@@ -61,7 +61,7 @@ func TestDLQSubscriber_defaults(t *testing.T) {
 func TestDLQEnvelope_roundtrip(t *testing.T) {
 	t.Run("valid payload round trip", func(t *testing.T) {
 		env := DLQEnvelope{
-			OriginalTopic:     "sme.provision.events",
+			OriginalTopic:     "org.provision.events",
 			OriginalPartition: 0,
 			OriginalOffset:    7,
 			ConsumerGroup:     "notification",
@@ -90,7 +90,7 @@ func TestDLQEnvelope_roundtrip(t *testing.T) {
 
 	t.Run("malformed payload uses raw_payload", func(t *testing.T) {
 		env := DLQEnvelope{
-			OriginalTopic: "sme.provision.events",
+			OriginalTopic: "org.provision.events",
 			ConsumerGroup: "notification",
 			Error:         "invalid character 'x' looking for beginning of value",
 			Attempts:      1,
@@ -135,7 +135,7 @@ func TestDLQSubscriber_retryCounterProgression(t *testing.T) {
 		MaxRetries: 3,
 		attempts:   make(map[string]int),
 	}
-	rec := &kgo.Record{Topic: "sme.tenant.events", Partition: 0, Offset: 1}
+	rec := &kgo.Record{Topic: "org.tenant.events", Partition: 0, Offset: 1}
 	evt := &Event{ID: "evt-9"}
 	key := s.attemptKey(rec, evt)
 
@@ -201,7 +201,7 @@ func TestDLQEnvelope_errorField(t *testing.T) {
 // log and return.
 func TestDLQSubscriber_nilProducer(t *testing.T) {
 	s := &DLQSubscriber{Group: "test", DLQTopic: TopicDLQ, attempts: make(map[string]int)}
-	rec := &kgo.Record{Topic: "sme.user.events", Value: []byte(`{"id":"x"}`)}
+	rec := &kgo.Record{Topic: "org.user.events", Value: []byte(`{"id":"x"}`)}
 	// Expect no panic, no return value.
 	s.publishDLQ(context.Background(), rec, &Event{ID: "x"}, errors.New("boom"), 3, false)
 }

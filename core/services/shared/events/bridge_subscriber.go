@@ -19,7 +19,7 @@ package events
 //
 // This file mirrors bridge.go on the subscribe side. It defines:
 //
-//   - BrokerSubscriber: the single Subscribe surface every SME service
+//   - BrokerSubscriber: the single Subscribe surface every Organization service
 //     consumer is migrating to. Matches the existing
 //     events.Consumer.Subscribe + events.DLQSubscriber.Subscribe shape
 //     so call sites only need a type swap, not a handler rewrite.
@@ -51,7 +51,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// BrokerSubscriber is the unified subscribe surface every SME service
+// BrokerSubscriber is the unified subscribe surface every Organization service
 // consumer (provisioning, notification, domain, billing tenant-events)
 // uses. Implementations:
 //
@@ -136,7 +136,7 @@ type MultiSubscriberConfig struct {
 	// NATS != nil — without subjects there is nothing to consume.
 	EventTypes []string
 	// StreamName is the JetStream Stream the subjects live on. Defaults
-	// to StreamCatalystSME when empty.
+	// to StreamCatalystOrg when empty.
 	StreamName string
 	// StreamSubjects is the Stream's subject filter when MultiSubscriber
 	// is the lifecycle owner. Defaults to []string{"catalyst.>"} so a
@@ -144,14 +144,14 @@ type MultiSubscriberConfig struct {
 	StreamSubjects []string
 }
 
-// StreamCatalystSME is the canonical JetStream Stream backing every
-// SME convergence event (catalyst.tenant.*, catalyst.billing.*,
+// StreamCatalystOrg is the canonical JetStream Stream backing every
+// Organization convergence event (catalyst.tenant.*, catalyst.billing.*,
 // catalyst.domain.*, catalyst.provision.*). Created idempotently by
 // MultiSubscriber if it does not already exist — first consumer to
 // start on a fresh Sovereign owns lifecycle.
-const StreamCatalystSME = "CATALYST_SME"
+const StreamCatalystOrg = "CATALYST_ORG"
 
-// ensureSMEStream creates an SME-side JetStream Stream listening on
+// ensureOrgStream creates an Organization-side JetStream Stream listening on
 // the supplied subject filter (defaulting to `catalyst.>`). Idempotent
 // — calling it on a Sovereign whose Stream was provisioned in a prior
 // startup is a no-op. Lives here (rather than in nats.go) because the
@@ -162,19 +162,19 @@ const StreamCatalystSME = "CATALYST_SME"
 // File storage + 14-day retention mirror EnsureUsageStream —
 // convergence events (tenant.created, order.placed, …) deserve the
 // same replay window as metering envelopes.
-func (c *NATSConn) ensureSMEStream(ctx context.Context, name string, subjects []string) error {
+func (c *NATSConn) ensureOrgStream(ctx context.Context, name string, subjects []string) error {
 	if c == nil || c.js == nil {
 		return errors.New("events: nats publisher not initialised")
 	}
 	if name == "" {
-		name = StreamCatalystSME
+		name = StreamCatalystOrg
 	}
 	if len(subjects) == 0 {
 		subjects = []string{"catalyst.>"}
 	}
 	_, err := c.js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 		Name:        name,
-		Description: "Catalyst SME convergence events (catalyst.<domain>.<event>).",
+		Description: "Catalyst Organization convergence events (catalyst.<domain>.<event>).",
 		Subjects:    subjects,
 		Retention:   jetstream.LimitsPolicy,
 		Storage:     jetstream.FileStorage,
@@ -182,7 +182,7 @@ func (c *NATSConn) ensureSMEStream(ctx context.Context, name string, subjects []
 		Replicas:    1,
 	})
 	if err != nil {
-		return fmt.Errorf("events: ensure SME stream %s: %w", name, err)
+		return fmt.Errorf("events: ensure Organization stream %s: %w", name, err)
 	}
 	return nil
 }
@@ -204,7 +204,7 @@ func NewMultiSubscriber(cfg MultiSubscriberConfig) (*MultiSubscriber, error) {
 		return nil, errors.New("events: NewMultiSubscriber requires NATS (with EventTypes) or Kafka")
 	}
 	if cfg.StreamName == "" {
-		cfg.StreamName = StreamCatalystSME
+		cfg.StreamName = StreamCatalystOrg
 	}
 	if len(cfg.StreamSubjects) == 0 {
 		cfg.StreamSubjects = []string{"catalyst.>"}
@@ -243,8 +243,8 @@ func NewMultiSubscriber(cfg MultiSubscriberConfig) (*MultiSubscriber, error) {
 		// the first envelope.
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := cfg.NATS.ensureSMEStream(ctx, cfg.StreamName, cfg.StreamSubjects); err != nil {
-			return nil, fmt.Errorf("events: ensure SME stream: %w", err)
+		if err := cfg.NATS.ensureOrgStream(ctx, cfg.StreamName, cfg.StreamSubjects); err != nil {
+			return nil, fmt.Errorf("events: ensure Organization stream: %w", err)
 		}
 	}
 	if kafkaEnabled {

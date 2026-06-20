@@ -195,7 +195,7 @@ func (h *Handler) InstallApp(w http.ResponseWriter, r *http.Request) {
 	if evt, err := events.NewEvent("tenant.app_install_requested", "tenant-service", tenantID, payload); err == nil {
 		pubCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		if pubErr := h.Producer.Publish(pubCtx, "sme.tenant.events", evt); pubErr != nil {
+		if pubErr := h.Producer.Publish(pubCtx, "org.tenant.events", evt); pubErr != nil {
 			slog.Debug("install: event publish (best-effort)", "error", pubErr, "tenant_id", tenantID)
 		}
 	}
@@ -322,7 +322,7 @@ func (h *Handler) UninstallApp(w http.ResponseWriter, r *http.Request) {
 	if evt, err := events.NewEvent("tenant.app_uninstall_requested", "tenant-service", tenantID, payload); err == nil {
 		pubCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		if pubErr := h.Producer.Publish(pubCtx, "sme.tenant.events", evt); pubErr != nil {
+		if pubErr := h.Producer.Publish(pubCtx, "org.tenant.events", evt); pubErr != nil {
 			slog.Debug("uninstall: event publish (best-effort)", "error", pubErr, "tenant_id", tenantID)
 		}
 	}

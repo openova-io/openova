@@ -10,7 +10,7 @@ import (
 )
 
 // tenantDeletedPayload mirrors the shape emitted by the tenant service on
-// `sme.tenant.events` — both the inner id and the envelope TenantID carry
+// `org.tenant.events` — both the inner id and the envelope TenantID carry
 // the same value, and we fall back to the envelope when the inner body is
 // empty so a half-populated publisher can't silently break the cascade.
 type tenantDeletedPayload struct {
@@ -61,7 +61,7 @@ func (c *TenantConsumer) tenantDeleter() tenantDomainDeleter {
 
 // Start subscribes to tenant.deleted (on the canonical NATS subject
 // `catalyst.tenant.deleted` OR the legacy Kafka topic
-// `sme.tenant.events`, depending on which transport the service was
+// `org.tenant.events`, depending on which transport the service was
 // wired with) and dispatches the cascade. Any other event type is
 // ignored so we don't contend with the provisioning consumer group on
 // unrelated workloads.

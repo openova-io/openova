@@ -610,7 +610,7 @@ func (h *Handler) restoreFromStore() {
 			go h.runConvergedLateRescue(dep)
 		}
 
-		// #1907 — bake-time top-up of the canonical .omani.X sme-pool.
+		// #1907 — bake-time top-up of the canonical .omani.X org-pool.
 		// On a Pod restart the import already ran on a prior Pod and
 		// the on-disk record may still be short of 4 entries (the
 		// situation #1907 caught on t31 — mother stamped 2 entries,
@@ -618,7 +618,7 @@ func (h *Handler) restoreFromStore() {
 		// No-op on the mothership (SOVEREIGN_FQDN unset); idempotent
 		// when the pool is already full. See
 		// chroot_parent_domains_seed.go for the full rationale.
-		h.chrootEnsureSMEPoolSeed(dep)
+		h.chrootEnsureOrgPoolSeed(dep)
 	}
 	h.log.Info("restored deployments from PVC",
 		"count", len(records),

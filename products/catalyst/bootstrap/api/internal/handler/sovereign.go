@@ -143,7 +143,7 @@ var applicationGVR = ApplicationGVR()
 const defaultSovereignEnvironment = "dev"
 
 // httpRouteGVR — Gateway API HTTPRoute. The canonical Sovereign
-// install uses Cilium Gateway as the only ingress; Console / SME /
+// install uses Cilium Gateway as the only ingress; Console / Organization /
 // per-blueprint front-doors all surface as HTTPRoutes. We list both
 // HTTPRoutes and Ingresses so a Sovereign that hasn't fully
 // migrated to Gateway API still surfaces its operator-visible
@@ -509,10 +509,10 @@ type sovereignAppItem struct {
 	// (the common case) always display a usable chip on the AppsPage
 	// card. The FE renders this verbatim as the environment chip
 	// alongside FREE/BOOTSTRAP. Closes qa-loop iter-7 TC-090 (Apps
-	// page lost the environment chip during the SME-publish redesign).
+	// page lost the environment chip during the Organization-publish redesign).
 	Environment string `json:"environment,omitempty"`
 
-	// MarketplacePublished — null when the slug isn't in the SME
+	// MarketplacePublished — null when the slug isn't in the Organization
 	// catalog (bootstrap components, or marketplace not deployed on
 	// this Sovereign). When non-null, the FE renders a Publish chip
 	// on the app card. The deleted /catalog page's per-row toggle has
@@ -1014,15 +1014,15 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Best-effort SME catalog join. When marketplace.enabled=false on
-	// this Sovereign, the SME catalog service is not deployed; the
+	// Best-effort Organization catalog join. When marketplace.enabled=false on
+	// this Sovereign, the Organization catalog service is not deployed; the
 	// client returns (nil, nil) and every app stays with
 	// MarketplacePublished=nil (the FE then suppresses the Publish
-	// chip). When SME IS deployed and reachable, decorate matching
+	// chip). When Organization IS deployed and reachable, decorate matching
 	// slugs with the published flag.
-	smeCtx, smeCancel := context.WithTimeout(r.Context(), smeCatalogProbeBudget)
-	defer smeCancel()
-	if pub, _ := smeCatalog().PublishedBySlug(smeCtx); pub != nil {
+	orgCtx, orgCancel := context.WithTimeout(r.Context(), orgCatalogProbeBudget)
+	defer orgCancel()
+	if pub, _ := orgCatalog().PublishedBySlug(orgCtx); pub != nil {
 		for i := range apps {
 			if v, ok := pub[apps[i].Slug]; ok {
 				vCopy := v
@@ -1057,16 +1057,16 @@ func resolveAppEnvironment(envBySlug map[string]string, slug string) string {
 // Operator-admin toggle to publish/unpublish a SaaS app on the
 // Sovereign's marketplace. Replaces the deleted /catalog page's
 // per-row toggle: the chip lives on each AppsPage card now. The
-// chroot's catalyst-api proxies the PATCH to the in-cluster SME
+// chroot's catalyst-api proxies the PATCH to the in-cluster Organization
 // catalog service at http://catalog.org-services.svc.cluster.local:8082 —
 // same data plane the deleted /catalog page used.
 //
-// 503 when the SME catalog is not deployed on this Sovereign
+// 503 when the Organization catalog is not deployed on this Sovereign
 // (marketplace.enabled=false in the chart values), or when the
-// SME HS256 bridge secret is not wired (sme-secrets reflection
+// Organization HS256 bridge secret is not wired (sme-secrets reflection
 // not yet reconciled). 401 when the operator's session has no
 // claims attached (auth middleware bypassed). 404 when the slug
-// isn't in the SME catalog. The upstream status is surfaced verbatim.
+// isn't in the Organization catalog. The upstream status is surfaced verbatim.
 //
 // Body shape: {"published": true|false}.
 //
@@ -1074,11 +1074,11 @@ func resolveAppEnvironment(envBySlug map[string]string, slug string) string {
 // every /catalog/admin/* path and requireAdmin on this specific
 // handler. Forwarding the operator's Keycloak RS256 session header
 // to the catalog 401s upstream (catalog only accepts HS256 signed
-// with sme-secrets/JWT_SECRET, just like the rest of the SME mesh).
-// Mint a fresh HS256 bridge token via the same h.mintSMEBridgeToken
-// helper sme_billing_vouchers.go uses for the BSS Vouchers surface
+// with sme-secrets/JWT_SECRET, just like the rest of the Organization mesh).
+// Mint a fresh HS256 bridge token via the same h.mintOrgBridgeToken
+// helper org_billing_vouchers.go uses for the BSS Vouchers surface
 // and forward THAT as the upstream Authorization header. Operators
-// with `catalyst-owner` realm-role (per SMERoleFor) get role=
+// with `catalyst-owner` realm-role (per OrgRoleFor) get role=
 // "superadmin" claimed in the bridge token, satisfying requireAdmin.
 func (h *Handler) HandleSovereignAppPublish(w http.ResponseWriter, r *http.Request) {
 	slug := strings.TrimSpace(chi.URLParam(r, "slug"))
@@ -1098,14 +1098,14 @@ func (h *Handler) HandleSovereignAppPublish(w http.ResponseWriter, r *http.Reque
 		})
 		return
 	}
-	// Mint the canonical SME bridge token so the upstream catalog's
+	// Mint the canonical Organization bridge token so the upstream catalog's
 	// JWTAuth + requireAdmin admit this hop. Pre-bridge state (no
 	// Authorization header) ⇒ JWTAuth rejects with 401 "missing or
 	// invalid authorization header" — that's the C4-012 / #1735
-	// symptom. The bridge mirrors sme_billing_vouchers.go's
-	// mintSMEBridgeToken pattern: RS256 operator session → HS256
+	// symptom. The bridge mirrors org_billing_vouchers.go's
+	// mintOrgBridgeToken pattern: RS256 operator session → HS256
 	// token signed with sme-secrets/JWT_SECRET, role mapped via
-	// sharedauth.SMERoleFor. The upstream catalog's requireAdmin was
+	// sharedauth.OrgRoleFor. The upstream catalog's requireAdmin was
 	// widened in the same PR to accept "sovereign-admin" so a
 	// franchisee operator can manage their own Sovereign's
 	// marketplace catalog without a Catalyst-Zero ("superadmin")
@@ -1113,17 +1113,17 @@ func (h *Handler) HandleSovereignAppPublish(w http.ResponseWriter, r *http.Reque
 	// marketplace, or stale chart) the helper returns 503 which we
 	// surface verbatim so the FE renders an actionable
 	// "marketplace not enabled" message.
-	bearer, status, errResp := h.mintSMEBridgeToken(r)
+	bearer, status, errResp := h.mintOrgBridgeToken(r)
 	if errResp != nil {
 		writeJSON(w, status, errResp)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), smeCatalogProbeBudget)
+	ctx, cancel := context.WithTimeout(r.Context(), orgCatalogProbeBudget)
 	defer cancel()
-	upstreamStatus, err := smeCatalog().SetPublished(ctx, slug, body.Published, bearer)
+	upstreamStatus, err := orgCatalog().SetPublished(ctx, slug, body.Published, bearer)
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error":  "sme-catalog-unreachable",
+			"error":  "org-catalog-unreachable",
 			"detail": err.Error(),
 		})
 		return
@@ -1136,7 +1136,7 @@ func (h *Handler) HandleSovereignAppPublish(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, upstreamStatus, map[string]string{
-		"error":  "sme-catalog-rejected",
+		"error":  "org-catalog-rejected",
 		"detail": fmt.Sprintf("upstream returned %d", upstreamStatus),
 	})
 }

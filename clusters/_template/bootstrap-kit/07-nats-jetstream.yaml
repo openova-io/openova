@@ -8,7 +8,7 @@
 # vCluster via Flux v2 spec.kubeConfig.secretRef → vc-mgmt (kubeconfig
 # Secret exported by bp-mgmt-vcluster slot 58). Per docs/SOVEREIGN-
 # MULTI-REGION-DOD.md §A4 the control-plane event bus lives in MGMT
-# so it's co-located with catalyst-api / openova-flow-server / sme-
+# so it's co-located with catalyst-api / openova-flow-server / org-
 # services — all consumers reach NATS via in-vCluster DNS without
 # touching the host. The HR CR itself lives in host ns `mgmt` so
 # helm-controller resolves the kubeConfig Secret from the same

@@ -19,7 +19,7 @@ const SUB = subOrgRowFromTenant({
   parentDomain: 'omani.homes',
   plan: 'pro',
   kind: 'customer',
-  tier: 'sme',
+  tier: 'org',
   billingMode: 'real',
   isolation: 'vcluster',
   status: 'active',

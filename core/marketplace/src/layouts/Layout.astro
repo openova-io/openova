@@ -16,7 +16,7 @@ const { title, step = 0 } = Astro.props;
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="alternate icon" href="/favicon.ico" />
-  <title>{title} — OpenOva SME</title>
+  <title>{title} — OpenOva</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -25,14 +25,14 @@ const { title, step = 0 } = Astro.props;
     // theme + tenant brand attribute are set on <html> with no flash.
     //
     // #3376 (Refs #3691): the per-partner brand table is DATA, read at
-    // runtime from `window.__SME_BRANDS__` (which a Sovereign may seed from
+    // runtime from `window.__ORG_BRANDS__` (which a Sovereign may seed from
     // its own config), NEVER a baked-in literal. The previous inline script
     // hardcoded a partner-vanity-host entry — a banned mothership literal
     // that this inline block served VERBATIM in the HTML of every franchised
     // host. The shipped bundle now carries no partner literal;
-    // `window.__SME_BRANDS__` is keyed by marketplace hostname when present.
+    // `window.__ORG_BRANDS__` is keyed by marketplace hostname when present.
     (function () {
-      var TENANTS = (window.__SME_BRANDS__ && typeof window.__SME_BRANDS__ === 'object') ? window.__SME_BRANDS__ : {};
+      var TENANTS = (window.__ORG_BRANDS__ && typeof window.__ORG_BRANDS__ === 'object') ? window.__ORG_BRANDS__ : {};
       var host = '';
       try { host = (window.location.hostname || '').toLowerCase(); } catch (e) {}
       var tenant = TENANTS[host] || { id: 'openova', brand: 'OpenOva' };
@@ -42,7 +42,7 @@ const { title, step = 0 } = Astro.props;
         if (tenant.forceTheme) {
           document.documentElement.setAttribute('data-theme', tenant.forceTheme);
         } else {
-          var saved = localStorage.getItem('sme-theme');
+          var saved = localStorage.getItem('org-theme');
           var system = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
           document.documentElement.setAttribute('data-theme', saved || system);
         }
@@ -51,12 +51,12 @@ const { title, step = 0 } = Astro.props;
       // server-side; we only adjust the brand suffix client-side so static HTML
       // can be cached without per-tenant cache keys.
       try {
-        if (tenant.id !== 'openova' && document.title.indexOf(' — OpenOva SME') !== -1) {
-          document.title = document.title.replace(' — OpenOva SME', ' — ' + tenant.brand);
+        if (tenant.id !== 'openova' && document.title.indexOf(' — OpenOva') !== -1) {
+          document.title = document.title.replace(' — OpenOva', ' — ' + tenant.brand);
         }
       } catch (e) {}
       // Expose to other inline scripts on the page.
-      window.__SME_TENANT__ = tenant;
+      window.__ORG_TENANT__ = tenant;
     })();
   </script>
   <script is:inline>
@@ -74,16 +74,16 @@ const { title, step = 0 } = Astro.props;
         // Demo/partner tenants want returning visitors to stay on the
         // marketplace — bouncing them to the mothership console would break
         // the partner-branded experience. Skip the redirect entirely there.
-        var tenant = window.__SME_TENANT__;
+        var tenant = window.__ORG_TENANT__;
         if (tenant && tenant.skipConsoleRedirect) return;
         var path = window.location.pathname;
         var qs = new URLSearchParams(window.location.search);
         if (path.indexOf('/auth/callback') === 0) return;
         if (qs.get('order_id')) return;
         if (qs.get('new') === '1') return;
-        var token = localStorage.getItem('sme-token');
+        var token = localStorage.getItem('org-token');
         if (!token) return;
-        var CACHE_KEY = 'sme-has-workspace-v1';
+        var CACHE_KEY = 'org-has-workspace-v1';
         var TTL_MS = 60 * 1000;
         var cached = null;
         try { cached = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null'); } catch (e) {}
@@ -106,10 +106,10 @@ const { title, step = 0 } = Astro.props;
               // matching the active-org id when present, fall back to
               // the first live org.
               var activeId = '';
-              try { activeId = localStorage.getItem('sme-active-org') || ''; } catch (_) {}
+              try { activeId = localStorage.getItem('org-active-org') || ''; } catch (_) {}
               var pick = (activeId && live.find(function (o) { return o.id === activeId; })) || live[0];
               if (pick && pick.slug) {
-                try { localStorage.setItem('sme-active-org-slug', pick.slug); } catch (_) {}
+                try { localStorage.setItem('org-active-org-slug', pick.slug); } catch (_) {}
               }
               redirect(pick && pick.slug ? String(pick.slug) : '');
             }
@@ -117,8 +117,8 @@ const { title, step = 0 } = Astro.props;
           .catch(function () {});
       } catch (e) {}
       function redirect(slug) {
-        var token = localStorage.getItem('sme-token') || '';
-        var refresh = localStorage.getItem('sme-refresh-token') || '';
+        var token = localStorage.getItem('org-token') || '';
+        var refresh = localStorage.getItem('org-refresh-token') || '';
         // Derive console URL from the current host. Logic mirrors
         // src/lib/config.ts::deriveConsoleURL — kept inline so the redirect
         // fires before the Svelte bundle loads.

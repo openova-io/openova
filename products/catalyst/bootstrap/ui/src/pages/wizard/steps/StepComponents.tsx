@@ -16,7 +16,7 @@
 // line 1, sharing the chip row with the family chip — it does NOT
 // reserve a vertical column to the right of the body, so the descriptions
 // span the entire body width. This is the deliberate departure from the
-// SME marketplace's `app-body { padding-right: 72px }` which wasted the
+// Organization marketplace's `app-body { padding-right: 72px }` which wasted the
 // right quarter for a hover-visible button.
 //
 // Two tabs:
@@ -404,7 +404,7 @@ function ComponentCard({ entry, selected, onToggle, readOnly = false }: Componen
   }
 
   // Tab 1 — the whole card is an anchor to the product detail page,
-  // exactly mirroring SME's `<a href="/app?slug=X" class="app-card">`
+  // exactly mirroring Organization's `<a href="/app?slug=X" class="app-card">`
   // wrapper. The toggle button and family chip live inside as nested
   // interactive elements that stopPropagation on click.
   return (
@@ -918,7 +918,7 @@ export function StepComponents() {
     >
       {/* ── Section toggle (legacy tabs flattened per #1976 / TBD-A64) ───
        *
-       * 2026-05-19: the canonical SME marketplace pattern is a single
+       * 2026-05-19: the canonical Organization marketplace pattern is a single
        * flat grid (core/marketplace/src/components/AppsStep.svelte). The
        * cosmetic-guard spec asserts neither role="tablist" nor role="tab"
        * appears on this step + that the legacy "Choose Your Stack" /
@@ -1235,7 +1235,7 @@ export function StepComponents() {
         /* Body column — NO right-side padding. The toggle button and
            SELECTED pill are inline in the chip rows (line 1 / line 4),
            NOT absolute overlays — so descriptions on lines 2-3 use the
-           FULL body width. (Departure from SME's .app-body which
+           FULL body width. (Departure from Organization's .app-body which
            reserves padding-right: 72px for an absolute overlay button.) */
         .corp-comp-body {
           flex: 1;
@@ -1432,7 +1432,7 @@ export function StepComponents() {
 
         /* Tablet/mobile — keep the canonical 108px floor; let the card
            grow only when the description / chips would otherwise clip,
-           matching the SME marketplace responsive behaviour. */
+           matching the Organization marketplace responsive behaviour. */
         @media (max-width: 768px) {
           .corp-comp-card { height: auto; min-height: 108px; }
         }

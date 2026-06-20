@@ -17,7 +17,7 @@ import (
 // The canonical shape mirrors:
 //
 //   - products/catalyst/bootstrap/api/internal/handler/
-//     sme_tenant_gitops.go:536 (chart-side host derivation)
+//     org_tenant_gitops.go:536 (chart-side host derivation)
 //   - core/controllers/organization/internal/controller/
 //     tenant_route.go:113 (per-Org HTTPRoute hostname)
 //

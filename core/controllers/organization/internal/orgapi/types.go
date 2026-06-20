@@ -62,7 +62,7 @@ type OrganizationSpec struct {
 	// Kind is "customer" (external) or "internal" (department).
 	Kind string `json:"kind"`
 
-	// Tier is "sme" or "corporate". Drives DMZ-vCluster auto-provisioning
+	// Tier is "org" or "corporate". Drives DMZ-vCluster auto-provisioning
 	// in EPIC-5 — out of scope here.
 	Tier string `json:"tier"`
 
@@ -95,7 +95,7 @@ type OrganizationSpec struct {
 	//
 	// The motivating use case (issue #1629 follow-up) is the
 	// `<slug>.omani.homes` family of tenant hostnames: PowerDNS now
-	// resolves them via the sme-pool parent zone reconciler, but no
+	// resolves them via the org-pool parent zone reconciler, but no
 	// HTTPRoute was attaching them to the tenant's WordPress install.
 	// Without this struct that traffic 404s at the Cilium Gateway.
 	TenantPublic OrganizationTenantPublic `json:"tenantPublic,omitempty"`

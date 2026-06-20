@@ -123,7 +123,7 @@ func TestHandleTenantCreated_InvalidSlug(t *testing.T) {
 				ID:         "tenant-abc",
 				Slug:       badSlug,
 				OwnerEmail: "owner@example.com",
-				PlanID:     "sme-pool-basic",
+				PlanID:     "org-pool-basic",
 			}
 			data, _ := json.Marshal(payload)
 			evt := &events.Event{
@@ -163,7 +163,7 @@ func TestHandleTenantCreated_MissingOwnerEmail(t *testing.T) {
 		ID:         "tenant-abc",
 		Slug:       "acme",
 		OwnerEmail: "", // missing
-		PlanID:     "sme-pool-basic",
+		PlanID:     "org-pool-basic",
 	}
 	data, _ := json.Marshal(payload)
 	evt := &events.Event{
@@ -205,7 +205,7 @@ func TestHandleTenantCreated_NotRunningInCluster(t *testing.T) {
 		Name:       "ACME Corp",
 		OwnerEmail: "owner@example.com",
 		OwnerID:    "user-xyz",
-		PlanID:     "sme-pool-basic",
+		PlanID:     "org-pool-basic",
 	}
 	data, _ := json.Marshal(payload)
 	evt := &events.Event{
@@ -245,7 +245,7 @@ func TestCreateOrganizationCR_PayloadShape(t *testing.T) {
 			"slug":         "acme",
 			"displayName":  "ACME Corp",
 			"kind":         "customer",
-			"tier":         "sme",
+			"tier": "org",
 			"billingMode":  "real",
 			"sovereignRef": "test.omani.works",
 			"owners": []map[string]any{
@@ -269,7 +269,7 @@ func TestCreateOrganizationCR_PayloadShape(t *testing.T) {
 		`"slug":"acme"`,
 		`"displayName":"ACME Corp"`,
 		`"kind":"customer"`,
-		`"tier":"sme"`,
+		`"tier":"org"`,
 		`"billingMode":"real"`,
 		`"sovereignRef":"test.omani.works"`,
 		`"email":"owner@example.com"`,
@@ -286,7 +286,7 @@ func TestCreateOrganizationCR_PayloadShape(t *testing.T) {
 
 // TestCreateOrganizationCR_DefaultsForOptionalFields — when payload
 // omits Tier / BillingMode / Name / ParentDomain the handler must fill
-// sensible defaults (sme / real / slug / Handler.TenantParentDomain).
+// sensible defaults (org / real / slug / Handler.TenantParentDomain).
 // We can't observe the wire bytes without a fake apiserver, so we
 // drive the helper to its early-exit on the cluster-env scrub and
 // assert it emits the right log line. The unit-level guarantee is the
@@ -305,7 +305,7 @@ func TestCreateOrganizationCR_DefaultsForOptionalFields(t *testing.T) {
 		ID:         "tenant-abc",
 		Slug:       "acme",
 		OwnerEmail: "owner@example.com",
-		PlanID:     "sme-pool-basic",
+		PlanID:     "org-pool-basic",
 	}
 	err := h.createOrganizationCR(context.Background(), data)
 	// We expect a non-nil err (k8s env scrubbed) but NOT
@@ -320,7 +320,7 @@ func TestCreateOrganizationCR_DefaultsForOptionalFields(t *testing.T) {
 }
 
 // TestCreateOrganizationCR_EmptyParentDomain_StillMints — a Sovereign
-// that hasn't opted into the SME-pool flow has Handler.TenantParentDomain
+// that hasn't opted into the Organization-pool flow has Handler.TenantParentDomain
 // empty. The Organization CR must still mint (the controller skips the
 // HTTPRoute step when parent is empty; everything else — vCluster /
 // Keycloak / Gitea — must still reconcile). Asserts no
@@ -338,7 +338,7 @@ func TestCreateOrganizationCR_EmptyParentDomain_StillMints(t *testing.T) {
 		Slug:       "acme",
 		Name:       "ACME Corp",
 		OwnerEmail: "owner@example.com",
-		PlanID:     "sme-pool-basic",
+		PlanID:     "org-pool-basic",
 	}
 	err := h.createOrganizationCR(context.Background(), data)
 	if err == nil {
@@ -370,7 +370,7 @@ func TestHandleTenantCreated_FullTenantStructDecode(t *testing.T) {
 		"org_type":"company",
 		"industry":"technology",
 		"owner_id":"user-xyz",
-		"plan_id":"sme-pool-basic",
+		"plan_id":"org-pool-basic",
 		"apps":["wordpress"],
 		"addons":[],
 		"subdomain":"acme",

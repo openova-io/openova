@@ -79,7 +79,7 @@ valkey:
   #   to make that work without churning every consumer chart is to
   #   flip bp-valkey's default to allow empty password. Other consumers
   #   that DO supply a password tolerate the change:
-  #     - products/catalyst sme-services (auth.yaml + gateway.yaml)
+  #     - products/catalyst org-services (auth.yaml + gateway.yaml)
   #       read VALKEY_PASSWORD via secretKeyRef `optional: true` and
   #       fall back to the no-auth connect path in
   #       core/services/shared/db/valkey.go when the value is empty.

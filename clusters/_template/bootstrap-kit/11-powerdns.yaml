@@ -247,7 +247,7 @@ spec:
     # Source of truth: ${PARENT_DOMAINS_YAML} is a Flux
     # postBuild.substitute variable containing the operator-supplied
     # parent-domain list rendered as a YAML inline-array literal, e.g.
-    #   PARENT_DOMAINS_YAML='[{name: "omani.works", role: "primary"}, {name: "omani.trade", role: "sme-pool"}]'
+    #   PARENT_DOMAINS_YAML='[{name: "omani.works", role: "primary"}, {name: "omani.trade", role: "org-pool"}]'
     # When the operator brings only one parent domain (default
     # zero-touch flow), cloud-init pre-renders this variable to a
     # single-entry array derived from ${sovereign_fqdn} so the

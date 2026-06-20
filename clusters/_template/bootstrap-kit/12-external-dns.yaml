@@ -87,7 +87,7 @@ spec:
   # domainFilters narrow the zones ExternalDNS will manage.
   #
   # #3376 fix: domainFilters now covers EVERY parent zone the Sovereign
-  # brought (primary FQDN + every role=sme-pool pool TLD), not just the
+  # brought (primary FQDN + every role=org-pool pool TLD), not just the
   # Sovereign FQDN. Pre-#3376 the filter was `[${SOVEREIGN_FQDN}]` only —
   # so external-dns saw the per-Org HTTPRoute hostnames
   # `console.<slug>.<pool-tld>` / `<app>.<slug>.<pool-tld>` (the org-

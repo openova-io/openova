@@ -27,7 +27,7 @@ func layout(title, body string) string {
           <!-- Header -->
           <tr>
             <td style="background-color:%s;padding:24px 32px;">
-              <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:600;letter-spacing:-0.02em;">OpenOva SME</h1>
+              <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:600;letter-spacing:-0.02em;">OpenOva</h1>
             </td>
           </tr>
           <!-- Body -->
@@ -62,11 +62,11 @@ func button(text, href string) string {
 </table>`, brandColor, href, text)
 }
 
-// WelcomeEmail returns the "Welcome to OpenOva SME" email HTML.
+// WelcomeEmail returns the "Welcome to OpenOva" email HTML.
 func WelcomeEmail(name string) string {
 	body := fmt.Sprintf(`<h2 style="margin:0 0 16px;color:#18181b;font-size:22px;font-weight:600;">Welcome, %s!</h2>
 <p style="margin:0 0 16px;color:#3f3f46;font-size:15px;line-height:1.6;">
-  Thanks for joining OpenOva SME. We're excited to help you run your business with our all-in-one platform.
+  Thanks for joining OpenOva. We're excited to help you run your business with our all-in-one platform.
 </p>
 <p style="margin:0 0 8px;color:#3f3f46;font-size:15px;line-height:1.6;">Here's how to get started:</p>
 <ul style="margin:0 0 16px;padding-left:20px;color:#3f3f46;font-size:15px;line-height:1.8;">
@@ -76,15 +76,15 @@ func WelcomeEmail(name string) string {
 </ul>
 %s
 <p style="margin:0;color:#71717a;font-size:13px;">If you didn't create this account, you can safely ignore this email.</p>`,
-		name, button("Get Started", "https://sme.openova.io"))
-	return layout("Welcome to OpenOva SME", body)
+		name, button("Get Started", "https://openova.io"))
+	return layout("Welcome to OpenOva", body)
 }
 
 // MagicLinkEmail returns the login code email HTML.
 func MagicLinkEmail(code string) string {
 	body := fmt.Sprintf(`<h2 style="margin:0 0 16px;color:#18181b;font-size:22px;font-weight:600;">Your login code</h2>
 <p style="margin:0 0 24px;color:#3f3f46;font-size:15px;line-height:1.6;">
-  Use the code below to sign in to your OpenOva SME account. It expires in 10 minutes.
+  Use the code below to sign in to your OpenOva account. It expires in 10 minutes.
 </p>
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px;">
   <tr>
@@ -164,20 +164,20 @@ func ProvisionFailedEmail(orgName, errorMsg string) string {
 func InviteMemberEmail(orgName, inviterName, role string) string {
 	body := fmt.Sprintf(`<h2 style="margin:0 0 16px;color:#18181b;font-size:22px;font-weight:600;">You've been invited to %s</h2>
 <p style="margin:0 0 16px;color:#3f3f46;font-size:15px;line-height:1.6;">
-  <strong>%s</strong> has invited you to join <strong>%s</strong> on OpenOva SME as a <strong>%s</strong>.
+  <strong>%s</strong> has invited you to join <strong>%s</strong> on OpenOva as a <strong>%s</strong>.
 </p>
 <p style="margin:0 0 16px;color:#3f3f46;font-size:15px;line-height:1.6;">
-  OpenOva SME is an all-in-one business platform that helps teams collaborate, manage operations, and grow.
+  OpenOva is an all-in-one business platform that helps teams collaborate, manage operations, and grow.
 </p>
 %s
 <p style="margin:0;color:#71717a;font-size:13px;">If you weren't expecting this invitation, you can safely ignore this email.</p>`,
-		orgName, inviterName, orgName, role, button("Accept Invitation", "https://sme.openova.io/invite"))
+		orgName, inviterName, orgName, role, button("Accept Invitation", "https://openova.io/invite"))
 	return layout("You're Invited", body)
 }
 
 // AppReadyEmail is sent on a successful day-2 install so the customer
-// knows the app is live. tenantURL opens the tenant's SME console;
-// the customer signs in there to start using the app.
+// knows the app is live. tenantURL opens the tenant's Organization
+// console; the customer signs in there to start using the app.
 func AppReadyEmail(orgName, appSlug, tenantURL string) string {
 	body := fmt.Sprintf(`<h2 style="margin:0 0 16px;color:#18181b;font-size:22px;font-weight:600;">%s is ready on %s</h2>
 <p style="margin:0 0 16px;color:#3f3f46;font-size:15px;line-height:1.6;">
@@ -244,7 +244,7 @@ func DomainRegisteredEmail(orgName, domain string) string {
 </p>
 %s
 <p style="margin:0;color:#71717a;font-size:13px;">We'll email you again once the domain is verified.</p>`,
-		domain, orgName, button("Open Domains", "https://sme.openova.io/settings/domains"))
+		domain, orgName, button("Open Domains", "https://openova.io/settings/domains"))
 	return layout("Domain Added", body)
 }
 
@@ -277,14 +277,14 @@ func DomainRemovedEmail(orgName, domain string) string {
 
 // VoucherIssuedEmail returns the "you've been gifted a voucher" email HTML.
 //
-// Sent zero-touch by sme-billing on successful POST /billing/vouchers/issue
+// Sent zero-touch by org-billing on successful POST /billing/vouchers/issue
 // when the request body carries a `recipient_email`. D28 of the Sovereign
 // DoD requires that issuing a voucher emails it to the recipient with a
 // clickable redeem link — see docs/FRANCHISE-MODEL.md §3 and the redeem
 // landing page at `marketplace.<sovereign-fqdn>/redeem/?code=<CODE>`.
 //
 // sovereignFQDN is the per-Sovereign apex domain (e.g. "omani.works") —
-// NEVER hardcoded; sme-billing reads it from an env var (per Sovereign,
+// NEVER hardcoded; org-billing reads it from an env var (per Sovereign,
 // values.yaml `billing.sovereignFQDN`) and forwards it as `sovereign_fqdn`
 // in the notification-service payload.
 //
@@ -307,7 +307,7 @@ func VoucherIssuedEmail(code string, creditOMR int, description, sovereignFQDN, 
 	}
 	body := fmt.Sprintf(`<h2 style="margin:0 0 16px;color:#18181b;font-size:22px;font-weight:600;">You've been gifted a voucher</h2>
 <p style="margin:0 0 16px;color:#3f3f46;font-size:15px;line-height:1.6;">
-  Someone has gifted you <strong>%d OMR</strong> in credit on OpenOva SME. Redeem the code below to apply it to your subscription.
+  Someone has gifted you <strong>%d OMR</strong> in credit on OpenOva. Redeem the code below to apply it to your subscription.
 </p>
 %s
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px;">
@@ -321,7 +321,7 @@ func VoucherIssuedEmail(code string, creditOMR int, description, sovereignFQDN, 
 %s
 <p style="margin:0;color:#71717a;font-size:13px;">If you weren't expecting this voucher, you can safely ignore this email.</p>`,
 		creditOMR, descBlock, brandColor, code, button("Redeem voucher", redeemURL), validityBlock)
-	return layout("You've been gifted a voucher for OpenOva SME", body)
+	return layout("You've been gifted a voucher for OpenOva", body)
 }
 
 // PaymentReceivedEmail returns the payment confirmation email HTML.
@@ -364,9 +364,9 @@ func PaymentReceivedEmail(orgName string, amount int) string {
   </tr>
 </table>
 <p style="margin:0 0 8px;color:#3f3f46;font-size:15px;line-height:1.6;">
-  Thank you for your continued trust in OpenOva SME. Your subscription is active and up to date.
+  Thank you for your continued trust in OpenOva. Your subscription is active and up to date.
 </p>
-<p style="margin:0;color:#71717a;font-size:13px;">You can view your billing history in <a href="https://sme.openova.io/billing" style="color:%s;">Account Settings</a>.</p>`,
+<p style="margin:0;color:#71717a;font-size:13px;">You can view your billing history in <a href="https://openova.io/billing" style="color:%s;">Account Settings</a>.</p>`,
 		orgName, formatted, orgName, brandColor)
 	return layout("Payment Confirmation", body)
 }

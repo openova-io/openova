@@ -45,7 +45,7 @@ metadata:
   namespace: org-services
   annotations:
     traefik.ingress.kubernetes.io/router.priority: "50"
-    traefik.ingress.kubernetes.io/router.middlewares: "sme-root-to-nova@kubernetescrd"
+    traefik.ingress.kubernetes.io/router.middlewares: "org-services-root-to-nova@kubernetescrd"
 spec:
   ingressClassName: traefik
   rules:
@@ -67,7 +67,7 @@ metadata:
   namespace: org-services
   annotations:
     traefik.ingress.kubernetes.io/router.priority: "50"
-    traefik.ingress.kubernetes.io/router.middlewares: "sme-root-to-nova@kubernetescrd"
+    traefik.ingress.kubernetes.io/router.middlewares: "org-services-root-to-nova@kubernetescrd"
 spec:
   ingressClassName: traefik
   rules:
@@ -201,7 +201,7 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     traefik.ingress.kubernetes.io/router.priority: "200"
-    traefik.ingress.kubernetes.io/router.middlewares: "sme-strip-nova@kubernetescrd"
+    traefik.ingress.kubernetes.io/router.middlewares: "org-services-strip-nova@kubernetescrd"
 spec:
   ingressClassName: traefik
   rules:
@@ -228,7 +228,7 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     traefik.ingress.kubernetes.io/router.priority: "100"
-    traefik.ingress.kubernetes.io/router.middlewares: "sme-strip-nova@kubernetescrd"
+    traefik.ingress.kubernetes.io/router.middlewares: "org-services-strip-nova@kubernetescrd"
 spec:
   ingressClassName: traefik
   rules:
@@ -256,7 +256,7 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     traefik.ingress.kubernetes.io/router.priority: "200"
-    traefik.ingress.kubernetes.io/router.middlewares: "sme-strip-nova@kubernetescrd"
+    traefik.ingress.kubernetes.io/router.middlewares: "org-services-strip-nova@kubernetescrd"
 spec:
   ingressClassName: traefik
   rules:
@@ -283,7 +283,7 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     traefik.ingress.kubernetes.io/router.priority: "100"
-    traefik.ingress.kubernetes.io/router.middlewares: "sme-strip-nova@kubernetescrd"
+    traefik.ingress.kubernetes.io/router.middlewares: "org-services-strip-nova@kubernetescrd"
 spec:
   ingressClassName: traefik
   rules:

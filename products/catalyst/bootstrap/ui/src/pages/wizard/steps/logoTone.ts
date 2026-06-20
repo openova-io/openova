@@ -8,7 +8,7 @@
  * FerretDB's fawn glyph) become illegible on a generic slate-100 tile;
  * placing each mark on its OWN brand surface — the surface the project
  * itself uses on its homepage / press kit — restores brand fidelity
- * the same way the SME marketplace does by baking surface into PNGs.
+ * the same way the Organization marketplace does by baking surface into PNGs.
  *
  * Sources (per id, see `LOGO_SURFACE` comments):
  *   - Project's homepage hero strip (preferred)

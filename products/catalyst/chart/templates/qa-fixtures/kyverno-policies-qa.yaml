@@ -52,11 +52,11 @@
   Path A chosen (per Fix #113 brief): exempt the specific platform
   namespace, keep the policy in Enforce mode for tenant workloads.
   This matches the existing pattern for kube-system / cnpg-system /
-  flux-system / cilium / openbao / keycloak / gitea / powerdns / sme,
+  flux-system / cilium / openbao / keycloak / gitea / powerdns / org-services,
   all of which are platform namespaces that legitimately host pods
   with privileged-class capabilities (CSI drivers, CNI, etc.).
 */ -}}
-{{- $excludedNamespaces := list "kube-system" "cnpg-system" "flux-system" "catalyst-system" "catalyst" "kyverno" "cilium" "openbao" "keycloak" "gitea" "powerdns" "org-services" "sme" }}
+{{- $excludedNamespaces := list "kube-system" "cnpg-system" "flux-system" "catalyst-system" "catalyst" "kyverno" "cilium" "openbao" "keycloak" "gitea" "powerdns" "org-services" }}
 {{- $enforceMode := .Values.qaFixtures.kyvernoEnforceMode | default "Enforce" }}
 {{- $auditMode := "Audit" }}
 ---

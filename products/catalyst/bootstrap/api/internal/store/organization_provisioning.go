@@ -1,4 +1,4 @@
-// Package store — organization_provisioning.go: persisted state for the SME tenant
+// Package store — organization_provisioning.go: persisted state for the Organization tenant
 // provisioning pipeline (issue #804).
 //
 // On a marketplace tenant-create event the catalyst-api orchestrator
@@ -22,7 +22,7 @@
 // state, and the state machine advances when each gate passes.
 //
 // The reconciler is event-driven (NATS subject
-// `sme.tenant.reconcile-pending` per Inviolable Principle 1 / ADR-0001
+// `org.tenant.reconcile-pending` per Inviolable Principle 1 / ADR-0001
 // §6) — never a Kubernetes CronJob, never a goroutine `time.Tick`.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #3, this implementation uses the
@@ -59,30 +59,30 @@ const (
 	STSVClusterCreated OrganizationProvisionState = "vcluster_created"
 	// STSBPChartsInstalled — the same overlay also installs the bp-*
 	// charts (bp-keycloak, bp-cnpg, bp-wordpress-tenant, bp-openclaw,
-	// bp-stalwart-tenant) inside the SME vcluster. The orchestrator
+	// bp-stalwart-tenant) inside the Organization vcluster. The orchestrator
 	// advances to this state once the parent overlay's Kustomization
 	// is Ready=True.
 	STSBPChartsInstalled OrganizationProvisionState = "bp_charts_installed"
-	// STSDNSProvisioned — A/CNAME records for `console.<sme-host>`
+	// STSDNSProvisioned — A/CNAME records for `console.<org-host>`
 	// (free-subdomain) or BYO CNAME validation has succeeded.
 	STSDNSProvisioned OrganizationProvisionState = "dns_provisioned"
 	// STSCertsIssued — wildcard cert (free-subdomain) or per-host
 	// HTTP-01 (BYO) is Ready=True. For free-subdomain mode the
-	// wildcard already covers the SME's *.<otech-fqdn> subtree so
+	// wildcard already covers the Organization's *.<otech-fqdn> subtree so
 	// the orchestrator advances immediately.
 	STSCertsIssued OrganizationProvisionState = "certs_issued"
 	// STSKeycloakClientsProvisioned — OIDC clients for WordPress,
-	// OpenClaw, Stalwart, unified-RBAC SME-tier have been pre-created
-	// in the SME-vcluster Keycloak. Group templates `sme-admin` /
-	// `sme-user` are seeded.
+	// OpenClaw, Stalwart, unified-RBAC Organization-tier have been pre-created
+	// in the Organization vcluster Keycloak. Group templates `org-admin` /
+	// `org-user` are seeded.
 	STSKeycloakClientsProvisioned OrganizationProvisionState = "keycloak_clients_provisioned"
 	// STSTenantRegistered — the row in the host → tenant registry has
 	// been written so the SPA's `/api/v1/tenant/discover` lookup
 	// returns the new tenant. This is the gate that opens the SPA's
-	// front door for the SME admin's first login.
+	// front door for the Organization admin's first login.
 	STSTenantRegistered OrganizationProvisionState = "tenant_registered"
 	// STSDone — terminal happy state. Subscribers on
-	// `sme.tenant.events` have been notified.
+	// `org.tenant.events` have been notified.
 	STSDone OrganizationProvisionState = "done"
 	// STSFailed — terminal sad state. LastError carries a structured
 	// `<step>:<class>:<detail>` string per ADR-0003 §3.8.
@@ -114,12 +114,12 @@ const (
 // OrganizationProvisionRecord is the per-tenant state row.
 //
 // OrganizationID is the primary key — a UUID minted by the orchestrator
-// on first POST. It is opaque to humans; the SME admin's mental model
+// on first POST. It is opaque to humans; the Organization admin's mental model
 // uses Subdomain ("acme") instead.
 type OrganizationProvisionRecord struct {
-	OrganizationID string                  `json:"sme_tenant_id"`
+	OrganizationID string                  `json:"org_tenant_id"`
 	State       OrganizationProvisionState `json:"state"`
-	// Subdomain — the operator-supplied SME slug. In free-subdomain
+	// Subdomain — the operator-supplied Organization slug. In free-subdomain
 	// mode the resulting console URL is `console.<subdomain>.<otech>`;
 	// in BYO mode the slug is metadata only (the BYO host is the
 	// canonical key).
@@ -129,9 +129,9 @@ type OrganizationProvisionRecord struct {
 	// BYODomain — populated when DomainMode == OrganizationDomainBYO. The
 	// orchestrator builds the host as `console.<byo_domain>`.
 	BYODomain string `json:"byo_domain,omitempty"`
-	// AdminEmail — the SME's first user. The orchestrator wires this
+	// AdminEmail — the Organization's first user. The orchestrator wires this
 	// into the bp-wordpress-tenant chart values (admin email) and into
-	// the welcome-email subject of the `sme.tenant.events` envelope.
+	// the welcome-email subject of the `org.tenant.events` envelope.
 	AdminEmail string `json:"admin_email"`
 	// CompanyName — branding metadata (chart titles, welcome email
 	// salutation). Optional — empty falls back to the subdomain slug.
@@ -140,10 +140,10 @@ type OrganizationProvisionRecord struct {
 	// have to re-read env. Used to build derived hostnames + the cert
 	// issuer ClusterRef and to scope the GitOps overlay path.
 	OTECHFQDN string `json:"otech_fqdn"`
-	// ParentDomain — the parent zone the SME's free-subdomain hangs
+	// ParentDomain — the parent zone the Organization's free-subdomain hangs
 	// under (multi-domain Sovereign per epic #825). For
 	// free-subdomain mode this is one of the Sovereign's
-	// `role: sme-pool` parent domains (e.g. "omani.trade") and the
+	// `role: org-pool` parent domains (e.g. "omani.trade") and the
 	// SPA host becomes `console.<subdomain>.<parent_domain>`. For
 	// BYO mode this is empty (the BYO domain is the canonical key).
 	// Per Inviolable Principle 4 the value is operator-supplied at
@@ -153,7 +153,7 @@ type OrganizationProvisionRecord struct {
 	// so the orchestrator can reference it in GitOps manifest paths
 	// without re-deriving on every reconcile.
 	VClusterName string `json:"vcluster_name"`
-	// TenantNamespace — `sme-<sme_tenant_id>` per #804 scope §1. The
+	// TenantNamespace — `org-<org_tenant_id>` per #804 scope §1. The
 	// bp-wordpress-tenant / bp-openclaw / bp-stalwart-tenant charts
 	// install into this namespace.
 	TenantNamespace string `json:"tenant_namespace"`
@@ -174,7 +174,7 @@ type OrganizationProvisionRecord struct {
 	// (core/controllers/organization/internal/orgapi/types.go:54-79):
 	// Kind/Tier/BillingMode + the derived Isolation. The marketplace
 	// funnel (the customer door) omits them and the create handler
-	// stamps the customer default shape (kind=customer, tier=sme,
+	// stamps the customer default shape (kind=customer, tier=org,
 	// billingMode=real, isolation=vcluster) so the funnel is byte-
 	// unchanged. The internal door (kind=internal) stamps the
 	// department shape (showback + namespace) and skips the voucher
@@ -188,10 +188,10 @@ type OrganizationProvisionRecord struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// orgTenantDir is the on-disk subdirectory under <store>/sme-tenant.
-// One file per tenant (sme_tenant_id.json); a directory walk is fine
+// orgTenantDir is the on-disk subdirectory under <store>/org-tenant.
+// One file per tenant (org_tenant_id.json); a directory walk is fine
 // at the cardinality this layer targets (hundreds, not millions).
-const orgTenantDir = "sme-tenant"
+const orgTenantDir = "org-tenant"
 
 // OrganizationProvisionStore is the directory-backed implementation.
 //
@@ -204,15 +204,15 @@ type OrganizationProvisionStore struct {
 }
 
 // NewOrganizationProvisionStore returns a store rooted at
-// <dir>/sme-tenant. dir must already exist; the subdirectory is
+// <dir>/org-tenant. dir must already exist; the subdirectory is
 // created at 0o700 perms.
 func NewOrganizationProvisionStore(dir string) (*OrganizationProvisionStore, error) {
 	if dir == "" {
-		return nil, errors.New("sme-tenant store: directory is required")
+		return nil, errors.New("org-tenant store: directory is required")
 	}
 	root := filepath.Join(dir, orgTenantDir)
 	if err := os.MkdirAll(root, 0o700); err != nil {
-		return nil, fmt.Errorf("sme-tenant store: mkdir %q: %w", root, err)
+		return nil, fmt.Errorf("org-tenant store: mkdir %q: %w", root, err)
 	}
 	return &OrganizationProvisionStore{dir: root}, nil
 }
@@ -222,7 +222,7 @@ func NewOrganizationProvisionStore(dir string) (*OrganizationProvisionStore, err
 // calling. UpdatedAt is bumped automatically.
 func (s *OrganizationProvisionStore) Put(rec OrganizationProvisionRecord) error {
 	if strings.TrimSpace(rec.OrganizationID) == "" {
-		return errors.New("sme-tenant: sme_tenant_id is required")
+		return errors.New("org-tenant: org_tenant_id is required")
 	}
 	if rec.State == "" {
 		rec.State = STSPending
@@ -244,11 +244,11 @@ func (s *OrganizationProvisionStore) Put(rec OrganizationProvisionRecord) error 
 
 	data, err := json.MarshalIndent(rec, "", "  ")
 	if err != nil {
-		return fmt.Errorf("sme-tenant: marshal: %w", err)
+		return fmt.Errorf("org-tenant: marshal: %w", err)
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("sme-tenant: write tmp: %w", err)
+		return fmt.Errorf("org-tenant: write tmp: %w", err)
 	}
 	return os.Rename(tmp, path)
 }
@@ -308,7 +308,7 @@ func (s *OrganizationProvisionStore) Delete(orgTenantID string) error {
 	path := filepath.Join(s.dir, sanitizeID(orgTenantID)+".json")
 	err := os.Remove(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("sme-tenant: remove: %w", err)
+		return fmt.Errorf("org-tenant: remove: %w", err)
 	}
 	return nil
 }

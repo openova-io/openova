@@ -13,7 +13,7 @@ import (
 func TestTenantCreatedPayload_WireCompat(t *testing.T) {
 	p := NewTenantCreatedPayload(
 		"tid-1", "acme", "ACME Corp", "owner-uuid", "ceo@acme.com",
-		"plan-pro", "sme", "real", "omani.homes")
+		"plan-pro", "org", "real", "omani.homes")
 
 	b, err := json.Marshal(p)
 	if err != nil {
@@ -32,7 +32,7 @@ func TestTenantCreatedPayload_WireCompat(t *testing.T) {
 		"owner_id":      "owner-uuid",
 		"owner_email":   "ceo@acme.com",
 		"plan_id":       "plan-pro",
-		"tier":          "sme",
+		"tier": "org",
 		"billing_mode":  "real",
 		"parent_domain": "omani.homes",
 	} {
@@ -55,14 +55,14 @@ func TestTenantCreatedPayload_WireCompat(t *testing.T) {
 // normalizes inputs so a slug with stray whitespace never reaches the
 // org-controller's path-component validator.
 func TestNewTenantCreatedPayload_TrimsWhitespace(t *testing.T) {
-	p := NewTenantCreatedPayload("  tid  ", "  acme ", " ACME ", " uid ", " a@b.c ", " plan ", " sme ", " real ", " omani.homes ")
-	if p.Slug != "acme" || p.ID != "tid" || p.OwnerEmail != "a@b.c" || p.Tier != "sme" {
+	p := NewTenantCreatedPayload("  tid  ", "  acme ", " ACME ", " uid ", " a@b.c ", " plan ", " org ", " real ", " omani.homes ")
+	if p.Slug != "acme" || p.ID != "tid" || p.OwnerEmail != "a@b.c" || p.Tier != "org" {
 		t.Errorf("constructor must trim whitespace, got %+v", p)
 	}
 }
 
 // TestTenantCreatedPayload_OptionalFieldsOmitEmpty proves tier/billing/
-// parent omit when empty (the SME-pool default path), so the consumer's
+// parent omit when empty (the Organization-pool default path), so the consumer's
 // canonical defaulting applies rather than an explicit empty string.
 func TestTenantCreatedPayload_OptionalFieldsOmitEmpty(t *testing.T) {
 	p := NewTenantCreatedPayload("tid", "acme", "ACME", "uid", "a@b.c", "plan", "", "", "")

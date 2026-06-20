@@ -51,9 +51,9 @@ spec:
     - name: omani.works
       role: primary
     - name: omani.homes
-      role: sme-pool
+      role: org-pool
     - name: omani.rest
-      role: sme-pool
+      role: org-pool
 ---
 # Sample 3 — active-active multi-master on Hetzner.
 apiVersion: catalyst.openova.io/v1alpha1

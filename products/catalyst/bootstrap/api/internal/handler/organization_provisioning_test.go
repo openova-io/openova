@@ -196,10 +196,10 @@ func TestCreateOrganization_HappyPathFreeSubdomain(t *testing.T) {
 	if !ok {
 		t.Fatalf("registry: tenant not registered")
 	}
-	if reg.TenantKind != store.TenantKindSME {
+	if reg.TenantKind != store.TenantKindOrg {
 		t.Errorf("registry kind: %s", reg.TenantKind)
 	}
-	if reg.OrganizationNamespace == "" || !strings.HasPrefix(reg.OrganizationNamespace, "sme-") {
+	if reg.OrganizationNamespace == "" || !strings.HasPrefix(reg.OrganizationNamespace, "org-") {
 		t.Errorf("registry namespace: %s", reg.OrganizationNamespace)
 	}
 }
@@ -428,7 +428,7 @@ func TestRenderOrganizationOverlay_FreeSubdomain_AllChartsPresent(t *testing.T) 
 		CompanyName:     "Acme Corp",
 		OTECHFQDN:       "otech.example",
 		VClusterName:    "vc-acme",
-		TenantNamespace: "sme-t-acme",
+		TenantNamespace: "org-t-acme",
 	}
 	files, err := renderOrganizationOverlay(rec, OrganizationChartVersions{})
 	if err != nil {
@@ -470,7 +470,7 @@ func TestRenderOrganizationOverlay_BYO_EmitsCertificate(t *testing.T) {
 		AdminEmail:      "admin@acme.com",
 		OTECHFQDN:       "otech.example",
 		VClusterName:    "vc-acme",
-		TenantNamespace: "sme-t-acme",
+		TenantNamespace: "org-t-acme",
 	}
 	files, err := renderOrganizationOverlay(rec, OrganizationChartVersions{})
 	if err != nil {
@@ -493,7 +493,7 @@ func TestRenderOrganizationOverlay_VersionsApplied(t *testing.T) {
 		AdminEmail:      "admin@acme.test",
 		OTECHFQDN:       "otech.example",
 		VClusterName:    "vc-acme",
-		TenantNamespace: "sme-t-acme",
+		TenantNamespace: "org-t-acme",
 	}
 	versions := OrganizationChartVersions{
 		Keycloak: "1.2.3", CNPG: "0.5.0", WordPress: "0.1.0", OpenClaw: "0.1.0", Stalwart: "0.1.0",
@@ -518,7 +518,7 @@ func TestRenderOrganizationOverlay_NoVersionsDefaultsToStar(t *testing.T) {
 		AdminEmail:      "admin@acme.test",
 		OTECHFQDN:       "otech.example",
 		VClusterName:    "vc-acme",
-		TenantNamespace: "sme-t-acme",
+		TenantNamespace: "org-t-acme",
 	}
 	files, _ := renderOrganizationOverlay(rec, OrganizationChartVersions{})
 	if !strings.Contains(files["bp-keycloak.yaml"], `version: "*"`) {
@@ -545,7 +545,7 @@ func TestRenderOrganizationOverlay_OpenClawOIDCAndLLMBlocks(t *testing.T) {
 		CompanyName:     "Alice Corp",
 		OTECHFQDN:       "otech107.omani.works",
 		VClusterName:    "vc-alice",
-		TenantNamespace: "sme-t-alice",
+		TenantNamespace: "org-t-alice",
 	}
 	files, err := renderOrganizationOverlay(rec, OrganizationChartVersions{})
 	if err != nil {
@@ -558,7 +558,7 @@ func TestRenderOrganizationOverlay_OpenClawOIDCAndLLMBlocks(t *testing.T) {
 	// OIDC block (canonical).
 	wantOIDC := []string{
 		"    oidc:",
-		"      issuerURL: https://keycloak.alice.omantel.omani.works/realms/sme-alice",
+		"      issuerURL: https://keycloak.alice.omantel.omani.works/realms/org-alice",
 		"      clientId: openclaw",
 		"      clientSecret:",
 		"        name: openclaw-oidc-client-secret",
@@ -585,16 +585,16 @@ func TestRenderOrganizationOverlay_OpenClawOIDCAndLLMBlocks(t *testing.T) {
 			t.Errorf("bp-openclaw llm block missing line %q\n--- rendered ---\n%s", line, body)
 		}
 	}
-	// Per-tenant LLM endpoint MUST be the SME's own api.<sub>.<parent>,
+	// Per-tenant LLM endpoint MUST be the Organization's own api.<sub>.<parent>,
 	// NEVER the otech-wide newapi.<otech-fqdn> (that would route every
-	// SME's traffic through one shared gateway, defeating per-tenant
+	// Organization's traffic through one shared gateway, defeating per-tenant
 	// channel routing).
 	if strings.Contains(body, "https://newapi.otech107.omani.works") {
 		t.Errorf("bp-openclaw llm.baseURL must be per-tenant api.<sub>.<parent>, not otech-wide newapi: %s", body)
 	}
 }
 
-// TestRenderOrganizationOverlay_NewAPIEmitted asserts the SME tenant
+// TestRenderOrganizationOverlay_NewAPIEmitted asserts the Organization tenant
 // overlay emits a per-tenant bp-newapi HelmRelease (#945). Without it
 // the bp-openclaw HR points at https://api.<sub>.<parent>/v1 with no
 // chart materialising that ingress — alice's OpenClaw boots and gets
@@ -621,7 +621,7 @@ func TestRenderOrganizationOverlay_NewAPIEmitted(t *testing.T) {
 		CompanyName:     "Alice Corp",
 		OTECHFQDN:       "otech113.omani.works",
 		VClusterName:    "vc-alice",
-		TenantNamespace: "sme-t-alice",
+		TenantNamespace: "org-t-alice",
 	}
 	files, err := renderOrganizationOverlay(rec, OrganizationChartVersions{})
 	if err != nil {
@@ -636,7 +636,7 @@ func TestRenderOrganizationOverlay_NewAPIEmitted(t *testing.T) {
 	for _, want := range []string{
 		"kind: HelmRelease",
 		"name: bp-newapi",
-		"namespace: sme-t-alice",
+		"namespace: org-t-alice",
 		"chart: bp-newapi",
 		`version: "*"`,    // unconfigured chart version falls back to "*"
 		"name: bp-newapi", // sourceRef.name
@@ -650,9 +650,9 @@ func TestRenderOrganizationOverlay_NewAPIEmitted(t *testing.T) {
 	wantDependsOn := []string{
 		"  dependsOn:",
 		"    - name: bp-keycloak",
-		"      namespace: sme-t-alice",
+		"      namespace: org-t-alice",
 		"    - name: bp-cnpg",
-		"      namespace: sme-t-alice",
+		"      namespace: org-t-alice",
 	}
 	for _, line := range wantDependsOn {
 		if !strings.Contains(body, line) {
@@ -675,7 +675,7 @@ func TestRenderOrganizationOverlay_NewAPIEmitted(t *testing.T) {
 	// Admin UI gated by the PER-TENANT Keycloak realm (NOT otech-wide).
 	wantAdminAuth := []string{
 		"        mode: keycloak",
-		"          issuer: https://keycloak.alice.omantel.omani.works/realms/sme-alice",
+		"          issuer: https://keycloak.alice.omantel.omani.works/realms/org-alice",
 		"          clientId: newapi-admin",
 		"          existingSecret: newapi-oidc-client-secret",
 	}
@@ -755,7 +755,7 @@ func TestRenderOrganizationOverlay_NewAPIChartVersion(t *testing.T) {
 		AdminEmail:      "admin@alice.test",
 		OTECHFQDN:       "otech113.omani.works",
 		VClusterName:    "vc-alice",
-		TenantNamespace: "sme-t-alice",
+		TenantNamespace: "org-t-alice",
 	}
 	versions := OrganizationChartVersions{NewAPI: "1.3.0"}
 	files, err := renderOrganizationOverlay(rec, versions)
@@ -782,7 +782,7 @@ func TestRenderOrganizationOverlay_WordPressEmitsOIDC(t *testing.T) {
 		CompanyName:     "Alice Corp",
 		OTECHFQDN:       "otech107.omani.works",
 		VClusterName:    "vc-alice",
-		TenantNamespace: "sme-t-alice",
+		TenantNamespace: "org-t-alice",
 	}
 	files, err := renderOrganizationOverlay(rec, OrganizationChartVersions{})
 	if err != nil {
@@ -796,7 +796,7 @@ func TestRenderOrganizationOverlay_WordPressEmitsOIDC(t *testing.T) {
 	wantOIDC := []string{
 		"    oidc:",
 		"      enabled: true",
-		"      issuerURL: https://keycloak.alice.omantel.omani.works/realms/sme-alice",
+		"      issuerURL: https://keycloak.alice.omantel.omani.works/realms/org-alice",
 		"      clientId: wordpress",
 		"      clientSecretName: wordpress-oidc-client-secret",
 		"      defaultRole: subscriber",
@@ -810,7 +810,7 @@ func TestRenderOrganizationOverlay_WordPressEmitsOIDC(t *testing.T) {
 	// Legacy keycloak.* alias — chart 0.1.x back-compat. Removed in 0.3.0.
 	wantLegacy := []string{
 		"    keycloak:",
-		"      realmURL: https://keycloak.alice.omantel.omani.works/realms/sme-alice",
+		"      realmURL: https://keycloak.alice.omantel.omani.works/realms/org-alice",
 		"      clientID: wordpress",
 		"      clientSecretName: wordpress-oidc-client-secret",
 	}
@@ -819,7 +819,7 @@ func TestRenderOrganizationOverlay_WordPressEmitsOIDC(t *testing.T) {
 			t.Errorf("bp-wordpress-tenant legacy keycloak block missing line %q (back-compat)", line)
 		}
 	}
-	// Per-tenant realm URL MUST be the per-SME Keycloak, not a shared
+	// Per-tenant realm URL MUST be the per-Organization Keycloak, not a shared
 	// otech-level IdP. Same guardrail as the OpenClaw/Stalwart tests.
 	bad := "https://keycloak.otech107.omani.works"
 	if strings.Contains(body, bad) {
@@ -856,7 +856,7 @@ func TestRenderOrganizationOverlay_WordPressImageProxiedThroughHarbor(t *testing
 		CompanyName:     "Alice Corp",
 		OTECHFQDN:       "otech107.omani.works",
 		VClusterName:    "vc-alice",
-		TenantNamespace: "sme-t-alice",
+		TenantNamespace: "org-t-alice",
 	}
 
 	// Default registry (env unset) → harbor.openova.io.
@@ -896,7 +896,7 @@ func TestRenderOrganizationOverlay_WordPressOIDC_BYOMode(t *testing.T) {
 		AdminEmail:      "admin@acme.com",
 		OTECHFQDN:       "otech.example",
 		VClusterName:    "vc-acme",
-		TenantNamespace: "sme-t-acme",
+		TenantNamespace: "org-t-acme",
 	}
 	files, err := renderOrganizationOverlay(rec, OrganizationChartVersions{})
 	if err != nil {
@@ -907,11 +907,11 @@ func TestRenderOrganizationOverlay_WordPressOIDC_BYOMode(t *testing.T) {
 	if !strings.Contains(body, "host: wordpress.acme.com") {
 		t.Errorf("byo wordpress host missing — got:\n%s", body)
 	}
-	// smeDomain (BYO mode) is the bare BYO domain. The producer keeps the
-	// chart-consumed data-value key smeDomain (#3383 WIRE-STABLE invariant);
-	// the bp-wordpress-tenant chart reads .Values.smeDomain.
-	if !strings.Contains(body, "smeDomain: acme.com") {
-		t.Errorf("byo smeDomain missing")
+	// orgDomain (BYO mode) is the bare BYO domain. The producer keeps the
+	// chart-consumed data-value key orgDomain (#3383 WIRE-STABLE invariant);
+	// the bp-wordpress-tenant chart reads .Values.orgDomain.
+	if !strings.Contains(body, "orgDomain: acme.com") {
+		t.Errorf("byo orgDomain missing")
 	}
 }
 
@@ -929,7 +929,7 @@ func TestRenderOrganizationOverlay_StalwartEmitsKeycloakOIDC(t *testing.T) {
 		CompanyName:     "Acme Corp",
 		OTECHFQDN:       "omantel.omani.works",
 		VClusterName:    "vc-acme",
-		TenantNamespace: "sme-t-acme",
+		TenantNamespace: "org-t-acme",
 	}
 	files, err := renderOrganizationOverlay(rec, OrganizationChartVersions{})
 	if err != nil {
@@ -939,9 +939,9 @@ func TestRenderOrganizationOverlay_StalwartEmitsKeycloakOIDC(t *testing.T) {
 	if !ok {
 		t.Fatalf("bp-stalwart-tenant.yaml missing")
 	}
-	// Per-tenant realm URL — must point at the SME's vcluster Keycloak,
+	// Per-tenant realm URL — must point at the Organization's vcluster Keycloak,
 	// not a shared otech-level IdP.
-	wantRealmURL := "https://keycloak.acme.omantel.omani.works/realms/sme-acme"
+	wantRealmURL := "https://keycloak.acme.omantel.omani.works/realms/org-acme"
 	if !strings.Contains(body, wantRealmURL) {
 		t.Errorf("realmURL missing — want %s in body", wantRealmURL)
 	}
@@ -994,14 +994,14 @@ func TestStepsForState(t *testing.T) {
 // Verify Keycloak client probe handles 404 + present clients correctly.
 func TestVerifyKeycloakClients_Present(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, "/admin/realms/sme-acme/clients") {
+		if !strings.Contains(r.URL.Path, "/admin/realms/org-acme/clients") {
 			http.Error(w, "wrong path", http.StatusNotFound)
 			return
 		}
 		_, _ = w.Write([]byte(`[{"clientId":"catalyst-ui"},{"clientId":"wordpress"},{"clientId":"openclaw"},{"clientId":"stalwart"}]`))
 	}))
 	defer srv.Close()
-	missing, err := verifyKeycloakClients(context.Background(), srv.Client(), srv.URL, "sme-acme", "tok",
+	missing, err := verifyKeycloakClients(context.Background(), srv.Client(), srv.URL, "org-acme", "tok",
 		[]string{"catalyst-ui", "wordpress", "openclaw", "stalwart"})
 	if err != nil {
 		t.Fatalf("err: %v", err)
@@ -1016,7 +1016,7 @@ func TestVerifyKeycloakClients_Missing(t *testing.T) {
 		_, _ = w.Write([]byte(`[{"clientId":"catalyst-ui"}]`))
 	}))
 	defer srv.Close()
-	missing, err := verifyKeycloakClients(context.Background(), srv.Client(), srv.URL, "sme-acme", "tok",
+	missing, err := verifyKeycloakClients(context.Background(), srv.Client(), srv.URL, "org-acme", "tok",
 		[]string{"catalyst-ui", "wordpress"})
 	if err != nil {
 		t.Fatalf("err: %v", err)
@@ -1052,7 +1052,7 @@ func TestValidateBYOCNAME_Mismatch(t *testing.T) {
 }
 
 // Multi-domain Sovereign (#828): a CNAME pointing at any parent in
-// the role:sme-pool list MUST validate, not just OTECHFQDN.
+// the role:org-pool list MUST validate, not just OTECHFQDN.
 func TestValidateBYOCNAME_MultiDomainAccepted(t *testing.T) {
 	// Resolver returns a CNAME ending in omani.trade — one of the
 	// pool entries, not the legacy primary OTECHFQDN.
@@ -1104,8 +1104,8 @@ var _ = readAll
 
 /* ── Multi-domain Sovereign tests (epic #825 / MD-3 #828) ─────────── */
 
-// newTestHandlerWithMultiDomainPool spins up a Handler whose SME-tenant
-// deps include a 2-entry sme-pool (omani.works ready + omani.trade
+// newTestHandlerWithMultiDomainPool spins up a Handler whose Organization
+// deps include a 2-entry org-pool (omani.works ready + omani.trade
 // ready) plus a primary OTECHFQDN — exercising the full #828 path.
 func newTestHandlerWithMultiDomainPool(t *testing.T, pool []OrganizationParentDomain) (*Handler, *fakeGitOps, *fakeDNS, *fakeKCClients, *fakeTenantEmitter, *store.TenantRegistry) {
 	t.Helper()
@@ -1146,8 +1146,8 @@ func newTestHandlerWithMultiDomainPool(t *testing.T, pool []OrganizationParentDo
 func TestCreateOrganization_MultiDomain_OperatorPicksPool(t *testing.T) {
 	h, _, dns, _, _, registry := newTestHandlerWithMultiDomainPool(t, []OrganizationParentDomain{
 		{Name: "otech.example", Role: "primary", NSFlipReady: true},
-		{Name: "omani.works", Role: "sme-pool", NSFlipReady: true},
-		{Name: "omani.trade", Role: "sme-pool", NSFlipReady: true},
+		{Name: "omani.works", Role: "org-pool", NSFlipReady: true},
+		{Name: "omani.trade", Role: "org-pool", NSFlipReady: true},
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations",
@@ -1184,12 +1184,12 @@ func TestCreateOrganization_MultiDomain_OperatorPicksPool(t *testing.T) {
 
 // TestCreateOrganization_MultiDomain_DefaultsToFirstReady — when the
 // operator omits parent_domain on a multi-entry pool the orchestrator
-// picks the first NS-flip-ready sme-pool entry.
+// picks the first NS-flip-ready org-pool entry.
 func TestCreateOrganization_MultiDomain_DefaultsToFirstReady(t *testing.T) {
 	h, _, _, _, _, _ := newTestHandlerWithMultiDomainPool(t, []OrganizationParentDomain{
 		{Name: "otech.example", Role: "primary", NSFlipReady: true},
-		{Name: "omani.works", Role: "sme-pool", NSFlipReady: true},
-		{Name: "omani.trade", Role: "sme-pool", NSFlipReady: true},
+		{Name: "omani.works", Role: "org-pool", NSFlipReady: true},
+		{Name: "omani.trade", Role: "org-pool", NSFlipReady: true},
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations",
@@ -1208,15 +1208,15 @@ func TestCreateOrganization_MultiDomain_DefaultsToFirstReady(t *testing.T) {
 	var got orgTenantResponse
 	_ = json.Unmarshal(w.Body.Bytes(), &got)
 	if got.ParentDomain != "omani.works" {
-		t.Errorf("default parent_domain: %q want omani.works (first ready sme-pool entry)", got.ParentDomain)
+		t.Errorf("default parent_domain: %q want omani.works (first ready org-pool entry)", got.ParentDomain)
 	}
 }
 
 // TestCreateOrganization_MultiDomain_RejectsUnknownParent — picking a
-// parent that isn't in the sme-pool list = 400.
+// parent that isn't in the org-pool list = 400.
 func TestCreateOrganization_MultiDomain_RejectsUnknownParent(t *testing.T) {
 	h, _, _, _, _, _ := newTestHandlerWithMultiDomainPool(t, []OrganizationParentDomain{
-		{Name: "omani.works", Role: "sme-pool", NSFlipReady: true},
+		{Name: "omani.works", Role: "org-pool", NSFlipReady: true},
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations",
@@ -1242,8 +1242,8 @@ func TestCreateOrganization_MultiDomain_RejectsUnknownParent(t *testing.T) {
 // whose NS-flip is still pending returns 503 + Retry-After.
 func TestCreateOrganization_MultiDomain_RejectsNotReady(t *testing.T) {
 	h, _, _, _, _, _ := newTestHandlerWithMultiDomainPool(t, []OrganizationParentDomain{
-		{Name: "omani.works", Role: "sme-pool", NSFlipReady: true},
-		{Name: "omani.trade", Role: "sme-pool", NSFlipReady: false},
+		{Name: "omani.works", Role: "org-pool", NSFlipReady: true},
+		{Name: "omani.trade", Role: "org-pool", NSFlipReady: false},
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations",
@@ -1279,7 +1279,7 @@ func TestCreateOrganization_MultiDomain_RejectsNotReady(t *testing.T) {
 // together prevents 422s on signup when the picker lists a TLD the
 // catalyst-api validator doesn't recognise.
 func TestLoadOrganizationParentDomainsFromEnv_StubFallback(t *testing.T) {
-	t.Setenv("CATALYST_SME_POOL_DOMAINS", "")
+	t.Setenv("CATALYST_ORG_POOL_DOMAINS", "")
 	t.Setenv("CATALYST_OTECH_FQDN", "otech.example")
 	got := LoadOrganizationParentDomainsFromEnv()
 
@@ -1289,7 +1289,7 @@ func TestLoadOrganizationParentDomainsFromEnv_StubFallback(t *testing.T) {
 		switch p.Role {
 		case "primary":
 			primary++
-		case "sme-pool":
+		case "org-pool":
 			pool++
 		}
 	}
@@ -1297,14 +1297,14 @@ func TestLoadOrganizationParentDomainsFromEnv_StubFallback(t *testing.T) {
 		t.Errorf("primary: want 1 got %d (%v)", primary, got)
 	}
 	if pool != 4 {
-		t.Errorf("sme-pool: want 4 got %d (%v)", pool, got)
+		t.Errorf("org-pool: want 4 got %d (%v)", pool, got)
 	}
 }
 
 // TestLoadOrganizationParentDomainsFromEnv_Custom — operator-supplied
-// CATALYST_SME_POOL_DOMAINS overrides the stub.
+// CATALYST_ORG_POOL_DOMAINS overrides the stub.
 func TestLoadOrganizationParentDomainsFromEnv_Custom(t *testing.T) {
-	t.Setenv("CATALYST_SME_POOL_DOMAINS", "acme.io:primary,acme.shop,acme.cloud")
+	t.Setenv("CATALYST_ORG_POOL_DOMAINS", "acme.io:primary,acme.shop,acme.cloud")
 	got := LoadOrganizationParentDomainsFromEnv()
 	if len(got) != 3 {
 		t.Fatalf("items: want 3 got %d (%v)", len(got), got)
@@ -1313,8 +1313,8 @@ func TestLoadOrganizationParentDomainsFromEnv_Custom(t *testing.T) {
 		t.Errorf("primary entry: %+v", got[0])
 	}
 	for _, p := range got[1:] {
-		if p.Role != "sme-pool" {
-			t.Errorf("non-primary entry should be sme-pool: %+v", p)
+		if p.Role != "org-pool" {
+			t.Errorf("non-primary entry should be org-pool: %+v", p)
 		}
 	}
 }

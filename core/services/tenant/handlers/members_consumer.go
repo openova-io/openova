@@ -10,7 +10,7 @@ import (
 )
 
 // tenantDeletedPayload mirrors the shape the tenant service itself emits on
-// sme.tenant.events with type tenant.deleted. The envelope TenantID and the
+// org.tenant.events with type tenant.deleted. The envelope TenantID and the
 // inner ID are both populated by the publisher, but we fall back to the
 // envelope so a truncated body can't block the cascade.
 type tenantDeletedPayload struct {
@@ -54,7 +54,7 @@ func (c *MembersCleanupConsumer) membersDeleter() membersDeleter {
 
 // Start subscribes to tenant.deleted (on the canonical NATS subject
 // `catalyst.tenant.deleted` OR the legacy Kafka topic
-// `sme.tenant.events`) and dispatches the cleanup.
+// `org.tenant.events`) and dispatches the cleanup.
 func (c *MembersCleanupConsumer) Start(ctx context.Context, consumer events.BrokerSubscriber) error {
 	slog.Info("starting tenant members-cleanup consumer")
 	return consumer.Subscribe(ctx, func(event *events.Event) error {

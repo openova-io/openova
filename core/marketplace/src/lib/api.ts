@@ -6,7 +6,7 @@ let refreshing: Promise<void> | null = null;
 // token refresh, active-org switch). Components in the same tab cannot rely
 // on the native `storage` event — it only fires for cross-tab writes — so
 // they listen for this custom event instead.
-export const AUTH_CHANGED_EVENT = 'sme-auth-changed';
+export const AUTH_CHANGED_EVENT = 'org-auth-changed';
 
 export function notifyAuthChanged(): void {
   if (typeof window === 'undefined') return;
@@ -14,13 +14,13 @@ export function notifyAuthChanged(): void {
 }
 
 export function setAuthTokens(token: string, refreshToken: string): void {
-  localStorage.setItem('sme-token', token);
-  localStorage.setItem('sme-refresh-token', refreshToken);
+  localStorage.setItem('org-token', token);
+  localStorage.setItem('org-refresh-token', refreshToken);
   notifyAuthChanged();
 }
 
 export function setActiveOrg(orgId: string): void {
-  localStorage.setItem('sme-active-org', orgId);
+  localStorage.setItem('org-active-org', orgId);
   notifyAuthChanged();
 }
 
@@ -39,12 +39,12 @@ export function setActiveOrg(orgId: string): void {
  */
 export function setActiveOrgSlug(slug: string): void {
   if (!slug) return;
-  localStorage.setItem('sme-active-org-slug', slug);
+  localStorage.setItem('org-active-org-slug', slug);
   notifyAuthChanged();
 }
 
 async function request<T>(path: string, opts?: RequestInit): Promise<T> {
-  const token = localStorage.getItem('sme-token');
+  const token = localStorage.getItem('org-token');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -56,7 +56,7 @@ async function request<T>(path: string, opts?: RequestInit): Promise<T> {
       refreshing = tryRefresh().finally(() => { refreshing = null; });
     }
     await refreshing;
-    const newToken = localStorage.getItem('sme-token');
+    const newToken = localStorage.getItem('org-token');
     if (newToken && newToken !== token) {
       const retryHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -78,7 +78,7 @@ async function request<T>(path: string, opts?: RequestInit): Promise<T> {
 }
 
 async function tryRefresh(): Promise<void> {
-  const rt = localStorage.getItem('sme-refresh-token');
+  const rt = localStorage.getItem('org-refresh-token');
   if (!rt) return;
   try {
     const res = await fetch(`${API_BASE}/auth/refresh`, {
@@ -90,14 +90,14 @@ async function tryRefresh(): Promise<void> {
       const data = await res.json();
       setAuthTokens(data.token, data.refresh_token);
     } else {
-      localStorage.removeItem('sme-token');
-      localStorage.removeItem('sme-refresh-token');
+      localStorage.removeItem('org-token');
+      localStorage.removeItem('org-refresh-token');
       notifyAuthChanged();
     }
   } catch {
     // Refresh failed — clear tokens.
-    localStorage.removeItem('sme-token');
-    localStorage.removeItem('sme-refresh-token');
+    localStorage.removeItem('org-token');
+    localStorage.removeItem('org-refresh-token');
     notifyAuthChanged();
   }
 }
@@ -207,7 +207,7 @@ export const refreshToken = (token: string) =>
   });
 
 export async function logout(): Promise<void> {
-  const rt = localStorage.getItem('sme-refresh-token');
+  const rt = localStorage.getItem('org-refresh-token');
   try {
     if (rt) {
       await fetch(`${API_BASE}/auth/logout`, {
@@ -219,16 +219,16 @@ export async function logout(): Promise<void> {
   } catch {
     // Server call is best-effort — clear local state regardless.
   }
-  localStorage.removeItem('sme-token');
-  localStorage.removeItem('sme-refresh-token');
-  localStorage.removeItem('sme-active-org');
-  localStorage.removeItem('sme-active-org-slug');
-  localStorage.removeItem('sme-cart');
-  localStorage.removeItem('sme-checkout-tenant');
-  localStorage.removeItem('sme-checkout-tenant-slug');
+  localStorage.removeItem('org-token');
+  localStorage.removeItem('org-refresh-token');
+  localStorage.removeItem('org-active-org');
+  localStorage.removeItem('org-active-org-slug');
+  localStorage.removeItem('org-cart');
+  localStorage.removeItem('org-checkout-tenant');
+  localStorage.removeItem('org-checkout-tenant-slug');
   for (let i = localStorage.length - 1; i >= 0; i--) {
     const k = localStorage.key(i);
-    if (k && k.startsWith('sme-tenant:')) localStorage.removeItem(k);
+    if (k && k.startsWith('org-tenant:')) localStorage.removeItem(k);
   }
   notifyAuthChanged();
 }

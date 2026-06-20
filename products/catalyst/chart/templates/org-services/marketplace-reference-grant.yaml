@@ -4,22 +4,22 @@ ReferenceGrant for cross-namespace HTTPRoute → Service backend refs.
 The marketplace and per-tenant (`tenant-<slug>`) HTTPRoutes
 (templates/org-services/marketplace-routes.yaml) live in
 {{ .Release.Namespace }} (catalyst-system) and reference Services in the
-`sme` namespace (admin, marketplace, console, gateway). Gateway API
+`org-services` namespace (admin, marketplace, console, gateway). Gateway API
 requires an explicit ReferenceGrant in the TARGET namespace authorising
 that cross-namespace access. TBD-A42 (issue #1905, 2026-05-19): the
 former `tenant-wildcard` HTTPRoute was replaced with N exact-match
-`tenant-<slug>` HTTPRoutes — they all still backendRef sme/console, so
+`tenant-<slug>` HTTPRoutes — they all still backendRef org-services/console, so
 the existing grant covers every emitted per-slug route without change.
 
 Same {{ if }} guard as the routes — only renders when marketplace mode
-is enabled, so non-marketplace Sovereigns don't need any sme-namespace
+is enabled, so non-marketplace Sovereigns don't need any org-services-namespace
 RBAC for catalyst-system.
 */}}
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
 apiVersion: gateway.networking.k8s.io/v1beta1
 kind: ReferenceGrant
 metadata:
-  name: marketplace-routes-to-sme
+  name: marketplace-routes-to-org
   namespace: org-services
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform
@@ -40,10 +40,10 @@ spec:
       kind: Service
       name: console
     # Issue #868: marketplace HTTPRoute /api/* now cross-namespace
-    # backendRefs to sme/gateway:8080 (replacing the dead
+    # backendRefs to org-services/gateway:8080 (replacing the dead
     # catalyst-system/marketplace-api Service). The gateway Pod fronts
     # services-auth (PIN signin), services-catalog, services-tenant,
-    # services-billing, services-provisioning — the entire SME BSS API.
+    # services-billing, services-provisioning — the entire Organization BSS API.
     - group: ""
       kind: Service
       name: gateway

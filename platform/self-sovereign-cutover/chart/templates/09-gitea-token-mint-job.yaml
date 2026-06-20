@@ -5,8 +5,8 @@ Why this step exists (TBD-C18, journey step 16 unblock)
 ───────────────────────────────────────────────────────
 The catalyst-platform chart's
 templates/org-services/provisioning-github-token.yaml mirrors the Gitea
-admin Secret's `password` byte into Secret `sme/provisioning-github-token`
-under key `GITHUB_TOKEN`. The SME provisioning service then sends
+admin Secret's `password` byte into Secret `org-services/provisioning-github-token`
+under key `GITHUB_TOKEN`. The Organization provisioning service then sends
 
     Authorization: token <X>
 
@@ -23,7 +23,7 @@ in Gitea, every API call 401s, NO Organization CR is ever created and
 the customer's screen sits indefinitely.
 
 Verified on t22 (2026-05-18):
-  - Secret sme/provisioning-github-token.GITHUB_TOKEN == gitea/gitea-admin-secret.password
+  - Secret org-services/provisioning-github-token.GITHUB_TOKEN == gitea/gitea-admin-secret.password
   - curl -H "Authorization: token <pwd>" → 401 user does not exist
   - curl -u gitea_admin:<pwd> → 200 OK (BasicAuth works, token does not)
 
@@ -36,7 +36,7 @@ gitea-mirror) and:
      scope `all`, creating a new API token bound to the gitea_admin user.
   2. Reads the returned `.sha1` (Gitea returns the raw token bytes
      exactly once on creation — there is no way to retrieve them later).
-  3. Patches Secret `sme/provisioning-github-token`'s `.data.GITHUB_TOKEN`
+  3. Patches Secret `org-services/provisioning-github-token`'s `.data.GITHUB_TOKEN`
      to the new token (base64-encoded), overwriting the admin password
      placeholder the chart's `provisioning-github-token.yaml` template
      wrote.
@@ -57,7 +57,7 @@ wget/sh (to call Gitea's REST API).
 Order rationale: 9 (after step 08 egress-block-test) — the token mint
 does NOT need to land before any of the existing cutover steps (none of
 steps 02-08 read the provisioning-github-token Secret; they touch
-Harbor, Flux, kubectl, CiliumNetworkPolicy). The SME provisioning
+Harbor, Flux, kubectl, CiliumNetworkPolicy). The Organization provisioning
 service first consumes the token at TENANT CHECKOUT TIME, which always
 postdates cutover by minutes-to-hours. Sliding into slot 9 (vs 1b) lets
 us ship without renumbering the existing 01..08 chain (which would
@@ -113,7 +113,7 @@ data:
             # journey step 16 unblocks today.
             value: {{ .Values.giteaTokenMint.tokenScopes | default "all" | quote }}
           - name: DEST_SECRET_NAMESPACE
-            value: {{ .Values.giteaTokenMint.destSecretNamespace | default "sme" | quote }}
+            value: {{ .Values.giteaTokenMint.destSecretNamespace | default "org-services" | quote }}
           - name: DEST_SECRET_NAME
             value: {{ .Values.giteaTokenMint.destSecretName | default "provisioning-github-token" | quote }}
           - name: DEST_SECRET_KEY

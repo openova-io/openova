@@ -12,7 +12,7 @@ func TestRender_AllPathsAndStructuralYAML(t *testing.T) {
 	out, err := Render(Inputs{
 		Slug:                 "acme",
 		DisplayName:          "ACME Corp",
-		Tier:                 "sme",
+		Tier: "org",
 		SovereignFQDN:        "omantel.omani.works",
 		HostCluster:          "hz-fsn-rtz-prod",
 		VClusterChartVersion: "0.33.*",
@@ -77,7 +77,7 @@ func TestRender_AllPathsAndStructuralYAML(t *testing.T) {
 	for _, want := range []string{
 		"name: acme",
 		"openova.io/organization: acme",
-		"openova.io/tier: sme",
+		"openova.io/tier: org",
 		"openova.io/sovereign: omantel.omani.works",
 		"openova.io/host-cluster: hz-fsn-rtz-prod",
 	} {
@@ -92,7 +92,7 @@ func TestRender_HelmRepoDefaults(t *testing.T) {
 	out, err := Render(Inputs{
 		Slug:                 "acme",
 		DisplayName:          "Acme",
-		Tier:                 "sme",
+		Tier: "org",
 		SovereignFQDN:        "x.example",
 		HostCluster:          "hz-fsn-rtz-prod",
 		VClusterChartVersion: "0.33.*",
@@ -117,7 +117,7 @@ func TestRender_VClusterImageRegistryOverride(t *testing.T) {
 	out, err := Render(Inputs{
 		Slug:                  "acme",
 		DisplayName:           "Acme",
-		Tier:                  "sme",
+		Tier: "org",
 		SovereignFQDN:         "omantel.omani.works",
 		HostCluster:           "hz-fsn-rtz-prod",
 		VClusterChartVersion:  "0.33.*",

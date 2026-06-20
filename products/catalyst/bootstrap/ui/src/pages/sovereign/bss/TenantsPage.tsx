@@ -9,12 +9,12 @@
  *
  * Wire path:
  *
- *   browser ──/api/v1/sme/tenants──▶ catalyst-api (HandleListSMETenants)
+ *   browser ──/api/v1/organizations──▶ catalyst-api (HandleListOrganizations)
  *
  * Wave 6 PR 1 (#1606, 393116355d6e30b1382e843142ad3bbc15d25f51) landed
  * the BSS landing + per-section iframe shell; this PR drops the iframe
  * for /bss/tenants and replaces it with a filterable table of tenant
- * organisations sourced from the existing SME provisioning store.
+ * organisations sourced from the existing Organization provisioning store.
  *
  * Layout (PortalShell body):
  *   • Header band: "Tenants" via PortalShell + tagline beneath

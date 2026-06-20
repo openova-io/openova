@@ -1,6 +1,6 @@
 {{- if and .Values.wordpress.enabled .Values.adminUser.email }}
 {{- /*
-Helm post-install Job that pre-seeds the SME admin WP user with the
+Helm post-install Job that pre-seeds the Organization admin WP user with the
 SSO email mapping, so on first SSO login from Keycloak the
 openid-connect-generic plugin matches the email claim back to a
 pre-existing wp_users row with `administrator` role.
@@ -84,7 +84,7 @@ spec:
               /**
                * bp-wordpress-tenant admin user pre-seed.
                *
-               * Inserts (or upgrades) the SME admin into wp_users +
+               * Inserts (or upgrades) the Organization admin into wp_users +
                * wp_usermeta with administrator capability. Login is
                * via SSO only — the password hash is unguessable.
                */

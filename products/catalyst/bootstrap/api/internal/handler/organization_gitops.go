@@ -1,12 +1,12 @@
 // Package handler — organization_gitops.go: GitOps overlay writer for
-// the SME tenant provisioning pipeline (issue #804).
+// the Organization tenant provisioning pipeline (issue #804).
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #3 the orchestrator NEVER calls
 // `kubectl apply`. Every per-tenant resource is materialised by:
 //
 //  1. Cloning the openova-public GitOps repo to a temp directory.
 //  2. Generating the per-tenant Kustomize overlay under
-//     clusters/<otech-fqdn>/sme-tenants/<sme_tenant_id>/.
+//     clusters/<otech-fqdn>/org-tenants/<org_tenant_id>/.
 //  3. git add + commit (committer "catalyst-api <ops@openova.io>").
 //  4. git push.
 //  5. Flux on the OTECH cluster reconciles within ~1 min and the
@@ -14,7 +14,7 @@
 //
 // The overlay materialises every artifact issue #804 specifies:
 //
-//   - Namespace          sme-<sme_tenant_id>
+//   - Namespace          org-<org_tenant_id>
 //   - HelmRelease       bp-keycloak (per-organization, fresh realm)
 //   - HelmRelease       bp-cnpg (in tenant ns)
 //   - HelmRelease       bp-wordpress-tenant
@@ -65,10 +65,10 @@ type DefaultOrganizationGitOpsWriter struct {
 
 // OrganizationChartVersions enumerates the SemVer strings the overlay
 // generator emits for each bp-* HelmRelease. The orchestrator's
-// wiring (main.go) reads each from env (CATALYST_SME_BP_KEYCLOAK_VER,
-// CATALYST_SME_BP_CNPG_VER, CATALYST_SME_BP_WORDPRESS_VER,
-// CATALYST_SME_BP_OPENCLAW_VER, CATALYST_SME_BP_STALWART_VER,
-// CATALYST_SME_BP_NEWAPI_VER); when any is empty the generator falls
+// wiring (main.go) reads each from env (CATALYST_ORG_BP_KEYCLOAK_VER,
+// CATALYST_ORG_BP_CNPG_VER, CATALYST_ORG_BP_WORDPRESS_VER,
+// CATALYST_ORG_BP_OPENCLAW_VER, CATALYST_ORG_BP_STALWART_VER,
+// CATALYST_ORG_BP_NEWAPI_VER); when any is empty the generator falls
 // back to "*" so Flux pulls the latest matching chart in the
 // repository.
 type OrganizationChartVersions struct {
@@ -87,13 +87,13 @@ func (w DefaultOrganizationGitOpsWriter) WriteTenantOverlay(ctx context.Context,
 	if cfg.Token == "" {
 		return "", errors.New("gitops token unconfigured — set CATALYST_GITOPS_TOKEN")
 	}
-	scratch, err := os.MkdirTemp(envOr("CATALYST_GITOPS_TMPDIR", os.TempDir()), "sme-tenant-overlay-*")
+	scratch, err := os.MkdirTemp(envOr("CATALYST_GITOPS_TMPDIR", os.TempDir()), "org-tenant-overlay-*")
 	if err != nil {
 		return "", fmt.Errorf("mktempdir: %w", err)
 	}
 	defer func() {
 		if err := os.RemoveAll(scratch); err != nil && w.Log != nil {
-			w.Log.Warn("sme-tenant: scratch cleanup failed", "dir", scratch, "err", err)
+			w.Log.Warn("org-tenant: scratch cleanup failed", "dir", scratch, "err", err)
 		}
 	}()
 
@@ -120,8 +120,8 @@ func (w DefaultOrganizationGitOpsWriter) WriteTenantOverlay(ctx context.Context,
 	}
 
 	// Per-tenant overlay path:
-	//   clusters/<otech-fqdn>/sme-tenants/<sme_tenant_id>/
-	overlayDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "sme-tenants", rec.OrganizationID)
+	//   clusters/<otech-fqdn>/org-tenants/<org_tenant_id>/
+	overlayDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "org-tenants", rec.OrganizationID)
 	if err := os.MkdirAll(overlayDir, 0o755); err != nil {
 		return "", fmt.Errorf("mkdir overlay: %w", err)
 	}
@@ -145,30 +145,30 @@ func (w DefaultOrganizationGitOpsWriter) WriteTenantOverlay(ctx context.Context,
 		}
 	}
 
-	relRoot := filepath.Join("clusters", rec.OTECHFQDN, "sme-tenants", rec.OrganizationID)
+	relRoot := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", rec.OrganizationID)
 	if err := runGit(ctx, repoDir, "add", relRoot); err != nil {
 		return "", fmt.Errorf("git add: %w", err)
 	}
 
-	// Issue #889 — Flux Kustomization at clusters/<fqdn>/sme-tenants/
+	// Issue #889 — Flux Kustomization at clusters/<fqdn>/org-tenants/
 	// requires a parent kustomization.yaml that enumerates the tenant
 	// subdirectories. Regenerate it after every Write so the index is
 	// always current. Without this, Flux fails with "kustomization path
 	// not found" on a fresh Sovereign that has never had a tenant.
-	parentDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "sme-tenants")
+	parentDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "org-tenants")
 	if err := writeParentTenantsIndex(parentDir); err != nil {
 		return "", fmt.Errorf("write parent index: %w", err)
 	}
-	parentRel := filepath.Join("clusters", rec.OTECHFQDN, "sme-tenants", "kustomization.yaml")
+	parentRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", "kustomization.yaml")
 	if err := runGit(ctx, repoDir, "add", parentRel); err != nil {
 		return "", fmt.Errorf("git add parent index: %w", err)
 	}
-	parentHRRel := filepath.Join("clusters", rec.OTECHFQDN, "sme-tenants", "helmrepositories.yaml")
+	parentHRRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", "helmrepositories.yaml")
 	if err := runGit(ctx, repoDir, "add", parentHRRel); err != nil {
 		return "", fmt.Errorf("git add parent helmrepositories: %w", err)
 	}
 
-	msg := fmt.Sprintf("sme-tenant: provision %s (%s) on %s",
+	msg := fmt.Sprintf("org-tenant: provision %s (%s) on %s",
 		rec.Subdomain, rec.OrganizationID, rec.OTECHFQDN)
 	// Allow-empty so a re-run that produces identical bytes still
 	// succeeds (Flux is idempotent; we don't punish the operator with
@@ -189,7 +189,7 @@ func (w DefaultOrganizationGitOpsWriter) WriteTenantOverlay(ctx context.Context,
 }
 
 // writeParentTenantsIndex (re)generates the parent
-// clusters/<fqdn>/sme-tenants/kustomization.yaml index file. The file
+// clusters/<fqdn>/org-tenants/kustomization.yaml index file. The file
 // lists every immediate subdirectory that contains a kustomization.yaml
 // of its own. Sorted lexically for deterministic output (no spurious
 // diffs when the orchestrator re-runs).
@@ -228,7 +228,7 @@ func writeParentTenantsIndex(parentDir string) error {
 			sortedSubs[j], sortedSubs[j-1] = sortedSubs[j-1], sortedSubs[j]
 		}
 	}
-	// Also emit the shared HelmRepositories file (#893) — the SME-tenant
+	// Also emit the shared HelmRepositories file (#893) — the Organization
 	// charts (bp-keycloak / bp-cnpg / bp-wordpress-tenant / bp-openclaw /
 	// bp-stalwart-tenant + vcluster's loft repo) are NOT shipped by the
 	// bootstrap-kit on a Sovereign by default. The orchestrator emits them
@@ -244,7 +244,7 @@ func writeParentTenantsIndex(parentDir string) error {
 	}
 
 	var b bytes.Buffer
-	b.WriteString("# Generated by catalyst-api/sme-tenant pipeline (#804/#889/#893).\n")
+	b.WriteString("# Generated by catalyst-api/org-tenant pipeline (#804/#889/#893).\n")
 	b.WriteString("# DO NOT EDIT — re-run the orchestrator on tenant signup/teardown\n")
 	b.WriteString("# to regenerate. Lists every per-tenant overlay subdirectory\n")
 	b.WriteString("# under this path so the parent Flux Kustomization\n")
@@ -270,7 +270,7 @@ func writeParentTenantsIndex(parentDir string) error {
 }
 
 // orgTenantSharedHelmRepositories is the canonical HelmRepository
-// declarations the SME tenant overlays sourceRef into. Issue #893 —
+// declarations the Organization tenant overlays sourceRef into. Issue #893 —
 // these were missing on Sovereigns because the bootstrap-kit doesn't
 // ship them (they're tenant-mode-only charts). Emitted once at the
 // parent level, shared by every tenant.
@@ -284,7 +284,7 @@ func writeParentTenantsIndex(parentDir string) error {
 // secretRef: ghcr-pull is the canonical name written by cloud-init at
 // /var/lib/catalyst/ghcr-pull-secret.yaml and reflected into every
 // namespace via bp-reflector (issue #543).
-const orgTenantSharedHelmRepositories = `# Generated by catalyst-api/sme-tenant pipeline (#893).
+const orgTenantSharedHelmRepositories = `# Generated by catalyst-api/org-tenant pipeline (#893).
 # Shared HelmRepositories the per-tenant overlays sourceRef into.
 # DO NOT EDIT — re-run the orchestrator to regenerate.
 ---
@@ -380,7 +380,7 @@ func (w DefaultOrganizationGitOpsWriter) DeleteTenantOverlay(ctx context.Context
 	if cfg.Token == "" {
 		return "", errors.New("gitops token unconfigured — set CATALYST_GITOPS_TOKEN")
 	}
-	scratch, err := os.MkdirTemp(envOr("CATALYST_GITOPS_TMPDIR", os.TempDir()), "sme-tenant-delete-*")
+	scratch, err := os.MkdirTemp(envOr("CATALYST_GITOPS_TMPDIR", os.TempDir()), "org-tenant-delete-*")
 	if err != nil {
 		return "", fmt.Errorf("mktempdir: %w", err)
 	}
@@ -406,11 +406,11 @@ func (w DefaultOrganizationGitOpsWriter) DeleteTenantOverlay(ctx context.Context
 	if err := runGit(ctx, repoDir, "config", "user.email", cfg.CommitterMail); err != nil {
 		return "", fmt.Errorf("git config user.email: %w", err)
 	}
-	overlayDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "sme-tenants", rec.OrganizationID)
+	overlayDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "org-tenants", rec.OrganizationID)
 	if err := os.RemoveAll(overlayDir); err != nil {
 		return "", fmt.Errorf("remove overlay: %w", err)
 	}
-	relRoot := filepath.Join("clusters", rec.OTECHFQDN, "sme-tenants", rec.OrganizationID)
+	relRoot := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", rec.OrganizationID)
 	// `git add -A <path>` records the deletions.
 	if err := runGit(ctx, repoDir, "add", "-A", relRoot); err != nil {
 		return "", fmt.Errorf("git add: %w", err)
@@ -420,20 +420,20 @@ func (w DefaultOrganizationGitOpsWriter) DeleteTenantOverlay(ctx context.Context
 	// removing the tenant subdir, so Flux's Kustomization sees the
 	// reduced resources list. If no tenants remain, the parent index is
 	// rewritten with `resources: []` (still a valid Kustomization root).
-	parentDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "sme-tenants")
+	parentDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "org-tenants")
 	if err := writeParentTenantsIndex(parentDir); err != nil {
 		return "", fmt.Errorf("write parent index: %w", err)
 	}
-	parentRel := filepath.Join("clusters", rec.OTECHFQDN, "sme-tenants", "kustomization.yaml")
+	parentRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", "kustomization.yaml")
 	if err := runGit(ctx, repoDir, "add", parentRel); err != nil {
 		return "", fmt.Errorf("git add parent index: %w", err)
 	}
-	parentHRRel := filepath.Join("clusters", rec.OTECHFQDN, "sme-tenants", "helmrepositories.yaml")
+	parentHRRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", "helmrepositories.yaml")
 	if err := runGit(ctx, repoDir, "add", parentHRRel); err != nil {
 		return "", fmt.Errorf("git add parent helmrepositories: %w", err)
 	}
 
-	msg := fmt.Sprintf("sme-tenant: tear down %s (%s) on %s",
+	msg := fmt.Sprintf("org-tenant: tear down %s (%s) on %s",
 		rec.Subdomain, rec.OrganizationID, rec.OTECHFQDN)
 	if err := runGit(ctx, repoDir, "commit", "--allow-empty", "-m", msg); err != nil {
 		return "", fmt.Errorf("git commit: %w", err)
@@ -457,7 +457,7 @@ type orgTenantTemplateData struct {
 	Namespace    string
 	VClusterName string
 	OTECHFQDN    string
-	// ParentDomain — the chosen sme-pool parent (multi-domain
+	// ParentDomain — the chosen org-pool parent (multi-domain
 	// Sovereign per epic #825). Falls back to OTECHFQDN for
 	// single-domain back-compat. The console/wordpress/openclaw/
 	// mail/keycloak hosts are all derived from this zone.
@@ -543,7 +543,7 @@ type orgTenantTemplateData struct {
 // the per-tenant overlay directory.
 func renderOrganizationOverlay(rec store.OrganizationProvisionRecord, versions OrganizationChartVersions) (map[string]string, error) {
 	if strings.TrimSpace(rec.OrganizationID) == "" {
-		return nil, errors.New("render: sme_tenant_id required")
+		return nil, errors.New("render: org_tenant_id required")
 	}
 	if strings.TrimSpace(rec.OTECHFQDN) == "" {
 		return nil, errors.New("render: otech fqdn required")
@@ -552,7 +552,7 @@ func renderOrganizationOverlay(rec store.OrganizationProvisionRecord, versions O
 		return nil, errors.New("render: subdomain required")
 	}
 	versions = withVersionDefaults(versions)
-	// Multi-domain Sovereign (#825): the chosen sme-pool parent zone
+	// Multi-domain Sovereign (#825): the chosen org-pool parent zone
 	// drives every derived host. Falls back to OTECHFQDN for single-
 	// domain back-compat (#804).
 	parentZone := strings.TrimSpace(rec.ParentDomain)
@@ -678,7 +678,7 @@ var orgTenantTemplates = map[string]string{
 	"continuum.yaml": orgTenantContinuum,
 }
 
-const orgTenantKustomization = `# Generated at {{.GeneratedAt}} by catalyst-api/sme-tenant pipeline (#804).
+const orgTenantKustomization = `# Generated at {{.GeneratedAt}} by catalyst-api/org-tenant pipeline (#804).
 # DO NOT EDIT — re-run the orchestrator to regenerate.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -700,8 +700,8 @@ resources:
   - continuum.yaml
 {{- end }}
 commonLabels:
-  catalyst.openova.io/sme-tenant: {{.TenantID}}
-  catalyst.openova.io/sme-subdomain: {{.Subdomain}}
+  catalyst.openova.io/org-tenant: {{.TenantID}}
+  catalyst.openova.io/org-subdomain: {{.Subdomain}}
 `
 
 const orgTenantNamespace = `apiVersion: v1
@@ -709,8 +709,8 @@ kind: Namespace
 metadata:
   name: {{.Namespace}}
   labels:
-    catalyst.openova.io/sme-tenant: {{.TenantID}}
-    catalyst.openova.io/sme-subdomain: {{.Subdomain}}
+    catalyst.openova.io/org-tenant: {{.TenantID}}
+    catalyst.openova.io/org-subdomain: {{.Subdomain}}
     catalyst.openova.io/managed-by: catalyst-api
   annotations:
     catalyst.openova.io/admin-email: {{.AdminEmail}}
@@ -719,8 +719,8 @@ metadata:
     catalyst.openova.io/domain-mode: {{.DomainMode}}
 `
 
-const orgTenantVCluster = `# vCluster HelmRelease — the SME's logical cluster lives here.
-# Per Inviolable Principle 7 (K8s-native tenancy) every SME gets its
+const orgTenantVCluster = `# vCluster HelmRelease — the Organization's logical cluster lives here.
+# Per Inviolable Principle 7 (K8s-native tenancy) every Organization gets its
 # own vcluster control plane; the bp-* charts below install INTO that
 # vcluster via the vcluster syncer.
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -753,7 +753,7 @@ spec:
         enabled: true
 `
 
-const orgTenantBPKeycloak = `# bp-keycloak per-tenant (issue #800/#803/#804/#910) — the SME's
+const orgTenantBPKeycloak = `# bp-keycloak per-tenant (issue #800/#803/#804/#910) — the Organization's
 # own Keycloak instance. Each tenant runs its own Keycloak Pod +
 # PostgreSQL backend in its tenant Namespace; per Inviolable Principle 7
 # (K8s-native tenancy) the realm namespace is internal to that one
@@ -821,12 +821,12 @@ spec:
   # silently no-ops, login flows still work).
   valuesFrom:
     - kind: Secret
-      name: sme-tenant-smtp-credentials
+      name: org-tenant-smtp-credentials
       valuesKey: smtp-user
       targetPath: smtp.user
       optional: true
     - kind: Secret
-      name: sme-tenant-smtp-credentials
+      name: org-tenant-smtp-credentials
       valuesKey: smtp-pass
       targetPath: smtp.password
       optional: true
@@ -875,12 +875,12 @@ spec:
     realmConfig:
       tenant:
         enabled: true
-        realmName: sme-{{.Subdomain}}
+        realmName: org-{{.Subdomain}}
         displayName: {{.CompanyName}}
         adminEmail: {{.AdminEmail}}
         groups:
-          - sme-admin
-          - sme-user
+          - org-admin
+          - org-user
         clients:
           - id: catalyst-ui
             publicClient: true
@@ -901,7 +901,7 @@ spec:
         parentDomain: {{.ParentDomain}}
 `
 
-const orgTenantBPCNPG = `# bp-cnpg in the SME tenant namespace — Postgres for WordPress
+const orgTenantBPCNPG = `# bp-cnpg in the Organization tenant namespace — Postgres for WordPress
 # + (in future tenants) other apps that need a relational store.
 #
 # Values contract (issue #910 / B3): bp-cnpg is a pure umbrella subchart
@@ -928,7 +928,7 @@ spec:
   values:
     cloudnative-pg:
       # Single replica per tenant — operator-leader-elected, additional
-      # replicas are passive standbys; SME footprint trade-off per
+      # replicas are passive standbys; Organization footprint trade-off per
       # docs/INVIOLABLE-PRINCIPLES.md #4 (overridable via per-cluster
       # overlay).
       replicaCount: 1
@@ -944,7 +944,7 @@ spec:
 
 // orgTenantBPNewAPI emits the per-tenant bp-newapi HelmRelease (#945).
 //
-// Architecture: every SME runs ITS OWN NewAPI gateway. alice's OpenClaw
+// Architecture: every Organization runs ITS OWN NewAPI gateway. alice's OpenClaw
 // boots and points at https://api.alice.<parent>/v1 (set by
 // orgTenantBPOpenClaw). That hostname MUST resolve to a per-tenant
 // NewAPI Pod with its own Postgres-backed channels list, its own admin
@@ -985,7 +985,7 @@ spec:
 // retries cost minutes.
 const orgTenantBPNewAPI = `# bp-newapi per-tenant (#915, #945) — alice's own NewAPI gateway.
 #
-# Per umbrella epic #915 + bug #945 (G3 surfaced 2026-05-05): every SME
+# Per umbrella epic #915 + bug #945 (G3 surfaced 2026-05-05): every Organization
 # tenant runs its own NewAPI Pod with its own channels list + admin UI.
 # OpenClaw's llm.baseURL points here (api.<sub>.<parent>/v1) so each
 # tenant's chats route through their own NewAPI which proxies to the
@@ -1045,7 +1045,7 @@ spec:
       adminUI:
         mode: keycloak
         keycloak:
-          issuer: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
+          issuer: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/org-{{.Subdomain}}
           clientId: newapi-admin
           callbackPath: /oauth/callback
           existingSecret: newapi-oidc-client-secret
@@ -1131,7 +1131,7 @@ spec:
           property: ADMIN_API_TOKEN
 `
 
-const orgTenantBPWordPress = `# bp-wordpress-tenant (#800, #915) — SSO-pre-wired WordPress per SME.
+const orgTenantBPWordPress = `# bp-wordpress-tenant (#800, #915) — SSO-pre-wired WordPress per Organization.
 #
 # Per umbrella epic #915 (D1 sub-task) the chart's post-install
 # oidc-config Job uses wp-cli to install + activate the openid-connect-
@@ -1183,24 +1183,24 @@ spec:
     # overridable (Principle #4) via CATALYST_VCLUSTER_IMAGE_REGISTRY.
     global:
       imageRegistry: {{.VClusterImageRegistry}}/proxy-dockerhub
-    # smeDomain is the chart-consumed data-value key — #3383 keeps every
-    # .Values.sme* overlay key WIRE-STABLE; the bp-wordpress-tenant chart
-    # reads .Values.smeDomain in _helpers.tpl + sso-app-registration.yaml,
-    # so the producer must keep emitting smeDomain (not a renamed orgDomain,
+    # orgDomain is the chart-consumed data-value key — #3383 keeps every
+    # .Values.org* overlay key WIRE-STABLE; the bp-wordpress-tenant chart
+    # reads .Values.orgDomain in _helpers.tpl + sso-app-registration.yaml,
+    # so the producer must keep emitting orgDomain (not a renamed orgDomain,
     # which the chart consumes nowhere → WordPress would fall back to the
-    # default wordpress.sme.local host).
-    smeDomain: {{if .IsBYO}}{{.BYODomain}}{{else}}{{.Subdomain}}.{{.ParentDomain}}{{end}}
+    # default wordpress.org.local host).
+    orgDomain: {{if .IsBYO}}{{.BYODomain}}{{else}}{{.Subdomain}}.{{.ParentDomain}}{{end}}
     # Canonical OIDC block (chart >= 0.2.0).
     oidc:
       enabled: true
-      issuerURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
+      issuerURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/org-{{.Subdomain}}
       clientId: wordpress
       clientSecretName: wordpress-oidc-client-secret
       defaultRole: subscriber
       identityKey: preferred_username
     # Legacy alias (chart 0.1.x back-compat). Removed in chart 0.3.0.
     keycloak:
-      realmURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
+      realmURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/org-{{.Subdomain}}
       clientID: wordpress
       clientSecretName: wordpress-oidc-client-secret
     adminUser:
@@ -1235,7 +1235,7 @@ spec:
 // kill. Only rendered when EnableHotStandby=true; otherwise the
 // template evaluates to whitespace and the overlay writer skips the
 // file. The applicationRef points at the bp-wordpress-tenant
-// HelmRelease (the per-Application unit in the SME tenant model).
+// HelmRelease (the per-Application unit in the Organization tenant model).
 // CRD shape per products/catalyst/chart/crds/continuum.yaml.
 //
 // Lease backend defaults to dns-quorum because the Sovereign-internal
@@ -1265,8 +1265,8 @@ metadata:
   name: bp-wordpress-tenant
   namespace: {{.Namespace}}
   labels:
-    catalyst.openova.io/sme-tenant: {{.TenantID}}
-    catalyst.openova.io/sme-subdomain: {{.Subdomain}}
+    catalyst.openova.io/org-tenant: {{.TenantID}}
+    catalyst.openova.io/org-subdomain: {{.Subdomain}}
     openova.io/application: bp-wordpress-tenant
 spec:
   applicationRef: bp-wordpress-tenant
@@ -1335,14 +1335,14 @@ spec:
   values:
     # ── OIDC (per-tenant Keycloak SSO) ─────────────────────────────────
     oidc:
-      issuerURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
+      issuerURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/org-{{.Subdomain}}
       clientId: openclaw
       clientSecret:
         name: openclaw-oidc-client-secret
         key: OIDC_CLIENT_SECRET
     # ── LLM gateway (per-tenant NewAPI, OpenAI-compatible) ─────────────
     # newapi runs as a per-tenant HelmRelease (bp-newapi) — alice has
-    # her own NewAPI at api.<sme-domain>; OpenClaw points its OpenAI
+    # her own NewAPI at api.<org-domain>; OpenClaw points its OpenAI
     # client there. The per-user newapi-key-{uuid} Secret carries the
     # end-user's bearer token (ADR-0003 §3.3); the controller-side
     # service token below is used for /readyz probes and any
@@ -1358,7 +1358,7 @@ spec:
       defaultModel: qwen3.6
     # ── Legacy aliases (back-compat with chart < 0.2.0) ────────────────
     keycloak:
-      realmURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
+      realmURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/org-{{.Subdomain}}
       clientID: openclaw
       clientSecretName: openclaw-oidc-client-secret
     newapi:
@@ -1372,7 +1372,7 @@ spec:
 `
 
 const orgTenantBPStalwart = `# bp-stalwart-tenant (#801, OIDC wiring #915) — dedicated mail server
-# per SME with Keycloak OIDC SSO against the per-tenant Keycloak realm.
+# per Organization with Keycloak OIDC SSO against the per-tenant Keycloak realm.
 #
 # OIDC contract (#915): the per-tenant Keycloak (bp-keycloak above)
 # registers a confidential client ` + "`stalwart`" + ` with redirect URI
@@ -1421,12 +1421,12 @@ spec:
     adminEmail: {{.AdminEmail}}
     # Keycloak OIDC SSO — same realm + ExternalSecret-store path
     # convention as bp-wordpress-tenant + bp-openclaw above so all
-    # three SME apps SSO against ONE tenant Keycloak with distinct
+    # three Organization apps SSO against ONE tenant Keycloak with distinct
     # client IDs. Realm-config-tenant (#910 C1) registers the
     # ` + "`stalwart`" + ` client with redirect URIs covering the webmail
     # host AND the OIDC callback path.
     keycloak:
-      realmURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
+      realmURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/org-{{.Subdomain}}
       clientID: stalwart
       clientSecretName: stalwart-oidc-client-secret
       oidcExternalSecret:
@@ -1456,10 +1456,10 @@ spec:
 `
 
 const orgTenantCertificate = `{{- if .IsBYO}}
-# Per-host Certificate (BYO mode only). Free-subdomain SMEs are
+# Per-host Certificate (BYO mode only). Free-subdomain Organizations are
 # covered by the per-parent-zone wildcard *.{{.ParentDomain}} that
 # cert-manager + powerdns-webhook issues per epic #825 sub-2 (one
-# wildcard per parent in the role:sme-pool list).
+# wildcard per parent in the role:org-pool list).
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -1477,7 +1477,7 @@ spec:
     - {{.MailHost}}
 {{- else}}
 # Free-subdomain mode — wildcard *.{{.ParentDomain}} already covers
-# every SME's console.<sub>.<parent_domain>; this file is intentionally
+# every Organization's console.<sub>.<parent_domain>; this file is intentionally
 # a placeholder so kustomization.yaml's resource list stays static.
 apiVersion: v1
 kind: ConfigMap
@@ -1488,9 +1488,9 @@ data:
   strategy: wildcard-parent-zone
   parentDomain: {{.ParentDomain}}
   notes: |
-    Free-subdomain SMEs use the per-parent-zone wildcard certificate
+    Free-subdomain Organizations use the per-parent-zone wildcard certificate
     issued by cert-manager + powerdns-webhook. The parent zone is
-    one of the Sovereign's role:sme-pool entries (epic #825).
+    one of the Sovereign's role:org-pool entries (epic #825).
     No per-tenant Certificate resource is required.
 {{- end}}
 `

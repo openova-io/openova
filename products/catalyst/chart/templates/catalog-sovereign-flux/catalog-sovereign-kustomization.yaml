@@ -66,7 +66,7 @@ GATING
 ------
 Rendered ONLY when .Values.global.sovereignFQDN non-empty AND
 .Values.ingress.marketplace.enabled — the same Sovereign discriminator the
-GitRepository + the SME bundle use.
+GitRepository + the Organization bundle use.
 
 Per Inviolable Principle #3 the chart templates the resource and Flux owns
 the apply — no `kubectl apply` of CRs. Per #4 every cadence/timeout/ref knob
@@ -74,7 +74,7 @@ is operator-overridable via .Values.catalogSovereign.kustomization.*.
 
 References:
   - Issue #3668 (this fix), deferred half of PR #3702 / #3648
-  - templates/sme-services/sme-tenants-kustomization.yaml (the exact pattern)
+  - templates/org-services/org-tenants-kustomization.yaml (the exact pattern)
   - templates/catalog-seed/blueprints.yaml (the seed + resource-policy:keep)
   - catalog-sovereign-gitrepository.yaml (the source)
 */}}

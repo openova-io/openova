@@ -56,12 +56,12 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// StreamCatalystSME is the canonical JetStream Stream backing every
-// SME convergence event (catalyst.tenant.*, catalyst.billing.*,
+// StreamCatalystOrg is the canonical JetStream Stream backing every
+// Organization convergence event (catalyst.tenant.*, catalyst.billing.*,
 // catalyst.domain.*, catalyst.provision.*). Mirrors
-// core/services/shared/events.StreamCatalystSME — kept in sync by the
+// core/services/shared/events.StreamCatalystOrg — kept in sync by the
 // constant lifting up to the chart / per-Sovereign overlay.
-const StreamCatalystSME = "CATALYST_SME"
+const StreamCatalystOrg = "CATALYST_ORG"
 
 // Canonical subjects the Group-C controllers consume. Each constant
 // matches the publish-side subject derived by
@@ -152,12 +152,12 @@ func Connect(url string) (*Subscriber, error) {
 type Handler func(ctx context.Context, ev *Event) error
 
 // SubscribeOptions tunes Subscribe behaviour. Zero values yield sane
-// production defaults (Stream=CATALYST_SME, AckWait=30s, no MaxDeliver
+// production defaults (Stream=CATALYST_ORG, AckWait=30s, no MaxDeliver
 // cap so a permanently-failing handler does NOT silently drop events
 // — operator-visible nak loops are the right failure mode).
 type SubscribeOptions struct {
 	// Stream is the JetStream Stream the FilterSubject lives on.
-	// Defaults to StreamCatalystSME.
+	// Defaults to StreamCatalystOrg.
 	Stream string
 	// AckWait bounds how long JetStream waits for Ack before redeliver.
 	// Defaults to 30 seconds.
@@ -168,7 +168,7 @@ type SubscribeOptions struct {
 }
 
 // Subscribe attaches a durable consumer to subject on options.Stream
-// (default StreamCatalystSME) under the supplied durable name, and
+// (default StreamCatalystOrg) under the supplied durable name, and
 // dispatches every envelope to handler.
 //
 // Subscribe is non-blocking: it returns once the consumer has been
@@ -202,7 +202,7 @@ func (s *Subscriber) Subscribe(
 	}
 	stream := opts.Stream
 	if stream == "" {
-		stream = StreamCatalystSME
+		stream = StreamCatalystOrg
 	}
 	ackWait := opts.AckWait
 	if ackWait <= 0 {

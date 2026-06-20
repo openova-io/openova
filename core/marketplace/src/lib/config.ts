@@ -60,7 +60,7 @@ function mothershipConsoleURL(): string {
  * Stripe-return path persists this BEFORE the cross-origin hop so the
  * value survives the round-trip.
  */
-export const ACTIVE_ORG_SLUG_KEY = 'sme-active-org-slug';
+export const ACTIVE_ORG_SLUG_KEY = 'org-active-org-slug';
 
 /**
  * Read the persisted tenant slug from localStorage. Returns null in SSR
@@ -87,12 +87,12 @@ function readActiveOrgSlug(): string | null {
  * `console.<tenant-slug>.<sov-fqdn>` — emitted by the chart-side
  * tenant-public-routes.yaml HTTPRoute (PR #1993 TBD-A67) AND by the
  * runtime organization-controller. PowerDNS resolves
- * `console.<slug>.<parentDomain>` for every Org on the role=sme-pool
+ * `console.<slug>.<parentDomain>` for every Org on the role=org-pool
  * parent zone; without prepending the slug the marketplace was bouncing
  * customers into the operator console.
  *
  * The marketplace runs at `marketplace.<sov-fqdn>` where `<sov-fqdn>` IS
- * the sme-pool parent domain for sme-pool Sovereigns (e.g.
+ * the org-pool parent domain for org-pool Sovereigns (e.g.
  * `marketplace.omani.homes`), so we just splice the slug as a new
  * left-most label.
  *

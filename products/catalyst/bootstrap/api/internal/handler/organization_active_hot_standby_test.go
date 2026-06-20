@@ -1,5 +1,5 @@
-// sme_tenant_active_hot_standby_test.go — D31 active-hot-standby
-// regression tests for the SME-tenant gitops writer.
+// organization_active_hot_standby_test.go — D31 active-hot-standby
+// regression tests for the Organization gitops writer.
 //
 // The render path reads three Pod-env vars at template time:
 //
@@ -35,7 +35,7 @@ func d31TestRec() store.OrganizationProvisionRecord {
 		AdminEmail:      "admin@acme.test",
 		OTECHFQDN:       "otech.example",
 		VClusterName:    "vc-acme",
-		TenantNamespace: "sme-t-acme",
+		TenantNamespace: "org-t-acme",
 	}
 }
 
@@ -106,7 +106,7 @@ func TestRenderOrganizationOverlay_HotStandby_On_EmitsContinuumCR(t *testing.T) 
 		"apiVersion: dr.openova.io/v1",
 		"kind: Continuum",
 		"name: bp-wordpress-tenant",
-		"namespace: sme-t-acme",
+		"namespace: org-t-acme",
 		"applicationRef: bp-wordpress-tenant",
 		"primaryRegion: hz-fsn-rtz-prod",
 		"- hz-hel-rtz-prod",

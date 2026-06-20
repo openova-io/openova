@@ -1182,7 +1182,7 @@ func TestRunPhase1Watch_LatePollRecoversFailedToReady(t *testing.T) {
 	releases := []runtime.Object{
 		makeReadyHR("bp-cilium"),
 		makeReadyHR("bp-cert-manager"),
-		makeFailedHR("bp-catalyst-platform", "namespace 'sme' not found"),
+		makeFailedHR("bp-catalyst-platform", "namespace 'org-services' not found"),
 	}
 	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
 		scheme,

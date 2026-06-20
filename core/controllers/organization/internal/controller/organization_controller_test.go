@@ -449,7 +449,7 @@ func sampleOrg() *orgapi.Organization {
 			Slug:                   "acme",
 			DisplayName:            "ACME Corp",
 			Kind:                   "customer",
-			Tier:                   "sme",
+			Tier: "org",
 			BillingMode:            "real",
 			SovereignRef:           "omantel.omani.works",
 			DefaultEnvironmentType: "prod",

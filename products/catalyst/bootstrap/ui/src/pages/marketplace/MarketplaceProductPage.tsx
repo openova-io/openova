@@ -307,7 +307,7 @@ function ProductHeroStyles() {
       /* Hero logo tile — geometry only. The tile *surface* (background,
          border, fallback letter colour) is driven per-asset by
          logoTone.ts → inline style on the element above, mirroring the
-         canonical SME marketplace's per-asset PNG approach. Keep this
+         canonical Organization marketplace's per-asset PNG approach. Keep this
          rule's geometry (size, radius, padding, object-fit) in sync
          with the matching tiles in StepComponents.tsx (.corp-comp-card),
          StepReview.tsx (ComponentMiniCard) and MarketplaceFamilyPage.tsx

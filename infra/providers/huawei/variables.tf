@@ -78,7 +78,7 @@ variable "regions" {
 
 variable "parent_domains_yaml" {
   type        = string
-  description = "Parent-domain list as a YAML inline-array literal. Each entry: `{name: <apex>, role: <primary|sme-pool>, ...}`. Empty = single-zone fallback derived from sovereign_fqdn."
+  description = "Parent-domain list as a YAML inline-array literal. Each entry: `{name: <apex>, role: <primary|org-pool>, ...}`. Empty = single-zone fallback derived from sovereign_fqdn."
   default     = ""
 }
 

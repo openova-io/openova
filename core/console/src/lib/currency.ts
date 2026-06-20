@@ -1,6 +1,6 @@
 // Billing currency helpers — shared by every OMR display in the console app.
 //
-// The authoritative money unit across SME services is the baisa (1/1000 OMR).
+// The authoritative money unit across Organization services is the baisa (1/1000 OMR).
 // Previously the console used ad-hoc `toFixed(3)` calls and string concatenation
 // in BillingPage.svelte, which drifted from the marketplace's rounded "9 OMR"
 // rendering. Now every money display in the console goes through `formatOMR`

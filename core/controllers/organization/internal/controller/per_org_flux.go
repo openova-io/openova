@@ -90,7 +90,7 @@ const perOrgTenantRepoName = "catalyst-tenant"
 // fluxGitRepositoryGVK / fluxKustomizationGVK are the Flux v1 GVKs the
 // hook find-or-creates. Flux 2.4+ deprecated v1beta2; we pin v1 to match
 // the application-controller (FluxGitRepositoryGVR / FluxKustomizationGVR)
-// and the chart's catalog-sovereign / sme-tenants Flux templates.
+// and the chart's catalog-sovereign / org-tenants Flux templates.
 var (
 	fluxGitRepositoryGVK = schema.GroupVersionKind{
 		Group:   "source.toolkit.fluxcd.io",

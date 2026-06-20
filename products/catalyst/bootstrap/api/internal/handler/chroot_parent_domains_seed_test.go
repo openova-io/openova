@@ -5,14 +5,14 @@
 // PR #1861 widened LoadOrganizationParentDomainsFromEnv to seed all four
 // canonical .omani.X entries in the env-stub fallback, but on a real
 // Sovereign that path is bypassed: the mother imports a full
-// deployment record with only the operator-selected sme-pool TLD,
+// deployment record with only the operator-selected org-pool TLD,
 // and the HTTP surface /api/v1/sovereign/parent-domains reads from
 // the imported record (dep.Request.ParentDomains), not the env stub.
-// Result on t31 (2026-05-19): /parent-domains?role=sme-pool returned
-// 1 entry instead of 4 → customer's omani.homes pick failed at SME
+// Result on t31 (2026-05-19): /parent-domains?role=org-pool returned
+// 1 entry instead of 4 → customer's omani.homes pick failed at Organization
 // tenant signup with 422 invalid-parent-domain.
 //
-// chrootEnsureSMEPoolSeed closes that gap. These tests guard:
+// chrootEnsureOrgPoolSeed closes that gap. These tests guard:
 //
 //   1. Lockstep with core/services/domain/store.AllowedTLDs — if
 //      somebody widens the picker, this test fails until the seed
@@ -51,15 +51,15 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
-// TestChrootEnsureSMEPoolSeed_MatchesAllowedTLDsLiteral — the
+// TestChrootEnsureOrgPoolSeed_MatchesAllowedTLDsLiteral — the
 // canonical pool literal in the seed file must contain exactly the
 // same four TLDs as core/services/domain/store.AllowedTLDs. We can't
 // import that package directly (it's a separate Go module — the
 // catalyst-api bootstrap binary is intentionally decoupled from the
-// SME-side service modules), so the test asserts against the same
+// Organization-side service modules), so the test asserts against the same
 // literal list a human reviewer can eyeball-match. Drift surfaces in
 // CI as a test fail with the exact got/want diff.
-func TestChrootEnsureSMEPoolSeed_MatchesAllowedTLDsLiteral(t *testing.T) {
+func TestChrootEnsureOrgPoolSeed_MatchesAllowedTLDsLiteral(t *testing.T) {
 	// Mirror of core/services/domain/store.AllowedTLDs (2026-05-19).
 	// Update both lists together if AllowedTLDs is ever widened.
 	allowedTLDs := []string{
@@ -68,23 +68,23 @@ func TestChrootEnsureSMEPoolSeed_MatchesAllowedTLDsLiteral(t *testing.T) {
 		"omani.trade",
 		"omani.homes",
 	}
-	got := append([]string(nil), canonicalSMEPoolDomains...)
+	got := append([]string(nil), canonicalOrgPoolDomains...)
 	want := append([]string(nil), allowedTLDs...)
 	sort.Strings(got)
 	sort.Strings(want)
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("canonicalSMEPoolDomains drift from AllowedTLDs:\n  got:  %v\n  want: %v\n"+
-			"Update either canonicalSMEPoolDomains in chroot_parent_domains_seed.go OR\n"+
+		t.Fatalf("canonicalOrgPoolDomains drift from AllowedTLDs:\n  got:  %v\n  want: %v\n"+
+			"Update either canonicalOrgPoolDomains in chroot_parent_domains_seed.go OR\n"+
 			"AllowedTLDs in core/services/domain/store/store.go — the two must agree.",
 			got, want)
 	}
 }
 
-// TestChrootEnsureSMEPoolSeed_TopsUpPartialPool — start with the
-// 2-entry mother shape (primary + one sme-pool) and verify the seed
+// TestChrootEnsureOrgPoolSeed_TopsUpPartialPool — start with the
+// 2-entry mother shape (primary + one org-pool) and verify the seed
 // fills in the 3 missing canonical entries. Mirrors the t31 #1907
 // scenario byte-for-byte.
-func TestChrootEnsureSMEPoolSeed_TopsUpPartialPool(t *testing.T) {
+func TestChrootEnsureOrgPoolSeed_TopsUpPartialPool(t *testing.T) {
 	t.Setenv("SOVEREIGN_FQDN", "t31.omani.works")
 
 	st, err := store.New(t.TempDir())
@@ -99,28 +99,28 @@ func TestChrootEnsureSMEPoolSeed_TopsUpPartialPool(t *testing.T) {
 			SovereignFQDN: "t31.omani.works",
 			ParentDomains: []provisioner.ParentDomain{
 				{Name: "omani.works", Role: provisioner.ParentDomainRolePrimary},
-				{Name: "omani.homes", Role: provisioner.ParentDomainRoleSMEPool},
+				{Name: "omani.homes", Role: provisioner.ParentDomainRoleOrgPool},
 			},
 		},
 	}
 
-	added := h.chrootEnsureSMEPoolSeed(dep)
-	// 4 canonical TLDs minus 1 already-present sme-pool entry
+	added := h.chrootEnsureOrgPoolSeed(dep)
+	// 4 canonical TLDs minus 1 already-present org-pool entry
 	// (omani.homes) = 3 appends. The primary's omani.works row does
 	// NOT count toward pool dedup; the canonical pool needs every
-	// TLD listed as sme-pool independently of whether one happens to
+	// TLD listed as org-pool independently of whether one happens to
 	// match the primary (FindParentDomain validates against
-	// role=sme-pool, not role=primary).
+	// role=org-pool, not role=primary).
 	if added != 3 {
-		t.Fatalf("expected 3 rows appended (4 canonical sme-pool minus 1 mother-stamped); got %d", added)
+		t.Fatalf("expected 3 rows appended (4 canonical org-pool minus 1 mother-stamped); got %d", added)
 	}
 
-	// All 4 canonical .omani.X entries must be present as sme-pool
-	// after the seed. The mother-stamped omani.homes Role=sme-pool
+	// All 4 canonical .omani.X entries must be present as org-pool
+	// after the seed. The mother-stamped omani.homes Role=org-pool
 	// must survive (we only append when missing, never overwrite).
 	pool := map[string]string{}
 	for _, pd := range dep.Request.ParentDomains {
-		if pd.Role == provisioner.ParentDomainRoleSMEPool {
+		if pd.Role == provisioner.ParentDomainRoleOrgPool {
 			pool[strings.ToLower(pd.Name)] = string(pd.Role)
 		}
 	}
@@ -153,20 +153,20 @@ func TestChrootEnsureSMEPoolSeed_TopsUpPartialPool(t *testing.T) {
 	}
 
 	// Persistence round-trip: re-load the record from disk and verify
-	// the topped-up pool survives. 1 primary + 4 sme-pool = 5 rows.
+	// the topped-up pool survives. 1 primary + 4 org-pool = 5 rows.
 	rec, err := st.Load(dep.ID)
 	if err != nil {
 		t.Fatalf("store.Load: %v", err)
 	}
 	if len(rec.Request.ParentDomains) != 5 {
-		t.Fatalf("on-disk record length drift: got %d entries, want 5 (1 primary + 4 sme-pool)",
+		t.Fatalf("on-disk record length drift: got %d entries, want 5 (1 primary + 4 org-pool)",
 			len(rec.Request.ParentDomains))
 	}
 }
 
-// TestChrootEnsureSMEPoolSeed_Idempotent — second run on an
+// TestChrootEnsureOrgPoolSeed_Idempotent — second run on an
 // already-full pool is a no-op.
-func TestChrootEnsureSMEPoolSeed_Idempotent(t *testing.T) {
+func TestChrootEnsureOrgPoolSeed_Idempotent(t *testing.T) {
 	t.Setenv("SOVEREIGN_FQDN", "t31.omani.works")
 	h := &Handler{log: slog.Default()}
 
@@ -176,32 +176,32 @@ func TestChrootEnsureSMEPoolSeed_Idempotent(t *testing.T) {
 			SovereignFQDN: "t31.omani.works",
 			ParentDomains: []provisioner.ParentDomain{
 				{Name: "omani.works", Role: provisioner.ParentDomainRolePrimary},
-				{Name: "omani.homes", Role: provisioner.ParentDomainRoleSMEPool},
-				{Name: "omani.rest", Role: provisioner.ParentDomainRoleSMEPool},
-				{Name: "omani.trade", Role: provisioner.ParentDomainRoleSMEPool},
-				{Name: "omani.works", Role: provisioner.ParentDomainRoleSMEPool},
+				{Name: "omani.homes", Role: provisioner.ParentDomainRoleOrgPool},
+				{Name: "omani.rest", Role: provisioner.ParentDomainRoleOrgPool},
+				{Name: "omani.trade", Role: provisioner.ParentDomainRoleOrgPool},
+				{Name: "omani.works", Role: provisioner.ParentDomainRoleOrgPool},
 			},
 		},
 	}
 	// First pass: nothing to add (all 4 canonical names already
-	// present as sme-pool rows). The primary's omani.works row does
-	// not count toward pool dedup but the additional sme-pool
+	// present as org-pool rows). The primary's omani.works row does
+	// not count toward pool dedup but the additional org-pool
 	// omani.works row above does.
-	added := h.chrootEnsureSMEPoolSeed(dep)
+	added := h.chrootEnsureOrgPoolSeed(dep)
 	if added != 0 {
 		t.Fatalf("first pass on full pool: expected 0 appends, got %d", added)
 	}
 	// Second pass: still no-op.
-	added = h.chrootEnsureSMEPoolSeed(dep)
+	added = h.chrootEnsureOrgPoolSeed(dep)
 	if added != 0 {
 		t.Fatalf("second pass on full pool: expected 0 appends, got %d", added)
 	}
 }
 
-// TestChrootEnsureSMEPoolSeed_MothershipNoOp — SOVEREIGN_FQDN unset
+// TestChrootEnsureOrgPoolSeed_MothershipNoOp — SOVEREIGN_FQDN unset
 // means we're on the mothership; the seed must be a hard no-op (the
 // canonical pool is a per-Sovereign concept, not a mothership one).
-func TestChrootEnsureSMEPoolSeed_MothershipNoOp(t *testing.T) {
+func TestChrootEnsureOrgPoolSeed_MothershipNoOp(t *testing.T) {
 	// Force unset in case the test environment leaked the var.
 	if err := os.Unsetenv("SOVEREIGN_FQDN"); err != nil {
 		t.Fatalf("unset SOVEREIGN_FQDN: %v", err)
@@ -217,7 +217,7 @@ func TestChrootEnsureSMEPoolSeed_MothershipNoOp(t *testing.T) {
 			},
 		},
 	}
-	added := h.chrootEnsureSMEPoolSeed(dep)
+	added := h.chrootEnsureOrgPoolSeed(dep)
 	if added != 0 {
 		t.Fatalf("mothership: expected 0 appends, got %d", added)
 	}
@@ -226,13 +226,13 @@ func TestChrootEnsureSMEPoolSeed_MothershipNoOp(t *testing.T) {
 	}
 }
 
-// TestChrootEnsureSMEPoolSeed_NilDep — defensive against a caller
+// TestChrootEnsureOrgPoolSeed_NilDep — defensive against a caller
 // that hands us a nil pointer. The fix-author seam (HandleDeploymentImport,
 // restoreFromStore) never does this today, but a future caller might.
-func TestChrootEnsureSMEPoolSeed_NilDep(t *testing.T) {
+func TestChrootEnsureOrgPoolSeed_NilDep(t *testing.T) {
 	t.Setenv("SOVEREIGN_FQDN", "t31.omani.works")
 	h := &Handler{log: slog.Default()}
-	if added := h.chrootEnsureSMEPoolSeed(nil); added != 0 {
+	if added := h.chrootEnsureOrgPoolSeed(nil); added != 0 {
 		t.Fatalf("nil dep: expected 0 appends, got %d", added)
 	}
 }

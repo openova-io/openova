@@ -8,12 +8,12 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: sme-admin
+      app: org-admin
   template:
     metadata:
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
-        app: sme-admin
+        app: org-admin
     spec:
       serviceAccountName: admin
       automountServiceAccountToken: false
@@ -21,7 +21,7 @@ spec:
         - name: ghcr-pull
       containers:
         - name: admin
-          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/admin:{{ default .Values.images.smeTag (default "" .Values.images.admin.tag) }}"
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/admin:{{ default .Values.images.orgTag (default "" .Values.images.admin.tag) }}"
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
@@ -56,7 +56,7 @@ metadata:
   namespace: org-services
 spec:
   selector:
-    app: sme-admin
+    app: org-admin
   ports:
     - port: 8080
       targetPort: 8080

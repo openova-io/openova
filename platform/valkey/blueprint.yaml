@@ -66,7 +66,7 @@ spec:
               Default false (TBD-V12 #2003) — matches bp-newapi's
               passwordless REDIS_CONN_STRING contract; flipping true
               requires every consumer chart (bp-newapi, catalyst
-              sme-services, projector) to wire the bp-valkey-
+              org-services, projector) to wire the bp-valkey-
               generated password into their connection strings.
       metrics:
         type: object

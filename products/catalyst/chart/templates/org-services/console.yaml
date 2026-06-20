@@ -8,12 +8,12 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: sme-console
+      app: org-console
   template:
     metadata:
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
-        app: sme-console
+        app: org-console
     spec:
       serviceAccountName: console
       automountServiceAccountToken: false
@@ -56,7 +56,7 @@ metadata:
   namespace: org-services
 spec:
   selector:
-    app: sme-console
+    app: org-console
   ports:
     - port: 8080
       targetPort: 8080

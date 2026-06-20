@@ -12,7 +12,7 @@ func TestUserProvisionStore_PutGetList(t *testing.T) {
 	}
 
 	rec := UserProvisionRecord{
-		SMEUserUUID: "uuid-alice",
+		OrgUserUUID: "uuid-alice",
 		OrganizationID: "tenant-acme",
 		Email:       "alice@acme.example",
 		State:       UPSPending,
@@ -54,7 +54,7 @@ func TestUserProvisionStore_PutGetList(t *testing.T) {
 
 	// Second user — different tenant.
 	_ = s.Put(UserProvisionRecord{
-		SMEUserUUID: "uuid-bob", OrganizationID: "tenant-beta", Email: "bob@beta.example",
+		OrgUserUUID: "uuid-bob", OrganizationID: "tenant-beta", Email: "bob@beta.example",
 	})
 
 	// List scoped to tenant.
@@ -70,7 +70,7 @@ func TestUserProvisionStore_PutGetList(t *testing.T) {
 
 func TestUserProvisionStore_Delete(t *testing.T) {
 	s, _ := NewUserProvisionStore(t.TempDir())
-	_ = s.Put(UserProvisionRecord{SMEUserUUID: "u1", OrganizationID: "t1"})
+	_ = s.Put(UserProvisionRecord{OrgUserUUID: "u1", OrganizationID: "t1"})
 	if err := s.Delete("t1", "u1"); err != nil {
 		t.Errorf("Delete: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestUserProvisionStore_RejectsBadInput(t *testing.T) {
 func TestUserProvisionStore_PathTraversalSafe(t *testing.T) {
 	s, _ := NewUserProvisionStore(t.TempDir())
 	rec := UserProvisionRecord{
-		SMEUserUUID: "../../etc/passwd",
+		OrgUserUUID: "../../etc/passwd",
 		OrganizationID: "../../etc/shadow",
 		Email:       "evil@example",
 	}

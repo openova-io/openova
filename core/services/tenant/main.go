@@ -116,13 +116,13 @@ func main() {
 	// provisioning publishes provision.completed / .failed / .app_ready
 	// / .app_removed / .app_failed / .tenant_removed. Listens on the
 	// canonical NATS subjects `catalyst.provision.*` on Sovereigns AND
-	// the legacy Kafka topic `sme.provision.events` on Catalyst-Zero.
+	// the legacy Kafka topic `org.provision.events` on Catalyst-Zero.
 	var provKafkaConsumer *events.Consumer
 	if redpandaBrokersRaw != "" {
 		kc, err := events.NewConsumer(
 			strings.Split(redpandaBrokersRaw, ","),
 			"tenant-service",
-			[]string{"sme.provision.events"},
+			[]string{"org.provision.events"},
 		)
 		if err != nil {
 			slog.Error("failed to create provision kafka consumer", "error", err)
@@ -163,7 +163,7 @@ func main() {
 			"catalyst.provision.app_failed",
 			"catalyst.provision.tenant_removed",
 		},
-		"kafka_topic", "sme.provision.events",
+		"kafka_topic", "org.provision.events",
 		"nats_enabled", natsConn != nil,
 		"kafka_enabled", provKafkaConsumer != nil,
 		"group", "tenant-service")
@@ -177,7 +177,7 @@ func main() {
 		kc, err := events.NewConsumer(
 			strings.Split(redpandaBrokersRaw, ","),
 			"tenant-members-cleanup",
-			[]string{"sme.tenant.events"},
+			[]string{"org.tenant.events"},
 		)
 		if err != nil {
 			slog.Error("failed to create members-cleanup kafka consumer", "error", err)
@@ -204,7 +204,7 @@ func main() {
 	}()
 	slog.Info("tenant members-cleanup consumer started",
 		"nats_subject", "catalyst.tenant.deleted",
-		"kafka_topic", "sme.tenant.events",
+		"kafka_topic", "org.tenant.events",
 		"nats_enabled", natsConn != nil,
 		"kafka_enabled", membersKafkaConsumer != nil,
 		"group", "tenant-members-cleanup")
@@ -229,7 +229,7 @@ func main() {
 			kc, err := events.NewConsumer(
 				strings.Split(redpandaBrokersRaw, ","),
 				"sandbox-orchestrator",
-				[]string{"sme.tenant.events"},
+				[]string{"org.tenant.events"},
 			)
 			if err != nil {
 				slog.Error("failed to create sandbox-orchestrator kafka consumer", "error", err)
@@ -261,7 +261,7 @@ func main() {
 		}()
 		slog.Info("sandbox-orchestrator consumer started",
 			"nats_subject", "catalyst.tenant.sandbox_requested",
-			"kafka_topic", "sme.tenant.events",
+			"kafka_topic", "org.tenant.events",
 			"namespace", sandboxNamespace,
 			"nats_enabled", natsConn != nil,
 			"kafka_enabled", sandboxKafkaConsumer != nil,

@@ -51,12 +51,12 @@
       // away and back (or hard-reloads) — which is why users report "cannot
       // change organization name" even though the PUT succeeds.
       try {
-        const raw = sessionStorage.getItem('sme-session-cache-v1');
+        const raw = sessionStorage.getItem('org-session-cache-v1');
         if (raw) {
           const cache = JSON.parse(raw) as { user: User; orgs: Org[] };
           if (Array.isArray(cache.orgs)) {
             cache.orgs = cache.orgs.map(o => o.id === orgId ? { ...o, name: updated.name } : o);
-            sessionStorage.setItem('sme-session-cache-v1', JSON.stringify(cache));
+            sessionStorage.setItem('org-session-cache-v1', JSON.stringify(cache));
           }
         }
       } catch { /* non-fatal: cache miss or quota */ }
@@ -80,7 +80,7 @@
       await deleteOrg(orgId);
       // Wipe the active-org pointer so the next login doesn't land on a
       // deleted workspace. logout() also clears cart + token.
-      localStorage.removeItem('sme-active-org');
+      localStorage.removeItem('org-active-org');
       logout();
     } catch (e: any) {
       deleteError = e.message || 'Delete failed';

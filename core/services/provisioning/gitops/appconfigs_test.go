@@ -374,7 +374,7 @@ func TestPostgres_AppConfigs_ActiveHotStandby_OFF(t *testing.T) {
 // regions (either empty or identical), the renderer MUST fall back to
 // the single-cluster shape rather than emit a bp-cnpg-pair HelmRelease
 // the chart's `required` template guard would reject at install time.
-// Symmetric with the WP-tenant path (sme_tenant_gitops.go:560).
+// Symmetric with the WP-tenant path (org_tenant_gitops.go:560).
 func TestPostgres_AppConfigs_ActiveHotStandby_InvalidRegionPair(t *testing.T) {
 	cases := []struct {
 		name           string

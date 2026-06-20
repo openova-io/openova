@@ -52,7 +52,7 @@ variable "marketplace_enabled" {
 # StepProvider (the operator picks "Single region" vs "Active hot-standby
 # (2 regions)" vs "Active-active") and the chart-side
 # `SOVEREIGN_ENABLE_HOT_STANDBY` envsubst the bp-catalyst-platform chart
-# slot 13 + the sme_tenant_gitops writer + every bp-* multi-region chart
+# slot 13 + the org_tenant_gitops writer + every bp-* multi-region chart
 # read at render time.
 #
 # Pre-G93.1 the cloud-init template HARDCODED `SOVEREIGN_ENABLE_HOT_STANDBY:
@@ -220,7 +220,7 @@ variable "qa_organization" {
 # ── Multi-domain Sovereign (issue #827, parent epic #825) ─────────────────
 #
 # The Sovereign supports N parent zones, NOT one. The wizard captures the
-# operator's parent-domain list (one for own use, optionally one per SME
+# operator's parent-domain list (one for own use, optionally one per Org
 # pool, etc.) and serialises it as a YAML inline-array literal. The
 # string is interpolated into Flux's postBuild.substitute as
 # PARENT_DOMAINS_YAML, then consumed by:
@@ -235,7 +235,7 @@ variable "qa_organization" {
 # explicitly when the operator brings 2+ parent zones at signup.
 variable "parent_domains_yaml" {
   type        = string
-  description = "Parent-domain list for the Sovereign as a YAML inline-array literal. Each entry: {name: <apex>, role: <primary|sme-pool>, ...}. Empty = single-zone fallback derived from sovereign_fqdn."
+  description = "Parent-domain list for the Sovereign as a YAML inline-array literal. Each entry: {name: <apex>, role: <primary|org-pool>, ...}. Empty = single-zone fallback derived from sovereign_fqdn."
   default     = ""
 }
 
@@ -393,7 +393,7 @@ variable "worker_size" {
 #
 # Production defaults (`control_plane_size = cpx22`, `worker_size = cpx32`) are
 # the documented cost-optimised baseline for customer-facing Sovereigns
-# (SME / marketplace / admin / console) — those Sovereigns provision a
+# (Organization / marketplace / admin / console) — those Sovereigns provision a
 # narrower workload set and amortise heavy stacks across `worker_count >= 2`
 # nodes plus deliberate scheduling tolerations.
 #

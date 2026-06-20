@@ -224,7 +224,7 @@ describe('tabs', () => {
     expect(always).toBeTruthy()
     // 2026-05-19 (#1976 / TBD-A64 / PR γ): the legacy "Always Included" /
     // "Choose Your Stack" labels were retired in favour of "Foundation" /
-    // "Components" per the canonical SME marketplace pattern (single flat
+    // "Components" per the canonical Organization marketplace pattern (single flat
     // grid). The cosmetic-guard spec asserts neither phrase appears in
     // the DOM; the section-toggle role attributes were also dropped
     // (`role="tablist"` / `role="tab"` → `aria-pressed`).

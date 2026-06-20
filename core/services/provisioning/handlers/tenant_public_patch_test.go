@@ -16,7 +16,7 @@ import (
 // TestPatchOrgTenantPublic_DisabledWhenParentDomainEmpty verifies the
 // feature-flag-off path: empty TenantParentDomain → no patch, no error.
 // This is the default state on Sovereigns that haven't opted in to the
-// sme-pool flow yet.
+// org-pool flow yet.
 func TestPatchOrgTenantPublic_DisabledWhenParentDomainEmpty(t *testing.T) {
 	h := &Handler{} // TenantParentDomain = ""
 	rendered, err := h.patchOrgTenantPublic(context.Background(), "acme", "wordpress", "tenant-acme")

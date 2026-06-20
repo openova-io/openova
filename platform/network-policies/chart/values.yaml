@@ -60,7 +60,6 @@ allowSystemNamespaces:
   - rtz
   - seaweedfs
   - sigstore-system
-  - sme
   - syft-grype
   - tempo
   - trivy-system

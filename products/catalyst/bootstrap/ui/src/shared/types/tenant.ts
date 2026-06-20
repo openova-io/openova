@@ -3,7 +3,7 @@
  * the tenant identity the SPA discovers via `/api/v1/tenant/discover`.
  *
  * Why branded types: the same Sovereign Console SPA bundle serves
- * BOTH otech-admin AND SME-admin views (issue #802, #795 [Q-mine-1]).
+ * BOTH otech-admin AND Organization-admin views (issue #802, #795 [Q-mine-1]).
  * Tenant context is read from `window.location.host` and resolved
  * against the tenant registry on the back end. Threading the tenant
  * id through every API call as a free-form `string` invites
@@ -27,11 +27,12 @@ export type TenantID = string & { readonly __brand: 'TenantID' }
  *   • 'otech' — the Sovereign operator tier. Renders the existing
  *     post-handover Sovereign Console (Apps / Jobs / Cloud / Users
  *     [UserAccess CRD] / Settings).
- *   • 'sme'   — the SME-admin tier (issue #795 epic). Renders the
- *     SME user CRUD + Roles pages; Keycloak realm is the
- *     SME-vcluster realm (different from otech).
+ *   • 'org'   — the Organization-admin tier (issue #795 epic). Renders the
+ *     Organization user CRUD + Roles pages; Keycloak realm is the
+ *     Organization-vcluster realm (different from otech). The discriminant
+ *     wire VALUE stays 'org' — it mirrors the back-end store.TenantKind enum.
  */
-export type TenantKind = 'otech' | 'sme'
+export type TenantKind = 'otech' | 'org'
 
 /**
  * Discovery response returned by `GET /api/v1/tenant/discover?host=...`.
@@ -65,7 +66,7 @@ export function parseTenantID(s: unknown): TenantID {
  * outside the closed set above.
  */
 export function parseTenantKind(s: unknown): TenantKind {
-  if (s === 'otech' || s === 'sme') return s
+  if (s === 'otech' || s === 'org') return s
   const preview = typeof s === 'string' ? `"${s.slice(0, 32)}"` : `<${typeof s}>`
   throw new Error(`invalid TenantKind: ${preview}`)
 }
@@ -74,5 +75,5 @@ export function parseTenantKind(s: unknown): TenantKind {
  * Type guard for `TenantKind`.
  */
 export function isTenantKind(s: unknown): s is TenantKind {
-  return s === 'otech' || s === 'sme'
+  return s === 'otech' || s === 'org'
 }

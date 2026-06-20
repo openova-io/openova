@@ -189,13 +189,13 @@ type Env struct {
 	// the gateway (one fewer hop on a tool call).
 	DomainAPIURL string
 
-	// TenantAPIURL — root URL of the SME tenant-service (#2040 fix).
+	// TenantAPIURL — root URL of the Organization tenant-service (#2040 fix).
 	// Used by `marketplace.app.install` to POST `/orgs/<TenantID>/apps`
 	// against the canonical install path. The tenant-service publishes
 	// `tenant.app_install_requested` on NATS which provisioning consumes;
 	// gitea Application CR / HelmRelease lands on the tenant's vCluster
 	// via the standard org-controller + Flux chain. SandboxToken is
-	// forwarded as the bearer (HS256 SME wire contract).
+	// forwarded as the bearer (HS256 Organization wire contract).
 	//
 	// Wired by sandbox-controller from SANDBOX_TENANT_API_URL — typically
 	// `http://gateway.org-services.svc.cluster.local:8080/api/tenant`. Empty →
@@ -213,7 +213,7 @@ type Env struct {
 	// TenantID — the tenant identifier the canonical domain service
 	// uses to scope BYOD / subdomain registrations
 	// (`core/services/domain/handlers/handlers.go` checkTenantMembership).
-	// Distinct from OrgID because the SME tenant service identifies
+	// Distinct from OrgID because the Organization tenant service identifies
 	// orgs by a separate `tenant_id` UUID — sandbox-controller injects
 	// it as SANDBOX_TENANT_ID once the chroot Organization controller
 	// has minted the tenant row. Empty → marketplace.domain.* surfaces

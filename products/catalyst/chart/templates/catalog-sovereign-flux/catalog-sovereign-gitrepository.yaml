@@ -37,12 +37,12 @@ This GitRepository tracks that one tree.
 
 WHY THIS REPO + A DEDICATED BRANCH
 ----------------------------------
-We REUSE the same local Gitea repo the SME-tenant gitops chain already
+We REUSE the same local Gitea repo the Organization-tenant gitops chain already
 bootstraps + Flux already clones (`openova/openova`, seeded pre-cutover by
-the SME repo-bootstrap hook, clonable via the catalyst-gitea-token basic-
+the Organization repo-bootstrap hook, clonable via the catalyst-gitea-token basic-
 auth Secret — #3454). A DEDICATED `catalog-sovereign` branch is immune to
 the cutover-gitea-mirror Job's `git push --mirror --force` of `main` (the
-exact TBD-C18e clobber rationale the openova-sme-tenants GitRepository
+exact TBD-C18e clobber rationale the openova-org-tenants GitRepository
 documents). The chart's catalog-sovereign repo-bootstrap hook
 (catalog-sovereign-repo-bootstrap-job.yaml) ensures the branch + an empty
 parent directory pre-cutover so this source is Ready from first convergence
@@ -54,7 +54,7 @@ bp-gitea sets `service.REQUIRE_SIGNIN_VIEW=true` → anonymous git clone
 returns 401 even for PUBLIC repos. So this GitRepository carries a secretRef
 to a Flux basic-auth Secret holding the catalyst-gitea-token PAT (rendered
 by catalog-sovereign-gitrepo-auth-secret.yaml, the byte-for-byte twin of the
-SME auth Secret). Without it the source sits "authentication required".
+Organization auth Secret). Without it the source sits "authentication required".
 
 GATING
 ------
@@ -62,7 +62,7 @@ Rendered ONLY when BOTH:
   - .Values.global.sovereignFQDN non-empty (a Sovereign — the Catalyst-Zero
     mothership pushes to github.com and has no local catalog Flux reconcile;
     catalyst-api's writeCatalogSovereignAggregator no-ops there too).
-  - .Values.ingress.marketplace.enabled (same discriminator the SME bundle +
+  - .Values.ingress.marketplace.enabled (same discriminator the Organization bundle +
     the rest of the per-Sovereign Flux sources use).
 
 Per Inviolable Principle #4 every operationally-meaningful value is operator-
@@ -70,7 +70,7 @@ overridable via .Values.catalogSovereign.gitRepository.*.
 
 References:
   - Issue #3668 (this fix), the deferred half of PR #3702 / #3648
-  - templates/sme-services/sme-tenants-gitrepository.yaml (the exact pattern)
+  - templates/org-services/org-tenants-gitrepository.yaml (the exact pattern)
   - internal/handler/catalog_edit_git.go (writeCatalogSovereignAggregator)
   - catalog-sovereign-kustomization.yaml (consumer of this GitRepository)
 */}}

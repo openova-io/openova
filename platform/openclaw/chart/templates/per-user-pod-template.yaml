@@ -7,12 +7,12 @@
 # Pod to the K8s api-server.
 #
 # Substitution variables (filled by the controller at session-start):
-#   ${USER_UUID}    — the SME user UUID (= JWT `sub` claim)
+#   ${USER_UUID}    — the Organization user UUID (= JWT `sub` claim)
 #   ${SECRET_NAME}  — `newapi-key-${USER_UUID}` (per ADR-0003 §3.3)
 #
 # Per [A] of #795: the runtime image reads ONLY two env vars
 # (NEWAPI_BASE_URL + NEWAPI_KEY). It carries NO Keycloak code, NO key-
-# management code, NO knowledge of the SME tenant model. Identity-blind
+# management code, NO knowledge of the Organization tenant model. Identity-blind
 # by construction.
 apiVersion: v1
 kind: ConfigMap

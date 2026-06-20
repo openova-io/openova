@@ -1,65 +1,65 @@
 {{- /*
 FerretDB — MongoDB-wire-compatible front-end backed by Postgres for the
-SME microservice mesh (issue #861).
+Organization microservice mesh (issue #861).
 
 Why this template exists:
-  Three SME services (catalog, tenant, domain) and provisioning use a
+  Three Organization services (catalog, tenant, domain) and provisioning use a
   MongoDB-wire driver to talk to a `ferretdb.org-services.svc.cluster.local:27017`
   service. On contabo-mkt this Deployment is shipped via
   clusters/contabo-mkt/apps/sme/data/ferretdb.yaml. On a freshly
-  franchised Sovereign nothing equivalent exists, so 4 of the 11 SME
+  franchised Sovereign nothing equivalent exists, so 4 of the 11 Organization
   pods crashloop with `failed to ping MongoDB error=...lookup
   ferretdb.org-services.svc.cluster.local on 10.43.0.10:53: no such host`.
-  Caught live on otech103 (2026-05-04) after #859 landed sme-pg —
-  every SME pod that uses MONGODB_URI was still down.
+  Caught live on otech103 (2026-05-04) after #859 landed org-pg —
+  every Organization pod that uses MONGODB_URI was still down.
 
 Image pinning:
   ghcr.io/ferretdb/ferretdb:1.24 mirrors contabo's data/ferretdb.yaml.
 
   WHY v1.24 NOT v2.x: FerretDB v2.x requires PostgreSQL with the
-  DocumentDB extension (microsoft/documentdb fork). The sme-pg CNPG
+  DocumentDB extension (microsoft/documentdb fork). The org-pg CNPG
   Cluster from #859/PR #860 uses ghcr.io/cloudnative-pg/postgresql:16
   which ships vanilla Postgres without that extension — so a v2 image
   would error out on first connect. v1.24 works against vanilla
   Postgres and is the proven path on contabo. Bumping to v2 is a
   separate change that needs a custom CNPG image AND a values toggle
-  to switch the imageName on sme-pg.
+  to switch the imageName on org-pg.
 
 Backing-store wiring:
-  FERRETDB_POSTGRESQL_URL points at the sme-pg-rw read/write Service
-  in this namespace. Credentials come from the sme-pg-app Secret CNPG
+  FERRETDB_POSTGRESQL_URL points at the org-pg-rw read/write Service
+  in this namespace. Credentials come from the org-pg-app Secret CNPG
   auto-creates in 1.4.3 (key names `username` + `password`). The DSN
   interpolates them via Pod env-var-in-env-var substitution
   ($(PG_USER)/$(PG_PASSWORD)) so the plaintext password never appears
   in the Deployment manifest (Inviolable Principle #10 — no plaintext
   credentials in source).
 
-  The connection target DB `sme_documents` is created by the
+  The connection target DB `org_documents` is created by the
   cnpg-cluster.yaml's postInitApplicationSQL block (1.4.4 extension)
-  alongside sme_billing.
+  alongside org_billing.
 
-  sslmode=disable matches contabo's Deployment — sme-pg-rw is a
+  sslmode=disable matches contabo's Deployment — org-pg-rw is a
   ClusterIP Service, traffic stays inside Cilium overlay encryption,
   and CNPG's default issuer chain isn't trusted by FerretDB's bundled
   PG client without extra config. Per-Sovereign overlays may flip
-  to require/verify-full via .Values.smeServices.ferretdb.sslmode if
+  to require/verify-full via .Values.orgServices.ferretdb.sslmode if
   the operator wires the CNPG CA into the FerretDB pod (separate
   follow-up).
 
 Per Inviolable Principle #4 (never hardcode), every operationally-
-meaningful value flows through .Values.smeServices.ferretdb.* and
-.Values.smePostgres.* — image, tag, resources, sslmode, target DB
+meaningful value flows through .Values.orgServices.ferretdb.* and
+.Values.orgPostgres.* — image, tag, resources, sslmode, target DB
 name. Defaults match contabo's known-working shape so a fresh
 Sovereign install renders cleanly without operator input.
 */}}
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
-{{- $ferret := .Values.smeServices.ferretdb -}}
+{{- $ferret := .Values.orgServices.ferretdb -}}
 {{- $ns := $ferret.namespace | default "org-services" -}}
-{{- $pgService := .Values.smePostgres.externalHost | default (printf "%s-rw.%s.svc.cluster.local" (.Values.smePostgres.cluster.name | default "sme-pg") $ns) -}}
+{{- $pgService := .Values.orgPostgres.externalHost | default (printf "%s-rw.%s.svc.cluster.local" (.Values.orgPostgres.cluster.name | default "org-pg") $ns) -}}
 {{- $pgPort := $ferret.postgresPort | default 5432 -}}
-{{- $pgDB := $ferret.postgresDatabase | default "sme_documents" -}}
+{{- $pgDB := $ferret.postgresDatabase | default "org_documents" -}}
 {{- $sslmode := $ferret.sslmode | default "disable" -}}
-{{- $appSecret := .Values.smePostgres.credentialSecret | default (printf "%s-app" (.Values.smePostgres.cluster.name | default "sme-pg")) -}}
+{{- $appSecret := .Values.orgPostgres.credentialSecret | default (printf "%s-app" (.Values.orgPostgres.cluster.name | default "org-pg")) -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -67,20 +67,20 @@ metadata:
   namespace: {{ $ns }}
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform
-    catalyst.openova.io/component: sme-ferretdb
-    app.kubernetes.io/part-of: sme
+    catalyst.openova.io/component: org-ferretdb
+    app.kubernetes.io/part-of: org
 spec:
   replicas: {{ $ferret.replicas | default 1 }}
   selector:
     matchLabels:
-      app: sme-ferretdb
+      app: org-ferretdb
   template:
     metadata:
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
-        app: sme-ferretdb
-        catalyst.openova.io/component: sme-ferretdb
-        app.kubernetes.io/part-of: sme
+        app: org-ferretdb
+        catalyst.openova.io/component: org-ferretdb
+        app.kubernetes.io/part-of: org
     spec:
       containers:
         - name: ferretdb
@@ -90,7 +90,7 @@ spec:
             - containerPort: 27017
               name: mongo
           env:
-            # Pull username/password from CNPG-managed sme-pg-app Secret
+            # Pull username/password from CNPG-managed org-pg-app Secret
             # (auto-created in 1.4.3 — see cnpg-cluster.yaml). Names
             # `username` / `password` are CNPG defaults; do not override.
             - name: PG_USER
@@ -129,11 +129,11 @@ metadata:
   namespace: {{ $ns }}
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform
-    catalyst.openova.io/component: sme-ferretdb
-    app.kubernetes.io/part-of: sme
+    catalyst.openova.io/component: org-ferretdb
+    app.kubernetes.io/part-of: org
 spec:
   selector:
-    app: sme-ferretdb
+    app: org-ferretdb
   ports:
     - name: mongo
       port: 27017
