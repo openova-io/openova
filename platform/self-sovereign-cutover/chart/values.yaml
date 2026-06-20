@@ -310,6 +310,24 @@ harbor:
 # hit a warm cache. The list is intentionally narrow (the heaviest
 # charts). Operators can extend via overlay; an empty list is also valid.
 prewarm:
+  # #3944 (Refs #3379 #3642 #3927): per-`skopeo copy` command timeout for
+  # step-03 Phase A (openova-io container images) + Phase A2 (openova-io helm
+  # chart OCI artifacts). A `skopeo copy` whose connection is ESTABLISHED but
+  # silently STALLS mid-blob hangs forever — `--retry-times` only fires on an
+  # ERROR, never on a stuck-but-alive connection. With no command timeout the
+  # whole Job sits "active" until the 5400s activeDeadlineSeconds kills it,
+  # catalyst-api auto-re-runs the DeadlineExceeded step, and the next 90-min
+  # hang begins → "step-03 active for hours, never completing" (live hw171, dep
+  # 3963e9267c10a90d, right after #3927 unstuck step-02). This bounds each
+  # individual copy so a stalled connection FAILS FAST → the per-image outer
+  # retry loop (PREWARM_COPY_ATTEMPTS) self-heals. Go duration string (skopeo
+  # `--command-timeout`). 1200s (20m) is generous for the largest multi-layer
+  # PRIVATE openova-io image over throttled egress yet collapses an infinite
+  # hang into a bounded, retryable failure. Operators on extremely slow links
+  # may raise it via overlay; it must stay comfortably below
+  # stepTimeouts.harborPrewarmSeconds (5400s) so at least 2-3 copies can run
+  # serially within one Job's deadline even in the worst case.
+  skopeoCommandTimeout: "1200s"
   images:
     - "proxy-docker/library/redis:7"
     - "proxy-docker/library/postgres:16"

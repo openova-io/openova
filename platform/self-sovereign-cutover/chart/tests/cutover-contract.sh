@@ -846,4 +846,33 @@ if ! grep -q 'chart-mirror-names.txt' "$TMP/render.yaml"; then
 fi
 echo "  PASS (Step-03 Phase A2 mirrors openova-io helm charts into local Harbor before egress is cut)"
 
+echo "[cutover-contract] Case 27: Step-03 harbor-prewarm bounds every skopeo copy with --command-timeout (#3944, Refs #3379 #3642 #3927)"
+# hw171: right after #3927 unstuck step-02, step-03 stalled "active" for HOURS.
+# Root cause: a `skopeo copy` whose connection is ESTABLISHED but then silently
+# STALLS mid-blob hangs INDEFINITELY — `--retry-times` only fires on an ERROR,
+# never on a stuck-but-alive connection — so the worker never drains, the parent
+# `wait` blocks forever, and the Job sits "active" until the 5400s deadline kills
+# it, after which catalyst-api auto-re-runs the DeadlineExceeded step → endless
+# 90-min hangs. The bound `skopeo --command-timeout ${PREWARM_SKOPEO_TIMEOUT}`
+# (a GLOBAL flag, before the `copy` subcommand) collapses the infinite hang into
+# a bounded, retryable failure that the per-image outer loop can self-heal.
+# Both copy loops (Phase A images + Phase A2 charts) MUST carry it.
+if ! grep -q 'PREWARM_SKOPEO_TIMEOUT' "$TMP/render.yaml"; then
+  echo "FAIL: Step-03 missing PREWARM_SKOPEO_TIMEOUT env — skopeo copies are unbounded and can hang the Job 'active' for hours (#3944)" >&2
+  exit 1
+fi
+# Count the actual bound invocations: every `skopeo ... copy` must be preceded by
+# --command-timeout. There are exactly two copy loops (Phase A + Phase A2).
+bound_copies=$(grep -c 'skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy' "$TMP/render.yaml" || true)
+if [ "${bound_copies}" -lt 2 ]; then
+  echo "FAIL: Step-03 has < 2 --command-timeout-bound skopeo copy invocations (found ${bound_copies}); a Phase A or A2 copy is still unbounded and can hang forever (#3944)" >&2
+  exit 1
+fi
+# And NO bare `skopeo copy` (without the timeout) may remain in the prewarm step.
+if grep -Eq '^\s*(if\s+)?skopeo copy ' "$TMP/render.yaml"; then
+  echo "FAIL: Step-03 still has a bare 'skopeo copy' without --command-timeout — bound it so a stalled connection fails fast (#3944)" >&2
+  exit 1
+fi
+echo "  PASS (Step-03 bounds both Phase A + Phase A2 skopeo copies with --command-timeout; no bare unbounded copy remains)"
+
 echo "[cutover-contract] All gates green."

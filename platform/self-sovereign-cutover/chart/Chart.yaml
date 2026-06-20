@@ -938,7 +938,26 @@ name: bp-self-sovereign-cutover
 # cutoverComplete while the customer journey was dead, PRINCIPLES A1/A2);
 # step-09 mint stamps the token-source annotation on the no-op path too.
 # Refs #3689 #3379.
-version: 0.1.76
+# 0.1.77 (#3944, Refs #3379 #3642 #3927): step-03 harbor-prewarm stalled
+# "active" for HOURS post-#3642 right after #3927 unstuck step-02. Root cause:
+# every `skopeo copy` in Phase A (openova-io container images) + Phase A2
+# (openova-io helm chart OCI artifacts) ran with NO `--command-timeout`. A copy
+# whose TCP connection is ESTABLISHED but then silently STALLS mid-blob (no
+# bytes, no reset — common on a freshly-bootstrapped/throttled Sovereign network
+# or against the registry.<fqdn> front door that accepts the connect but stops
+# responding) hangs INDEFINITELY: `--retry-times` only fires on an ERROR, never
+# on a stuck-but-alive connection. With no command timeout the worker never
+# drains, the parent `wait` blocks forever, the Job sits "active" until the
+# 5400s activeDeadlineSeconds kills it, and catalyst-api auto-re-runs the
+# DeadlineExceeded step (cutover.go) → back-to-back 90-min hangs = "active for
+# hours". Fix: add `skopeo --command-timeout ${PREWARM_SKOPEO_TIMEOUT}` (GLOBAL
+# flag, before `copy`) to BOTH copy loops, new tunable
+# prewarm.skopeoCommandTimeout (default 1200s/20m). A stalled connection now
+# FAILS FAST → the per-image outer retry loop (PREWARM_COPY_ATTEMPTS) self-heals,
+# the exact path that was unreachable while the copy hung. Validated:
+# `helm template` + `sh -n`/`dash -n` clean. Live confirmation deferred to the
+# hw172 cutover walk reaching step-03. Lockstep: 06a pin + blueprint.yaml.
+version: 0.1.77
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
