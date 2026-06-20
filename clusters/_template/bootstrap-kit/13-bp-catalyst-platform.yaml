@@ -1052,7 +1052,9 @@ spec:
       #   Jobs so the Kyverno flux-managed (Enforce) policy admits them in
       #   catalyst-system. Pre-1.4.722 the pre-install hook was DENIED →
       #   console install failed pre-install on every Enforce Sovereign (hw172).
-      version: 1.4.722
+      # - 1.4.723 (#3948): gitea-token-mint readiness probe is 403-tolerant
+      #   (was curl -sSf → 14min dead-wait on REQUIRE_SIGNIN_VIEW gitea).
+      version: 1.4.723
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

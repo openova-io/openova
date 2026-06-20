@@ -2912,7 +2912,11 @@ name: bp-catalyst-platform
 # Catalyst-Zero render adds one namespace to one ingress matchExpression (no
 # behavior change on a host-placed guacamole). Renumbered past the deploy-bot
 # auto-bump to 1.4.717 (one above main's 1.4.716) to clear the pin collision.
-version: 1.4.722
+# 1.4.723 (#3948): gitea-token-mint readiness probe treats ANY HTTP answer
+# (incl. 403 from REQUIRE_SIGNIN_VIEW) as reachable — was `curl -sSf` which
+# never broke on 403 and burned the full 14min wait every prov before the
+# (authenticated) mint, slowing bp-catalyst-platform install → console.
+version: 1.4.723
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +
