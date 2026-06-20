@@ -312,6 +312,17 @@ func TestWatch_AllReleasesAlreadyInstalled_TerminatesQuickly(t *testing.T) {
 		WatchTimeout:   5 * time.Second,
 		DynamicFactory: fakeFactory(client),
 		Resync:         0, // event-driven only
+		// Pin the floor to the full fixture cardinality (3). With the
+		// default floor of 1 the terminate-on-all-done gate can fire
+		// after only the FIRST HelmRelease Add event has drained from
+		// the informer queue (HasSynced flips true while the remaining
+		// Add events are still queued) — a timing race that flaked CI
+		// with `got 1 (states=map[cert-manager:installed])` while every
+		// observed HR was already terminal. Requiring len(observed) >= 3
+		// makes the watch wait until all three fixtures are in the cache
+		// before terminating, matching this test's 3-component assertion.
+		// Test-only; no production behaviour change.
+		MinBootstrapKitHRs: 3,
 	}
 	w, err := NewWatcher(cfg, rec.emit)
 	if err != nil {
