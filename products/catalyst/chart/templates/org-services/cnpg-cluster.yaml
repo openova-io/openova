@@ -127,7 +127,10 @@ spec:
 
   storage:
     size: {{ .Values.orgPostgres.cluster.storageSize | default "10Gi" }}
-    storageClass: {{ .Values.orgPostgres.cluster.storageClass | default "local-path" | quote }}
+    # #3971 — empty ⇒ omit ⇒ CNPG uses the cluster-default durable cloud CSI; local-path FORBIDDEN.
+    {{- with .Values.orgPostgres.cluster.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
 
   # Organization init-databases Job (when enabled — see init-databases.yaml below)
   # connects as superuser to CREATE DATABASE / GRANT. Disabling this

@@ -52,7 +52,11 @@ spec:
 
   storage:
     size: {{ .Values.instance.storageSize | default "5Gi" }}
-    storageClass: {{ .Values.instance.storageClass | default "local-path" | quote }}
+    # #3971 — empty ⇒ omit ⇒ CNPG uses the cluster-default durable cloud CSI.
+    # local-path is FORBIDDEN (k3s --disable=local-storage + Kyverno deny).
+    {{- with .Values.instance.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
 
   resources:
     {{- toYaml .Values.instance.resources | nindent 4 }}

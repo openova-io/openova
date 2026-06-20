@@ -254,7 +254,11 @@ slots:
     wave: W2.K1
   - slot: 16
     name: bp-cnpg
-    depends_on: [bp-flux]
+    # #3971 — bp-hcloud-csi gates the durable default StorageClass that EVERY
+    # cnpg PVC (and its shared-pg / cnpg-pair / harbor / keycloak / gitea
+    # downstream) needs now that k3s runs --disable=local-storage (local-path
+    # FORBIDDEN). bp-hcloud-csi is Ready on both providers (empty on Huawei).
+    depends_on: [bp-flux, bp-hcloud-csi]
     wave: W2.K1
   - slot: 16a
     name: bp-postgres-shared
@@ -672,6 +676,19 @@ slots:
     depends_on: []
     wave: present
 
+  # ---- Slot 55a — bp-hcloud-csi (Hetzner Cloud CSI driver, #3971).
+  # STORAGE sibling of slot 55. Installs csi.hetzner.cloud + the
+  # hcloud-volumes StorageClass (reclaimPolicy Retain) and flips the
+  # cluster-default OFF the ephemeral k3s local-path. No dependsOn: a
+  # foundational cloud seam that must be Ready before the stateful apps
+  # create PVCs (its cloud-credentials Secret is seeded by cloud-init
+  # pre-Flux, and the chart pulls from ghcr — no Flux dependency). The
+  # P0 fix for "every PVC lands on local-path". Suspended on Huawei.
+  - slot: 55a
+    name: bp-hcloud-csi
+    depends_on: []
+    wave: present
+
   # ---- Slots 56/57 — OpenovaFlow observability cohort.
   # Stateless HTTP+SSE event router (slot 56, primary cluster only) +
   # region-aware Flux adapter DaemonSet (slot 57, every cluster).
@@ -705,6 +722,11 @@ slots:
     depends_on:
       - bp-cilium
       - bp-cert-manager
+      # #3971 — bp-hcloud-csi gates the durable default StorageClass the
+      # vCluster StatefulSet PVC (and openbao/keycloak/gitea/harbor downstream
+      # of bp-mgmt-vcluster) need now that local-path is FORBIDDEN
+      # (--disable=local-storage). Ready on both providers (empty on Huawei).
+      - bp-hcloud-csi
     wave: present
 
   # ---- Slot 59 — bp-rtz-vcluster (DoD A4 — secondary-only RTZ vCluster).

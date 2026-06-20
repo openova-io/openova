@@ -399,6 +399,28 @@ compliancePolicies:
       - mgmt
       - rtz
 
+  # #3971 — FORBID the ephemeral k3s local-path provisioner cluster-wide.
+  # The founder mandate (verbatim): "make the local paths not default even
+  # FORBIDDEN. local path never ever ALLOWED". k3s now runs
+  # --disable=local-storage so the local-path provisioner is never installed;
+  # this policy is the belt-and-braces admission guard that DENIES any
+  # PersistentVolumeClaim / StorageClass / PersistentVolume that references
+  # `local-path` or `rancher.io/local-path`, so a future chart/overlay/operator
+  # can never silently reintroduce non-durable node-local storage.
+  #
+  # action is HARDCODED Enforce in the template (NOT gated by bootstrapMode):
+  # this is a structural data-durability safety invariant, not a soft
+  # compliance recommendation — it must fail-closed during the Phase-1
+  # bootstrap window too (that's exactly when the stateful PVCs bind). The
+  # cloud CSI (bp-hcloud-csi slot 55a) gates the stateful root slots so the
+  # durable default class exists before any PVC binds — no legitimate
+  # bootstrap PVC needs local-path, so Enforce-always cannot wedge the prov.
+  forbidLocalPath:
+    enabled: true
+    # Genuinely-special namespaces that may need an escape hatch (none by
+    # default — local-path is forbidden EVERYWHERE, including kube-system).
+    excludeNamespaces: []
+
   # G98 (Refs #2644, 2026-06-01) — MUTATE policy that auto-stamps
   # `catalyst.openova.io/application` label on Pods cluster-wide.
   # Without this label, the Compliance scorecard's per-Application

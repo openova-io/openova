@@ -151,7 +151,10 @@ spec:
 
   storage:
     size: {{ .Values.database.cluster.storageSize }}
-    storageClass: {{ .Values.database.cluster.storageClass | quote }}
+    # #3971 — empty ⇒ omit ⇒ CNPG uses the cluster-default durable cloud CSI; local-path FORBIDDEN.
+    {{- with .Values.database.cluster.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
 
   {{- if $haEnabled }}
   # Region pinning — node-affinity is the operator's idiomatic seam for
@@ -256,7 +259,10 @@ spec:
 
   storage:
     size: {{ .Values.database.cluster.storageSize }}
-    storageClass: {{ .Values.database.cluster.storageClass | quote }}
+    # #3971 — empty ⇒ omit ⇒ CNPG uses the cluster-default durable cloud CSI; local-path FORBIDDEN.
+    {{- with .Values.database.cluster.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
 
   resources:
     {{- toYaml .Values.database.cluster.resources | nindent 4 }}

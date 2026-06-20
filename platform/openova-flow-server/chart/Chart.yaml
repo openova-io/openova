@@ -5,7 +5,8 @@ name: bp-openova-flow-server
 # Opt out of the hollow-chart guard per docs/BLUEPRINT-AUTHORING.md §11.1.
 annotations:
   catalyst.openova.io/no-upstream: "true"
-version: 0.2.3
+# 0.2.4 (#3971): CNPG storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
+version: 0.2.4
 appVersion: "0.2.0"
 description: |
   Catalyst Blueprint chart for the openova-flow-server — the

@@ -31,7 +31,11 @@ description: |
     IAM credentials sourced from External Secrets, not via the upstream
     chart's TLS/JWT machinery).
 type: application
-version: 1.2.2
+# 1.2.3 (#3971): seaweedfs-storage SC default provisioner local-path ->
+# csi.hetzner.cloud (durable). local-path is FORBIDDEN (k3s
+# --disable=local-storage + Kyverno ENFORCE deny). bp-hcloud-csi gates the
+# stateful root slots so the cloud CSI is Ready before any seaweedfs PVC binds.
+version: 1.2.3
 appVersion: "4.22"
 keywords: [catalyst, blueprint, seaweedfs, s3, object-storage, storage]
 maintainers:

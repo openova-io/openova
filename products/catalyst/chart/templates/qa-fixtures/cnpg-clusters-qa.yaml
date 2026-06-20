@@ -227,7 +227,10 @@ spec:
   primaryUpdateStrategy: unsupervised
   storage:
     size: {{ .Values.qaFixtures.cnpgStorageSize | default "1Gi" }}
-    storageClass: {{ .Values.qaFixtures.cnpgStorageClass | default "local-path" }}
+    # #3971 — empty ⇒ omit ⇒ CNPG uses the cluster-default durable cloud CSI; local-path FORBIDDEN.
+    {{- with .Values.qaFixtures.cnpgStorageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
   resources:
     requests:
       cpu: 100m
@@ -304,7 +307,10 @@ spec:
   primaryUpdateStrategy: unsupervised
   storage:
     size: {{ .Values.qaFixtures.cnpgStorageSize | default "1Gi" }}
-    storageClass: {{ .Values.qaFixtures.cnpgStorageClass | default "local-path" }}
+    # #3971 — empty ⇒ omit ⇒ CNPG uses the cluster-default durable cloud CSI; local-path FORBIDDEN.
+    {{- with .Values.qaFixtures.cnpgStorageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
   resources:
     requests:
       cpu: 100m

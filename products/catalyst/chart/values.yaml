@@ -1455,7 +1455,7 @@ orgPostgres:
       - org_billing                 # billing service primary DB
       - org_documents               # FerretDB (MongoDB-wire) backing DB — issue #861
     storageSize: 10Gi
-    storageClass: local-path        # k3s default; per-Sovereign overlays may override
+    storageClass: ""  # #3971 — empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN
     resources:
       requests:
         cpu: 100m
@@ -2057,7 +2057,7 @@ qaFixtures:
   cnpgInstances: 1
   cnpgImage: ghcr.io/cloudnative-pg/postgresql:16.4-1
   cnpgStorageSize: 1Gi
-  cnpgStorageClass: local-path
+  cnpgStorageClass: ""  # #3971 — empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN
   cnpgDatabase: app
   # qa-loop iter-1 prefetch Fix #110: terminal phase string seeded onto
   # cluster-primary + cluster-replica `status.phase`. The CNPG operator

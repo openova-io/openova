@@ -1,0 +1,138 @@
+{{- /*
+Default-StorageClass flip hook — bp-hcloud-csi (#3971).
+
+THE FIX
+=======
+local-path is a directory on the node's local disk — NO cloud block volume
+behind it — so any node replacement destroys that data. The P0 blocker (#3971)
+is that EVERY Sovereign's PVCs landed on local-path because no CSI was ever
+installed. The durable fix FORBIDS local-path entirely: k3s now runs
+`--disable=local-storage` (cloud-init) so the local-path provisioner is NEVER
+installed, and the only default StorageClass is the cloud CSI's hcloud-volumes.
+
+This post-install/post-upgrade Job runs AFTER the hcloud-volumes StorageClass
+(templates/storageclass.yaml) and the CSI controller have landed. It:
+  1. Waits (bounded) for the `hcloud-volumes` SC to exist.
+  2. Promotes `hcloud-volumes` to cluster-default (idempotent — the SC may
+     already carry the annotation when .Values.defaultStorageClass renders it
+     directly; this guarantees it even on an UPGRADE of a pre-#3971 cluster
+     where a stale local-path default may still linger).
+  3. DEMOTES every OTHER StorageClass that still carries the default-class
+     annotation so there is EXACTLY ONE default. On a FRESH prov this is a
+     harmless no-op (local-path was never installed). On an UPGRADE of an
+     older cluster it strips a lingering local-path default. Two defaults is
+     an error state Kubernetes resolves non-deterministically.
+
+Note: on a fresh prov local-path does not exist at all (k3s
+--disable=local-storage), and a Kyverno ENFORCE policy
+(bp-kyverno-policies K23) DENIES any attempt to (re)create it. This hook's
+demote step exists only to heal an UPGRADE from a pre-#3971 cluster that
+already had a local-path default annotated.
+
+Why a hook (not a static manifest): a Helm chart cannot annotate a foreign
+StorageClass it does not own without adopting it. A short Job with a scoped
+ClusterRole patches the classes idempotently and self-deletes.
+
+Gated on .Values.enabled + .Values.defaultStorageClass so a default-off render
+emits ZERO resources. Fails FAST (300s) so a broken CSI surfaces in Flux
+conditions, not a 15-minute spin. backoffLimit 0 + hook-delete-policy keeps it
+clean across re-installs.
+*/}}
+{{- if and .Values.enabled .Values.defaultStorageClass }}
+{{- $defaultSC := "hcloud-volumes" -}}
+{{- if .Values.catalystStorageClasses }}
+{{-   $defaultSC = (index .Values.catalystStorageClasses 0).name -}}
+{{- end -}}
+{{- $timeout := 300 -}}
+{{- $interval := 3 -}}
+{{- $image := "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7" -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-default-class
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-hcloud-csi
+    app.kubernetes.io/component: default-class-hook
+    catalyst.openova.io/blueprint: bp-hcloud-csi
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-hcloud-csi
+        app.kubernetes.io/component: default-class-hook
+    spec:
+      serviceAccountName: {{ .Release.Name }}-default-class
+      restartPolicy: Never
+      containers:
+        - name: flip
+          image: {{ $image | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { memory: 96Mi }
+          env:
+            - name: DEFAULT_SC
+              value: {{ $defaultSC | quote }}
+            - name: TIMEOUT_SECONDS
+              value: {{ $timeout | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $interval | quote }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              DEFAULT_ANN='storageclass.kubernetes.io/is-default-class'
+              echo "bp-hcloud-csi default-class flip: target default = ${DEFAULT_SC} (budget=${TIMEOUT_SECONDS}s)"
+
+              # 1. Wait (bounded) for the CSI StorageClass to exist.
+              deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+              until kubectl get storageclass "${DEFAULT_SC}" >/dev/null 2>&1; do
+                if [ "$(date +%s)" -ge "${deadline}" ]; then
+                  echo "FATAL: StorageClass ${DEFAULT_SC} never appeared within ${TIMEOUT_SECONDS}s." >&2
+                  echo "The hcloud-csi controller / StorageClass did not install — inspect the bp-hcloud-csi HelmRelease." >&2
+                  exit 1
+                fi
+                echo "waiting for StorageClass ${DEFAULT_SC} ..."
+                sleep "${INTERVAL_SECONDS}"
+              done
+
+              # 2. Promote the CSI class to cluster-default (idempotent).
+              kubectl annotate storageclass "${DEFAULT_SC}" \
+                "${DEFAULT_ANN}=true" --overwrite
+              echo "promoted ${DEFAULT_SC} to cluster-default."
+
+              # 3. Demote every OTHER class still flagged default (e.g. local-path)
+              #    so there is EXACTLY ONE default class. Non-fatal if none exist
+              #    (operator may have run k3s with --disable local-storage).
+              others="$(kubectl get storageclass \
+                -o jsonpath="{range .items[?(@.metadata.annotations.${DEFAULT_ANN}=='true')]}{.metadata.name}{'\n'}{end}" \
+                2>/dev/null || true)"
+              for sc in ${others}; do
+                [ "${sc}" = "${DEFAULT_SC}" ] && continue
+                echo "demoting stale default StorageClass: ${sc}"
+                kubectl annotate storageclass "${sc}" \
+                  "${DEFAULT_ANN}=false" --overwrite || true
+              done
+
+              echo "default-class flip complete. Final defaults:"
+              kubectl get storageclass \
+                -o custom-columns='NAME:.metadata.name,DEFAULT:.metadata.annotations.storageclass\.kubernetes\.io/is-default-class' \
+                2>/dev/null || true
+{{- end }}

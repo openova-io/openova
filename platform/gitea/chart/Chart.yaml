@@ -152,7 +152,8 @@ name: bp-gitea
 # in-vCluster Secret) while sso.enabled stays true so the Deployment renders
 # IN the vCluster and seeds the row (its creds cross in via bp-mgmt-vcluster
 # sync.fromHost). Non-host-bridged render is byte-identical. Refs #3374 #3642.
-version: 1.2.39
+# 1.2.40 (#3971): CNPG storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
+version: 1.2.40
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so

@@ -87,7 +87,7 @@ spec:
       memory: 512Mi
   storage:
     size: 5Gi
-    storageClass: local-path
+    storageClass: ''
   enableSuperuserAccess: true
   monitoring:
     enablePodMonitor: false

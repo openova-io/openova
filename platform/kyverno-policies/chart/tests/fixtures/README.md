@@ -35,8 +35,9 @@ exactly one (per workload).
 | probes-present | `probes-present/pass-deployment.yaml` | `probes-present/fail-deployment.yaml` |
 | resource-requests | `resource-requests/pass-deployment.yaml` | `resource-requests/fail-deployment.yaml` |
 | image-tag-pinned | `image-tag-pinned/pass-deployment.yaml` | `image-tag-pinned/fail-deployment.yaml` |
+| forbid-local-path-storage (#3971) | `forbid-local-path/pass-pvc.yaml` | `forbid-local-path/fail-pvc.yaml` |
 
-The remaining 15 policies' fixtures are deferred — slice S1 ships the
+The remaining policies' fixtures are deferred — slice S1 ships the
 authoritative matrix.
 
 ## MUTATE policy fixtures (Refs #3268)

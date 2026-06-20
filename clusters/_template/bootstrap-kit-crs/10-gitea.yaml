@@ -143,7 +143,7 @@ spec:
       log_min_duration_statement: '1000'
   storage:
     size: 5Gi
-    storageClass: local-path
+    storageClass: ''
   enableSuperuserAccess: true
   monitoring:
     enablePodMonitor: false

@@ -614,6 +614,12 @@ write_files:
             SOVEREIGN_FQDN_SLUG: "${sovereign_fqdn_slug}"
             HUAWEI_HR_SUSPEND: "true"
             HCLOUD_HR_SUSPEND: "false"
+            # #3971 — drive bp-hcloud-csi's chart `enabled` toggle (slot 55a).
+            # Hetzner installs the real Hetzner Cloud CSI + the hcloud-volumes
+            # default StorageClass. The HR stays ACTIVE (never suspended) on
+            # BOTH providers so the stateful root slots (bp-cnpg / bp-mgmt-
+            # vcluster) can `dependsOn` it without deadlocking — see slot 55a.
+            HCLOUD_CSI_ENABLED: "true"
 %{ endif ~}
 %{ if provider == "huawei" ~}
             # Huawei: no cloud CCM. Cilium LB-IPAM assigns the clustermesh
@@ -623,6 +629,15 @@ write_files:
             # PDNS-host overrides + per-region HR suspension also flow here.
             HCLOUD_HR_SUSPEND: "true"
             HUAWEI_HR_SUSPEND: "false"
+            # #3971 — bp-hcloud-csi (slot 55a) stays ACTIVE on Huawei but with
+            # the chart `enabled=false`, so it installs an EMPTY release that
+            # reports Ready immediately (the dependsOn from the stateful root
+            # slots is satisfied without the suspended-HR deadlock). The Hetzner
+            # Cloud CSI obviously does NOT run on HCS; Huawei's durable default
+            # StorageClass (everest/EVS, slot 55b) is the #3971 follow-up. Until
+            # it lands, a Huawei prov has NO default class → the Phase-1
+            # storage-durability gate honestly FAILS it (never silent local-path).
+            HCLOUD_CSI_ENABLED: "false"
             SECONDARY_HR_SUSPEND: "${sovereign_region_role == "primary" ? "false" : "true"}"
             CILIUM_LB_IPAM_ENABLED: "true"
             CILIUM_LB_IPAM_CIDRS: "${node_external_ip_value}/32"
@@ -923,6 +938,19 @@ runcmd:
   # k3s_extra_args carries provider-specific server flags (OIDC, taints,
   # watch-cache tuning, topology labels). The CNI is disabled (Cilium owns
   # the network from first pod); flannel/servicelb/traefik all off.
+  #
+  # #3971 — `--disable=local-storage` FORBIDS the k3s local-path provisioner
+  # entirely: it is NEVER installed on a fresh prov. local-path is ephemeral
+  # node-local disk (no cloud block volume behind it) — any node replacement
+  # destroys the PV's data (prod Postgres 3×100Gi, openbao secrets, customer
+  # DB), invalidating BCP/DR. With the provisioner gone, the ONLY default
+  # StorageClass is the per-provider cloud CSI (Hetzner: bp-hcloud-csi slot
+  # 55a → csi.hetzner.cloud + hcloud-volumes). The stateful root slots
+  # (bp-cnpg / bp-mgmt-vcluster) `dependsOn: bp-hcloud-csi` so the CSI default
+  # class exists BEFORE any PVC binds — nothing hangs Pending. A belt-and-
+  # braces Kyverno ENFORCE policy (bp-kyverno-policies K23 forbid-local-path-
+  # storage) additionally DENIES any PVC/StorageClass/PV that references
+  # local-path. (founder: "local path never ever ALLOWED".)
   - |
     NODE_EXTERNAL_IP=$(${node_external_ip_cmd})
     [ -n "$${NODE_EXTERNAL_IP}" ] || { echo "[k3s] FATAL: could not determine node external IP" >&2; exit 87; }
@@ -935,18 +963,23 @@ runcmd:
     curl -sfL https://get.k3s.io | \
       INSTALL_K3S_VERSION=${k3s_version} \
       K3S_TOKEN=${k3s_token} \
-      INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=$${NODE_IP} --node-external-ip=$${NODE_EXTERNAL_IP} --advertise-address=$${NODE_IP} --kubelet-arg=max-pods=220 --tls-san=${sovereign_fqdn} --tls-san=$${NODE_IP} --tls-san=$${NODE_EXTERNAL_IP} --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} ${k3s_extra_args} --write-kubeconfig-mode=0644" \
+      INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --disable=local-storage --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=$${NODE_IP} --node-external-ip=$${NODE_EXTERNAL_IP} --advertise-address=$${NODE_IP} --kubelet-arg=max-pods=220 --tls-san=${sovereign_fqdn} --tls-san=$${NODE_IP} --tls-san=$${NODE_EXTERNAL_IP} --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} ${k3s_extra_args} --write-kubeconfig-mode=0644" \
       sh -
 
   # Wait for the API server to be reachable (Cilium comes up later, so we
   # wait specifically for the apiserver /healthz endpoint, not node-Ready).
   - 'until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get --raw /healthz; do sleep 5; done'
 
-  # local-path StorageClass is shipped by k3s; assert it + mark default
-  # before anything that PVCs.
-  - 'until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get sc local-path >/dev/null 2>&1; do sleep 2; done'
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml patch storageclass local-path -p ''{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'''
-  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get sc -o name | grep -q "^storageclass.storage.k8s.io/local-path$" || { echo "FATAL: local-path StorageClass missing after k3s install" >&2; exit 1; }'
+  # #3971 — NO StorageClass is provisioned here. k3s ran with
+  # `--disable=local-storage` (above) so the ephemeral local-path provisioner
+  # is FORBIDDEN — it is never installed. The cluster comes up with ZERO
+  # StorageClasses; the per-provider cloud block-storage CSI (Hetzner:
+  # bp-hcloud-csi slot 55a) installs the durable default `hcloud-volumes` SC
+  # via Flux. The stateful root slots (bp-cnpg / bp-mgmt-vcluster) gate on
+  # `dependsOn: bp-hcloud-csi`, so the default class exists before the first
+  # PVC binds (no Pending-PVC regression). The former `kubectl patch sc
+  # local-path is-default-class=true` block that lived here is DELETED —
+  # asserting/defaulting local-path is exactly the anti-pattern #3971 forbids.
 
 %{ if deployment_id != "" && kubeconfig_bearer_token != "" && catalyst_api_url != "" ~}
   # ══════════════════════════════════════════════════════════════════════

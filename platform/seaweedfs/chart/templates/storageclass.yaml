@@ -18,20 +18,23 @@ Why bp-seaweedfs ships this StorageClass (not bp-guacamole / overlay):
     is operator-tunable through `seaweedfsOverlay.storageClasses[]`.
   - Per BLUEPRINT-AUTHORING.md §11 (umbrella ownership), per-Sovereign
     overlays select the underlying provisioner via Flux `valuesFrom` so
-    Sovereigns with hcloud-csi installed map `seaweedfs-storage` →
-    `csi.hetzner.cloud` while bare-k3s Sovereigns map onto
-    `rancher.io/local-path` (always present on k3s).
+    Sovereigns map `seaweedfs-storage` → their cloud CSI provisioner
+    (`csi.hetzner.cloud` on Hetzner; everest/EVS on Huawei).
 
-Default provisioner is `rancher.io/local-path` because:
-  - Every Sovereign provisioned by the OpenTofu Phase 0 module runs k3s
-    which ships the local-path provisioner pre-installed.
-  - bp-hcloud-csi installs LATER in the bootstrap-kit ordering and is
-    optional (single-node Sovereigns or non-Hetzner clouds skip it).
-  - Defaulting to local-path means PVCs requesting `seaweedfs-storage`
-    bind successfully on day-1 without operator intervention. Operators
-    flip to `csi.hetzner.cloud` (or the dedicated `seaweedfs-csi-driver`
-    once installed) by overriding `seaweedfsOverlay.storageClasses[].provisioner`
-    in the per-Sovereign HelmRelease.
+#3971 — Default provisioner is `csi.hetzner.cloud` (the durable Hetzner
+Cloud CSI), NOT the ephemeral k3s local-path:
+  - k3s now runs `--disable=local-storage` (cloud-init), so the local-path
+    provisioner is FORBIDDEN — it is NEVER installed. A StorageClass with
+    `provisioner: rancher.io/local-path` would be non-functional (no
+    provisioner to bind) AND would be DENIED by the bp-kyverno-policies
+    local-path ENFORCE policy.
+  - bp-hcloud-csi (bootstrap-kit slot 55a) is now a `dependsOn` of the
+    stateful root slots (bp-cnpg / bp-mgmt-vcluster), so the cloud CSI +
+    its `hcloud-volumes` default class are guaranteed Ready before any
+    seaweedfs PVC binds.
+  - Non-Hetzner clouds override `seaweedfsOverlay.storageClasses[].provisioner`
+    to their own durable CSI (Huawei: everest/EVS — #3971 follow-up). NEVER
+    map this back to local-path.
 
 Disabled by default (`seaweedfsOverlay.storageClasses[].enabled` per entry)
 so this template is a no-op until the operator explicitly opts in. The
@@ -59,7 +62,7 @@ metadata:
     {{- with $sc.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
-provisioner: {{ $sc.provisioner | default "rancher.io/local-path" | quote }}
+provisioner: {{ $sc.provisioner | default "csi.hetzner.cloud" | quote }}
 reclaimPolicy: {{ $sc.reclaimPolicy | default "Delete" | quote }}
 volumeBindingMode: {{ $sc.volumeBindingMode | default "WaitForFirstConsumer" | quote }}
 allowVolumeExpansion: {{ $sc.allowVolumeExpansion | default true }}

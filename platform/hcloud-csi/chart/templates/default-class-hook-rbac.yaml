@@ -1,0 +1,68 @@
+{{- /*
+RBAC for the default-StorageClass flip hook (#3971).
+
+A post-install/post-upgrade Job (templates/default-class-hook.yaml) demotes
+k3s `local-path` from cluster-default and promotes `hcloud-volumes` so EVERY
+Sovereign ends with the cloud-block-storage CSI as the one default class.
+Patching a cluster-scoped StorageClass needs a ClusterRole + binding.
+
+Gated on the SAME .Values.enabled + .Values.defaultStorageClass pair as the
+hook itself so a default-off render emits ZERO resources (smoke-render guard).
+
+hook-weight -5 (lower/earlier than the Job's 0) so the SA + ClusterRole +
+Binding land BEFORE the Job that consumes them. hook-delete-policy keeps the
+namespace tidy across re-installs.
+*/}}
+{{- if and .Values.enabled .Values.defaultStorageClass }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-default-class
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-hcloud-csi
+    app.kubernetes.io/component: default-class-hook
+    catalyst.openova.io/blueprint: bp-hcloud-csi
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-default-class
+  labels:
+    app.kubernetes.io/name: bp-hcloud-csi
+    app.kubernetes.io/component: default-class-hook
+    catalyst.openova.io/blueprint: bp-hcloud-csi
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-default-class
+  labels:
+    app.kubernetes.io/name: bp-hcloud-csi
+    app.kubernetes.io/component: default-class-hook
+    catalyst.openova.io/blueprint: bp-hcloud-csi
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-default-class
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-default-class
+    namespace: {{ .Release.Namespace }}
+{{- end }}

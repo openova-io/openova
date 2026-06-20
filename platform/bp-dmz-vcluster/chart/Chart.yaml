@@ -51,7 +51,8 @@ name: bp-dmz-vcluster
 # mints no host-side DB/SSO Secret, so no fromHost.secrets mapping is needed
 # here. Syncer image tag bumped to 0.23.0 to match. Default render unchanged
 # in shape (still default-OFF; subchart version only).
-version: 0.2.8
+# 0.2.9 (#3971): vCluster etcd storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
+version: 0.2.9
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign DMZ

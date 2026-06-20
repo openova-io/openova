@@ -215,7 +215,12 @@ type: application
 # 1.0.37 (#3859): add `org-services` to harbor-proxy-pull extraExcludeNamespaces
 # (sme→org-services rename #3383 orphaned the mixed-image-Pod carve-out → the
 # provisioning CR-minter was Enforce-denied → #3376 funnel could not go ACTIVE).
-version: 1.0.37
+# 1.0.38 (#3971): K23 forbid-local-path-storage ClusterPolicy — ENFORCE-always
+# (NOT bootstrapMode-gated) deny of any PVC/StorageClass/PV referencing
+# local-path / rancher.io/local-path. The admission layer of the 3-layer
+# local-path-FORBIDDEN defence (k3s --disable=local-storage + cloud CSI default
+# + this policy). Founder: "local path never ever ALLOWED".
+version: 1.0.38
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:
