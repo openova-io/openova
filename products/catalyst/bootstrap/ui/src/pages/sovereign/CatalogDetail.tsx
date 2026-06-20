@@ -407,7 +407,7 @@ export function CatalogDetail() {
               <span
                 className="chip chip-free"
                 data-testid="badge-platform-component"
-                title="Installed at bootstrap as a platform HelmRelease (no per-tenant Application CR)"
+                title="Installed at bootstrap as a platform HelmRelease (no per-Organization Application CR)"
               >
                 platform component
               </span>

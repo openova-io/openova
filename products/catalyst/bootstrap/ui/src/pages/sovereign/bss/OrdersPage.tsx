@@ -166,7 +166,7 @@ export function OrdersPage({
             </svg>
             <input
               type="search"
-              placeholder="Search orders by id, tenant, or product…"
+              placeholder="Search orders by id, organization, or product…"
               className="orders-search-input"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -227,7 +227,7 @@ export function OrdersPage({
             <thead>
               <tr>
                 <th data-col="id">Order ID</th>
-                <th data-col="tenant">Tenant org</th>
+                <th data-col="tenant">Organization</th>
                 <th data-col="product">Product</th>
                 <th data-col="status">Status</th>
                 <th data-col="created">Created</th>
@@ -254,7 +254,7 @@ export function OrdersPage({
                     data-testid="bss-orders-table-empty"
                   >
                     {orders.length === 0
-                      ? 'No orders yet. Tenant orders from the marketplace will appear here.'
+                      ? 'No orders yet. Organization orders from the marketplace will appear here.'
                       : 'No orders match the current filters.'}
                   </td>
                 </tr>

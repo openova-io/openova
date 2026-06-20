@@ -139,6 +139,6 @@ describe('CreateTenantPage', () => {
       'sme-create-tenant-parent-select',
     ) as HTMLSelectElement
     expect(select.disabled).toBe(true)
-    expect(select.textContent).toContain('No sme-pool parents available')
+    expect(select.textContent).toContain('No pool parents available')
   })
 })

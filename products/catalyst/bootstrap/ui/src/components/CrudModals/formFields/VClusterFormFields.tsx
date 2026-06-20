@@ -29,7 +29,7 @@ export function VClusterFormFields({ values, onChange }: VClusterFormFieldsProps
         <TextInput
           value={values.name}
           onChange={(v) => onChange({ ...values, name: v })}
-          placeholder="e.g. tenant-a-rtz"
+          placeholder="e.g. acme-rtz"
           testId="vcluster-form-name"
         />
       </FormRow>

@@ -569,7 +569,7 @@ function IssueVoucherModal({ onClose, onIssued }: IssueVoucherModalProps) {
             type="text"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Launch promotion — first 100 tenants"
+            placeholder="Launch promotion — first 100 organizations"
             className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-3 py-2 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none"
           />
         </label>

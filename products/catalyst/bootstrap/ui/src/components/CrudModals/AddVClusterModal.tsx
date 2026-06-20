@@ -73,7 +73,7 @@ export function AddVClusterModal({
         <TextInput
           value={name}
           onChange={setName}
-          placeholder="e.g. tenant-a-rtz"
+          placeholder="e.g. acme-rtz"
           testId="add-vcluster-modal-name"
         />
       </FormRow>

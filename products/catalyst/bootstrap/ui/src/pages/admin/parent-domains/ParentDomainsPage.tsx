@@ -109,7 +109,7 @@ export function ParentDomainsPage({
       <div className="mb-4 flex items-center justify-between">
         <div>
           <p className="text-sm text-[var(--color-text-dim)]">
-            Domains served by this Sovereign's PowerDNS. The primary hosts your console + API; sme-pool domains are offered to SME tenants for free subdomain allocation.
+            Domains served by this Sovereign's PowerDNS. The primary hosts your console + API; pool domains are offered to Organizations for free subdomain allocation.
           </p>
         </div>
         <button
@@ -381,7 +381,7 @@ function AddDomainModal({ onClose, onCreated }: AddDomainModalProps) {
             onChange={(e) => setRole(e.target.value as ParentDomainRole)}
             className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-3 py-2 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none"
           >
-            <option value="sme-pool">sme-pool — offered to SME tenants</option>
+            <option value="sme-pool">pool — offered to Organizations</option>
             <option value="primary">primary — operator's own domain</option>
           </select>
         </label>

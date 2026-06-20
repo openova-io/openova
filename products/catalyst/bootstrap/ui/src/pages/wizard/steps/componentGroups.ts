@@ -173,9 +173,9 @@ export const GROUPS: GroupDef[] = [
     components: [
       { id: 'flux',       name: 'Flux CD',    desc: 'GitOps reconciler driving every Sovereign cluster from Git', tier: 'mandatory', dependencies: [] },
       { id: 'crossplane', name: 'Crossplane', desc: 'Cloud and Kubernetes APIs as native CRDs',                   tier: 'mandatory', dependencies: [] },
-      { id: 'gitea',      name: 'Gitea',      desc: 'Sovereign-local Git server with five tenant organisations',  tier: 'mandatory', dependencies: ['cnpg'] },
+      { id: 'gitea',      name: 'Gitea',      desc: 'Sovereign-local Git server with five organizations',         tier: 'mandatory', dependencies: ['cnpg'] },
       { id: 'opentofu',   name: 'OpenTofu',   desc: 'Phase-zero IaC for cloud machines, networks, DNS',           tier: 'mandatory', dependencies: [] },
-      { id: 'vcluster',   name: 'vCluster',   desc: 'Virtual control planes for tenant isolation on shared nodes', tier: 'mandatory', dependencies: [] },
+      { id: 'vcluster',   name: 'vCluster',   desc: 'Virtual control planes for Organization isolation on shared nodes', tier: 'mandatory', dependencies: [] },
     ],
   },
   {
@@ -339,7 +339,7 @@ export const GROUPS: GroupDef[] = [
       { id: 'knative',   name: 'Knative',   desc: 'Scale-to-zero runtime for HTTP and event-driven workloads',     tier: 'optional',  dependencies: [] },
       // Axon is an OpenOva-internal component without a finalized
       // upstream brand mark — render the letter-mark fallback (#173).
-      { id: 'axon',      name: 'Axon',      desc: 'Provider-agnostic LLM gateway with per-tenant quota and cost', tier: 'recommended', dependencies: [], logoUrl: null },
+      { id: 'axon',      name: 'Axon',      desc: 'Provider-agnostic LLM gateway with per-Organization quota and cost', tier: 'recommended', dependencies: [], logoUrl: null },
       { id: 'neo4j',     name: 'Neo4j',     desc: 'Graph database for fraud, identity, and knowledge graphs',     tier: 'optional',  dependencies: [] },
       { id: 'vllm',      name: 'vLLM',      desc: 'High-throughput LLM inference with PagedAttention and batching', tier: 'optional', dependencies: [], logoUrl: basePath('component-logos/vllm.png') },
       { id: 'milvus',    name: 'Milvus',    desc: 'Vector database for billion-scale similarity search',          tier: 'optional',  dependencies: ['seaweedfs'] },
@@ -353,7 +353,7 @@ export const GROUPS: GroupDef[] = [
       // earlier dep `['cnpg']` was wrong: LibreChat does not speak
       // PostgreSQL and would not start with cnpg alone. (audit 2026-04 —
       // confirmed against https://www.librechat.ai/docs/user_guides/mongodb)
-      { id: 'librechat', name: 'LibreChat', desc: 'Multi-model self-hosted chat with tenant onboarding and RBAC', tier: 'optional', dependencies: ['ferretdb'] },
+      { id: 'librechat', name: 'LibreChat', desc: 'Multi-model self-hosted chat with Organization onboarding and RBAC', tier: 'optional', dependencies: ['ferretdb'] },
     ],
   },
   {
@@ -362,7 +362,7 @@ export const GROUPS: GroupDef[] = [
     required: false,
     components: [
       { id: 'stalwart', name: 'Stalwart', desc: 'All-in-one SMTP, IMAP, and JMAP mail server',                tier: 'recommended', dependencies: [] },
-      { id: 'livekit',  name: 'LiveKit',  desc: 'WebRTC SFU for tenant video and audio with encryption',     tier: 'recommended', dependencies: [] },
+      { id: 'livekit',  name: 'LiveKit',  desc: 'WebRTC SFU for Organization video and audio with encryption', tier: 'recommended', dependencies: [] },
       { id: 'stunner',  name: 'STUNner',  desc: 'Kubernetes-native TURN and STUN gateway for WebRTC media',  tier: 'recommended', dependencies: [] },
       { id: 'matrix',   name: 'Matrix',   desc: 'Federated end-to-end encrypted messaging with protocol bridges', tier: 'optional', dependencies: ['cnpg'] },
       { id: 'ntfy',     name: 'Ntfy',     desc: 'Topic-based push notifications over HTTP with mobile subscribers', tier: 'optional', dependencies: [] },

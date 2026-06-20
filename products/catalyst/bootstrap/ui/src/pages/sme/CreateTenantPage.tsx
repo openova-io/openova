@@ -435,7 +435,7 @@ export function CreateTenantPage({
               {poolLoading && <option value="">Loading…</option>}
               {!poolLoading && pool.length === 0 && (
                 <option value="">
-                  No sme-pool parents available — contact the Sovereign
+                  No pool parents available — contact the Sovereign
                   operator
                 </option>
               )}
@@ -470,7 +470,7 @@ export function CreateTenantPage({
               className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2 text-sm"
             />
             <span className="text-xs text-[var(--color-text-dim)]">
-              Ask the SME to add a CNAME from
+              Ask the Organization to add a CNAME from
               <code className="mx-1 rounded bg-[var(--color-input)] px-1">
                 console.{byoDomain || '<their-domain>'}
               </code>
