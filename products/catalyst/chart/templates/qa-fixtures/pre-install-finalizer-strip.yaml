@@ -128,6 +128,12 @@ metadata:
   name: qa-finalizer-strip
   namespace: {{ .Release.Namespace | quote }}
   labels:
+    # #3946: same Kyverno flux-managed (Enforce) gate as the sibling
+    # catalyst-gitea-token-mint pre-install hook — this Job lands in
+    # .Release.Namespace (catalyst-system) which is NOT in the policy
+    # excludeNamespaces list, so the Helm-created (Flux-label-less) hook
+    # is DENIED at admission unless it carries this label.
+    app.kubernetes.io/managed-by: flux
     catalyst.openova.io/managed-by: qa-fixtures
   annotations:
     helm.sh/hook: pre-install,pre-upgrade
