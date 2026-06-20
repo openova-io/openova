@@ -1,0 +1,44 @@
+# .dockerignore — keeps the build context lean for every image built from this
+# repo root (notably products/catalyst/bootstrap/api/Containerfile, which uses
+# the repo root as its context to bundle infra/providers/ + core/ shared trees).
+#
+# WHY THIS FILE EXISTS (Refs the catalyst-api slim ticket, 2026-06-20):
+#   `tofu init` populates infra/providers/<name>/.terraform/ with the DOWNLOADED
+#   provider plugin binaries — 1.6 GB locally (701 MB hetzner + 903 MB huawei).
+#   These are git-ignored, so a clean CI checkout never has them; but a LOCAL
+#   `docker build .` from the repo root slurps the entire 1.6 GB into the build
+#   context and then `COPY infra/providers/ /infra/providers/` bakes them into
+#   the runtime image. That is exactly how the stray ghcr catalyst-api:25096de
+#   image ballooned to 1.88 GB. The catalyst-api Pod runs `tofu init` itself at
+#   provision time inside a per-deployment workdir, so the in-image module must
+#   ship the .tf/.tftpl SOURCES only — never a pre-populated plugin cache.
+#
+# Keep this list tight: the Containerfile COPYs core/controllers/,
+# core/services/shared/, products/catalyst/bootstrap/api/, and infra/providers/.
+# Do NOT exclude any of those source trees.
+
+# --- terraform/opentofu local state + plugin cache (the 1.6 GB footgun) ---
+**/.terraform/
+**/.terraform.tfstate*
+**/terraform.tfstate*
+**/*.tfplan
+**/crash.log
+
+# --- agent worktrees: nested copies of the whole repo (multi-GB) ---
+.claude/
+
+# --- VCS + CI metadata not needed in any image ---
+.git/
+.github/
+
+# --- node / build caches (the console UI builds in its own Containerfile) ---
+**/node_modules/
+**/.svelte-kit/
+**/dist/
+**/.astro/
+
+# --- transient local artifacts ---
+**/*.log
+dashboard-snap.md
+docs/sessions/
+scripts/.newapi-validate-tmp.mjs
