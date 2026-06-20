@@ -21,6 +21,17 @@
 
 # ---------- Stage 1: build the Go binaries ----------
 FROM docker.io/library/golang:1.26-alpine AS build
+# upx compresses the self-built Go binaries (catalyst-api + catalyst-dns) and,
+# in the tofu/runtime stages below, the bundled tofu/kubectl/helm CLIs. These
+# are all Go binaries, so upx --best --lzma roughly QUARTERS them on disk
+# (catalyst-api 55.6MB→11.0MB, tofu 113.4MB→22.0MB, kubectl 56.4MB→11.1MB,
+# helm 57.2MB→11.4MB — measured 2026-06-20, Refs the slim ticket). The
+# decompress-on-exec cost is a one-time ~100-200ms hit at process start; these
+# are long-lived (catalyst-api) or short-lived-but-infrequent (tofu/kubectl/
+# helm during bootstrap) so the trade strongly favours the smaller pull on
+# kom4dc's IPv4-only national-cloud, where every fresh-SHA roll otherwise
+# stalls 5-10min pulling the image direct from ghcr.io.
+RUN apk add --no-cache upx
 # core/controllers/ is required by the replace directive in
 # products/catalyst/bootstrap/api/go.mod (added by EPIC-2 slice I #1152
 # so the catalyst-api preview handler renders byte-identical manifests
@@ -43,13 +54,15 @@ WORKDIR /app
 COPY products/catalyst/bootstrap/api/go.mod products/catalyst/bootstrap/api/go.sum ./
 RUN go mod download
 COPY products/catalyst/bootstrap/api/ ./
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /catalyst-api ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /catalyst-api ./cmd/api \
+    && upx -q --best --lzma /catalyst-api
 # catalyst-dns helper — invoked by the OpenTofu module's null_resource.dns_pool
 # via local-exec at Phase-0 apply time. Lives at /usr/local/bin/catalyst-dns
 # in the runtime image so the OpenTofu run (which executes inside this same
 # container — the catalyst-api Pod is also the OpenTofu runner) can shell out
 # to it. See infra/hetzner/main.tf comments around null_resource.dns_pool.
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /catalyst-dns ./cmd/catalyst-dns
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /catalyst-dns ./cmd/catalyst-dns \
+    && upx -q --best --lzma /catalyst-dns
 
 # ---------- Stage 2: download + verify the OpenTofu CLI ----------
 # The catalyst-api Pod IS the OpenTofu runner — provisioner.runTofu() execs
@@ -67,12 +80,16 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /catalyst-dns ./cmd/ca
 FROM docker.io/library/alpine:3.20 AS tofu
 ARG TARGETARCH=amd64
 ARG TOFU_VERSION=1.11.6
+# upx for the post-download compression of the tofu CLI (113MB→22MB on disk,
+# 33MB→22MB gzipped on the wire). tofu is a Go binary so it compresses cleanly;
+# the integrity check (sha256sum -c) runs on the UNCOMPRESSED download BEFORE
+# upx, so supply-chain verification is unchanged.
 # SHA256 from tofu_${TOFU_VERSION}_SHA256SUMS, fetched from the canonical
 # OpenTofu GitHub release. Update both values together when bumping the
 # pinned version.
 ARG TOFU_SHA256_AMD64=02800fafa2753a9f50c38483e2fdf5bc353fd62895eb9e25eec9a5145df3a69e
 ARG TOFU_SHA256_ARM64=d4f2ab15776925864b049bb329d69682851de6f5204f256e9fa86d07a0308850
-RUN apk add --no-cache ca-certificates curl tar \
+RUN apk add --no-cache ca-certificates curl tar upx \
     && mkdir -p /out \
     && case "${TARGETARCH}" in \
         amd64) TOFU_SHA256="${TOFU_SHA256_AMD64}" ;; \
@@ -84,6 +101,8 @@ RUN apk add --no-cache ca-certificates curl tar \
     && echo "${TOFU_SHA256}  /tmp/tofu.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/tofu.tar.gz -C /tmp tofu \
     && install -m 0755 /tmp/tofu /out/tofu \
+    && /out/tofu version \
+    && upx -q --best --lzma /out/tofu \
     && /out/tofu version
 
 # ---------- Stage 3: runtime ----------
@@ -95,13 +114,23 @@ FROM docker.io/library/alpine:3.20
 ARG KUBECTL_VERSION=v1.31.4
 ARG HELM_VERSION=v3.16.3
 
+# upx is installed only to compress kubectl+helm, then removed in the same
+# layer so the packer itself does not bloat the runtime image. kubectl/helm
+# are Go binaries (56MB/57MB → 11MB/11MB on disk after upx --best --lzma);
+# both are verified to still run post-compression (`kubectl version --client`
+# / `helm version` print correctly — measured 2026-06-20).
 RUN apk add --no-cache ca-certificates curl bash git \
+    && apk add --no-cache --virtual .upx upx \
     && curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl \
     && chmod +x /usr/local/bin/kubectl \
     && curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar xz -C /tmp \
     && mv /tmp/linux-amd64/helm /usr/local/bin/helm \
     && rm -rf /tmp/linux-amd64 \
-    && chmod +x /usr/local/bin/helm
+    && chmod +x /usr/local/bin/helm \
+    && upx -q --best --lzma /usr/local/bin/kubectl /usr/local/bin/helm \
+    && /usr/local/bin/kubectl version --client >/dev/null \
+    && /usr/local/bin/helm version --short >/dev/null \
+    && apk del .upx
 # git is required by the SME tenant provisioning pipeline (#804) and the
 # marketplace-settings GitOps writer — both shell out to `git clone /
 # commit / push` against the catalyst-zero / Sovereign GitOps repo.
