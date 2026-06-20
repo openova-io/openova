@@ -5,7 +5,7 @@
  *   • deriveWizardPhase — status → phase mapping (the 5 phases)
  *   • hrRatio — multi-region HR census + componentStates fallback
  *   • wizard render — highlights the live phase + shows the Reconcile ratio
- *   • deep-links — phase ③ → /reconciliation, phase ② → /jobs
+ *   • deep-links — phase ③ → /cloud (unified graph, #3958), phase ② → /jobs
  *   • Dashboard view toggle — auto-flip to treemap on ready; wizard while
  *     converging; the manual Progress ⇄ Treemap toggle flips both ways
  */
@@ -81,9 +81,11 @@ function renderWizard(snapshot: DeploymentSnapshot | null) {
     path: '/provision/$deploymentId/dashboard',
     component: () => <ConvergenceWizard snapshot={snapshot} deploymentId="d-1" />,
   })
+  // #3958 — the wizard's reconciliation deep-link now lands on the
+  // unified Cloud graph (/cloud), not the deleted /reconciliation page.
   const reconRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/provision/$deploymentId/reconciliation',
+    path: '/provision/$deploymentId/cloud',
     component: () => <div data-testid="recon-target" />,
   })
   const jobsRoute = createRoute({
@@ -109,10 +111,10 @@ describe('ConvergenceWizard render', () => {
     expect(screen.getByTestId('wizard-reconcile-ratio').textContent).toContain('52/65')
   })
 
-  it('deep-links phase ③ to the Reconciliation page and ② to Jobs', async () => {
+  it('deep-links phase ③ to the unified Cloud graph and ② to Jobs', async () => {
     renderWizard({ status: 'phase1-watching' } as DeploymentSnapshot)
     const reconLink = await screen.findByTestId('wizard-link-reconciliation')
-    expect(reconLink.getAttribute('href')).toContain('/reconciliation')
+    expect(reconLink.getAttribute('href')).toContain('/cloud')
     const jobsLink = screen.getByTestId('wizard-link-jobs')
     expect(jobsLink.getAttribute('href')).toContain('/jobs')
   })
@@ -163,7 +165,7 @@ function renderDashboard() {
   })
   const reconRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/provision/$deploymentId/reconciliation',
+    path: '/provision/$deploymentId/cloud',
     component: () => <div data-testid="recon-target" />,
   })
   const jobsRoute = createRoute({

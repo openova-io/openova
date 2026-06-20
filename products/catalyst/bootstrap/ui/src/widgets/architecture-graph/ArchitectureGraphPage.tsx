@@ -66,7 +66,9 @@ import type {
 import { GraphCanvas, type GraphCanvasHandle } from './GraphCanvas'
 import { hierarchyToGraph } from './adapter'
 import { k8sToGraph, mergeGraphs } from './k8sAdapter'
+import { reconcilersToGraph } from './reconcilerAdapter'
 import { useK8sCacheStream, type K8sSnapshot } from './useK8sCacheStream'
+import type { ReconciliationNode } from '@/lib/reconciliation.api'
 import {
   ALL_EDGE_TYPES,
   ALL_NODE_TYPES,
@@ -83,6 +85,12 @@ import {
   type GraphEdge,
   type GraphNode,
 } from './types'
+import {
+  PRESETS,
+  PRESET_ORDER,
+  type PresetId,
+  presetHiddenTypes,
+} from './presets'
 import { NODE_ICON } from './icons'
 import { markerId } from './markers'
 
@@ -142,6 +150,15 @@ export interface ArchitectureGraphPageProps {
    *  applied delta so memoised adapters re-derive when the in-place
    *  Map mutates. */
   k8sRevision?: number
+  /**
+   * Reconciler nodes from the #3925/#3958 /reconciliation endpoint —
+   * Flux HelmReleases + Kustomizations AND the declarative non-Flux
+   * reconcilers (cert-manager / CNPG / External-Secrets / Catalyst CRs).
+   * Merged into the SAME canvas as typed nodes (shape=category,
+   * border=family, fill=state). When omitted (tests / standalone) the
+   * canvas is just the cloud + k8s view.
+   */
+  reconcilers?: ReconciliationNode[] | null
 }
 
 /* ── Component ───────────────────────────────────────────────────── */
@@ -209,6 +226,7 @@ export function ArchitectureGraphPage({
   onRefetch,
   k8sSnapshot: k8sSnapshotProp,
   k8sRevision: k8sRevisionProp,
+  reconcilers,
 }: ArchitectureGraphPageProps) {
   const handleRef = useRef<GraphCanvasHandle | null>(null)
 
@@ -232,13 +250,22 @@ export function ArchitectureGraphPage({
   const k8sSnapshot = k8sSnapshotProp ?? fallback.snapshot
   const k8sRevision = k8sRevisionProp ?? fallback.revision
 
-  /* ── 1. Adapter — tree → nodes/edges, merged with K8s side ─── */
+  /* ── 1. Adapter — tree → nodes/edges, merged with K8s side AND the
+   *     reconciler set (#3958). Reconciler ids are namespaced `recon:`
+   *     so they never collide with cloud/k8s ids — a plain concat after
+   *     mergeGraphs is safe, and edges only reference reconciler ids. */
   const { nodes: allNodes, edges: allEdges } = useMemo(() => {
     const cloud = hierarchyToGraph(data)
     const k8s = k8sToGraph(k8sSnapshot)
-    return mergeGraphs(cloud, k8s)
+    const base = mergeGraphs(cloud, k8s)
+    const recon = reconcilersToGraph(reconcilers)
+    if (recon.nodes.length === 0) return base
+    return {
+      nodes: [...base.nodes, ...recon.nodes],
+      edges: [...base.edges, ...recon.edges],
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, k8sRevision])
+  }, [data, k8sRevision, reconcilers])
 
   /* ── 2. Type totals for slider sizing ──────────────────────── */
   const typeTotals = useMemo(() => {
@@ -302,16 +329,24 @@ export function ArchitectureGraphPage({
     })
   }
 
-  // The set of types HIDDEN from the canvas — every type NOT in the
-  // active chip set. This is what GraphCanvas's hiddenTypes prop
-  // expects (#348 item 2 — chip removal == visibility filter).
+  /* ── Preset lens (#3958) — a cross-cutting {categories, families,
+   *     edge-kinds} lens LAYERED on top of the per-type chip toggles.
+   *     The preset narrows by category + family; chips stay the
+   *     fine-grained control. Default 'all' hides nothing. */
+  const [presetId, setPresetId] = useState<PresetId>('all')
+
+  const presetHidden = useMemo(() => presetHiddenTypes(PRESETS[presetId]), [presetId])
+
+  // The set of types HIDDEN from the canvas — the UNION of (a) every type
+  // NOT in the active chip set (#348 item 2 — chip removal == visibility
+  // filter) and (b) every type the active preset lens excludes (#3958).
   const hiddenTypes = useMemo(() => {
     const h = new Set<ArchNodeType>()
     for (const t of ALL_NODE_TYPES) {
-      if (!activeTypes.has(t)) h.add(t)
+      if (!activeTypes.has(t) || presetHidden.has(t)) h.add(t)
     }
     return h
-  }, [activeTypes])
+  }, [activeTypes, presetHidden])
 
   // Per-type explicit cap; null = "all" (no cap).
   const [typeCap, setTypeCap] = useState<Partial<Record<ArchNodeType, number | null>>>({})
@@ -499,6 +534,34 @@ export function ArchitectureGraphPage({
           </span>
         )}
 
+        {/* Preset lens dropdown (#3958) — cross-cutting domain + family
+            lenses, layered on the per-type chip toggles below. */}
+        <label className="flex items-center gap-1.5 text-xs text-[var(--color-text-dim)]" htmlFor="arch-preset">
+          Lens
+          <select
+            id="arch-preset"
+            data-testid="cloud-architecture-preset"
+            value={presetId}
+            onChange={(e) => setPresetId(e.target.value as PresetId)}
+            className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-xs text-[var(--color-text)]"
+          >
+            <optgroup label="Domain">
+              {PRESET_ORDER.filter((id) => PRESETS[id].group === 'domain').map((id) => (
+                <option key={id} value={id}>
+                  {PRESETS[id].label}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Family">
+              {PRESET_ORDER.filter((id) => PRESETS[id].group === 'family').map((id) => (
+                <option key={id} value={id}>
+                  {PRESETS[id].label}
+                </option>
+              ))}
+            </optgroup>
+          </select>
+        </label>
+
         <div className="ml-auto flex items-center gap-2">
           <label className="text-xs text-[var(--color-text-dim)]" htmlFor="arch-global-density">
             Density
@@ -622,6 +685,7 @@ export function ArchitectureGraphPage({
             focusNodeId={focusNodeId}
             hiddenTypes={hiddenTypes}
             typeLimits={effectiveTypeLimits}
+            showLegend
             onNodeClick={(n) => setSelectedId(n.id)}
             onNodeDoubleClick={(n) => setFocusNodeId(n.id)}
             onNodeContextMenu={openCtxMenuForNode}

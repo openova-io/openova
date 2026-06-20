@@ -79,16 +79,22 @@ import {
   EDGE_MARKER_END,
   EDGE_MARKER_START,
   EDGE_STROKE,
-  NODE_FILL,
+  FAMILY_BORDER,
+  NODE_CATEGORY,
+  NODE_FAMILY,
+  STATUS_FILL,
   type ArchEdgeType,
   type ArchNodeType,
+  type ArchStatus,
   type EdgeMarker,
   type GraphEdge,
   type GraphNode,
   type LiveEdge,
   type LiveNode,
 } from './types'
-import { NODE_ICON } from './icons'
+import { shapeForCategory } from './shapes'
+import { GraphLegend } from './GraphLegend'
+import { BOUND_PADDING, NODE_R, physicsFor } from './layout'
 import { markerId, uniqueMarkerDefs } from './markers'
 
 /* ── Public types ────────────────────────────────────────────────── */
@@ -130,79 +136,34 @@ export interface GraphCanvasProps {
   /** Optional data-testid prefix; defaults to "arch-graph". */
   testIdPrefix?: string
   /**
-   * Optional per-node ring colour override. When it returns a colour that
-   * wins over the type palette (NODE_FILL[type]); returning undefined falls
-   * back to the type colour. Lets a caller colour by something other than
-   * node type — e.g. the Reconciliation DAG colours bubbles by live
-   * reconcile STATE (Reconciled/Reconciling/Degraded) rather than kind.
-   * Opt-in: omitting it preserves the default type-palette behaviour.
+   * Optional per-node FILL override. When it returns a colour that wins
+   * over the status palette (STATUS_FILL[status]); returning undefined
+   * falls back to the status fill. The unified Cloud-graph (#3958) drives
+   * fill by STATUS by default — this hook is retained for callers that
+   * want a bespoke fill rule. Opt-in: omitting it preserves the default
+   * fill-by-status behaviour.
    */
   nodeColorFn?: (n: GraphNode) => string | undefined
-}
-
-/* ── Adaptive physics tiers ──────────────────────────────────────── */
-
-/**
- * Floor radius for the node disc when an icon is rendered (#348 item
- * 10 — icons need a minimum disc to read against the canvas). The
- * actual radius is `max(NODE_R, radiusForDegree(node.degree))`.
- */
-const NODE_R = 14
-
-/**
- * Bound padding inside the canvas — the bounded-physics force never
- * lets a node's centre come closer than r + BOUND_PADDING to any edge,
- * where r is per-node from radiusForDegree() (#348 item 5).
- */
-const BOUND_PADDING = 20
-
-/**
- * 5 tiers — node count → simulation params. Tuned so even ~5k node
- * graphs settle in <2s on commodity hardware while small graphs
- * (≤50) get a punchier collision radius for readability.
- *
- * Charge magnitudes lowered slightly from the pre-#348 values so the
- * bounded-physics clamp doesn't fight strong repulsion at small canvas
- * sizes.
- */
-function physicsFor(nodeCount: number): {
-  charge: number
-  linkDistance: number
-  linkStrength: number
-  collide: number
-  alphaDecay: number
   /**
-   * Center-gravity strength — applied via forceX(cx) + forceY(cy).
-   * Small graphs need stronger inward pull because link forces are
-   * sparse and charge repulsion would otherwise blow nodes to the
-   * edges of the canvas (where the bound clamp parks them).
-   * forceCenter() shifts the centroid but does NOT pull individual
-   * nodes inward, so we need this complementary force.
+   * Render the three-channel legend overlay (shape→category, border→
+   * family, fill→status) in the bottom-right. Defaults to false so
+   * embedders (job DAG, etc.) opt in. The unified Cloud-graph turns it
+   * on (#3958).
    */
-  centerGravity: number
-} {
-  // Tuning notes (founder feedback 2026-05-06): the previous gravity
-  // values (0.08 → 0.02) left bubbles drifting to the canvas edges on
-  // a ~300-node graph (omantel.biz live cluster). Charge magnitudes
-  // also reduced — the prior values were calibrated against a small
-  // topology stub (~20 nodes), and now that the live K8s data plane
-  // delivers Pods/Services/etc the simulation has to handle 10–50×
-  // more nodes per Sovereign. Stronger gravity + softer charge keeps
-  // the graph clustered toward the centre.
-  if (nodeCount <= 50) {
-    return { charge: -90, linkDistance: 70, linkStrength: 0.6, collide: 26, alphaDecay: 0.02, centerGravity: 0.18 }
-  }
-  if (nodeCount <= 200) {
-    return { charge: -70, linkDistance: 55, linkStrength: 0.5, collide: 20, alphaDecay: 0.025, centerGravity: 0.16 }
-  }
-  if (nodeCount <= 1000) {
-    return { charge: -50, linkDistance: 38, linkStrength: 0.4, collide: 14, alphaDecay: 0.03, centerGravity: 0.14 }
-  }
-  if (nodeCount <= 5000) {
-    return { charge: -25, linkDistance: 22, linkStrength: 0.25, collide: 9, alphaDecay: 0.04, centerGravity: 0.1 }
-  }
-  return { charge: -14, linkDistance: 13, linkStrength: 0.15, collide: 5, alphaDecay: 0.05, centerGravity: 0.08 }
+  showLegend?: boolean
 }
+
+/**
+ * The status FILL for a node. Defaults to grey ('unknown') when the
+ * node carries no status. Centralised so the canvas + the legend agree.
+ */
+function statusFill(status: ArchStatus | undefined): string {
+  return STATUS_FILL[status ?? 'unknown'] ?? STATUS_FILL.unknown
+}
+
+/* ── Constant-density centered layout (#3958) — physicsFor + the
+ *    NODE_R / BOUND_PADDING constants live in ./layout (pure math, so
+ *    this file stays component-only for react-refresh). ───────────── */
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
@@ -284,6 +245,45 @@ function makeForceBound(
     nodes = nextNodes
   }
   return force as (() => void) & {
+    initialize: (n: LiveNode[]) => void
+  }
+}
+
+/**
+ * Soft radial containment (#3958). A GENTLE inward force for any node
+ * whose distance from (cx, cy) exceeds `fieldRadius`. Unlike makeForceBound
+ * (a hard clamp at the literal viewport edge), this is a spring that grows
+ * with how far the node has strayed past the target field — so the cloud
+ * settles at ~70% of the viewport with the natural force-directed
+ * topology intact, never flung to the edges and never crushed into the
+ * centre. Inside the field it does nothing (the charge/link/gravity
+ * balance owns the layout there).
+ */
+function makeForceRadialCap(cx: number, cy: number, fieldRadius: number) {
+  let nodes: LiveNode[] = []
+  const force = (alpha: number) => {
+    if (fieldRadius <= 0) return
+    for (const n of nodes) {
+      // Pinned nodes are operator-controlled — never nudge them.
+      if (n.fx !== null || n.fy !== null) continue
+      const dx = n.x - cx
+      const dy = n.y - cy
+      const dist = Math.hypot(dx, dy)
+      if (dist <= fieldRadius || dist === 0) continue
+      // Spring strength scales with the overshoot fraction so a node
+      // just past the field barely feels it, while a far-flung node is
+      // pulled firmly back. k tuned to be gentle (founder: keep the
+      // organic feel — no snapping).
+      const overshoot = (dist - fieldRadius) / fieldRadius
+      const k = Math.min(0.25, overshoot) * alpha
+      n.vx -= dx * k
+      n.vy -= dy * k
+    }
+  }
+  ;(force as unknown as { initialize: (n: LiveNode[]) => void }).initialize = (nextNodes) => {
+    nodes = nextNodes
+  }
+  return force as ((alpha: number) => void) & {
     initialize: (n: LiveNode[]) => void
   }
 }
@@ -468,6 +468,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
     onEdgeCreate,
     testIdPrefix = 'arch-graph',
     nodeColorFn,
+    showLegend = false,
   },
   ref,
 ) {
@@ -568,10 +569,16 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
         existing.type = n.type
         existing.degree = degMap.get(n.id) ?? 0
       } else {
+        // Seed at the CENTROID with a small jitter proportional to the
+        // target field — small graphs start as a tight centred cluster,
+        // never flung outward (#3958 constant-density seeding).
+        const seedR = Math.min(60, physicsFor(visibleNodes.length, size.width, size.height).fieldRadius * 0.5)
+        const ang = Math.random() * 2 * Math.PI
+        const rad = Math.sqrt(Math.random()) * seedR
         liveNodes.set(n.id, {
           ...n,
-          x: cx + (Math.random() - 0.5) * 100,
-          y: cy + (Math.random() - 0.5) * 100,
+          x: cx + Math.cos(ang) * rad,
+          y: cy + Math.sin(ang) * rad,
           vx: 0,
           vy: 0,
           fx: null,
@@ -587,8 +594,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
       liveEdges.set(e.id, { ...e })
     }
 
-    // Build / re-tune the simulation.
-    const phys = physicsFor(liveNodes.size)
+    // Build / re-tune the simulation — viewport-aware so the constant-
+    // density field scales with √N and the actual canvas size.
+    const phys = physicsFor(liveNodes.size, size.width, size.height)
     if (!simRef.current) {
       simRef.current = forceSimulation<LiveNode, LiveEdge>([...liveNodes.values()])
         .force('link', forceLink<LiveNode, LiveEdge>([]).id((n) => n.id))
@@ -615,14 +623,28 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
       const linkData = [...liveEdges.values()] as unknown as SimulationLinkDatum<LiveNode>[]
       linkForce
         .links(linkData as unknown as LiveEdge[])
-        .distance(phys.linkDistance)
+        // CLAMPED link distance — physicsFor already constrains
+        // linkDistance to [minLink, maxLink]: minLink ≥ sum-of-radii+pad
+        // (no overlap), maxLink caps edge-fling.
+        .distance(Math.max(phys.minLink, Math.min(phys.maxLink, phys.linkDistance)))
         .strength(phys.linkStrength)
     }
     ;(sim.force('charge') as ReturnType<typeof forceManyBody>).strength(phys.charge)
-    ;(sim.force('collide') as ReturnType<typeof forceCollide>).radius(phys.collide)
+    // Hard collision floor — radius is the per-node draw radius + the
+    // physics collide pad, so no two bubbles ever overlap (#3958).
+    ;(sim.force('collide') as ReturnType<typeof forceCollide>)
+      .radius((d) => Math.max(NODE_R, radiusForDegree((d as LiveNode).degree)) + 4)
+      .strength(0.9)
     ;(sim.force('center') as ReturnType<typeof forceCenter>).x(cx).y(cy)
     ;(sim.force('gravityX') as ReturnType<typeof forceX>).x(cx).strength(phys.centerGravity)
     ;(sim.force('gravityY') as ReturnType<typeof forceY>).y(cy).strength(phys.centerGravity)
+
+    // Soft radial containment — a GENTLE inward nudge for any node that
+    // strays past the target field radius (~70% viewport). This is the
+    // primary "stay centred, don't fling to edges" force; the hard
+    // bound clamp below is only the absolute safety net at the true
+    // viewport edge (#3958 — keep the cloud at ~70%, never the edges).
+    sim.force('field', makeForceRadialCap(cx, cy, phys.fieldRadius))
 
     // Bounded-physics force — re-install every tick-tune so the box
     // matches the current container size. d3-force's `force()` setter
@@ -948,32 +970,37 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
           />
         )}
 
-        {/* Nodes. */}
+        {/* Nodes — three independent visual channels (#3958):
+            • FILL   (inside colour) = status   → STATUS_FILL
+            • SHAPE  (polygon)       = category → NODE_CATEGORY
+            • BORDER (stroke colour) = family   → FAMILY_BORDER
+            NO icons. */}
         <g data-testid={`${testIdPrefix}-nodes`}>
           {liveNodes.map((n) => {
             const r = Math.max(NODE_R, radiusForDegree(n.degree))
-            const ringColor = nodeColorFn?.(n) ?? NODE_FILL[n.type] ?? '#888'
-            const Icon = NODE_ICON[n.type]
-            // Icon glyph size — 14..18px scaled to node radius so larger
-            // (high-degree) nodes carry a slightly bigger icon.
-            const iconSize = Math.round(Math.min(18, Math.max(14, r * 1.0)))
-
-            // Stroke priority: highlighted > focus > pinned > default.
-            // Default uses the type-color ring (#348 item 10).
-            let stroke = ringColor
-            let strokeWidth = 2
+            const category = NODE_CATEGORY[n.type] ?? 'compute'
+            const family = NODE_FAMILY[n.type] ?? 'coreK8s'
+            // FILL = status (nodeColorFn may override per-node).
+            const fill = nodeColorFn?.(n) ?? statusFill(n.status)
+            // BORDER = family (default). Overridden by highlight / focus
+            // / pinned states below, in that priority order.
+            const familyColor = FAMILY_BORDER[family] ?? '#64748b'
+            let stroke = familyColor
+            let strokeWidth = 2.5
             let dash: string | undefined
             if (highlightedIds?.has(n.id)) {
               stroke = '#fcc419'
-              strokeWidth = 3
+              strokeWidth = 3.5
             } else if (focusNodeId && n.id === focusNodeId) {
               stroke = '#f06595'
-              strokeWidth = 3
+              strokeWidth = 3.5
             } else if (n.fx !== null && n.fy !== null) {
-              stroke = '#343a40'
-              strokeWidth = 1.8
+              stroke = '#cbd5e1'
+              strokeWidth = 2.5
               dash = '3,3'
             }
+
+            const geom = shapeForCategory(category, r)
 
             return (
               <g
@@ -981,6 +1008,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
                 data-testid={`${testIdPrefix}-node-${n.type}-${n.id}`}
                 data-node-type={n.type}
                 data-node-id={n.id}
+                data-node-category={category}
+                data-node-family={family}
+                data-node-status={n.status ?? 'unknown'}
                 data-pinned={n.fx !== null && n.fy !== null ? 'true' : 'false'}
                 transform={`translate(${n.x}, ${n.y})`}
                 onMouseDown={(ev) => onMouseDownNode(ev, n)}
@@ -989,7 +1019,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
                 style={{ cursor: 'pointer' }}
                 tabIndex={0}
                 role="button"
-                aria-label={`${n.label} — ${n.type}`}
+                aria-label={`${n.label} — ${n.type} (${n.status ?? 'unknown'})`}
                 onKeyDown={(ev) => {
                   if (ev.key === 'Enter' || ev.key === ' ') {
                     ev.preventDefault()
@@ -997,27 +1027,27 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
                   }
                 }}
               >
-                {/* Background plate so the icon sits on a coloured disc
-                    that reads against the dark canvas. */}
-                <circle
-                  r={r}
-                  fill="var(--color-bg)"
-                  stroke={stroke}
-                  strokeWidth={strokeWidth}
-                  strokeDasharray={dash}
-                />
-                {/* Tabler icon centred. We let the React component
-                    render its own SVG and translate it so its centre
-                    sits at (0,0). */}
-                {Icon && (
-                  <g transform={`translate(${-iconSize / 2}, ${-iconSize / 2})`}>
-                    <Icon
-                      size={iconSize}
-                      stroke={2}
-                      color={ringColor}
-                      data-testid={`${testIdPrefix}-node-icon-${n.type}`}
-                    />
-                  </g>
+                {geom.el === 'circle' ? (
+                  <circle
+                    data-testid={`${testIdPrefix}-node-shape-${n.type}`}
+                    data-shape="circle"
+                    r={geom.r}
+                    fill={fill}
+                    stroke={stroke}
+                    strokeWidth={strokeWidth}
+                    strokeDasharray={dash}
+                  />
+                ) : (
+                  <polygon
+                    data-testid={`${testIdPrefix}-node-shape-${n.type}`}
+                    data-shape={category}
+                    points={geom.points}
+                    fill={fill}
+                    stroke={stroke}
+                    strokeWidth={strokeWidth}
+                    strokeDasharray={dash}
+                    strokeLinejoin="round"
+                  />
                 )}
                 <text
                   y={r + 12}
@@ -1034,6 +1064,11 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
           })}
         </g>
       </svg>
+
+      {/* Three-channel legend (#3958) — shape→category, border→family,
+          fill→status. Opt-in via showLegend; the unified Cloud-graph
+          turns it on. Collapsible so it never blocks the canvas. */}
+      {showLegend && <GraphLegend testIdPrefix={testIdPrefix} />}
 
       {/* Stats overlay — bottom-left badges. */}
       <div
