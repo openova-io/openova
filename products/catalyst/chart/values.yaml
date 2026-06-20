@@ -1483,11 +1483,20 @@ orgPostgres:
 # the operator hasn't wired OAuth or SMTP yet — non-marketplace
 # Sovereigns simply don't render this Secret.
 #
+# #3985 backward-compat switch. The Organization-services credential
+# Secret is canonically `org-services-secrets`. The legacy `sme-secrets`
+# alias is now OFF by default (fresh provs emit ONLY the canonical name).
+# An operator upgrading a LIVE env in place may set
+# `compat.smeSecretsAlias=true` for ONE release so the legacy name is
+# re-emitted byte-identical mid-roll; this branch is removed post-Sunset.
+compat:
+  smeSecretsAlias: false
+#
 # Per docs/INVIOLABLE-PRINCIPLES.md #4 + #10: no hardcoded plaintext
 # credentials; every value flows from .Values.smeSecrets or via lookup'd
 # external Secret refs.
 smeSecrets:
-  secretName: org-services-secrets   # #3383: was `sme-secrets`; chart dual-renders the legacy name for one release
+  secretName: org-services-secrets   # #3985: canonical name; legacy `sme-secrets` alias default-OFF (compat.smeSecretsAlias)
   namespace: org-services            # #3383: was `sme`
   smtp:
     # ─── Sovereign source-Secret (issue #934) ────────────────────────
