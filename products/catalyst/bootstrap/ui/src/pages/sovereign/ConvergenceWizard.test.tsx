@@ -111,10 +111,17 @@ describe('ConvergenceWizard render', () => {
     expect(screen.getByTestId('wizard-reconcile-ratio').textContent).toContain('52/65')
   })
 
-  it('deep-links phase ③ to the unified Cloud graph and ② to Jobs', async () => {
+  it('deep-links phase ③ to the unified Cloud graph reconciliation LENS and ② to Jobs', async () => {
     renderWizard({ status: 'phase1-watching' } as DeploymentSnapshot)
     const reconLink = await screen.findByTestId('wizard-link-reconciliation')
-    expect(reconLink.getAttribute('href')).toContain('/cloud')
+    const href = reconLink.getAttribute('href') ?? ''
+    expect(href).toContain('/cloud')
+    // #3996 follow-up — the link must select the Reconciliation lens, not
+    // the default Cloud lens. The cloud route's validateSearch carries the
+    // `lens` param through, so the rendered href must include it (a dropped
+    // param would mean the deep-link lands on the default lens).
+    expect(href).toContain('view=graph')
+    expect(href).toContain('lens=reconciliation')
     const jobsLink = screen.getByTestId('wizard-link-jobs')
     expect(jobsLink.getAttribute('href')).toContain('/jobs')
   })

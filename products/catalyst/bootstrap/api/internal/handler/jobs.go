@@ -741,6 +741,17 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// /jobs is the FINITE-work view (#3996 follow-up): drop the continuous
+	// reconcilers (Flux HelmRelease installs, Kustomization reconciles, and
+	// long-running reconciler Deployments) so the founder sees jobs that
+	// start/run/end — provision + cutover steps, batch Jobs, CronJob runs,
+	// one-shot Day-2 mutations — instead of an ever-growing wall of
+	// always-on reconcilers. Those reconcilers now live ONLY on the Cloud
+	// Reconciliation lens + reconciler-management surface (#3996), which
+	// reads them LIVE from the cluster; the store keeps the full set, only
+	// this view is narrowed. GetJob stays unfiltered so a deep-link to a
+	// reconciler row still resolves.
+	out = jobs.FilterFiniteJobs(out)
 	if out == nil {
 		out = []jobs.Job{}
 	}

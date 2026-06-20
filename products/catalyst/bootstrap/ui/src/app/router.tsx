@@ -189,6 +189,17 @@ import {
   probeWhoamiAndCacheMarker,
   sanitizeNextParam,
 } from './auth-gate'
+import { LENSES, type LensId } from '@/widgets/architecture-graph/presets'
+
+// isValidLensId — closed-set guard for the cloud route's `lens` query
+// param (#3996 follow-up: the reconciliation deep-link carries
+// `?view=graph&lens=reconciliation`). LENSES is the single source of truth
+// for valid lens ids; an unknown value is dropped at validateSearch so the
+// CloudLensProvider falls back to the default Cloud lens rather than
+// crashing on a missing table entry.
+function isValidLensId(raw: unknown): raw is LensId {
+  return typeof raw === 'string' && Object.prototype.hasOwnProperty.call(LENSES, raw)
+}
 
 /**
  * rootBeforeLoad — universal auth gate (#1090 cluster A2,
@@ -876,6 +887,12 @@ const provisionDecommissionRoute = createRoute({
 interface CloudSearch {
   view?: 'graph' | 'list'
   kind?: string
+  // lens — the active Cloud lens (chip-set) to open on. #3996 follow-up:
+  // the ConvergenceWizard reconciliation deep-link sends
+  // `?view=graph&lens=reconciliation` so the operator lands on the
+  // Reconciliation lens, not the default Cloud lens. Carried through both
+  // cloud routes' validateSearch so CloudPage can seed CloudLensProvider.
+  lens?: LensId
 }
 
 /**
@@ -990,6 +1007,7 @@ const provisionCloudRoute = createRoute({
     if (typeof raw.kind === 'string' && raw.kind.length > 0) {
       out.kind = normaliseCloudKind(raw.kind)
     }
+    if (isValidLensId(raw.lens)) out.lens = raw.lens
     return out
   },
 })
@@ -1457,6 +1475,7 @@ const consoleCloudRoute = createRoute({
     if (typeof raw.kind === 'string' && raw.kind.length > 0) {
       out.kind = normaliseCloudKind(raw.kind)
     }
+    if (isValidLensId(raw.lens)) out.lens = raw.lens
     return out
   },
 })

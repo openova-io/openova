@@ -88,6 +88,11 @@ export const RESOURCE_DETAIL_TABS = [
   'metrics',
   'sbom',
   'compliance',
+  // #3996 — the lightweight ArgoCD/Flux management tab. Rendered only for
+  // the manageable Flux reconciler kinds (HelmRelease / Kustomization /
+  // GitRepository / OCIRepository / HelmRepository / HelmChart); hidden on
+  // every other kind, exactly like the Pod-only 'exec' tab.
+  'reconcile',
   'tree',
 ] as const
 export type ResourceDetailTab = (typeof RESOURCE_DETAIL_TABS)[number]

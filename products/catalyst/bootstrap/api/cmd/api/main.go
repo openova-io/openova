@@ -1302,6 +1302,20 @@ func main() {
 		// Reconciling / Drifted / Degraded). Read-only. Scanner/Job nodes
 		// are EXCLUDED by construction (it's built from reconcilers only).
 		rg.Get("/api/v1/deployments/{depId}/reconciliation", h.GetReconciliationDAG)
+		// #3996 — lightweight ArgoCD/Flux MANAGEMENT surface on the recon
+		// lens. LIST every manageable Flux reconciler (HelmRelease /
+		// Kustomization / GitRepository / OCIRepository / HelmRepository /
+		// HelmChart) with live status + last-reconcile + revision + suspended
+		// flag; DRILL into one object's owning-controller LOGS filtered to
+		// that object; and TRIGGER reconcile/suspend/resume via the
+		// in-cluster dynamic client (annotation / spec.suspend patch — NEVER
+		// a shell-out). The action route is owner-checked (404 cross-tenant)
+		// + operator-RBAC-gated (403 otherwise), the SAME gate the jobs-retry
+		// endpoint uses. Read routes are inside RequireSession so claims are
+		// populated; the action route reads them for the RBAC gate + audit.
+		rg.Get("/api/v1/deployments/{depId}/reconcilers", h.ListReconcilers)
+		rg.Get("/api/v1/deployments/{depId}/reconcilers/{kind}/{ns}/{name}/logs", h.GetReconcilerLogs)
+		rg.Post("/api/v1/deployments/{depId}/reconcilers/{kind}/{ns}/{name}/{action}", h.ReconcilerAction)
 		// OpenovaFlow proxy (Agent #3 integration — PR #1389/#1390
 		// follow-up). Proxies the FlowPage canvas's snapshot/stream/
 		// ingest path to the bp-openova-flow-server inside the
