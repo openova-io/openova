@@ -33,7 +33,7 @@ export const STEP_COMPONENTS_COPY = {
    *
    * 2026-05-19 (#1976 / TBD-A64 / PR γ): the legacy "Choose Your Stack"
    * + "Always Included" tab labels were retired in favour of the
-   * canonical SME marketplace single-grid layout (see
+   * canonical Organization marketplace single-grid layout (see
    * core/marketplace/src/components/AppsStep.svelte). Cosmetic-guard
    * test `StepComponents does not render legacy "Choose Your Stack" /
    * "Always Included" tab labels` (e2e/cosmetic-guards.spec.ts) asserts

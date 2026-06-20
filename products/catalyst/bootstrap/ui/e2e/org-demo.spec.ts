@@ -1,6 +1,6 @@
 /**
- * sme-demo.spec.ts — End-to-end Playwright happy path for the FIRST
- * SME tenant on a healthy otech (issue #805 / parent epic #795).
+ * org-demo.spec.ts — End-to-end Playwright happy path for the FIRST
+ * Organization on a healthy otech (issue #805 / parent epic #795).
  *
  * This spec is the load-bearing investor-demo proof. It walks the full
  * 6-step happy path from marketplace signup through alice's daily
@@ -14,8 +14,8 @@
  * back-end surface mocked via `page.route`. This is the only way to
  * keep CI green while the tenant-provisioning pipeline (#804) and the
  * billing UI surfaces are still in flight. The mocks live in
- * `e2e/lib/sme-fixtures.ts` — each one is wire-shape-faithful to the
- * canonical handler (sme_users.go, tenant_discover.go) so when #804
+ * `e2e/lib/org-fixtures.ts` — each one is wire-shape-faithful to the
+ * canonical handler (org_users.go, tenant_discover.go) so when #804
  * lands, the spec opts out by simply not calling the relevant
  * `installXxxMocks()` helper.
  *
@@ -25,34 +25,34 @@
  *
  * ── Why one spec instead of six ───────────────────────────────────
  *
- * The DoD is "first SME, full happy path, behaviour-verified" — the
+ * The DoD is "first Organization, full happy path, behaviour-verified" — the
  * narrative IS the evidence. Splitting into separate spec files would
  * make it possible for one step to silently regress while the others
  * stay green. Per docs/INVIOLABLE-PRINCIPLES.md #2 (never compromise
  * on quality), the spec is intentionally a single linear walk so a
  * regression at step 3 fails the suite, not a cosmetic detail.
  *
- * Tagged `@sme-demo` so the CI workflow can grep it independently.
+ * Tagged `@org-demo` so the CI workflow can grep it independently.
  */
 
 import { expect, test } from '@playwright/test'
 import {
   installAllMocks,
   snap,
-  type SMEMockState,
-} from './lib/sme-fixtures'
+  type OrgMockState,
+} from './lib/org-fixtures'
 import {
   HOSTS,
   USERS,
   UUIDS,
   DEPLOYMENT_ID,
-  SME_DISCOVERY,
+  ORG_DISCOVERY,
 } from './lib/config'
 
 test.describe.configure({ mode: 'serial' })
 
-test.describe('@sme-demo SME end-to-end happy path (issue #805)', () => {
-  let mockState: SMEMockState
+test.describe('@org-demo Organization end-to-end happy path (issue #805)', () => {
+  let mockState: OrgMockState
 
   test.beforeEach(async ({ page }) => {
     // Every test in the describe block runs with the full mock surface
@@ -65,15 +65,15 @@ test.describe('@sme-demo SME end-to-end happy path (issue #805)', () => {
 
   test('step 1 — marketplace signup form filled (1440×900)', async ({ page }, testInfo) => {
     // The marketplace surface is the SAME wizard the open-source
-    // catalyst-ui ships. SME signup runs through the same flow; the
+    // catalyst-ui ships. Organization signup runs through the same flow; the
     // tenant-create payload at the end is what differs (#804 wires
-    // the SME-tenant creation; today the wizard targets a Sovereign
+    // the Organization creation; today the wizard targets a Sovereign
     // deployment).
     //
     // For mock-mode we drive the wizard's start surface and capture
     // the screenshot at the form-filled state. The actual POST to
-    // `/api/v1/sme/tenants` is exercised in the unit tests for the
-    // handler in #804; the spec here only needs to prove the SME
+    // `/api/v1/organizations` is exercised in the unit tests for the
+    // handler in #804; the spec here only needs to prove the Organization
     // admin can REACH a signup form on the marketplace surface.
     await page.goto('/wizard')
     // Wait for the wizard shell to render. The wizard is rendered by
@@ -113,7 +113,7 @@ test.describe('@sme-demo SME end-to-end happy path (issue #805)', () => {
 
   /* ── STEP 3 — First login + dashboard render ─────────────────── */
 
-  test('step 3 — SME admin dashboard renders (1440×900)', async ({ page }, testInfo) => {
+  test('step 3 — Organization admin dashboard renders (1440×900)', async ({ page }, testInfo) => {
     // Tenant discovery resolves to tenant_kind=sme, whoami returns an
     // already-authenticated session, so navigating to the dashboard
     // bypasses the OIDC redirect and renders directly.
@@ -130,27 +130,27 @@ test.describe('@sme-demo SME end-to-end happy path (issue #805)', () => {
     await page.waitForLoadState('networkidle')
 
     // The SovereignConsoleLayout renders a dashboard shell. Screenshot
-    // proves the SME admin surface is reachable post-mock-handover.
-    await snap(page, 3, 'sme-admin-dashboard', testInfo)
+    // proves the Organization admin surface is reachable post-mock-handover.
+    await snap(page, 3, 'org-admin-dashboard', testInfo)
   })
 
   /* ── STEP 4 — Create user "alice" via unified-rbac console ──── */
 
   test('step 4 — create alice + 3-step progress (1440×900)', async ({ page }, testInfo) => {
-    // SMEUsersPage is mounted under the pathless `consoleLayoutRoute`
-    // at `path: '/sme/users'` — see router.tsx `consoleSMEUsersRoute`.
+    // OrgUsersPage is mounted under the pathless `consoleLayoutRoute`
+    // at `path: '/sme/users'` — see router.tsx `consoleOrgUsersRoute`.
     // The route is at `/sme/users`, NOT `/console/sme/users`.
     await page.goto('/sme/users')
     await page.waitForLoadState('networkidle')
 
     // Empty list (no users seeded yet).
-    await expect(page.getByTestId('sme-users-page')).toBeVisible()
-    await expect(page.getByTestId('sme-users-empty')).toBeVisible()
+    await expect(page.getByTestId('org-users-page')).toBeVisible()
+    await expect(page.getByTestId('org-users-empty')).toBeVisible()
     await snap(page, 4, 'users-empty', testInfo)
 
     // Open the create form.
-    await page.getByTestId('sme-users-new-cta').click()
-    await expect(page.getByTestId('sme-users-create-form')).toBeVisible()
+    await page.getByTestId('org-users-new-cta').click()
+    await expect(page.getByTestId('org-users-create-form')).toBeVisible()
 
     // Fill alice and submit.
     await page.locator('input[type="email"]').fill(USERS.alice)
@@ -158,17 +158,17 @@ test.describe('@sme-demo SME end-to-end happy path (issue #805)', () => {
 
     // The mock returns 202 + state=done synchronously; the progress
     // card paints with all three step indicators in the `done` state.
-    await expect(page.getByTestId('sme-users-progress')).toBeVisible({
+    await expect(page.getByTestId('org-users-progress')).toBeVisible({
       timeout: 5_000,
     })
 
-    const progress = page.getByTestId('sme-users-progress')
-    await expect(progress.getByTestId('sme-step-keycloak-done')).toBeVisible()
-    await expect(progress.getByTestId('sme-step-newapi-done')).toBeVisible()
-    await expect(progress.getByTestId('sme-step-secret-done')).toBeVisible()
+    const progress = page.getByTestId('org-users-progress')
+    await expect(progress.getByTestId('org-step-keycloak-done')).toBeVisible()
+    await expect(progress.getByTestId('org-step-newapi-done')).toBeVisible()
+    await expect(progress.getByTestId('org-step-secret-done')).toBeVisible()
 
     // Alice now appears in the user list.
-    await expect(page.getByTestId(`sme-users-row-${UUIDS.alice}`)).toBeVisible()
+    await expect(page.getByTestId(`org-users-row-${UUIDS.alice}`)).toBeVisible()
 
     await snap(page, 4, 'users-alice-created', testInfo)
     expect(mockState.users.has(UUIDS.alice)).toBe(true)
@@ -177,7 +177,7 @@ test.describe('@sme-demo SME end-to-end happy path (issue #805)', () => {
   /* ── STEP 5 — Alice's workflow ───────────────────────────────── */
 
   test('step 5a — alice on WordPress (mock SSO) (1440×900)', async ({ page }, testInfo) => {
-    // wordpress.<sme-domain> is OUTSIDE the catalyst-ui SPA. In
+    // wordpress.<org-domain> is OUTSIDE the catalyst-ui SPA. In
     // mock-mode we serve a placeholder HTML page so the screenshot
     // captures *something* attributable to bp-wordpress-tenant (#800).
     // The real SSO walk (Keycloak redirect → WP auto-login) lands as
@@ -220,47 +220,47 @@ test.describe('@sme-demo SME end-to-end happy path (issue #805)', () => {
     'step 5d — NewAPI usage flows to billing ledger (SSE/poll verify)',
     async ({ page }, testInfo) => {
       // Pending #798 (NewAPI metering integration emits
-      // `catalyst.usage.recorded` on NATS) + #804 (sme-billing
+      // `catalyst.usage.recorded` on NATS) + #804 (org-billing
       // subscriber writes to credit_ledger). Verification needs a
-      // real NATS-streaming SME-billing pair which only exists
+      // real NATS-streaming Organization-billing pair which only exists
       // post-#804. The fixme step activates once the pipeline
       // lands; it will drive an OpenClaw prompt and poll
-      // /sme/billing/ledger for the negative spend entry.
+      // /org/billing/ledger for the negative spend entry.
       await page.goto('/dashboard')
       await snap(page, 5, 'usage-flows-to-billing', testInfo)
     },
   )
 
-  /* ── STEP 6 — SME admin checks balance ───────────────────────── */
+  /* ── STEP 6 — Organization admin checks balance ──────────────────── */
 
   test.fixme(
-    'step 6 — SME admin sees alice usage in credit ledger (1440×900)',
+    'step 6 — Organization admin sees alice usage in credit ledger (1440×900)',
     async ({ page }, testInfo) => {
-      // Pending the SME-billing/credits surface (#802 follow-up).
-      // The unified-rbac SME-tier console covers /console/sme/users
+      // Pending the Organization-billing/credits surface (#802 follow-up).
+      // The unified-rbac Organization-tier console covers /console/sme/users
       // + /console/sme/roles today; StepSuccess.tsx links at
       // console.<fqdn>/bss/vouchers (the BSS menu inside the operator
       // console — voucher operations live there per CLAUDE.md §0;
       // see TBD-V20).
-      // The fixme step activates once an in-SPA /console/sme/billing
+      // The fixme step activates once an in-SPA /console/org/billing
       // route lands and asserts the ledger entry for alice.
       await page.goto('/sme/billing' as never)
-      await snap(page, 6, 'sme-admin-billing-ledger', testInfo)
+      await snap(page, 6, 'org-admin-billing-ledger', testInfo)
     },
   )
 
   /* ── Sanity guard — discovery payload uses canonical hosts ─── */
 
-  test('config sanity — every SME host derives from OTECH_FQDN + slug', async () => {
+  test('config sanity — every Organization host derives from OTECH_FQDN + slug', async () => {
     // Guard against the antipattern this spec was built to prevent
     // (`feedback_never_hardcode_urls.md`). If a future contributor
     // hardcodes `otech.example` somewhere, this assertion is the
     // bright line that flips red on PR.
-    expect(HOSTS.smeConsole).toContain(SME_DISCOVERY.host)
-    expect(HOSTS.wordpress.endsWith(HOSTS.smeDomain)).toBe(true)
-    expect(HOSTS.openclaw.endsWith(HOSTS.smeDomain)).toBe(true)
-    expect(HOSTS.webmail.endsWith(HOSTS.smeDomain)).toBe(true)
-    expect(USERS.alice.endsWith(`@${HOSTS.smeDomain}`)).toBe(true)
-    expect(USERS.bob.endsWith(`@${HOSTS.smeDomain}`)).toBe(true)
+    expect(HOSTS.orgConsole).toContain(ORG_DISCOVERY.host)
+    expect(HOSTS.wordpress.endsWith(HOSTS.orgDomain)).toBe(true)
+    expect(HOSTS.openclaw.endsWith(HOSTS.orgDomain)).toBe(true)
+    expect(HOSTS.webmail.endsWith(HOSTS.orgDomain)).toBe(true)
+    expect(USERS.alice.endsWith(`@${HOSTS.orgDomain}`)).toBe(true)
+    expect(USERS.bob.endsWith(`@${HOSTS.orgDomain}`)).toBe(true)
   })
 })

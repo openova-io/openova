@@ -332,7 +332,7 @@ export const SOVEREIGN_POOL_DOMAINS: SovereignPoolDomain[] = [
   {
     id: 'omani-works',
     domain: 'omani.works',
-    description: 'OpenOva-provided pool — first franchised Sovereigns and SME marketplace tenants. DNS managed via Dynadot.',
+    description: 'OpenOva-provided pool — first franchised Sovereigns and Organization marketplace tenants. DNS managed via Dynadot.',
   },
 ]
 

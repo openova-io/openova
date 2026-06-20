@@ -150,11 +150,11 @@
 /* rgba(var(--wiz-ch), opacity) flips white↔black automatically            */
 :root {
   --wiz-ch:         255, 255, 255;   /* fg channel — white in dark mode  */
-  --wiz-accent-ch:  59, 130, 246;    /* SME blue-500 — unified accent   */
+  --wiz-accent-ch:  59, 130, 246;    /* Organization blue-500 — unified accent   */
   --wiz-accent:     rgba(59,130,246,0.9); /* accent text (links, labels) */
-  --wiz-success-ch: 16, 185, 129;    /* SME emerald — unified success   */
-  --wiz-page-bg:    #0b1220;         /* flat dark — matches SME */
-  --wiz-panel-bg:   #111827;         /* surface — matches SME */
+  --wiz-success-ch: 16, 185, 129;    /* Organization emerald — unified success   */
+  --wiz-page-bg:    #0b1220;         /* flat dark — matches Organization */
+  --wiz-panel-bg:   #111827;         /* surface — matches Organization */
   --wiz-deep-bg:    #1a1a1a;
   --wiz-glow-1:     rgba(56,189,248,0.06);
   --wiz-glow-2:     rgba(129,140,248,0.05);
@@ -313,26 +313,26 @@
 
   /* Wizard theme channels — light overrides */
   --wiz-ch:         0, 0, 0;
-  --wiz-accent-ch:  37, 99, 235;    /* SME blue-600 — unified accent   */
-  --wiz-accent:     #2563eb;        /* SME accent-strong (WCAG AA ✓)  */
-  --wiz-success-ch: 5, 150, 105;    /* SME emerald-600 on light       */
-  --wiz-page-bg:    #f8fafc;  /* flat light — matches SME */
-  --wiz-panel-bg:   #ffffff;  /* card white — matches SME */
+  --wiz-accent-ch:  37, 99, 235;    /* Organization blue-600 — unified accent   */
+  --wiz-accent:     #2563eb;        /* Organization accent-strong (WCAG AA ✓)  */
+  --wiz-success-ch: 5, 150, 105;    /* Organization emerald-600 on light       */
+  --wiz-page-bg:    #f8fafc;  /* flat light — matches Organization */
+  --wiz-panel-bg:   #ffffff;  /* card white — matches Organization */
   --wiz-deep-bg:    #f1f5f9;
   --wiz-glow-1:     rgba(2,132,199,0.08);
   --wiz-glow-2:     rgba(99,102,241,0.05);
 
   /* ── Semantic text tokens — WCAG AA calibrated for white bg ──── */
-  /* Aligned with SME's light palette for visual unity              */
-  --wiz-text-hi:    #0f172a;   /* 21:1 — SME text-strong            */
-  --wiz-text-md:    #475569;   /* 7:1  — SME text-dim               */
-  --wiz-text-lo:    #64748b;   /* 4.7:1 — SME text-dimmer           */
-  --wiz-text-sub:   #64748b;   /* 4.7:1 — unified with SME          */
+  /* Aligned with Organization's light palette for visual unity              */
+  --wiz-text-hi:    #0f172a;   /* 21:1 — Organization text-strong            */
+  --wiz-text-md:    #475569;   /* 7:1  — Organization text-dim               */
+  --wiz-text-lo:    #64748b;   /* 4.7:1 — Organization text-dimmer           */
+  --wiz-text-sub:   #64748b;   /* 4.7:1 — unified with Organization          */
   --wiz-text-hint:  #94a3b8;   /* 2.8:1 — hints                     */
 
   /* ── Semantic border tokens ───────────────────────────────────── */
-  --wiz-border:     #e2e8f0;   /* SME border slate-200              */
-  --wiz-border-sub: #f1f5f9;   /* SME border-subtle slate-100       */
+  --wiz-border:     #e2e8f0;   /* Organization border slate-200              */
+  --wiz-border-sub: #f1f5f9;   /* Organization border-subtle slate-100       */
 
   /* ── Semantic background tokens ──────────────────────────────── */
   --wiz-bg-input:   #f8fafc;   /* input / control bg                 */

@@ -13,7 +13,7 @@
  *   4. /sandbox/$id navigates to the session view (with createSandbox
  *      mocked so the spec doesn't need a real catalyst-api).
  *
- * Mock strategy mirrors e2e/sme-demo.spec.ts — every back-end fetch
+ * Mock strategy mirrors e2e/org-demo.spec.ts — every back-end fetch
  * the page makes is stubbed via `page.route`, so the spec runs against
  * `npm run dev` (Vite on localhost:5173) without a catalyst-api up. The
  * SovereignConsoleLayout's `/api/v1/whoami` probe is mocked to a 200

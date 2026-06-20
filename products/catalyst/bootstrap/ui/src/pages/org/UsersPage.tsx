@@ -1,18 +1,18 @@
 /**
- * UsersPage — SME-tier user CRUD UI (issue #802).
+ * UsersPage — Organization-tier user CRUD UI (issue #802).
  *
  * Mounted only when the discovered tenant_kind === 'sme'. Shows:
  *
  *   • Header + "+ New user" CTA
- *   • Create form (inline) — fires POST /api/v1/sme/users which
+ *   • Create form (inline) — fires POST /api/v1/org/users which
  *     orchestrates the ADR-0003 3-step hook (Keycloak → NewAPI →
- *     K8s Secret). Renders a 3-step progress bar so the SME admin
+ *     K8s Secret). Renders a 3-step progress bar so the Organization admin
  *     sees each step transition pending → done in real time.
  *   • List table — Email | Status (with mini step indicator) |
  *     Created | Last error | (Delete)
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every URL
- * goes through sme.api.ts → apiUrl(). Per #2 (never compromise on
+ * goes through org.api.ts → apiUrl(). Per #2 (never compromise on
  * quality), the page paints partial state on hook failure rather
  * than swallowing the error: each step's failed/done badge is
  * surfaced verbatim from the back end's response.
@@ -21,16 +21,16 @@
 import { useEffect, useState } from 'react'
 import { Trash2, UserPlus } from 'lucide-react'
 import {
-  createSMEUser,
-  deleteSMEUser,
-  listSMEUsers,
-  type SMEUser,
-  type SMEStepState,
-} from './sme.api'
+  createOrgUser,
+  deleteOrgUser,
+  listOrgUsers,
+  type OrgUser,
+  type OrgStepState,
+} from './org.api'
 
 export interface UsersPageProps {
   /** Test seam — supplies an initial list synchronously. */
-  initialItems?: SMEUser[]
+  initialItems?: OrgUser[]
   /** Test seam — disables the fetch effect entirely. */
   disableFetch?: boolean
 }
@@ -39,19 +39,19 @@ export function UsersPage({
   initialItems,
   disableFetch = false,
 }: UsersPageProps = {}) {
-  const [items, setItems] = useState<SMEUser[]>(initialItems ?? [])
+  const [items, setItems] = useState<OrgUser[]>(initialItems ?? [])
   const [loading, setLoading] = useState<boolean>(!initialItems && !disableFetch)
   const [error, setError] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState<boolean>(false)
   const [creating, setCreating] = useState<boolean>(false)
   const [newEmail, setNewEmail] = useState<string>('')
-  const [recentlyCreated, setRecentlyCreated] = useState<SMEUser | null>(null)
+  const [recentlyCreated, setRecentlyCreated] = useState<OrgUser | null>(null)
 
   useEffect(() => {
     if (disableFetch) return
     let cancelled = false
     setLoading(true)
-    listSMEUsers()
+    listOrgUsers()
       .then((rows) => {
         if (!cancelled) {
           setItems(rows)
@@ -75,7 +75,7 @@ export function UsersPage({
     setCreating(true)
     setError(null)
     try {
-      const created = await createSMEUser({ email: newEmail.trim() })
+      const created = await createOrgUser({ email: newEmail.trim() })
       setItems((rows) => [created, ...rows])
       setRecentlyCreated(created)
       setNewEmail('')
@@ -87,12 +87,12 @@ export function UsersPage({
     }
   }
 
-  async function onDelete(item: SMEUser) {
+  async function onDelete(item: OrgUser) {
     if (!confirm(`Delete user ${item.email}? This revokes Keycloak + NewAPI access.`)) {
       return
     }
     try {
-      await deleteSMEUser(item.uuid)
+      await deleteOrgUser(item.uuid)
       setItems((rows) => rows.filter((r) => r.uuid !== item.uuid))
     } catch (err) {
       setError((err as Error).message)
@@ -100,7 +100,7 @@ export function UsersPage({
   }
 
   return (
-    <div data-testid="sme-users-page" className="px-6 py-4">
+    <div data-testid="org-users-page" className="px-6 py-4">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-[var(--color-text-strong)]">Users</h1>
@@ -110,7 +110,7 @@ export function UsersPage({
         </div>
         <button
           type="button"
-          data-testid="sme-users-new-cta"
+          data-testid="org-users-new-cta"
           onClick={() => setShowCreate((v) => !v)}
           className="inline-flex items-center gap-2 rounded-md bg-[var(--color-accent)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--color-accent-strong)]"
         >
@@ -120,14 +120,14 @@ export function UsersPage({
       </div>
 
       {error && (
-        <div data-testid="sme-users-error" className="mb-4 rounded-md border border-[var(--color-danger)] bg-[var(--color-danger-soft)] p-3 text-sm text-[var(--color-danger)]">
+        <div data-testid="org-users-error" className="mb-4 rounded-md border border-[var(--color-danger)] bg-[var(--color-danger-soft)] p-3 text-sm text-[var(--color-danger)]">
           {error}
         </div>
       )}
 
       {showCreate && (
         <form
-          data-testid="sme-users-create-form"
+          data-testid="org-users-create-form"
           onSubmit={onCreate}
           className="mb-4 flex items-end gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
         >
@@ -154,7 +154,7 @@ export function UsersPage({
 
       {recentlyCreated && (
         <div
-          data-testid="sme-users-progress"
+          data-testid="org-users-progress"
           className="mb-4 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
         >
           <div className="mb-2 text-sm font-medium">
@@ -172,11 +172,11 @@ export function UsersPage({
       {loading ? (
         <div className="text-sm text-[var(--color-text-dim)]">Loading users…</div>
       ) : items.length === 0 ? (
-        <div data-testid="sme-users-empty" className="rounded-md border border-dashed border-[var(--color-border)] p-8 text-center text-sm text-[var(--color-text-dim)]">
+        <div data-testid="org-users-empty" className="rounded-md border border-dashed border-[var(--color-border)] p-8 text-center text-sm text-[var(--color-text-dim)]">
           No users yet. Click "New user" to create the first one.
         </div>
       ) : (
-        <table className="w-full border-collapse text-sm" data-testid="sme-users-table">
+        <table className="w-full border-collapse text-sm" data-testid="org-users-table">
           <thead>
             <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-text-dim)]">
               <th className="py-2 pr-4 font-normal">Email</th>
@@ -189,7 +189,7 @@ export function UsersPage({
             {items.map((u) => (
               <tr
                 key={u.uuid}
-                data-testid={`sme-users-row-${u.uuid}`}
+                data-testid={`org-users-row-${u.uuid}`}
                 className="border-b border-[var(--color-border)]"
               >
                 <td className="py-2 pr-4 font-medium">{u.email}</td>
@@ -222,10 +222,10 @@ function ProgressSteps({
   steps,
   compact = false,
 }: {
-  steps: { kc: SMEStepState; newapi: SMEStepState; secret: SMEStepState }
+  steps: { kc: OrgStepState; newapi: OrgStepState; secret: OrgStepState }
   compact?: boolean
 }) {
-  const items: { label: string; state: SMEStepState }[] = [
+  const items: { label: string; state: OrgStepState }[] = [
     { label: 'Keycloak', state: steps.kc },
     { label: 'NewAPI', state: steps.newapi },
     { label: 'Secret', state: steps.secret },
@@ -243,7 +243,7 @@ function ProgressSteps({
                   ? 'bg-[var(--color-danger,#dc2626)]'
                   : 'bg-[var(--color-text-dim,#9ca3af)]')
             }
-            data-testid={`sme-step-${s.label.toLowerCase()}-${s.state}`}
+            data-testid={`org-step-${s.label.toLowerCase()}-${s.state}`}
             aria-label={`${s.label}: ${s.state}`}
           />
           {!compact && <span className="text-xs">{s.label}</span>}

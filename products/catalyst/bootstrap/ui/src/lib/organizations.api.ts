@@ -10,7 +10,7 @@
  *   • the PARENT row derives from GET /api/v1/sovereign/self (FQDN +
  *     deployment id) — the parent org IS the sovereign itself (#3378 §2.2:
  *     "the parent org is the sovereign itself, root, parentOrg empty").
- *   • the SUB-ORG rows derive from GET /api/v1/sme/tenants — the same
+ *   • the SUB-ORG rows derive from GET /api/v1/organizations — the same
  *     listTenants() feed the BSS Tenants page used (#3378 §3 cites this
  *     as the org directory source). Each Tenant is one Organization CR.
  *
@@ -30,7 +30,7 @@ import { authedFetch } from '@/shared/lib/authedFetch'
 export type OrgKind = 'internal' | 'customer'
 
 /** OrgTier — drives EPIC-5 DMZ auto-provisioning; rendered as a badge. */
-export type OrgTier = 'sme' | 'corporate'
+export type OrgTier = 'org' | 'corporate'
 
 /** OrgBillingMode — real | chargeback | showback (#3378 §2.6). */
 export type OrgBillingMode = 'real' | 'chargeback' | 'showback'
@@ -158,10 +158,10 @@ function normalizeKind(raw: string | undefined): OrgKind {
 
 /**
  * normalizeTier — coerce the tenants-feed `tier` onto OrgTier. 'corporate'
- * is honored verbatim; everything else (incl. empty) reads as 'sme'.
+ * is honored verbatim; everything else (incl. empty) reads as 'org'.
  */
 function normalizeTier(raw: string | undefined): OrgTier {
-  return String(raw ?? '').trim().toLowerCase() === 'corporate' ? 'corporate' : 'sme'
+  return String(raw ?? '').trim().toLowerCase() === 'corporate' ? 'corporate' : 'org'
 }
 
 /**

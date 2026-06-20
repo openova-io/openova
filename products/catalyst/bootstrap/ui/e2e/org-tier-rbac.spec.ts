@@ -1,22 +1,22 @@
 /**
- * sme-tier-rbac.spec.ts — Playwright E2E for the unified-rbac
- * SME-tier (issue #802 / parent epic #795).
+ * org-tier-rbac.spec.ts — Playwright E2E for the unified-rbac
+ * Organization-tier (issue #802 / parent epic #795).
  *
  * Scope: prove the same Sovereign Console SPA bundle responds correctly
  * when the host resolves to tenant_kind=sme vs tenant_kind=otech, and
  * capture 1440 px screenshots for the DoD checklist.
  *
- * Why the test mocks `/api/v1/tenant/discover` + `/api/v1/sme/users`:
+ * Why the test mocks `/api/v1/tenant/discover` + `/api/v1/org/users`:
  *
  *   • The dev-server (`npm run dev`) does not run the catalyst-api
  *     backend — there is no real tenant registry, no NewAPI, no
  *     Keycloak.
  *   • The SPA is the unit under test. Mocking the registry response
  *     proves the SPA branches correctly on `tenant_kind`; mocking
- *     `/sme/users` proves the UsersPage renders the 3-step progress
+ *     `/org/users` proves the UsersPage renders the 3-step progress
  *     indicator wired off the API response shape.
  *   • The full live cross-cluster E2E is gated on bp-newapi (#799)
- *     seeding a tenant registry at SME-tenant-onboarding time, which
+ *     seeding a tenant registry at Organization-onboarding time, which
  *     lands in #804 (tenant provisioning pipeline).
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #2 (never compromise on quality)
@@ -26,11 +26,11 @@
 
 import { expect, test } from '@playwright/test'
 
-const SME_DISCOVERY = {
+const ORG_DISCOVERY = {
   host: 'console.acme.otech.example',
-  tenant_id: 'tenant-sme-acme',
+  tenant_id: 'tenant-org-acme',
   tenant_kind: 'sme',
-  keycloak_realm_url: 'https://kc.otech.example/realms/sme-acme',
+  keycloak_realm_url: 'https://kc.otech.example/realms/org-acme',
   keycloak_client_id: 'catalyst-ui',
 }
 
@@ -42,7 +42,7 @@ const OTECH_DISCOVERY = {
   keycloak_client_id: 'catalyst-ui',
 }
 
-async function mockBackend(page: import('@playwright/test').Page, discovery: typeof SME_DISCOVERY) {
+async function mockBackend(page: import('@playwright/test').Page, discovery: typeof ORG_DISCOVERY) {
   // Intercept tenant-discover so the SPA bootstrap resolves the host
   // we want for this test case, regardless of the dev-server's actual
   // host header.
@@ -63,12 +63,12 @@ async function mockBackend(page: import('@playwright/test').Page, discovery: typ
       body: JSON.stringify({
         email: 'admin@acme.example',
         sub: 'kc-admin-uid',
-        name: 'SME Admin',
+        name: 'Organization Admin',
       }),
     })
   })
-  // /sme/users LIST — empty.
-  await page.route('**/api/v1/sme/users', async (route) => {
+  // /org/users LIST — empty.
+  await page.route('**/api/v1/org/users', async (route) => {
     if (route.request().method() === 'GET') {
       await route.fulfill({
         status: 200,
@@ -100,31 +100,31 @@ async function mockBackend(page: import('@playwright/test').Page, discovery: typ
   })
 }
 
-test.describe('SME-tier RBAC (issue #802)', () => {
-  test('SME tenant: UsersPage renders with 3-step progress UI', async ({ page }) => {
-    await mockBackend(page, SME_DISCOVERY)
+test.describe('Organization-tier RBAC (issue #802)', () => {
+  test('Organization: UsersPage renders with 3-step progress UI', async ({ page }) => {
+    await mockBackend(page, ORG_DISCOVERY)
 
     await page.goto('/console/sme/users')
 
-    await expect(page.getByTestId('sme-users-page')).toBeVisible()
+    await expect(page.getByTestId('org-users-page')).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Users' })).toBeVisible()
-    await expect(page.getByTestId('sme-users-empty')).toBeVisible()
+    await expect(page.getByTestId('org-users-empty')).toBeVisible()
 
-    // 1440 px screenshot — proof of SME-tier rendering on the same
+    // 1440 px screenshot — proof of Organization-tier rendering on the same
     // SPA bundle. Stored under e2e/screenshots/ so the merge captures
     // it as an artefact (the tests dir's screenshot path is not
     // gitignored).
     await page.screenshot({
-      path: 'e2e/screenshots/802-sme-users-empty-1440.png',
+      path: 'e2e/screenshots/802-org-users-empty-1440.png',
       fullPage: true,
     })
 
     // Open the create form.
-    await page.getByTestId('sme-users-new-cta').click()
-    await expect(page.getByTestId('sme-users-create-form')).toBeVisible()
+    await page.getByTestId('org-users-new-cta').click()
+    await expect(page.getByTestId('org-users-create-form')).toBeVisible()
 
     await page.screenshot({
-      path: 'e2e/screenshots/802-sme-users-create-form-1440.png',
+      path: 'e2e/screenshots/802-org-users-create-form-1440.png',
       fullPage: true,
     })
 
@@ -132,39 +132,39 @@ test.describe('SME-tier RBAC (issue #802)', () => {
     await page.locator('input[type="email"]').fill('alice@acme.example')
     await page.getByRole('button', { name: 'Create' }).click()
 
-    await expect(page.getByTestId('sme-users-progress')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByTestId('org-users-progress')).toBeVisible({ timeout: 5000 })
     await page.screenshot({
-      path: 'e2e/screenshots/802-sme-users-after-create-1440.png',
+      path: 'e2e/screenshots/802-org-users-after-create-1440.png',
       fullPage: true,
     })
 
     // All 3 step indicators render done — scope to the in-progress
     // card so we don't double-match the indicator in the table row.
-    const progressCard = page.getByTestId('sme-users-progress')
-    await expect(progressCard.getByTestId('sme-step-keycloak-done')).toBeVisible()
-    await expect(progressCard.getByTestId('sme-step-newapi-done')).toBeVisible()
-    await expect(progressCard.getByTestId('sme-step-secret-done')).toBeVisible()
+    const progressCard = page.getByTestId('org-users-progress')
+    await expect(progressCard.getByTestId('org-step-keycloak-done')).toBeVisible()
+    await expect(progressCard.getByTestId('org-step-newapi-done')).toBeVisible()
+    await expect(progressCard.getByTestId('org-step-secret-done')).toBeVisible()
   })
 
-  test('SME tenant: RolesPage renders canonical group → app-role map', async ({ page }) => {
-    await mockBackend(page, SME_DISCOVERY)
+  test('Organization: RolesPage renders canonical group → app-role map', async ({ page }) => {
+    await mockBackend(page, ORG_DISCOVERY)
 
     await page.goto('/console/sme/roles')
 
-    await expect(page.getByTestId('sme-roles-page')).toBeVisible()
-    await expect(page.getByTestId('sme-roles-table')).toBeVisible()
+    await expect(page.getByTestId('org-roles-page')).toBeVisible()
+    await expect(page.getByTestId('org-roles-table')).toBeVisible()
     // Spot-check three rows from the locked mapping.
-    await expect(page.getByTestId('sme-role-wp-admins')).toBeVisible()
-    await expect(page.getByTestId('sme-role-openclaw-users')).toBeVisible()
-    await expect(page.getByTestId('sme-role-stalwart-postmasters')).toBeVisible()
+    await expect(page.getByTestId('org-role-wp-admins')).toBeVisible()
+    await expect(page.getByTestId('org-role-openclaw-users')).toBeVisible()
+    await expect(page.getByTestId('org-role-stalwart-postmasters')).toBeVisible()
 
     await page.screenshot({
-      path: 'e2e/screenshots/802-sme-roles-1440.png',
+      path: 'e2e/screenshots/802-org-roles-1440.png',
       fullPage: true,
     })
   })
 
-  test('OTECH tenant: same SPA bundle, otech-tier UI does NOT show SME pages', async ({ page }) => {
+  test('OTECH tenant: same SPA bundle, otech-tier UI does NOT show Organization pages', async ({ page }) => {
     await mockBackend(page, OTECH_DISCOVERY)
 
     // Navigating to /console/sme/users on an OTECH-tenant context is

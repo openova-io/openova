@@ -13,7 +13,7 @@
  *   • Table: Code | Recipient (—) | Plan (—) | Value | Status pill |
  *            Issued | Expires (—) | Redeemed by (— or N/N)
  *   • Issue modal: code, credit_omr, description, max_redemptions,
- *     recipient_email — POSTs /api/v1/sme/billing/vouchers/issue
+ *     recipient_email — POSTs /api/v1/org/billing/vouchers/issue
  *
  * The "Recipient", "Plan", and "Expires" columns are rendered as `—`
  * placeholders for now because the backend (PromoCode store row, see
@@ -511,7 +511,7 @@ function IssueVoucherModal({ onClose, onIssued }: IssueVoucherModalProps) {
           Issue voucher
         </h2>
         <p className="mb-4 text-xs text-[var(--color-text-dim)]">
-          Mints a prepaid code redeemable at SME signup or upgrade. Codes
+          Mints a prepaid code redeemable at Organization signup or upgrade. Codes
           are uppercased server-side. Re-issuing the same code resurrects
           a previously revoked voucher (preserving its redemption history)
           and re-fires the recipient email if supplied.

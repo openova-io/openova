@@ -75,7 +75,7 @@ function catalogItemToDescriptor(it: CatalogItem): ApplicationDescriptor | null 
 
 /**
  * #3603 (EPIC #3597) — the admin-editable overlay for one catalog entry,
- * read from the SME commerce store (the same rows the #3602 read API
+ * read from the Organization commerce store (the same rows the #3602 read API
  * overlays onto the seed). Keyed by bare slug; drives the card's live name
  * + theme icons and the edit form's initial values.
  */
@@ -220,10 +220,10 @@ export function CatalogPage() {
   const isAdmin = useCatalogAdmin()
 
   // #3603 — the admin-editable overlay (name / summary / topologies / theme
-  // icons) per bare slug, read from the SME commerce store. Drives the
+  // icons) per bare slug, read from the Organization commerce store. Drives the
   // card's live name + icon and the edit form's initial values. Refetched
   // after a save so the card updates without a full reload. Best-effort:
-  // when the SME catalog isn't deployed the list 404s/throws and the map is
+  // when the Organization catalog isn't deployed the list 404s/throws and the map is
   // empty — cards then render their build-time logo + seed name.
   const editsQuery = useQuery<Record<string, CatalogEditOverlay>>({
     queryKey: ['catalog-admin-edits'],

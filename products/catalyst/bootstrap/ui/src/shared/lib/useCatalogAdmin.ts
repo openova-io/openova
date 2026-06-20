@@ -2,7 +2,7 @@
  * useCatalogAdmin — #3603 (EPIC #3597): is the current operator allowed to
  * EDIT catalog entries?
  *
- * The catalog-edit write path (PUT/POST /api/v1/sme/commerce/apps → the SME
+ * The catalog-edit write path (PUT/POST /api/v1/org/commerce/apps → the Organization
  * commerce catalog's /catalog/admin/* CRUD) is gated SERVER-SIDE on
  * superadmin OR sovereign-admin (core/services/catalog requireAdmin). This
  * hook is the matching UI gate so a non-admin operator never sees the Edit

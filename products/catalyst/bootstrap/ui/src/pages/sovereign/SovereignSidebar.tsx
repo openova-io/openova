@@ -140,7 +140,7 @@ const FLAT_NAV: FlatNavItem[] = [
   //
   // RBAC: always visible — the sovereign-admin owns the directory; the
   // catalyst-api enforces tier-bound access server-side on every
-  // /api/v1/sme/* and /catalog/admin/* call.
+  // /api/v1/org/* and /catalog/admin/* call.
   {
     id: 'organizations',
     label: 'Organizations',
@@ -179,7 +179,7 @@ interface SubNavItem {
 const SETTINGS_SUB_NAV: SubNavItem[] = [
   // Parent Domains — admin "Add another parent domain" + DNS propagation
   // status panel (issue #829). Lives under Settings so the sidebar
-  // surface stays compact for the typical SME tenant who never sees
+  // surface stays compact for the typical Organization tenant who never sees
   // this surface; operator-admins reach it via /console/parent-domains
   // directly from the welcome email or by clicking through Settings.
   { id: 'parent-domains', label: 'Parent Domains', to: '/parent-domains' },

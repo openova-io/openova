@@ -1,5 +1,5 @@
 /**
- * CreateTenantPage.test.tsx — multi-domain SME tenant onboarding
+ * CreateTenantPage.test.tsx — multi-domain Organization onboarding
  * coverage (issue #828, parent epic #825).
  *
  *   • Heading + form renders
@@ -13,7 +13,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { CreateTenantPage } from './CreateTenantPage'
-import type { SovereignParentDomain } from './sme.api'
+import type { SovereignParentDomain } from './org.api'
 
 afterEach(() => cleanup())
 
@@ -28,8 +28,8 @@ describe('CreateTenantPage', () => {
     render(<CreateTenantPage initialParentDomains={POOL} disableFetch />)
     // Issue #3378: the page is the Organizations internal door now.
     expect(screen.getByTestId('create-org-title').textContent).toBe('Create organization')
-    expect(screen.getByTestId('sme-create-tenant-form')).toBeTruthy()
-    expect(screen.getByTestId('sme-create-tenant-submit')).toBeTruthy()
+    expect(screen.getByTestId('org-create-tenant-form')).toBeTruthy()
+    expect(screen.getByTestId('org-create-tenant-submit')).toBeTruthy()
   })
 
   /* ── Organizations internal door (issue #3378 B1, DoD-4) ── */
@@ -69,74 +69,74 @@ describe('CreateTenantPage', () => {
   it('renders parent-domain dropdown with every org-pool entry', () => {
     render(<CreateTenantPage initialParentDomains={POOL} disableFetch />)
     expect(
-      screen.getByTestId('sme-create-tenant-parent-option-omani.works'),
+      screen.getByTestId('org-create-tenant-parent-option-omani.works'),
     ).toBeTruthy()
     expect(
-      screen.getByTestId('sme-create-tenant-parent-option-omani.trade'),
+      screen.getByTestId('org-create-tenant-parent-option-omani.trade'),
     ).toBeTruthy()
     expect(
-      screen.getByTestId('sme-create-tenant-parent-option-pending.example'),
+      screen.getByTestId('org-create-tenant-parent-option-pending.example'),
     ).toBeTruthy()
   })
 
   it('disables NS-flip-pending entries in the parent dropdown', () => {
     render(<CreateTenantPage initialParentDomains={POOL} disableFetch />)
     const pending = screen.getByTestId(
-      'sme-create-tenant-parent-option-pending.example',
+      'org-create-tenant-parent-option-pending.example',
     ) as HTMLOptionElement
     expect(pending.disabled).toBe(true)
     const ready = screen.getByTestId(
-      'sme-create-tenant-parent-option-omani.works',
+      'org-create-tenant-parent-option-omani.works',
     ) as HTMLOptionElement
     expect(ready.disabled).toBe(false)
   })
 
   it('updates console URL preview as the operator types the slug', () => {
     render(<CreateTenantPage initialParentDomains={POOL} disableFetch />)
-    const slug = screen.getByTestId('sme-create-tenant-subdomain') as HTMLInputElement
+    const slug = screen.getByTestId('org-create-tenant-subdomain') as HTMLInputElement
     fireEvent.change(slug, { target: { value: 'acme' } })
-    const preview = screen.getByTestId('sme-create-tenant-url-preview')
+    const preview = screen.getByTestId('org-create-tenant-url-preview')
     // The default-selected parent should be the first ns_flip_ready entry.
     expect(preview.textContent).toBe('console.acme.omani.works')
   })
 
   it('preview reflects parent dropdown changes', () => {
     render(<CreateTenantPage initialParentDomains={POOL} disableFetch />)
-    const slug = screen.getByTestId('sme-create-tenant-subdomain') as HTMLInputElement
+    const slug = screen.getByTestId('org-create-tenant-subdomain') as HTMLInputElement
     fireEvent.change(slug, { target: { value: 'acme' } })
     const select = screen.getByTestId(
-      'sme-create-tenant-parent-select',
+      'org-create-tenant-parent-select',
     ) as HTMLSelectElement
     fireEvent.change(select, { target: { value: 'omani.trade' } })
     expect(
-      screen.getByTestId('sme-create-tenant-url-preview').textContent,
+      screen.getByTestId('org-create-tenant-url-preview').textContent,
     ).toBe('console.acme.omani.trade')
   })
 
   it('switching to BYO mode hides the parent dropdown + shows the BYO field', () => {
     render(<CreateTenantPage initialParentDomains={POOL} disableFetch />)
-    expect(screen.queryByTestId('sme-create-tenant-parent-row')).toBeTruthy()
+    expect(screen.queryByTestId('org-create-tenant-parent-row')).toBeTruthy()
 
     const byoRadio = screen
-      .getByTestId('sme-create-tenant-mode-byo')
+      .getByTestId('org-create-tenant-mode-byo')
       .querySelector('input[type="radio"]') as HTMLInputElement
     fireEvent.click(byoRadio)
 
-    expect(screen.queryByTestId('sme-create-tenant-parent-row')).toBeNull()
-    expect(screen.getByTestId('sme-create-tenant-byo')).toBeTruthy()
+    expect(screen.queryByTestId('org-create-tenant-parent-row')).toBeNull()
+    expect(screen.getByTestId('org-create-tenant-byo')).toBeTruthy()
 
     // Type the BYO domain — preview reflects it.
-    const byo = screen.getByTestId('sme-create-tenant-byo') as HTMLInputElement
+    const byo = screen.getByTestId('org-create-tenant-byo') as HTMLInputElement
     fireEvent.change(byo, { target: { value: 'acme.com' } })
     expect(
-      screen.getByTestId('sme-create-tenant-url-preview').textContent,
+      screen.getByTestId('org-create-tenant-url-preview').textContent,
     ).toBe('console.acme.com')
   })
 
   it('empty pool renders the no-parents placeholder', () => {
     render(<CreateTenantPage initialParentDomains={[]} disableFetch />)
     const select = screen.getByTestId(
-      'sme-create-tenant-parent-select',
+      'org-create-tenant-parent-select',
     ) as HTMLSelectElement
     expect(select.disabled).toBe(true)
     expect(select.textContent).toContain('No pool parents available')

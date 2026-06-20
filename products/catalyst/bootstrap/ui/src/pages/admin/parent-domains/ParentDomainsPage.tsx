@@ -86,7 +86,7 @@ export function ParentDomainsPage({
     }
     if (
       !confirm(
-        `Remove parent domain "${item.name}"? SMEs already using subdomains under this zone will continue to work; only NEW SME signups stop being offered this domain.`,
+        `Remove parent domain "${item.name}"? Organizations already using subdomains under this zone will continue to work; only NEW Organization signups stop being offered this domain.`,
       )
     ) {
       return

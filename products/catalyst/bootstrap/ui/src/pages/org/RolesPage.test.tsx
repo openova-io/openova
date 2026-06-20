@@ -20,11 +20,11 @@ describe('RolesPage', () => {
 
   it('renders the canonical 7-row mapping table', () => {
     render(<RolesPage />)
-    expect(screen.getByTestId('sme-roles-table')).toBeTruthy()
+    expect(screen.getByTestId('org-roles-table')).toBeTruthy()
     // Spot-check three canonical rows from the locked mapping:
-    expect(screen.getByTestId('sme-role-wp-admins')).toBeTruthy()
-    expect(screen.getByTestId('sme-role-openclaw-users')).toBeTruthy()
-    expect(screen.getByTestId('sme-role-stalwart-postmasters')).toBeTruthy()
+    expect(screen.getByTestId('org-role-wp-admins')).toBeTruthy()
+    expect(screen.getByTestId('org-role-openclaw-users')).toBeTruthy()
+    expect(screen.getByTestId('org-role-stalwart-postmasters')).toBeTruthy()
   })
 
   it('shows app role names', () => {

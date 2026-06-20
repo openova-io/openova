@@ -45,7 +45,7 @@ export function StepShell({
 
   return (
     <div className="corp-step-shell">
-      {/* Compact heading — SME pattern, title only at the top */}
+      {/* Compact heading — Organization pattern, title only at the top */}
       <header className="corp-step-head">
         <h2 className="corp-step-title">{title}</h2>
       </header>

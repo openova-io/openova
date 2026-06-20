@@ -18,7 +18,7 @@
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the URL comes
  * from playwright.config.ts (env-driven HOST + BASEPATH); we use a
  * synthetic deploymentId and rely on the SPA's fixture fallback for
- * the data plane. Per ADR-0001 §9.4 we never touch sme/.
+ * the data plane. Per ADR-0001 §9.4 we never touch org/.
  */
 
 import { test, expect, type Page } from '@playwright/test'

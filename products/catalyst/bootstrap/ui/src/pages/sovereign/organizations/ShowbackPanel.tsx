@@ -9,7 +9,7 @@
  * chargeback view (attributed consumption, zero payment actions); real-
  * billing orgs render the payment flows elsewhere.
  *
- * Reads the B3 feed (GET /api/v1/sme/consumption via getConsumption).
+ * Reads the B3 feed (GET /api/v1/org/consumption via getConsumption).
  */
 
 import { useQuery } from '@tanstack/react-query'

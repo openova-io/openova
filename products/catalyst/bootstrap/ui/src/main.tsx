@@ -46,7 +46,7 @@ if (!runMothershipTokenRedirect()) {
    * Tenant discovery (issue #802, #795 [Q-mine-1]).
    *
    * The same SPA bundle serves both otech-admin (`console.<otech-fqdn>`)
-   * and SME-admin (`console.<sme-domain>` — free-subdomain
+   * and Organization-admin (`console.<org-domain>` — free-subdomain
    * `console.acme.<otech-fqdn>` OR BYO domain `console.acme.com`).
    * Tenant context is discovered from `window.location.host` against
    * the back-end registry — NOT from path/subdomain string parsing —

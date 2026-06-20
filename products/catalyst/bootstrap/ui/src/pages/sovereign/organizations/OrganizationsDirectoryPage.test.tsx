@@ -109,7 +109,7 @@ describe('OrganizationsDirectoryPage — §5 empty-state law', () => {
       parentDomain: 'omani.homes',
       plan: 'pro',
       kind: 'customer',
-      tier: 'sme',
+      tier: 'org',
       billingMode: 'real',
       isolation: 'vcluster',
       status: 'active',

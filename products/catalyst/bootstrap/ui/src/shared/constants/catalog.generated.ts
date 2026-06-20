@@ -2163,7 +2163,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-keycloak",
     "slug": "keycloak",
     "title": "keycloak",
-    "summary": "Keycloak — user identity. Topology decided by Sovereign CRD spec.keycloakTopology (per-organization for SME, shared-sovereign for corporate).",
+    "summary": "Keycloak — user identity. Topology decided by Sovereign CRD spec.keycloakTopology (per-organization for Organizations, shared-sovereign for corporate).",
     "icon": null,
     "category": null,
     "tagline": null,

@@ -5,20 +5,20 @@
  * endpoint):
  *
  *   • READ  — the catalyst-api commerce read-proxy that forwards to the
- *     public catalog list endpoints (sme_commerce.go HandleSMECommerceList
+ *     public catalog list endpoints (org_commerce.go HandleOrgCommerceList
  *     → /catalog/{kind}):
- *       GET /api/v1/sme/commerce/{plans,addons,bundles,industries,apps}
+ *       GET /api/v1/org/commerce/{plans,addons,bundles,industries,apps}
  *     Reads go through catalyst-api (not a bare /api/catalog/*) because the
  *     Sovereign console host (console.<sovereign>) proxies /api/* to
- *     catalyst-api, which — unlike the SME/marketplace gateway — does NOT
+ *     catalyst-api, which — unlike the Organization/marketplace gateway — does NOT
  *     route /api/catalog/* to the catalog service. A bare GET
  *     /api/catalog/plans therefore 404'd on the console even though the
  *     storefront showed the plan (issue #3378 plans-table 404).
  *   • WRITE — the catalyst-api commerce proxy that forwards to the
- *     superadmin-JWT /catalog/admin/* endpoints (sme_commerce.go):
- *       POST   /api/v1/sme/commerce/{kind}
- *       PUT    /api/v1/sme/commerce/{kind}/{id}
- *       DELETE /api/v1/sme/commerce/{kind}/{id}
+ *     superadmin-JWT /catalog/admin/* endpoints (org_commerce.go):
+ *       POST   /api/v1/org/commerce/{kind}
+ *       PUT    /api/v1/org/commerce/{kind}/{id}
+ *       DELETE /api/v1/org/commerce/{kind}/{id}
  *
  * The struct shapes mirror core/services/catalog/store/store.go exactly
  * (Plan :134-149, AddOn :152-160, Bundle :116-124, Industry :104-113),
@@ -106,7 +106,7 @@ export interface CommerceApp {
 export type CommerceKind = 'plans' | 'addons' | 'bundles' | 'industries' | 'apps'
 
 /** API_BASE root — both commerce reads AND writes hit catalyst-api under
- *  /api/v1/sme/commerce/*. Reads proxy the public /catalog/{kind} list;
+ *  /api/v1/org/commerce/*. Reads proxy the public /catalog/{kind} list;
  *  writes proxy the superadmin-JWT /catalog/admin/* endpoints. (See the
  *  file header for why reads must NOT use a bare /api/catalog/* path on the
  *  Sovereign console host — issue #3378 plans-table 404.) */
@@ -182,7 +182,7 @@ export interface CatalogEntryEdit {
 }
 
 /**
- * saveCatalogEdit persists an admin's catalog-entry edit to the SME
+ * saveCatalogEdit persists an admin's catalog-entry edit to the Organization
  * commerce catalog store.
  *
  * The store's UpdateApp does a FULL `$set` of every column from the decoded

@@ -25,7 +25,7 @@ describe('discoverTenant', () => {
       host: 'console.acme.otech.example',
       tenant_id: 'tenant-acme',
       tenant_kind: 'sme',
-      keycloak_realm_url: 'https://kc.otech.example/realms/sme-acme',
+      keycloak_realm_url: 'https://kc.otech.example/realms/org-acme',
       keycloak_client_id: 'catalyst-ui',
     })
     const got = await discoverTenant('console.acme.otech.example', fetchImpl)
@@ -78,7 +78,7 @@ describe('bootstrapTenant', () => {
       host: 'console.acme.otech.example',
       tenant_id: 'tenant-acme',
       tenant_kind: 'sme',
-      keycloak_realm_url: 'https://kc/realms/sme',
+      keycloak_realm_url: 'https://kc/realms/org',
       keycloak_client_id: 'ui',
     })
     const first = await bootstrapTenant('console.acme.otech.example', fetchImpl)

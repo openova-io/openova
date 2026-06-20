@@ -1,5 +1,5 @@
 /**
- * UsersPage.test.tsx — SME-tier user CRUD page coverage (issue #802).
+ * UsersPage.test.tsx — Organization-tier user CRUD page coverage (issue #802).
  *
  *   • Page heading + CTA render
  *   • Empty-state renders when no items
@@ -11,11 +11,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { UsersPage } from './UsersPage'
-import type { SMEUser } from './sme.api'
+import type { OrgUser } from './org.api'
 
 afterEach(() => cleanup())
 
-function user(overrides: Partial<SMEUser> = {}): SMEUser {
+function user(overrides: Partial<OrgUser> = {}): OrgUser {
   return {
     uuid: 'uuid-1',
     email: 'alice@acme.example',
@@ -31,12 +31,12 @@ describe('UsersPage', () => {
   it('renders heading + new-user CTA', () => {
     render(<UsersPage initialItems={[]} disableFetch />)
     expect(screen.getByText('Users')).toBeTruthy()
-    expect(screen.getByTestId('sme-users-new-cta')).toBeTruthy()
+    expect(screen.getByTestId('org-users-new-cta')).toBeTruthy()
   })
 
   it('renders empty state when no users', () => {
     render(<UsersPage initialItems={[]} disableFetch />)
-    expect(screen.getByTestId('sme-users-empty')).toBeTruthy()
+    expect(screen.getByTestId('org-users-empty')).toBeTruthy()
   })
 
   it('renders one row per user with all-done step indicators', () => {
@@ -46,23 +46,23 @@ describe('UsersPage', () => {
         disableFetch
       />,
     )
-    expect(screen.getByTestId('sme-users-row-uuid-1')).toBeTruthy()
-    expect(screen.getByTestId('sme-users-row-uuid-2')).toBeTruthy()
+    expect(screen.getByTestId('org-users-row-uuid-1')).toBeTruthy()
+    expect(screen.getByTestId('org-users-row-uuid-2')).toBeTruthy()
     // Each row carries 3 done step badges.
-    const doneBadges = screen.getAllByTestId(/sme-step-(keycloak|newapi|secret)-done/)
+    const doneBadges = screen.getAllByTestId(/org-step-(keycloak|newapi|secret)-done/)
     expect(doneBadges.length).toBe(6)
   })
 
   it('renders pending/done/failed badges from response shape', () => {
-    const partial: SMEUser = user({
+    const partial: OrgUser = user({
       uuid: 'partial',
       state: 'failed',
       last_error: 'kc_create:transient:HTTP 502',
       steps: { kc: 'failed', newapi: 'pending', secret: 'pending' },
     })
     render(<UsersPage initialItems={[partial]} disableFetch />)
-    expect(screen.getByTestId('sme-step-keycloak-failed')).toBeTruthy()
-    expect(screen.getByTestId('sme-step-newapi-pending')).toBeTruthy()
-    expect(screen.getByTestId('sme-step-secret-pending')).toBeTruthy()
+    expect(screen.getByTestId('org-step-keycloak-failed')).toBeTruthy()
+    expect(screen.getByTestId('org-step-newapi-pending')).toBeTruthy()
+    expect(screen.getByTestId('org-step-secret-pending')).toBeTruthy()
   })
 })

@@ -1,22 +1,22 @@
 /**
- * e2e/lib/sme-fixtures.ts — Playwright route-mocking helpers for the
- * SME end-to-end demo spec (issue #805).
+ * e2e/lib/org-fixtures.ts — Playwright route-mocking helpers for the
+ * Organization end-to-end demo spec (issue #805).
  *
- * Why mocks? Per the issue body, the SME-demo Playwright is the
+ * Why mocks? Per the issue body, the Organization-demo Playwright is the
  * load-bearing investor proof artefact. It must run unattended on
  * every CI commit AND, eventually, against a live freshly-provisioned
  * otech (#804). Until #804 lands, mocking is the only way to keep the
  * screenshot evidence green and unblock the broader epic.
  *
  * Each helper here installs ONE narrow contract — tenant discovery,
- * whoami, sme/users CRUD, deployment lifecycle, etc. — so a future
+ * whoami, org/users CRUD, deployment lifecycle, etc. — so a future
  * "live mode" version of this spec can opt out of any single mock by
  * not calling that helper. The helpers themselves are the seam between
  * mock-mode and live-mode.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #2 (never compromise on quality):
  * the mock payloads are wire-shape-faithful to the back-end Go handlers
- * (see api/internal/handler/sme_users.go + tenant_discover.go); a wire
+ * (see api/internal/handler/org_users.go + tenant_discover.go); a wire
  * drift surfaces here as a TypeScript compile error rather than as
  * silently-passing tests.
  */
@@ -26,7 +26,7 @@ import { mkdirSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import {
   HOSTS,
-  SME_DISCOVERY,
+  ORG_DISCOVERY,
   SCREENSHOT_DIR,
   SCREENSHOT_PREFIX,
   USERS,
@@ -87,16 +87,16 @@ interface MockUser {
   steps: { kc: 'pending' | 'done' | 'failed'; newapi: 'pending' | 'done' | 'failed'; secret: 'pending' | 'done' | 'failed' }
 }
 
-export interface SMEMockState {
+export interface OrgMockState {
   users: Map<string, MockUser>
 }
 
 /**
  * Construct a fresh mock state seeded with no users. The state object
  * is mutated by the route handlers as the spec runs so list calls
- * reflect the create/delete sequence the SME admin performs.
+ * reflect the create/delete sequence the Organization admin performs.
  */
-export function makeMockState(): SMEMockState {
+export function makeMockState(): OrgMockState {
   return { users: new Map() }
 }
 
@@ -104,12 +104,12 @@ export function makeMockState(): SMEMockState {
 
 /**
  * Mock GET /api/v1/tenant/discover so the SPA bootstrap resolves
- * `console.<sme-domain>` to the SME-tier branch regardless of the
+ * `console.<org-domain>` to the Organization-tier branch regardless of the
  * dev-server's actual host header.
  */
 export async function mockTenantDiscovery(
   page: Page,
-  payload: typeof SME_DISCOVERY = SME_DISCOVERY,
+  payload: typeof ORG_DISCOVERY = ORG_DISCOVERY,
 ): Promise<void> {
   await page.route('**/api/v1/tenant/discover*', async (route: Route) => {
     await route.fulfill({
@@ -127,7 +127,7 @@ export async function mockTenantDiscovery(
  */
 export async function mockWhoami(
   page: Page,
-  email: string = USERS.smeAdmin,
+  email: string = USERS.orgAdmin,
 ): Promise<void> {
   await page.route('**/api/v1/whoami', async (route: Route) => {
     await route.fulfill({
@@ -136,7 +136,7 @@ export async function mockWhoami(
       body: JSON.stringify({
         email,
         sub: 'kc-admin-uid',
-        name: 'SME Admin',
+        name: 'Organization Admin',
       }),
     })
   })
@@ -151,13 +151,13 @@ export async function mockWhoami(
  * `done` so the UI's "provisioning…" view eventually flips to the
  * success card.
  *
- * NOTE: the canonical wire shape for SME tenant-create lives in #804
+ * NOTE: the canonical wire shape for Organization create lives in #804
  * (in flight). This mock implements the EXPECTED shape per the locked
  * decisions in #795:
  *
- *   POST /api/v1/sme/tenants  { slug, admin_email }
+ *   POST /api/v1/organizations  { slug, admin_email }
  *     → { deployment_id, console_url, status: "provisioning" }
- *   GET  /api/v1/sme/tenants/{deployment_id}/status
+ *   GET  /api/v1/organizations/{deployment_id}/status
  *     → { status: "provisioning"|"done", handover_url?, console_url }
  *
  * When #804 lands, the helper stays — the spec just opts out of the
@@ -166,7 +166,7 @@ export async function mockWhoami(
 export async function installMarketplaceMocks(page: Page): Promise<void> {
   let pollCount = 0
 
-  await page.route('**/api/v1/sme/tenants', async (route: Route) => {
+  await page.route('**/api/v1/organizations', async (route: Route) => {
     if (route.request().method() !== 'POST') {
       await route.continue()
       return
@@ -176,13 +176,13 @@ export async function installMarketplaceMocks(page: Page): Promise<void> {
       contentType: 'application/json',
       body: JSON.stringify({
         deployment_id: DEPLOYMENT_ID,
-        console_url: `https://${HOSTS.smeConsole}/`,
+        console_url: `https://${HOSTS.orgConsole}/`,
         status: 'provisioning',
       }),
     })
   })
 
-  await page.route('**/api/v1/sme/tenants/*/status', async (route: Route) => {
+  await page.route('**/api/v1/organizations/*/status', async (route: Route) => {
     pollCount += 1
     // Flip to "done" on the second poll so the spec doesn't have to
     // wait the real ~5min provisioning window.
@@ -193,30 +193,30 @@ export async function installMarketplaceMocks(page: Page): Promise<void> {
       body: JSON.stringify({
         deployment_id: DEPLOYMENT_ID,
         status: done ? 'done' : 'provisioning',
-        console_url: `https://${HOSTS.smeConsole}/`,
+        console_url: `https://${HOSTS.orgConsole}/`,
         handover_url: done
-          ? `https://${HOSTS.smeConsole}/auth/handover?token=mock-jwt`
+          ? `https://${HOSTS.orgConsole}/auth/handover?token=mock-jwt`
           : undefined,
       }),
     })
   })
 }
 
-/* ── SME user CRUD (#802 wire shape) ───────────────────────────── */
+/* ── Organization user CRUD (#802 wire shape) ───────────────────────────── */
 
 /**
- * Mock GET / POST / DELETE /api/v1/sme/users so the unified-rbac
+ * Mock GET / POST / DELETE /api/v1/org/users so the unified-rbac
  * console renders create-user state transitions without a back end.
- * Mirrors api/internal/handler/sme_users.go EXACTLY: the response
- * shape is `SMEUser` (see ui/src/pages/sme/sme.api.ts), the create
+ * Mirrors api/internal/handler/org_users.go EXACTLY: the response
+ * shape is `OrgUser` (see ui/src/pages/org/org.api.ts), the create
  * call returns 202 with `state: "done"` (synchronous-success branch
  * of ADR-0003 — Keycloak + NewAPI + Secret all green).
  */
-export async function installSMEUserMocks(
+export async function installOrgUserMocks(
   page: Page,
-  state: SMEMockState,
+  state: OrgMockState,
 ): Promise<void> {
-  await page.route('**/api/v1/sme/users', async (route: Route) => {
+  await page.route('**/api/v1/org/users', async (route: Route) => {
     if (route.request().method() === 'GET') {
       await route.fulfill({
         status: 200,
@@ -259,7 +259,7 @@ export async function installSMEUserMocks(
     await route.continue()
   })
 
-  await page.route('**/api/v1/sme/users/*', async (route: Route) => {
+  await page.route('**/api/v1/org/users/*', async (route: Route) => {
     if (route.request().method() === 'DELETE') {
       const url = new URL(route.request().url())
       const uuid = url.pathname.split('/').pop() ?? ''
@@ -277,7 +277,7 @@ export async function installSMEUserMocks(
  * Mock the catalyst-api deployment endpoints used by the provisioning
  * status page (`/provision/$deploymentId`). Returns a payload that
  * keeps the AppsPage rendering without redirecting back to the
- * customer console — the SME-demo spec wants to capture the
+ * customer console — the Organization-demo spec wants to capture the
  * "provisioning success" screenshot AT this URL, not after the
  * post-handover redirect.
  */
@@ -288,7 +288,7 @@ export async function installDeploymentMocks(page: Page): Promise<void> {
       contentType: 'application/json',
       body: JSON.stringify({
         id: DEPLOYMENT_ID,
-        sovereignFQDN: HOSTS.smeDomain,
+        sovereignFQDN: HOSTS.orgDomain,
         // adoptedAt deliberately absent so the SPA doesn't try to
         // hard-navigate to the customer console (which would break the
         // screenshot capture inside Playwright).
@@ -344,17 +344,17 @@ export async function installAppPlaceholders(page: Page): Promise<void> {
 }
 
 /**
- * Mock the SME billing/credit-ledger endpoint. Returns a ledger entry
+ * Mock the Organization billing/credit-ledger endpoint. Returns a ledger entry
  * representing alice's NewAPI usage so Step 6's screenshot can show a
  * non-empty balance view.
  *
  * Wire shape derives from the locked decision in #795: authoritative
- * ledger lives in `sme_billing.credit_ledger`, NewAPI's Postgres is a
- * thin in-flight cache. Path `/api/v1/sme/billing/ledger` is the
+ * ledger lives in `org_billing.credit_ledger`, NewAPI's Postgres is a
+ * thin in-flight cache. Path `/api/v1/org/billing/ledger` is the
  * conventional shape; #804 lands the real handler.
  */
 export async function installBillingMocks(page: Page): Promise<void> {
-  await page.route('**/api/v1/sme/billing/ledger*', async (route: Route) => {
+  await page.route('**/api/v1/org/billing/ledger*', async (route: Route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -380,16 +380,16 @@ export async function installBillingMocks(page: Page): Promise<void> {
 
 /**
  * Install every mock helper above against `page`. Convenience wrapper
- * for the SME-demo spec which wires every surface in one shot. Returns
+ * for the Organization-demo spec which wires every surface in one shot. Returns
  * the shared mock state so individual tests can introspect or seed
  * additional users.
  */
-export async function installAllMocks(page: Page): Promise<SMEMockState> {
+export async function installAllMocks(page: Page): Promise<OrgMockState> {
   const state = makeMockState()
   await mockTenantDiscovery(page)
   await mockWhoami(page)
   await installMarketplaceMocks(page)
-  await installSMEUserMocks(page, state)
+  await installOrgUserMocks(page, state)
   await installDeploymentMocks(page)
   await installAppPlaceholders(page)
   await installBillingMocks(page)

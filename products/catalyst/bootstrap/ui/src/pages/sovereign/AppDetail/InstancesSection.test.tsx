@@ -47,7 +47,7 @@ const WP_CATALOG = {
 
 // /sovereign/self parent-org payload (the directory's first row).
 const SELF = { deploymentId: 'd-1', sovereignFQDN: 't01.omani.works' }
-// /sme/tenants sub-org feed — RawTenant wire shape (snake_case). The
+// /v1/organizations sub-org feed — RawTenant wire shape (snake_case). The
 // dialog's Org dropdown value is the subdomain slug.
 const TENANTS = {
   items: [
@@ -83,9 +83,9 @@ function installFetch() {
     }
     // Instances list (the section body).
     if (url.includes('/instances')) return json({ items: [] })
-    // Org sources: /sovereign/self (parent) + /sme/tenants (sub-orgs).
+    // Org sources: /sovereign/self (parent) + /v1/organizations (sub-orgs).
     if (url.includes('/sovereign/self')) return json(SELF)
-    if (url.includes('/sme/tenants')) return json(TENANTS)
+    if (url.includes('/v1/organizations')) return json(TENANTS)
     // Infra topology (regions + vclusters).
     if (url.includes('/infrastructure/topology')) return json(TOPOLOGY)
     // Catalog item + version (topology supported list).

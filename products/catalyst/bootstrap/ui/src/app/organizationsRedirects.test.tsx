@@ -1,6 +1,6 @@
 /**
  * organizationsRedirects.test.tsx — the §4 redirect map (issue #3378):
- * "old URLs never break". Every legacy BSS / SME-admin / parent-domains
+ * "old URLs never break". Every legacy BSS / Organization-admin / parent-domains
  * path must answer with a redirect to its new home under /organizations.
  *
  * The map under test mirrors ORGANIZATIONS_REDIRECTS in router.tsx

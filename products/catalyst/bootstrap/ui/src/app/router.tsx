@@ -110,15 +110,15 @@ import { NotificationsPage } from '@/pages/sovereign/NotificationsPage'
 // scrolling to the Marketplace anchor.
 import { DeploymentsList } from '@/pages/sovereign/DeploymentsList'
 // CreateTenantPage re-mounts as the Organizations internal door at
-// /organizations/new (issue #3378). The SME UsersPage / RolesPage keep
+// /organizations/new (issue #3378). The Organization UsersPage / RolesPage keep
 // their /sme/users + /sme/roles routes for now — their people surfaces
 // fold into the org-detail page's users + roles tabs in a follow-on PR
 // on the #3378 chain, and only THEN do those two paths redirect (the
 // redirect destination must exist first). Until then they render live so
-// no SME-admin people surface regresses.
-import { UsersPage as SMEUsersPage } from '@/pages/sme/UsersPage'
-import { RolesPage as SMERolesPage } from '@/pages/sme/RolesPage'
-import { CreateTenantPage as SMECreateTenantPage } from '@/pages/sme/CreateTenantPage'
+// no Organization-admin people surface regresses.
+import { UsersPage as OrgUsersPage } from '@/pages/org/UsersPage'
+import { RolesPage as OrgRolesPage } from '@/pages/org/RolesPage'
+import { CreateTenantPage as OrgCreateTenantPage } from '@/pages/org/CreateTenantPage'
 import { SovereigntyPreviewPage } from '@/pages/sovereignty/SovereigntyPreviewPage'
 // qa-loop iter-6 Cluster-A `spa-target-state-routes-missing` —
 // stub pages mounted under /app/$deploymentId/* for routes whose
@@ -158,7 +158,7 @@ import { RevenuePage as BssRevenuePage } from '@/pages/sovereign/bss/RevenuePage
 import { VouchersPage as BssVouchersPage } from '@/pages/sovereign/bss/VouchersPage'
 // Organizations menu (issue #3378) — ONE menu replacing BSS+OSS. The
 // directory's parent org is the first citizen; CreateOrganizationPage is
-// the internal door (the same component as the SME create form, mounted
+// the internal door (the same component as the Organization create form, mounted
 // under the Organization-named route). Pages move WITH redirects (the old
 // /bss*, /sme/users, /sme/roles, /sme/tenants/new, /parent-domains URLs
 // keep resolving) — see consoleOrgRedirectRoutes below.
@@ -674,7 +674,7 @@ async function provisionAuthGuard() {
 
 // Wizard — guest-mode (issue #689). The wizard route renders for
 // anonymous visitors; auth fires only when they click Launch on
-// StepReview.  This is the SME-marketplace pattern — the visitor can
+// StepReview.  This is the Organization-marketplace pattern — the visitor can
 // see the entire product surface before being asked to sign in.
 const wizardLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -1604,25 +1604,25 @@ const consoleInstallBlueprintRoute = createRoute({
   },
 })
 
-/* ── SME-tier console routes (issue #802) ────────────────────────────
+/* ── Organization-tier console routes (issue #802) ────────────────────────────
  *
  * Mounted under the same /console/* tree as the otech-tier routes —
  * the same SovereignConsoleLayout owns the auth gate + chrome — but
- * the page components target the SME unified-rbac surface.
+ * the page components target the Organization unified-rbac surface.
  *
- *   /console/sme/users   → SMEUsersPage (POST + GET + DELETE
- *                          /api/v1/sme/users; the create form fires
+ *   /console/sme/users   → OrgUsersPage (POST + GET + DELETE
+ *                          /api/v1/org/users; the create form fires
  *                          the ADR-0003 3-step hook).
- *   /console/sme/roles   → SMERolesPage (read-only canonical
+ *   /console/sme/roles   → OrgRolesPage (read-only canonical
  *                          group → app-role map).
  *
  * Whether these routes are exposed in the sidebar is decided at
- * runtime by the SME-tenant-aware nav (see SovereignSidebar.tsx),
+ * runtime by the Organization-tenant-aware nav (see SovereignSidebar.tsx),
  * which reads the discovery payload from `getTenantContext()`.
  * Because TanStack Router resolves on URL match (not on sidebar
  * visibility), the routes themselves are always registered — that
  * keeps the bundle a single SPA per [Q-mine-1]/#795 and lets the
- * SME admin deep-link into either page from the welcome email.
+ * Organization admin deep-link into either page from the welcome email.
  */
 // Organizations menu move (issue #3378): /parent-domains and
 // /sme/tenants/new now resolve via consoleOrganizationsRedirectRoutes
@@ -1633,17 +1633,17 @@ const consoleInstallBlueprintRoute = createRoute({
 // people surfaces fold into the org-detail page's users + roles tabs in
 // a follow-on PR on this chain, and only THEN do those two paths
 // redirect (the destination must exist first). Until then they render
-// live so the SME-admin people surface (and the sme-demo walk) keeps
+// live so the Organization-admin people surface (and the org-demo walk) keeps
 // working.
-const consoleSMEUsersRoute = createRoute({
+const consoleOrgUsersRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/sme/users',
-  component: SMEUsersPage,
+  component: OrgUsersPage,
 })
-const consoleSMERolesRoute = createRoute({
+const consoleOrgRolesRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/sme/roles',
-  component: SMERolesPage,
+  component: OrgRolesPage,
 })
 
 /* ── Compliance dashboards — chroot Sovereign Console (slice U, #1096) ──
@@ -1722,7 +1722,7 @@ const consoleNotificationsRoute = createRoute({
  * inline section-nav grid is a secondary affordance.
  *
  * RBAC: still gated at two layers — the SovereignSidebar's BSS group
- * is admin-visible (unconditional for v1) and the SME gateway enforces
+ * is admin-visible (unconditional for v1) and the Organization gateway enforces
  * /back-office/* tier checks server-side for the iframe content.
  */
 /* ── Organizations menu (issue #3378) ──────────────────────────────────
@@ -1738,7 +1738,7 @@ const consoleNotificationsRoute = createRoute({
  *                           parent-first row + Create button; replaces
  *                           /bss/tenants)
  *   /organizations/new    → CreateOrganizationPage (the internal door;
- *                           reuses the SME create form component, mounted
+ *                           reuses the Organization create form component, mounted
  *                           under the Organization-named route — #3383
  *                           naming law: sme/tenant never name anything new)
  *
@@ -1754,7 +1754,7 @@ const consoleOrganizationsRoute = createRoute({
 const consoleOrganizationsNewRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/organizations/new',
-  component: SMECreateTenantPage,
+  component: OrgCreateTenantPage,
 })
 // /organizations/$org — the org detail page (identity card + consumption
 // panel + Enter-org button). The literal /organizations/{new,commerce,
@@ -1818,7 +1818,7 @@ const consoleOrgCommerceRoutes = COMMERCE_KINDS.map((kind) =>
 
 /* ── Organizations redirect map (issue #3378 §4) ───────────────────────
  *
- * "old URLs never break" — every legacy BSS / SME-admin / parent-domains
+ * "old URLs never break" — every legacy BSS / Organization-admin / parent-domains
  * path answers with a redirect to its new home under /organizations.
  * Pages move WITH redirects (no big-bang; the #3378 §non-negotiables
  * "pages move with redirects, page internals untouched"). Uses the same
@@ -1841,7 +1841,7 @@ const ORGANIZATIONS_REDIRECTS: readonly OrgRedirect[] = [
   // /sme/users + /sme/roles intentionally NOT redirected yet — they keep
   // live routes until the org-detail users/roles tabs land (the redirect
   // destination must exist first; redirecting to a non-existent tab would
-  // break the SME-admin people surface + the sme-demo walk).
+  // break the Organization-admin people surface + the org-demo walk).
   { path: '/sme/tenants/new', to: '/organizations/new' },
   // Parent-domain pools → the Organizations Domains home.
   { path: '/parent-domains', to: '/organizations/domains' },
@@ -2386,10 +2386,10 @@ const routeTree = rootRoute.addChildren([
     consoleBlueprintsPublishRoute,
     consoleBlueprintsCurateRoute,
     consoleSettingsRoute,
-    // SME-admin people surfaces — live until the org-detail users/roles
+    // Organization-admin people surfaces — live until the org-detail users/roles
     // tabs land on the #3378 chain (then /sme/users + /sme/roles redirect).
-    consoleSMEUsersRoute,
-    consoleSMERolesRoute,
+    consoleOrgUsersRoute,
+    consoleOrgRolesRoute,
     // Compliance dashboards — chroot routes (slice U, #1096).
     consoleSREComplianceRoute,
     consoleSecComplianceRoute,
