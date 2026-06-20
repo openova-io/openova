@@ -1357,6 +1357,18 @@ func detectPartialRegionMaterialisation(declaredRegions []RegionSpec, perRegion 
 // Sovereign cannot honour must NOT be stamped `ready`.
 const ReasonStandbyRegionAbsent = "standby-region-absent"
 
+// ReasonDefaultStorageClassEphemeral is the canonical Phase-1 failure
+// reason stamped when an otherwise-ready Sovereign's resolved DEFAULT
+// StorageClass is still the k3s ephemeral local-path provisioner
+// (rancher.io/local-path) — meaning no cloud block-storage CSI flipped
+// the default to a durable volume (#3971). Every PVC (prod Postgres
+// 3×100Gi, openbao secrets, customer-Org DB, …) would land on node-local
+// disk and be destroyed by any node replacement, invalidating the BCP/DR
+// model. It is the storage sibling of ReasonStandbyRegionAbsent: a
+// durability guarantee the Sovereign cannot honour must NOT be stamped
+// `ready`.
+const ReasonDefaultStorageClassEphemeral = "default-storageclass-ephemeral"
+
 // DeclaredDRStandbyIntegrity reports whether a multi-region DR topology's
 // standby half is structurally PRESENT, given:
 //

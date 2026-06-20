@@ -7,13 +7,15 @@ metadata:
   annotations:
     catalyst.openova.io/provider: hetzner
 spec:
-  version: 1.1.0
+  version: 1.2.0
   card:
     title: Hetzner Cloud CSI
     summary: |
       Hetzner Cloud CSI driver providing the hcloud-volumes StorageClass.
       Required for multi-node stateful workloads (CNPG primary/replica
-      pairs) on Hetzner Sovereigns. Activated by EPIC-6 (#1101).
+      pairs) on Hetzner Sovereigns. Bootstrap-kit slot 55a (#3971) installs
+      it on every fresh Hetzner Sovereign as the cluster-default SC so
+      production PVCs never land on ephemeral k3s local-path.
     family: storage
     documentation: ./README.md
   visibility: unlisted

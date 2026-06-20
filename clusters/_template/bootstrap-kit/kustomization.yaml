@@ -252,6 +252,21 @@ resources:
   # clustermesh-apiserver could not migrate from NodePort to LB on
   # omantel multi-region (qa-loop iter-12 Fix #53D).
   - 55-bp-hcloud-ccm.yaml
+  # bp-hcloud-csi (slot 55a, #3971) — Hetzner Cloud CSI driver. The
+  # STORAGE sibling of slot 55 (CCM). Installs the csi.hetzner.cloud
+  # driver + the hcloud-volumes StorageClass (reclaimPolicy Retain) and
+  # runs a post-install hook that flips the cluster-default from the
+  # ephemeral k3s local-path to hcloud-volumes. WITHOUT this slot every
+  # Sovereign's PVCs (cnpg 3×100Gi prod-pg, openbao secrets, customer-Org
+  # DB, keycloak/gitea/harbor/loki/mimir/tempo) land on node-local disk →
+  # a node replacement destroys the data → the BCP/DR model is invalid
+  # (the P0 blocker). MUST be registered here or Flux never creates the
+  # HR (the #3191 forgotten-slot wedge class). Formerly slot 17a (REMOVED
+  # 2026-05-17 for a harbor-pull chicken-and-egg — see the slot-17a
+  # comment above); re-added here AFTER bp-harbor (19) so the pre-cutover
+  # ghcr pull never races harbor. Suspended on Huawei via HCLOUD_HR_SUSPEND
+  # (same gate as slot 55); Huawei EVS/everest CSI is a #3971 follow-up.
+  - 55a-bp-hcloud-csi.yaml
   # OpenovaFlow observability cohort — slots 56/57. Three-agent split
   # (Agent #1: TS @openova/flow-core + @openova/flow-canvas, Agent #2:
   # Go server + flux adapter, Agent #3: bootstrap-kit + catalyst-api

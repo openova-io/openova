@@ -38,20 +38,30 @@ hetznerToken: ""
 # Sovereign without editing this chart. Named `catalystStorageClasses`
 # to avoid collision with the upstream `hcloud-csi.storageClasses` key
 # (different shape — upstream has its own list under that name).
+#
+# #3971 — reclaimPolicy is `Retain` (NOT `Delete`): the FIRST entry is the
+# cluster-default SC for EVERY stateful PVC on the Sovereign (cnpg 3×100Gi,
+# openbao secrets, customer-Org DB, …). `Retain` keeps the backing Hetzner
+# Cloud Volume alive when a PVC/PV is deleted (node replacement, autoscaler
+# churn, accidental PVC delete) so production data survives — the durable
+# fix for the P0 "PVCs land on ephemeral local-path" blocker. Operators
+# reclaim a `Released` PV's volume deliberately (it is never auto-deleted).
 catalystStorageClasses:
   - name: hcloud-volumes
-    reclaimPolicy: Delete
+    reclaimPolicy: Retain
     volumeBindingMode: WaitForFirstConsumer
     allowVolumeExpansion: true
     parameters: {}
 
-# VolumeSnapshotClass for backup workflows (Velero etc.). Default off —
-# requires snapshot.storage.k8s.io/v1 CRDs which are part of the upstream
-# CSI subchart.
+# VolumeSnapshotClass for backup workflows (Velero etc.). #3971 — default ON
+# so every Sovereign has storage-level snapshots out of the box (the
+# upstream hcloud-csi subchart ships the snapshot.storage.k8s.io/v1 CRDs +
+# external-snapshotter sidecar). deletionPolicy Retain mirrors the SC so a
+# deleted VolumeSnapshot never silently drops the cloud snapshot.
 volumeSnapshotClass:
-  enabled: false
+  enabled: true
   name: hcloud-volumes-snapshots
-  deletionPolicy: Delete
+  deletionPolicy: Retain
 
 # ─── Upstream subchart values (subchart key: hcloud-csi) ──────────────
 hcloud-csi:

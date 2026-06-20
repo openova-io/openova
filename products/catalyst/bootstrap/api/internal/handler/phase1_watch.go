@@ -765,7 +765,40 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 	// terminal log line + the secondary-degraded warn below.
 	regionHealth := dep.Result.Regions
 	secondaryDegraded := dep.Result.SecondaryDegraded
+	// #3971 — capture the kubeconfig path + ready-ness under the lock so
+	// the storage-durability gate (run AFTER the unlock, off the lock, so
+	// its bounded apiserver List never blocks a concurrent State() snapshot)
+	// can probe the primary cluster's default StorageClass.
+	storageGateKubeconfig := dep.Result.KubeconfigPath
+	storageGateEligible := dep.Status == "ready"
 	dep.mu.Unlock()
+
+	// #3971 STORAGE DURABILITY GATE — sibling of the #3375 DR gate above,
+	// run off-lock because it issues a bounded apiserver call. An otherwise-
+	// ready Sovereign whose resolved DEFAULT StorageClass is still the k3s
+	// ephemeral local-path (rancher.io/local-path) must NOT be claimed
+	// ready: every PVC (prod Postgres 3×100Gi, openbao secrets, customer-Org
+	// DB, …) would land on node-local disk and be destroyed by a node
+	// replacement. The bootstrap-kit installs the per-provider cloud CSI
+	// (bp-hcloud-csi slot 55a on Hetzner) which flips the default to a
+	// durable cloud volume; this gate verifies the flip actually took. It is
+	// CONSERVATIVE: it only DOWNGRADES ready→failed on a POSITIVE local-path
+	// observation. A probe error (unreadable kubeconfig, apiserver blip,
+	// missing path) SKIPS the gate — it never invents a failure, mirroring
+	// the surface-not-gate discipline for slow/transient conditions.
+	if storageGateEligible {
+		if reason := h.evaluateStorageDurabilityGate(dep, storageGateKubeconfig); reason != "" {
+			dep.mu.Lock()
+			// Re-check the deployment hasn't been adopted in the gap.
+			if dep.Status == "ready" {
+				dep.Status = "failed"
+				dep.Error = reason
+				dep.Result.Phase1Outcome = provisioner.ReasonDefaultStorageClassEphemeral
+				finalStatus = "failed"
+			}
+			dep.mu.Unlock()
+		}
+	}
 
 	// Persist the deployment record after the status flip so a
 	// concurrent State() snapshot picked up by the wizard's poll
@@ -926,6 +959,84 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// markPhase1Done returns.
 		h.runSecondaryBridgeBackfill(dep)
 	}
+}
+
+// evaluateStorageDurabilityGate probes the primary Sovereign cluster's
+// default StorageClass (#3971) and returns a non-empty failure reason ONLY
+// when the default is the k3s ephemeral local-path provisioner — the
+// non-durable condition the bootstrap-kit's per-provider cloud CSI is
+// supposed to flip away from. Empty return = PASS (durable default) or SKIP
+// (probe could not run; we never invent a failure from a probe error).
+//
+// Read-only per docs/PRINCIPLES.md #3 — it lists StorageClasses, patches
+// nothing. The probe is bounded by the helmwatch rest.Config timeout (30s).
+//
+// The actual probe is injectable via h.phase1StorageGate so unit tests can
+// drive the ready→failed flip with a canned result; production binds the
+// kubeconfig-reading helmwatch.DefaultStorageClassFromKubeconfig.
+func (h *Handler) evaluateStorageDurabilityGate(dep *Deployment, kubeconfigPath string) string {
+	if kubeconfigPath == "" {
+		// No kubeconfig path captured (older record / short-circuit) —
+		// cannot probe; SKIP rather than fail a ready deployment.
+		return ""
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	probe := h.phase1StorageGate
+	if probe == nil {
+		// Production default: read the kubeconfig file off the PVC and
+		// query the live cluster's StorageClasses with a typed client.
+		probe = func(ctx context.Context, path string) (helmwatch.DefaultStorageClassInfo, error) {
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				return helmwatch.DefaultStorageClassInfo{}, fmt.Errorf("read kubeconfig %s: %w", path, err)
+			}
+			return helmwatch.DefaultStorageClassFromKubeconfig(ctx, string(raw))
+		}
+	}
+
+	info, err := probe(ctx, kubeconfigPath)
+	if err != nil {
+		// Probe failed (apiserver blip, unreadable kubeconfig) — SKIP.
+		// A transient probe error must never downgrade a ready Sovereign;
+		// the gate fires only on a POSITIVE local-path observation.
+		h.log.Warn("phase 1 default-StorageClass durability gate could not probe the new Sovereign — skipping (will not downgrade ready); inspect `kubectl get sc` manually (#3971)",
+			"id", dep.ID,
+			"err", err,
+		)
+		return ""
+	}
+
+	if !info.Found {
+		// No default StorageClass at all — distinct from local-path, but
+		// still a misconfiguration (every PVC without an explicit
+		// storageClassName stays Pending forever). Fail the prov honestly.
+		h.log.Error("phase 1 storage gate: NO default StorageClass on the new Sovereign — every PVC without an explicit storageClassName will hang Pending (#3971)",
+			"id", dep.ID,
+		)
+		return "Phase 1 storage durability gate failed: the new Sovereign has NO default StorageClass. Every PVC that omits storageClassName (cnpg, openbao, keycloak, gitea, harbor) will stay Pending forever. The bootstrap-kit's cloud block-storage CSI (bp-hcloud-csi on Hetzner) did not install or did not flip the cluster default. Operator: inspect `kubectl get sc` and `flux get helmrelease bp-hcloud-csi -n flux-system` on the new cluster (#3971)."
+	}
+
+	if info.Ephemeral {
+		h.log.Error("phase 1 storage gate: default StorageClass is the EPHEMERAL k3s local-path — production data is non-durable (#3971)",
+			"id", dep.ID,
+			"defaultStorageClass", info.Name,
+			"provisioner", info.Provisioner,
+		)
+		return fmt.Sprintf("Phase 1 storage durability gate failed: the new Sovereign's default StorageClass is %q (%s) — ephemeral node-local disk with NO cloud block volume behind it. Every PVC (prod Postgres 3×100Gi, openbao secrets, customer-Org DB, keycloak/gitea/harbor) would be destroyed by a node replacement, invalidating the BCP/DR model. The bootstrap-kit's cloud block-storage CSI (bp-hcloud-csi slot 55a on Hetzner) did not install or did not flip the cluster default to a durable cloud volume. Operator: inspect `kubectl get sc` and `flux get helmrelease bp-hcloud-csi -n flux-system` on the new cluster (#3971).", info.Name, info.Provisioner)
+	}
+
+	// Durable default (cloud CSI). PASS. Log the success so the condition
+	// is greppable in the catalyst-api logs alongside the other gates.
+	h.log.Info("phase 1 storage durability gate passed: default StorageClass is a durable cloud volume (#3971)",
+		"id", dep.ID,
+		"defaultStorageClass", info.Name,
+		"provisioner", info.Provisioner,
+		"multipleDefaults", info.MultipleDefaults,
+	)
+	return ""
 }
 
 // primaryRegionKey returns the declared primary region's key for the

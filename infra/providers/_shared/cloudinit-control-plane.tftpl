@@ -942,8 +942,21 @@ runcmd:
   # wait specifically for the apiserver /healthz endpoint, not node-Ready).
   - 'until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get --raw /healthz; do sleep 5; done'
 
-  # local-path StorageClass is shipped by k3s; assert it + mark default
-  # before anything that PVCs.
+  # local-path StorageClass is shipped by k3s; assert it + mark default as a
+  # TRANSIENT bootstrap default so the very-early PVCs (created before any
+  # cloud CSI exists) have somewhere to bind.
+  #
+  # #3971 — local-path is EPHEMERAL (a directory on the node's local disk, no
+  # cloud block volume behind it). It is the default ONLY for the bootstrap
+  # window. The bootstrap-kit installs the per-provider cloud block-storage
+  # CSI (Hetzner: bp-hcloud-csi slot 55a → csi.hetzner.cloud + hcloud-volumes
+  # SC; Huawei: everest/EVS, #3971 follow-up) whose post-install hook PROMOTES
+  # the CSI class to cluster-default and DEMOTES this local-path default — so
+  # every STATEFUL PVC (which installs LATE, after bp-mgmt-vcluster /
+  # bp-cert-manager) lands on a DURABLE cloud volume. The Phase-1 DoD gate
+  # (catalyst-api markPhase1Done, #3971) FAILS the prov if the FINAL default
+  # is still local-path, so this transient default can never silently persist.
+  # local-path is LEFT installed (non-default) for genuinely-ephemeral caches.
   - 'until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get sc local-path >/dev/null 2>&1; do sleep 2; done'
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml patch storageclass local-path -p ''{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'''
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get sc -o name | grep -q "^storageclass.storage.k8s.io/local-path$" || { echo "FATAL: local-path StorageClass missing after k3s install" >&2; exit 1; }'

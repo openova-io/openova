@@ -18,6 +18,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/flowemit"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
@@ -162,6 +163,18 @@ type Handler struct {
 	// can be exercised in milliseconds. Issue #538.
 	kubeconfigArrivalTimeout      time.Duration
 	kubeconfigArrivalPollInterval time.Duration
+
+	// phase1StorageGate — test-only override for the #3971 default-
+	// StorageClass durability gate run at the end of markPhase1Done.
+	// Production uses helmwatch.DefaultStorageClassFromKubeconfig
+	// (typed client against the new Sovereign's kubeconfig, rest.Config
+	// 30s timeout, read-only StorageClass List). Tests inject a closure
+	// returning a canned helmwatch.DefaultStorageClassInfo so the gate's
+	// ready→failed flip can be exercised without a real cluster. Nil =
+	// "use production default". When the kubeconfig is unreadable the
+	// gate is SKIPPED (never downgrades a ready deployment on probe
+	// error) — the gate only fires on a POSITIVE local-path observation.
+	phase1StorageGate func(ctx context.Context, kubeconfigPath string) (helmwatch.DefaultStorageClassInfo, error)
 
 	// ClusterMesh level-triggered reconcile knobs (#3241). The
 	// runAutoEstablishClusterMesh wrapper re-runs the idempotent

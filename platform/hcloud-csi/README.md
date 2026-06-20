@@ -1,27 +1,41 @@
 # bp-hcloud-csi
 
-**Status**: Phase-0 scaffold (#1095 slice H6). Activated by EPIC-6 (#1101).
-**Updated**: 2026-05-08
+**Status**: Bootstrap-kit slot 55a (#3971) — installed on every fresh Hetzner
+Sovereign as the cluster-default StorageClass. (Was Phase-0 scaffold #1095
+slice H6 / EPIC-6 #1101.)
+**Updated**: 2026-06-20
 
 Upstream Hetzner Cloud CSI driver (`hetznercloud/csi-driver`) wrapped as a
 Catalyst Blueprint. Provides the `hcloud-volumes` StorageClass that backs
-multi-node stateful workloads on Hetzner Sovereigns — required for CNPG
-primary/replica pairs across nodes (and across regions, once Cilium
-ClusterMesh + Continuum land in #1101).
+ALL stateful workloads on Hetzner Sovereigns (CNPG primary/replica pairs,
+openbao, keycloak, gitea, harbor, loki/mimir/tempo) — durable cloud block
+volumes instead of ephemeral node-local disk.
 
-This Blueprint is **not** in the bootstrap-kit. The default StorageClass on
-existing Sovereigns is `local-path` (single-node-bound) — installing this
-chart with `defaultStorageClass: true` flips the default to `hcloud-volumes`,
-which would migrate every new PVC. Operators activate deliberately per
-Sovereign once the upgrade path for existing PVCs is sized.
+**In the bootstrap-kit (#3971).** The HelmRelease at
+`clusters/_template/bootstrap-kit/55a-bp-hcloud-csi.yaml` installs this chart
+on every fresh **Hetzner** Sovereign with `enabled: true` +
+`defaultStorageClass: true` (suspended on Huawei via `HCLOUD_HR_SUSPEND`). A
+post-install hook promotes `hcloud-volumes` to cluster-default and DEMOTES the
+k3s `local-path` default — so production PVCs never land on ephemeral disk.
+The Phase-1 DoD gate in catalyst-api (`markPhase1Done`) FAILS a prov whose
+final default StorageClass is still `local-path`, so this can never silently
+regress. local-path stays installed (non-default) for genuinely-ephemeral
+caches.
+
+> **The P0 blocker it closes (#3971):** before this slot, k3s `local-path` was
+> the default and ONLY StorageClass on every Sovereign — a directory on the
+> node's local disk with no cloud volume behind it. A node replacement
+> (autoscaler, failed node, re-prov, disk loss) destroyed that PV's data,
+> including prod Postgres (3×100Gi), openbao secrets, and the customer-Org DB.
 
 ## What it ships
 
 | Template | Effect |
 |---|---|
-| `storageclass.yaml` | StorageClass `hcloud-volumes` with `WaitForFirstConsumer` binding (Pod scheduling pins the volume to the right node) and `allowVolumeExpansion: true`. Optional `volumeBindingMode: Immediate` override for use cases that need pre-provisioning. |
-| `storageclass-default.yaml` | Annotates `hcloud-volumes` as the cluster default when `.Values.defaultStorageClass: true`. |
-| `volumesnapshotclass.yaml` | VolumeSnapshotClass for backup workflows. Default off. |
+| `storageclass.yaml` | StorageClass `hcloud-volumes` — `reclaimPolicy: Retain` (production-data durability: the backing Hetzner Volume survives PVC/PV deletion), `WaitForFirstConsumer` binding (pins the volume to the Pod's node), `allowVolumeExpansion: true`. |
+| `default-class-hook.yaml` + `default-class-hook-rbac.yaml` | Post-install hook Job (+ scoped ClusterRole) that promotes `hcloud-volumes` to cluster-default and demotes the k3s `local-path` default so there is exactly ONE durable default class. |
+| `volumesnapshotclass.yaml` | VolumeSnapshotClass `hcloud-volumes-snapshots` for storage-level DR / backup workflows. Default ON (#3971). |
+| `hcloud-token-secret.yaml` | Renders the `hcloud-csi-token` Secret from the Hetzner API token (Flux `valuesFrom` cloud-credentials) so the controller authenticates. |
 
 Upstream `hcloud-csi-driver` itself is pulled in as a Helm subchart from
 `hetznercloud/csi-driver` (referenced in `Chart.yaml`). The catalyst overlay
@@ -29,22 +43,25 @@ templates above sit alongside it.
 
 ## Activation contract
 
+The bootstrap-kit slot (55a) already sets these on every Hetzner Sovereign;
+this is the values shape if you hand-override per Sovereign:
+
 ```yaml
 # values.yaml override (or per-Sovereign overlay)
 enabled: true
 defaultStorageClass: true              # flip the cluster default
-hcloudCsi:
-  controller:
-    replicas: 2                        # HA for multi-node Sovereigns
-  storageClasses:
-    - name: hcloud-volumes
-      reclaimPolicy: Delete
-      volumeBindingMode: WaitForFirstConsumer
-      allowVolumeExpansion: true
+hetznerToken: "<from cloud-credentials via Flux valuesFrom>"
+catalystStorageClasses:
+  - name: hcloud-volumes
+    reclaimPolicy: Retain                # production-data durability (#3971)
+    volumeBindingMode: WaitForFirstConsumer
+    allowVolumeExpansion: true
+volumeSnapshotClass:
+  enabled: true                         # storage-level DR (#3971)
 ```
 
-When `enabled: false` (the default), no resources render — installing the
-chart is a no-op until the operator opts in.
+When `enabled: false` (the chart default), no resources render — the chart is
+a no-op. The bootstrap-kit slot is what flips `enabled: true` on Hetzner.
 
 ## Why a separate Blueprint, not a values toggle on bp-cilium
 
@@ -52,13 +69,26 @@ CSI drivers are independent of CNI. Mixing them risks coupling the network
 plane upgrade cycle to the storage plane upgrade cycle. Separate Blueprint
 keeps the surfaces independent.
 
-## Why default-OFF on `defaultStorageClass`
+## Default-class flip + local-path demotion (#3971)
 
-Flipping the cluster's default StorageClass is a destructive change for
-Pods relying on the previous default's volume-binding semantics. Existing
-Sovereigns ship with `local-path` as default; an in-place migration plan
-(drain, repvc, copy-data) is its own slice. Keeping `defaultStorageClass:
-false` here ensures installing the chart is reversible.
+The **chart's** `defaultStorageClass` value defaults to `false` (so a bare
+`helm install` is reversible), but the **bootstrap-kit slot 55a** sets it
+`true` on every Hetzner Sovereign. When true:
+
+- The `hcloud-volumes` StorageClass renders with the
+  `storageclass.kubernetes.io/is-default-class: "true"` annotation.
+- A post-install hook Job (`default-class-hook.yaml`) waits for the SC to
+  exist, then promotes it to default and **demotes** the k3s `local-path`
+  default (strips its default annotation) so there is exactly ONE default.
+- `local-path` is left INSTALLED but non-default — genuinely-ephemeral caches
+  can still opt in with `storageClassName: local-path`.
+
+On a FRESH prov this is non-destructive: the stateful slots (openbao,
+keycloak, gitea, cnpg) install LATE (after their `dependsOn` chains on
+bp-mgmt-vcluster / bp-cert-manager), by which time the CSI default-class flip
+has already run, so their PVCs bind to the durable `hcloud-volumes` class.
+Migrating an EXISTING Sovereign's local-path data is out of scope (destructive,
+separate) — the durable fix is the bootstrap so every fresh prov is correct.
 
 ## References
 

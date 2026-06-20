@@ -672,6 +672,19 @@ slots:
     depends_on: []
     wave: present
 
+  # ---- Slot 55a — bp-hcloud-csi (Hetzner Cloud CSI driver, #3971).
+  # STORAGE sibling of slot 55. Installs csi.hetzner.cloud + the
+  # hcloud-volumes StorageClass (reclaimPolicy Retain) and flips the
+  # cluster-default OFF the ephemeral k3s local-path. No dependsOn: a
+  # foundational cloud seam that must be Ready before the stateful apps
+  # create PVCs (its cloud-credentials Secret is seeded by cloud-init
+  # pre-Flux, and the chart pulls from ghcr — no Flux dependency). The
+  # P0 fix for "every PVC lands on local-path". Suspended on Huawei.
+  - slot: 55a
+    name: bp-hcloud-csi
+    depends_on: []
+    wave: present
+
   # ---- Slots 56/57 — OpenovaFlow observability cohort.
   # Stateless HTTP+SSE event router (slot 56, primary cluster only) +
   # region-aware Flux adapter DaemonSet (slot 57, every cluster).

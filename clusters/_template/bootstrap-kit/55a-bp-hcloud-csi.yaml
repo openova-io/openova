@@ -1,0 +1,128 @@
+# bp-hcloud-csi — Catalyst bootstrap-kit Blueprint #55a (#3971).
+# (Tier 5 — Cloud Integration). The storage sibling of bp-hcloud-ccm
+# (slot 55) + bp-cluster-autoscaler-hcloud (slot 50) — the full
+# Hetzner-cloud-direct trio (CCM + CSI + autoscaler).
+#
+# WHY THIS SLOT EXISTS (the P0 blocker #3971)
+# ===========================================
+# k3s ships `local-path-provisioner` as the cluster-default StorageClass.
+# With NO cloud block-storage CSI installed, EVERY PVC on EVERY Sovereign
+# landed on local-path — a directory on the node's LOCAL disk with no cloud
+# volume behind it. A node replacement (autoscaler, failed node, re-prov,
+# disk loss) DESTROYS that PV's data — including cnpg-pair-primary 3×100Gi
+# (prod Postgres), openbao 10Gi (secrets), the customer-Org DB, keycloak,
+# gitea, harbor, loki/mimir/tempo. That invalidates the BCP/DR model.
+#
+# bp-hcloud-csi was formerly bootstrap-kit slot 17a but was REMOVED on
+# 2026-05-17 (Wave 7) because its Flux chart pull went through the
+# harbor.<sov> OCI endpoint BEFORE harbor was reachable (the cutover URL
+# rewrite raced harbor's own install — see the kustomization.yaml slot-17a
+# comment block). This re-add lands the slot at 55a (AFTER bp-harbor 19),
+# pulling from `oci://ghcr.io/openova-io` exactly like slot 55 (bp-hcloud-
+# ccm), so the pre-cutover chart pull hits ghcr — never the not-yet-ready
+# harbor. Post-cutover the slot-06a URL rewrite points it at the local
+# harbor, by which time harbor is long-Ready.
+#
+# INTENTIONALLY SUSPENDED on non-Hetzner providers (e.g. HCS / Huawei) —
+# same `${HCLOUD_HR_SUSPEND:=false}` gate as bp-hcloud-ccm. The Huawei
+# cloud-init substitutes HCLOUD_HR_SUSPEND="true"; the Hetzner cloud-init
+# leaves the default (false). Huawei's equivalent cloud block storage CSI
+# (everest / EVS) is tracked separately — see the #3971 follow-up. An empty
+# READY/STATUS column for this HR on an HCS Sovereign is BY DESIGN.
+#
+# WHAT IT INSTALLS
+# ================
+#   - The Hetzner Cloud CSI driver (csi.hetzner.cloud) controller +
+#     node DaemonSet (upstream hcloud-csi 2.13.0 subchart).
+#   - The `hcloud-volumes` StorageClass — reclaimPolicy Retain (production-
+#     data durability: the backing Hetzner Volume survives PVC/PV deletion),
+#     volumeBindingMode WaitForFirstConsumer (pins the volume to the Pod's
+#     node), allowVolumeExpansion true.
+#   - VolumeSnapshotClass `hcloud-volumes-snapshots` (storage-level DR).
+#   - A post-install hook Job that promotes hcloud-volumes to cluster-default
+#     and DEMOTES the k3s local-path default (templates/default-class-hook).
+#     local-path stays installed but non-default for ephemeral caches.
+#
+# Hetzner-token wiring (mirrors bp-hcloud-ccm slot 55 / bp-cluster-
+# autoscaler-hcloud slot 50):
+#   - cloud-init writes `flux-system/cloud-credentials` Secret with the
+#     `hcloud-token` key.
+#   - This HelmRelease lifts `hcloud-token` into `hcloudToken` via Flux
+#     `valuesFrom`. The chart's templates/hcloud-token-secret.yaml then
+#     renders the namespace-local `hcloud-csi/hcloud-csi-token` Secret the
+#     upstream controller binds for Hetzner-API auth. Without it the SC
+#     exists but every PVC fails to provision with a 401.
+#
+# dependsOn: (none) — like bp-hcloud-ccm, the CSI is a foundational cloud
+# seam that must be Ready BEFORE the stateful apps (openbao/keycloak/gitea/
+# cnpg) create their PVCs. The cloud-credentials Secret is provisioned by
+# cloud-init BEFORE Flux installs anything, and the chart pulls from ghcr,
+# so it has no Flux dependency. The stateful slots install LATE (their own
+# dependsOn chains on bp-mgmt-vcluster / bp-cert-manager), by which time the
+# CSI default-class flip has already run.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-hcloud-csi
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-hcloud-csi
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "55a"
+spec:
+  # Suspend on non-Hetzner providers. Huawei cloud-init substitutes "true";
+  # Hetzner cloud-init substitutes "false" (or omits → default kicks in).
+  # Same provider-keyed gate shape as bp-hcloud-ccm (slot 55).
+  suspend: ${HCLOUD_HR_SUSPEND:=false}
+  interval: 15m
+  releaseName: hcloud-csi
+  targetNamespace: hcloud-csi
+  install:
+    createNamespace: true
+    timeout: 15m
+    remediation:
+      retries: -1
+  upgrade:
+    timeout: 15m
+    remediation:
+      retries: 3
+  chart:
+    spec:
+      chart: bp-hcloud-csi
+      version: 1.2.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-hcloud-csi
+        namespace: flux-system
+  # ── Activation on Hetzner ────────────────────────────────────────────
+  # enabled + defaultStorageClass flip the chart from its default-off
+  # no-op (the EPIC-6 opt-in shape) to: install the driver, render the
+  # hcloud-volumes SC, and run the default-class flip hook. This is the
+  # whole point of the slot — every fresh Hetzner Sovereign comes up with
+  # the cloud-block CSI as the ONE default class, never ephemeral local-path.
+  values:
+    enabled: true
+    defaultStorageClass: true
+  # ── Hetzner-token wiring ─────────────────────────────────────────────
+  # Pulls `hcloud-token` from the canonical flux-system/cloud-credentials
+  # Secret (cloud-init Phase 0) into .Values.hetznerToken; the chart
+  # renders the namespace-local hcloud-csi-token Secret from it. Flux
+  # dereferences valuesFrom at apply time so the plaintext never lands in
+  # this committed manifest. Mirrors slot 55 (bp-hcloud-ccm).
+  valuesFrom:
+    - kind: Secret
+      name: cloud-credentials
+      valuesKey: hcloud-token
+      targetPath: hetznerToken
