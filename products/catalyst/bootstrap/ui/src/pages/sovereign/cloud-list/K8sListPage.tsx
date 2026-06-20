@@ -90,6 +90,119 @@ export function colSpec(key: string, header: string): K8sListColumn {
   }
 }
 
+/* ── Reconciler-status helpers (#3978 / Refs #3970) ───────────────── */
+
+/**
+ * Find a status condition by `type` on a K8s object. Flux/cert-manager/
+ * ESO/CNPG + the Catalyst CRs all expose `status.conditions[]` with the
+ * canonical {type,status,reason,message} shape.
+ */
+function findCondition(
+  o: K8sObject,
+  type: string,
+): { status?: string; reason?: string; message?: string } | undefined {
+  const conds = (o.status as Record<string, unknown> | undefined)?.[
+    'conditions'
+  ] as Array<Record<string, unknown>> | undefined
+  if (!Array.isArray(conds)) return undefined
+  const c = conds.find((x) => x?.['type'] === type)
+  if (!c) return undefined
+  return {
+    status: c['status'] as string | undefined,
+    reason: c['reason'] as string | undefined,
+    message: c['message'] as string | undefined,
+  }
+}
+
+/**
+ * colReconcileStatus — render the canonical Ready condition of a
+ * continuous reconciler in the Reconciliation vocabulary
+ * (Reconciled / Reconciling / Degraded — NEVER Success/Failed). Mirrors
+ * the backend reconciliation_dag.go sticky state machine:
+ *   Ready=True              → Reconciled
+ *   Ready=False (Stalled)   → Degraded   (reason contains "stall"/"retries exhausted")
+ *   Ready=False (otherwise) → Reconciling (Flux is still retrying)
+ *   no Ready condition yet   → Reconciling
+ *
+ * `conditionType` defaults to "Ready"; CNPG Clusters carry no Ready
+ * condition so callers pass a phase-based extractor instead.
+ */
+export function colReconcileStatus(
+  header = 'Status',
+  conditionType = 'Ready',
+): K8sListColumn {
+  return {
+    header,
+    extract: (o) => {
+      const c = findCondition(o, conditionType)
+      if (!c || c.status == null) return 'Reconciling'
+      if (c.status === 'True') return 'Reconciled'
+      // Ready=False: terminal-Degraded only when Flux has given up
+      // (Stalled), otherwise it's still self-healing → Reconciling.
+      const reason = (c.reason ?? '').toLowerCase()
+      const stalled =
+        reason.includes('stall') ||
+        reason.includes('retriesexhausted') ||
+        reason.includes('exhausted')
+      return stalled ? 'Degraded' : 'Reconciling'
+    },
+  }
+}
+
+/**
+ * colCnpgStatus — CNPG Cluster has NO Ready condition; its health lives
+ * in `status.phase` ("Cluster in healthy state", "Setting up primary",
+ * "Failing over", …). Map onto the recon vocabulary so the column reads
+ * the same as every other reconciler.
+ */
+export function colCnpgStatus(header = 'Status'): K8sListColumn {
+  return {
+    header,
+    extract: (o) => {
+      const phase = (o.status as Record<string, unknown> | undefined)?.[
+        'phase'
+      ] as string | undefined
+      if (!phase) return 'Reconciling'
+      const p = phase.toLowerCase()
+      if (p.includes('healthy')) return 'Reconciled'
+      if (p.includes('fail') || p.includes('unrecoverable')) return 'Degraded'
+      return 'Reconciling'
+    },
+  }
+}
+
+/**
+ * colCatalystCrStatus — the Catalyst control-plane CRs (Application /
+ * Environment / Organization / Continuum / UserAccess) expose a
+ * `status.phase` and/or a Ready condition. Prefer the Ready condition;
+ * fall back to phase. Recon vocabulary.
+ */
+export function colCatalystCrStatus(header = 'Status'): K8sListColumn {
+  return {
+    header,
+    extract: (o) => {
+      const c = findCondition(o, 'Ready')
+      if (c && c.status != null) {
+        if (c.status === 'True') return 'Reconciled'
+        const reason = (c.reason ?? '').toLowerCase()
+        if (reason.includes('degraded') || reason.includes('error'))
+          return 'Degraded'
+        return 'Reconciling'
+      }
+      const phase = (o.status as Record<string, unknown> | undefined)?.[
+        'phase'
+      ] as string | undefined
+      if (!phase) return 'Reconciling'
+      const p = phase.toLowerCase()
+      if (p.includes('ready') || p.includes('reconciled') || p.includes('active'))
+        return 'Reconciled'
+      if (p.includes('fail') || p.includes('error') || p.includes('degraded'))
+        return 'Degraded'
+      return 'Reconciling'
+    },
+  }
+}
+
 /* ── Page ───────────────────────────────────────────────────────── */
 
 export function K8sListPage({
