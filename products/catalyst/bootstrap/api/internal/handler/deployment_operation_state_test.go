@@ -5,6 +5,7 @@
 //   - only provision/install jobs   → false  (initial provision is `status`, not an operation)
 //   - cutover group running         → true
 //   - cutover step running          → true
+//   - cutover DORMANT (all-pending) → false (installed, never triggered)
 //   - cutover group all-terminal    → false (operation finished)
 package handler
 
@@ -64,18 +65,55 @@ func TestOperationInProgress_ProvisionJobsOnly(t *testing.T) {
 	}
 }
 
-// A running cutover GROUP job flips operationInProgress true.
+// A TRIGGERED cutover (group + a running step) flips operationInProgress
+// true. A group's status derives from its step children at read time, so a
+// "running" group is one with a running step — the realistic shape.
 func TestOperationInProgress_CutoverGroupRunning(t *testing.T) {
 	h, st := newOpStateHandler(t)
 	depID := "dep-cutover-grp"
-	if err := st.UpsertJob(jobs.Job{
-		DeploymentID: depID, JobName: jobs.GroupCutover, DisplayName: jobs.GroupCutoverDisplay,
-		Type: jobs.JobTypeGroup, Status: jobs.StatusRunning,
-	}); err != nil {
-		t.Fatalf("UpsertJob: %v", err)
+	t0 := time.Now().UTC()
+	parentID := jobs.JobID(depID, jobs.GroupCutover)
+	seed := []jobs.Job{
+		{DeploymentID: depID, JobName: jobs.GroupCutover, DisplayName: jobs.GroupCutoverDisplay, Type: jobs.JobTypeGroup, Status: jobs.StatusRunning},
+		{DeploymentID: depID, JobName: "cutover-step-01-mirror", Kind: jobs.KindStep, ParentID: parentID, Status: jobs.StatusRunning, StartedAt: &t0},
+	}
+	for _, j := range seed {
+		if err := st.UpsertJob(j); err != nil {
+			t.Fatalf("UpsertJob: %v", err)
+		}
 	}
 	if !h.operationInProgress(depID) {
-		t.Fatal("a running cutover group must yield operationInProgress=true")
+		t.Fatal("a triggered cutover (group + running step) must yield operationInProgress=true")
+	}
+}
+
+// 🛑 Regression guard for the false-positive fix: bp-self-sovereign-cutover
+// installs DORMANT — its group + all 8 steps are seeded as `pending`
+// placeholders, but the operator never triggered the cutover (no step has
+// started). A dormant cutover must NOT flip operationInProgress, else a
+// freshly-converged, QUIESCENT Sovereign falsely reads OPERATION-IN-PROGRESS
+// and the console pulls navigation toward /jobs/cutover. Live repro: hw173
+// 2026-06-20 ({install: succeeded, group: pending, 12 steps: pending}).
+func TestOperationInProgress_CutoverDormant(t *testing.T) {
+	h, st := newOpStateHandler(t)
+	depID := "dep-cutover-dormant"
+	parentID := jobs.JobID(depID, jobs.GroupCutover)
+	seed := []jobs.Job{
+		// install Job succeeded → the dormant cutover is INSTALLED…
+		{DeploymentID: depID, JobName: "install-self-sovereign-cutover", Type: jobs.JobTypeInstall, Status: jobs.StatusSucceeded},
+		// …but group + every step are still PENDING placeholders (never triggered).
+		{DeploymentID: depID, JobName: jobs.GroupCutover, Type: jobs.JobTypeGroup, Status: jobs.StatusPending},
+		{DeploymentID: depID, JobName: "cutover-step-01-mirror", Kind: jobs.KindStep, ParentID: parentID, Status: jobs.StatusPending},
+		{DeploymentID: depID, JobName: "cutover-step-05-egress-block", Kind: jobs.KindStep, ParentID: parentID, Status: jobs.StatusPending},
+		{DeploymentID: depID, JobName: "cutover-step-08-verify", Kind: jobs.KindStep, ParentID: parentID, Status: jobs.StatusPending},
+	}
+	for _, j := range seed {
+		if err := st.UpsertJob(j); err != nil {
+			t.Fatalf("UpsertJob: %v", err)
+		}
+	}
+	if h.operationInProgress(depID) {
+		t.Fatal("a DORMANT (never-triggered, all-pending) cutover must yield operationInProgress=false")
 	}
 }
 

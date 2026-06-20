@@ -60,15 +60,48 @@ func (h *Handler) operationInProgress(deploymentID string) bool {
 	if err != nil || len(js) == 0 {
 		return false
 	}
+	// An operation is in-progress only if it BOTH has a non-terminal step
+	// AND has actually STARTED — i.e. at least one of its steps has
+	// progressed past the seeded `pending` placeholder (running/succeeded/
+	// failed). bp-self-sovereign-cutover installs DORMANT: its group + 8
+	// steps are seeded as `pending` placeholders and never triggered until
+	// the operator runs the cutover. Counting those all-`pending` dormant
+	// placeholders as in-progress falsely flips the chip to
+	// OPERATION-IN-PROGRESS on a freshly-converged, QUIESCENT Sovereign
+	// (and the console then pulls navigation toward /jobs/cutover). Requiring
+	// `hasStarted` distinguishes a TRIGGERED operation (≥1 step started) from
+	// a dormant, never-run one (all steps still pending). A genuinely stuck
+	// cutover (some steps succeeded/failed, others pending) still reports
+	// in-progress via hasStarted — so the "2-hour-stuck cutover" case the
+	// chip exists for is preserved.
+	hasNonTerminal := false
+	hasStarted := false
 	for _, j := range js {
 		if !isOperationJob(j) {
 			continue
 		}
 		if isNonTerminalJobStatus(j.Status) {
-			return true
+			hasNonTerminal = true
+		}
+		if isStartedJobStatus(j.Status) {
+			hasStarted = true
 		}
 	}
-	return false
+	return hasNonTerminal && hasStarted
+}
+
+// isStartedJobStatus reports whether an operation step has progressed past
+// the dormant/seeded `pending` (or empty) placeholder state — i.e. it is
+// running or has reached a terminal state. Used to tell a TRIGGERED operation
+// (≥1 step started) from a DORMANT, never-triggered one (all steps still
+// `pending` placeholders).
+func isStartedJobStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case jobs.StatusRunning, jobs.StatusSucceeded, jobs.StatusFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 // isOperationJob reports whether a Job belongs to one of the post-provision
