@@ -74,7 +74,7 @@ is operator-overridable via .Values.catalogSovereign.kustomization.*.
 
 References:
   - Issue #3668 (this fix), deferred half of PR #3702 / #3648
-  - templates/sme-services/sme-tenants-kustomization.yaml (the exact pattern)
+  - templates/sme-services/org-tenants-kustomization.yaml (the exact pattern)
   - templates/catalog-seed/blueprints.yaml (the seed + resource-policy:keep)
   - catalog-sovereign-gitrepository.yaml (the source)
 */}}

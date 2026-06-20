@@ -42,7 +42,7 @@ bootstraps + Flux already clones (`openova/openova`, seeded pre-cutover by
 the SME repo-bootstrap hook, clonable via the catalyst-gitea-token basic-
 auth Secret — #3454). A DEDICATED `catalog-sovereign` branch is immune to
 the cutover-gitea-mirror Job's `git push --mirror --force` of `main` (the
-exact TBD-C18e clobber rationale the openova-sme-tenants GitRepository
+exact TBD-C18e clobber rationale the openova-org-tenants GitRepository
 documents). The chart's catalog-sovereign repo-bootstrap hook
 (catalog-sovereign-repo-bootstrap-job.yaml) ensures the branch + an empty
 parent directory pre-cutover so this source is Ready from first convergence
@@ -70,7 +70,7 @@ overridable via .Values.catalogSovereign.gitRepository.*.
 
 References:
   - Issue #3668 (this fix), the deferred half of PR #3702 / #3648
-  - templates/sme-services/sme-tenants-gitrepository.yaml (the exact pattern)
+  - templates/sme-services/org-tenants-gitrepository.yaml (the exact pattern)
   - internal/handler/catalog_edit_git.go (writeCatalogSovereignAggregator)
   - catalog-sovereign-kustomization.yaml (consumer of this GitRepository)
 */}}

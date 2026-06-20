@@ -15,17 +15,17 @@ func TestValidateBasePath_Sovereign(t *testing.T) {
 	}{
 		{
 			name: "ok — canonical sovereign path",
-			path: "clusters/otech113.omani.works/sme-tenants",
+			path: "clusters/otech113.omani.works/org-tenants",
 			fqdn: "otech113.omani.works",
 		},
 		{
 			name: "ok — sovereign path with trailing slash",
-			path: "clusters/otech113.omani.works/sme-tenants/",
+			path: "clusters/otech113.omani.works/org-tenants/",
 			fqdn: "otech113.omani.works",
 		},
 		{
 			name: "ok — sovereign path with subdir",
-			path: "clusters/otech113.omani.works/sme-tenants/alice",
+			path: "clusters/otech113.omani.works/org-tenants/alice",
 			fqdn: "otech113.omani.works",
 		},
 		{
@@ -37,7 +37,7 @@ func TestValidateBasePath_Sovereign(t *testing.T) {
 		},
 		{
 			name:     "reject — different sovereign FQDN",
-			path:     "clusters/otechZ.omani.works/sme-tenants",
+			path:     "clusters/otechZ.omani.works/org-tenants",
 			fqdn:     "otech113.omani.works",
 			wantErr:  true,
 			errMatch: "refusing to commit to a foreign cluster",
@@ -51,7 +51,7 @@ func TestValidateBasePath_Sovereign(t *testing.T) {
 		},
 		{
 			name:     "reject — absolute path",
-			path:     "/clusters/otech113.omani.works/sme-tenants",
+			path:     "/clusters/otech113.omani.works/org-tenants",
 			fqdn:     "otech113.omani.works",
 			wantErr:  true,
 			errMatch: "repo-relative",
@@ -72,7 +72,7 @@ func TestValidateBasePath_Sovereign(t *testing.T) {
 		},
 		{
 			name:     "reject — prefix-collision (e.g. otech113-evil.omani.works)",
-			path:     "clusters/otech113-evil.omani.works/sme-tenants",
+			path:     "clusters/otech113-evil.omani.works/org-tenants",
 			fqdn:     "otech113.omani.works",
 			wantErr:  true,
 			errMatch: "refusing to commit to a foreign cluster",
@@ -105,7 +105,7 @@ func TestValidateBasePath_CatalystZero(t *testing.T) {
 	}{
 		{name: "ok — canonical contabo path", path: "clusters/contabo-mkt/tenants"},
 		{name: "ok — contabo path with subdir", path: "clusters/contabo-mkt/tenants/alice"},
-		{name: "reject — Sovereign-shaped path on contabo", path: "clusters/otech113.omani.works/sme-tenants", wantErr: true},
+		{name: "reject — Sovereign-shaped path on contabo", path: "clusters/otech113.omani.works/org-tenants", wantErr: true},
 		{name: "reject — non-clusters/ path", path: "products/catalyst", wantErr: true},
 	}
 	for _, tc := range cases {

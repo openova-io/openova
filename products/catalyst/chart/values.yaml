@@ -661,25 +661,25 @@ controllers:
     # (e.g. WordPress) never come up — the funnel's terminal acceptance fails
     # (proven live on hw158 by the #3687 + #3376 walkers).
     #
-    # `openova-sme-tenants-git-auth` is a Flux basic-auth Secret in flux-system
+    # `openova-org-tenants-git-auth` is a Flux basic-auth Secret in flux-system
     # holding the `gitea_admin` PAT (sourced from catalyst-gitea-token). Because
     # gitea_admin is the Gitea admin it can clone EVERY Org's private
     # catalyst-tenant repo, so this single shared secret authenticates the
     # per-Org GitRepository for all Organizations — no per-Org secret needed.
-    # It is the exact credential the top-level openova-sme-tenants
+    # It is the exact credential the top-level openova-org-tenants
     # GitRepository already clones with successfully on every Sovereign (the
     # proven #3454 pattern). The Secret is guaranteed to exist in flux-system
     # by the catalog-sovereign-flux/gitea-flux-auth-secrets-sync-job.yaml
     # post-install/post-upgrade hook (#3749 / #3668), which reads the
     # runtime-minted catalyst-gitea-token PAT via secretKeyRef (NOT a render-
-    # time `lookup`) and idempotently applies BOTH openova-sme-tenants-git-auth
+    # time `lookup`) and idempotently applies BOTH openova-org-tenants-git-auth
     # and openova-catalog-sovereign-git-auth — so a fresh prov gets it the
     # first time and any chart bump re-asserts it. The PAT never touches argv.
     #
     # Per Inviolable Principle #4 the secret name stays operator-overridable;
     # set to "" to force anonymous clone (only valid if bp-gitea ever drops
     # REQUIRE_SIGNIN_VIEW AND the per-Org repo is made public).
-    fluxGiteaSecretRef: "openova-sme-tenants-git-auth"
+    fluxGiteaSecretRef: "openova-org-tenants-git-auth"
     # MIRROR-EVERYTHING (#3760, Refs #3376 #3754 — hw158 funnel blocker)
     # ---------------------------------------------------------------------
     # The Sovereign-local Harbor host the per-Org vCluster images pull
@@ -1216,7 +1216,7 @@ ingress:
 # orchestrator (organization_gitops.go::WriteTenantOverlay) commits
 # per-tenant overlays to:
 #
-#   ./clusters/<global.sovereignFQDN>/sme-tenants
+#   ./clusters/<global.sovereignFQDN>/org-tenants
 #
 # Without it, every POST /api/v1/sme/tenants reaches state=done
 # optimistically but the per-tenant K8s resources (Namespace, vCluster,
@@ -1235,23 +1235,23 @@ ingress:
 # GitRepository).
 smeTenants:
   kustomization:
-    # Resource name. Default `sme-tenants` — short, ops-readable,
+    # Resource name. Default `org-tenants` — short, ops-readable,
     # appears in `kubectl get kustomization -n flux-system`.
-    name: sme-tenants
+    name: org-tenants
     # Lives in flux-system alongside the cluster's other Kustomizations
     # (bootstrap-kit, sovereign-tls, infrastructure-config) so operator
     # tooling can discover it via the standard `-n flux-system` flag.
     namespace: flux-system
     # TBD-C18e (2026-05-18): default flipped from `openova` to the
-    # dedicated `openova-sme-tenants` GitRepository (rendered by sibling
-    # template sme-tenants-gitrepository.yaml), tracking the
-    # `sme-tenants` branch. The bootstrap GitRepository (`openova`)
+    # dedicated `openova-org-tenants` GitRepository (rendered by sibling
+    # template org-tenants-gitrepository.yaml), tracking the
+    # `org-tenants` branch. The bootstrap GitRepository (`openova`)
     # continues to read `main` so chart upgrades + infra fixes reconcile
     # as before — only this Kustomization reads from the protected
     # branch. Operator may flip back to `openova` for a single-branch
     # debug session without losing the rest of the SME-tenant pipeline.
     sourceRef:
-      name: openova-sme-tenants
+      name: openova-org-tenants
       namespace: flux-system
     # Reconcile cadence. 1m matches the orchestrator's documented
     # "Flux on the OTECH cluster reconciles within ~1 min" SLA at the
@@ -1282,18 +1282,18 @@ smeTenants:
   # Tracks a SEPARATE branch from the bootstrap GitRepository so the
   # cutover-gitea-mirror Job (which `git push --mirror --force`s `main`
   # from upstream every ≤10 min) cannot clobber per-tenant overlays
-  # committed by the provisioning service. The sme-tenants Kustomization
-  # above defaults to sourceRef.name = `openova-sme-tenants` to consume
+  # committed by the provisioning service. The org-tenants Kustomization
+  # above defaults to sourceRef.name = `openova-org-tenants` to consume
   # this CR; flip it back to `openova` for a single-branch debug session.
   gitRepository:
-    name: openova-sme-tenants
+    name: openova-org-tenants
     namespace: flux-system
     # Branch the provisioning service writes per-tenant overlays to and
     # this GitRepository pulls from. MUST stay in sync with the
     # provisioning Deployment's GITHUB_BRANCH env (see
     # templates/org-services/provisioning.yaml — defaults to
-    # `sme-tenants` on Sovereign install, `main` on Catalyst-Zero).
-    branch: sme-tenants
+    # `org-tenants` on Sovereign install, `main` on Catalyst-Zero).
+    branch: org-tenants
     # In-cluster Gitea base URL. Matches what
     # platform/self-sovereign-cutover/chart/templates/
     # 05-flux-gitrepository-patch-job.yaml patches into the existing
@@ -1310,15 +1310,15 @@ smeTenants:
     # which makes ANONYMOUS git clone return 401 (proven live on hw133: a
     # fresh public repo's info/refs?service=git-upload-pack = 401 anon, 200
     # authed). The bp-gitea values comment confirms the intent: "Git/Flux/
-    # API clients are unaffected (token auth)". So the openova-sme-tenants
+    # API clients are unaffected (token auth)". So the openova-org-tenants
     # GitRepository carries a secretRef to a Flux basic-auth Secret holding
-    # the catalyst-gitea-token PAT (rendered by sme-tenants-gitrepo-auth-
+    # the catalyst-gitea-token PAT (rendered by org-tenants-gitrepo-auth-
     # secret.yaml). Without this the GitRepository sits "authentication
     # required" forever and every sub-org hangs in Provisioning.
     secretRef:
       # Name of the Flux basic-auth Secret in this GitRepository's namespace
-      # (flux-system). Rendered by sme-tenants-gitrepo-auth-secret.yaml.
-      name: openova-sme-tenants-git-auth
+      # (flux-system). Rendered by org-tenants-gitrepo-auth-secret.yaml.
+      name: openova-org-tenants-git-auth
       # Gitea account the PAT belongs to (matches CATALYST_GITOPS_USER in
       # api-deployment.yaml). The PAT is sourced from catalyst-gitea-token.
       username: gitea_admin
@@ -1326,8 +1326,8 @@ smeTenants:
       patSourceKey: token
   # ─── Pre-cutover local-Gitea repo bootstrap (#3454, Refs #3376) ─────
   # The SME-tenant gitops chain (catalyst-api push target + the
-  # openova-sme-tenants GitRepository above) targets the local Gitea
-  # repo `openova/openova`@`sme-tenants`. PRE-cutover that repo does not
+  # openova-org-tenants GitRepository above) targets the local Gitea
+  # repo `openova/openova`@`org-tenants`. PRE-cutover that repo does not
   # exist — bp-self-sovereign-cutover Step 01 (the gitea-mirror Job)
   # creates it only POST-handover, so the GitRepository sits in
   # "authentication required" (missing-repo → Gitea 401) and every
@@ -1343,7 +1343,7 @@ smeTenants:
     giteaInternalURL: "http://gitea-http.gitea.svc.cluster.local:3000"
     org: openova
     repo: openova
-    branch: sme-tenants
+    branch: org-tenants
 
 # ─── Per-Organization public HTTPRoutes (issue #1629 follow-up) ───────
 # PowerDNS now resolves `<slug>.<parentDomain>` for every Org that maps
@@ -1543,7 +1543,7 @@ smeSecrets:
 # the known-working contabo-mkt shape (FerretDB v1.24 against vanilla
 # CNPG postgres:16; valkey-primary as the bp-valkey 1.0.0 read/write
 # Service name).
-smeServices:
+orgServices:
   # ─── Event bus (issue #942) ────────────────────────────────────────────
   # Per ADR-0001 the OpenOva architecture uses NATS JetStream as the only
   # local bus on Sovereigns. On Catalyst-Zero (contabo) the legacy SME
@@ -1708,7 +1708,7 @@ smeServices:
     # these keys. Every value is operator-overridable per Inviolable
     # Principle #4. Defaults are topology-aware:
     #   - Sovereign install (global.sovereignFQDN non-empty) defaults
-    #     gitBasePath to clusters/<sovereignFQDN>/sme-tenants and points
+    #     gitBasePath to clusters/<sovereignFQDN>/org-tenants and points
     #     git.{apiURL,owner} at the local Gitea bp-gitea installs.
     #   - Catalyst-Zero install (global.sovereignFQDN empty) keeps the
     #     legacy contabo-mkt write target.
@@ -1802,12 +1802,12 @@ smeServices:
       repo: openova
       # branch: leave empty to inherit topology-aware default from the
       # provisioning Deployment template (TBD-C18e, 2026-05-18):
-      #   - Sovereign install (global.sovereignFQDN non-empty) → "sme-tenants"
+      #   - Sovereign install (global.sovereignFQDN non-empty) → "org-tenants"
       #   - Catalyst-Zero install (global.sovereignFQDN empty)  → "main"
-      # The dedicated `sme-tenants` branch on Sovereigns prevents the
+      # The dedicated `org-tenants` branch on Sovereigns prevents the
       # cutover-gitea-mirror Job's force-push of main from clobbering
       # per-tenant overlays committed by this service. The paired
-      # Flux GitRepository (openova-sme-tenants) + Kustomization read
+      # Flux GitRepository (openova-org-tenants) + Kustomization read
       # the same branch.
       branch: ""
 

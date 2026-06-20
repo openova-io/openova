@@ -170,14 +170,14 @@ spec:
       #
       # Fix: gate the provisioning Pod on the Secret carrying the cutover
       # annotation. Until Step 09 has minted + patched, the init container
-      # polls every {{ .Values.smeServices.provisioning.waitForCutoverToken.intervalSeconds | default 10 }}s
-      # (up to {{ .Values.smeServices.provisioning.waitForCutoverToken.timeoutSeconds | default 1800 }}s)
+      # polls every {{ .Values.orgServices.provisioning.waitForCutoverToken.intervalSeconds | default 10 }}s
+      # (up to {{ .Values.orgServices.provisioning.waitForCutoverToken.timeoutSeconds | default 1800 }}s)
       # and only exits 0 once `catalyst.openova.io/token-source` equals
       # `self-sovereign-cutover-step-09` on Secret
-      # `{{ .Values.smeServices.provisioning.githubToken.secretName | default "provisioning-github-token" }}`
+      # `{{ .Values.orgServices.provisioning.githubToken.secretName | default "provisioning-github-token" }}`
       # in this namespace. On Catalyst-Zero (contabo) the SealedSecret-
       # provisioned token carries no cutover annotation — operators set
-      # `.Values.smeServices.provisioning.waitForCutoverToken.enabled: false`
+      # `.Values.orgServices.provisioning.waitForCutoverToken.enabled: false`
       # via clusters/contabo-mkt/ overlay so the init container is a no-op
       # there (defaults to true; Sovereigns inherit the gate).
       #
@@ -188,7 +188,7 @@ spec:
       # BEFORE Step 09 actually runs — that approach buys nothing.
       # Pod-level init gating waits on the actual condition (Secret
       # annotation), not on a proxy.
-      {{- if .Values.smeServices.provisioning.waitForCutoverToken.enabled }}
+      {{- if .Values.orgServices.provisioning.waitForCutoverToken.enabled }}
       initContainers:
         # ── wait-for-gitea-token — #3376 (Refs #3689) ─────────────────────
         # Gate the provisioning Pod on the GITHUB_TOKEN in the
@@ -221,7 +221,7 @@ spec:
         #   is ITSELF a 200-valid Gitea token — so the Pod boots on a fresh
         #   prov AND a cut-over Sovereign, with no manual touch.
         - name: wait-for-gitea-token
-          image: {{ .Values.smeServices.provisioning.waitForCutoverToken.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" | quote }}
+          image: {{ .Values.orgServices.provisioning.waitForCutoverToken.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" | quote }}
           imagePullPolicy: IfNotPresent
           env:
             # The token bytes the main container will use — read from the
@@ -231,8 +231,8 @@ spec:
             - name: GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.smeServices.provisioning.githubToken.secretName | default "provisioning-github-token" | quote }}
-                  key: {{ .Values.smeServices.provisioning.githubToken.secretKey | default "GITHUB_TOKEN" | quote }}
+                  name: {{ .Values.orgServices.provisioning.githubToken.secretName | default "provisioning-github-token" | quote }}
+                  key: {{ .Values.orgServices.provisioning.githubToken.secretKey | default "GITHUB_TOKEN" | quote }}
                   # optional:true — on the very first reconcile the Secret may
                   # not exist yet (provisioning-github-token.yaml renders it
                   # only once the bootstrap PAT is populated). An absent token
@@ -240,11 +240,11 @@ spec:
                   # crash-looping the init on a missing key.
                   optional: true
             - name: GITEA_INTERNAL_URL
-              value: {{ .Values.smeServices.provisioning.waitForCutoverToken.giteaInternalURL | default "http://gitea-http.gitea.svc.cluster.local:3000" | quote }}
+              value: {{ .Values.orgServices.provisioning.waitForCutoverToken.giteaInternalURL | default "http://gitea-http.gitea.svc.cluster.local:3000" | quote }}
             - name: INTERVAL_SECONDS
-              value: {{ .Values.smeServices.provisioning.waitForCutoverToken.intervalSeconds | default 10 | quote }}
+              value: {{ .Values.orgServices.provisioning.waitForCutoverToken.intervalSeconds | default 10 | quote }}
             - name: TIMEOUT_SECONDS
-              value: {{ .Values.smeServices.provisioning.waitForCutoverToken.timeoutSeconds | default 1800 | quote }}
+              value: {{ .Values.orgServices.provisioning.waitForCutoverToken.timeoutSeconds | default 1800 | quote }}
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -346,9 +346,9 @@ spec:
             # C5-final caught + reverted the alice2 incident at commit
             # 20a0884a (revert visible on main as 5715db04, 2026-05-05).
             #
-            # Fix: data-driven via .Values.smeServices.provisioning.gitBasePath
+            # Fix: data-driven via .Values.orgServices.provisioning.gitBasePath
             # with a topology-aware default. Sovereign installs default to
-            # clusters/<sovereignFQDN>/sme-tenants/ (matches the existing
+            # clusters/<sovereignFQDN>/org-tenants/ (matches the existing
             # catalyst-api SME-tenant orchestrator path in
             # sme_tenant_gitops.go and the Flux Kustomization spec.path the
             # chart 1.4.13 org-repo-kustomization.yaml watches). Catalyst-
@@ -362,10 +362,10 @@ spec:
             # is rejected at runtime even if a per-Sovereign overlay sets
             # the value wrong. See main.go validateGitBasePath.
             - name: GIT_BASE_PATH
-            {{- if .Values.smeServices.provisioning.gitBasePath }}
-              value: {{ .Values.smeServices.provisioning.gitBasePath | quote }}
+            {{- if .Values.orgServices.provisioning.gitBasePath }}
+              value: {{ .Values.orgServices.provisioning.gitBasePath | quote }}
             {{- else if .Values.global.sovereignFQDN }}
-              value: "clusters/{{ .Values.global.sovereignFQDN }}/sme-tenants"
+              value: "clusters/{{ .Values.global.sovereignFQDN }}/org-tenants"
             {{- else }}
               value: "clusters/contabo-mkt/tenants"
             {{- end }}
@@ -393,7 +393,7 @@ spec:
             # postBuild substitute). Empty preserves the Catalyst-Zero/contabo
             # behaviour (no per-Org public route).
             - name: TENANT_PARENT_DOMAIN
-              value: {{ .Values.smeServices.provisioning.tenantParentDomain | default "" | quote }}
+              value: {{ .Values.orgServices.provisioning.tenantParentDomain | default "" | quote }}
             # #3760 (Refs #3376 #3754) MIRROR-EVERYTHING: the Sovereign-local
             # Harbor host the per-tenant vCluster images (the loft-sh/kubernetes
             # k8s-distro initContainer + the loft-sh/vcluster-oss syncer) pull
@@ -405,7 +405,7 @@ spec:
             # vcluster. Default harbor.openova.io; cutover Step-04 (ADR-0002)
             # flips a per-Sovereign overlay to harbor.<sovereign-fqdn>.
             - name: VCLUSTER_IMAGE_REGISTRY
-              value: {{ .Values.smeServices.provisioning.vclusterImageRegistry | default "harbor.openova.io" | quote }}
+              value: {{ .Values.orgServices.provisioning.vclusterImageRegistry | default "harbor.openova.io" | quote }}
             - name: CATALOG_URL
               valueFrom:
                 configMapKeyRef:
@@ -418,7 +418,7 @@ spec:
             # #866) which mirrors the local Gitea admin password into
             # `sme/provisioning-github-token`. The Secret name + key are
             # operator-overridable via
-            # .Values.smeServices.provisioning.githubToken.* without
+            # .Values.orgServices.provisioning.githubToken.* without
             # forking the chart.
             #
             # Provisioning service rejects placeholder values at startup
@@ -430,8 +430,8 @@ spec:
             - name: GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.smeServices.provisioning.githubToken.secretName | default "provisioning-github-token" }}
-                  key: {{ .Values.smeServices.provisioning.githubToken.secretKey | default "GITHUB_TOKEN" }}
+                  name: {{ .Values.orgServices.provisioning.githubToken.secretName | default "provisioning-github-token" }}
+                  key: {{ .Values.orgServices.provisioning.githubToken.secretKey | default "GITHUB_TOKEN" }}
             # ── Git host coordinates — issue #940 ─────────────────────────
             # Pre-#940 GITHUB_OWNER + GITHUB_REPO were chart-level literals
             # ("openova-io" / "openova"). On a Sovereign the orchestrator
@@ -452,42 +452,42 @@ spec:
             #     match the upstream path so Kustomization paths stay
             #     stable across the cutover boundary.
             # Per Inviolable Principle #4, every value is operator-
-            # overridable via .Values.smeServices.provisioning.git.*.
+            # overridable via .Values.orgServices.provisioning.git.*.
             - name: GITHUB_API_URL
-            {{- if .Values.smeServices.provisioning.git.apiURL }}
-              value: {{ .Values.smeServices.provisioning.git.apiURL | quote }}
+            {{- if .Values.orgServices.provisioning.git.apiURL }}
+              value: {{ .Values.orgServices.provisioning.git.apiURL | quote }}
             {{- else if .Values.global.sovereignFQDN }}
               value: "http://gitea-http.gitea.svc.cluster.local:3000/api/v1"
             {{- else }}
               value: "https://api.github.com"
             {{- end }}
             - name: GITHUB_OWNER
-            {{- if .Values.smeServices.provisioning.git.owner }}
-              value: {{ .Values.smeServices.provisioning.git.owner | quote }}
+            {{- if .Values.orgServices.provisioning.git.owner }}
+              value: {{ .Values.orgServices.provisioning.git.owner | quote }}
             {{- else if .Values.global.sovereignFQDN }}
               value: "openova"
             {{- else }}
               value: "openova-io"
             {{- end }}
             - name: GITHUB_REPO
-              value: {{ .Values.smeServices.provisioning.git.repo | default "openova" | quote }}
+              value: {{ .Values.orgServices.provisioning.git.repo | default "openova" | quote }}
             # ── Tenant-write branch isolation (TBD-C18e, 2026-05-18) ─────
             # Provisioning writes per-tenant overlays to a DEDICATED branch
             # so the cutover-gitea-mirror Job (which force-pushes main from
             # upstream every ≤10 min) cannot clobber tenant commits. The
-            # paired Flux GitRepository (openova-sme-tenants) + Kustomization
-            # both read from this branch. Default: `sme-tenants` on Sovereign,
+            # paired Flux GitRepository (openova-org-tenants) + Kustomization
+            # both read from this branch. Default: `org-tenants` on Sovereign,
             # `main` on contabo (no in-cluster mirror exists there).
             #
             # Journey v5b root cause: provisioning commit 69d64e48 at
-            # 17:46:13Z (clusters/t22.omantel.biz/sme-tenants/...) was
+            # 17:46:13Z (clusters/t22.omantel.biz/org-tenants/...) was
             # OVERWRITTEN by the mirror rerun at 17:54:55Z — Org CR never
             # materialised, customer journey step 16 hung indefinitely.
             - name: GITHUB_BRANCH
-            {{- if .Values.smeServices.provisioning.git.branch }}
-              value: {{ .Values.smeServices.provisioning.git.branch | quote }}
+            {{- if .Values.orgServices.provisioning.git.branch }}
+              value: {{ .Values.orgServices.provisioning.git.branch | quote }}
             {{- else if .Values.global.sovereignFQDN }}
-              value: "sme-tenants"
+              value: "org-tenants"
             {{- else }}
               value: "main"
             {{- end }}

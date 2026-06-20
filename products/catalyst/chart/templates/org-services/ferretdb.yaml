@@ -42,18 +42,18 @@ Backing-store wiring:
   ClusterIP Service, traffic stays inside Cilium overlay encryption,
   and CNPG's default issuer chain isn't trusted by FerretDB's bundled
   PG client without extra config. Per-Sovereign overlays may flip
-  to require/verify-full via .Values.smeServices.ferretdb.sslmode if
+  to require/verify-full via .Values.orgServices.ferretdb.sslmode if
   the operator wires the CNPG CA into the FerretDB pod (separate
   follow-up).
 
 Per Inviolable Principle #4 (never hardcode), every operationally-
-meaningful value flows through .Values.smeServices.ferretdb.* and
+meaningful value flows through .Values.orgServices.ferretdb.* and
 .Values.smePostgres.* — image, tag, resources, sslmode, target DB
 name. Defaults match contabo's known-working shape so a fresh
 Sovereign install renders cleanly without operator input.
 */}}
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
-{{- $ferret := .Values.smeServices.ferretdb -}}
+{{- $ferret := .Values.orgServices.ferretdb -}}
 {{- $ns := $ferret.namespace | default "org-services" -}}
 {{- $pgService := .Values.smePostgres.externalHost | default (printf "%s-rw.%s.svc.cluster.local" (.Values.smePostgres.cluster.name | default "sme-pg") $ns) -}}
 {{- $pgPort := $ferret.postgresPort | default 5432 -}}

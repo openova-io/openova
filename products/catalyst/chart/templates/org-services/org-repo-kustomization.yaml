@@ -8,7 +8,7 @@ The catalyst-api SME-tenant pipeline's GitOps writer
 function `WriteTenantOverlay`) commits a 9-file Kustomize overlay per
 tenant to:
 
-  clusters/<sovereign-fqdn>/sme-tenants/<sme_tenant_id>/
+  clusters/<sovereign-fqdn>/org-tenants/<sme_tenant_id>/
 
 …on every successful POST /api/v1/sme/tenants. The overlay carries:
 
@@ -32,7 +32,7 @@ Documented live failure: otech103, 2026-05-04 (issue #882).
 CONTRACT
 --------
 This template renders ONE Flux Kustomization per Sovereign that sweeps
-the whole `sme-tenants` directory tree. Every per-tenant overlay
+the whole `org-tenants` directory tree. Every per-tenant overlay
 beneath it is reconciled as a sub-Kustomization via the kustomize
 index file the orchestrator writes alongside the manifests, so adding
 a new tenant is a pure git-commit operation — no chart upgrade needed.
@@ -45,7 +45,7 @@ a new tenant is a pure git-commit operation — no chart upgrade needed.
                                     which is precisely where
                                     sme_tenant_gitops.go pushes via
                                     CATALYST_GITOPS_REPO_URL)
-  path:      ./clusters/<sov-fqdn>/sme-tenants
+  path:      ./clusters/<sov-fqdn>/org-tenants
   interval:  1m  (matches the orchestrator's "Flux on the OTECH
                   cluster reconciles within ~1 min" SLA documented at
                   the top of sme_tenant_gitops.go)
@@ -92,17 +92,17 @@ References:
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: {{ $kt.name | default "sme-tenants" | quote }}
+  name: {{ $kt.name | default "org-tenants" | quote }}
   namespace: {{ $kt.namespace | default "flux-system" | quote }}
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform
-    catalyst.openova.io/component: sme-tenants-reconciler
+    catalyst.openova.io/component: org-tenants-reconciler
     app.kubernetes.io/part-of: sme
 spec:
   interval: {{ $kt.interval | default "1m" | quote }}
   retryInterval: {{ $kt.retryInterval | default "1m" | quote }}
   timeout: {{ $kt.timeout | default "5m" | quote }}
-  path: ./clusters/{{ $sovFQDN }}/sme-tenants
+  path: ./clusters/{{ $sovFQDN }}/org-tenants
   prune: {{ $kt.prune | default true }}
   # wait: false — each tenant overlay's bp-* HelmReleases install
   # asynchronously and have their own readiness watcher in the SME
@@ -110,8 +110,8 @@ spec:
   # full readiness would let one stuck tenant gate every other tenant.
   wait: {{ $kt.wait | default false }}
   # TBD-C18e (2026-05-18): default sourceRef.name flipped from "openova"
-  # to "openova-sme-tenants". The new GitRepository (sibling template
-  # org-repo-gitrepository.yaml) tracks a dedicated `sme-tenants`
+  # to "openova-org-tenants". The new GitRepository (sibling template
+  # org-repo-gitrepository.yaml) tracks a dedicated `org-tenants`
   # branch that the cutover-gitea-mirror Job's force-push of main cannot
   # clobber. Without this isolation, every per-tenant overlay written by
   # provisioning was overwritten within ≤10 min by the next mirror tick,
@@ -121,7 +121,7 @@ spec:
   # .Values.smeTenants.kustomization.sourceRef.name.
   sourceRef:
     kind: GitRepository
-    name: {{ $sourceRef.name | default "openova-sme-tenants" | quote }}
+    name: {{ $sourceRef.name | default "openova-org-tenants" | quote }}
     namespace: {{ $sourceRef.namespace | default "flux-system" | quote }}
 {{- end }}
 {{- end }}

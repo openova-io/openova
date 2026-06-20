@@ -29,7 +29,7 @@
 # Host-side consumer (the SME control-plane services in host ns `sme`,
 # still host-placed in Batch A) re-points to the syncer-mangled Service
 # name `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc.cluster.local:6379`
-# — rewired in products/catalyst values (smeServices.valkey.host +
+# — rewired in products/catalyst values (orgServices.valkey.host +
 # projector.valkey.addr). The rtz isolation netpol gains a `sme` carve-out
 # (bp-rtz-vcluster allowedIngressNamespaces) so that wire is admitted
 # after the move (mirrors the #3423 sme→NATS carve-out).

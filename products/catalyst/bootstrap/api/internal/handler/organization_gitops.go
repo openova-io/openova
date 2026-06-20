@@ -6,7 +6,7 @@
 //
 //  1. Cloning the openova-public GitOps repo to a temp directory.
 //  2. Generating the per-tenant Kustomize overlay under
-//     clusters/<otech-fqdn>/sme-tenants/<sme_tenant_id>/.
+//     clusters/<otech-fqdn>/org-tenants/<sme_tenant_id>/.
 //  3. git add + commit (committer "catalyst-api <ops@openova.io>").
 //  4. git push.
 //  5. Flux on the OTECH cluster reconciles within ~1 min and the
@@ -120,8 +120,8 @@ func (w DefaultOrganizationGitOpsWriter) WriteTenantOverlay(ctx context.Context,
 	}
 
 	// Per-tenant overlay path:
-	//   clusters/<otech-fqdn>/sme-tenants/<sme_tenant_id>/
-	overlayDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "sme-tenants", rec.OrganizationID)
+	//   clusters/<otech-fqdn>/org-tenants/<sme_tenant_id>/
+	overlayDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "org-tenants", rec.OrganizationID)
 	if err := os.MkdirAll(overlayDir, 0o755); err != nil {
 		return "", fmt.Errorf("mkdir overlay: %w", err)
 	}
@@ -145,25 +145,25 @@ func (w DefaultOrganizationGitOpsWriter) WriteTenantOverlay(ctx context.Context,
 		}
 	}
 
-	relRoot := filepath.Join("clusters", rec.OTECHFQDN, "sme-tenants", rec.OrganizationID)
+	relRoot := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", rec.OrganizationID)
 	if err := runGit(ctx, repoDir, "add", relRoot); err != nil {
 		return "", fmt.Errorf("git add: %w", err)
 	}
 
-	// Issue #889 — Flux Kustomization at clusters/<fqdn>/sme-tenants/
+	// Issue #889 — Flux Kustomization at clusters/<fqdn>/org-tenants/
 	// requires a parent kustomization.yaml that enumerates the tenant
 	// subdirectories. Regenerate it after every Write so the index is
 	// always current. Without this, Flux fails with "kustomization path
 	// not found" on a fresh Sovereign that has never had a tenant.
-	parentDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "sme-tenants")
+	parentDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "org-tenants")
 	if err := writeParentTenantsIndex(parentDir); err != nil {
 		return "", fmt.Errorf("write parent index: %w", err)
 	}
-	parentRel := filepath.Join("clusters", rec.OTECHFQDN, "sme-tenants", "kustomization.yaml")
+	parentRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", "kustomization.yaml")
 	if err := runGit(ctx, repoDir, "add", parentRel); err != nil {
 		return "", fmt.Errorf("git add parent index: %w", err)
 	}
-	parentHRRel := filepath.Join("clusters", rec.OTECHFQDN, "sme-tenants", "helmrepositories.yaml")
+	parentHRRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", "helmrepositories.yaml")
 	if err := runGit(ctx, repoDir, "add", parentHRRel); err != nil {
 		return "", fmt.Errorf("git add parent helmrepositories: %w", err)
 	}
@@ -189,7 +189,7 @@ func (w DefaultOrganizationGitOpsWriter) WriteTenantOverlay(ctx context.Context,
 }
 
 // writeParentTenantsIndex (re)generates the parent
-// clusters/<fqdn>/sme-tenants/kustomization.yaml index file. The file
+// clusters/<fqdn>/org-tenants/kustomization.yaml index file. The file
 // lists every immediate subdirectory that contains a kustomization.yaml
 // of its own. Sorted lexically for deterministic output (no spurious
 // diffs when the orchestrator re-runs).
@@ -406,11 +406,11 @@ func (w DefaultOrganizationGitOpsWriter) DeleteTenantOverlay(ctx context.Context
 	if err := runGit(ctx, repoDir, "config", "user.email", cfg.CommitterMail); err != nil {
 		return "", fmt.Errorf("git config user.email: %w", err)
 	}
-	overlayDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "sme-tenants", rec.OrganizationID)
+	overlayDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "org-tenants", rec.OrganizationID)
 	if err := os.RemoveAll(overlayDir); err != nil {
 		return "", fmt.Errorf("remove overlay: %w", err)
 	}
-	relRoot := filepath.Join("clusters", rec.OTECHFQDN, "sme-tenants", rec.OrganizationID)
+	relRoot := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", rec.OrganizationID)
 	// `git add -A <path>` records the deletions.
 	if err := runGit(ctx, repoDir, "add", "-A", relRoot); err != nil {
 		return "", fmt.Errorf("git add: %w", err)
@@ -420,15 +420,15 @@ func (w DefaultOrganizationGitOpsWriter) DeleteTenantOverlay(ctx context.Context
 	// removing the tenant subdir, so Flux's Kustomization sees the
 	// reduced resources list. If no tenants remain, the parent index is
 	// rewritten with `resources: []` (still a valid Kustomization root).
-	parentDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "sme-tenants")
+	parentDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "org-tenants")
 	if err := writeParentTenantsIndex(parentDir); err != nil {
 		return "", fmt.Errorf("write parent index: %w", err)
 	}
-	parentRel := filepath.Join("clusters", rec.OTECHFQDN, "sme-tenants", "kustomization.yaml")
+	parentRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", "kustomization.yaml")
 	if err := runGit(ctx, repoDir, "add", parentRel); err != nil {
 		return "", fmt.Errorf("git add parent index: %w", err)
 	}
-	parentHRRel := filepath.Join("clusters", rec.OTECHFQDN, "sme-tenants", "helmrepositories.yaml")
+	parentHRRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", "helmrepositories.yaml")
 	if err := runGit(ctx, repoDir, "add", parentHRRel); err != nil {
 		return "", fmt.Errorf("git add parent helmrepositories: %w", err)
 	}

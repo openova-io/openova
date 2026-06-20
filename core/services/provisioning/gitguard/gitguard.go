@@ -8,7 +8,7 @@
 //	every franchised Sovereign that flips MARKETPLACE_ENABLED=true.
 //	On contabo the canonical write target is
 //	`clusters/contabo-mkt/tenants/...`. On a Sovereign it is
-//	`clusters/<sovereign-fqdn>/sme-tenants/...`. Pre-#944 the
+//	`clusters/<sovereign-fqdn>/org-tenants/...`. Pre-#944 the
 //	GIT_BASE_PATH env defaulted to the contabo path EVERYWHERE — so a
 //	Sovereign-side provisioning Pod committed alice's tenant overlay
 //	to upstream openova/openova `clusters/contabo-mkt/tenants/<id>/`,
@@ -43,7 +43,7 @@ import (
 
 // ValidateBasePath enforces the cross-cluster pollution guard from
 // issue #944. On Sovereigns the only legitimate write target is
-// `clusters/<SOVEREIGN_FQDN>/sme-tenants[...]/`. Anything else (e.g.
+// `clusters/<SOVEREIGN_FQDN>/org-tenants[...]/`. Anything else (e.g.
 // `clusters/contabo-mkt/tenants/`, `clusters/otechN.omani.works/...`
 // from a stale per-Sovereign overlay) would route the per-tenant
 // commit at a foreign cluster's tree.

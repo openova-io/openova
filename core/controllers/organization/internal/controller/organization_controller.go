@@ -143,7 +143,7 @@ type Reconciler struct {
 	// FluxNamespace is where the per-Org Flux GitRepository + Kustomization
 	// CRs are created. Defaults to "flux-system" (matches the
 	// application-controller's HostFluxNamespace + the chart's
-	// catalog-sovereign / sme-tenants Flux sources).
+	// catalog-sovereign / org-tenants Flux sources).
 	FluxNamespace string
 
 	// FluxIntervalSeconds is the reconcile interval stamped on the per-Org

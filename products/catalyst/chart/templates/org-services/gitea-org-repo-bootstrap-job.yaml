@@ -1,6 +1,6 @@
 {{- /*
 Pre-install/pre-upgrade hook that bootstraps the local Sovereign Gitea
-`openova/openova` repo + `sme-tenants` branch the SME-tenant gitops chain
+`openova/openova` repo + `org-tenants` branch the SME-tenant gitops chain
 targets — issue #3454 (Refs #3376 / #3378 FUNNEL).
 
 WHY THIS FILE EXISTS
@@ -10,17 +10,17 @@ on a Sovereign, intended to work PRE-cutover:
 
   - catalyst-api push target (templates/api-deployment.yaml):
       CATALYST_GITOPS_REPO_URL = http://gitea-http.gitea.svc.cluster.local:3000/openova/openova
-      CATALYST_GITOPS_BRANCH   = sme-tenants
+      CATALYST_GITOPS_BRANCH   = org-tenants
       CATALYST_GITOPS_USER     = gitea_admin
       CATALYST_GITOPS_TOKEN    = catalyst-gitea-token PAT (via the mirrored
                                  provisioning-github-token Secret)
     consumed by internal/handler/sme_tenant_gitops.go WriteTenantOverlay.
 
   - Flux source (templates/org-services/org-repo-gitrepository.yaml):
-      GitRepository openova-sme-tenants → same URL, branch sme-tenants.
+      GitRepository openova-org-tenants → same URL, branch org-tenants.
 
   - Flux reconciler (templates/org-services/org-repo-kustomization.yaml):
-      Kustomization sme-tenants → sourceRef openova-sme-tenants.
+      Kustomization org-tenants → sourceRef openova-org-tenants.
 
 The token is correct (the catalyst-gitea-token PAT authenticates 200 as
 gitea_admin). The MISSING prerequisite is the repo + branch THEMSELVES.
@@ -37,7 +37,7 @@ on a fresh prov). PRE-cutover:
   - GET /api/v1/repos/openova/openova → 404 even with the admin PAT.
   - The gitea-mirror-resync CronJob logs "local repo openova/openova not
     present — Step-01 hasn't completed; skipping".
-  - Flux GitRepository openova-sme-tenants → Ready=False:
+  - Flux GitRepository openova-org-tenants → Ready=False:
       "unable to clone '.../openova/openova': authentication required"
     (Gitea returns 401/403 for a NON-EXISTENT private path — the
     "authentication required" is a missing-repo symptom, NOT a missing
@@ -61,14 +61,14 @@ source, same Gitea API surface) idempotently:
   1. ensures org `openova` exists  (POST /api/v1/orgs, visibility public);
   2. ensures repo `openova/openova` exists with auto_init=true so it has
      a default branch + initial commit (a non-empty repo Flux can clone);
-  3. ensures the `sme-tenants` branch exists  (POST .../branches from the
+  3. ensures the `org-tenants` branch exists  (POST .../branches from the
      default branch).
 
 Cutover Step 01 later runs `git push --mirror --force` from upstream,
 which OVERWRITES this seed content with the full catalog — fully
 idempotent with this Job (Step 01 creates the org/repo with the SAME
 coordinates if absent, or refreshes content if present). The dedicated
-`sme-tenants` branch is the one the catalyst-api writer keeps appending
+`org-tenants` branch is the one the catalyst-api writer keeps appending
 tenant commits to; the TBD-C18e mirror-clobber concern is about `main`
 (which Step 01 force-pushes), NOT this branch — the auto-init seed here
 only establishes the branch so the FIRST tenant push + the GitRepository
@@ -80,7 +80,7 @@ Rendered ONLY when BOTH:
   - .Values.global.sovereignFQDN non-empty  → Sovereign, not the
     Catalyst-Zero mothership (which pushes to github.com/openova-io and
     has no local Gitea). Same discriminator the #3122 REPO_URL override,
-    the openova-sme-tenants GitRepository, and the sme-tenants
+    the openova-org-tenants GitRepository, and the org-tenants
     Kustomization already use.
   - .Values.ingress.marketplace.enabled  → the SME tenant pipeline is on.
     Non-marketplace Sovereigns don't run the pipeline, so they don't need
@@ -113,7 +113,7 @@ References:
   - Issue #3454 (this fix), Refs #3376 / #3378
   - templates/catalyst-gitea-token-secret.yaml (PAT source, hook-weight 10)
   - templates/org-services/org-repo-gitrepository.yaml (consumer)
-  - templates/org-services/sme-tenants-gitrepo-auth-secret.yaml (Flux clone auth)
+  - templates/org-services/org-tenants-gitrepo-auth-secret.yaml (Flux clone auth)
   - platform/self-sovereign-cutover/chart/templates/01-gitea-mirror-job.yaml
     (the post-cutover full-mirror that this seed front-runs, idempotently)
 */}}
@@ -123,7 +123,7 @@ References:
 {{- $giteaURL := $bs.giteaInternalURL | default "http://gitea-http.gitea.svc.cluster.local:3000" -}}
 {{- $org := $bs.org | default "openova" -}}
 {{- $repo := $bs.repo | default "openova" -}}
-{{- $branch := $bs.branch | default "sme-tenants" -}}
+{{- $branch := $bs.branch | default "org-tenants" -}}
 {{- $patSecret := $bs.patSourceSecretName | default "catalyst-gitea-token" -}}
 {{- $patKey := $bs.patSourceKey | default "token" -}}
 {{- $namespace := .Release.Namespace -}}
@@ -143,8 +143,8 @@ metadata:
     helm.sh/hook: pre-install,pre-upgrade
     # Weight 12: AFTER the catalyst-gitea-token mint Job (weight 10) so the
     # PAT this Job reads (via secretKeyRef below) is definitely populated,
-    # BEFORE the regular release resources (the openova-sme-tenants
-    # GitRepository + sme-tenants Kustomization) reconcile against the repo
+    # BEFORE the regular release resources (the openova-org-tenants
+    # GitRepository + org-tenants Kustomization) reconcile against the repo
     # this Job creates.
     helm.sh/hook-weight: "12"
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
@@ -183,7 +183,7 @@ spec:
               value: {{ $repo | quote }}
             - name: TENANTS_BRANCH
               value: {{ $branch | quote }}
-            # #3376: the Sovereign FQDN seeds the clusters/<fqdn>/sme-tenants
+            # #3376: the Sovereign FQDN seeds the clusters/<fqdn>/org-tenants
             # parent-index path (Step 5). Same source the GitRepository ignore
             # filter + the Kustomization path use (global.sovereignFQDN).
             - name: SOVEREIGN_FQDN
@@ -276,9 +276,9 @@ spec:
                 done
               fi
 
-              # Step 4: ensure the sme-tenants branch exists (the catalyst-api
-              # tenant gitops writer pushes to HEAD:sme-tenants and the
-              # openova-sme-tenants GitRepository tracks this branch).
+              # Step 4: ensure the org-tenants branch exists (the catalyst-api
+              # tenant gitops writer pushes to HEAD:org-tenants and the
+              # openova-org-tenants GitRepository tracks this branch).
               BR_CODE=$(curl -sS -o /dev/null -w '%{http_code}' \
                 -H "Authorization: token ${GITEA_TOKEN}" \
                 "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/branches/${TENANTS_BRANCH}")
@@ -308,17 +308,17 @@ spec:
               fi
 
               # Step 5: seed an EMPTY parent kustomization.yaml at
-              # clusters/${SOVEREIGN_FQDN}/sme-tenants/ on the tenants branch
+              # clusters/${SOVEREIGN_FQDN}/org-tenants/ on the tenants branch
               # — #3376 (Refs #3689).
               #
-              # WHY: the Flux Kustomization `sme-tenants` (sibling template
+              # WHY: the Flux Kustomization `org-tenants` (sibling template
               # org-repo-kustomization.yaml) watches
-              # ./clusters/<fqdn>/sme-tenants. That directory does NOT exist
+              # ./clusters/<fqdn>/org-tenants. That directory does NOT exist
               # on the branch until the FIRST tenant POST runs catalyst-api's
               # WriteTenantOverlay (which writes the parent index via
               # writeParentKustomization). Until then Flux reports
               # `kustomization path not found: ... no such file or directory`
-              # → Kustomization sme-tenants=False (caught live hw150). That
+              # → Kustomization org-tenants=False (caught live hw150). That
               # NotReady was then accepted as "baseline noise" by the cutover
               # egress-block proof — sovereignty declared GREEN while the
               # customer-onboarding reconciler was dead (PRINCIPLES A1/A2).
@@ -332,17 +332,17 @@ spec:
               # a real tenant index. Uses the Gitea contents API
               # (POST /repos/{org}/{repo}/contents/{path}) so there is no git
               # clone/push (no extra tooling, no RBAC).
-              SEED_PATH="clusters/${SOVEREIGN_FQDN}/sme-tenants/kustomization.yaml"
+              SEED_PATH="clusters/${SOVEREIGN_FQDN}/org-tenants/kustomization.yaml"
               if [ -z "${SOVEREIGN_FQDN:-}" ]; then
-                echo "[repo-bootstrap] WARN: SOVEREIGN_FQDN empty — skipping sme-tenants path seed"
+                echo "[repo-bootstrap] WARN: SOVEREIGN_FQDN empty — skipping org-tenants path seed"
               else
                 SEED_GET=$(curl -sS -o /dev/null -w '%{http_code}' \
                   -H "Authorization: token ${GITEA_TOKEN}" \
                   "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/contents/${SEED_PATH}?ref=${TENANTS_BRANCH}")
                 if [ "$SEED_GET" = "200" ]; then
-                  echo "[repo-bootstrap] sme-tenants parent index already present (${SEED_PATH}@${TENANTS_BRANCH})"
+                  echo "[repo-bootstrap] org-tenants parent index already present (${SEED_PATH}@${TENANTS_BRANCH})"
                 else
-                  echo "[repo-bootstrap] seeding empty sme-tenants parent index ${SEED_PATH}@${TENANTS_BRANCH} (GET was ${SEED_GET})"
+                  echo "[repo-bootstrap] seeding empty org-tenants parent index ${SEED_PATH}@${TENANTS_BRANCH} (GET was ${SEED_GET})"
                   # Empty-but-valid kustomize root. base64 with no line wrap so
                   # Gitea's contents API accepts the `content` field. busybox
                   # base64 wraps at 76 cols by default → strip newlines with tr.
@@ -351,7 +351,7 @@ spec:
                     "# The catalyst-api SME-tenant pipeline (WriteTenantOverlay)" \
                     "# OVERWRITES this file on the first tenant signup with the" \
                     "# helmrepositories.yaml + per-tenant overlay subdirectories." \
-                    "# Present so the Flux Kustomization sme-tenants path exists" \
+                    "# Present so the Flux Kustomization org-tenants path exists" \
                     "# + reconciles Ready from first convergence (zero tenants)." \
                     "apiVersion: kustomize.config.k8s.io/v1beta1" \
                     "kind: Kustomization" \
@@ -360,14 +360,14 @@ spec:
                   curl -sS -o /dev/null -w '[repo-bootstrap] PUT contents -> %{http_code}\n' \
                     -H "Authorization: token ${GITEA_TOKEN}" -H "Content-Type: application/json" \
                     -X POST "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/contents/${SEED_PATH}" \
-                    -d "{\"branch\":\"${TENANTS_BRANCH}\",\"content\":\"${SEED_BODY}\",\"message\":\"chore(sme-tenants): seed empty parent index so Flux path exists pre-first-tenant (#3376)\"}" || true
+                    -d "{\"branch\":\"${TENANTS_BRANCH}\",\"content\":\"${SEED_BODY}\",\"message\":\"chore(org-tenants): seed empty parent index so Flux path exists pre-first-tenant (#3376)\"}" || true
                   SEED_FINAL=$(curl -sS -o /dev/null -w '%{http_code}' \
                     -H "Authorization: token ${GITEA_TOKEN}" \
                     "${API}/repos/${GITEA_ORG}/${GITEA_REPO}/contents/${SEED_PATH}?ref=${TENANTS_BRANCH}")
                   if [ "$SEED_FINAL" = "200" ]; then
-                    echo "[repo-bootstrap] sme-tenants parent index seeded"
+                    echo "[repo-bootstrap] org-tenants parent index seeded"
                   else
-                    echo "[repo-bootstrap] WARN: sme-tenants parent index not present after seed (HTTP ${SEED_FINAL}); Flux will report path-not-found until the first tenant signup writes it"
+                    echo "[repo-bootstrap] WARN: org-tenants parent index not present after seed (HTTP ${SEED_FINAL}); Flux will report path-not-found until the first tenant signup writes it"
                   fi
                 fi
               fi

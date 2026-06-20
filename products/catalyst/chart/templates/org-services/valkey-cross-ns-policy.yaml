@@ -12,7 +12,7 @@ Why this template exists:
     - valkey-replicas.valkey.svc.cluster.local:6379
   None named just `valkey.valkey.svc.cluster.local` exists; the SME
   configmap is updated to point at `valkey-primary` accordingly (see
-  configmap.yaml + .Values.smeServices.valkey.host).
+  configmap.yaml + .Values.orgServices.valkey.host).
 
   bp-valkey's UPSTREAM NetworkPolicy (rendered into the `valkey`
   namespace) already allows ingress on TCP/6379 from any source — the
@@ -46,15 +46,15 @@ Where this lands:
 
 Per Inviolable Principle #4 (never hardcode), the source/destination
 namespaces and Valkey port are operator-overridable via
-.Values.smeServices.valkey.{namespace,port,sourceNamespace}.
+.Values.orgServices.valkey.{namespace,port,sourceNamespace}.
 
 Authoritative reference:
   https://docs.cilium.io/en/stable/security/policy/language/#namespace-based
 */}}
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
-{{- if .Values.smeServices.valkey.crossNsPolicy.enabled }}
+{{- if .Values.orgServices.valkey.crossNsPolicy.enabled }}
 {{- if .Capabilities.APIVersions.Has "cilium.io/v2" }}
-{{- $valkey := .Values.smeServices.valkey -}}
+{{- $valkey := .Values.orgServices.valkey -}}
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:

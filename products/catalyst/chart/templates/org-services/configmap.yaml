@@ -13,7 +13,7 @@ startup with `lookup redpanda.talentmesh.svc.cluster.local: no such host`,
 blocking alice signup gate 3 (tenant ready).
 
 Per Inviolable Principle #4 (never hardcode), the broker target is
-data-driven via .Values.smeServices.eventBus.brokers. Defaults differ per
+data-driven via .Values.orgServices.eventBus.brokers. Defaults differ per
 topology so the contabo + Sovereign render paths both work out of the box:
 
   - Sovereign install (global.sovereignFQDN non-empty) defaults to the
@@ -75,12 +75,12 @@ Redpanda default so contabo's existing SME consumers keep functioning.
        notification CrashLoopBackOff). The catalyst-api/continuum config
        (values.yaml catalystApi.nats.url) was already updated to the
        synced name in #2697; the SME default was missed in the move.
-       Align it here. Override via smeServices.eventBus.natsURL for a
+       Align it here. Override via orgServices.eventBus.natsURL for a
        host-placed NATS. */ -}}
   {{- $defaultNATS = "nats://nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc.cluster.local:4222" -}}
 {{- end -}}
-{{- $brokers := default $defaultBrokers (index (default (dict) .Values.smeServices.eventBus) "brokers") -}}
-{{- $natsURL := default $defaultNATS (index (default (dict) .Values.smeServices.eventBus) "natsURL") -}}
+{{- $brokers := default $defaultBrokers (index (default (dict) .Values.orgServices.eventBus) "brokers") -}}
+{{- $natsURL := default $defaultNATS (index (default (dict) .Values.orgServices.eventBus) "natsURL") -}}
 {{- /*
 TBD-A68 (issue #1994, 2026-05-19) — derive the marketplace host from the
 per-Sovereign FQDN instead of hardcoding `sme.openova.io`. Pre-fix every
@@ -174,23 +174,23 @@ data:
   # ---- shared backing-store endpoints ---------------------------------------
   # FerretDB (MongoDB-wire) — Catalyst-curated Deployment in `sme` ns
   # (see ferretdb.yaml, issue #861). Operator-overridable via
-  # .Values.smeServices.ferretdb.{host,port} so a per-Sovereign overlay
+  # .Values.orgServices.ferretdb.{host,port} so a per-Sovereign overlay
   # MAY swap to an external MongoDB endpoint without forking the chart.
-  MONGODB_URI: "mongodb://{{ .Values.smeServices.ferretdb.host | default "ferretdb.org-services.svc.cluster.local" }}:{{ .Values.smeServices.ferretdb.port | default 27017 }}"
+  MONGODB_URI: "mongodb://{{ .Values.orgServices.ferretdb.host | default "ferretdb.org-services.svc.cluster.local" }}:{{ .Values.orgServices.ferretdb.port | default 27017 }}"
   # Valkey — bp-valkey 1.0.0 deploys to `valkey` namespace (slot 17,
   # see 17-valkey.yaml). Bitnami valkey 5.5.1 with architecture:replication
   # renders Services `valkey-primary` (read/write), `valkey-replicas`,
   # `valkey-headless` — NO plain `valkey` Service exists. Default points
   # at the primary; per-Sovereign overlays MAY override via
-  # .Values.smeServices.valkey.host (e.g. for HA replicas read-only or
+  # .Values.orgServices.valkey.host (e.g. for HA replicas read-only or
   # to swap to an external Redis-compatible cache). Cross-ns reachability
   # is granted by templates/org-services/valkey-cross-ns-policy.yaml.
-  VALKEY_ADDR: "{{ .Values.smeServices.valkey.host | default "valkey-primary.valkey.svc.cluster.local" }}:{{ .Values.smeServices.valkey.port | default 6379 }}"
+  VALKEY_ADDR: "{{ .Values.orgServices.valkey.host | default "valkey-primary.valkey.svc.cluster.local" }}:{{ .Values.orgServices.valkey.port | default 6379 }}"
   # #3370 — smePostgres.externalHost (set by slot 13 in shared mode)
   # points the whole mesh at the shared-pg-c instance; empty = the
   # bundled sme-pg-rw Service (byte-identical default).
   POSTGRES_HOST: "{{ .Values.smePostgres.externalHost | default (printf "%s-rw.%s.svc.cluster.local" (.Values.smePostgres.cluster.name | default "sme-pg") (.Values.smePostgres.cluster.namespace | default "org-services")) }}"
-  POSTGRES_PORT: "{{ .Values.smeServices.ferretdb.postgresPort | default 5432 }}"
+  POSTGRES_PORT: "{{ .Values.orgServices.ferretdb.postgresPort | default 5432 }}"
 
   # ---- event bus ------------------------------------------------------------
   # See header comment for the topology-aware default selection (issue #942
@@ -207,8 +207,8 @@ data:
   # Protocol hint for SME services that want to switch wire formats per
   # broker without re-reading the URL — `kafka` for Redpanda (legacy
   # contabo), `nats` for NATS JetStream (Sovereign default). Operator-
-  # overridable via .Values.smeServices.eventBus.protocol.
-  EVENT_BUS_PROTOCOL: {{ default (ternary "nats" "kafka" (ne (toString .Values.global.sovereignFQDN) "")) (index (default (dict) .Values.smeServices.eventBus) "protocol") | quote }}
+  # overridable via .Values.orgServices.eventBus.protocol.
+  EVENT_BUS_PROTOCOL: {{ default (ternary "nats" "kafka" (ne (toString .Values.global.sovereignFQDN) "")) (index (default (dict) .Values.orgServices.eventBus) "protocol") | quote }}
 
   # ---- public / CORS endpoints ----------------------------------------------
   CORS_ORIGIN_PUBLIC: {{ $marketplaceOrigin | quote }}

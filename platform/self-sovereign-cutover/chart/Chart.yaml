@@ -43,12 +43,12 @@ name: bp-self-sovereign-cutover
 # 0.1.74 (#3376 FUNNEL, Refs #3689/#3379 — the cutover sovereignty proof must
 # stop EXCLUDING the customer-onboarding path, 2026-06-17): two changes.
 #   (1) Step-08 egress-block-test (template 08) now ASSERTS
-#       flux-system/sme-tenants Ready BEFORE the 600s hold (bounded 300s
+#       flux-system/org-tenants Ready BEFORE the 600s hold (bounded 300s
 #       poll), instead of letting its NotReady be swallowed as "baseline
 #       noise". On hw150 cutoverComplete=true was declared while
-#       sme-tenants=False ("path not found") — i.e. the customer journey was
+#       org-tenants=False ("path not found") — i.e. the customer journey was
 #       dead but sovereignty passed (PRINCIPLES A1/A2 theater). The chart now
-#       seeds the sme-tenants path (bp-catalyst-platform #3376) so it IS
+#       seeds the org-tenants path (bp-catalyst-platform #3376) so it IS
 #       Ready; here we refuse to declare GREEN if it is not. Operator-gated:
 #       a non-marketplace Sovereign without the Kustomization is skipped.
 #   (2) Step-09 gitea-token-mint (template 09) stamps the token-source
@@ -834,7 +834,7 @@ name: bp-self-sovereign-cutover
 # now materialises a flux-system basic-auth Secret from the
 # `catalyst-gitea-token` PAT (minted at BOOTSTRAP by bp-catalyst-platform)
 # and wires it into GitRepository.spec.secretRef BEFORE the URL flip — same
-# credential + pattern as #3454's openova-sme-tenants GitRepository. Adds
+# credential + pattern as #3454's openova-org-tenants GitRepository. Adds
 # `secrets: create` to the cutover-runner RBAC.
 # 0.1.65 (#3588, Refs #3568 #3379 #3526, hw144 step-06 loops-forever 2026-06-15;
 # rebased over 0.1.64's step-01 PAT fix #3584):
@@ -928,12 +928,12 @@ name: bp-self-sovereign-cutover
 # step-10's sso-bridge image override is MERGED with yq into the EXISTING
 # values: mapping (no more duplicate-key BuildFailed that killed bootstrap-kit),
 # host-less so global.registryMirror stays the single source of truth; step-08
-# now HARD-gates on bootstrap-kit + sovereign-tls + sme-tenants Ready and rolls
+# now HARD-gates on bootstrap-kit + sovereign-tls + org-tenants Ready and rolls
 # EVERY external-registry workload under deny-egress (not one hand-picked).
 # RBAC adds daemonsets/statefulsets {update,patch} for the generalized roll.
 #
 # 0.1.75 (#3376 FUNNEL): step-08 egress-block-test ALSO asserts flux-system/
-# sme-tenants Ready BEFORE the 600s hold (woven with #3695's host-GitOps-loop
+# org-tenants Ready BEFORE the 600s hold (woven with #3695's host-GitOps-loop
 # gate; no baseline exclusion of the customer path — hw150 declared
 # cutoverComplete while the customer journey was dead, PRINCIPLES A1/A2);
 # step-09 mint stamps the token-source annotation on the no-op path too.

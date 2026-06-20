@@ -82,7 +82,7 @@ const catalogEditGitBranch = blueprintBranch // "main"
 // the chart's repo-bootstrap hook + clonable by Flux via catalyst-gitea-
 // token basic-auth, #3454). A DEDICATED branch is immune to the cutover-
 // gitea-mirror Job's `git push --mirror --force` of `main` (same isolation
-// rationale as the SME `sme-tenants` branch, TBD-C18e).
+// rationale as the SME `org-tenants` branch, TBD-C18e).
 const (
 	// catalogSovereignAggOrg/Repo — the local Gitea repo holding the Flux-
 	// reconciled aggregator tree. Reuses the SME gitops repo coordinates so

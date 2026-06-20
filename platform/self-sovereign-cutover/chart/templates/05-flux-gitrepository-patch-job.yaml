@@ -21,7 +21,7 @@ GitRepository's namespace carrying the `catalyst-gitea-token` PAT (minted
 at BOOTSTRAP by bp-catalyst-platform, in catalyst-system) in
 username/password shape, and set GitRepository.spec.secretRef.name to it.
 A Gitea PAT is accepted as the HTTP git password. This is the same
-credential + pattern issue #3454 used for the openova-sme-tenants
+credential + pattern issue #3454 used for the openova-org-tenants
 GitRepository. Flux secretRef takes only a name (no namespace) and
 resolves it in the GitRepository's own namespace, so the Secret is
 created locally from the cross-namespace PAT here.
@@ -60,7 +60,7 @@ data:
           # Issue #891 — the GitRepository ignore filter must be widened to
           # include the Sovereign's own clusters/<sov-fqdn>/ subtree, or
           # source-controller filters out every Sovereign-specific manifest
-          # (incl. SME tenant overlays at clusters/<sov-fqdn>/sme-tenants/
+          # (incl. SME tenant overlays at clusters/<sov-fqdn>/org-tenants/
           # <tenant-id>/) and Flux Kustomizations downstream all hit
           # "kustomization path not found".
           - name: SOVEREIGN_FQDN

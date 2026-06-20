@@ -52,7 +52,7 @@ name: bp-catalyst-platform
 # ingress.marketplace.enabled — Catalyst-Zero render byte-unchanged.
 # 1.4.663 — #3687 / #3376 (2026-06-17): per-Org vCluster repo clone now
 # AUTHENTICATES — default controllers.organization.fluxGiteaSecretRef to
-# `openova-sme-tenants-git-auth`. PR #3718 wired the per-Org Flux loop
+# `openova-org-tenants-git-auth`. PR #3718 wired the per-Org Flux loop
 # (org-controller reconcilePerOrgFlux → catalyst-tenant-<slug> GitRepository
 # → ./vcluster Kustomization → vCluster HelmRelease) but left the secretRef
 # default empty. The per-Org `<slug>/catalyst-tenant` repo is private
@@ -61,9 +61,9 @@ name: bp-catalyst-platform
 # "Source artifact not found" → the committed vCluster HR never reconciled →
 # the tenant namespace + purchased app (WordPress) never came up → the
 # funnel's terminal acceptance failed (proven live hw158 by the #3687/#3376
-# walkers). `openova-sme-tenants-git-auth` holds the gitea_admin PAT (clones
+# walkers). `openova-org-tenants-git-auth` holds the gitea_admin PAT (clones
 # every Org's private repo) and is guaranteed in flux-system by the
-# sme-tenants auth-secret template + #3749's gitea-flux-auth-secrets-sync-job
+# org-tenants auth-secret template + #3749's gitea-flux-auth-secrets-sync-job
 # (the deterministic runtime creator). Catalyst-Zero render byte-unchanged
 # (the value only reaches the org-controller env, which is sovereign-only).
 # Refs #3687 #3376.
@@ -80,8 +80,8 @@ name: bp-catalyst-platform
 #       both. The bootstrap branch also no longer strips the token-source
 #       annotation when the live Secret carries it (artifacts stay in sync).
 #   (a2) gitea-tenants-repo-bootstrap-job.yaml seeds an EMPTY parent
-#       kustomization at clusters/<fqdn>/sme-tenants/ so the Flux
-#       Kustomization sme-tenants path exists + reconciles Ready from first
+#       kustomization at clusters/<fqdn>/org-tenants/ so the Flux
+#       Kustomization org-tenants path exists + reconciles Ready from first
 #       convergence (was NotReady "path not found" → silently excluded from
 #       the cutover egress proof as baseline noise — PRINCIPLES A1/A2).
 #   (b) cutover-driver ClusterRole gains `namespaces: [create]` (folds
@@ -161,7 +161,7 @@ name: bp-catalyst-platform
 # Pillar-5 mothership tether). api-deployment.yaml now, when
 # .Values.global.sovereignFQDN is set, points CATALYST_GITOPS_REPO_URL at
 # http://gitea-http.gitea.svc.cluster.local:3000/openova/openova @
-# branch sme-tenants (matching the openova-sme-tenants Flux GitRepository)
+# branch org-tenants (matching the openova-org-tenants Flux GitRepository)
 # and sources CATALYST_GITOPS_TOKEN from catalyst-gitea-token/token (the
 # working Gitea PAT, same Secret CATALYST_GITEA_TOKEN uses). Mothership/
 # contabo path unchanged (github default + provisioning-github-token PAT).
@@ -693,7 +693,7 @@ name: bp-catalyst-platform
 # container starts with a guaranteed-valid token.
 #
 # Configurable knobs in values.yaml under
-# `smeServices.provisioning.waitForCutoverToken`:
+# `orgServices.provisioning.waitForCutoverToken`:
 #   enabled (true default; set false on Catalyst-Zero/contabo where
 #     the SealedSecret-provisioned token carries no cutover annotation
 #     and Step 09 never runs)
@@ -884,7 +884,7 @@ name: bp-catalyst-platform
 #     unreachable → POST /api/v1/sme/billing/vouchers/issue still 503
 #     (post-#1954 error band: "sme gateway unreachable" instead of
 #     "CATALYST_ORG_JWT_SECRET not set")
-#   - sme-tenants-kustomization.yaml NOT rendered → SME tenant
+#   - org-tenants-kustomization.yaml NOT rendered → SME tenant
 #     pipeline silently skipped on every customer-journey start
 #
 # Net behavioural effect of the flip — 4 chain-broken behaviours
@@ -898,8 +898,8 @@ name: bp-catalyst-platform
 #      Service rendering now, the voucher endpoint can ACTUALLY reach
 #      the upstream SME microservice mesh
 #   4. SME microservice mesh (auth/billing/catalog/console/domain/
-#      gateway/provisioning/tenant/admin/notification + sme-tenants-
-#      kustomization + sme-tenants-gitrepository) renders so the
+#      gateway/provisioning/tenant/admin/notification + org-tenants-
+#      kustomization + org-tenants-gitrepository) renders so the
 #      orchestrator's POST /api/v1/sme/tenants reconciles for real
 #
 # Backward-compat: operators that explicitly OPT-OUT by setting
@@ -2114,7 +2114,7 @@ name: bp-catalyst-platform
 #     to upstream `openova-io/openova` so per-tenant commits attempted
 #     authenticated POST against api.github.com — failed every time
 #     with 401. Fix: chart values
-#     .Values.smeServices.provisioning.{githubToken,git.{apiURL,owner,
+#     .Values.orgServices.provisioning.{githubToken,git.{apiURL,owner,
 #     repo,branch}} make every GitHub-API coordinate operator-overridable
 #     with topology-aware defaults (Sovereign ⇒ in-cluster Gitea REST
 #     API + `openova` org; contabo ⇒ api.github.com + `openova-io` org).
@@ -2141,7 +2141,7 @@ name: bp-catalyst-platform
 #     bp-nats-jetstream into namespace `nats-jetstream`). Every SME
 #     service crashlooped at startup with `lookup ...: no such host`,
 #     blocking gate 3 (tenant ready). Fix: data-driven via
-#     .Values.smeServices.eventBus.brokers with a topology-aware default
+#     .Values.orgServices.eventBus.brokers with a topology-aware default
 #     — Sovereign ⇒ NATS JetStream Service, contabo ⇒ legacy Redpanda
 #     Service. The ConfigMap key name stays REDPANDA_BROKERS for
 #     back-compat with existing SME service Go env wiring.
@@ -2165,8 +2165,8 @@ name: bp-catalyst-platform
 #     then install on the contabo cluster. C5-final caught + reverted
 #     the alice2 incident at commit 5715db04 (2026-05-05). Fix:
 #     provisioning.yaml templates GIT_BASE_PATH from
-#     .Values.smeServices.provisioning.gitBasePath with a topology-
-#     aware default `clusters/<sovereignFQDN>/sme-tenants` on
+#     .Values.orgServices.provisioning.gitBasePath with a topology-
+#     aware default `clusters/<sovereignFQDN>/org-tenants` on
 #     Sovereigns. Provisioning binary's startup AND every commit code
 #     path validate the path begins with `clusters/<self-FQDN>/` via
 #     a new shared `core/services/provisioning/gitguard` package —
@@ -2391,17 +2391,17 @@ name: bp-catalyst-platform
 # password mirror) is preserved for the first-install pre-cutover window
 # so the provisioning Pod still boots out of CreateContainerConfigError.
 # 1.4.175 (TBD-C18e, 2026-05-18): isolate per-tenant overlay commits onto
-# a dedicated `sme-tenants` branch so the cutover-gitea-mirror Job's
+# a dedicated `org-tenants` branch so the cutover-gitea-mirror Job's
 # every-≤10-min `git push --mirror --force` on `main` cannot clobber
 # them. Ships a new Flux GitRepository (templates/org-services/
-# sme-tenants-gitrepository.yaml) tracking the protected branch; the
-# existing sme-tenants Kustomization is repointed at it. Provisioning
+# org-tenants-gitrepository.yaml) tracking the protected branch; the
+# existing org-tenants Kustomization is repointed at it. Provisioning
 # Deployment env GITHUB_BRANCH default flipped from `main` to
-# `sme-tenants` on Sovereign installs (Catalyst-Zero keeps `main`).
+# `org-tenants` on Sovereign installs (Catalyst-Zero keeps `main`).
 # Provisioning Go client gains an auto-create-branch fallback so the
 # first tenant commit on a fresh Sovereign self-bootstraps the branch
 # from `main`. Live root cause on t22 (2026-05-18): provisioning commit
-# 69d64e48 (clusters/t22.omantel.biz/sme-tenants/...) at 17:46:13Z was
+# 69d64e48 (clusters/t22.omantel.biz/org-tenants/...) at 17:46:13Z was
 # overwritten by the mirror rerun at 17:54:55Z, Organization CR never
 # materialised, customer-journey step 16 hung indefinitely. (Closes
 # #1794 — 5th C18 layer, the last customer-journey blocker.)
@@ -2749,11 +2749,11 @@ name: bp-catalyst-platform
 # 1.4.600 — sme/ferretdb image via harbor proxy-ghcr (kyverno rule 11; hw130 reinstall denial).
 # 1.4.612 (#3454, Refs #3376/#3378, 2026-06-14): pre-cutover local-Gitea repo
 # bootstrap. The SME-tenant gitops chain targets local Gitea openova/openova@
-# sme-tenants, but that repo is created ONLY by cutover Step 01 (post-handover),
-# so PRE-cutover the openova-sme-tenants GitRepository sits "authentication
+# org-tenants, but that repo is created ONLY by cutover Step 01 (post-handover),
+# so PRE-cutover the openova-org-tenants GitRepository sits "authentication
 # required" (missing-repo → 401) and every sub-org hangs in Provisioning. New
 # pre-install/pre-upgrade hook Job (templates/org-services/gitea-tenants-repo-
-# bootstrap-job.yaml) seeds the org/repo/sme-tenants branch via the Gitea API so
+# bootstrap-job.yaml) seeds the org/repo/org-tenants branch via the Gitea API so
 # the chain is live from first convergence; cutover Step 01 mirrors full content
 # later (idempotent). Gated on global.sovereignFQDN + ingress.marketplace.enabled.
 # 1.4.613 (#3454, 2026-06-14): the 1.4.612 hook Job was denied by the kyverno
@@ -2766,9 +2766,9 @@ name: bp-catalyst-platform
 # bp-gitea sets service.REQUIRE_SIGNIN_VIEW=true, so ANONYMOUS git clone of
 # even a PUBLIC repo returns 401 (proven live on hw133: a fresh public repo's
 # info/refs?service=git-upload-pack = 401 anon / 200 authed). The
-# openova-sme-tenants GitRepository had NO secretRef -> "authentication
+# openova-org-tenants GitRepository had NO secretRef -> "authentication
 # required" forever, repo-present-or-not. Add a Flux basic-auth Secret
-# (sme-tenants-gitrepo-auth-secret.yaml, sourced from the catalyst-gitea-token
+# (org-tenants-gitrepo-auth-secret.yaml, sourced from the catalyst-gitea-token
 # PAT) + wire smeTenants.gitRepository.secretRef. Also fix the repo-bootstrap
 # hook's /api/v1/version probe to authenticate (anon /version = 403 under
 # REQUIRE_SIGNIN_VIEW burned all 168 loop passes on hw133).
@@ -2785,7 +2785,7 @@ name: bp-catalyst-platform
 # 1.4.621 (#3373 Batch A, 2026-06-14): bp-valkey moved INSIDE the rtz
 # vCluster (placement.yaml). Rewire the SME valkey consumer + projector
 # addr to the syncer-mangled host Service name
-# `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc` (smeServices.valkey.host
+# `valkey-primary-x-valkey-x-rtz-vcluster.rtz.svc` (orgServices.valkey.host
 # + projector.valkey.addr); disable the now-moot valkey-cross-ns CNP (its
 # host `valkey` ns no longer carries the workload — the wire is governed by
 # the bp-rtz-vcluster isolation netpol's `sme` carve-out). Mirrors the
@@ -2892,7 +2892,7 @@ name: bp-catalyst-platform
 # independent; version bumped to the higher 1.4.697 to publish a single
 # OCI artifact carrying both.
 # 1.4.696 — #3859 (Refs #3376): wire TENANT_PARENT_DOMAIN onto the provisioning
-# Deployment (new .Values.smeServices.provisioning.tenantParentDomain, default
+# Deployment (new .Values.orgServices.provisioning.tenantParentDomain, default
 # ""). The provisioning consumer seeds spec.tenantPublic only when a parent
 # domain is set; without this env every per-Org Org minted with NO TenantPublic
 # HTTPRoute → the customer's own console + purchased app returned ERR_CONNECTION_
@@ -2948,7 +2948,7 @@ version: 1.4.737
 # .org-services.svc) and the catalyst-system→org-services CNP allow re-pointed.
 # WIRE-STABLE + UNCHANGED: the CNPG cluster `sme-pg` + its `sme-pg-app` secret,
 # the DB names sme_auth/sme_billing/sme_documents, the Tier value "sme", the
-# GitOps branch/path `sme-tenants` (coupled to the catalyst-api writer's
+# GitOps branch/path `org-tenants` (coupled to the catalyst-api writer's
 # hardcoded path), and every .Values.sme* overlay key. helm template byte-diff:
 # only names/ns changed. Refs #3383.
 # 1.4.657 — PR #3700 §4.3 (Refs #3687, 2026-06-17): close the per-Org
@@ -3823,7 +3823,7 @@ description: |
     URL env interpolating PG_USER + PG_PASSWORD from the sme-pg-app
     Secret (auto-created by CNPG in 1.4.3) and pointing at
     sme-pg-rw.sme.svc.cluster.local:5432/sme_documents. Image is
-    operator-overridable via .Values.smeServices.ferretdb.{image,tag}
+    operator-overridable via .Values.orgServices.ferretdb.{image,tag}
     (Inviolable Principle #4).
   - cnpg-cluster.yaml — extend postInitApplicationSQL to also
     CREATE DATABASE sme_documents OWNER sme so FerretDB has a DB to
@@ -3831,20 +3831,20 @@ description: |
     .Values.smePostgres.cluster.additionalDatabases (defaulting to
     [sme_billing, sme_documents]) so adding a new SME service is a
     values-only change.
-  - configmap.yaml — VALKEY_ADDR now reads from .Values.smeServices.
+  - configmap.yaml — VALKEY_ADDR now reads from .Values.orgServices.
     valkey.host (default valkey-primary.valkey.svc.cluster.local:6379
     — the actual Service name bitnami/valkey 5.5.1 with replication
     architecture renders, NOT the issue's `valkey.valkey.svc.cluster.
     local` which doesn't exist on Sovereigns). MONGODB_URI also uses
-    .Values.smeServices.ferretdb.{host,port} for symmetry.
+    .Values.orgServices.ferretdb.{host,port} for symmetry.
   - NEW templates/org-services/valkey-cross-ns-policy.yaml —
     CiliumNetworkPolicy in `valkey` namespace allowing ingress on
     6379/TCP from any Pod in the `sme` namespace. Defense-in-depth on
     top of bp-valkey 1.0.0's upstream NetworkPolicy (which already
     permits port 6379 from any source). Gated on the same
     marketplace.enabled flag.
-  - values.yaml — add `smeServices.ferretdb.{image,tag,replicas,
-    resources}` and `smeServices.valkey.host` blocks. Every URL,
+  - values.yaml — add `orgServices.ferretdb.{image,tag,replicas,
+    resources}` and `orgServices.valkey.host` blocks. Every URL,
     image ref, and resource value is operator-overridable per
     Inviolable Principle #4.
 
@@ -3902,7 +3902,7 @@ description: |
     auth-less Valkey path keeps working when the mirror Secret is
     absent. valkey-go's `default` ACL user uses `requirepass`, so
     VALKEY_USERNAME stays unset by convention.
-  - values.yaml — add `smeServices.valkey.{sourceSecretName,
+  - values.yaml — add `orgServices.valkey.{sourceSecretName,
     sourcePasswordKey, destNamespace, destSecretName}` knobs so a
     forked bp-valkey with non-default Secret naming can override
     without forking the chart (Inviolable Principle #4).
@@ -3965,7 +3965,7 @@ description: |
   gitea-admin-secret EXISTS in the gitea namespace and lookup
   returns its decoded password.
 
-  values.yaml — new `smeServices.provisioning.gitToken.*` block
+  values.yaml — new `orgServices.provisioning.gitToken.*` block
   (sourceNamespace / sourceSecretName / sourcePasswordKey /
   destNamespace / destSecretName / destKey) so per-Sovereign
   overlays pointing the provisioning service at a non-Gitea Git
@@ -4103,7 +4103,7 @@ description: |
   Bumped to 1.4.13 — Flux Kustomization watching SME tenant overlays
   (issue #882, 2026-05-05). The catalyst-api SME-tenant pipeline's
   GitOps writer (sme_tenant_gitops.go::WriteTenantOverlay) commits
-  per-tenant Kustomize overlays to clusters/<sov-fqdn>/sme-tenants/
+  per-tenant Kustomize overlays to clusters/<sov-fqdn>/org-tenants/
   <tenant-id>/ on every successful POST /api/v1/sme/tenants — but no
   Flux Kustomization on the Sovereign cluster watched that path. The
   state machine (sme_tenant.go) advanced optimistically through every
@@ -4122,14 +4122,14 @@ description: |
   the SME bundle uses) — non-marketplace Sovereigns don't run the SME
   tenant pipeline so they don't render this Kustomization. Renders one
   Flux Kustomization in flux-system that sweeps the entire
-  ./clusters/<sovereignFQDN>/sme-tenants directory tree:
+  ./clusters/<sovereignFQDN>/org-tenants directory tree:
     - sourceRef:  flux-system/openova GitRepository (the same one the
                   cluster bootstraps from; cutover Step 5 flips its
                   .spec.url to the local in-cluster Gitea, which is
                   precisely where sme_tenant_gitops.go pushes via
                   CATALYST_GITOPS_REPO_URL=http://gitea-http.gitea.svc
                   .cluster.local:3000/openova/openova)
-    - path:       ./clusters/{{ .Values.global.sovereignFQDN }}/sme-tenants
+    - path:       ./clusters/{{ .Values.global.sovereignFQDN }}/org-tenants
     - interval:   1m (matches the orchestrator's "Flux reconciles
                   within ~1 min" SLA documented at the top of
                   sme_tenant_gitops.go)

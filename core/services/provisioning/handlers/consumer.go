@@ -935,7 +935,7 @@ func (h *Handler) startProvisioning(ctx context.Context, tenantID, orderID, plan
 	// marketplace checkout fires this path twice (NATS order.placed event +
 	// POST /provisioning/start) by design; without a guard both inserts fork a
 	// workflow and the two near-simultaneous Gitea commits race on the shared
-	// sme-tenants branch ("cannot lock ref"), marking the tenant failed even
+	// org-tenants branch ("cannot lock ref"), marking the tenant failed even
 	// though the Org CR + winning commit land. dedupProvisionCreate is backed by
 	// a partial unique index on (tenant_id, in-flight status), so the second
 	// trigger collides and we return the already-running provision without
