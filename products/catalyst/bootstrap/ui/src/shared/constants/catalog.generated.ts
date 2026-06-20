@@ -5555,7 +5555,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tags": [],
     "visibility": "listed",
     "version": "0.4.1",
-    "section": "pts-7-sme-tenant",
+    "section": "pts-7-org-tenant",
     "depends": [
       "bp-postgres",
       "bp-cnpg",

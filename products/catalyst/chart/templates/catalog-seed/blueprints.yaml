@@ -39,7 +39,7 @@ metadata:
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
     catalyst.openova.io/category: tenant-app
-    catalyst.openova.io/section: pts-7-sme-tenant
+    catalyst.openova.io/section: pts-7-org-tenant
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
   annotations:
@@ -65,7 +65,7 @@ spec:
     description: "Runs in the Organization's vcluster, namespace = Organization tenant namespace. SSO via the Organization-vcluster Keycloak realm. Default theme + admin user pre-seeded at install time."
     icon: wordpress.svg
     license: "GPL-2.0-or-later"
-    tags: [wordpress, cms, sme, tenant, sso, keycloak, postgres]
+    tags: [wordpress, cms, org, tenant, sso, keycloak, postgres]
     docs: "https://wordpress.org/documentation/"
   placementSchema:
     modes: [single-region]
@@ -171,7 +171,7 @@ metadata:
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
     catalyst.openova.io/category: tenant-app
-    catalyst.openova.io/section: pts-7-sme-tenant
+    catalyst.openova.io/section: pts-7-org-tenant
     catalyst.openova.io/alias-of: bp-wordpress-tenant
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
@@ -192,7 +192,7 @@ spec:
     description: "Runs in the Org's vcluster. SSO via the per-Org Keycloak realm (openid-connect-generic). Default theme + admin user pre-seeded at install time so the first browser hit lands on /wp-admin authenticated. Aliases the bp-wordpress-tenant chart."
     icon: wordpress.svg
     license: "GPL-2.0-or-later"
-    tags: [wordpress, cms, sme, tenant, sso, keycloak, postgres]
+    tags: [wordpress, cms, org, tenant, sso, keycloak, postgres]
     docs: "https://wordpress.org/documentation/"
   placementSchema:
     modes: [single-region]
@@ -648,7 +648,7 @@ spec:
     properties:
       realmName:
         type: string
-        description: "Keycloak realm name (e.g. sme-<tenant>)."
+        description: "Keycloak realm name (e.g. org-<tenant>)."
       adminUser:
         type: string
         default: admin
@@ -2592,7 +2592,7 @@ hook (ADR-0003). Identity-blind by construction.
 "
     icon: "openclaw.svg"
     license: "Apache-2.0"
-    tags: ["openclaw", "agentic", "workspace", "sme", "keycloak", "newapi", "multi-tenant", "per-user-pod"]
+    tags: ["openclaw", "agentic", "workspace", "org", "keycloak", "newapi", "multi-tenant", "per-user-pod"]
     docs: "https://github.com/openova-io/openova/blob/main/platform/openclaw/README.md"
   placementSchema:
     modes: [single-region]

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-20T15:20:55.366Z",
+  "generatedAt": "2026-06-20T16:12:43.109Z",
   "blueprints": [
     {
       "id": "bp-alloy",
@@ -5420,7 +5420,7 @@
       "tags": [],
       "visibility": "listed",
       "version": "0.4.1",
-      "section": "pts-7-sme-tenant",
+      "section": "pts-7-org-tenant",
       "depends": [
         "bp-postgres",
         "bp-cnpg",
