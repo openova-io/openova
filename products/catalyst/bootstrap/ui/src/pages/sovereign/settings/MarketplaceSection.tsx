@@ -173,8 +173,8 @@ export function MarketplaceSection() {
         <div className="min-w-0 flex-1">
           <p className="text-sm text-[var(--color-text)]">
             {enabled
-              ? 'Public storefront, *.{sovereignFQDN} tenant wildcard, and back-office routes are exposed.'
-              : 'Only console + admin routes are exposed; SME services run in the cluster but have no public ingress.'}
+              ? 'Public storefront, *.{sovereignFQDN} Organization wildcard, and back-office routes are exposed.'
+              : 'Only console + admin routes are exposed; Organization services run in the cluster but have no public ingress.'}
           </p>
         </div>
         <button

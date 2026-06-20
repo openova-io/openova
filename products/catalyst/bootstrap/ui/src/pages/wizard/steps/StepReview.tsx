@@ -1266,7 +1266,7 @@ export function StepReview() {
                 lineHeight: 1.5,
               }}
             >
-              Single-tenant private Sovereign. No storefront, no per-tenant subdomains. You can
+              Single-Organization private Sovereign. No storefront, no per-Organization subdomains. You can
               flip Marketplace mode on later from the post-launch Settings page without
               re-provisioning.
             </p>

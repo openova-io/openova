@@ -150,8 +150,8 @@ export function BillingPage({
                 Subscriptions
               </h2>
               <p className="mt-0.5 text-xs text-[var(--color-text-dim)]">
-                Active tenant subscriptions, plan tier, monthly recurring revenue,
-                and current payment status.
+                Active organization subscriptions, plan tier, monthly recurring
+                revenue, and current payment status.
               </p>
             </div>
             {pendingApi ? (
@@ -265,7 +265,7 @@ export function BillingPage({
               className="px-4 py-12 text-center text-sm text-[var(--color-text-dim)]"
             >
               {subscriptions.length === 0
-                ? 'No tenant subscriptions yet. New tenants appear here once they purchase a plan from the marketplace.'
+                ? 'No organization subscriptions yet. New organizations appear here once they purchase a plan from the marketplace.'
                 : 'No subscriptions match the current filters.'}
             </div>
           ) : (

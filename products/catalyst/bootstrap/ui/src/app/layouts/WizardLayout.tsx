@@ -60,7 +60,7 @@ export const WIZARD_STEPS = [
   { id: 2, label: 'Topology',     desc: 'Regions, HA, air-gap'             },
   { id: 3, label: 'Provider',     desc: 'Cloud + region + sizing per slot' },
   { id: 4, label: 'Components',   desc: 'Platform building blocks'         },
-  { id: 5, label: 'Marketplace',  desc: 'Multi-tenant SaaS storefront'     },
+  { id: 5, label: 'Marketplace',  desc: 'Multi-Organization SaaS storefront' },
   { id: 6, label: 'Domain',       desc: 'Pool subdomain or BYO domain'     },
   { id: 7, label: 'Credentials',  desc: 'API tokens + SSH key'             },
   { id: 8, label: 'Review',       desc: 'Confirm and provision'            },

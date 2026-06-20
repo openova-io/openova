@@ -982,7 +982,7 @@ function PublishToggleChip({ slug, isBootstrap = false }: PublishToggleChipProps
           : state === 'unpublished'
             ? 'Click to publish — shows in marketplace storefront'
             : state === 'bootstrap'
-              ? 'This is a bootstrap-kit install (HelmRelease without a catalog entry). It ships with the platform and is not surfaced in the tenant marketplace.'
+              ? 'This is a bootstrap-kit install (HelmRelease without a catalog entry). It ships with the platform and is not surfaced in the Organization marketplace.'
               : ''
       }
       className={`chip ${
@@ -1509,9 +1509,9 @@ function OverviewPanel({
         </section>
       ) : null}
 
-      {/* Tenant */}
+      {/* Organization */}
       <section className="section" data-testid="sov-section-tenant">
-        <h2>Tenant</h2>
+        <h2>Organization</h2>
         <p className="desc">
           {sovereignFQDN
             ? `Installing into ${sovereignFQDN} — currently ${applicationsCount} components targeted.`

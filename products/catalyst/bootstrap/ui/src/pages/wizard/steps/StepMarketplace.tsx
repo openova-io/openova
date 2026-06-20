@@ -81,10 +81,10 @@ export function StepMarketplace() {
     <StepShell
       title="Marketplace mode"
       description={
-        'Marketplace mode turns this Sovereign into a multi-tenant SaaS platform. ' +
+        'Marketplace mode turns this Sovereign into a multi-Organization SaaS platform. ' +
         'You publish apps from your unified catalog, customers sign up at the storefront, ' +
-        'and each tenant runs in an isolated subdomain shell. Leave it off to provision a ' +
-        'single-tenant private Sovereign — you can flip the toggle later from Settings.'
+        'and each Organization runs in an isolated subdomain shell. Leave it off to provision a ' +
+        'single-Organization private Sovereign — you can flip the toggle later from Settings.'
       }
       onNext={next}
       onBack={back}
@@ -138,7 +138,7 @@ export function StepMarketplace() {
               >
                 {marketplaceURL}
               </code>
-              , get isolated per-tenant subdomains, and consume apps you publish from your
+              , get isolated per-Organization subdomains, and consume apps you publish from your
               unified catalog.
             </p>
           </div>

@@ -34,10 +34,10 @@ export const FAMILY_COPY: Record<string, FamilyCopy> = {
     overview: [
       'PILOT is the delivery plane of every Sovereign. It turns a Git repository ' +
         'into the only mutable system of record — every change to platform configuration, ' +
-        'every Blueprint upgrade, every tenant onboarding flows through a pull request, ' +
+        'every Blueprint upgrade, every Organization onboarding flows through a pull request, ' +
         'is reconciled by Flux, and is observable as code.',
       'OpenTofu and Crossplane provision the underlying cloud and Kubernetes ' +
-        'primitives, while vCluster carves the cluster into isolated tenant spaces. ' +
+        'primitives, while vCluster carves the cluster into isolated Organization spaces. ' +
         'Gitea hosts the operator-controlled repositories so the Sovereign keeps ' +
         'delivering even when the public internet is unavailable.',
     ],
@@ -45,7 +45,7 @@ export const FAMILY_COPY: Record<string, FamilyCopy> = {
       'GitOps reconciliation from operator-controlled repositories',
       'Crossplane Compositions for cloud and Kubernetes day-2 operations',
       'OpenTofu modules for Phase 0 infrastructure provisioning',
-      'vCluster tenant isolation without per-tenant control planes',
+      'vCluster Organization isolation without per-Organization control planes',
       'Self-hosted Gitea for sovereign source-of-truth',
     ],
     chip: { bg: 'rgba(56,189,248,0.16)', fg: '#38BDF8', border: 'rgba(56,189,248,0.35)' },
@@ -171,14 +171,14 @@ export const FAMILY_COPY: Record<string, FamilyCopy> = {
         'BGE produces embeddings.',
       'LangFuse traces every prompt, completion, tool call, and cost across the ' +
         'stack. Axon brokers gateway access to upstream LLM providers, and ' +
-        'LibreChat ships an end-user interface ready for tenant onboarding.',
+        'LibreChat ships an end-user interface ready for Organization onboarding.',
     ],
     capabilities: [
       'Inference serving with KServe and vLLM',
       'Vector search at petabyte scale on the Sovereign’s own storage',
       'Embedding generation and retrieval-augmented generation pipelines',
       'End-to-end LLM observability with cost, latency, and lineage',
-      'Tenant-facing chat interface with role-based access control',
+      'Organization-facing chat interface with role-based access control',
     ],
     chip: { bg: 'rgba(244,114,182,0.16)', fg: '#F472B6', border: 'rgba(244,114,182,0.35)' },
   },
@@ -242,7 +242,7 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
       'one-minute reconciliation cadence.',
     integration:
       'Flux is the only path through which platform manifests reach the cluster. Crossplane ' +
-      'Compositions, Blueprint OCI artifacts, and tenant overlays are all delivered through Flux ' +
+      'Compositions, Blueprint OCI artifacts, and Organization overlays are all delivered through Flux ' +
       'GitRepository and OCIRepository sources.',
     highlights: [
       'GitRepository and OCIRepository sources reconciled every minute',
@@ -272,7 +272,7 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
   gitea: {
     positioning:
       'Gitea is the Sovereign-local Git server that holds the operator-controlled source of truth. ' +
-      'Catalyst pre-creates five organisation tenants per Sovereign, each with its own visibility ' +
+      'Catalyst pre-creates five Organizations per Sovereign, each with its own visibility ' +
       'and policy boundary.',
     integration:
       'Gitea backs onto CloudNative PG for metadata and SeaweedFS for LFS objects. Flux pulls ' +
@@ -304,15 +304,15 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
   },
   vcluster: {
     positioning:
-      'vCluster carves a host Kubernetes cluster into isolated virtual clusters. Each tenant gets ' +
+      'vCluster carves a host Kubernetes cluster into isolated virtual clusters. Each Organization gets ' +
       'its own kube-apiserver, controller-manager, and scheduler, while sharing the host’s ' +
       'compute and network underlay.',
     integration:
-      'Catalyst exposes vCluster instances as a tenant-onboarding primitive. Tenants get a real ' +
+      'Catalyst exposes vCluster instances as an Organization-onboarding primitive. Organizations get a real ' +
       'kubeconfig, namespace-scoped policy, and storage carved from SeaweedFS pools, all without ' +
       'standing up a separate physical cluster.',
     highlights: [
-      'Per-tenant control planes on shared host nodes',
+      'Per-Organization control planes on shared host nodes',
       'Bidirectional service exposure to host workloads',
       'Resource quotas and storage carved from the host’s pools',
     ],
@@ -642,13 +642,13 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
   keycloak: {
     positioning:
       'Keycloak is the identity provider for every Sovereign. It federates external IdPs over ' +
-      'OIDC and SAML and issues tokens to operators, tenants, and workloads.',
+      'OIDC and SAML and issues tokens to operators, Organizations, and workloads.',
     integration:
       'Keycloak backs onto CloudNative PG and exposes itself behind Envoy. Catalyst pre-configures ' +
-      'realms for the platform, the operator console, and tenant onboarding.',
+      'realms for the platform, the operator console, and Organization onboarding.',
     highlights: [
       'OIDC and SAML identity federation',
-      'Realms isolated per tenant or business unit',
+      'Realms isolated per Organization or business unit',
       'Token customisation for downstream authorization',
     ],
     upstreamUrl: 'https://www.keycloak.org',
@@ -714,7 +714,7 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
     highlights: [
       'Curated dashboards for every Catalyst component',
       'Unified query across metrics, logs, and traces',
-      'Keycloak SSO and per-tenant org isolation',
+      'Keycloak SSO and per-Organization isolation',
     ],
     upstreamUrl: 'https://grafana.com/oss/grafana/',
     upstreamLabel: 'grafana.com',
@@ -729,7 +729,7 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
     highlights: [
       'Vendor-neutral SDKs for every supported language',
       'Gateway and agent topology with multi-pipeline routing',
-      'Per-tenant tail-sampling for noisy services',
+      'Per-Organization tail-sampling for noisy services',
     ],
     upstreamUrl: 'https://opentelemetry.io',
     upstreamLabel: 'opentelemetry.io',
@@ -759,7 +759,7 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
     highlights: [
       'Label-indexed log store with object-storage backend',
       'LogQL query language',
-      'Multi-tenant isolation for shared deployments',
+      'Multi-Organization isolation for shared deployments',
     ],
     upstreamUrl: 'https://grafana.com/oss/loki/',
     upstreamLabel: 'grafana.com/loki',
@@ -796,7 +796,7 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
   },
   opensearch: {
     positioning:
-      'OpenSearch is the search and analytics engine. It backs full-text search for tenant-facing ' +
+      'OpenSearch is the search and analytics engine. It backs full-text search for Organization-facing ' +
       'workloads and ad-hoc operational analytics.',
     integration:
       'OpenSearch runs as a stateful workload with its own storage class. Operators consume it ' +
@@ -1043,13 +1043,13 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
   axon: {
     positioning:
       'Axon is the LLM gateway. It brokers access to upstream providers, normalises pricing, and ' +
-      'ships tenant-scoped quota controls so platform owners can ration tokens.',
+      'ships Organization-scoped quota controls so platform owners can ration tokens.',
     integration:
       'Axon runs in front of every CORTEX endpoint that consumes upstream APIs. Telemetry feeds ' +
       'LangFuse for cost and latency tracking.',
     highlights: [
       'Provider-agnostic LLM API',
-      'Per-tenant quota and rate limiting',
+      'Per-Organization quota and rate limiting',
       'Cost-attribution telemetry into LangFuse',
     ],
     upstreamUrl: 'https://openova.io/products/axon',
@@ -1124,7 +1124,7 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
       'gateway telemetry through.',
     highlights: [
       'Prompt and completion tracing',
-      'Cost attribution per model and tenant',
+      'Cost attribution per model and Organization',
       'Session viewer for end-to-end RAG debugging',
     ],
     upstreamUrl: 'https://langfuse.com',
@@ -1132,7 +1132,7 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
   },
   librechat: {
     positioning:
-      'LibreChat is the AI chat interface. It ships with multi-model support, tenant onboarding, ' +
+      'LibreChat is the AI chat interface. It ships with multi-model support, Organization onboarding, ' +
       'and RBAC out of the box, so operators can replace third-party chat services with a ' +
       'self-hosted equivalent.',
     integration:
@@ -1140,7 +1140,7 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
       'SSO is wired through Keycloak.',
     highlights: [
       'Multi-model chat with conversation history',
-      'Tenant onboarding and RBAC',
+      'Organization onboarding and RBAC',
       'Plugin and agent integration',
     ],
     upstreamUrl: 'https://librechat.ai',
@@ -1165,7 +1165,7 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
   },
   livekit: {
     positioning:
-      'LiveKit is the WebRTC SFU for real-time video and audio. It powers tenant conferencing ' +
+      'LiveKit is the WebRTC SFU for real-time video and audio. It powers Organization conferencing ' +
       'workloads with end-to-end encryption and recording.',
     integration:
       'LiveKit pairs with STUNner for NAT traversal. Recording lands on the Sovereign’s ' +

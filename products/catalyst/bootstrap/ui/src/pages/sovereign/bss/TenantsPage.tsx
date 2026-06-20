@@ -117,7 +117,7 @@ export function TenantsPage({
     <PortalShell
       deploymentId={deploymentId}
       sovereignFQDN={sovereignFQDN}
-      pageTitle="Tenants"
+      pageTitle="Organizations"
       headerSlotLeft={
         <Link
           to={'/bss' as never}
@@ -130,8 +130,8 @@ export function TenantsPage({
     >
       <div data-testid="bss-tenants-page">
         <p className="mb-4 text-sm text-[var(--color-text-dim)]">
-          Tenant organisations provisioned via marketplace signup. Each row is
-          one Organization CR + per-tenant vCluster on this Sovereign.
+          Organizations provisioned via marketplace signup. Each row is
+          one Organization CR + per-Organization vCluster on this Sovereign.
         </p>
 
         {/* Filter row — mirrors JobsTable.toolbar shape but uses the
@@ -152,7 +152,7 @@ export function TenantsPage({
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by org, subdomain, owner email, or status…"
               data-testid="bss-tenants-search"
-              aria-label="Search tenants"
+              aria-label="Search organizations"
               className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none"
             />
           </label>
@@ -247,16 +247,16 @@ export function TenantsPage({
             data-testid="bss-tenants-empty"
             className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-4 py-8 text-center text-sm text-[var(--color-text-dim)]"
           >
-            No tenants provisioned yet. Marketplace signups land here once the
-            tenant-provisioning pipeline (vCluster + Keycloak + DNS + certs)
-            reaches the registered state.
+            No organizations provisioned yet. Marketplace signups land here once
+            the organization-provisioning pipeline (vCluster + Keycloak + DNS +
+            certs) reaches the registered state.
           </div>
         ) : visibleTenants.length === 0 ? (
           <div
             data-testid="bss-tenants-no-matches"
             className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-4 py-8 text-center text-sm text-[var(--color-text-dim)]"
           >
-            No tenants match the current filters.
+            No organizations match the current filters.
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">

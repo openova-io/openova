@@ -98,7 +98,7 @@ const SECTIONS: readonly SectionDef[] = [
   // is just a toggle etting under setting it dosnt need tohave a
   // sdicated page ... it shoudl be somewher e here ... similar to
   // other setting"*.
-  { id: 'marketplace', label: 'Marketplace', description: 'Public storefront, branding, tenant wildcard ingress. Changes are committed to your GitOps repo and reconciled by Flux within ~1 minute.' },
+  { id: 'marketplace', label: 'Marketplace', description: 'Public storefront, branding, Organization wildcard ingress. Changes are committed to your GitOps repo and reconciled by Flux within ~1 minute.' },
   { id: 'notifications', label: 'Notifications', description: 'Email + Slack hooks for provisioning events.' },
   { id: 'members', label: 'Members', description: 'Operators with admin / dev / viewer roles.' },
   { id: 'danger-zone', label: 'Danger zone', description: 'Wipe Sovereign, decommission, transfer ownership.' },

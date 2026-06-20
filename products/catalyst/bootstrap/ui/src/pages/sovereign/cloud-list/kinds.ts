@@ -173,7 +173,7 @@ const ICON_POLICY_REPORT =
 export const KINDS: readonly CloudKindEntry[] = [
   // Primary chips — the 6 most-used surfaces stay inline.
   { id: 'clusters', label: 'Clusters', tagline: 'k3s / k8s control planes', hasData: true, Component: ClustersPage, icon: ICON_CLUSTER, category: 'compute', primary: true },
-  { id: 'vclusters', label: 'vClusters', tagline: 'Logical isolation per Sovereign tenant', hasData: true, Component: VClustersPage, icon: ICON_VCLUSTER, category: 'compute', primary: true },
+  { id: 'vclusters', label: 'vClusters', tagline: 'Logical isolation per Organization', hasData: true, Component: VClustersPage, icon: ICON_VCLUSTER, category: 'compute', primary: true },
   { id: 'node-pools', label: 'Node Pools', tagline: 'Worker pools grouped by SKU + role', hasData: true, Component: NodePoolsPage, icon: ICON_NODE_POOL, category: 'compute', primary: true },
   { id: 'pvcs', label: 'PVCs', tagline: 'Persistent volume claims', hasData: true, Component: PvcsPage, icon: ICON_PVC, category: 'storage', primary: true },
   { id: 'load-balancers', label: 'Load Balancers', tagline: 'Cloud-provisioned LBs fronting clusters', hasData: true, Component: LoadBalancersPage, icon: ICON_LB, category: 'network', primary: true },

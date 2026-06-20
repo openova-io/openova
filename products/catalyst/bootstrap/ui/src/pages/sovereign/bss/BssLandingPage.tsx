@@ -10,12 +10,12 @@
  *
  * Layout (PortalShell body):
  *   • KPI strip — 4 cards (Billing MRR / Orders pending / Vouchers
- *     active / Tenants active) using the SettingsPage SectionCard
+ *     active / Organizations active) using the SettingsPage SectionCard
  *     chrome (var(--color-bg-2) on rounded border, h2 + tagline).
  *   • Revenue card — 30-day revenue + inline SVG sparkline, full
  *     width below the KPI strip.
  *   • Section nav grid — 5 cards (Billing / Orders / Revenue /
- *     Vouchers / Tenants) linking to /bss/<section>, mirroring the
+ *     Vouchers / Organizations) linking to /bss/<section>, mirroring the
  *     AppsPage `.apps-grid` minmax(360px, 1fr) auto-fit pattern.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #1 (waterfall — first paint is the
@@ -58,7 +58,7 @@ export const BSS_SECTIONS: readonly BssSection[] = [
   {
     id: 'orders',
     label: 'Orders',
-    description: 'New tenant orders, provisioning queue, fulfilment.',
+    description: 'New organization orders, provisioning queue, fulfilment.',
     to: '/bss/orders',
   },
   {
@@ -75,8 +75,8 @@ export const BSS_SECTIONS: readonly BssSection[] = [
   },
   {
     id: 'tenants',
-    label: 'Tenants',
-    description: 'Active tenant organizations and lifecycle controls.',
+    label: 'Organizations',
+    description: 'Active organizations and lifecycle controls.',
     to: '/bss/tenants',
   },
 ] as const
@@ -161,7 +161,7 @@ export function BssLandingPage({
           />
           <KpiCard
             id="tenants"
-            title="Tenants active"
+            title="Organizations active"
             value={loaded ? String(overview!.tenants.active) : '—'}
             footer={
               loaded

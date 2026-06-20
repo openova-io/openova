@@ -27,7 +27,7 @@ const COMPUTE_TILES: readonly ComputeTile[] = [
   {
     id: 'vclusters',
     label: 'vClusters',
-    tagline: 'Logical isolation per Sovereign tenant',
+    tagline: 'Logical isolation per Organization',
   },
   {
     id: 'node-pools',

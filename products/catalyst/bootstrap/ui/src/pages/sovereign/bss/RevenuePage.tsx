@@ -10,13 +10,13 @@
  *
  * Layout (PortalShell body):
  *   • Back-to-overview crumb (headerSlotLeft, matches BssSectionShell).
- *   • KPI strip — 4 cards (Last 30d revenue / MoM delta / Top tenant /
+ *   • KPI strip — 4 cards (Last 30d revenue / MoM delta / Top organization /
  *     Top plan) using the same KpiCard chrome as BssLandingPage.
  *   • Revenue trend — full-width line chart of daily revenue for the
  *     trailing 30 days. Uses Recharts (already a top-level dep, see
  *     widgets/cloud-list/MetricsPanel.tsx + widgets/compliance/
  *     ComplianceTreemap.tsx) so we don't introduce a new chart lib.
- *   • Breakdown table — Plan | Tenants | MRR | YoY %, sortable by any
+ *   • Breakdown table — Plan | Organizations | MRR | YoY %, sortable by any
  *     column. Mirrors the ParentDomainsPage table chrome (border-
  *     collapse, var(--color-border) row dividers, uppercase dimmed
  *     header cells).
@@ -129,9 +129,9 @@ export function RevenuePage({
           />
           <KpiCard
             id="top-tenant"
-            title="Top tenant"
+            title="Top organization"
             value={loaded && revenue!.kpi.topTenant ? revenue!.kpi.topTenant : '—'}
-            footer={loaded && !revenue!.kpi.topTenant ? 'No tenants yet' : undefined}
+            footer={loaded && !revenue!.kpi.topTenant ? 'No organizations yet' : undefined}
             pendingApi={pendingApi}
           />
           <KpiCard
@@ -186,9 +186,9 @@ export function RevenuePage({
                 Breakdown by plan
               </h2>
               <p className="mt-0.5 text-xs text-[var(--color-text-dim)]">
-                MRR contribution, active tenant count, and year-over-year
-                delta per subscription plan. Click any column header to
-                sort.
+                MRR contribution, active organization count, and
+                year-over-year delta per subscription plan. Click any
+                column header to sort.
               </p>
             </div>
             {pendingApi ? (
@@ -477,7 +477,7 @@ function BreakdownTable({ rows, loaded }: BreakdownTableProps) {
         data-testid="bss-revenue-breakdown-empty"
         className="rounded-md border border-[var(--color-border)] px-4 py-8 text-center text-sm text-[var(--color-text-dim)]"
       >
-        No plan revenue yet. Once tenants subscribe to a plan, MRR
+        No plan revenue yet. Once organizations subscribe to a plan, MRR
         contribution per plan will appear here.
       </div>
     )
@@ -499,7 +499,7 @@ function BreakdownTable({ rows, loaded }: BreakdownTableProps) {
             className="py-2 pr-3"
           />
           <SortableTh
-            label="Tenants"
+            label="Organizations"
             col="tenants"
             activeKey={sortKey}
             activeDir={sortDir}
