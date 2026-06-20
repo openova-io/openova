@@ -1,5 +1,5 @@
 // sovereign_parent_domains_test.go — guards the canonical four-entry
-// sme-pool seed surfaced by LoadOrganizationParentDomainsFromEnv. This is
+// org-pool seed surfaced by LoadOrganizationParentDomainsFromEnv. This is
 // the regression boundary for DoD D30 (issue #1830 — "free-subdomain
 // selection from operator-curated pool").
 //
@@ -30,7 +30,7 @@ import (
 // store-side TLD allowlist all agree on the pool.
 //
 // DoD D30 (issue #1830): all four entries (omani.homes, omani.rest,
-// omani.trade, omani.works) must be present with Role=sme-pool and
+// omani.trade, omani.works) must be present with Role=org-pool and
 // NSFlipReady=true. NSFlipReady=true reflects that these zones are
 // already delegated to the Sovereign's PowerDNS at gTLD level — no
 // Day-2 Dynadot flip is needed (pdmFlipNS nsAlreadyMatches
@@ -46,10 +46,10 @@ func TestLoadOrganizationParentDomainsFromEnv_CanonicalFourEntryPool(t *testing.
 	want := []string{"omani.homes", "omani.rest", "omani.trade", "omani.works"}
 	names := make([]string, 0, len(got))
 	for _, p := range got {
-		if !strings.EqualFold(p.Role, "sme-pool") {
+		if !strings.EqualFold(p.Role, "org-pool") {
 			// Skip the (none-on-this-path) primary entry if it
 			// somehow leaks in — the test's contract is only on
-			// the sme-pool subset.
+			// the org-pool subset.
 			continue
 		}
 		if !p.NSFlipReady {
@@ -59,11 +59,11 @@ func TestLoadOrganizationParentDomainsFromEnv_CanonicalFourEntryPool(t *testing.
 	}
 	sort.Strings(names)
 	if len(names) != len(want) {
-		t.Fatalf("seed must contain %d sme-pool entries, got %d (%v)", len(want), len(names), names)
+		t.Fatalf("seed must contain %d org-pool entries, got %d (%v)", len(want), len(names), names)
 	}
 	for i := range want {
 		if names[i] != want[i] {
-			t.Fatalf("seed sme-pool entries mismatch.\nwant: %v\n got: %v", want, names)
+			t.Fatalf("seed org-pool entries mismatch.\nwant: %v\n got: %v", want, names)
 		}
 	}
 }
@@ -73,7 +73,7 @@ func TestLoadOrganizationParentDomainsFromEnv_CanonicalFourEntryPool(t *testing.
 // otech FQDN is prepended as the role=primary entry. This is the
 // post-handover catalyst-api topology where the Sovereign's own FQDN
 // becomes the implicit primary and the four .omani.X TLDs are the
-// sme-pool offered to SME tenants registering through the marketplace.
+// org-pool offered to SME tenants registering through the marketplace.
 func TestLoadOrganizationParentDomainsFromEnv_OTECHFQDNPrimary(t *testing.T) {
 	t.Setenv("CATALYST_ORG_POOL_DOMAINS", "")
 	t.Setenv("CATALYST_OTECH_FQDN", "t99.example.io")
@@ -81,15 +81,15 @@ func TestLoadOrganizationParentDomainsFromEnv_OTECHFQDNPrimary(t *testing.T) {
 	if len(got) == 0 || got[0].Name != "t99.example.io" || got[0].Role != "primary" {
 		t.Fatalf("first entry must be the OTECH primary, got %+v", got)
 	}
-	// And the four sme-pool entries still follow.
+	// And the four org-pool entries still follow.
 	smePoolCount := 0
 	for _, p := range got {
-		if p.Role == "sme-pool" {
+		if p.Role == "org-pool" {
 			smePoolCount++
 		}
 	}
 	if smePoolCount != 4 {
-		t.Fatalf("OTECH primary + 4 sme-pool entries expected; got %d sme-pool (%+v)", smePoolCount, got)
+		t.Fatalf("OTECH primary + 4 org-pool entries expected; got %d org-pool (%+v)", smePoolCount, got)
 	}
 }
 
@@ -108,8 +108,8 @@ func TestLoadOrganizationParentDomainsFromEnv_EnvOverride(t *testing.T) {
 		t.Errorf("first env entry mismatch: %+v", got[0])
 	}
 	for _, p := range got[1:] {
-		if p.Role != "sme-pool" {
-			t.Errorf("entries without :role suffix should default to sme-pool, got %+v", p)
+		if p.Role != "org-pool" {
+			t.Errorf("entries without :role suffix should default to org-pool, got %+v", p)
 		}
 	}
 	// Belt-and-braces: env override must not leak the hardcoded four-entry

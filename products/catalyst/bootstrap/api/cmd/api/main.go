@@ -1907,7 +1907,7 @@ func main() {
 		// Multi-domain Sovereign — admin "Add another parent domain" flow
 		// + live DNS propagation status panel (issue #829, parent #825).
 		// LIST returns the operator's parent-domain pool (primary +
-		// sme-pool entries). POST queues a new domain through the
+		// org-pool entries). POST queues a new domain through the
 		// NS-flip → PowerDNS-zone-create → cert-issue pipeline. Per
 		// issue #827 (this PR) the zone-create step now invokes the
 		// real PowerDNS REST API via internal/powerdns.Client when the

@@ -44,7 +44,7 @@ async function mountAdminPage(
   page: Page,
   domains: Array<{
     name: string
-    role: 'primary' | 'sme-pool'
+    role: 'primary' | 'org-pool'
     flipStatus: string
     addedAt: string
     flippedAt?: string
@@ -139,7 +139,7 @@ test.describe('ParentDomainsPage @issue-829', () => {
         },
         {
           name: 'omani.trade',
-          role: 'sme-pool',
+          role: 'org-pool',
           flipStatus: 'flipping',
           registrarKind: 'dynadot',
           addedAt: new Date().toISOString(),
@@ -187,7 +187,7 @@ test.describe('ParentDomainsPage @issue-829', () => {
         },
         {
           name: 'omani.trade',
-          role: 'sme-pool',
+          role: 'org-pool',
           flipStatus: 'cert-issuing',
           registrarKind: 'dynadot',
           addedAt: '2026-05-04T09:00:00Z',
@@ -264,7 +264,7 @@ test.describe('ParentDomainsPage @issue-829', () => {
         },
         {
           name: 'omani.trade',
-          role: 'sme-pool',
+          role: 'org-pool',
           flipStatus: 'ready',
           registrarKind: 'dynadot',
           addedAt: '2026-05-04T09:00:00Z',

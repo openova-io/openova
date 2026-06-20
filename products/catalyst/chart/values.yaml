@@ -361,7 +361,7 @@ giteaAdminBridge:
 #   - name (required): apex domain. The Certificate is requested for
 #     `*.<name>` + `<name>` (apex).
 #   - role (optional): operator-meaningful tag — "primary" or
-#     "sme-pool". Carried in resource labels for ops visibility.
+#     "org-pool". Carried in resource labels for ops visibility.
 #   - secretName (optional): K8s Secret name the Cert is written to.
 #     Defaults to `sovereign-wildcard-tls-<sanitised-name>` when
 #     unset. The Cilium Gateway listener for that zone references
@@ -1347,7 +1347,7 @@ smeTenants:
 
 # ─── Per-Organization public HTTPRoutes (issue #1629 follow-up) ───────
 # PowerDNS now resolves `<slug>.<parentDomain>` for every Org that maps
-# onto a Sovereign's role=sme-pool parent domain, but without a
+# onto a Sovereign's role=org-pool parent domain, but without a
 # corresponding HTTPRoute the Cilium Gateway terminates TLS on the
 # wildcard cert and falls through to the marketplace tenant-wildcard
 # route (which sends the request to the marketplace `console` Service).

@@ -526,7 +526,7 @@ crossplane:
 #   - name (required): apex domain, no trailing dot. The Job appends
 #     the trailing dot at API call time per the PowerDNS contract.
 #   - role (optional): operator-meaningful tag — "primary" for the
-#     operator's own console/api hostnames, "sme-pool" for zones
+#     operator's own console/api hostnames, "org-pool" for zones
 #     offered to SME tenants. Not consumed by PowerDNS itself; carried
 #     in the Job's audit ConfigMap so the admin console can show role
 #     per zone without an extra source of truth.
@@ -546,7 +546,7 @@ crossplane:
 #     - name: omani.works
 #       role: primary
 #     - name: omani.trade
-#       role: sme-pool
+#       role: org-pool
 zones: []
 
 # ─── Geo-failover lua-records (G93.4, Refs #2669) ────────────────────────

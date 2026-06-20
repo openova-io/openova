@@ -62,7 +62,7 @@ func TestTenantCreatedWire_PublisherToConsumer_RoundTrip(t *testing.T) {
 		Slug:      "acme",
 		Name:      "ACME Corp",
 		OwnerID:   "user-xyz",
-		PlanID:    "sme-pool-basic",
+		PlanID:    "org-pool-basic",
 		Apps:      []string{"wordpress"},
 		Status:    "provisioning",
 		Subdomain: "acme",
@@ -107,7 +107,7 @@ func TestTenantCreatedWire_PublisherToConsumer_RoundTrip(t *testing.T) {
 	if got.OwnerID != "user-xyz" {
 		t.Errorf("owner_id lost: got %q", got.OwnerID)
 	}
-	if got.PlanID != "sme-pool-basic" {
+	if got.PlanID != "org-pool-basic" {
 		t.Errorf("plan_id lost: got %q", got.PlanID)
 	}
 }
@@ -125,7 +125,7 @@ func TestTenantCreatedWire_EmptyEmailOmitted_StillDecodes(t *testing.T) {
 		Slug:    "acme",
 		Name:    "ACME Corp",
 		OwnerID: "user-xyz",
-		PlanID:  "sme-pool-basic",
+		PlanID:  "org-pool-basic",
 	}
 	tenantCreatedPayload := struct {
 		*store.Tenant
@@ -168,7 +168,7 @@ func TestTenantCreatedWire_AppConfigs_RoundTrip(t *testing.T) {
 		Slug:      "acme",
 		Name:      "ACME Corp",
 		OwnerID:   "user-xyz",
-		PlanID:    "sme-pool-basic",
+		PlanID:    "org-pool-basic",
 		Apps:      []string{"wordpress", "postgres"},
 		Status:    "provisioning",
 		Subdomain: "acme",
@@ -237,7 +237,7 @@ func TestTenantCreatedWire_EmptyAppConfigs_Omitted(t *testing.T) {
 		Slug:    "acme",
 		Name:    "ACME Corp",
 		OwnerID: "user-xyz",
-		PlanID:  "sme-pool-basic",
+		PlanID:  "org-pool-basic",
 		// AppConfigs deliberately nil.
 	}
 	tenantCreatedPayload := struct {

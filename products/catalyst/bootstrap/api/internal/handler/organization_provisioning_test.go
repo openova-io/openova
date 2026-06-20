@@ -1052,7 +1052,7 @@ func TestValidateBYOCNAME_Mismatch(t *testing.T) {
 }
 
 // Multi-domain Sovereign (#828): a CNAME pointing at any parent in
-// the role:sme-pool list MUST validate, not just OTECHFQDN.
+// the role:org-pool list MUST validate, not just OTECHFQDN.
 func TestValidateBYOCNAME_MultiDomainAccepted(t *testing.T) {
 	// Resolver returns a CNAME ending in omani.trade — one of the
 	// pool entries, not the legacy primary OTECHFQDN.
@@ -1105,7 +1105,7 @@ var _ = readAll
 /* ── Multi-domain Sovereign tests (epic #825 / MD-3 #828) ─────────── */
 
 // newTestHandlerWithMultiDomainPool spins up a Handler whose SME-tenant
-// deps include a 2-entry sme-pool (omani.works ready + omani.trade
+// deps include a 2-entry org-pool (omani.works ready + omani.trade
 // ready) plus a primary OTECHFQDN — exercising the full #828 path.
 func newTestHandlerWithMultiDomainPool(t *testing.T, pool []OrganizationParentDomain) (*Handler, *fakeGitOps, *fakeDNS, *fakeKCClients, *fakeTenantEmitter, *store.TenantRegistry) {
 	t.Helper()
@@ -1146,8 +1146,8 @@ func newTestHandlerWithMultiDomainPool(t *testing.T, pool []OrganizationParentDo
 func TestCreateOrganization_MultiDomain_OperatorPicksPool(t *testing.T) {
 	h, _, dns, _, _, registry := newTestHandlerWithMultiDomainPool(t, []OrganizationParentDomain{
 		{Name: "otech.example", Role: "primary", NSFlipReady: true},
-		{Name: "omani.works", Role: "sme-pool", NSFlipReady: true},
-		{Name: "omani.trade", Role: "sme-pool", NSFlipReady: true},
+		{Name: "omani.works", Role: "org-pool", NSFlipReady: true},
+		{Name: "omani.trade", Role: "org-pool", NSFlipReady: true},
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations",
@@ -1184,12 +1184,12 @@ func TestCreateOrganization_MultiDomain_OperatorPicksPool(t *testing.T) {
 
 // TestCreateOrganization_MultiDomain_DefaultsToFirstReady — when the
 // operator omits parent_domain on a multi-entry pool the orchestrator
-// picks the first NS-flip-ready sme-pool entry.
+// picks the first NS-flip-ready org-pool entry.
 func TestCreateOrganization_MultiDomain_DefaultsToFirstReady(t *testing.T) {
 	h, _, _, _, _, _ := newTestHandlerWithMultiDomainPool(t, []OrganizationParentDomain{
 		{Name: "otech.example", Role: "primary", NSFlipReady: true},
-		{Name: "omani.works", Role: "sme-pool", NSFlipReady: true},
-		{Name: "omani.trade", Role: "sme-pool", NSFlipReady: true},
+		{Name: "omani.works", Role: "org-pool", NSFlipReady: true},
+		{Name: "omani.trade", Role: "org-pool", NSFlipReady: true},
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations",
@@ -1208,15 +1208,15 @@ func TestCreateOrganization_MultiDomain_DefaultsToFirstReady(t *testing.T) {
 	var got orgTenantResponse
 	_ = json.Unmarshal(w.Body.Bytes(), &got)
 	if got.ParentDomain != "omani.works" {
-		t.Errorf("default parent_domain: %q want omani.works (first ready sme-pool entry)", got.ParentDomain)
+		t.Errorf("default parent_domain: %q want omani.works (first ready org-pool entry)", got.ParentDomain)
 	}
 }
 
 // TestCreateOrganization_MultiDomain_RejectsUnknownParent — picking a
-// parent that isn't in the sme-pool list = 400.
+// parent that isn't in the org-pool list = 400.
 func TestCreateOrganization_MultiDomain_RejectsUnknownParent(t *testing.T) {
 	h, _, _, _, _, _ := newTestHandlerWithMultiDomainPool(t, []OrganizationParentDomain{
-		{Name: "omani.works", Role: "sme-pool", NSFlipReady: true},
+		{Name: "omani.works", Role: "org-pool", NSFlipReady: true},
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations",
@@ -1242,8 +1242,8 @@ func TestCreateOrganization_MultiDomain_RejectsUnknownParent(t *testing.T) {
 // whose NS-flip is still pending returns 503 + Retry-After.
 func TestCreateOrganization_MultiDomain_RejectsNotReady(t *testing.T) {
 	h, _, _, _, _, _ := newTestHandlerWithMultiDomainPool(t, []OrganizationParentDomain{
-		{Name: "omani.works", Role: "sme-pool", NSFlipReady: true},
-		{Name: "omani.trade", Role: "sme-pool", NSFlipReady: false},
+		{Name: "omani.works", Role: "org-pool", NSFlipReady: true},
+		{Name: "omani.trade", Role: "org-pool", NSFlipReady: false},
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations",
@@ -1289,7 +1289,7 @@ func TestLoadOrganizationParentDomainsFromEnv_StubFallback(t *testing.T) {
 		switch p.Role {
 		case "primary":
 			primary++
-		case "sme-pool":
+		case "org-pool":
 			pool++
 		}
 	}
@@ -1297,7 +1297,7 @@ func TestLoadOrganizationParentDomainsFromEnv_StubFallback(t *testing.T) {
 		t.Errorf("primary: want 1 got %d (%v)", primary, got)
 	}
 	if pool != 4 {
-		t.Errorf("sme-pool: want 4 got %d (%v)", pool, got)
+		t.Errorf("org-pool: want 4 got %d (%v)", pool, got)
 	}
 }
 
@@ -1313,8 +1313,8 @@ func TestLoadOrganizationParentDomainsFromEnv_Custom(t *testing.T) {
 		t.Errorf("primary entry: %+v", got[0])
 	}
 	for _, p := range got[1:] {
-		if p.Role != "sme-pool" {
-			t.Errorf("non-primary entry should be sme-pool: %+v", p)
+		if p.Role != "org-pool" {
+			t.Errorf("non-primary entry should be org-pool: %+v", p)
 		}
 	}
 }

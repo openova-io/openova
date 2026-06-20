@@ -31,9 +31,9 @@ const TENANT_DISCOVERY = {
 
 const POOL_RESPONSE = {
   items: [
-    { name: 'omani.works', role: 'sme-pool', flipStatus: 'ready' },
-    { name: 'omani.trade', role: 'sme-pool', flipStatus: 'ready' },
-    { name: 'not-flipped.example', role: 'sme-pool', flipStatus: 'flipping' },
+    { name: 'omani.works', role: 'org-pool', flipStatus: 'ready' },
+    { name: 'omani.trade', role: 'org-pool', flipStatus: 'ready' },
+    { name: 'not-flipped.example', role: 'org-pool', flipStatus: 'flipping' },
   ],
 }
 

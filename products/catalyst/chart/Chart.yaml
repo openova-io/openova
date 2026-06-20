@@ -599,7 +599,7 @@ name: bp-catalyst-platform
 # Bumped 1.4.217 → 1.4.218 on rebase to claim the next slot above
 # TBD-V10/#2001 marketplace JS fix on origin/main 1.4.217.
 # 1.4.217 — TBD-V10 / #2001 (2026-05-20): fix post-checkout redirect on
-# Sovereign sme-pool marketplaces. The marketplace JS in
+# Sovereign org-pool marketplaces. The marketplace JS in
 # `core/marketplace/src/lib/config.ts::deriveConsoleURL` was mapping
 # `marketplace.<sov-fqdn>` → `console.<sov-fqdn>` (operator console)
 # instead of `console.<tenant-slug>.<sov-fqdn>` (per-tenant console).

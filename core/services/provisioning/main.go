@@ -43,7 +43,7 @@ func main() {
 	gitBasePath := getEnv("GIT_BASE_PATH", "clusters/contabo-mkt/tenants")
 	sovereignFQDN := getEnv("SOVEREIGN_FQDN", "")
 	catalogURL := getEnv("CATALOG_URL", "http://catalog.org-services.svc.cluster.local:8082")
-	// Per-Sovereign sme-pool parent zone (e.g. "omani.homes"). Empty
+	// Per-Sovereign org-pool parent zone (e.g. "omani.homes"). Empty
 	// disables the Organization.spec.tenantPublic patch in
 	// handlers/tenant_public_patch.go — the existing
 	// Sovereign-wide tenant-wildcard route keeps legacy tenants

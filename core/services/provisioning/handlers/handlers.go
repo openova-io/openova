@@ -46,7 +46,7 @@ type Handler struct {
 	// repo on Sovereigns). Operator-overridable via GITHUB_BRANCH env.
 	GitBranch string
 
-	// TenantParentDomain is the sme-pool parent zone the provisioning
+	// TenantParentDomain is the org-pool parent zone the provisioning
 	// service stamps onto Organization.spec.tenantPublic when a tenant's
 	// product becomes Ready. Sourced from TENANT_PARENT_DOMAIN env on
 	// the Sovereign's provisioning Deployment (e.g. "omani.homes"). Empty

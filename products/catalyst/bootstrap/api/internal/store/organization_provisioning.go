@@ -143,7 +143,7 @@ type OrganizationProvisionRecord struct {
 	// ParentDomain — the parent zone the SME's free-subdomain hangs
 	// under (multi-domain Sovereign per epic #825). For
 	// free-subdomain mode this is one of the Sovereign's
-	// `role: sme-pool` parent domains (e.g. "omani.trade") and the
+	// `role: org-pool` parent domains (e.g. "omani.trade") and the
 	// SPA host becomes `console.<subdomain>.<parent_domain>`. For
 	// BYO mode this is empty (the BYO domain is the canonical key).
 	// Per Inviolable Principle 4 the value is operator-supplied at

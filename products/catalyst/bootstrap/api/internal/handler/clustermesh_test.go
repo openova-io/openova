@@ -897,7 +897,7 @@ func TestRunAutoEstablishClusterMesh_RetryConvergesAfterLBAppears(t *testing.T) 
 // zero-touch on the next mothership roll — nothing else ever re-fires
 // the establish before handover).
 func TestRestoreFromStore_StartupKicksClusterMeshReconcile(t *testing.T) {
-	t.Setenv("SOVEREIGN_FQDN", "") // mothership mode for chrootEnsureSMEPoolSeed
+	t.Setenv("SOVEREIGN_FQDN", "") // mothership mode for chrootEnsureOrgPoolSeed
 	dir := t.TempDir()
 	caCert, caKey := genCAForTest(t, "test-mesh-ca")
 

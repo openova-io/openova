@@ -40,7 +40,7 @@ func TestRedact_RoundTripsParentDomains(t *testing.T) {
 		HetznerToken:  "leaked-if-broken",
 		ParentDomains: []provisioner.ParentDomain{
 			{Name: "omani.works", Role: provisioner.ParentDomainRolePrimary, RegistrarKind: "dynadot", AddedAt: addedAt},
-			{Name: "omani.trade", Role: provisioner.ParentDomainRoleSMEPool, RegistrarKind: "dynadot", RegistrarCredsRef: "dynadot-omani-trade", AddedAt: addedAt.Add(time.Hour)},
+			{Name: "omani.trade", Role: provisioner.ParentDomainRoleOrgPool, RegistrarKind: "dynadot", RegistrarCredsRef: "dynadot-omani-trade", AddedAt: addedAt.Add(time.Hour)},
 		},
 	}
 	out := Redact(req)
@@ -117,7 +117,7 @@ func TestSaveLoad_RoundTripsParentDomains(t *testing.T) {
 			HetznerToken:  "tok",
 			ParentDomains: []provisioner.ParentDomain{
 				{Name: "omani.works", Role: provisioner.ParentDomainRolePrimary, RegistrarKind: "dynadot", AddedAt: addedAt},
-				{Name: "omani.trade", Role: provisioner.ParentDomainRoleSMEPool, RegistrarKind: "dynadot", AddedAt: addedAt.Add(time.Hour)},
+				{Name: "omani.trade", Role: provisioner.ParentDomainRoleOrgPool, RegistrarKind: "dynadot", AddedAt: addedAt.Add(time.Hour)},
 			},
 		}),
 		StartedAt: time.Now().UTC().Truncate(time.Second),
@@ -139,8 +139,8 @@ func TestSaveLoad_RoundTripsParentDomains(t *testing.T) {
 	if pds[0].Name != "omani.works" || pds[0].Role != provisioner.ParentDomainRolePrimary {
 		t.Errorf("primary entry round-trip failed: %+v", pds[0])
 	}
-	if pds[1].Name != "omani.trade" || pds[1].Role != provisioner.ParentDomainRoleSMEPool {
-		t.Errorf("sme-pool entry round-trip failed: %+v", pds[1])
+	if pds[1].Name != "omani.trade" || pds[1].Role != provisioner.ParentDomainRoleOrgPool {
+		t.Errorf("org-pool entry round-trip failed: %+v", pds[1])
 	}
 }
 

@@ -151,7 +151,7 @@ export interface SMETenantCreateRequest {
   /** Required when domain_mode === 'byo'. */
   byo_domain?: string
   /** Required when domain_mode === 'free-subdomain' AND the Sovereign
-   *  has more than one entry in its sme-pool. Backend defaults to the
+   *  has more than one entry in its org-pool. Backend defaults to the
    *  first NS-flip-ready entry when omitted on a multi-entry pool. */
   parent_domain?: string
   admin_email: string
@@ -183,9 +183,9 @@ export type ParentDomainFlipStatus =
 
 export interface SovereignParentDomain {
   name: string
-  /** "primary" | "sme-pool" — only sme-pool entries are valid SME
+  /** "primary" | "org-pool" — only org-pool entries are valid SME
    *  tenant parents. */
-  role: 'primary' | 'sme-pool'
+  role: 'primary' | 'org-pool'
   /** Pipeline state of the NS-flip + zone-create + cert-issue chain.
    *  Operators MUST NOT bind a tenant under a not-yet-ready parent —
    *  the back end returns 503 Retry-After. */
@@ -219,7 +219,7 @@ const SOVEREIGN_PARENT_DOMAINS_PATH = '/v1/sovereign/parent-domains'
  * apiUrl(); never hardcode the prefix.
  */
 export async function listSovereignParentDomains(
-  role?: 'primary' | 'sme-pool',
+  role?: 'primary' | 'org-pool',
 ): Promise<SovereignParentDomain[]> {
   const qs = role ? `?role=${encodeURIComponent(role)}` : ''
   const res = await fetch(apiUrl(`${SOVEREIGN_PARENT_DOMAINS_PATH}${qs}`), {

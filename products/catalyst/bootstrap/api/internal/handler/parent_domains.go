@@ -6,7 +6,7 @@
 // A franchised Sovereign supports N parent domains, not 1. The operator
 // brings:
 //   - the primary domain serving console.<primary>, api.<primary>, etc.
-//   - zero-or-more "sme-pool" domains offered to SME tenants for free
+//   - zero-or-more "org-pool" domains offered to SME tenants for free
 //     subdomain allocation
 // A post-handover surface in the Sovereign Console lets the operator add
 // MORE parent domains over time (e.g. acquired a new portfolio domain).
@@ -101,9 +101,9 @@ const (
 	// RolePrimary — the operator's own domain (console.<name>,
 	// api.<name>, marketplace.<name>). Exactly one per Sovereign.
 	RolePrimary ParentDomainRole = "primary"
-	// RoleSMEPool — offered to SME tenants for free-subdomain
+	// RoleOrgPool — offered to SME tenants for free-subdomain
 	// allocation (e.g. console.acme.<name>). Zero-or-more per Sovereign.
-	RoleSMEPool ParentDomainRole = "sme-pool"
+	RoleOrgPool ParentDomainRole = "org-pool"
 )
 
 // FlipStatus — high-level state of the NS-flip + zone-create + cert
@@ -148,7 +148,7 @@ type ParentDomain struct {
 // presence of the row IS the proof the pipeline succeeded; failed
 // adds are not persisted (see the file-level "Persistence" comment).
 func fromProvisioner(p provisioner.ParentDomain) ParentDomain {
-	role := RoleSMEPool
+	role := RoleOrgPool
 	if p.Role == provisioner.ParentDomainRolePrimary {
 		role = RolePrimary
 	}
@@ -448,12 +448,12 @@ func (h *Handler) AddParentDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	role := strings.ToLower(strings.TrimSpace(req.Role))
 	if role == "" {
-		role = string(RoleSMEPool)
+		role = string(RoleOrgPool)
 	}
-	if role != string(RolePrimary) && role != string(RoleSMEPool) {
+	if role != string(RolePrimary) && role != string(RoleOrgPool) {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
 			"error":  "invalid-role",
-			"detail": "role must be 'primary' or 'sme-pool'",
+			"detail": "role must be 'primary' or 'org-pool'",
 		})
 		return
 	}
@@ -502,7 +502,7 @@ func (h *Handler) AddParentDomain(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	pd := provisioner.ParentDomain{
 		Name:          name,
-		Role:          provisioner.ParentDomainRoleSMEPool,
+		Role:          provisioner.ParentDomainRoleOrgPool,
 		RegistrarKind: strings.ToLower(req.RegistrarKind),
 		AddedAt:       now,
 	}
@@ -965,7 +965,7 @@ func (h *Handler) pdmFlipNS(ctx context.Context, registrarKind, domain, token st
 	// current NS records already match the expected nameservers, the
 	// PDM registrar-flip step is a no-op — there's nothing to flip.
 	// Skipping avoids burning the registrar API credit + sidesteps the
-	// Dynadot pdm-status-401 blocker for sme-pool domains already
+	// Dynadot pdm-status-401 blocker for org-pool domains already
 	// delegated to OpenOva (e.g. omani.homes which already points at
 	// ns1/2/3.openova.io). When the lookup fails or returns a different
 	// NS set, fall through to the original pipeline so PDM does the
@@ -1075,7 +1075,7 @@ func (h *Handler) lookupSovereignLBIP() string {
 // nsAlreadyMatches returns true when domain's current NS records (per
 // the public DNS) already include EVERY name in expected. Case-
 // insensitive, trailing-dot tolerant. Used by pdmFlipNS to short-circuit
-// the registrar-flip step for sme-pool domains already delegated to
+// the registrar-flip step for org-pool domains already delegated to
 // OpenOva's PowerDNS (D30 — t134 2026-05-17). Returns false on lookup
 // error or partial match so the original PDM pipeline still runs.
 func (h *Handler) nsAlreadyMatches(ctx context.Context, domain string, expected []string) bool {

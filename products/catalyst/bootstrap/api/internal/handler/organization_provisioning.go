@@ -90,7 +90,7 @@ type OrganizationGitOpsWriter interface {
 //
 // The free-subdomain method takes a `parentZone` parameter so the
 // multi-domain Sovereign (epic #825) can write records under any of
-// its role:sme-pool zones; on a single-domain Sovereign the wired
+// its role:org-pool zones; on a single-domain Sovereign the wired
 // caller supplies OTECHFQDN, preserving #804 behaviour.
 //
 // The BYO method takes an `acceptedTargets` slice so the validator
@@ -131,7 +131,7 @@ type OrganizationEventEmitter interface {
 // OrganizationParentDomain describes one parent domain the Sovereign
 // brought at signup (epic #825 / MD-1 #826) that is offered to SMEs.
 // One Sovereign typically holds several: a `primary` parent (the one
-// hosting `console.<sovereign>`) plus zero-or-more `sme-pool` parents
+// hosting `console.<sovereign>`) plus zero-or-more `org-pool` parents
 // the SME tenant pipeline (this file) writes free-subdomains under.
 //
 // Per Inviolable Principle 4 the pool is fully data-driven; #828
@@ -139,8 +139,8 @@ type OrganizationEventEmitter interface {
 type OrganizationParentDomain struct {
 	// Name — the FQDN itself, e.g. "omani.trade".
 	Name string `json:"name"`
-	// Role — "primary" | "sme-pool". The SME tenant create endpoint
-	// only accepts entries with role=sme-pool.
+	// Role — "primary" | "org-pool". The SME tenant create endpoint
+	// only accepts entries with role=org-pool.
 	Role string `json:"role"`
 	// NSFlipReady — true once the registrar's NS records point at
 	// the Sovereign's PowerDNS (set by the Sovereign provisioning
@@ -166,14 +166,14 @@ type OrganizationDeps struct {
 	// #826). Wired at startup from MD-1's data-model output (or, while
 	// MD-1 is in flight, from CATALYST_ORG_POOL_DOMAINS env stub).
 	// Empty/nil means "single-domain Sovereign": the only parent is
-	// OTECHFQDN itself with role=sme-pool, ns_flip_ready=true.
+	// OTECHFQDN itself with role=org-pool, ns_flip_ready=true.
 	ParentDomains []OrganizationParentDomain
 	// MaxRetryCount — promoted to STSFailed at this many transient
 	// failures of the same step. Per ADR-0003 §3.8 = 5.
 	MaxRetryCount int
 }
 
-// PoolDomains returns the subset of ParentDomains with role=sme-pool.
+// PoolDomains returns the subset of ParentDomains with role=org-pool.
 // Includes the implicit OTECHFQDN entry when the wired list is empty
 // (single-domain Sovereign — backward-compat with #804).
 func (d OrganizationDeps) PoolDomains() []OrganizationParentDomain {
@@ -182,12 +182,12 @@ func (d OrganizationDeps) PoolDomains() []OrganizationParentDomain {
 			return nil
 		}
 		return []OrganizationParentDomain{
-			{Name: d.OTECHFQDN, Role: "sme-pool", NSFlipReady: true},
+			{Name: d.OTECHFQDN, Role: "org-pool", NSFlipReady: true},
 		}
 	}
 	out := make([]OrganizationParentDomain, 0, len(d.ParentDomains))
 	for _, p := range d.ParentDomains {
-		if strings.EqualFold(p.Role, "sme-pool") {
+		if strings.EqualFold(p.Role, "org-pool") {
 			out = append(out, p)
 		}
 	}
@@ -229,11 +229,11 @@ type orgTenantCreateRequest struct {
 	// derives the host as `console.<byo_domain>`.
 	BYODomain string `json:"byo_domain,omitempty"`
 	// ParentDomain — required when DomainMode == "free-subdomain"
-	// and the Sovereign has more than one entry in its sme-pool. When
+	// and the Sovereign has more than one entry in its org-pool. When
 	// omitted with a multi-entry pool the orchestrator defaults to the
 	// first NS-flip-ready entry. Must match (case-insensitive) one of
 	// the entries returned by GET /api/v1/sovereign/parent-domains
-	// with role=sme-pool. Per epic #825 the resulting host becomes
+	// with role=org-pool. Per epic #825 the resulting host becomes
 	// `console.<subdomain>.<parent_domain>` — never inferred from
 	// OTECHFQDN.
 	ParentDomain string `json:"parent_domain,omitempty"`
@@ -573,13 +573,13 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Multi-domain Sovereign (epic #825 / MD-3 #828): for free-subdomain
-	// mode the operator may pick which sme-pool parent domain hosts the
+	// mode the operator may pick which org-pool parent domain hosts the
 	// new tenant. When omitted with a non-empty pool we default to the
 	// first NS-flip-ready entry (or, on a single-domain Sovereign, the
 	// implicit OTECHFQDN entry — see Handler.ParentDomainsForSMECreate).
 	//
 	// The pool is composed live (admin store from #829 + implicit
-	// primary + env stub) so an operator who adds a new sme-pool entry
+	// primary + env stub) so an operator who adds a new org-pool entry
 	// via the #829 admin surface can bind tenants under it immediately,
 	// without restarting catalyst-api. The same composition is what
 	// the front-end's GET /api/v1/sovereign/parent-domains shows.
@@ -587,8 +587,8 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 		pool := h.poolDomainsForSMECreate(deps)
 		if len(pool) == 0 {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-				"error":  "sme-pool-empty",
-				"detail": "this Sovereign has no role:sme-pool parent domains; ask the operator to add one via the admin console or configure CATALYST_ORG_POOL_DOMAINS",
+				"error":  "org-pool-empty",
+				"detail": "this Sovereign has no role:org-pool parent domains; ask the operator to add one via the admin console or configure CATALYST_ORG_POOL_DOMAINS",
 			})
 			return
 		}
@@ -608,7 +608,7 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 		match, ok := findParentInPool(parent, pool)
 		if !ok {
 			writeBadRequest(w, "parent-domain-invalid",
-				"parent_domain must be one of this Sovereign's role:sme-pool parent domains")
+				"parent_domain must be one of this Sovereign's role:org-pool parent domains")
 			return
 		}
 		if !match.NSFlipReady {
@@ -1041,7 +1041,7 @@ func (h *Handler) ReconcileAllPending(ctx context.Context) {
 // customer can fix their own DNS without contacting support.
 var errBYOCNAMEMismatch = errors.New("byo cname does not resolve to otech ingress")
 
-// poolDomainsForSMECreate returns the live sme-pool list used to
+// poolDomainsForSMECreate returns the live org-pool list used to
 // validate the operator-supplied parent_domain. Precedence:
 //
 //  1. OrganizationDeps.ParentDomains — explicit operator wiring at
@@ -1055,7 +1055,7 @@ var errBYOCNAMEMismatch = errors.New("byo cname does not resolve to otech ingres
 //     are both empty.
 //  4. OTECHFQDN — single-domain back-compat last-resort.
 //
-// Returns sme-pool entries only — primary domains are not bookable
+// Returns org-pool entries only — primary domains are not bookable
 // for SME tenants per epic #825.
 func (h *Handler) poolDomainsForSMECreate(deps OrganizationDeps) []OrganizationParentDomain {
 	merged := make([]OrganizationParentDomain, 0)
@@ -1065,7 +1065,7 @@ func (h *Handler) poolDomainsForSMECreate(deps OrganizationDeps) []OrganizationP
 		if _, ok := seen[key]; ok {
 			return
 		}
-		if !strings.EqualFold(p.Role, "sme-pool") {
+		if !strings.EqualFold(p.Role, "org-pool") {
 			return
 		}
 		p.Name = key
@@ -1089,7 +1089,7 @@ func (h *Handler) poolDomainsForSMECreate(deps OrganizationDeps) []OrganizationP
 	// (3) + (4) — single-domain back-compat.
 	if strings.TrimSpace(deps.OTECHFQDN) != "" {
 		merged = append(merged, OrganizationParentDomain{
-			Name: strings.ToLower(deps.OTECHFQDN), Role: "sme-pool", NSFlipReady: true,
+			Name: strings.ToLower(deps.OTECHFQDN), Role: "org-pool", NSFlipReady: true,
 		})
 	}
 	return merged

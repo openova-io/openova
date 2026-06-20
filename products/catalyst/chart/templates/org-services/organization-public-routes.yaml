@@ -2,7 +2,7 @@
 Per-Organization public HTTPRoutes (issue #1629 follow-up).
 
 PowerDNS now resolves `console.<slug>.<parentDomain>` for every Org
-that maps onto a Sovereign's role=sme-pool parent domain. Without an
+that maps onto a Sovereign's role=org-pool parent domain. Without an
 attached HTTPRoute the Cilium Gateway terminates TLS on the
 wildcard cert and falls through to the marketplace `tenant-wildcard`
 route — which sends the request to the marketplace `console` Service

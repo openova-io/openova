@@ -806,7 +806,7 @@ spec:
       # (default enabled on Sovereigns; contabo overlay flips
       # enabled=false because Step 09 never runs on Catalyst-Zero).
       # 1.4.217 — TBD-V10 / #2001 (2026-05-20): post-checkout redirect
-      # on Sovereign sme-pool marketplaces now composes the per-tenant
+      # on Sovereign org-pool marketplaces now composes the per-tenant
       # console host `console.<slug>.<sov-fqdn>` instead of the
       # operator console `console.<sov-fqdn>`. Pure marketplace-JS
       # fix (core/marketplace/src/lib/config.ts +

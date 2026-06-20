@@ -457,7 +457,7 @@ type orgTenantTemplateData struct {
 	Namespace    string
 	VClusterName string
 	OTECHFQDN    string
-	// ParentDomain — the chosen sme-pool parent (multi-domain
+	// ParentDomain — the chosen org-pool parent (multi-domain
 	// Sovereign per epic #825). Falls back to OTECHFQDN for
 	// single-domain back-compat. The console/wordpress/openclaw/
 	// mail/keycloak hosts are all derived from this zone.
@@ -552,7 +552,7 @@ func renderOrganizationOverlay(rec store.OrganizationProvisionRecord, versions O
 		return nil, errors.New("render: subdomain required")
 	}
 	versions = withVersionDefaults(versions)
-	// Multi-domain Sovereign (#825): the chosen sme-pool parent zone
+	// Multi-domain Sovereign (#825): the chosen org-pool parent zone
 	// drives every derived host. Falls back to OTECHFQDN for single-
 	// domain back-compat (#804).
 	parentZone := strings.TrimSpace(rec.ParentDomain)
@@ -1459,7 +1459,7 @@ const orgTenantCertificate = `{{- if .IsBYO}}
 # Per-host Certificate (BYO mode only). Free-subdomain SMEs are
 # covered by the per-parent-zone wildcard *.{{.ParentDomain}} that
 # cert-manager + powerdns-webhook issues per epic #825 sub-2 (one
-# wildcard per parent in the role:sme-pool list).
+# wildcard per parent in the role:org-pool list).
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -1490,7 +1490,7 @@ data:
   notes: |
     Free-subdomain SMEs use the per-parent-zone wildcard certificate
     issued by cert-manager + powerdns-webhook. The parent zone is
-    one of the Sovereign's role:sme-pool entries (epic #825).
+    one of the Sovereign's role:org-pool entries (epic #825).
     No per-tenant Certificate resource is required.
 {{- end}}
 `

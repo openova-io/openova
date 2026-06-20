@@ -83,7 +83,7 @@ var VPCQuotaHook vpcQuotaFunc
 // than the legacy one-FQDN model. Day-1 (wizard provision) populates
 // the slice with exactly ONE entry carrying Role="primary"; Day-2
 // add-domain calls (issue #829) append additional entries with
-// Role="sme-pool". The provisioning pipeline iterates over the slice
+// Role="org-pool". The provisioning pipeline iterates over the slice
 // applying the same per-domain steps to each (NS-flip via registrar,
 // PowerDNS zone create, cert-manager Certificate create) — see
 // ProvisionParentDomain below.
@@ -98,9 +98,9 @@ var VPCQuotaHook vpcQuotaFunc
 //
 //   - Name is the registered domain at the registrar
 //     (e.g. "omani.works"). Must match parentDomainNamePattern.
-//   - Role is one of ParentDomainRolePrimary | ParentDomainRoleSMEPool.
+//   - Role is one of ParentDomainRolePrimary | ParentDomainRoleOrgPool.
 //     Exactly one entry in the slice carries the primary role; zero or
-//     more carry sme-pool. Validation enforces this at Validate() time.
+//     more carry org-pool. Validation enforces this at Validate() time.
 //   - RegistrarKind is the adapter id used to flip the NS records at
 //     the registrar (today: "dynadot"; future: "namecheap" / "godaddy"
 //     / etc). Inviolable Principle #4 ("never hardcode") requires this
@@ -127,8 +127,8 @@ type ParentDomain struct {
 
 // ParentDomain role constants. Exactly one ParentDomain in
 // Request.ParentDomains carries ParentDomainRolePrimary; zero or more
-// carry ParentDomainRoleSMEPool. The wizard's Day-1 path always
-// produces a single primary entry — sme-pool entries are appended
+// carry ParentDomainRoleOrgPool. The wizard's Day-1 path always
+// produces a single primary entry — org-pool entries are appended
 // post-handover via the admin console (issue #829).
 const (
 	// ParentDomainRolePrimary marks the unique parent domain that
@@ -138,11 +138,11 @@ const (
 	// HTTPRoutes.
 	ParentDomainRolePrimary = "primary"
 
-	// ParentDomainRoleSMEPool marks a parent domain offered to SME
+	// ParentDomainRoleOrgPool marks a parent domain offered to SME
 	// tenants for free-subdomain allocation. When an SME signs up
-	// under a Sovereign, they pick from the sme-pool entries to
-	// receive a free console.<sme>.<sme-pool> subdomain.
-	ParentDomainRoleSMEPool = "sme-pool"
+	// under a Sovereign, they pick from the org-pool entries to
+	// receive a free console.<sme>.<org-pool> subdomain.
+	ParentDomainRoleOrgPool = "org-pool"
 )
 
 // parentDomainNamePattern is the FQDN regex applied to ParentDomain.Name.
@@ -279,7 +279,7 @@ type Request struct {
 	// issue #826 (sub-1 of epic #825 — Multi-domain Sovereign). The
 	// Sovereign-side PowerDNS becomes authoritative for every entry
 	// here; exactly one entry carries Role="primary" (hosts
-	// console/api/marketplace), zero-or-more carry Role="sme-pool"
+	// console/api/marketplace), zero-or-more carry Role="org-pool"
 	// (offered to SME tenants for free subdomains).
 	//
 	// Backward compatibility: when the wizard ships a payload without
@@ -2588,12 +2588,12 @@ func writeTfvars(deployDir string, req Request) error {
 		// Cilium Gateway listeners (one HTTPS/HTTP pair per parent
 		// zone, hostnamed `*.<zone>`). When this tfvar is empty the
 		// module falls back to a single-entry list derived from
-		// sovereign_fqdn — which silently DROPS every sme-pool zone
+		// sovereign_fqdn — which silently DROPS every org-pool zone
 		// the operator added.
 		//
 		// Symptom on t22 (Wave 32 D27-D31 verifier): tfvars.parent_domains
 		// listed both `{omantel.biz, primary}` + `{omani.homes,
-		// sme-pool}` (this Go-side field) but the live Gateway
+		// org-pool}` (this Go-side field) but the live Gateway
 		// advertised only `*.t22.omantel.biz` — the listener for
 		// `*.omani.homes` never rendered because the terraform local
 		// never saw the second zone. tenants on omani.homes hit the
@@ -2986,7 +2986,7 @@ func env(key, def string) string {
 // provisioning pipeline. Day-1 (wizard signup) runs every registered
 // step against the single primary domain; Day-2 (admin add-domain
 // from issue #829) runs the same steps against each newly-added
-// sme-pool domain.
+// org-pool domain.
 //
 // Today the steps are:
 //
@@ -3099,7 +3099,7 @@ func ProvisionParentDomains(ctx context.Context, pds []ParentDomain, lbIP string
 //     (parentDomainNamePattern, mirroring the wizard's isValidDomain
 //     helper)
 //   - every entry's Role is one of the two known roles
-//     (ParentDomainRolePrimary | ParentDomainRoleSMEPool)
+//     (ParentDomainRolePrimary | ParentDomainRoleOrgPool)
 //   - exactly ONE entry carries the primary role — neither zero nor
 //     two-or-more is acceptable
 //   - duplicate Names within the slice are rejected (an operator
@@ -3143,12 +3143,12 @@ func validateParentDomains(pds *[]ParentDomain) error {
 		switch pd.Role {
 		case ParentDomainRolePrimary:
 			primaryCount++
-		case ParentDomainRoleSMEPool:
+		case ParentDomainRoleOrgPool:
 			// OK — zero-or-more allowed.
 		case "":
-			return fmt.Errorf("parent domain[%d] role is required (one of %q | %q)", i, ParentDomainRolePrimary, ParentDomainRoleSMEPool)
+			return fmt.Errorf("parent domain[%d] role is required (one of %q | %q)", i, ParentDomainRolePrimary, ParentDomainRoleOrgPool)
 		default:
-			return fmt.Errorf("parent domain[%d] role %q is not recognised (one of %q | %q)", i, pd.Role, ParentDomainRolePrimary, ParentDomainRoleSMEPool)
+			return fmt.Errorf("parent domain[%d] role %q is not recognised (one of %q | %q)", i, pd.Role, ParentDomainRolePrimary, ParentDomainRoleOrgPool)
 		}
 	}
 	if primaryCount != 1 {
@@ -3172,8 +3172,8 @@ func (r Request) PrimaryParentDomain() *ParentDomain {
 	return nil
 }
 
-// SMEPoolParentDomains returns every entry in r.ParentDomains carrying
-// ParentDomainRoleSMEPool. Day-1 always returns an empty slice; Day-2
+// OrgPoolParentDomains returns every entry in r.ParentDomains carrying
+// ParentDomainRoleOrgPool. Day-1 always returns an empty slice; Day-2
 // add-domain (issue #829) populates the result.
 //
 // The order matches r.ParentDomains so callers iterating with the
@@ -3181,10 +3181,10 @@ func (r Request) PrimaryParentDomain() *ParentDomain {
 // list — useful for the admin console's "added 3 days ago" rendering
 // + for the SME wizard's parent-domain dropdown choosing the most
 // recently added pool domain when nothing is selected.
-func (r Request) SMEPoolParentDomains() []ParentDomain {
+func (r Request) OrgPoolParentDomains() []ParentDomain {
 	out := make([]ParentDomain, 0, len(r.ParentDomains))
 	for _, pd := range r.ParentDomains {
-		if pd.Role == ParentDomainRoleSMEPool {
+		if pd.Role == ParentDomainRoleOrgPool {
 			out = append(out, pd)
 		}
 	}
@@ -3239,7 +3239,7 @@ func coalesceParentDomains(pds []ParentDomain) []ParentDomain {
 // `parent_domains` JSON array — never the YAML-string variable the
 // terraform module actually reads. As a result the module's
 // listener-rendering local fell through to the single-zone fallback
-// `[{name: "<sovereign_fqdn>", role: "primary"}]` and every sme-pool
+// `[{name: "<sovereign_fqdn>", role: "primary"}]` and every org-pool
 // zone the operator added (e.g. omani.homes) was silently dropped
 // from the Cilium Gateway listeners. Tenant TLS on the missing zone
 // then failed with NET::ERR_CERT_COMMON_NAME_INVALID.

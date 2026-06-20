@@ -113,14 +113,14 @@ func (h *Handler) HandleDeploymentImport(w http.ResponseWriter, r *http.Request)
 	dep := fromRecord(rec)
 	h.deployments.Store(rec.ID, dep)
 
-	// #1907 — bake-time top-up of the canonical .omani.X sme-pool.
+	// #1907 — bake-time top-up of the canonical .omani.X org-pool.
 	// The mother only stamps the single operator-selected pool entry,
 	// but the marketplace UI's /addons subdomain picker offers all
 	// four. Ensure the Sovereign-side pool matches the picker so a
 	// customer never sees 422 invalid-parent-domain after a successful
 	// subdomain pick. See chroot_parent_domains_seed.go for the full
 	// rationale.
-	h.chrootEnsureSMEPoolSeed(dep)
+	h.chrootEnsureOrgPoolSeed(dep)
 
 	h.log.Info("deployment-import: persisted",
 		"id", rec.ID,

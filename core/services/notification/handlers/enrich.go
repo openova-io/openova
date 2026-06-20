@@ -25,7 +25,7 @@ import (
 type Enricher struct {
 	TenantURL string // e.g. http://tenant.org-services.svc.cluster.local:8083
 	AuthURL   string // e.g. http://auth.org-services.svc.cluster.local:8081
-	// ParentZone is the Sovereign's sme-pool parent domain (e.g.
+	// ParentZone is the Sovereign's org-pool parent domain (e.g.
 	// "omani.homes" / "talents.scope") used to render WorkspaceURL.
 	// TBD-A67 issue #1990 removed the hardcoded `.openova.io` suffix —
 	// the parent zone is per-Sovereign and the notification service
@@ -40,7 +40,7 @@ type Enricher struct {
 
 // NewEnricher constructs an Enricher. Leave URLs empty to disable — in
 // that case Lookup returns zero values without error and the caller
-// will skip the email. parentZone is the Sovereign's sme-pool parent
+// will skip the email. parentZone is the Sovereign's org-pool parent
 // domain used to build per-tenant WorkspaceURL strings; empty parent
 // zone results in an empty WorkspaceURL (template-side guard).
 // TBD-A67 issue #1990: NEVER hardcode `.openova.io` here — every

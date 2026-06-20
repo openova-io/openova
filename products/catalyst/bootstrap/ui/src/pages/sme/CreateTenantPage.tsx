@@ -6,8 +6,8 @@
  * over which parent domain hosts the new SME's free subdomain. A
  * Sovereign at signup brings N parent domains; one is `role: primary`
  * (host of `console.<sovereign>`) and zero-or-more are `role:
- * sme-pool` (offered to SMEs). When the operator picks
- * domain_mode=free-subdomain they choose one sme-pool parent from the
+ * org-pool` (offered to SMEs). When the operator picks
+ * domain_mode=free-subdomain they choose one org-pool parent from the
  * dropdown; the resulting URL is `console.<tenant>.<chosen-parent>`.
  *
  * For domain_mode=byo the operator types the SME's own apex (e.g.
@@ -54,7 +54,7 @@ export function CreateTenantPage({
   disableFetch = false,
 }: CreateTenantPageProps = {}) {
   const [pool, setPool] = useState<SovereignParentDomain[]>(
-    initialParentDomains?.filter((p) => p.role === 'sme-pool') ?? [],
+    initialParentDomains?.filter((p) => p.role === 'org-pool') ?? [],
   )
   const [poolLoading, setPoolLoading] = useState<boolean>(
     !initialParentDomains && !disableFetch,
@@ -103,14 +103,14 @@ export function CreateTenantPage({
     if (disableFetch) return
     let cancelled = false
     setPoolLoading(true)
-    listSovereignParentDomains('sme-pool')
+    listSovereignParentDomains('org-pool')
       .then((items) => {
         if (cancelled) return
-        // Filter to sme-pool entries only. The back end's
+        // Filter to org-pool entries only. The back end's
         // /sovereign/parent-domains endpoint accepts ?role= but also
         // surfaces the implicit primary; the SME create form is only
-        // concerned with role=sme-pool entries.
-        const smePool = items.filter((p) => p.role === 'sme-pool')
+        // concerned with role=org-pool entries.
+        const smePool = items.filter((p) => p.role === 'org-pool')
         setPool(smePool)
         // Default the parent-domain dropdown to the first NS-flip-ready
         // entry. Falls back to the first entry when none are ready (the
@@ -135,7 +135,7 @@ export function CreateTenantPage({
   // is supplied (the test seam path).
   useEffect(() => {
     if (initialParentDomains && initialParentDomains.length > 0 && !parentDomain) {
-      const smePool = initialParentDomains.filter((p) => p.role === 'sme-pool')
+      const smePool = initialParentDomains.filter((p) => p.role === 'org-pool')
       const firstReady =
         smePool.find((p) => isParentDomainReady(p)) ?? smePool[0]
       if (firstReady) setParentDomain(firstReady.name)

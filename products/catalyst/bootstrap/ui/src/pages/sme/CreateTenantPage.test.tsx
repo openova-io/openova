@@ -3,7 +3,7 @@
  * coverage (issue #828, parent epic #825).
  *
  *   • Heading + form renders
- *   • Parent-domain dropdown lists every sme-pool entry
+ *   • Parent-domain dropdown lists every org-pool entry
  *   • NS-flip-pending entries are disabled in the dropdown
  *   • Console URL preview updates as fields change (free-subdomain)
  *   • Switching to BYO mode hides the dropdown + shows the BYO field
@@ -18,9 +18,9 @@ import type { SovereignParentDomain } from './sme.api'
 afterEach(() => cleanup())
 
 const POOL: SovereignParentDomain[] = [
-  { name: 'omani.works', role: 'sme-pool', flipStatus: 'ready' },
-  { name: 'omani.trade', role: 'sme-pool', flipStatus: 'ready' },
-  { name: 'pending.example', role: 'sme-pool', flipStatus: 'flipping' },
+  { name: 'omani.works', role: 'org-pool', flipStatus: 'ready' },
+  { name: 'omani.trade', role: 'org-pool', flipStatus: 'ready' },
+  { name: 'pending.example', role: 'org-pool', flipStatus: 'flipping' },
 ]
 
 describe('CreateTenantPage', () => {
@@ -66,7 +66,7 @@ describe('CreateTenantPage', () => {
     expect(screen.getByTestId('create-org-billing-mode').getAttribute('data-mode')).toBe('chargeback')
   })
 
-  it('renders parent-domain dropdown with every sme-pool entry', () => {
+  it('renders parent-domain dropdown with every org-pool entry', () => {
     render(<CreateTenantPage initialParentDomains={POOL} disableFetch />)
     expect(
       screen.getByTestId('sme-create-tenant-parent-option-omani.works'),

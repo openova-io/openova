@@ -125,7 +125,7 @@ func TestValidate_PreservesSuppliedParentDomains(t *testing.T) {
 	addedAt := time.Date(2026, 5, 4, 12, 0, 0, 0, time.UTC)
 	r.ParentDomains = []ParentDomain{
 		{Name: "omani.works", Role: ParentDomainRolePrimary, RegistrarKind: "dynadot", AddedAt: addedAt},
-		{Name: "omani.trade", Role: ParentDomainRoleSMEPool, RegistrarKind: "dynadot", AddedAt: addedAt.Add(time.Hour)},
+		{Name: "omani.trade", Role: ParentDomainRoleOrgPool, RegistrarKind: "dynadot", AddedAt: addedAt.Add(time.Hour)},
 	}
 
 	if err := r.Validate(); err != nil {
@@ -137,8 +137,8 @@ func TestValidate_PreservesSuppliedParentDomains(t *testing.T) {
 	if r.ParentDomains[0].Name != "omani.works" {
 		t.Errorf("primary Name was clobbered: %q", r.ParentDomains[0].Name)
 	}
-	if r.ParentDomains[1].Role != ParentDomainRoleSMEPool {
-		t.Errorf("sme-pool Role was clobbered: %q", r.ParentDomains[1].Role)
+	if r.ParentDomains[1].Role != ParentDomainRoleOrgPool {
+		t.Errorf("org-pool Role was clobbered: %q", r.ParentDomains[1].Role)
 	}
 	if !r.ParentDomains[0].AddedAt.Equal(addedAt) {
 		t.Errorf("primary AddedAt was clobbered: %s", r.ParentDomains[0].AddedAt)
@@ -165,12 +165,12 @@ func TestValidate_RejectsTwoPrimaries(t *testing.T) {
 }
 
 // TestValidate_RejectsZeroPrimaries proves the "exactly one primary"
-// invariant in the other direction: a pool of all sme-pool entries
+// invariant in the other direction: a pool of all org-pool entries
 // is rejected.
 func TestValidate_RejectsZeroPrimaries(t *testing.T) {
 	r := validBaseWithSecrets()
 	r.ParentDomains = []ParentDomain{
-		{Name: "omani.trade", Role: ParentDomainRoleSMEPool},
+		{Name: "omani.trade", Role: ParentDomainRoleOrgPool},
 	}
 	err := r.Validate()
 	if err == nil {
@@ -265,7 +265,7 @@ func TestValidate_RejectsDuplicateNames(t *testing.T) {
 	r := validBaseWithSecrets()
 	r.ParentDomains = []ParentDomain{
 		{Name: "omani.works", Role: ParentDomainRolePrimary},
-		{Name: "omani.works", Role: ParentDomainRoleSMEPool},
+		{Name: "omani.works", Role: ParentDomainRoleOrgPool},
 	}
 	err := r.Validate()
 	if err == nil {
@@ -283,9 +283,9 @@ func TestValidate_RejectsDuplicateNames(t *testing.T) {
 func TestPrimaryParentDomain_LookupHelper(t *testing.T) {
 	r := Request{
 		ParentDomains: []ParentDomain{
-			{Name: "omani.trade", Role: ParentDomainRoleSMEPool},
+			{Name: "omani.trade", Role: ParentDomainRoleOrgPool},
 			{Name: "omani.works", Role: ParentDomainRolePrimary},
-			{Name: "omani.shop", Role: ParentDomainRoleSMEPool},
+			{Name: "omani.shop", Role: ParentDomainRoleOrgPool},
 		},
 	}
 	pd := r.PrimaryParentDomain()
@@ -302,7 +302,7 @@ func TestPrimaryParentDomain_LookupHelper(t *testing.T) {
 func TestPrimaryParentDomain_NoneReturnsNil(t *testing.T) {
 	r := Request{
 		ParentDomains: []ParentDomain{
-			{Name: "omani.trade", Role: ParentDomainRoleSMEPool},
+			{Name: "omani.trade", Role: ParentDomainRoleOrgPool},
 		},
 	}
 	if pd := r.PrimaryParentDomain(); pd != nil {
@@ -310,21 +310,21 @@ func TestPrimaryParentDomain_NoneReturnsNil(t *testing.T) {
 	}
 }
 
-// TestSMEPoolParentDomains_FiltersToRole proves the slice filter
-// returns only the sme-pool entries, in their original order. The
+// TestOrgPoolParentDomains_FiltersToRole proves the slice filter
+// returns only the org-pool entries, in their original order. The
 // SME signup wizard's parent-pool dropdown reads this for the
 // per-Sovereign list of free-subdomain options.
-func TestSMEPoolParentDomains_FiltersToRole(t *testing.T) {
+func TestOrgPoolParentDomains_FiltersToRole(t *testing.T) {
 	r := Request{
 		ParentDomains: []ParentDomain{
 			{Name: "omani.works", Role: ParentDomainRolePrimary},
-			{Name: "omani.trade", Role: ParentDomainRoleSMEPool},
-			{Name: "omani.shop", Role: ParentDomainRoleSMEPool},
+			{Name: "omani.trade", Role: ParentDomainRoleOrgPool},
+			{Name: "omani.shop", Role: ParentDomainRoleOrgPool},
 		},
 	}
-	pool := r.SMEPoolParentDomains()
+	pool := r.OrgPoolParentDomains()
 	if len(pool) != 2 {
-		t.Fatalf("SMEPoolParentDomains returned %d entries, want 2", len(pool))
+		t.Fatalf("OrgPoolParentDomains returned %d entries, want 2", len(pool))
 	}
 	if pool[0].Name != "omani.trade" {
 		t.Errorf("pool[0].Name = %q, want omani.trade (original order preserved)", pool[0].Name)
@@ -422,8 +422,8 @@ func TestProvisionParentDomains_IteratesEveryDomain(t *testing.T) {
 	flip := &stepStub{name: "registrar-flip"}
 	pds := []ParentDomain{
 		{Name: "omani.works", Role: ParentDomainRolePrimary},
-		{Name: "omani.trade", Role: ParentDomainRoleSMEPool},
-		{Name: "omani.shop", Role: ParentDomainRoleSMEPool},
+		{Name: "omani.trade", Role: ParentDomainRoleOrgPool},
+		{Name: "omani.shop", Role: ParentDomainRoleOrgPool},
 	}
 	if err := ProvisionParentDomains(context.Background(), pds, "10.0.0.1", []ParentDomainStep{flip}, nil); err != nil {
 		t.Fatalf("ProvisionParentDomains: %v", err)
@@ -505,7 +505,7 @@ func TestWriteTfvars_EmitsParentDomainsRoundTripsEntries(t *testing.T) {
 		WorkerCount:      2,
 		ParentDomains: []ParentDomain{
 			{Name: "omani.works", Role: ParentDomainRolePrimary, RegistrarKind: "dynadot"},
-			{Name: "omani.trade", Role: ParentDomainRoleSMEPool, RegistrarKind: "dynadot", RegistrarCredsRef: "dynadot-omani-trade"},
+			{Name: "omani.trade", Role: ParentDomainRoleOrgPool, RegistrarKind: "dynadot", RegistrarCredsRef: "dynadot-omani-trade"},
 		},
 	}
 	if err := writeTfvars(dir, req); err != nil {
@@ -539,22 +539,22 @@ func TestWriteTfvars_EmitsParentDomainsRoundTripsEntries(t *testing.T) {
 	}
 }
 
-// TestWriteTfvars_EmitsParentDomainsYAMLForSMEPool is the regression
+// TestWriteTfvars_EmitsParentDomainsYAMLForOrgPool is the regression
 // guard for issue #1772 (TBD-D30b — Cilium Gateway missing
 // *.omani.homes listener on t22). Before this fix, catalyst-api wrote
 // the structural `parent_domains` JSON array but never set
 // `parent_domains_yaml` — the YAML-string variable the OpenTofu
 // module actually reads to derive the per-zone Cilium Gateway
 // listeners. The module's single-zone fallback then silently
-// dropped every sme-pool entry the operator added.
+// dropped every org-pool entry the operator added.
 //
 // This test asserts that a multi-domain Request renders
 // parent_domains_yaml as a JSON-flow array carrying BOTH the
-// primary AND every sme-pool entry, with name + role fields. The
+// primary AND every org-pool entry, with name + role fields. The
 // downstream terraform local `yamldecode(parent_domains_yaml)`
 // produces a list with len == #zones, and the listener-rendering
 // local emits one HTTPS/HTTP pair per zone.
-func TestWriteTfvars_EmitsParentDomainsYAMLForSMEPool(t *testing.T) {
+func TestWriteTfvars_EmitsParentDomainsYAMLForOrgPool(t *testing.T) {
 	dir, err := os.MkdirTemp("", "writeTfvars-pdyaml-*")
 	if err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -571,7 +571,7 @@ func TestWriteTfvars_EmitsParentDomainsYAMLForSMEPool(t *testing.T) {
 		WorkerCount:      2,
 		ParentDomains: []ParentDomain{
 			{Name: "omantel.biz", Role: ParentDomainRolePrimary, RegistrarKind: "dynadot"},
-			{Name: "omani.homes", Role: ParentDomainRoleSMEPool, RegistrarKind: "dynadot"},
+			{Name: "omani.homes", Role: ParentDomainRoleOrgPool, RegistrarKind: "dynadot"},
 		},
 	}
 	if err := writeTfvars(dir, req); err != nil {
@@ -591,7 +591,7 @@ func TestWriteTfvars_EmitsParentDomainsYAMLForSMEPool(t *testing.T) {
 			parsed["parent_domains_yaml"], parsed["parent_domains_yaml"])
 	}
 	if got == "" {
-		t.Fatalf("parent_domains_yaml MUST be non-empty when ParentDomains is populated. Empty falls through to single-zone fallback and drops every sme-pool entry. Got: %q", got)
+		t.Fatalf("parent_domains_yaml MUST be non-empty when ParentDomains is populated. Empty falls through to single-zone fallback and drops every org-pool entry. Got: %q", got)
 	}
 	// The literal must be a JSON-flow array (yamldecode-compatible) so
 	// the OpenTofu module's `yamldecode(var.parent_domains_yaml)` parses
@@ -601,12 +601,12 @@ func TestWriteTfvars_EmitsParentDomainsYAMLForSMEPool(t *testing.T) {
 		t.Fatalf("parent_domains_yaml must be JSON-flow / YAML-decodable: %v\nRaw: %s", err, got)
 	}
 	if len(entries) != 2 {
-		t.Fatalf("parent_domains_yaml should carry 2 entries (primary + sme-pool), got %d. Raw: %s", len(entries), got)
+		t.Fatalf("parent_domains_yaml should carry 2 entries (primary + org-pool), got %d. Raw: %s", len(entries), got)
 	}
 	// The primary entry must be present and labelled.
 	wantNames := map[string]string{
 		"omantel.biz": ParentDomainRolePrimary,
-		"omani.homes": ParentDomainRoleSMEPool,
+		"omani.homes": ParentDomainRoleOrgPool,
 	}
 	for _, e := range entries {
 		name, _ := e["name"].(string)
@@ -695,12 +695,12 @@ func TestParentDomainsYAMLLiteral_RoundTripsCleanly(t *testing.T) {
 			want: `[{"name":"omantel.biz","role":"primary"}]`,
 		},
 		{
-			name: "primary + sme-pool (t22 scenario)",
+			name: "primary + org-pool (t22 scenario)",
 			in: []ParentDomain{
 				{Name: "omantel.biz", Role: ParentDomainRolePrimary},
-				{Name: "omani.homes", Role: ParentDomainRoleSMEPool},
+				{Name: "omani.homes", Role: ParentDomainRoleOrgPool},
 			},
-			want: `[{"name":"omantel.biz","role":"primary"},{"name":"omani.homes","role":"sme-pool"}]`,
+			want: `[{"name":"omantel.biz","role":"primary"},{"name":"omani.homes","role":"org-pool"}]`,
 		},
 		{
 			name: "uppercase name is lowercased",

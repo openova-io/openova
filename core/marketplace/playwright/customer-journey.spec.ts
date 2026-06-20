@@ -701,7 +701,7 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     expect(result.empty).toBe('https://console.' + ['openova', 'io'].join('.') + '/nova')
 
     // ── TBD-V10 #2001 (new) ───────────────────────────────────────────
-    // Sovereign sme-pool host + known slug → per-tenant console host.
+    // Sovereign org-pool host + known slug → per-tenant console host.
     // Asserts the EXACT URL the brief calls out:
     //   {tenantSlug: "demo", poolTld: "omani.homes"}
     //     → https://console.demo.omani.homes

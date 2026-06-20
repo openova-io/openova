@@ -87,12 +87,12 @@ function readActiveOrgSlug(): string | null {
  * `console.<tenant-slug>.<sov-fqdn>` — emitted by the chart-side
  * tenant-public-routes.yaml HTTPRoute (PR #1993 TBD-A67) AND by the
  * runtime organization-controller. PowerDNS resolves
- * `console.<slug>.<parentDomain>` for every Org on the role=sme-pool
+ * `console.<slug>.<parentDomain>` for every Org on the role=org-pool
  * parent zone; without prepending the slug the marketplace was bouncing
  * customers into the operator console.
  *
  * The marketplace runs at `marketplace.<sov-fqdn>` where `<sov-fqdn>` IS
- * the sme-pool parent domain for sme-pool Sovereigns (e.g.
+ * the org-pool parent domain for org-pool Sovereigns (e.g.
  * `marketplace.omani.homes`), so we just splice the slug as a new
  * left-most label.
  *

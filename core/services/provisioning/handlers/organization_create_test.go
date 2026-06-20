@@ -123,7 +123,7 @@ func TestHandleTenantCreated_InvalidSlug(t *testing.T) {
 				ID:         "tenant-abc",
 				Slug:       badSlug,
 				OwnerEmail: "owner@example.com",
-				PlanID:     "sme-pool-basic",
+				PlanID:     "org-pool-basic",
 			}
 			data, _ := json.Marshal(payload)
 			evt := &events.Event{
@@ -163,7 +163,7 @@ func TestHandleTenantCreated_MissingOwnerEmail(t *testing.T) {
 		ID:         "tenant-abc",
 		Slug:       "acme",
 		OwnerEmail: "", // missing
-		PlanID:     "sme-pool-basic",
+		PlanID:     "org-pool-basic",
 	}
 	data, _ := json.Marshal(payload)
 	evt := &events.Event{
@@ -205,7 +205,7 @@ func TestHandleTenantCreated_NotRunningInCluster(t *testing.T) {
 		Name:       "ACME Corp",
 		OwnerEmail: "owner@example.com",
 		OwnerID:    "user-xyz",
-		PlanID:     "sme-pool-basic",
+		PlanID:     "org-pool-basic",
 	}
 	data, _ := json.Marshal(payload)
 	evt := &events.Event{
@@ -305,7 +305,7 @@ func TestCreateOrganizationCR_DefaultsForOptionalFields(t *testing.T) {
 		ID:         "tenant-abc",
 		Slug:       "acme",
 		OwnerEmail: "owner@example.com",
-		PlanID:     "sme-pool-basic",
+		PlanID:     "org-pool-basic",
 	}
 	err := h.createOrganizationCR(context.Background(), data)
 	// We expect a non-nil err (k8s env scrubbed) but NOT
@@ -338,7 +338,7 @@ func TestCreateOrganizationCR_EmptyParentDomain_StillMints(t *testing.T) {
 		Slug:       "acme",
 		Name:       "ACME Corp",
 		OwnerEmail: "owner@example.com",
-		PlanID:     "sme-pool-basic",
+		PlanID:     "org-pool-basic",
 	}
 	err := h.createOrganizationCR(context.Background(), data)
 	if err == nil {
@@ -370,7 +370,7 @@ func TestHandleTenantCreated_FullTenantStructDecode(t *testing.T) {
 		"org_type":"company",
 		"industry":"technology",
 		"owner_id":"user-xyz",
-		"plan_id":"sme-pool-basic",
+		"plan_id":"org-pool-basic",
 		"apps":["wordpress"],
 		"addons":[],
 		"subdomain":"acme",
