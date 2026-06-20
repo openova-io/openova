@@ -86,16 +86,6 @@ function isValidView(value: unknown): value is CloudView {
   return value === 'graph' || value === 'list'
 }
 
-function readPersistedView(): CloudView | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = window.localStorage.getItem(VIEW_STORAGE_KEY)
-    return isValidView(raw) ? raw : null
-  } catch {
-    return null
-  }
-}
-
 function writePersistedView(view: CloudView): void {
   if (typeof window === 'undefined') return
   try {
@@ -327,10 +317,17 @@ export function CloudPage({
   }, [deployments, deploymentId, sovereignFQDN])
 
   /* ── View mode resolution ───────────────────────────────────── */
+  // Graph is the ALWAYS-default when no explicit `?view=` is present
+  // (#3980 fix 1). A persisted preference is still written on every
+  // change (so an operator who explicitly toggled List sees their
+  // choice reflected in the URL during that session), but a FRESH load
+  // of `/cloud` with no `view` query must land on Graph — never silently
+  // re-open to a previously-used List view. The persisted value is
+  // therefore NOT consulted here; DEFAULT_VIEW ('graph') wins.
   const activeView: CloudView = useMemo(() => {
     if (viewOverride) return viewOverride
     if (isValidView(search.view)) return search.view
-    return readPersistedView() ?? DEFAULT_VIEW
+    return DEFAULT_VIEW
   }, [viewOverride, search.view])
 
   // Persist + URL-canonicalise on every change.
@@ -574,7 +571,7 @@ export function CloudPage({
     >
       <style>{CLOUD_PAGE_CSS}</style>
 
-      <div data-testid="cloud-page" className="mx-auto max-w-7xl">
+      <div data-testid="cloud-page" className="cloud-page mx-auto flex w-full max-w-7xl flex-col">
         {/* The page title now lives in the PortalShell header centre
          *  slot (issue #366 item 2). The body opens directly with the
          *  toolbar. A hidden testid anchor preserves the legacy
@@ -795,12 +792,38 @@ const CLOUD_PAGE_CSS = `
   border-color: var(--color-accent);
 }
 
+/* 100%-height graph (#3980 fix 4): the page is a flex column that fills
+ * the PortalShell <main> (flex-1, so it stretches to the viewport bottom).
+ * The graph content + body grab the remaining vertical space so the canvas
+ * reaches the bottom edge instead of leaving ~20% dead space below a fixed
+ * 540px box. List view is height-driven by its own content, so we scope the
+ * grow to the graph view only via [data-view="graph"]. */
+.cloud-page {
+  flex: 1;
+  min-height: 0;
+}
 .cloud-page-content {
   position: relative;
   margin-top: 0.5rem;
   /* Smooth scale + fade transition on enter/exit fullscreen */
   transition: transform 250ms ease, opacity 250ms ease, padding 250ms ease, background 250ms ease;
   transform-origin: top center;
+}
+.cloud-page-content[data-view="graph"]:not(.cloud-page-content-fullscreen) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cloud-page-content[data-view="graph"]:not(.cloud-page-content-fullscreen) .cloud-page-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cloud-page-content[data-view="graph"]:not(.cloud-page-content-fullscreen) .cloud-page-body > * {
+  flex: 1;
+  min-height: 0;
 }
 .cloud-page-content-fullscreen,
 .cloud-page-content:fullscreen,

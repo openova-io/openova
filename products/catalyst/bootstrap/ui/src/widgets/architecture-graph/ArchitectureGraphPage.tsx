@@ -70,22 +70,17 @@ import type { ReconciliationNode } from '@/lib/reconciliation.api'
 import {
   ALL_EDGE_TYPES,
   ALL_NODE_TYPES,
-  EDGE_DASHED,
-  EDGE_MARKER_END,
-  EDGE_MARKER_START,
   EDGE_STROKE,
   NODE_FILL,
   SMALL_TYPE_THRESHOLD,
   type ArchEdgeType,
   type ArchNodeType,
-  type EdgeMarker,
   type GraphEdge,
   type GraphNode,
 } from './types'
 import { LENSES, LENS_ORDER, type LensId } from './presets'
 import { useCloudLensOptional, useCloudLensState } from './useCloudLens'
 import { NODE_ICON } from './icons'
-import { markerId } from './markers'
 
 /* ── Constants ───────────────────────────────────────────────────── */
 
@@ -458,7 +453,10 @@ export function ArchitectureGraphPage({
   const hasNodes = allNodes.length > 0
 
   return (
-    <div data-testid="cloud-architecture" className="relative">
+    <div
+      data-testid="cloud-architecture"
+      className="relative flex h-full min-h-[540px] flex-col"
+    >
       {/* Toolbar — search + global density. */}
       <div
         data-testid="cloud-architecture-toolbar"
@@ -585,8 +583,8 @@ export function ArchitectureGraphPage({
 
       <div
         data-testid="cloud-architecture-canvas-wrap"
-        className="relative w-full overflow-hidden rounded-xl border border-[var(--color-border)]"
-        style={{ height: 540 }}
+        className="relative w-full flex-1 overflow-hidden rounded-xl border border-[var(--color-border)]"
+        style={{ minHeight: 540 }}
       >
         {isLoading && !data && (
           <div
@@ -643,6 +641,7 @@ export function ArchitectureGraphPage({
             hiddenTypes={hiddenTypes}
             typeLimits={effectiveTypeLimits}
             showLegend
+            edgeTypeCounts={edgeTypeCounts}
             onNodeClick={(n) => setSelectedId(n.id)}
             onNodeDoubleClick={(n) => setFocusNodeId(n.id)}
             onNodeContextMenu={openCtxMenuForNode}
@@ -659,12 +658,11 @@ export function ArchitectureGraphPage({
         )}
       </div>
 
-      {/* Edge legend trigger — a single info button at the bottom that
-       *  opens the legend in a Popover (issue #366 item 3). The legend
-       *  is no longer a permanent panel; it stays out of the canvas. */}
-      {hasNodes && (
-        <EdgeLegendPopover edgeTypeCounts={edgeTypeCounts} />
-      )}
+      {/* #3980 fix 3 — the standalone bottom "ArchiMate connections (N)"
+       *  button is retired. The relations list now lives INSIDE the
+       *  collapsible Legend panel (GraphLegend, bottom-right of the
+       *  canvas) which the canvas renders via showLegend + edgeTypeCounts.
+       *  No separate bottom button. */}
 
       {/* Detail panel — slides in from the right on node click. */}
       {selectedNode && (
@@ -1229,219 +1227,6 @@ function PresetButton({
       {preset}
     </button>
   )
-}
-
-/* ── Edge legend popover (issue #366 item 3) ────────────────────── */
-
-const EDGE_LEGEND_STORAGE_KEY = 'sov-arch-legend-open'
-
-function readPersistedLegendOpen(): boolean {
-  if (typeof window === 'undefined') return false
-  try {
-    return window.localStorage.getItem(EDGE_LEGEND_STORAGE_KEY) === 'true'
-  } catch {
-    return false
-  }
-}
-
-function writePersistedLegendOpen(open: boolean): void {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(EDGE_LEGEND_STORAGE_KEY, open ? 'true' : 'false')
-  } catch {
-    /* noop */
-  }
-}
-
-function EdgeLegendPopover({
-  edgeTypeCounts,
-}: {
-  edgeTypeCounts: Map<ArchEdgeType, number>
-}) {
-  // Default closed; persisted to localStorage so operators who prefer
-  // the legend always-visible can leave it open.
-  const [open, setOpen] = useState<boolean>(() => readPersistedLegendOpen())
-  const ref = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    writePersistedLegendOpen(open)
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-    function onDoc(ev: MouseEvent) {
-      const t = ev.target as HTMLElement | null
-      if (!ref.current?.contains(t)) {
-        setOpen(false)
-      }
-    }
-    function onKey(ev: KeyboardEvent) {
-      if (ev.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDoc)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  const total = ALL_EDGE_TYPES.length
-  return (
-    <div
-      ref={ref}
-      data-testid="cloud-architecture-edge-legend-wrap"
-      className="relative mt-2"
-    >
-      <button
-        type="button"
-        data-testid="cloud-architecture-edge-legend-trigger"
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-2.5 py-1 text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
-      >
-        <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden>
-          <circle cx="12" cy="12" r="9" />
-          <line x1="12" y1="8" x2="12" y2="8.01" strokeLinecap="round" />
-          <polyline points="11 12 12 12 12 16 13 16" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        <span>ArchiMate connections ({total})</span>
-      </button>
-      {open && (
-        <div
-          data-testid="cloud-architecture-edge-legend"
-          role="dialog"
-          aria-label="ArchiMate connection legend"
-          className="absolute bottom-full left-0 z-30 mb-1 flex w-[28rem] max-w-[calc(100vw-3rem)] flex-col gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] p-3 shadow-xl"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-dim)]">
-              Relations
-            </span>
-            <button
-              type="button"
-              data-testid="cloud-architecture-edge-legend-close"
-              aria-label="Close legend"
-              onClick={() => setOpen(false)}
-              className="text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
-            >
-              ✕
-            </button>
-          </div>
-          <div className="grid grid-cols-2 gap-1.5">
-            {ALL_EDGE_TYPES.map((t) => {
-              const count = edgeTypeCounts.get(t) ?? 0
-              return (
-                <span
-                  key={t}
-                  data-testid={`cloud-architecture-edge-legend-${t}`}
-                  className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text)]"
-                  aria-label={`${t} relation: ${count} edges`}
-                >
-                  <EdgeLegendThumb type={t} />
-                  <span>{t}</span>
-                  <span className="text-[var(--color-text-dim)]">({count})</span>
-                </span>
-              )
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-/* ── Edge legend thumbnail (ArchiMate symbol) ───────────────────── */
-
-function EdgeLegendThumb({ type }: { type: ArchEdgeType }) {
-  const stroke = EDGE_STROKE[type]
-  const dashed = EDGE_DASHED[type]
-  const startKind = EDGE_MARKER_START[type]
-  const endKind = EDGE_MARKER_END[type]
-  // Inline SVG with a self-contained <defs> so the legend thumbnail
-  // renders the same marker shapes the canvas uses. We keep this
-  // small (44x14) so it fits inline with the legend label.
-  const W = 44
-  const H = 14
-  return (
-    <svg width={W} height={H} aria-hidden="true">
-      <defs>
-        {startKind && <LegendMarker kind={startKind} stroke={stroke} />}
-        {endKind && <LegendMarker kind={endKind} stroke={stroke} />}
-      </defs>
-      <line
-        x1={6}
-        y1={H / 2}
-        x2={W - 6}
-        y2={H / 2}
-        stroke={stroke}
-        strokeWidth={1.5}
-        strokeDasharray={dashed ? '5,3' : undefined}
-        markerStart={startKind ? `url(#${markerId(startKind, stroke)}-legend)` : undefined}
-        markerEnd={endKind ? `url(#${markerId(endKind, stroke)}-legend)` : undefined}
-      />
-    </svg>
-  )
-}
-
-/**
- * Standalone marker bodies for the legend SVGs. Kept distinct from
- * the canvas's marker bodies (id suffix `-legend`) so a per-line
- * marker reference doesn't collide with the canvas's main <defs>.
- */
-function LegendMarker({ kind, stroke }: { kind: NonNullable<EdgeMarker>; stroke: string }) {
-  const id = `${markerId(kind, stroke)}-legend`
-  const common = {
-    markerUnits: 'strokeWidth' as const,
-    orient: 'auto' as const,
-  }
-  switch (kind) {
-    case 'composition':
-      return (
-        <marker id={id} {...common} markerWidth={14} markerHeight={10} refX={11} refY={5} viewBox="0 0 14 10">
-          <polygon points="0,5 7,1 14,5 7,9" fill={stroke} stroke={stroke} strokeWidth={1} />
-        </marker>
-      )
-    case 'aggregation':
-      return (
-        <marker id={id} {...common} markerWidth={14} markerHeight={10} refX={11} refY={5} viewBox="0 0 14 10">
-          <polygon points="0,5 7,1 14,5 7,9" fill="#0b0d12" stroke={stroke} strokeWidth={1.4} />
-        </marker>
-      )
-    case 'assignment-dot':
-      return (
-        <marker id={id} {...common} markerWidth={8} markerHeight={8} refX={4} refY={4} viewBox="0 0 8 8">
-          <circle cx={4} cy={4} r={3} fill={stroke} />
-        </marker>
-      )
-    case 'triggering':
-      return (
-        <marker id={id} {...common} markerWidth={11} markerHeight={9} refX={10} refY={4.5} viewBox="0 0 11 9">
-          <polygon points="0,0 11,4.5 0,9" fill={stroke} />
-        </marker>
-      )
-    case 'used-by':
-      return (
-        <marker id={id} {...common} markerWidth={11} markerHeight={9} refX={10} refY={4.5} viewBox="0 0 11 9">
-          <polyline points="0,0 11,4.5 0,9" fill="none" stroke={stroke} strokeWidth={1.4} />
-        </marker>
-      )
-    case 'realization':
-      return (
-        <marker id={id} {...common} markerWidth={11} markerHeight={9} refX={10} refY={4.5} viewBox="0 0 11 9">
-          <polygon points="0,0 11,4.5 0,9" fill="#0b0d12" stroke={stroke} strokeWidth={1.4} />
-        </marker>
-      )
-    case 'attached':
-      return (
-        <marker id={id} {...common} markerWidth={9} markerHeight={9} refX={7} refY={4.5} viewBox="0 0 9 9">
-          <circle cx={4.5} cy={4.5} r={3} fill="#0b0d12" stroke={stroke} strokeWidth={1.2} />
-        </marker>
-      )
-    default:
-      return null
-  }
 }
 
 interface DetailPanelProps {
