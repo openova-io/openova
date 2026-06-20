@@ -41,6 +41,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -206,6 +207,24 @@ func (h *Handler) reconciliationComponents(ctx context.Context, dep *Deployment)
 	}
 	if live, ok := h.liveComponentsSnapshot(ctx, dep); ok {
 		return live, false
+	}
+	// Sovereign self-console path. liveComponentsSnapshot reads a kubeconfig
+	// FILE (resolvePrimaryKubeconfigPath — the MOTHERSHIP pattern, where the
+	// mothership holds the Sovereign's posted-back kubeconfig). The Sovereign's
+	// OWN catalyst-api has no such file (it runs in-cluster), so the read above
+	// fails and the Reconciliation DAG previously rendered only the 5
+	// Kustomization tiers — zero HelmRelease nodes. sovereignDynamicClient
+	// routes through rest.InClusterConfig when SOVEREIGN_FQDN matches this
+	// deployment, so this lists the Sovereign's own bp-* HelmReleases WITH their
+	// spec.dependsOn edges (ListAndSnapshotHelmReleases → extractDependsOn), and
+	// the DAG renders the full dependency graph live on the Sovereign console.
+	if dyn, derr := h.sovereignDynamicClient(dep); derr == nil {
+		listCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		snap, lerr := helmwatch.ListAndSnapshotHelmReleases(listCtx, dyn)
+		cancel()
+		if lerr == nil && len(snap) > 0 {
+			return snap, true
+		}
 	}
 	out := make([]helmwatch.ComponentSnapshot, 0, len(fallbackStates))
 	for appID, state := range fallbackStates {
