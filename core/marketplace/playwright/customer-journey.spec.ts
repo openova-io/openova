@@ -285,7 +285,7 @@ async function seedCart(page: Page, overrides?: Partial<Record<string, unknown>>
   }
   await page.addInitScript((value) => {
     try {
-      localStorage.setItem('sme-cart', JSON.stringify(value))
+      localStorage.setItem('org-cart', JSON.stringify(value))
     } catch (_) {}
   }, cart)
 }
@@ -439,8 +439,8 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     // on the launch panel directly.
     await page.addInitScript(() => {
       try {
-        localStorage.setItem('sme-token', 'mock-jwt-token')
-        localStorage.setItem('sme-refresh-token', 'mock-refresh-token')
+        localStorage.setItem('org-token', 'mock-jwt-token')
+        localStorage.setItem('org-refresh-token', 'mock-refresh-token')
       } catch (_) {}
     })
     await seedCart(page)
@@ -503,8 +503,8 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
 
     await page.addInitScript(() => {
       try {
-        localStorage.setItem('sme-token', 'mock-jwt-token')
-        localStorage.setItem('sme-refresh-token', 'mock-refresh-token')
+        localStorage.setItem('org-token', 'mock-jwt-token')
+        localStorage.setItem('org-refresh-token', 'mock-refresh-token')
       } catch (_) {}
     })
     await seedCart(page)
@@ -586,8 +586,8 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
 
     await page.addInitScript(() => {
       try {
-        localStorage.setItem('sme-token', 'mock-jwt-token')
-        localStorage.setItem('sme-refresh-token', 'mock-refresh-token')
+        localStorage.setItem('org-token', 'mock-jwt-token')
+        localStorage.setItem('org-refresh-token', 'mock-refresh-token')
       } catch (_) {}
     })
     // Seed cart with appConfigs as if the customer mutated the
@@ -741,8 +741,8 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     // derived from the marketplace's host (no hardcoded mothership).
     await page.addInitScript(() => {
       try {
-        localStorage.setItem('sme-token', 'mock-jwt-token')
-        localStorage.setItem('sme-refresh-token', 'mock-refresh-token')
+        localStorage.setItem('org-token', 'mock-jwt-token')
+        localStorage.setItem('org-refresh-token', 'mock-refresh-token')
       } catch (_) {}
     })
     await seedCart(page)
