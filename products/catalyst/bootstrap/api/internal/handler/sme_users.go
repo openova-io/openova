@@ -391,7 +391,7 @@ func (h *Handler) runSMEUserHook(ctx context.Context, tenant store.TenantRegistr
 			return rec, errors.New("keycloak client not wired")
 		}
 		kcID, err := deps.KeycloakClient.EnsureSMEUser(
-			ctx, tenant.SMEKeycloakAdminURL, tenant.SMEKeycloakRealmName,
+			ctx, tenant.SMEKeycloakAdminURL, tenant.OrgKeycloakRealmName,
 			rec.Email, rec.SMEUserUUID, tenant.TenantID,
 		)
 		if err != nil {
@@ -416,7 +416,7 @@ func (h *Handler) runSMEUserHook(ctx context.Context, tenant store.TenantRegistr
 		}
 		md := map[string]string{
 			"kc_user_id": rec.KCUserID,
-			"kc_realm":   tenant.SMEKeycloakRealmName,
+			"kc_realm":   tenant.OrgKeycloakRealmName,
 		}
 		u, err := deps.NewAPIClient.EnsureUser(ctx, newapi.CreateUserRequest{
 			ExternalID: rec.SMEUserUUID,
@@ -519,7 +519,7 @@ func (a K8sSecretApplier) ApplyNewAPIKeySecret(ctx context.Context, namespace, s
 			Name:      name,
 			Namespace: namespace,
 			Labels: map[string]string{
-				"catalyst.openova.io/sme-tenant":    smeTenantID,
+				"catalyst.openova.io/org-tenant":    smeTenantID,
 				"catalyst.openova.io/sme-user-uuid": smeUserUUID,
 				"catalyst.openova.io/managed-by":    "unified-rbac",
 			},
@@ -607,7 +607,7 @@ func (c SMEKeycloakDirectClient) EnsureSMEUser(ctx context.Context, realmAdminUR
 			"sme_tenant_id": []string{smeTenantID},
 			"sme_user_uuid": []string{smeUserUUID},
 		},
-		"groups": []string{"sme-users"},
+		"groups": []string{"org-users"},
 	}
 	bs, _ := json.Marshal(body)
 	url := strings.TrimRight(realmAdminURL, "/") + "/admin/realms/" + realmName + "/users"

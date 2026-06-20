@@ -211,7 +211,7 @@ func Render(in Inputs) (map[string][]byte, error) {
 		in.VClusterImageRegistry = "harbor.openova.io"
 	}
 	if in.Tier == "" {
-		in.Tier = "sme"
+		in.Tier = "org"
 	}
 	out := make(map[string][]byte, 3)
 	for path, raw := range map[string]string{

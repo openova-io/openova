@@ -104,7 +104,7 @@ func TestCreateSMETenant_MintsOrganizationCR(t *testing.T) {
 	if spec["kind"] != "customer" {
 		t.Errorf("spec.kind: want customer got %v", spec["kind"])
 	}
-	if spec["tier"] != "sme" {
+	if spec["tier"] != "org" {
 		t.Errorf("spec.tier: want sme got %v", spec["tier"])
 	}
 	if spec["billingMode"] != "real" {
@@ -145,7 +145,7 @@ func TestCreateSMETenant_OrganizationCR_Idempotent(t *testing.T) {
 		AdminEmail:      "owner@acme.test",
 		CompanyName:     "Acme",
 		OTECHFQDN:       "otech.example",
-		TenantNamespace: "sme-tid-1",
+		TenantNamespace: "org-tid-1",
 	}
 	// First create.
 	h.createSMEOrganizationCR(context.Background(), rec)

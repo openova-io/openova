@@ -700,8 +700,8 @@ resources:
   - continuum.yaml
 {{- end }}
 commonLabels:
-  catalyst.openova.io/sme-tenant: {{.TenantID}}
-  catalyst.openova.io/sme-subdomain: {{.Subdomain}}
+  catalyst.openova.io/org-tenant: {{.TenantID}}
+  catalyst.openova.io/org-subdomain: {{.Subdomain}}
 `
 
 const orgTenantNamespace = `apiVersion: v1
@@ -709,8 +709,8 @@ kind: Namespace
 metadata:
   name: {{.Namespace}}
   labels:
-    catalyst.openova.io/sme-tenant: {{.TenantID}}
-    catalyst.openova.io/sme-subdomain: {{.Subdomain}}
+    catalyst.openova.io/org-tenant: {{.TenantID}}
+    catalyst.openova.io/org-subdomain: {{.Subdomain}}
     catalyst.openova.io/managed-by: catalyst-api
   annotations:
     catalyst.openova.io/admin-email: {{.AdminEmail}}
@@ -875,12 +875,12 @@ spec:
     realmConfig:
       tenant:
         enabled: true
-        realmName: sme-{{.Subdomain}}
+        realmName: org-{{.Subdomain}}
         displayName: {{.CompanyName}}
         adminEmail: {{.AdminEmail}}
         groups:
-          - sme-admin
-          - sme-user
+          - org-admin
+          - org-user
         clients:
           - id: catalyst-ui
             publicClient: true
@@ -1045,7 +1045,7 @@ spec:
       adminUI:
         mode: keycloak
         keycloak:
-          issuer: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
+          issuer: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/org-{{.Subdomain}}
           clientId: newapi-admin
           callbackPath: /oauth/callback
           existingSecret: newapi-oidc-client-secret
@@ -1193,14 +1193,14 @@ spec:
     # Canonical OIDC block (chart >= 0.2.0).
     oidc:
       enabled: true
-      issuerURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
+      issuerURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/org-{{.Subdomain}}
       clientId: wordpress
       clientSecretName: wordpress-oidc-client-secret
       defaultRole: subscriber
       identityKey: preferred_username
     # Legacy alias (chart 0.1.x back-compat). Removed in chart 0.3.0.
     keycloak:
-      realmURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
+      realmURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/org-{{.Subdomain}}
       clientID: wordpress
       clientSecretName: wordpress-oidc-client-secret
     adminUser:
@@ -1265,8 +1265,8 @@ metadata:
   name: bp-wordpress-tenant
   namespace: {{.Namespace}}
   labels:
-    catalyst.openova.io/sme-tenant: {{.TenantID}}
-    catalyst.openova.io/sme-subdomain: {{.Subdomain}}
+    catalyst.openova.io/org-tenant: {{.TenantID}}
+    catalyst.openova.io/org-subdomain: {{.Subdomain}}
     openova.io/application: bp-wordpress-tenant
 spec:
   applicationRef: bp-wordpress-tenant
@@ -1335,7 +1335,7 @@ spec:
   values:
     # ── OIDC (per-tenant Keycloak SSO) ─────────────────────────────────
     oidc:
-      issuerURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
+      issuerURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/org-{{.Subdomain}}
       clientId: openclaw
       clientSecret:
         name: openclaw-oidc-client-secret
@@ -1358,7 +1358,7 @@ spec:
       defaultModel: qwen3.6
     # ── Legacy aliases (back-compat with chart < 0.2.0) ────────────────
     keycloak:
-      realmURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
+      realmURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/org-{{.Subdomain}}
       clientID: openclaw
       clientSecretName: openclaw-oidc-client-secret
     newapi:
@@ -1426,7 +1426,7 @@ spec:
     # ` + "`stalwart`" + ` client with redirect URIs covering the webmail
     # host AND the OIDC callback path.
     keycloak:
-      realmURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/sme-{{.Subdomain}}
+      realmURL: https://keycloak.{{.Subdomain}}.{{.ParentDomain}}/realms/org-{{.Subdomain}}
       clientID: stalwart
       clientSecretName: stalwart-oidc-client-secret
       oidcExternalSecret:

@@ -94,7 +94,7 @@ func (p ChartBootstrapKeycloakProvisioner) ProvisionOrganizationClients(ctx cont
 	// vcluster API server's port-forwarded service.
 	adminURL := fmt.Sprintf("http://keycloak-%s.%s.svc:8080",
 		rec.Subdomain, rec.TenantNamespace)
-	realm := "sme-" + rec.Subdomain
+	realm := "org-" + rec.Subdomain
 	expected := []string{"catalyst-ui", "wordpress", "openclaw", "stalwart"}
 	missing, err := verifyKeycloakClients(ctx, p.httpClient(), adminURL, realm, p.SAToken, expected)
 	if err != nil {

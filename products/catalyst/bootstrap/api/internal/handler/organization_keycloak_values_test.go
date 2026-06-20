@@ -60,7 +60,7 @@ func mustRenderTenantOverlay(t *testing.T) map[string]string {
 		OTECHFQDN:       "otech.example",
 		ParentDomain:    "otech.example",
 		VClusterName:    "vc-acme",
-		TenantNamespace: "sme-t-acme",
+		TenantNamespace: "org-t-acme",
 	}
 	files, err := renderOrganizationOverlay(rec, OrganizationChartVersions{Keycloak: "1.3.3", CNPG: "0.5.0"})
 	if err != nil {
@@ -93,8 +93,8 @@ func TestBPKeycloakEmittedYAMLParses(t *testing.T) {
 	if hr.Metadata.Name != "bp-keycloak" {
 		t.Errorf("metadata.name: want bp-keycloak got %q", hr.Metadata.Name)
 	}
-	if hr.Metadata.Namespace != "sme-t-acme" {
-		t.Errorf("metadata.namespace: want sme-t-acme got %q", hr.Metadata.Namespace)
+	if hr.Metadata.Namespace != "org-t-acme" {
+		t.Errorf("metadata.namespace: want org-t-acme got %q", hr.Metadata.Namespace)
 	}
 }
 
@@ -195,8 +195,8 @@ func TestBPKeycloakValuesContract(t *testing.T) {
 	if got, _ := tenant["enabled"].(bool); !got {
 		t.Errorf("realmConfig.tenant.enabled: want true got %v", tenant["enabled"])
 	}
-	if got, _ := tenant["realmName"].(string); got != "sme-acme" {
-		t.Errorf("realmConfig.tenant.realmName: want sme-acme got %q", got)
+	if got, _ := tenant["realmName"].(string); got != "org-acme" {
+		t.Errorf("realmConfig.tenant.realmName: want org-acme got %q", got)
 	}
 }
 

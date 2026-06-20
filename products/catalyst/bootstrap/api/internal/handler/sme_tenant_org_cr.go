@@ -143,7 +143,7 @@ func ensureOrganizationCR(ctx context.Context, dyn dynamic.Interface, rec store.
 	}
 	tier := strings.ToLower(strings.TrimSpace(rec.Tier))
 	if tier == "" {
-		tier = "sme"
+		tier = "org"
 	}
 	billingMode := strings.ToLower(strings.TrimSpace(rec.BillingMode))
 	if billingMode == "" {

@@ -31,7 +31,7 @@ name: bp-stalwart-tenant
 #
 # 0.1.2 fixes:
 #   1. orchestrator emits per-tenant `keycloak.realmURL` =
-#      `https://keycloak.<sub>.<parent>/realms/sme-<sub>` + `clientID`
+#      `https://keycloak.<sub>.<parent>/realms/org-<sub>` + `clientID`
 #      = `stalwart` + `clientSecretName` = `stalwart-oidc-client-secret`
 #      + `oidcExternalSecret.remoteRef.key` =
 #      `sovereign/<otech-fqdn>/stalwart/<tenant>/oidc`. Mirrors the

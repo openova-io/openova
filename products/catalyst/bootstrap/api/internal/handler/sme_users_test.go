@@ -89,12 +89,12 @@ func newTestHandlerWithSME(t *testing.T) (*Handler, *fakeKC, *fakeApplier, *fake
 	if err := reg.Put(store.TenantRegistration{
 		Host:                 "console.acme.otech.example",
 		TenantID:             "tenant-acme",
-		KeycloakRealmURL:     "https://kc.acme.otech.example/realms/sme-acme",
+		KeycloakRealmURL:     "https://kc.acme.otech.example/realms/org-acme",
 		KeycloakClientID:     "catalyst-ui",
 		TenantKind:           store.TenantKindSME,
-		OrganizationNamespace:   "sme-acme",
-		SMEKeycloakAdminURL:  "http://keycloak-sme-acme.sme-acme.svc:8080",
-		SMEKeycloakRealmName: "sme-acme",
+		OrganizationNamespace:   "org-acme",
+		SMEKeycloakAdminURL:  "http://keycloak-org-acme.org-acme.svc:8080",
+		OrgKeycloakRealmName: "org-acme",
 	}); err != nil {
 		t.Fatalf("put tenant: %v", err)
 	}

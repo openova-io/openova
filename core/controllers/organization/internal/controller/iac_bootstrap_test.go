@@ -242,7 +242,7 @@ func TestReconcileIacBootstrap_ReadyState(t *testing.T) {
 			Slug:         "acme",
 			DisplayName:  "ACME Corp",
 			SovereignRef: "t01.omani.works",
-			Tier:         "sme",
+			Tier: "org",
 			Kind:         "customer",
 		},
 	}
@@ -362,7 +362,7 @@ func TestTeardownIacBootstrap_NoOpWhenDepsMissing(t *testing.T) {
 func TestReconcile_AddsFinalizerThenRequeues(t *testing.T) {
 	org := &orgapi.Organization{
 		ObjectMeta: metav1.ObjectMeta{Name: "acme"},
-		Spec:       orgapi.OrganizationSpec{Slug: "acme", DisplayName: "ACME", SovereignRef: "t01.omani.works", Tier: "sme"},
+		Spec:       orgapi.OrganizationSpec{Slug: "acme", DisplayName: "ACME", SovereignRef: "t01.omani.works", Tier: "org"},
 	}
 	r, _, _ := newIacBootstrapTestReconciler(t, org)
 	// Need a stub Gitea client for the existing slice-C1 reconcile

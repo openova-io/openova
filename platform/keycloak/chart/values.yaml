@@ -232,8 +232,8 @@ realmConfig:
     # sovereign-admins/sovereign-ops/sovereign-viewers triad at the SME
     # level so RBAC scaffolding is consistent.
     groups:
-      - sme-admins
-      - sme-users
+      - org-admins
+      - org-users
     # Per-app OIDC client configuration. Each block honours an operator-
     # supplied `clientSecret` (rare; useful for sealed-secret replication)
     # — when blank the chart looks up an existing K8s Secret in the

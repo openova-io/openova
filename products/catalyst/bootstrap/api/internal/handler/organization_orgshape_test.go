@@ -17,22 +17,22 @@ func TestResolveOrgShape(t *testing.T) {
 		{
 			name: "omitted kind defaults to the customer funnel shape (byte-unchanged)",
 			in:   orgTenantCreateRequest{},
-			want: orgShape{Kind: "customer", Tier: "sme", BillingMode: "real", Isolation: "vcluster"},
+			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "vcluster"},
 		},
 		{
 			name: "internal door → showback + namespace (kind-derived defaults)",
 			in:   orgTenantCreateRequest{Kind: "internal"},
-			want: orgShape{Kind: "internal", Tier: "sme", BillingMode: "showback", Isolation: "namespace"},
+			want: orgShape{Kind: "internal", Tier: "org", BillingMode: "showback", Isolation: "namespace"},
 		},
 		{
 			name: "explicit customer → real + vcluster",
 			in:   orgTenantCreateRequest{Kind: "customer"},
-			want: orgShape{Kind: "customer", Tier: "sme", BillingMode: "real", Isolation: "vcluster"},
+			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "vcluster"},
 		},
 		{
 			name: "advanced override: internal org forced onto chargeback + vcluster",
 			in:   orgTenantCreateRequest{Kind: "internal", BillingMode: "chargeback", Isolation: "vcluster"},
-			want: orgShape{Kind: "internal", Tier: "sme", BillingMode: "chargeback", Isolation: "vcluster"},
+			want: orgShape{Kind: "internal", Tier: "org", BillingMode: "chargeback", Isolation: "vcluster"},
 		},
 		{
 			name: "corporate tier honored",
@@ -47,12 +47,12 @@ func TestResolveOrgShape(t *testing.T) {
 		{
 			name: "malformed kind falls back to customer default shape",
 			in:   orgTenantCreateRequest{Kind: "garbage"},
-			want: orgShape{Kind: "customer", Tier: "sme", BillingMode: "real", Isolation: "vcluster"},
+			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "vcluster"},
 		},
 		{
 			name: "malformed billingMode/isolation fall back to the kind-derived default",
 			in:   orgTenantCreateRequest{Kind: "internal", BillingMode: "bogus", Isolation: "bogus", Tier: "bogus"},
-			want: orgShape{Kind: "internal", Tier: "sme", BillingMode: "showback", Isolation: "namespace"},
+			want: orgShape{Kind: "internal", Tier: "org", BillingMode: "showback", Isolation: "namespace"},
 		},
 	}
 

@@ -35,7 +35,7 @@ func d31TestRec() store.OrganizationProvisionRecord {
 		AdminEmail:      "admin@acme.test",
 		OTECHFQDN:       "otech.example",
 		VClusterName:    "vc-acme",
-		TenantNamespace: "sme-t-acme",
+		TenantNamespace: "org-t-acme",
 	}
 }
 
@@ -106,7 +106,7 @@ func TestRenderOrganizationOverlay_HotStandby_On_EmitsContinuumCR(t *testing.T) 
 		"apiVersion: dr.openova.io/v1",
 		"kind: Continuum",
 		"name: bp-wordpress-tenant",
-		"namespace: sme-t-acme",
+		"namespace: org-t-acme",
 		"applicationRef: bp-wordpress-tenant",
 		"primaryRegion: hz-fsn-rtz-prod",
 		"- hz-hel-rtz-prod",

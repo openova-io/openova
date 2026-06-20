@@ -303,9 +303,9 @@ func resolveOrgShape(req orgTenantCreateRequest) orgShape {
 
 	tier := strings.ToLower(strings.TrimSpace(req.Tier))
 	switch tier {
-	case "sme", "corporate":
+	case "org", "corporate":
 	default:
-		tier = "sme"
+		tier = "org"
 	}
 
 	return orgShape{Kind: kind, Tier: tier, BillingMode: billing, Isolation: isolation}
@@ -640,7 +640,7 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 		CompanyName:     strings.TrimSpace(body.CompanyName),
 		OTECHFQDN:       otech,
 		VClusterName:    "vc-" + subdomain,
-		TenantNamespace: "sme-" + orgTenantID,
+		TenantNamespace: "org-" + orgTenantID,
 		// Organizations model (issue #3378 B1) — stamp the resolved
 		// kind/tier/billingMode/isolation so the directory badges the
 		// org correctly and the controller can later read the spec
@@ -968,7 +968,7 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 				realmZone = rec.OTECHFQDN
 			}
 			realmURL := fmt.Sprintf("https://keycloak.%s.%s/realms/%s",
-				rec.Subdomain, realmZone, "sme-"+rec.Subdomain)
+				rec.Subdomain, realmZone, "org-"+rec.Subdomain)
 			reg := store.TenantRegistration{
 				Host:                 host,
 				TenantID:             rec.OrganizationID,
@@ -977,7 +977,7 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 				KeycloakClientID:     "catalyst-ui",
 				OrganizationNamespace:   rec.TenantNamespace,
 				SMEKeycloakAdminURL:  fmt.Sprintf("http://keycloak-%s.%s.svc:8080", rec.Subdomain, rec.TenantNamespace),
-				SMEKeycloakRealmName: "sme-" + rec.Subdomain,
+				OrgKeycloakRealmName: "org-" + rec.Subdomain,
 			}
 			if err := deps.TenantRegistry.Put(reg); err != nil {
 				return failTransient(rec, "registry", err)

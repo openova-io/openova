@@ -51,7 +51,7 @@ const (
 // The fields are precisely what the SPA needs to bootstrap OIDC against
 // the right Keycloak realm — no more, no less. KeycloakRealmURL is the
 // full issuer URL the OIDC client uses (e.g.
-// https://kc.<otech-fqdn>/realms/sme-acme); KeycloakClientID is the
+// https://kc.<otech-fqdn>/realms/org-acme); KeycloakClientID is the
 // public OIDC client id. The TenantID is opaque to the SPA but echoed
 // on every authenticated API call so the backend can scope queries.
 type TenantRegistration struct {
@@ -70,9 +70,9 @@ type TenantRegistration struct {
 	// the in-cluster admin endpoint (back-end facing). Empty for
 	// tenant_kind=otech.
 	SMEKeycloakAdminURL string `json:"sme_keycloak_admin_url,omitempty"`
-	// SMEKeycloakRealmName — the realm name to target in the admin
+	// OrgKeycloakRealmName — the realm name to target in the admin
 	// API path /admin/realms/{realm}/users. Empty for tenant_kind=otech.
-	SMEKeycloakRealmName string `json:"sme_keycloak_realm_name,omitempty"`
+	OrgKeycloakRealmName string `json:"org_keycloak_realm_name,omitempty"`
 }
 
 // tenantRegistryFile is the JSON file basename. It lives next to the

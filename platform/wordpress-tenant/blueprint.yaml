@@ -56,7 +56,7 @@ spec:
             type: string
             description: |
               Discovery URL of the per-tenant Keycloak realm. Example:
-              `https://keycloak.<sme-domain>/realms/sme-<subdomain>`.
+              `https://keycloak.<sme-domain>/realms/org-<subdomain>`.
               The openid-connect-generic plugin uses this to derive the
               token / userinfo / authorization / end-session endpoints.
           clientId:

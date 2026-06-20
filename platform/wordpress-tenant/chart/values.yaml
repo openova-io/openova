@@ -274,7 +274,7 @@ oidc:
   # (e.g. an air-gapped install) may flip false.
   enabled: true
   # Discovery URL of the SME-vcluster Keycloak realm. Example:
-  #   https://keycloak.<sme-domain>/realms/sme-<subdomain>
+  #   https://keycloak.<sme-domain>/realms/org-<subdomain>
   #
   # G117.5 W3.D3 (Refs #2744): when this is left empty AND
   # `sovereign.fqdn` + `org.realm` (or `smeSubdomain` legacy) are

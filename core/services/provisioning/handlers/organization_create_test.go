@@ -245,7 +245,7 @@ func TestCreateOrganizationCR_PayloadShape(t *testing.T) {
 			"slug":         "acme",
 			"displayName":  "ACME Corp",
 			"kind":         "customer",
-			"tier":         "sme",
+			"tier": "org",
 			"billingMode":  "real",
 			"sovereignRef": "test.omani.works",
 			"owners": []map[string]any{
@@ -269,7 +269,7 @@ func TestCreateOrganizationCR_PayloadShape(t *testing.T) {
 		`"slug":"acme"`,
 		`"displayName":"ACME Corp"`,
 		`"kind":"customer"`,
-		`"tier":"sme"`,
+		`"tier":"org"`,
 		`"billingMode":"real"`,
 		`"sovereignRef":"test.omani.works"`,
 		`"email":"owner@example.com"`,

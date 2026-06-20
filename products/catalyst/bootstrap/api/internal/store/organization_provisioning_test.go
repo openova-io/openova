@@ -20,7 +20,7 @@ func TestOrganizationProvisionStore_PutGetRoundtrip(t *testing.T) {
 		CompanyName:     "Acme Corp",
 		OTECHFQDN:       "otech.example",
 		VClusterName:    "vc-acme",
-		TenantNamespace: "sme-t-acme",
+		TenantNamespace: "org-t-acme",
 	}
 	if err := st.Put(rec); err != nil {
 		t.Fatalf("put: %v", err)
