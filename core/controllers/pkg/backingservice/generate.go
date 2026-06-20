@@ -88,6 +88,31 @@ type Binding struct {
 	// ConnectionSecretName — the Secret the consumer reads
 	// (externalDatabase mode). Equals Database.Reflect.SecretName.
 	ConnectionSecretName string
+
+	// InstanceTargets — #3969 (§8a/§8b): the placement targets the OWNED
+	// (private) data-instance follows. Defaults to the consumer's resolved
+	// Targets (Primary↔Primary, Standby↔Standby) so the database follows
+	// the app by default. Empty when: the binding is SHARED (a shared
+	// instance has its own independent placement — never cascaded); the
+	// consumer carries no Targets; OR the owned dep was explicitly
+	// decoupled via an OwnedDependencyOverride{Follow:false}. The catalyst
+	// layer projects these onto the instance HR's per-cluster fan-out.
+	InstanceTargets []bpv1.PlacementTarget
+
+	// Followed — #3969 (§8b): true when this OWNED instance's placement
+	// was cascaded from the consumer (the default). False when the binding
+	// is shared, the consumer had no targets, or the dep was decoupled
+	// (Follow:false). Lets the catalyst layer + UI show "[✓ follow]" vs a
+	// decoupled badge without re-deriving the decision.
+	Followed bool
+
+	// Recommendations — #3969 (§8e): SOFT, non-blocking advisories. For a
+	// SHARED binding whose instance placement is incompatible with the
+	// consumer's targets (e.g. consumer Primary in region-b but the shared
+	// instance lives only in region-a) the generator appends a
+	// recommendation here. NEVER a hard error — the bind still reconciles.
+	// The platform recommends, it never enforces, for shared deps.
+	Recommendations []string
 }
 
 // Producer is one resolved operator→instance mapping: a backing-service
@@ -182,6 +207,34 @@ type Input struct {
 	// ConsumerNamespace — the namespace the consumer runs in; the
 	// connection Secret is reflected here.
 	ConsumerNamespace string
+
+	// Targets — #3969 (§8a): the consumer's RESOLVED placement targets
+	// (region × cluster × vCluster × role Primary|Standby, standby type
+	// Hot|Cold). When non-empty, an OWNED (private) backing service's
+	// placement DEFAULTS to follow these targets (Primary↔Primary,
+	// Standby↔Standby, region-matched) so the app and its own database can
+	// never silently diverge. Empty ⇒ the instance keeps whatever its own
+	// Blueprint declares (legacy behaviour). The generator maps the
+	// consumer's Primary target → the instance primary, each Standby(Hot)
+	// → a streaming replica, each Standby(Cold) → a snapshot/bucket
+	// follower. SHARED bindings do NOT cascade (a shared instance has its
+	// own independent placement) — they get a soft recommendation only,
+	// surfaced via Binding.Recommendations.
+	Targets []bpv1.PlacementTarget
+
+	// OwnedOverrides — #3969 (§8b): per-owned-dependency cascade overrides
+	// keyed by the owned instance name. An entry with Follow:false
+	// DECOUPLES that owned dep (it keeps its own placement; the consumer's
+	// Targets are NOT projected onto it). Absent ⇒ follow by default.
+	OwnedOverrides []bpv1.OwnedDependencyOverride
+
+	// SharedInstanceTargets — #3969 (§8e): the known placement targets of
+	// the SHARED instances a consumer binds to, keyed by instance name.
+	// When present, the generator runs the read-only placement-closure
+	// check: if the consumer's Primary region is not served by the shared
+	// instance, it appends a SOFT recommendation (never a block). Absent ⇒
+	// no closure check (the bind still reconciles).
+	SharedInstanceTargets map[string][]bpv1.PlacementTarget
 }
 
 // ErrUnsupportedType is returned for a backing-service type that no
@@ -259,7 +312,7 @@ func GenerateWith(reg *ProducerRegistry, spec bpv1.BackingServiceSpec, in Input)
 		return Binding{}, fmt.Errorf("backingservice: unknown mode %q", mode)
 	}
 
-	return Binding{
+	b := Binding{
 		InstanceName:         instanceName,
 		InstanceBlueprintRef: instanceBlueprintRef(producer.InstanceBlueprint, instanceName),
 		Mode:                 mode,
@@ -276,8 +329,98 @@ func GenerateWith(reg *ProducerRegistry, spec bpv1.BackingServiceSpec, in Input)
 				Namespaces: []string{in.ConsumerNamespace},
 			},
 		},
-	}, nil
+	}
+
+	// #3969 cascade — resolve the OWNED-vs-SHARED placement behaviour.
+	switch mode {
+	case bpv1.BackingServiceModePrivate:
+		// Owned (private) instance: follow the consumer's placement by
+		// DEFAULT (§8a/§8b), unless an OwnedDependencyOverride{Follow:false}
+		// decouples it. When followed, the instance's per-cluster fan-out is
+		// driven by the consumer's resolved targets (Primary↔Primary,
+		// Standby↔Standby) so the database can never silently diverge from
+		// the app.
+		if follows(instanceName, in.OwnedOverrides) && len(in.Targets) > 0 {
+			b.Followed = true
+			b.InstanceTargets = cloneTargets(in.Targets)
+		}
+	case bpv1.BackingServiceModeShared:
+		// Shared instance: NEVER cascade (it has its own independent
+		// placement). Run only the read-only placement-closure check and
+		// emit a SOFT recommendation when incompatible — never a block (§8e).
+		b.Recommendations = recommendForSharedClosure(instanceName, in.Targets, in.SharedInstanceTargets)
+	}
+
+	return b, nil
 }
+
+// follows reports whether the owned instance named `name` should follow
+// the consumer's placement. Default true; an explicit override with
+// Follow:false decouples it. Match is case-sensitive on the instance name
+// (the catalyst layer mints both deterministically).
+func follows(name string, overrides []bpv1.OwnedDependencyOverride) bool {
+	for _, o := range overrides {
+		if o.Name == name {
+			return o.Follow
+		}
+	}
+	return true
+}
+
+// cloneTargets returns a defensive copy of the targets slice so a Binding
+// never aliases the caller's Input.Targets (a switchover that re-runs the
+// resolver with flipped roles must not mutate a prior Binding).
+func cloneTargets(in []bpv1.PlacementTarget) []bpv1.PlacementTarget {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]bpv1.PlacementTarget, len(in))
+	copy(out, in)
+	return out
+}
+
+// recommendForSharedClosure is the first placement-closure logic in the
+// codebase (#3969 §3 gap, §8e). It is READ-ONLY and NON-BLOCKING: when a
+// consumer binds a SHARED instance whose placement does not serve the
+// consumer's Primary region, it returns a SOFT recommendation string. It
+// NEVER returns an error — the platform recommends, it never enforces, for
+// shared deps. Returns nil when compatible, when the shared instance's
+// placement is unknown, or when the consumer declared no targets.
+func recommendForSharedClosure(
+	instanceName string,
+	consumerTargets []bpv1.PlacementTarget,
+	sharedTargets map[string][]bpv1.PlacementTarget,
+) []string {
+	if len(consumerTargets) == 0 || len(sharedTargets) == 0 {
+		return nil
+	}
+	instTargets, known := sharedTargets[instanceName]
+	if !known || len(instTargets) == 0 {
+		return nil
+	}
+
+	// The consumer's Primary region must be reachable on the shared
+	// instance — i.e. the shared instance must run (Primary or Standby) in
+	// the consumer's Primary region. If not, recommend (never block).
+	instRegions := map[string]bool{}
+	for _, t := range instTargets {
+		instRegions[t.Region] = true
+	}
+	var recs []string
+	for _, t := range consumerTargets {
+		if t.Role != bpv1.DataRolePrimary {
+			continue
+		}
+		if !instRegions[t.Region] {
+			recs = append(recs, "shared instance "+quoteName(instanceName)+
+				" has no target in the consumer's Primary region "+quoteName(t.Region)+
+				"; consider placing it there to avoid cross-region writes (recommendation only — the bind still reconciles)")
+		}
+	}
+	return recs
+}
+
+func quoteName(s string) string { return "\"" + s + "\"" }
 
 // GenerateAll runs Generate over every backing-service declaration on a
 // consumer (DefaultRegistry). The returned slice is in declaration order.
