@@ -364,13 +364,14 @@ seaweedfsOverlay:
   # (bp-guacamole recordings PVC, future bp-loki/mimir/tempo cache PVCs)
   # binds against the class registered here.
   #
-  # Default `provisioner: rancher.io/local-path` — k3s ships the
-  # local-path-provisioner pre-installed on every Sovereign, so PVCs bind
-  # day-1 without waiting for bp-hcloud-csi or the SeaweedFS CSI driver to
-  # install. Per-Sovereign overlay flips `provisioner:` to
-  # `csi.hetzner.cloud` (Hetzner Sovereigns with bp-hcloud-csi installed)
-  # or `seaweedfs-csi-driver.csi.k8s.io` (when the dedicated SeaweedFS CSI
-  # is rolled out at slot 18.1) without modifying the chart.
+  # #3971 — Default `provisioner: csi.hetzner.cloud` (the durable Hetzner
+  # Cloud CSI), NOT the ephemeral k3s local-path. k3s runs
+  # --disable=local-storage so local-path is FORBIDDEN (never installed; a
+  # Kyverno ENFORCE policy DENIES any local-path reference). bp-hcloud-csi
+  # (slot 55a) is a dependsOn of the stateful root slots, so the cloud CSI is
+  # Ready before any seaweedfs PVC binds. Per-Sovereign overlay flips
+  # `provisioner:` to the cloud's durable CSI on non-Hetzner clouds (Huawei:
+  # everest/EVS — #3971 follow-up). NEVER set this to local-path.
   #
   # Per docs/INVIOLABLE-PRINCIPLES.md #4 every field below is operator-
   # tunable through `seaweedfsOverlay.storageClasses[]` — list semantics
@@ -379,9 +380,9 @@ seaweedfsOverlay:
   storageClasses:
     - name: seaweedfs-storage
       enabled: true
-      # Single-Sovereign safe default — k3s ships local-path. Overlay
-      # MAY override to csi.hetzner.cloud / seaweedfs-csi-driver.csi.k8s.io.
-      provisioner: rancher.io/local-path
+      # #3971 — durable cloud CSI (NOT local-path, which is FORBIDDEN).
+      # Overlay MAY override to the cloud's own durable CSI on non-Hetzner.
+      provisioner: csi.hetzner.cloud
       reclaimPolicy: Delete
       # WaitForFirstConsumer keeps PV creation lazy so overlay can re-tier
       # the underlying provisioner without re-binding existing PVCs.

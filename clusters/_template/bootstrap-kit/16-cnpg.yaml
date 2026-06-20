@@ -52,8 +52,18 @@ spec:
   targetNamespace: cnpg-system
   # CNPG only needs Flux Ready (its own CRDs ship in the same chart;
   # consumers of postgresql.cnpg.io/v1.Cluster gate themselves on bp-cnpg).
+  #
+  # #3971 — also gate on bp-hcloud-csi. bp-cnpg is the root of the stateful-
+  # Postgres dependency tree (bp-postgres-shared{,-b,-c}, bp-cnpg-pair, and
+  # transitively harbor/keycloak/gitea via the shared-pg roles), all of which
+  # bind PVCs. k3s now runs `--disable=local-storage` so local-path is
+  # FORBIDDEN and the ONLY default StorageClass is the cloud CSI. Gating here
+  # guarantees the durable default class EXISTS before any cnpg PVC binds, so
+  # nothing hangs Pending. bp-hcloud-csi is Ready on BOTH providers (it
+  # renders empty on Huawei) so this dependsOn never deadlocks.
   dependsOn:
     - name: bp-flux
+    - name: bp-hcloud-csi
   chart:
     spec:
       chart: bp-cnpg

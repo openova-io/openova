@@ -1,0 +1,28 @@
+# Passing case (#3971): a PVC that OMITS storageClassName binds to the
+# cluster-default durable cloud CSI (hcloud-volumes) — no local-path reference,
+# so the forbid-local-path-storage policy allows it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pass-pvc
+  namespace: example
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+# Also passing: an explicit DURABLE class is fine (only local-path is forbidden).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pass-pvc-explicit-durable
+  namespace: example
+spec:
+  storageClassName: hcloud-volumes
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

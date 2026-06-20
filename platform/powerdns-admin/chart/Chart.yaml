@@ -161,7 +161,8 @@ name: bp-powerdns-admin
 # reconnect before handing out any pooled connection — the canonical fix for
 # server-side connection recycling. NO DB-host/topology change (PDA stays on
 # shared-pg-b). Configurable via config.sqlAlchemyEngineOptions; set {} to omit.
-version: 0.1.17
+# 0.1.18 (#3971): CNPG storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
+version: 0.1.18
 description: |
   PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI Blueprint for
   per-Sovereign PowerDNS zone + record management. Drives the

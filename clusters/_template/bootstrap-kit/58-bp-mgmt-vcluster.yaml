@@ -64,9 +64,19 @@ spec:
   # so we point Flux to install INTO that namespace. The vCluster
   # subchart's StatefulSet + Service + RBAC land here.
   targetNamespace: mgmt
+  # #3971 — also gate on bp-hcloud-csi. bp-mgmt-vcluster is the root of the
+  # other stateful dependency tree (openbao slot 08, keycloak 09, gitea 10,
+  # harbor 19 all `dependsOn: bp-mgmt-vcluster`) and the vCluster StatefulSet
+  # itself binds a PVC. k3s now runs `--disable=local-storage` so local-path
+  # is FORBIDDEN and the ONLY default StorageClass is the cloud CSI. Gating
+  # here guarantees the durable default class EXISTS before the vCluster (and
+  # everything downstream of it) binds a PVC — nothing hangs Pending.
+  # bp-hcloud-csi is Ready on BOTH providers (empty render on Huawei) so this
+  # dependsOn never deadlocks.
   dependsOn:
     - name: bp-cilium
     - name: bp-cert-manager
+    - name: bp-hcloud-csi
   chart:
     spec:
       chart: bp-mgmt-vcluster

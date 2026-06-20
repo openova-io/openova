@@ -12,7 +12,11 @@ name: bp-hcloud-csi
 # StorageClass to hcloud-volumes. The default SC now uses reclaimPolicy
 # Retain (production-data durability) and ships the VolumeSnapshotClass ON.
 # Closes the P0 blocker where every PVC landed on ephemeral k3s local-path.
-version: 1.2.0
+# 1.2.1 (2026-06-20 #3971): default-class-hook comment updated for the
+# local-path-FORBIDDEN model (k3s --disable=local-storage + Kyverno deny):
+# on a fresh prov the hook's demote step is a no-op (local-path never exists);
+# it only heals an UPGRADE from a pre-#3971 cluster with a stale default.
+version: 1.2.1
 description: |
   Catalyst-curated Blueprint umbrella chart for the Hetzner Cloud CSI
   driver. Provides the hcloud-volumes StorageClass for multi-node stateful

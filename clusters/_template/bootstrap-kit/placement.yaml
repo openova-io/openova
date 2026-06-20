@@ -143,6 +143,8 @@ spec:
        namespace: dmz, justification: "HOST-MINIMUM §4 — the DMZ vCluster runtime itself"}
     - {file: 55-bp-hcloud-ccm.yaml, hr: bp-hcloud-ccm, vcluster: host, target: host,
        namespace: kube-system, justification: "HOST-MINIMUM §4 — cloud controller manager"}
+    - {file: 55a-bp-hcloud-csi.yaml, hr: bp-hcloud-csi, vcluster: host, target: host,
+       namespace: hcloud-csi, justification: "HOST-MINIMUM §4 — cloud block-storage CSI; the durable default StorageClass (#3971)"}
     - {file: 58-bp-mgmt-vcluster.yaml, hr: bp-mgmt-vcluster, vcluster: host, target: host,
        namespace: mgmt, justification: "HOST-MINIMUM §4 — the MGMT vCluster runtime itself"}
     - {file: 59-bp-rtz-vcluster.yaml, hr: bp-rtz-vcluster, vcluster: host, target: host,
@@ -410,7 +412,7 @@ spec:
                   log_min_duration_statement: "1000"
               storage:
                 size: 5Gi
-                storageClass: local-path
+                storageClass: ""  # #3971 — empty ⇒ CNPG cluster-default durable cloud CSI; local-path FORBIDDEN
               enableSuperuserAccess: true
               monitoring:
                 enablePodMonitor: false
@@ -1054,7 +1056,7 @@ spec:
                   log_min_duration_statement: "1000"
               storage:
                 size: 5Gi
-                storageClass: local-path
+                storageClass: ""  # #3971 — empty ⇒ CNPG cluster-default durable cloud CSI; local-path FORBIDDEN
               enableSuperuserAccess: true
               monitoring:
                 enablePodMonitor: false
@@ -1274,7 +1276,7 @@ spec:
                   memory: 512Mi
               storage:
                 size: 5Gi
-                storageClass: local-path
+                storageClass: ""  # #3971 — empty ⇒ CNPG cluster-default durable cloud CSI; local-path FORBIDDEN
               enableSuperuserAccess: true
               monitoring:
                 enablePodMonitor: false

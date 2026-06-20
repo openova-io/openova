@@ -177,7 +177,7 @@ vcluster:
         volumeClaim:
           enabled: true
           size: "5Gi"
-          storageClass: "local-path"
+          storageClass: ""  # #3971 — empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN
     service:
       enabled: true
       spec:

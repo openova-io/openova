@@ -3,30 +3,35 @@ Default-StorageClass flip hook — bp-hcloud-csi (#3971).
 
 THE FIX
 =======
-k3s ships `local-path` (rancher.io/local-path) and cloud-init marks it the
-cluster-default during the bootstrap window so the very-early PVCs (before any
-CSI exists) have SOMEWHERE to bind. local-path is a directory on the node's
-local disk — NO cloud block volume behind it — so any node replacement
-destroys that data. The P0 blocker (#3971) is that EVERY Sovereign's PVCs
-landed on local-path because no CSI was ever installed.
+local-path is a directory on the node's local disk — NO cloud block volume
+behind it — so any node replacement destroys that data. The P0 blocker (#3971)
+is that EVERY Sovereign's PVCs landed on local-path because no CSI was ever
+installed. The durable fix FORBIDS local-path entirely: k3s now runs
+`--disable=local-storage` (cloud-init) so the local-path provisioner is NEVER
+installed, and the only default StorageClass is the cloud CSI's hcloud-volumes.
 
 This post-install/post-upgrade Job runs AFTER the hcloud-volumes StorageClass
 (templates/storageclass.yaml) and the CSI controller have landed. It:
   1. Waits (bounded) for the `hcloud-volumes` SC to exist.
   2. Promotes `hcloud-volumes` to cluster-default (idempotent — the SC may
      already carry the annotation when .Values.defaultStorageClass renders it
-     directly; this guarantees it even if a prior local-path default lingers).
+     directly; this guarantees it even on an UPGRADE of a pre-#3971 cluster
+     where a stale local-path default may still linger).
   3. DEMOTES every OTHER StorageClass that still carries the default-class
-     annotation (i.e. `local-path`) so there is EXACTLY ONE default. Two
-     defaults is an error state Kubernetes resolves non-deterministically.
+     annotation so there is EXACTLY ONE default. On a FRESH prov this is a
+     harmless no-op (local-path was never installed). On an UPGRADE of an
+     older cluster it strips a lingering local-path default. Two defaults is
+     an error state Kubernetes resolves non-deterministically.
 
-local-path is LEFT INSTALLED (non-default) so genuinely-ephemeral caches can
-still opt in via `storageClassName: local-path`. Stateful PVCs (which omit
-storageClassName) now bind to the durable cloud-block default.
+Note: on a fresh prov local-path does not exist at all (k3s
+--disable=local-storage), and a Kyverno ENFORCE policy
+(bp-kyverno-policies K23) DENIES any attempt to (re)create it. This hook's
+demote step exists only to heal an UPGRADE from a pre-#3971 cluster that
+already had a local-path default annotated.
 
 Why a hook (not a static manifest): a Helm chart cannot annotate a foreign
-StorageClass (`local-path`) it does not own without adopting it. A short Job
-with a scoped ClusterRole patches both classes idempotently and self-deletes.
+StorageClass it does not own without adopting it. A short Job with a scoped
+ClusterRole patches the classes idempotently and self-deletes.
 
 Gated on .Values.enabled + .Values.defaultStorageClass so a default-off render
 emits ZERO resources. Fails FAST (300s) so a broken CSI surfaces in Flux

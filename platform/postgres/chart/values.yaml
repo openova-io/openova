@@ -45,7 +45,13 @@ instance:
 
   # Storage for the engine's PVCs.
   storageSize: 5Gi
-  storageClass: local-path
+  # #3971 — empty ⇒ CNPG binds to the cluster-DEFAULT StorageClass (the
+  # durable cloud CSI: hcloud-volumes on Hetzner). NEVER "local-path": k3s
+  # runs --disable=local-storage so the ephemeral provisioner is FORBIDDEN
+  # (and a Kyverno ENFORCE policy DENIES any local-path reference). Per-
+  # Sovereign overlay MAY pin an explicit durable class; it must not be
+  # local-path.
+  storageClass: ""
 
   resources:
     requests:

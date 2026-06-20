@@ -49,7 +49,10 @@ spec:
       owner: {{ .Values.postgres.cluster.owner | default "pda" }}
   storage:
     size: {{ .Values.postgres.cluster.storageSize | default "5Gi" }}
-    storageClass: {{ .Values.postgres.cluster.storageClass | default "local-path" }}
+    # #3971 — empty ⇒ omit ⇒ CNPG uses the cluster-default durable cloud CSI; local-path FORBIDDEN.
+    {{- with .Values.postgres.cluster.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
   resources:
     {{- toYaml .Values.postgres.cluster.resources | nindent 4 }}
 

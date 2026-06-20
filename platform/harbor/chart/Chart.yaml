@@ -122,7 +122,8 @@ type: application
 # externalSecret.enabled:false (host renders harbor-sso-oidc-credentials) while
 # sso.enabled stays true so the configurator runs IN the vCluster against
 # harbor-core. Non-host-bridged render byte-identical. Refs #3374 #3642.
-version: 1.2.34
+# 1.2.35 (#3971): CNPG storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
+version: 1.2.35
 appVersion: "2.14.3"
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
 # `oidc_extra_redirect_parms` config field. The configure-oauth Job now

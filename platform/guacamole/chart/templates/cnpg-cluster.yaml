@@ -72,7 +72,10 @@ spec:
     {{- toYaml ($cl.resources | default (dict "requests" (dict "cpu" "50m" "memory" "128Mi") "limits" (dict "memory" "512Mi"))) | nindent 4 }}
   storage:
     size: {{ $cl.storageSize | default "5Gi" }}
-    storageClass: {{ $cl.storageClass | default "local-path" | quote }}
+    # #3971 — empty ⇒ omit ⇒ CNPG uses the cluster-default durable cloud CSI; local-path FORBIDDEN.
+    {{- with $cl.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
   enableSuperuserAccess: true
   monitoring:
     enablePodMonitor: false

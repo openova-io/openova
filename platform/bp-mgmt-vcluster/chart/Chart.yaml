@@ -349,7 +349,8 @@ name: bp-mgmt-vcluster
 # All additions are additive / no-op-until-the-source-renders (the established
 # replicateServices + fromHost-secrets semantics). #3951 (gitea-token-mint
 # 403-tolerant probe) is folded into bp-catalyst-platform, NOT here.
-version: 0.2.28
+# 0.2.29 (#3971): vCluster etcd storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
+version: 0.2.29
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT

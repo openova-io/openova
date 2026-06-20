@@ -1,0 +1,156 @@
+{{/*
+K23 — FORBID the ephemeral k3s local-path provisioner (#3971).
+
+THE MANDATE
+===========
+Founder, verbatim (#3971): "make the local paths not default even FORBIDDEN.
+local path never ever ALLOWED!!"
+
+k3s ships a `local-path` StorageClass backed by `rancher.io/local-path` — a
+directory on the node's LOCAL disk with NO cloud block volume behind it. Any
+node replacement (autoscaler, failed node, re-prov, disk loss) DESTROYS that
+PV's data — prod Postgres 3×100Gi, openbao secrets, the customer-Org DB,
+keycloak/gitea/harbor. That invalidates the BCP/DR model.
+
+DEFENCE IN DEPTH
+================
+This is the THIRD of three layers that make local-path impossible:
+  1. k3s `--disable=local-storage` (cloud-init) — the provisioner is NEVER
+     installed on a fresh prov.
+  2. The per-provider cloud CSI (bp-hcloud-csi slot 55a) installs the durable
+     `hcloud-volumes` default StorageClass, and is a `dependsOn` of the
+     stateful root slots so it is Ready before any PVC binds.
+  3. THIS Kyverno ENFORCE policy — the admission guard that DENIES any
+     PersistentVolumeClaim / StorageClass / PersistentVolume that references
+     `local-path` or `rancher.io/local-path`, so no future chart, overlay, or
+     operator can ever silently reintroduce non-durable node-local storage.
+  + the Phase-1 provisioning DoD gate (catalyst-api) FAILS a prov whose
+    resolved default StorageClass is still local-path.
+
+WHY action IS HARDCODED Enforce (NOT the bootstrapMode helper)
+==============================================================
+Every OTHER policy in this chart resolves its action through
+`bp-kyverno-policies.action`, which downgrades to Audit while
+`compliancePolicies.bootstrapMode` is true (the Phase-1 window) so
+not-yet-ready workloads aren't fail-closed-blocked. This policy is the
+EXCEPTION: it is a structural data-durability safety invariant, and the
+local-path PVCs it forbids are created DURING that very bootstrap window. An
+Audit-during-bootstrap downgrade would let every stateful PVC land on
+ephemeral disk before the post-handover flip to Enforce — exactly the failure
+#3971 exists to prevent. It is therefore hardcoded `Enforce`. This is safe
+because the cloud CSI default class is guaranteed Ready before any PVC binds
+(layer 2), so NO legitimate bootstrap PVC needs local-path — the policy never
+blocks a well-formed prov.
+
+Operator override: `--set compliancePolicies.forbidLocalPath.enabled=false`
+disables it entirely (e.g. an air-gapped single-node Sovereign deliberately
+running on node-local disk with no cloud volumes). Per-namespace escape via
+`.excludeNamespaces`.
+*/}}
+{{- if .Values.compliancePolicies.forbidLocalPath.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: forbid-local-path-storage
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: storage-durability
+  annotations:
+    policies.kyverno.io/title: Forbid the ephemeral k3s local-path provisioner
+    policies.kyverno.io/category: catalyst-storage-durability
+    policies.kyverno.io/severity: critical
+    policies.kyverno.io/subject: PersistentVolumeClaim,StorageClass,PersistentVolume
+    policies.kyverno.io/description: >-
+      local-path (rancher.io/local-path) is ephemeral node-local disk with no
+      cloud block volume behind it — a node replacement destroys the data,
+      invalidating BCP/DR. #3971 forbids it entirely: k3s runs
+      --disable=local-storage and the durable per-provider cloud CSI is the
+      only default StorageClass. This policy fail-closes any PVC / StorageClass
+      / PV that references local-path.
+spec:
+  # HARDCODED Enforce — NOT the bootstrapMode helper. See the header comment:
+  # the local-path PVCs this forbids are created during the Phase-1 bootstrap
+  # window, so an Audit-during-bootstrap downgrade would defeat the guard.
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    # ── Rule 1: PVCs may not request the local-path StorageClass ──────────
+    - name: pvc-no-local-path-storageclass
+      match:
+        any:
+          - resources:
+              kinds:
+                - PersistentVolumeClaim
+      {{- with .Values.compliancePolicies.forbidLocalPath.excludeNamespaces }}
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range . }}
+                - {{ . }}
+                {{- end }}
+      {{- end }}
+      validate:
+        message: >-
+          PersistentVolumeClaim
+          {{ `{{request.object.metadata.namespace}}/{{request.object.metadata.name}}` }}
+          requests the FORBIDDEN local-path StorageClass. local-path is
+          ephemeral node-local disk (no cloud block volume) — #3971 forbids it.
+          Omit storageClassName to bind to the durable cluster-default cloud
+          CSI (hcloud-volumes on Hetzner), or name an explicit durable class.
+        deny:
+          conditions:
+            any:
+              - key: {{ `"{{ request.object.spec.storageClassName || '' }}"` }}
+                operator: AnyIn
+                value:
+                  - local-path
+                  - rancher.io/local-path
+    # ── Rule 2: no StorageClass may use the local-path provisioner ────────
+    #    (also catches a StorageClass literally named `local-path`).
+    - name: storageclass-no-local-path-provisioner
+      match:
+        any:
+          - resources:
+              kinds:
+                - StorageClass
+      validate:
+        message: >-
+          StorageClass {{ `{{request.object.metadata.name}}` }} uses the
+          FORBIDDEN local-path provisioner (rancher.io/local-path) or is named
+          `local-path`. #3971: local-path is ephemeral node-local disk — use a
+          durable cloud CSI provisioner (csi.hetzner.cloud) instead.
+        deny:
+          conditions:
+            any:
+              - key: {{ `"{{ request.object.provisioner || '' }}"` }}
+                operator: AnyIn
+                value:
+                  - rancher.io/local-path
+                  - local-path
+              - key: {{ `"{{ request.object.metadata.name }}"` }}
+                operator: Equals
+                value: local-path
+    # ── Rule 3: no PV may declare the local-path StorageClass ─────────────
+    - name: pv-no-local-path-storageclass
+      match:
+        any:
+          - resources:
+              kinds:
+                - PersistentVolume
+      validate:
+        message: >-
+          PersistentVolume {{ `{{request.object.metadata.name}}` }} declares the
+          FORBIDDEN local-path StorageClass. #3971: local-path is ephemeral
+          node-local disk — back PVs with a durable cloud CSI instead.
+        deny:
+          conditions:
+            any:
+              - key: {{ `"{{ request.object.spec.storageClassName || '' }}"` }}
+                operator: AnyIn
+                value:
+                  - local-path
+                  - rancher.io/local-path
+{{- end }}

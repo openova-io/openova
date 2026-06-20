@@ -232,7 +232,14 @@ spec:
 
   storage:
     size: {{ .Values.instance.storageSize | default "5Gi" }}
-    storageClass: {{ .Values.instance.storageClass | default "local-path" | quote }}
+    # #3971 — when storageClass is empty, OMIT the field so CNPG binds to the
+    # cluster DEFAULT StorageClass (the durable cloud CSI — hcloud-volumes on
+    # Hetzner). Never default to "local-path": k3s now runs
+    # --disable=local-storage so the ephemeral local-path provisioner does not
+    # exist, and a Kyverno ENFORCE policy DENIES any local-path reference.
+    {{- with .Values.instance.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
 
   enableSuperuserAccess: {{ .Values.instance.enableSuperuserAccess | default false }}
 

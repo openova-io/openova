@@ -1,0 +1,33 @@
+# Failing case (#3971): a PVC requesting the FORBIDDEN local-path StorageClass.
+# The forbid-local-path-storage policy (Enforce) DENIES this on admission —
+# local-path is ephemeral node-local disk with no cloud volume behind it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fail-pvc
+  namespace: example
+spec:
+  storageClassName: local-path
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+# Also failing: a StorageClass using the rancher.io/local-path provisioner.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: example-local-path
+provisioner: rancher.io/local-path
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+---
+# Also failing: a StorageClass literally named `local-path`.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-path
+provisioner: csi.hetzner.cloud
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer

@@ -82,10 +82,22 @@ metadata:
   labels:
     catalyst.openova.io/slot: "55a"
 spec:
-  # Suspend on non-Hetzner providers. Huawei cloud-init substitutes "true";
-  # Hetzner cloud-init substitutes "false" (or omits → default kicks in).
-  # Same provider-keyed gate shape as bp-hcloud-ccm (slot 55).
-  suspend: ${HCLOUD_HR_SUSPEND:=false}
+  # #3971 — ACTIVE on BOTH providers (NOT suspended). The chart `enabled`
+  # toggle below (HCLOUD_CSI_ENABLED) decides whether this installs the real
+  # Hetzner CSI (Hetzner substitutes "true") or an EMPTY release that reports
+  # Ready immediately (Huawei substitutes "false"). This MUST stay active on
+  # Huawei: the stateful root slots (bp-cnpg slot 16 + bp-mgmt-vcluster slot
+  # 58) now `dependsOn: bp-hcloud-csi` to guarantee the durable default
+  # StorageClass exists BEFORE any PVC binds (k3s now runs
+  # `--disable=local-storage` so local-path is FORBIDDEN — see the cloud-init
+  # k3s install block). A `dependsOn` on a SUSPENDED HelmRelease blocks
+  # forever — Flux never marks a suspended HR Ready — so the old
+  # `suspend: ${HCLOUD_HR_SUSPEND}` shape would deadlock EVERY Huawei prov.
+  # Rendering empty (enabled=false) keeps the HR Ready so the dependsOn is
+  # satisfied on both clouds. Huawei's own durable CSI (everest/EVS) is slot
+  # 55b (#3971 follow-up); until it lands a Huawei prov has no default class
+  # and the Phase-1 storage-durability gate honestly FAILS it (never silent
+  # ephemeral storage).
   interval: 15m
   releaseName: hcloud-csi
   targetNamespace: hcloud-csi
@@ -101,28 +113,42 @@ spec:
   chart:
     spec:
       chart: bp-hcloud-csi
-      version: 1.2.0
+      version: 1.2.1
       sourceRef:
         kind: HelmRepository
         name: bp-hcloud-csi
         namespace: flux-system
-  # ── Activation on Hetzner ────────────────────────────────────────────
-  # enabled + defaultStorageClass flip the chart from its default-off
-  # no-op (the EPIC-6 opt-in shape) to: install the driver, render the
-  # hcloud-volumes SC, and run the default-class flip hook. This is the
-  # whole point of the slot — every fresh Hetzner Sovereign comes up with
-  # the cloud-block CSI as the ONE default class, never ephemeral local-path.
+  # ── Provider-keyed activation ────────────────────────────────────────
+  # HCLOUD_CSI_ENABLED is "true" on Hetzner, "false" on Huawei (cloud-init
+  # substitute map, alongside HCLOUD_HR_SUSPEND). On Hetzner this flips the
+  # chart from its default-off no-op to: install the driver, render the
+  # hcloud-volumes SC, and run the default-class flip hook — the cluster's
+  # ONE default class is now a durable cloud volume, never ephemeral
+  # local-path (which `--disable=local-storage` forbids outright). On Huawei
+  # enabled=false renders ZERO resources → the HR installs empty and reports
+  # Ready immediately so the bp-cnpg / bp-mgmt-vcluster dependsOn is satisfied
+  # without the suspended-HR deadlock. defaultStorageClass tracks enabled so
+  # the flip hook only runs where the SC actually exists.
   values:
-    enabled: true
-    defaultStorageClass: true
+    enabled: ${HCLOUD_CSI_ENABLED:=true}
+    defaultStorageClass: ${HCLOUD_CSI_ENABLED:=true}
   # ── Hetzner-token wiring ─────────────────────────────────────────────
   # Pulls `hcloud-token` from the canonical flux-system/cloud-credentials
   # Secret (cloud-init Phase 0) into .Values.hetznerToken; the chart
   # renders the namespace-local hcloud-csi-token Secret from it. Flux
   # dereferences valuesFrom at apply time so the plaintext never lands in
   # this committed manifest. Mirrors slot 55 (bp-hcloud-ccm).
+  #
+  # `optional: true` (#3971) — on Huawei the cloud-credentials Secret has NO
+  # `hcloud-token` key (it carries huawei-ak/sk/region instead). Since the HR
+  # is now ACTIVE on Huawei (enabled=false, empty render), Flux would FAIL to
+  # apply if it tried to dereference a missing valuesKey. optional:true makes
+  # Flux SKIP the entry when the key is absent (same idiom as slot 50
+  # cluster-autoscaler's hcloud-token wiring) — the empty Huawei render needs
+  # no token anyway.
   valuesFrom:
     - kind: Secret
       name: cloud-credentials
       valuesKey: hcloud-token
       targetPath: hetznerToken
+      optional: true
