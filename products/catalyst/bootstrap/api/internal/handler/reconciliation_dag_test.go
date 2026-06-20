@@ -71,7 +71,7 @@ func TestBuildReconciliationDAG_BoundedAndEdges(t *testing.T) {
 	kustomizations := []jobs.Job{
 		{JobName: "reconcile-bootstrap-kit", DisplayName: "Bootstrap", Kind: jobs.KindReconcile, Status: jobs.StatusSucceeded},
 	}
-	dag := buildReconciliationDAG(components, kustomizations, true)
+	dag := buildReconciliationDAG(components, kustomizations, nil, true)
 
 	// Bounded: 4 HRs + 1 Kustomization = 5.
 	if dag.Total != 5 || len(dag.Nodes) != 5 {
@@ -118,7 +118,7 @@ func TestBuildReconciliationDAG_PrunesDanglingEdges(t *testing.T) {
 		// depends on a host-side component the watch never observed.
 		{AppID: "harbor", Status: helmwatch.StateInstalled, DependsOn: []string{"shared-postgres-not-in-set"}},
 	}
-	dag := buildReconciliationDAG(components, nil, true)
+	dag := buildReconciliationDAG(components, nil, nil, true)
 	if len(dag.Nodes) != 1 {
 		t.Fatalf("expected 1 node, got %d", len(dag.Nodes))
 	}
@@ -166,7 +166,7 @@ func TestReconciliationKustomizations_ExcludesScannersAndNonReconcileJobs(t *tes
 	}
 
 	// And the assembled DAG carries ZERO scanner nodes.
-	dag := buildReconciliationDAG(nil, k, false)
+	dag := buildReconciliationDAG(nil, k, nil, false)
 	for _, n := range dag.Nodes {
 		if n.Kind != ReconKindKustomization {
 			t.Fatalf("unexpected non-Kustomization node in scanner-scope DAG: %+v", n)
@@ -177,16 +177,93 @@ func TestReconciliationKustomizations_ExcludesScannersAndNonReconcileJobs(t *tes
 	}
 }
 
-// The "not yet tracked" footnote names the deferred reconciler classes.
+// The "not yet tracked" footnote names the STILL-deferred reconciler
+// classes. As of #3958 cert-manager / CNPG / External-Secrets ARE tracked
+// (edgeless declarative nodes), so they must NOT appear in the footnote;
+// only Crossplane + the generic CRD controllers remain.
 func TestBuildReconciliationDAG_NotYetTrackedFootnote(t *testing.T) {
-	dag := buildReconciliationDAG(nil, nil, false)
+	dag := buildReconciliationDAG(nil, nil, nil, false)
 	if len(dag.NotYetTracked) == 0 {
 		t.Fatal("notYetTracked footnote must be populated")
 	}
-	for _, want := range []string{"Crossplane", "cert-manager", "CNPG", "External-Secrets"} {
+	for _, want := range []string{"Crossplane", "CRD controllers"} {
 		if !sliceHas(dag.NotYetTracked, want) {
 			t.Fatalf("notYetTracked missing %q (got %v)", want, dag.NotYetTracked)
 		}
+	}
+	// #3958 — these are now TRACKED as declarative nodes and must no longer
+	// be advertised as deferred.
+	for _, gone := range []string{"cert-manager", "CNPG", "External-Secrets"} {
+		if sliceHas(dag.NotYetTracked, gone) {
+			t.Fatalf("notYetTracked must NOT list now-tracked class %q (got %v)", gone, dag.NotYetTracked)
+		}
+	}
+}
+
+// #3958 — declarative reconcilers enter the DAG as edgeless nodes with the
+// mapped ReconState vocabulary, and the existing zero-scanner / bounded
+// guarantees are preserved.
+func TestBuildReconciliationDAG_DeclarativeReconcilerNodes(t *testing.T) {
+	components := []helmwatch.ComponentSnapshot{
+		{AppID: "cilium", Status: helmwatch.StateInstalled},
+	}
+	kustomizations := []jobs.Job{
+		{JobName: "reconcile-bootstrap-kit", DisplayName: "Bootstrap", Kind: jobs.KindReconcile, Status: jobs.StatusSucceeded},
+	}
+	declaratives := []helmwatch.DeclarativeReconciler{
+		{Kind: "Certificate", Name: "wildcard-tls", Namespace: "flux-system", Status: helmwatch.ObsStatusSucceeded, Message: "cert issued"},
+		{Kind: "Cluster", Name: "shared-pg", Namespace: "shared-data", Status: helmwatch.ObsStatusRunning, Message: "Setting up primary"},
+		{Kind: "ExternalSecret", Name: "smtp-creds", Namespace: "catalyst", Status: helmwatch.ObsStatusFailed, Message: "store not ready"},
+		{Kind: "Application", Name: "marketing-site", Namespace: "acme", Status: helmwatch.ObsStatusSucceeded, Message: "Ready"},
+		// cluster-scoped Organization — empty namespace segment in the ID.
+		{Kind: "Organization", Name: "acme", Namespace: "", Status: helmwatch.ObsStatusSucceeded, Message: "Ready"},
+	}
+	dag := buildReconciliationDAG(components, kustomizations, declaratives, true)
+
+	// Bounded: 1 HR + 1 Kustomization + 5 declaratives = 7.
+	if dag.Total != 7 || len(dag.Nodes) != 7 {
+		t.Fatalf("expected 7 nodes, got total=%d len=%d", dag.Total, len(dag.Nodes))
+	}
+
+	byID := map[string]ReconciliationNode{}
+	for _, n := range dag.Nodes {
+		byID[n.ID] = n
+	}
+
+	type wantNode struct {
+		id, kind, state string
+	}
+	wants := []wantNode{
+		{"certificate/flux-system/wildcard-tls", ReconKindCertificate, ReconStateReconciled},
+		{"cluster/shared-data/shared-pg", ReconKindCluster, ReconStateReconciling},
+		{"externalsecret/catalyst/smtp-creds", ReconKindExternalSecret, ReconStateDegraded},
+		{"application/acme/marketing-site", ReconKindApplication, ReconStateReconciled},
+		{"organization//acme", ReconKindOrganization, ReconStateReconciled},
+	}
+	for _, w := range wants {
+		n, ok := byID[w.id]
+		if !ok {
+			t.Fatalf("declarative node %q missing", w.id)
+		}
+		if n.Kind != w.kind {
+			t.Fatalf("node %q kind = %q, want %q", w.id, n.Kind, w.kind)
+		}
+		if n.State != w.state {
+			t.Fatalf("node %q state = %q, want %q", w.id, n.State, w.state)
+		}
+		// Declarative reconcilers carry no Flux dependsOn → no edges.
+		if len(n.DependsOn) != 0 {
+			t.Fatalf("declarative node %q must be edgeless, got dependsOn=%v", w.id, n.DependsOn)
+		}
+		if n.Label == "" {
+			t.Fatalf("declarative node %q label must be the name, got empty", w.id)
+		}
+	}
+
+	// Reconciled header count: cilium + bootstrap-kit + cert + application +
+	// organization = 5.
+	if dag.Reconciled != 5 {
+		t.Fatalf("expected 5 Reconciled, got %d", dag.Reconciled)
 	}
 }
 
