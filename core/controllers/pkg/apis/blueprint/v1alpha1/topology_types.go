@@ -529,11 +529,28 @@ type InstancePlacement struct {
 	// PlacementSpec.Clusters for THIS instance.
 	Clusters []string `json:"clusters,omitempty"`
 
-	// Mode — the legacy BCP-posture enum carried by the object form
-	// (single-region | active-active | active-hotstandby). Optional;
-	// empty derives the Blueprint default exactly like the legacy
-	// string form's empty value (G93.2).
+	// Mode — DEPRECATED (#3969). The legacy BCP-posture enum carried by
+	// the object form (single-region | active-active | active-hotstandby).
+	// Superseded by Targets[] (the desired-state target list, each with a
+	// Primary|Standby data-role). The string is still parsed off the wire
+	// for back-compat with older CRs, but the canonical desired state is
+	// now Targets — the pattern is DERIVED via DerivePattern, never stored.
 	Mode string `json:"mode,omitempty"`
+
+	// Targets — #3969: the canonical desired-state placement. A list of
+	// targets, each = region × cluster × vCluster × data-role
+	// (Primary|Standby, with a Standby type Hot|Cold). The pattern
+	// (singleton / active-passive / active-hot-standby / active-active) is
+	// DERIVED from these via DerivePattern; it is never stored, never
+	// selected. When set, Targets is the source of truth and supersedes
+	// the deprecated Mode posture enum.
+	Targets []PlacementTarget `json:"targets,omitempty"`
+
+	// OwnedDependencies — #3969: per-owned-dependency cascade overrides.
+	// An owned (private) backing service follows the consumer's placement
+	// by DEFAULT; an entry here with Follow:false decouples it (the user
+	// pins it). Absent ⇒ every owned dep follows.
+	OwnedDependencies []OwnedDependencyOverride `json:"ownedDependencies,omitempty"`
 }
 
 // BlueprintSpecExtension — the new fields G117 grafts onto the existing
@@ -576,4 +593,13 @@ type BlueprintSpecExtension struct {
 	// provisioning journey's generic advanced selector renders its
 	// options from this declaration (#3370 pattern — no per-app UI).
 	AllowedPlacements []string `json:"allowedPlacements,omitempty"`
+
+	// PlacementCapability — #3969: the GATE on how many targets may be
+	// Primary. "multi-primary" allows ≥2 live Primary targets
+	// (active-active); "primary+standby" (the default when empty) allows
+	// exactly one Primary, the rest Standby. This is the only stored
+	// capability gate — the pattern label is always derived from the
+	// resolved targets. Replaces the per-Blueprint `topology.supported[]`
+	// posture-enum list.
+	PlacementCapability PlacementCapability `json:"placementCapability,omitempty"`
 }
