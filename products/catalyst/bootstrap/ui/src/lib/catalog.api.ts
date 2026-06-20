@@ -508,6 +508,53 @@ export async function getApplicationStatus(
   return res.json()
 }
 
+/**
+ * RuntimePlacementResponse — #3982: the REAL placement targets derived
+ * from where the component's workloads actually run, across BOTH region
+ * clusters the catalyst-api holds in k8scache. Body of GET
+ * /sovereigns/{id}/applications/{name}/placement.
+ *
+ * `targets[]` is the #3969 PlacementTarget shape (region × cluster ×
+ * vCluster × role Primary|Standby, standby type Hot|Cold). The FE feeds it
+ * straight into `derivePattern` so the Topology tab renders the TRUE
+ * pattern (active-active for grafana/keycloak across 2 regions,
+ * active-hot-standby for a CNPG pair, singleton ONLY for a genuinely
+ * single-region component). Works for bootstrap HelmReleases (no
+ * Application CR) AND Application-CR installs because it keys on live Pods.
+ */
+export interface RuntimePlacementResponse {
+  targets: Array<{
+    region: string
+    cluster: string
+    vcluster?: string
+    role: 'Primary' | 'Standby'
+    standbyType?: 'Hot' | 'Cold'
+  }>
+  derivedFromRuntime: boolean
+}
+
+/**
+ * getApplicationPlacement — #3982. Fetch the runtime-derived placement
+ * targets for a component. Generic across every component the Topology tab
+ * renders. Returns null on any non-OK status so the caller can fall back to
+ * the legacy spec/status projection without throwing (the endpoint 200s
+ * with empty targets when the data plane is unavailable, so a thrown error
+ * here means a genuine transport failure).
+ */
+export async function getApplicationPlacement(
+  sovereignId: string,
+  name: string,
+  namespace?: string,
+): Promise<RuntimePlacementResponse | null> {
+  const params = new URLSearchParams()
+  if (namespace) params.set('namespace', namespace)
+  const qs = params.toString()
+  const url = `${applicationsBase(sovereignId)}/${encodeURIComponent(name)}/placement${qs ? '?' + qs : ''}`
+  const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
+  if (!res.ok) return null
+  return res.json()
+}
+
 export function applicationStreamURL(
   sovereignId: string,
   name: string,

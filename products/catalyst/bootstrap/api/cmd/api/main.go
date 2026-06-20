@@ -1489,6 +1489,12 @@ func main() {
 		rg.Post("/api/v1/sovereigns/{id}/applications/preview", h.HandleApplicationPreview)
 		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/status", h.HandleApplicationStatus)
 		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/stream", h.HandleApplicationStream)
+		// #3982 — REAL placement targets derived from the live runtime
+		// (where the component's Pods actually run, across BOTH region
+		// clusters in k8scache). Wires the #3969 placement MODEL to reality
+		// so the Topology tab stops showing a uniform false `singleton`.
+		// Works for bootstrap HelmReleases (no Application CR) AND CR apps.
+		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/placement", h.HandleApplicationPlacement)
 		// qa-loop iter-11 Fix #45 Cluster-C: full Application detail
 		// (identity + spec + status) so the Sovereign Console SPA's
 		// AppDetail page can synthesise an ApplicationDescriptor on the

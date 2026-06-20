@@ -23,7 +23,12 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { getApplicationStatus, getCatalogItem, type CatalogItem } from '@/lib/catalog.api'
+import {
+  getApplicationPlacement,
+  getApplicationStatus,
+  getCatalogItem,
+  type CatalogItem,
+} from '@/lib/catalog.api'
 import { getHierarchicalInfrastructure } from '@/lib/infrastructure.types'
 import { PlacementEditor, type OwnedDependencyInfo } from '@/widgets/topology/PlacementEditor'
 import {
@@ -105,6 +110,26 @@ export function TopologyTab({
 
   const app: ApplicationStatus | undefined = initialApp ?? statusQ.data
 
+  // #3982 — the REAL placement, derived from where the component's
+  // workloads actually run across BOTH region clusters. This is the
+  // authoritative source for the target cards + the derived Pattern; it is
+  // what makes grafana/keycloak (running in 2 regions) render 2 targets
+  // instead of the old uniform false `singleton`. Generic: works for
+  // bootstrap HelmReleases (no Application CR) AND wizard installs, because
+  // the backend keys on live Pods. Falls back silently (null) to the legacy
+  // spec/status projection below when the data plane is unavailable.
+  const placementQ = useQuery({
+    queryKey: ['application-placement', sovereignId, applicationName, namespace, refreshTick],
+    queryFn: () => getApplicationPlacement(sovereignId, applicationName, namespace),
+    enabled: !disableNetwork && !!sovereignId && !!applicationName,
+    refetchInterval: 30_000,
+    retry: false,
+  })
+  const runtimeTargets: PlacementTarget[] = useMemo(() => {
+    const t = placementQ.data?.targets
+    return Array.isArray(t) ? (t as PlacementTarget[]) : []
+  }, [placementQ.data])
+
   // Pull the Blueprint card for placementCapability (gates >1 Primary).
   const blueprintRef = app?.spec?.blueprintRef
   const blueprintQ = useQuery({
@@ -128,9 +153,17 @@ export function TopologyTab({
     staleTime: 60_000,
   })
 
-  // The desired-state targets: prefer spec.placement.targets[] (#3969
-  // canonical); else project the legacy mode/regions or status rollup.
+  // The target list rendered by the Placement panel + fed to derivePattern.
+  // Priority (#3982):
+  //   1. RUNTIME-derived targets — where the component's workloads ACTUALLY
+  //      run, across both region clusters. Authoritative; this is what makes
+  //      grafana/keycloak show 2 targets instead of a false `singleton`.
+  //   2. spec.placement.targets[] — the #3969 desired-state the operator
+  //      explicitly chose in the editor (used pre-rollout / when the data
+  //      plane is unavailable).
+  //   3. legacy status.targets / mode+regions projection.
   const targets: PlacementTarget[] = useMemo(() => {
+    if (runtimeTargets.length > 0) return runtimeTargets
     const specPlacement = app?.spec?.placement
     if (specPlacement && typeof specPlacement === 'object') {
       const t = (specPlacement as Record<string, unknown>).targets
@@ -147,7 +180,7 @@ export function TopologyTab({
     const mode = typeof specPlacement === 'string' ? specPlacement : ((status.placement as string) ?? '')
     const regions = Array.isArray(app?.spec?.regions) ? app!.spec!.regions! : statusRegions.map((r) => r.name)
     return targetsFromLegacy({ mode, regions, statusRegions })
-  }, [app])
+  }, [app, runtimeTargets])
 
   const pattern = useMemo(() => derivePattern(targets), [targets])
 

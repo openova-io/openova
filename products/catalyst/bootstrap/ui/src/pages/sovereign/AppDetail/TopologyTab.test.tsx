@@ -9,7 +9,7 @@
  * the status endpoint (the 404 loop). Keys on `isBootstrap`, never a
  * blueprint name.
  */
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
@@ -17,11 +17,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const getApplicationStatus = vi.fn()
 const getCatalogItem = vi.fn()
+const getApplicationPlacement = vi.fn()
 const getHierarchicalInfrastructure = vi.fn()
 
 vi.mock('@/lib/catalog.api', () => ({
   getApplicationStatus: (...a: unknown[]) => getApplicationStatus(...a),
   getCatalogItem: (...a: unknown[]) => getCatalogItem(...a),
+  getApplicationPlacement: (...a: unknown[]) => getApplicationPlacement(...a),
 }))
 
 vi.mock('@/lib/infrastructure.types', () => ({
@@ -40,6 +42,13 @@ function withProviders(node: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return <QueryClientProvider client={qc}>{node}</QueryClientProvider>
 }
+
+beforeEach(() => {
+  // #3982 — default the runtime-placement endpoint to "no runtime targets"
+  // so the legacy spec/status projection still drives the existing asserts.
+  // Tests that exercise the runtime path override this per-case.
+  getApplicationPlacement.mockResolvedValue({ targets: [], derivedFromRuntime: true })
+})
 
 afterEach(() => {
   cleanup()
@@ -155,5 +164,66 @@ describe('TopologyTab — bootstrap HelmRelease status poll (#3656)', () => {
       expect(getApplicationStatus).toHaveBeenCalled()
     })
     expect(screen.queryByTestId('topology-tab-status-bootstrap')).toBeNull()
+  })
+})
+
+describe('TopologyTab — #3982 runtime-derived placement', () => {
+  it('a bootstrap component running in BOTH regions shows 2 targets, pattern ≠ singleton (the hw173 grafana bug)', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    // grafana: a bootstrap HelmRelease (no Application CR) whose pods run in
+    // BOTH regions. Before #3982 this fell to derivePattern([]) = singleton.
+    getApplicationPlacement.mockResolvedValue({
+      targets: [
+        { region: 'me-east-215-a', cluster: 'dep-x', vcluster: 'mgmt', role: 'Primary' },
+        { region: 'me-east-215-b', cluster: 'dep-x-b', vcluster: 'mgmt', role: 'Primary' },
+      ],
+      derivedFromRuntime: true,
+    })
+
+    render(
+      withProviders(
+        <TopologyTab sovereignId="dep-x" applicationName="grafana" namespace="mgmt" isBootstrap />,
+      ),
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-target-card-0')).toBeTruthy()
+    })
+    // TWO targets, both regions present.
+    expect(screen.getByTestId('topology-tab-target-card-1')).toBeTruthy()
+    expect(screen.queryByTestId('topology-tab-target-card-2')).toBeNull()
+    // Pattern is active-active (2 primaries), NOT the false singleton.
+    expect(screen.getByTestId('topology-tab-pattern').textContent).toBe('active-active')
+    expect(screen.getByTestId('topology-tab-pattern').textContent).not.toBe('singleton')
+    // The empty "No placement targets reported yet" state is gone.
+    expect(screen.queryByTestId('topology-tab-placement-empty')).toBeNull()
+  })
+
+  it('runtime targets override the legacy spec projection (reality wins)', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    // CR app whose spec says single-region, but the workloads actually run
+    // as a CNPG pair across 2 regions → runtime wins → active-hot-standby.
+    getApplicationStatus.mockResolvedValue({
+      name: 'shared-pg',
+      namespace: 'shared-data',
+      spec: { placement: { targets: [{ region: 'region-a', cluster: 'c', vcluster: 'host', role: 'Primary' }] } },
+      status: { placement: 'Reconciled' },
+    })
+    getApplicationPlacement.mockResolvedValue({
+      targets: [
+        { region: 'region-a', cluster: 'c', vcluster: 'host', role: 'Primary' },
+        { region: 'region-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
+      ],
+      derivedFromRuntime: true,
+    })
+
+    render(
+      withProviders(<TopologyTab sovereignId="dep-y" applicationName="shared-pg" namespace="shared-data" />),
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-target-card-1')).toBeTruthy()
+    })
+    expect(screen.getByTestId('topology-tab-pattern').textContent).toBe('active-hot-standby')
   })
 })
