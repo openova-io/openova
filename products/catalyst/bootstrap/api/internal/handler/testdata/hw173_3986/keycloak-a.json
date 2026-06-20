@@ -1,0 +1,951 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "annotations": {
+                    "checksum/configmap-env-vars": "e3dbf4e351779bb99f7609221644a89a198ecd144a89a3b68b65d97d389f71c2",
+                    "checksum/secrets": "e0061a139854a5b3272a0287d2a9b28c76288efadabfea76da680f4a75efdd64",
+                    "cluster-autoscaler.kubernetes.io/safe-to-evict": "true",
+                    "vcluster.loft.sh/hosts-rewritten": "true",
+                    "vcluster.loft.sh/labels": "app.kubernetes.io/component=\"keycloak\"\napp.kubernetes.io/instance=\"keycloak\"\napp.kubernetes.io/managed-by=\"flux\"\napp.kubernetes.io/name=\"keycloak\"\napp.kubernetes.io/part-of=\"keycloak\"\napp.kubernetes.io/version=\"26.3.3\"\napps.kubernetes.io/pod-index=\"0\"\ncontroller-revision-hash=\"keycloak-5d5c456544\"\nhelm.sh/chart=\"keycloak-25.2.0\"\npolicy.cilium.io/enforced=\"true\"\nstatefulset.kubernetes.io/pod-name=\"keycloak-0\"",
+                    "vcluster.loft.sh/managed-annotations": "checksum/configmap-env-vars\nchecksum/secrets",
+                    "vcluster.loft.sh/name": "keycloak-0",
+                    "vcluster.loft.sh/namespace": "keycloak",
+                    "vcluster.loft.sh/object-host-name": "keycloak-0-x-keycloak-x-mgmt-vcluster",
+                    "vcluster.loft.sh/object-host-namespace": "mgmt",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Pod",
+                    "vcluster.loft.sh/object-name": "keycloak-0",
+                    "vcluster.loft.sh/object-namespace": "keycloak",
+                    "vcluster.loft.sh/object-uid": "dbff9ca4-9486-42d7-9506-a245f8adb72e",
+                    "vcluster.loft.sh/owner-references": "[{\"apiVersion\":\"apps/v1\",\"kind\":\"StatefulSet\",\"name\":\"keycloak\",\"uid\":\"2022126b-d916-44ec-b9d7-1170e73644e5\",\"controller\":true,\"blockOwnerDeletion\":true}]",
+                    "vcluster.loft.sh/owner-set-kind": "StatefulSet",
+                    "vcluster.loft.sh/service-account-name": "keycloak",
+                    "vcluster.loft.sh/token-pdderfpn": "eyJhbGciOiJSUzI1NiIsImtpZCI6IkNwYXBBaDZQaEZXWmp4cmlNNWcwMlR4ZnM1RFFrUmt0T2QwSWJfSXdwU1kifQ.eyJhdWQiOlsiaHR0cHM6Ly9rdWJlcm5ldGVzLmRlZmF1bHQuc3ZjLmNsdXN0ZXIubG9jYWwiLCJodHRwczovL2t1YmVybmV0ZXMuZGVmYXVsdC5zdmMiLCJodHRwczovL2t1YmVybmV0ZXMuZGVmYXVsdCJdLCJleHAiOjIwOTcyODU1ODIsImlhdCI6MTc4MTkyNTU4MiwiaXNzIjoiaHR0cHM6Ly9rdWJlcm5ldGVzLmRlZmF1bHQuc3ZjLmNsdXN0ZXIubG9jYWwiLCJqdGkiOiI2ZjZiMjY3Yy0wZGJlLTQ2ZjItOTljZC0wYTU4MWM2MDZmOGQiLCJrdWJlcm5ldGVzLmlvIjp7Im5hbWVzcGFjZSI6ImtleWNsb2FrIiwicG9kIjp7Im5hbWUiOiJrZXljbG9hay0wIiwidWlkIjoiZGJmZjljYTQtOTQ4Ni00MmQ3LTk1MDYtYTI0NWY4YWRiNzJlIn0sInNlcnZpY2VhY2NvdW50Ijp7Im5hbWUiOiJrZXljbG9hayIsInVpZCI6ImQxNjJhYzFkLTMxODgtNDliMi05ZTMxLTY4Y2JiZDZmMTViYyJ9fSwibmJmIjoxNzgxOTI1NTgyLCJzdWIiOiJzeXN0ZW06c2VydmljZWFjY291bnQ6a2V5Y2xvYWs6a2V5Y2xvYWsifQ.ZsWr3wSd9E9PaLcexJB-OERCzI3Cke_gZ5nAl-UlkpQxHdzVVFiuyf_JuNYuNih8KSW0-x4UG0hA5KfQvLhL9PADA2mNsKVRcNcNkWIyZD-jJp3zbUPb06kNv2zFp0Ip4V78FBV6WtjupGGEANHgUrHcQ2ncoWv866lu2RtKfyXpjVOM_9f-HHflFwxziEB5DtrDhmc7TRlzuTcvZlGuGjCbaukYWOUIFTuDujII6OatwiyAN_gQthCkQ6uOFivz6ctwrZyMLQrxQMjRRCuGp5UzAH6ZJV7k3C7yiE5K7njxJfuyBzDOLMO3M6vB4ZBjbJCsVpeC_Gr3Keoo9szp1A",
+                    "vcluster.loft.sh/uid": "dbff9ca4-9486-42d7-9506-a245f8adb72e"
+                },
+                "creationTimestamp": "2026-06-20T03:19:42Z",
+                "labels": {
+                    "app.kubernetes.io/component": "keycloak",
+                    "app.kubernetes.io/instance": "keycloak",
+                    "app.kubernetes.io/managed-by": "flux",
+                    "app.kubernetes.io/name": "keycloak",
+                    "app.kubernetes.io/part-of": "keycloak",
+                    "app.kubernetes.io/version": "26.3.3",
+                    "apps.kubernetes.io/pod-index": "0",
+                    "controller-revision-hash": "keycloak-5d5c456544",
+                    "helm.sh/chart": "keycloak-25.2.0",
+                    "policy.cilium.io/enforced": "true",
+                    "statefulset.kubernetes.io/pod-name": "keycloak-0",
+                    "vcluster.loft.sh/managed-by": "mgmt-vcluster",
+                    "vcluster.loft.sh/namespace": "keycloak",
+                    "vcluster.loft.sh/ns-label-mgmt-vcluster-x-82a3537ff0": "keycloak",
+                    "vcluster.loft.sh/ns-label-mgmt-vcluster-x-cf1227b7b2": "keycloak"
+                },
+                "name": "keycloak-0-x-keycloak-x-mgmt-vcluster",
+                "namespace": "mgmt",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "mgmt-vcluster",
+                        "uid": "1e8c3e36-fdf1-482f-9725-45d1f2b5fbea"
+                    }
+                ],
+                "resourceVersion": "31497",
+                "uid": "3e27b282-4afd-4aea-9b42-a6064746795b"
+            },
+            "spec": {
+                "affinity": {
+                    "podAntiAffinity": {
+                        "preferredDuringSchedulingIgnoredDuringExecution": [
+                            {
+                                "podAffinityTerm": {
+                                    "labelSelector": {
+                                        "matchLabels": {
+                                            "app.kubernetes.io/component": "keycloak",
+                                            "app.kubernetes.io/instance": "keycloak",
+                                            "app.kubernetes.io/name": "keycloak",
+                                            "vcluster.loft.sh/managed-by": "mgmt-vcluster",
+                                            "vcluster.loft.sh/namespace": "keycloak"
+                                        }
+                                    },
+                                    "topologyKey": "kubernetes.io/hostname"
+                                },
+                                "weight": 1
+                            }
+                        ]
+                    }
+                },
+                "automountServiceAccountToken": false,
+                "containers": [
+                    {
+                        "env": [
+                            {
+                                "name": "KEYCLOAK_PORT",
+                                "value": "tcp://10.96.182.157:80"
+                            },
+                            {
+                                "name": "KEYCLOAK_PORT_80_TCP",
+                                "value": "tcp://10.96.182.157:80"
+                            },
+                            {
+                                "name": "KEYCLOAK_PORT_80_TCP_ADDR",
+                                "value": "10.96.182.157"
+                            },
+                            {
+                                "name": "KEYCLOAK_PORT_80_TCP_PORT",
+                                "value": "80"
+                            },
+                            {
+                                "name": "KEYCLOAK_PORT_80_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_PORT",
+                                "value": "tcp://10.96.139.25:5432"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_PORT_5432_TCP",
+                                "value": "tcp://10.96.139.25:5432"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_PORT_5432_TCP_ADDR",
+                                "value": "10.96.139.25"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_PORT_5432_TCP_PORT",
+                                "value": "5432"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_PORT_5432_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_SERVICE_HOST",
+                                "value": "10.96.139.25"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_SERVICE_PORT",
+                                "value": "5432"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_SERVICE_PORT_TCP_POSTGRESQL",
+                                "value": "5432"
+                            },
+                            {
+                                "name": "KEYCLOAK_SERVICE_HOST",
+                                "value": "10.96.182.157"
+                            },
+                            {
+                                "name": "KEYCLOAK_SERVICE_PORT",
+                                "value": "80"
+                            },
+                            {
+                                "name": "KEYCLOAK_SERVICE_PORT_HTTP",
+                                "value": "80"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT",
+                                "value": "tcp://10.96.117.155:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP",
+                                "value": "tcp://10.96.117.155:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_ADDR",
+                                "value": "10.96.117.155"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_HOST",
+                                "value": "10.96.117.155"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT_HTTPS",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_NAMESPACE",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "metadata.annotations['vcluster.loft.sh/namespace']"
+                                    }
+                                }
+                            }
+                        ],
+                        "envFrom": [
+                            {
+                                "configMapRef": {
+                                    "name": "keycloak-env-vars-x-keycloak-x-mgmt-vcluster"
+                                }
+                            },
+                            {
+                                "configMapRef": {
+                                    "name": "keycloak-kc-frontend-env-x-keycloak-x-mgmt-vcluster"
+                                }
+                            }
+                        ],
+                        "image": "harbor.openova.io/proxy-dockerhub/bitnamilegacy/keycloak:26.3.3-debian-12-r0",
+                        "imagePullPolicy": "IfNotPresent",
+                        "livenessProbe": {
+                            "failureThreshold": 3,
+                            "initialDelaySeconds": 60,
+                            "periodSeconds": 1,
+                            "successThreshold": 1,
+                            "tcpSocket": {
+                                "port": "http"
+                            },
+                            "timeoutSeconds": 5
+                        },
+                        "name": "keycloak",
+                        "ports": [
+                            {
+                                "containerPort": 8080,
+                                "name": "http",
+                                "protocol": "TCP"
+                            },
+                            {
+                                "containerPort": 7800,
+                                "name": "discovery",
+                                "protocol": "TCP"
+                            }
+                        ],
+                        "readinessProbe": {
+                            "failureThreshold": 3,
+                            "httpGet": {
+                                "path": "/realms/master",
+                                "port": "http",
+                                "scheme": "HTTP"
+                            },
+                            "initialDelaySeconds": 30,
+                            "periodSeconds": 10,
+                            "successThreshold": 1,
+                            "timeoutSeconds": 1
+                        },
+                        "resources": {
+                            "limits": {
+                                "cpu": "2",
+                                "memory": "2Gi"
+                            },
+                            "requests": {
+                                "cpu": "250m",
+                                "memory": "512Mi"
+                            }
+                        },
+                        "securityContext": {
+                            "allowPrivilegeEscalation": false,
+                            "capabilities": {
+                                "drop": [
+                                    "ALL"
+                                ]
+                            },
+                            "privileged": false,
+                            "readOnlyRootFilesystem": true,
+                            "runAsGroup": 1001,
+                            "runAsNonRoot": true,
+                            "runAsUser": 1001,
+                            "seLinuxOptions": {},
+                            "seccompProfile": {
+                                "type": "RuntimeDefault"
+                            }
+                        },
+                        "startupProbe": {
+                            "failureThreshold": 360,
+                            "httpGet": {
+                                "path": "/",
+                                "port": "http",
+                                "scheme": "HTTP"
+                            },
+                            "initialDelaySeconds": 30,
+                            "periodSeconds": 5,
+                            "successThreshold": 1,
+                            "timeoutSeconds": 5
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/tmp",
+                                "name": "empty-dir",
+                                "subPath": "tmp-dir"
+                            },
+                            {
+                                "mountPath": "/bitnami/keycloak",
+                                "name": "empty-dir",
+                                "subPath": "app-volume-dir"
+                            },
+                            {
+                                "mountPath": "/opt/bitnami/keycloak/conf",
+                                "name": "empty-dir",
+                                "subPath": "app-conf-dir"
+                            },
+                            {
+                                "mountPath": "/opt/bitnami/keycloak/lib/quarkus",
+                                "name": "empty-dir",
+                                "subPath": "app-quarkus-dir"
+                            },
+                            {
+                                "mountPath": "/opt/bitnami/keycloak/data",
+                                "name": "empty-dir",
+                                "subPath": "app-data-dir"
+                            },
+                            {
+                                "mountPath": "/opt/bitnami/keycloak/providers",
+                                "name": "empty-dir",
+                                "subPath": "app-providers-dir"
+                            },
+                            {
+                                "mountPath": "/opt/bitnami/keycloak/themes",
+                                "name": "empty-dir",
+                                "subPath": "app-themes-dir"
+                            },
+                            {
+                                "mountPath": "/opt/bitnami/keycloak/secrets",
+                                "name": "keycloak-secrets"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-cfw4b",
+                                "readOnly": true
+                            },
+                            {
+                                "mountPath": "/etc/hosts",
+                                "name": "vcluster-rewrite-hosts",
+                                "subPath": "hosts"
+                            }
+                        ]
+                    }
+                ],
+                "dnsConfig": {
+                    "nameservers": [
+                        "10.96.212.31"
+                    ],
+                    "options": [
+                        {
+                            "name": "ndots",
+                            "value": "5"
+                        }
+                    ],
+                    "searches": [
+                        "keycloak.svc.cluster.local",
+                        "svc.cluster.local",
+                        "cluster.local"
+                    ]
+                },
+                "dnsPolicy": "None",
+                "enableServiceLinks": false,
+                "hostAliases": [
+                    {
+                        "hostnames": [
+                            "kubernetes",
+                            "kubernetes.default",
+                            "kubernetes.default.svc"
+                        ],
+                        "ip": "10.96.117.155"
+                    }
+                ],
+                "hostname": "keycloak-0",
+                "initContainers": [
+                    {
+                        "args": [
+                            "-c",
+                            "sed -E -e 's/^(\\d+.\\d+.\\d+.\\d+\\s+)keycloak-0$/\\1 keycloak-0.keycloak-headless.keycloak.svc.cluster.local keycloak-0/' /etc/hosts \u003e /hosts/hosts"
+                        ],
+                        "command": [
+                            "sh"
+                        ],
+                        "env": [
+                            {
+                                "name": "KEYCLOAK_PORT",
+                                "value": "tcp://10.96.182.157:80"
+                            },
+                            {
+                                "name": "KEYCLOAK_PORT_80_TCP",
+                                "value": "tcp://10.96.182.157:80"
+                            },
+                            {
+                                "name": "KEYCLOAK_PORT_80_TCP_ADDR",
+                                "value": "10.96.182.157"
+                            },
+                            {
+                                "name": "KEYCLOAK_PORT_80_TCP_PORT",
+                                "value": "80"
+                            },
+                            {
+                                "name": "KEYCLOAK_PORT_80_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_PORT",
+                                "value": "tcp://10.96.139.25:5432"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_PORT_5432_TCP",
+                                "value": "tcp://10.96.139.25:5432"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_PORT_5432_TCP_ADDR",
+                                "value": "10.96.139.25"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_PORT_5432_TCP_PORT",
+                                "value": "5432"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_PORT_5432_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_SERVICE_HOST",
+                                "value": "10.96.139.25"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_SERVICE_PORT",
+                                "value": "5432"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_SERVICE_PORT_TCP_POSTGRESQL",
+                                "value": "5432"
+                            },
+                            {
+                                "name": "KEYCLOAK_SERVICE_HOST",
+                                "value": "10.96.182.157"
+                            },
+                            {
+                                "name": "KEYCLOAK_SERVICE_PORT",
+                                "value": "80"
+                            },
+                            {
+                                "name": "KEYCLOAK_SERVICE_PORT_HTTP",
+                                "value": "80"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT",
+                                "value": "tcp://10.96.117.155:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP",
+                                "value": "tcp://10.96.117.155:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_ADDR",
+                                "value": "10.96.117.155"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_HOST",
+                                "value": "10.96.117.155"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT_HTTPS",
+                                "value": "443"
+                            }
+                        ],
+                        "image": "library/alpine:3.20",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "vcluster-rewrite-hosts",
+                        "resources": {
+                            "limits": {
+                                "cpu": "30m",
+                                "memory": "64Mi"
+                            },
+                            "requests": {
+                                "cpu": "30m",
+                                "memory": "64Mi"
+                            }
+                        },
+                        "securityContext": {
+                            "allowPrivilegeEscalation": false,
+                            "capabilities": {
+                                "drop": [
+                                    "ALL"
+                                ]
+                            },
+                            "runAsGroup": 1001,
+                            "runAsNonRoot": true,
+                            "runAsUser": 1001,
+                            "seccompProfile": {
+                                "type": "RuntimeDefault"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/hosts",
+                                "name": "vcluster-rewrite-hosts"
+                            }
+                        ]
+                    },
+                    {
+                        "args": [
+                            "-ec",
+                            ". /opt/bitnami/scripts/liblog.sh\n\ninfo \"Copying writable dirs to empty dir\"\n# In order to not break the application functionality we need to make some\n# directories writable, so we need to copy it to an empty dir volume\ncp -r --preserve=mode,timestamps /opt/bitnami/keycloak/lib/quarkus /emptydir/app-quarkus-dir\ncp -r --preserve=mode,timestamps /opt/bitnami/keycloak/data /emptydir/app-data-dir\ncp -r --preserve=mode,timestamps /opt/bitnami/keycloak/providers /emptydir/app-providers-dir\ncp -r --preserve=mode,timestamps /opt/bitnami/keycloak/themes /emptydir/app-themes-dir\ninfo \"Copy operation completed\"\n"
+                        ],
+                        "command": [
+                            "/bin/bash"
+                        ],
+                        "env": [
+                            {
+                                "name": "KEYCLOAK_PORT",
+                                "value": "tcp://10.96.182.157:80"
+                            },
+                            {
+                                "name": "KEYCLOAK_PORT_80_TCP",
+                                "value": "tcp://10.96.182.157:80"
+                            },
+                            {
+                                "name": "KEYCLOAK_PORT_80_TCP_ADDR",
+                                "value": "10.96.182.157"
+                            },
+                            {
+                                "name": "KEYCLOAK_PORT_80_TCP_PORT",
+                                "value": "80"
+                            },
+                            {
+                                "name": "KEYCLOAK_PORT_80_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_PORT",
+                                "value": "tcp://10.96.139.25:5432"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_PORT_5432_TCP",
+                                "value": "tcp://10.96.139.25:5432"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_PORT_5432_TCP_ADDR",
+                                "value": "10.96.139.25"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_PORT_5432_TCP_PORT",
+                                "value": "5432"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_PORT_5432_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_SERVICE_HOST",
+                                "value": "10.96.139.25"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_SERVICE_PORT",
+                                "value": "5432"
+                            },
+                            {
+                                "name": "KEYCLOAK_POSTGRESQL_SERVICE_PORT_TCP_POSTGRESQL",
+                                "value": "5432"
+                            },
+                            {
+                                "name": "KEYCLOAK_SERVICE_HOST",
+                                "value": "10.96.182.157"
+                            },
+                            {
+                                "name": "KEYCLOAK_SERVICE_PORT",
+                                "value": "80"
+                            },
+                            {
+                                "name": "KEYCLOAK_SERVICE_PORT_HTTP",
+                                "value": "80"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT",
+                                "value": "tcp://10.96.117.155:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP",
+                                "value": "tcp://10.96.117.155:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_ADDR",
+                                "value": "10.96.117.155"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_HOST",
+                                "value": "10.96.117.155"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT_HTTPS",
+                                "value": "443"
+                            }
+                        ],
+                        "image": "harbor.openova.io/proxy-dockerhub/bitnamilegacy/keycloak:26.3.3-debian-12-r0",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "prepare-write-dirs",
+                        "resources": {
+                            "limits": {
+                                "cpu": "150m",
+                                "ephemeral-storage": "2Gi",
+                                "memory": "192Mi"
+                            },
+                            "requests": {
+                                "cpu": "100m",
+                                "ephemeral-storage": "50Mi",
+                                "memory": "128Mi"
+                            }
+                        },
+                        "securityContext": {
+                            "allowPrivilegeEscalation": false,
+                            "capabilities": {
+                                "drop": [
+                                    "ALL"
+                                ]
+                            },
+                            "privileged": false,
+                            "readOnlyRootFilesystem": true,
+                            "runAsGroup": 1001,
+                            "runAsNonRoot": true,
+                            "runAsUser": 1001,
+                            "seLinuxOptions": {},
+                            "seccompProfile": {
+                                "type": "RuntimeDefault"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/emptydir",
+                                "name": "empty-dir"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-cfw4b",
+                                "readOnly": true
+                            },
+                            {
+                                "mountPath": "/etc/hosts",
+                                "name": "vcluster-rewrite-hosts",
+                                "subPath": "hosts"
+                            }
+                        ]
+                    }
+                ],
+                "nodeName": "catalyst-hw173-omani-works-7bb723da-me-east-215-a-wc5b620",
+                "preemptionPolicy": "PreemptLowerPriority",
+                "priority": 0,
+                "restartPolicy": "Always",
+                "schedulerName": "default-scheduler",
+                "securityContext": {
+                    "fsGroup": 1001,
+                    "fsGroupChangePolicy": "Always"
+                },
+                "serviceAccount": "vc-workload-mgmt-vcluster",
+                "serviceAccountName": "vc-workload-mgmt-vcluster",
+                "terminationGracePeriodSeconds": 30,
+                "tolerations": [
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/not-ready",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    },
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/unreachable",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    }
+                ],
+                "volumes": [
+                    {
+                        "emptyDir": {},
+                        "name": "empty-dir"
+                    },
+                    {
+                        "name": "keycloak-secrets",
+                        "projected": {
+                            "defaultMode": 420,
+                            "sources": [
+                                {
+                                    "secret": {
+                                        "name": "keycloak-x-keycloak-x-mgmt-vcluster"
+                                    }
+                                },
+                                {
+                                    "secret": {
+                                        "items": [
+                                            {
+                                                "key": "password",
+                                                "path": "db-password"
+                                            }
+                                        ],
+                                        "name": "keycloak-postgresql-x-keycloak-x-mgmt-vcluster"
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "kube-api-access-cfw4b",
+                        "projected": {
+                            "defaultMode": 420,
+                            "sources": [
+                                {
+                                    "downwardAPI": {
+                                        "items": [
+                                            {
+                                                "fieldRef": {
+                                                    "apiVersion": "v1",
+                                                    "fieldPath": "metadata.annotations['vcluster.loft.sh/token-pdderfpn']"
+                                                },
+                                                "mode": 420,
+                                                "path": "token"
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "configMap": {
+                                        "items": [
+                                            {
+                                                "key": "ca.crt",
+                                                "path": "ca.crt"
+                                            }
+                                        ],
+                                        "name": "kube-root-ca.crt-x-keycloak-x-mgmt-vcluster"
+                                    }
+                                },
+                                {
+                                    "downwardAPI": {
+                                        "items": [
+                                            {
+                                                "fieldRef": {
+                                                    "apiVersion": "v1",
+                                                    "fieldPath": "metadata.annotations['vcluster.loft.sh/namespace']"
+                                                },
+                                                "path": "namespace"
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "emptyDir": {},
+                        "name": "vcluster-rewrite-hosts"
+                    }
+                ]
+            },
+            "status": {
+                "conditions": [
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-06-20T03:19:46Z",
+                        "status": "True",
+                        "type": "PodReadyToStartContainers"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-06-20T03:30:28Z",
+                        "status": "True",
+                        "type": "Initialized"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-06-20T03:31:05Z",
+                        "status": "True",
+                        "type": "Ready"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-06-20T03:31:05Z",
+                        "status": "True",
+                        "type": "ContainersReady"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-06-20T03:19:42Z",
+                        "status": "True",
+                        "type": "PodScheduled"
+                    }
+                ],
+                "containerStatuses": [
+                    {
+                        "containerID": "containerd://51159e2bca2c86e75c194145a599e35e2c3bf0ef4f7b457dabd5ad9e34f86296",
+                        "image": "harbor.openova.io/proxy-dockerhub/bitnamilegacy/keycloak:26.3.3-debian-12-r0",
+                        "imageID": "harbor.openova.io/proxy-dockerhub/bitnamilegacy/keycloak@sha256:da3df0976a9f9a664bdbde6cb5308b78f03ac94d0abf33b2df355bbb06cbc5b9",
+                        "lastState": {},
+                        "name": "keycloak",
+                        "ready": true,
+                        "restartCount": 0,
+                        "started": true,
+                        "state": {
+                            "running": {
+                                "startedAt": "2026-06-20T03:30:28Z"
+                            }
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/tmp",
+                                "name": "empty-dir"
+                            },
+                            {
+                                "mountPath": "/bitnami/keycloak",
+                                "name": "empty-dir"
+                            },
+                            {
+                                "mountPath": "/opt/bitnami/keycloak/conf",
+                                "name": "empty-dir"
+                            },
+                            {
+                                "mountPath": "/opt/bitnami/keycloak/lib/quarkus",
+                                "name": "empty-dir"
+                            },
+                            {
+                                "mountPath": "/opt/bitnami/keycloak/data",
+                                "name": "empty-dir"
+                            },
+                            {
+                                "mountPath": "/opt/bitnami/keycloak/providers",
+                                "name": "empty-dir"
+                            },
+                            {
+                                "mountPath": "/opt/bitnami/keycloak/themes",
+                                "name": "empty-dir"
+                            },
+                            {
+                                "mountPath": "/opt/bitnami/keycloak/secrets",
+                                "name": "keycloak-secrets"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-cfw4b",
+                                "readOnly": true,
+                                "recursiveReadOnly": "Disabled"
+                            },
+                            {
+                                "mountPath": "/etc/hosts",
+                                "name": "vcluster-rewrite-hosts"
+                            }
+                        ]
+                    }
+                ],
+                "hostIP": "10.169.1.28",
+                "hostIPs": [
+                    {
+                        "ip": "10.169.1.28"
+                    }
+                ],
+                "initContainerStatuses": [
+                    {
+                        "containerID": "containerd://b222ef1c5a2d444638d0ba199be5ffb3e05e4e68e0138d77fcbf11419fc0a86f",
+                        "image": "docker.io/library/alpine:3.20",
+                        "imageID": "docker.io/library/alpine@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+                        "lastState": {},
+                        "name": "vcluster-rewrite-hosts",
+                        "ready": true,
+                        "restartCount": 0,
+                        "started": false,
+                        "state": {
+                            "terminated": {
+                                "containerID": "containerd://b222ef1c5a2d444638d0ba199be5ffb3e05e4e68e0138d77fcbf11419fc0a86f",
+                                "exitCode": 0,
+                                "finishedAt": "2026-06-20T03:19:45Z",
+                                "reason": "Completed",
+                                "startedAt": "2026-06-20T03:19:45Z"
+                            }
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/hosts",
+                                "name": "vcluster-rewrite-hosts"
+                            }
+                        ]
+                    },
+                    {
+                        "containerID": "containerd://80bc06ddb89b4a9dc44e13da9bf48b83fdc9b6bc8c8ceb4dd05329fbc975719f",
+                        "image": "harbor.openova.io/proxy-dockerhub/bitnamilegacy/keycloak:26.3.3-debian-12-r0",
+                        "imageID": "harbor.openova.io/proxy-dockerhub/bitnamilegacy/keycloak@sha256:da3df0976a9f9a664bdbde6cb5308b78f03ac94d0abf33b2df355bbb06cbc5b9",
+                        "lastState": {},
+                        "name": "prepare-write-dirs",
+                        "ready": true,
+                        "restartCount": 0,
+                        "started": false,
+                        "state": {
+                            "terminated": {
+                                "containerID": "containerd://80bc06ddb89b4a9dc44e13da9bf48b83fdc9b6bc8c8ceb4dd05329fbc975719f",
+                                "exitCode": 0,
+                                "finishedAt": "2026-06-20T03:30:25Z",
+                                "reason": "Completed",
+                                "startedAt": "2026-06-20T03:30:25Z"
+                            }
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/emptydir",
+                                "name": "empty-dir"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-cfw4b",
+                                "readOnly": true,
+                                "recursiveReadOnly": "Disabled"
+                            },
+                            {
+                                "mountPath": "/etc/hosts",
+                                "name": "vcluster-rewrite-hosts"
+                            }
+                        ]
+                    }
+                ],
+                "phase": "Running",
+                "podIP": "10.42.2.117",
+                "podIPs": [
+                    {
+                        "ip": "10.42.2.117"
+                    }
+                ],
+                "qosClass": "Burstable",
+                "startTime": "2026-06-20T03:19:42Z"
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

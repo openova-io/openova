@@ -1,0 +1,2712 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "v1",
+            "kind": "Node",
+            "metadata": {
+                "annotations": {
+                    "alpha.kubernetes.io/provided-node-ip": "10.179.1.131",
+                    "etcd.k3s.cattle.io/local-snapshots-timestamp": "2026-06-20T12:00:02+08:00",
+                    "etcd.k3s.cattle.io/node-address": "10.179.1.131",
+                    "etcd.k3s.cattle.io/node-name": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-cp1-174a7a-274d2802",
+                    "k3s.io/external-ip": "212.72.24.35",
+                    "k3s.io/hostname": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-cp1-174a7a",
+                    "k3s.io/internal-ip": "10.179.1.131",
+                    "k3s.io/node-args": "[\"server\",\"--cluster-init\",\"--flannel-backend\",\"none\",\"--disable-network-policy\",\"--disable\",\"traefik\",\"--disable\",\"servicelb\",\"--cluster-cidr\",\"10.43.0.0/16\",\"--service-cidr\",\"10.97.0.0/16\",\"--node-ip\",\"10.179.1.131\",\"--node-external-ip\",\"212.72.24.35\",\"--advertise-address\",\"10.179.1.131\",\"--kubelet-arg\",\"max-pods=220\",\"--tls-san\",\"hw173.omani.works\",\"--tls-san\",\"10.179.1.131\",\"--tls-san\",\"212.72.24.35\",\"--node-label\",\"catalyst.openova.io/role=control-plane\",\"--node-label\",\"openova.io/region=hw-me-east-215-b-rtz-prod\",\"--node-label\",\"topology.kubernetes.io/region=me-east-215-b\",\"--node-label\",\"topology.kubernetes.io/zone=me-east-215-b\",\"--node-label\",\"catalyst.openova.io/provider=huawei\",\"--kube-apiserver-arg\",\"default-watch-cache-size=200\",\"--kube-apiserver-arg\",\"watch-cache-sizes=secrets#500,configmaps#500\",\"--etcd-snapshot-retention\",\"5\",\"--write-kubeconfig-mode\",\"0644\"]",
+                    "k3s.io/node-config-hash": "FBFKQN7E73JXZWSPBYZSHJRBHGFD4HCTB5BUNCTTTR6N4XH545IA====",
+                    "k3s.io/node-env": "{\"K3S_TOKEN\":\"********\"}",
+                    "node.alpha.kubernetes.io/ttl": "0",
+                    "volumes.kubernetes.io/controller-managed-attach-detach": "true"
+                },
+                "creationTimestamp": "2026-06-20T02:58:19Z",
+                "finalizers": [
+                    "wrangler.cattle.io/node",
+                    "wrangler.cattle.io/managed-etcd-controller"
+                ],
+                "labels": {
+                    "beta.kubernetes.io/arch": "amd64",
+                    "beta.kubernetes.io/instance-type": "k3s",
+                    "beta.kubernetes.io/os": "linux",
+                    "catalyst.openova.io/provider": "huawei",
+                    "catalyst.openova.io/role": "control-plane",
+                    "failure-domain.beta.kubernetes.io/region": "me-east-215-b",
+                    "failure-domain.beta.kubernetes.io/zone": "me-east-215-b",
+                    "kubernetes.io/arch": "amd64",
+                    "kubernetes.io/hostname": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-cp1-174a7a",
+                    "kubernetes.io/os": "linux",
+                    "node-role.kubernetes.io/control-plane": "true",
+                    "node-role.kubernetes.io/etcd": "true",
+                    "node-role.kubernetes.io/master": "true",
+                    "node.kubernetes.io/instance-type": "k3s",
+                    "openova.io/region": "hw-me-east-215-b-rtz-prod",
+                    "topology.kubernetes.io/region": "me-east-215-b",
+                    "topology.kubernetes.io/zone": "me-east-215-b"
+                },
+                "name": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-cp1-174a7a",
+                "resourceVersion": "717361",
+                "uid": "5ad06609-1788-41ae-8774-885f7c2a0f68"
+            },
+            "spec": {
+                "podCIDR": "10.43.0.0/24",
+                "podCIDRs": [
+                    "10.43.0.0/24"
+                ],
+                "providerID": "k3s://catalyst-hw173-omani-works-7bb723da-me-east-215-b-cp1-174a7a"
+            },
+            "status": {
+                "addresses": [
+                    {
+                        "address": "10.179.1.131",
+                        "type": "InternalIP"
+                    },
+                    {
+                        "address": "212.72.24.35",
+                        "type": "ExternalIP"
+                    },
+                    {
+                        "address": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-cp1-174a7a",
+                        "type": "Hostname"
+                    }
+                ],
+                "allocatable": {
+                    "cpu": "2",
+                    "ephemeral-storage": "39857063496",
+                    "hugepages-1Gi": "0",
+                    "hugepages-2Mi": "0",
+                    "memory": "16176736Ki",
+                    "pods": "220"
+                },
+                "capacity": {
+                    "cpu": "2",
+                    "ephemeral-storage": "40971488Ki",
+                    "hugepages-1Gi": "0",
+                    "hugepages-2Mi": "0",
+                    "memory": "16176736Ki",
+                    "pods": "220"
+                },
+                "conditions": [
+                    {
+                        "lastHeartbeatTime": "2026-06-20T03:06:46Z",
+                        "lastTransitionTime": "2026-06-20T03:06:46Z",
+                        "message": "Cilium is running on this node",
+                        "reason": "CiliumIsUp",
+                        "status": "False",
+                        "type": "NetworkUnavailable"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:08:34Z",
+                        "lastTransitionTime": "2026-06-20T02:58:34Z",
+                        "message": "Node is a voting member of the etcd cluster",
+                        "reason": "MemberNotLearner",
+                        "status": "True",
+                        "type": "EtcdIsVoter"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:09:50Z",
+                        "lastTransitionTime": "2026-06-20T02:58:19Z",
+                        "message": "kubelet has sufficient memory available",
+                        "reason": "KubeletHasSufficientMemory",
+                        "status": "False",
+                        "type": "MemoryPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:09:50Z",
+                        "lastTransitionTime": "2026-06-20T02:58:19Z",
+                        "message": "kubelet has no disk pressure",
+                        "reason": "KubeletHasNoDiskPressure",
+                        "status": "False",
+                        "type": "DiskPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:09:50Z",
+                        "lastTransitionTime": "2026-06-20T02:58:19Z",
+                        "message": "kubelet has sufficient PID available",
+                        "reason": "KubeletHasSufficientPID",
+                        "status": "False",
+                        "type": "PIDPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:09:50Z",
+                        "lastTransitionTime": "2026-06-20T03:06:43Z",
+                        "message": "kubelet is posting ready status",
+                        "reason": "KubeletReady",
+                        "status": "True",
+                        "type": "Ready"
+                    }
+                ],
+                "daemonEndpoints": {
+                    "kubeletEndpoint": {
+                        "Port": 10250
+                    }
+                },
+                "images": [
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/catalyst-api@sha256:3e233095b657e7c84da1e200c45d483e6c7ab509b23cf8bfe1bf0b8dfd01dfad",
+                            "ghcr.io/openova-io/openova/catalyst-api:c7d040a"
+                        ],
+                        "sizeBytes": 456618827
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql@sha256:027303cd89644acdeba67d2b37f70eff6a7f345220f127721ff92504e1e4eae6",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16"
+                        ],
+                        "sizeBytes": 258220911
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/cilium@sha256:758ca0793f5995bb938a2fa219dcce63dc0b3fa7fc4ce5cc851125281fb7361d"
+                        ],
+                        "sizeBytes": 224306600
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql@sha256:99be063781d171d3971089b49c992706bdab9ccbd2b57cdf126c7542773aedfe",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16.4"
+                        ],
+                        "sizeBytes": 217672880
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/grafana/alloy@sha256:6e00cf7c5a692ff5f24844529416ed017d76fce922f8199004e73d5eca46b6b8",
+                            "harbor.openova.io/proxy-dockerhub/grafana/alloy:v1.16.0"
+                        ],
+                        "sizeBytes": 151457664
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/amazon/aws-cli@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73",
+                            "harbor.openova.io/proxy-dockerhub/amazon/aws-cli:2.17.0"
+                        ],
+                        "sizeBytes": 125732170
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl@sha256:64614ef8290f3fb27fed5164b338debeeb79a1e5e26c93eb920770b71abd7c48",
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.31.4"
+                        ],
+                        "sizeBytes": 111911970
+                    },
+                    {
+                        "names": [
+                            "docker.io/bitnamilegacy/kubectl@sha256:1249fc292e84a38575ee0cadc3e28dcd7ddf5a3a4e5da401b1a8599e8ac52a1b",
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl@sha256:1249fc292e84a38575ee0cadc3e28dcd7ddf5a3a4e5da401b1a8599e8ac52a1b",
+                            "docker.io/bitnamilegacy/kubectl:1.30.7",
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7"
+                        ],
+                        "sizeBytes": 110946736
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/kyverno/kyverno-cli@sha256:1e99a199adb36cedddf5c3e2fc24a150e26cf2e18b9e8dfe505a3c862647a4eb",
+                            "harbor.openova.io/proxy-ghcr/kyverno/kyverno-cli:v1.18.0"
+                        ],
+                        "sizeBytes": 103609401
+                    },
+                    {
+                        "names": [
+                            "docker.io/chrislusf/seaweedfs@sha256:84429e5f21fad82246f5cfae7b39e9a17da18afb62f2b79c25ccd364ab02793b",
+                            "docker.io/chrislusf/seaweedfs:4.22"
+                        ],
+                        "sizeBytes": 100503219
+                    },
+                    {
+                        "names": [
+                            "docker.io/powerdns/dnsdist-19@sha256:c2f859bb67865987878ff93c9c75758236fe659b4117b296da29da6b572affd0",
+                            "docker.io/powerdns/dnsdist-19:1.9.14"
+                        ],
+                        "sizeBytes": 84956522
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/powerdnsadmin/pda-legacy@sha256:0fc92c8ef63a6704083ca1989c83d2b747f7abc0e5045d56d9c69a76e08a9a5e",
+                            "harbor.openova.io/proxy-dockerhub/powerdnsadmin/pda-legacy:0.4.2"
+                        ],
+                        "sizeBytes": 73000672
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/cilium-envoy@sha256:709c08ade3d17d52da4ca2af33f431360ec26268d288d9a6cd1d98acc9a1dced"
+                        ],
+                        "sizeBytes": 62862122
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/fluxcd/kustomize-controller@sha256:e3b0cf847e9cdf47b19af0fbcfe22786b80b598e0caeea8b6d2a5f9c26a48a24",
+                            "ghcr.io/fluxcd/kustomize-controller:v1.4.0"
+                        ],
+                        "sizeBytes": 54969920
+                    },
+                    {
+                        "names": [
+                            "docker.io/falcosecurity/falco@sha256:b4166a61f41e2fa638c041cac881d8bb32c284e3aaf282fdfed80f15f6eb55e3",
+                            "docker.io/falcosecurity/falco:0.43.1"
+                        ],
+                        "sizeBytes": 50563340
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/fluxcd/notification-controller@sha256:425309a159b15e07f7d97622effc79bc432a37ed55289dd465d37fa217a92a7d",
+                            "ghcr.io/fluxcd/notification-controller:v1.4.0"
+                        ],
+                        "sizeBytes": 43654595
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/fluxcd/helm-controller@sha256:4c75ca6c24ceb1f1bd7e935d9287a93e4f925c512f206763ec5a47de3ef3ff48",
+                            "ghcr.io/fluxcd/helm-controller:v1.1.0"
+                        ],
+                        "sizeBytes": 40818921
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/fluxcd/image-reflector-controller@sha256:c6864684f96cfbb3a91c816084032bb019b302af8b63b0e06b12b4018a9a8242",
+                            "ghcr.io/fluxcd/image-reflector-controller:v0.33.0"
+                        ],
+                        "sizeBytes": 38586158
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/cloudnative-pg@sha256:68074486205a33ed41928761e22ad48278c690feebe8316727a1c6b3380f9e5e",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/cloudnative-pg:1.29.0"
+                        ],
+                        "sizeBytes": 36402270
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/hashicorp/vault-k8s@sha256:690647d935f9bb17b4e9d1eb75d10b1b23cfd63d98ca1c456e88ae1429d6c656",
+                            "harbor.openova.io/proxy-dockerhub/hashicorp/vault-k8s:1.4.2"
+                        ],
+                        "sizeBytes": 35244498
+                    },
+                    {
+                        "names": [
+                            "registry.k8s.io/external-dns/external-dns@sha256:4f3ba4c2bd28030caad05bb7b47fbf47549a46d5e8443b74f0be463550b4fc2b",
+                            "registry.k8s.io/external-dns/external-dns:v0.15.1"
+                        ],
+                        "sizeBytes": 33661299
+                    },
+                    {
+                        "names": [
+                            "docker.io/falcosecurity/falcoctl@sha256:0d3bddce03a26365b86e6ff1aa5c51965d2e16569e8cf8b3e37a3d3ef186dc9b",
+                            "docker.io/falcosecurity/falcoctl:0.12.2"
+                        ],
+                        "sizeBytes": 33185258
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/fluxcd/source-controller@sha256:3c5f0f022f990ffc0daf00e5b199548fc0fa6e7119e972318f0267081a332963",
+                            "ghcr.io/fluxcd/source-controller:v1.4.1"
+                        ],
+                        "sizeBytes": 32386205
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/catalyst-ui@sha256:93bc0cd1fdea1db23225bbd3ee634ebaa0f574bf0240417581be1b4c5911d398",
+                            "ghcr.io/openova-io/openova/catalyst-ui:c7d040a"
+                        ],
+                        "sizeBytes": 31794686
+                    },
+                    {
+                        "names": [
+                            "quay.io/minio/mc@sha256:993e8c454a7ec632923f7e3e61adf1d473261da6354cefd641aedd33a2cfe112",
+                            "quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z"
+                        ],
+                        "sizeBytes": 28122288
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/marketplace@sha256:a5eccce2d44f344dd3f984fbf7742fc21fa67077ebdd3f2522a2e6ec88cff162",
+                            "ghcr.io/openova-io/openova/marketplace:ac8e023"
+                        ],
+                        "sizeBytes": 26213737
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/console@sha256:f220f466b119562bfcdcba9da60220f7e10ae8c71788e987826d27b6a3ad527e",
+                            "ghcr.io/openova-io/openova/console:3c2f7e4"
+                        ],
+                        "sizeBytes": 26126565
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/admin@sha256:836defa5c46ad5e21a212fcb707ab067ea60264edb4446efb70a74a96affd424",
+                            "ghcr.io/openova-io/openova/admin:3c2f7e4"
+                        ],
+                        "sizeBytes": 26103885
+                    },
+                    {
+                        "names": [
+                            "docker.io/nginxinc/nginx-unprivileged@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6",
+                            "docker.io/nginxinc/nginx-unprivileged:1.29-alpine"
+                        ],
+                        "sizeBytes": 23098099
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/fluxcd/image-automation-controller@sha256:5b6c2e97055cfe69fe8996f48b53db039c136210dbc98c5631864a9e573d0e20",
+                            "ghcr.io/fluxcd/image-automation-controller:v0.39.0"
+                        ],
+                        "sizeBytes": 22354899
+                    },
+                    {
+                        "names": [
+                            "docker.io/natsio/jetstream-controller@sha256:5f38a5fe3ad179ffaca897edd6742f5fd26d3d5cf22de069c8fe024c52adab39",
+                            "docker.io/natsio/jetstream-controller:0.18.2"
+                        ],
+                        "sizeBytes": 20349008
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/aquasecurity/node-collector@sha256:f4702ce4667388f0219d6248d623a7e816231c2d4561d6af01c3ae053e524025",
+                            "ghcr.io/aquasecurity/node-collector:0.3.1"
+                        ],
+                        "sizeBytes": 20174022
+                    },
+                    {
+                        "names": [
+                            "docker.io/coredns/coredns@sha256:9caabbf6238b189a65d0d6e6ac138de60d6a1c419e5a341fbbb7c78382559c6e",
+                            "docker.io/coredns/coredns:1.11.3"
+                        ],
+                        "sizeBytes": 18562039
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/organization-controller@sha256:5db285364a423be98a81185fbe09ef05fe23d628744f7e86f479b52f0358506a",
+                            "ghcr.io/openova-io/openova/organization-controller:300d853"
+                        ],
+                        "sizeBytes": 17698913
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/environment-controller@sha256:2a2dd00e93f0aef618f86bf46b45bc8342775686fff508f136e2a19f725c40f0",
+                            "ghcr.io/openova-io/openova/environment-controller:01db043"
+                        ],
+                        "sizeBytes": 16808753
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/useraccess-controller@sha256:8d865fc5241e520b3a9fd16f2597e32e5c9eb08aa41b83b7b9e4fd40ce599974",
+                            "ghcr.io/openova-io/openova/useraccess-controller:01db043"
+                        ],
+                        "sizeBytes": 16674249
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-quay/prometheus-operator/prometheus-config-reloader@sha256:959d47672fbff2776a04ec62b8afcec89e8c036af84dc5fade50019dab212746",
+                            "harbor.openova.io/proxy-quay/prometheus-operator/prometheus-config-reloader:v0.81.0"
+                        ],
+                        "sizeBytes": 14433657
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/corazawaf/coraza-spoa@sha256:e8e9e21f494fa334de5ad469fbdb3d595b2651d1db88105f5971cb2eada27cb1",
+                            "ghcr.io/corazawaf/coraza-spoa:0.7.0"
+                        ],
+                        "sizeBytes": 11937882
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/k8s-ws-proxy@sha256:0e3c679c9f78b302575cf9d6e2ae0e5d82d861e4d6de19876df0ca496677825b",
+                            "ghcr.io/openova-io/openova/k8s-ws-proxy:b32eb9b"
+                        ],
+                        "sizeBytes": 11403264
+                    },
+                    {
+                        "names": [
+                            "registry.k8s.io/autoscaling/vpa-updater@sha256:b60e102cefe4760b2ee4d04bc7f21fff5882ed7f5641b0dd4efbef452749baeb",
+                            "registry.k8s.io/autoscaling/vpa-updater:1.5.0"
+                        ],
+                        "sizeBytes": 11330068
+                    },
+                    {
+                        "names": [
+                            "registry.k8s.io/autoscaling/vpa-admission-controller@sha256:080854aebf844e29ec21538196f8d2fe606281189e1f1a9168a4f553b43e3251",
+                            "registry.k8s.io/autoscaling/vpa-admission-controller:1.5.0"
+                        ],
+                        "sizeBytes": 11292005
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/openova-flow-adapter-flux@sha256:ffc60bb400d3b8e8e7d19ced0b8714d038ee6c9b9012cc9019e2341d57c1989f",
+                            "ghcr.io/openova-io/openova/openova-flow-adapter-flux:b32eb9b"
+                        ],
+                        "sizeBytes": 10917169
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/application-controller@sha256:4f93ec89305c6c2df2044022e3e4027be122326d79b1ecd201948b4e1eb2bfe3",
+                            "ghcr.io/openova-io/openova/application-controller:01db043"
+                        ],
+                        "sizeBytes": 9783902
+                    },
+                    {
+                        "names": [
+                            "docker.io/curlimages/curl@sha256:d9b4541e214bcd85196d6e92e2753ac6d0ea699f0af5741f8c6cccbfcf00ef4b",
+                            "harbor.openova.io/proxy-dockerhub/curlimages/curl@sha256:d9b4541e214bcd85196d6e92e2753ac6d0ea699f0af5741f8c6cccbfcf00ef4b",
+                            "docker.io/curlimages/curl:8.10.1",
+                            "harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1"
+                        ],
+                        "sizeBytes": 9414401
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/services-tenant@sha256:b10165940cb83d6bc73462fca172aaf5f09093d0edd4d55893e768903e9b6445",
+                            "ghcr.io/openova-io/openova/services-tenant:c068e6a"
+                        ],
+                        "sizeBytes": 9198708
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/services-provisioning@sha256:c63cd2e345206404083210f83d9d454ae9b50338dc98fb183ed27cbefe551061",
+                            "ghcr.io/openova-io/openova/services-provisioning:c068e6a"
+                        ],
+                        "sizeBytes": 5662896
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/services-domain@sha256:4c8b60ed4282d8d58f67a078ac762aac551de29abfcb8c33ae0bc29f78167f71",
+                            "ghcr.io/openova-io/openova/services-domain:c068e6a"
+                        ],
+                        "sizeBytes": 5535697
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/services-catalog@sha256:cb7211549ce610067b492f4c823c01c50fbe0523f8a53713abadc6e0aa2d48b0",
+                            "ghcr.io/openova-io/openova/services-catalog:c068e6a"
+                        ],
+                        "sizeBytes": 5333143
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/services-billing@sha256:4e4da149cd5668c13f7f4da934c72f8e96b933ae0d929eda0ea1f3e72544b48e",
+                            "ghcr.io/openova-io/openova/services-billing:c068e6a"
+                        ],
+                        "sizeBytes": 5224926
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/services-auth@sha256:6fd3cf80296a13cdcdcc8bd9877b48ab3232b399900ab3b43b0e7efc264b34d4",
+                            "ghcr.io/openova-io/openova/services-auth:c068e6a"
+                        ],
+                        "sizeBytes": 4781044
+                    }
+                ],
+                "nodeInfo": {
+                    "architecture": "amd64",
+                    "bootID": "be3b96e3-9e91-41d7-8422-9048318b8abc",
+                    "containerRuntimeVersion": "containerd://1.7.23-k3s2",
+                    "kernelVersion": "5.15.0-76-generic",
+                    "kubeProxyVersion": "v1.31.4+k3s1",
+                    "kubeletVersion": "v1.31.4+k3s1",
+                    "machineID": "41895bd1876a403788902e232a28f6c9",
+                    "operatingSystem": "linux",
+                    "osImage": "Ubuntu 22.04.2 LTS",
+                    "systemUUID": "f47b474d-f77a-4813-9452-a5fb2007dded"
+                }
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Node",
+            "metadata": {
+                "annotations": {
+                    "alpha.kubernetes.io/provided-node-ip": "10.179.1.124",
+                    "k3s.io/hostname": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-w468e0e",
+                    "k3s.io/internal-ip": "10.179.1.124",
+                    "k3s.io/node-args": "[\"agent\",\"--node-label\",\"catalyst.openova.io/provider=huawei\",\"--node-label\",\"openova.io/region=hw-me-east-215-b-rtz-prod\",\"--node-label\",\"topology.kubernetes.io/region=me-east-215-b\",\"--node-label\",\"topology.kubernetes.io/zone=me-east-215-b\"]",
+                    "k3s.io/node-config-hash": "ZAZ32NBDFHNHP7KSGYPV2T64JKCNXS5UYCTPHLTVNJNJTCWZ3AUQ====",
+                    "k3s.io/node-env": "{\"K3S_TOKEN\":\"********\",\"K3S_URL\":\"https://10.179.1.131:6443\"}",
+                    "node.alpha.kubernetes.io/ttl": "0",
+                    "volumes.kubernetes.io/controller-managed-attach-detach": "true"
+                },
+                "creationTimestamp": "2026-06-20T03:02:09Z",
+                "finalizers": [
+                    "wrangler.cattle.io/node",
+                    "wrangler.cattle.io/managed-etcd-controller"
+                ],
+                "labels": {
+                    "beta.kubernetes.io/arch": "amd64",
+                    "beta.kubernetes.io/instance-type": "k3s",
+                    "beta.kubernetes.io/os": "linux",
+                    "catalyst.openova.io/provider": "huawei",
+                    "failure-domain.beta.kubernetes.io/region": "me-east-215-b",
+                    "failure-domain.beta.kubernetes.io/zone": "me-east-215-b",
+                    "kubernetes.io/arch": "amd64",
+                    "kubernetes.io/hostname": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-w468e0e",
+                    "kubernetes.io/os": "linux",
+                    "node.kubernetes.io/instance-type": "k3s",
+                    "openova.io/region": "hw-me-east-215-b-rtz-prod",
+                    "topology.kubernetes.io/region": "me-east-215-b",
+                    "topology.kubernetes.io/zone": "me-east-215-b"
+                },
+                "name": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-w468e0e",
+                "resourceVersion": "718090",
+                "uid": "e1d8c1b0-1093-451f-ae58-32094d685330"
+            },
+            "spec": {
+                "podCIDR": "10.43.4.0/24",
+                "podCIDRs": [
+                    "10.43.4.0/24"
+                ],
+                "providerID": "k3s://catalyst-hw173-omani-works-7bb723da-me-east-215-b-w468e0e"
+            },
+            "status": {
+                "addresses": [
+                    {
+                        "address": "10.179.1.124",
+                        "type": "InternalIP"
+                    },
+                    {
+                        "address": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-w468e0e",
+                        "type": "Hostname"
+                    }
+                ],
+                "allocatable": {
+                    "cpu": "4",
+                    "ephemeral-storage": "39857063496",
+                    "hugepages-1Gi": "0",
+                    "hugepages-2Mi": "0",
+                    "memory": "32666744Ki",
+                    "pods": "110"
+                },
+                "capacity": {
+                    "cpu": "4",
+                    "ephemeral-storage": "40971488Ki",
+                    "hugepages-1Gi": "0",
+                    "hugepages-2Mi": "0",
+                    "memory": "32666744Ki",
+                    "pods": "110"
+                },
+                "conditions": [
+                    {
+                        "lastHeartbeatTime": "2026-06-20T03:07:17Z",
+                        "lastTransitionTime": "2026-06-20T03:07:17Z",
+                        "message": "Cilium is running on this node",
+                        "reason": "CiliumIsUp",
+                        "status": "False",
+                        "type": "NetworkUnavailable"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:10:30Z",
+                        "lastTransitionTime": "2026-06-20T03:02:09Z",
+                        "message": "kubelet has sufficient memory available",
+                        "reason": "KubeletHasSufficientMemory",
+                        "status": "False",
+                        "type": "MemoryPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:10:30Z",
+                        "lastTransitionTime": "2026-06-20T03:02:09Z",
+                        "message": "kubelet has no disk pressure",
+                        "reason": "KubeletHasNoDiskPressure",
+                        "status": "False",
+                        "type": "DiskPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:10:30Z",
+                        "lastTransitionTime": "2026-06-20T03:02:09Z",
+                        "message": "kubelet has sufficient PID available",
+                        "reason": "KubeletHasSufficientPID",
+                        "status": "False",
+                        "type": "PIDPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:10:30Z",
+                        "lastTransitionTime": "2026-06-20T03:07:16Z",
+                        "message": "kubelet is posting ready status",
+                        "reason": "KubeletReady",
+                        "status": "True",
+                        "type": "Ready"
+                    }
+                ],
+                "daemonEndpoints": {
+                    "kubeletEndpoint": {
+                        "Port": 10250
+                    }
+                },
+                "images": [
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/guacamole-server@sha256:0f62f6d17ab379e46aa66874b2ff564dab856a6ef5e754a69cbb34c32d3e588a",
+                            "ghcr.io/openova-io/openova/guacamole-server:1.5.5"
+                        ],
+                        "sizeBytes": 307550497
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql@sha256:027303cd89644acdeba67d2b37f70eff6a7f345220f127721ff92504e1e4eae6",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16"
+                        ],
+                        "sizeBytes": 258220911
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/cilium@sha256:758ca0793f5995bb938a2fa219dcce63dc0b3fa7fc4ce5cc851125281fb7361d"
+                        ],
+                        "sizeBytes": 224306600
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql@sha256:cd2f88c75f4465ed14ff2006147e06405cca646c00f252a2dfb73910728d289f",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16.4-1"
+                        ],
+                        "sizeBytes": 211733506
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/grafana/grafana@sha256:2175aaa91c96733d86d31cf270d5310b278654b03f5718c59de12a865380a31f",
+                            "harbor.openova.io/proxy-dockerhub/grafana/grafana:12.3.1"
+                        ],
+                        "sizeBytes": 210410945
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/grafana/alloy@sha256:6e00cf7c5a692ff5f24844529416ed017d76fce922f8199004e73d5eca46b6b8",
+                            "harbor.openova.io/proxy-dockerhub/grafana/alloy:v1.16.0"
+                        ],
+                        "sizeBytes": 151457664
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl@sha256:f5fc0d561d9ef931f9ecb2e8b65d93eb92767c57f64897c56a100bfe28102c74",
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.29.3"
+                        ],
+                        "sizeBytes": 106148689
+                    },
+                    {
+                        "names": [
+                            "docker.io/powerdns/pdns-auth-50@sha256:1f136c4fa4f995279b43c6a8413dde05147cc9b74a437e188f92b0088c523a8d",
+                            "docker.io/powerdns/pdns-auth-50:5.0.3"
+                        ],
+                        "sizeBytes": 102061459
+                    },
+                    {
+                        "names": [
+                            "docker.io/chrislusf/seaweedfs@sha256:84429e5f21fad82246f5cfae7b39e9a17da18afb62f2b79c25ccd364ab02793b",
+                            "docker.io/chrislusf/seaweedfs:4.22"
+                        ],
+                        "sizeBytes": 100503219
+                    },
+                    {
+                        "names": [
+                            "docker.io/otel/opentelemetry-collector-contrib@sha256:a516c26968aa1feb5e5fc0562e3338ea13755cb4f373603226bcc4e276374ad0",
+                            "docker.io/otel/opentelemetry-collector-contrib:0.150.1"
+                        ],
+                        "sizeBytes": 98571324
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/powerdnsadmin/pda-legacy@sha256:0fc92c8ef63a6704083ca1989c83d2b747f7abc0e5045d56d9c69a76e08a9a5e",
+                            "harbor.openova.io/proxy-dockerhub/powerdnsadmin/pda-legacy:0.4.2"
+                        ],
+                        "sizeBytes": 73000672
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-quay/openbao/openbao@sha256:7de07aa6df3937d44c96c2d65c188b2d4a70546f2a764ad4510301305af6a223",
+                            "harbor.openova.io/proxy-quay/openbao/openbao:2.1.0"
+                        ],
+                        "sizeBytes": 62890555
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/cilium-envoy@sha256:709c08ade3d17d52da4ca2af33f431360ec26268d288d9a6cd1d98acc9a1dced"
+                        ],
+                        "sizeBytes": 62862122
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/loft-sh/vcluster@sha256:521b2fc8c8d0c2f1254d7fb956fbf274d3328f1e555270b57a886f9ae10d2109",
+                            "harbor.openova.io/proxy-ghcr/loft-sh/vcluster:0.23.0"
+                        ],
+                        "sizeBytes": 60761070
+                    },
+                    {
+                        "names": [
+                            "mirror.gcr.io/aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e",
+                            "mirror.gcr.io/aquasec/trivy:0.70.0"
+                        ],
+                        "sizeBytes": 58469315
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/goharbor/harbor-portal@sha256:2556b6c7dd832bf22ed8b177245fa5fbcd70255959e69c5d0fbe2153f4bd2243",
+                            "harbor.openova.io/proxy-dockerhub/goharbor/harbor-portal:v2.14.3"
+                        ],
+                        "sizeBytes": 56696973
+                    },
+                    {
+                        "names": [
+                            "docker.io/falcosecurity/falco@sha256:b4166a61f41e2fa638c041cac881d8bb32c284e3aaf282fdfed80f15f6eb55e3",
+                            "docker.io/falcosecurity/falco:0.43.1"
+                        ],
+                        "sizeBytes": 50563340
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/kyverno/reports-controller@sha256:0090bf10eabae091ceb48c38fb894580b63c4e76e40137b7972f5895f0402110",
+                            "harbor.openova.io/proxy-ghcr/kyverno/reports-controller:v1.18.0"
+                        ],
+                        "sizeBytes": 45253065
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/fluxcd/notification-controller@sha256:425309a159b15e07f7d97622effc79bc432a37ed55289dd465d37fa217a92a7d",
+                            "ghcr.io/fluxcd/notification-controller:v1.4.0"
+                        ],
+                        "sizeBytes": 43654595
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/fluxcd/flux-cli@sha256:a9cb966cddc1a0c56dc0d57dda485d9477dd397f8b45f222717b24663471fd1f",
+                            "harbor.openova.io/proxy-ghcr/fluxcd/flux-cli:v2.4.0"
+                        ],
+                        "sizeBytes": 41877267
+                    },
+                    {
+                        "names": [
+                            "docker.io/grafana/loki@sha256:3c8fd3570dd9219951a60d3f919c7f31923d10baee578b77bc26c4a0b32d092d",
+                            "docker.io/grafana/loki:3.6.7"
+                        ],
+                        "sizeBytes": 41373791
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/fluxcd/helm-controller@sha256:4c75ca6c24ceb1f1bd7e935d9287a93e4f925c512f206763ec5a47de3ef3ff48",
+                            "harbor.openova.io/proxy-ghcr/fluxcd/helm-controller:v1.1.0"
+                        ],
+                        "sizeBytes": 40818921
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/cloudnative-pg@sha256:68074486205a33ed41928761e22ad48278c690feebe8316727a1c6b3380f9e5e",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/cloudnative-pg:1.29.0"
+                        ],
+                        "sizeBytes": 36402270
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/clustermesh-apiserver@sha256:37a7fdbef806b78ef63df9f1a9828fdddbf548d1f0e43b8eb10a6bdc8fa03958"
+                        ],
+                        "sizeBytes": 35425816
+                    },
+                    {
+                        "names": [
+                            "docker.io/grafana/mimir@sha256:686138d9f941508c99c931cc9e69bf9f6100dd4d2d623bf57b38d5c25ee645c1",
+                            "docker.io/grafana/mimir:3.0.4"
+                        ],
+                        "sizeBytes": 33769654
+                    },
+                    {
+                        "names": [
+                            "docker.io/falcosecurity/falcoctl@sha256:0d3bddce03a26365b86e6ff1aa5c51965d2e16569e8cf8b3e37a3d3ef186dc9b",
+                            "docker.io/falcosecurity/falcoctl:0.12.2"
+                        ],
+                        "sizeBytes": 33185258
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-k8s/kube-apiserver@sha256:ace6a943b058439bd6daeb74f152e7c36e6fc0b5e481cdff9364cd6ca0473e5e",
+                            "harbor.openova.io/proxy-k8s/kube-apiserver:v1.31.4"
+                        ],
+                        "sizeBytes": 27972283
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-k8s/kube-controller-manager@sha256:4bd1d4a449e7a1a4f375bd7c71abf48a95f8949b38f725ded255077329f21f7b",
+                            "harbor.openova.io/proxy-k8s/kube-controller-manager:v1.31.4"
+                        ],
+                        "sizeBytes": 26147269
+                    },
+                    {
+                        "names": [
+                            "docker.io/kiwigrid/k8s-sidecar@sha256:a6b3f707f883108376514489a94d6629109a327b2978e1d826cd104c4ca436df",
+                            "harbor.openova.io/proxy-quay/kiwigrid/k8s-sidecar@sha256:a6b3f707f883108376514489a94d6629109a327b2978e1d826cd104c4ca436df",
+                            "docker.io/kiwigrid/k8s-sidecar:2.5.0",
+                            "harbor.openova.io/proxy-quay/kiwigrid/k8s-sidecar:2.5.0"
+                        ],
+                        "sizeBytes": 23422974
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/fluxcd/image-automation-controller@sha256:5b6c2e97055cfe69fe8996f48b53db039c136210dbc98c5631864a9e573d0e20",
+                            "harbor.openova.io/proxy-ghcr/fluxcd/image-automation-controller:v0.39.0"
+                        ],
+                        "sizeBytes": 22354899
+                    },
+                    {
+                        "names": [
+                            "xpkg.upbound.io/crossplane/crossplane@sha256:c98f027ffade306fc9a5132aec74a1430357f1028c0da024b95c25a19b3148fc",
+                            "xpkg.upbound.io/crossplane/crossplane:v1.18.0"
+                        ],
+                        "sizeBytes": 20944049
+                    },
+                    {
+                        "names": [
+                            "docker.io/rancher/mirrored-coredns-coredns@sha256:82979ddf442c593027a57239ad90616deb874e90c365d1a96ad508c2104bdea5",
+                            "docker.io/rancher/mirrored-coredns-coredns:1.12.0"
+                        ],
+                        "sizeBytes": 20938299
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/aquasecurity/node-collector@sha256:f4702ce4667388f0219d6248d623a7e816231c2d4561d6af01c3ae053e524025",
+                            "ghcr.io/aquasecurity/node-collector:0.3.1"
+                        ],
+                        "sizeBytes": 20174022
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/hubble-ui-backend@sha256:0e0eed917653441fded4e7cdb096b7be6a3bddded5a2dd10812a27b1fc6ed95b"
+                        ],
+                        "sizeBytes": 20027102
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-quay/oauth2-proxy/oauth2-proxy@sha256:dcb6ff8dd21bf3058f6a22c6fa385fa5b897a9cd3914c88a2cc2bb0a85f8065d",
+                            "harbor.openova.io/proxy-quay/oauth2-proxy/oauth2-proxy:v7.6.0"
+                        ],
+                        "sizeBytes": 16521978
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-quay/prometheus-operator/prometheus-config-reloader@sha256:959d47672fbff2776a04ec62b8afcec89e8c036af84dc5fade50019dab212746",
+                            "harbor.openova.io/proxy-quay/prometheus-operator/prometheus-config-reloader:v0.81.0"
+                        ],
+                        "sizeBytes": 14433657
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/k8s-ws-proxy@sha256:0e3c679c9f78b302575cf9d6e2ae0e5d82d861e4d6de19876df0ca496677825b",
+                            "ghcr.io/openova-io/openova/k8s-ws-proxy:b32eb9b"
+                        ],
+                        "sizeBytes": 11403264
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/hubble-ui@sha256:e2e9313eb7caf64b0061d9da0efbdad59c6c461f6ca1752768942bfeda0796c6"
+                        ],
+                        "sizeBytes": 11081180
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/openova-flow-adapter-flux@sha256:ffc60bb400d3b8e8e7d19ced0b8714d038ee6c9b9012cc9019e2341d57c1989f",
+                            "ghcr.io/openova-io/openova/openova-flow-adapter-flux:b32eb9b"
+                        ],
+                        "sizeBytes": 10917169
+                    },
+                    {
+                        "names": [
+                            "docker.io/library/alpine@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+                            "docker.io/library/alpine:3.20"
+                        ],
+                        "sizeBytes": 3641182
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/library/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662",
+                            "harbor.openova.io/proxy-dockerhub/library/busybox:1.36"
+                        ],
+                        "sizeBytes": 2217006
+                    },
+                    {
+                        "names": [
+                            "docker.io/rancher/mirrored-library-busybox@sha256:8a45424ddf949bbe9bb3231b05f9032a45da5cd036eb4867b511b00734756d6f",
+                            "docker.io/rancher/mirrored-library-busybox:1.36.1"
+                        ],
+                        "sizeBytes": 2147340
+                    },
+                    {
+                        "names": [
+                            "docker.io/rancher/mirrored-pause@sha256:74c4244427b7312c5b901fe0f67cbc53683d06f4f24c6faee65d4182bf0fa893",
+                            "docker.io/rancher/mirrored-pause:3.6"
+                        ],
+                        "sizeBytes": 301463
+                    }
+                ],
+                "nodeInfo": {
+                    "architecture": "amd64",
+                    "bootID": "8047410f-e375-4d62-8502-125e50053d1a",
+                    "containerRuntimeVersion": "containerd://1.7.23-k3s2",
+                    "kernelVersion": "5.15.0-76-generic",
+                    "kubeProxyVersion": "v1.31.4+k3s1",
+                    "kubeletVersion": "v1.31.4+k3s1",
+                    "machineID": "41895bd1876a403788902e232a28f6c9",
+                    "operatingSystem": "linux",
+                    "osImage": "Ubuntu 22.04.2 LTS",
+                    "systemUUID": "9f72ef07-efbc-4c7b-af48-f1ead642154d"
+                }
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Node",
+            "metadata": {
+                "annotations": {
+                    "alpha.kubernetes.io/provided-node-ip": "10.179.1.32",
+                    "k3s.io/hostname": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-w4b871f",
+                    "k3s.io/internal-ip": "10.179.1.32",
+                    "k3s.io/node-args": "[\"agent\",\"--node-label\",\"catalyst.openova.io/provider=huawei\",\"--node-label\",\"openova.io/region=hw-me-east-215-b-rtz-prod\",\"--node-label\",\"topology.kubernetes.io/region=me-east-215-b\",\"--node-label\",\"topology.kubernetes.io/zone=me-east-215-b\"]",
+                    "k3s.io/node-config-hash": "ZAZ32NBDFHNHP7KSGYPV2T64JKCNXS5UYCTPHLTVNJNJTCWZ3AUQ====",
+                    "k3s.io/node-env": "{\"K3S_TOKEN\":\"********\",\"K3S_URL\":\"https://10.179.1.131:6443\"}",
+                    "node.alpha.kubernetes.io/ttl": "0",
+                    "volumes.kubernetes.io/controller-managed-attach-detach": "true"
+                },
+                "creationTimestamp": "2026-06-20T03:00:45Z",
+                "finalizers": [
+                    "wrangler.cattle.io/node",
+                    "wrangler.cattle.io/managed-etcd-controller"
+                ],
+                "labels": {
+                    "beta.kubernetes.io/arch": "amd64",
+                    "beta.kubernetes.io/instance-type": "k3s",
+                    "beta.kubernetes.io/os": "linux",
+                    "catalyst.openova.io/provider": "huawei",
+                    "failure-domain.beta.kubernetes.io/region": "me-east-215-b",
+                    "failure-domain.beta.kubernetes.io/zone": "me-east-215-b",
+                    "kubernetes.io/arch": "amd64",
+                    "kubernetes.io/hostname": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-w4b871f",
+                    "kubernetes.io/os": "linux",
+                    "node.kubernetes.io/instance-type": "k3s",
+                    "openova.io/region": "hw-me-east-215-b-rtz-prod",
+                    "topology.kubernetes.io/region": "me-east-215-b",
+                    "topology.kubernetes.io/zone": "me-east-215-b"
+                },
+                "name": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-w4b871f",
+                "resourceVersion": "717106",
+                "uid": "9eb7d3aa-d8a2-42b9-9b38-acd9e9784e79"
+            },
+            "spec": {
+                "podCIDR": "10.43.2.0/24",
+                "podCIDRs": [
+                    "10.43.2.0/24"
+                ],
+                "providerID": "k3s://catalyst-hw173-omani-works-7bb723da-me-east-215-b-w4b871f"
+            },
+            "status": {
+                "addresses": [
+                    {
+                        "address": "10.179.1.32",
+                        "type": "InternalIP"
+                    },
+                    {
+                        "address": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-w4b871f",
+                        "type": "Hostname"
+                    }
+                ],
+                "allocatable": {
+                    "cpu": "4",
+                    "ephemeral-storage": "39857063496",
+                    "hugepages-1Gi": "0",
+                    "hugepages-2Mi": "0",
+                    "memory": "32666744Ki",
+                    "pods": "110"
+                },
+                "capacity": {
+                    "cpu": "4",
+                    "ephemeral-storage": "40971488Ki",
+                    "hugepages-1Gi": "0",
+                    "hugepages-2Mi": "0",
+                    "memory": "32666744Ki",
+                    "pods": "110"
+                },
+                "conditions": [
+                    {
+                        "lastHeartbeatTime": "2026-06-20T03:06:44Z",
+                        "lastTransitionTime": "2026-06-20T03:06:44Z",
+                        "message": "Cilium is running on this node",
+                        "reason": "CiliumIsUp",
+                        "status": "False",
+                        "type": "NetworkUnavailable"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:09:31Z",
+                        "lastTransitionTime": "2026-06-20T03:00:46Z",
+                        "message": "kubelet has sufficient memory available",
+                        "reason": "KubeletHasSufficientMemory",
+                        "status": "False",
+                        "type": "MemoryPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:09:31Z",
+                        "lastTransitionTime": "2026-06-20T03:00:46Z",
+                        "message": "kubelet has no disk pressure",
+                        "reason": "KubeletHasNoDiskPressure",
+                        "status": "False",
+                        "type": "DiskPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:09:31Z",
+                        "lastTransitionTime": "2026-06-20T03:00:46Z",
+                        "message": "kubelet has sufficient PID available",
+                        "reason": "KubeletHasSufficientPID",
+                        "status": "False",
+                        "type": "PIDPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:09:31Z",
+                        "lastTransitionTime": "2026-06-20T03:06:44Z",
+                        "message": "kubelet is posting ready status",
+                        "reason": "KubeletReady",
+                        "status": "True",
+                        "type": "Ready"
+                    }
+                ],
+                "daemonEndpoints": {
+                    "kubeletEndpoint": {
+                        "Port": 10250
+                    }
+                },
+                "images": [
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/alpine/k8s@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e",
+                            "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.30.0"
+                        ],
+                        "sizeBytes": 292136583
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql@sha256:027303cd89644acdeba67d2b37f70eff6a7f345220f127721ff92504e1e4eae6",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16"
+                        ],
+                        "sizeBytes": 258220911
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/cilium@sha256:758ca0793f5995bb938a2fa219dcce63dc0b3fa7fc4ce5cc851125281fb7361d"
+                        ],
+                        "sizeBytes": 224306600
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql@sha256:cd2f88c75f4465ed14ff2006147e06405cca646c00f252a2dfb73910728d289f",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16.4-1"
+                        ],
+                        "sizeBytes": 211733506
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/grafana/alloy@sha256:6e00cf7c5a692ff5f24844529416ed017d76fce922f8199004e73d5eca46b6b8",
+                            "harbor.openova.io/proxy-dockerhub/grafana/alloy:v1.16.0"
+                        ],
+                        "sizeBytes": 151457664
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/guacd@sha256:38232cae271361ef53db46faf5c49fe64049a1320a05b82c597425b69d6ce77e",
+                            "ghcr.io/openova-io/openova/guacd:1.5.5"
+                        ],
+                        "sizeBytes": 129509469
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl@sha256:64614ef8290f3fb27fed5164b338debeeb79a1e5e26c93eb920770b71abd7c48",
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.31.4"
+                        ],
+                        "sizeBytes": 111911970
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl@sha256:1249fc292e84a38575ee0cadc3e28dcd7ddf5a3a4e5da401b1a8599e8ac52a1b",
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7"
+                        ],
+                        "sizeBytes": 110946736
+                    },
+                    {
+                        "names": [
+                            "docker.io/chrislusf/seaweedfs@sha256:84429e5f21fad82246f5cfae7b39e9a17da18afb62f2b79c25ccd364ab02793b",
+                            "docker.io/chrislusf/seaweedfs:4.22"
+                        ],
+                        "sizeBytes": 100503219
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/goharbor/harbor-registryctl@sha256:ddf6bb429eb6b5a3db3e98bfe6ab3dd2567ebb35547836d87fc54ddacebfac8d",
+                            "harbor.openova.io/proxy-dockerhub/goharbor/harbor-registryctl:v2.14.3"
+                        ],
+                        "sizeBytes": 69351406
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/external-secrets/external-secrets@sha256:937c550ff84dded588324be89df42b2fa7d2cb2981271343c956b5348ae64011",
+                            "harbor.openova.io/proxy-ghcr/external-secrets/external-secrets:v0.10.7"
+                        ],
+                        "sizeBytes": 66393246
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-quay/openbao/openbao@sha256:7de07aa6df3937d44c96c2d65c188b2d4a70546f2a764ad4510301305af6a223",
+                            "harbor.openova.io/proxy-quay/openbao/openbao:2.1.0"
+                        ],
+                        "sizeBytes": 62890555
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/cilium-envoy@sha256:709c08ade3d17d52da4ca2af33f431360ec26268d288d9a6cd1d98acc9a1dced"
+                        ],
+                        "sizeBytes": 62862122
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/loft-sh/vcluster@sha256:521b2fc8c8d0c2f1254d7fb956fbf274d3328f1e555270b57a886f9ae10d2109",
+                            "harbor.openova.io/proxy-ghcr/loft-sh/vcluster:0.23.0"
+                        ],
+                        "sizeBytes": 60761070
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/newapi-mirror@sha256:e596cb4aa2c234d88c3e05f41d430f405e6ccfdfa7acc8972c97793e9add4c36",
+                            "ghcr.io/openova-io/openova/newapi-mirror:v0.13.2"
+                        ],
+                        "sizeBytes": 58999657
+                    },
+                    {
+                        "names": [
+                            "mirror.gcr.io/aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e",
+                            "mirror.gcr.io/aquasec/trivy:0.70.0"
+                        ],
+                        "sizeBytes": 58469315
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/fluxcd/kustomize-controller@sha256:e3b0cf847e9cdf47b19af0fbcfe22786b80b598e0caeea8b6d2a5f9c26a48a24",
+                            "harbor.openova.io/proxy-ghcr/fluxcd/kustomize-controller:v1.4.0"
+                        ],
+                        "sizeBytes": 54969920
+                    },
+                    {
+                        "names": [
+                            "docker.io/falcosecurity/falco@sha256:b4166a61f41e2fa638c041cac881d8bb32c284e3aaf282fdfed80f15f6eb55e3",
+                            "docker.io/falcosecurity/falco:0.43.1"
+                        ],
+                        "sizeBytes": 50563340
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/kyverno/cleanup-controller@sha256:a2a060b731f1ea54de2295b886c600d65af032fec18096a816424acfe8dec7d2",
+                            "harbor.openova.io/proxy-ghcr/kyverno/cleanup-controller:v1.18.0"
+                        ],
+                        "sizeBytes": 42285963
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/cloudnative-pg@sha256:68074486205a33ed41928761e22ad48278c690feebe8316727a1c6b3380f9e5e",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/cloudnative-pg:1.29.0"
+                        ],
+                        "sizeBytes": 36402270
+                    },
+                    {
+                        "names": [
+                            "docker.io/grafana/mimir@sha256:686138d9f941508c99c931cc9e69bf9f6100dd4d2d623bf57b38d5c25ee645c1",
+                            "docker.io/grafana/mimir:3.0.4"
+                        ],
+                        "sizeBytes": 33769654
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/goharbor/registry-photon@sha256:6533fc396cbce57131053faec55e1bd1da8b92aed318410c203ff1c7a9b910ab",
+                            "harbor.openova.io/proxy-dockerhub/goharbor/registry-photon:v2.14.3"
+                        ],
+                        "sizeBytes": 33528071
+                    },
+                    {
+                        "names": [
+                            "docker.io/falcosecurity/falcoctl@sha256:0d3bddce03a26365b86e6ff1aa5c51965d2e16569e8cf8b3e37a3d3ef186dc9b",
+                            "docker.io/falcosecurity/falcoctl:0.12.2"
+                        ],
+                        "sizeBytes": 33185258
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/fluxcd/source-controller@sha256:3c5f0f022f990ffc0daf00e5b199548fc0fa6e7119e972318f0267081a332963",
+                            "harbor.openova.io/proxy-ghcr/fluxcd/source-controller:v1.4.1"
+                        ],
+                        "sizeBytes": 32386205
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/operator-generic@sha256:f7884848483bbcd7b1e0ccfd34ba4546f258b460cb4b7e2f06a1bcc96ef88039"
+                        ],
+                        "sizeBytes": 31216191
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-k8s/kube-apiserver@sha256:ace6a943b058439bd6daeb74f152e7c36e6fc0b5e481cdff9364cd6ca0473e5e",
+                            "harbor.openova.io/proxy-k8s/kube-apiserver:v1.31.4"
+                        ],
+                        "sizeBytes": 27972283
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-k8s/kube-controller-manager@sha256:4bd1d4a449e7a1a4f375bd7c71abf48a95f8949b38f725ded255077329f21f7b",
+                            "harbor.openova.io/proxy-k8s/kube-controller-manager:v1.31.4"
+                        ],
+                        "sizeBytes": 26147269
+                    },
+                    {
+                        "names": [
+                            "quay.io/brancz/kube-rbac-proxy@sha256:2c7b120590cbe9f634f5099f2cbb91d0b668569023a81505ca124a5c437e7663",
+                            "quay.io/brancz/kube-rbac-proxy:v0.15.0"
+                        ],
+                        "sizeBytes": 25017413
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/open-telemetry/opentelemetry-operator/opentelemetry-operator@sha256:ac26ee0a25a3513f0743c45b214c57a789fd64570b72c78d844686eda81e2b3e",
+                            "ghcr.io/open-telemetry/opentelemetry-operator/opentelemetry-operator:0.101.0"
+                        ],
+                        "sizeBytes": 24090204
+                    },
+                    {
+                        "names": [
+                            "docker.io/rancher/mirrored-coredns-coredns@sha256:82979ddf442c593027a57239ad90616deb874e90c365d1a96ad508c2104bdea5",
+                            "docker.io/rancher/mirrored-coredns-coredns:1.12.0"
+                        ],
+                        "sizeBytes": 20938299
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/aquasecurity/node-collector@sha256:f4702ce4667388f0219d6248d623a7e816231c2d4561d6af01c3ae053e524025",
+                            "ghcr.io/aquasecurity/node-collector:0.3.1"
+                        ],
+                        "sizeBytes": 20174022
+                    },
+                    {
+                        "names": [
+                            "docker.io/rancher/mirrored-metrics-server@sha256:dccf8474fb910fef261d31d9483d7e4c1df7b86cf4d638fb6a7d7c88bd51600a",
+                            "docker.io/rancher/mirrored-metrics-server:v0.7.2"
+                        ],
+                        "sizeBytes": 19494186
+                    },
+                    {
+                        "names": [
+                            "docker.io/rancher/local-path-provisioner@sha256:9b914881170048f80ae9302f36e5b99b4a6b18af73a38adc1c66d12f65d360be",
+                            "docker.io/rancher/local-path-provisioner:v0.0.30"
+                        ],
+                        "sizeBytes": 18584855
+                    },
+                    {
+                        "names": [
+                            "docker.io/coredns/coredns@sha256:9caabbf6238b189a65d0d6e6ac138de60d6a1c419e5a341fbbb7c78382559c6e",
+                            "docker.io/coredns/coredns:1.11.3"
+                        ],
+                        "sizeBytes": 18562039
+                    },
+                    {
+                        "names": [
+                            "quay.io/jetstack/cert-manager-webhook@sha256:2b10bf39d0e1e056f2bd0743c7e743f28285085e76cf860ddd1dc23abe3a74ad",
+                            "quay.io/jetstack/cert-manager-webhook:v1.16.5"
+                        ],
+                        "sizeBytes": 18212681
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-quay/oauth2-proxy/oauth2-proxy@sha256:dcb6ff8dd21bf3058f6a22c6fa385fa5b897a9cd3914c88a2cc2bb0a85f8065d",
+                            "harbor.openova.io/proxy-quay/oauth2-proxy/oauth2-proxy:v7.6.0"
+                        ],
+                        "sizeBytes": 16521978
+                    },
+                    {
+                        "names": [
+                            "quay.io/jetstack/cert-manager-cainjector@sha256:b3b12f6a140f55697130c4c23453eb24200205e1341095c0f3e9e9d471e5fba6",
+                            "quay.io/jetstack/cert-manager-cainjector:v1.16.5"
+                        ],
+                        "sizeBytes": 15446237
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-quay/prometheus-operator/prometheus-config-reloader@sha256:959d47672fbff2776a04ec62b8afcec89e8c036af84dc5fade50019dab212746",
+                            "harbor.openova.io/proxy-quay/prometheus-operator/prometheus-config-reloader:v0.81.0"
+                        ],
+                        "sizeBytes": 14433657
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/k8s-ws-proxy@sha256:0e3c679c9f78b302575cf9d6e2ae0e5d82d861e4d6de19876df0ca496677825b",
+                            "ghcr.io/openova-io/openova/k8s-ws-proxy:b32eb9b"
+                        ],
+                        "sizeBytes": 11403264
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/openova-flow-adapter-flux@sha256:ffc60bb400d3b8e8e7d19ced0b8714d038ee6c9b9012cc9019e2341d57c1989f",
+                            "ghcr.io/openova-io/openova/openova-flow-adapter-flux:b32eb9b"
+                        ],
+                        "sizeBytes": 10917169
+                    },
+                    {
+                        "names": [
+                            "docker.io/library/nats@sha256:c82559e4476289481a8a5196e675ebfe67eea81d95e5161e3e78eccfe766608e",
+                            "docker.io/library/nats:2.10.16-alpine"
+                        ],
+                        "sizeBytes": 9725619
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/curlimages/curl@sha256:d9b4541e214bcd85196d6e92e2753ac6d0ea699f0af5741f8c6cccbfcf00ef4b",
+                            "harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1"
+                        ],
+                        "sizeBytes": 9414401
+                    },
+                    {
+                        "names": [
+                            "docker.io/natsio/nats-server-config-reloader@sha256:98d592981444fac82f79950b42f439f16918e9788fe5080eb32ac8cc7f357df1",
+                            "docker.io/natsio/nats-server-config-reloader:0.14.3"
+                        ],
+                        "sizeBytes": 4628347
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/newapi-sandbox-bridge@sha256:170363bf9b313db7844a566df72aa07ab483d31c1eb2af59694da65169483c02",
+                            "ghcr.io/openova-io/openova/newapi-sandbox-bridge:5d818d4"
+                        ],
+                        "sizeBytes": 4477093
+                    },
+                    {
+                        "names": [
+                            "docker.io/library/alpine@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+                            "docker.io/library/alpine:3.20"
+                        ],
+                        "sizeBytes": 3641182
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/services-metering-sidecar@sha256:259420d49d42b44d8ce36ab062e1fb88d033571c98362008951f195636b086ff",
+                            "ghcr.io/openova-io/openova/services-metering-sidecar:41e02c8"
+                        ],
+                        "sizeBytes": 3548511
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/library/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662",
+                            "harbor.openova.io/proxy-dockerhub/library/busybox:1.36"
+                        ],
+                        "sizeBytes": 2217006
+                    },
+                    {
+                        "names": [
+                            "docker.io/rancher/mirrored-library-busybox@sha256:8a45424ddf949bbe9bb3231b05f9032a45da5cd036eb4867b511b00734756d6f",
+                            "docker.io/rancher/mirrored-library-busybox:1.36.1"
+                        ],
+                        "sizeBytes": 2147340
+                    },
+                    {
+                        "names": [
+                            "docker.io/rancher/mirrored-pause@sha256:74c4244427b7312c5b901fe0f67cbc53683d06f4f24c6faee65d4182bf0fa893",
+                            "docker.io/rancher/mirrored-pause:3.6"
+                        ],
+                        "sizeBytes": 301463
+                    }
+                ],
+                "nodeInfo": {
+                    "architecture": "amd64",
+                    "bootID": "689fdac8-3517-42fe-9519-62fd08496bf2",
+                    "containerRuntimeVersion": "containerd://1.7.23-k3s2",
+                    "kernelVersion": "5.15.0-76-generic",
+                    "kubeProxyVersion": "v1.31.4+k3s1",
+                    "kubeletVersion": "v1.31.4+k3s1",
+                    "machineID": "41895bd1876a403788902e232a28f6c9",
+                    "operatingSystem": "linux",
+                    "osImage": "Ubuntu 22.04.2 LTS",
+                    "systemUUID": "2e03ae22-e40b-42de-b1a0-b36ef4871a74"
+                }
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Node",
+            "metadata": {
+                "annotations": {
+                    "alpha.kubernetes.io/provided-node-ip": "10.179.1.152",
+                    "k3s.io/hostname": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-w71c873",
+                    "k3s.io/internal-ip": "10.179.1.152",
+                    "k3s.io/node-args": "[\"agent\",\"--node-label\",\"catalyst.openova.io/provider=huawei\",\"--node-label\",\"openova.io/region=hw-me-east-215-b-rtz-prod\",\"--node-label\",\"topology.kubernetes.io/region=me-east-215-b\",\"--node-label\",\"topology.kubernetes.io/zone=me-east-215-b\"]",
+                    "k3s.io/node-config-hash": "ZAZ32NBDFHNHP7KSGYPV2T64JKCNXS5UYCTPHLTVNJNJTCWZ3AUQ====",
+                    "k3s.io/node-env": "{\"K3S_TOKEN\":\"********\",\"K3S_URL\":\"https://10.179.1.131:6443\"}",
+                    "node.alpha.kubernetes.io/ttl": "0",
+                    "volumes.kubernetes.io/controller-managed-attach-detach": "true"
+                },
+                "creationTimestamp": "2026-06-20T03:01:49Z",
+                "finalizers": [
+                    "wrangler.cattle.io/node",
+                    "wrangler.cattle.io/managed-etcd-controller"
+                ],
+                "labels": {
+                    "beta.kubernetes.io/arch": "amd64",
+                    "beta.kubernetes.io/instance-type": "k3s",
+                    "beta.kubernetes.io/os": "linux",
+                    "catalyst.openova.io/provider": "huawei",
+                    "failure-domain.beta.kubernetes.io/region": "me-east-215-b",
+                    "failure-domain.beta.kubernetes.io/zone": "me-east-215-b",
+                    "kubernetes.io/arch": "amd64",
+                    "kubernetes.io/hostname": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-w71c873",
+                    "kubernetes.io/os": "linux",
+                    "node.kubernetes.io/instance-type": "k3s",
+                    "openova.io/region": "hw-me-east-215-b-rtz-prod",
+                    "topology.kubernetes.io/region": "me-east-215-b",
+                    "topology.kubernetes.io/zone": "me-east-215-b"
+                },
+                "name": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-w71c873",
+                "resourceVersion": "718452",
+                "uid": "40393367-783c-4533-b8d6-6b5549555ea7"
+            },
+            "spec": {
+                "podCIDR": "10.43.3.0/24",
+                "podCIDRs": [
+                    "10.43.3.0/24"
+                ],
+                "providerID": "k3s://catalyst-hw173-omani-works-7bb723da-me-east-215-b-w71c873"
+            },
+            "status": {
+                "addresses": [
+                    {
+                        "address": "10.179.1.152",
+                        "type": "InternalIP"
+                    },
+                    {
+                        "address": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-w71c873",
+                        "type": "Hostname"
+                    }
+                ],
+                "allocatable": {
+                    "cpu": "4",
+                    "ephemeral-storage": "39857063496",
+                    "hugepages-1Gi": "0",
+                    "hugepages-2Mi": "0",
+                    "memory": "32666744Ki",
+                    "pods": "110"
+                },
+                "capacity": {
+                    "cpu": "4",
+                    "ephemeral-storage": "40971488Ki",
+                    "hugepages-1Gi": "0",
+                    "hugepages-2Mi": "0",
+                    "memory": "32666744Ki",
+                    "pods": "110"
+                },
+                "conditions": [
+                    {
+                        "lastHeartbeatTime": "2026-06-20T03:07:17Z",
+                        "lastTransitionTime": "2026-06-20T03:07:17Z",
+                        "message": "Cilium is running on this node",
+                        "reason": "CiliumIsUp",
+                        "status": "False",
+                        "type": "NetworkUnavailable"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:10:56Z",
+                        "lastTransitionTime": "2026-06-20T03:01:48Z",
+                        "message": "kubelet has sufficient memory available",
+                        "reason": "KubeletHasSufficientMemory",
+                        "status": "False",
+                        "type": "MemoryPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:10:56Z",
+                        "lastTransitionTime": "2026-06-20T03:01:48Z",
+                        "message": "kubelet has no disk pressure",
+                        "reason": "KubeletHasNoDiskPressure",
+                        "status": "False",
+                        "type": "DiskPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:10:56Z",
+                        "lastTransitionTime": "2026-06-20T03:01:48Z",
+                        "message": "kubelet has sufficient PID available",
+                        "reason": "KubeletHasSufficientPID",
+                        "status": "False",
+                        "type": "PIDPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:10:56Z",
+                        "lastTransitionTime": "2026-06-20T03:07:14Z",
+                        "message": "kubelet is posting ready status",
+                        "reason": "KubeletReady",
+                        "status": "True",
+                        "type": "Ready"
+                    }
+                ],
+                "daemonEndpoints": {
+                    "kubeletEndpoint": {
+                        "Port": 10250
+                    }
+                },
+                "images": [
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql@sha256:027303cd89644acdeba67d2b37f70eff6a7f345220f127721ff92504e1e4eae6",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16"
+                        ],
+                        "sizeBytes": 258220911
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/cilium@sha256:758ca0793f5995bb938a2fa219dcce63dc0b3fa7fc4ce5cc851125281fb7361d"
+                        ],
+                        "sizeBytes": 224306600
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql@sha256:99be063781d171d3971089b49c992706bdab9ccbd2b57cdf126c7542773aedfe",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16.4"
+                        ],
+                        "sizeBytes": 217672880
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/keycloak-config-cli@sha256:31d496f6b77dce3ef315be74b05e61ed62ac427ea373bfecb6e3b5b4755071d4",
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/keycloak-config-cli:6.4.0-debian-12-r11"
+                        ],
+                        "sizeBytes": 212166537
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/grafana/alloy@sha256:6e00cf7c5a692ff5f24844529416ed017d76fce922f8199004e73d5eca46b6b8",
+                            "harbor.openova.io/proxy-dockerhub/grafana/alloy:v1.16.0"
+                        ],
+                        "sizeBytes": 151457664
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl@sha256:64614ef8290f3fb27fed5164b338debeeb79a1e5e26c93eb920770b71abd7c48",
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.31.4"
+                        ],
+                        "sizeBytes": 111911970
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/postgresql@sha256:de520acd66fc954d538faa997771ca791f9fcba8b837419a8bc4d08a08df3762",
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/postgresql:17.6.0-debian-12-r0"
+                        ],
+                        "sizeBytes": 111456870
+                    },
+                    {
+                        "names": [
+                            "docker.io/bitnamilegacy/kubectl@sha256:1249fc292e84a38575ee0cadc3e28dcd7ddf5a3a4e5da401b1a8599e8ac52a1b",
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl@sha256:1249fc292e84a38575ee0cadc3e28dcd7ddf5a3a4e5da401b1a8599e8ac52a1b",
+                            "docker.io/bitnamilegacy/kubectl:1.30.7",
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7"
+                        ],
+                        "sizeBytes": 110946736
+                    },
+                    {
+                        "names": [
+                            "docker.io/powerdns/pdns-auth-50@sha256:1f136c4fa4f995279b43c6a8413dde05147cc9b74a437e188f92b0088c523a8d",
+                            "docker.io/powerdns/pdns-auth-50:5.0.3"
+                        ],
+                        "sizeBytes": 102061459
+                    },
+                    {
+                        "names": [
+                            "docker.io/velero/velero@sha256:e4d1e79be2ee1d51056734ada5e51c78a29b924e4d055cd28e0b4103ae2268ad",
+                            "docker.io/velero/velero:v1.18.0"
+                        ],
+                        "sizeBytes": 78724238
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/goharbor/harbor-jobservice@sha256:e2b0298e894d725d68954b786c61c5dd607114f6129534756c8f7985124c07a6",
+                            "harbor.openova.io/proxy-dockerhub/goharbor/harbor-jobservice:v2.14.3"
+                        ],
+                        "sizeBytes": 74802491
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/powerdnsadmin/pda-legacy@sha256:0fc92c8ef63a6704083ca1989c83d2b747f7abc0e5045d56d9c69a76e08a9a5e",
+                            "harbor.openova.io/proxy-dockerhub/powerdnsadmin/pda-legacy:0.4.2"
+                        ],
+                        "sizeBytes": 73000672
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/gitea/gitea@sha256:6b068c75b3454016b0304d0bb158b027cae6393fc668ce6a3727d4f4016261ed",
+                            "harbor.openova.io/proxy-dockerhub/gitea/gitea:1.22.3-rootless"
+                        ],
+                        "sizeBytes": 67735375
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/cilium-envoy@sha256:709c08ade3d17d52da4ca2af33f431360ec26268d288d9a6cd1d98acc9a1dced"
+                        ],
+                        "sizeBytes": 62862122
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/sigstore/policy-controller/policy-controller@sha256:0bcd60beb93f4427c29cf3a669743caf58490e98ded4380c33c09f092734a6ab"
+                        ],
+                        "sizeBytes": 61402611
+                    },
+                    {
+                        "names": [
+                            "mirror.gcr.io/aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e",
+                            "mirror.gcr.io/aquasec/trivy:0.70.0"
+                        ],
+                        "sizeBytes": 58469315
+                    },
+                    {
+                        "names": [
+                            "docker.io/falcosecurity/falco@sha256:b4166a61f41e2fa638c041cac881d8bb32c284e3aaf282fdfed80f15f6eb55e3",
+                            "docker.io/falcosecurity/falco:0.43.1"
+                        ],
+                        "sizeBytes": 50563340
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/kyverno/background-controller@sha256:fd6d30964297f1c94c2d741a1c44d055994cd4354e6f7e718cad59e6b5aa6c66",
+                            "harbor.openova.io/proxy-ghcr/kyverno/background-controller:v1.18.0"
+                        ],
+                        "sizeBytes": 45603201
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/fluxcd/helm-controller@sha256:4c75ca6c24ceb1f1bd7e935d9287a93e4f925c512f206763ec5a47de3ef3ff48",
+                            "ghcr.io/fluxcd/helm-controller:v1.1.0"
+                        ],
+                        "sizeBytes": 40818921
+                    },
+                    {
+                        "names": [
+                            "docker.io/velero/velero-plugin-for-aws@sha256:7e82f717f44e89671212e0dfce7e061321c386ea84a33bca64a671670ca6c278",
+                            "docker.io/velero/velero-plugin-for-aws:v1.14.0"
+                        ],
+                        "sizeBytes": 39572667
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/fluxcd/image-reflector-controller@sha256:c6864684f96cfbb3a91c816084032bb019b302af8b63b0e06b12b4018a9a8242",
+                            "harbor.openova.io/proxy-ghcr/fluxcd/image-reflector-controller:v0.33.0"
+                        ],
+                        "sizeBytes": 38586158
+                    },
+                    {
+                        "names": [
+                            "docker.io/natsio/nats-box@sha256:1cc4201866645d6501ed370d2300852711468886565b0e1a3dc69e9739909a0e",
+                            "docker.io/natsio/nats-box:0.14.3"
+                        ],
+                        "sizeBytes": 38475647
+                    },
+                    {
+                        "names": [
+                            "docker.io/grafana/tempo@sha256:65a5789759435f1ef696f1953258b9bbdb18eb571d5ce711ff812d2e128288a4",
+                            "docker.io/grafana/tempo:2.9.0"
+                        ],
+                        "sizeBytes": 36423494
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/cloudnative-pg@sha256:68074486205a33ed41928761e22ad48278c690feebe8316727a1c6b3380f9e5e",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/cloudnative-pg:1.29.0"
+                        ],
+                        "sizeBytes": 36402270
+                    },
+                    {
+                        "names": [
+                            "docker.io/grafana/rollout-operator@sha256:cdb420c0af2cc5b32a33267cdd4aac8cd7867d539975a75dc856b0cfebbadff4",
+                            "docker.io/grafana/rollout-operator:v0.32.0"
+                        ],
+                        "sizeBytes": 34785847
+                    },
+                    {
+                        "names": [
+                            "docker.io/grafana/mimir@sha256:686138d9f941508c99c931cc9e69bf9f6100dd4d2d623bf57b38d5c25ee645c1",
+                            "docker.io/grafana/mimir:3.0.4"
+                        ],
+                        "sizeBytes": 33769654
+                    },
+                    {
+                        "names": [
+                            "docker.io/falcosecurity/falcoctl@sha256:0d3bddce03a26365b86e6ff1aa5c51965d2e16569e8cf8b3e37a3d3ef186dc9b",
+                            "docker.io/falcosecurity/falcoctl:0.12.2"
+                        ],
+                        "sizeBytes": 33185258
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/hubble-relay@sha256:6cfae1d1afa566ba941f03d4d7e141feddd05260e5cd0a1509aba1890a45ef00"
+                        ],
+                        "sizeBytes": 28577506
+                    },
+                    {
+                        "names": [
+                            "docker.io/zachomedia/cert-manager-webhook-pdns@sha256:4940e227a39ba04fcbdc99d55918946183f08722480953537b28c33304f96d82",
+                            "docker.io/zachomedia/cert-manager-webhook-pdns:v2.5.5"
+                        ],
+                        "sizeBytes": 28019091
+                    },
+                    {
+                        "names": [
+                            "xpkg.upbound.io/crossplane/crossplane@sha256:c98f027ffade306fc9a5132aec74a1430357f1028c0da024b95c25a19b3148fc",
+                            "xpkg.upbound.io/crossplane/crossplane:v1.18.0"
+                        ],
+                        "sizeBytes": 20944049
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/aquasecurity/node-collector@sha256:f4702ce4667388f0219d6248d623a7e816231c2d4561d6af01c3ae053e524025",
+                            "ghcr.io/aquasecurity/node-collector:0.3.1"
+                        ],
+                        "sizeBytes": 20174022
+                    },
+                    {
+                        "names": [
+                            "quay.io/oauth2-proxy/oauth2-proxy@sha256:dcb6ff8dd21bf3058f6a22c6fa385fa5b897a9cd3914c88a2cc2bb0a85f8065d",
+                            "quay.io/oauth2-proxy/oauth2-proxy:v7.6.0"
+                        ],
+                        "sizeBytes": 16521978
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/stakater/reloader@sha256:4e0db5b629ad5b50ccadae6f31f5916adab300dc3801482503f4984da4727e30",
+                            "ghcr.io/stakater/reloader:v1.4.16"
+                        ],
+                        "sizeBytes": 15679304
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-quay/prometheus-operator/prometheus-config-reloader@sha256:959d47672fbff2776a04ec62b8afcec89e8c036af84dc5fade50019dab212746",
+                            "harbor.openova.io/proxy-quay/prometheus-operator/prometheus-config-reloader:v0.81.0"
+                        ],
+                        "sizeBytes": 14433657
+                    },
+                    {
+                        "names": [
+                            "registry.k8s.io/autoscaling/vpa-recommender@sha256:0e26495e23c72aad6840fea22cb49865de703348c4e2bd56d173d718e849233a",
+                            "registry.k8s.io/autoscaling/vpa-recommender:1.5.0"
+                        ],
+                        "sizeBytes": 11411407
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/k8s-ws-proxy@sha256:0e3c679c9f78b302575cf9d6e2ae0e5d82d861e4d6de19876df0ca496677825b",
+                            "ghcr.io/openova-io/openova/k8s-ws-proxy:b32eb9b"
+                        ],
+                        "sizeBytes": 11403264
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/openova-flow-adapter-flux@sha256:ffc60bb400d3b8e8e7d19ced0b8714d038ee6c9b9012cc9019e2341d57c1989f",
+                            "ghcr.io/openova-io/openova/openova-flow-adapter-flux:b32eb9b"
+                        ],
+                        "sizeBytes": 10917169
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/curlimages/curl@sha256:d9b4541e214bcd85196d6e92e2753ac6d0ea699f0af5741f8c6cccbfcf00ef4b",
+                            "harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1"
+                        ],
+                        "sizeBytes": 9414401
+                    },
+                    {
+                        "names": [
+                            "docker.io/library/alpine@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+                            "docker.io/library/alpine:3.20"
+                        ],
+                        "sizeBytes": 3641182
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/library/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662",
+                            "harbor.openova.io/proxy-dockerhub/library/busybox:1.36"
+                        ],
+                        "sizeBytes": 2217006
+                    },
+                    {
+                        "names": [
+                            "docker.io/rancher/mirrored-library-busybox@sha256:8a45424ddf949bbe9bb3231b05f9032a45da5cd036eb4867b511b00734756d6f",
+                            "docker.io/rancher/mirrored-library-busybox:1.36.1"
+                        ],
+                        "sizeBytes": 2147340
+                    },
+                    {
+                        "names": [
+                            "docker.io/rancher/mirrored-pause@sha256:74c4244427b7312c5b901fe0f67cbc53683d06f4f24c6faee65d4182bf0fa893",
+                            "docker.io/rancher/mirrored-pause:3.6"
+                        ],
+                        "sizeBytes": 301463
+                    }
+                ],
+                "nodeInfo": {
+                    "architecture": "amd64",
+                    "bootID": "05e0258d-a265-4595-94f7-e1258bd35119",
+                    "containerRuntimeVersion": "containerd://1.7.23-k3s2",
+                    "kernelVersion": "5.15.0-76-generic",
+                    "kubeProxyVersion": "v1.31.4+k3s1",
+                    "kubeletVersion": "v1.31.4+k3s1",
+                    "machineID": "41895bd1876a403788902e232a28f6c9",
+                    "operatingSystem": "linux",
+                    "osImage": "Ubuntu 22.04.2 LTS",
+                    "systemUUID": "1404cc2e-0316-4ba9-b605-71f89b0c466f"
+                }
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Node",
+            "metadata": {
+                "annotations": {
+                    "alpha.kubernetes.io/provided-node-ip": "10.179.1.155",
+                    "k3s.io/hostname": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-w8a0eb8",
+                    "k3s.io/internal-ip": "10.179.1.155",
+                    "k3s.io/node-args": "[\"agent\",\"--node-label\",\"catalyst.openova.io/provider=huawei\",\"--node-label\",\"openova.io/region=hw-me-east-215-b-rtz-prod\",\"--node-label\",\"topology.kubernetes.io/region=me-east-215-b\",\"--node-label\",\"topology.kubernetes.io/zone=me-east-215-b\"]",
+                    "k3s.io/node-config-hash": "ZAZ32NBDFHNHP7KSGYPV2T64JKCNXS5UYCTPHLTVNJNJTCWZ3AUQ====",
+                    "k3s.io/node-env": "{\"K3S_TOKEN\":\"********\",\"K3S_URL\":\"https://10.179.1.131:6443\"}",
+                    "node.alpha.kubernetes.io/ttl": "0",
+                    "volumes.kubernetes.io/controller-managed-attach-detach": "true"
+                },
+                "creationTimestamp": "2026-06-20T03:07:20Z",
+                "finalizers": [
+                    "wrangler.cattle.io/node",
+                    "wrangler.cattle.io/managed-etcd-controller"
+                ],
+                "labels": {
+                    "beta.kubernetes.io/arch": "amd64",
+                    "beta.kubernetes.io/instance-type": "k3s",
+                    "beta.kubernetes.io/os": "linux",
+                    "catalyst.openova.io/provider": "huawei",
+                    "failure-domain.beta.kubernetes.io/region": "me-east-215-b",
+                    "failure-domain.beta.kubernetes.io/zone": "me-east-215-b",
+                    "kubernetes.io/arch": "amd64",
+                    "kubernetes.io/hostname": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-w8a0eb8",
+                    "kubernetes.io/os": "linux",
+                    "node.kubernetes.io/instance-type": "k3s",
+                    "openova.io/region": "hw-me-east-215-b-rtz-prod",
+                    "topology.kubernetes.io/region": "me-east-215-b",
+                    "topology.kubernetes.io/zone": "me-east-215-b"
+                },
+                "name": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-w8a0eb8",
+                "resourceVersion": "717715",
+                "uid": "42fc65de-922c-4c68-9e74-08a8b5b0f9c9"
+            },
+            "spec": {
+                "podCIDR": "10.43.5.0/24",
+                "podCIDRs": [
+                    "10.43.5.0/24"
+                ],
+                "providerID": "k3s://catalyst-hw173-omani-works-7bb723da-me-east-215-b-w8a0eb8"
+            },
+            "status": {
+                "addresses": [
+                    {
+                        "address": "10.179.1.155",
+                        "type": "InternalIP"
+                    },
+                    {
+                        "address": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-w8a0eb8",
+                        "type": "Hostname"
+                    }
+                ],
+                "allocatable": {
+                    "cpu": "4",
+                    "ephemeral-storage": "39857063496",
+                    "hugepages-1Gi": "0",
+                    "hugepages-2Mi": "0",
+                    "memory": "32666744Ki",
+                    "pods": "110"
+                },
+                "capacity": {
+                    "cpu": "4",
+                    "ephemeral-storage": "40971488Ki",
+                    "hugepages-1Gi": "0",
+                    "hugepages-2Mi": "0",
+                    "memory": "32666744Ki",
+                    "pods": "110"
+                },
+                "conditions": [
+                    {
+                        "lastHeartbeatTime": "2026-06-20T03:08:50Z",
+                        "lastTransitionTime": "2026-06-20T03:08:50Z",
+                        "message": "Cilium is running on this node",
+                        "reason": "CiliumIsUp",
+                        "status": "False",
+                        "type": "NetworkUnavailable"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:10:05Z",
+                        "lastTransitionTime": "2026-06-20T03:07:20Z",
+                        "message": "kubelet has sufficient memory available",
+                        "reason": "KubeletHasSufficientMemory",
+                        "status": "False",
+                        "type": "MemoryPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:10:05Z",
+                        "lastTransitionTime": "2026-06-20T03:07:20Z",
+                        "message": "kubelet has no disk pressure",
+                        "reason": "KubeletHasNoDiskPressure",
+                        "status": "False",
+                        "type": "DiskPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:10:05Z",
+                        "lastTransitionTime": "2026-06-20T03:07:20Z",
+                        "message": "kubelet has sufficient PID available",
+                        "reason": "KubeletHasSufficientPID",
+                        "status": "False",
+                        "type": "PIDPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:10:05Z",
+                        "lastTransitionTime": "2026-06-20T03:08:46Z",
+                        "message": "kubelet is posting ready status",
+                        "reason": "KubeletReady",
+                        "status": "True",
+                        "type": "Ready"
+                    }
+                ],
+                "daemonEndpoints": {
+                    "kubeletEndpoint": {
+                        "Port": 10250
+                    }
+                },
+                "images": [
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql@sha256:027303cd89644acdeba67d2b37f70eff6a7f345220f127721ff92504e1e4eae6",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16"
+                        ],
+                        "sizeBytes": 258220911
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/cilium@sha256:758ca0793f5995bb938a2fa219dcce63dc0b3fa7fc4ce5cc851125281fb7361d"
+                        ],
+                        "sizeBytes": 224306600
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/grafana/alloy@sha256:6e00cf7c5a692ff5f24844529416ed017d76fce922f8199004e73d5eca46b6b8",
+                            "harbor.openova.io/proxy-dockerhub/grafana/alloy:v1.16.0"
+                        ],
+                        "sizeBytes": 151457664
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl@sha256:64614ef8290f3fb27fed5164b338debeeb79a1e5e26c93eb920770b71abd7c48",
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.31.4"
+                        ],
+                        "sizeBytes": 111911970
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl@sha256:1249fc292e84a38575ee0cadc3e28dcd7ddf5a3a4e5da401b1a8599e8ac52a1b",
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7"
+                        ],
+                        "sizeBytes": 110946736
+                    },
+                    {
+                        "names": [
+                            "docker.io/bitnamilegacy/kubectl@sha256:f5fc0d561d9ef931f9ecb2e8b65d93eb92767c57f64897c56a100bfe28102c74",
+                            "docker.io/bitnamilegacy/kubectl:1.29.3"
+                        ],
+                        "sizeBytes": 106148689
+                    },
+                    {
+                        "names": [
+                            "docker.io/chrislusf/seaweedfs@sha256:84429e5f21fad82246f5cfae7b39e9a17da18afb62f2b79c25ccd364ab02793b",
+                            "docker.io/chrislusf/seaweedfs:4.22"
+                        ],
+                        "sizeBytes": 100503219
+                    },
+                    {
+                        "names": [
+                            "docker.io/emberstack/kubernetes-reflector@sha256:84a83d1c28e78a3b7614e85b0dad872e88c549e05a7838754c4a340be601a4ae",
+                            "docker.io/emberstack/kubernetes-reflector:7.1.288"
+                        ],
+                        "sizeBytes": 93834221
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-quay/openbao/openbao@sha256:41dc3e47da01575e1ffea70aa635180b57ff999264398313334c259a697bf7a2",
+                            "harbor.openova.io/proxy-quay/openbao/openbao:2.3.1"
+                        ],
+                        "sizeBytes": 77189230
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/powerdnsadmin/pda-legacy@sha256:0fc92c8ef63a6704083ca1989c83d2b747f7abc0e5045d56d9c69a76e08a9a5e",
+                            "harbor.openova.io/proxy-dockerhub/powerdnsadmin/pda-legacy:0.4.2"
+                        ],
+                        "sizeBytes": 73000672
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/external-secrets/external-secrets@sha256:937c550ff84dded588324be89df42b2fa7d2cb2981271343c956b5348ae64011",
+                            "harbor.openova.io/proxy-ghcr/external-secrets/external-secrets:v0.10.7"
+                        ],
+                        "sizeBytes": 66393246
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/goharbor/redis-photon@sha256:f0e08db4909c21535667bd89676ac28c27003ca967830e259e3bd3aeb8e22f9c",
+                            "harbor.openova.io/proxy-dockerhub/goharbor/redis-photon:v2.14.3"
+                        ],
+                        "sizeBytes": 64079006
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/cilium-envoy@sha256:709c08ade3d17d52da4ca2af33f431360ec26268d288d9a6cd1d98acc9a1dced"
+                        ],
+                        "sizeBytes": 62862122
+                    },
+                    {
+                        "names": [
+                            "quay.io/minio/minio@sha256:1dce27c494a16bae114774f1cec295493f3613142713130c2d22dd5696be6ad3",
+                            "quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z"
+                        ],
+                        "sizeBytes": 62642371
+                    },
+                    {
+                        "names": [
+                            "mirror.gcr.io/aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e",
+                            "mirror.gcr.io/aquasec/trivy:0.70.0"
+                        ],
+                        "sizeBytes": 58469315
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/fluxcd/kustomize-controller@sha256:e3b0cf847e9cdf47b19af0fbcfe22786b80b598e0caeea8b6d2a5f9c26a48a24",
+                            "ghcr.io/fluxcd/kustomize-controller:v1.4.0"
+                        ],
+                        "sizeBytes": 54969920
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/goharbor/nginx-photon@sha256:e31b5290e31938fde76590e4f5d7b8eb3d8038ad1485879bdad7a480538dc858",
+                            "harbor.openova.io/proxy-dockerhub/goharbor/nginx-photon:v2.14.3"
+                        ],
+                        "sizeBytes": 54477190
+                    },
+                    {
+                        "names": [
+                            "docker.io/falcosecurity/falco@sha256:b4166a61f41e2fa638c041cac881d8bb32c284e3aaf282fdfed80f15f6eb55e3",
+                            "docker.io/falcosecurity/falco:0.43.1"
+                        ],
+                        "sizeBytes": 50563340
+                    },
+                    {
+                        "names": [
+                            "mirror.gcr.io/aquasec/trivy-operator@sha256:448484ece65e26f1c7237c8d20dab997f5a8319968286a09e188140b863cf1f9",
+                            "mirror.gcr.io/aquasec/trivy-operator:0.30.1"
+                        ],
+                        "sizeBytes": 49226533
+                    },
+                    {
+                        "names": [
+                            "registry-1.docker.io/bitnami/valkey@sha256:bcb8664d48fc0449050e1524e4041504bb774cc4ecc00bd0cc52daaad12beea4",
+                            "registry-1.docker.io/bitnami/valkey:latest"
+                        ],
+                        "sizeBytes": 49194903
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/kyverno/kyverno@sha256:cb033c200dc85be0a4d38e1a72894038a0c067d73f1ce6aedd569f9769a3d262",
+                            "harbor.openova.io/proxy-ghcr/kyverno/kyverno:v1.18.0"
+                        ],
+                        "sizeBytes": 46511461
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/fluxcd/notification-controller@sha256:425309a159b15e07f7d97622effc79bc432a37ed55289dd465d37fa217a92a7d",
+                            "harbor.openova.io/proxy-ghcr/fluxcd/notification-controller:v1.4.0"
+                        ],
+                        "sizeBytes": 43654595
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/kyverno/kyvernopre@sha256:60b53ebf646f788e6e5d312f9cbf267d7537ec14afec68bde2e1dad55c552cc7",
+                            "harbor.openova.io/proxy-ghcr/kyverno/kyvernopre:v1.18.0"
+                        ],
+                        "sizeBytes": 41450999
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/fluxcd/image-reflector-controller@sha256:c6864684f96cfbb3a91c816084032bb019b302af8b63b0e06b12b4018a9a8242",
+                            "ghcr.io/fluxcd/image-reflector-controller:v0.33.0"
+                        ],
+                        "sizeBytes": 38586158
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/cloudnative-pg@sha256:68074486205a33ed41928761e22ad48278c690feebe8316727a1c6b3380f9e5e",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/cloudnative-pg:1.29.0"
+                        ],
+                        "sizeBytes": 36402270
+                    },
+                    {
+                        "names": [
+                            "docker.io/grafana/mimir@sha256:686138d9f941508c99c931cc9e69bf9f6100dd4d2d623bf57b38d5c25ee645c1",
+                            "docker.io/grafana/mimir:3.0.4"
+                        ],
+                        "sizeBytes": 33769654
+                    },
+                    {
+                        "names": [
+                            "docker.io/falcosecurity/falcoctl@sha256:0d3bddce03a26365b86e6ff1aa5c51965d2e16569e8cf8b3e37a3d3ef186dc9b",
+                            "docker.io/falcosecurity/falcoctl:0.12.2"
+                        ],
+                        "sizeBytes": 33185258
+                    },
+                    {
+                        "names": [
+                            "quay.io/jetstack/cert-manager-controller@sha256:ac105277e06e134a3d474d1535f1dc46f2606ebecf69b458e096d5f428e34fcb",
+                            "quay.io/jetstack/cert-manager-controller:v1.16.5"
+                        ],
+                        "sizeBytes": 21207976
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/library/nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
+                            "harbor.openova.io/proxy-dockerhub/library/nginx:1.27-alpine"
+                        ],
+                        "sizeBytes": 20984244
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/aquasecurity/node-collector@sha256:f4702ce4667388f0219d6248d623a7e816231c2d4561d6af01c3ae053e524025",
+                            "ghcr.io/aquasecurity/node-collector:0.3.1"
+                        ],
+                        "sizeBytes": 20174022
+                    },
+                    {
+                        "names": [
+                            "docker.io/coredns/coredns@sha256:9caabbf6238b189a65d0d6e6ac138de60d6a1c419e5a341fbbb7c78382559c6e",
+                            "docker.io/coredns/coredns:1.11.3"
+                        ],
+                        "sizeBytes": 18562039
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-quay/prometheus-operator/prometheus-config-reloader@sha256:959d47672fbff2776a04ec62b8afcec89e8c036af84dc5fade50019dab212746",
+                            "harbor.openova.io/proxy-quay/prometheus-operator/prometheus-config-reloader:v0.81.0"
+                        ],
+                        "sizeBytes": 14433657
+                    },
+                    {
+                        "names": [
+                            "quay.io/jetstack/cert-manager-startupapicheck@sha256:8c122cb4ed0d3e42b528b2b868a10522222ceeef8e91f80f16f1d0e2206aefda",
+                            "quay.io/jetstack/cert-manager-startupapicheck:v1.16.5"
+                        ],
+                        "sizeBytes": 14113488
+                    },
+                    {
+                        "names": [
+                            "docker.io/bitnami/sealed-secrets-controller@sha256:29148c5750290f8a3022541712d0984775a0553a949c48e9285f5862532cc362",
+                            "docker.io/bitnami/sealed-secrets-controller:0.27.1"
+                        ],
+                        "sizeBytes": 12615435
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/k8s-ws-proxy@sha256:0e3c679c9f78b302575cf9d6e2ae0e5d82d861e4d6de19876df0ca496677825b",
+                            "ghcr.io/openova-io/openova/k8s-ws-proxy:b32eb9b"
+                        ],
+                        "sizeBytes": 11403264
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/openova-flow-adapter-flux@sha256:ffc60bb400d3b8e8e7d19ced0b8714d038ee6c9b9012cc9019e2341d57c1989f",
+                            "ghcr.io/openova-io/openova/openova-flow-adapter-flux:b32eb9b"
+                        ],
+                        "sizeBytes": 10917169
+                    },
+                    {
+                        "names": [
+                            "docker.io/library/nats@sha256:c82559e4476289481a8a5196e675ebfe67eea81d95e5161e3e78eccfe766608e",
+                            "docker.io/library/nats:2.10.16-alpine"
+                        ],
+                        "sizeBytes": 9725619
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/curlimages/curl@sha256:d9b4541e214bcd85196d6e92e2753ac6d0ea699f0af5741f8c6cccbfcf00ef4b",
+                            "harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1"
+                        ],
+                        "sizeBytes": 9414401
+                    },
+                    {
+                        "names": [
+                            "docker.io/natsio/nats-server-config-reloader@sha256:98d592981444fac82f79950b42f439f16918e9788fe5080eb32ac8cc7f357df1",
+                            "docker.io/natsio/nats-server-config-reloader:0.14.3"
+                        ],
+                        "sizeBytes": 4628347
+                    },
+                    {
+                        "names": [
+                            "docker.io/library/alpine@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+                            "docker.io/library/alpine:3.20"
+                        ],
+                        "sizeBytes": 3641182
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/library/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662",
+                            "harbor.openova.io/proxy-dockerhub/library/busybox:1.36"
+                        ],
+                        "sizeBytes": 2217006
+                    },
+                    {
+                        "names": [
+                            "docker.io/rancher/mirrored-library-busybox@sha256:8a45424ddf949bbe9bb3231b05f9032a45da5cd036eb4867b511b00734756d6f",
+                            "docker.io/rancher/mirrored-library-busybox:1.36.1"
+                        ],
+                        "sizeBytes": 2147340
+                    },
+                    {
+                        "names": [
+                            "docker.io/rancher/mirrored-pause@sha256:74c4244427b7312c5b901fe0f67cbc53683d06f4f24c6faee65d4182bf0fa893",
+                            "docker.io/rancher/mirrored-pause:3.6"
+                        ],
+                        "sizeBytes": 301463
+                    }
+                ],
+                "nodeInfo": {
+                    "architecture": "amd64",
+                    "bootID": "6a7fc3d4-672b-4f6b-b61a-983f9a497fc1",
+                    "containerRuntimeVersion": "containerd://1.7.23-k3s2",
+                    "kernelVersion": "5.15.0-76-generic",
+                    "kubeProxyVersion": "v1.31.4+k3s1",
+                    "kubeletVersion": "v1.31.4+k3s1",
+                    "machineID": "41895bd1876a403788902e232a28f6c9",
+                    "operatingSystem": "linux",
+                    "osImage": "Ubuntu 22.04.2 LTS",
+                    "systemUUID": "877a81ae-d125-43b0-84e6-bf3946b5f53a"
+                }
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Node",
+            "metadata": {
+                "annotations": {
+                    "alpha.kubernetes.io/provided-node-ip": "10.179.1.91",
+                    "k3s.io/hostname": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-wd65403",
+                    "k3s.io/internal-ip": "10.179.1.91",
+                    "k3s.io/node-args": "[\"agent\",\"--node-label\",\"catalyst.openova.io/provider=huawei\",\"--node-label\",\"openova.io/region=hw-me-east-215-b-rtz-prod\",\"--node-label\",\"topology.kubernetes.io/region=me-east-215-b\",\"--node-label\",\"topology.kubernetes.io/zone=me-east-215-b\"]",
+                    "k3s.io/node-config-hash": "ZAZ32NBDFHNHP7KSGYPV2T64JKCNXS5UYCTPHLTVNJNJTCWZ3AUQ====",
+                    "k3s.io/node-env": "{\"K3S_TOKEN\":\"********\",\"K3S_URL\":\"https://10.179.1.131:6443\"}",
+                    "node.alpha.kubernetes.io/ttl": "0",
+                    "volumes.kubernetes.io/controller-managed-attach-detach": "true"
+                },
+                "creationTimestamp": "2026-06-20T03:00:37Z",
+                "finalizers": [
+                    "wrangler.cattle.io/node",
+                    "wrangler.cattle.io/managed-etcd-controller"
+                ],
+                "labels": {
+                    "beta.kubernetes.io/arch": "amd64",
+                    "beta.kubernetes.io/instance-type": "k3s",
+                    "beta.kubernetes.io/os": "linux",
+                    "catalyst.openova.io/provider": "huawei",
+                    "failure-domain.beta.kubernetes.io/region": "me-east-215-b",
+                    "failure-domain.beta.kubernetes.io/zone": "me-east-215-b",
+                    "kubernetes.io/arch": "amd64",
+                    "kubernetes.io/hostname": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-wd65403",
+                    "kubernetes.io/os": "linux",
+                    "node.kubernetes.io/instance-type": "k3s",
+                    "openova.io/region": "hw-me-east-215-b-rtz-prod",
+                    "topology.kubernetes.io/region": "me-east-215-b",
+                    "topology.kubernetes.io/zone": "me-east-215-b"
+                },
+                "name": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-wd65403",
+                "resourceVersion": "716215",
+                "uid": "ac7f15ae-e2d0-48d0-b2a4-c2424b3202e7"
+            },
+            "spec": {
+                "podCIDR": "10.43.1.0/24",
+                "podCIDRs": [
+                    "10.43.1.0/24"
+                ],
+                "providerID": "k3s://catalyst-hw173-omani-works-7bb723da-me-east-215-b-wd65403"
+            },
+            "status": {
+                "addresses": [
+                    {
+                        "address": "10.179.1.91",
+                        "type": "InternalIP"
+                    },
+                    {
+                        "address": "catalyst-hw173-omani-works-7bb723da-me-east-215-b-wd65403",
+                        "type": "Hostname"
+                    }
+                ],
+                "allocatable": {
+                    "cpu": "4",
+                    "ephemeral-storage": "39857063496",
+                    "hugepages-1Gi": "0",
+                    "hugepages-2Mi": "0",
+                    "memory": "32666744Ki",
+                    "pods": "110"
+                },
+                "capacity": {
+                    "cpu": "4",
+                    "ephemeral-storage": "40971488Ki",
+                    "hugepages-1Gi": "0",
+                    "hugepages-2Mi": "0",
+                    "memory": "32666744Ki",
+                    "pods": "110"
+                },
+                "conditions": [
+                    {
+                        "lastHeartbeatTime": "2026-06-20T03:08:22Z",
+                        "lastTransitionTime": "2026-06-20T03:08:22Z",
+                        "message": "Cilium is running on this node",
+                        "reason": "CiliumIsUp",
+                        "status": "False",
+                        "type": "NetworkUnavailable"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:08:31Z",
+                        "lastTransitionTime": "2026-06-20T03:00:37Z",
+                        "message": "kubelet has sufficient memory available",
+                        "reason": "KubeletHasSufficientMemory",
+                        "status": "False",
+                        "type": "MemoryPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:08:31Z",
+                        "lastTransitionTime": "2026-06-20T03:00:37Z",
+                        "message": "kubelet has no disk pressure",
+                        "reason": "KubeletHasNoDiskPressure",
+                        "status": "False",
+                        "type": "DiskPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:08:31Z",
+                        "lastTransitionTime": "2026-06-20T03:00:37Z",
+                        "message": "kubelet has sufficient PID available",
+                        "reason": "KubeletHasSufficientPID",
+                        "status": "False",
+                        "type": "PIDPressure"
+                    },
+                    {
+                        "lastHeartbeatTime": "2026-06-20T15:08:31Z",
+                        "lastTransitionTime": "2026-06-20T03:08:17Z",
+                        "message": "kubelet is posting ready status",
+                        "reason": "KubeletReady",
+                        "status": "True",
+                        "type": "Ready"
+                    }
+                ],
+                "daemonEndpoints": {
+                    "kubeletEndpoint": {
+                        "Port": 10250
+                    }
+                },
+                "images": [
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/keycloak@sha256:da3df0976a9f9a664bdbde6cb5308b78f03ac94d0abf33b2df355bbb06cbc5b9",
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/keycloak:26.3.3-debian-12-r0"
+                        ],
+                        "sizeBytes": 271527858
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql@sha256:027303cd89644acdeba67d2b37f70eff6a7f345220f127721ff92504e1e4eae6",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16"
+                        ],
+                        "sizeBytes": 258220911
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/cilium@sha256:758ca0793f5995bb938a2fa219dcce63dc0b3fa7fc4ce5cc851125281fb7361d"
+                        ],
+                        "sizeBytes": 224306600
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql@sha256:99be063781d171d3971089b49c992706bdab9ccbd2b57cdf126c7542773aedfe",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16.4"
+                        ],
+                        "sizeBytes": 217672880
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql@sha256:cd2f88c75f4465ed14ff2006147e06405cca646c00f252a2dfb73910728d289f",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16.4-1"
+                        ],
+                        "sizeBytes": 211733506
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/grafana/alloy@sha256:6e00cf7c5a692ff5f24844529416ed017d76fce922f8199004e73d5eca46b6b8",
+                            "harbor.openova.io/proxy-dockerhub/grafana/alloy:v1.16.0"
+                        ],
+                        "sizeBytes": 151457664
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl@sha256:64614ef8290f3fb27fed5164b338debeeb79a1e5e26c93eb920770b71abd7c48",
+                            "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.31.4"
+                        ],
+                        "sizeBytes": 111911970
+                    },
+                    {
+                        "names": [
+                            "docker.io/bitnamilegacy/kubectl@sha256:1249fc292e84a38575ee0cadc3e28dcd7ddf5a3a4e5da401b1a8599e8ac52a1b",
+                            "docker.io/bitnamilegacy/kubectl:1.30.7"
+                        ],
+                        "sizeBytes": 110946736
+                    },
+                    {
+                        "names": [
+                            "docker.io/powerdns/pdns-auth-50@sha256:1f136c4fa4f995279b43c6a8413dde05147cc9b74a437e188f92b0088c523a8d",
+                            "docker.io/powerdns/pdns-auth-50:5.0.3"
+                        ],
+                        "sizeBytes": 102061459
+                    },
+                    {
+                        "names": [
+                            "docker.io/chrislusf/seaweedfs@sha256:84429e5f21fad82246f5cfae7b39e9a17da18afb62f2b79c25ccd364ab02793b",
+                            "docker.io/chrislusf/seaweedfs:4.22"
+                        ],
+                        "sizeBytes": 100503219
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/powerdnsadmin/pda-legacy@sha256:0fc92c8ef63a6704083ca1989c83d2b747f7abc0e5045d56d9c69a76e08a9a5e",
+                            "harbor.openova.io/proxy-dockerhub/powerdnsadmin/pda-legacy:0.4.2"
+                        ],
+                        "sizeBytes": 73000672
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/goharbor/harbor-core@sha256:a30e5a8be3d94b6485e7fdd4ed7fdf9e9724ee0a6d103b3804aacf6784ee358e",
+                            "harbor.openova.io/proxy-dockerhub/goharbor/harbor-core:v2.14.3"
+                        ],
+                        "sizeBytes": 65498736
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/cilium-envoy@sha256:709c08ade3d17d52da4ca2af33f431360ec26268d288d9a6cd1d98acc9a1dced"
+                        ],
+                        "sizeBytes": 62862122
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/loft-sh/vcluster@sha256:521b2fc8c8d0c2f1254d7fb956fbf274d3328f1e555270b57a886f9ae10d2109",
+                            "harbor.openova.io/proxy-ghcr/loft-sh/vcluster:0.23.0"
+                        ],
+                        "sizeBytes": 60761070
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/newapi-mirror@sha256:e596cb4aa2c234d88c3e05f41d430f405e6ccfdfa7acc8972c97793e9add4c36",
+                            "ghcr.io/openova-io/openova/newapi-mirror:v0.13.2"
+                        ],
+                        "sizeBytes": 58999657
+                    },
+                    {
+                        "names": [
+                            "mirror.gcr.io/aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e",
+                            "mirror.gcr.io/aquasec/trivy:0.70.0"
+                        ],
+                        "sizeBytes": 58469315
+                    },
+                    {
+                        "names": [
+                            "docker.io/falcosecurity/falco@sha256:b4166a61f41e2fa638c041cac881d8bb32c284e3aaf282fdfed80f15f6eb55e3",
+                            "docker.io/falcosecurity/falco:0.43.1"
+                        ],
+                        "sizeBytes": 50563340
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/kyverno/kyverno@sha256:cb033c200dc85be0a4d38e1a72894038a0c067d73f1ce6aedd569f9769a3d262",
+                            "harbor.openova.io/proxy-ghcr/kyverno/kyverno:v1.18.0"
+                        ],
+                        "sizeBytes": 46511461
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/kyverno/kyvernopre@sha256:60b53ebf646f788e6e5d312f9cbf267d7537ec14afec68bde2e1dad55c552cc7",
+                            "harbor.openova.io/proxy-ghcr/kyverno/kyvernopre:v1.18.0"
+                        ],
+                        "sizeBytes": 41450999
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/cloudnative-pg@sha256:68074486205a33ed41928761e22ad48278c690feebe8316727a1c6b3380f9e5e",
+                            "harbor.openova.io/proxy-ghcr/cloudnative-pg/cloudnative-pg:1.29.0"
+                        ],
+                        "sizeBytes": 36402270
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/clustermesh-apiserver@sha256:37a7fdbef806b78ef63df9f1a9828fdddbf548d1f0e43b8eb10a6bdc8fa03958"
+                        ],
+                        "sizeBytes": 35425816
+                    },
+                    {
+                        "names": [
+                            "docker.io/grafana/mimir@sha256:686138d9f941508c99c931cc9e69bf9f6100dd4d2d623bf57b38d5c25ee645c1",
+                            "docker.io/grafana/mimir:3.0.4"
+                        ],
+                        "sizeBytes": 33769654
+                    },
+                    {
+                        "names": [
+                            "docker.io/falcosecurity/falcoctl@sha256:0d3bddce03a26365b86e6ff1aa5c51965d2e16569e8cf8b3e37a3d3ef186dc9b",
+                            "docker.io/falcosecurity/falcoctl:0.12.2"
+                        ],
+                        "sizeBytes": 33185258
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/fluxcd/source-controller@sha256:3c5f0f022f990ffc0daf00e5b199548fc0fa6e7119e972318f0267081a332963",
+                            "ghcr.io/fluxcd/source-controller:v1.4.1"
+                        ],
+                        "sizeBytes": 32386205
+                    },
+                    {
+                        "names": [
+                            "quay.io/cilium/operator-generic@sha256:f7884848483bbcd7b1e0ccfd34ba4546f258b460cb4b7e2f06a1bcc96ef88039"
+                        ],
+                        "sizeBytes": 31216191
+                    },
+                    {
+                        "names": [
+                            "quay.io/minio/mc@sha256:993e8c454a7ec632923f7e3e61adf1d473261da6354cefd641aedd33a2cfe112",
+                            "quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z"
+                        ],
+                        "sizeBytes": 28122288
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-k8s/kube-apiserver@sha256:ace6a943b058439bd6daeb74f152e7c36e6fc0b5e481cdff9364cd6ca0473e5e",
+                            "harbor.openova.io/proxy-k8s/kube-apiserver:v1.31.4"
+                        ],
+                        "sizeBytes": 27972283
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-k8s/kube-controller-manager@sha256:4bd1d4a449e7a1a4f375bd7c71abf48a95f8949b38f725ded255077329f21f7b",
+                            "harbor.openova.io/proxy-k8s/kube-controller-manager:v1.31.4"
+                        ],
+                        "sizeBytes": 26147269
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/fluxcd/image-automation-controller@sha256:5b6c2e97055cfe69fe8996f48b53db039c136210dbc98c5631864a9e573d0e20",
+                            "ghcr.io/fluxcd/image-automation-controller:v0.39.0"
+                        ],
+                        "sizeBytes": 22354899
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/aquasecurity/node-collector@sha256:f4702ce4667388f0219d6248d623a7e816231c2d4561d6af01c3ae053e524025",
+                            "ghcr.io/aquasecurity/node-collector:0.3.1"
+                        ],
+                        "sizeBytes": 20174022
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-quay/prometheus-operator/prometheus-config-reloader@sha256:959d47672fbff2776a04ec62b8afcec89e8c036af84dc5fade50019dab212746",
+                            "harbor.openova.io/proxy-quay/prometheus-operator/prometheus-config-reloader:v0.81.0"
+                        ],
+                        "sizeBytes": 14433657
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/k8s-ws-proxy@sha256:0e3c679c9f78b302575cf9d6e2ae0e5d82d861e4d6de19876df0ca496677825b",
+                            "ghcr.io/openova-io/openova/k8s-ws-proxy:b32eb9b"
+                        ],
+                        "sizeBytes": 11403264
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/openova-flow-adapter-flux@sha256:ffc60bb400d3b8e8e7d19ced0b8714d038ee6c9b9012cc9019e2341d57c1989f",
+                            "ghcr.io/openova-io/openova/openova-flow-adapter-flux:b32eb9b"
+                        ],
+                        "sizeBytes": 10917169
+                    },
+                    {
+                        "names": [
+                            "docker.io/library/nats@sha256:c82559e4476289481a8a5196e675ebfe67eea81d95e5161e3e78eccfe766608e",
+                            "docker.io/library/nats:2.10.16-alpine"
+                        ],
+                        "sizeBytes": 9725619
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/curlimages/curl@sha256:d9b4541e214bcd85196d6e92e2753ac6d0ea699f0af5741f8c6cccbfcf00ef4b",
+                            "harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1"
+                        ],
+                        "sizeBytes": 9414401
+                    },
+                    {
+                        "names": [
+                            "docker.io/natsio/nats-server-config-reloader@sha256:98d592981444fac82f79950b42f439f16918e9788fe5080eb32ac8cc7f357df1",
+                            "docker.io/natsio/nats-server-config-reloader:0.14.3"
+                        ],
+                        "sizeBytes": 4628347
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/newapi-sandbox-bridge@sha256:170363bf9b313db7844a566df72aa07ab483d31c1eb2af59694da65169483c02",
+                            "ghcr.io/openova-io/openova/newapi-sandbox-bridge:5d818d4"
+                        ],
+                        "sizeBytes": 4477093
+                    },
+                    {
+                        "names": [
+                            "docker.io/library/alpine@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+                            "harbor.openova.io/proxy-dockerhub/alpine@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+                            "docker.io/library/alpine:3.20",
+                            "harbor.openova.io/proxy-dockerhub/alpine:3.20"
+                        ],
+                        "sizeBytes": 3641182
+                    },
+                    {
+                        "names": [
+                            "ghcr.io/openova-io/openova/services-metering-sidecar@sha256:259420d49d42b44d8ce36ab062e1fb88d033571c98362008951f195636b086ff",
+                            "ghcr.io/openova-io/openova/services-metering-sidecar:41e02c8"
+                        ],
+                        "sizeBytes": 3548511
+                    },
+                    {
+                        "names": [
+                            "harbor.openova.io/proxy-dockerhub/library/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662",
+                            "harbor.openova.io/proxy-dockerhub/library/busybox:1.36"
+                        ],
+                        "sizeBytes": 2217006
+                    },
+                    {
+                        "names": [
+                            "docker.io/rancher/mirrored-library-busybox@sha256:8a45424ddf949bbe9bb3231b05f9032a45da5cd036eb4867b511b00734756d6f",
+                            "docker.io/rancher/mirrored-library-busybox:1.36.1"
+                        ],
+                        "sizeBytes": 2147340
+                    },
+                    {
+                        "names": [
+                            "docker.io/rancher/mirrored-pause@sha256:74c4244427b7312c5b901fe0f67cbc53683d06f4f24c6faee65d4182bf0fa893",
+                            "docker.io/rancher/mirrored-pause:3.6"
+                        ],
+                        "sizeBytes": 301463
+                    }
+                ],
+                "nodeInfo": {
+                    "architecture": "amd64",
+                    "bootID": "c634aeea-c12e-421f-b358-10fe1c0e78e6",
+                    "containerRuntimeVersion": "containerd://1.7.23-k3s2",
+                    "kernelVersion": "5.15.0-76-generic",
+                    "kubeProxyVersion": "v1.31.4+k3s1",
+                    "kubeletVersion": "v1.31.4+k3s1",
+                    "machineID": "41895bd1876a403788902e232a28f6c9",
+                    "operatingSystem": "linux",
+                    "osImage": "Ubuntu 22.04.2 LTS",
+                    "systemUUID": "9bfb8389-2732-459b-a35d-15b4a96f8b47"
+                }
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}
