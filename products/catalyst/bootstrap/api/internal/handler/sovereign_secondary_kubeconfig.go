@@ -216,15 +216,41 @@ func (h *Handler) HandleSovereignSecondaryKubeconfig(w http.ResponseWriter, r *h
 		})
 		return
 	}
+	rewroteFromNodeIP := false
 	if nodeIP != "" && isChroot() {
 		rewritten, n := rewriteKubeconfigServerHost(raw, nodeIP)
 		if n > 0 {
 			raw = rewritten
+			rewroteFromNodeIP = true
 			h.log.Info("secondary-kubeconfig: rewrote server host to VPC-peered private IP (#3991)",
 				"depId", body.DeploymentID,
 				"region", body.RegionKey,
 				"serversRewritten", n,
 			)
+		}
+	}
+
+	// #4000 — durable self-heal fallback. When NO nodeInternalIp was
+	// shipped (cloud-init predating the #3991 IaC change, or its runtime
+	// `ip addr` detection returned empty), the kubeconfig still carries the
+	// unroutable EIP. On the chroot, probe the server host; if it's an
+	// unreachable PUBLIC address, discover a reachable PRIVATE SAN off the
+	// apiserver's own TLS cert and heal to it — no pre-shipped data needed.
+	// Skipped when the #3991 rewrite already fired (host is private + the
+	// probe would just confirm it). Best-effort: a no-op leaves the EIP
+	// exactly as the pre-#4000 path did.
+	if !rewroteFromNodeIP && isChroot() {
+		healed, healedTo, reason := selfHealKubeconfigServer(raw)
+		if healedTo != "" {
+			raw = healed
+			h.log.Info("secondary-kubeconfig: self-healed server host EIP -> reachable private SAN (#4000)",
+				"depId", body.DeploymentID,
+				"region", body.RegionKey,
+				"healedTo", healedTo,
+			)
+		} else {
+			h.log.Debug("secondary-kubeconfig: self-heal no-op (#4000)",
+				"depId", body.DeploymentID, "region", body.RegionKey, "reason", reason)
 		}
 	}
 
