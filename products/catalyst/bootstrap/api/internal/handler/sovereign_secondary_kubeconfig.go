@@ -34,7 +34,9 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -57,10 +59,81 @@ func kubeconfigsDir() string {
 // match the on-disk filename suffix convention `<depID>-<region>.yaml`
 // (e.g. depID="abc123", region="nbg1-1" → /var/lib/catalyst/kubeconfigs/
 // abc123-nbg1-1.yaml). KubeconfigYAML is the raw kubeconfig bytes.
+//
+// NodeInternalIP (#3991) — the secondary CP's PRIVATE node IP, detected
+// at cloud-init time by the same `ip -4 -o addr show dev eth0` the k3s
+// `--node-ip` uses. The IaC writes the kubeconfig's server URL to the
+// region's PUBLIC EIP (`MY_EIP`) because the EXTERNAL mothership — which
+// loads this same kubeconfig into its own k8sCache — sits outside both
+// per-region VPCs and can only reach the DNAT'd EIP. But the IN-CLUSTER
+// catalyst-api (the chroot) runs INSIDE region-a's VPC, where that EIP
+// is unroutable (HCS DNAT is external-only; verified live on hw173:
+// region-a pod → EIP:6443 times out, region-a pod → peer private-IP:6443
+// is OPEN over the existing cross-VPC peering). So the chroot rewrites
+// the server host to this private IP, which IS region-a-routable via the
+// VPC-peering routes provisioned by the huawei/hetzner IaC. The k3s
+// apiserver cert already carries `--tls-san=$NODE_IP`, so the pinned-CA
+// TLS handshake still validates after the host swap. Optional + only
+// honoured on a chroot (SOVEREIGN_FQDN set); empty/absent → no rewrite
+// (mothership keeps the EIP).
 type secondaryKubeconfigRequest struct {
 	DeploymentID   string `json:"deploymentId"`
 	RegionKey      string `json:"regionKey"`
 	KubeconfigYAML string `json:"kubeconfigYaml"`
+	NodeInternalIP string `json:"nodeInternalIp,omitempty"`
+}
+
+// rewriteKubeconfigServerHost replaces the host:port host portion of the
+// `server:` URL(s) in a kubeconfig with newHost, preserving the scheme,
+// port, and path. Returns the rewritten bytes and the number of server
+// lines changed. A kubeconfig with multiple clusters has its every
+// server line rewritten (a secondary k3s kubeconfig has exactly one).
+//
+// Only the HOST is swapped — scheme (https), port (6443), and any path
+// stay intact, so the pinned `certificate-authority-data` continues to
+// validate against the apiserver cert (which lists the node IP as a SAN).
+func rewriteKubeconfigServerHost(raw, newHost string) (string, int) {
+	newHost = strings.TrimSpace(newHost)
+	if newHost == "" {
+		return raw, 0
+	}
+	lines := strings.Split(raw, "\n")
+	changed := 0
+	for i, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t")
+		if !strings.HasPrefix(trimmed, "server:") {
+			continue
+		}
+		indent := line[:len(line)-len(trimmed)]
+		rawURL := strings.TrimSpace(strings.TrimPrefix(trimmed, "server:"))
+		u, err := url.Parse(rawURL)
+		if err != nil || u.Host == "" {
+			continue
+		}
+		port := u.Port()
+		if port != "" {
+			u.Host = net.JoinHostPort(newHost, port)
+		} else {
+			u.Host = newHost
+		}
+		lines[i] = indent + "server: " + u.String()
+		changed++
+	}
+	if changed == 0 {
+		return raw, 0
+	}
+	return strings.Join(lines, "\n"), changed
+}
+
+// isChroot reports whether this catalyst-api runs as an in-cluster
+// Sovereign (chroot) rather than the external mothership. The canonical
+// discriminator used throughout the handler package is the SOVEREIGN_FQDN
+// env: set on every Sovereign by the bp-catalyst-platform chart, unset on
+// the mothership. Only the chroot rewrites the secondary kubeconfig to the
+// VPC-peered private IP (#3991); the mothership keeps the public EIP it
+// needs to reach the region from outside the VPC.
+func isChroot() bool {
+	return strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")) != ""
 }
 
 // safeIDPattern rejects path-traversal + shell-meta in deploymentId
@@ -68,6 +141,15 @@ type secondaryKubeconfigRequest struct {
 // depth — the filename is composed from these and written to a
 // shared-PVC directory.
 var safeIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+
+// nodeIPSidecarPath is the on-disk path of the private-node-IP sidecar
+// for a secondary cluster (#3991). It sits next to `<clusterID>.yaml` as
+// `<clusterID>.nodeip` so the mothership's handover forward can replay
+// the IP to the chroot. The `.nodeip` extension keeps it out of
+// LoadClustersFromDir's `*.yaml` glob.
+func nodeIPSidecarPath(dir, clusterID string) string {
+	return filepath.Join(dir, clusterID+".nodeip")
+}
 
 // HandleSovereignSecondaryKubeconfig handles POST
 // /api/v1/sovereign/secondary-kubeconfig.
@@ -115,6 +197,37 @@ func (h *Handler) HandleSovereignSecondaryKubeconfig(w http.ResponseWriter, r *h
 		})
 		return
 	}
+
+	// #3991 — cross-region datapath fix. The IaC stamps the secondary
+	// region's `server:` URL to its PUBLIC EIP so the external mothership
+	// (outside the per-region VPCs) can reach it. But the IN-CLUSTER
+	// catalyst-api (chroot) runs inside region-a's VPC, where the peer
+	// region's EIP is unroutable (HCS DNAT is external-only). When a
+	// nodeInternalIp is supplied AND we are the chroot, rewrite the server
+	// host to that VPC-peered private IP — region-a-routable via the
+	// IaC's cross-VPC peering routes, and still cert-valid because the k3s
+	// apiserver lists the node IP as a TLS SAN. The mothership (no
+	// SOVEREIGN_FQDN) leaves the kubeconfig untouched: it keeps the EIP.
+	nodeIP := strings.TrimSpace(body.NodeInternalIP)
+	if nodeIP != "" && net.ParseIP(nodeIP) == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error":  "invalid-nodeInternalIp",
+			"detail": "nodeInternalIp must be a valid IP address",
+		})
+		return
+	}
+	if nodeIP != "" && isChroot() {
+		rewritten, n := rewriteKubeconfigServerHost(raw, nodeIP)
+		if n > 0 {
+			raw = rewritten
+			h.log.Info("secondary-kubeconfig: rewrote server host to VPC-peered private IP (#3991)",
+				"depId", body.DeploymentID,
+				"region", body.RegionKey,
+				"serversRewritten", n,
+			)
+		}
+	}
+
 	dir := kubeconfigsDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		h.log.Warn("secondary-kubeconfig: mkdir failed", "dir", dir, "err", err)
@@ -133,6 +246,19 @@ func (h *Handler) HandleSovereignSecondaryKubeconfig(w http.ResponseWriter, r *h
 			"detail": err.Error(),
 		})
 		return
+	}
+
+	// #3991 — persist the private node IP as a sidecar so the mothership's
+	// handover forward (exportSecondaryKubeconfigsToChild) can replay it to
+	// the chroot, which is the consumer that must rewrite EIP→private-IP.
+	// Best-effort: a missing sidecar simply means the chroot keeps the EIP
+	// (the pre-#3991 behaviour), so a write failure must not fail the POST.
+	if nodeIP != "" {
+		sidecar := nodeIPSidecarPath(dir, clusterID)
+		if werr := os.WriteFile(sidecar, []byte(nodeIP), 0o600); werr != nil {
+			h.log.Warn("secondary-kubeconfig: node-ip sidecar write failed (non-fatal)",
+				"path", sidecar, "err", werr)
+		}
 	}
 	if err := h.k8sCache.AddCluster(k8scache.ClusterRef{
 		ID:             clusterID,
