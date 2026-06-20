@@ -119,7 +119,27 @@ func buildTopology(ctx context.Context, in LoaderInput) TopologyData {
 	regions := []Region{}
 	if len(in.Regions) > 0 {
 		for _, rs := range in.Regions {
-			regions = append(regions, buildRegion(ctx, in, rs))
+			// Multi-region live-source fix (fix/console-topology-both-
+			// regions): the mothership path (Request.Regions populated)
+			// previously read EVERY region's live data — vClusters,
+			// peerings, XRCs — through the single primary kubeconfig
+			// (in.DynamicClient = Result.KubeconfigPath = <depID>.yaml).
+			// The secondary region row therefore mirrored the primary's
+			// live contents (or showed empty), so the operator saw an
+			// effectively single-region topology on a 2-region Sovereign.
+			//
+			// The k8sCache already loads BOTH the primary <depID>.yaml AND
+			// each secondary <depID>-<regionKey>.yaml as distinct clusters
+			// (k8scache.LoadClustersFromDir, filename-stem id). Resolve the
+			// per-region dynamic client here and build each Region against
+			// its OWN cluster. Nil-tolerant: when no k8sCache cluster
+			// matches the declared region, perRegionIn falls back to the
+			// primary in.DynamicClient — identical to the prior behaviour.
+			perRegionIn := in
+			if dc := perRegionDynamicClient(in, rs); dc != nil {
+				perRegionIn.DynamicClient = dc
+			}
+			regions = append(regions, buildRegion(ctx, perRegionIn, rs))
 		}
 	} else if in.Region != "" {
 		// Legacy singular path — pre-multi-region wizard payload.
@@ -178,6 +198,62 @@ func buildTopology(ctx context.Context, in LoaderInput) TopologyData {
 		Pattern: pattern,
 		Regions: regions,
 	}
+}
+
+// perRegionDynamicClient resolves the live dynamic.Interface for a
+// single declared region off the k8sCache, so the mothership topology
+// path (Request.Regions populated) reads each region's vClusters/
+// peerings/XRCs from that region's OWN cluster instead of always the
+// primary kubeconfig.
+//
+// Cluster-id convention (k8scache.LoadClustersFromDir filename stems +
+// handler.HandleSovereignSecondaryKubeconfig writer):
+//
+//	primary    → "<depID>"                  (file <depID>.yaml)
+//	secondary  → "<depID>-<regionKey>"       (file <depID>-<regionKey>.yaml)
+//
+// The declared RegionSpec.CloudRegion (e.g. "me-east-215-b") is the
+// PREFIX of the materialised regionKey (e.g. "me-east-215-b-1"), so we
+// match the primary region (Regions[0] / in.Region) to the bare depID
+// cluster and every other region to the registered cluster whose id is
+// "<depID>-<CloudRegion>" or "<depID>-<CloudRegion>-*".
+//
+// Returns nil when: k8sCache is unset (tests / legacy), the declared
+// region is the primary (caller keeps in.DynamicClient = primary), or
+// no registered cluster matches. nil → caller falls back to the
+// primary in.DynamicClient, preserving the pre-fix behaviour exactly.
+func perRegionDynamicClient(in LoaderInput, rs provisioner.RegionSpec) dynamic.Interface {
+	if in.K8sCache == nil || in.DeploymentID == "" {
+		return nil
+	}
+	region := strings.TrimSpace(rs.CloudRegion)
+	if region == "" {
+		return nil
+	}
+	// The primary region resolves to the bare-depID cluster, which IS
+	// in.DynamicClient already; returning nil lets the caller keep it
+	// (and avoids a redundant client fetch).
+	primaryRegion := strings.TrimSpace(in.Region)
+	if primaryRegion == "" && len(in.Regions) > 0 {
+		primaryRegion = strings.TrimSpace(in.Regions[0].CloudRegion)
+	}
+	if region == primaryRegion {
+		return nil
+	}
+
+	want := in.DeploymentID + "-" + region
+	for _, cid := range in.K8sCache.Clusters() {
+		// Exact "<depID>-<region>" or suffixed "<depID>-<region>-N"
+		// (materialisation index, e.g. "...-me-east-215-b-1").
+		if cid == want || strings.HasPrefix(cid, want+"-") {
+			dc, err := in.K8sCache.DynamicClientFor(cid)
+			if err != nil || dc == nil {
+				return nil
+			}
+			return dc
+		}
+	}
+	return nil
 }
 
 // nodeGVR — schema reference for core/v1 Node listing via dynamic client.
