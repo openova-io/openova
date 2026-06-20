@@ -250,31 +250,44 @@ function makeForceBound(
 }
 
 /**
- * Soft radial containment (#3958). A GENTLE inward force for any node
- * whose distance from (cx, cy) exceeds `fieldRadius`. Unlike makeForceBound
- * (a hard clamp at the literal viewport edge), this is a spring that grows
+ * Soft ELLIPTICAL containment (#3958). A GENTLE inward force for any node
+ * whose normalized position leaves the field ellipse
+ * `(dx/fieldRadiusX)² + (dy/fieldRadiusY)² > 1`. Unlike makeForceBound (a
+ * hard clamp at the literal viewport edge), this is a spring that grows
  * with how far the node has strayed past the target field — so the cloud
- * settles at ~70% of the viewport with the natural force-directed
- * topology intact, never flung to the edges and never crushed into the
- * centre. Inside the field it does nothing (the charge/link/gravity
- * balance owns the layout there).
+ * settles into an ellipse filling ~85% of BOTH the canvas width and
+ * height, with the natural force-directed topology intact, never flung to
+ * the edges and never crushed into the centre. On a wide-short canvas the
+ * X radius is materially larger than the Y radius, so the cloud fills the
+ * empty left/right margin instead of collapsing into a short-dim disc.
+ * Inside the ellipse it does nothing (the charge/link/gravity balance owns
+ * the layout there).
  */
-function makeForceRadialCap(cx: number, cy: number, fieldRadius: number) {
+function makeForceRadialCap(cx: number, cy: number, fieldRadiusX: number, fieldRadiusY: number) {
   let nodes: LiveNode[] = []
   const force = (alpha: number) => {
-    if (fieldRadius <= 0) return
+    if (fieldRadiusX <= 0 || fieldRadiusY <= 0) return
     for (const n of nodes) {
       // Pinned nodes are operator-controlled — never nudge them.
       if (n.fx !== null || n.fy !== null) continue
       const dx = n.x - cx
       const dy = n.y - cy
-      const dist = Math.hypot(dx, dy)
-      if (dist <= fieldRadius || dist === 0) continue
-      // Spring strength scales with the overshoot fraction so a node
-      // just past the field barely feels it, while a far-flung node is
-      // pulled firmly back. k tuned to be gentle (founder: keep the
-      // organic feel — no snapping).
-      const overshoot = (dist - fieldRadius) / fieldRadius
+      // Normalized elliptical distance: == 1 on the field boundary, > 1
+      // outside it. Squaring avoids a sqrt on the common in-field path.
+      const nx = dx / fieldRadiusX
+      const ny = dy / fieldRadiusY
+      const norm2 = nx * nx + ny * ny
+      if (norm2 <= 1 || norm2 === 0) continue
+      // overshoot = how far past the boundary, as a fraction. norm is the
+      // elliptical radius (1 at the boundary); (norm-1) is the fractional
+      // overshoot, identical in spirit to the old (dist-R)/R.
+      const norm = Math.sqrt(norm2)
+      const overshoot = norm - 1
+      // Spring strength scales with the overshoot fraction so a node just
+      // past the field barely feels it, while a far-flung node is pulled
+      // firmly back. k tuned to be gentle (founder: keep the organic feel
+      // — no snapping). Push back along the true displacement (dx, dy) so
+      // the restoring force points at the centre.
       const k = Math.min(0.25, overshoot) * alpha
       n.vx -= dx * k
       n.vy -= dy * k
@@ -639,12 +652,13 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
     ;(sim.force('gravityX') as ReturnType<typeof forceX>).x(cx).strength(phys.centerGravity)
     ;(sim.force('gravityY') as ReturnType<typeof forceY>).y(cy).strength(phys.centerGravity)
 
-    // Soft radial containment — a GENTLE inward nudge for any node that
-    // strays past the target field radius (~70% viewport). This is the
-    // primary "stay centred, don't fling to edges" force; the hard
-    // bound clamp below is only the absolute safety net at the true
-    // viewport edge (#3958 — keep the cloud at ~70%, never the edges).
-    sim.force('field', makeForceRadialCap(cx, cy, phys.fieldRadius))
+    // Soft ELLIPTICAL containment — a GENTLE inward nudge for any node that
+    // strays past the target field ellipse (~85% of width AND height). This
+    // is the "stay in-field, don't fling to edges" force; the hard bound
+    // clamp below is only the absolute safety net at the true viewport edge
+    // (#3958 — fill the canvas on BOTH axes, never collapse to a short-dim
+    // disc with empty left/right margin).
+    sim.force('field', makeForceRadialCap(cx, cy, phys.fieldRadiusX, phys.fieldRadiusY))
 
     // Bounded-physics force — re-install every tick-tune so the box
     // matches the current container size. d3-force's `force()` setter
