@@ -290,7 +290,7 @@ spec:
       {{- end }}
       containers:
         - name: provisioning
-          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-provisioning:{{ .Values.images.smeTag }}"
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-provisioning:{{ .Values.images.orgTag }}"
           imagePullPolicy: Always
           ports:
             - containerPort: 8084

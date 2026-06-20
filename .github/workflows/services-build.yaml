@@ -97,8 +97,8 @@ jobs:
 
           # ──────────────────────────────────────────────────────────
           # Issue #953: 7 of 8 org-services templates render their
-          # image as `{{ .Values.images.smeTag }}` — the chart's
-          # values.yaml `images.smeTag` field is the SINGLE source of
+          # image as `{{ .Values.images.orgTag }}` — the chart's
+          # values.yaml `images.orgTag` field is the SINGLE source of
           # truth for those Pods. Only `auth.yaml` keeps a hardcoded
           # `image: ghcr.io/...:<sha>` line (held at the older shape
           # because of a historical InvalidImageName quirk).
@@ -112,7 +112,7 @@ jobs:
           # otech113 — services-catalog Pod still on 95a06f5 after
           # PR #951's commit `68927688` claimed it deployed).
           #
-          # Fix: bump `images.smeTag` in values.yaml AS WELL AS the
+          # Fix: bump `images.orgTag` in values.yaml AS WELL AS the
           # hardcoded auth.yaml line. The values.yaml bump rolls
           # all 7 templated services on the next chart release; the
           # auth.yaml sed keeps the special-cased Pod on the same
@@ -134,21 +134,21 @@ jobs:
             fi
           done
 
-          # Templated form — bump `images.smeTag` in values.yaml so
+          # Templated form — bump `images.orgTag` in values.yaml so
           # the 7 templated services (catalog, gateway, tenant,
           # domain, billing, provisioning, notification) all roll on
           # the next chart release. Match the canonical 2-space
-          # indented form `  smeTag: "<sha>"` (with quotes) emitted
+          # indented form `  orgTag: "<sha>"` (with quotes) emitted
           # by the chart's existing values.yaml shape; refuse to
           # auto-bump if the line is missing or shaped differently
           # so a contributor renaming the field does not silently
           # break this workflow's promise.
-          if ! grep -Eq '^  smeTag: "[A-Za-z0-9_.-]*"$' "${VALUES_YAML}"; then
-            echo "::error title=smeTag field missing or unparseable::Expected '  smeTag: \"<sha>\"' line in ${VALUES_YAML}; refusing to auto-bump."
+          if ! grep -Eq '^  orgTag: "[A-Za-z0-9_.-]*"$' "${VALUES_YAML}"; then
+            echo "::error title=orgTag field missing or unparseable::Expected '  orgTag: \"<sha>\"' line in ${VALUES_YAML}; refusing to auto-bump."
             exit 1
           fi
-          sed -i "s|^  smeTag: \"[A-Za-z0-9_.-]*\"$|  smeTag: \"${SHA}\"|" "${VALUES_YAML}"
-          echo "Bumped ${VALUES_YAML} images.smeTag to ${SHA}"
+          sed -i "s|^  orgTag: \"[A-Za-z0-9_.-]*\"$|  orgTag: \"${SHA}\"|" "${VALUES_YAML}"
+          echo "Bumped ${VALUES_YAML} images.orgTag to ${SHA}"
 
           # Patch-bump Chart.yaml `version:` and `appVersion:` (kept in
           # lockstep — the chart reflects the bundled appVersion via
@@ -187,7 +187,7 @@ jobs:
           # two concurrent runs produce strictly increasing patch
           # versions instead of clobbering each other.
           #
-          # Issue #953: rewrite() must mirror the values.yaml smeTag
+          # Issue #953: rewrite() must mirror the values.yaml orgTag
           # bump that the rewrite step does — otherwise a retry that
           # reset-to-origin/main would leave values.yaml on the OLD
           # SHA and only auth.yaml would carry the new SHA, recreating
@@ -199,11 +199,11 @@ jobs:
                 sed -i "s|image: ${IMAGE_BASE}-${svc}:.*|image: ${IMAGE_BASE}-${svc}:${SHA}|" "$FILE"
               fi
             done
-            if ! grep -Eq '^  smeTag: "[A-Za-z0-9_.-]*"$' "${VALUES_YAML}"; then
-              echo "::error title=smeTag field missing on retry::Expected '  smeTag: \"<sha>\"' line in ${VALUES_YAML}."
+            if ! grep -Eq '^  orgTag: "[A-Za-z0-9_.-]*"$' "${VALUES_YAML}"; then
+              echo "::error title=orgTag field missing on retry::Expected '  orgTag: \"<sha>\"' line in ${VALUES_YAML}."
               exit 1
             fi
-            sed -i "s|^  smeTag: \"[A-Za-z0-9_.-]*\"$|  smeTag: \"${SHA}\"|" "${VALUES_YAML}"
+            sed -i "s|^  orgTag: \"[A-Za-z0-9_.-]*\"$|  orgTag: \"${SHA}\"|" "${VALUES_YAML}"
             current=$(awk '/^version:/{print $2; exit}' "${CHART_YAML}" | tr -d '"')
             if ! echo "$current" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
               echo "::error title=Unparseable chart version on retry::Chart.yaml version='${current}' is not semver."

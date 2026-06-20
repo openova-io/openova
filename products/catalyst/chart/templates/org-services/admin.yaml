@@ -21,7 +21,7 @@ spec:
         - name: ghcr-pull
       containers:
         - name: admin
-          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/admin:{{ default .Values.images.smeTag (default "" .Values.images.admin.tag) }}"
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/admin:{{ default .Values.images.orgTag (default "" .Values.images.admin.tag) }}"
           imagePullPolicy: Always
           ports:
             - containerPort: 8080

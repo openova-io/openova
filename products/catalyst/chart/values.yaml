@@ -446,9 +446,9 @@ images:
     tag: "3c2f7e4"
   console:
     tag: "3c2f7e4"
-  # Admin pod has a separate tag from the smeTag bundle because the admin
+  # Admin pod has a separate tag from the orgTag bundle because the admin
   # image build is decoupled from the SME microservices CI run — when
-  # smeTag is bumped, admin may not have published for that SHA. Caught
+  # orgTag is bumped, admin may not have published for that SHA. Caught
   # live on t132 2026-05-16 (ImagePullBackOff on admin:b0ed216 — admin
   # image for that SHA never landed in GHCR even though the other 10
   # SME services did). Default to a known-published tag; bump in lockstep
@@ -464,7 +464,7 @@ images:
   # carries the server-side filter and is published for every services-* image
   # (verified: services-auth, unchanged by #3157, also has c96f998 → the SME
   # build is all-services, not path-filtered). Refs #3156.
-  smeTag: "c068e6a"
+  orgTag: "c068e6a"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────

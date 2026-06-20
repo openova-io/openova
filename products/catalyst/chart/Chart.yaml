@@ -3907,7 +3907,7 @@ description: |
     forked bp-valkey with non-default Secret naming can override
     without forking the chart (Inviolable Principle #4).
 
-  No SME smeTag bump needed at chart-source time — the
+  No SME orgTag bump needed at chart-source time — the
   services-build.yaml workflow rebuilds the auth + gateway images
   from this commit's SHA and updates the `image:` line in auth.yaml +
   gateway.yaml directly. The chart's blueprint-release pipeline picks

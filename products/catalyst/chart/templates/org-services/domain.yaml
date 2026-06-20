@@ -21,7 +21,7 @@ spec:
         - name: ghcr-pull
       containers:
         - name: domain
-          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-domain:{{ .Values.images.smeTag }}"
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-domain:{{ .Values.images.orgTag }}"
           imagePullPolicy: Always
           ports:
             - containerPort: 8086

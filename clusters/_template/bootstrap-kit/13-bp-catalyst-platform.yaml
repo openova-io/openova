@@ -520,7 +520,7 @@ spec:
       #   codes without auth (the entire D29 voucher-redeem zero-touch
       #   flow is broken without this)
       # 1.4.144 (D27 admin tag override + D28 voucher email wire):
-      # - PR #1557 decouples admin tag from smeTag bundle (admin image
+      # - PR #1557 decouples admin tag from orgTag bundle (admin image
       #   may not publish for every SME services CI SHA — caught t132
       #   2026-05-16 with admin:b0ed216 stuck in ImagePullBackOff)
       # - PR #1556 adds the billing→notification wire so the voucher

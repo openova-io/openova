@@ -19,7 +19,7 @@ spec:
         - name: ghcr-pull
       containers:
         - name: notification
-          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-notification:{{ .Values.images.smeTag }}"
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-notification:{{ .Values.images.orgTag }}"
           imagePullPolicy: Always
           ports:
             - containerPort: 8087
