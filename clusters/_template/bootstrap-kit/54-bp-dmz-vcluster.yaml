@@ -72,7 +72,7 @@ spec:
       # bp-mgmt-vcluster + bp-rtz-vcluster (sibling tag parity). The active
       # fromHost.secrets mappings live in bp-mgmt-vcluster; DMZ takes the
       # version bump only.
-      version: 0.2.8
+      version: 0.2.9
       sourceRef:
         kind: HelmRepository
         name: bp-dmz-vcluster

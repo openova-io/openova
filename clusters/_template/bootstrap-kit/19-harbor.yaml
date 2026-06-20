@@ -221,7 +221,7 @@ spec:
       # ExternalSecret is suppressed via sso.externalSecret.enabled), so
       # auth_mode=oidc_auth is PUT in the mgmt vCluster placement (caught live
       # hw171: systeminfo auth_mode=db_auth). Refs #3374 #3642.
-      version: 1.2.34
+      version: 1.2.35
       sourceRef:
         kind: HelmRepository
         name: bp-harbor
