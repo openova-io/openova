@@ -754,7 +754,7 @@ controllers:
       # (2026-06-02). enabled remains false until the bp-controller
       # surfaces are wired end-to-end; the pin matches the latest
       # successful push-on-main build per Inviolable Principle #4a.
-      tag: "01db043"
+      tag: "2876e02"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -787,7 +787,7 @@ controllers:
       # — drops cross-namespace ownerRef on the host-side Flux CRs
       # (was being silently GC'd by the K8s collector because
       # Application lives in a different namespace from flux-system).
-      tag: "2876e02"
+      tag: "01db043"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
