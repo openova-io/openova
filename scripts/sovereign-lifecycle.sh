@@ -57,7 +57,12 @@ fire() {
   # default m7n.xlarge.8 x3 worker tier runs ~99% CPU once the full #3642 vc-mgmt
   # stack + 4 catalyst controllers + marketplace/billing/sme-pg schedule, chronically
   # blocking pods on 'Insufficient cpu' (no Huawei autoscaler). For a real convergence
-  # re-prov pass WORKER_SIZE=m7n.2xlarge.8 (8 vCPU) and CP_SIZE=m7n.xlarge.8.
+  # re-prov pass WORKER_COUNT=5 (stays on the PROVEN m7n.xlarge.8 flavor -> 20 vCPU/
+  # region, absorbs the blocked worker-scheduled pods). Do NOT raise WORKER_SIZE to an
+  # unverified flavor (e.g. m7n.2xlarge.8): me-east-215a flavor pools are finicky (hw30
+  # RCA 2026-05-27 — s7n.large.4 exhausted -> Ecs.0219 No-valid-host, 11 wasted debug
+  # waves). Only m7n.large.8 (CP) and m7n.xlarge.8 (worker) are verified-ACTIVE; verify
+  # any other flavor via direct HCS API (sub_jobs[0].error_code) BEFORE firing.
   body=$(SUB="$sub" POOL="$pool" PUB="$pub" SHARED_PG="${SHARED_PG:-false}" \
     CP_SIZE="${CP_SIZE:-m7n.large.8}" WORKER_SIZE="${WORKER_SIZE:-m7n.xlarge.8}" WORKER_COUNT="${WORKER_COUNT:-3}" \
     python3 -c 'import json,os;s=os.environ["SUB"];p=os.environ["POOL"];c=os.environ["CP_SIZE"];w=os.environ["WORKER_SIZE"];wc=int(os.environ["WORKER_COUNT"]);print(json.dumps({"orgName":"Omantel","orgEmail":"emrah.baysal@openova.io","provider":"huawei","sovereignDomainMode":"pool","sovereignPoolDomain":p,"sovereignSubdomain":s,"sovereignFQDN":s+"."+p,"sshPublicKey":os.environ["PUB"],"enableSharedPostgres":os.environ.get("SHARED_PG")=="true","regions":[{"provider":"huawei","cloudRegion":"me-east-215-a","controlPlaneSize":c,"workerSize":w,"workerCount":wc},{"provider":"huawei","cloudRegion":"me-east-215-b","controlPlaneSize":c,"workerSize":w,"workerCount":wc}]}))')
