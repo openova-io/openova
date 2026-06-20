@@ -59,10 +59,24 @@ const (
 	ReconStateSuspended   = "Suspended"
 )
 
-// Reconciliation node-kinds.
+// Reconciliation node-kinds. HelmRelease + Kustomization are the Flux
+// layer; the rest are the NON-Flux declarative reconcilers (#3958) — they
+// carry no spec.dependsOn so they render as edgeless nodes. The Kind on a
+// declarative node is the human label the reader emits verbatim (one of
+// the ReconKindDeclarative* values below), so the FE can class-filter them.
 const (
 	ReconKindHelmRelease   = "HelmRelease"
 	ReconKindKustomization = "Kustomization"
+
+	// Non-Flux declarative reconciler node-kinds (#3958). These mirror the
+	// helmwatch reader's Kind labels 1:1.
+	ReconKindCertificate    = "Certificate"    // cert-manager Certificate
+	ReconKindCluster        = "Cluster"        // CNPG Cluster
+	ReconKindExternalSecret = "ExternalSecret" // External-Secrets ExternalSecret
+	ReconKindApplication    = "Application"    // Catalyst Application CR
+	ReconKindEnvironment    = "Environment"    // Catalyst Environment CR
+	ReconKindOrganization   = "Organization"   // Catalyst Organization CR
+	ReconKindContinuum      = "Continuum"      // Catalyst Continuum CR
 )
 
 // ReconciliationNode is one node in the bounded Flux DAG.
@@ -97,20 +111,22 @@ type ReconciliationDAG struct {
 	// come from the frozen / live-re-read snapshot).
 	Watching bool `json:"watching"`
 	// NotYetTracked — the deferred continuous-reconciler classes this view
-	// does NOT yet include (Crossplane, cert-manager, CNPG, External-Secrets,
-	// the CRD controllers). Surfaced so the operator knows the scope —
-	// ticket §2 surface-A footnote.
+	// does NOT yet include. As of #3958 cert-manager, CNPG, and
+	// External-Secrets ARE tracked (they appear as edgeless declarative
+	// nodes), so only Crossplane + the generic CRD controllers remain
+	// deferred. Surfaced so the operator knows the scope — ticket §2
+	// surface-A footnote.
 	NotYetTracked []string `json:"notYetTracked"`
 }
 
 // notYetTrackedReconcilers — the deferred continuous-reconciler classes
 // (ticket §2 surface-A: "list them explicitly in the UI's 'not yet tracked'
-// footnote"). Flux-only to start; these absorb later as node-kinds.
+// footnote"). #3958 absorbed cert-manager / CNPG / External-Secrets AND the
+// Catalyst control-plane CRs as edgeless declarative nodes, so they are no
+// longer listed here. What remains deferred: Crossplane managed resources
+// (the cloud-join provider plane) and the generic CRD controllers.
 var notYetTrackedReconcilers = []string{
 	"Crossplane",
-	"cert-manager",
-	"CNPG",
-	"External-Secrets",
 	"CRD controllers",
 }
 
@@ -161,6 +177,54 @@ func reconStateForReconcileJob(status string) string {
 	}
 }
 
+// reconStateForDeclarative maps a non-Flux declarative reconciler's Obs*
+// lifecycle status (#3958) onto the Reconciliation vocabulary. The reader
+// emits the helmwatch Obs* string values ("installed"/"failed"/"pending"/
+// "installing"); a continuous declarative reconciler is never rendered
+// Success/Failed:
+//
+//	Succeeded(installed) → Reconciled · Failed(failed) → Degraded ·
+//	Pending/installing/anything-else → Reconciling
+//
+// NOTE: this is a SEPARATE mapper from reconStateForReconcileJob — that one
+// keys off the jobs.Status* enum (pending/running/succeeded/failed) whereas
+// the Obs* constants are the helmwatch State* strings
+// (pending/installing/installed/failed), so the inputs do NOT match and the
+// jobs mapper cannot be reused.
+func reconStateForDeclarative(obsStatus string) string {
+	switch strings.ToLower(strings.TrimSpace(obsStatus)) {
+	case helmwatch.ObsStatusSucceeded:
+		return ReconStateReconciled
+	case helmwatch.ObsStatusFailed:
+		return ReconStateDegraded
+	default:
+		// ObsStatusPending / ObsStatusRunning / anything unexpected — a
+		// declarative reconciler still converging holds a spinner, never a
+		// red terminal (the same anti-flap rule the HR mapper uses).
+		return ReconStateReconciling
+	}
+}
+
+// reconciliationDeclarative reads the deployment's NON-Flux declarative
+// reconcilers (cert-manager Certificates, CNPG Clusters, ESO
+// ExternalSecrets, Catalyst control-plane CRs — #3958) via the unified
+// both-contexts dynamic client. Best-effort: on any client error it returns
+// nil so the Flux DAG is never blocked (mirrors the reconciliationComponents
+// sovereign-self-console fallback style). A 10s timeout bounds the list.
+func (h *Handler) reconciliationDeclarative(ctx context.Context, dep *Deployment) []helmwatch.DeclarativeReconciler {
+	dyn, err := h.sovereignDynamicClient(dep)
+	if err != nil {
+		return nil
+	}
+	listCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	decls, err := helmwatch.ListDeclarativeReconcilers(listCtx, dyn)
+	if err != nil {
+		return nil
+	}
+	return decls
+}
+
 // GetReconciliationDAG handles GET
 // /api/v1/deployments/{depId}/reconciliation.
 //
@@ -184,8 +248,9 @@ func (h *Handler) GetReconciliationDAG(w http.ResponseWriter, r *http.Request) {
 
 	components, watching := h.reconciliationComponents(r.Context(), dep)
 	kustomizations := h.reconciliationKustomizations(depID)
+	declaratives := h.reconciliationDeclarative(r.Context(), dep)
 
-	dag := buildReconciliationDAG(components, kustomizations, watching)
+	dag := buildReconciliationDAG(components, kustomizations, declaratives, watching)
 	writeJSON(w, http.StatusOK, dag)
 }
 
@@ -283,16 +348,20 @@ func isReconcileKustomization(j jobs.Job) bool {
 }
 
 // buildReconciliationDAG assembles the bounded DAG from the HelmRelease
-// component snapshots + the Kustomization reconcile leaves. Edges are
-// derived from declared dependsOn by exact-ID match; dangling deps (to a
-// node not in the set) are dropped. Nodes are sorted by (kind, id) for a
-// stable render. Exported-shape so the FE + tests share one contract.
+// component snapshots + the Kustomization reconcile leaves + the non-Flux
+// declarative reconcilers (#3958). Edges are derived from declared
+// dependsOn by exact-ID match; dangling deps (to a node not in the set) are
+// dropped. The declarative reconcilers carry NO dependsOn, so they always
+// render as edgeless nodes. Nodes are sorted for a stable render
+// (Kustomizations first, then HelmReleases, then declaratives; within each
+// class by ID). Exported-shape so the FE + tests share one contract.
 func buildReconciliationDAG(
 	components []helmwatch.ComponentSnapshot,
 	kustomizations []jobs.Job,
+	declaratives []helmwatch.DeclarativeReconciler,
 	watching bool,
 ) ReconciliationDAG {
-	nodes := make([]ReconciliationNode, 0, len(components)+len(kustomizations))
+	nodes := make([]ReconciliationNode, 0, len(components)+len(kustomizations)+len(declaratives))
 	idSet := make(map[string]struct{})
 
 	// Kustomization nodes first (the tier spine sits above HRs).
@@ -343,6 +412,34 @@ func buildReconciliationDAG(
 		idSet[id] = struct{}{}
 	}
 
+	// Non-Flux declarative reconciler nodes (#3958) — cert-manager
+	// Certificates, CNPG Clusters, ESO ExternalSecrets, Catalyst CRs. These
+	// carry NO Flux spec.dependsOn, so they are always edgeless: present +
+	// coloured by their own Ready/phase status, but with no DependsOn. The
+	// node ID is "<kindlower>/<namespace>/<name>" — stable + unique across
+	// kinds and namespaces (Organization is cluster-scoped so its namespace
+	// segment is empty, e.g. "organization//acme").
+	for _, d := range declaratives {
+		kind := strings.TrimSpace(d.Kind)
+		name := strings.TrimSpace(d.Name)
+		if kind == "" || name == "" {
+			continue
+		}
+		id := strings.ToLower(kind) + "/" + d.Namespace + "/" + name
+		if _, dup := idSet[id]; dup {
+			continue
+		}
+		nodes = append(nodes, ReconciliationNode{
+			ID:    id,
+			Label: name,
+			Kind:  kind,
+			State: reconStateForDeclarative(d.Status),
+			// No dependsOn — declarative reconcilers carry no Flux DAG edge.
+			Message: d.Message,
+		})
+		idSet[id] = struct{}{}
+	}
+
 	// Prune dangling dependsOn edges (a dep whose target isn't in the set —
 	// e.g. a dep on a host-side component the watch never observed). Keeps
 	// the DAG honest: every rendered edge connects two real nodes.
@@ -363,10 +460,14 @@ func buildReconciliationDAG(
 		}
 	}
 
+	// Render order: Kustomization tiers first, then the HelmRelease DAG,
+	// then the edgeless declarative reconcilers (#3958). Within each class,
+	// by ID. The declaratives sort by (kind,id) naturally because their IDs
+	// are "<kindlower>/<ns>/<name>" — same-kind nodes cluster together.
 	sort.SliceStable(nodes, func(i, j int) bool {
-		if nodes[i].Kind != nodes[j].Kind {
-			// Kustomizations render above HelmReleases.
-			return nodes[i].Kind == ReconKindKustomization
+		ri, rj := reconNodeClassRank(nodes[i].Kind), reconNodeClassRank(nodes[j].Kind)
+		if ri != rj {
+			return ri < rj
 		}
 		return nodes[i].ID < nodes[j].ID
 	})
@@ -384,5 +485,20 @@ func buildReconciliationDAG(
 		Total:         len(nodes),
 		Watching:      watching,
 		NotYetTracked: notYetTrackedReconcilers,
+	}
+}
+
+// reconNodeClassRank groups node kinds into the three render tiers so the
+// sort keeps the spine deterministic: Kustomizations (0) above the
+// HelmRelease DAG (1) above the edgeless declarative reconcilers (2). Any
+// unknown kind sorts last with the declaratives.
+func reconNodeClassRank(kind string) int {
+	switch kind {
+	case ReconKindKustomization:
+		return 0
+	case ReconKindHelmRelease:
+		return 1
+	default:
+		return 2
 	}
 }

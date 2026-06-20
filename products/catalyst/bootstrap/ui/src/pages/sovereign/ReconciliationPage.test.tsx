@@ -1,21 +1,22 @@
 /**
  * ReconciliationPage.test.tsx — wiring lock-in for the #3925 surface-B
- * Reconciliation page (two-tab design, operator 2026-06-20).
+ * Reconciliation page (two-tab design; DAG = the shared GraphCanvas bubble
+ * graph, List = the scientific ReconciliationTable).
  *
  * Coverage:
  *   • renders the N/M-Reconciled header
- *   • DAG tab (default): one GRAPH node per declared component + dependsOn
- *     rendered as graph EDGES (not inline text) — the real dependency view
- *   • Reconciliation vocabulary — Reconciled/Reconciling/Degraded — and
- *     NEVER Success/Succeeded/Failed
- *   • ZERO scanner/Job nodes (bounded DAG only)
- *   • List tab: switching surfaces the scannable status rows + dependsOn
- *   • the not-yet-tracked footnote renders
- *   • empty state
+ *   • DAG tab (default): the SHARED GraphCanvas renders (svg present) — the
+ *     reconciler graph is the reused force-directed bubble widget, not a
+ *     bespoke renderer
+ *   • List tab: switching surfaces the scientific table with one row per
+ *     reconciler — INCLUDING the non-Flux declarative reconcilers
+ *     (cert-manager / CNPG / …), the Reconciliation vocabulary (never
+ *     Success/Failed), and dependsOn
+ *   • the not-yet-tracked footnote + empty state
  */
 
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, cleanup, within, fireEvent } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import {
   RouterProvider,
   createRouter,
@@ -37,11 +38,14 @@ const SAMPLE_DAG: ReconciliationDAG = {
     { id: 'bp-keycloak', label: 'bp-keycloak', kind: 'HelmRelease', state: 'Reconciled', dependsOn: ['bp-cilium'] },
     { id: 'bp-newapi', label: 'bp-newapi', kind: 'HelmRelease', state: 'Degraded', dependsOn: ['bp-keycloak'] },
     { id: 'bp-loki', label: 'bp-loki', kind: 'HelmRelease', state: 'Reconciling' },
+    // Non-Flux declarative reconcilers — must appear in BOTH views.
+    { id: 'certificate/catalyst-system/wildcard', label: 'wildcard', kind: 'Certificate', state: 'Reconciling' },
+    { id: 'cluster/cnpg/shared-pg-a', label: 'shared-pg-a', kind: 'Cluster', state: 'Reconciled' },
   ],
-  reconciled: 3,
-  total: 5,
+  reconciled: 4,
+  total: 7,
   watching: true,
-  notYetTracked: ['Crossplane', 'cert-manager', 'CNPG', 'External-Secrets', 'CRD controllers'],
+  notYetTracked: ['Crossplane', 'CRD controllers'],
 }
 
 function renderPage(dag: ReconciliationDAG = SAMPLE_DAG) {
@@ -67,55 +71,45 @@ describe('ReconciliationPage', () => {
   it('renders the N/M-Reconciled header', async () => {
     renderPage()
     const count = await screen.findByTestId('reconciliation-header-count')
-    expect(count.textContent).toContain('3/5')
+    expect(count.textContent).toContain('4/7')
     expect(count.textContent).toMatch(/reconciled/i)
   })
 
-  it('defaults to the DAG tab and renders one graph node per declared component', async () => {
+  it('defaults to the DAG tab and renders the shared GraphCanvas (bubble graph)', async () => {
     renderPage()
-    await screen.findByTestId('reconciliation-dag-svg')
-    const nodes = screen.getAllByTestId(/^reconciliation-dag-node-/)
-    expect(nodes).toHaveLength(5)
-    // ZERO scanner/Job nodes — only HelmRelease + Kustomization kinds.
-    for (const n of nodes) {
-      expect(['HelmRelease', 'Kustomization']).toContain(n.getAttribute('data-kind'))
-    }
+    // The DAG tab reuses the shared architecture GraphCanvas — its svg root
+    // carries the page's testIdPrefix. Its presence proves we render the
+    // shared force-directed widget, not a bespoke graph.
+    expect(await screen.findByTestId('reconciliation-dag-svg')).toBeTruthy()
+    expect(screen.getByTestId('reconciliation-tab-dag').getAttribute('aria-pressed')).toBe('true')
   })
 
-  it('renders dependsOn as graph EDGES (the real dependency view)', async () => {
+  it('switches to the List tab — the scientific table with Flux + non-Flux rows', async () => {
     renderPage()
-    const edges = await screen.findByTestId('reconciliation-dag-edges')
-    // Two declared deps: bp-keycloak→bp-cilium, bp-newapi→bp-keycloak.
-    expect(edges.querySelectorAll('polyline')).toHaveLength(2)
-  })
-
-  it('renders the Reconciliation vocabulary and NEVER Success/Failed', async () => {
-    renderPage()
-    const dag = await screen.findByTestId('reconciliation-dag')
-    const text = dag.textContent ?? ''
+    fireEvent.click(await screen.findByTestId('reconciliation-tab-list'))
+    expect(await screen.findByTestId('reconciliation-table')).toBeTruthy()
+    const rows = screen.getAllByTestId('reconciliation-table-row')
+    expect(rows).toHaveLength(7)
+    const kinds = rows.map((r) => r.getAttribute('data-kind'))
+    // The non-Flux declarative reconcilers are present alongside the Flux ones.
+    expect(kinds).toContain('Certificate')
+    expect(kinds).toContain('Cluster')
+    expect(kinds).toContain('HelmRelease')
+    const text = screen.getByTestId('reconciliation-table').textContent ?? ''
     expect(text).toMatch(/Reconciled/)
     expect(text).toMatch(/Reconciling/)
     expect(text).toMatch(/Degraded/)
     expect(text).not.toMatch(/Success/i)
     expect(text).not.toMatch(/Succeeded/i)
     expect(text).not.toMatch(/\bFailed\b/i)
-  })
-
-  it('switches to the List tab and surfaces status rows + dependsOn', async () => {
-    renderPage()
-    fireEvent.click(await screen.findByTestId('reconciliation-tab-list'))
-    const nodes = await screen.findAllByTestId('reconciliation-node')
-    expect(nodes).toHaveLength(5)
-    const keycloak = nodes.find((n) => n.getAttribute('data-node-id') === 'bp-keycloak')
-    expect(keycloak).toBeTruthy()
-    expect(within(keycloak!).getByTestId('reconciliation-node-deps').textContent).toContain('bp-cilium')
+    // dependsOn surfaces in the row.
+    expect(text).toContain('bp-cilium')
   })
 
   it('renders the not-yet-tracked footnote', async () => {
     renderPage()
     const note = await screen.findByTestId('reconciliation-not-tracked')
     expect(note.textContent).toMatch(/Crossplane/)
-    expect(note.textContent).toMatch(/cert-manager/)
   })
 
   it('renders the empty state when no reconcilers are observed', async () => {

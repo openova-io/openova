@@ -17,7 +17,26 @@ export type ReconState =
   | 'Degraded'
   | 'Suspended'
 
-export type ReconKind = 'HelmRelease' | 'Kustomization'
+/**
+ * The reconciler kinds the backend emits. The two Flux kinds carry a real
+ * spec.dependsOn DAG; the rest are declarative non-Flux reconcilers
+ * (cert-manager / CNPG / External-Secrets / the Catalyst control-plane CRs)
+ * ingested via ListDeclarativeReconcilers — edgeless nodes that appear in
+ * both views (the DAG defaults to the Flux filter since they carry no edges).
+ * The `(string & {})` keeps autocomplete for the known kinds while tolerating
+ * any future kind the backend adds without a FE change.
+ */
+export type ReconKind =
+  | 'HelmRelease'
+  | 'Kustomization'
+  | 'Certificate'
+  | 'Cluster'
+  | 'ExternalSecret'
+  | 'Application'
+  | 'Environment'
+  | 'Organization'
+  | 'Continuum'
+  | (string & {})
 
 export interface ReconciliationNode {
   id: string

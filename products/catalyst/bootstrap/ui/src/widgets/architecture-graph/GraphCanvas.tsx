@@ -129,6 +129,15 @@ export interface GraphCanvasProps {
   onEdgeCreate?: (sourceId: string, targetId: string) => void
   /** Optional data-testid prefix; defaults to "arch-graph". */
   testIdPrefix?: string
+  /**
+   * Optional per-node ring colour override. When it returns a colour that
+   * wins over the type palette (NODE_FILL[type]); returning undefined falls
+   * back to the type colour. Lets a caller colour by something other than
+   * node type — e.g. the Reconciliation DAG colours bubbles by live
+   * reconcile STATE (Reconciled/Reconciling/Degraded) rather than kind.
+   * Opt-in: omitting it preserves the default type-palette behaviour.
+   */
+  nodeColorFn?: (n: GraphNode) => string | undefined
 }
 
 /* ── Adaptive physics tiers ──────────────────────────────────────── */
@@ -458,6 +467,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
     onCanvasContextMenu,
     onEdgeCreate,
     testIdPrefix = 'arch-graph',
+    nodeColorFn,
   },
   ref,
 ) {
@@ -942,7 +952,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
         <g data-testid={`${testIdPrefix}-nodes`}>
           {liveNodes.map((n) => {
             const r = Math.max(NODE_R, radiusForDegree(n.degree))
-            const ringColor = NODE_FILL[n.type] ?? '#888'
+            const ringColor = nodeColorFn?.(n) ?? NODE_FILL[n.type] ?? '#888'
             const Icon = NODE_ICON[n.type]
             // Icon glyph size — 14..18px scaled to node radius so larger
             // (high-degree) nodes carry a slightly bigger icon.
