@@ -1,4 +1,4 @@
-// Package handler — sme_billing_revenue.go: read-only stub for the BSS
+// Package handler — org_billing_revenue.go: read-only stub for the BSS
 // Revenue page (Wave 6 PR 4).
 //
 // Replaces the iframe-wrapped legacy /bss/revenue surface with a native

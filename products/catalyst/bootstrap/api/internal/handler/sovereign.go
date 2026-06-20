@@ -1076,7 +1076,7 @@ func resolveAppEnvironment(envBySlug map[string]string, slug string) string {
 // to the catalog 401s upstream (catalog only accepts HS256 signed
 // with sme-secrets/JWT_SECRET, just like the rest of the SME mesh).
 // Mint a fresh HS256 bridge token via the same h.mintSMEBridgeToken
-// helper sme_billing_vouchers.go uses for the BSS Vouchers surface
+// helper org_billing_vouchers.go uses for the BSS Vouchers surface
 // and forward THAT as the upstream Authorization header. Operators
 // with `catalyst-owner` realm-role (per SMERoleFor) get role=
 // "superadmin" claimed in the bridge token, satisfying requireAdmin.
@@ -1102,7 +1102,7 @@ func (h *Handler) HandleSovereignAppPublish(w http.ResponseWriter, r *http.Reque
 	// JWTAuth + requireAdmin admit this hop. Pre-bridge state (no
 	// Authorization header) ⇒ JWTAuth rejects with 401 "missing or
 	// invalid authorization header" — that's the C4-012 / #1735
-	// symptom. The bridge mirrors sme_billing_vouchers.go's
+	// symptom. The bridge mirrors org_billing_vouchers.go's
 	// mintSMEBridgeToken pattern: RS256 operator session → HS256
 	// token signed with sme-secrets/JWT_SECRET, role mapped via
 	// sharedauth.SMERoleFor. The upstream catalog's requireAdmin was

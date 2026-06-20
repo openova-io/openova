@@ -33,12 +33,12 @@ spec:
             - name: PG_USER
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.smePostgres.credentialSecret | default "sme-pg-app" }}
+                  name: {{ .Values.orgPostgres.credentialSecret | default "org-pg-app" }}
                   key: username
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.smePostgres.credentialSecret | default "sme-pg-app" }}
+                  name: {{ .Values.orgPostgres.credentialSecret | default "org-pg-app" }}
                   key: password
             - name: POSTGRES_HOST
               valueFrom:
@@ -51,7 +51,7 @@ spec:
                   name: org-services-config
                   key: POSTGRES_PORT
             - name: DATABASE_URL
-              value: "postgres://$(PG_USER):$(PG_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/sme_auth?sslmode=disable"
+              value: "postgres://$(PG_USER):$(PG_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/org_auth?sslmode=disable"
             - name: VALKEY_ADDR
               valueFrom:
                 configMapKeyRef:
@@ -68,7 +68,7 @@ spec:
             - name: VALKEY_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: sme-valkey-auth
+                  name: org-valkey-auth
                   key: valkey-password
                   optional: true
             - name: REDPANDA_BROKERS

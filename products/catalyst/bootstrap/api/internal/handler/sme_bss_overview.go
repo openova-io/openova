@@ -29,7 +29,7 @@
 //
 // The real implementation will project per-tenant rollups from the
 // billing / marketplace / orders ledgers once those wires are plumbed
-// (siblings: sme_billing_revenue.go, sme_orders.go, sme_billing_vouchers.go,
+// (siblings: org_billing_revenue.go, sme_orders.go, org_billing_vouchers.go,
 // organization_provisioning.go). Until then zero is the truthful answer.
 package handler
 

@@ -1112,7 +1112,7 @@ name: bp-catalyst-platform
 #     handler (semantic alias only, identical wire contract).
 #   - catalyst-api: POST /api/v1/billing/purchase + POST /api/v1/sme/billing/purchase
 #     → proxy to SME gateway /api/billing/purchase → billing
-#     service /billing/purchase. Mirrors sme_billing_vouchers.go
+#     service /billing/purchase. Mirrors org_billing_vouchers.go
 #     proxy shape (mintSMEBridgeToken bridge for RS256→HS256, 503
 #     `sme-gateway-unreachable` graceful-degradation on Sovereigns
 #     without the SME services tier).
@@ -2927,7 +2927,7 @@ version: 1.4.737
 #   -policy destNamespace+sourceNamespace, ferretdb + cnpg-cluster + configmap POSTGRES_HOST
 #   namespace fallbacks, the pdm-basicauth + baseline-catalyst-system + kyverno-qa-fixture +
 #   network-policies allowSystemNamespaces lists. The `sme` tier-enum value + the wire-stable
-#   sme-pg cluster/owner role names are intentionally preserved.
+#   org-pg cluster/owner role names are intentionally preserved.
 # 1.4.699 — #3856 (Refs #3375 #3581): ONE canonical DR vocabulary in the catalog.
 # catalog-seed/blueprints.yaml bp-cnpg-pair + bp-continuum carried the banned
 # un-hyphenated `active-hotstandby` topology token (modes/default/tags) → the
@@ -2946,8 +2946,8 @@ version: 1.4.737
 # (dual-rendered for one release with byte-identical JWT_SECRET so consumers
 # carry over with zero downtime); every workload + DNS host (.sme.svc →
 # .org-services.svc) and the catalyst-system→org-services CNP allow re-pointed.
-# WIRE-STABLE + UNCHANGED: the CNPG cluster `sme-pg` + its `sme-pg-app` secret,
-# the DB names sme_auth/sme_billing/sme_documents, the Tier value "sme", the
+# WIRE-STABLE + UNCHANGED: the CNPG cluster `org-pg` + its `org-pg-app` secret,
+# the DB names org_auth/org_billing/org_documents, the Tier value "sme", the
 # GitOps branch/path `org-tenants` (coupled to the catalyst-api writer's
 # hardcoded path), and every .Values.sme* overlay key. helm template byte-diff:
 # only names/ns changed. Refs #3383.
@@ -3749,8 +3749,8 @@ description: |
   Deployments (auth, billing, catalog, console, domain, gateway,
   marketplace, notification, provisioning, tenant — plus admin which
   has no DB/secret refs) reference two cluster-scoped resources:
-    - `sme-pg-app` Secret (basic-auth: username + password) backing the
-      sme-pg-rw.sme.svc.cluster.local Postgres Service
+    - `org-pg-app` Secret (basic-auth: username + password) backing the
+      org-pg-rw.sme.svc.cluster.local Postgres Service
     - `sme-secrets` Secret with 11 keys: JWT_SECRET, JWT_REFRESH_SECRET,
       GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SMTP_HOST/PORT/FROM/USER/
       PASS, ADMIN_EMAIL, ADMIN_PASSWORD
@@ -3763,10 +3763,10 @@ description: |
   Fix:
   - templates/org-services/cnpg-cluster.yaml — gated on the same
     .Values.ingress.marketplace.enabled flag the rest of the SME
-    bundle uses. Renders postgresql.cnpg.io/v1.Cluster `sme-pg` in
-    `sme` namespace, instances=1, storage=10Gi, primary DB sme_auth
-    + secondary DB sme_billing via postInitApplicationSQL. CNPG
-    auto-creates `sme-pg-app` Secret and the `sme-pg-rw` Service.
+    bundle uses. Renders postgresql.cnpg.io/v1.Cluster `org-pg` in
+    `sme` namespace, instances=1, storage=10Gi, primary DB org_auth
+    + secondary DB org_billing via postInitApplicationSQL. CNPG
+    auto-creates `org-pg-app` Secret and the `org-pg-rw` Service.
     Capabilities-gated on postgresql.cnpg.io/v1 so a misordered
     overlay surfaces as "no Cluster yet" rather than chart install
     failure (mirrors platform/powerdns/chart/templates/cnpg-cluster.
@@ -3785,7 +3785,7 @@ description: |
     operator brings real values via the per-Sovereign overlay or
     the admin-console signup form. helm.sh/resource-policy: keep
     so the Secret survives helm uninstall.
-  - values.yaml — add `smePostgres.cluster.*` (storage / pgVersion
+  - values.yaml — add `orgPostgres.cluster.*` (storage / pgVersion
     / resources / ...) and `smeSecrets.{smtp,admin}.*` blocks; both
     fully data-driven per Inviolable Principle #4.
 
@@ -3794,7 +3794,7 @@ description: |
 
   Bumped to 1.4.4 — deploy FerretDB in sme ns + cross-ns Valkey wire
   to unblock catalog/tenant/domain SME services on franchised
-  Sovereigns (issue #861, 2026-05-04). After 1.4.3 landed sme-pg +
+  Sovereigns (issue #861, 2026-05-04). After 1.4.3 landed org-pg +
   sme-secrets, 7/12 SME pods reached Running on otech103 but 3 stayed
   in CrashLoopBackOff with the same DNS error:
 
@@ -3817,19 +3817,19 @@ description: |
     .Values.ingress.marketplace.enabled flag. Deployment + Service
     `ferretdb` in `sme` ns, image pinned ghcr.io/ferretdb/ferretdb:1.24
     (matches contabo's data/ferretdb.yaml — v2.x requires PostgreSQL
-    with the DocumentDB extension which the sme-pg CNPG cluster from
+    with the DocumentDB extension which the org-pg CNPG cluster from
     PR #860 does not ship; v1.24 works against vanilla CNPG postgres:
-    16 and is the proven path). Backed by sme-pg via FERRETDB_POSTGRESQL_
-    URL env interpolating PG_USER + PG_PASSWORD from the sme-pg-app
+    16 and is the proven path). Backed by org-pg via FERRETDB_POSTGRESQL_
+    URL env interpolating PG_USER + PG_PASSWORD from the org-pg-app
     Secret (auto-created by CNPG in 1.4.3) and pointing at
-    sme-pg-rw.sme.svc.cluster.local:5432/sme_documents. Image is
+    org-pg-rw.sme.svc.cluster.local:5432/org_documents. Image is
     operator-overridable via .Values.orgServices.ferretdb.{image,tag}
     (Inviolable Principle #4).
   - cnpg-cluster.yaml — extend postInitApplicationSQL to also
-    CREATE DATABASE sme_documents OWNER sme so FerretDB has a DB to
+    CREATE DATABASE org_documents OWNER sme so FerretDB has a DB to
     write into on first install. The DB list is data-driven from
-    .Values.smePostgres.cluster.additionalDatabases (defaulting to
-    [sme_billing, sme_documents]) so adding a new SME service is a
+    .Values.orgPostgres.cluster.additionalDatabases (defaulting to
+    [org_billing, org_documents]) so adding a new SME service is a
     values-only change.
   - configmap.yaml — VALKEY_ADDR now reads from .Values.orgServices.
     valkey.host (default valkey-primary.valkey.svc.cluster.local:6379
@@ -3892,13 +3892,13 @@ description: |
     to the no-auth path. Empty password = current contabo behaviour.
   - NEW templates/org-services/valkey-cross-ns-secret.yaml — use Helm
     `lookup` to read the bp-valkey auto-generated password from
-    `valkey/valkey` Secret and re-emit it as `sme-valkey-auth` in
+    `valkey/valkey` Secret and re-emit it as `org-valkey-auth` in
     `sme` namespace. Same lookup-and-mirror pattern as
     sme-secrets.yaml (issue #859) and gitea-admin-secret (issue #830
     Bug 2). On first install the lookup may return nil — Flux's 15m
     reconcile picks up the mirror once bp-valkey is Ready.
   - auth.yaml + gateway.yaml — add VALKEY_PASSWORD env reading from
-    `sme-valkey-auth` Secret with `optional: true` so contabo-mkt's
+    `org-valkey-auth` Secret with `optional: true` so contabo-mkt's
     auth-less Valkey path keeps working when the mirror Secret is
     absent. valkey-go's `default` ACL user uses `requirepass`, so
     VALKEY_USERNAME stays unset by convention.

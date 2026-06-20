@@ -1416,26 +1416,26 @@ marketplace:
 # password) the SME services consume via secretKeyRef.
 #
 # Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every operationally-
-# meaningful value flows through .Values.smePostgres so per-Sovereign
+# meaningful value flows through .Values.orgPostgres so per-Sovereign
 # overlays can right-size storage / instances / pgVersion without forking
 # the chart.
-smePostgres:
+orgPostgres:
   # ── #3370 embedded-DB elimination seams ───────────────────────────────
   # externalHost — when set (slot 13 in shared mode), every SME service
-  # + FerretDB dials this host instead of the bundled sme-pg-rw Service
+  # + FerretDB dials this host instead of the bundled org-pg-rw Service
   # (e.g. shared-pg-c-rw.shared-data.svc.cluster.local). Empty = the
   # bundled Cluster (byte-identical default).
   externalHost: ""
   # credentialSecret — when set, the SME services + FerretDB read
   # username/password from this Secret instead of the CNPG-generated
-  # sme-pg-app (the slot-16d hub `sme-database-secret`, reflector-PUSHED
-  # into ns sme, carries the same keys). Empty = sme-pg-app.
+  # org-pg-app (the slot-16d hub `org-database-secret`, reflector-PUSHED
+  # into ns sme, carries the same keys). Empty = org-pg-app.
   credentialSecret: ""
   cluster:
-    # false → the bundled sme-pg Cluster is skipped entirely (#3370
+    # false → the bundled org-pg Cluster is skipped entirely (#3370
     # shared mode: the mesh runs on shared-pg-c's sme_* Contexts).
     enabled: true
-    name: sme-pg                    # produces sme-pg-rw / sme-pg-app / sme-pg-superuser (wire-stable persisted data — #3383 keeps the CNPG cluster + secret names)
+    name: org-pg                    # produces org-pg-rw / org-pg-app / org-pg-superuser (wire-stable persisted data — #3985 renames the CNPG cluster + secret names sme->org, fresh-prov-forward)
     namespace: org-services         # the Organization services live here too (#3383: was `sme`)
     instances: 1                    # single-node by default; HA is a per-overlay decision
     # CNPG postgres image. Defaults to the mothership Harbor proxy cache
@@ -1446,14 +1446,14 @@ smePostgres:
     # The tag is set separately via pgVersion.
     imageName: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql
     pgVersion: "16"                 # tracks contabo data/postgresql.yaml + ADR-0003
-    database: sme_auth              # primary DB owned by the `sme` user; secondary DBs below
-    owner: sme                      # role name + secret username
+    database: org_auth              # primary DB owned by the `org` user; secondary DBs below
+    owner: org                      # role name + secret username
     # Secondary DBs created via postInitApplicationSQL (1.4.4 — added
-    # sme_documents for FerretDB, see ferretdb.yaml + cnpg-cluster.yaml).
+    # org_documents for FerretDB, see ferretdb.yaml + cnpg-cluster.yaml).
     # Adding a new SME service is a values-only change.
     additionalDatabases:
-      - sme_billing                 # billing service primary DB
-      - sme_documents               # FerretDB (MongoDB-wire) backing DB — issue #861
+      - org_billing                 # billing service primary DB
+      - org_documents               # FerretDB (MongoDB-wire) backing DB — issue #861
     storageSize: 10Gi
     storageClass: local-path        # k3s default; per-Sovereign overlays may override
     resources:
@@ -1532,7 +1532,7 @@ smeSecrets:
 # ─── SME service backing-store endpoints (issue #861) ─────────────────────
 # When ingress.marketplace.enabled=true the chart renders:
 #   - templates/org-services/ferretdb.yaml — FerretDB Deployment + Service
-#     in `sme` ns, MongoDB-wire-compatible front end backed by sme-pg.
+#     in `sme` ns, MongoDB-wire-compatible front end backed by org-pg.
 #   - templates/org-services/valkey-cross-ns-policy.yaml —
 #     CiliumNetworkPolicy in `valkey` ns allowing ingress from `sme` ns.
 #   - templates/org-services/configmap.yaml — MONGODB_URI + VALKEY_ADDR
@@ -1574,7 +1574,7 @@ orgServices:
     namespace: org-services          # #3383: was `sme`
     # FerretDB v1.24 — works against vanilla CNPG postgres:16. v2.x
     # requires PostgreSQL with the DocumentDB extension which the
-    # sme-pg cluster does not ship; bumping is a separate change that
+    # org-pg cluster does not ship; bumping is a separate change that
     # also needs a custom CNPG image. See Chart.yaml 1.4.4 changelog.
     # 1.4.600 — kyverno harbor-proxy-pull (Enforce): raw ghcr.io denied on
     # tonight's umbrella reinstall (hw130 live). Same proxy-ghcr pattern as
@@ -1583,12 +1583,12 @@ orgServices:
     tag: "1.24"
     imagePullPolicy: IfNotPresent
     replicas: 1
-    # Postgres connection target — sme-pg-rw read/write Service in
-    # `sme` ns, sme_documents DB created by sme-pg's
-    # postInitApplicationSQL block (see smePostgres.cluster.
+    # Postgres connection target — org-pg-rw read/write Service in
+    # `sme` ns, org_documents DB created by org-pg's
+    # postInitApplicationSQL block (see orgPostgres.cluster.
     # additionalDatabases above).
     postgresPort: 5432
-    postgresDatabase: sme_documents
+    postgresDatabase: org_documents
     sslmode: disable                          # ClusterIP traffic is overlay-encrypted; CNPG default issuer chain not bundled
     # Service FQDN exposed to other SME services via configmap MONGODB_URI.
     # Per-Sovereign overlays MAY swap to an external MongoDB endpoint.
@@ -1628,7 +1628,7 @@ orgServices:
     # random password and exposes it via the `valkey` Secret in the
     # `valkey` namespace. The catalyst chart renders templates/
     # org-services/valkey-cross-ns-secret.yaml which uses Helm `lookup`
-    # to read that password and re-emit it as `sme-valkey-auth` in
+    # to read that password and re-emit it as `org-valkey-auth` in
     # `sme` ns — auth.yaml + gateway.yaml then wire VALKEY_PASSWORD via
     # secretKeyRef. Each knob below is operator-overridable in case a
     # Sovereign uses a forked bp-valkey with a different Secret name
@@ -1636,7 +1636,7 @@ orgServices:
     sourceSecretName: valkey
     sourcePasswordKey: valkey-password
     destNamespace: org-services       # #3383: was `sme`
-    destSecretName: sme-valkey-auth
+    destSecretName: org-valkey-auth
     crossNsPolicy:
       # Render templates/org-services/valkey-cross-ns-policy.yaml — a
       # CiliumNetworkPolicy in the `valkey` namespace allowing ingress

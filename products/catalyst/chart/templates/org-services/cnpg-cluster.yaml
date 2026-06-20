@@ -4,8 +4,8 @@ CNPG-managed Postgres cluster for the SME microservice mesh (issue #859).
 Why this template exists:
   bp-catalyst-platform's SME services (auth, billing, catalog, console,
   domain, gateway, marketplace, notification, provisioning, tenant) all
-  reference a `sme-pg-app` Secret to obtain Postgres credentials and a
-  `sme-pg-rw.org-services.svc.cluster.local` Service for the connection. On
+  reference a `org-pg-app` Secret to obtain Postgres credentials and a
+  `org-pg-rw.org-services.svc.cluster.local` Service for the connection. On
   contabo-mkt these are pre-provisioned by hand-rolled SealedSecrets +
   CNPG Cluster manifests in clusters/contabo-mkt/apps/sme/data/. On a
   freshly franchised Sovereign nothing equivalent exists, so all 10
@@ -25,10 +25,10 @@ Capabilities gate:
   rendered" rather than a hard install failure of the umbrella chart.
   See feedback_inviolable_principles.md #4.
 
-Why N databases (sme_auth primary, sme_billing + sme_documents secondary):
-  The SME auth service uses sme_auth as its primary store; billing uses
-  sme_billing; FerretDB (the MongoDB-wire-compatible front-end shipped
-  by templates/org-services/ferretdb.yaml in 1.4.4) uses sme_documents.
+Why N databases (org_auth primary, org_billing + org_documents secondary):
+  The SME auth service uses org_auth as its primary store; billing uses
+  org_billing; FerretDB (the MongoDB-wire-compatible front-end shipped
+  by templates/org-services/ferretdb.yaml in 1.4.4) uses org_documents.
   On contabo a separate Job (data/init-databases.yaml) creates the
   secondary DBs post-cluster-bootstrap. Here we fold them all into
   `bootstrap.initdb.postInitApplicationSQL` so a single CNPG Cluster
@@ -36,11 +36,11 @@ Why N databases (sme_auth primary, sme_billing + sme_documents secondary):
   race against pod readiness.
 
   The secondary-DB list is data-driven via
-  .Values.smePostgres.cluster.additionalDatabases so adding a new SME
+  .Values.orgPostgres.cluster.additionalDatabases so adding a new SME
   service is a values-only change (Inviolable Principle #4).
 
 Credential persistence:
-  CNPG owns the `sme-pg-app` Secret and emits stable bytes across
+  CNPG owns the `org-pg-app` Secret and emits stable bytes across
   reconciles (it stores the password in pg_authid and re-reads it on
   every reconcile). No `lookup` / `helm.sh/resource-policy: keep` dance
   needed here — that's CNPG's job. Per docs/INVIOLABLE-PRINCIPLES.md
@@ -48,68 +48,68 @@ Credential persistence:
 
 Reflector annotations:
   Inherited onto every Secret CNPG creates so future cross-namespace
-  consumers (e.g. a per-tenant vCluster wanting to read sme-pg-app
+  consumers (e.g. a per-tenant vCluster wanting to read org-pg-app
   via reflection) just work. The same pattern is used by
   platform/powerdns/chart/templates/cnpg-cluster.yaml — see otech28
   diagnosis comment in that file.
 
 All operationally-meaningful values are overridable via
-.Values.smePostgres.* with sensible defaults — never hardcoded
+.Values.orgPostgres.* with sensible defaults — never hardcoded
 (Inviolable Principle #4).
 */}}
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
 {{- /*
-Embedded-cluster gate (1.4.596, #3370): smePostgres.cluster.enabled=false
-skips the bundled sme-pg Cluster — the SME mesh then runs against the
-shared-pg-c instance's sme_auth/sme_billing/sme_documents Contexts
-(slot 16d) via the reflected sme-database-secret hub +
-smePostgres.externalHost/credentialSecret flips in slot 13. Default
+Embedded-cluster gate (1.4.596, #3370): orgPostgres.cluster.enabled=false
+skips the bundled org-pg Cluster — the SME mesh then runs against the
+shared-pg-c instance's org_auth/org_billing/org_documents Contexts
+(slot 16d) via the reflected org-database-secret hub +
+orgPostgres.externalHost/credentialSecret flips in slot 13. Default
 true keeps the 1:1 embedded render byte-identical.
 */ -}}
-{{- $smePgEnabled := true }}
-{{- if hasKey .Values.smePostgres.cluster "enabled" }}
-{{- $smePgEnabled = ne (toString .Values.smePostgres.cluster.enabled) "false" }}
+{{- $orgPgEnabled := true }}
+{{- if hasKey .Values.orgPostgres.cluster "enabled" }}
+{{- $orgPgEnabled = ne (toString .Values.orgPostgres.cluster.enabled) "false" }}
 {{- end }}
-{{- if and $smePgEnabled (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
+{{- if and $orgPgEnabled (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: {{ .Values.smePostgres.cluster.name | default "sme-pg" }}
-  namespace: {{ .Values.smePostgres.cluster.namespace | default "org-services" }}
+  name: {{ .Values.orgPostgres.cluster.name | default "org-pg" }}
+  namespace: {{ .Values.orgPostgres.cluster.namespace | default "org-services" }}
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform
-    catalyst.openova.io/component: sme-postgres
-    app.kubernetes.io/part-of: sme
+    catalyst.openova.io/component: org-postgres
+    app.kubernetes.io/part-of: org
 spec:
-  instances: {{ .Values.smePostgres.cluster.instances | default 1 }}
-  imageName: {{ .Values.smePostgres.cluster.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql" }}:{{ .Values.smePostgres.cluster.pgVersion | default "16" }}
+  instances: {{ .Values.orgPostgres.cluster.instances | default 1 }}
+  imageName: {{ .Values.orgPostgres.cluster.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql" }}:{{ .Values.orgPostgres.cluster.pgVersion | default "16" }}
 
   # Annotations CNPG propagates onto every Secret it generates
-  # (sme-pg-app, sme-pg-superuser, sme-pg-replication, ...). Reflector
+  # (org-pg-app, org-pg-superuser, org-pg-replication, ...). Reflector
   # mirrors them into other namespaces if a per-tenant vCluster ever
-  # needs to consume sme-pg-app from outside the `sme` namespace.
+  # needs to consume org-pg-app from outside the `sme` namespace.
   inheritedMetadata:
     annotations:
       reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: {{ .Values.smePostgres.cluster.namespace | default "org-services" | quote }}
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: {{ .Values.orgPostgres.cluster.namespace | default "org-services" | quote }}
       reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: {{ .Values.smePostgres.cluster.namespace | default "org-services" | quote }}
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: {{ .Values.orgPostgres.cluster.namespace | default "org-services" | quote }}
 
   bootstrap:
     initdb:
-      database: {{ .Values.smePostgres.cluster.database | default "sme_auth" | quote }}
-      owner: {{ .Values.smePostgres.cluster.owner | default "sme" | quote }}
+      database: {{ .Values.orgPostgres.cluster.database | default "org_auth" | quote }}
+      owner: {{ .Values.orgPostgres.cluster.owner | default "org" | quote }}
       # Create the secondary DBs the SME mesh needs.
       # postInitApplicationSQL runs as the postgres superuser AFTER
       # initdb has created the primary DB + owner role, so CREATE
       # DATABASE here is the canonical CNPG-blessed extension point
       # for multi-DB clusters. Data-driven from
-      # .Values.smePostgres.cluster.additionalDatabases — defaults to
-      # [sme_billing, sme_documents] (1.4.4 — sme_documents is
+      # .Values.orgPostgres.cluster.additionalDatabases — defaults to
+      # [org_billing, org_documents] (1.4.4 — org_documents is
       # FerretDB's backing DB, see ferretdb.yaml).
       postInitApplicationSQL:
-        {{- range $db := .Values.smePostgres.cluster.additionalDatabases | default (list "sme_billing" "sme_documents") }}
-        - CREATE DATABASE {{ $db }} OWNER {{ $.Values.smePostgres.cluster.owner | default "sme" }};
+        {{- range $db := .Values.orgPostgres.cluster.additionalDatabases | default (list "org_billing" "org_documents") }}
+        - CREATE DATABASE {{ $db }} OWNER {{ $.Values.orgPostgres.cluster.owner | default "org" }};
         {{- end }}
 
   postgresql:
@@ -123,11 +123,11 @@ spec:
       log_min_duration_statement: "1000"
 
   resources:
-    {{- toYaml .Values.smePostgres.cluster.resources | nindent 4 }}
+    {{- toYaml .Values.orgPostgres.cluster.resources | nindent 4 }}
 
   storage:
-    size: {{ .Values.smePostgres.cluster.storageSize | default "10Gi" }}
-    storageClass: {{ .Values.smePostgres.cluster.storageClass | default "local-path" | quote }}
+    size: {{ .Values.orgPostgres.cluster.storageSize | default "10Gi" }}
+    storageClass: {{ .Values.orgPostgres.cluster.storageClass | default "local-path" | quote }}
 
   # SME init-databases Job (when enabled — see init-databases.yaml below)
   # connects as superuser to CREATE DATABASE / GRANT. Disabling this

@@ -33,7 +33,7 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:
   # `replace "_" "-"` (0.1.5, #3188): Postgres database names legally
-  # carry underscores (sme_auth, sme_billing) but Kubernetes resource
+  # carry underscores (org_auth, org_billing) but Kubernetes resource
   # names are RFC-1123 — sanitize the CR name; spec.name keeps the real
   # database name verbatim.
   name: {{ printf "%s-%s" (include "bp-postgres.instanceName" $ctx) .name | replace "_" "-" | trunc 63 | trimSuffix "-" }}

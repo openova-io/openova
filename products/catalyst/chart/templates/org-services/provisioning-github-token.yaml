@@ -190,7 +190,7 @@ metadata:
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform
     catalyst.openova.io/component: provisioning-github-token
-    app.kubernetes.io/part-of: sme
+    app.kubernetes.io/part-of: org
   annotations:
     # Identifies the upstream source for ops visibility — `kubectl describe
     # secret provisioning-github-token -n sme` makes the provenance obvious

@@ -88,7 +88,7 @@ spec:
   every reconcile, so a Secret rotation or initdb-vs-Secret drift is
   ALTER USER'd away (the bp-gitea Wave-5.35 #2211 lesson, generalised).
   0.1.5 (#3188): deduped per UNIQUE owner — bindings may share one owner
-  (the SME mesh's sme_auth/sme_billing/sme_documents all owned by `sme`),
+  (the SME mesh's org_auth/org_billing/org_documents all owned by `sme`),
   which is N Database CRs on ONE role. The passwordSecret is taken from
   the FIRST binding declaring the owner, matching role-secrets.yaml.
 

@@ -186,10 +186,10 @@ data:
   # to swap to an external Redis-compatible cache). Cross-ns reachability
   # is granted by templates/org-services/valkey-cross-ns-policy.yaml.
   VALKEY_ADDR: "{{ .Values.orgServices.valkey.host | default "valkey-primary.valkey.svc.cluster.local" }}:{{ .Values.orgServices.valkey.port | default 6379 }}"
-  # #3370 — smePostgres.externalHost (set by slot 13 in shared mode)
+  # #3370 — orgPostgres.externalHost (set by slot 13 in shared mode)
   # points the whole mesh at the shared-pg-c instance; empty = the
-  # bundled sme-pg-rw Service (byte-identical default).
-  POSTGRES_HOST: "{{ .Values.smePostgres.externalHost | default (printf "%s-rw.%s.svc.cluster.local" (.Values.smePostgres.cluster.name | default "sme-pg") (.Values.smePostgres.cluster.namespace | default "org-services")) }}"
+  # bundled org-pg-rw Service (byte-identical default).
+  POSTGRES_HOST: "{{ .Values.orgPostgres.externalHost | default (printf "%s-rw.%s.svc.cluster.local" (.Values.orgPostgres.cluster.name | default "org-pg") (.Values.orgPostgres.cluster.namespace | default "org-services")) }}"
   POSTGRES_PORT: "{{ .Values.orgServices.ferretdb.postgresPort | default 5432 }}"
 
   # ---- event bus ------------------------------------------------------------

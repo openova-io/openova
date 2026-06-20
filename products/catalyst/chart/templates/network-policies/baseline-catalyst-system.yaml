@@ -38,7 +38,7 @@ This template renders TWO CiliumNetworkPolicies:
        - egress to platform namespaces that catalyst-system
          legitimately needs to reach: keycloak (OIDC), gitea
          (Application gitops pulls), powerdns (DNS record CRUD),
-         cnpg-system (smePostgres connection), openbao (secrets),
+         cnpg-system (orgPostgres connection), openbao (secrets),
          harbor (registry pulls), nats-system (event bus),
          observability (loki/mimir/tempo/alloy), mgmt (#2745 —
          loki/mimir/tempo run INSIDE the mgmt vCluster; their

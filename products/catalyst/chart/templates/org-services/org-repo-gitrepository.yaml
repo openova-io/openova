@@ -99,7 +99,7 @@ metadata:
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform
     catalyst.openova.io/component: org-tenants-source
-    app.kubernetes.io/part-of: sme
+    app.kubernetes.io/part-of: org
 spec:
   interval: {{ $gr.interval | default "1m" | quote }}
   url: {{ printf "%s/%s/%s" $apiURL $org $repo | quote }}

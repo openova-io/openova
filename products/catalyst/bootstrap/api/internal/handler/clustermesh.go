@@ -370,7 +370,7 @@ var sharedPGConsumerHubSecrets = []string{
 	"pdns-database-secret",
 	"pda-shared-database-secret",
 	// instance C (shared-pg-c, slot 16d)
-	"sme-database-secret",
+	"org-database-secret",
 	"newapi-database-secret",
 	"openova-flow-database-secret",
 }

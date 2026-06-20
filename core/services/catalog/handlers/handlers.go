@@ -29,7 +29,7 @@ type Handler struct {
 //   - "sovereign-admin" — franchisee operations on a franchised
 //     Sovereign. The chroot's catalyst-api bridges an operator's
 //     RS256 session into the SME mesh's HS256 wire contract
-//     (sme_billing_vouchers.go::mintSMEBridgeToken) and stamps the
+//     (org_billing_vouchers.go::mintSMEBridgeToken) and stamps the
 //     SME-vocabulary role from the operator's realm roles (per
 //     docs/FRANCHISE-MODEL.md §3 — sovereign-admin owns the franchise's
 //     marketplace catalog). Without this widening the chroot's bridge

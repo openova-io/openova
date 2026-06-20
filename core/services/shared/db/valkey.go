@@ -23,7 +23,7 @@ func ConnectValkey(addr string) (valkey.Client, error) {
 //	to `auth.enabled=true` and exposes the auto-generated password via the
 //	`valkey-password` key in the `valkey` Secret. Sovereign-side SME
 //	services consume Valkey cross-namespace from `sme` ns; the catalyst
-//	chart mirrors the password into `sme-valkey-auth` Secret in `sme` ns
+//	chart mirrors the password into `org-valkey-auth` Secret in `sme` ns
 //	(see products/catalyst/chart/templates/org-services/
 //	valkey-cross-ns-secret.yaml) and the auth + gateway Deployments wire
 //	it into VALKEY_USERNAME / VALKEY_PASSWORD env. Without these, NEWHELLO

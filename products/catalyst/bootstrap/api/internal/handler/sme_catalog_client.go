@@ -183,7 +183,7 @@ func (c *smeCatalogClient) PublishedBySlug(ctx context.Context) (map[string]bool
 // upstream returns 401 from JWTAuth ("missing or invalid authorization
 // header") — that's the C4-012 / #1735 symptom. The bearer is minted
 // by the caller (HandleSovereignAppPublish) via the canonical SME
-// bridge (sme_billing_vouchers.go's mintSMEBridgeToken — same HS256
+// bridge (org_billing_vouchers.go's mintSMEBridgeToken — same HS256
 // `sme-secrets/JWT_SECRET` the gateway + billing service use) and
 // passed in here as the `bearer` argument. Empty bearer signals the
 // caller has no session; the SME catalog will then return 401 and the

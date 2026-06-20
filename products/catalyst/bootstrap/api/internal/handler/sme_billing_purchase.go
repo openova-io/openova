@@ -1,4 +1,4 @@
-// Package handler — sme_billing_purchase.go: catalyst-api proxy for the
+// Package handler — org_billing_purchase.go: catalyst-api proxy for the
 // BSS Purchase surface (TBD-C15 / #1750).
 //
 // Background
@@ -25,7 +25,7 @@
 // prefix and proxies to the billing service's
 // `POST /billing/purchase` route (a registered alias for `Checkout` —
 // see core/services/billing/handlers/routes.go). The handler is a thin
-// proxy in the same shape as sme_billing_vouchers.go:
+// proxy in the same shape as org_billing_vouchers.go:
 //
 //   1. Mint a fresh HS256 bridge token from the operator's already-
 //      validated RS256 session (same `mintSMEBridgeToken` helper as the

@@ -66,8 +66,8 @@ metadata:
   namespace: {{ $valkey.namespace | default "valkey" }}
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform
-    catalyst.openova.io/component: sme-valkey-cross-ns-allow
-    app.kubernetes.io/part-of: sme
+    catalyst.openova.io/component: org-valkey-cross-ns-allow
+    app.kubernetes.io/part-of: org
   annotations:
     description: |
       Allow ingress on TCP/{{ $valkey.port | default 6379 }} from pods in

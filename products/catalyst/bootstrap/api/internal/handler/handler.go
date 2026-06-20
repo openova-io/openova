@@ -354,7 +354,7 @@ type Handler struct {
 	// from the `sme` namespace into catalyst-system by
 	// emberstack/reflector — see the annotation block on
 	// products/catalyst/chart/templates/org-services/org-services-secrets.yaml).
-	// Used by sme_billing_vouchers.go's proxySMEVoucher() (and any
+	// Used by org_billing_vouchers.go's proxySMEVoucher() (and any
 	// future /api/v1/sme/* proxy) to mint a short-lived HS256 token
 	// the SME gateway (core/services/gateway/proxy.go) and downstream
 	// services (billing / catalog / tenant) will accept — they reject
@@ -763,7 +763,7 @@ func (h *Handler) SetPowerDNSZoneClient(c powerdnsZoneClient) { h.powerdnsZoneCl
 func (h *Handler) SetAuditBus(bus *audit.Bus) { h.auditBus = bus }
 
 // SetSMEJWTSecret wires the raw bytes of `sme-secrets/JWT_SECRET` so
-// the /api/v1/sme/* proxies (sme_billing_vouchers.go + future siblings)
+// the /api/v1/sme/* proxies (org_billing_vouchers.go + future siblings)
 // can mint a short-lived HS256 bridge token the SME gateway will
 // accept. Empty / nil secret disables the mint path; proxies surface
 // 503 `sme-jwt-bridge-unwired` rather than forging a 401 upstream.

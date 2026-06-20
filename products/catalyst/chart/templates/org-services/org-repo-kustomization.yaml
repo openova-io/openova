@@ -97,7 +97,7 @@ metadata:
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform
     catalyst.openova.io/component: org-tenants-reconciler
-    app.kubernetes.io/part-of: sme
+    app.kubernetes.io/part-of: org
 spec:
   interval: {{ $kt.interval | default "1m" | quote }}
   retryInterval: {{ $kt.retryInterval | default "1m" | quote }}

@@ -1,4 +1,4 @@
-// Package handler — sme_billing_vouchers.go: catalyst-api proxy for the
+// Package handler — org_billing_vouchers.go: catalyst-api proxy for the
 // BSS Vouchers surface (Wave 6 PR 5, follow-up to PR #1609 which shipped
 // the FE — listVouchers/issueVoucher/revokeVoucher in
 // products/catalyst/bootstrap/ui/src/lib/bss.api.ts — without a backend
@@ -6,7 +6,7 @@
 // and every voucher action 404'd at the catalyst-api ingress).
 //
 // REST surface (registered by main.go inside the RequireSession group,
-// mirroring sme_billing_revenue.go):
+// mirroring org_billing_revenue.go):
 //
 //	GET    /api/v1/sme/billing/vouchers/list           — list live vouchers
 //	POST   /api/v1/sme/billing/vouchers/issue          — upsert (resurrects soft-deleted)
