@@ -467,6 +467,28 @@ vcluster:
           to: newapi/newapi-bp-newapi-newapi-pg-rw
         - from: newapi/newapi-bp-newapi-newapi-pg-ro
           to: newapi/newapi-bp-newapi-newapi-pg-ro
+        # ── #3642/#3948 gitea-pg host→vCluster reachability (the SERVICE half,
+        #    companion to the gitea/gitea-pg-app fromHost SECRET mapping below) ──
+        # gitea ships its OWN dedicated `gitea-pg` CNPG Cluster (NOT shared-pg),
+        # HOST-rendered in host ns `gitea` (placement: gitea HR is vcluster-app,
+        # but its cnpg-cluster.yaml renders host-side via the host-seams seam).
+        # The gitea pod (now in vc-mgmt after #3642) connects to
+        # `gitea-pg-rw.gitea.svc.cluster.local:5432` (values.yaml
+        # gitea.database.HOST). The CNPG `-rw`/`-ro` Services live HOST-side
+        # only, so inside vc-mgmt that FQDN is NXDOMAIN → the `configure-gitea`
+        # init container's ORM ping fails `dial tcp: lookup
+        # gitea-pg-rw.gitea.svc.cluster.local: no such host` → gitea
+        # Init:CrashLoopBackOff → gitea-http never serves → the
+        # catalyst-gitea-token-mint hook retries forever → bp-catalyst-platform
+        # install hangs → CONSOLE NEVER COMES UP (hw172 RCA, dep
+        # b50ba61d9cb9e157). Mirror both Services so the host-style FQDN resolves
+        # in the vCluster — the EXACT same SERVICE-half gap already fixed for
+        # guacamole-pg + newapi-pg above. No-op until the host-seams HR renders
+        # the gitea-pg Cluster (additive).
+        - from: gitea/gitea-pg-rw
+          to: gitea/gitea-pg-rw
+        - from: gitea/gitea-pg-ro
+          to: gitea/gitea-pg-ro
         # ClusterMesh-global write endpoints (active-hot-standby): the host
         # FQDN cross-region SHARED_PG consumers (grafana et al.) actually dial.
         - from: shared-data/shared-pg-mesh-rw

@@ -182,7 +182,7 @@ spec:
       # `harbor-core.harbor.svc` — resolves Harbor again post-#3642 (it now runs
       # INSIDE vc-mgmt; the host name NXDOMAIN'd → cutover wedged at step-02 on
       # hw171). Same proven host-service-aliases mechanism as gitea/keycloak/openbao.
-      version: 0.2.27
+      version: 0.2.28
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster

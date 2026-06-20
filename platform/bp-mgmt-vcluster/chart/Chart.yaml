@@ -328,7 +328,10 @@ name: bp-mgmt-vcluster
 # 0.2.27 (#3948): fromHost-import gitea/gitea-pg-app (exact-name) so the
 # gitea pod's GITEA__database__PASSWD secretKeyRef resolves inside vc-mgmt —
 # unblocks gitea → bp-catalyst-platform gitea-token-mint hook → console (hw172).
-version: 0.2.27
+# 0.2.28 (#3948): replicateServices.fromHost gitea/gitea-pg-rw + -ro (the
+# SERVICE half) so `gitea-pg-rw.gitea.svc.cluster.local` resolves in vc-mgmt —
+# the configure-gitea ORM ping was NXDOMAIN-CrashLooping past the secret fix.
+version: 0.2.28
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT
