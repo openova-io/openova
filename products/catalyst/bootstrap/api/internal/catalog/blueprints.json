@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-21T07:12:23.003Z",
+  "generatedAt": "2026-06-20T19:38:21.614Z",
   "blueprints": [
     {
       "id": "bp-alloy",
@@ -472,6 +472,48 @@
       "hasUserUIEndpoint": false
     },
     {
+      "id": "bp-chepherd",
+      "slug": "chepherd",
+      "title": "Chepherd",
+      "summary": "|",
+      "icon": "chepherd.svg",
+      "category": "ai-runtime",
+      "tagline": null,
+      "tags": [],
+      "visibility": "listed",
+      "version": "0.1.0",
+      "section": "pts-7-org-tenant",
+      "depends": [
+        "bp-external-secrets"
+      ],
+      "shareable": false,
+      "contextSchema": null,
+      "producesInstances": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": null,
+        "singleRegion": "singleton",
+        "perTopology": {
+          "singleton": {
+            "replication": null,
+            "switchover": null,
+            "placement": {
+              "tier": "rtz",
+              "clusters": [
+                "rtz-A"
+              ],
+              "roles": {
+                "rtz-A": "singleton"
+              }
+            }
+          }
+        }
+      },
+      "hasUserUIEndpoint": true
+    },
+    {
       "id": "bp-cilium",
       "slug": "cilium",
       "title": "Cilium",
@@ -916,7 +958,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.2.0",
+      "version": "1.1.5",
       "section": "pts-3-2-gitops-and-iac",
       "depends": [
         "bp-crossplane"
@@ -1036,7 +1078,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.2.9",
+      "version": "0.2.8",
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [
         "bp-cilium",
@@ -1536,7 +1578,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.2.40",
+      "version": "1.2.39",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [
         "bp-postgres"
@@ -1666,7 +1708,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.27",
+      "version": "0.2.25",
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [
         "bp-keycloak",
@@ -1736,7 +1778,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.2.35",
+      "version": "1.2.34",
       "section": "pts-3-5-storage-and-data",
       "depends": [
         "bp-cnpg",
@@ -1854,57 +1896,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.2.1",
-      "section": "pts-3-5-storage-and-data",
-      "depends": [],
-      "shareable": false,
-      "contextSchema": null,
-      "producesInstances": null,
-      "topology": {
-        "supported": [
-          "singleton"
-        ],
-        "multiRegion": "singleton",
-        "singleRegion": "singleton",
-        "perTopology": {
-          "singleton": {
-            "replication": null,
-            "switchover": null,
-            "placement": {
-              "tier": "",
-              "clusters": [
-                "mgmt-A",
-                "mgmt-B",
-                "dmz-A",
-                "dmz-B",
-                "rtz-A",
-                "rtz-B"
-              ],
-              "roles": {
-                "mgmt-A": "singleton",
-                "mgmt-B": "singleton",
-                "dmz-A": "singleton",
-                "dmz-B": "singleton",
-                "rtz-A": "singleton",
-                "rtz-B": "singleton"
-              }
-            }
-          }
-        }
-      },
-      "hasUserUIEndpoint": false
-    },
-    {
-      "id": "bp-huawei-evs-csi",
-      "slug": "huawei-evs-csi",
-      "title": "huawei-evs-csi",
-      "summary": "",
-      "icon": null,
-      "category": null,
-      "tagline": null,
-      "tags": [],
-      "visibility": "unlisted",
-      "version": "1.0.3",
+      "version": "1.1.0",
       "section": "pts-3-5-storage-and-data",
       "depends": [],
       "shareable": false,
@@ -2339,7 +2331,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.0.39",
+      "version": "1.0.37",
       "section": "pts-3-3-security-and-policy",
       "depends": [],
       "shareable": false,
@@ -2836,7 +2828,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.2.29",
+      "version": "0.2.28",
       "section": "pts-3-2-control-plane-isolation",
       "depends": [
         "bp-cilium",
@@ -3836,7 +3828,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.5",
+      "version": "0.2.4",
       "section": "pts-4-1-data-services",
       "depends": [
         "bp-cnpg",
@@ -3913,7 +3905,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.2.17",
+      "version": "1.2.16",
       "section": "pts-3-2-gitops-and-iac",
       "depends": [
         "bp-cert-manager"
@@ -3965,7 +3957,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.1.18",
+      "version": "0.1.17",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [
         "bp-powerdns",
@@ -4169,7 +4161,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.2.14",
+      "version": "0.2.13",
       "section": "pts-3-2-control-plane-isolation",
       "depends": [
         "bp-cilium",
@@ -4337,7 +4329,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.2.3",
+      "version": "1.2.2",
       "section": "pts-3-5-storage-and-data",
       "depends": [
         "bp-cert-manager"
@@ -4655,7 +4647,7 @@
     {
       "id": "bp-stalwart-tenant",
       "slug": "stalwart-tenant",
-      "title": "Stalwart (per-Organization)",
+      "title": "Stalwart (per-tenant)",
       "summary": "|",
       "icon": "stalwart.svg",
       "category": "communication",
@@ -5462,14 +5454,14 @@
     {
       "id": "bp-wordpress-tenant",
       "slug": "wordpress-tenant",
-      "title": "WordPress (per-Organization)",
+      "title": "WordPress Tenant",
       "summary": "|",
       "icon": "wordpress.svg",
       "category": "tenant-app",
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.4.2",
+      "version": "0.4.1",
       "section": "pts-7-org-tenant",
       "depends": [
         "bp-postgres",

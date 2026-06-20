@@ -1,0 +1,38 @@
+# bp-chepherd image — chepherd runtime + the bundled openova-mcp binary.
+#
+# The bp-chepherd Application image is the upstream chepherd daemon image
+# with OpenOva's `openova-mcp` server binary baked in at
+# /usr/local/bin/openova-mcp. chepherd injects this MCP server into every
+# spawned agent's .mcp.json (via CHEPHERD_EXTRA_MCP_JSON, set by the
+# bp-chepherd Helm chart), so the User's solo agent (Claude Opus 4.7) can
+# create Applications in the User's own Organization through the
+# RBAC-scoped OpenOva MCP.
+#
+# Build context = the repo root (the build needs products/openova-mcp and
+# its go workspace). CHEPHERD_BASE pins the upstream chepherd daemon image.
+#
+#   docker build -f products/chepherd/Containerfile \
+#     --build-arg CHEPHERD_BASE=ghcr.io/chepherd/chepherd:v0.9.4 \
+#     -t ghcr.io/openova-io/bp-chepherd:dev .
+
+# ─── Stage 1: build the openova-mcp binary ────────────────────────────────
+FROM golang:1.25-alpine AS mcp-builder
+WORKDIR /build
+# The openova-mcp module imports core/services/shared/auth from this repo,
+# so the build needs both module trees. Copy the whole repo (build context
+# is the repo root) and build from the module directory.
+COPY . .
+WORKDIR /build/products/openova-mcp
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w" \
+    -o /usr/local/bin/openova-mcp ./cmd/openova-mcp
+
+# ─── Stage 2: overlay onto the upstream chepherd image ────────────────────
+ARG CHEPHERD_BASE=ghcr.io/chepherd/chepherd:v0.9.4
+FROM ${CHEPHERD_BASE}
+
+# Bake the openova-mcp binary in at the path the chart's
+# CHEPHERD_EXTRA_MCP_JSON stanza references (openovaMCP.binaryPath).
+COPY --from=mcp-builder /usr/local/bin/openova-mcp /usr/local/bin/openova-mcp
+
+# The chepherd image already defines its ENTRYPOINT (chepherd-entrypoint)
+# and EXPOSEs 8080/9090; bp-chepherd inherits them unchanged.

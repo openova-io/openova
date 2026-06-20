@@ -607,6 +607,48 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
+    "id": "bp-chepherd",
+    "slug": "chepherd",
+    "title": "Chepherd",
+    "summary": "|",
+    "icon": "chepherd.svg",
+    "category": "ai-runtime",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "0.1.0",
+    "section": "pts-7-org-tenant",
+    "depends": [
+      "bp-external-secrets"
+    ],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": null,
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": true
+  },
+  {
     "id": "bp-cilium",
     "slug": "cilium",
     "title": "Cilium",
@@ -5702,6 +5744,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/cert-manager-issuers/blueprint.yaml",
   "platform/cert-manager-powerdns-webhook/blueprint.yaml",
   "platform/cert-manager/blueprint.yaml",
+  "platform/chepherd/blueprint.yaml",
   "platform/cilium-policies/blueprint.yaml",
   "platform/cilium/blueprint.yaml",
   "platform/clickhouse/blueprint.yaml",
