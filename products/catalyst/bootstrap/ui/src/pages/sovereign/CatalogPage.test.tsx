@@ -10,7 +10,7 @@
  *   • Mounts inside PortalShell (sidebar present)
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent, within } from '@testing-library/react'
 import {
   RouterProvider,
@@ -98,5 +98,67 @@ describe('CatalogPage (#3601)', () => {
     const after = within(await screen.findByTestId('sov-catalog-grid')).getAllByTestId(/^sov-app-card-bp-/)
     expect(after.length).toBeLessThan(before.length)
     expect(after.some((c) => c.getAttribute('data-testid') === 'sov-app-card-bp-cilium')).toBe(true)
+  })
+})
+
+/**
+ * #3668 (hw171 catalog walk) — the grid must render every Blueprint the
+ * LIVE catalog serves, not only the build-time component graph. A
+ * seeded-but-uncatalogued Blueprint such as `bp-wordpress` (the
+ * marketplace-funnel CMS — present in catalog-seed/blueprints.yaml but NOT
+ * in componentGroups.ts) was invisible in the grid even though its detail
+ * page `/catalog/bp-wordpress` rendered fully. This test locks in that the
+ * grid now unions the `/api/v1/catalog` items (via `useCatalog`) as extra
+ * cards. `useCatalog` is mocked so the merge runs deterministically
+ * regardless of the test harness's detected mode.
+ */
+vi.mock('@/lib/useCatalog', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/useCatalog')>()
+  return {
+    ...actual,
+    useCatalog: () => ({
+      data: [
+        {
+          name: 'bp-wordpress',
+          version: '0.4.1',
+          card: { title: 'WordPress', summary: 'Turnkey SSO CMS' },
+          origin: 2,
+          source: 'sovereign',
+        },
+      ],
+      isSuccess: true,
+      isError: false,
+      isLoading: false,
+    }),
+  }
+})
+
+describe('CatalogPage — live catalog union (#3668)', () => {
+  beforeEach(() => {
+    useWizardStore.setState({ ...INITIAL_WIZARD_STATE })
+    globalThis.fetch = (() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ apps: [] }),
+      } as unknown as Response)) as typeof fetch
+  })
+
+  afterEach(() => cleanup())
+
+  it('renders a grid card for a catalog blueprint absent from the static graph (bp-wordpress)', async () => {
+    renderCatalog('d-1')
+    const grid = await screen.findByTestId('sov-catalog-grid')
+    // The wordpress card appears (it is NOT a bootstrap-kit or wizard
+    // component, so it can only come from the live-catalog union).
+    const wp = await within(grid).findByTestId('sov-app-card-bp-wordpress')
+    expect(wp).toBeTruthy()
+    expect(wp.getAttribute('href')).toBe('/provision/d-1/catalog/bp-wordpress')
+  })
+
+  it('still renders the static bootstrap-kit cards alongside the catalog union', async () => {
+    renderCatalog('d-1')
+    const grid = await screen.findByTestId('sov-catalog-grid')
+    expect(within(grid).getByTestId('sov-app-card-bp-cilium')).toBeTruthy()
+    expect(within(grid).getByTestId('sov-app-card-bp-wordpress')).toBeTruthy()
   })
 })
