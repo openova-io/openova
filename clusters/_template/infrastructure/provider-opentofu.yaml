@@ -1,0 +1,64 @@
+# Crossplane provider-opentofu — the cross-cloud OpenTofu→Crossplane
+# adoption seam (ADR-0011, Refs #4002).
+#
+# WHY THIS PROVIDER (not provider-hcloud / provider-huaweicloud natively):
+# the Sovereign's Phase-0 substrate is built by the OpenTofu modules at
+# infra/providers/{hetzner,huawei}. provider-opentofu's `Workspace`
+# managed resource wraps those already-endpoint-configured modules and
+# adopts the live cloud resources by `crossplane.io/external-name`
+# (the cloud resource id) WITHOUT re-provisioning — one mechanism for
+# EVERY cloud. The native provider-huaweicloud (v0.0.x) gives no
+# confidence it can reach the on-prem HCS custom endpoints
+# (`*.me-east-215.kom4dc.nationalcloud.om`, insecure TLS) that the tofu
+# module already handles. See ADR-0011 §Decision for the full rationale.
+#
+# Installed AFTER bp-crossplane lands the apiextensions CRDs (slot 04),
+# by the `infrastructure` Flux Kustomization (clusters/<fqdn>/infrastructure).
+# Adoption claims (CloudAdoption) reference its ProviderConfig `default`.
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-opentofu
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/adoption-seam: "true"
+spec:
+  # upbound provider-opentofu — tracks the OpenTofu fork (license-clean,
+  # unlike provider-terraform which is frozen at Terraform 1.5.7 / BSL).
+  # Catalyst is an OpenTofu shop (required_version >= 1.6.0) so this is
+  # the native fit. Pinned digest-pinnable tag.
+  package: xpkg.upbound.io/upbound/provider-opentofu:v1.1.3
+  # Inherit the cluster's image-pull behaviour from the runtime config
+  # below (so post-cutover the Sovereign's own Harbor can proxy it).
+  runtimeConfigRef:
+    name: provider-opentofu
+---
+# DeploymentRuntimeConfig — grants the provider-opentofu controller the
+# cloud credentials it needs to run `tofu` against the real cloud APIs.
+#
+# The same `cloud-credentials` Secret (namespace flux-system) that
+# provider-hcloud's ProviderConfig consumes is mounted here as env so the
+# inline adoption modules can authenticate. The cloud-init Tofu module
+# plants this Secret (see provider-config-hcloud.yaml header) with keys:
+#   hcloud-token        (Hetzner)
+#   huawei-access-key / huawei-secret-key / huawei-project-id (Huawei HCS)
+# The adoption Workspace reads whichever keys its module needs.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: provider-opentofu
+spec:
+  deploymentTemplate:
+    spec:
+      selector: {}
+      template:
+        spec:
+          containers:
+            - name: package-runtime
+              # Cloud creds surfaced as env vars the inline tofu modules
+              # reference via `var`/`TF_VAR_*`. Optional so a Hetzner-only
+              # Sovereign (no huawei-* keys) still starts the controller.
+              envFrom:
+                - secretRef:
+                    name: cloud-credentials
+                    optional: true

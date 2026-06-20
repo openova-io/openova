@@ -11,7 +11,7 @@ name: bp-crossplane-claims
 # harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl. Per CLAUDE.md
 # inviolable rule, ALL chart-hook references MUST be explicit Harbor
 # proxy-cache form.
-version: 1.1.5
+version: 1.2.0
 description: |
   Catalyst Crossplane XRDs + Compositions Blueprint. Carries ONLY the
   apiextensions.crossplane.io/v1 CompositeResourceDefinition and

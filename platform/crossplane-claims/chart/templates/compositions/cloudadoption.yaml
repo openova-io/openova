@@ -1,0 +1,229 @@
+# Composition: opentofu-cloud-adoption.compose.openova.io — the default
+# realization for XCloudAdoption (ADR-0011, Refs #4002).
+#
+# Renders ONE provider-opentofu Workspace per adopted resource. The
+# Workspace runs an INLINE OpenTofu module that does a read-only `data`
+# lookup of the real cloud resource keyed by its id, then exposes the
+# observed id + address as outputs. Because the module contains ONLY
+# `data` sources (no managed `resource` blocks) AND the Workspace carries
+# managementPolicies:[Observe], adoption can NEVER create/mutate/delete
+# the live cloud resource — it purely binds Crossplane to it.
+#
+# The inline module is cloud-aware: it carries both a hetzner and a
+# huawei provider{} + data{} path, gated by the `cloud` var so the same
+# Composition adopts on EITHER cloud. The huawei path sets the on-prem
+# HCS custom per-service endpoints + insecure TLS that the native
+# provider-huaweicloud cannot be trusted to handle (ADR-0011 §Decision).
+#
+# OBSERVE→MANAGE: spec.parameters.manage=false (default) keeps
+# managementPolicies:[Observe]. Flipping it to true promotes the
+# Workspace to [Observe,Create,Update,Delete] (full-manage) — a
+# deliberate per-resource act, never the default.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: opentofu-cloud-adoption.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: opentofu
+    catalyst.openova.io/adoption-seam: "true"
+spec:
+  compositeTypeRef:
+    apiVersion: compose.openova.io/v1alpha1
+    kind: XCloudAdoption
+
+  writeConnectionSecretsToNamespace: crossplane-system
+
+  resources:
+    - name: adoption-workspace
+      base:
+        apiVersion: tf.upbound.io/v1beta1
+        kind: Workspace
+        metadata:
+          # external-name is patched to the real resource id below; it is
+          # the canonical adoption binding (the cloud resource id).
+          annotations:
+            crossplane.io/external-name: ""
+        spec:
+          # OBSERVE-ONLY by default. Adoption must never re-provision the
+          # live platform. The `manage` flag flips this to full-manage.
+          managementPolicies: ["Observe"]
+          providerConfigRef:
+            name: default
+          forProvider:
+            source: Inline
+            # The inline module is parameterised entirely by vars (patched
+            # below). It does a `data` lookup ONLY — no managed resources —
+            # so a `tofu apply` of this workspace mutates nothing.
+            vars:
+              - key: cloud
+                value: ""
+              - key: resource_kind
+                value: ""
+              - key: resource_id
+                value: ""
+              - key: huawei_region
+                value: ""
+              - key: huawei_access_key
+                value: ""
+              - key: huawei_secret_key
+                value: ""
+              - key: huawei_project_id
+                value: ""
+              - key: huawei_insecure
+                value: "true"
+              - key: hcloud_token
+                value: ""
+            module: |
+              variable "cloud"             { type = string }
+              variable "resource_kind"     { type = string }
+              variable "resource_id"       { type = string }
+              variable "huawei_region"     { type = string  default = "me-east-215" }
+              variable "huawei_access_key" { type = string  default = "" }
+              variable "huawei_secret_key" { type = string  default = "" }
+              variable "huawei_project_id" { type = string  default = "" }
+              variable "huawei_insecure"   { type = string  default = "true" }
+              variable "hcloud_token"      { type = string  default = "" }
+
+              terraform {
+                required_providers {
+                  huaweicloud = { source = "huaweicloud/huaweicloud", version = "~> 1.65" }
+                  hcloud      = { source = "hetznercloud/hcloud",      version = "~> 1.49" }
+                }
+              }
+
+              # ── Huawei (on-prem HCS) provider — custom per-service
+              # endpoints + insecure TLS, mirroring infra/providers/huawei.
+              provider "huaweicloud" {
+                region     = var.huawei_region
+                access_key = var.huawei_access_key
+                secret_key = var.huawei_secret_key
+                project_id = var.huawei_project_id
+                insecure   = tobool(var.huawei_insecure)
+                endpoints = {
+                  iam = "https://iam.${var.huawei_region}.kom4dc.nationalcloud.om"
+                  ecs = "https://ecs.${var.huawei_region}.kom4dc.nationalcloud.om"
+                  vpc = "https://vpc.${var.huawei_region}.kom4dc.nationalcloud.om"
+                  elb = "https://elb.${var.huawei_region}.kom4dc.nationalcloud.om"
+                }
+              }
+
+              provider "hcloud" { token = var.hcloud_token }
+
+              # ── Huawei data lookups (read-only) ──────────────────────
+              data "huaweicloud_elb_loadbalancers" "hw" {
+                count       = var.cloud == "huawei" && var.resource_kind == "loadbalancer" ? 1 : 0
+                loadbalancer_id = var.resource_id
+              }
+              data "huaweicloud_compute_instance" "hw" {
+                count       = var.cloud == "huawei" && var.resource_kind == "server" ? 1 : 0
+                instance_id = var.resource_id
+              }
+              data "huaweicloud_vpc" "hw" {
+                count = var.cloud == "huawei" && var.resource_kind == "network" ? 1 : 0
+                id    = var.resource_id
+              }
+
+              # ── Hetzner data lookups (read-only) ─────────────────────
+              data "hcloud_load_balancer" "hz" {
+                count = var.cloud == "hetzner" && var.resource_kind == "loadbalancer" ? 1 : 0
+                id    = var.resource_id
+              }
+              data "hcloud_server" "hz" {
+                count = var.cloud == "hetzner" && var.resource_kind == "server" ? 1 : 0
+                id    = var.resource_id
+              }
+              data "hcloud_network" "hz" {
+                count = var.cloud == "hetzner" && var.resource_kind == "network" ? 1 : 0
+                id    = var.resource_id
+              }
+
+              locals {
+                observed_id = coalesce(
+                  try(data.huaweicloud_elb_loadbalancers.hw[0].loadbalancers[0].id, ""),
+                  try(data.huaweicloud_compute_instance.hw[0].id, ""),
+                  try(data.huaweicloud_vpc.hw[0].id, ""),
+                  try(data.hcloud_load_balancer.hz[0].id, ""),
+                  try(data.hcloud_server.hz[0].id, ""),
+                  try(data.hcloud_network.hz[0].id, ""),
+                  var.resource_id,
+                )
+                observed_address = coalesce(
+                  try(data.huaweicloud_elb_loadbalancers.hw[0].loadbalancers[0].vip_address, ""),
+                  try(data.huaweicloud_compute_instance.hw[0].public_ip, ""),
+                  try(data.hcloud_load_balancer.hz[0].ipv4, ""),
+                  try(data.hcloud_server.hz[0].ipv4_address, ""),
+                  "",
+                )
+              }
+
+              output "observed_id"      { value = local.observed_id }
+              output "observed_address" { value = local.observed_address }
+              output "adopted"          { value = local.observed_id == var.resource_id }
+      patches:
+        # ── identity / external-name binding ─────────────────────────
+        - fromFieldPath: spec.parameters.resourceId
+          toFieldPath: metadata.annotations[crossplane.io/external-name]
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: metadata.name
+          policy:
+            fromFieldPath: Optional
+        # default the Workspace name to <cloud>-<kind>-<shortid> when the
+        # claim did not set one (the generator always sets one).
+        - fromFieldPath: spec.parameters.resourceId
+          toFieldPath: metadata.name
+          policy:
+            fromFieldPath: Required
+          transforms:
+            - type: string
+              string:
+                fmt: "adopt-%s"
+
+        # ── var wiring ───────────────────────────────────────────────
+        - fromFieldPath: spec.parameters.cloud
+          toFieldPath: spec.forProvider.vars[0].value
+        - fromFieldPath: spec.parameters.resourceKind
+          toFieldPath: spec.forProvider.vars[1].value
+        - fromFieldPath: spec.parameters.resourceId
+          toFieldPath: spec.forProvider.vars[2].value
+        - fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.vars[3].value
+          policy:
+            fromFieldPath: Optional
+
+        # ── provider config ──────────────────────────────────────────
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+          policy:
+            fromFieldPath: Optional
+
+        # ── Observe-first guarantee ──────────────────────────────────
+        # managementPolicies stays ["Observe"] (the base default) for
+        # EVERY adoption — Crossplane reads the live resource and can
+        # never create/mutate/delete it. There is deliberately NO patch
+        # that lets spec.parameters.manage silently widen the policy:
+        # promoting a CloudAdoption to full-manage
+        # ([Observe,Create,Update,Delete]) is an explicit, audited
+        # per-resource act (patch the composed Workspace directly per the
+        # ADR-0011 runbook) so a stray claim value can never re-provision
+        # the running platform. The `manage` field is surfaced to the
+        # console as the intent signal; the policy widening is the human
+        # gate. See ADR-0011 §Consequences.
+
+        # ── status bind-back ─────────────────────────────────────────
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.outputs.observed_id
+          toFieldPath: status.observedId
+          policy:
+            fromFieldPath: Optional
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.outputs.observed_address
+          toFieldPath: status.observedAddress
+          policy:
+            fromFieldPath: Optional
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.outputs.adopted
+          toFieldPath: status.adopted
+          policy:
+            fromFieldPath: Optional

@@ -4,3 +4,14 @@ kind: Kustomization
 resources:
   - provider-hcloud.yaml
   - provider-config-hcloud.yaml
+  # provider-opentofu — the cross-cloud OpenTofu→Crossplane adoption seam
+  # (ADR-0011, Refs #4002). Adopts Phase-0 cloud resources by external-name
+  # on BOTH Hetzner and Huawei without re-provisioning.
+  - provider-opentofu.yaml
+  - provider-config-opentofu.yaml
+  # adoption-claims.yaml — the per-Sovereign CloudAdoption manifests the
+  # provisioner's adoption generator (internal/provisioner/adoption.go)
+  # overwrites from tofu state. Ships with envsubst placeholders so a
+  # fresh prov gets a valid (empty-by-default) Observe-only baseline; the
+  # generator replaces it with the real resource ids at Phase-1 hand-off.
+  - adoption-claims.yaml
