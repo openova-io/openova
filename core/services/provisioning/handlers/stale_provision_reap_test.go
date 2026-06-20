@@ -2,8 +2,10 @@
 //
 // The dedup collision path (startProvisioning) reaps an in-flight provision
 // row that has gone stale — abandoned by a provisioning Pod crash/roll — so the
-// uniq_inflight_tenant partial index releases and the tenant can re-provision
-// instead of wedging out of the #3376 funnel forever.
+// in-flight uniqueness guard in CreateProvisionIfAbsent (an application-level
+// check-then-insert; FerretDB can't express the partial unique index that once
+// backed it) releases and the tenant can re-provision instead of wedging out of
+// the #3376 funnel forever.
 //
 // The reap is only SAFE if the staleness threshold is strictly larger than the
 // longest gap a HEALTHY workflow can leave between updated_at refreshes. The
