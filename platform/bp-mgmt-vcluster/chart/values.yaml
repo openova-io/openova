@@ -737,8 +737,41 @@ vcluster:
         mappings:
           byName:
             # gitea/harbor/grafana — host-minted SSO/OIDC creds ONLY
-            # (the pod-mounted DB Secret is intentionally NOT imported).
+            # (the pod-mounted *-database-secret reflector hub Secret is
+            # intentionally NOT imported — it would make the from-host and
+            # to-host secret syncers fight over the same virtual object, the
+            # #3374 deadlock; the DB hub Secret is delivered natively
+            # in-vCluster by bp-postgres mangledTarget per #3879 instead).
             "gitea/gitea-oauth-source-credentials": "gitea/gitea-oauth-source-credentials"
+            # ── #3642/#3948 gitea-pg-app delivery (hw172 spine wedge) ──
+            # gitea (unlike keycloak/grafana/harbor) consumes its DB password
+            # from the RAW CNPG-app Secret `gitea-pg-app` DIRECTLY (chart
+            # values.yaml `additionalConfigFromEnvs` →
+            # GITEA__database__PASSWD secretKeyRef name: gitea-pg-app), NOT
+            # the reflected `gitea-database-secret`. After #3642 moved gitea
+            # INTO vc-mgmt the pod resolves that as
+            # `gitea-pg-app-x-gitea-x-mgmt-vcluster` in host ns `mgmt`, which
+            # never lands: host CNPG `gitea-pg` mints `gitea-pg-app` in host
+            # ns `gitea` (emberstack reflector-scoped to `gitea` only) and the
+            # `gitea/*` wildcard above was narrowed to SSO-only — so nothing
+            # delivers `gitea-pg-app` across the host→vCluster boundary →
+            # gitea pod `Init:CreateContainerConfigError` (secret
+            # "gitea-pg-app-x-gitea-x-mgmt-vcluster" not found) → the
+            # bp-catalyst-platform `gitea-token-mint` pre-install hook hangs
+            # → console install times out (hw172 RCA, dep b50ba61d9cb9e157).
+            #
+            # SAFE to fromHost-import (no from-host↔to-host fight): unlike the
+            # 4 `*-database-secret` reflector hub Secrets, `gitea-pg-app` is
+            # the RAW CNPG-generated app Secret — it carries NO emberstack
+            # `reflection-*` annotations targeting ns `mgmt` and is NOT
+            # materialised there by any bp-postgres mangledTarget (#3879), so
+            # the from-host syncer is its ONLY in-vCluster owner. Proven by
+            # the byte-identical working analog `guacamole-pg-app` (also a raw
+            # CNPG-app Secret, pod-mounted inside vc-mgmt) delivered cleanly
+            # via the `catalyst-system/*` wildcard below — guacamole-server
+            # runs 1/1 in vc-mgmt with no syncer contention. EXACT-NAME (not
+            # `gitea/*`) so the #3374 DB-hub-Secret exclusion stays intact.
+            "gitea/gitea-pg-app": "gitea/gitea-pg-app"
             "harbor/harbor-sso-oidc-credentials": "harbor/harbor-sso-oidc-credentials"
             "grafana/grafana-sso-oidc-credentials": "grafana/grafana-sso-oidc-credentials"
             # keycloak — NO entry: the only host-minted Secret it needs is

@@ -325,7 +325,10 @@ name: bp-mgmt-vcluster
 # Paired with the 06a-bp-self-sovereign-cutover.yaml overlay change that points
 # harbor.adminSecretRef.name at the synced `harbor-admin-x-harbor-x-mgmt-vcluster`
 # Secret. Refs #3926 #3379 #3642.
-version: 0.2.26
+# 0.2.27 (#3948): fromHost-import gitea/gitea-pg-app (exact-name) so the
+# gitea pod's GITEA__database__PASSWD secretKeyRef resolves inside vc-mgmt —
+# unblocks gitea → bp-catalyst-platform gitea-token-mint hook → console (hw172).
+version: 0.2.27
 appVersion: "0.23.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT
