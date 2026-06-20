@@ -1,19 +1,21 @@
 /**
  * ReconciliationPage.test.tsx — wiring lock-in for the #3925 surface-B
- * Reconciliation page.
+ * Reconciliation page (two-tab design, operator 2026-06-20).
  *
  * Coverage:
  *   • renders the N/M-Reconciled header
- *   • renders one node per declared component (bounded: HRs + Kustomizations)
- *   • renders the Reconciliation vocabulary — Reconciled/Reconciling/
- *     Drifted/Degraded — and NEVER Success/Succeeded/Failed
- *   • ZERO scanner/Job nodes (the page is fed the bounded DAG only)
- *   • dependsOn edges surface on the node row
+ *   • DAG tab (default): one GRAPH node per declared component + dependsOn
+ *     rendered as graph EDGES (not inline text) — the real dependency view
+ *   • Reconciliation vocabulary — Reconciled/Reconciling/Degraded — and
+ *     NEVER Success/Succeeded/Failed
+ *   • ZERO scanner/Job nodes (bounded DAG only)
+ *   • List tab: switching surfaces the scannable status rows + dependsOn
  *   • the not-yet-tracked footnote renders
+ *   • empty state
  */
 
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, cleanup, within } from '@testing-library/react'
+import { render, screen, cleanup, within, fireEvent } from '@testing-library/react'
 import {
   RouterProvider,
   createRouter,
@@ -69,46 +71,44 @@ describe('ReconciliationPage', () => {
     expect(count.textContent).toMatch(/reconciled/i)
   })
 
-  it('renders one node per declared component (bounded set)', async () => {
+  it('defaults to the DAG tab and renders one graph node per declared component', async () => {
     renderPage()
-    await screen.findByTestId('reconciliation-dag')
-    const nodes = screen.getAllByTestId('reconciliation-node')
+    await screen.findByTestId('reconciliation-dag-svg')
+    const nodes = screen.getAllByTestId(/^reconciliation-dag-node-/)
     expect(nodes).toHaveLength(5)
+    // ZERO scanner/Job nodes — only HelmRelease + Kustomization kinds.
+    for (const n of nodes) {
+      expect(['HelmRelease', 'Kustomization']).toContain(n.getAttribute('data-kind'))
+    }
+  })
+
+  it('renders dependsOn as graph EDGES (the real dependency view)', async () => {
+    renderPage()
+    const edges = await screen.findByTestId('reconciliation-dag-edges')
+    // Two declared deps: bp-keycloak→bp-cilium, bp-newapi→bp-keycloak.
+    expect(edges.querySelectorAll('polyline')).toHaveLength(2)
   })
 
   it('renders the Reconciliation vocabulary and NEVER Success/Failed', async () => {
     renderPage()
     const dag = await screen.findByTestId('reconciliation-dag')
     const text = dag.textContent ?? ''
-    // Vocabulary present.
     expect(text).toMatch(/Reconciled/)
     expect(text).toMatch(/Reconciling/)
     expect(text).toMatch(/Degraded/)
-    // Forbidden finite-end words ABSENT.
     expect(text).not.toMatch(/Success/i)
     expect(text).not.toMatch(/Succeeded/i)
     expect(text).not.toMatch(/\bFailed\b/i)
   })
 
-  it('renders ZERO scanner/Job nodes (only HelmRelease + Kustomization kinds)', async () => {
+  it('switches to the List tab and surfaces status rows + dependsOn', async () => {
     renderPage()
-    await screen.findByTestId('reconciliation-dag')
-    const nodes = screen.getAllByTestId('reconciliation-node')
-    for (const n of nodes) {
-      const kind = n.getAttribute('data-kind')
-      expect(['HelmRelease', 'Kustomization']).toContain(kind)
-    }
-  })
-
-  it('surfaces dependsOn edges on the node row', async () => {
-    renderPage()
-    await screen.findByTestId('reconciliation-dag')
-    const keycloak = screen
-      .getAllByTestId('reconciliation-node')
-      .find((n) => n.getAttribute('data-node-id') === 'bp-keycloak')
+    fireEvent.click(await screen.findByTestId('reconciliation-tab-list'))
+    const nodes = await screen.findAllByTestId('reconciliation-node')
+    expect(nodes).toHaveLength(5)
+    const keycloak = nodes.find((n) => n.getAttribute('data-node-id') === 'bp-keycloak')
     expect(keycloak).toBeTruthy()
-    const deps = within(keycloak!).getByTestId('reconciliation-node-deps')
-    expect(deps.textContent).toContain('bp-cilium')
+    expect(within(keycloak!).getByTestId('reconciliation-node-deps').textContent).toContain('bp-cilium')
   })
 
   it('renders the not-yet-tracked footnote', async () => {
