@@ -807,7 +807,7 @@ name: bp-newapi
 # cnpg.enabled alone) — fixes `volumeMounts[0].name: Not found "sql-dsn-gate"`
 # install failure under placement.role=vcluster-app (cnpg.enabled=false +
 # database.existingSecret set). Lockstep: both slot pins + blueprint → 1.4.119.
-version: 1.4.119
+version: 1.4.120
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
