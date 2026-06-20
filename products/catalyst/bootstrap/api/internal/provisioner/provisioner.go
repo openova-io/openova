@@ -1913,6 +1913,22 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 		return nil, fmt.Errorf("read tofu outputs: %w", err)
 	}
 
+	// ── Crossplane adoption (Phase-1 hand-off) — ADR-0011 / Refs #4002 ──
+	// THE PRODUCER that was missing. Read the OpenTofu state and emit one
+	// Observe-first CloudAdoption per real cloud resource (loadbalancer /
+	// server / network / subnet / eip / firewall), each annotated with the
+	// cloud resource id, into adoption-claims.yaml in the deploy workdir.
+	// Crossplane's provider-opentofu then OBSERVES the live infra by
+	// external-name — so Crossplane finally OWNS what OpenTofu bootstrapped,
+	// instead of OpenTofu silently owning everything and Crossplane sitting
+	// inert. Best-effort + non-fatal: a generation failure must never fail
+	// an otherwise-successful apply (the bootstrap-kit's adoption-claims.yaml
+	// placeholder keeps the infrastructure Kustomization valid until the
+	// next reconcile picks up the generated file).
+	if err := p.writeAdoptionClaims(deployDir, req, emit); err != nil {
+		emit("crossplane-adoption", "warn", "adoption-claim generation failed (non-fatal — Crossplane will adopt on the next reconcile once the file lands): "+err.Error())
+	}
+
 	emit("flux-bootstrap", "info", "Cloud-init has bootstrapped Flux + Crossplane in the new cluster — Flux will now reconcile clusters/"+req.SovereignFQDN+"/ from the public OpenOva monorepo, installing the 11-component bootstrap kit and bp-catalyst-platform umbrella in dependency order. The wizard's progress page will poll Flux Kustomizations on the new cluster for steady-state.")
 
 	// G117 #2840 — post-condition partial-region rollback defense.

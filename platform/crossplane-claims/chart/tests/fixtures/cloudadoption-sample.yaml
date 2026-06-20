@@ -1,0 +1,25 @@
+# CloudAdoption sample fixture (ADR-0011, Refs #4002).
+#
+# Models the REAL hw173 (kom4dc / Huawei) primary ELB the adoption seam
+# binds Crossplane to: external-name = the live ELB id, Observe-first.
+apiVersion: compose.openova.io/v1alpha1
+kind: CloudAdoption
+metadata:
+  name: adopt-loadbalancer-primary
+  namespace: crossplane-system
+  labels:
+    catalyst.openova.io/sovereign: hw173.omani.works
+    catalyst.openova.io/adoption-seam: "true"
+    catalyst.openova.io/resource-kind: loadbalancer
+  annotations:
+    crossplane.io/external-name: d0e827ad-2e02-44b3-9b25-1513b7b771f4
+spec:
+  parameters:
+    cloud: huawei
+    resourceKind: loadbalancer
+    resourceId: d0e827ad-2e02-44b3-9b25-1513b7b771f4
+    region: me-east-215
+    sovereignFQDN: hw173.omani.works
+    manage: false
+  providerConfigRef:
+    name: default

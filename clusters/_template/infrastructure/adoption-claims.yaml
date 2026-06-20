@@ -1,0 +1,56 @@
+# adoption-claims.yaml — OpenTofu→Crossplane adoption claims for this
+# Sovereign (ADR-0011, Refs #4002).
+#
+# THIS FILE IS GENERATED. The provisioner's adoption generator
+# (products/catalyst/bootstrap/api/internal/provisioner/adoption.go)
+# reads the post-`tofu apply` state and OVERWRITES this file with one
+# CloudAdoption per real cloud resource (loadbalancer / control-plane
+# server / network), each annotated with the real resource id. Flux
+# reconciles clusters/<fqdn>/infrastructure so the claims apply at
+# Phase-1 hand-off.
+#
+# What ships in the _template (before any generation) is the
+# Observe-only baseline below: a single self-documenting placeholder
+# CloudAdoption gated OFF (enabled=false via the no-op resourceId) so a
+# fresh prov reconciles green without adopting anything until the
+# generator fills in the real ids. The generator never leaves this
+# placeholder in place — it is purely the "valid empty state".
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #3: every cloud resource a Sovereign
+# owns day-2 is reconciled by Crossplane, not by raw kubectl or a second
+# tofu run. These claims are how Crossplane comes to own what OpenTofu
+# bootstrapped.
+#
+# managementPolicies on every generated claim is [Observe] — adoption
+# binds + reads the live resource and NEVER re-provisions it. Promotion
+# to full-manage is an explicit, per-resource act (ADR-0011 runbook).
+
+# ── Placeholder baseline (generator-overwritten) ─────────────────────
+# Intentionally references no real resource. resourceId is the literal
+# string "PENDING-GENERATION"; the Observe-only Workspace's data lookup
+# returns empty and status.adopted stays false — a harmless no-op that
+# keeps the infrastructure Kustomization valid on a brand-new prov until
+# adoption.go writes the real ids.
+apiVersion: compose.openova.io/v1alpha1
+kind: CloudAdoption
+metadata:
+  name: adoption-placeholder
+  namespace: crossplane-system
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    catalyst.openova.io/adoption-seam: "true"
+    catalyst.openova.io/placeholder: "true"
+  annotations:
+    catalyst.openova.io/note: >-
+      Generator-overwritten by internal/provisioner/adoption.go at Phase-1
+      hand-off. If you still see this on a converged Sovereign, the
+      adoption generator did not run — check the provisioner logs.
+spec:
+  parameters:
+    cloud: huawei
+    resourceKind: loadbalancer
+    resourceId: PENDING-GENERATION
+    sovereignFQDN: ${SOVEREIGN_FQDN}
+    manage: false
+  providerConfigRef:
+    name: default

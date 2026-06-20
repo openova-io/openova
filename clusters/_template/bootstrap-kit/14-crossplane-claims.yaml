@@ -59,7 +59,11 @@ spec:
       # controller watches).
       # 1.1.4 (Fix #158): kubectlImage switched from bitnami/kubectl:1.31
       # (deleted from Docker Hub 2025-08) to bitnamilegacy/kubectl:1.31.4.
-      version: 1.1.5
+      # 1.2.0 (ADR-0011 / #4002): adds the cloud-agnostic XCloudAdoption XRD
+      # + opentofu-cloud-adoption Composition — the OpenTofu→Crossplane
+      # adoption seam. Crossplane now OBSERVES the Phase-0 cloud resources
+      # (ELB / nodes / VPC) by external-name on BOTH Hetzner and Huawei.
+      version: 1.2.0
       sourceRef:
         kind: HelmRepository
         name: bp-crossplane-claims

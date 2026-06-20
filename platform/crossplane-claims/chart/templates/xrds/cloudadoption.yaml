@@ -1,0 +1,166 @@
+# XRD: XCloudAdoption — the cloud-agnostic OpenTofu→Crossplane adoption
+# composite (ADR-0011, Refs #4002).
+#
+# This is the seam that was never implemented: at Phase-1 hand-off the
+# provisioner's adoption generator (internal/provisioner/adoption.go)
+# emits one CloudAdoption per OpenTofu-created cloud resource
+# (loadbalancer / server / network / firewall / peering / eip),
+# annotated `crossplane.io/external-name=<cloud resource id>`. Crossplane
+# then OBSERVES the real resource (Observe-only by default) via a
+# provider-opentofu Workspace whose inline module does a `data` lookup
+# keyed by that id — binding Crossplane to the live infra WITHOUT
+# re-provisioning it.
+#
+# Unlike the Hetzner-only XLoadBalancerClaim/XHetzner* composites (native
+# provider-hcloud MRs, day-2 CRUD), CloudAdoption works on EVERY cloud
+# because it delegates to OpenTofu — the same module that already knows
+# the on-prem HCS custom endpoints + insecure TLS for Huawei.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #3: Crossplane is the only day-2 cloud
+# IaC. CloudAdoption is how a Sovereign's Crossplane comes to OWN the
+# resources OpenTofu bootstrapped, instead of OpenTofu silently owning
+# everything and Crossplane sitting inert.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xcloudadoptions.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: opentofu
+    catalyst.openova.io/adoption-seam: "true"
+spec:
+  group: compose.openova.io
+  names:
+    kind: XCloudAdoption
+    plural: xcloudadoptions
+  claimNames:
+    kind: CloudAdoption
+    plural: cloudadoptions
+  defaultCompositionRef:
+    name: opentofu-cloud-adoption.compose.openova.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                parameters:
+                  type: object
+                  required: [cloud, resourceKind, resourceId]
+                  properties:
+                    cloud:
+                      type: string
+                      description: |
+                        Which cloud the resource lives in — selects the
+                        provider{} block + endpoints the backing OpenTofu
+                        Workspace module renders. `huawei` carries the
+                        on-prem HCS custom endpoints + insecure TLS.
+                      enum: [hetzner, huawei]
+                    resourceKind:
+                      type: string
+                      description: |
+                        The OpenTofu/cloud resource family being adopted.
+                        Drives which `data` source the Workspace module
+                        queries (e.g. huawei loadbalancer →
+                        data.huaweicloud_elb_loadbalancer).
+                      enum:
+                        - loadbalancer
+                        - server
+                        - network
+                        - subnet
+                        - firewall
+                        - eip
+                        - peering
+                    resourceId:
+                      type: string
+                      description: |
+                        The REAL cloud resource id (also set as
+                        crossplane.io/external-name on the composed
+                        Workspace). This is what binds Crossplane to the
+                        live OpenTofu-created resource. e.g. the hw173 ELB
+                        id d0e827ad-2e02-44b3-9b25-1513b7b771f4.
+                    region:
+                      type: string
+                      description: |
+                        Cloud region/location code. Huawei: me-east-215.
+                        Hetzner: fsn1/nbg1/hel1/ash/hil.
+                    sovereignFQDN:
+                      type: string
+                      description: The Sovereign this resource belongs to.
+                    manage:
+                      type: boolean
+                      default: false
+                      description: |
+                        OBSERVE-FIRST GUARD. false (default) → the composed
+                        Workspace gets managementPolicies:[Observe] and can
+                        NEVER mutate/delete the live cloud resource. Flip to
+                        true ONLY after the external-name binding is
+                        confirmed Synced, to promote to full-manage
+                        ([Observe,Create,Update,Delete]). Adoption must
+                        never re-provision the running platform.
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                  default:
+                    name: default
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:        { type: string }
+                      status:      { type: string }
+                      reason:      { type: string }
+                      message:     { type: string }
+                      lastTransitionTime: { type: string, format: date-time }
+                adopted:
+                  type: boolean
+                  description: |
+                    True once the backing Workspace reports the resource id
+                    it observed equals spec.parameters.resourceId — i.e.
+                    Crossplane is now observing the real cloud resource.
+                observedId:
+                  type: string
+                  description: |
+                    The resource id the Workspace's `data` lookup returned.
+                    Matches spec.parameters.resourceId when adoption is healthy.
+                observedAddress:
+                  type: string
+                  description: |
+                    The live public address (EIP / LB VIP) the data lookup
+                    returned, surfaced for the console cloud-view (#3998).
+                managementMode:
+                  type: string
+                  description: Observe (default) or FullManage.
+      additionalPrinterColumns:
+        - name: CLOUD
+          type: string
+          jsonPath: .spec.parameters.cloud
+        - name: KIND
+          type: string
+          jsonPath: .spec.parameters.resourceKind
+        - name: RESOURCE-ID
+          type: string
+          jsonPath: .spec.parameters.resourceId
+        - name: ADDRESS
+          type: string
+          jsonPath: .status.observedAddress
+        - name: ADOPTED
+          type: string
+          jsonPath: .status.adopted
+        - name: AGE
+          type: date
+          jsonPath: .metadata.creationTimestamp

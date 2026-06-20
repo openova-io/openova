@@ -60,16 +60,18 @@ helm template smoke-cp . > "$TMP/render.yaml" 2> "$TMP/render.err" || {
 }
 echo "  PASS"
 
-echo "[composition-validate] Case 2: render contains 7 XRDs"
+echo "[composition-validate] Case 2: render contains 8 XRDs"
+# 7 day-2 Hetzner CRUD XRDs + 1 cloud-agnostic XCloudAdoption (the
+# OpenTofu→Crossplane adoption seam, ADR-0011 / #4002).
 XRD_COUNT="$(grep -c '^kind: CompositeResourceDefinition$' "$TMP/render.yaml" || true)"
-if [ "$XRD_COUNT" -ne 7 ]; then
-  echo "FAIL: expected 7 XRDs, found $XRD_COUNT" >&2
+if [ "$XRD_COUNT" -ne 8 ]; then
+  echo "FAIL: expected 8 XRDs, found $XRD_COUNT" >&2
   grep -E '^(kind|  name): ' "$TMP/render.yaml" | head -40 >&2
   exit 1
 fi
 echo "  PASS ($XRD_COUNT XRDs)"
 
-echo "[composition-validate] Case 3: render contains the 6 expected default Compositions"
+echo "[composition-validate] Case 3: render contains the 7 expected default Compositions"
 # Explicit-name check (qa-loop iter-16 Fix #89, post PR #1309).
 #
 # Pre-#1309 the chart shipped 7 Compositions including the legacy
@@ -88,6 +90,7 @@ EXPECTED_COMPOSITIONS=(
   hetzner-node-pool.compose.openova.io
   hetzner-peering.compose.openova.io
   hetzner-region.compose.openova.io
+  opentofu-cloud-adoption.compose.openova.io
 )
 COMPOSITION_COUNT="$(grep -c '^kind: Composition$' "$TMP/render.yaml" || true)"
 if [ "$COMPOSITION_COUNT" -ne ${#EXPECTED_COMPOSITIONS[@]} ]; then
@@ -168,6 +171,7 @@ EXPECTED_KINDS=(
   PeeringClaim
   NodeActionClaim
   UserAccess
+  CloudAdoption
 )
 for kind in "${EXPECTED_KINDS[@]}"; do
   if ! grep -q "kind: $kind$" "$TMP/render.yaml"; then
