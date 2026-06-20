@@ -1,0 +1,24 @@
+{
+    "apiVersion": "v1",
+    "kind": "Namespace",
+    "metadata": {
+        "creationTimestamp": "2026-06-20T02:58:14Z",
+        "labels": {
+            "catalyst.openova.io/sovereign": "hw173.omani.works",
+            "kubernetes.io/metadata.name": "catalyst-system",
+            "kustomize.toolkit.fluxcd.io/name": "bootstrap-kit",
+            "kustomize.toolkit.fluxcd.io/namespace": "flux-system"
+        },
+        "name": "catalyst-system",
+        "resourceVersion": "3496",
+        "uid": "c807fe2f-3a09-41e9-bd75-cb0cf4e4e95f"
+    },
+    "spec": {
+        "finalizers": [
+            "kubernetes"
+        ]
+    },
+    "status": {
+        "phase": "Active"
+    }
+}

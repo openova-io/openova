@@ -1,0 +1,43 @@
+{
+    "apiVersion": "v1",
+    "kind": "Namespace",
+    "metadata": {
+        "annotations": {
+            "meta.helm.sh/release-name": "mgmt-vcluster",
+            "meta.helm.sh/release-namespace": "mgmt"
+        },
+        "creationTimestamp": "2026-06-20T03:17:52Z",
+        "labels": {
+            "app.kubernetes.io/instance": "mgmt-vcluster",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/name": "bp-mgmt-vcluster",
+            "app.kubernetes.io/version": "0.23.0",
+            "catalyst.openova.io/blueprint": "bp-mgmt-vcluster",
+            "catalyst.openova.io/sovereign": "hw173.omani.works",
+            "catalyst.openova.io/topology": "dod-a4",
+            "catalyst.openova.io/topology-role": "primary",
+            "catalyst.openova.io/vcluster": "mgmt",
+            "catalyst.openova.io/vcluster-role": "mgmt",
+            "helm.sh/chart": "bp-mgmt-vcluster-0.2.28",
+            "helm.toolkit.fluxcd.io/name": "bp-mgmt-vcluster",
+            "helm.toolkit.fluxcd.io/namespace": "flux-system",
+            "kubernetes.io/metadata.name": "mgmt",
+            "kustomize.toolkit.fluxcd.io/name": "bootstrap-kit",
+            "kustomize.toolkit.fluxcd.io/namespace": "flux-system",
+            "pod-security.kubernetes.io/audit": "baseline",
+            "pod-security.kubernetes.io/enforce": "baseline",
+            "pod-security.kubernetes.io/warn": "baseline"
+        },
+        "name": "mgmt",
+        "resourceVersion": "10690",
+        "uid": "819608d0-709c-40f5-ada3-773e92ff5d3e"
+    },
+    "spec": {
+        "finalizers": [
+            "kubernetes"
+        ]
+    },
+    "status": {
+        "phase": "Active"
+    }
+}

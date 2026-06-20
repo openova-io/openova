@@ -1,0 +1,992 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "creationTimestamp": "2026-06-20T14:38:29Z",
+                "generateName": "catalyst-api-7db77c9859-",
+                "labels": {
+                    "app.kubernetes.io/name": "catalyst-api",
+                    "catalyst.openova.io/application": "catalyst-api",
+                    "pod-template-hash": "7db77c9859",
+                    "policy.cilium.io/enforced": "true"
+                },
+                "name": "catalyst-api-7db77c9859-x46ng",
+                "namespace": "catalyst-system",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "apps/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "ReplicaSet",
+                        "name": "catalyst-api-7db77c9859",
+                        "uid": "0bff99ee-332b-4332-8353-16f1ab9d39b3"
+                    }
+                ],
+                "resourceVersion": "860884",
+                "uid": "83e0c0c2-d107-4c7f-8f44-fabf655ec657"
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "env": [
+                            {
+                                "name": "PORT",
+                                "value": "8080"
+                            },
+                            {
+                                "name": "OPENOVA_FLOW_SERVER_URL",
+                                "value": "http://openova-flow-server.catalyst-system.svc.cluster.local"
+                            },
+                            {
+                                "name": "CATALYST_BUILD_SHA",
+                                "value": "3a1bb63"
+                            },
+                            {
+                                "name": "CATALYST_CHART_VERSION",
+                                "value": "1.4.95"
+                            },
+                            {
+                                "name": "CORS_ORIGIN",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "sovereign-console-url",
+                                        "name": "catalyst-runtime-config",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "DYNADOT_API_KEY",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "api-key",
+                                        "name": "dynadot-api-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "DYNADOT_API_SECRET",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "api-secret",
+                                        "name": "dynadot-api-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "DYNADOT_MANAGED_DOMAINS",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "domains",
+                                        "name": "dynadot-api-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "DYNADOT_DOMAIN",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "domain",
+                                        "name": "dynadot-api-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_TOFU_WORKDIR",
+                                "value": "/var/lib/catalyst/tofu"
+                            },
+                            {
+                                "name": "CATALYST_HUAWEI_NAT_EIP_STATE",
+                                "value": "/var/lib/catalyst/tofu/nat-eip-blocklist.json"
+                            },
+                            {
+                                "name": "CATALYST_TF_PLUGIN_CACHE_DIR",
+                                "value": "/var/lib/catalyst/tofu-plugin-cache"
+                            },
+                            {
+                                "name": "CATALYST_DEPLOYMENTS_DIR",
+                                "value": "/var/lib/catalyst/deployments"
+                            },
+                            {
+                                "name": "CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS",
+                                "value": "1"
+                            },
+                            {
+                                "name": "CATALYST_PHASE1_WATCH_TIMEOUT",
+                                "value": "120m"
+                            },
+                            {
+                                "name": "CATALYST_KUBECONFIGS_DIR",
+                                "value": "/var/lib/catalyst/kubeconfigs"
+                            },
+                            {
+                                "name": "CATALYST_API_PUBLIC_URL",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "sovereign-api-public-url",
+                                        "name": "catalyst-runtime-config"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_NATS_URL",
+                                "value": "nats://nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc.cluster.local:4222"
+                            },
+                            {
+                                "name": "CATALYST_K8SCACHE_KUBECONFIGS_DIR",
+                                "value": "/var/lib/catalyst/kubeconfigs"
+                            },
+                            {
+                                "name": "CATALYST_K8SCACHE_SNAPSHOT_DIR",
+                                "value": "/var/cache/sov-cache"
+                            },
+                            {
+                                "name": "CATALYST_K8SCACHE_KINDS_CONFIGMAP",
+                                "value": "catalyst-k8scache-kinds"
+                            },
+                            {
+                                "name": "CATALYST_K8SCACHE_KINDS_CONFIGMAP_NAMESPACE",
+                                "value": "catalyst"
+                            },
+                            {
+                                "name": "CATALYST_GHCR_PULL_TOKEN",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "token",
+                                        "name": "catalyst-ghcr-pull-token",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_HARBOR_ROBOT_TOKEN",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "token",
+                                        "name": "harbor-robot-token"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_HUAWEI_ACCESS_KEY",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "access_key",
+                                        "name": "huawei-operator-creds",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_HUAWEI_SECRET_KEY",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "secret_key",
+                                        "name": "huawei-operator-creds",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_HUAWEI_PROJECT_ID",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "project_id",
+                                        "name": "huawei-operator-creds",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_HUAWEI_REGION",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "region",
+                                        "name": "huawei-operator-creds",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_POWERDNS_API_KEY",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "api-key",
+                                        "name": "powerdns-api-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_POWERDNS_API_URL",
+                                "value": "http://powerdns.powerdns.svc.cluster.local:8081"
+                            },
+                            {
+                                "name": "CATALYST_POWERDNS_SERVER_ID",
+                                "value": "localhost"
+                            },
+                            {
+                                "name": "CATALYST_KC_ADDR",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "addr",
+                                        "name": "catalyst-kc-sa-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_KC_REALM",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "realm",
+                                        "name": "catalyst-kc-sa-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_KC_SA_CLIENT_ID",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "client-id",
+                                        "name": "catalyst-kc-sa-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_KC_SA_CLIENT_SECRET",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "client-secret",
+                                        "name": "catalyst-kc-sa-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_OIDC_PROVIDER_ENABLED",
+                                "value": "true"
+                            },
+                            {
+                                "name": "CATALYST_PIN_BROKER_CLIENT_ID",
+                                "value": "catalyst-pin"
+                            },
+                            {
+                                "name": "CATALYST_PIN_BROKER_CLIENT_SECRET",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "client-secret",
+                                        "name": "catalyst-pin-broker-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_GITEA_URL",
+                                "value": "http://gitea-http.gitea.svc.cluster.local:3000"
+                            },
+                            {
+                                "name": "CATALYST_GITEA_TOKEN",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "token",
+                                        "name": "catalyst-gitea-token",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_SME_JWT_SECRET",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "JWT_SECRET",
+                                        "name": "org-services-secrets",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_NEWAPI_ADDR",
+                                "value": "http://newapi-bp-newapi.newapi.svc.cluster.local:3000"
+                            },
+                            {
+                                "name": "CATALYST_NEWAPI_ADMIN_TOKEN",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "ADMIN_API_TOKEN",
+                                        "name": "catalyst-newapi-admin-token",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "KC_BOOTSTRAP_TIER_ROLES",
+                                "value": "false"
+                            },
+                            {
+                                "name": "CATALYST_HANDOVER_JWT_PUBLIC_PATH",
+                                "value": "/etc/catalyst/handover-jwt-public/public.jwk"
+                            },
+                            {
+                                "name": "CATALYST_OPENBAO_ADDR",
+                                "value": "http://openbao.openbao.svc.cluster.local:8200"
+                            },
+                            {
+                                "name": "CATALYST_OPENBAO_K8S_AUTH_ROLE",
+                                "value": "catalyst-api"
+                            },
+                            {
+                                "name": "SOVEREIGN_FQDN",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "fqdn",
+                                        "name": "sovereign-fqdn",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "SOVEREIGN_REGIONS_JSON",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "regionsJson",
+                                        "name": "sovereign-fqdn",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "OPERATOR_EMAIL",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "orgEmail",
+                                        "name": "sovereign-fqdn",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "SOVEREIGN_CONTROL_PLANE_IP",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "controlPlaneIP",
+                                        "name": "sovereign-fqdn",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "GITOPS_REPO_URL",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "gitopsRepoURL",
+                                        "name": "sovereign-fqdn",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "ORG_NAME",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "orgName",
+                                        "name": "sovereign-fqdn",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_OTECH_FQDN",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "fqdn",
+                                        "name": "sovereign-fqdn",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_SELF_DEPLOYMENT_ID",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "selfDeploymentId",
+                                        "name": "sovereign-fqdn",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "SOVEREIGN_LB_IP",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "lbIP",
+                                        "name": "sovereign-fqdn",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_OTECH_INGRESS_IPV4",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "lbIP",
+                                        "name": "sovereign-fqdn",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_CONFIGURED_REGIONS",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "configuredRegions",
+                                        "name": "sovereign-fqdn",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "SOVEREIGN_ENABLE_HOT_STANDBY",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "enableHotStandby",
+                                        "name": "sovereign-fqdn",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "SOVEREIGN_PRIMARY_REGION",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "primaryRegion",
+                                        "name": "sovereign-fqdn",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "SOVEREIGN_REPLICA_REGION",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "replicaRegion",
+                                        "name": "sovereign-fqdn",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_QA_APPLICATIONS",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "qaApplications",
+                                        "name": "sovereign-fqdn",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_GITOPS_USER",
+                                "value": "gitea_admin"
+                            },
+                            {
+                                "name": "CATALYST_GITOPS_REPO_URL",
+                                "value": "http://gitea-http.gitea.svc.cluster.local:3000/openova/openova"
+                            },
+                            {
+                                "name": "CATALYST_GITOPS_BRANCH",
+                                "value": "sme-tenants"
+                            },
+                            {
+                                "name": "CATALYST_GITOPS_TOKEN",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "GITHUB_TOKEN",
+                                        "name": "provisioning-github-token",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "POOL_DOMAIN_MANAGER_URL",
+                                "value": "https://pool.openova.io"
+                            },
+                            {
+                                "name": "CATALYST_PDM_BASIC_AUTH_USER",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "username",
+                                        "name": "pdm-basicauth",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_PDM_BASIC_AUTH_PASS",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "password",
+                                        "name": "pdm-basicauth",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_HANDOVER_SIGNER_PATH",
+                                "value": "/var/lib/catalyst/handover-jwt-private.pem"
+                            },
+                            {
+                                "name": "CATALYST_KC_CLIENT_ID",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "kc-client-id",
+                                        "name": "catalyst-magic-link-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_KC_REDIRECT_URI",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "kc-redirect-uri",
+                                        "name": "catalyst-magic-link-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_SESSION_COOKIE_SECRET",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "session-cookie-secret",
+                                        "name": "catalyst-magic-link-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_POST_AUTH_REDIRECT",
+                                "value": "/sovereign/components"
+                            },
+                            {
+                                "name": "CATALYST_OPENOVA_KC_ADDR",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "kc-addr",
+                                        "name": "catalyst-openova-kc-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_OPENOVA_KC_REALM",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "kc-realm",
+                                        "name": "catalyst-openova-kc-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_OPENOVA_KC_SA_CLIENT_ID",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "kc-sa-client-id",
+                                        "name": "catalyst-openova-kc-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_OPENOVA_KC_SA_CLIENT_SECRET",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "kc-sa-client-secret",
+                                        "name": "catalyst-openova-kc-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_OPENOVA_KC_AUDIENCE",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "kc-audience",
+                                        "name": "catalyst-openova-kc-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_SMTP_HOST",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "smtp-host",
+                                        "name": "catalyst-openova-kc-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_SMTP_PORT",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "smtp-port",
+                                        "name": "catalyst-openova-kc-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_SMTP_USER",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "smtp-user",
+                                        "name": "catalyst-openova-kc-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_SMTP_PASS",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "smtp-pass",
+                                        "name": "catalyst-openova-kc-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_SMTP_FROM",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "smtp-from",
+                                        "name": "catalyst-openova-kc-credentials",
+                                        "optional": true
+                                    }
+                                }
+                            },
+                            {
+                                "name": "CATALYST_SESSION_COOKIE_DOMAIN"
+                            },
+                            {
+                                "name": "CATALYST_CATALOG_URL",
+                                "value": "http://catalyst-catalog.catalyst-system.svc.cluster.local:8080"
+                            },
+                            {
+                                "name": "CATALYST_MIMIR_URL",
+                                "value": "http://mimir-query-frontend-x-mimir-x-mgmt-vcluster.mgmt.svc.cluster.local:8080"
+                            },
+                            {
+                                "name": "CATALYST_TEST_SESSION_ENABLED",
+                                "value": "false"
+                            }
+                        ],
+                        "image": "ghcr.io/openova-io/openova/catalyst-api:3a1bb63",
+                        "imagePullPolicy": "IfNotPresent",
+                        "livenessProbe": {
+                            "failureThreshold": 3,
+                            "httpGet": {
+                                "path": "/healthz",
+                                "port": 8080,
+                                "scheme": "HTTP"
+                            },
+                            "initialDelaySeconds": 3,
+                            "periodSeconds": 10,
+                            "successThreshold": 1,
+                            "timeoutSeconds": 1
+                        },
+                        "name": "catalyst-api",
+                        "ports": [
+                            {
+                                "containerPort": 8080,
+                                "protocol": "TCP"
+                            }
+                        ],
+                        "readinessProbe": {
+                            "failureThreshold": 3,
+                            "httpGet": {
+                                "path": "/readyz",
+                                "port": 8080,
+                                "scheme": "HTTP"
+                            },
+                            "initialDelaySeconds": 2,
+                            "periodSeconds": 5,
+                            "successThreshold": 1,
+                            "timeoutSeconds": 1
+                        },
+                        "resources": {
+                            "limits": {
+                                "cpu": "2",
+                                "memory": "4Gi"
+                            },
+                            "requests": {
+                                "cpu": "100m",
+                                "memory": "96Mi"
+                            }
+                        },
+                        "securityContext": {
+                            "allowPrivilegeEscalation": false,
+                            "readOnlyRootFilesystem": false,
+                            "runAsNonRoot": true,
+                            "runAsUser": 65534
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/tmp",
+                                "name": "tmp"
+                            },
+                            {
+                                "mountPath": "/home/nonroot",
+                                "name": "home"
+                            },
+                            {
+                                "mountPath": "/var/lib/catalyst",
+                                "name": "catalyst"
+                            },
+                            {
+                                "mountPath": "/var/cache/sov-cache",
+                                "name": "sov-cache"
+                            },
+                            {
+                                "mountPath": "/etc/catalyst/handover-jwt-public",
+                                "name": "handover-jwt-public",
+                                "readOnly": true
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-cqzs9",
+                                "readOnly": true
+                            }
+                        ]
+                    }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "enableServiceLinks": true,
+                "imagePullSecrets": [
+                    {
+                        "name": "ghcr-pull"
+                    }
+                ],
+                "nodeName": "catalyst-hw173-omani-works-7bb723da-me-east-215-a-wfce2ae",
+                "preemptionPolicy": "PreemptLowerPriority",
+                "priority": 0,
+                "restartPolicy": "Always",
+                "schedulerName": "default-scheduler",
+                "securityContext": {
+                    "fsGroup": 65534,
+                    "fsGroupChangePolicy": "OnRootMismatch"
+                },
+                "serviceAccount": "catalyst-api-cutover-driver",
+                "serviceAccountName": "catalyst-api-cutover-driver",
+                "terminationGracePeriodSeconds": 30,
+                "tolerations": [
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/not-ready",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    },
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/unreachable",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    }
+                ],
+                "volumes": [
+                    {
+                        "emptyDir": {
+                            "sizeLimit": "2Gi"
+                        },
+                        "name": "tmp"
+                    },
+                    {
+                        "emptyDir": {
+                            "sizeLimit": "256Mi"
+                        },
+                        "name": "home"
+                    },
+                    {
+                        "name": "catalyst",
+                        "persistentVolumeClaim": {
+                            "claimName": "catalyst-api-deployments"
+                        }
+                    },
+                    {
+                        "name": "sov-cache",
+                        "persistentVolumeClaim": {
+                            "claimName": "catalyst-api-cache"
+                        }
+                    },
+                    {
+                        "name": "handover-jwt-public",
+                        "secret": {
+                            "defaultMode": 420,
+                            "items": [
+                                {
+                                    "key": "public.jwk",
+                                    "path": "public.jwk"
+                                }
+                            ],
+                            "optional": true,
+                            "secretName": "catalyst-handover-jwt-public"
+                        }
+                    },
+                    {
+                        "name": "kube-api-access-cqzs9",
+                        "projected": {
+                            "defaultMode": 420,
+                            "sources": [
+                                {
+                                    "serviceAccountToken": {
+                                        "expirationSeconds": 3607,
+                                        "path": "token"
+                                    }
+                                },
+                                {
+                                    "configMap": {
+                                        "items": [
+                                            {
+                                                "key": "ca.crt",
+                                                "path": "ca.crt"
+                                            }
+                                        ],
+                                        "name": "kube-root-ca.crt"
+                                    }
+                                },
+                                {
+                                    "downwardAPI": {
+                                        "items": [
+                                            {
+                                                "fieldRef": {
+                                                    "apiVersion": "v1",
+                                                    "fieldPath": "metadata.namespace"
+                                                },
+                                                "path": "namespace"
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "status": {
+                "conditions": [
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-06-20T14:38:31Z",
+                        "status": "True",
+                        "type": "PodReadyToStartContainers"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-06-20T14:38:30Z",
+                        "status": "True",
+                        "type": "Initialized"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-06-20T14:38:35Z",
+                        "status": "True",
+                        "type": "Ready"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-06-20T14:38:35Z",
+                        "status": "True",
+                        "type": "ContainersReady"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-06-20T14:38:29Z",
+                        "status": "True",
+                        "type": "PodScheduled"
+                    }
+                ],
+                "containerStatuses": [
+                    {
+                        "containerID": "containerd://85a27822b6d534dda3b2de2f98e5d122261e372af69b562a10e95242842e53fe",
+                        "image": "ghcr.io/openova-io/openova/catalyst-api:3a1bb63",
+                        "imageID": "ghcr.io/openova-io/openova/catalyst-api@sha256:f43db4565f6a93ce78fe7ebb0044d16b8e4bcc69713941ed7e3bf7a84a3b1bf3",
+                        "lastState": {},
+                        "name": "catalyst-api",
+                        "ready": true,
+                        "restartCount": 0,
+                        "started": true,
+                        "state": {
+                            "running": {
+                                "startedAt": "2026-06-20T14:38:31Z"
+                            }
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/tmp",
+                                "name": "tmp"
+                            },
+                            {
+                                "mountPath": "/home/nonroot",
+                                "name": "home"
+                            },
+                            {
+                                "mountPath": "/var/lib/catalyst",
+                                "name": "catalyst"
+                            },
+                            {
+                                "mountPath": "/var/cache/sov-cache",
+                                "name": "sov-cache"
+                            },
+                            {
+                                "mountPath": "/etc/catalyst/handover-jwt-public",
+                                "name": "handover-jwt-public",
+                                "readOnly": true,
+                                "recursiveReadOnly": "Disabled"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-cqzs9",
+                                "readOnly": true,
+                                "recursiveReadOnly": "Disabled"
+                            }
+                        ]
+                    }
+                ],
+                "hostIP": "10.169.1.83",
+                "hostIPs": [
+                    {
+                        "ip": "10.169.1.83"
+                    }
+                ],
+                "phase": "Running",
+                "podIP": "10.42.4.88",
+                "podIPs": [
+                    {
+                        "ip": "10.42.4.88"
+                    }
+                ],
+                "qosClass": "Burstable",
+                "startTime": "2026-06-20T14:38:30Z"
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

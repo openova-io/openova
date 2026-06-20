@@ -181,6 +181,135 @@ func TestPlacementRuntime_StatelessTwoRegions_NotSingleton(t *testing.T) {
 	}
 }
 
+// loftSyncedFixturePod builds a Pod with the EXACT shape a per-tier
+// vCluster (#3642) syncs down into its HOST namespace: the mangled host name
+// (`<name>-x-<chart>-x-<vcluster>`), the host namespace `mgmt`, the upstream
+// chart labels preserved verbatim by the loft syncer
+// (app.kubernetes.io/{instance,name}=<chart>), and the loft object-* /
+// host-* annotations. This reproduces the REAL hw173 grafana pod
+// (`grafana-6f94dbbd8f-zs8fr-x-grafana-x-mgmt-vcluster`, host ns `mgmt`,
+// labels instance=grafana name=grafana) — NOT a clean non-synced mock, which
+// is exactly the gap the #3984 tests missed.
+func loftSyncedFixturePod(hostNS, chart, mangledName, inVClusterNS, inVClusterName, vcluster, region string) *unstructured.Unstructured {
+	lbls := map[string]any{
+		"app.kubernetes.io/instance":  chart,
+		"app.kubernetes.io/name":      chart,
+		"vcluster.loft.sh/managed-by": vcluster,
+		"vcluster.loft.sh/namespace":  inVClusterNS,
+	}
+	if region != "" {
+		// On hw173 the synced Pod itself does NOT carry openova.io/region;
+		// the region resolves off the host Node. We seed it here only so the
+		// unit test's region join is deterministic without a Node fixture —
+		// the live path exercises the Node fallback (verified separately).
+		lbls["openova.io/region"] = region
+	}
+	anns := map[string]any{
+		"vcluster.loft.sh/object-name":           inVClusterName,
+		"vcluster.loft.sh/object-namespace":      inVClusterNS,
+		"vcluster.loft.sh/object-host-namespace": hostNS,
+	}
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Pod",
+		"metadata": map[string]any{
+			"namespace":         hostNS,
+			"name":              mangledName,
+			"creationTimestamp": time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
+			"resourceVersion":   "1",
+			"labels":            lbls,
+			"annotations":       anns,
+		},
+		"spec": map[string]any{
+			"containers": []any{map[string]any{"name": "grafana", "image": "ghcr.io/x:1"}},
+		},
+		"status": map[string]any{
+			"phase":      "Running",
+			"conditions": []any{map[string]any{"type": "Ready", "status": "True"}},
+		},
+	}}
+}
+
+// TestPlacementRuntime_LoftSyncedGrafana_BpPrefixed_TwoRegions is the #3986
+// reproduction: the FE asks for the `bp-`-prefixed AppDetail route id
+// (`bp-grafana`) but the live, loft-synced grafana pods in BOTH regions are
+// labelled bare `grafana`. The pre-#3986 matcher compared `bp-grafana`
+// against `grafana` and matched NOTHING → `{"targets":[]}` → false singleton
+// (the live hw173 symptom). After the fix it must surface 2 targets,
+// Pattern ≠ singleton. Uses the REAL loft pod shape, queried with the REAL
+// `bp-grafana` id — the two facts the #3984 tests both omitted.
+func TestPlacementRuntime_LoftSyncedGrafana_BpPrefixed_TwoRegions(t *testing.T) {
+	depID := "dep-grafana-loft"
+	regionA, regionB := "me-east-215-a", "me-east-215-b"
+	h := newPlacementHandler(t, depID, regionA, regionB,
+		[]*unstructured.Unstructured{loftSyncedFixturePod(
+			"mgmt", "grafana",
+			"grafana-6f94dbbd8f-zs8fr-x-grafana-x-mgmt-vcluster",
+			"grafana", "grafana-6f94dbbd8f-zs8fr", "mgmt-vcluster", regionA)},
+		[]*unstructured.Unstructured{loftSyncedFixturePod(
+			"mgmt", "grafana",
+			"grafana-5b9f9b5d4b-xp844-x-grafana-x-mgmt-vcluster",
+			"grafana", "grafana-5b9f9b5d4b-xp844", "mgmt-vcluster", regionB)},
+	)
+
+	// Query with the BP-PREFIXED id the FE actually sends (the route id),
+	// scoped to host ns `mgmt` exactly as the live capture did.
+	router := chi.NewRouter()
+	router.Get("/api/v1/sovereigns/{id}/applications/{name}/placement", h.HandleApplicationPlacement)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sovereigns/"+depID+"/applications/bp-grafana/placement?namespace=mgmt", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("placement: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp runtimePlacementResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v; body=%s", err, rec.Body.String())
+	}
+
+	if len(resp.Targets) != 2 {
+		t.Fatalf("bp-grafana (loft-synced) targets: got %d want 2 — the exact #3986 bug; targets=%+v",
+			len(resp.Targets), resp.Targets)
+	}
+	regions := map[string]bool{}
+	for _, tgt := range resp.Targets {
+		if tgt.Role != bpv1.DataRolePrimary {
+			t.Fatalf("bp-grafana target %+v: role %q want Primary (stateless multi-region)", tgt, tgt.Role)
+		}
+		if tgt.VCluster != "mgmt" {
+			t.Fatalf("bp-grafana target %+v: vcluster %q want mgmt (loft host ns)", tgt, tgt.VCluster)
+		}
+		regions[tgt.Region] = true
+	}
+	if !regions[regionA] || !regions[regionB] {
+		t.Fatalf("bp-grafana regions: got %v want both %s + %s", regions, regionA, regionB)
+	}
+	if got := bpv1.DerivePattern(resp.Targets, bpv1.CapabilityMultiPrimary); got == bpv1.PatternSingleton {
+		t.Fatalf("bp-grafana pattern is singleton — the #3986 live bug; targets=%+v", resp.Targets)
+	}
+}
+
+// TestPlacementRuntime_LoftSyncedKeycloak_BpPrefixed mirrors the grafana case
+// for the keycloak StatefulSet pod (`keycloak-0-x-keycloak-x-mgmt-vcluster`),
+// the other component the issue calls out as falsely singleton.
+func TestPlacementRuntime_LoftSyncedKeycloak_BpPrefixed(t *testing.T) {
+	depID := "dep-keycloak-loft"
+	regionA, regionB := "me-east-215-a", "me-east-215-b"
+	h := newPlacementHandler(t, depID, regionA, regionB,
+		[]*unstructured.Unstructured{loftSyncedFixturePod(
+			"mgmt", "keycloak", "keycloak-0-x-keycloak-x-mgmt-vcluster",
+			"keycloak", "keycloak-0", "mgmt-vcluster", regionA)},
+		[]*unstructured.Unstructured{loftSyncedFixturePod(
+			"mgmt", "keycloak", "keycloak-0-x-keycloak-x-mgmt-vcluster",
+			"keycloak", "keycloak-0", "mgmt-vcluster", regionB)},
+	)
+	resp := callPlacement(t, h, depID, "bp-keycloak")
+	if len(resp.Targets) != 2 {
+		t.Fatalf("bp-keycloak (loft-synced) targets: got %d want 2; targets=%+v", len(resp.Targets), resp.Targets)
+	}
+}
+
 // A CNPG pair (primary in region-a, replica in region-b) must surface a
 // Primary target + a Standby·Hot target → Pattern active-hot-standby.
 func TestPlacementRuntime_CNPGPair_PrimaryPlusStandby(t *testing.T) {

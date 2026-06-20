@@ -1,0 +1,909 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "annotations": {
+                    "checksum/config": "358aeebcab338232a319c93fe77308cb2aa495043534a0b95d0c2d55bc344b58",
+                    "checksum/sc-dashboard-provider-config": "64ec80d6198b5a55edbce4049575aea3408f244d5163717308f1af05fd4d1c44",
+                    "checksum/secret": "d612a3698e7ae8b09040674c9cfb45c8a550e18f99385bfe4db311523d672ea9",
+                    "cluster-autoscaler.kubernetes.io/safe-to-evict": "true",
+                    "kubectl.kubernetes.io/default-container": "grafana",
+                    "vcluster.loft.sh/labels": "app.kubernetes.io/instance=\"grafana\"\napp.kubernetes.io/name=\"grafana\"\napp.kubernetes.io/version=\"12.3.1\"\nhelm.sh/chart=\"grafana-10.5.15\"\npod-template-hash=\"6f94dbbd8f\"",
+                    "vcluster.loft.sh/managed-annotations": "checksum/config\nchecksum/sc-dashboard-provider-config\nchecksum/secret\nkubectl.kubernetes.io/default-container",
+                    "vcluster.loft.sh/name": "grafana-6f94dbbd8f-zs8fr",
+                    "vcluster.loft.sh/namespace": "grafana",
+                    "vcluster.loft.sh/object-host-name": "grafana-6f94dbbd8f-zs8fr-x-grafana-x-mgmt-vcluster",
+                    "vcluster.loft.sh/object-host-namespace": "mgmt",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Pod",
+                    "vcluster.loft.sh/object-name": "grafana-6f94dbbd8f-zs8fr",
+                    "vcluster.loft.sh/object-namespace": "grafana",
+                    "vcluster.loft.sh/object-uid": "f852e641-cfc2-4281-ba2f-dd3074304915",
+                    "vcluster.loft.sh/owner-references": "[{\"apiVersion\":\"apps/v1\",\"kind\":\"ReplicaSet\",\"name\":\"grafana-6f94dbbd8f\",\"uid\":\"8a630071-56b2-4fa4-b801-94c489869c8c\",\"controller\":true,\"blockOwnerDeletion\":true}]",
+                    "vcluster.loft.sh/owner-set-kind": "ReplicaSet",
+                    "vcluster.loft.sh/service-account-name": "grafana",
+                    "vcluster.loft.sh/token-rvgduwzd": "eyJhbGciOiJSUzI1NiIsImtpZCI6IkNwYXBBaDZQaEZXWmp4cmlNNWcwMlR4ZnM1RFFrUmt0T2QwSWJfSXdwU1kifQ.eyJhdWQiOlsiaHR0cHM6Ly9rdWJlcm5ldGVzLmRlZmF1bHQuc3ZjLmNsdXN0ZXIubG9jYWwiLCJodHRwczovL2t1YmVybmV0ZXMuZGVmYXVsdC5zdmMiLCJodHRwczovL2t1YmVybmV0ZXMuZGVmYXVsdCJdLCJleHAiOjIwOTcyODYzNTAsImlhdCI6MTc4MTkyNjM1MCwiaXNzIjoiaHR0cHM6Ly9rdWJlcm5ldGVzLmRlZmF1bHQuc3ZjLmNsdXN0ZXIubG9jYWwiLCJqdGkiOiI1NjM3YzQ2NC0xOWI4LTRkNTQtODY0Ny1lNzAzYzBmNDk2MTIiLCJrdWJlcm5ldGVzLmlvIjp7Im5hbWVzcGFjZSI6ImdyYWZhbmEiLCJwb2QiOnsibmFtZSI6ImdyYWZhbmEtNmY5NGRiYmQ4Zi16czhmciIsInVpZCI6ImY4NTJlNjQxLWNmYzItNDI4MS1iYTJmLWRkMzA3NDMwNDkxNSJ9LCJzZXJ2aWNlYWNjb3VudCI6eyJuYW1lIjoiZ3JhZmFuYSIsInVpZCI6ImVmNGU5MTZlLTVkOGItNGE2Mi1iYjM4LTM2NTZhZmYxNjAxMSJ9fSwibmJmIjoxNzgxOTI2MzUwLCJzdWIiOiJzeXN0ZW06c2VydmljZWFjY291bnQ6Z3JhZmFuYTpncmFmYW5hIn0.YK1QGYqU5NQY4-LNi-eet2l43sbMhAB8XLz7qB3lYeVuGzOujrzGqbRltEzM1v-_Lt4BCdbbrrOO3Au0kDgVFvtcMb0L4JAlmufXnNjxmav4h5LcnBkaQYt2N5NaKuAQVsWdAz4KN6-wMFAADOBIBT_zyfi4tEcP_jAQBfVP2V04WL5KE56xvygTNQHoriv94qeYxzEek3r9GHvBZ5kDVGGFOBONUj5iRUe4VH9p6uMrbwZvo82r_o5zOxe6wOvt92vj2YePz9dwITSmy8c-Frt-K7fI8WZBV9iT3Ojo-EhwyYnIDXjtaYFXo7Rji3geR_9sIJw9WA2Z1ZY6cIiJAA",
+                    "vcluster.loft.sh/uid": "f852e641-cfc2-4281-ba2f-dd3074304915"
+                },
+                "creationTimestamp": "2026-06-20T03:32:31Z",
+                "labels": {
+                    "app.kubernetes.io/instance": "grafana",
+                    "app.kubernetes.io/name": "grafana",
+                    "app.kubernetes.io/version": "12.3.1",
+                    "helm.sh/chart": "grafana-10.5.15",
+                    "pod-template-hash": "6f94dbbd8f",
+                    "vcluster.loft.sh/managed-by": "mgmt-vcluster",
+                    "vcluster.loft.sh/namespace": "grafana",
+                    "vcluster.loft.sh/ns-label-mgmt-vcluster-x-82a3537ff0": "grafana",
+                    "vcluster.loft.sh/ns-label-mgmt-vcluster-x-cf1227b7b2": "grafana"
+                },
+                "name": "grafana-6f94dbbd8f-zs8fr-x-grafana-x-mgmt-vcluster",
+                "namespace": "mgmt",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "mgmt-vcluster",
+                        "uid": "1e8c3e36-fdf1-482f-9725-45d1f2b5fbea"
+                    }
+                ],
+                "resourceVersion": "48371",
+                "uid": "df9f4f1c-1a57-443b-a27a-612c4eb5e9b0"
+            },
+            "spec": {
+                "automountServiceAccountToken": false,
+                "containers": [
+                    {
+                        "env": [
+                            {
+                                "name": "GRAFANA_PORT",
+                                "value": "tcp://10.96.133.20:80"
+                            },
+                            {
+                                "name": "GRAFANA_PORT_80_TCP",
+                                "value": "tcp://10.96.133.20:80"
+                            },
+                            {
+                                "name": "GRAFANA_PORT_80_TCP_ADDR",
+                                "value": "10.96.133.20"
+                            },
+                            {
+                                "name": "GRAFANA_PORT_80_TCP_PORT",
+                                "value": "80"
+                            },
+                            {
+                                "name": "GRAFANA_PORT_80_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "GRAFANA_SERVICE_HOST",
+                                "value": "10.96.133.20"
+                            },
+                            {
+                                "name": "GRAFANA_SERVICE_PORT",
+                                "value": "80"
+                            },
+                            {
+                                "name": "GRAFANA_SERVICE_PORT_SERVICE",
+                                "value": "80"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT",
+                                "value": "tcp://10.96.117.155:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP",
+                                "value": "tcp://10.96.117.155:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_ADDR",
+                                "value": "10.96.117.155"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_HOST",
+                                "value": "10.96.117.155"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT_HTTPS",
+                                "value": "443"
+                            },
+                            {
+                                "name": "METHOD",
+                                "value": "WATCH"
+                            },
+                            {
+                                "name": "LABEL",
+                                "value": "grafana_dashboard"
+                            },
+                            {
+                                "name": "LABEL_VALUE",
+                                "value": "1"
+                            },
+                            {
+                                "name": "FOLDER",
+                                "value": "/tmp/dashboards"
+                            },
+                            {
+                                "name": "RESOURCE",
+                                "value": "both"
+                            },
+                            {
+                                "name": "NAMESPACE",
+                                "value": "ALL"
+                            },
+                            {
+                                "name": "REQ_USERNAME",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "admin-user",
+                                        "name": "grafana-x-grafana-x-mgmt-vcluster"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "REQ_PASSWORD",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "admin-password",
+                                        "name": "grafana-x-grafana-x-mgmt-vcluster"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "REQ_URL",
+                                "value": "http://localhost:3000/api/admin/provisioning/dashboards/reload"
+                            },
+                            {
+                                "name": "REQ_METHOD",
+                                "value": "POST"
+                            }
+                        ],
+                        "image": "harbor.openova.io/proxy-quay/kiwigrid/k8s-sidecar:2.5.0",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "grafana-sc-dashboard",
+                        "resources": {
+                            "limits": {
+                                "cpu": "100m",
+                                "memory": "192Mi"
+                            },
+                            "requests": {
+                                "cpu": "10m",
+                                "memory": "64Mi"
+                            }
+                        },
+                        "securityContext": {
+                            "allowPrivilegeEscalation": false,
+                            "capabilities": {
+                                "drop": [
+                                    "ALL"
+                                ]
+                            },
+                            "seccompProfile": {
+                                "type": "RuntimeDefault"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/tmp/dashboards",
+                                "name": "sc-dashboard-volume"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-x2p9m",
+                                "readOnly": true
+                            }
+                        ]
+                    },
+                    {
+                        "env": [
+                            {
+                                "name": "GRAFANA_PORT",
+                                "value": "tcp://10.96.133.20:80"
+                            },
+                            {
+                                "name": "GRAFANA_PORT_80_TCP",
+                                "value": "tcp://10.96.133.20:80"
+                            },
+                            {
+                                "name": "GRAFANA_PORT_80_TCP_ADDR",
+                                "value": "10.96.133.20"
+                            },
+                            {
+                                "name": "GRAFANA_PORT_80_TCP_PORT",
+                                "value": "80"
+                            },
+                            {
+                                "name": "GRAFANA_PORT_80_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "GRAFANA_SERVICE_HOST",
+                                "value": "10.96.133.20"
+                            },
+                            {
+                                "name": "GRAFANA_SERVICE_PORT",
+                                "value": "80"
+                            },
+                            {
+                                "name": "GRAFANA_SERVICE_PORT_SERVICE",
+                                "value": "80"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT",
+                                "value": "tcp://10.96.117.155:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP",
+                                "value": "tcp://10.96.117.155:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_ADDR",
+                                "value": "10.96.117.155"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_HOST",
+                                "value": "10.96.117.155"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT_HTTPS",
+                                "value": "443"
+                            },
+                            {
+                                "name": "METHOD",
+                                "value": "WATCH"
+                            },
+                            {
+                                "name": "LABEL",
+                                "value": "grafana_datasource"
+                            },
+                            {
+                                "name": "LABEL_VALUE",
+                                "value": "1"
+                            },
+                            {
+                                "name": "FOLDER",
+                                "value": "/etc/grafana/provisioning/datasources"
+                            },
+                            {
+                                "name": "RESOURCE",
+                                "value": "both"
+                            },
+                            {
+                                "name": "NAMESPACE",
+                                "value": "ALL"
+                            },
+                            {
+                                "name": "REQ_USERNAME",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "admin-user",
+                                        "name": "grafana-x-grafana-x-mgmt-vcluster"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "REQ_PASSWORD",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "admin-password",
+                                        "name": "grafana-x-grafana-x-mgmt-vcluster"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "REQ_URL",
+                                "value": "http://localhost:3000/api/admin/provisioning/datasources/reload"
+                            },
+                            {
+                                "name": "REQ_METHOD",
+                                "value": "POST"
+                            }
+                        ],
+                        "image": "harbor.openova.io/proxy-quay/kiwigrid/k8s-sidecar:2.5.0",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "grafana-sc-datasources",
+                        "resources": {
+                            "limits": {
+                                "cpu": "100m",
+                                "memory": "192Mi"
+                            },
+                            "requests": {
+                                "cpu": "10m",
+                                "memory": "64Mi"
+                            }
+                        },
+                        "securityContext": {
+                            "allowPrivilegeEscalation": false,
+                            "capabilities": {
+                                "drop": [
+                                    "ALL"
+                                ]
+                            },
+                            "seccompProfile": {
+                                "type": "RuntimeDefault"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/etc/grafana/provisioning/datasources",
+                                "name": "sc-datasources-volume"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-x2p9m",
+                                "readOnly": true
+                            }
+                        ]
+                    },
+                    {
+                        "env": [
+                            {
+                                "name": "GRAFANA_PORT",
+                                "value": "tcp://10.96.133.20:80"
+                            },
+                            {
+                                "name": "GRAFANA_PORT_80_TCP",
+                                "value": "tcp://10.96.133.20:80"
+                            },
+                            {
+                                "name": "GRAFANA_PORT_80_TCP_ADDR",
+                                "value": "10.96.133.20"
+                            },
+                            {
+                                "name": "GRAFANA_PORT_80_TCP_PORT",
+                                "value": "80"
+                            },
+                            {
+                                "name": "GRAFANA_PORT_80_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "GRAFANA_SERVICE_HOST",
+                                "value": "10.96.133.20"
+                            },
+                            {
+                                "name": "GRAFANA_SERVICE_PORT",
+                                "value": "80"
+                            },
+                            {
+                                "name": "GRAFANA_SERVICE_PORT_SERVICE",
+                                "value": "80"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT",
+                                "value": "tcp://10.96.117.155:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP",
+                                "value": "tcp://10.96.117.155:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_ADDR",
+                                "value": "10.96.117.155"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_HOST",
+                                "value": "10.96.117.155"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT_HTTPS",
+                                "value": "443"
+                            },
+                            {
+                                "name": "POD_IP",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "status.podIP"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "GF_SECURITY_ADMIN_USER",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "admin-user",
+                                        "name": "grafana-x-grafana-x-mgmt-vcluster"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "GF_SECURITY_ADMIN_PASSWORD",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "admin-password",
+                                        "name": "grafana-x-grafana-x-mgmt-vcluster"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "GF_PATHS_DATA",
+                                "value": "/var/lib/grafana/"
+                            },
+                            {
+                                "name": "GF_PATHS_LOGS",
+                                "value": "/var/log/grafana"
+                            },
+                            {
+                                "name": "GF_PATHS_PLUGINS",
+                                "value": "/var/lib/grafana/plugins"
+                            },
+                            {
+                                "name": "GF_PATHS_PROVISIONING",
+                                "value": "/etc/grafana/provisioning"
+                            },
+                            {
+                                "name": "GF_UNIFIED_STORAGE_INDEX_PATH",
+                                "value": "/var/lib/grafana-search/bleve"
+                            },
+                            {
+                                "name": "GOMEMLIMIT",
+                                "valueFrom": {
+                                    "resourceFieldRef": {
+                                        "divisor": "1",
+                                        "resource": "limits.memory"
+                                    }
+                                }
+                            }
+                        ],
+                        "envFrom": [
+                            {
+                                "secretRef": {
+                                    "name": "grafana-sso-oidc-credentials-x-grafana-x-mgmt-vcluster"
+                                }
+                            },
+                            {
+                                "secretRef": {
+                                    "name": "grafana-database-env-x-grafana-x-mgmt-vcluster",
+                                    "optional": true
+                                }
+                            }
+                        ],
+                        "image": "harbor.openova.io/proxy-dockerhub/grafana/grafana:12.3.1",
+                        "imagePullPolicy": "IfNotPresent",
+                        "livenessProbe": {
+                            "failureThreshold": 10,
+                            "httpGet": {
+                                "path": "/api/health",
+                                "port": "grafana",
+                                "scheme": "HTTP"
+                            },
+                            "initialDelaySeconds": 60,
+                            "periodSeconds": 10,
+                            "successThreshold": 1,
+                            "timeoutSeconds": 30
+                        },
+                        "name": "grafana",
+                        "ports": [
+                            {
+                                "containerPort": 3000,
+                                "name": "grafana",
+                                "protocol": "TCP"
+                            },
+                            {
+                                "containerPort": 9094,
+                                "name": "gossip-tcp",
+                                "protocol": "TCP"
+                            },
+                            {
+                                "containerPort": 9094,
+                                "name": "gossip-udp",
+                                "protocol": "UDP"
+                            },
+                            {
+                                "containerPort": 6060,
+                                "name": "profiling",
+                                "protocol": "TCP"
+                            }
+                        ],
+                        "readinessProbe": {
+                            "failureThreshold": 3,
+                            "httpGet": {
+                                "path": "/api/health",
+                                "port": "grafana",
+                                "scheme": "HTTP"
+                            },
+                            "periodSeconds": 10,
+                            "successThreshold": 1,
+                            "timeoutSeconds": 1
+                        },
+                        "resources": {
+                            "limits": {
+                                "cpu": "500m",
+                                "memory": "512Mi"
+                            },
+                            "requests": {
+                                "cpu": "100m",
+                                "memory": "256Mi"
+                            }
+                        },
+                        "securityContext": {
+                            "allowPrivilegeEscalation": false,
+                            "capabilities": {
+                                "drop": [
+                                    "ALL"
+                                ]
+                            },
+                            "privileged": false,
+                            "seccompProfile": {
+                                "type": "RuntimeDefault"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/etc/grafana/grafana.ini",
+                                "name": "config",
+                                "subPath": "grafana.ini"
+                            },
+                            {
+                                "mountPath": "/var/lib/grafana",
+                                "name": "storage"
+                            },
+                            {
+                                "mountPath": "/var/lib/grafana-search",
+                                "name": "search"
+                            },
+                            {
+                                "mountPath": "/tmp/dashboards",
+                                "name": "sc-dashboard-volume"
+                            },
+                            {
+                                "mountPath": "/etc/grafana/provisioning/dashboards/sc-dashboardproviders.yaml",
+                                "name": "sc-dashboard-provider",
+                                "subPath": "provider.yaml"
+                            },
+                            {
+                                "mountPath": "/etc/grafana/provisioning/datasources",
+                                "name": "sc-datasources-volume"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-x2p9m",
+                                "readOnly": true
+                            }
+                        ]
+                    }
+                ],
+                "dnsConfig": {
+                    "nameservers": [
+                        "10.96.212.31"
+                    ],
+                    "options": [
+                        {
+                            "name": "ndots",
+                            "value": "5"
+                        }
+                    ],
+                    "searches": [
+                        "grafana.svc.cluster.local",
+                        "svc.cluster.local",
+                        "cluster.local"
+                    ]
+                },
+                "dnsPolicy": "None",
+                "enableServiceLinks": false,
+                "hostAliases": [
+                    {
+                        "hostnames": [
+                            "kubernetes",
+                            "kubernetes.default",
+                            "kubernetes.default.svc"
+                        ],
+                        "ip": "10.96.117.155"
+                    }
+                ],
+                "hostname": "grafana-6f94dbbd8f-zs8fr",
+                "nodeName": "catalyst-hw173-omani-works-7bb723da-me-east-215-a-w21d1c8",
+                "preemptionPolicy": "PreemptLowerPriority",
+                "priority": 0,
+                "restartPolicy": "Always",
+                "schedulerName": "default-scheduler",
+                "securityContext": {
+                    "fsGroup": 472,
+                    "runAsGroup": 472,
+                    "runAsNonRoot": true,
+                    "runAsUser": 472
+                },
+                "serviceAccount": "vc-workload-mgmt-vcluster",
+                "serviceAccountName": "vc-workload-mgmt-vcluster",
+                "shareProcessNamespace": false,
+                "terminationGracePeriodSeconds": 30,
+                "tolerations": [
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/not-ready",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    },
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/unreachable",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    }
+                ],
+                "volumes": [
+                    {
+                        "configMap": {
+                            "defaultMode": 420,
+                            "name": "grafana-x-grafana-x-mgmt-vcluster"
+                        },
+                        "name": "config"
+                    },
+                    {
+                        "name": "storage",
+                        "persistentVolumeClaim": {
+                            "claimName": "grafana-x-grafana-x-mgmt-vcluster"
+                        }
+                    },
+                    {
+                        "emptyDir": {},
+                        "name": "search"
+                    },
+                    {
+                        "emptyDir": {},
+                        "name": "sc-dashboard-volume"
+                    },
+                    {
+                        "configMap": {
+                            "defaultMode": 420,
+                            "name": "grafana-config-dashboards-x-grafana-x-mgmt-vcluster"
+                        },
+                        "name": "sc-dashboard-provider"
+                    },
+                    {
+                        "emptyDir": {},
+                        "name": "sc-datasources-volume"
+                    },
+                    {
+                        "name": "kube-api-access-x2p9m",
+                        "projected": {
+                            "defaultMode": 420,
+                            "sources": [
+                                {
+                                    "downwardAPI": {
+                                        "items": [
+                                            {
+                                                "fieldRef": {
+                                                    "apiVersion": "v1",
+                                                    "fieldPath": "metadata.annotations['vcluster.loft.sh/token-rvgduwzd']"
+                                                },
+                                                "mode": 420,
+                                                "path": "token"
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "configMap": {
+                                        "items": [
+                                            {
+                                                "key": "ca.crt",
+                                                "path": "ca.crt"
+                                            }
+                                        ],
+                                        "name": "kube-root-ca.crt-x-grafana-x-mgmt-vcluster"
+                                    }
+                                },
+                                {
+                                    "downwardAPI": {
+                                        "items": [
+                                            {
+                                                "fieldRef": {
+                                                    "apiVersion": "v1",
+                                                    "fieldPath": "metadata.annotations['vcluster.loft.sh/namespace']"
+                                                },
+                                                "path": "namespace"
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "status": {
+                "conditions": [
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-06-20T03:35:32Z",
+                        "status": "True",
+                        "type": "PodReadyToStartContainers"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-06-20T03:32:37Z",
+                        "status": "True",
+                        "type": "Initialized"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-06-20T03:41:47Z",
+                        "status": "True",
+                        "type": "Ready"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-06-20T03:41:47Z",
+                        "status": "True",
+                        "type": "ContainersReady"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-06-20T03:32:37Z",
+                        "status": "True",
+                        "type": "PodScheduled"
+                    }
+                ],
+                "containerStatuses": [
+                    {
+                        "containerID": "containerd://31acf41a4749f7572fac7dee42779484922e2e5c4a20ed1beaaee478bcb5188a",
+                        "image": "harbor.openova.io/proxy-dockerhub/grafana/grafana:12.3.1",
+                        "imageID": "harbor.openova.io/proxy-dockerhub/grafana/grafana@sha256:2175aaa91c96733d86d31cf270d5310b278654b03f5718c59de12a865380a31f",
+                        "lastState": {},
+                        "name": "grafana",
+                        "ready": true,
+                        "restartCount": 0,
+                        "started": true,
+                        "state": {
+                            "running": {
+                                "startedAt": "2026-06-20T03:41:33Z"
+                            }
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/etc/grafana/grafana.ini",
+                                "name": "config"
+                            },
+                            {
+                                "mountPath": "/var/lib/grafana",
+                                "name": "storage"
+                            },
+                            {
+                                "mountPath": "/var/lib/grafana-search",
+                                "name": "search"
+                            },
+                            {
+                                "mountPath": "/tmp/dashboards",
+                                "name": "sc-dashboard-volume"
+                            },
+                            {
+                                "mountPath": "/etc/grafana/provisioning/dashboards/sc-dashboardproviders.yaml",
+                                "name": "sc-dashboard-provider"
+                            },
+                            {
+                                "mountPath": "/etc/grafana/provisioning/datasources",
+                                "name": "sc-datasources-volume"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-x2p9m",
+                                "readOnly": true,
+                                "recursiveReadOnly": "Disabled"
+                            }
+                        ]
+                    },
+                    {
+                        "containerID": "containerd://85299f648eb6e909c71a973f403323ff0eed4b930bf5dcbb7be0af41ff40c31c",
+                        "image": "harbor.openova.io/proxy-quay/kiwigrid/k8s-sidecar:2.5.0",
+                        "imageID": "harbor.openova.io/proxy-quay/kiwigrid/k8s-sidecar@sha256:a6b3f707f883108376514489a94d6629109a327b2978e1d826cd104c4ca436df",
+                        "lastState": {},
+                        "name": "grafana-sc-dashboard",
+                        "ready": true,
+                        "restartCount": 0,
+                        "started": true,
+                        "state": {
+                            "running": {
+                                "startedAt": "2026-06-20T03:32:59Z"
+                            }
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/tmp/dashboards",
+                                "name": "sc-dashboard-volume"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-x2p9m",
+                                "readOnly": true,
+                                "recursiveReadOnly": "Disabled"
+                            }
+                        ]
+                    },
+                    {
+                        "containerID": "containerd://6c60ab686aa018d06b140a2c3d57dc46401157bcf703b9604da674450d184af2",
+                        "image": "harbor.openova.io/proxy-quay/kiwigrid/k8s-sidecar:2.5.0",
+                        "imageID": "harbor.openova.io/proxy-quay/kiwigrid/k8s-sidecar@sha256:a6b3f707f883108376514489a94d6629109a327b2978e1d826cd104c4ca436df",
+                        "lastState": {},
+                        "name": "grafana-sc-datasources",
+                        "ready": true,
+                        "restartCount": 0,
+                        "started": true,
+                        "state": {
+                            "running": {
+                                "startedAt": "2026-06-20T03:32:59Z"
+                            }
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/etc/grafana/provisioning/datasources",
+                                "name": "sc-datasources-volume"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-x2p9m",
+                                "readOnly": true,
+                                "recursiveReadOnly": "Disabled"
+                            }
+                        ]
+                    }
+                ],
+                "hostIP": "10.169.1.2",
+                "hostIPs": [
+                    {
+                        "ip": "10.169.1.2"
+                    }
+                ],
+                "phase": "Running",
+                "podIP": "10.42.1.252",
+                "podIPs": [
+                    {
+                        "ip": "10.42.1.252"
+                    }
+                ],
+                "qosClass": "Burstable",
+                "startTime": "2026-06-20T03:32:37Z"
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}
