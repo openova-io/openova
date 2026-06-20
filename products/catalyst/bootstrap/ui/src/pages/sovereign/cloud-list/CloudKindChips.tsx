@@ -328,6 +328,9 @@ const CLOUD_KIND_CHIPS_CSS = `
 .cloud-kind-chip[data-category="compute"] .cloud-kind-chip-icon { color: #60a5fa; }
 .cloud-kind-chip[data-category="network"] .cloud-kind-chip-icon { color: #34d399; }
 .cloud-kind-chip[data-category="storage"] .cloud-kind-chip-icon { color: #f59e0b; }
+/* Reconciler kinds (#3978) — violet tint, matching the graph's
+   reconciler family border so the cross-view family-of-surfaces reads. */
+.cloud-kind-chip[data-category="reconciler"] .cloud-kind-chip-icon { color: #a78bfa; }
 .cloud-kind-chip-active .cloud-kind-chip-icon {
   /* When active the chip foreground is the accent — inherit it on the
      icon too so the active state reads as a single colour. */

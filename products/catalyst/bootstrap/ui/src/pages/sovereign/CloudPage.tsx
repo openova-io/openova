@@ -56,6 +56,15 @@ import { useDeploymentEvents } from './useDeploymentEvents'
 import { Architecture } from './Architecture'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { CloudListView } from './cloud-list/CloudListView'
+import { CloudKindChips } from './cloud-list/CloudKindChips'
+import {
+  DEFAULT_KIND,
+  KIND_IDS,
+  KIND_TO_REGISTRY,
+  isValidKind,
+  readPersistedKind,
+  type CloudListKind,
+} from './cloud-list/kinds'
 import { useK8sCacheStream } from '@/widgets/architecture-graph/useK8sCacheStream'
 import { CloudLensProvider } from '@/widgets/architecture-graph/useCloudLens'
 import {
@@ -378,6 +387,91 @@ export function CloudPage({
     })
   }
 
+  /* ── Resource-kind chip strip (issue #366 item 1 · #3978 restore) ──
+   * #3970 retired this strip from the list path when it flattened the
+   * list into CloudUnifiedList. #3978 restores it: the strip drives the
+   * per-kind CloudListView dispatch (each kind → its own column set),
+   * EXACTLY as before, now including the reconciler kinds. */
+  const activeKind: CloudListKind = useMemo(() => {
+    if (isValidKind(search.kind)) return search.kind
+    return readPersistedKind() ?? DEFAULT_KIND
+  }, [search.kind])
+
+  // Per-kind count map for the chip badges. Built dynamically from the
+  // KIND_IDS catalogue (never a hardcoded seed — that maintenance trap
+  // is what stale-counted new kinds before). Topology-projected kinds
+  // (clusters / vclusters / node-pools / worker-nodes / load-balancers /
+  // pvcs / buckets / volumes) seed from the topology snapshot; every
+  // K8s-backed kind (incl. the reconcilers) is overridden from the live
+  // SSE snapshot once initialState arrives. `null` = data unavailable
+  // (renders "—"); 0 = genuinely empty.
+  const kindCounts = useMemo<Record<CloudListKind, number | null>>(() => {
+    const c = {} as Record<CloudListKind, number | null>
+    for (const id of KIND_IDS) {
+      // K8s-backed kinds start at null (until the stream connects);
+      // topology-projected kinds start at 0 (the snapshot is sync).
+      c[id] = id in KIND_TO_REGISTRY ? null : 0
+    }
+    if (data) {
+      let clusters = 0
+      let vclusters = 0
+      let nodePools = 0
+      let workerNodes = 0
+      let lb = 0
+      for (const region of data.topology.regions ?? []) {
+        for (const cluster of region.clusters ?? []) {
+          clusters += 1
+          vclusters += cluster.vclusters?.length ?? 0
+          nodePools += cluster.nodePools?.length ?? 0
+          workerNodes += cluster.nodes?.length ?? 0
+          lb += cluster.loadBalancers?.length ?? 0
+        }
+      }
+      c['clusters'] = clusters
+      c['vclusters'] = vclusters
+      c['node-pools'] = nodePools
+      c['worker-nodes'] = workerNodes
+      c['load-balancers'] = lb
+      c['pvcs'] = data.storage?.pvcs?.length ?? 0
+      c['buckets'] = data.storage?.buckets?.length ?? 0
+      c['volumes'] = data.storage?.volumes?.length ?? 0
+    }
+    // Override every K8s-backed count from the live snapshot. Counts
+    // stay null until the SSE connection delivers initialState=1.
+    if (k8sStream.snapshot.size > 0) {
+      const liveCounts: Partial<Record<CloudListKind, number>> = {}
+      for (const key of k8sStream.snapshot.keys()) {
+        const kind = key.split(':', 1)[0]
+        for (const [chipId, registryKind] of Object.entries(KIND_TO_REGISTRY)) {
+          if (registryKind === kind) {
+            const id = chipId as CloudListKind
+            liveCounts[id] = (liveCounts[id] ?? 0) + 1
+          }
+        }
+      }
+      // Always set to 0 (not null) for K8s-backed kinds once the stream
+      // has any data — initialState=1 has arrived, so a 0-count kind is
+      // genuinely empty, not unconnected.
+      for (const chipId of Object.keys(KIND_TO_REGISTRY) as CloudListKind[]) {
+        c[chipId] = liveCounts[chipId] ?? 0
+      }
+    }
+    return c
+  }, [data, k8sStream.snapshot, k8sStream.revision])
+
+  const setKind = useCallback(
+    (next: CloudListKind) => {
+      navigate({
+        to: cloudPath(deploymentId) as never,
+        params: { deploymentId } as never,
+        search: { view: 'list', kind: next } as never,
+        replace: false,
+      })
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [navigate, deploymentId],
+  )
+
   /* ── Fullscreen ─────────────────────────────────────────────── */
   const contentRef = useRef<HTMLDivElement | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -540,10 +634,20 @@ export function CloudPage({
             </button>
           </div>
 
-          {/* #3970 — the list view now owns its own lens dropdown + chip
-              strip (CloudUnifiedList), shared with the graph via the lens
-              context. The legacy per-kind CloudKindChips strip is gone. */}
-          <span aria-hidden className="cloud-page-toolbar-spacer" />
+          {/* #3978 restore — in list view the resource-kind chip strip
+              drives the per-kind CloudListView dispatch (each kind → its
+              own column set). #3970 had wrongly removed it. In graph view
+              a spacer keeps the fullscreen button right-aligned (the graph
+              owns its own lens chip-set via CloudLensProvider). */}
+          {activeView === 'list' ? (
+            <CloudKindChips
+              activeKind={activeKind}
+              counts={kindCounts}
+              onChange={setKind}
+            />
+          ) : (
+            <span aria-hidden className="cloud-page-toolbar-spacer" />
+          )}
 
           <button
             type="button"
