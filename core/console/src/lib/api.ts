@@ -4,7 +4,7 @@ import { API_BASE, CHECKOUT_URL, MARKETPLACE_HOME_URL, path } from './config';
 // token refresh, active-org switch). Same pattern as marketplace (#51) /
 // admin (#83) — the native `storage` event only fires cross-tab, so we
 // need a custom event for same-tab reactivity.
-export const AUTH_CHANGED_EVENT = 'sme-auth-changed';
+export const AUTH_CHANGED_EVENT = 'org-auth-changed';
 
 export function notifyAuthChanged(): void {
   if (typeof window === 'undefined') return;
@@ -12,20 +12,20 @@ export function notifyAuthChanged(): void {
 }
 
 export function setAuthTokens(token: string, refreshToken: string): void {
-  localStorage.setItem('sme-token', token);
-  if (refreshToken) localStorage.setItem('sme-refresh-token', refreshToken);
+  localStorage.setItem('org-token', token);
+  if (refreshToken) localStorage.setItem('org-refresh-token', refreshToken);
   notifyAuthChanged();
 }
 
 export function setActiveOrg(orgId: string): void {
-  localStorage.setItem('sme-active-org', orgId);
+  localStorage.setItem('org-active-org', orgId);
   notifyAuthChanged();
 }
 
 let refreshing: Promise<void> | null = null;
 
 async function tryRefresh(): Promise<void> {
-  const rt = localStorage.getItem('sme-refresh-token');
+  const rt = localStorage.getItem('org-refresh-token');
   if (!rt) return;
   try {
     const res = await fetch(`${API_BASE}/auth/refresh`, {
@@ -37,19 +37,19 @@ async function tryRefresh(): Promise<void> {
       const data = await res.json();
       setAuthTokens(data.token, data.refresh_token);
     } else {
-      localStorage.removeItem('sme-token');
-      localStorage.removeItem('sme-refresh-token');
+      localStorage.removeItem('org-token');
+      localStorage.removeItem('org-refresh-token');
       notifyAuthChanged();
     }
   } catch {
-    localStorage.removeItem('sme-token');
-    localStorage.removeItem('sme-refresh-token');
+    localStorage.removeItem('org-token');
+    localStorage.removeItem('org-refresh-token');
     notifyAuthChanged();
   }
 }
 
 async function request<T>(path: string, opts?: RequestInit): Promise<T> {
-  const token = localStorage.getItem('sme-token');
+  const token = localStorage.getItem('org-token');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -63,7 +63,7 @@ async function request<T>(path: string, opts?: RequestInit): Promise<T> {
       refreshing = tryRefresh().finally(() => { refreshing = null; });
     }
     await refreshing;
-    const newToken = localStorage.getItem('sme-token');
+    const newToken = localStorage.getItem('org-token');
     if (newToken && newToken !== token) {
       const retryHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -98,7 +98,7 @@ export const getMe = async (): Promise<User> => {
   return data.user;
 };
 function clearSessionState() {
-  const rt = localStorage.getItem('sme-refresh-token');
+  const rt = localStorage.getItem('org-refresh-token');
   if (rt) {
     // Best-effort server-side revocation — don't block logout on it.
     fetch(`${API_BASE}/auth/logout`, {
@@ -108,16 +108,16 @@ function clearSessionState() {
       keepalive: true,
     }).catch(() => {});
   }
-  localStorage.removeItem('sme-token');
-  localStorage.removeItem('sme-refresh-token');
-  localStorage.removeItem('sme-active-org');
-  localStorage.removeItem('sme-cart');
-  localStorage.removeItem('sme-checkout-tenant');
+  localStorage.removeItem('org-token');
+  localStorage.removeItem('org-refresh-token');
+  localStorage.removeItem('org-active-org');
+  localStorage.removeItem('org-cart');
+  localStorage.removeItem('org-checkout-tenant');
   for (let i = localStorage.length - 1; i >= 0; i--) {
     const k = localStorage.key(i);
-    if (k && k.startsWith('sme-tenant:')) localStorage.removeItem(k);
+    if (k && k.startsWith('org-tenant:')) localStorage.removeItem(k);
   }
-  try { sessionStorage.removeItem('sme-session-cache-v1'); } catch {}
+  try { sessionStorage.removeItem('org-session-cache-v1'); } catch {}
   notifyAuthChanged();
 }
 
@@ -298,7 +298,7 @@ export const getLaunchURL = async (
 ): Promise<LaunchURLResponse> => {
   const qs = endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : '';
   const path = `/catalyst/v1/apps/${encodeURIComponent(appId)}/launch-url${qs}`;
-  const token = localStorage.getItem('sme-token');
+  const token = localStorage.getItem('org-token');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),

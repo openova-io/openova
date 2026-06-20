@@ -48,7 +48,7 @@ type State = {
 
 const FAST_INTERVAL = 1500; // ms — while any app is transitioning
 const SLOW_INTERVAL = 10000; // ms — steady state
-const BROADCAST_CHANNEL = 'sme-console-app-state';
+const BROADCAST_CHANNEL = 'org-console-app-state';
 
 // Shallow-compare the fields the UI actually renders so we only mutate
 // the store when something observable changed. Prevents `activeOrg = o`

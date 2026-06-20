@@ -9,7 +9,7 @@
   import DataInstances from './DataInstances.svelte';
   import { type DataInstance } from '../lib/dataInstances';
 
-  const ACTIVE_ORG_KEY = 'sme-active-org';
+  const ACTIVE_ORG_KEY = 'org-active-org';
 
   let catalog = $state<CatalogApp[]>([]);
   let provision = $state<Provision | null>(null);

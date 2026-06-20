@@ -60,7 +60,7 @@ function mothershipConsoleURL(): string {
  * Stripe-return path persists this BEFORE the cross-origin hop so the
  * value survives the round-trip.
  */
-export const ACTIVE_ORG_SLUG_KEY = 'sme-active-org-slug';
+export const ACTIVE_ORG_SLUG_KEY = 'org-active-org-slug';
 
 /**
  * Read the persisted tenant slug from localStorage. Returns null in SSR

@@ -35,7 +35,7 @@
     const next = theme === 'dark' ? 'light' : 'dark';
     theme = next;
     document.documentElement.setAttribute('data-theme', next);
-    try { localStorage.setItem('sme-theme', next); } catch {}
+    try { localStorage.setItem('org-theme', next); } catch {}
   }
 
   // TBD-V57 (#2133) — Pillar 2 BCP topology picker landed as step 4
@@ -60,13 +60,13 @@
   });
 
   // Re-read auth state on mount AND whenever another component dispatches
-  // `sme-auth-changed` (login, logout, token refresh, active-org switch).
+  // `org-auth-changed` (login, logout, token refresh, active-org switch).
   // `localStorage.setItem` does NOT fire the `storage` event in the same tab,
   // so a custom event is the only reliable cross-component signal — see #51.
   $effect(() => {
     if (typeof localStorage === 'undefined') return;
     const sync = () => {
-      const token = localStorage.getItem('sme-token');
+      const token = localStorage.getItem('org-token');
       if (!token) {
         user = null;
         return;
@@ -79,7 +79,7 @@
     window.addEventListener(AUTH_CHANGED_EVENT, sync);
     // Cross-tab sign-out should also clear the profile widget.
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'sme-token' || e.key === null) sync();
+      if (e.key === 'org-token' || e.key === null) sync();
     };
     window.addEventListener('storage', onStorage);
     return () => {
@@ -112,8 +112,8 @@
   }
 
   function portalHref(): string {
-    const t = typeof localStorage !== 'undefined' ? localStorage.getItem('sme-token') : null;
-    const r = typeof localStorage !== 'undefined' ? localStorage.getItem('sme-refresh-token') : null;
+    const t = typeof localStorage !== 'undefined' ? localStorage.getItem('org-token') : null;
+    const r = typeof localStorage !== 'undefined' ? localStorage.getItem('org-refresh-token') : null;
     if (!t) return consoleHref();
     const params: Record<string, string> = { token: t };
     if (r) params.refresh_token = r;

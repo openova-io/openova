@@ -9,7 +9,7 @@
   import { getAppStateStore } from '../lib/stores/appState.svelte';
   import { path } from '../lib/config';
 
-  const ACTIVE_ORG_KEY = 'sme-active-org';
+  const ACTIVE_ORG_KEY = 'org-active-org';
 
   // ADR-0010: the consumer "Backing services" row names the app's
   // data-instance (replacing the coarse "depends on bp-cnpg"). An app
@@ -215,7 +215,7 @@
   // `GET /catalyst/v1/apps/{id}/launch-url` to mint a silent-SSO URL
   // (carries `prompt=none` + `kc_idp_hint=catalyst-pin`) and opens it
   // in a new tab with `noopener,noreferrer`. The catalyst-api handler
-  // takes the installed-Application UID — for the SME tenant flow that
+  // takes the installed-Application UID — for the Organization flow that
   // is the catalog `app.id` echoed back through `provision.apps[]`.
   // If we cannot resolve a per-install id OR the API errors (404 / 409
   // / 503), we fall back to the previous direct-URL behavior so the

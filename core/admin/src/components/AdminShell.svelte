@@ -31,13 +31,13 @@
   );
 
   // Hydrate user on mount, and re-hydrate whenever another island dispatches
-  // `sme-admin-auth-changed` (login, logout, token refresh, logout-all in
+  // `org-admin-auth-changed` (login, logout, token refresh, logout-all in
   // another tab via `storage`). Without this the header avatar / email go
   // stale until the next full reload — matches the marketplace pattern
   // from #51 (#83).
   $effect(() => {
     const sync = () => {
-      const token = localStorage.getItem('sme-admin-token');
+      const token = localStorage.getItem('org-admin-token');
       if (!token) {
         user = null;
         loading = false;
@@ -66,7 +66,7 @@
     sync();
     window.addEventListener(AUTH_CHANGED_EVENT, sync);
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'sme-admin-token' || e.key === null) sync();
+      if (e.key === 'org-admin-token' || e.key === null) sync();
     };
     window.addEventListener('storage', onStorage);
     return () => {

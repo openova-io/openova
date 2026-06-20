@@ -6,7 +6,7 @@
   } from '../lib/api';
   import { getAppStateStore } from '../lib/stores/appState.svelte';
 
-  const ACTIVE_ORG_KEY = 'sme-active-org';
+  const ACTIVE_ORG_KEY = 'org-active-org';
 
   // Unified timeline row — renders both the tenant provision (initial setup)
   // and day-2 install / uninstall jobs with the same visual shape.

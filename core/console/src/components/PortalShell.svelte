@@ -6,8 +6,8 @@
 
   let { activePage = 'dashboard', children }: { activePage?: string; children: Snippet<[User, Org | null]> } = $props();
 
-  const ACTIVE_ORG_KEY = 'sme-active-org';
-  const SESSION_CACHE_KEY = 'sme-session-cache-v1';
+  const ACTIVE_ORG_KEY = 'org-active-org';
+  const SESSION_CACHE_KEY = 'org-session-cache-v1';
 
   type SessionCache = { user: User; orgs: Org[] };
 
@@ -58,7 +58,7 @@
 
   $effect(() => {
     // Accept token from URL params (cross-subdomain handoff from marketplace).
-    // Route the write through setAuthTokens so `sme-auth-changed` fires —
+    // Route the write through setAuthTokens so `org-auth-changed` fires —
     // any island mounted before the handoff (Sidebar, Header) can then
     // re-hydrate without a full reload (#83).
     const params = new URLSearchParams(window.location.search);
@@ -72,7 +72,7 @@
     }
 
     const loadSession = () => {
-      const token = localStorage.getItem('sme-token');
+      const token = localStorage.getItem('org-token');
       if (!token) {
         window.location.href = CHECKOUT_URL;
         return;
@@ -100,8 +100,8 @@
     // via the native `storage` event.
     window.addEventListener(AUTH_CHANGED_EVENT, loadSession);
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'sme-token' || e.key === null) {
-        if (!localStorage.getItem('sme-token')) {
+      if (e.key === 'org-token' || e.key === null) {
+        if (!localStorage.getItem('org-token')) {
           user = null;
           window.location.href = CHECKOUT_URL;
           return;

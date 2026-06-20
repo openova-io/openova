@@ -39,12 +39,12 @@
   let userEditedSubdomain = $state(!!cart.subdomain);
   // #116 — pre-fill the promo code field if the redeemer arrived via the
   // public /redeem?code=... landing. The redeem page stashes the code
-  // under `sme-pending-voucher` and redirects to /plans; by the time the
+  // under `org-pending-voucher` and redirects to /plans; by the time the
   // user reaches checkout, this state is hydrated. The slot is cleared
   // after a successful checkout (in submit() below) so a returning
   // customer doesn't have a stale code stuck in their UI.
   let promoCode = $state(
-    (typeof localStorage !== 'undefined' && localStorage.getItem('sme-pending-voucher')) || '',
+    (typeof localStorage !== 'undefined' && localStorage.getItem('org-pending-voucher')) || '',
   );
   type PayMethod = 'applepay' | 'mastercard' | 'visa';
   let payMethod = $state<PayMethod | null>(null);
@@ -138,11 +138,11 @@
 
   // Check if already authenticated
   $effect(() => {
-    const token = localStorage.getItem('sme-token');
+    const token = localStorage.getItem('org-token');
     if (token) {
       getMe()
         .then((u) => { user = u; })
-        .catch(() => { localStorage.removeItem('sme-token'); });
+        .catch(() => { localStorage.removeItem('org-token'); });
     }
   });
 
@@ -190,17 +190,17 @@
     const params = new URLSearchParams(window.location.search);
     const orderId = params.get('order_id');
     if (orderId) {
-      const savedTenantId = localStorage.getItem('sme-checkout-tenant');
+      const savedTenantId = localStorage.getItem('org-checkout-tenant');
       // TBD-V10 #2001: re-stamp the active-org-slug on Stripe return so
       // the cross-origin round-trip doesn't strand us with a stale slug
       // from a previous workspace. The slug was persisted alongside the
       // id before the Stripe hop in handleCheckout() below.
-      const savedTenantSlug = localStorage.getItem('sme-checkout-tenant-slug');
+      const savedTenantSlug = localStorage.getItem('org-checkout-tenant-slug');
       if (savedTenantId) {
         setActiveOrg(savedTenantId);
         if (savedTenantSlug) setActiveOrgSlug(savedTenantSlug);
-        localStorage.removeItem('sme-checkout-tenant');
-        localStorage.removeItem('sme-checkout-tenant-slug');
+        localStorage.removeItem('org-checkout-tenant');
+        localStorage.removeItem('org-checkout-tenant-slug');
         clearCart();
         redirectToConsole(savedTenantSlug || undefined);
       }
@@ -208,8 +208,8 @@
   });
 
   function redirectToConsole(slug?: string) {
-    const tok = encodeURIComponent(localStorage.getItem('sme-token') || '');
-    const refresh = encodeURIComponent(localStorage.getItem('sme-refresh-token') || '');
+    const tok = encodeURIComponent(localStorage.getItem('org-token') || '');
+    const refresh = encodeURIComponent(localStorage.getItem('org-refresh-token') || '');
     // TBD-V10 #2001: pass the tenant slug so `deriveConsoleURL` composes
     // `console.<slug>.<sov-fqdn>` (per-tenant) instead of
     // `console.<sov-fqdn>` (operator). If `slug` is undefined the helper
@@ -276,7 +276,7 @@
           // body, keyed by app slug. Tenant-service persists this on
           // store.Tenant.AppConfigs and re-emits it on the
           // tenant.created event so any downstream consumer (Path A
-          // SME-controller-via-Org-CR, Path B
+          // Organization-controller-via-Org-CR, Path B
           // gitops-commit-to-tenant-repo, per TBD-V26 #2040) can read
           // the values when materialising the HelmRelease values.
           // Empty record when no app in the cart exposes a
@@ -303,7 +303,7 @@
       // tenant for this cart — but only after verifying it still exists on the
       // backend. Stale localStorage from a wiped DB otherwise silently ships a
       // phantom tenant_id to billing and produces an orphan provision.
-      const cartKey = `sme-tenant:${user.id}:${cart.plan}:${derivedSlug()}`;
+      const cartKey = `org-tenant:${user.id}:${cart.plan}:${derivedSlug()}`;
       const cachedTenantId = localStorage.getItem(cartKey);
       let tenant: { id: string; slug: string } | null = null;
       if (cachedTenantId) {
@@ -333,7 +333,7 @@
       // Step 2: Billing checkout — promo code is additive (credit first, card
       // covers the remainder). Always send if the user entered one. #116:
       // a code arriving via the /redeem landing was stashed in
-      // `sme-pending-voucher`; once submitted to /billing/checkout we
+      // `org-pending-voucher`; once submitted to /billing/checkout we
       // clear the stash so a future signup does not silently carry over
       // somebody else's voucher.
       const trimmedPromo = promoCode ? promoCode.trim() : '';
@@ -345,7 +345,7 @@
         promo_code: trimmedPromo || undefined,
       });
       if (trimmedPromo) {
-        try { localStorage.removeItem('sme-pending-voucher'); } catch (_) {}
+        try { localStorage.removeItem('org-pending-voucher'); } catch (_) {}
       }
 
       if (billing.session_url) {
@@ -355,8 +355,8 @@
         // console host. Without the slug, the return path would degrade
         // to `console.<sov-fqdn>` (operator console) and bounce the user
         // to the wrong workspace surface.
-        localStorage.setItem('sme-checkout-tenant', tenant.id);
-        localStorage.setItem('sme-checkout-tenant-slug', tenant.slug);
+        localStorage.setItem('org-checkout-tenant', tenant.id);
+        localStorage.setItem('org-checkout-tenant-slug', tenant.slug);
         window.location.href = billing.session_url;
         return;
       }
@@ -396,7 +396,7 @@
         if (p.status === 'completed' || p.status === 'failed') {
           clearInterval(poll);
           checkoutLoading = false;
-          localStorage.removeItem('sme-checkout-tenant');
+          localStorage.removeItem('org-checkout-tenant');
         }
       } catch {
         // Provisioning not started yet — show waiting state
@@ -496,8 +496,8 @@
           <a
             href={consoleHref(
               '/jobs',
-              { token: localStorage.getItem('sme-token') || '', refresh_token: localStorage.getItem('sme-refresh-token') || '' },
-              { slug: (typeof localStorage !== 'undefined' ? localStorage.getItem('sme-active-org-slug') : null) || undefined },
+              { token: localStorage.getItem('org-token') || '', refresh_token: localStorage.getItem('org-refresh-token') || '' },
+              { slug: (typeof localStorage !== 'undefined' ? localStorage.getItem('org-active-org-slug') : null) || undefined },
             )}
             class="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-success)] px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-success)]/90 no-underline"
           >
