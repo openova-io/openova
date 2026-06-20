@@ -12,7 +12,7 @@
 # its go workspace). CHEPHERD_BASE pins the upstream chepherd daemon image.
 #
 #   docker build -f products/chepherd/Containerfile \
-#     --build-arg CHEPHERD_BASE=ghcr.io/chepherd/chepherd:v0.9.4 \
+#     --build-arg CHEPHERD_BASE=ghcr.io/chepherd/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82 \
 #     -t ghcr.io/openova-io/bp-chepherd:dev .
 
 # ─── Stage 1: build the openova-mcp binary ────────────────────────────────
@@ -27,7 +27,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w" \
     -o /usr/local/bin/openova-mcp ./cmd/openova-mcp
 
 # ─── Stage 2: overlay onto the upstream chepherd image ────────────────────
-ARG CHEPHERD_BASE=ghcr.io/chepherd/chepherd:v0.9.4
+# Digest-pinned to the v0.9.4 build carrying the bp-chepherd MCP seam
+# (chepherd #747 / #4010: CHEPHERD_EXTRA_MCP_JSON + CHEPHERD_DEFAULT_MODEL).
+ARG CHEPHERD_BASE=ghcr.io/chepherd/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82
 FROM ${CHEPHERD_BASE}
 
 # Bake the openova-mcp binary in at the path the chart's
