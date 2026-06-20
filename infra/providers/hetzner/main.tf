@@ -653,6 +653,25 @@ locals {
           - "https://harbor.openova.io"
         rewrite:
           "(.*)": "proxy-ghcr/$1"
+      # #3913: route the two remaining upstream registries through Harbor too,
+      # so the bootstrap-time mirror set MATCHES the proven post-cutover set in
+      # self-sovereign-cutover/04-registry-pivot-daemonset.yaml (ghcr/docker/
+      # k8s/gcr/quay/xpkg/ecr). Before this, crossplane provider packages from
+      # xpkg.upbound.io (e.g. provider-hcloud, the bp-mgmt-vcluster controllers)
+      # and any public.ecr.aws image pulled DIRECT from upstream — exactly the
+      # un-proxied-pull class #3913 closes. The proxy-xpkg + proxy-ecr Harbor
+      # projects already exist on harbor.openova.io (the 04-pivot rewrite proves
+      # it), so this is a pure config add with no new infra.
+      "xpkg.upbound.io":
+        endpoint:
+          - "https://harbor.openova.io"
+        rewrite:
+          "(.*)": "proxy-xpkg/$1"
+      "public.ecr.aws":
+        endpoint:
+          - "https://harbor.openova.io"
+        rewrite:
+          "(.*)": "proxy-ecr/$1"
     configs:
       "harbor.openova.io":
         auth:

@@ -166,9 +166,82 @@ for entry in "${CHARTS[@]}"; do
   )
 done
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PASS 2 — full static sweep (#3913: close the #3903 coverage gap).
+#
+# PASS 1 above renders only the 4 subchart-wrapping charts that need a --set
+# gate. That left the rest of platform/ + products/ + the raw clusters/_template/
+# manifests UNSCANNED, so a new chart could leak an upstream-registry image
+# (quay.io / gcr.io / registry.k8s.io / ghcr.io / xpkg.upbound.io /
+# public.ecr.aws / docker.io) without any guard catching it (the #3903 / #3913
+# class). This pass greps every image ref in every chart's values.yaml +
+# templates + the raw cluster manifests and asserts none names a bare upstream
+# registry host. It is a static grep (not a render) so it is fast and needs no
+# helm-dependency-build for charts gated off by default.
+#
+# DESIGN: an image ref is FLAGGED if its registry host is one of the known
+# upstream registries AND it is not in the documented exception list. The
+# exceptions are the genuinely-un-proxiable refs (per #3913 task notes):
+#   - mirror.gcr.io/aquasec/* — trivy-operator dynamically spawns scan Jobs it
+#     cannot re-tag (#3825); mirror.gcr.io is itself a Google pull-through cache.
+#   - docker.io/powerdns/* — proxy-docker is not bootstrap-pullable (#3380-D);
+#     bp-powerdns ns is excluded from harbor-proxy-pull.
+#   - cilium/cilium-envoy CNI images — install BEFORE Harbor exists (#3904).
+#   - Helm/envsubst placeholders ({{...}} / ${...}).
+UPSTREAM_HOST_RE='(^|/|")(docker\.io|registry-1\.docker\.io|quay\.io|gcr\.io|registry\.k8s\.io|k8s\.gcr\.io|ghcr\.io|xpkg\.upbound\.io|public\.ecr\.aws)/'
+# Exceptions — refs that are LEGITIMATELY not Harbor-proxy-glob-routed:
+#   - ghcr.io/openova-io/* — the platform's OWN images: native-push source the
+#     kyverno policy explicitly allows (*/openova-io/*); pulled with the
+#     ghcr-pull secret pre-cutover, from registry.<fqdn>/openova-io/* after.
+#   - mirror.gcr.io/aquasec/* — trivy-operator scan Jobs it can't re-tag (#3825).
+#   - docker.io/powerdns/* — proxy-docker not bootstrap-pullable (#3380-D).
+#   - cilium CNI images (quay.io/cilium/*) — install BEFORE Harbor (#3904).
+#   - bitnamilegacy / cloudnative-pg / registry.k8s.io tokens that appear inside
+#     a kyverno match-PATTERN string (qa-fixtures policy `image: "a | b | c"`),
+#     not a real image ref — recognised by the ` | ` glob-list separator.
+#   - Helm/envsubst placeholders ({{...}} / ${...}).
+SWEEP_EXCEPTION_RE='(\{\{)|(\$\{)|(ghcr\.io/openova-io/)|( \| )|(mirror\.gcr\.io/aquasec)|(docker\.io/powerdns)|(quay\.io/cilium)|(/cilium/cilium)|(/cilium/cilium-envoy)|(/cilium/operator)|(/cilium/clustermesh)|(/cilium/hubble)|(/cilium/startup-script)'
+
+echo "[proxy-images] PASS 2 — static sweep of platform/ + products/ charts + clusters/_template/ raw manifests"
+sweep_rc=0
+# Every `image:`/`repository:` literal that carries an upstream host inline.
+# (registry:/repository: split fields are caught when the host is on the
+# repository line; the common subchart pattern `registry: quay.io` is caught
+# via the `quay.io` host token on its own line below.)
+while IFS= read -r hit; do
+  file="${hit%%:*}"
+  line="${hit#*:}"
+  # strip leading whitespace + the yaml key for the exception/print
+  ref="$(printf '%s' "$line" | sed -E 's/^[[:space:]]*-?[[:space:]]*(image|repository|registry):[[:space:]]*"?//; s/"$//')"
+  if printf '%s' "$ref" | grep -Eq "$SWEEP_EXCEPTION_RE"; then
+    continue
+  fi
+  # Only flag refs that actually name a bare upstream host (not a harbor proxy path).
+  if printf '%s' "$ref" | grep -Eq "$UPSTREAM_HOST_RE"; then
+    echo "DENY (sweep): $file → '$ref' names a bare upstream registry — route it through the Harbor proxy (registry.<sov-fqdn>/proxy-<upstream>/...) or add a documented exception in scripts/check-kyverno-proxy-images.sh." >&2
+    sweep_rc=1
+  fi
+done < <(
+  # Exclude vendored upstream subchart dirs (`*/charts/*`): their values.yaml
+  # carry the UPSTREAM image defaults, which the umbrella's own values.yaml
+  # overrides (the override is what renders + what admission sees). Scanning the
+  # raw subchart default would false-positive on every overridden image. The
+  # umbrella override is in-scope (it lives at chart/values.yaml, not charts/).
+  grep -rEn '^[[:space:]]*-?[[:space:]]*(image|repository|registry):[[:space:]]*"?[a-z0-9.-]+\.(io|com|aws|org)/' \
+    platform/ products/ clusters/_template/ \
+    --include='*.yaml' --include='*.tpl' --include='*.yml' 2>/dev/null \
+    | grep -vE '/\.claude/worktrees/' \
+    | grep -vE '/charts/[^/]+/'
+)
+if [ "$sweep_rc" -eq 0 ]; then
+  echo "[proxy-images] PASS 2 — no bare upstream-registry image ref found outside the documented exceptions."
+else
+  rc=1
+fi
+
 if [ "$rc" -eq 0 ]; then
   echo "[proxy-images] PASS — every rendered image satisfies harbor-proxy-pull."
 else
-  echo "[proxy-images] FAIL — at least one image would be Enforce-DENIED by harbor-proxy-pull (#3380-D)." >&2
+  echo "[proxy-images] FAIL — at least one image would be Enforce-DENIED by harbor-proxy-pull (#3380-D / #3913)." >&2
 fi
 exit "$rc"

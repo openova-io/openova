@@ -318,6 +318,15 @@ seaweedfs:
   # the Catalyst critical path. Per-Sovereign overlay enables if needed.
   cosi:
     enabled: false
+    # #3913: the upstream subchart defaults this to the bare upstream ref
+    # `ghcr.io/seaweedfs/seaweedfs-cosi-driver:v0.1.2`, which the
+    # harbor-proxy-pull Kyverno ClusterPolicy (Enforce) would DENY the moment a
+    # per-Sovereign overlay flips cosi.enabled=true (the literal matches neither
+    # `*/proxy-*/*` nor `*/openova-io/*`). Pin it through the Harbor proxy-ghcr
+    # project up-front so enabling cosi never trips admission. harbor.openova.io
+    # resolves to the local Harbor post-cutover (the registry-pivot rewrites
+    # proxy-ghcr), and pre-cutover the containerd registry mirror also fronts it.
+    image: "harbor.openova.io/proxy-ghcr/seaweedfs/seaweedfs-cosi-driver:v0.1.2"
 
   # ─── Certificates (TLS between SeaweedFS components) ───────────────────
   # Off by default — cluster-internal traffic is encrypted at the Cilium
