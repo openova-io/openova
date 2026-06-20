@@ -79,8 +79,8 @@ when qaFixtures is disabled.
      The plain loki/mimir/tempo entries stay for Sovereigns that keep
      the host-side placement via per-Sovereign overlay. */}}
 {{- /* #3859: ns `sme` → `org-services` (#3383). org-services hosts the
-     BSS/funnel control-plane Deployments; the legacy `sme` entry stays one
-     release for back-compat / any not-yet-migrated Sovereign. */}}
+     BSS/funnel control-plane Deployments. #3985: the legacy `sme` entry
+     was removed — fresh provs allow only `org-services`. */}}
 {{- $allowedPlatform := .Values.security.baselineCnp.allowedPlatformNamespaces | default (list "keycloak" "gitea" "powerdns" "cnpg-system" "openbao" "harbor" "nats-system" "loki" "mimir" "tempo" "alloy" "opentelemetry" "external-secrets-system" "cert-manager" "org-services" "newapi" "mgmt") }}
 {{- /* #3934 (Refs #3642): "mgmt" added to the INGRESS allow-list. The #3642
      host-bridge promotes guacamole INTO the mgmt vCluster — its webapp Pod
