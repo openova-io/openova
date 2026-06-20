@@ -58,6 +58,7 @@ import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { CloudListView } from './cloud-list/CloudListView'
 import { CloudKindChips } from './cloud-list/CloudKindChips'
 import {
+  CLOUD_PAGE_K8S_KINDS,
   DEFAULT_KIND,
   KIND_IDS,
   KIND_TO_REGISTRY,
@@ -285,8 +286,20 @@ export function CloudPage({
   // that hangs duplicate streams at "connecting" indefinitely.
   // PR #1062 wired the backend; PR #1065 hoisted this above the ctx
   // build so list pages can read from the same snapshot.
+  //
+  // #3987: the subscription MUST cover every per-kind list page's
+  // registry kind, not just the architecture graph's structural kinds.
+  // The default (GRAPH_K8S_KINDS) omitted secret / policyreport /
+  // clusterpolicyreport and ALL the reconciler + Catalyst-CR kinds, so
+  // the snapshot never held a `helmrelease:` (etc.) key and
+  // `/cloud?view=list&kind=helmreleases` rendered "No helmrelease
+  // objects" despite 49+ live (the graph showed them via the separate
+  // /reconciliation endpoint). CLOUD_PAGE_K8S_KINDS is the de-duplicated
+  // union of GRAPH_K8S_KINDS + every KIND_TO_REGISTRY registry Name, so
+  // every list page AND every chip count reads its real live objects.
   const k8sStream = useK8sCacheStream(deploymentId, {
     enabled: !!deploymentId && !disableStream,
+    kinds: CLOUD_PAGE_K8S_KINDS,
   })
 
   const ctx: CloudContextValue = useMemo(
