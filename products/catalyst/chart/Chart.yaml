@@ -376,7 +376,7 @@ name: bp-catalyst-platform
 # 2026-05-20.md) flagged as MISSING for surface #12.
 #
 # Files: products/catalyst/bootstrap/api/internal/handler/
-# sme_tenant_gitops.go now ships a `smeTenantContinuum` template +
+# org_tenant_gitops.go now ships a `smeTenantContinuum` template +
 # kustomization.yaml conditional reference; the overlay writer
 # skips empty contents so single-cluster tenants are unaffected.
 # Unit tests:
@@ -776,7 +776,7 @@ name: bp-catalyst-platform
 #      tenant_route.go:113 — runtime reconciler now emits
 #      `console.<subdomain>.<parentDomain>` (e.g.
 #      `console.acme.omani.homes`), matching the chart-side template
-#      AND sme_tenant_gitops.go:536 host derivation. Pre-fix the
+#      AND org_tenant_gitops.go:536 host derivation. Pre-fix the
 #      controller emitted `<slug>.<parent>` while the bp-wordpress-
 #      tenant overlay emitted `console.<slug>.<parent>` — the two
 #      drifted and the founder caught it on the t34 walkthrough.
@@ -4009,7 +4009,7 @@ description: |
 
   1.4.10 (issue #876): wire CATALYST_OTECH_FQDN env on the catalyst-api
   Deployment from the same `sovereign-fqdn` ConfigMap (key `fqdn`) that
-  feeds SOVEREIGN_FQDN. The Organization tenant create handler (sme_tenant.go)
+  feeds SOVEREIGN_FQDN. The Organization tenant create handler (org_tenant_org_cr.go)
   and the sovereign-parent-domains seed (sovereign_parent_domains.go)
   both read CATALYST_OTECH_FQDN — without it, POST /api/v1/sme/tenants
   returns 503 {"error":"otech-fqdn-unconfigured"} on every Sovereign,
@@ -4028,7 +4028,7 @@ description: |
   GitOps target is the local Gitea). optional=true so Catalyst-Zero
   (contabo) keeps using the existing GitHub PAT path. Pairs with a
   catalyst-api code change (marketplace_settings.go +
-  sme_tenant_gitops.go): injectTokenIntoURL now takes a configurable
+  org_tenant_gitops.go): injectTokenIntoURL now takes a configurable
   username (was hardcoded "x-access-token"; GitHub PAT-only) so the
   same code path works for both GitHub and Gitea. Also adds `git` to
   the catalyst-api Containerfile (Alpine 3.20 base + apk add git) —
@@ -4102,11 +4102,11 @@ description: |
 
   Bumped to 1.4.13 — Flux Kustomization watching Organization tenant overlays
   (issue #882, 2026-05-05). The catalyst-api Organization-tenant pipeline's
-  GitOps writer (sme_tenant_gitops.go::WriteTenantOverlay) commits
+  GitOps writer (org_tenant_gitops.go::WriteTenantOverlay) commits
   per-tenant Kustomize overlays to clusters/<sov-fqdn>/org-tenants/
   <tenant-id>/ on every successful POST /api/v1/sme/tenants — but no
   Flux Kustomization on the Sovereign cluster watched that path. The
-  state machine (sme_tenant.go) advanced optimistically through every
+  state machine (org_tenant_org_cr.go) advanced optimistically through every
   step (vcluster → bp_charts → dns → certs → keycloak_clients →
   registry) and reported state=done, while no actual K8s resources
   materialised because nothing was reconciling the orchestrator's
@@ -4126,13 +4126,13 @@ description: |
     - sourceRef:  flux-system/openova GitRepository (the same one the
                   cluster bootstraps from; cutover Step 5 flips its
                   .spec.url to the local in-cluster Gitea, which is
-                  precisely where sme_tenant_gitops.go pushes via
+                  precisely where org_tenant_gitops.go pushes via
                   CATALYST_GITOPS_REPO_URL=http://gitea-http.gitea.svc
                   .cluster.local:3000/openova/openova)
     - path:       ./clusters/{{ .Values.global.sovereignFQDN }}/org-tenants
     - interval:   1m (matches the orchestrator's "Flux reconciles
                   within ~1 min" SLA documented at the top of
-                  sme_tenant_gitops.go)
+                  org_tenant_gitops.go)
     - prune:      true (DELETE /api/v1/sme/tenants/<id> removes the
                   overlay directory; Flux GCs the tenant resources)
     - wait:       false (per-tenant overlays each install ~5 bp-* HRs

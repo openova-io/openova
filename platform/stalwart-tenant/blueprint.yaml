@@ -78,7 +78,7 @@ spec:
         properties:
           realmURL:
             type: string
-            description: Organization-vcluster Keycloak realm issuer URL (e.g. https://auth.<org-domain>/realms/sme).
+            description: Organization-vcluster Keycloak realm issuer URL (e.g. https://auth.<org-domain>/realms/org).
           clientID:
             type: string
             default: stalwart

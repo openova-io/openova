@@ -9,7 +9,7 @@ mints into their environment:
 
 On a Sovereign with the Catalyst marketplace enabled, the catalyst chart
 ships a `tenant-wildcard` HTTPRoute (hostnames=`*.<fqdn>`) that backend-
-refs to the `console` Service in the `sme` namespace. Without a dedicated
+refs to the `console` Service in the `org-services` namespace. Without a dedicated
 HTTPRoute for `newapi.<fqdn>`, every Sandbox request to the LLM gateway
 got absorbed by the wildcard and 502'd at the storefront — blocking the
 entire BYOS Claude Code journey (D35d).

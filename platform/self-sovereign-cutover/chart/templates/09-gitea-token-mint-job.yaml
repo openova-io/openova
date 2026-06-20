@@ -5,7 +5,7 @@ Why this step exists (TBD-C18, journey step 16 unblock)
 ───────────────────────────────────────────────────────
 The catalyst-platform chart's
 templates/org-services/provisioning-github-token.yaml mirrors the Gitea
-admin Secret's `password` byte into Secret `sme/provisioning-github-token`
+admin Secret's `password` byte into Secret `org-services/provisioning-github-token`
 under key `GITHUB_TOKEN`. The Organization provisioning service then sends
 
     Authorization: token <X>
@@ -23,7 +23,7 @@ in Gitea, every API call 401s, NO Organization CR is ever created and
 the customer's screen sits indefinitely.
 
 Verified on t22 (2026-05-18):
-  - Secret sme/provisioning-github-token.GITHUB_TOKEN == gitea/gitea-admin-secret.password
+  - Secret org-services/provisioning-github-token.GITHUB_TOKEN == gitea/gitea-admin-secret.password
   - curl -H "Authorization: token <pwd>" → 401 user does not exist
   - curl -u gitea_admin:<pwd> → 200 OK (BasicAuth works, token does not)
 
@@ -36,7 +36,7 @@ gitea-mirror) and:
      scope `all`, creating a new API token bound to the gitea_admin user.
   2. Reads the returned `.sha1` (Gitea returns the raw token bytes
      exactly once on creation — there is no way to retrieve them later).
-  3. Patches Secret `sme/provisioning-github-token`'s `.data.GITHUB_TOKEN`
+  3. Patches Secret `org-services/provisioning-github-token`'s `.data.GITHUB_TOKEN`
      to the new token (base64-encoded), overwriting the admin password
      placeholder the chart's `provisioning-github-token.yaml` template
      wrote.

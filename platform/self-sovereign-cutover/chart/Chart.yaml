@@ -997,7 +997,7 @@ description: |
         / harbor.openova.io for 10 min, assert all reconciles stay Ready.
     09  cutover-step-09-gitea-token-mint           mode=job
         POST /api/v1/users/gitea_admin/tokens, capture .sha1, patch
-        Secret sme/provisioning-github-token.GITHUB_TOKEN with the real
+        Secret org-services/provisioning-github-token.GITHUB_TOKEN with the real
         API token (the chart previously mirrored the admin password
         verbatim — Gitea then 401s on `Authorization: token <PWD>`,
         blocking tenant voucher checkout at journey step 16). Rolls

@@ -19,7 +19,7 @@ SSO works end-to-end:
                  webmail uses auth-code)
 
 The orchestrator (products/catalyst/bootstrap/api/internal/handler/
-sme_tenant_gitops.go, smeTenantBPKeycloak) emits
+org_tenant_gitops.go, orgTenantBPKeycloak) emits
 realmConfig.tenant.enabled=true alongside sovereignRealm.enabled=true on
 the per-tenant HelmRelease (PR #911). When tenant mode is on,
 configmap-sovereign-realm.yaml SKIPS (mutual exclusion) and this template
