@@ -122,6 +122,10 @@ spec:
     supported:
       - singleton
     defaults:
+      # chepherd is a region-pinned singleton coordinator/agent console — it
+      # does not replicate across regions, so both BCP defaults resolve to the
+      # single in-region instance (schema requires both keys; G116).
+      multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
