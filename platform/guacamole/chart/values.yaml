@@ -196,7 +196,7 @@ guacamole:
       imageName: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql
       pgVersion: "16"
       storageSize: 5Gi
-      storageClass: ""  # #3971 — empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN
+      storageClass: "" # #3971 — empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN
       resources:
         requests:
           cpu: 50m
