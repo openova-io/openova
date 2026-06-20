@@ -7,6 +7,7 @@
  * delegates rendering to the generic K8sListPage.
  */
 
+import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
 import {
   K8sListPage,
   COL_NAME,
@@ -249,6 +250,302 @@ export function IngressesListPage() {
               'rules'
             ] ?? []) as Array<{ host?: string }>
             return rules.map((r) => r.host).filter(Boolean).join(', ') || '—'
+          },
+        },
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+/* ── Network + security coverage (#3998) ──────────────────────────────
+ *
+ * The gateway-api front door (Gateway + HTTPRoute) and the security
+ * posture (NetworkPolicy + CiliumNetworkPolicy / ClusterwideNetworkPolicy)
+ * are LIVE on every Sovereign but had no cloud-view page — so the front
+ * door + micro-segmentation were invisible. These wrappers render them as
+ * standard K8sListPages driven by the live k8scache SSE snapshot (the GVRs
+ * are already registered in api/internal/k8scache/kinds.go: gateway /
+ * httproute / networkpolicy / ciliumnetworkpolicy /
+ * ciliumclusterwidenetworkpolicy, all on the SERVED versions verified
+ * against hw173). Each carries the columns the operator needs.
+ * ────────────────────────────────────────────────────────────────── */
+
+/** Render a Gateway status condition (Programmed / Accepted) as a short
+ *  string. Gateway has no Ready condition; Programmed=True is the
+ *  "front door is live" signal. */
+function gatewayConditionStatus(o: K8sObject, type: string): string {
+  const conds = (o.status as Record<string, unknown> | undefined)?.[
+    'conditions'
+  ] as Array<Record<string, unknown>> | undefined
+  if (!Array.isArray(conds)) return '—'
+  const c = conds.find((x) => x?.['type'] === type)
+  const s = c?.['status'] as string | undefined
+  return s ?? '—'
+}
+
+export function GatewaysListPage() {
+  return (
+    <K8sListPage
+      kind="gateway"
+      title="Gateways"
+      tagline="Gateway API front doors — the real ingress path. Class / address / Programmed state."
+      columns={[
+        COL_NAMESPACE,
+        COL_NAME,
+        {
+          header: 'Class',
+          extract: (o) => {
+            const cls = (o.spec as Record<string, unknown> | undefined)?.[
+              'gatewayClassName'
+            ] as string | undefined
+            return cls ?? '—'
+          },
+        },
+        {
+          header: 'Address',
+          extract: (o) => {
+            // Prefer status.addresses (the assigned front-door IP/host);
+            // fall back to spec.addresses (operator-requested). On
+            // nodeIPAM/DNAT clouds (Huawei) the EIP is wired outside the
+            // Gateway CR so this can legitimately be "—" — the address is
+            // surfaced via the LoadBalancer/Service path instead.
+            const fromStatus = (o.status as Record<string, unknown> | undefined)?.[
+              'addresses'
+            ] as Array<{ value?: string }> | undefined
+            const fromSpec = (o.spec as Record<string, unknown> | undefined)?.[
+              'addresses'
+            ] as Array<{ value?: string }> | undefined
+            const addrs = (fromStatus && fromStatus.length ? fromStatus : fromSpec) ?? []
+            const vals = addrs.map((a) => a?.value).filter(Boolean)
+            return vals.length ? vals.join(', ') : '—'
+          },
+        },
+        {
+          header: 'Listeners',
+          extract: (o) => {
+            const l = (o.spec as Record<string, unknown> | undefined)?.[
+              'listeners'
+            ] as unknown[] | undefined
+            return Array.isArray(l) ? String(l.length) : '—'
+          },
+        },
+        {
+          header: 'Programmed',
+          extract: (o) => gatewayConditionStatus(o, 'Programmed'),
+        },
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+export function HttpRoutesListPage() {
+  return (
+    <K8sListPage
+      kind="httproute"
+      title="HTTPRoutes"
+      tagline="Gateway API routes — hostnames + the Gateway they attach to + rule count."
+      columns={[
+        COL_NAMESPACE,
+        COL_NAME,
+        {
+          header: 'Hostnames',
+          extract: (o) => {
+            const hosts = ((o.spec as Record<string, unknown> | undefined)?.[
+              'hostnames'
+            ] ?? []) as string[]
+            return Array.isArray(hosts) && hosts.length ? hosts.join(', ') : '—'
+          },
+        },
+        {
+          header: 'Parent Gateway',
+          extract: (o) => {
+            const refs = ((o.spec as Record<string, unknown> | undefined)?.[
+              'parentRefs'
+            ] ?? []) as Array<{ name?: string; namespace?: string }>
+            const names = refs
+              .map((r) => (r?.namespace ? `${r.namespace}/${r.name}` : r?.name))
+              .filter(Boolean)
+            return names.length ? names.join(', ') : '—'
+          },
+        },
+        {
+          header: 'Rules',
+          extract: (o) => {
+            const rules = (o.spec as Record<string, unknown> | undefined)?.[
+              'rules'
+            ] as unknown[] | undefined
+            return Array.isArray(rules) ? String(rules.length) : '—'
+          },
+        },
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+/** Format a podSelector/endpointSelector.matchLabels map into a compact
+ *  k=v string, or "(all)" for an empty selector (which selects every pod
+ *  in scope — the default-deny baseline shape). */
+function formatSelector(sel: Record<string, unknown> | undefined): string {
+  if (!sel) return '—'
+  const labels = sel['matchLabels'] as Record<string, string> | undefined
+  if (!labels || Object.keys(labels).length === 0) {
+    // An explicitly-empty selector matches everything; distinguish from
+    // "no selector field at all".
+    return Object.prototype.hasOwnProperty.call(sel, 'matchLabels') ||
+      Object.keys(sel).length === 0
+      ? '(all)'
+      : '—'
+  }
+  return Object.entries(labels)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(', ')
+}
+
+/** Count ingress + egress rule arrays and policyTypes for a (K8s or
+ *  Cilium) network policy, reading from either spec or spec.specs[0]. */
+function policyRuleSummary(spec: Record<string, unknown> | undefined): {
+  ingress: number
+  egress: number
+} {
+  const ing = (spec?.['ingress'] as unknown[] | undefined) ?? []
+  const egr = (spec?.['egress'] as unknown[] | undefined) ?? []
+  return {
+    ingress: Array.isArray(ing) ? ing.length : 0,
+    egress: Array.isArray(egr) ? egr.length : 0,
+  }
+}
+
+export function NetworkPoliciesListPage() {
+  return (
+    <K8sListPage
+      kind="networkpolicy"
+      title="Network Policies"
+      tagline="K8s NetworkPolicies — pod selector, ingress/egress rule counts, policy types."
+      columns={[
+        COL_NAMESPACE,
+        COL_NAME,
+        {
+          header: 'Pod Selector',
+          extract: (o) =>
+            formatSelector(
+              (o.spec as Record<string, unknown> | undefined)?.[
+                'podSelector'
+              ] as Record<string, unknown> | undefined,
+            ),
+        },
+        {
+          header: 'Ingress/Egress',
+          extract: (o) => {
+            const s = policyRuleSummary(
+              o.spec as Record<string, unknown> | undefined,
+            )
+            return `${s.ingress} / ${s.egress}`
+          },
+        },
+        {
+          header: 'Policy Types',
+          extract: (o) => {
+            const t = ((o.spec as Record<string, unknown> | undefined)?.[
+              'policyTypes'
+            ] ?? []) as string[]
+            return Array.isArray(t) && t.length ? t.join(', ') : '—'
+          },
+        },
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+/** Resolve a CiliumNetworkPolicy's effective rule spec — Cilium accepts
+ *  EITHER a single `spec` OR a `specs[]` array (mutually exclusive). For
+ *  the list summary we read `spec`, falling back to the first `specs[]`
+ *  entry. */
+function ciliumPolicySpec(o: K8sObject): Record<string, unknown> | undefined {
+  const spec = o.spec as Record<string, unknown> | undefined
+  if (spec && Object.keys(spec).length > 0) return spec
+  const specs = (o as Record<string, unknown>)['specs'] as
+    | Array<Record<string, unknown>>
+    | undefined
+  return Array.isArray(specs) && specs.length > 0 ? specs[0] : undefined
+}
+
+/** Aggregate ingress/egress across `spec` AND every `specs[]` entry so the
+ *  count reflects the whole policy, not just the first rule block. */
+function ciliumRuleSummary(o: K8sObject): { ingress: number; egress: number } {
+  const blocks: Array<Record<string, unknown> | undefined> = []
+  const spec = o.spec as Record<string, unknown> | undefined
+  if (spec && Object.keys(spec).length > 0) blocks.push(spec)
+  const specs = (o as Record<string, unknown>)['specs'] as
+    | Array<Record<string, unknown>>
+    | undefined
+  if (Array.isArray(specs)) blocks.push(...specs)
+  let ingress = 0
+  let egress = 0
+  for (const b of blocks) {
+    const s = policyRuleSummary(b)
+    ingress += s.ingress
+    egress += s.egress
+  }
+  return { ingress, egress }
+}
+
+export function CiliumNetworkPoliciesListPage() {
+  return (
+    <K8sListPage
+      kind="ciliumnetworkpolicy"
+      title="Cilium Network Policies"
+      tagline="CiliumNetworkPolicies — L3-L7 micro-segmentation. Endpoint selector + ingress/egress."
+      columns={[
+        COL_NAMESPACE,
+        COL_NAME,
+        {
+          header: 'Endpoint Selector',
+          extract: (o) =>
+            formatSelector(
+              ciliumPolicySpec(o)?.['endpointSelector'] as
+                | Record<string, unknown>
+                | undefined,
+            ),
+        },
+        {
+          header: 'Ingress/Egress',
+          extract: (o) => {
+            const s = ciliumRuleSummary(o)
+            return `${s.ingress} / ${s.egress}`
+          },
+        },
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+export function CiliumClusterwideNetworkPoliciesListPage() {
+  return (
+    <K8sListPage
+      kind="ciliumclusterwidenetworkpolicy"
+      title="Cilium Clusterwide Network Policies"
+      tagline="Cluster-scoped CiliumClusterwideNetworkPolicies — the baseline deny + cross-namespace rules."
+      columns={[
+        COL_NAME,
+        {
+          header: 'Endpoint Selector',
+          extract: (o) =>
+            formatSelector(
+              ciliumPolicySpec(o)?.['endpointSelector'] as
+                | Record<string, unknown>
+                | undefined,
+            ),
+        },
+        {
+          header: 'Ingress/Egress',
+          extract: (o) => {
+            const s = ciliumRuleSummary(o)
+            return `${s.ingress} / ${s.egress}`
           },
         },
         COL_AGE,
