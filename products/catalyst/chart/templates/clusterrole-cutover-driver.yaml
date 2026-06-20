@@ -545,3 +545,59 @@ rules:
   - apiGroups: ["source.toolkit.fluxcd.io"]
     resources: ["gitrepositories"]
     verbs: ["get", "list", "watch"]
+
+  # ───────────────────────────────────────────────────────────────
+  # Issue #3996 / #3999 — RECONCILER-MANAGEMENT ACTIONS (reconcile /
+  # suspend / resume) on the Cloud view's Reconciliation lens. The
+  # handler (internal/handler/reconcilers.go ReconcilerAction) drives
+  # the FULL Flux reconciler set via the in-cluster dynamic client:
+  #   reconcile → MergePatch metadata.annotations
+  #               reconcile.fluxcd.io/requestedAt=<RFC3339>
+  #   suspend   → MergePatch spec.suspend=true
+  #   resume    → MergePatch spec.suspend=false
+  # All three are a single apiserver Patch (types.MergePatchType), so
+  # the ONLY mutating verb the surface needs is `patch` (no `update`,
+  # no `create`, no `delete` — those actions never run here).
+  #
+  # The six manageable kinds are the source of truth in
+  # internal/helmwatch/manage.go managedGVRByKind:
+  #   helm.toolkit.fluxcd.io/helmreleases
+  #   kustomize.toolkit.fluxcd.io/kustomizations
+  #   source.toolkit.fluxcd.io/{gitrepositories,ocirepositories,
+  #                             helmrepositories,helmcharts}
+  #
+  # Caught live on hw174 (UAT rows 196/197): every action 502'd with
+  #   helmreleases.helm.toolkit.fluxcd.io is forbidden: ServiceAccount
+  #   "catalyst-api-cutover-driver" cannot patch resource "helmreleases"
+  # because the SA had only get/list/watch on the Flux kinds above and
+  # NO patch anywhere — the requestedAt annotation + spec.suspend never
+  # landed. This rule adds the missing patch verb (least-privilege:
+  # only `patch`, only the six kinds the recon surface manages).
+  #
+  # The three source kinds ocirepositories/helmrepositories/helmcharts
+  # also had NO read rule at all, so the management LIST (GET
+  # /reconcilers, helmwatch.ListManagedReconcilers) never surfaced them
+  # — granted get/list/watch here too so they render and are drivable.
+  # helmreleases/kustomizations/gitrepositories already carry
+  # get/list/watch above; RBAC rules merge additively so only the
+  # missing verbs/kinds are added here.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases"]
+    verbs: ["patch"]
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["patch"]
+  - apiGroups: ["source.toolkit.fluxcd.io"]
+    resources:
+      - gitrepositories
+      - ocirepositories
+      - helmrepositories
+      - helmcharts
+    verbs: ["patch"]
+  - apiGroups: ["source.toolkit.fluxcd.io"]
+    resources:
+      - ocirepositories
+      - helmrepositories
+      - helmcharts
+    verbs: ["get", "list", "watch"]
