@@ -29,7 +29,7 @@ import (
 
 const (
 	defaultSMECatalogURL  = "http://catalog.org-services.svc.cluster.local:8082"
-	smeCatalogURLEnv      = "CATALYST_SME_CATALOG_URL"
+	smeCatalogURLEnv      = "CATALYST_ORG_CATALOG_URL"
 	smeCatalogCacheTTL    = 30 * time.Second
 	smeCatalogProbeBudget = 1500 * time.Millisecond
 

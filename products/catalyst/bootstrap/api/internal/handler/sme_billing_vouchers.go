@@ -27,7 +27,7 @@
 // Upstream is the SME gateway (core/services/gateway/main.go) at
 // http://gateway.org-services.svc.cluster.local:8080. The gateway strips `/api`
 // and forwards to the in-cluster billing service. Override via
-// CATALYST_SME_GATEWAY_URL (docs/INVIOLABLE-PRINCIPLES.md #4 — never
+// CATALYST_ORG_GATEWAY_URL (docs/INVIOLABLE-PRINCIPLES.md #4 — never
 // hardcode; the default is the chart's documented Service DNS, every
 // other reference is env-driven).
 //
@@ -93,7 +93,7 @@ const (
 
 	// smeGatewayURLEnv — runtime override per
 	// docs/INVIOLABLE-PRINCIPLES.md #4.
-	smeGatewayURLEnv = "CATALYST_SME_GATEWAY_URL"
+	smeGatewayURLEnv = "CATALYST_ORG_GATEWAY_URL"
 
 	// smeVouchersBudget — short budget so a wedged upstream never wedges
 	// the console. Mirrors smeCatalogProbeBudget but a touch longer
@@ -255,7 +255,7 @@ func (h *Handler) HandleRevokeSMEBillingVoucher(w http.ResponseWriter, r *http.R
 //   - 401 `unauthenticated` — middleware bypassed (test harness) or
 //     stale request with no claims attached.
 //   - 503 `sme-jwt-bridge-unwired` — the chart hasn't seeded
-//     CATALYST_SME_JWT_SECRET on this Pod yet (Sovereign without
+//     CATALYST_ORG_JWT_SECRET on this Pod yet (Sovereign without
 //     marketplace, or stale chart predating the reflector annotation
 //     on sme-secrets). Surfacing 503 lets the FE render an actionable
 //     "marketplace not enabled" message rather than the silent 401
@@ -271,7 +271,7 @@ func (h *Handler) mintSMEBridgeToken(r *http.Request) (string, int, map[string]s
 	if len(h.smeJWTSecret) == 0 {
 		return "", http.StatusServiceUnavailable, map[string]string{
 			"error":  "sme-jwt-bridge-unwired",
-			"detail": "CATALYST_SME_JWT_SECRET is not set on this catalyst-api Pod; the chart's sme-secrets Secret may not be reflected into catalyst-system yet",
+			"detail": "CATALYST_ORG_JWT_SECRET is not set on this catalyst-api Pod; the chart's sme-secrets Secret may not be reflected into catalyst-system yet",
 		}
 	}
 	claims := authpkg.ClaimsFromContext(r.Context())

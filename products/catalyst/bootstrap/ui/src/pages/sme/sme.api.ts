@@ -212,7 +212,7 @@ const SOVEREIGN_PARENT_DOMAINS_PATH = '/v1/sovereign/parent-domains'
  *
  * Backs the CreateTenantPage parent-domain dropdown. The endpoint is
  * the integration seam to MD-1 (#826) — until that lands, the back end
- * sources from the CATALYST_SME_POOL_DOMAINS env stub, hardcoded to
+ * sources from the CATALYST_ORG_POOL_DOMAINS env stub, hardcoded to
  * `omani.works + omani.trade` per the #828 constraint.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 the URL is composed via

@@ -30,7 +30,7 @@ namespace to land in on every fresh prov. The Organization microservice
 mesh (billing.yaml, auth.yaml, gateway.yaml, ...) remains gated behind
 `ingress.marketplace.enabled` (operator opt-in); only the
 namespace + reflector-source Secret materialise unconditionally,
-which is what catalyst-api's CATALYST_SME_JWT_SECRET secretKeyRef
+which is what catalyst-api's CATALYST_ORG_JWT_SECRET secretKeyRef
 mirror needs.
 */ -}}
 apiVersion: v1

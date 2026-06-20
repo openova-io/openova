@@ -65,10 +65,10 @@ type DefaultOrganizationGitOpsWriter struct {
 
 // OrganizationChartVersions enumerates the SemVer strings the overlay
 // generator emits for each bp-* HelmRelease. The orchestrator's
-// wiring (main.go) reads each from env (CATALYST_SME_BP_KEYCLOAK_VER,
-// CATALYST_SME_BP_CNPG_VER, CATALYST_SME_BP_WORDPRESS_VER,
-// CATALYST_SME_BP_OPENCLAW_VER, CATALYST_SME_BP_STALWART_VER,
-// CATALYST_SME_BP_NEWAPI_VER); when any is empty the generator falls
+// wiring (main.go) reads each from env (CATALYST_ORG_BP_KEYCLOAK_VER,
+// CATALYST_ORG_BP_CNPG_VER, CATALYST_ORG_BP_WORDPRESS_VER,
+// CATALYST_ORG_BP_OPENCLAW_VER, CATALYST_ORG_BP_STALWART_VER,
+// CATALYST_ORG_BP_NEWAPI_VER); when any is empty the generator falls
 // back to "*" so Flux pulls the latest matching chart in the
 // repository.
 type OrganizationChartVersions struct {

@@ -47,7 +47,7 @@
 // RequireSession is applied by the router group registration in
 // cmd/api/main.go — only a valid console session reaches this handler.
 // `mintSMEBridgeToken` returns 503 `sme-jwt-bridge-unwired` when
-// `CATALYST_SME_JWT_SECRET` is unset (Sovereign without marketplace,
+// `CATALYST_ORG_JWT_SECRET` is unset (Sovereign without marketplace,
 // or stale chart predating the sme-secrets reflector annotation).
 // Per docs/INVIOLABLE-PRINCIPLES.md #10 the minted token is NEVER
 // logged — only the operator's email and the mapped role are.

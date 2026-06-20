@@ -654,7 +654,7 @@ name: bp-catalyst-platform
 # role="superadmin", 5-minute TTL. Empty JWTSecret falls back to the
 # legacy no-header path so a stale chart that doesn't wire JWT_SECRET
 # into billing doesn't crash the voucher upsert (mirrors the optional:
-# true contract on catalyst-api's CATALYST_SME_JWT_SECRET secretKeyRef).
+# true contract on catalyst-api's CATALYST_ORG_JWT_SECRET secretKeyRef).
 #
 # Validation: TestIssueVoucher_SendsAuthorizationHeader exercises the
 # round-trip — billing mints with the test bytes, then we re-parse the
@@ -883,7 +883,7 @@ name: bp-catalyst-platform
 #   - tenant.yaml + marketplace-routes.yaml NOT rendered → SME gateway
 #     unreachable → POST /api/v1/sme/billing/vouchers/issue still 503
 #     (post-#1954 error band: "sme gateway unreachable" instead of
-#     "CATALYST_SME_JWT_SECRET not set")
+#     "CATALYST_ORG_JWT_SECRET not set")
 #   - sme-tenants-kustomization.yaml NOT rendered → SME tenant
 #     pipeline silently skipped on every customer-journey start
 #
@@ -933,7 +933,7 @@ name: bp-catalyst-platform
 # 1.4.199 — TBD-A51 (issue #1943, t34 T3 walk 2026-05-19 13:52Z agent
 # a9e0547e): decouple `sme-secrets` Secret + `sme` Namespace rendering
 # from `ingress.marketplace.enabled`. Background: catalyst-api consumes
-# CATALYST_SME_JWT_SECRET via secretKeyRef on the emberstack/reflector
+# CATALYST_ORG_JWT_SECRET via secretKeyRef on the emberstack/reflector
 # mirror of `sme-secrets` (source in `sme` namespace → mirror in
 # `catalyst-system`) to mint short-lived HS256 bridge tokens on every
 # /api/v1/sme/billing/vouchers/* proxy call (PR #1625 + #1630). Pre-fix
@@ -943,9 +943,9 @@ name: bp-catalyst-platform
 # had:
 #   - `kubectl get ns sme` → NotFound
 #   - `kubectl get secret -A sme-secrets` → NotFound
-#   - catalyst-api Pod env CATALYST_SME_JWT_SECRET unset
+#   - catalyst-api Pod env CATALYST_ORG_JWT_SECRET unset
 #   - POST /api/v1/sme/billing/vouchers/issue → 503 with response body
-#     `CATALYST_SME_JWT_SECRET is not set on this catalyst-api Pod;
+#     `CATALYST_ORG_JWT_SECRET is not set on this catalyst-api Pod;
 #     the chart's sme-secrets Secret may not be reflected into
 #     catalyst-system yet`
 # Caught live on t34 (3-region cpx52 fsn1/hel1/nbg1, chart 1.4.198),
@@ -967,7 +967,7 @@ name: bp-catalyst-platform
 #     reconcile (sole namespace listed in the
 #     reflection-allowed-namespaces / reflection-auto-namespaces
 #     allow-list)
-#   - catalyst-api Pod env CATALYST_SME_JWT_SECRET populated on next
+#   - catalyst-api Pod env CATALYST_ORG_JWT_SECRET populated on next
 #     restart (kubelet re-reads optional secretKeyRef when the Secret
 #     transitions from NotFound to present)
 # What this does NOT fix (intentional scope, per issue #1943 hard rule

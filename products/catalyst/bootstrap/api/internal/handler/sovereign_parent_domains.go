@@ -9,7 +9,7 @@
 //
 //  1. LoadOrganizationParentDomainsFromEnv — startup wiring helper that
 //     seeds OrganizationDeps.ParentDomains from
-//     CATALYST_SME_POOL_DOMAINS env (stub for #826's data model).
+//     CATALYST_ORG_POOL_DOMAINS env (stub for #826's data model).
 //
 //  2. ParentDomainsForSMECreate — runtime adapter the SME tenant
 //     create handler uses to validate the operator-supplied
@@ -29,7 +29,7 @@ import (
 )
 
 // LoadOrganizationParentDomainsFromEnv returns the env-derived
-// SME-pool seed. Wired to CATALYST_SME_POOL_DOMAINS (comma-separated
+// SME-pool seed. Wired to CATALYST_ORG_POOL_DOMAINS (comma-separated
 // FQDNs; primary role marker is `<fqdn>:primary`, default role is
 // sme-pool). When the env knob is unset and CATALYST_OTECH_FQDN is
 // set, returns the otech FQDN as the implicit primary entry plus the
@@ -53,7 +53,7 @@ import (
 // switches to read from the Sovereign's deployment record. The
 // OrganizationDeps consumer (organization_provisioning.go) doesn't change.
 func LoadOrganizationParentDomainsFromEnv() []OrganizationParentDomain {
-	raw := strings.TrimSpace(os.Getenv("CATALYST_SME_POOL_DOMAINS"))
+	raw := strings.TrimSpace(os.Getenv("CATALYST_ORG_POOL_DOMAINS"))
 	otech := strings.TrimSpace(os.Getenv("CATALYST_OTECH_FQDN"))
 	if raw == "" {
 		// Hardcoded stub fallback. TODO(#826): remove once the data

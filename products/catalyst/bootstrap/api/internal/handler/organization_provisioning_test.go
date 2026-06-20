@@ -1279,7 +1279,7 @@ func TestCreateOrganization_MultiDomain_RejectsNotReady(t *testing.T) {
 // together prevents 422s on signup when the picker lists a TLD the
 // catalyst-api validator doesn't recognise.
 func TestLoadOrganizationParentDomainsFromEnv_StubFallback(t *testing.T) {
-	t.Setenv("CATALYST_SME_POOL_DOMAINS", "")
+	t.Setenv("CATALYST_ORG_POOL_DOMAINS", "")
 	t.Setenv("CATALYST_OTECH_FQDN", "otech.example")
 	got := LoadOrganizationParentDomainsFromEnv()
 
@@ -1302,9 +1302,9 @@ func TestLoadOrganizationParentDomainsFromEnv_StubFallback(t *testing.T) {
 }
 
 // TestLoadOrganizationParentDomainsFromEnv_Custom — operator-supplied
-// CATALYST_SME_POOL_DOMAINS overrides the stub.
+// CATALYST_ORG_POOL_DOMAINS overrides the stub.
 func TestLoadOrganizationParentDomainsFromEnv_Custom(t *testing.T) {
-	t.Setenv("CATALYST_SME_POOL_DOMAINS", "acme.io:primary,acme.shop,acme.cloud")
+	t.Setenv("CATALYST_ORG_POOL_DOMAINS", "acme.io:primary,acme.shop,acme.cloud")
 	got := LoadOrganizationParentDomainsFromEnv()
 	if len(got) != 3 {
 		t.Fatalf("items: want 3 got %d (%v)", len(got), got)

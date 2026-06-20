@@ -767,7 +767,7 @@ func (h *Handler) SetAuditBus(bus *audit.Bus) { h.auditBus = bus }
 // can mint a short-lived HS256 bridge token the SME gateway will
 // accept. Empty / nil secret disables the mint path; proxies surface
 // 503 `sme-jwt-bridge-unwired` rather than forging a 401 upstream.
-// Called by main.go at startup from CATALYST_SME_JWT_SECRET (Pod env
+// Called by main.go at startup from CATALYST_ORG_JWT_SECRET (Pod env
 // fed via secretKeyRef from the reflector-mirrored sme-secrets Secret).
 func (h *Handler) SetSMEJWTSecret(secret []byte) { h.smeJWTSecret = secret }
 

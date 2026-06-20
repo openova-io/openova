@@ -567,7 +567,7 @@ func main() {
 	// the sandbox_sessions handler treats a nil publisher as a no-op.
 	h.SetTenantEventPublisher(newTenantEventPublisherFromEnv(log))
 
-	// CATALYST_SME_JWT_SECRET — bridge secret for /api/v1/sme/* proxies
+	// CATALYST_ORG_JWT_SECRET — bridge secret for /api/v1/sme/* proxies
 	// (PR #1625 follow-up). The chart's api-deployment.yaml feeds this
 	// via secretKeyRef on `sme-secrets/JWT_SECRET`, mirrored from the
 	// `sme` namespace into `catalyst-system` by emberstack/reflector
@@ -580,7 +580,7 @@ func main() {
 	// (ingress.marketplace.enabled=false) — proxySMEVoucher surfaces
 	// 503 `sme-jwt-bridge-unwired` so the FE renders an actionable
 	// message rather than the silent 401 the pre-bridge state produced.
-	if smeSecret := os.Getenv("CATALYST_SME_JWT_SECRET"); smeSecret != "" {
+	if smeSecret := os.Getenv("CATALYST_ORG_JWT_SECRET"); smeSecret != "" {
 		h.SetSMEJWTSecret([]byte(smeSecret))
 		log.Info("sme: HS256 bridge secret wired",
 			// NEVER log the secret value (INVIOLABLE-PRINCIPLES.md #10).
@@ -825,7 +825,7 @@ func main() {
 			deps := handler.SMEDeps{
 				UserProvisionStore: ups,
 				SecretBaseURLTemplate: env(
-					"CATALYST_SME_NEWAPI_BASE_URL_TEMPLATE",
+					"CATALYST_ORG_NEWAPI_BASE_URL_TEMPLATE",
 					"https://newapi.{otech_fqdn}",
 				),
 				OTECHFQDN: os.Getenv("CATALYST_OTECH_FQDN"),
@@ -854,7 +854,7 @@ func main() {
 			}
 			// SME-realm Keycloak client — uses the SA token from the
 			// existing bp-keycloak ExternalSecret pipeline.
-			if saToken := os.Getenv("CATALYST_SME_KC_SA_TOKEN"); saToken != "" {
+			if saToken := os.Getenv("CATALYST_ORG_KC_SA_TOKEN"); saToken != "" {
 				deps.KeycloakClient = handler.SMEKeycloakDirectClient{SAToken: saToken}
 				log.Info("sme-users: SME-realm Keycloak client wired")
 			}
@@ -883,7 +883,7 @@ func main() {
 				OTECHFQDN:        os.Getenv("CATALYST_OTECH_FQDN"),
 				OTECHIngressIPv4: os.Getenv("CATALYST_OTECH_INGRESS_IPV4"),
 				// Multi-domain Sovereign pool (epic #825 / MD-3 #828).
-				// Sourced from CATALYST_SME_POOL_DOMAINS env (stub) until
+				// Sourced from CATALYST_ORG_POOL_DOMAINS env (stub) until
 				// MD-1 (#826) lands the Deployment.ParentDomains[] field
 				// — at which point this wiring switches to read from the
 				// deployment record. The data shape is forward-compatible.
@@ -895,12 +895,12 @@ func main() {
 			tdeps.GitOps = handler.DefaultOrganizationGitOpsWriter{
 				Log: log,
 				ChartVersions: handler.OrganizationChartVersions{
-					Keycloak:  os.Getenv("CATALYST_SME_BP_KEYCLOAK_VER"),
-					CNPG:      os.Getenv("CATALYST_SME_BP_CNPG_VER"),
-					WordPress: os.Getenv("CATALYST_SME_BP_WORDPRESS_VER"),
-					OpenClaw:  os.Getenv("CATALYST_SME_BP_OPENCLAW_VER"),
-					Stalwart:  os.Getenv("CATALYST_SME_BP_STALWART_VER"),
-					NewAPI:    os.Getenv("CATALYST_SME_BP_NEWAPI_VER"),
+					Keycloak:  os.Getenv("CATALYST_ORG_BP_KEYCLOAK_VER"),
+					CNPG:      os.Getenv("CATALYST_ORG_BP_CNPG_VER"),
+					WordPress: os.Getenv("CATALYST_ORG_BP_WORDPRESS_VER"),
+					OpenClaw:  os.Getenv("CATALYST_ORG_BP_OPENCLAW_VER"),
+					Stalwart:  os.Getenv("CATALYST_ORG_BP_STALWART_VER"),
+					NewAPI:    os.Getenv("CATALYST_ORG_BP_NEWAPI_VER"),
 				},
 			}
 			// DNS provisioner — wraps PowerDNS for free-subdomain
@@ -915,10 +915,10 @@ func main() {
 				log.Info("sme-tenant: powerdns env unset; using no-op DNS provisioner")
 			}
 			// Keycloak client verifier — uses the same SA token as the
-			// user-create hook (CATALYST_SME_KC_SA_TOKEN).
+			// user-create hook (CATALYST_ORG_KC_SA_TOKEN).
 			tdeps.KeycloakClients = handler.ChartBootstrapKeycloakProvisioner{
 				Log:     log,
-				SAToken: os.Getenv("CATALYST_SME_KC_SA_TOKEN"),
+				SAToken: os.Getenv("CATALYST_ORG_KC_SA_TOKEN"),
 			}
 			// Pull the tenant registry the SME-user wiring just set so
 			// the pipeline can register console.<host> on completion.

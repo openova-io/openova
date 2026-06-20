@@ -179,7 +179,7 @@ type notificationSendRequest struct {
 // chart that doesn't wire JWT_SECRET into the billing Pod keeps the
 // best-effort fire-and-forget semantics rather than crashing the upsert
 // (mirrors the optional:true contract on catalyst-api's
-// CATALYST_SME_JWT_SECRET secretKeyRef — see chart api-deployment.yaml).
+// CATALYST_ORG_JWT_SECRET secretKeyRef — see chart api-deployment.yaml).
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #10 the minted token is NEVER
 // logged — only the recipient email + template name are.

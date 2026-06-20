@@ -693,7 +693,7 @@ spec:
                   name: catalyst-gitea-token
                   key: token
                   optional: true
-            # CATALYST_SME_JWT_SECRET — bridge secret for /api/v1/sme/*
+            # CATALYST_ORG_JWT_SECRET — bridge secret for /api/v1/sme/*
             # proxies (PR #1625 follow-up). The SME microservice mesh
             # (core/services/{gateway,billing,catalog,...}) validates HS256
             # tokens signed with sme-secrets/JWT_SECRET; catalyst-api's
@@ -723,7 +723,7 @@ spec:
             # still ships `sme-secrets`. The Sovereign (Helm) variant
             # repoints to `org-services-secrets`; the chart's one-release
             # dual-render keeps both mirrored so either resolves.
-            - name: CATALYST_SME_JWT_SECRET
+            - name: CATALYST_ORG_JWT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: sme-secrets

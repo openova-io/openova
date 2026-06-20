@@ -25,7 +25,7 @@
 //     when present, return a transient error (so the reconciler
 //     retries) when not.
 //
-//   - **Direct (fallback)**: when CATALYST_SME_KC_DIRECT_PROVISION
+//   - **Direct (fallback)**: when CATALYST_ORG_KC_DIRECT_PROVISION
 //     env is "true", the orchestrator creates the clients itself via
 //     the SME-vcluster Keycloak admin API. Used during initial
 //     bring-up of a Sovereign before bp-keycloak's bootstrap Job is
@@ -63,7 +63,7 @@ type ChartBootstrapKeycloakProvisioner struct {
 	HTTPClient *http.Client
 	// SAToken — service-account token with realm-management.view-clients
 	// on the SME realm. In production wired from
-	// CATALYST_SME_KC_SA_TOKEN; tests inject a fixed value.
+	// CATALYST_ORG_KC_SA_TOKEN; tests inject a fixed value.
 	SAToken string
 }
 

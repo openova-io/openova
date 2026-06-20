@@ -164,7 +164,7 @@ type OrganizationDeps struct {
 	OTECHIngressIPv4 string
 	// ParentDomains — the multi-domain pool config (epic #825 / MD-1
 	// #826). Wired at startup from MD-1's data-model output (or, while
-	// MD-1 is in flight, from CATALYST_SME_POOL_DOMAINS env stub).
+	// MD-1 is in flight, from CATALYST_ORG_POOL_DOMAINS env stub).
 	// Empty/nil means "single-domain Sovereign": the only parent is
 	// OTECHFQDN itself with role=sme-pool, ns_flip_ready=true.
 	ParentDomains []OrganizationParentDomain
@@ -588,7 +588,7 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 		if len(pool) == 0 {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 				"error":  "sme-pool-empty",
-				"detail": "this Sovereign has no role:sme-pool parent domains; ask the operator to add one via the admin console or configure CATALYST_SME_POOL_DOMAINS",
+				"detail": "this Sovereign has no role:sme-pool parent domains; ask the operator to add one via the admin console or configure CATALYST_ORG_POOL_DOMAINS",
 			})
 			return
 		}
@@ -1050,7 +1050,7 @@ var errBYOCNAMEMismatch = errors.New("byo cname does not resolve to otech ingres
 //     production wiring is the authoritative source.
 //  2. Admin store from #829 — entries added via the operator console
 //     after handover. Only consulted when (1) is empty.
-//  3. Env stub from CATALYST_SME_POOL_DOMAINS — used while #826's
+//  3. Env stub from CATALYST_ORG_POOL_DOMAINS — used while #826's
 //     data model is still in flight. Only consulted when (1) and (2)
 //     are both empty.
 //  4. OTECHFQDN — single-domain back-compat last-resort.

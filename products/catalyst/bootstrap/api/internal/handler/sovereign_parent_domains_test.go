@@ -23,7 +23,7 @@ import (
 )
 
 // TestLoadOrganizationParentDomainsFromEnv_CanonicalFourEntryPool guards
-// the hardcoded fallback path (CATALYST_SME_POOL_DOMAINS unset). The
+// the hardcoded fallback path (CATALYST_ORG_POOL_DOMAINS unset). The
 // returned slice must carry every .omani.X TLD from
 // core/services/domain/store.AllowedTLDs so the marketplace /addons
 // picker, the catalyst-api SME tenant create validator, and the
@@ -37,9 +37,9 @@ import (
 // short-circuits).
 func TestLoadOrganizationParentDomainsFromEnv_CanonicalFourEntryPool(t *testing.T) {
 	// Defensively isolate from the caller's env. Tests may run in
-	// parallel; CATALYST_SME_POOL_DOMAINS and CATALYST_OTECH_FQDN
+	// parallel; CATALYST_ORG_POOL_DOMAINS and CATALYST_OTECH_FQDN
 	// must be unset to exercise the hardcoded fallback path.
-	t.Setenv("CATALYST_SME_POOL_DOMAINS", "")
+	t.Setenv("CATALYST_ORG_POOL_DOMAINS", "")
 	t.Setenv("CATALYST_OTECH_FQDN", "")
 	got := LoadOrganizationParentDomainsFromEnv()
 
@@ -75,7 +75,7 @@ func TestLoadOrganizationParentDomainsFromEnv_CanonicalFourEntryPool(t *testing.
 // becomes the implicit primary and the four .omani.X TLDs are the
 // sme-pool offered to SME tenants registering through the marketplace.
 func TestLoadOrganizationParentDomainsFromEnv_OTECHFQDNPrimary(t *testing.T) {
-	t.Setenv("CATALYST_SME_POOL_DOMAINS", "")
+	t.Setenv("CATALYST_ORG_POOL_DOMAINS", "")
 	t.Setenv("CATALYST_OTECH_FQDN", "t99.example.io")
 	got := LoadOrganizationParentDomainsFromEnv()
 	if len(got) == 0 || got[0].Name != "t99.example.io" || got[0].Role != "primary" {
@@ -94,11 +94,11 @@ func TestLoadOrganizationParentDomainsFromEnv_OTECHFQDNPrimary(t *testing.T) {
 }
 
 // TestLoadOrganizationParentDomainsFromEnv_EnvOverride checks that the
-// CATALYST_SME_POOL_DOMAINS env-var override path still works (operator
+// CATALYST_ORG_POOL_DOMAINS env-var override path still works (operator
 // can swap the pool wholesale on a non-omani Sovereign). The hardcoded
 // fallback only kicks in when this env var is unset.
 func TestLoadOrganizationParentDomainsFromEnv_EnvOverride(t *testing.T) {
-	t.Setenv("CATALYST_SME_POOL_DOMAINS", "first.example:primary,second.example,third.example")
+	t.Setenv("CATALYST_ORG_POOL_DOMAINS", "first.example:primary,second.example,third.example")
 	t.Setenv("CATALYST_OTECH_FQDN", "")
 	got := LoadOrganizationParentDomainsFromEnv()
 	if len(got) != 3 {
@@ -121,7 +121,7 @@ func TestLoadOrganizationParentDomainsFromEnv_EnvOverride(t *testing.T) {
 		}
 	}
 	// Also assert clean env state.
-	if v := os.Getenv("CATALYST_SME_POOL_DOMAINS"); v == "" {
+	if v := os.Getenv("CATALYST_ORG_POOL_DOMAINS"); v == "" {
 		t.Fatalf("test setup: env var should be set")
 	}
 }
