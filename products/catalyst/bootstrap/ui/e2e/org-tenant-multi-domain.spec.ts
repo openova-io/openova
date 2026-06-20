@@ -78,7 +78,7 @@ test.describe('Organization multi-domain onboarding (issue #828)', () => {
         status: 202,
         contentType: 'application/json',
         body: JSON.stringify({
-          sme_tenant_id: 'tenant-uuid-free',
+          org_tenant_id: 'tenant-uuid-free',
           state: 'done',
           subdomain: 'acme',
           domain_mode: 'free-subdomain',
@@ -169,7 +169,7 @@ test.describe('Organization multi-domain onboarding (issue #828)', () => {
         status: 202,
         contentType: 'application/json',
         body: JSON.stringify({
-          sme_tenant_id: 'tenant-uuid-byo',
+          org_tenant_id: 'tenant-uuid-byo',
           state: 'done',
           subdomain: 'acme',
           domain_mode: 'byo',

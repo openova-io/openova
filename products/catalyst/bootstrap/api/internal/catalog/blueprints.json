@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-20T14:35:16.966Z",
+  "generatedAt": "2026-06-20T15:20:55.366Z",
   "blueprints": [
     {
       "id": "bp-alloy",
@@ -2028,7 +2028,7 @@
       "id": "bp-keycloak",
       "slug": "keycloak",
       "title": "keycloak",
-      "summary": "Keycloak — user identity. Topology decided by Sovereign CRD spec.keycloakTopology (per-organization for SME, shared-sovereign for corporate).",
+      "summary": "Keycloak — user identity. Topology decided by Sovereign CRD spec.keycloakTopology (per-organization for Organizations, shared-sovereign for corporate).",
       "icon": null,
       "category": null,
       "tagline": null,

@@ -355,7 +355,7 @@ func TestTenantDiscover_Public(t *testing.T) {
 	}
 	// Confirm admin URLs are NOT exposed.
 	body := w.Body.String()
-	if strings.Contains(body, "sme_keycloak_admin_url") || strings.Contains(body, "8080") {
+	if strings.Contains(body, "org_keycloak_admin_url") || strings.Contains(body, "8080") {
 		t.Errorf("admin URL leaked in public response: %s", body)
 	}
 

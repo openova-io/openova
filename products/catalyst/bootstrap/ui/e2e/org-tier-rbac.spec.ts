@@ -3,7 +3,7 @@
  * Organization-tier (issue #802 / parent epic #795).
  *
  * Scope: prove the same Sovereign Console SPA bundle responds correctly
- * when the host resolves to tenant_kind=sme vs tenant_kind=otech, and
+ * when the host resolves to tenant_kind=org vs tenant_kind=otech, and
  * capture 1440 px screenshots for the DoD checklist.
  *
  * Why the test mocks `/api/v1/tenant/discover` + `/api/v1/org/users`:
@@ -29,7 +29,7 @@ import { expect, test } from '@playwright/test'
 const ORG_DISCOVERY = {
   host: 'console.acme.otech.example',
   tenant_id: 'tenant-org-acme',
-  tenant_kind: 'sme',
+  tenant_kind: 'org',
   keycloak_realm_url: 'https://kc.otech.example/realms/org-acme',
   keycloak_client_id: 'catalyst-ui',
 }

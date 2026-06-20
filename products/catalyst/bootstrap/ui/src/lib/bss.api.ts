@@ -616,7 +616,7 @@ export type TenantStatus =
   | 'unknown'
 
 export interface Tenant {
-  /** Stable identifier (sme_tenant_id from the orchestrator). */
+  /** Stable identifier (org_tenant_id from the orchestrator). */
   id: string
   /** Display name, falling back to the slug when company name absent. */
   orgName: string
@@ -692,7 +692,7 @@ export function mapStateToStatus(state: string): TenantStatus {
 /** Wire-shape mirror of orgTenantResponse — Partial so future BE
  *  additions don't break the FE parse. */
 interface RawTenant {
-  sme_tenant_id?: string
+  org_tenant_id?: string
   state?: string
   subdomain?: string
   domain_mode?: string
@@ -722,9 +722,9 @@ function mapTenant(raw: RawTenant): Tenant {
   const subdomain = String(raw.subdomain ?? '')
   const parentDomain = String(raw.parent_domain ?? '')
   const companyName = String(raw.company_name ?? '').trim()
-  const orgName = companyName !== '' ? companyName : subdomain || String(raw.sme_tenant_id ?? '')
+  const orgName = companyName !== '' ? companyName : subdomain || String(raw.org_tenant_id ?? '')
   return {
-    id: String(raw.sme_tenant_id ?? ''),
+    id: String(raw.org_tenant_id ?? ''),
     orgName,
     consoleHost: String(raw.console_host ?? ''),
     subdomain,

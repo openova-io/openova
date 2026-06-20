@@ -117,7 +117,7 @@ const (
 // on first POST. It is opaque to humans; the Organization admin's mental model
 // uses Subdomain ("acme") instead.
 type OrganizationProvisionRecord struct {
-	OrganizationID string                  `json:"sme_tenant_id"`
+	OrganizationID string                  `json:"org_tenant_id"`
 	State       OrganizationProvisionState `json:"state"`
 	// Subdomain — the operator-supplied Organization slug. In free-subdomain
 	// mode the resulting console URL is `console.<subdomain>.<otech>`;
@@ -153,7 +153,7 @@ type OrganizationProvisionRecord struct {
 	// so the orchestrator can reference it in GitOps manifest paths
 	// without re-deriving on every reconcile.
 	VClusterName string `json:"vcluster_name"`
-	// TenantNamespace — `org-<sme_tenant_id>` per #804 scope §1. The
+	// TenantNamespace — `org-<org_tenant_id>` per #804 scope §1. The
 	// bp-wordpress-tenant / bp-openclaw / bp-stalwart-tenant charts
 	// install into this namespace.
 	TenantNamespace string `json:"tenant_namespace"`
@@ -189,7 +189,7 @@ type OrganizationProvisionRecord struct {
 }
 
 // orgTenantDir is the on-disk subdirectory under <store>/org-tenant.
-// One file per tenant (sme_tenant_id.json); a directory walk is fine
+// One file per tenant (org_tenant_id.json); a directory walk is fine
 // at the cardinality this layer targets (hundreds, not millions).
 const orgTenantDir = "org-tenant"
 
@@ -222,7 +222,7 @@ func NewOrganizationProvisionStore(dir string) (*OrganizationProvisionStore, err
 // calling. UpdatedAt is bumped automatically.
 func (s *OrganizationProvisionStore) Put(rec OrganizationProvisionRecord) error {
 	if strings.TrimSpace(rec.OrganizationID) == "" {
-		return errors.New("org-tenant: sme_tenant_id is required")
+		return errors.New("org-tenant: org_tenant_id is required")
 	}
 	if rec.State == "" {
 		rec.State = STSPending

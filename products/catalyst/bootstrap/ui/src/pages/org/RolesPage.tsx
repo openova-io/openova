@@ -2,7 +2,7 @@
  * RolesPage — Organization-tier Keycloak group → application role mapping
  * (issue #802 #5).
  *
- * Mounted only when the discovered tenant_kind === 'sme'. The page
+ * Mounted only when the discovered tenant_kind === 'org'. The page
  * is a static editor for the canonical mapping table the Organization admin
  * customises:
  *

@@ -27,12 +27,12 @@ export type TenantID = string & { readonly __brand: 'TenantID' }
  *   • 'otech' — the Sovereign operator tier. Renders the existing
  *     post-handover Sovereign Console (Apps / Jobs / Cloud / Users
  *     [UserAccess CRD] / Settings).
- *   • 'sme'   — the Organization-admin tier (issue #795 epic). Renders the
+ *   • 'org'   — the Organization-admin tier (issue #795 epic). Renders the
  *     Organization user CRUD + Roles pages; Keycloak realm is the
  *     Organization-vcluster realm (different from otech). The discriminant
- *     wire VALUE stays 'sme' — it mirrors the back-end store.TenantKind enum.
+ *     wire VALUE stays 'org' — it mirrors the back-end store.TenantKind enum.
  */
-export type TenantKind = 'otech' | 'sme'
+export type TenantKind = 'otech' | 'org'
 
 /**
  * Discovery response returned by `GET /api/v1/tenant/discover?host=...`.
@@ -66,7 +66,7 @@ export function parseTenantID(s: unknown): TenantID {
  * outside the closed set above.
  */
 export function parseTenantKind(s: unknown): TenantKind {
-  if (s === 'otech' || s === 'sme') return s
+  if (s === 'otech' || s === 'org') return s
   const preview = typeof s === 'string' ? `"${s.slice(0, 32)}"` : `<${typeof s}>`
   throw new Error(`invalid TenantKind: ${preview}`)
 }
@@ -75,5 +75,5 @@ export function parseTenantKind(s: unknown): TenantKind {
  * Type guard for `TenantKind`.
  */
 export function isTenantKind(s: unknown): s is TenantKind {
-  return s === 'otech' || s === 'sme'
+  return s === 'otech' || s === 'org'
 }

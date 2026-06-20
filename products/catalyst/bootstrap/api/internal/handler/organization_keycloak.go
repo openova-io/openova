@@ -80,7 +80,7 @@ func (p ChartBootstrapKeycloakProvisioner) ProvisionOrganizationClients(ctx cont
 		// operator knows the verification is being skipped.
 		if p.Log != nil {
 			p.Log.Info("org-tenant: keycloak SA token not wired; skipping verification",
-				"sme_tenant_id", rec.OrganizationID,
+				"org_tenant_id", rec.OrganizationID,
 			)
 		}
 		return nil

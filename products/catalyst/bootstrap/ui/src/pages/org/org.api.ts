@@ -126,7 +126,7 @@ export interface OrgTenantSteps {
 }
 
 export interface OrgTenant {
-  sme_tenant_id: string
+  org_tenant_id: string
   state: string
   subdomain: string
   domain_mode: OrgTenantDomainMode

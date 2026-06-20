@@ -16,7 +16,7 @@ description: |
     - Per-user pods carry NEWAPI_BASE_URL + NEWAPI_KEY (plus their
       OpenAI-compatible aliases OPENAI_API_BASE / OPENAI_API_KEY +
       LLM_DEFAULT_MODEL) mounted from the per-user Secret labelled
-      `catalyst.openova.io/sme-user-uuid=<uuid>`. The runtime image is
+      `catalyst.openova.io/org-user-uuid=<uuid>`. The runtime image is
       identity-blind: no Keycloak code, no key-management code.
 
   This chart ships ZERO upstream Helm subchart bytes — there is no

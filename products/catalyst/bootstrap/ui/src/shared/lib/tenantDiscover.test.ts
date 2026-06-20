@@ -24,13 +24,13 @@ describe('discoverTenant', () => {
     const fetchImpl = mockFetch(200, {
       host: 'console.acme.otech.example',
       tenant_id: 'tenant-acme',
-      tenant_kind: 'sme',
+      tenant_kind: 'org',
       keycloak_realm_url: 'https://kc.otech.example/realms/org-acme',
       keycloak_client_id: 'catalyst-ui',
     })
     const got = await discoverTenant('console.acme.otech.example', fetchImpl)
     expect(got.status).toBe('discovered')
-    expect(got.tenant?.tenant_kind).toBe('sme')
+    expect(got.tenant?.tenant_kind).toBe('org')
     expect(got.tenant?.tenant_id).toBe('tenant-acme')
   })
 
@@ -77,7 +77,7 @@ describe('bootstrapTenant', () => {
     const fetchImpl = mockFetch(200, {
       host: 'console.acme.otech.example',
       tenant_id: 'tenant-acme',
-      tenant_kind: 'sme',
+      tenant_kind: 'org',
       keycloak_realm_url: 'https://kc/realms/org',
       keycloak_client_id: 'ui',
     })
@@ -94,7 +94,7 @@ describe('bootstrapTenant', () => {
     const fetchImpl = mockFetch(200, {
       host: 'console.acme.example',
       tenant_id: 'tenant-acme',
-      tenant_kind: 'sme',
+      tenant_kind: 'org',
       keycloak_realm_url: '',
       keycloak_client_id: '',
     })

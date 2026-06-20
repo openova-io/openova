@@ -1,7 +1,7 @@
 /**
  * UsersPage — Organization-tier user CRUD UI (issue #802).
  *
- * Mounted only when the discovered tenant_kind === 'sme'. Shows:
+ * Mounted only when the discovered tenant_kind === 'org'. Shows:
  *
  *   • Header + "+ New user" CTA
  *   • Create form (inline) — fires POST /api/v1/org/users which

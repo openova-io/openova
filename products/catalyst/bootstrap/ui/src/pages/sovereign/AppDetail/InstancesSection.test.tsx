@@ -51,7 +51,7 @@ const SELF = { deploymentId: 'd-1', sovereignFQDN: 't01.omani.works' }
 // dialog's Org dropdown value is the subdomain slug.
 const TENANTS = {
   items: [
-    { sme_tenant_id: 't-acme', subdomain: 'acme', company_name: 'Acme', tenant_namespace: 'acme', state: 'ready' },
+    { org_tenant_id: 't-acme', subdomain: 'acme', company_name: 'Acme', tenant_namespace: 'acme', state: 'ready' },
   ],
 }
 

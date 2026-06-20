@@ -312,7 +312,7 @@ func resolveOrgShape(req orgTenantCreateRequest) orgShape {
 }
 
 type orgTenantResponse struct {
-	OrganizationID     string                        `json:"sme_tenant_id"`
+	OrganizationID     string                        `json:"org_tenant_id"`
 	State           store.OrganizationProvisionState `json:"state"`
 	Subdomain       string                        `json:"subdomain"`
 	DomainMode      store.OrganizationDomainMode           `json:"domain_mode"`

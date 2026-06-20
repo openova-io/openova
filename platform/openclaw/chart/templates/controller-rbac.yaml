@@ -34,7 +34,7 @@ metadata:
 rules:
   # Rule 1 — read per-user NewAPI key Secrets.
   # The controller selects by label
-  # `catalyst.openova.io/sme-user-uuid=<uuid>` at the API call boundary
+  # `catalyst.openova.io/org-user-uuid=<uuid>` at the API call boundary
   # (via List with a labelSelector); RBAC permits get/list/watch on all
   # secrets in the namespace, but the controller code path NEVER reads
   # an unlabelled Secret.

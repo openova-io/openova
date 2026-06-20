@@ -114,7 +114,7 @@ test.describe('@org-demo Organization end-to-end happy path (issue #805)', () =>
   /* ── STEP 3 — First login + dashboard render ─────────────────── */
 
   test('step 3 — Organization admin dashboard renders (1440×900)', async ({ page }, testInfo) => {
-    // Tenant discovery resolves to tenant_kind=sme, whoami returns an
+    // Tenant discovery resolves to tenant_kind=org, whoami returns an
     // already-authenticated session, so navigating to the dashboard
     // bypasses the OIDC redirect and renders directly.
     //

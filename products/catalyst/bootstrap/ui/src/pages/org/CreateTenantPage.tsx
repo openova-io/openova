@@ -541,7 +541,7 @@ export function CreateTenantPage({
               </>
             )}
             <dt className="text-[var(--color-text-dim)]">Organization ID</dt>
-            <dd className="font-mono">{created.sme_tenant_id}</dd>
+            <dd className="font-mono">{created.org_tenant_id}</dd>
           </dl>
           <TenantSteps steps={created.steps} />
           {created.last_error && (

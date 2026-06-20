@@ -1662,7 +1662,7 @@ func main() {
 		// Owned by the unified-rbac slice of catalyst-api. Tenant
 		// scoping is by X-Tenant-Host header (sent by the SPA from
 		// window.location.host); the tenant must be registered with
-		// tenant_kind=sme. Each create fires the 3-step user-create
+		// tenant_kind=org. Each create fires the 3-step user-create
 		// hook (Keycloak → NewAPI → K8s Secret) per ADR-0003 §3.
 		// State is persisted in a flat-file user_provision_state
 		// store; on partial failure the response carries the partial

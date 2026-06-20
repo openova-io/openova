@@ -42,7 +42,7 @@ type TenantKind string
 
 const (
 	TenantKindOTECH TenantKind = "otech"
-	TenantKindOrg   TenantKind = "sme"
+	TenantKindOrg   TenantKind = "org"
 )
 
 // TenantRegistration is the wire + on-disk shape returned by
@@ -60,16 +60,16 @@ type TenantRegistration struct {
 	KeycloakRealmURL string     `json:"keycloak_realm_url"`
 	KeycloakClientID string     `json:"keycloak_client_id"`
 	TenantKind       TenantKind `json:"tenant_kind"`
-	// OrganizationNamespace — for tenant_kind=sme this is the Kubernetes
+	// OrganizationNamespace — for tenant_kind=org this is the Kubernetes
 	// namespace in the OTECH cluster where ADR-0003 step 3 applies the
 	// `newapi-key-{user-uuid}` Secret. Empty for tenant_kind=otech.
-	OrganizationNamespace string `json:"sme_tenant_namespace,omitempty"`
+	OrganizationNamespace string `json:"org_tenant_namespace,omitempty"`
 	// OrgKeycloakAdminURL — admin-API base for the Organization vcluster
 	// Keycloak realm (used by ADR-0003 step 1). Different from
 	// KeycloakRealmURL: that's the *issuer* (browser-facing), this is
 	// the in-cluster admin endpoint (back-end facing). Empty for
 	// tenant_kind=otech.
-	OrgKeycloakAdminURL string `json:"sme_keycloak_admin_url,omitempty"`
+	OrgKeycloakAdminURL string `json:"org_keycloak_admin_url,omitempty"`
 	// OrgKeycloakRealmName — the realm name to target in the admin
 	// API path /admin/realms/{realm}/users. Empty for tenant_kind=otech.
 	OrgKeycloakRealmName string `json:"org_keycloak_realm_name,omitempty"`

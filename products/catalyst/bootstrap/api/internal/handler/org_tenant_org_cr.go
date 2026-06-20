@@ -86,7 +86,7 @@ func (h *Handler) createOrgOrganizationCR(ctx context.Context, rec store.Organiz
 		h.log.Warn("org-tenant: skipping Organization CR — subdomain is not a valid Org slug",
 			"subdomain", rec.Subdomain,
 			"expected", "[a-z][a-z0-9-]{2,30}",
-			"sme_tenant_id", rec.OrganizationID,
+			"org_tenant_id", rec.OrganizationID,
 		)
 		return
 	}
@@ -97,17 +97,17 @@ func (h *Handler) createOrgOrganizationCR(ctx context.Context, rec store.Organiz
 		// is simply not minted (no apiserver to POST to). On a real Sovereign
 		// this branch never fires.
 		h.log.Info("org-tenant: Organization CR skipped — no in-cluster dynamic client",
-			"sme_tenant_id", rec.OrganizationID, "err", err)
+			"org_tenant_id", rec.OrganizationID, "err", err)
 		return
 	}
 
 	if err := ensureOrganizationCR(ctx, deps.dyn, rec, h.orgTenantDeps.OTECHFQDN); err != nil {
 		h.log.Error("org-tenant: Organization CR create failed — org-controller reconcile will retry",
-			"slug", slug, "sme_tenant_id", rec.OrganizationID, "err", err)
+			"slug", slug, "org_tenant_id", rec.OrganizationID, "err", err)
 		return
 	}
 	h.log.Info("org-tenant: Organization CR ensured",
-		"slug", slug, "sme_tenant_id", rec.OrganizationID,
+		"slug", slug, "org_tenant_id", rec.OrganizationID,
 		"kind", rec.Kind, "tier", rec.Tier, "billing_mode", rec.BillingMode,
 		"sovereign", h.orgTenantDeps.OTECHFQDN,
 	)

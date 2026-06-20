@@ -64,7 +64,7 @@ export const HOSTS = {
 export const ORG_DISCOVERY = {
   host: HOSTS.orgConsole,
   tenant_id: `tenant-org-${ORG_SLUG}`,
-  tenant_kind: 'sme',
+  tenant_kind: 'org',
   keycloak_realm_url: `https://kc.${OTECH_FQDN}/realms/org-${ORG_SLUG}`,
   keycloak_client_id: 'catalyst-ui',
 } as const

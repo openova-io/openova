@@ -78,7 +78,7 @@ type OrgKeycloakClient interface {
 }
 
 // OrgSecretApplier is the contract for ADR-0003 step 3 — server-side
-// apply of `newapi-key-<sme_user_uuid>` into the Organization tenant
+// apply of `newapi-key-<org_user_uuid>` into the Organization tenant
 // namespace. The default implementation uses client-go SSA on the
 // catalyst-api Pod's own ServiceAccount; tests inject a stub.
 type OrgSecretApplier interface {
@@ -154,8 +154,8 @@ func (h *Handler) resolveOrganization(w http.ResponseWriter, r *http.Request) (s
 	}
 	if t.TenantKind != store.TenantKindOrg {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
-			"error":  "tenant-not-sme",
-			"detail": "endpoint is restricted to tenant_kind=sme; got " + string(t.TenantKind),
+			"error":  "tenant-not-org",
+			"detail": "endpoint is restricted to tenant_kind=org; got " + string(t.TenantKind),
 		})
 		return store.TenantRegistration{}, false
 	}
@@ -498,7 +498,7 @@ func applyStep3(
 /* ── default in-process implementations ────────────────────────── */
 
 // K8sSecretApplier is the production OrgSecretApplier. Server-side
-// applies the `newapi-key-<sme_user_uuid>` Secret with field manager
+// applies the `newapi-key-<org_user_uuid>` Secret with field manager
 // `unified-rbac` per ADR-0003 §3.3.
 type K8sSecretApplier struct {
 	Client kubernetes.Interface
@@ -604,8 +604,8 @@ func (c OrgKeycloakDirectClient) EnsureOrgUser(ctx context.Context, realmAdminUR
 		"emailVerified": true,
 		"enabled":       true,
 		"attributes": map[string]any{
-			"sme_tenant_id": []string{orgTenantID},
-			"sme_user_uuid": []string{orgUserUUID},
+			"org_tenant_id": []string{orgTenantID},
+			"org_user_uuid": []string{orgUserUUID},
 		},
 		"groups": []string{"org-users"},
 	}

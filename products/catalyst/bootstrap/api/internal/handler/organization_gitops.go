@@ -6,7 +6,7 @@
 //
 //  1. Cloning the openova-public GitOps repo to a temp directory.
 //  2. Generating the per-tenant Kustomize overlay under
-//     clusters/<otech-fqdn>/org-tenants/<sme_tenant_id>/.
+//     clusters/<otech-fqdn>/org-tenants/<org_tenant_id>/.
 //  3. git add + commit (committer "catalyst-api <ops@openova.io>").
 //  4. git push.
 //  5. Flux on the OTECH cluster reconciles within ~1 min and the
@@ -14,7 +14,7 @@
 //
 // The overlay materialises every artifact issue #804 specifies:
 //
-//   - Namespace          org-<sme_tenant_id>
+//   - Namespace          org-<org_tenant_id>
 //   - HelmRelease       bp-keycloak (per-organization, fresh realm)
 //   - HelmRelease       bp-cnpg (in tenant ns)
 //   - HelmRelease       bp-wordpress-tenant
@@ -120,7 +120,7 @@ func (w DefaultOrganizationGitOpsWriter) WriteTenantOverlay(ctx context.Context,
 	}
 
 	// Per-tenant overlay path:
-	//   clusters/<otech-fqdn>/org-tenants/<sme_tenant_id>/
+	//   clusters/<otech-fqdn>/org-tenants/<org_tenant_id>/
 	overlayDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "org-tenants", rec.OrganizationID)
 	if err := os.MkdirAll(overlayDir, 0o755); err != nil {
 		return "", fmt.Errorf("mkdir overlay: %w", err)
@@ -543,7 +543,7 @@ type orgTenantTemplateData struct {
 // the per-tenant overlay directory.
 func renderOrganizationOverlay(rec store.OrganizationProvisionRecord, versions OrganizationChartVersions) (map[string]string, error) {
 	if strings.TrimSpace(rec.OrganizationID) == "" {
-		return nil, errors.New("render: sme_tenant_id required")
+		return nil, errors.New("render: org_tenant_id required")
 	}
 	if strings.TrimSpace(rec.OTECHFQDN) == "" {
 		return nil, errors.New("render: otech fqdn required")
