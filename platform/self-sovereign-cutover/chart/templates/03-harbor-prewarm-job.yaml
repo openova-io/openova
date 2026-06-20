@@ -108,6 +108,28 @@ data:
             value: {{ .Values.helmRepositories.namespace | quote }}
           - name: UPSTREAM_PREFIX
             value: {{ .Values.helmRepositories.upstreamPrefix | quote }}
+          # #3944 (Refs #3379 #3642 #3927): per-`skopeo copy` command timeout.
+          # A `skopeo copy` whose TCP connection is ESTABLISHED but then
+          # silently STALLS mid-blob (no bytes, no reset — common on a
+          # freshly-bootstrapped/throttled Sovereign network, or against the
+          # registry.<fqdn> front door that accepts the connect but stops
+          # responding) hangs INDEFINITELY: `--retry-times` only fires on an
+          # ERROR, never on a stuck-but-alive connection. With no command
+          # timeout the copy never returns, the worker never drains, the parent
+          # `wait` blocks forever, and the whole Job sits "active" until the
+          # 5400s activeDeadlineSeconds kills it — then catalyst-api auto-re-runs
+          # the DeadlineExceeded step (cutover.go) and the next 90-min hang
+          # begins. Back-to-back deadline cycles = the "step-03 active for hours,
+          # never completing" symptom seen live on hw171 (dep 3963e9267c10a90d)
+          # right after #3927 unstuck step-02. `--command-timeout` bounds each
+          # individual copy so a stalled connection FAILS FAST → the per-image
+          # outer retry loop (PREWARM_COPY_ATTEMPTS) re-attempts with backoff,
+          # which is exactly the self-heal path that was unreachable while the
+          # copy hung. 1200s (20m) is generous for the largest multi-layer
+          # PRIVATE openova-io image over throttled egress yet collapses an
+          # infinite hang into a bounded, retryable failure.
+          - name: PREWARM_SKOPEO_TIMEOUT
+            value: {{ .Values.prewarm.skopeoCommandTimeout | default "1200s" | quote }}
         volumeMounts:
           - name: prewarm
             mountPath: /work
@@ -308,7 +330,10 @@ data:
               : >"${cpdir}/${slug}.log"
               while [ "${attempt}" -le "${PREWARM_COPY_ATTEMPTS}" ]; do
                 echo "[harbor-prewarm] copy ${up} attempt ${attempt}/${PREWARM_COPY_ATTEMPTS}" >>"${cpdir}/${slug}.log"
-                if skopeo copy \
+                # #3944: `--command-timeout` is a skopeo GLOBAL flag (must
+                # precede the `copy` subcommand) — it bounds the whole copy so a
+                # silently-stalled connection can't hang the worker forever.
+                if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
                   --insecure-policy \
                   --retry-times 5 \
                   --src-creds="${ghcr_user}:${ghcr_pat}" \
@@ -485,7 +510,9 @@ data:
               csrc="docker://${up_chart_prefix}/${cchart}:${cver}"
               cdst="docker://${HARBOR_HOST}/openova-io/${cchart}:${cver}"
               cslug=$(printf '%s_%s' "${cchart}" "${cver}" | tr -c 'A-Za-z0-9._-' '_')
-              if skopeo copy \
+              # #3944: bound the chart-OCI copy too (skopeo GLOBAL flag before
+              # the `copy` subcommand) so a stalled connection fails fast.
+              if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
                 --insecure-policy \
                 --retry-times 3 \
                 --src-creds="${ghcr_user}:${ghcr_pat}" \

@@ -559,7 +559,12 @@ spec:
       # every cutover Job's dial timed out and the cutover wedged at step-01 (gitea-mirror)
       # on hw165. Purely additive (Cilium unions policies) — opens the path without editing
       # bp-mgmt-vcluster. mgmtIsolationCarveOut.{enabled,mgmtNamespace} (default enabled,mgmt).
-      version: 0.1.76
+      # 0.1.77 (#3944, Refs #3379 #3642 #3927): step-03 harbor-prewarm's skopeo
+      # copies (Phase A images + Phase A2 charts) gain `--command-timeout`
+      # (prewarm.skopeoCommandTimeout, default 1200s) so a silently-stalled
+      # connection FAILS FAST instead of hanging the Job "active" for hours —
+      # the symptom seen live on hw171 right after #3927 unstuck step-02.
+      version: 0.1.77
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
