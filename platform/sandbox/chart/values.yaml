@@ -240,7 +240,7 @@ mcp:
   giteaTokenSecret:
     name: "catalyst-gitea-token"
     key: "token"
-  domainAPIURL: "http://domain.sme.svc.cluster.local:8086"
+  domainAPIURL: "http://domain.org-services.svc.cluster.local:8086"
   marketplaceAPIURL: "http://marketplace-api.marketplace.svc.cluster.local:8082"
   storage:
     s3Endpoint: "http://seaweedfs.storage.svc.cluster.local:8333"

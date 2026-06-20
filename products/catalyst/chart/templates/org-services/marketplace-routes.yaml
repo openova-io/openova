@@ -87,7 +87,7 @@ spec:
       # 503'd at the gateway before ever reaching the auth service. The
       # gateway in sme already proxies /auth/* to services-auth, so we
       # cross-namespace backendRef directly. ReferenceGrant
-      # marketplace-routes-to-sme (in sme ns) authorises this hop.
+      # marketplace-routes-to-org (in sme ns) authorises this hop.
       backendRefs:
         - name: gateway
           namespace: org-services

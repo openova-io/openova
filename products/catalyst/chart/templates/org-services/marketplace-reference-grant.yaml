@@ -19,7 +19,7 @@ RBAC for catalyst-system.
 apiVersion: gateway.networking.k8s.io/v1beta1
 kind: ReferenceGrant
 metadata:
-  name: marketplace-routes-to-sme
+  name: marketplace-routes-to-org
   namespace: org-services
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform

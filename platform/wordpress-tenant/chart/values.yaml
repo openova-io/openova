@@ -44,7 +44,7 @@ catalystBlueprint:
 # `helm template` smoke render in the Blueprint Release workflow
 # (which runs with no overrides) produces valid YAML; per-Sovereign
 # overlays MUST override.
-orgDomain: "sme.local"
+orgDomain: "org.local"
 
 # ─── WordPress application ──────────────────────────────────────────────
 wordpress:
@@ -282,7 +282,7 @@ oidc:
   # auto-derives `https://auth.<sovereign.fqdn>/realms/<realm>`. The
   # placeholder default below remains so existing chart 0.3.x overlays
   # render unchanged.
-  issuerURL: "https://keycloak.sme.local/realms/sme"
+  issuerURL: "https://keycloak.org.local/realms/org"
   # OIDC client ID registered in the per-tenant Keycloak realm — see
   # platform/keycloak/chart/templates/configmap-tenant-realm.yaml
   # (PR #918) where the realm import ConfigMap registers the client.

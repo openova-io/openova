@@ -4,7 +4,7 @@ metadata:
   name: bp-wordpress-tenant
   labels:
     catalyst.openova.io/category: tenant-app
-    catalyst.openova.io/section: pts-7-sme-tenant
+    catalyst.openova.io/section: pts-7-org-tenant
 spec:
   version: 0.4.1
   card:
