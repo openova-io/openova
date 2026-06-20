@@ -30,6 +30,7 @@ import {
   matchReconNode,
   compareReconNodes,
   type ReconSortKey,
+  type SortDir,
 } from './reconciliation.shared'
 
 /* ──────────────────────────────────────────────────────────────────
