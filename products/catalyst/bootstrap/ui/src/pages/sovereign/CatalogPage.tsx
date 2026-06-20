@@ -33,8 +33,45 @@ import { resolveApplications, type ApplicationDescriptor } from './applicationCa
 import type { ApplicationStatus } from './eventReducer'
 import { useCatalogAdmin } from '@/shared/lib/useCatalogAdmin'
 import { listApps, type CommerceApp } from '@/lib/commerce.api'
+import { useCatalog } from '@/lib/useCatalog'
+import type { CatalogItem } from '@/lib/catalog.api'
 
 const DEFAULT_APP_ENVIRONMENT = 'dev'
+
+/** Stable empty list so the merge memo doesn't re-run on every render. */
+const EMPTY_ITEMS: readonly CatalogItem[] = []
+
+/**
+ * #3668 (hw171 catalog walk) — project a live catalog API item into the same
+ * `ApplicationDescriptor` shape the grid's `AppCard` consumes. Used ONLY for
+ * blueprints the build-time component graph (`componentGroups.ts`) doesn't
+ * already cover (e.g. `bp-wordpress`), so a seeded-but-uncatalogued Blueprint
+ * still gets a grid card instead of being reachable only by deep-link.
+ *
+ * Generic over every blueprint (founder rule #4): pure field projection off
+ * `spec.card`, no per-blueprint branch. The descriptor's `id` is the canonical
+ * `bp-<slug>` so the card links to the CLASS page `/catalog/bp-<slug>` exactly
+ * like the static descriptors do.
+ */
+function catalogItemToDescriptor(it: CatalogItem): ApplicationDescriptor | null {
+  const id = it.name?.startsWith('bp-') ? it.name : it.name ? `bp-${it.name}` : ''
+  if (!id) return null
+  const bareId = id.replace(/^bp-/, '')
+  const card = it.card ?? { title: bareId }
+  const category = card.category ?? card.family ?? 'application'
+  return {
+    id,
+    bareId,
+    title: card.title || bareId,
+    description: card.summary ?? card.description ?? card.tagline ?? '',
+    familyId: category,
+    familyName: category,
+    tier: 'optional',
+    logoUrl: null,
+    dependencies: [],
+    bootstrapKit: false,
+  }
+}
 
 /**
  * #3603 (EPIC #3597) — the admin-editable overlay for one catalog entry,
@@ -64,11 +101,51 @@ export function CatalogPage() {
   const isSovereignMode = DETECTED_MODE.mode === 'sovereign'
 
   // Catalog = every Application this Sovereign knows about (the same
-  // `resolveApplications` union AppsPage's Catalog tab rendered).
-  const catalogApps = useMemo(
+  // `resolveApplications` union AppsPage's Catalog tab rendered) — the
+  // bootstrap-kit + selected components + their transitive deps, resolved
+  // from the build-time component graph.
+  const staticApps = useMemo(
     () => resolveApplications(store.selectedComponents),
     [store.selectedComponents],
   )
+
+  // #3668 (hw171 catalog walk) — the grid must ALSO render every Blueprint
+  // the live catalog serves, not only the build-time component graph. Some
+  // seeded Blueprints (e.g. `bp-wordpress` / `bp-wordpress-tenant`, the
+  // marketplace-funnel CMS) are NOT in `componentGroups.ts` — they ship as
+  // catalog-seed CRs (products/catalyst/chart/templates/catalog-seed/
+  // blueprints.yaml) but have no wizard-component entry, so they were
+  // INVISIBLE in the grid even though their detail page (`/catalog/bp-<x>`,
+  // which fetches the CR by name) rendered fully. Per founder rule #4 the
+  // catalog renders FROM the catalog (the in-cluster Blueprint CRs), not a
+  // hand-curated list — so union the live `/api/v1/catalog` items as extra
+  // descriptors for any blueprint the static graph doesn't already cover.
+  const catalogQuery = useCatalog({ enabled: isSovereignMode })
+  const catalogItems = catalogQuery.data ?? EMPTY_ITEMS
+  const catalogIconBySlug = useMemo(() => {
+    const m: Record<string, { iconLight: string; iconDark: string }> = {}
+    for (const it of catalogItems) {
+      const slug = (it.name ?? '').replace(/^bp-/, '')
+      if (!slug) continue
+      m[slug] = {
+        iconLight: it.card?.iconLight ?? '',
+        iconDark: it.card?.iconDark ?? '',
+      }
+    }
+    return m
+  }, [catalogItems])
+
+  const catalogApps = useMemo<ApplicationDescriptor[]>(() => {
+    const seen = new Set(staticApps.map((a) => a.id))
+    const extra: ApplicationDescriptor[] = []
+    for (const it of catalogItems) {
+      const bp = catalogItemToDescriptor(it)
+      if (!bp || seen.has(bp.id)) continue
+      seen.add(bp.id)
+      extra.push(bp)
+    }
+    return [...staticApps, ...extra]
+  }, [staticApps, catalogItems])
 
   // Live publish/status overlay — identical projection to AppsPage's
   // `sovereign-apps-live` query so a card's INSTALLED / AVAILABLE pill and
@@ -239,6 +316,13 @@ export function CatalogPage() {
                     description: edit.summary || app.description,
                   }
                 : app
+            // #3668 — IaC-first icon: the admin commerce-store edit wins
+            // (manual override), else the live catalog item's `card.iconLight`/
+            // `iconDark` (the seed/Gitea IaC value). Falls through to the
+            // descriptor's build-time logo / letter-mark inside AppCard.
+            const catalogIcon = catalogIconBySlug[slug]
+            const iconLight = edit?.iconLight || catalogIcon?.iconLight
+            const iconDark = edit?.iconDark || catalogIcon?.iconDark
             return (
               <AppCard
                 key={app.id}
@@ -255,8 +339,8 @@ export function CatalogPage() {
                 isService={false}
                 marketplacePublished={published}
                 slug={slug}
-                iconLight={edit?.iconLight}
-                iconDark={edit?.iconDark}
+                iconLight={iconLight}
+                iconDark={iconDark}
                 onEdit={
                   isAdmin
                     ? () => {
