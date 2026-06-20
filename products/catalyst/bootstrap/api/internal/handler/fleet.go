@@ -57,6 +57,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
@@ -655,6 +656,10 @@ func (h *Handler) collectApplicationsForSovereign(
 		return nil
 	}
 	out := make([]fleetApplicationRow, 0, len(apps.Items))
+	// Track (namespace, name) of every Application-CR row so the
+	// HelmRelease merge below never double-counts an app that is
+	// represented by BOTH an Application CR and its companion HelmRelease.
+	seen := make(map[string]struct{}, len(apps.Items))
 	for i := range apps.Items {
 		app := &apps.Items[i]
 		topology, _, _ := unstructured.NestedString(app.Object, "spec", "placement")
@@ -674,6 +679,7 @@ func (h *Handler) collectApplicationsForSovereign(
 			org = v
 		}
 		entry, hasContinuum := contIndex[continuumIndexKey(ns, app.GetName())]
+		seen[continuumIndexKey(ns, app.GetName())] = struct{}{}
 
 		out = append(out, fleetApplicationRow{
 			Sovereign: sov,
@@ -690,7 +696,208 @@ func (h *Handler) collectApplicationsForSovereign(
 			Namespace: ns,
 		})
 	}
+
+	// #4003 — HelmRelease merge. On a Sovereign the running apps are Flux
+	// HelmReleases; the wizard-installed tenant apps additionally carry an
+	// `apps.openova.io/Application` CR, but the ~65 platform / bootstrap-kit
+	// components run as HelmReleases with NO companion Application CR. The
+	// Application-CR list alone therefore returned an empty / partial table
+	// (caught live on hw173 7bb723da8da06047: `/fleet/applications` →
+	// total:0 on a cluster running 65 HelmReleases). The per-app placement +
+	// AppDetail paths already source from HelmReleases via h.k8sCache
+	// (synthesiseAppFromHelmRelease, derivePlacementTargets); the fleet
+	// aggregate now reads the SAME truth so the cross-Sovereign table
+	// enumerates every real running app. We MERGE (not replace): every HR
+	// without a matching (namespace, name) Application-CR row is appended, so
+	// a CR-backed app keeps its richer CR-sourced row and an HR-only app
+	// (platform / bootstrap-kit) still shows. The test path injects CRs via
+	// dynamicFactory without a k8sCache, so the merge is a no-op there.
+	out = append(out, h.collectApplicationsFromHelmReleases(sov, contIndex, seen)...)
 	return out
+}
+
+// collectApplicationsFromHelmReleases — #4003 HelmRelease-sourced app
+// rows for one Sovereign. Mirrors synthesiseAppFromHelmRelease's chroot
+// cluster resolution (resolveChrootClusterID + k8sCache) so the fleet
+// aggregate reads the SAME live truth the AppDetail + placement paths
+// use. Returns nil when k8sCache is unwired (test path / pre-handover)
+// or the cluster isn't registered. `seen` carries the (namespace, name)
+// keys already emitted as Application-CR rows so a HelmRelease that
+// duplicates a CR-backed app is skipped (no double-count).
+func (h *Handler) collectApplicationsFromHelmReleases(
+	sov fleetSovereignSummary,
+	contIndex map[string]continuumIndexEntry,
+	seen map[string]struct{},
+) []fleetApplicationRow {
+	if h.k8sCache == nil {
+		return nil
+	}
+	clusterID := h.resolveChrootClusterID(sov.ID)
+	if !h.k8sCacheHasCluster(clusterID) {
+		return nil
+	}
+	hrs, _, err := h.k8sCache.List(clusterID, "helmrelease", labels.Everything())
+	if err != nil {
+		return nil
+	}
+	out := make([]fleetApplicationRow, 0, len(hrs))
+	for _, hr := range hrs {
+		// The instance identity the console addresses is the Helm
+		// release: prefer spec.releaseName, else the HR's own name.
+		name := hr.GetName()
+		if rn, ok, _ := unstructured.NestedString(hr.Object, "spec", "releaseName"); ok && rn != "" {
+			name = rn
+		}
+		if name == "" {
+			continue
+		}
+		blueprint, _, _ := unstructured.NestedString(hr.Object, "spec", "chart", "spec", "chart")
+		if blueprint == "" {
+			blueprint = hr.GetName()
+		}
+		version, _, _ := unstructured.NestedString(hr.Object, "spec", "chart", "spec", "version")
+		if lr, ok, _ := unstructured.NestedString(hr.Object, "status", "lastAttemptedRevision"); ok && lr != "" {
+			version = lr
+		}
+		// Install namespace: spec.targetNamespace, else the HR's own ns.
+		ns := hr.GetNamespace()
+		if tn, ok, _ := unstructured.NestedString(hr.Object, "spec", "targetNamespace"); ok && tn != "" {
+			ns = tn
+		}
+		// Skip HelmReleases already represented by an Application-CR row.
+		// A wizard app's CR (e.g. acme-prod/blog) and its companion HR
+		// share the (namespace, name) identity once the HR materialises;
+		// emitting both would double-count. Check the HR's release name +
+		// raw name against both the install namespace and the HR's own
+		// namespace so the dedup holds regardless of which the CR used.
+		if hrRowAlreadySeen(seen, ns, hr.GetNamespace(), name, hr.GetName()) {
+			continue
+		}
+		// Org: the organization label when present, else the install
+		// namespace which by convention is the Org slug for tenant apps.
+		org := ns
+		if labels := hr.GetLabels(); labels != nil {
+			if v := labels["catalyst.openova.io/organization"]; v != "" {
+				org = v
+			}
+		}
+		// placementFromHR returns the canonical 4-class placement
+		// vocabulary (singleton / active-passive / active-hot-standby /
+		// active-active); map it onto the fleet table's topology
+		// vocabulary so the ?topology= filter + DR-posture derivation
+		// (which keys on topologyActiveHotStandby) stay consistent with
+		// the Application-CR-sourced rows above.
+		topology := fleetTopologyFromPlacementClass(placementFromHR(hr))
+		entry, hasContinuum := contIndex[continuumIndexKey(ns, name)]
+
+		// The HelmRelease carries no placement.regions slice the way an
+		// Application CR does; the Sovereign's primary region is the
+		// honest single-region default. Multi-region peer-cluster
+		// derivation is the per-app placement endpoint's job (k8sCache
+		// fan-out), not the fleet rollup's.
+		regions := []string{}
+		if sov.Region != "" {
+			regions = []string{sov.Region}
+		}
+
+		// Record this HR's identity so a second HR that resolves to the
+		// same (install-namespace, release-name) doesn't duplicate it.
+		seen[continuumIndexKey(ns, name)] = struct{}{}
+
+		out = append(out, fleetApplicationRow{
+			Sovereign: sov,
+			App: fleetApplicationIdent{
+				Name:      name,
+				Blueprint: blueprint,
+				Version:   version,
+			},
+			Regions:   regions,
+			Topology:  topology,
+			DRPosture: deriveDRPosture(topology, hasContinuum, entry.phase),
+			Status:    helmReleaseStatusPhase(hr),
+			Org:       org,
+			Namespace: ns,
+		})
+	}
+	return out
+}
+
+// hrRowAlreadySeen reports whether a HelmRelease that would be emitted
+// under (installNS|hrNS, releaseName|hrName) is already represented in
+// the `seen` (namespace, name) set populated from the Application-CR
+// rows (and prior HR rows). It checks every namespace×name combination
+// so the dedup holds whether the companion Application CR keyed off the
+// release name or the HR name, in the install namespace or the HR's own.
+func hrRowAlreadySeen(seen map[string]struct{}, installNS, hrNS, releaseName, hrName string) bool {
+	for _, ns := range dedupNonEmpty(installNS, hrNS) {
+		for _, nm := range dedupNonEmpty(releaseName, hrName) {
+			if _, ok := seen[continuumIndexKey(ns, nm)]; ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// dedupNonEmpty returns the distinct non-empty members of a, b (order
+// preserved). Tiny helper for the at-most-2-element dedup lookups above.
+func dedupNonEmpty(a, b string) []string {
+	switch {
+	case a == "" && b == "":
+		return nil
+	case a == "":
+		return []string{b}
+	case b == "" || a == b:
+		return []string{a}
+	default:
+		return []string{a, b}
+	}
+}
+
+// fleetTopologyFromPlacementClass maps the canonical 4-class placement
+// vocabulary (singleton / active-passive / active-hot-standby /
+// active-active — see placementForTopology) onto the fleet table's
+// topology vocabulary (single-region / active-active / active-hotstandby)
+// so HelmRelease-sourced rows speak the same dialect as Application-CR-
+// sourced rows for the ?topology= filter + DR-posture derivation.
+func fleetTopologyFromPlacementClass(class string) string {
+	switch class {
+	case "active-active":
+		return topologyActiveActive
+	case "active-hot-standby":
+		return topologyActiveHotStandby
+	default:
+		// singleton / active-passive / unknown → single-region (one
+		// live cluster; active-passive has no live hot peer cluster).
+		return topologySingleRegion
+	}
+}
+
+// helmReleaseStatusPhase maps a HelmRelease's Ready condition onto the
+// fleet row's `status` string (the same vocabulary the Application CR's
+// status.phase would carry). Ready=True → "Ready"; an explicit
+// Ready=False → "Failed"; anything else (reconciling / no condition yet)
+// → "Provisioning".
+func helmReleaseStatusPhase(hr *unstructured.Unstructured) string {
+	conds, _, _ := unstructured.NestedSlice(hr.Object, "status", "conditions")
+	for _, c := range conds {
+		cm, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if ctype, _ := cm["type"].(string); ctype != "Ready" {
+			continue
+		}
+		switch s, _ := cm["status"].(string); s {
+		case "True":
+			return "Ready"
+		case "False":
+			return "Failed"
+		default:
+			return "Provisioning"
+		}
+	}
+	return "Provisioning"
 }
 
 // continuumIndexEntry — minimal projection of Continuum CR fields the
