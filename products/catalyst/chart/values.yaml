@@ -596,7 +596,7 @@ controllers:
       # 300d853 (2026-06-19) — controller-image-tag freshness sweep: the
       # pinned fc38403 had drifted 139 commits behind latest GHCR; bumped to
       # the current organization-controller GHCR tag to clear the staleness gate.
-      tag: "300d853"
+      tag: "2876e02"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -845,7 +845,7 @@ controllers:
       # (#2745, 2026-06-03) — bumped from 8d01e2f (2026-05-31) to the
       # latest useraccess-controller main-HEAD push (2026-06-02).
       # #2851 closed the drift gap (auto-bump + sweep + freshness guard).
-      tag: "2876e02"
+      tag: "01db043"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
