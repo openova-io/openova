@@ -988,9 +988,18 @@ locals {
           PRIMARY_HOST='${local.name_prefix}-${local.region_keys[0]}-cp1-${substr(sha256("${var.deployment_id}-${local.region_keys[0]}-cp0-${var.retry_attempt}"), 0, 6)}'
           MY_REGION='${idx == 0 ? r.code : "${r.code}-${idx}"}'
           MY_EIP='${huaweicloud_vpc_eip.cp[r.code].publicip.0.ip_address}'
+          # #3991 — this CP's PRIVATE eth0 IP (same detection as --node-ip).
+          # The kubeconfig keeps MY_EIP as `server:` so the EXTERNAL mothership
+          # can reach this region. We ALSO ship the private IP so the IN-CLUSTER
+          # catalyst-api (chroot), which sits inside region-a's VPC and cannot
+          # route to this region's DNAT'd EIP, can rewrite the server host to
+          # this VPC-peered private IP it CAN reach (over the cross-VPC peering
+          # routes provisioned above). The k3s apiserver lists NODE_IP as a TLS
+          # SAN, so the pinned-CA handshake still validates after the swap.
+          export MY_NODE_IP=$(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1)
           if [ -n "${var.deployment_id}" ] && [ -n "${var.kubeconfig_bearer_token}" ] && [ "$${HOSTNAME}" != "$${PRIMARY_HOST}" ] && [ -n "$${MY_REGION}" ] && [ -n "$${MY_EIP}" ]; then
             sed "s|server: https://127.0.0.1:6443|server: https://$${MY_EIP}:6443|" /etc/rancher/k3s/k3s.yaml > /tmp/kubeconfig-secondary.yaml
-            python3 -c "import json; print(json.dumps({'deploymentId':'${var.deployment_id}','regionKey':'$${MY_REGION}','kubeconfigYaml':open('/tmp/kubeconfig-secondary.yaml').read()}))" > /tmp/secondary-kubeconfig-body.json
+            python3 -c "import json,os; print(json.dumps({'deploymentId':'${var.deployment_id}','regionKey':'$${MY_REGION}','kubeconfigYaml':open('/tmp/kubeconfig-secondary.yaml').read(),'nodeInternalIp':os.environ.get('MY_NODE_IP','')}))" > /tmp/secondary-kubeconfig-body.json
             for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
               HTTP_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X POST \
                 -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \

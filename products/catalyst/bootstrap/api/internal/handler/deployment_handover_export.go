@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -208,6 +209,18 @@ func (h *Handler) exportSecondaryKubeconfigsToChild(dep *Deployment, fqdn, depID
 				"deploymentId":   depID,
 				"regionKey":      regionKey,
 				"kubeconfigYaml": string(raw),
+			}
+			// #3991 — replay the secondary CP's private node IP (if the
+			// CP supplied one and we stashed it as a sidecar) so the
+			// chroot can rewrite the kubeconfig's server host from the
+			// VPC-external EIP to the VPC-peered private IP it can route
+			// to. Best-effort: a missing sidecar means the chroot keeps
+			// the EIP (pre-#3991 behaviour).
+			clusterID := depID + "-" + regionKey
+			if ipRaw, ierr := os.ReadFile(nodeIPSidecarPath(dir, clusterID)); ierr == nil {
+				if ip := strings.TrimSpace(string(ipRaw)); ip != "" {
+					payload["nodeInternalIp"] = ip
+				}
 			}
 			body, _ := json.Marshal(payload)
 			h.postSecondaryKubeconfigWithRetry(client, url, body, depID, regionKey)
