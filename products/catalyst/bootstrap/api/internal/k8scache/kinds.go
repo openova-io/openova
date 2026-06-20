@@ -353,10 +353,22 @@ var DefaultKinds = []Kind{
 	// condition drives the node status (CertificateGVR).
 	{Name: "certificate", GVR: schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}, Namespaced: true},
 	// External-Secrets ExternalSecret — references a remote secret store
-	// key; the CR itself inlines no secret value (ExternalSecretGVR). v1 is
-	// the current served version (helmwatch falls back to v1beta1 on older
-	// ESO releases, but the cache informer pins the served v1).
-	{Name: "externalsecret", GVR: schema.GroupVersionResource{Group: "external-secrets.io", Version: "v1", Resource: "externalsecrets"}, Namespaced: true},
+	// key; the CR itself inlines no secret value (ExternalSecretGVR).
+	//
+	// #3987: pinned to v1beta1, NOT v1. The ESO release shipped in the
+	// platform bundle serves ONLY v1alpha1 + v1beta1 (v1beta1 is the
+	// served+storage version); it does NOT serve v1. A static-GVR informer
+	// has no version fallback (unlike helmwatch's declarative reconciler,
+	// which retries ExternalSecretGVR→ExternalSecretGVRBeta), so pinning v1
+	// made the informer LIST/WATCH a non-served version and silently return
+	// zero — `/cloud?view=list&kind=externalsecrets` rendered "No
+	// externalsecret objects" on hw173 despite 13 live (under v1beta1),
+	// while the GRAPH showed them via the helmwatch fallback path. v1beta1
+	// is the version every current platform ESO serves, so the cache reads
+	// the real objects. (If a future ESO release drops v1beta1 in favour of
+	// v1, the kinds ConfigMap override — CATALYST_K8SCACHE_KINDS_CONFIGMAP —
+	// re-pins it with no code change, per the LoadRegistry merge path.)
+	{Name: "externalsecret", GVR: schema.GroupVersionResource{Group: "external-secrets.io", Version: "v1beta1", Resource: "externalsecrets"}, Namespaced: true},
 	// CloudNativePG Cluster (CNPGClusterGVR). The registry Name is
 	// `cnpgcluster` (NOT `cluster`) deliberately: the cloud-side join
 	// already owns a "Cluster" concept, and the GVR's plural `clusters`
