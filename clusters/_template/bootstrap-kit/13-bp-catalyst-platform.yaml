@@ -1047,7 +1047,12 @@ spec:
       #   gates the gitea/harbor sso-configure Deployment (sso.externalSecret.enabled).
       #   Renumbered past the deploy-bot auto-bump to 1.4.717 (one above main's
       #   1.4.716) to clear the pin collision.
-      version: 1.4.721
+      # 1.4.722 — #3946: add app.kubernetes.io/managed-by:flux to the
+      #   catalyst-gitea-token-mint (+ qa-finalizer-strip + migrate) Helm-hook
+      #   Jobs so the Kyverno flux-managed (Enforce) policy admits them in
+      #   catalyst-system. Pre-1.4.722 the pre-install hook was DENIED →
+      #   console install failed pre-install on every Enforce Sovereign (hw172).
+      version: 1.4.722
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

@@ -19,7 +19,14 @@ metadata:
   name: {{ printf "%s-migrate-applications-instance-id" .Release.Name | trunc 63 | trimSuffix "-" }}
   namespace: {{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    # #3946: this hook Job is created directly by Helm and lands in
+    # .Release.Namespace (catalyst-system), which is NOT in the Kyverno
+    # flux-managed (Enforce) excludeNamespaces list. The previous value
+    # `{{ "{{" }} .Release.Service {{ "}}" }}` rendered to `Helm`, which the
+    # policy rejects — it requires the literal value `flux`. Hardcode `flux`
+    # so the post-install migration hook is admitted (same gate that blocks
+    # the catalyst-gitea-token-mint pre-install hook).
+    app.kubernetes.io/managed-by: flux
     app.kubernetes.io/name: catalyst
     app.kubernetes.io/component: migration
     catalyst.openova.io/migration: applications-instance-id

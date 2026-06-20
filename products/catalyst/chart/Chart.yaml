@@ -1,5 +1,25 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.722 — #3946 (Refs #3296 #3297 #3201, 2026-06-20): unblock console install
+# on every Sovereign where the Kyverno `flux-managed` ClusterPolicy is Enforce.
+# The `catalyst-gitea-token-mint` pre-install hook Job is created directly by
+# Helm (helm.sh/hook: pre-install), so it carries NONE of Flux's HR-applied
+# labels. It lands in .Release.Namespace = `catalyst-system`, which is NOT in
+# the policy's excludeNamespaces list (only `catalyst` is). flux-managed
+# (Enforce) therefore DENIES the hook at admission → bp-catalyst-platform
+# install fails pre-install → Flux uninstalls + retries → console never serves
+# (root-caused live hw172, dep b50ba61d9cb9e157, 1.4.721). FIX: add
+# `app.kubernetes.io/managed-by: flux` (the policy's own documented remediation)
+# to metadata.labels of every Helm-hook Job in templates/ that lands in
+# catalyst-system — catalyst-gitea-token-mint (pre-install),
+# qa-fixtures/qa-finalizer-strip (pre-install), and
+# migrate-applications-instance-id (post-install; its previous
+# `{{ .Release.Service }}` value rendered to `Helm`, also rejected). Mirrors the
+# sibling hooks catalyst-gitea-admin-secret-bridge.yaml +
+# catalog-sovereign-repo-bootstrap-job.yaml that already carry it. NOT a chart
+# regression: the missing-label state is unchanged since 2026-06-09 (a7fb48245);
+# the token-secret template did not change in the 1.4.711→1.4.721 window — the
+# denial is environmental (catalyst-system gated by the Enforce policy).
 # 1.4.707 — #3906 (Refs #3642, #3848, #3813, 2026-06-19): FIX the passwordless
 # PIN-login secret catalyst-openova-kc-credentials hitting the SAME intra-release
 # lookup-ordering trap #3848 already fixed for the org-controller secret. Post-#3642
@@ -2892,7 +2912,7 @@ name: bp-catalyst-platform
 # Catalyst-Zero render adds one namespace to one ingress matchExpression (no
 # behavior change on a host-placed guacamole). Renumbered past the deploy-bot
 # auto-bump to 1.4.717 (one above main's 1.4.716) to clear the pin collision.
-version: 1.4.721
+version: 1.4.722
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +
