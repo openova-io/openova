@@ -48,11 +48,11 @@ func newParentDomainsRouter(h *Handler) *chi.Mux {
 // Sovereign with finalised handover) so the swap from in-memory store
 // to Deployment.parentDomains[] (issue #837) exercises the same code
 // path tests do.
-func seedActiveDeployment(t *testing.T, h *Handler, primaryFQDN string, smePool ...string) *Deployment {
+func seedActiveDeployment(t *testing.T, h *Handler, primaryFQDN string, orgPool ...string) *Deployment {
 	t.Helper()
 	now := time.Now().UTC()
 	pds := []provisioner.ParentDomain{}
-	for _, name := range smePool {
+	for _, name := range orgPool {
 		pds = append(pds, provisioner.ParentDomain{
 			Name:          name,
 			Role:          provisioner.ParentDomainRoleOrgPool,

@@ -1,4 +1,4 @@
-// sme_enter_org.go — the B2 "Enter org" support session (issue #3378
+// org_enter_org.go — the B2 "Enter org" support session (issue #3378
 // §6 B2 + DoD 6).
 //
 // One endpoint mints the audited, time-boxed (≤60min) impersonation into
@@ -17,7 +17,7 @@
 //
 // Route (registered in cmd/api/main.go), session-gated + sovereign-admin:
 //
-//   POST /api/v1/sme/organizations/{slug}/enter
+//   POST /api/v1/org/organizations/{slug}/enter
 //     → { "handoverURL": "...", "supportPrincipal": "...",
 //         "expiresAt": "...", "auditEventId": "..." }
 //
@@ -63,7 +63,7 @@ type EnterOrgResponse struct {
 	AuditEventID string `json:"auditEventId"`
 }
 
-// HandleEnterOrg — POST /api/v1/sme/organizations/{slug}/enter.
+// HandleEnterOrg — POST /api/v1/org/organizations/{slug}/enter.
 func (h *Handler) HandleEnterOrg(w http.ResponseWriter, r *http.Request) {
 	slug := strings.ToLower(strings.TrimSpace(chi.URLParam(r, "slug")))
 	if slug == "" {

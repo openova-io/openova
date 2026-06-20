@@ -138,10 +138,10 @@ const (
 	// HTTPRoutes.
 	ParentDomainRolePrimary = "primary"
 
-	// ParentDomainRoleOrgPool marks a parent domain offered to SME
-	// tenants for free-subdomain allocation. When an SME signs up
+	// ParentDomainRoleOrgPool marks a parent domain offered to Organization
+	// tenants for free-subdomain allocation. When an Organization signs up
 	// under a Sovereign, they pick from the org-pool entries to
-	// receive a free console.<sme>.<org-pool> subdomain.
+	// receive a free console.<org>.<org-pool> subdomain.
 	ParentDomainRoleOrgPool = "org-pool"
 )
 
@@ -280,7 +280,7 @@ type Request struct {
 	// Sovereign-side PowerDNS becomes authoritative for every entry
 	// here; exactly one entry carries Role="primary" (hosts
 	// console/api/marketplace), zero-or-more carry Role="org-pool"
-	// (offered to SME tenants for free subdomains).
+	// (offered to Organization tenants for free subdomains).
 	//
 	// Backward compatibility: when the wizard ships a payload without
 	// this field (every wizard payload as of issue #826 — the wizard
@@ -2429,7 +2429,7 @@ func writeTfvars(deployDir string, req Request) error {
 		// bp-catalyst-platform chart's slot-13
 		// `${SOVEREIGN_ENABLE_HOT_STANDBY:-}` always evaluated to empty,
 		// so the chart-side fallback `false` won on EVERY multi-region
-		// Sovereign. The sme_tenant_gitops writer reads the same env at
+		// Sovereign. The org_tenant_gitops writer reads the same env at
 		// catalyst-api runtime to decide whether to inject
 		// `pg.activeHotStandby` into every tenant bp-wordpress-tenant
 		// HelmRelease — empty meant single-Cluster CNPG always, even on
@@ -2580,7 +2580,7 @@ func writeTfvars(deployDir string, req Request) error {
 		// in a future module would fail on null.
 		"parent_domains": coalesceParentDomains(req.ParentDomains),
 
-		// Multi-domain YAML literal (issue #1772 — D30b SME-pool listener
+		// Multi-domain YAML literal (issue #1772 — D30b org-pool listener
 		// fix). infra/hetzner/variables.tf declares `variable
 		// "parent_domains_yaml"` (type=string, default="") and
 		// infra/hetzner/main.tf locals.parent_domains_decoded calls
@@ -3113,7 +3113,7 @@ func ProvisionParentDomains(ctx context.Context, pds []ParentDomain, lbIP string
 // validateParentDomains uses a *[]ParentDomain so it can normalise
 // each entry's Name in place (lowercase + trim) — the on-disk record
 // then carries the canonical form, and downstream consumers (the
-// registrar adapter, the CRD projection, the SME-signup pool
+// registrar adapter, the CRD projection, the Organization-signup pool
 // dropdown) all see the same string. Mutating callers' slice
 // through a pointer mirrors how Validate() already mutates the
 // per-region singular fields on the same Request.
@@ -3179,7 +3179,7 @@ func (r Request) PrimaryParentDomain() *ParentDomain {
 // The order matches r.ParentDomains so callers iterating with the
 // catalyst-api's "add-order" semantics (oldest first) get a stable
 // list — useful for the admin console's "added 3 days ago" rendering
-// + for the SME wizard's parent-domain dropdown choosing the most
+// + for the Organization wizard's parent-domain dropdown choosing the most
 // recently added pool domain when nothing is selected.
 func (r Request) OrgPoolParentDomains() []ParentDomain {
 	out := make([]ParentDomain, 0, len(r.ParentDomains))

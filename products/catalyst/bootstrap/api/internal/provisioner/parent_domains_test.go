@@ -244,7 +244,7 @@ func TestValidate_RejectsBadFQDN(t *testing.T) {
 // TestValidate_NormalisesUppercaseFQDNToLower proves the validator
 // lower-cases the Name in place — uppercase user input is accepted
 // but stored canonical so downstream consumers (registrar adapter,
-// CRD projection, SME signup dropdown) see the same string.
+// CRD projection, Organization signup dropdown) see the same string.
 func TestValidate_NormalisesUppercaseFQDNToLower(t *testing.T) {
 	r := validBaseWithSecrets()
 	r.ParentDomains = []ParentDomain{
@@ -312,7 +312,7 @@ func TestPrimaryParentDomain_NoneReturnsNil(t *testing.T) {
 
 // TestOrgPoolParentDomains_FiltersToRole proves the slice filter
 // returns only the org-pool entries, in their original order. The
-// SME signup wizard's parent-pool dropdown reads this for the
+// Organization signup wizard's parent-pool dropdown reads this for the
 // per-Sovereign list of free-subdomain options.
 func TestOrgPoolParentDomains_FiltersToRole(t *testing.T) {
 	r := Request{

@@ -1,27 +1,27 @@
-// sme_commerce.go — the Organizations commerce editors' proxy hop
+// org_commerce.go — the Organizations commerce editors' proxy hop
 // (issue #3378 DoD 7/8).
 //
 // The Sovereign console's Organizations menu surfaces editor UIs for the
 // commerce catalog (plans / add-ons / bundles / industries / apps). Those
 // editors ride the EXISTING superadmin-JWT /catalog/admin/* endpoints on
-// the SME commerce catalog (core/services/catalog/handlers/routes.go:
+// the Organization commerce catalog (core/services/catalog/handlers/routes.go:
 // 19-38) — §6 of #3378: "Any new endpoint beyond B1-B3 = FAIL". This file
 // is therefore NOT a new business endpoint: it is the same thin proxy hop
-// HandleSovereignAppPublish already uses (mintSMEBridgeToken → smeCatalog
+// HandleSovereignAppPublish already uses (mintOrgBridgeToken → orgCatalog
 // client → /catalog/admin/*), generalized to the full CRUD so the console
 // (served at console.<sovereign>, which proxies /api/* through catalyst-
 // api) can reach the admin endpoints that are otherwise only reachable
 // behind the catalog service's own gateway.
 //
 // Routes (registered in cmd/api/main.go), all session-gated like the rest
-// of /api/v1/* and forwarded with the canonical SME bridge token:
+// of /api/v1/* and forwarded with the canonical Organization bridge token:
 //
-//   POST   /api/v1/sme/commerce/{kind}            → create
-//   PUT    /api/v1/sme/commerce/{kind}/{id}       → update
-//   DELETE /api/v1/sme/commerce/{kind}/{id}       → delete
+//   POST   /api/v1/org/commerce/{kind}            → create
+//   PUT    /api/v1/org/commerce/{kind}/{id}       → update
+//   DELETE /api/v1/org/commerce/{kind}/{id}       → delete
 //
 // where {kind} ∈ {plans, addons, bundles, industries, apps}. Reads use
-// the existing public catalog list endpoints via the SME gateway — the
+// the existing public catalog list endpoints via the Organization gateway — the
 // editors fetch those directly, so no read proxy is added here.
 
 package handler
@@ -46,17 +46,17 @@ var commerceKinds = map[string]bool{
 	"apps":       true,
 }
 
-// HandleSMECommerceList — GET /api/v1/sme/commerce/{kind}.
+// HandleOrgCommerceList — GET /api/v1/org/commerce/{kind}.
 //
 // Reads the PUBLIC catalog list endpoint (/catalog/{kind}) through
 // catalyst-api so the Sovereign console's commerce tables render the rows
 // that exist in the catalog store. On the console host (console.<sovereign>)
-// /api/* proxies to catalyst-api, which — unlike the SME/marketplace
+// /api/* proxies to catalyst-api, which — unlike the Organization/marketplace
 // gateway — does not route /api/catalog/* to the catalog service, so the
 // console's old direct GET /api/catalog/plans 404'd even though the
 // storefront showed the plan. This read hop closes that gap (issue #3378
 // — the plans-table 404). No bearer: the catalog list endpoints are public.
-func (h *Handler) HandleSMECommerceList(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleOrgCommerceList(w http.ResponseWriter, r *http.Request) {
 	kind := strings.ToLower(strings.TrimSpace(chi.URLParam(r, "kind")))
 	if !commerceKinds[kind] {
 		writeJSON(w, http.StatusNotFound, map[string]string{
@@ -66,12 +66,12 @@ func (h *Handler) HandleSMECommerceList(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), smeCatalogProbeBudget)
+	ctx, cancel := context.WithTimeout(r.Context(), orgCatalogProbeBudget)
 	defer cancel()
-	upstreamStatus, respBody, ct, err := smeCatalog().PublicProxy(ctx, "/"+kind)
+	upstreamStatus, respBody, ct, err := orgCatalog().PublicProxy(ctx, "/"+kind)
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error":  "sme-catalog-unreachable",
+			"error":  "org-catalog-unreachable",
 			"detail": err.Error(),
 		})
 		return
@@ -86,13 +86,13 @@ func (h *Handler) HandleSMECommerceList(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// HandleSMECommerceCreate — POST /api/v1/sme/commerce/{kind}.
-func (h *Handler) HandleSMECommerceCreate(w http.ResponseWriter, r *http.Request) {
+// HandleOrgCommerceCreate — POST /api/v1/org/commerce/{kind}.
+func (h *Handler) HandleOrgCommerceCreate(w http.ResponseWriter, r *http.Request) {
 	h.proxyCommerce(w, r, http.MethodPost, "")
 }
 
-// HandleSMECommerceUpdate — PUT /api/v1/sme/commerce/{kind}/{id}.
-func (h *Handler) HandleSMECommerceUpdate(w http.ResponseWriter, r *http.Request) {
+// HandleOrgCommerceUpdate — PUT /api/v1/org/commerce/{kind}/{id}.
+func (h *Handler) HandleOrgCommerceUpdate(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(chi.URLParam(r, "id"))
 	if id == "" {
 		writeBadRequest(w, "missing-id", "id path parameter is required")
@@ -101,8 +101,8 @@ func (h *Handler) HandleSMECommerceUpdate(w http.ResponseWriter, r *http.Request
 	h.proxyCommerce(w, r, http.MethodPut, id)
 }
 
-// HandleSMECommerceDelete — DELETE /api/v1/sme/commerce/{kind}/{id}.
-func (h *Handler) HandleSMECommerceDelete(w http.ResponseWriter, r *http.Request) {
+// HandleOrgCommerceDelete — DELETE /api/v1/org/commerce/{kind}/{id}.
+func (h *Handler) HandleOrgCommerceDelete(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(chi.URLParam(r, "id"))
 	if id == "" {
 		writeBadRequest(w, "missing-id", "id path parameter is required")
@@ -125,7 +125,7 @@ func (h *Handler) proxyCommerce(w http.ResponseWriter, r *http.Request, method, 
 		return
 	}
 
-	bearer, status, errResp := h.mintSMEBridgeToken(r)
+	bearer, status, errResp := h.mintOrgBridgeToken(r)
 	if errResp != nil {
 		writeJSON(w, status, errResp)
 		return
@@ -150,12 +150,12 @@ func (h *Handler) proxyCommerce(w http.ResponseWriter, r *http.Request, method, 
 		subPath += "/" + id
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), smeCatalogProbeBudget)
+	ctx, cancel := context.WithTimeout(r.Context(), orgCatalogProbeBudget)
 	defer cancel()
-	upstreamStatus, respBody, ct, err := smeCatalog().AdminProxy(ctx, method, subPath, body, bearer)
+	upstreamStatus, respBody, ct, err := orgCatalog().AdminProxy(ctx, method, subPath, body, bearer)
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error":  "sme-catalog-unreachable",
+			"error":  "org-catalog-unreachable",
 			"detail": err.Error(),
 		})
 		return

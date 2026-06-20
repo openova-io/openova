@@ -1,5 +1,5 @@
-// sme_tenant_org_cr.go — #3687 master root. The SME-tenant funnel
-// (POST /api/v1/sme/tenants → runSMETenantPipeline) provisioned a
+// org_tenant_org_cr.go — #3687 master root. The Organization funnel
+// (POST /api/v1/org/tenants → runOrgTenantPipeline) provisioned a
 // vCluster GitOps overlay + DNS + Keycloak + a tenant-registry row, but
 // NEVER minted the canonical Organization CR (orgs.openova.io/v1). On a
 // fresh converged Sovereign that left `kubectl get organizations -A` = 0
@@ -23,7 +23,7 @@
 // createOrganizationCR exactly (same GVR, same spec shape the org-
 // controller reconciles, same 409-AlreadyExists idempotency). No cross-
 // service event hop, no JetStream dependency — the CR materialises within
-// the same request the SME pipeline runs in, so `kubectl get
+// the same request the Organization pipeline runs in, so `kubectl get
 // organizations -A` is ≥1 right after the funnel completes.
 //
 // Mirrors the established in-handler dynamic-client idiom (namespace_ensure.go's
@@ -61,15 +61,15 @@ func organizationGVR() schema.GroupVersionResource {
 // validTenantSlug) AND the tenant-service input boundary: a slug becomes the
 // Organization name, the vCluster name, the Keycloak group leaf and the
 // Gitea Org name, so it must be a DNS-/namespace-/repo-safe 3-31 token
-// starting with a letter. The SME funnel's validSubdomain accepts RFC-1123
+// starting with a letter. The Organization funnel's validSubdomain accepts RFC-1123
 // labels that this rejects (digit-leading, 1-2 chars), so we re-check here
 // and skip Org-CR creation (loud warn, pipeline NOT failed) rather than POST
 // a CR the org-controller's CEL validation would reject.
 var orgSlugRE = regexp.MustCompile(`^[a-z][a-z0-9-]{2,30}$`)
 
-// createSMEOrganizationCR mints the Organization CR for a completed SME-tenant
+// createOrgOrganizationCR mints the Organization CR for a completed Organization
 // provision record. Best-effort: a failure is logged loud but does NOT fail
-// the SME pipeline — the org-controller's level-triggered reconcile + the
+// the Organization pipeline — the org-controller's level-triggered reconcile + the
 // pipeline's own STSDone idempotency mean a transiently-failed create is
 // retried on the next reconcile pass, and the vCluster/DNS/Keycloak the
 // pipeline already provisioned stay valid. Returns nothing (the caller
@@ -80,10 +80,10 @@ var orgSlugRE = regexp.MustCompile(`^[a-z][a-z0-9-]{2,30}$`)
 // the in-cluster config is unavailable (CI / out-of-cluster catalyst-api) the
 // create is skipped with an info log, matching every other dynamic-client
 // path in this package.
-func (h *Handler) createSMEOrganizationCR(ctx context.Context, rec store.OrganizationProvisionRecord) {
+func (h *Handler) createOrgOrganizationCR(ctx context.Context, rec store.OrganizationProvisionRecord) {
 	slug := strings.ToLower(strings.TrimSpace(rec.Subdomain))
 	if !orgSlugRE.MatchString(slug) {
-		h.log.Warn("sme-tenant: skipping Organization CR — subdomain is not a valid Org slug",
+		h.log.Warn("org-tenant: skipping Organization CR — subdomain is not a valid Org slug",
 			"subdomain", rec.Subdomain,
 			"expected", "[a-z][a-z0-9-]{2,30}",
 			"sme_tenant_id", rec.OrganizationID,
@@ -93,27 +93,27 @@ func (h *Handler) createSMEOrganizationCR(ctx context.Context, rec store.Organiz
 
 	deps, err := h.sovereignDepsFor()
 	if err != nil || deps == nil || deps.dyn == nil {
-		// Out-of-cluster / CI: the SME pipeline still completes; the Org CR
+		// Out-of-cluster / CI: the Organization pipeline still completes; the Org CR
 		// is simply not minted (no apiserver to POST to). On a real Sovereign
 		// this branch never fires.
-		h.log.Info("sme-tenant: Organization CR skipped — no in-cluster dynamic client",
+		h.log.Info("org-tenant: Organization CR skipped — no in-cluster dynamic client",
 			"sme_tenant_id", rec.OrganizationID, "err", err)
 		return
 	}
 
 	if err := ensureOrganizationCR(ctx, deps.dyn, rec, h.orgTenantDeps.OTECHFQDN); err != nil {
-		h.log.Error("sme-tenant: Organization CR create failed — org-controller reconcile will retry",
+		h.log.Error("org-tenant: Organization CR create failed — org-controller reconcile will retry",
 			"slug", slug, "sme_tenant_id", rec.OrganizationID, "err", err)
 		return
 	}
-	h.log.Info("sme-tenant: Organization CR ensured",
+	h.log.Info("org-tenant: Organization CR ensured",
 		"slug", slug, "sme_tenant_id", rec.OrganizationID,
 		"kind", rec.Kind, "tier", rec.Tier, "billing_mode", rec.BillingMode,
 		"sovereign", h.orgTenantDeps.OTECHFQDN,
 	)
 }
 
-// ensureOrganizationCR builds the Organization CR from the SME-tenant record
+// ensureOrganizationCR builds the Organization CR from the Organization record
 // and POSTs it via the dynamic client, treating AlreadyExists as success
 // (idempotent — a pipeline re-run or a redelivered create lands on the same
 // named CR). The spec shape mirrors
@@ -122,10 +122,10 @@ func (h *Handler) createSMEOrganizationCR(ctx context.Context, rec store.Organiz
 // Gitea org + UserAccess fan-out.
 //
 // sovereignFQDN seeds spec.sovereignRef (the Sovereign hosting the Org) — the
-// SME pipeline's OTECHFQDN. The orgShape fields (Kind/Tier/BillingMode) the
+// Organization pipeline's OTECHFQDN. The orgShape fields (Kind/Tier/BillingMode) the
 // funnel already resolved + stamped onto the record carry straight through;
 // empties default the same way the provisioning consumer defaults them
-// (kind→customer, tier→sme, billingMode→real) so every door mints an
+// (kind→customer, tier→org, billingMode→real) so every door mints an
 // identical shape.
 func ensureOrganizationCR(ctx context.Context, dyn dynamic.Interface, rec store.OrganizationProvisionRecord, sovereignFQDN string) error {
 	slug := strings.ToLower(strings.TrimSpace(rec.Subdomain))
@@ -184,7 +184,7 @@ func ensureOrganizationCR(ctx context.Context, dyn dynamic.Interface, rec store.
 				"name": slug,
 				"labels": map[string]any{
 					"openova.io/tenant-id":         rec.OrganizationID,
-					"openova.io/source":            "sme-tenant-funnel",
+					"openova.io/source":            "org-tenant-funnel",
 					"app.kubernetes.io/managed-by": "catalyst-api",
 				},
 			},

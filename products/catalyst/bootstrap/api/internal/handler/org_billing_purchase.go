@@ -10,17 +10,17 @@
 //
 // The close-audit DoD validator on a Sovereign host
 // (e.g. console.t32.omani.works) instead probes
-// `/api/v1/billing/purchase` and `/api/v1/sme/billing/purchase`. Both
+// `/api/v1/billing/purchase` and `/api/v1/org/billing/purchase`. Both
 // returned 404 because the routes were never registered on catalyst-api
 // (which serves the Sovereign Console — a different surface from the
-// SME marketplace). The 404 produced a confusing "purchase button 502"
+// Organization marketplace). The 404 produced a confusing "purchase button 502"
 // → "purchase route missing" symptom chain (issue #1750 close-audit on
 // t32, 2026-05-19).
 //
 // This file
 // ─────────
-// Wires `POST /api/v1/billing/purchase` and `POST /api/v1/sme/billing/purchase`
-// on catalyst-api to forward to the SME gateway at
+// Wires `POST /api/v1/billing/purchase` and `POST /api/v1/org/billing/purchase`
+// on catalyst-api to forward to the Organization gateway at
 // http://gateway.org-services.svc.cluster.local:8080, which strips the `/api`
 // prefix and proxies to the billing service's
 // `POST /billing/purchase` route (a registered alias for `Checkout` —
@@ -28,16 +28,16 @@
 // proxy in the same shape as org_billing_vouchers.go:
 //
 //   1. Mint a fresh HS256 bridge token from the operator's already-
-//      validated RS256 session (same `mintSMEBridgeToken` helper as the
-//      vouchers proxy — the SME gateway rejects RS256 outright).
+//      validated RS256 session (same `mintOrgBridgeToken` helper as the
+//      vouchers proxy — the Organization gateway rejects RS256 outright).
 //   2. Rebuild the upstream URL `/api/billing/purchase` and stream the
 //      request body unchanged.
 //   3. Stream the upstream status + body back verbatim so the operator
 //      sees Stripe's real session URL (or `paid_by_credit: true` when a
 //      voucher / credit covers the order in full).
 //
-// When the SME services tier isn't installed on this Sovereign (DNS
-// NXDOMAIN), the handler returns 503 `sme-gateway-unreachable` so the
+// When the Organization services tier isn't installed on this Sovereign (DNS
+// NXDOMAIN), the handler returns 503 `org-gateway-unreachable` so the
 // FE renders an actionable "marketplace not enabled" message rather
 // than a generic network error. This mirrors the vouchers-proxy
 // graceful-degradation contract.
@@ -46,7 +46,7 @@
 // ─────────
 // RequireSession is applied by the router group registration in
 // cmd/api/main.go — only a valid console session reaches this handler.
-// `mintSMEBridgeToken` returns 503 `sme-jwt-bridge-unwired` when
+// `mintOrgBridgeToken` returns 503 `org-jwt-bridge-unwired` when
 // `CATALYST_ORG_JWT_SECRET` is unset (Sovereign without marketplace,
 // or stale chart predating the sme-secrets reflector annotation).
 // Per docs/INVIOLABLE-PRINCIPLES.md #10 the minted token is NEVER
@@ -59,39 +59,39 @@ import (
 	"net/http"
 )
 
-// HandleSMEBillingPurchase — POST /api/v1/billing/purchase
+// HandleOrgBillingPurchase — POST /api/v1/billing/purchase
 //
-//	          and POST /api/v1/sme/billing/purchase.
+//	          and POST /api/v1/org/billing/purchase.
 //
 // Both routes funnel here. Forwards to `POST /api/billing/purchase` on
-// the SME gateway, which proxies to the billing service's
+// the Organization gateway, which proxies to the billing service's
 // `POST /billing/purchase` alias (semantic alias for the canonical
 // `POST /billing/checkout` handler — same wire contract, same
 // promo-code / Stripe-session semantics).
-func (h *Handler) HandleSMEBillingPurchase(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleOrgBillingPurchase(w http.ResponseWriter, r *http.Request) {
 	// Mint the HS256 bridge token BEFORE building the upstream request
 	// so an unwired bridge surfaces 503 with no upstream round-trip
 	// (avoids the silent-401 pre-bridge state).
-	bearer, status, errResp := h.mintSMEBridgeToken(r)
+	bearer, status, errResp := h.mintOrgBridgeToken(r)
 	if errResp != nil {
 		writeJSON(w, status, errResp)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), smeVouchersBudget)
+	ctx, cancel := context.WithTimeout(r.Context(), orgVouchersBudget)
 	defer cancel()
 
-	upstreamURL := smeGatewayURL() + "/api/billing/purchase"
+	upstreamURL := orgGatewayURL() + "/api/billing/purchase"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, upstreamURL, r.Body)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error":  "sme-purchase-build-request",
+			"error":  "org-purchase-build-request",
 			"detail": err.Error(),
 		})
 		return
 	}
 	// Forward the bridged HS256 token (NOT the operator's RS256 session
-	// header — the SME gateway rejects RS256 outright). Per
+	// header — the Organization gateway rejects RS256 outright). Per
 	// docs/INVIOLABLE-PRINCIPLES.md #10 the token is NEVER logged.
 	req.Header.Set("Authorization", "Bearer "+bearer)
 	if ct := r.Header.Get("Content-Type"); ct != "" {
@@ -99,17 +99,17 @@ func (h *Handler) HandleSMEBillingPurchase(w http.ResponseWriter, r *http.Reques
 	}
 	req.Header.Set("Accept", "application/json")
 
-	// Re-use the shared smeVouchersClient (same Transport/timeout, same
+	// Re-use the shared orgVouchersClient (same Transport/timeout, same
 	// in-cluster Service target) so connection pooling is consistent
-	// across every catalyst-api → SME-gateway hop.
-	resp, err := smeVouchersClient.Do(req)
+	// across every catalyst-api → Organization gateway hop.
+	resp, err := orgVouchersClient.Do(req)
 	if err != nil {
-		// Common case on a Sovereign where the SME services tier isn't
+		// Common case on a Sovereign where the Organization services tier isn't
 		// installed (marketplace.enabled=false): DNS NXDOMAIN. Surface
 		// 503 so the FE renders an "unavailable" message rather than
 		// a generic network error.
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error":  "sme-gateway-unreachable",
+			"error":  "org-gateway-unreachable",
 			"detail": err.Error(),
 		})
 		return

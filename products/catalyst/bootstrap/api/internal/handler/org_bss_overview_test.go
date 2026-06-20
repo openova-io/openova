@@ -7,17 +7,17 @@ import (
 	"testing"
 )
 
-// TestHandleGetSMEBssOverview_Returns200WithFullShape pins the wire
+// TestHandleGetOrgBssOverview_Returns200WithFullShape pins the wire
 // shape — the FE getBssOverview() in ui/src/lib/bss.api.ts expects a
 // fully-shaped BssOverview object. A missing key would parse as 0 /
 // null on the FE side (the JS Number()/?? guards tolerate it), but the
 // contract test asserts the BE emits the full shape so the operator
 // sees real zeros rather than the "API pending" fallback (Refs #1949).
-func TestHandleGetSMEBssOverview_Returns200WithFullShape(t *testing.T) {
+func TestHandleGetOrgBssOverview_Returns200WithFullShape(t *testing.T) {
 	h := &Handler{}
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/org/bss/overview", nil)
 	w := httptest.NewRecorder()
-	h.HandleGetSMEBssOverview(w, r)
+	h.HandleGetOrgBssOverview(w, r)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
@@ -26,7 +26,7 @@ func TestHandleGetSMEBssOverview_Returns200WithFullShape(t *testing.T) {
 		t.Fatalf("Content-Type = %q, want application/json", got)
 	}
 
-	var resp smeBssOverviewResponse
+	var resp orgBssOverviewResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("response is not JSON: %v\nbody=%s", err, w.Body.String())
 	}

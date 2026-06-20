@@ -1,6 +1,6 @@
 // Package handler — sovereign_parent_domains.go: env-stub seam +
 // Sovereign-data-model adapter for the parent-domain pool consumed by
-// the SME tenant create pipeline (epic #825 / MD-3 #828).
+// the Organization tenant create pipeline (epic #825 / MD-3 #828).
 //
 // The HTTP surface (`GET /api/v1/sovereign/parent-domains`) is owned
 // by `parent_domains.go` (issue #829) — admin "add another parent
@@ -11,7 +11,7 @@
 //     seeds OrganizationDeps.ParentDomains from
 //     CATALYST_ORG_POOL_DOMAINS env (stub for #826's data model).
 //
-//  2. ParentDomainsForSMECreate — runtime adapter the SME tenant
+//  2. ParentDomainsForOrgCreate — runtime adapter the Organization tenant
 //     create handler uses to validate the operator-supplied
 //     parent_domain. Reads from the same global parentDomainStore
 //     that ListParentDomains surfaces, so what the operator sees in
@@ -29,13 +29,13 @@ import (
 )
 
 // LoadOrganizationParentDomainsFromEnv returns the env-derived
-// SME-pool seed. Wired to CATALYST_ORG_POOL_DOMAINS (comma-separated
+// org-pool seed. Wired to CATALYST_ORG_POOL_DOMAINS (comma-separated
 // FQDNs; primary role marker is `<fqdn>:primary`, default role is
 // org-pool). When the env knob is unset and CATALYST_OTECH_FQDN is
 // set, returns the otech FQDN as the implicit primary entry plus the
 // four canonical org-pool entries (omani.homes, omani.rest,
 // omani.trade, omani.works) — the operator-curated free-subdomain
-// pool offered to SME tenants per DoD D30 (issue #1830).
+// pool offered to Organization tenants per DoD D30 (issue #1830).
 //
 // Pool composition note (2026-05-18):
 // The four .omani.X TLDs are the canonical OpenOva-managed
@@ -100,8 +100,8 @@ func LoadOrganizationParentDomainsFromEnv() []OrganizationParentDomain {
 	return out
 }
 
-// ParentDomainsForSMECreate composes the live parent-domain pool the
-// SME tenant create handler validates against. The runtime source of
+// ParentDomainsForOrgCreate composes the live parent-domain pool the
+// Organization tenant create handler validates against. The runtime source of
 // truth is the adopted Deployment's Request.ParentDomains slice
 // (issue #837 — replaces the legacy in-memory globalParentDomainStore
 // the admin handler used to seed) merged with the implicit primary
@@ -120,7 +120,7 @@ func LoadOrganizationParentDomainsFromEnv() []OrganizationParentDomain {
 // primary). This preserves the back-compat behaviour from #804 where
 // a single-domain Sovereign with no admin entries falls back to
 // OTECHFQDN as the implicit org-pool parent.
-func (h *Handler) ParentDomainsForSMECreate() []OrganizationParentDomain {
+func (h *Handler) ParentDomainsForOrgCreate() []OrganizationParentDomain {
 	live := listParentDomainsFromActive(h.activeDeployment())
 	out := make([]OrganizationParentDomain, 0, len(live)+1)
 	seen := map[string]struct{}{}

@@ -1,4 +1,4 @@
-// Package handler — organization_dns.go: DNS provisioner for the SME
+// Package handler — organization_dns.go: DNS provisioner for the Organization
 // tenant pipeline (issue #804).
 //
 // Two flows:
@@ -38,7 +38,7 @@ import (
 )
 
 // PowerDNSWriter is a minimal PowerDNS API client matching the subset
-// the SME-tenant pipeline needs: PATCH zones/<zone> with one or more
+// the Organization pipeline needs: PATCH zones/<zone> with one or more
 // RRsets. Kept narrow on purpose — the orchestrator never lists,
 // creates, or deletes whole zones (the otech zone already exists).
 type PowerDNSWriter struct {

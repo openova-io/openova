@@ -1,44 +1,44 @@
-// Package handler — organization_provisioning.go: SME tenant provisioning pipeline
+// Package handler — organization_provisioning.go: Organization tenant provisioning pipeline
 // orchestrator (issue #804).
 //
-// This is the back-end for the marketplace's "Sign up an SME tenant"
+// This is the back-end for the marketplace's "Sign up an Organization tenant"
 // flow. The full epic is #795 — tenancy is K8s-native (per Inviolable
 // Principle 7) so a tenant is materialised by:
 //
-//  1. A vCluster inside the OTECH cluster (the SME's logical cluster).
-//  2. A namespace `sme-<tenant-id>` in the OTECH cluster (Secret-as-
+//  1. A vCluster inside the OTECH cluster (the Organization's logical cluster).
+//  2. A namespace `org-<tenant-id>` in the OTECH cluster (Secret-as-
 //     truth for per-user NewAPI keys + per-host TLS Certificates).
-//  3. The 4 sister bp-* charts installed inside the SME vcluster
+//  3. The 4 sister bp-* charts installed inside the Organization vcluster
 //     (bp-keycloak per-organization, bp-cnpg, bp-wordpress-tenant,
 //     bp-openclaw, bp-stalwart-tenant).
 //  4. DNS records (free-subdomain via PowerDNS API) or BYO-CNAME
 //     validation (the customer's own DNS).
 //  5. cert-manager Certificate (per-host HTTP-01 for BYO; the
 //     wildcard `*.<otech-fqdn>` already covers free-subdomain).
-//  6. OIDC clients pre-created in the SME-vcluster Keycloak
-//     (WordPress, OpenClaw, Stalwart, unified-RBAC SME-tier) with
-//     group templates `sme-admin` + `sme-user`.
+//  6. OIDC clients pre-created in the Organization vcluster Keycloak
+//     (WordPress, OpenClaw, Stalwart, unified-RBAC Organization-tier) with
+//     group templates `org-admin` + `org-user`.
 //  7. A row in the host → tenant registry (consumed by the
 //     public `/api/v1/tenant/discover` endpoint per #802) so the
-//     SPA's first hit on `console.<sme-host>` resolves to the new
+//     SPA's first hit on `console.<org-host>` resolves to the new
 //     tenant.
 //
 // State machine: see store.OrganizationProvisionState. Each step is
 // independently idempotent; the orchestrator persists the row at every
 // state transition so a Pod restart never strands a half-provisioned
 // tenant. The reconciler is event-driven (NATS subject
-// `sme.tenant.reconcile-pending`) per Inviolable Principle 1 and
+// `org.tenant.reconcile-pending`) per Inviolable Principle 1 and
 // ADR-0001 §6 — never a Kubernetes CronJob, never a goroutine
 // `time.Tick`.
 //
 // HTTP surface:
 //
-//	POST   /api/v1/sme/tenants            — create + start pipeline
-//	GET    /api/v1/sme/tenants            — list tenants
-//	GET    /api/v1/sme/tenants/{id}       — read one
-//	POST   /api/v1/sme/tenants/{id}/reconcile — operator-triggered
+//	POST   /api/v1/org/tenants            — create + start pipeline
+//	GET    /api/v1/org/tenants            — list tenants
+//	GET    /api/v1/org/tenants/{id}       — read one
+//	POST   /api/v1/org/tenants/{id}/reconcile — operator-triggered
 //	                                        re-run from current state
-//	DELETE /api/v1/sme/tenants/{id}       — inverse pipeline
+//	DELETE /api/v1/org/tenants/{id}       — inverse pipeline
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #3 the orchestrator NEVER calls
 // `kubectl apply`. Manifests are committed to a per-tenant overlay
@@ -84,7 +84,7 @@ type OrganizationGitOpsWriter interface {
 	DeleteTenantOverlay(ctx context.Context, rec store.OrganizationProvisionRecord) (string, error)
 }
 
-// OrganizationDNSProvisioner provisions DNS for the SME's
+// OrganizationDNSProvisioner provisions DNS for the Organization's
 // `console.<host>` either via PowerDNS (free-subdomain) or by
 // validating an operator-supplied CNAME (BYO).
 //
@@ -113,7 +113,7 @@ type OrganizationDNSProvisioner interface {
 }
 
 // OrganizationKeycloakClientProvisioner pre-creates OIDC clients +
-// group templates in the SME-vcluster Keycloak realm. Stubbed in
+// group templates in the Organization vcluster Keycloak realm. Stubbed in
 // tests; the production wiring is the in-cluster admin API per
 // platform/keycloak chart values.
 type OrganizationKeycloakClientProvisioner interface {
@@ -129,27 +129,27 @@ type OrganizationEventEmitter interface {
 }
 
 // OrganizationParentDomain describes one parent domain the Sovereign
-// brought at signup (epic #825 / MD-1 #826) that is offered to SMEs.
+// brought at signup (epic #825 / MD-1 #826) that is offered to Organizations.
 // One Sovereign typically holds several: a `primary` parent (the one
 // hosting `console.<sovereign>`) plus zero-or-more `org-pool` parents
-// the SME tenant pipeline (this file) writes free-subdomains under.
+// the Organization tenant pipeline (this file) writes free-subdomains under.
 //
 // Per Inviolable Principle 4 the pool is fully data-driven; #828
 // neither hardcodes nor caps the count.
 type OrganizationParentDomain struct {
 	// Name — the FQDN itself, e.g. "omani.trade".
 	Name string `json:"name"`
-	// Role — "primary" | "org-pool". The SME tenant create endpoint
+	// Role — "primary" | "org-pool". The Organization tenant create endpoint
 	// only accepts entries with role=org-pool.
 	Role string `json:"role"`
 	// NSFlipReady — true once the registrar's NS records point at
 	// the Sovereign's PowerDNS (set by the Sovereign provisioning
-	// pipeline / MD-1). The SME create endpoint refuses to write a
+	// pipeline / MD-1). The Organization create endpoint refuses to write a
 	// free-subdomain into a parent that isn't NS-flip-ready yet.
 	NSFlipReady bool `json:"ns_flip_ready"`
 }
 
-// OrganizationDeps bundles the dependencies the SME tenant handlers
+// OrganizationDeps bundles the dependencies the Organization tenant handlers
 // need. Wired at startup; nil values turn the corresponding gate
 // into a no-op (see runOrganizationPipeline below) so the handler
 // degrades gracefully in CI / Sovereign-side without these wired.
@@ -207,7 +207,7 @@ func (d OrganizationDeps) FindParentDomain(name string) (OrganizationParentDomai
 	return OrganizationParentDomain{}, false
 }
 
-// SetOrganizationDeps wires the SME-tenant pipeline dependencies. Called
+// SetOrganizationDeps wires the Organization pipeline dependencies. Called
 // by main.go at startup; tests pass a struct with stub clients.
 func (h *Handler) SetOrganizationDeps(deps OrganizationDeps) {
 	if deps.MaxRetryCount == 0 {
@@ -219,7 +219,7 @@ func (h *Handler) SetOrganizationDeps(deps OrganizationDeps) {
 /* ── wire shapes ─────────────────────────────────────────────────── */
 
 type orgTenantCreateRequest struct {
-	// Subdomain — the SME slug (e.g. "acme"). Required for both
+	// Subdomain — the Organization slug (e.g. "acme"). Required for both
 	// free-subdomain and BYO modes (used in resource names + the
 	// vCluster name `vc-<subdomain>`).
 	Subdomain string `json:"subdomain"`
@@ -237,7 +237,7 @@ type orgTenantCreateRequest struct {
 	// `console.<subdomain>.<parent_domain>` — never inferred from
 	// OTECHFQDN.
 	ParentDomain string `json:"parent_domain,omitempty"`
-	// AdminEmail — the SME's first user (chart admin email + welcome
+	// AdminEmail — the Organization's first user (chart admin email + welcome
 	// recipient). Required.
 	AdminEmail string `json:"admin_email"`
 	// CompanyName — branding metadata; optional.
@@ -273,7 +273,7 @@ type orgShape struct {
 // "customer" (the marketplace door); kind-derived billingMode +
 // isolation defaults (internal → showback + namespace; customer → real +
 // vcluster) fill in when the advanced override didn't send them; tier
-// defaults to "sme". Unknown enum values fall back to the kind default
+// defaults to "org". Unknown enum values fall back to the kind default
 // so a malformed body can never stamp a nonsense shape.
 func resolveOrgShape(req orgTenantCreateRequest) orgShape {
 	kind := strings.ToLower(strings.TrimSpace(req.Kind))
@@ -498,7 +498,7 @@ var validBYODomain = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[
 
 /* ── HTTP handlers ───────────────────────────────────────────────── */
 
-// HandleCreateOrganization — POST /api/v1/sme/tenants.
+// HandleCreateOrganization — POST /api/v1/org/tenants.
 //
 // The marketplace signup form POSTs here. The orchestrator persists
 // the pending row, fires the pipeline synchronously, and returns the
@@ -510,8 +510,8 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 	deps := h.orgTenantDeps
 	if deps.Store == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error":  "sme-tenant-store-unavailable",
-			"detail": "catalyst-api was started without an SME-tenant store",
+			"error":  "org-tenant-store-unavailable",
+			"detail": "catalyst-api was started without an Organization store",
 		})
 		return
 	}
@@ -576,7 +576,7 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 	// mode the operator may pick which org-pool parent domain hosts the
 	// new tenant. When omitted with a non-empty pool we default to the
 	// first NS-flip-ready entry (or, on a single-domain Sovereign, the
-	// implicit OTECHFQDN entry — see Handler.ParentDomainsForSMECreate).
+	// implicit OTECHFQDN entry — see Handler.ParentDomainsForOrgCreate).
 	//
 	// The pool is composed live (admin store from #829 + implicit
 	// primary + env stub) so an operator who adds a new org-pool entry
@@ -584,7 +584,7 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 	// without restarting catalyst-api. The same composition is what
 	// the front-end's GET /api/v1/sovereign/parent-domains shows.
 	if mode == string(store.OrganizationDomainFreeSubdomain) {
-		pool := h.poolDomainsForSMECreate(deps)
+		pool := h.poolDomainsForOrgCreate(deps)
 		if len(pool) == 0 {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 				"error":  "org-pool-empty",
@@ -652,7 +652,7 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 		Isolation:   shape.Isolation,
 	}
 	if err := deps.Store.Put(rec); err != nil {
-		h.log.Error("sme-tenant: persist pending failed", "err", err)
+		h.log.Error("org-tenant: persist pending failed", "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error":  "persist-failed",
 			"detail": err.Error(),
@@ -662,7 +662,7 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 
 	if deps.Events != nil {
 		if err := deps.Events.EmitOrganizationCreated(r.Context(), rec); err != nil {
-			h.log.Warn("sme-tenant: nats emit created failed", "err", err)
+			h.log.Warn("org-tenant: nats emit created failed", "err", err)
 		}
 	}
 
@@ -670,7 +670,7 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusAccepted, orgTenantRecordToResponse(final))
 }
 
-// HandleListOrganizations — GET /api/v1/sme/tenants.
+// HandleListOrganizations — GET /api/v1/org/tenants.
 func (h *Handler) HandleListOrganizations(w http.ResponseWriter, r *http.Request) {
 	deps := h.orgTenantDeps
 	if deps.Store == nil {
@@ -685,12 +685,12 @@ func (h *Handler) HandleListOrganizations(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"items": out})
 }
 
-// HandleGetOrganization — GET /api/v1/sme/tenants/{id}.
+// HandleGetOrganization — GET /api/v1/org/tenants/{id}.
 func (h *Handler) HandleGetOrganization(w http.ResponseWriter, r *http.Request) {
 	deps := h.orgTenantDeps
 	if deps.Store == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "sme-tenant-store-unavailable",
+			"error": "org-tenant-store-unavailable",
 		})
 		return
 	}
@@ -698,14 +698,14 @@ func (h *Handler) HandleGetOrganization(w http.ResponseWriter, r *http.Request) 
 	rec, ok := deps.Store.Get(id)
 	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]string{
-			"error": "sme-tenant-not-found",
+			"error": "org-tenant-not-found",
 		})
 		return
 	}
 	writeJSON(w, http.StatusOK, orgTenantRecordToResponse(rec))
 }
 
-// HandleReconcileOrganization — POST /api/v1/sme/tenants/{id}/reconcile.
+// HandleReconcileOrganization — POST /api/v1/org/tenants/{id}/reconcile.
 //
 // Operator-triggered re-run of the pipeline from the current state.
 // Idempotent: a record already in STSDone is a no-op; one in STSFailed
@@ -714,7 +714,7 @@ func (h *Handler) HandleReconcileOrganization(w http.ResponseWriter, r *http.Req
 	deps := h.orgTenantDeps
 	if deps.Store == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "sme-tenant-store-unavailable",
+			"error": "org-tenant-store-unavailable",
 		})
 		return
 	}
@@ -722,7 +722,7 @@ func (h *Handler) HandleReconcileOrganization(w http.ResponseWriter, r *http.Req
 	rec, ok := deps.Store.Get(id)
 	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]string{
-			"error": "sme-tenant-not-found",
+			"error": "org-tenant-not-found",
 		})
 		return
 	}
@@ -739,7 +739,7 @@ func (h *Handler) HandleReconcileOrganization(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, orgTenantRecordToResponse(final))
 }
 
-// HandleDeleteOrganization — DELETE /api/v1/sme/tenants/{id}.
+// HandleDeleteOrganization — DELETE /api/v1/org/tenants/{id}.
 //
 // Inverse pipeline: removes the per-tenant overlay from the GitOps
 // repo (Flux reconciles → tenant resources GC), unregisters from the
@@ -750,7 +750,7 @@ func (h *Handler) HandleDeleteOrganization(w http.ResponseWriter, r *http.Reques
 	deps := h.orgTenantDeps
 	if deps.Store == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "sme-tenant-store-unavailable",
+			"error": "org-tenant-store-unavailable",
 		})
 		return
 	}
@@ -758,14 +758,14 @@ func (h *Handler) HandleDeleteOrganization(w http.ResponseWriter, r *http.Reques
 	rec, ok := deps.Store.Get(id)
 	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]string{
-			"error": "sme-tenant-not-found",
+			"error": "org-tenant-not-found",
 		})
 		return
 	}
 
 	if deps.GitOps != nil {
 		if sha, err := deps.GitOps.DeleteTenantOverlay(r.Context(), rec); err != nil {
-			h.log.Warn("sme-tenant: delete overlay best-effort failed", "err", err)
+			h.log.Warn("org-tenant: delete overlay best-effort failed", "err", err)
 		} else {
 			rec.CommitSHA = sha
 		}
@@ -774,7 +774,7 @@ func (h *Handler) HandleDeleteOrganization(w http.ResponseWriter, r *http.Reques
 		host := deriveConsoleHost(rec)
 		if host != "" {
 			if err := deps.TenantRegistry.Delete(host); err != nil {
-				h.log.Warn("sme-tenant: registry delete best-effort failed", "err", err)
+				h.log.Warn("org-tenant: registry delete best-effort failed", "err", err)
 			}
 		}
 	}
@@ -782,11 +782,11 @@ func (h *Handler) HandleDeleteOrganization(w http.ResponseWriter, r *http.Reques
 	rec.State = store.STSDeleted
 	rec.LastError = ""
 	if err := deps.Store.Put(rec); err != nil {
-		h.log.Warn("sme-tenant: persist deleted failed", "err", err)
+		h.log.Warn("org-tenant: persist deleted failed", "err", err)
 	}
 	if deps.Events != nil {
 		if err := deps.Events.EmitOrganizationDeleted(r.Context(), rec); err != nil {
-			h.log.Warn("sme-tenant: nats emit deleted failed", "err", err)
+			h.log.Warn("org-tenant: nats emit deleted failed", "err", err)
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -830,11 +830,11 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 
 	persist := func(updated store.OrganizationProvisionRecord) store.OrganizationProvisionRecord {
 		if err := deps.Store.Put(updated); err != nil {
-			h.log.Warn("sme-tenant: persist failed during pipeline", "err", err)
+			h.log.Warn("org-tenant: persist failed during pipeline", "err", err)
 		}
 		if deps.Events != nil {
 			if err := deps.Events.EmitOrganizationStateChanged(ctx, updated); err != nil {
-				h.log.Warn("sme-tenant: nats emit state-changed failed", "err", err)
+				h.log.Warn("org-tenant: nats emit state-changed failed", "err", err)
 			}
 		}
 		return updated
@@ -877,7 +877,7 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 	// The same overlay we committed in step 1 also enumerates the bp-*
 	// HelmReleases (bp-keycloak per-organization, bp-cnpg, bp-
 	// wordpress-tenant, bp-openclaw, bp-stalwart-tenant). Flux on the
-	// OTECH cluster reconciles them inside the SME vcluster via the
+	// OTECH cluster reconciles them inside the Organization vcluster via the
 	// vcluster-syncer; the orchestrator advances optimistically here
 	// and the reconciler downgrades to STSFailed if Flux reports
 	// HelmRelease.status.conditions[*].type=Ready=False after the
@@ -911,7 +911,7 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 				// CNAME may point at ANY parent in the pool. Build the
 				// accepted-targets list from the live pool composition.
 				accepted := []string{rec.OTECHFQDN}
-				for _, p := range h.poolDomainsForSMECreate(deps) {
+				for _, p := range h.poolDomainsForOrgCreate(deps) {
 					accepted = append(accepted, p.Name)
 				}
 				if err := deps.DNS.ValidateBYOCNAME(ctx, rec.BYODomain, rec.OTECHFQDN, accepted...); err != nil {
@@ -928,7 +928,7 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 	// Step 4 — certs_issued.
 	//
 	// For free-subdomain mode the wildcard `*.<otech-fqdn>` already
-	// covers every SME's `console.<sub>.<otech>` and the orchestrator
+	// covers every Organization's `console.<sub>.<otech>` and the orchestrator
 	// advances unconditionally. For BYO mode the per-tenant overlay
 	// committed in step 1 includes a `Certificate` resource (per-host
 	// HTTP-01); Flux reconciles cert-manager and the orchestrator
@@ -972,11 +972,11 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 			reg := store.TenantRegistration{
 				Host:                 host,
 				TenantID:             rec.OrganizationID,
-				TenantKind:           store.TenantKindSME,
+				TenantKind:           store.TenantKindOrg,
 				KeycloakRealmURL:     realmURL,
 				KeycloakClientID:     "catalyst-ui",
 				OrganizationNamespace:   rec.TenantNamespace,
-				SMEKeycloakAdminURL:  fmt.Sprintf("http://keycloak-%s.%s.svc:8080", rec.Subdomain, rec.TenantNamespace),
+				OrgKeycloakAdminURL:  fmt.Sprintf("http://keycloak-%s.%s.svc:8080", rec.Subdomain, rec.TenantNamespace),
 				OrgKeycloakRealmName: "org-" + rec.Subdomain,
 			}
 			if err := deps.TenantRegistry.Put(reg); err != nil {
@@ -1000,7 +1000,7 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 		// transient apiserver failure logs loud but does NOT fail the
 		// provision (the substrate is already valid), and the org-controller's
 		// level-triggered reconcile + a pipeline re-run land the CR on retry.
-		h.createSMEOrganizationCR(ctx, rec)
+		h.createOrgOrganizationCR(ctx, rec)
 
 		rec.State = store.STSDone
 		rec.LastError = ""
@@ -1014,13 +1014,13 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 
 // ReconcileAllPending walks every non-terminal record and re-runs the
 // pipeline. Called from the NATS subscriber main.go wires on the
-// `sme.tenant.reconcile-pending` subject (see ADR-0003 §3.5 for the
+// `org.tenant.reconcile-pending` subject (see ADR-0003 §3.5 for the
 // architectural pattern — heartbeat-to-self instead of CronJob).
 //
 // The reconciler is NOT a goroutine `time.Tick` and NOT a Kubernetes
 // CronJob — both violate Inviolable Principle 1. The catalyst-api's
 // main.go publishes a heartbeat envelope on
-// `sme.tenant.reconcile-pending` every 30s; the consumer (in the
+// `org.tenant.reconcile-pending` every 30s; the consumer (in the
 // same process) handles the heartbeat by calling this method. Tests
 // invoke it directly to exercise the reconcile path.
 func (h *Handler) ReconcileAllPending(ctx context.Context) {
@@ -1041,7 +1041,7 @@ func (h *Handler) ReconcileAllPending(ctx context.Context) {
 // customer can fix their own DNS without contacting support.
 var errBYOCNAMEMismatch = errors.New("byo cname does not resolve to otech ingress")
 
-// poolDomainsForSMECreate returns the live org-pool list used to
+// poolDomainsForOrgCreate returns the live org-pool list used to
 // validate the operator-supplied parent_domain. Precedence:
 //
 //  1. OrganizationDeps.ParentDomains — explicit operator wiring at
@@ -1056,8 +1056,8 @@ var errBYOCNAMEMismatch = errors.New("byo cname does not resolve to otech ingres
 //  4. OTECHFQDN — single-domain back-compat last-resort.
 //
 // Returns org-pool entries only — primary domains are not bookable
-// for SME tenants per epic #825.
-func (h *Handler) poolDomainsForSMECreate(deps OrganizationDeps) []OrganizationParentDomain {
+// for Organization tenants per epic #825.
+func (h *Handler) poolDomainsForOrgCreate(deps OrganizationDeps) []OrganizationParentDomain {
 	merged := make([]OrganizationParentDomain, 0)
 	seen := map[string]struct{}{}
 	addIf := func(p OrganizationParentDomain) {
@@ -1080,7 +1080,7 @@ func (h *Handler) poolDomainsForSMECreate(deps OrganizationDeps) []OrganizationP
 		return merged
 	}
 	// (2) Admin store from #829.
-	for _, p := range h.ParentDomainsForSMECreate() {
+	for _, p := range h.ParentDomainsForOrgCreate() {
 		addIf(p)
 	}
 	if len(merged) > 0 {

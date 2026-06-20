@@ -1,4 +1,4 @@
-// sme_tenant_keycloak_values_test.go — issue #910 / B3 fix.
+// organization_keycloak_values_test.go — issue #910 / B3 fix.
 //
 // Verifies the orchestrator's emitted bp-keycloak HelmRelease values
 // match the chart's actual values contract (platform/keycloak/chart/

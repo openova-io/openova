@@ -8,7 +8,7 @@
 // hard-codes the four .omani.X TLDs (homes / rest / trade / works) in
 // the subdomain picker. The customer-journey Playwright spec asserts
 // every option is present (test "07 subdomain picker shows omani.homes
-// pool"). If the backend seed drifts, the SME tenant create handler's
+// pool"). If the backend seed drifts, the Organization tenant create handler's
 // FindParentDomain check rejects the operator-supplied parent_domain
 // → the customer sees a 422 right at signup despite the UI option
 // being shown. Keeping seed + UI + AllowedTLDs locked together is the
@@ -26,7 +26,7 @@ import (
 // the hardcoded fallback path (CATALYST_ORG_POOL_DOMAINS unset). The
 // returned slice must carry every .omani.X TLD from
 // core/services/domain/store.AllowedTLDs so the marketplace /addons
-// picker, the catalyst-api SME tenant create validator, and the
+// picker, the catalyst-api Organization tenant create validator, and the
 // store-side TLD allowlist all agree on the pool.
 //
 // DoD D30 (issue #1830): all four entries (omani.homes, omani.rest,
@@ -73,7 +73,7 @@ func TestLoadOrganizationParentDomainsFromEnv_CanonicalFourEntryPool(t *testing.
 // otech FQDN is prepended as the role=primary entry. This is the
 // post-handover catalyst-api topology where the Sovereign's own FQDN
 // becomes the implicit primary and the four .omani.X TLDs are the
-// org-pool offered to SME tenants registering through the marketplace.
+// org-pool offered to Organization tenants registering through the marketplace.
 func TestLoadOrganizationParentDomainsFromEnv_OTECHFQDNPrimary(t *testing.T) {
 	t.Setenv("CATALYST_ORG_POOL_DOMAINS", "")
 	t.Setenv("CATALYST_OTECH_FQDN", "t99.example.io")
@@ -82,14 +82,14 @@ func TestLoadOrganizationParentDomainsFromEnv_OTECHFQDNPrimary(t *testing.T) {
 		t.Fatalf("first entry must be the OTECH primary, got %+v", got)
 	}
 	// And the four org-pool entries still follow.
-	smePoolCount := 0
+	orgPoolCount := 0
 	for _, p := range got {
 		if p.Role == "org-pool" {
-			smePoolCount++
+			orgPoolCount++
 		}
 	}
-	if smePoolCount != 4 {
-		t.Fatalf("OTECH primary + 4 org-pool entries expected; got %d org-pool (%+v)", smePoolCount, got)
+	if orgPoolCount != 4 {
+		t.Fatalf("OTECH primary + 4 org-pool entries expected; got %d org-pool (%+v)", orgPoolCount, got)
 	}
 }
 

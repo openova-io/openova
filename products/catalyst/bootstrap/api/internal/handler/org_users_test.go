@@ -19,7 +19,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
-// fakeKC is a stub SMEKeycloakClient.
+// fakeKC is a stub OrgKeycloakClient.
 type fakeKC struct {
 	mu     sync.Mutex
 	calls  []string
@@ -27,7 +27,7 @@ type fakeKC struct {
 	id     string
 }
 
-func (f *fakeKC) EnsureSMEUser(_ context.Context, _, realm, email, uuid, _ string) (string, error) {
+func (f *fakeKC) EnsureOrgUser(_ context.Context, _, realm, email, uuid, _ string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, realm+":"+email+":"+uuid)
@@ -41,7 +41,7 @@ func (f *fakeKC) EnsureSMEUser(_ context.Context, _, realm, email, uuid, _ strin
 	return f.id, nil
 }
 
-// fakeApplier is a stub SMESecretApplier.
+// fakeApplier is a stub OrgSecretApplier.
 type fakeApplier struct {
 	mu      sync.Mutex
 	applied []string
@@ -66,20 +66,20 @@ type fakeEmitter struct {
 	deleted  []store.UserProvisionRecord
 }
 
-func (f *fakeEmitter) EmitSMEUserCreated(_ context.Context, r store.UserProvisionRecord) error {
+func (f *fakeEmitter) EmitOrgUserCreated(_ context.Context, r store.UserProvisionRecord) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.created = append(f.created, r)
 	return nil
 }
-func (f *fakeEmitter) EmitSMEUserDeleted(_ context.Context, r store.UserProvisionRecord) error {
+func (f *fakeEmitter) EmitOrgUserDeleted(_ context.Context, r store.UserProvisionRecord) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deleted = append(f.deleted, r)
 	return nil
 }
 
-func newTestHandlerWithSME(t *testing.T) (*Handler, *fakeKC, *fakeApplier, *fakeEmitter, func(req newapi.CreateUserRequest, status int, body string)) {
+func newTestHandlerWithOrg(t *testing.T) (*Handler, *fakeKC, *fakeApplier, *fakeEmitter, func(req newapi.CreateUserRequest, status int, body string)) {
 	t.Helper()
 	dir := t.TempDir()
 	reg, err := store.NewTenantRegistry(dir)
@@ -91,9 +91,9 @@ func newTestHandlerWithSME(t *testing.T) (*Handler, *fakeKC, *fakeApplier, *fake
 		TenantID:             "tenant-acme",
 		KeycloakRealmURL:     "https://kc.acme.otech.example/realms/org-acme",
 		KeycloakClientID:     "catalyst-ui",
-		TenantKind:           store.TenantKindSME,
+		TenantKind:           store.TenantKindOrg,
 		OrganizationNamespace:   "org-acme",
-		SMEKeycloakAdminURL:  "http://keycloak-org-acme.org-acme.svc:8080",
+		OrgKeycloakAdminURL:  "http://keycloak-org-acme.org-acme.svc:8080",
 		OrgKeycloakRealmName: "org-acme",
 	}); err != nil {
 		t.Fatalf("put tenant: %v", err)
@@ -139,7 +139,7 @@ func newTestHandlerWithSME(t *testing.T) (*Handler, *fakeKC, *fakeApplier, *fake
 
 	h := &Handler{log: slog.New(slog.NewJSONHandler(io.Discard, nil))}
 	h.SetTenantRegistry(reg)
-	h.SetSMEDeps(SMEDeps{
+	h.SetOrgDeps(OrgDeps{
 		UserProvisionStore:    ups,
 		NewAPIClient:          napi,
 		KeycloakClient:        kc,
@@ -158,20 +158,20 @@ func newTestHandlerWithSME(t *testing.T) (*Handler, *fakeKC, *fakeApplier, *fake
 	return h, kc, ap, em, setNewAPIResp
 }
 
-func TestSMEUsers_Create_HappyPath(t *testing.T) {
-	h, kc, ap, em, _ := newTestHandlerWithSME(t)
+func TestOrgUsers_Create_HappyPath(t *testing.T) {
+	h, kc, ap, em, _ := newTestHandlerWithOrg(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/org/users",
 		bytes.NewReader([]byte(`{"email":"alice@acme.example"}`)))
 	req.Header.Set("X-Tenant-Host", "console.acme.otech.example")
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	h.HandleCreateSMEUser(w, req)
+	h.HandleCreateOrgUser(w, req)
 
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202; body = %s", w.Code, w.Body.String())
 	}
-	var resp smeUserResponse
+	var resp orgUserResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -195,63 +195,63 @@ func TestSMEUsers_Create_HappyPath(t *testing.T) {
 	}
 }
 
-func TestSMEUsers_Create_RejectsOTECHTenant(t *testing.T) {
-	h, _, _, _, _ := newTestHandlerWithSME(t)
+func TestOrgUsers_Create_RejectsOTECHTenant(t *testing.T) {
+	h, _, _, _, _ := newTestHandlerWithOrg(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/org/users",
 		bytes.NewReader([]byte(`{"email":"alice@otech.example"}`)))
 	req.Header.Set("X-Tenant-Host", "console.otech.example")
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	h.HandleCreateSMEUser(w, req)
+	h.HandleCreateOrgUser(w, req)
 	if w.Code != http.StatusUnprocessableEntity {
-		t.Errorf("status = %d, want 422 (otech tenant blocked from SME endpoint); body=%s", w.Code, w.Body.String())
+		t.Errorf("status = %d, want 422 (otech tenant blocked from Organization endpoint); body=%s", w.Code, w.Body.String())
 	}
 }
 
-func TestSMEUsers_Create_RejectsUnknownTenant(t *testing.T) {
-	h, _, _, _, _ := newTestHandlerWithSME(t)
+func TestOrgUsers_Create_RejectsUnknownTenant(t *testing.T) {
+	h, _, _, _, _ := newTestHandlerWithOrg(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/org/users",
 		bytes.NewReader([]byte(`{"email":"x@y.example"}`)))
 	req.Header.Set("X-Tenant-Host", "console.unknown.example")
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	h.HandleCreateSMEUser(w, req)
+	h.HandleCreateOrgUser(w, req)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", w.Code)
 	}
 }
 
-func TestSMEUsers_Create_RejectsMissingTenantHeader(t *testing.T) {
-	h, _, _, _, _ := newTestHandlerWithSME(t)
+func TestOrgUsers_Create_RejectsMissingTenantHeader(t *testing.T) {
+	h, _, _, _, _ := newTestHandlerWithOrg(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/org/users",
 		bytes.NewReader([]byte(`{"email":"x@y.example"}`)))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	h.HandleCreateSMEUser(w, req)
+	h.HandleCreateOrgUser(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w.Code)
 	}
 }
 
-func TestSMEUsers_Create_RejectsBadEmail(t *testing.T) {
-	h, _, _, _, _ := newTestHandlerWithSME(t)
+func TestOrgUsers_Create_RejectsBadEmail(t *testing.T) {
+	h, _, _, _, _ := newTestHandlerWithOrg(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/org/users",
 		bytes.NewReader([]byte(`{"email":"not-an-email"}`)))
 	req.Header.Set("X-Tenant-Host", "console.acme.otech.example")
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	h.HandleCreateSMEUser(w, req)
+	h.HandleCreateOrgUser(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w.Code)
 	}
 }
 
-func TestSMEUsers_Create_KCFailure_PartialState(t *testing.T) {
-	h, kc, _, _, _ := newTestHandlerWithSME(t)
+func TestOrgUsers_Create_KCFailure_PartialState(t *testing.T) {
+	h, kc, _, _, _ := newTestHandlerWithOrg(t)
 	kc.failNext = true // first call fails
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/org/users",
@@ -259,12 +259,12 @@ func TestSMEUsers_Create_KCFailure_PartialState(t *testing.T) {
 	req.Header.Set("X-Tenant-Host", "console.acme.otech.example")
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	h.HandleCreateSMEUser(w, req)
+	h.HandleCreateOrgUser(w, req)
 
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202 (partial state still 202)", w.Code)
 	}
-	var resp smeUserResponse
+	var resp orgUserResponse
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp.State == store.UPSDone {
 		t.Errorf("state should NOT be done on kc failure: %+v", resp)
@@ -274,8 +274,8 @@ func TestSMEUsers_Create_KCFailure_PartialState(t *testing.T) {
 	}
 }
 
-func TestSMEUsers_List_ScopedToTenant(t *testing.T) {
-	h, _, _, _, _ := newTestHandlerWithSME(t)
+func TestOrgUsers_List_ScopedToTenant(t *testing.T) {
+	h, _, _, _, _ := newTestHandlerWithOrg(t)
 
 	// Create alice + bob in tenant-acme.
 	for _, email := range []string{"alice@acme.example", "bob@acme.example"} {
@@ -284,19 +284,19 @@ func TestSMEUsers_List_ScopedToTenant(t *testing.T) {
 		req.Header.Set("X-Tenant-Host", "console.acme.otech.example")
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
-		h.HandleCreateSMEUser(w, req)
+		h.HandleCreateOrgUser(w, req)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/org/users", nil)
 	req.Header.Set("X-Tenant-Host", "console.acme.otech.example")
 	w := httptest.NewRecorder()
-	h.HandleListSMEUsers(w, req)
+	h.HandleListOrgUsers(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("list status = %d", w.Code)
 	}
 	var listResp struct {
-		Items []smeUserResponse `json:"items"`
+		Items []orgUserResponse `json:"items"`
 	}
 	_ = json.Unmarshal(w.Body.Bytes(), &listResp)
 	if len(listResp.Items) != 2 {
@@ -304,8 +304,8 @@ func TestSMEUsers_List_ScopedToTenant(t *testing.T) {
 	}
 }
 
-func TestSMEUsers_Delete(t *testing.T) {
-	h, _, _, em, _ := newTestHandlerWithSME(t)
+func TestOrgUsers_Delete(t *testing.T) {
+	h, _, _, em, _ := newTestHandlerWithOrg(t)
 
 	// Create.
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/org/users",
@@ -313,8 +313,8 @@ func TestSMEUsers_Delete(t *testing.T) {
 	req.Header.Set("X-Tenant-Host", "console.acme.otech.example")
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	h.HandleCreateSMEUser(w, req)
-	var created smeUserResponse
+	h.HandleCreateOrgUser(w, req)
+	var created orgUserResponse
 	_ = json.Unmarshal(w.Body.Bytes(), &created)
 
 	// Delete.
@@ -324,7 +324,7 @@ func TestSMEUsers_Delete(t *testing.T) {
 	dreq.Header.Set("X-Tenant-Host", "console.acme.otech.example")
 	dreq = dreq.WithContext(context.WithValue(dreq.Context(), chi.RouteCtxKey, rctx))
 	dw := httptest.NewRecorder()
-	h.HandleDeleteSMEUser(dw, dreq)
+	h.HandleDeleteOrgUser(dw, dreq)
 
 	if dw.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d, want 204; body=%s", dw.Code, dw.Body.String())
@@ -335,9 +335,9 @@ func TestSMEUsers_Delete(t *testing.T) {
 }
 
 func TestTenantDiscover_Public(t *testing.T) {
-	h, _, _, _, _ := newTestHandlerWithSME(t)
+	h, _, _, _, _ := newTestHandlerWithOrg(t)
 
-	// 200 — known SME host.
+	// 200 — known Organization host.
 	req := httptest.NewRequest(http.MethodGet,
 		"/api/v1/tenant/discover?host=console.acme.otech.example", nil)
 	w := httptest.NewRecorder()
@@ -347,7 +347,7 @@ func TestTenantDiscover_Public(t *testing.T) {
 	}
 	var resp tenantDiscoverResponse
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp.TenantKind != store.TenantKindSME {
+	if resp.TenantKind != store.TenantKindOrg {
 		t.Errorf("TenantKind = %q, want sme", resp.TenantKind)
 	}
 	if resp.KeycloakRealmURL == "" || resp.KeycloakClientID == "" {
@@ -384,7 +384,7 @@ func TestTenantDiscover_Public(t *testing.T) {
 // without an explicit `?host=` query param, the handler falls back
 // to the Host header that the upstream proxy preserved (TC-R-045).
 func TestTenantDiscover_HostHeaderFallback(t *testing.T) {
-	h, _, _, _, _ := newTestHandlerWithSME(t)
+	h, _, _, _, _ := newTestHandlerWithOrg(t)
 
 	// No ?host= query param — Host header carries the registered tenant.
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenant/discover", nil)
@@ -401,7 +401,7 @@ func TestTenantDiscover_HostHeaderFallback(t *testing.T) {
 	if resp.Host != "console.acme.otech.example" {
 		t.Errorf("Host = %q, want console.acme.otech.example", resp.Host)
 	}
-	if resp.TenantKind != store.TenantKindSME {
+	if resp.TenantKind != store.TenantKindOrg {
 		t.Errorf("TenantKind = %q, want sme", resp.TenantKind)
 	}
 
@@ -428,7 +428,7 @@ func TestTenantDiscover_HostHeaderFallback(t *testing.T) {
 }
 
 func TestTenantDiscover_StripsPort(t *testing.T) {
-	h, _, _, _, _ := newTestHandlerWithSME(t)
+	h, _, _, _, _ := newTestHandlerWithOrg(t)
 	req := httptest.NewRequest(http.MethodGet,
 		"/api/v1/tenant/discover?host=console.acme.otech.example:443", nil)
 	w := httptest.NewRecorder()

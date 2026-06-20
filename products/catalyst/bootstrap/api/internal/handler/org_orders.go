@@ -1,9 +1,9 @@
-// Package handler — sme_orders.go: read-only stub for the BSS Orders
+// Package handler — org_orders.go: read-only stub for the BSS Orders
 // page (Wave 6 PR 3).
 //
 // Replaces the iframe-wrapped legacy /bss/orders surface with a native
 // React table. The FE (OrdersPage.tsx → bss.api.ts getOrders()) hits
-// GET /api/v1/sme/orders and tolerates a 200 with `{ orders: [] }` by
+// GET /api/v1/org/orders and tolerates a 200 with `{ orders: [] }` by
 // rendering its full empty-state chrome — same waterfall posture as
 // BssLandingPage's getBssOverview() fallback (INVIOLABLE-PRINCIPLES.md
 // #1: first paint is the full target surface).
@@ -19,10 +19,10 @@ import (
 	"net/http"
 )
 
-// smeOrder mirrors the FE Order shape in bss.api.ts so a future
+// orgOrder mirrors the FE Order shape in bss.api.ts so a future
 // non-empty payload type-aligns without any FE change. Lower-case JSON
 // tags match the FE's `r.id`, `r.tenantOrg`, etc. parsing.
-type smeOrder struct {
+type orgOrder struct {
 	ID         string `json:"id"`
 	TenantOrg  string `json:"tenantOrg"`
 	Product    string `json:"product"`
@@ -33,16 +33,16 @@ type smeOrder struct {
 	Currency   string `json:"currency"`
 }
 
-type smeOrdersResponse struct {
-	Orders []smeOrder `json:"orders"`
+type orgOrdersResponse struct {
+	Orders []orgOrder `json:"orders"`
 }
 
-// HandleListSMEOrders — GET /api/v1/sme/orders.
+// HandleListOrgOrders — GET /api/v1/org/orders.
 //
 // Returns the empty list today. When the marketplace/billing wire is
 // plumbed this handler will join the per-tenant order ledger and
 // project a denormalised row per order; the FE table renders the same
 // shape with no change required.
-func (h *Handler) HandleListSMEOrders(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, smeOrdersResponse{Orders: []smeOrder{}})
+func (h *Handler) HandleListOrgOrders(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, orgOrdersResponse{Orders: []orgOrder{}})
 }

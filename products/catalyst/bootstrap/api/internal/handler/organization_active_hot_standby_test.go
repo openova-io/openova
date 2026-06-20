@@ -1,5 +1,5 @@
-// sme_tenant_active_hot_standby_test.go — D31 active-hot-standby
-// regression tests for the SME-tenant gitops writer.
+// organization_active_hot_standby_test.go — D31 active-hot-standby
+// regression tests for the Organization gitops writer.
 //
 // The render path reads three Pod-env vars at template time:
 //

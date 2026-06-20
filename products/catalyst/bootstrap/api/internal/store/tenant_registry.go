@@ -3,7 +3,7 @@
 // `GET /api/v1/tenant/discover` endpoint (issue #802).
 //
 // Per [Q-mine-1] of #795 the same Sovereign Console SPA bundle serves
-// both otech-admin and SME-admin views. Tenant context is discovered
+// both otech-admin and Organization-admin views. Tenant context is discovered
 // from `window.location.host` against this registry — NOT from
 // path/subdomain parsing — so a BYO domain such as `console.acme.com`
 // (CNAME → otech ingress) resolves the same way as a free-subdomain
@@ -13,7 +13,7 @@
 // keyed by host. One file (not file-per-tenant) because the registry
 // is read on every login bootstrap and a directory walk would amplify
 // every cold start. The whole table fits in a few KB even with
-// thousands of SMEs.
+// thousands of Organizations.
 //
 // Why flat-file (not Postgres): per
 // docs/INVIOLABLE-PRINCIPLES.md #3 the catalyst-api adds zero
@@ -37,12 +37,12 @@ import (
 )
 
 // TenantKind is the discriminant the SPA uses to mount otech-tier vs
-// SME-tier route trees from the same bundle.
+// Organization-tier route trees from the same bundle.
 type TenantKind string
 
 const (
 	TenantKindOTECH TenantKind = "otech"
-	TenantKindSME   TenantKind = "sme"
+	TenantKindOrg   TenantKind = "sme"
 )
 
 // TenantRegistration is the wire + on-disk shape returned by
@@ -64,12 +64,12 @@ type TenantRegistration struct {
 	// namespace in the OTECH cluster where ADR-0003 step 3 applies the
 	// `newapi-key-{user-uuid}` Secret. Empty for tenant_kind=otech.
 	OrganizationNamespace string `json:"sme_tenant_namespace,omitempty"`
-	// SMEKeycloakAdminURL — admin-API base for the SME-vcluster
+	// OrgKeycloakAdminURL — admin-API base for the Organization vcluster
 	// Keycloak realm (used by ADR-0003 step 1). Different from
 	// KeycloakRealmURL: that's the *issuer* (browser-facing), this is
 	// the in-cluster admin endpoint (back-end facing). Empty for
 	// tenant_kind=otech.
-	SMEKeycloakAdminURL string `json:"sme_keycloak_admin_url,omitempty"`
+	OrgKeycloakAdminURL string `json:"sme_keycloak_admin_url,omitempty"`
 	// OrgKeycloakRealmName — the realm name to target in the admin
 	// API path /admin/realms/{realm}/users. Empty for tenant_kind=otech.
 	OrgKeycloakRealmName string `json:"org_keycloak_realm_name,omitempty"`
@@ -159,7 +159,7 @@ func (r *TenantRegistry) Put(t TenantRegistration) error {
 	if strings.TrimSpace(t.TenantID) == "" {
 		return errors.New("tenant registry: tenant_id is required")
 	}
-	if t.TenantKind != TenantKindOTECH && t.TenantKind != TenantKindSME {
+	if t.TenantKind != TenantKindOTECH && t.TenantKind != TenantKindOrg {
 		return fmt.Errorf("tenant registry: invalid tenant_kind %q", t.TenantKind)
 	}
 	t.Host = strings.ToLower(strings.TrimSpace(t.Host))

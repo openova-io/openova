@@ -1,4 +1,4 @@
-// sme_consumption.go — the B3 metering feed (issue #3378 §6 B3, made
+// org_consumption.go — the B3 metering feed (issue #3378 §6 B3, made
 // per-Organization-honest by #3687 fold #3677).
 //
 // Per-org consumption aggregation, labeled by org, exposed via ONE GET
@@ -26,7 +26,7 @@
 // Route (registered in cmd/api/main.go), session-gated like the rest of
 // /api/v1/*:
 //
-//   GET /api/v1/sme/consumption  → SovereignConsumptionResponse
+//   GET /api/v1/org/consumption  → SovereignConsumptionResponse
 //
 // This is NOT a marketplace funnel surface — it works day one on the
 // operator's own estate, which is the whole point of showback (§5).
@@ -160,7 +160,7 @@ func infraNamespaceSet(envValue string) map[string]struct{} {
 	return set
 }
 
-// HandleSovereignConsumption — GET /api/v1/sme/consumption.
+// HandleSovereignConsumption — GET /api/v1/org/consumption.
 func (h *Handler) HandleSovereignConsumption(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	depID := strings.TrimSpace(q.Get("deployment_id"))

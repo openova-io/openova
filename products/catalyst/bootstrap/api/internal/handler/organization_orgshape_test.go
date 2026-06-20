@@ -1,4 +1,4 @@
-// sme_tenant_orgshape_test.go — coverage for resolveOrgShape, the
+// organization_orgshape_test.go — coverage for resolveOrgShape, the
 // Organizations internal-door defaulting (issue #3378 B1). Locks the
 // §2.1/§2.3 model: kind defaults to customer (the funnel door); kind-
 // derived billingMode + isolation defaults; the advanced override; and

@@ -2,7 +2,7 @@
 // endpoint backing host-header-driven SPA bootstrap (issue #802).
 //
 // The same Sovereign Console SPA bundle (products/catalyst/bootstrap/ui)
-// serves both otech-admin and SME-admin views. On boot the SPA reads
+// serves both otech-admin and Organization-admin views. On boot the SPA reads
 // `window.location.host` and calls
 //
 //	GET /api/v1/tenant/discover?host=<host>
@@ -33,7 +33,7 @@ import (
 
 // tenantDiscoverResponse is the wire shape returned to the SPA on
 // 200 OK. It is intentionally a public-safe subset of
-// store.TenantRegistration — the SME-admin admin-API URL (used by the
+// store.TenantRegistration — the Organization-admin admin-API URL (used by the
 // hook) is NOT exposed here.
 //
 // Fields added in qa-loop iter-6 TC-013 (DeploymentID, TenantHost,

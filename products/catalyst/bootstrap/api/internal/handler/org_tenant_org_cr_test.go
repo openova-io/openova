@@ -18,11 +18,11 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
-// newSMETenantHandlerWithDynamic wires the SME-tenant pipeline deps AND a
+// newOrgTenantHandlerWithDynamic wires the Organization pipeline deps AND a
 // fake dynamic client (via SetSovereignDepsFactory) registering the
 // Organization GVR, so the #3687 Org-CR-creation step at the
 // STSTenantRegistered → STSDone transition POSTs into the fake apiserver.
-func newSMETenantHandlerWithDynamic(t *testing.T) (*Handler, *dynamicfake.FakeDynamicClient) {
+func newOrgTenantHandlerWithDynamic(t *testing.T) (*Handler, *dynamicfake.FakeDynamicClient) {
 	t.Helper()
 	dir := t.TempDir()
 	tenantStore, err := store.NewOrganizationProvisionStore(dir)
@@ -58,13 +58,13 @@ func newSMETenantHandlerWithDynamic(t *testing.T) (*Handler, *dynamicfake.FakeDy
 	return h, dyn
 }
 
-// TestCreateSMETenant_MintsOrganizationCR is the #3687 binary DoD: a
-// completed SME-tenant create POSTs the canonical Organization CR so
+// TestCreateOrgTenant_MintsOrganizationCR is the #3687 binary DoD: a
+// completed Organization create POSTs the canonical Organization CR so
 // `kubectl get organizations -A` is ≥1. Asserts the CR exists with the
 // org-controller's spec shape (slug/displayName/kind/tier/billingMode/
 // owners/tenantPublic).
-func TestCreateSMETenant_MintsOrganizationCR(t *testing.T) {
-	h, dyn := newSMETenantHandlerWithDynamic(t)
+func TestCreateOrgTenant_MintsOrganizationCR(t *testing.T) {
+	h, dyn := newOrgTenantHandlerWithDynamic(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations",
 		bytes.NewReader([]byte(`{
@@ -105,7 +105,7 @@ func TestCreateSMETenant_MintsOrganizationCR(t *testing.T) {
 		t.Errorf("spec.kind: want customer got %v", spec["kind"])
 	}
 	if spec["tier"] != "org" {
-		t.Errorf("spec.tier: want sme got %v", spec["tier"])
+		t.Errorf("spec.tier: want org got %v", spec["tier"])
 	}
 	if spec["billingMode"] != "real" {
 		t.Errorf("spec.billingMode: want real got %v", spec["billingMode"])
@@ -125,18 +125,18 @@ func TestCreateSMETenant_MintsOrganizationCR(t *testing.T) {
 	if !ok || tp["parentDomain"] != "otech.example" || tp["subdomain"] != "acme" {
 		t.Errorf("spec.tenantPublic: %v", spec["tenantPublic"])
 	}
-	// Label back-reference to the SME-tenant projection row.
+	// Label back-reference to the Organization projection row.
 	labels := org.GetLabels()
-	if labels["openova.io/source"] != "sme-tenant-funnel" {
+	if labels["openova.io/source"] != "org-tenant-funnel" {
 		t.Errorf("label openova.io/source: %v", labels)
 	}
 }
 
-// TestCreateSMETenant_OrganizationCR_Idempotent re-runs the pipeline against
+// TestCreateOrgTenant_OrganizationCR_Idempotent re-runs the pipeline against
 // the same record and asserts the second create is a benign AlreadyExists
 // (no error, still exactly one CR).
-func TestCreateSMETenant_OrganizationCR_Idempotent(t *testing.T) {
-	h, dyn := newSMETenantHandlerWithDynamic(t)
+func TestCreateOrgTenant_OrganizationCR_Idempotent(t *testing.T) {
+	h, dyn := newOrgTenantHandlerWithDynamic(t)
 
 	rec := store.OrganizationProvisionRecord{
 		OrganizationID:  "tid-1",
@@ -148,9 +148,9 @@ func TestCreateSMETenant_OrganizationCR_Idempotent(t *testing.T) {
 		TenantNamespace: "org-tid-1",
 	}
 	// First create.
-	h.createSMEOrganizationCR(context.Background(), rec)
+	h.createOrgOrganizationCR(context.Background(), rec)
 	// Second create — must not error, must not duplicate.
-	h.createSMEOrganizationCR(context.Background(), rec)
+	h.createOrgOrganizationCR(context.Background(), rec)
 
 	list, err := dyn.Resource(organizationGVR()).List(context.Background(), metav1.ListOptions{})
 	if err != nil {
@@ -161,11 +161,11 @@ func TestCreateSMETenant_OrganizationCR_Idempotent(t *testing.T) {
 	}
 }
 
-// TestCreateSMETenant_OrganizationCR_InvalidSlugSkipped asserts a subdomain
+// TestCreateOrgTenant_OrganizationCR_InvalidSlugSkipped asserts a subdomain
 // that is a valid RFC-1123 label but NOT a valid Org slug (digit-leading)
 // is skipped without panicking and without creating a CR.
-func TestCreateSMETenant_OrganizationCR_InvalidSlugSkipped(t *testing.T) {
-	h, dyn := newSMETenantHandlerWithDynamic(t)
+func TestCreateOrgTenant_OrganizationCR_InvalidSlugSkipped(t *testing.T) {
+	h, dyn := newOrgTenantHandlerWithDynamic(t)
 
 	rec := store.OrganizationProvisionRecord{
 		OrganizationID: "tid-2",
@@ -174,7 +174,7 @@ func TestCreateSMETenant_OrganizationCR_InvalidSlugSkipped(t *testing.T) {
 		AdminEmail:  "owner@acme.test",
 		OTECHFQDN:   "otech.example",
 	}
-	h.createSMEOrganizationCR(context.Background(), rec)
+	h.createOrgOrganizationCR(context.Background(), rec)
 
 	list, err := dyn.Resource(organizationGVR()).List(context.Background(), metav1.ListOptions{})
 	if err != nil {
@@ -185,10 +185,10 @@ func TestCreateSMETenant_OrganizationCR_InvalidSlugSkipped(t *testing.T) {
 	}
 }
 
-// TestCreateSMETenant_OrganizationCR_NoClientSkipped asserts that when no
+// TestCreateOrgTenant_OrganizationCR_NoClientSkipped asserts that when no
 // in-cluster dynamic client is wired (CI / out-of-cluster), the create is a
-// safe no-op — the SME pipeline still completes.
-func TestCreateSMETenant_OrganizationCR_NoClientSkipped(t *testing.T) {
+// safe no-op — the Organization pipeline still completes.
+func TestCreateOrgTenant_OrganizationCR_NoClientSkipped(t *testing.T) {
 	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	h.SetOrganizationDeps(OrganizationDeps{OTECHFQDN: "otech.example"})
 	// sovereignDepsFactory not set → sovereignDepsFromEnv runs → no in-cluster
@@ -200,7 +200,7 @@ func TestCreateSMETenant_OrganizationCR_NoClientSkipped(t *testing.T) {
 		AdminEmail:  "owner@acme.test",
 		OTECHFQDN:   "otech.example",
 	}
-	h.createSMEOrganizationCR(context.Background(), rec) // no-op, no panic
+	h.createOrgOrganizationCR(context.Background(), rec) // no-op, no panic
 }
 
 // unstructuredNestedMap is a thin helper for reading spec out of the

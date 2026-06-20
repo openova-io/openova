@@ -10,7 +10,7 @@
 //
 // Founder point 3 (2026-06-15): "a real catalog where the admin can edit
 // each app's topology, name, light/dark icons". The persisted edits live
-// in the SME commerce catalog store (core/services/catalog, store.App),
+// in the Organization commerce catalog store (core/services/catalog, store.App),
 // which already exposes an admin CRUD (POST/PUT /catalog/admin/apps) that
 // the #3603 edit form drives, and a public read (GET /catalog/apps) that
 // returns every App row.
@@ -30,7 +30,7 @@
 // bare slug (`grafana`). normalizeCatalogKey strips the `bp-` prefix on
 // both sides so the two line up.
 //
-// Graceful degradation (the existing smeCatalog() pattern): when the SME
+// Graceful degradation (the existing orgCatalog() pattern): when the Organization
 // commerce catalog is not deployed on this Sovereign (DNS NXDOMAIN, non-2xx,
 // undecodable body) fetchCatalogEdits returns an empty map and the seed is
 // served unchanged. The overlay never fails the catalog read.
@@ -43,7 +43,7 @@ import (
 	"strings"
 )
 
-// catalogEdit is the subset of the SME commerce catalog's store.App that
+// catalogEdit is the subset of the Organization commerce catalog's store.App that
 // the editable-catalog overlay applies onto a seed entry. Field names
 // mirror the store's JSON tags VERBATIM (core/services/catalog/store.App)
 // so the bare-array GET /catalog/apps response decodes straight into it.
@@ -129,16 +129,16 @@ func overlayCatalogEdits(items []CatalogBlueprint, edits map[string]catalogEdit)
 	return out
 }
 
-// fetchCatalogEdits pulls every App row from the SME commerce catalog's
+// fetchCatalogEdits pulls every App row from the Organization commerce catalog's
 // PUBLIC list endpoint (GET /catalog/apps) and indexes the edited ones by
-// normalized slug. Returns an empty (non-nil) map on ANY failure — the SME
+// normalized slug. Returns an empty (non-nil) map on ANY failure — the Organization
 // catalog being absent (the marketplace.enabled=false Sovereigns) or
 // unreachable is a normal state, not an error: the catalog read then serves
-// the seed unchanged. Per the existing smeCatalog() contract the public
+// the seed unchanged. Per the existing orgCatalog() contract the public
 // list carries no auth, so no bearer is forwarded.
 func fetchCatalogEdits(ctx context.Context) map[string]catalogEdit {
 	edits := map[string]catalogEdit{}
-	status, body, _, err := smeCatalog().PublicProxy(ctx, "/apps")
+	status, body, _, err := orgCatalog().PublicProxy(ctx, "/apps")
 	if err != nil || status < 200 || status >= 300 || len(body) == 0 {
 		return edits
 	}
@@ -173,7 +173,7 @@ func fetchCatalogEdits(ctx context.Context) map[string]catalogEdit {
 // single source of truth.
 //
 // Both sources degrade to an empty map when unavailable (Gitea unwired
-// pre-cutover, SME catalog absent), so on a Sovereign with neither the
+// pre-cutover, Organization catalog absent), so on a Sovereign with neither the
 // catalog read serves the seed unchanged.
 func (h *Handler) fetchCatalogEditsMerged(ctx context.Context) map[string]catalogEdit {
 	merged := fetchCatalogEdits(ctx) // commerce store cache (may be empty)

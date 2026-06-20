@@ -9,7 +9,7 @@
 // and the HTTP surface /api/v1/sovereign/parent-domains reads from
 // the imported record (dep.Request.ParentDomains), not the env stub.
 // Result on t31 (2026-05-19): /parent-domains?role=org-pool returned
-// 1 entry instead of 4 → customer's omani.homes pick failed at SME
+// 1 entry instead of 4 → customer's omani.homes pick failed at Organization
 // tenant signup with 422 invalid-parent-domain.
 //
 // chrootEnsureOrgPoolSeed closes that gap. These tests guard:
@@ -56,7 +56,7 @@ import (
 // same four TLDs as core/services/domain/store.AllowedTLDs. We can't
 // import that package directly (it's a separate Go module — the
 // catalyst-api bootstrap binary is intentionally decoupled from the
-// SME-side service modules), so the test asserts against the same
+// Organization-side service modules), so the test asserts against the same
 // literal list a human reviewer can eyeball-match. Drift surfaces in
 // CI as a test fail with the exact got/want diff.
 func TestChrootEnsureOrgPoolSeed_MatchesAllowedTLDsLiteral(t *testing.T) {

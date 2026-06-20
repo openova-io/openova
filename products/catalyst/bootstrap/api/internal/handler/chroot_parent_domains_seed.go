@@ -15,11 +15,11 @@
 // /addons subdomain picker hard-codes (omani.homes, omani.rest,
 // omani.trade, omani.works — same list as
 // core/services/domain/store.AllowedTLDs). A customer who selects a
-// missing TLD on the picker hits a 422 invalid-parent-domain at SME
+// missing TLD on the picker hits a 422 invalid-parent-domain at Organization
 // tenant signup because FindParentDomain doesn't recognise the TLD.
 //
 // PR #1861 widened LoadOrganizationParentDomainsFromEnv() to seed all 4
-// entries, but that's the *env-stub fallback* path used by the SME
+// entries, but that's the *env-stub fallback* path used by the Organization
 // tenant create handler's startup wiring (OrganizationDeps.ParentDomains).
 // The /api/v1/sovereign/parent-domains HTTP surface reads from the
 // adopted Deployment's persistent Request.ParentDomains slice, NOT
@@ -103,7 +103,7 @@ func (h *Handler) chrootEnsureOrgPoolSeed(dep *Deployment) int {
 	// canonical TLD listed as org-pool even when the operator's
 	// chosen primary happens to share a name with one of them (the
 	// real-world t31 shape: primary=omani.works, pool must still
-	// surface omani.works as a org-pool row so SME tenants picking
+	// surface omani.works as a org-pool row so Organization tenants picking
 	// .omani.works pass FindParentDomain).
 	presentPool := map[string]struct{}{}
 	for _, pd := range dep.Request.ParentDomains {

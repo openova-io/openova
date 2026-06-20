@@ -1,7 +1,7 @@
 // Package handler — catalog_iac_edit.go: #3668 §5D — the FULL-CR catalog
 // IaC editor endpoint.
 //
-// The card-edit path (sme_commerce.go → catalog_edit_git.go) commits the 7
+// The card-edit path (org_commerce.go → catalog_edit_git.go) commits the 7
 // card fields to catalog-sovereign/<bp>/blueprint.yaml. The full-CR editor
 // (the console's "Edit IaC" mode mounting widgets/cloud-list/YamlEditor)
 // must be able to edit the WHOLE blueprint — spec.source / spec.manifests /

@@ -6,7 +6,7 @@
 // A franchised Sovereign supports N parent domains, not 1. The operator
 // brings:
 //   - the primary domain serving console.<primary>, api.<primary>, etc.
-//   - zero-or-more "org-pool" domains offered to SME tenants for free
+//   - zero-or-more "org-pool" domains offered to Organization tenants for free
 //     subdomain allocation
 // A post-handover surface in the Sovereign Console lets the operator add
 // MORE parent domains over time (e.g. acquired a new portfolio domain).
@@ -101,7 +101,7 @@ const (
 	// RolePrimary — the operator's own domain (console.<name>,
 	// api.<name>, marketplace.<name>). Exactly one per Sovereign.
 	RolePrimary ParentDomainRole = "primary"
-	// RoleOrgPool — offered to SME tenants for free-subdomain
+	// RoleOrgPool — offered to Organization tenants for free-subdomain
 	// allocation (e.g. console.acme.<name>). Zero-or-more per Sovereign.
 	RoleOrgPool ParentDomainRole = "org-pool"
 )
@@ -612,7 +612,7 @@ func (h *Handler) AddParentDomain(w http.ResponseWriter, r *http.Request) {
 // The handler removes the row from the pool but does NOT un-flip the
 // registrar NS records — that's a destructive operation an operator
 // should perform deliberately at their registrar UI. The intent here is
-// "stop offering this domain to SMEs"; the gTLD NS delegation can stay.
+// "stop offering this domain to Organizations"; the gTLD NS delegation can stay.
 //
 // Persistence: removes from the adopted Deployment's
 // Request.ParentDomains slice + persists so the deletion survives a

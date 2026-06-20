@@ -54,7 +54,7 @@ const (
 // UserProvisionRecord is the per-user state row described in
 // ADR-0003 §3.4.
 type UserProvisionRecord struct {
-	SMEUserUUID  string             `json:"sme_user_uuid"`
+	OrgUserUUID  string             `json:"sme_user_uuid"`
 	OrganizationID  string             `json:"sme_tenant_id"`
 	Email        string             `json:"email"`
 	State        UserProvisionState `json:"state"`
@@ -99,7 +99,7 @@ func NewUserProvisionStore(dir string) (*UserProvisionStore, error) {
 // Put upserts a record. The CreatedAt timestamp is preserved on
 // upsert; UpdatedAt is bumped to now.
 func (s *UserProvisionStore) Put(rec UserProvisionRecord) error {
-	if strings.TrimSpace(rec.SMEUserUUID) == "" {
+	if strings.TrimSpace(rec.OrgUserUUID) == "" {
 		return errors.New("user-provision: sme_user_uuid is required")
 	}
 	if strings.TrimSpace(rec.OrganizationID) == "" {
@@ -117,7 +117,7 @@ func (s *UserProvisionStore) Put(rec UserProvisionRecord) error {
 	if err := os.MkdirAll(tenantDir, 0o700); err != nil {
 		return fmt.Errorf("user-provision: mkdir tenant %q: %w", tenantDir, err)
 	}
-	path := filepath.Join(tenantDir, sanitizeID(rec.SMEUserUUID)+".json")
+	path := filepath.Join(tenantDir, sanitizeID(rec.OrgUserUUID)+".json")
 
 	// Preserve CreatedAt across upserts.
 	if rec.CreatedAt.IsZero() {
@@ -151,7 +151,7 @@ func (s *UserProvisionStore) Get(tenantID, uuid string) (UserProvisionRecord, bo
 }
 
 // List returns every record for the given tenant, sorted by
-// CreatedAt descending (newest first) — the order the SME admin's UI
+// CreatedAt descending (newest first) — the order the Organization admin's UI
 // renders.
 func (s *UserProvisionStore) List(tenantID string) []UserProvisionRecord {
 	tenantDir := filepath.Join(s.dir, sanitizeID(tenantID))

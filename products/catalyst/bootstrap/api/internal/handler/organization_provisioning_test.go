@@ -196,7 +196,7 @@ func TestCreateOrganization_HappyPathFreeSubdomain(t *testing.T) {
 	if !ok {
 		t.Fatalf("registry: tenant not registered")
 	}
-	if reg.TenantKind != store.TenantKindSME {
+	if reg.TenantKind != store.TenantKindOrg {
 		t.Errorf("registry kind: %s", reg.TenantKind)
 	}
 	if reg.OrganizationNamespace == "" || !strings.HasPrefix(reg.OrganizationNamespace, "org-") {
@@ -585,16 +585,16 @@ func TestRenderOrganizationOverlay_OpenClawOIDCAndLLMBlocks(t *testing.T) {
 			t.Errorf("bp-openclaw llm block missing line %q\n--- rendered ---\n%s", line, body)
 		}
 	}
-	// Per-tenant LLM endpoint MUST be the SME's own api.<sub>.<parent>,
+	// Per-tenant LLM endpoint MUST be the Organization's own api.<sub>.<parent>,
 	// NEVER the otech-wide newapi.<otech-fqdn> (that would route every
-	// SME's traffic through one shared gateway, defeating per-tenant
+	// Organization's traffic through one shared gateway, defeating per-tenant
 	// channel routing).
 	if strings.Contains(body, "https://newapi.otech107.omani.works") {
 		t.Errorf("bp-openclaw llm.baseURL must be per-tenant api.<sub>.<parent>, not otech-wide newapi: %s", body)
 	}
 }
 
-// TestRenderOrganizationOverlay_NewAPIEmitted asserts the SME tenant
+// TestRenderOrganizationOverlay_NewAPIEmitted asserts the Organization tenant
 // overlay emits a per-tenant bp-newapi HelmRelease (#945). Without it
 // the bp-openclaw HR points at https://api.<sub>.<parent>/v1 with no
 // chart materialising that ingress — alice's OpenClaw boots and gets
@@ -819,7 +819,7 @@ func TestRenderOrganizationOverlay_WordPressEmitsOIDC(t *testing.T) {
 			t.Errorf("bp-wordpress-tenant legacy keycloak block missing line %q (back-compat)", line)
 		}
 	}
-	// Per-tenant realm URL MUST be the per-SME Keycloak, not a shared
+	// Per-tenant realm URL MUST be the per-Organization Keycloak, not a shared
 	// otech-level IdP. Same guardrail as the OpenClaw/Stalwart tests.
 	bad := "https://keycloak.otech107.omani.works"
 	if strings.Contains(body, bad) {
@@ -907,11 +907,11 @@ func TestRenderOrganizationOverlay_WordPressOIDC_BYOMode(t *testing.T) {
 	if !strings.Contains(body, "host: wordpress.acme.com") {
 		t.Errorf("byo wordpress host missing — got:\n%s", body)
 	}
-	// smeDomain (BYO mode) is the bare BYO domain. The producer keeps the
-	// chart-consumed data-value key smeDomain (#3383 WIRE-STABLE invariant);
-	// the bp-wordpress-tenant chart reads .Values.smeDomain.
-	if !strings.Contains(body, "smeDomain: acme.com") {
-		t.Errorf("byo smeDomain missing")
+	// orgDomain (BYO mode) is the bare BYO domain. The producer keeps the
+	// chart-consumed data-value key orgDomain (#3383 WIRE-STABLE invariant);
+	// the bp-wordpress-tenant chart reads .Values.orgDomain.
+	if !strings.Contains(body, "orgDomain: acme.com") {
+		t.Errorf("byo orgDomain missing")
 	}
 }
 
@@ -939,7 +939,7 @@ func TestRenderOrganizationOverlay_StalwartEmitsKeycloakOIDC(t *testing.T) {
 	if !ok {
 		t.Fatalf("bp-stalwart-tenant.yaml missing")
 	}
-	// Per-tenant realm URL — must point at the SME's vcluster Keycloak,
+	// Per-tenant realm URL — must point at the Organization's vcluster Keycloak,
 	// not a shared otech-level IdP.
 	wantRealmURL := "https://keycloak.acme.omantel.omani.works/realms/org-acme"
 	if !strings.Contains(body, wantRealmURL) {
@@ -1104,7 +1104,7 @@ var _ = readAll
 
 /* ── Multi-domain Sovereign tests (epic #825 / MD-3 #828) ─────────── */
 
-// newTestHandlerWithMultiDomainPool spins up a Handler whose SME-tenant
+// newTestHandlerWithMultiDomainPool spins up a Handler whose Organization
 // deps include a 2-entry org-pool (omani.works ready + omani.trade
 // ready) plus a primary OTECHFQDN — exercising the full #828 path.
 func newTestHandlerWithMultiDomainPool(t *testing.T, pool []OrganizationParentDomain) (*Handler, *fakeGitOps, *fakeDNS, *fakeKCClients, *fakeTenantEmitter, *store.TenantRegistry) {

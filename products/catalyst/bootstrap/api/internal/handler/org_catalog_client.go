@@ -1,9 +1,9 @@
-// sme_catalog_client.go — best-effort client for the in-cluster SME
+// org_catalog_client.go — best-effort client for the in-cluster Organization
 // catalog microservice (services/catalog) used by HandleSovereignApps
 // and HandleSovereignAppPublish.
 //
 // Lives at http://catalog.org-services.svc.cluster.local:8082 when the chart's
-// SME services tier is deployed. When the SME services tier is NOT
+// Organization services tier is deployed. When the Organization services tier is NOT
 // deployed (Sovereigns with marketplace.enabled=false, like omantel.biz),
 // every call returns nil/false with no error logged at warn level —
 // the chroot Sovereign Console renders without a Publish chip on the
@@ -28,14 +28,14 @@ import (
 )
 
 const (
-	defaultSMECatalogURL  = "http://catalog.org-services.svc.cluster.local:8082"
-	smeCatalogURLEnv      = "CATALYST_ORG_CATALOG_URL"
-	smeCatalogCacheTTL    = 30 * time.Second
-	smeCatalogProbeBudget = 1500 * time.Millisecond
+	defaultOrgCatalogURL  = "http://catalog.org-services.svc.cluster.local:8082"
+	orgCatalogURLEnv      = "CATALYST_ORG_CATALOG_URL"
+	orgCatalogCacheTTL    = 30 * time.Second
+	orgCatalogProbeBudget = 1500 * time.Millisecond
 
 	// catalogEditGitBudget is the budget for the catalog-edit IaC commit
 	// (#3668). The commit is the SOURCE-OF-TRUTH write — it must NOT share
-	// the 1500ms commerce-store probe budget (smeCatalogProbeBudget), which
+	// the 1500ms commerce-store probe budget (orgCatalogProbeBudget), which
 	// is sized for a single in-cluster HTTP probe, not a git round-trip.
 	// writeCatalogEditToGit performs FOUR sequential Gitea API calls
 	// (EnsureOrg, EnsureRepo, GetFile, PutFile) against a Gitea that — on a
@@ -61,14 +61,14 @@ func catalogEditGitBudgetDuration() time.Duration {
 	return catalogEditGitBudget
 }
 
-// smeCatalogApp — minimal projection of the SME catalog's GET /catalog/apps
+// orgCatalogApp — minimal projection of the Organization catalog's GET /catalog/apps
 // response shape. Only the fields HandleSovereignApps consumes.
-type smeCatalogApp struct {
+type orgCatalogApp struct {
 	Slug      string `json:"slug"`
 	Published bool   `json:"published"`
 }
 
-type smeCatalogClient struct {
+type orgCatalogClient struct {
 	baseURL string
 	http    *http.Client
 
@@ -78,48 +78,48 @@ type smeCatalogClient struct {
 	cachedError error
 }
 
-var smeCatalogSingleton *smeCatalogClient
-var smeCatalogOnce sync.Once
+var orgCatalogSingleton *orgCatalogClient
+var orgCatalogOnce sync.Once
 
-// smeCatalogTestOverride lets tests point smeCatalog() at an httptest
+// orgCatalogTestOverride lets tests point orgCatalog() at an httptest
 // server WITHOUT racing the sync.Once (which would otherwise pin the first
 // caller's baseURL for the rest of the process). nil in production — the
 // override is only ever set by the in-package test helper. Checked first in
-// smeCatalog() so a test can swap + restore deterministically.
-var smeCatalogTestOverride *smeCatalogClient
+// orgCatalog() so a test can swap + restore deterministically.
+var orgCatalogTestOverride *orgCatalogClient
 
-// smeCatalog returns the package-level SME catalog client, lazily
+// orgCatalog returns the package-level Organization catalog client, lazily
 // constructed on first use.
-func smeCatalog() *smeCatalogClient {
-	if smeCatalogTestOverride != nil {
-		return smeCatalogTestOverride
+func orgCatalog() *orgCatalogClient {
+	if orgCatalogTestOverride != nil {
+		return orgCatalogTestOverride
 	}
-	smeCatalogOnce.Do(func() {
-		base := strings.TrimSpace(os.Getenv(smeCatalogURLEnv))
+	orgCatalogOnce.Do(func() {
+		base := strings.TrimSpace(os.Getenv(orgCatalogURLEnv))
 		if base == "" {
-			base = defaultSMECatalogURL
+			base = defaultOrgCatalogURL
 		}
-		smeCatalogSingleton = &smeCatalogClient{
+		orgCatalogSingleton = &orgCatalogClient{
 			baseURL: strings.TrimRight(base, "/"),
 			http: &http.Client{
-				Timeout: smeCatalogProbeBudget,
+				Timeout: orgCatalogProbeBudget,
 			},
 		}
 	})
-	return smeCatalogSingleton
+	return orgCatalogSingleton
 }
 
 // PublishedBySlug returns a slug → published map. Returns nil + nil
-// (no map, no error) when the SME catalog is not deployed on this
+// (no map, no error) when the Organization catalog is not deployed on this
 // Sovereign. Caller must treat nil as "marketplace feature unavailable
 // on this Sovereign — don't render the Publish chip on any card".
 //
 // On transient errors (timeout, 5xx) returns the previous cached
 // result if still within TTL, else nil + nil. This handler is never
-// the operator's source of truth; the SME catalog itself is.
-func (c *smeCatalogClient) PublishedBySlug(ctx context.Context) (map[string]bool, error) {
+// the operator's source of truth; the Organization catalog itself is.
+func (c *orgCatalogClient) PublishedBySlug(ctx context.Context) (map[string]bool, error) {
 	c.mu.Lock()
-	if c.cached != nil && time.Since(c.cachedAt) < smeCatalogCacheTTL {
+	if c.cached != nil && time.Since(c.cachedAt) < orgCatalogCacheTTL {
 		out := c.cached
 		c.mu.Unlock()
 		return out, nil
@@ -129,11 +129,11 @@ func (c *smeCatalogClient) PublishedBySlug(ctx context.Context) (map[string]bool
 	url := c.baseURL + "/catalog/apps"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("sme-catalog: build request: %w", err)
+		return nil, fmt.Errorf("org-catalog: build request: %w", err)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		// Common case: SME not deployed → DNS NXDOMAIN. Treat as
+		// Common case: Organization not deployed → DNS NXDOMAIN. Treat as
 		// "feature unavailable", not an error to surface.
 		c.mu.Lock()
 		c.cached = nil
@@ -146,7 +146,7 @@ func (c *smeCatalogClient) PublishedBySlug(ctx context.Context) (map[string]bool
 		return nil, nil
 	}
 	var body struct {
-		Apps []smeCatalogApp `json:"apps"`
+		Apps []orgCatalogApp `json:"apps"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return nil, nil
@@ -167,33 +167,33 @@ func (c *smeCatalogClient) PublishedBySlug(ctx context.Context) (map[string]bool
 }
 
 // SetPublished — proxy PATCH /catalog/admin/apps/{slug}/publish to the
-// SME catalog. Used by HandleSovereignAppPublish. Returns the upstream
-// HTTP status verbatim (so a 404 from SME catalog stays 404, etc.).
+// Organization catalog. Used by HandleSovereignAppPublish. Returns the upstream
+// HTTP status verbatim (so a 404 from Organization catalog stays 404, etc.).
 //
-// Wire-shape: the SME catalog's SetAppPublished
+// Wire-shape: the Organization catalog's SetAppPublished
 // (core/services/catalog/handlers/handlers.go:293) accepts the new
 // state via the `?value=true|false` query param — no JSON body. The
 // request body is therefore empty; passing one would be ignored.
 //
-// Auth: the SME catalog mounts JWTAuth on every /catalog/admin/* path
+// Auth: the Organization catalog mounts JWTAuth on every /catalog/admin/* path
 // (core/services/catalog/main.go:79-85) and requireAdmin then enforces
 // role=superadmin OR sovereign-admin (the latter was added in the same
 // PR so franchisee operators can manage their own Sovereign's catalog
 // per docs/FRANCHISE-MODEL.md §3). Without an Authorization header the
 // upstream returns 401 from JWTAuth ("missing or invalid authorization
 // header") — that's the C4-012 / #1735 symptom. The bearer is minted
-// by the caller (HandleSovereignAppPublish) via the canonical SME
-// bridge (org_billing_vouchers.go's mintSMEBridgeToken — same HS256
+// by the caller (HandleSovereignAppPublish) via the canonical Organization
+// bridge (org_billing_vouchers.go's mintOrgBridgeToken — same HS256
 // `sme-secrets/JWT_SECRET` the gateway + billing service use) and
 // passed in here as the `bearer` argument. Empty bearer signals the
-// caller has no session; the SME catalog will then return 401 and the
+// caller has no session; the Organization catalog will then return 401 and the
 // chroot surfaces it verbatim so the UI shows the auth gap rather
 // than a silent success.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #10 the token is NEVER logged.
-func (c *smeCatalogClient) SetPublished(ctx context.Context, slug string, published bool, bearer string) (int, error) {
+func (c *orgCatalogClient) SetPublished(ctx context.Context, slug string, published bool, bearer string) (int, error) {
 	if strings.TrimSpace(slug) == "" {
-		return 0, fmt.Errorf("sme-catalog: slug is required")
+		return 0, fmt.Errorf("org-catalog: slug is required")
 	}
 	value := "false"
 	if published {
@@ -222,7 +222,7 @@ func (c *smeCatalogClient) SetPublished(ctx context.Context, slug string, publis
 	return resp.StatusCode, nil
 }
 
-// PublicProxy forwards a GET to the SME commerce catalog's PUBLIC list
+// PublicProxy forwards a GET to the Organization commerce catalog's PUBLIC list
 // endpoint ("<baseURL>/catalog/{sub}") and returns (status, body,
 // contentType, error). It is the read counterpart of AdminProxy for the
 // Organizations commerce editors (issue #3378 DoD 7/8): the editors read
@@ -231,15 +231,15 @@ func (c *smeCatalogClient) SetPublished(ctx context.Context, slug string, publis
 //
 // On the Sovereign console (served at console.<sovereign>), /api/* proxies
 // through catalyst-api, which does NOT route /api/catalog/* to the catalog
-// service the way the SME/marketplace gateway does — so a bare
+// service the way the Organization/marketplace gateway does — so a bare
 // GET /api/catalog/plans 404s on the console host. Routing the console's
-// reads through catalyst-api (which CAN reach catalog.sme.svc) closes that
+// reads through catalyst-api (which CAN reach catalog.org-services.svc) closes that
 // gap so the console plans/addons/bundles/industries/apps tables render the
 // same rows the marketplace storefront shows.
 //
 // The public list endpoints carry no auth (core/services/catalog/main.go
 // applies JWT only to /catalog/admin/*), so no bearer is sent.
-func (c *smeCatalogClient) PublicProxy(
+func (c *orgCatalogClient) PublicProxy(
 	ctx context.Context,
 	subPath string,
 ) (int, []byte, string, error) {
@@ -261,7 +261,7 @@ func (c *smeCatalogClient) PublicProxy(
 }
 
 // AdminProxy forwards an arbitrary method + sub-path + JSON body to the
-// SME commerce catalog (services/catalog) and returns (status, body,
+// Organization commerce catalog (services/catalog) and returns (status, body,
 // contentType, error). It is the generic transport for the Organizations
 // commerce editors (issue #3378 DoD 7/8) — the editors ride the EXISTING
 // /catalog/admin/* endpoints (no new business endpoint, §6); this proxy
@@ -269,14 +269,14 @@ func (c *smeCatalogClient) PublicProxy(
 //
 // `subPath` is appended to "<baseURL>/catalog/admin" (e.g.
 // "/plans", "/plans/{id}"). `body` is the verbatim request body bytes
-// (nil for DELETE). The bearer is the canonical SME bridge token minted
-// by the caller (mintSMEBridgeToken) — empty bearer ⇒ the upstream
+// (nil for DELETE). The bearer is the canonical Organization bridge token minted
+// by the caller (mintOrgBridgeToken) — empty bearer ⇒ the upstream
 // JWTAuth returns 401 which we surface verbatim. Per
 // docs/INVIOLABLE-PRINCIPLES.md #10 the token is never logged.
 //
-// Caching: the SME catalog admin mutations invalidate the published
+// Caching: the Organization catalog admin mutations invalidate the published
 // cache so a publish/unpublish or app edit reflects on the next read.
-func (c *smeCatalogClient) AdminProxy(
+func (c *orgCatalogClient) AdminProxy(
 	ctx context.Context,
 	method, subPath string,
 	body []byte,

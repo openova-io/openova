@@ -1,8 +1,8 @@
-// sme_commerce_test.go — coverage for the Organizations commerce proxy
+// org_commerce_test.go — coverage for the Organizations commerce proxy
 // transport (issue #3378 DoD 7/8). Locks: the commerceKinds allow-list,
 // and AdminProxy's URL composition + method + body + bearer forwarding +
 // verbatim status/body relay against an httptest upstream standing in for
-// the SME commerce catalog's /catalog/admin/* surface.
+// the Organization commerce catalog's /catalog/admin/* surface.
 package handler
 
 import (
@@ -40,7 +40,7 @@ func TestAdminProxy_ForwardsMethodPathBodyAndBearer(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	c := &smeCatalogClient{baseURL: upstream.URL, http: upstream.Client()}
+	c := &orgCatalogClient{baseURL: upstream.URL, http: upstream.Client()}
 
 	status, body, ct, err := c.AdminProxy(
 		context.Background(),
@@ -92,7 +92,7 @@ func TestPublicProxy_ForwardsGetToPublicCatalogPath(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	c := &smeCatalogClient{baseURL: upstream.URL, http: upstream.Client()}
+	c := &orgCatalogClient{baseURL: upstream.URL, http: upstream.Client()}
 	status, body, ct, err := c.PublicProxy(context.Background(), "/plans")
 	if err != nil {
 		t.Fatalf("PublicProxy: %v", err)
@@ -129,7 +129,7 @@ func TestAdminProxy_DeleteWithIDSubPathNoBody(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	c := &smeCatalogClient{baseURL: upstream.URL, http: upstream.Client()}
+	c := &orgCatalogClient{baseURL: upstream.URL, http: upstream.Client()}
 	status, _, _, err := c.AdminProxy(context.Background(), http.MethodDelete, "/plans/p-1", nil, "tok")
 	if err != nil {
 		t.Fatalf("AdminProxy delete: %v", err)

@@ -1,18 +1,18 @@
 // Package handler — organization_keycloak.go: pre-creation of OIDC
-// clients + group templates in the SME-vcluster Keycloak realm
+// clients + group templates in the Organization vcluster Keycloak realm
 // (issue #804 step 5).
 //
 // The bp-keycloak chart's `bootstrap` values block (rendered by the
 // per-tenant overlay generator in organization_gitops.go) already
 // declares the OIDC clients (catalyst-ui, wordpress, openclaw,
-// stalwart) + group templates (sme-admin, sme-user) the SME needs.
-// Once Flux reconciles the chart inside the SME vcluster, Keycloak
+// stalwart) + group templates (org-admin, org-user) the Organization needs.
+// Once Flux reconciles the chart inside the Organization vcluster, Keycloak
 // has them populated.
 //
 // However: the bootstrap-from-values path is delivered by an
 // in-cluster Job that runs after the realm itself is up. Until that
 // Job lands the OIDC clients aren't yet usable. This file is the
-// orchestrator-side back-stop: it polls the SME-vcluster Keycloak
+// orchestrator-side back-stop: it polls the Organization vcluster Keycloak
 // admin API and confirms the clients exist; if they don't, it
 // creates them via the admin API directly.
 //
@@ -27,7 +27,7 @@
 //
 //   - **Direct (fallback)**: when CATALYST_ORG_KC_DIRECT_PROVISION
 //     env is "true", the orchestrator creates the clients itself via
-//     the SME-vcluster Keycloak admin API. Used during initial
+//     the Organization vcluster Keycloak admin API. Used during initial
 //     bring-up of a Sovereign before bp-keycloak's bootstrap Job is
 //     reliable.
 //
@@ -51,7 +51,7 @@ import (
 // ChartBootstrapKeycloakProvisioner is the production
 // OrganizationKeycloakClientProvisioner. It treats the bp-keycloak
 // chart's bootstrap Job as the authoritative provisioner and runs a
-// verification poll against the SME-vcluster Keycloak admin API.
+// verification poll against the Organization vcluster Keycloak admin API.
 //
 // On verification failure it returns a transient error so the
 // pipeline reconciler retries (the reconciler runs every 30s; the
@@ -62,7 +62,7 @@ type ChartBootstrapKeycloakProvisioner struct {
 	// httptest.Server-backed client to exercise the verification path.
 	HTTPClient *http.Client
 	// SAToken — service-account token with realm-management.view-clients
-	// on the SME realm. In production wired from
+	// on the Organization realm. In production wired from
 	// CATALYST_ORG_KC_SA_TOKEN; tests inject a fixed value.
 	SAToken string
 }
@@ -79,14 +79,14 @@ func (p ChartBootstrapKeycloakProvisioner) ProvisionOrganizationClients(ctx cont
 		// surface this as a structured warning in the response so the
 		// operator knows the verification is being skipped.
 		if p.Log != nil {
-			p.Log.Info("sme-tenant: keycloak SA token not wired; skipping verification",
+			p.Log.Info("org-tenant: keycloak SA token not wired; skipping verification",
 				"sme_tenant_id", rec.OrganizationID,
 			)
 		}
 		return nil
 	}
 
-	// Realm admin URL: the SME-vcluster Keycloak's admin API. Per
+	// Realm admin URL: the Organization vcluster Keycloak's admin API. Per
 	// docs/INVIOLABLE-PRINCIPLES.md #4 the URL pattern is configurable
 	// via the per-tenant overlay; the default the chart emits is
 	// http://keycloak-<subdomain>.<tenant-ns>.svc:8080. From

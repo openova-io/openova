@@ -249,7 +249,7 @@ func TestFetchCatalogEditsMerged_GitSourceWinsOverStore(t *testing.T) {
 		_, _ = w.Write([]byte(storeBody))
 	}))
 	defer srv.Close()
-	restore := overrideSMECatalog(srv.URL)
+	restore := overrideOrgCatalog(srv.URL)
 	defer restore()
 
 	merged := h.fetchCatalogEditsMerged(context.Background())

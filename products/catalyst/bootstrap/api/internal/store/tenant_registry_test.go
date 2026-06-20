@@ -24,27 +24,27 @@ func TestTenantRegistry_PutGetDelete(t *testing.T) {
 		t.Fatalf("Put otech: %v", err)
 	}
 
-	sme := TenantRegistration{
+	org := TenantRegistration{
 		Host:                 "console.acme.otech.example",
 		TenantID:             "tenant-org-acme",
 		KeycloakRealmURL:     "https://kc.otech.example/realms/org-acme",
 		KeycloakClientID:     "catalyst-ui",
-		TenantKind:           TenantKindSME,
+		TenantKind:           TenantKindOrg,
 		OrganizationNamespace:   "org-acme",
-		SMEKeycloakAdminURL:  "http://keycloak-org-acme.org-acme.svc.cluster.local:8080",
+		OrgKeycloakAdminURL:  "http://keycloak-org-acme.org-acme.svc.cluster.local:8080",
 		OrgKeycloakRealmName: "org-acme",
 	}
-	if err := reg.Put(sme); err != nil {
-		t.Fatalf("Put sme: %v", err)
+	if err := reg.Put(org); err != nil {
+		t.Fatalf("Put org: %v", err)
 	}
 
 	// Case-insensitive lookup.
 	got, ok := reg.Get("Console.Acme.Otech.Example")
 	if !ok {
-		t.Fatalf("Get: missing sme tenant")
+		t.Fatalf("Get: missing org tenant")
 	}
-	if got.TenantKind != TenantKindSME {
-		t.Errorf("TenantKind = %q, want %q", got.TenantKind, TenantKindSME)
+	if got.TenantKind != TenantKindOrg {
+		t.Errorf("TenantKind = %q, want %q", got.TenantKind, TenantKindOrg)
 	}
 	if got.OrganizationNamespace != "org-acme" {
 		t.Errorf("OrganizationNamespace = %q, want org-acme", got.OrganizationNamespace)
@@ -70,10 +70,10 @@ func TestTenantRegistry_PutGetDelete(t *testing.T) {
 		t.Errorf("Delete missing host: %v", err)
 	}
 	if err := reg.Delete("console.acme.otech.example"); err != nil {
-		t.Errorf("Delete sme: %v", err)
+		t.Errorf("Delete org: %v", err)
 	}
 	if _, ok := reg.Get("console.acme.otech.example"); ok {
-		t.Errorf("sme still present after delete")
+		t.Errorf("org still present after delete")
 	}
 }
 
@@ -83,8 +83,8 @@ func TestTenantRegistry_ValidatesInput(t *testing.T) {
 		t.Fatalf("new: %v", err)
 	}
 	bad := []TenantRegistration{
-		{Host: "", TenantID: "x", TenantKind: TenantKindSME},
-		{Host: "x", TenantID: "", TenantKind: TenantKindSME},
+		{Host: "", TenantID: "x", TenantKind: TenantKindOrg},
+		{Host: "x", TenantID: "", TenantKind: TenantKindOrg},
 		{Host: "x", TenantID: "x", TenantKind: "bogus"},
 	}
 	for i, b := range bad {

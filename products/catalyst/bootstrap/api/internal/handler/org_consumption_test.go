@@ -1,4 +1,4 @@
-// sme_consumption_test.go — the B3 showback aggregation (issue #3378
+// org_consumption_test.go — the B3 showback aggregation (issue #3378
 // DoD 3 + §5), made per-Organization-honest by #3687 fold #3677.
 //
 // Locks the corrected contract:

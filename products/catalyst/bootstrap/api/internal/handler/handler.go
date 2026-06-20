@@ -330,43 +330,43 @@ type Handler struct {
 	// cutover_activity_bridge.go.
 	cutoverActivityProj cutoverActivityProjector
 
-	// ── Unified RBAC SME-tier (issue #802, ADR-0003) ────────────────────────
+	// ── Unified RBAC Organization-tier (issue #802, ADR-0003) ────────────────────────
 	// tenantRegistry — host → tenant lookup table backing the public
 	// /api/v1/tenant/discover endpoint. Same registry is used by the
-	// SME user endpoints to scope every operation to the calling tenant.
+	// Organization user endpoints to scope every operation to the calling tenant.
 	tenantRegistry *store.TenantRegistry
-	// smeDeps — bundle of dependencies for the ADR-0003 user-create hook
+	// orgDeps — bundle of dependencies for the ADR-0003 user-create hook
 	// (Keycloak admin client, NewAPI client, K8s Secret applier, NATS
 	// emitter, base-URL template). Wired from main.go at startup; tests
 	// inject stubs.
-	smeDeps SMEDeps
+	orgDeps OrgDeps
 
-	// ── SME tenant provisioning pipeline (issue #804) ───────────────────────
-	// orgTenantDeps — bundle of dependencies for the SME tenant
+	// ── Organization tenant provisioning pipeline (issue #804) ───────────────────────
+	// orgTenantDeps — bundle of dependencies for the Organization tenant
 	// provisioning pipeline (state-machine store, GitOps overlay
 	// writer, DNS provisioner, Keycloak client provisioner, NATS
 	// emitter, OTECH FQDN). Wired from main.go at startup; tests
 	// inject stubs.
 	orgTenantDeps OrganizationDeps
 
-	// ── SME HS256 bridge secret (PR #1625 follow-up) ───────────────────────
-	// smeJWTSecret — raw bytes of `sme-secrets/JWT_SECRET` (mirrored
-	// from the `sme` namespace into catalyst-system by
+	// ── Organization HS256 bridge secret (PR #1625 follow-up) ───────────────────────
+	// orgJWTSecret — raw bytes of `sme-secrets/JWT_SECRET` (mirrored
+	// from the `org-services` namespace into catalyst-system by
 	// emberstack/reflector — see the annotation block on
 	// products/catalyst/chart/templates/org-services/org-services-secrets.yaml).
-	// Used by org_billing_vouchers.go's proxySMEVoucher() (and any
-	// future /api/v1/sme/* proxy) to mint a short-lived HS256 token
-	// the SME gateway (core/services/gateway/proxy.go) and downstream
+	// Used by org_billing_vouchers.go's proxyOrgVoucher() (and any
+	// future /api/v1/org/* proxy) to mint a short-lived HS256 token
+	// the Organization gateway (core/services/gateway/proxy.go) and downstream
 	// services (billing / catalog / tenant) will accept — they reject
 	// the operator's RS256 Keycloak token outright.
 	//
-	// Wired from main.go at startup via SetSMEJWTSecret(). Nil-tolerant:
+	// Wired from main.go at startup via SetOrgJWTSecret(). Nil-tolerant:
 	// when empty (Sovereign without marketplace, or stale chart that
 	// hasn't grown the reflector annotation yet), the bridged proxies
-	// surface a 503 with a clear `sme-jwt-bridge-unwired` error so the
+	// surface a 503 with a clear `org-jwt-bridge-unwired` error so the
 	// FE renders an actionable message rather than the silent 401 the
 	// pre-bridge state produced.
-	smeJWTSecret []byte
+	orgJWTSecret []byte
 
 	// ── Sovereign SMTP seed (issue #883) ────────────────────────────────────
 	// sovereignSMTPSeedClientFactory — test-only override for building a
@@ -762,14 +762,14 @@ func (h *Handler) SetPowerDNSZoneClient(c powerdnsZoneClient) { h.powerdnsZoneCl
 // makes the rbac_assign emit-side a no-op.
 func (h *Handler) SetAuditBus(bus *audit.Bus) { h.auditBus = bus }
 
-// SetSMEJWTSecret wires the raw bytes of `sme-secrets/JWT_SECRET` so
-// the /api/v1/sme/* proxies (org_billing_vouchers.go + future siblings)
-// can mint a short-lived HS256 bridge token the SME gateway will
+// SetOrgJWTSecret wires the raw bytes of `sme-secrets/JWT_SECRET` so
+// the /api/v1/org/* proxies (org_billing_vouchers.go + future siblings)
+// can mint a short-lived HS256 bridge token the Organization gateway will
 // accept. Empty / nil secret disables the mint path; proxies surface
-// 503 `sme-jwt-bridge-unwired` rather than forging a 401 upstream.
+// 503 `org-jwt-bridge-unwired` rather than forging a 401 upstream.
 // Called by main.go at startup from CATALYST_ORG_JWT_SECRET (Pod env
 // fed via secretKeyRef from the reflector-mirrored sme-secrets Secret).
-func (h *Handler) SetSMEJWTSecret(secret []byte) { h.smeJWTSecret = secret }
+func (h *Handler) SetOrgJWTSecret(secret []byte) { h.orgJWTSecret = secret }
 
 // AuditBus returns the wired Bus or nil. Test helper.
 func (h *Handler) AuditBus() *audit.Bus { return h.auditBus }

@@ -1,4 +1,4 @@
-// sme_enter_org_test.go — coverage for the Enter-org support-session
+// org_enter_org_test.go — coverage for the Enter-org support-session
 // helpers (issue #3378 B2 / DoD 6): the sovereign-admin authz gate, the
 // support-principal local-part sanitization, and the TTL cap invariant.
 package handler

@@ -5,7 +5,7 @@
 // returns the seed." These tests pin exactly that on the pure merge
 // (overlayCatalogEdits), on the store-row → edit decode (fetchCatalogEdits
 // against an httptest stand-in for GET /catalog/apps), and end-to-end
-// through HandleCatalogList with a fake SME catalog upstream.
+// through HandleCatalogList with a fake Organization catalog upstream.
 package handler
 
 import (
@@ -137,7 +137,7 @@ func TestOverlayCatalogEdits_NoEditsIsNoop(t *testing.T) {
 	}
 }
 
-// TestFetchCatalogEdits_DecodesBareArrayFromStore points smeCatalog() at an
+// TestFetchCatalogEdits_DecodesBareArrayFromStore points orgCatalog() at an
 // httptest server returning the BARE JSON array shape that
 // core/services/catalog GET /catalog/apps emits (respond.OK on a slice),
 // and checks the overlay map indexes only the EDITED rows by bare slug.
@@ -156,7 +156,7 @@ func TestFetchCatalogEdits_DecodesBareArrayFromStore(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	restore := overrideSMECatalog(srv.URL)
+	restore := overrideOrgCatalog(srv.URL)
 	defer restore()
 
 	edits := fetchCatalogEdits(context.Background())
@@ -172,12 +172,12 @@ func TestFetchCatalogEdits_DecodesBareArrayFromStore(t *testing.T) {
 	}
 }
 
-// TestFetchCatalogEdits_GracefulWhenCatalogAbsent — when the SME catalog is
+// TestFetchCatalogEdits_GracefulWhenCatalogAbsent — when the Organization catalog is
 // unreachable (the marketplace.enabled=false Sovereigns), fetchCatalogEdits
 // returns an empty map, NOT an error, so the catalog read serves the seed.
 func TestFetchCatalogEdits_GracefulWhenCatalogAbsent(t *testing.T) {
 	// Point at a closed port so the GET fails immediately.
-	restore := overrideSMECatalog("http://127.0.0.1:0")
+	restore := overrideOrgCatalog("http://127.0.0.1:0")
 	defer restore()
 	edits := fetchCatalogEdits(context.Background())
 	if edits == nil {
@@ -189,20 +189,20 @@ func TestFetchCatalogEdits_GracefulWhenCatalogAbsent(t *testing.T) {
 }
 
 // TestHandleCatalogList_OverlaysStoreEdits is the end-to-end DoD walk: the
-// seed (fake catalyst-catalog) carries bp-wordpress; the SME store carries
+// seed (fake catalyst-catalog) carries bp-wordpress; the Organization store carries
 // an edit for it; GET /api/v1/catalog returns the edited name.
 func TestHandleCatalogList_OverlaysStoreEdits(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	h.SetCatalogClient(newFakeCatalog(sampleWordpressBlueprint()))
 
-	// SME store returns an edited wordpress row.
+	// Organization store returns an edited wordpress row.
 	storeBody := `[{"slug":"wordpress","name":"WordPress (Renamed)","tagline":"My summary","icon_dark":"dark.svg","supported_topologies":["single-region","active-active"]}]`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(storeBody))
 	}))
 	defer srv.Close()
-	restore := overrideSMECatalog(srv.URL)
+	restore := overrideOrgCatalog(srv.URL)
 	defer restore()
 
 	r := chi.NewRouter()
@@ -239,7 +239,7 @@ func TestHandleCatalogList_OverlaysStoreEdits(t *testing.T) {
 	}
 }
 
-// TestHandleCatalogList_SeedUnchangedWhenNoStoreEdit — when the SME store
+// TestHandleCatalogList_SeedUnchangedWhenNoStoreEdit — when the Organization store
 // has no matching edit, the seed entry passes through verbatim (the
 // "un-edited entry returns the seed" half of the DoD, at the handler).
 func TestHandleCatalogList_SeedUnchangedWhenNoStoreEdit(t *testing.T) {
@@ -253,7 +253,7 @@ func TestHandleCatalogList_SeedUnchangedWhenNoStoreEdit(t *testing.T) {
 		_, _ = w.Write([]byte(storeBody))
 	}))
 	defer srv.Close()
-	restore := overrideSMECatalog(srv.URL)
+	restore := overrideOrgCatalog(srv.URL)
 	defer restore()
 
 	r := chi.NewRouter()
@@ -284,15 +284,15 @@ func TestHandleCatalogList_SeedUnchangedWhenNoStoreEdit(t *testing.T) {
 	}
 }
 
-// overrideSMECatalog points smeCatalog() at the given baseURL for the
+// overrideOrgCatalog points orgCatalog() at the given baseURL for the
 // duration of a test and returns a restore func that clears the override.
-func overrideSMECatalog(baseURL string) func() {
-	prev := smeCatalogTestOverride
-	smeCatalogTestOverride = &smeCatalogClient{
+func overrideOrgCatalog(baseURL string) func() {
+	prev := orgCatalogTestOverride
+	orgCatalogTestOverride = &orgCatalogClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
-		http:    &http.Client{Timeout: smeCatalogProbeBudget},
+		http:    &http.Client{Timeout: orgCatalogProbeBudget},
 	}
-	return func() { smeCatalogTestOverride = prev }
+	return func() { orgCatalogTestOverride = prev }
 }
 
 // keysOf is a tiny test helper for clearer failure messages.

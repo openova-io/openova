@@ -1,5 +1,5 @@
-// Regression guard for smeCatalogClient.SetPublished — the upstream
-// SME catalog at core/services/catalog/handlers/handlers.go:303-313
+// Regression guard for orgCatalogClient.SetPublished — the upstream
+// Organization catalog at core/services/catalog/handlers/handlers.go:303-313
 // (SetAppPublished) reads the new published state via the
 // `?value=true|false` query param ONLY. Any future regression that
 // reverts SetPublished to send a JSON body would re-introduce the
@@ -46,7 +46,7 @@ func TestSetPublished_SendsQueryParamNotBody(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			c := &smeCatalogClient{
+			c := &orgCatalogClient{
 				baseURL: srv.URL,
 				http:    &http.Client{Timeout: 2 * time.Second},
 			}
@@ -69,7 +69,7 @@ func TestSetPublished_SendsQueryParamNotBody(t *testing.T) {
 			if gotQuery != wantQuery {
 				t.Errorf("query: got %q want %q (regression: PATCH body→query translation lost — C4-012/TBD-C4-fup symptom)", gotQuery, wantQuery)
 			}
-			// PIN: the body MUST be empty. The upstream SME catalog
+			// PIN: the body MUST be empty. The upstream Organization catalog
 			// SetAppPublished doesn't decode a body — but a non-empty
 			// body with the wrong content-type would still tell us the
 			// caller is shipping the wrong wire shape.
@@ -99,7 +99,7 @@ func TestSetPublished_EmptyBearerSkipsAuthHeader(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := &smeCatalogClient{
+	c := &orgCatalogClient{
 		baseURL: srv.URL,
 		http:    &http.Client{Timeout: 2 * time.Second},
 	}
@@ -116,7 +116,7 @@ func TestSetPublished_EmptyBearerSkipsAuthHeader(t *testing.T) {
 }
 
 func TestSetPublished_EmptySlugRejected(t *testing.T) {
-	c := &smeCatalogClient{baseURL: "http://unused", http: http.DefaultClient}
+	c := &orgCatalogClient{baseURL: "http://unused", http: http.DefaultClient}
 	if _, err := c.SetPublished(context.Background(), "  ", true, "x"); err == nil {
 		t.Fatal("expected error on empty slug; got nil")
 	}
