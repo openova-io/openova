@@ -464,7 +464,7 @@ images:
   # carries the server-side filter and is published for every services-* image
   # (verified: services-auth, unchanged by #3157, also has c96f998 → the Organization
   # build is all-services, not path-filtered). Refs #3156.
-  orgTag: "c068e6a"
+  orgTag: "34ff594"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────
