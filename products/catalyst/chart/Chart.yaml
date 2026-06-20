@@ -2921,7 +2921,7 @@ name: bp-catalyst-platform
 # answer (non-000 code) = reachable; only a connect failure keeps waiting —
 # removing a 14min dead-wait from the console-up critical path.
 # 1.4.745 (#3971): CNPG storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
-version: 1.4.745
+version: 1.4.746
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +
