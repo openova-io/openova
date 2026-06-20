@@ -1,0 +1,124 @@
+name: Build bp-huawei-evs-csi driver
+
+# bp-huawei-evs-csi — Catalyst Blueprint wrapping the OpenOva-PATCHED
+# huaweicloud-csi-driver EVS plugin (#3971).
+#
+# WHY A FORK (not an upstream-image mirror like bp-newapi):
+# The off-the-shelf github.com/huaweicloud/huaweicloud-csi-driver authenticates
+# by fetching the Keystone v3 service catalog (openstack.Authenticate →
+# GET /v3/auth/catalog) at startup. HCS me-east-215 (kom4dc) does NOT publish
+# the Keystone catalog/token endpoints — every /v3/auth/* path returns
+# APIGW.0101 "API does not exist" — so the stock controller CrashLoops before
+# it ever issues an EVS call, even though the EVS *data* API works fine with
+# AK/SK request signing (tofu provisions EVS disks the same way).
+#
+# Our fork (platform/huawei-evs-csi/driver-src/) adds the `idc` no-Keystone
+# bypass (pkg/config/cloud.go): when cloud-config sets idc=true the driver
+# skips the catalog fetch entirely and populates the golangsdk AK/SK signing
+# options directly, so every EVS request is signed with SDK-HMAC-SHA256. The
+# public-Huawei-Cloud Keystone path is untouched (idc unset/false). Live-proven
+# on hw174 (#3971): the patched controller runs 6/6 with 0 restarts and the 12
+# Pending stateful PVCs bound to real EVS disks.
+#
+# This workflow builds the patched driver from source, runs the IDC-bypass unit
+# tests (the regression guard), and pushes
+# ghcr.io/openova-io/openova/evs-csi-plugin:<tag>. On kom4dc the containerd
+# registry mirror rewrites ghcr.io → harbor.openova.io/proxy-ghcr transparently,
+# so the node pulls through the Sovereign-local Harbor.
+
+on:
+  push:
+    paths:
+      - 'platform/huawei-evs-csi/driver-src/**'
+      - '.github/workflows/build-bp-huawei-evs-csi.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'platform/huawei-evs-csi/driver-src/**'
+      - '.github/workflows/build-bp-huawei-evs-csi.yaml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/evs-csi-plugin
+  # The driver release tag. Bump the `-idc.N` suffix when the patch changes;
+  # keep the upstream-version prefix in lockstep with the manifest version the
+  # driver-src was forked from. Must match
+  # platform/huawei-evs-csi/chart/values.yaml image.driver.tag.
+  DRIVER_TAG: v0.1.11-idc.1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: |
+            platform/huawei-evs-csi/driver-src/go.sum
+
+      # The regression guard for #3971: the IDC bypass must build a usable cloud
+      # client WITHOUT any Keystone round-trip, must keep signing AK/SK, must
+      # require a project-id, and must NOT touch the public-cloud Keystone path.
+      - name: Run unit tests — EVS CSI driver (incl. IDC bypass)
+        working-directory: platform/huawei-evs-csi/driver-src
+        run: go test -count=1 ./pkg/config/...
+
+      - name: Verify the EVS plugin compiles (static)
+        working-directory: platform/huawei-evs-csi/driver-src
+        run: CGO_ENABLED=0 GOOS=linux go build -o /tmp/evs-csi-plugin ./cmd/evs-csi-plugin
+
+      # On pull_request runs we stop here — image push requires `packages: write`
+      # against the openova-io org which only main-branch authors hold via
+      # GITHUB_TOKEN. Same PR-CI shape as every build-* workflow.
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        id: build
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: platform/huawei-evs-csi/driver-src
+          file: platform/huawei-evs-csi/driver-src/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ env.DRIVER_TAG }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/openova-io/openova
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=openova-evs-csi-plugin
+            org.opencontainers.image.description=OpenOva-patched Huawei EVS CSI plugin — idc no-Keystone AK/SK bypass (#3971)
+          # provenance=false: containerd 1.7.x on k3s cannot pull the OCI
+          # image-index buildx emits by default (matches every other build-*).
+          provenance: false
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE: ${{ env.IMAGE }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
