@@ -111,7 +111,7 @@ import { NotificationsPage } from '@/pages/sovereign/NotificationsPage'
 import { DeploymentsList } from '@/pages/sovereign/DeploymentsList'
 // CreateTenantPage re-mounts as the Organizations internal door at
 // /organizations/new (issue #3378). The Organization UsersPage / RolesPage keep
-// their /sme/users + /sme/roles routes for now — their people surfaces
+// their /org/users + /org/roles routes for now — their people surfaces
 // fold into the org-detail page's users + roles tabs in a follow-on PR
 // on the #3378 chain, and only THEN do those two paths redirect (the
 // redirect destination must exist first). Until then they render live so
@@ -1610,10 +1610,10 @@ const consoleInstallBlueprintRoute = createRoute({
  * the same SovereignConsoleLayout owns the auth gate + chrome — but
  * the page components target the Organization unified-rbac surface.
  *
- *   /console/sme/users   → OrgUsersPage (POST + GET + DELETE
+ *   /console/org/users   → OrgUsersPage (POST + GET + DELETE
  *                          /api/v1/org/users; the create form fires
  *                          the ADR-0003 3-step hook).
- *   /console/sme/roles   → OrgRolesPage (read-only canonical
+ *   /console/org/roles   → OrgRolesPage (read-only canonical
  *                          group → app-role map).
  *
  * Whether these routes are exposed in the sidebar is decided at
@@ -1629,7 +1629,7 @@ const consoleInstallBlueprintRoute = createRoute({
 // (→ /organizations/domains + /organizations/new), and the create form
 // re-mounts as CreateOrganizationPage at /organizations/new.
 //
-// /sme/users + /sme/roles keep their live routes below for now — their
+// /org/users + /org/roles keep their live routes below for now — their
 // people surfaces fold into the org-detail page's users + roles tabs in
 // a follow-on PR on this chain, and only THEN do those two paths
 // redirect (the destination must exist first). Until then they render
@@ -1637,12 +1637,12 @@ const consoleInstallBlueprintRoute = createRoute({
 // working.
 const consoleOrgUsersRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
-  path: '/sme/users',
+  path: '/org/users',
   component: OrgUsersPage,
 })
 const consoleOrgRolesRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
-  path: '/sme/roles',
+  path: '/org/roles',
   component: OrgRolesPage,
 })
 
@@ -1838,7 +1838,7 @@ const ORGANIZATIONS_REDIRECTS: readonly OrgRedirect[] = [
   { path: '/bss/orders', to: '/organizations/billing/orders' },
   { path: '/bss/revenue', to: '/organizations/billing/revenue' },
   { path: '/bss/vouchers', to: '/organizations/billing/vouchers' },
-  // /sme/users + /sme/roles intentionally NOT redirected yet — they keep
+  // /org/users + /org/roles intentionally NOT redirected yet — they keep
   // live routes until the org-detail users/roles tabs land (the redirect
   // destination must exist first; redirecting to a non-existent tab would
   // break the Organization-admin people surface + the org-demo walk).
@@ -2387,7 +2387,7 @@ const routeTree = rootRoute.addChildren([
     consoleBlueprintsCurateRoute,
     consoleSettingsRoute,
     // Organization-admin people surfaces — live until the org-detail users/roles
-    // tabs land on the #3378 chain (then /sme/users + /sme/roles redirect).
+    // tabs land on the #3378 chain (then /org/users + /org/roles redirect).
     consoleOrgUsersRoute,
     consoleOrgRolesRoute,
     // Compliance dashboards — chroot routes (slice U, #1096).
