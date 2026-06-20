@@ -167,13 +167,17 @@ export function ConvergenceWizard({ snapshot, deploymentId }: ConvergenceWizardP
                     'Reconcile'
                   )}
                   {' · '}
+                  {/* #3958 — the standalone /reconciliation DAG page is
+                      gone; reconcilers now live on the unified Cloud
+                      graph. Deep-link there. */}
                   <Link
-                    to={'/reconciliation' as never}
+                    to={'/provision/$deploymentId/cloud' as never}
                     params={{ deploymentId } as never}
+                    search={{ view: 'graph' } as never}
                     data-testid="wizard-link-reconciliation"
                     className="text-[var(--color-accent)] no-underline hover:underline"
                   >
-                    view DAG →
+                    view graph →
                   </Link>
                 </span>
               ) : null}

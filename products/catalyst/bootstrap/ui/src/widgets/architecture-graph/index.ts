@@ -22,12 +22,24 @@ export {
   type K8sSnapshot,
   type K8sStreamEvent,
 } from './useK8sCacheStream'
+export { reconcilersToGraph } from './reconcilerAdapter'
 export {
   edgeNodeId,
   DEFAULT_INACTIVE_TYPES,
+  NODE_CATEGORY,
+  NODE_FAMILY,
+  STATUS_FILL,
+  FAMILY_BORDER,
+  FAMILY_LABEL,
+  CATEGORY_LABEL,
+  ALL_CATEGORIES,
+  ALL_FAMILIES,
+  familyForApiGroup,
   type ArchEdgeType,
   type ArchNodeType,
   type ArchStatus,
+  type NodeCategory,
+  type NodeFamily,
   type GraphEdge,
   type GraphNode,
 } from './types'

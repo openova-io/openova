@@ -50,7 +50,30 @@ export type ArchNodeType =
   | 'Deployment'
   | 'StatefulSet'
   | 'DaemonSet'
+  | 'ReplicaSet'
   | 'ConfigMap'
+  | 'Secret'
+  // Reconciler-side projection (#3958 unified Cloud-graph). The
+  // declarative reconcilers from the /reconciliation endpoint merge into
+  // the SAME canvas as typed nodes. Flux (HelmRelease / Kustomization)
+  // carry real spec.dependsOn edges; the rest are edgeless declarative
+  // reconcilers (cert-manager / CNPG / External-Secrets / the Catalyst
+  // control-plane CRs). The category (shape), family (border colour) and
+  // status (fill) for every one of these is derived in the three maps
+  // below — never hardcoded at a call site.
+  | 'HelmRelease'
+  | 'Kustomization'
+  | 'Certificate'
+  | 'ExternalSecret'
+  | 'Application'
+  | 'Environment'
+  | 'Organization'
+  | 'Continuum'
+  | 'UserAccess'
+  | 'Gateway'
+  | 'HTTPRoute'
+  | 'NetworkPolicy'
+  | 'Database'
 
 /**
  * Canonical ordered list of every type the data layer + chip strip
@@ -78,7 +101,23 @@ export const ALL_NODE_TYPES: ArchNodeType[] = [
   'Deployment',
   'StatefulSet',
   'DaemonSet',
+  'ReplicaSet',
   'ConfigMap',
+  'Secret',
+  // Reconciler-side (#3958)
+  'HelmRelease',
+  'Kustomization',
+  'Certificate',
+  'ExternalSecret',
+  'Application',
+  'Environment',
+  'Organization',
+  'Continuum',
+  'UserAccess',
+  'Gateway',
+  'HTTPRoute',
+  'NetworkPolicy',
+  'Database',
 ]
 
 /**
@@ -90,6 +129,12 @@ export const ALL_NODE_TYPES: ArchNodeType[] = [
 export const DEFAULT_INACTIVE_TYPES: ReadonlySet<ArchNodeType> = new Set([
   'Pod',
   'ConfigMap',
+  // #3958 — ReplicaSet and Secret are equally high-cardinality (every
+  // Deployment owns ≥1 ReplicaSet; every chart ships a fistful of
+  // Secrets). Start them off so the unified canvas doesn't open with
+  // 400+ leaf bubbles before the operator opts in.
+  'ReplicaSet',
+  'Secret',
 ])
 
 /**
@@ -143,7 +188,255 @@ export const ALL_EDGE_TYPES: ArchEdgeType[] = [
  */
 export const SMALL_TYPE_THRESHOLD = 20
 
-export type ArchStatus = 'healthy' | 'degraded' | 'failed' | 'unknown'
+/**
+ * Node status — the FILL channel of the unified Cloud-graph (#3958).
+ * Five buckets, NOT one-per-vocabulary-word: the cloud/k8s side speaks
+ * healthy/degraded/failed/unknown; the reconciler side speaks
+ * Reconciled/Reconciling/Drifted/Degraded/Suspended. Both collapse onto
+ * the same five FILL colours via STATUS_FILL below.
+ *
+ *   green  = Reconciled / Healthy        → 'healthy'
+ *   blue   = Reconciling / Progressing   → 'reconciling'
+ *   yellow = Drifted / Warning           → 'drifted'
+ *   red    = Degraded / Failed           → 'failed'
+ *   grey   = Suspended / Unknown         → 'unknown'
+ */
+export type ArchStatus =
+  | 'healthy'
+  | 'reconciling'
+  | 'drifted'
+  | 'degraded'
+  | 'failed'
+  | 'suspended'
+  | 'unknown'
+
+/**
+ * FILL (inside colour) = status. The single source of truth for the
+ * first of the three independent visual channels (#3958). `degraded`
+ * folds onto the same red as `failed` (the design's red bucket is
+ * "Degraded/Failed"); `suspended` folds onto the same grey as `unknown`.
+ */
+export const STATUS_FILL: Record<ArchStatus, string> = {
+  healthy: '#16a34a', // green  — Reconciled / Healthy
+  reconciling: '#2563eb', // blue   — Reconciling / Progressing
+  drifted: '#d4a017', // yellow — Drifted / Warning
+  degraded: '#dc2626', // red    — Degraded
+  failed: '#dc2626', // red    — Failed
+  suspended: '#6b7280', // grey   — Suspended
+  unknown: '#6b7280', // grey   — Unknown
+}
+
+/**
+ * SHAPE = coarse category. The second independent visual channel.
+ * Six categories, each rendered as a distinct polygon by GraphCanvas
+ * (NO icons). The mapping below is the single source of truth.
+ */
+export type NodeCategory =
+  | 'compute' // ● Circle    — Compute / Workload
+  | 'control' // ■ Square    — Control / Reconciler
+  | 'network' // ▲ Triangle  — Networking
+  | 'config' // ◆ Diamond   — Config / Identity / Secret
+  | 'data' // ⬢ Hexagon   — Data / Storage
+  | 'scope' // ⬠ Pentagon  — Scope / Container
+
+export const ALL_CATEGORIES: NodeCategory[] = [
+  'compute',
+  'control',
+  'network',
+  'config',
+  'data',
+  'scope',
+]
+
+/** Human-readable category labels for the legend. */
+export const CATEGORY_LABEL: Record<NodeCategory, string> = {
+  compute: 'Compute / Workload',
+  control: 'Control / Reconciler',
+  network: 'Networking',
+  config: 'Config / Identity / Secret',
+  data: 'Data / Storage',
+  scope: 'Scope / Container',
+}
+
+/**
+ * Per-type → category (shape). Every ArchNodeType MUST appear here, or
+ * the canvas falls back to a circle. Exhaustive Record keeps the compiler
+ * honest: a new ArchNodeType added above forces a row here.
+ */
+export const NODE_CATEGORY: Record<ArchNodeType, NodeCategory> = {
+  // ● Compute / Workload
+  Pod: 'compute',
+  Deployment: 'compute',
+  StatefulSet: 'compute',
+  DaemonSet: 'compute',
+  ReplicaSet: 'compute',
+  WorkerNode: 'compute',
+  NodePool: 'compute',
+  // ■ Control / Reconciler
+  HelmRelease: 'control',
+  Kustomization: 'control',
+  Application: 'control',
+  Environment: 'control',
+  Organization: 'control',
+  Continuum: 'control',
+  // ▲ Networking
+  Service: 'network',
+  Ingress: 'network',
+  LoadBalancer: 'network',
+  Gateway: 'network',
+  HTTPRoute: 'network',
+  Network: 'network',
+  NetworkPolicy: 'network',
+  // ◆ Config / Identity / Secret
+  ConfigMap: 'config',
+  Secret: 'config',
+  ExternalSecret: 'config',
+  Certificate: 'config',
+  UserAccess: 'config',
+  // ⬢ Data / Storage
+  Database: 'data',
+  PVC: 'data',
+  Volume: 'data',
+  Bucket: 'data',
+  // ⬠ Scope / Container
+  Cloud: 'scope',
+  Region: 'scope',
+  Cluster: 'scope',
+  vCluster: 'scope',
+  Namespace: 'scope',
+}
+
+/**
+ * BORDER colour = family. The third independent visual channel. Family
+ * is derived from the controlling operator / API group. Every
+ * ArchNodeType maps to exactly one family (the family it most-belongs
+ * to as a resource); reconciler nodes can ALSO override per-node from
+ * the live apiVersion (see familyForApiGroup).
+ */
+export type NodeFamily =
+  | 'flux' // helm.toolkit / kustomize.toolkit  — teal
+  | 'crossplane' // *.crossplane.io                   — purple
+  | 'certManager' // cert-manager.io                   — amber
+  | 'cnpg' // postgresql.cnpg.io                — indigo
+  | 'externalSecrets' // external-secrets.io               — pink
+  | 'cilium' // cilium / network                  — cyan
+  | 'coreK8s' // apps / core / batch               — slate
+  | 'catalyst' // *.openova.io                      — brand-green
+  | 'cloud' // hcloud / huawei                   — orange
+
+export const ALL_FAMILIES: NodeFamily[] = [
+  'flux',
+  'crossplane',
+  'certManager',
+  'cnpg',
+  'externalSecrets',
+  'cilium',
+  'coreK8s',
+  'catalyst',
+  'cloud',
+]
+
+export const FAMILY_LABEL: Record<NodeFamily, string> = {
+  flux: 'Flux',
+  crossplane: 'Crossplane',
+  certManager: 'cert-manager',
+  cnpg: 'CNPG',
+  externalSecrets: 'External-Secrets',
+  cilium: 'Cilium / net',
+  coreK8s: 'core-k8s',
+  catalyst: 'Catalyst CRs',
+  cloud: 'Cloud provider',
+}
+
+export const FAMILY_BORDER: Record<NodeFamily, string> = {
+  flux: '#0d9488', // teal
+  crossplane: '#7c3aed', // purple
+  certManager: '#d97706', // amber
+  cnpg: '#4338ca', // indigo
+  externalSecrets: '#db2777', // pink
+  cilium: '#0891b2', // cyan
+  coreK8s: '#64748b', // slate
+  catalyst: '#15803d', // brand-green
+  cloud: '#ea580c', // orange
+}
+
+/**
+ * Per-type → family (border colour). Reconciler nodes carry their real
+ * apiVersion at runtime, but a static default per type keeps the cloud/
+ * k8s side correct and gives every node a family even when the wire
+ * payload omits the group.
+ */
+export const NODE_FAMILY: Record<ArchNodeType, NodeFamily> = {
+  // Flux
+  HelmRelease: 'flux',
+  Kustomization: 'flux',
+  // cert-manager
+  Certificate: 'certManager',
+  // CNPG
+  Database: 'cnpg',
+  // External-Secrets
+  ExternalSecret: 'externalSecrets',
+  // Cilium / networking
+  Network: 'cilium',
+  NetworkPolicy: 'cilium',
+  Gateway: 'cilium',
+  HTTPRoute: 'cilium',
+  // Catalyst control-plane CRs (*.openova.io)
+  Application: 'catalyst',
+  Environment: 'catalyst',
+  Organization: 'catalyst',
+  Continuum: 'catalyst',
+  UserAccess: 'catalyst',
+  vCluster: 'catalyst',
+  // Cloud provider (hcloud / huawei)
+  Cloud: 'cloud',
+  Region: 'cloud',
+  Cluster: 'cloud',
+  NodePool: 'cloud',
+  WorkerNode: 'cloud',
+  LoadBalancer: 'cloud',
+  Bucket: 'cloud',
+  Volume: 'cloud',
+  // core-k8s (apps / core / batch)
+  Pod: 'coreK8s',
+  Deployment: 'coreK8s',
+  StatefulSet: 'coreK8s',
+  DaemonSet: 'coreK8s',
+  ReplicaSet: 'coreK8s',
+  ConfigMap: 'coreK8s',
+  Secret: 'coreK8s',
+  Service: 'coreK8s',
+  Ingress: 'coreK8s',
+  Namespace: 'coreK8s',
+  PVC: 'coreK8s',
+}
+
+/**
+ * familyForApiGroup — derive the BORDER family from a live apiVersion /
+ * API group string (e.g. "helm.toolkit.fluxcd.io/v2", "cert-manager.io",
+ * "postgresql.cnpg.io"). Returns undefined when the group is unknown so
+ * the caller can fall back to NODE_FAMILY[type]. This lets a reconciler
+ * node colour its border from the actual controlling operator rather
+ * than a per-type guess.
+ */
+export function familyForApiGroup(group: string | undefined): NodeFamily | undefined {
+  if (!group) return undefined
+  const g = group.toLowerCase()
+  if (g.includes('helm.toolkit') || g.includes('kustomize.toolkit') || g.includes('source.toolkit') || g.includes('fluxcd.io')) {
+    return 'flux'
+  }
+  if (g.includes('crossplane.io')) return 'crossplane'
+  if (g.includes('cert-manager.io')) return 'certManager'
+  if (g.includes('postgresql.cnpg.io') || g.includes('cnpg.io')) return 'cnpg'
+  if (g.includes('external-secrets.io')) return 'externalSecrets'
+  if (g.includes('cilium.io')) return 'cilium'
+  if (g.includes('openova.io')) return 'catalyst'
+  if (g.includes('hcloud') || g.includes('huawei') || g.includes('hetzner')) return 'cloud'
+  if (g === 'apps' || g === 'batch' || g === 'v1' || g === 'core' || g.includes('networking.k8s.io') || g.includes('gateway.networking.k8s.io')) {
+    return 'coreK8s'
+  }
+  return undefined
+}
 
 /** A node on the graph canvas — composite id, type-tagged, with status. */
 export interface GraphNode {
@@ -241,7 +534,24 @@ export const NODE_FILL: Record<ArchNodeType, string> = {
   Deployment: '#4dabf7', // sky blue — workload owner
   StatefulSet: '#6741d9', // deep violet — stateful workload owner
   DaemonSet: '#9c36b5', // magenta — per-node workload owner
+  ReplicaSet: '#3b5bdb', // indigo-blue — replicaset owner
   ConfigMap: '#adb5bd', // light grey — config payload
+  Secret: '#f76707', // burnt orange — secret payload
+  // Reconciler-side projection (#3958). The chip dot uses this; the
+  // canvas itself colours border-by-family + fill-by-status.
+  HelmRelease: '#0d9488', // teal — Flux
+  Kustomization: '#0ca678', // green-teal — Flux
+  Certificate: '#d97706', // amber — cert-manager
+  ExternalSecret: '#db2777', // pink — external-secrets
+  Application: '#15803d', // brand-green — Catalyst CR
+  Environment: '#2f9e44', // green — Catalyst CR
+  Organization: '#37b24d', // light green — Catalyst CR
+  Continuum: '#66a80f', // olive — Catalyst CR
+  UserAccess: '#5c940d', // dark olive — Catalyst CR
+  Gateway: '#0891b2', // cyan — networking
+  HTTPRoute: '#1098ad', // teal-cyan — networking
+  NetworkPolicy: '#15aabf', // bright cyan — networking
+  Database: '#4338ca', // indigo — CNPG
 }
 
 export const EDGE_STROKE: Record<ArchEdgeType, string> = {

@@ -70,8 +70,8 @@ import { JobsPage } from '@/pages/sovereign/JobsPage'
 import { JobDetail } from '@/pages/sovereign/JobDetail'
 import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
 import { Dashboard } from '@/pages/sovereign/Dashboard'
-// #3925 surface B — Reconciliation page (bounded Flux dependency DAG).
-import { ReconciliationPage } from '@/pages/sovereign/ReconciliationPage'
+// #3958 — the standalone /reconciliation page is GONE; reconcilers now
+// merge into the unified Cloud graph (/cloud?view=graph).
 import { CloudPage } from '@/pages/sovereign/CloudPage'
 import { ResourceDetailRoute } from '@/pages/sovereign/cloud-list/ResourceDetailRoute'
 import { SessionsRoute } from '@/pages/sovereign/sessions/SessionsRoute'
@@ -846,15 +846,6 @@ const provisionDashboardRoute = createRoute({
   beforeLoad: provisionAuthGuard,
 })
 
-// #3925 surface B — Reconciliation page (bounded Flux dependency DAG).
-// Sibling of the Jobs route; lives under Cloud in the left-nav.
-const provisionReconciliationRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/provision/$deploymentId/reconciliation',
-  component: ReconciliationPage,
-  beforeLoad: provisionAuthGuard,
-})
-
 // Sovereign self-decommission (issue #319). Reachable from the Sovereign
 // Admin Dashboard's Decommission link AND directly via deep-link from
 // the customer's own console.<sovereign-fqdn> after handover. POSTs to
@@ -1395,12 +1386,6 @@ const consoleDashboardRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/dashboard',
   component: Dashboard,
-})
-// #3925 surface B — Reconciliation page (chroot Sovereign Console twin).
-const consoleReconciliationRoute = createRoute({
-  getParentRoute: () => consoleLayoutRoute,
-  path: '/reconciliation',
-  component: ReconciliationPage,
 })
 const consoleAppsRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
@@ -2331,8 +2316,6 @@ const routeTree = rootRoute.addChildren([
   provisionJobsTimelineRoute,
   provisionJobDetailRoute,
   provisionDashboardRoute,
-  // #3925 surface B — Reconciliation page (mothership).
-  provisionReconciliationRoute,
   provisionDecommissionRoute,
   provisionCloudRoute.addChildren(legacyCloudRedirectRoutes),
   provisionResourceDetailRoute,
@@ -2373,8 +2356,6 @@ const routeTree = rootRoute.addChildren([
   marketplaceProductRoute,
   consoleLayoutRoute.addChildren([
     consoleDashboardRoute,
-    // #3925 surface B — Reconciliation page (chroot Sovereign Console).
-    consoleReconciliationRoute,
     consoleAppsRoute,
     consoleAppDetailRoute,
     consoleAppDetailTabRoute,
