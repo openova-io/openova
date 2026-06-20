@@ -639,8 +639,19 @@ locals {
 
   # registry mirror — Huawei routes pulls through the bastion-openova
   # registry:2 caches on direct EIP 212.72.24.20 (kom4dc NAT blocklist bypass,
-  # Wave 5.106 #2462). ghcr/quay/kyverno pull DIRECT (bastion is anon-only, can't
-  # auth private ghcr); harbor + docker.io mirror via :5000 / :5002 (#2842).
+  # Wave 5.106 #2462). harbor + docker.io mirror via :5000 / :5002 (#2842).
+  #
+  # #3913: PREVIOUSLY quay.io / gcr.io / registry.k8s.io / ghcr.io / xpkg.upbound.io
+  # / public.ecr.aws all pulled DIRECT from upstream on kom4dc — the #1 fresh-prov
+  # pull-stall class this ticket closes. The bastion registry:2 caches are anon-only
+  # (can't auth private ghcr) and only front harbor + docker.io, so they can't carry
+  # those registries. But Huawei worker egress is wide-open via the NAT Gateway
+  # (see the secgroup comment above: "unconstrained egress to ... harbor.openova.io"),
+  # and harbor.openova.io's proxy-cache projects are anonymous-pullable. So route
+  # the remaining upstream registries through harbor.openova.io directly — mirroring
+  # the proven post-cutover set in self-sovereign-cutover/04-registry-pivot-
+  # daemonset.yaml. docker.io stays on the bastion :5002 cache (the documented
+  # NAT-blocklist bypass — #2842 — leave it as-is).
   registry_mirror_yaml_huawei = <<-EOT
     mirrors:
       "harbor.openova.io":
@@ -652,6 +663,36 @@ locals {
       "registry-1.docker.io":
         endpoint:
           - "http://212.72.24.20:5002"
+      "quay.io":
+        endpoint:
+          - "https://harbor.openova.io"
+        rewrite:
+          "(.*)": "proxy-quay/$1"
+      "gcr.io":
+        endpoint:
+          - "https://harbor.openova.io"
+        rewrite:
+          "(.*)": "proxy-gcr/$1"
+      "registry.k8s.io":
+        endpoint:
+          - "https://harbor.openova.io"
+        rewrite:
+          "(.*)": "proxy-k8s/$1"
+      "ghcr.io":
+        endpoint:
+          - "https://harbor.openova.io"
+        rewrite:
+          "(.*)": "proxy-ghcr/$1"
+      "xpkg.upbound.io":
+        endpoint:
+          - "https://harbor.openova.io"
+        rewrite:
+          "(.*)": "proxy-xpkg/$1"
+      "public.ecr.aws":
+        endpoint:
+          - "https://harbor.openova.io"
+        rewrite:
+          "(.*)": "proxy-ecr/$1"
     configs:
       "212.72.24.20:5000":
         tls:
