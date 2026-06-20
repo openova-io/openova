@@ -52,8 +52,16 @@ fire() {
   pub=$(cat /home/openova/.ssh/*.pub 2>/dev/null | grep -E "^ssh-" | head -1)
   # SHARED_PG=true opts the prov into the ADR-0010 reusable shared-Postgres
   # model (#3188 -> SOVEREIGN_ENABLE_SHARED_PG, fire-body wired in #3275). Off by default.
-  body=$(SUB="$sub" POOL="$pool" PUB="$pub" SHARED_PG="${SHARED_PG:-false}" python3 -c 'import json,os;s=os.environ["SUB"];p=os.environ["POOL"];print(json.dumps({"orgName":"Omantel","orgEmail":"emrah.baysal@openova.io","provider":"huawei","sovereignDomainMode":"pool","sovereignPoolDomain":p,"sovereignSubdomain":s,"sovereignFQDN":s+"."+p,"sshPublicKey":os.environ["PUB"],"enableSharedPostgres":os.environ.get("SHARED_PG")=="true","regions":[{"provider":"huawei","cloudRegion":"me-east-215-a","controlPlaneSize":"m7n.large.8","workerSize":"m7n.xlarge.8","workerCount":3},{"provider":"huawei","cloudRegion":"me-east-215-b","controlPlaneSize":"m7n.large.8","workerSize":"m7n.xlarge.8","workerCount":3}]}))')
-  echo "== firing ${sub}.${pool} =="
+  #
+  # Node sizing is overridable per-fire (#3952 capacity verdict, 2026-06-20): the
+  # default m7n.xlarge.8 x3 worker tier runs ~99% CPU once the full #3642 vc-mgmt
+  # stack + 4 catalyst controllers + marketplace/billing/sme-pg schedule, chronically
+  # blocking pods on 'Insufficient cpu' (no Huawei autoscaler). For a real convergence
+  # re-prov pass WORKER_SIZE=m7n.2xlarge.8 (8 vCPU) and CP_SIZE=m7n.xlarge.8.
+  body=$(SUB="$sub" POOL="$pool" PUB="$pub" SHARED_PG="${SHARED_PG:-false}" \
+    CP_SIZE="${CP_SIZE:-m7n.large.8}" WORKER_SIZE="${WORKER_SIZE:-m7n.xlarge.8}" WORKER_COUNT="${WORKER_COUNT:-3}" \
+    python3 -c 'import json,os;s=os.environ["SUB"];p=os.environ["POOL"];c=os.environ["CP_SIZE"];w=os.environ["WORKER_SIZE"];wc=int(os.environ["WORKER_COUNT"]);print(json.dumps({"orgName":"Omantel","orgEmail":"emrah.baysal@openova.io","provider":"huawei","sovereignDomainMode":"pool","sovereignPoolDomain":p,"sovereignSubdomain":s,"sovereignFQDN":s+"."+p,"sshPublicKey":os.environ["PUB"],"enableSharedPostgres":os.environ.get("SHARED_PG")=="true","regions":[{"provider":"huawei","cloudRegion":"me-east-215-a","controlPlaneSize":c,"workerSize":w,"workerCount":wc},{"provider":"huawei","cloudRegion":"me-east-215-b","controlPlaneSize":c,"workerSize":w,"workerCount":wc}]}))')
+  echo "== firing ${sub}.${pool} (CP=${CP_SIZE:-m7n.large.8} worker=${WORKER_SIZE:-m7n.xlarge.8}x${WORKER_COUNT:-3}/region) =="
   curl -sk -X POST -H "Authorization: Bearer $(_tok)" -H "Content-Type: application/json" -d "$body" "${API}"; echo
 }
 
