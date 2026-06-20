@@ -303,7 +303,8 @@ spec:
       # seed must run (it polls public.users + rollout-restarts the Deployment,
       # both vcluster-side). Kills the slot-80↔slot-80a circular deadlock. Also
       # absorbs the 1.4.113–1.4.116 deploy-bot upstream-v0.13.2 chart bumps.
-      version: 1.4.117
+      # 1.4.119 (#3948): sql-dsn-gate volume gate symmetry fix.
+      version: 1.4.119
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

@@ -74,8 +74,8 @@ spec:
       # host-seams slot NO LONGER renders the seed Job/CronJob (under host-seams
       # the seed would block on a schema this side never migrates → deadlock).
       # It still renders the CNPG Cluster + DSN-sync Job + AppRegistration +
-      # ExternalSecrets. Lockstep with slot 80 + blueprint.yaml → 1.4.117.
-      version: 1.4.117
+      # ExternalSecrets. Lockstep with slot 80 + blueprint.yaml → 1.4.119 (#3948).
+      version: 1.4.119
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

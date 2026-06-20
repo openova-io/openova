@@ -553,9 +553,16 @@ spec:
           emptyDir:
             sizeLimit: 64Mi
         {{- end }}
-        {{- /* #3374: DSN Secret projected for the wait-for-sql-dsn initContainer. */ -}}
-        {{- $dsnGate := .Values.databaseDsnGate | default dict -}}
-        {{- if and (default true $dsnGate.enabled) .Values.cnpg.enabled }}
+        {{- /* #3374: DSN Secret projected for the wait-for-sql-dsn initContainer.
+           #3948: the volume MUST render under the SAME `$dsnGateOn` condition as
+           the wait-for-sql-dsn initContainer (defined above) — not `cnpg.enabled`
+           alone. Under placement.role=vcluster-app cnpg.enabled is false but
+           `database.existingSecret` is set (the mirrored DSN), so `$dsnGateOn`
+           is true and the initContainer renders WITH its `sql-dsn-gate`
+           volumeMount; the old `cnpg.enabled`-only gate dropped the volume →
+           `initContainers[1].volumeMounts[0].name: Not found: "sql-dsn-gate"`
+           install failure (hw172 bp-newapi HR). `$effDbSecret` is in scope here. */ -}}
+        {{- if $dsnGateOn }}
         - name: sql-dsn-gate
           secret:
             secretName: {{ $effDbSecret }}
