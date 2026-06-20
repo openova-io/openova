@@ -39,6 +39,14 @@ import {
   EndpointSlicesListPage,
   ServicesListPage,
   IngressesListPage,
+  // Network + security coverage (#3998) — gateway-api front door +
+  // NetworkPolicy / CiliumNetworkPolicy security posture, all LIVE on
+  // hw173 but previously invisible in the cloud-view.
+  GatewaysListPage,
+  HttpRoutesListPage,
+  NetworkPoliciesListPage,
+  CiliumNetworkPoliciesListPage,
+  CiliumClusterwideNetworkPoliciesListPage,
   StorageClassesListPage,
   DnsZonesListPage,
   PolicyReportsListPage,
@@ -66,6 +74,12 @@ export type CloudListKind =
   | 'load-balancers'
   | 'services'
   | 'ingresses'
+  // Network + security coverage (#3998) — gateway-api + policy kinds.
+  | 'gateways'
+  | 'httproutes'
+  | 'networkpolicies'
+  | 'ciliumnetworkpolicies'
+  | 'ciliumclusterwidenetworkpolicies'
   | 'pvcs'
   | 'buckets'
   | 'volumes'
@@ -121,6 +135,16 @@ export const KIND_TO_REGISTRY: Partial<Record<CloudListKind, string>> = {
   replicasets: 'replicaset',
   services: 'service',
   ingresses: 'ingress',
+  // Network + security coverage (#3998) — registry Names verbatim from
+  // api/internal/k8scache/kinds.go (gateway / httproute / networkpolicy /
+  // ciliumnetworkpolicy / ciliumclusterwidenetworkpolicy). Adding them
+  // here auto-subscribes the CloudPage SSE (CLOUD_PAGE_K8S_KINDS union)
+  // so each per-kind list + chip count reads live objects.
+  gateways: 'gateway',
+  httproutes: 'httproute',
+  networkpolicies: 'networkpolicy',
+  ciliumnetworkpolicies: 'ciliumnetworkpolicy',
+  ciliumclusterwidenetworkpolicies: 'ciliumclusterwidenetworkpolicy',
   configmaps: 'configmap',
   secrets: 'secret',
   namespaces: 'namespace',
@@ -225,6 +249,18 @@ const ICON_LB =
   'M12 4v4m0 0a4 4 0 0 0 -4 4v0m4 -4a4 4 0 0 1 4 4v0M4 12h4M16 12h4M6 14a2 2 0 0 0 2 2v0a2 2 0 0 0 2 -2v0a2 2 0 0 0 -2 -2v0a2 2 0 0 0 -2 2zM14 14a2 2 0 0 0 2 2v0a2 2 0 0 0 2 -2v0a2 2 0 0 0 -2 -2v0a2 2 0 0 0 -2 2z'
 const ICON_SERVICE = 'M5 7h14M5 12h14M5 17h14M3 7v10M21 7v10'
 const ICON_INGRESS = 'M3 12h6M21 12h-6M9 8l4 4 -4 4M15 16l-4 -4 4 -4'
+// Network + security coverage (#3998). Gateway = door/portal glyph;
+// HTTPRoute = branching route; NetworkPolicy / CiliumNetworkPolicy =
+// shield (the security-posture family) — CCNP shares the shield since
+// it's the cluster-scoped sibling.
+const ICON_GATEWAY =
+  'M5 21V8l7 -4 7 4v13M5 21h14M9 21v-6h6v6M9 11h.01M15 11h.01'
+const ICON_HTTPROUTE =
+  'M4 6h7a4 4 0 0 1 4 4v0a4 4 0 0 0 4 4h1M4 6l3 -3M4 6l3 3M20 14l-3 -3M20 14l-3 3'
+const ICON_NETPOL =
+  'M12 3l8 4v5c0 5 -3.5 8 -8 9 -4.5 -1 -8 -4 -8 -9V7zM12 8v4M12 15h.01'
+const ICON_CILIUM_NETPOL =
+  'M12 3l8 4v5c0 5 -3.5 8 -8 9 -4.5 -1 -8 -4 -8 -9V7zM9 12l2 2 4 -4'
 const ICON_DNS =
   'M12 3a9 9 0 0 0 0 18m0 -18a9 9 0 0 1 0 18m0 -18c2 2 3 5 3 9s-1 7 -3 9m0 -18c-2 2 -3 5 -3 9s1 7 3 9M3 12h18'
 const ICON_PVC =
@@ -306,6 +342,15 @@ export const KINDS: readonly CloudKindEntry[] = [
   // Networking
   { id: 'services', label: 'Services', tagline: 'ClusterIP / NodePort / LoadBalancer routes', hasData: true, Component: ServicesListPage, icon: ICON_SERVICE, category: 'network', primary: false },
   { id: 'ingresses', label: 'Ingresses', tagline: 'HTTP routing + TLS terminators', hasData: true, Component: IngressesListPage, icon: ICON_INGRESS, category: 'network', primary: false },
+  // Network + security coverage (#3998). The gateway-api front door
+  // (Gateway + HTTPRoute) + the security posture (NetworkPolicy + Cilium
+  // NetworkPolicy / ClusterwideNetworkPolicy). All LIVE on hw173 but
+  // previously had no cloud-view page. Each renders its OWN columns.
+  { id: 'gateways', label: 'Gateways', tagline: 'Gateway API front doors — class / address / programmed.', hasData: true, Component: GatewaysListPage, icon: ICON_GATEWAY, category: 'network', primary: false },
+  { id: 'httproutes', label: 'HTTPRoutes', tagline: 'Gateway API routes — hostnames / parent Gateway / rules.', hasData: true, Component: HttpRoutesListPage, icon: ICON_HTTPROUTE, category: 'network', primary: false },
+  { id: 'networkpolicies', label: 'Network Policies', tagline: 'K8s NetworkPolicies — pod selector / ingress-egress / types.', hasData: true, Component: NetworkPoliciesListPage, icon: ICON_NETPOL, category: 'network', primary: false },
+  { id: 'ciliumnetworkpolicies', label: 'Cilium Network Policies', tagline: 'CiliumNetworkPolicies — L3-L7 micro-segmentation per namespace.', hasData: true, Component: CiliumNetworkPoliciesListPage, icon: ICON_CILIUM_NETPOL, category: 'network', primary: false },
+  { id: 'ciliumclusterwidenetworkpolicies', label: 'Cilium Clusterwide Policies', tagline: 'CiliumClusterwideNetworkPolicies — cluster-scoped baseline deny.', hasData: true, Component: CiliumClusterwideNetworkPoliciesListPage, icon: ICON_CILIUM_NETPOL, category: 'network', primary: false },
   { id: 'endpointslices', label: 'EndpointSlices', tagline: 'Service backend addresses', hasData: true, Component: EndpointSlicesListPage, icon: ICON_EPS, category: 'network', primary: false },
   { id: 'dns-zones', label: 'DNS Zones', tagline: 'PowerDNS zones (Sovereign-side)', hasData: false, Component: DnsZonesListPage, icon: ICON_DNS, category: 'network', primary: false },
 
