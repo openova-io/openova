@@ -16,7 +16,7 @@ import (
 )
 
 // tenantDeletedPayload matches the shape emitted by the tenant service on
-// `sme.tenant.events` with type `tenant.deleted`. The tenant service writes
+// `org.tenant.events` with type `tenant.deleted`. The tenant service writes
 // both the event-envelope TenantID and the inner Data.ID to the same value;
 // we fall back to event.TenantID when the inner id is missing so we never
 // silently drop a delivery.
@@ -71,7 +71,7 @@ type TenantConsumer struct {
 
 // Start subscribes to tenant.deleted (on the canonical NATS subject
 // `catalyst.tenant.deleted` OR the legacy Kafka topic
-// `sme.tenant.events`, depending on which transport the service was
+// `org.tenant.events`, depending on which transport the service was
 // wired with) and dispatches the cascade. Other event types on the
 // same topic are ignored — this consumer is scoped specifically to
 // the billing-side cascade.

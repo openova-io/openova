@@ -1171,7 +1171,7 @@ func (h *Handler) dispatchOrderPlaced(tenantID string, order *store.Order) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := h.Producer.Publish(ctx, "sme.order.events", evt); err != nil {
+	if err := h.Producer.Publish(ctx, "org.order.events", evt); err != nil {
 		slog.Warn("dispatch order.placed", "error", err)
 	}
 }

@@ -311,7 +311,7 @@ ingress:
 
 # ─── Mailbox provisioning hook (event-driven, ADR-0003 §3) ─────────────
 # When the unified-rbac service in the OTECH control plane creates an
-# SME user, it publishes a `sme.user.created` event to NATS. The
+# SME user, it publishes a `org.user.created` event to NATS. The
 # subscriber that lives alongside this Stalwart calls Stalwart's
 # `/api/principal` admin API to provision the mailbox.
 #
@@ -360,7 +360,7 @@ mailboxProvisioner:
   natsSubscriber:
     enabled: false
     natsURL: ""
-    subject: "sme.user.created"
+    subject: "org.user.created"
 
 # ─── DKIM/SPF/DMARC records ────────────────────────────────────────────
 # Two paths:

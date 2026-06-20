@@ -4,45 +4,45 @@ package events
 // constants instead of string literals so topic symmetry is enforced at
 // compile time. Every change here must be mirrored on the subscriber side.
 //
-// Naming rule: sme.<producer>.events for standard domain topics, sme.dlq
+// Naming rule: sme.<producer>.events for standard domain topics, org.dlq
 // for the cross-service dead-letter topic (see dlq.go).
 const (
 	// TopicUserEvents carries auth + user lifecycle events (user.login,
 	// user.created, ...). Consumed by notification for welcome / magic-link
 	// follow-up emails.
-	TopicUserEvents = "sme.user.events"
+	TopicUserEvents = "org.user.events"
 
 	// TopicOrderEvents carries billing order events (order.placed,
 	// payment.received, payment.failed). Consumed by notification for
 	// payment receipts.
-	TopicOrderEvents = "sme.order.events"
+	TopicOrderEvents = "org.order.events"
 
 	// TopicBillingEvents carries billing lifecycle events (subscription
 	// renewed, invoice issued). Kept for forward compatibility; notification
 	// subscribes so any producer can move here without another consumer
 	// rewire.
-	TopicBillingEvents = "sme.billing.events"
+	TopicBillingEvents = "org.billing.events"
 
 	// TopicProvisionEvents carries provisioning lifecycle events,
 	// including day-1 (provision.started/completed/failed) and day-2
 	// (provision.app_ready/app_removed/app_failed). Consumed by tenant
 	// (state sync) and notification (customer emails).
-	TopicProvisionEvents = "sme.provision.events"
+	TopicProvisionEvents = "org.provision.events"
 
 	// TopicTenantEvents carries tenant lifecycle + app-change-requested
 	// events (tenant.created, tenant.deleted, tenant.app_install_requested,
 	// tenant.app_uninstall_requested). Consumed by provisioning
 	// (orchestration) and notification (audit emails).
-	TopicTenantEvents = "sme.tenant.events"
+	TopicTenantEvents = "org.tenant.events"
 
 	// TopicDomainEvents carries domain lifecycle events
 	// (domain.registered, domain.verified, domain.removed). Consumed by
 	// notification for BYOD-verified emails.
-	TopicDomainEvents = "sme.domain.events"
+	TopicDomainEvents = "org.domain.events"
 
 	// TopicDLQ is the cross-service dead-letter topic for events that fail
 	// handler invocation after the configured retry budget. See dlq.go.
-	TopicDLQ = "sme.dlq"
+	TopicDLQ = "org.dlq"
 )
 
 // LegacyTopics lists topic names that were in use before the

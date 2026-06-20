@@ -217,7 +217,7 @@ func main() {
 		kc, err := events.NewConsumer(
 			strings.Split(redpandaBrokersRaw, ","),
 			"provisioning",
-			[]string{"sme.order.events", "sme.tenant.events"},
+			[]string{"org.order.events", "org.tenant.events"},
 		)
 		if err != nil {
 			slog.Error("failed to create kafka consumer", "error", err)
@@ -258,7 +258,7 @@ func main() {
 			"catalyst.tenant.app_uninstall_requested",
 			"catalyst.billing.order.placed",
 		},
-		"kafka_topics", []string{"sme.order.events", "sme.tenant.events"},
+		"kafka_topics", []string{"org.order.events", "org.tenant.events"},
 		"kafka_enabled", kafkaConsumer != nil,
 		"nats_enabled", natsConn != nil,
 		"group", "provisioning",

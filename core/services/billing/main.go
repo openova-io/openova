@@ -68,7 +68,7 @@ func main() {
 	// requires NATS for the canonical `catalyst.billing.order.placed`
 	// subject; Redpanda stays in place as a legacy bridge so any
 	// not-yet-migrated consumers (e.g. on contabo) keep receiving
-	// sme.order.events. At least one transport MUST be wired.
+	// org.order.events. At least one transport MUST be wired.
 	var (
 		natsConn  *events.NATSConn
 		kafkaProd *events.Producer
@@ -147,14 +147,14 @@ func main() {
 	// Tenant-events consumer drives the billing-side cascade on
 	// tenant.deleted (Stripe sub-cancel + invoice void + ledger marker).
 	// Listens on canonical NATS subject `catalyst.tenant.deleted` on
-	// Sovereigns AND legacy Kafka topic `sme.tenant.events` on Catalyst-
+	// Sovereigns AND legacy Kafka topic `org.tenant.events` on Catalyst-
 	// Zero. PR #1627 wired the consumer side after PR #1626 wired publish.
 	var billingKafkaConsumer *events.Consumer
 	if kafkaProd != nil {
 		kc, err := events.NewConsumer(
 			strings.Split(redpandaBrokersRaw, ","),
 			"billing-tenant-events",
-			[]string{"sme.tenant.events"},
+			[]string{"org.tenant.events"},
 		)
 		if err != nil {
 			slog.Error("failed to create tenant-events kafka consumer", "error", err)
@@ -181,7 +181,7 @@ func main() {
 	}()
 	slog.Info("billing tenant-events consumer started",
 		"nats_subject", "catalyst.tenant.deleted",
-		"kafka_topic", "sme.tenant.events",
+		"kafka_topic", "org.tenant.events",
 		"kafka_enabled", billingKafkaConsumer != nil,
 		"nats_enabled", natsConn != nil,
 		"group", "billing-tenant-events")
@@ -215,7 +215,7 @@ func main() {
 		}()
 		slog.Info("billing metering consumer started",
 			"subject", events.SubjectUsageRecorded,
-			"durable", events.ConsumerSMEBillingMetering)
+			"durable", events.ConsumerOrgBillingMetering)
 	} else {
 		slog.Warn("NATS_URL is empty — metering consumer disabled (HTTP path still active)")
 	}

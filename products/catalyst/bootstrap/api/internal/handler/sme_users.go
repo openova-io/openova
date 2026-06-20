@@ -73,7 +73,7 @@ type SMEKeycloakClient interface {
 	// realm and returns the Keycloak user id. emailVerified=true is
 	// implied for SME-admin-created users — the password reset / first
 	// login flow is owned by the welcome email subscriber on
-	// sme.user.events (ADR-0003 §3.6).
+	// org.user.events (ADR-0003 §3.6).
 	EnsureSMEUser(ctx context.Context, realmAdminURL, realmName, email, smeUserUUID, smeTenantID string) (string, error)
 }
 
@@ -86,7 +86,7 @@ type SMESecretApplier interface {
 }
 
 // SMEEventEmitter publishes ADR-0003 §3.6 NATS events
-// (`sme.user.events`). Nil-tolerant — when nil the publish is a
+// (`org.user.events`). Nil-tolerant — when nil the publish is a
 // no-op. The catalyst-api wires a real producer in main.go when the
 // NATS broker URL is configured.
 type SMEEventEmitter interface {

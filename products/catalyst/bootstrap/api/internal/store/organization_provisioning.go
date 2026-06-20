@@ -82,7 +82,7 @@ const (
 	// front door for the SME admin's first login.
 	STSTenantRegistered OrganizationProvisionState = "tenant_registered"
 	// STSDone — terminal happy state. Subscribers on
-	// `sme.tenant.events` have been notified.
+	// `org.tenant.events` have been notified.
 	STSDone OrganizationProvisionState = "done"
 	// STSFailed — terminal sad state. LastError carries a structured
 	// `<step>:<class>:<detail>` string per ADR-0003 §3.8.
@@ -131,7 +131,7 @@ type OrganizationProvisionRecord struct {
 	BYODomain string `json:"byo_domain,omitempty"`
 	// AdminEmail — the SME's first user. The orchestrator wires this
 	// into the bp-wordpress-tenant chart values (admin email) and into
-	// the welcome-email subject of the `sme.tenant.events` envelope.
+	// the welcome-email subject of the `org.tenant.events` envelope.
 	AdminEmail string `json:"admin_email"`
 	// CompanyName — branding metadata (chart titles, welcome email
 	// salutation). Optional — empty falls back to the subdomain slug.

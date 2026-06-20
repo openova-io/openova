@@ -121,7 +121,7 @@ type OrganizationKeycloakClientProvisioner interface {
 }
 
 // OrganizationEventEmitter publishes lifecycle events on the canonical
-// `sme.tenant.events` topic (see core/services/shared/events/topics.go).
+// `org.tenant.events` topic (see core/services/shared/events/topics.go).
 type OrganizationEventEmitter interface {
 	EmitOrganizationCreated(ctx context.Context, rec store.OrganizationProvisionRecord) error
 	EmitOrganizationStateChanged(ctx context.Context, rec store.OrganizationProvisionRecord) error

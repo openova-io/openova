@@ -12,7 +12,7 @@ import (
 
 // StartConsumer subscribes to every topic notification listens on and
 // routes each event to the right email handler. Consumers use
-// events.DLQSubscriber so a poison record is shipped to sme.dlq after
+// events.DLQSubscriber so a poison record is shipped to org.dlq after
 // 3 in-memory retries instead of blocking the partition (issue #72).
 //
 // Topic fan-in bridges the transition described in issues #69 and #70:
@@ -30,13 +30,13 @@ func (h *Handler) StartConsumer(ctx context.Context, sub Subscriber) error {
 
 		switch event.Type {
 		// User / auth events (#69 — notification was subscribing to
-		// sme.user.events while auth published to auth.events).
+		// org.user.events while auth published to auth.events).
 		case "user.login":
 			return h.handleUserLogin(event)
 
 		// Billing / order events (#69 — billing publishes on
-		// sme.order.events, notification used to subscribe only to
-		// sme.billing.events).
+		// org.order.events, notification used to subscribe only to
+		// org.billing.events).
 		case "payment.received":
 			return h.handlePaymentReceived(event)
 		case "order.placed":

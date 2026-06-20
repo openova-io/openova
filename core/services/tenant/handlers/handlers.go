@@ -272,7 +272,7 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer pubCancel()
-		if pubErr := h.Producer.Publish(pubCtx, "sme.tenant.events", evt); pubErr != nil {
+		if pubErr := h.Producer.Publish(pubCtx, "org.tenant.events", evt); pubErr != nil {
 			slog.Error("failed to publish tenant.created event", "tenant_id", tenant.ID, "error", pubErr)
 		}
 	}
@@ -306,7 +306,7 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		if sbErr == nil {
 			pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer pubCancel()
-			if pubErr := h.Producer.Publish(pubCtx, "sme.tenant.events", sbEvt); pubErr != nil {
+			if pubErr := h.Producer.Publish(pubCtx, "org.tenant.events", sbEvt); pubErr != nil {
 				slog.Error("failed to publish tenant.sandbox_requested event", "tenant_id", tenant.ID, "error", pubErr)
 			}
 		}
@@ -461,7 +461,7 @@ func (h *Handler) DeleteOrg(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer pubCancel()
-		if pubErr := h.Producer.Publish(pubCtx, "sme.tenant.events", evt); pubErr != nil {
+		if pubErr := h.Producer.Publish(pubCtx, "org.tenant.events", evt); pubErr != nil {
 			slog.Error("failed to publish tenant.deleted event", "tenant_id", id, "error", pubErr)
 		}
 	}
@@ -726,7 +726,7 @@ func (h *Handler) AdminDeleteTenant(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer pubCancel()
-		if pubErr := h.Producer.Publish(pubCtx, "sme.tenant.events", evt); pubErr != nil {
+		if pubErr := h.Producer.Publish(pubCtx, "org.tenant.events", evt); pubErr != nil {
 			slog.Error("failed to publish tenant.deleted event", "tenant_id", id, "error", pubErr)
 		}
 	}

@@ -73,7 +73,7 @@ type DefaultCustomerResolver struct {
 // on first sighting. The auto-create path is critical for SME-tier
 // cold starts where the first metered LLM call may arrive before the
 // unified-rbac NATS publisher (#802) has emitted the corresponding
-// sme.user.created event into billing.
+// org.user.created event into billing.
 func (r DefaultCustomerResolver) Resolve(ctx context.Context, userID, tenantID string) (*store.Customer, error) {
 	if userID == "" {
 		return nil, errors.New("metering: empty user_id")
@@ -100,7 +100,7 @@ func (r DefaultCustomerResolver) Resolve(ctx context.Context, userID, tenantID s
 		UserID:   userID,
 		TenantID: tenantID,
 		// Email is unknown at this point; rbac fills it on the
-		// canonical sme.user.created envelope. Empty email is allowed
+		// canonical org.user.created envelope. Empty email is allowed
 		// by the customers schema (TEXT NOT NULL with DEFAULT '' is
 		// effectively the same once we update via rbac).
 		Email: "",
@@ -232,7 +232,7 @@ func (c *MeteringConsumer) Handle(ctx context.Context, body []byte) error {
 func (c *MeteringConsumer) Start(ctx context.Context, sub events.NATSSubscription) error {
 	slog.Info("metering: starting consumer",
 		"subject", events.SubjectUsageRecorded,
-		"durable", events.ConsumerSMEBillingMetering)
+		"durable", events.ConsumerOrgBillingMetering)
 	return sub.Consume(ctx, func(msg jetstream.Msg) {
 		// Per-message ctx with a budget so a hung handler cannot stall
 		// the consumer indefinitely. AckWait on the consumer side is

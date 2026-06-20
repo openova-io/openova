@@ -5,7 +5,7 @@
 //
 //	voucher accept → tenant-service CreateOrg
 //	   → writes Tenant row in Mongo
-//	   → publishes tenant.created on `sme.tenant.events`
+//	   → publishes tenant.created on `org.tenant.events`
 //	            ↓                          (DROP — no consumer)
 //	provisioning consumer switch     (case "tenant.created" missing)
 //	            ↓
@@ -62,7 +62,7 @@ import (
 type tenantCreatedPayload = events.TenantCreatedPayload
 
 // handleTenantCreated is the consumer for `tenant.created` (subject
-// `catalyst.tenant.created` on NATS, topic `sme.tenant.events` on
+// `catalyst.tenant.created` on NATS, topic `org.tenant.events` on
 // Redpanda). It mints the Organization CR that organization-controller
 // reconciles into the vCluster / Keycloak group / Gitea org triplet.
 //

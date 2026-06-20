@@ -55,7 +55,7 @@ type orderPlacedData struct {
 	AppConfigs map[string]map[string]any `json:"app_configs,omitempty"`
 }
 
-const topicProvisionEvents = "sme.provision.events"
+const topicProvisionEvents = "org.provision.events"
 
 // staleProvisionTimeout (#3898) is how long an in-flight provision row may go
 // without an updated_at refresh before the dedup collision path treats it as

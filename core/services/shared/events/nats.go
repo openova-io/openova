@@ -2,8 +2,8 @@ package events
 
 // Per #795 [Q-mine-3] + #798 + ADR-0001 §6, NATS JetStream is the canonical
 // event bus going forward. The legacy RedPanda producer/consumer in
-// events.go remains for backward compatibility with sme.tenant.events,
-// sme.order.events, sme.user.events (consumed by services that have not
+// events.go remains for backward compatibility with org.tenant.events,
+// org.order.events, org.user.events (consumed by services that have not
 // yet migrated). NEW topics — starting with `catalyst.usage.recorded` —
 // flow through the JetStream surface defined here.
 //
@@ -52,11 +52,11 @@ const (
 	// bounded via MaxBytes set in the JetStream chart.
 	StreamCatalystUsage = "CATALYST_USAGE"
 
-	// ConsumerSMEBillingMetering is the durable consumer name on
+	// ConsumerOrgBillingMetering is the durable consumer name on
 	// StreamCatalystUsage that sme-billing reads from. Durable name lives
 	// here so the publisher (sidecar) and the consumer (billing) cannot
 	// drift on naming.
-	ConsumerSMEBillingMetering = "sme-billing-metering"
+	ConsumerOrgBillingMetering = "org-billing-metering"
 )
 
 // UsageRecordedPayload is the JSON shape published on
@@ -320,7 +320,7 @@ type natsSub struct {
 // Deprecated: use SubscribeUsageRecordedOnSME.
 func (c *NATSConn) SubscribeUsageRecorded(ctx context.Context) (NATSSubscription, error) {
 	cons, err := c.js.CreateOrUpdateConsumer(ctx, StreamCatalystUsage, jetstream.ConsumerConfig{
-		Durable:       ConsumerSMEBillingMetering,
+		Durable:       ConsumerOrgBillingMetering,
 		Description:   "sme-billing metering consumer (#798).",
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		AckWait:       30 * time.Second,
@@ -335,7 +335,7 @@ func (c *NATSConn) SubscribeUsageRecorded(ctx context.Context) (NATSSubscription
 }
 
 // SubscribeUsageRecordedOnSME creates (or attaches to) the durable
-// consumer ConsumerSMEBillingMetering on the canonical CATALYST_SME
+// consumer ConsumerOrgBillingMetering on the canonical CATALYST_SME
 // Stream and returns a NATSSubscription ready to Consume. The consumer
 // uses FilterSubject = `catalyst.usage.recorded` so it ONLY receives
 // metering envelopes even though CATALYST_SME also carries tenant,
@@ -352,7 +352,7 @@ func (c *NATSConn) SubscribeUsageRecorded(ctx context.Context) (NATSSubscription
 // filter, file storage, 14d retention) tuple.
 func (c *NATSConn) SubscribeUsageRecordedOnSME(ctx context.Context) (NATSSubscription, error) {
 	cons, err := c.js.CreateOrUpdateConsumer(ctx, StreamCatalystSME, jetstream.ConsumerConfig{
-		Durable:       ConsumerSMEBillingMetering,
+		Durable:       ConsumerOrgBillingMetering,
 		Description:   "sme-billing metering consumer (#798) — CATALYST_SME filter scope.",
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		AckWait:       30 * time.Second,
