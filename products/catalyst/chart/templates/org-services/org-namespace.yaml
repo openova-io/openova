@@ -5,7 +5,7 @@ marketplace is enabled.
 #3383: this namespace was named `sme` (after a single persona). It is
 now `org-services` — one Organization machinery, persona-neutrally named.
 The chart roll CREATES `org-services` and Flux reconciles every workload
-template into it; the old `sme` namespace drains in the same release.
+template into it; the old `sme` namespace (pre-#3383) drains in the same release.
 
 Why: every other template under templates/org-services/* (billing.yaml,
 auth.yaml, ferretdb.yaml, valkey-cross-ns-secret.yaml,

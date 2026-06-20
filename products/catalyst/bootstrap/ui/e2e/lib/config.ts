@@ -59,7 +59,7 @@ export const HOSTS = {
  * Tenant-discovery payloads. Mirrors the wire shape of
  * `GET /api/v1/tenant/discover?host=<host>` — `tenant_kind: "sme"`
  * branches the SPA into the Organization-tier UX (sidebar entries +
- * /console/sme/users routing).
+ * /console/org/users routing).
  */
 export const ORG_DISCOVERY = {
   host: HOSTS.orgConsole,

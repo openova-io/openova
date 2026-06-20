@@ -160,7 +160,7 @@ import { VouchersPage as BssVouchersPage } from '@/pages/sovereign/bss/VouchersP
 // directory's parent org is the first citizen; CreateOrganizationPage is
 // the internal door (the same component as the Organization create form, mounted
 // under the Organization-named route). Pages move WITH redirects (the old
-// /bss*, /sme/users, /sme/roles, /sme/tenants/new, /parent-domains URLs
+// /bss*, /org/users, /org/roles, /org/tenants/new, /parent-domains URLs
 // keep resolving) — see consoleOrgRedirectRoutes below.
 import { OrganizationsDirectoryPage } from '@/pages/sovereign/organizations/OrganizationsDirectoryPage'
 // Organizations commerce editors (issue #3378 DoD 7/8) — one kind-aware
@@ -1625,7 +1625,7 @@ const consoleInstallBlueprintRoute = createRoute({
  * Organization admin deep-link into either page from the welcome email.
  */
 // Organizations menu move (issue #3378): /parent-domains and
-// /sme/tenants/new now resolve via consoleOrganizationsRedirectRoutes
+// /org/tenants/new now resolve via consoleOrganizationsRedirectRoutes
 // (→ /organizations/domains + /organizations/new), and the create form
 // re-mounts as CreateOrganizationPage at /organizations/new.
 //
@@ -1842,7 +1842,7 @@ const ORGANIZATIONS_REDIRECTS: readonly OrgRedirect[] = [
   // live routes until the org-detail users/roles tabs land (the redirect
   // destination must exist first; redirecting to a non-existent tab would
   // break the Organization-admin people surface + the org-demo walk).
-  { path: '/sme/tenants/new', to: '/organizations/new' },
+  { path: '/org/tenants/new', to: '/organizations/new' },
   // Parent-domain pools → the Organizations Domains home.
   { path: '/parent-domains', to: '/organizations/domains' },
 ]
@@ -2399,7 +2399,7 @@ const routeTree = rootRoute.addChildren([
     consoleNotificationsRoute,
     // Organizations menu (issue #3378) — ONE menu replacing BSS+OSS.
     // Directory (parent-first) + internal door + moved billing/domains
-    // pages + the legacy-URL redirect map (every /bss*, /sme/*,
+    // pages + the legacy-URL redirect map (every /bss*, /org/*,
     // /parent-domains path keeps resolving).
     consoleOrganizationsRoute,
     consoleOrganizationsNewRoute,

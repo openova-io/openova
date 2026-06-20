@@ -58,7 +58,7 @@ Authoritative reference:
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: bp-catalyst-platform-sme-valkey-ingress
+  name: bp-catalyst-platform-org-valkey-ingress
   # Lives in the `valkey` namespace where the bp-valkey workload runs —
   # endpointSelector below targets pods in this namespace. Per-Sovereign
   # overlays MAY override the namespace if bp-valkey is repackaged into

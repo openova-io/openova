@@ -25,8 +25,8 @@ func main() {
 	jwtSecret := []byte(getEnv("JWT_SECRET", ""))
 	corsOrigin := getEnv("CORS_ORIGIN", "*")
 	port := getEnv("PORT", "8085")
-	successURL := getEnv("SUCCESS_URL", "https://sme.openova.io/checkout")
-	cancelURL := getEnv("CANCEL_URL", "https://sme.openova.io/checkout")
+	successURL := getEnv("SUCCESS_URL", "https://openova.io/checkout")
+	cancelURL := getEnv("CANCEL_URL", "https://openova.io/checkout")
 	catalogURL := getEnv("CATALOG_URL", "http://catalog.org-services.svc.cluster.local:8082")
 	tenantURL := getEnv("TENANT_URL", "http://tenant.org-services.svc.cluster.local:8083")
 	// NOTIFICATION_SERVICE_URL — org-notification's POST /notification/send

@@ -10,7 +10,7 @@ redirect URI to WP's openid-connect-generic callback).
 
 When chart 0.3.x is installed against a legacy Organization-fleet Sovereign that
 populates `orgSubdomain` (no Catalyst per-Org realm), `data.realm`
-resolves to `sme-<orgSubdomain>` via `bp-wordpress-tenant.orgRealm`
+resolves to `org-<orgSubdomain>` via `bp-wordpress-tenant.orgRealm`
 (see _helpers.tpl). When chart 0.4.0+ is installed against a Catalyst
 per-Org Sovereign that populates `org.realm`, `data.realm` resolves to
 the Org slug (G117 locked-decision #6).

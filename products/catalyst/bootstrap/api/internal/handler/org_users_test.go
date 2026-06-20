@@ -348,7 +348,7 @@ func TestTenantDiscover_Public(t *testing.T) {
 	var resp tenantDiscoverResponse
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp.TenantKind != store.TenantKindOrg {
-		t.Errorf("TenantKind = %q, want sme", resp.TenantKind)
+		t.Errorf("TenantKind = %q, want org", resp.TenantKind)
 	}
 	if resp.KeycloakRealmURL == "" || resp.KeycloakClientID == "" {
 		t.Errorf("realm/client missing: %+v", resp)
@@ -402,7 +402,7 @@ func TestTenantDiscover_HostHeaderFallback(t *testing.T) {
 		t.Errorf("Host = %q, want console.acme.otech.example", resp.Host)
 	}
 	if resp.TenantKind != store.TenantKindOrg {
-		t.Errorf("TenantKind = %q, want sme", resp.TenantKind)
+		t.Errorf("TenantKind = %q, want org", resp.TenantKind)
 	}
 
 	// Host header carries port (HTTP/1.1 :443 form) — port must still

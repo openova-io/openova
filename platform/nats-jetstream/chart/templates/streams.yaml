@@ -28,7 +28,7 @@ time so they can scale per tenant.
   (subjects `catalyst.>` declared in core/services/shared/events/nats.go).
   Surfaced live on hw01 2026-05-24T06:30Z when both attempted to claim
   overlapping subjects. Default-OFF preserves the current production
-  shape; operators opt-in only when migrating sme/billing to the 3-stream
+  shape; operators opt-in only when migrating org-services/billing to the 3-stream
   model per original ADR-0001 §6 design.
 */ -}}
 {{- if and .Values.catalystStreams.enabled .Values.catalystStreams.streamsEnabled -}}

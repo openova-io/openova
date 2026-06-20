@@ -20,7 +20,7 @@ Why this template exists:
 Approach (issue #866 Option C — local Gitea target; corrected by #3122):
   Post-cutover the canonical Git target on a Sovereign IS the local
   Gitea instance (the GitRepository CRs already point there), not
-  upstream GitHub. We mirror a REAL Gitea PAT into the `sme` namespace
+  upstream GitHub. We mirror a REAL Gitea PAT into the `org-services` namespace
   under the canonical key name `GITHUB_TOKEN` that the provisioning
   service + catalyst-api read. The env-var name stays GITHUB_TOKEN
   because the provisioning service code (core/services/provisioning/
@@ -36,7 +36,7 @@ Approach (issue #866 Option C — local Gitea target; corrected by #3122):
   is NOT a Gitea API token: Gitea rejects password-auth for git
   operations ("Password authentication is not supported for Git
   operations"), so the first tenant gitops push 401'd. Proven live on
-  hw101 (operator POST /sme/tenants, deployment e19b083c): the 32-char
+  hw101 (operator POST /api/v1/organizations, deployment e19b083c): the 32-char
   admin password -> 401 vs Gitea /api/v1/user; the 40-char
   catalyst-gitea-token PAT -> 200 as gitea_admin.
 

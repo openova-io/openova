@@ -2905,7 +2905,7 @@ its OWN Stalwart instance in its tenant namespace, with its OWN
 domain, OWN MTA reputation, and OWN queue. NOT a shared otech-
 level multi-domain Stalwart.
 
-Webmail UI at `https://mail.<sme-domain>`; SMTP/IMAP via
+Webmail UI at `https://mail.<org-domain>`; SMTP/IMAP via
 LoadBalancer. SSO authenticated against the Organization-vcluster Keycloak
 realm (NOT otech-level Keycloak). Per-user mailbox provisioning
 is event-driven (ADR-0003 §3).
@@ -2916,14 +2916,14 @@ its OWN Stalwart instance in its tenant namespace, with its OWN
 domain, OWN MTA reputation, and OWN queue. NOT a shared otech-
 level multi-domain Stalwart.
 
-Webmail UI at `https://mail.<sme-domain>`; SMTP/IMAP via
+Webmail UI at `https://mail.<org-domain>`; SMTP/IMAP via
 LoadBalancer. SSO authenticated against the Organization-vcluster Keycloak
 realm (NOT otech-level Keycloak). Per-user mailbox provisioning
 is event-driven (ADR-0003 §3).
 "
     icon: "stalwart.svg"
     license: "AGPL-3.0"
-    tags: ["mail", "smtp", "imap", "jmap", "sme", "multi-tenant", "vcluster", "sso", "oidc"]
+    tags: ["mail", "smtp", "imap", "jmap", "org", "multi-tenant", "vcluster", "sso", "oidc"]
     docs: "https://stalw.art/"
   placementSchema:
     modes: [single-region]

@@ -5,8 +5,8 @@ Flux GitRepository tracking the dedicated `org-tenants` branch
 WHY THIS FILE EXISTS
 --------------------
 The Organization-tenant provisioning service writes per-tenant Kustomize overlays
-to `clusters/<sovereignFQDN>/org-tenants/<sme_tenant_id>/` on every
-successful `POST /api/v1/sme/tenants`. Before this PR all writes landed
+to `clusters/<sovereignFQDN>/org-tenants/<org_tenant_id>/` on every
+successful `POST /api/v1/organizations`. Before this PR all writes landed
 on the same `main` branch the rest of the Sovereign reconciles from.
 
 Journey v5b (2026-05-18) discovery: the `cutover-gitea-mirror` Job runs
@@ -81,7 +81,7 @@ operator-overridable via .Values.orgTenants.gitRepository.*.
 References:
   - Issue #1794 (TBD-C18e — 5th C18 layer, customer-journey blocker)
   - Journey v5b root-cause memo (mirror clobbers main every ≤10 min)
-  - sme_tenant_gitops.go (write target)
+  - org_tenant_gitops.go (write target)
   - org-repo-kustomization.yaml (consumer of this GitRepository)
 */}}
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}

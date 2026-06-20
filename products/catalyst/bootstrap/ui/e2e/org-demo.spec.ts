@@ -138,9 +138,9 @@ test.describe('@org-demo Organization end-to-end happy path (issue #805)', () =>
 
   test('step 4 — create alice + 3-step progress (1440×900)', async ({ page }, testInfo) => {
     // OrgUsersPage is mounted under the pathless `consoleLayoutRoute`
-    // at `path: '/sme/users'` — see router.tsx `consoleOrgUsersRoute`.
-    // The route is at `/sme/users`, NOT `/console/sme/users`.
-    await page.goto('/sme/users')
+    // at `path: '/org/users'` — see router.tsx `consoleOrgUsersRoute`.
+    // The route is at `/org/users`, NOT `/console/org/users`.
+    await page.goto('/org/users')
     await page.waitForLoadState('networkidle')
 
     // Empty list (no users seeded yet).
@@ -237,14 +237,14 @@ test.describe('@org-demo Organization end-to-end happy path (issue #805)', () =>
     'step 6 — Organization admin sees alice usage in credit ledger (1440×900)',
     async ({ page }, testInfo) => {
       // Pending the Organization-billing/credits surface (#802 follow-up).
-      // The unified-rbac Organization-tier console covers /console/sme/users
-      // + /console/sme/roles today; StepSuccess.tsx links at
+      // The unified-rbac Organization-tier console covers /console/org/users
+      // + /console/org/roles today; StepSuccess.tsx links at
       // console.<fqdn>/bss/vouchers (the BSS menu inside the operator
       // console — voucher operations live there per CLAUDE.md §0;
       // see TBD-V20).
       // The fixme step activates once an in-SPA /console/org/billing
       // route lands and asserts the ledger entry for alice.
-      await page.goto('/sme/billing' as never)
+      await page.goto('/org/billing' as never)
       await snap(page, 6, 'org-admin-billing-ledger', testInfo)
     },
   )

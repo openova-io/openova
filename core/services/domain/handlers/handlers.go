@@ -26,7 +26,7 @@ type Handler struct {
 	// *events.Producer also satisfies the interface so legacy Catalyst-
 	// Zero wiring keeps working without a code change.
 	Producer    events.BrokerPublisher
-	CNAMETarget string // e.g., sme.openova.io
+	CNAMETarget string // e.g., openova.io
 	// TenantURL is the internal base URL for the tenant service
 	// (e.g., http://tenant.org-services.svc.cluster.local:8083). Used for cross-service
 	// membership checks. When empty, authorization helpers fall back to

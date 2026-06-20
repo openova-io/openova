@@ -104,7 +104,7 @@ test.describe('Organization-tier RBAC (issue #802)', () => {
   test('Organization: UsersPage renders with 3-step progress UI', async ({ page }) => {
     await mockBackend(page, ORG_DISCOVERY)
 
-    await page.goto('/console/sme/users')
+    await page.goto('/console/org/users')
 
     await expect(page.getByTestId('org-users-page')).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Users' })).toBeVisible()
@@ -149,7 +149,7 @@ test.describe('Organization-tier RBAC (issue #802)', () => {
   test('Organization: RolesPage renders canonical group → app-role map', async ({ page }) => {
     await mockBackend(page, ORG_DISCOVERY)
 
-    await page.goto('/console/sme/roles')
+    await page.goto('/console/org/roles')
 
     await expect(page.getByTestId('org-roles-page')).toBeVisible()
     await expect(page.getByTestId('org-roles-table')).toBeVisible()
@@ -167,7 +167,7 @@ test.describe('Organization-tier RBAC (issue #802)', () => {
   test('OTECH tenant: same SPA bundle, otech-tier UI does NOT show Organization pages', async ({ page }) => {
     await mockBackend(page, OTECH_DISCOVERY)
 
-    // Navigating to /console/sme/users on an OTECH-tenant context is
+    // Navigating to /console/org/users on an OTECH-tenant context is
     // technically a registered route; the page renders, BUT the
     // tenant-discovery payload says otech. The page itself doesn't
     // gate on tenant kind (the routes are registered globally per

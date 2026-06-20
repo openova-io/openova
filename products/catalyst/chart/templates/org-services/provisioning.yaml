@@ -24,7 +24,7 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: sme-provisioning
+  name: org-provisioning
 rules:
   # Read-only status endpoints.
   - apiGroups: [""]
@@ -83,11 +83,11 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: sme-provisioning
+  name: org-provisioning
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: sme-provisioning
+  name: org-provisioning
 subjects:
   - kind: ServiceAccount
     name: provisioning
@@ -105,7 +105,7 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: sme-provisioning-fluxsystem
+  name: org-provisioning-fluxsystem
   namespace: flux-system
 rules:
   - apiGroups: ["kustomize.toolkit.fluxcd.io"]
@@ -118,12 +118,12 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: sme-provisioning-fluxsystem
+  name: org-provisioning-fluxsystem
   namespace: flux-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: sme-provisioning-fluxsystem
+  name: org-provisioning-fluxsystem
 subjects:
   - kind: ServiceAccount
     name: provisioning

@@ -104,7 +104,7 @@ test.describe('Organization multi-domain onboarding (issue #828)', () => {
       })
     })
 
-    await page.goto('/console/sme/tenants/new')
+    await page.goto('/console/org/tenants/new')
     await expect(page.getByTestId('org-create-tenant-page')).toBeVisible()
     await expect(page.getByTestId('org-create-tenant-form')).toBeVisible()
 
@@ -194,7 +194,7 @@ test.describe('Organization multi-domain onboarding (issue #828)', () => {
       })
     })
 
-    await page.goto('/console/sme/tenants/new')
+    await page.goto('/console/org/tenants/new')
     await expect(page.getByTestId('org-create-tenant-page')).toBeVisible()
 
     // Switch to BYO mode — the parent dropdown disappears.

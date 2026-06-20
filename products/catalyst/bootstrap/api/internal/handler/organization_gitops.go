@@ -821,12 +821,12 @@ spec:
   # silently no-ops, login flows still work).
   valuesFrom:
     - kind: Secret
-      name: sme-tenant-smtp-credentials
+      name: org-tenant-smtp-credentials
       valuesKey: smtp-user
       targetPath: smtp.user
       optional: true
     - kind: Secret
-      name: sme-tenant-smtp-credentials
+      name: org-tenant-smtp-credentials
       valuesKey: smtp-pass
       targetPath: smtp.password
       optional: true

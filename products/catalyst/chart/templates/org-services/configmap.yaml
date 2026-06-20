@@ -83,9 +83,9 @@ Redpanda default so contabo's existing Organization consumers keep functioning.
 {{- $natsURL := default $defaultNATS (index (default (dict) .Values.orgServices.eventBus) "natsURL") -}}
 {{- /*
 TBD-A68 (issue #1994, 2026-05-19) — derive the marketplace host from the
-per-Sovereign FQDN instead of hardcoding `sme.openova.io`. Pre-fix every
+per-Sovereign FQDN instead of hardcoding `openova.io`. Pre-fix every
 CORS_ORIGIN_* / PUBLIC_BASE_URL / CHECKOUT_*_URL key emitted
-`https://sme.openova.io`, which on a franchised Sovereign (e.g.
+`https://openova.io`, which on a franchised Sovereign (e.g.
 omani.homes) made:
   - storefront fetches mis-match CORS preflight (mothership host
     advertised, real host `marketplace.omani.homes` rejected),
@@ -99,7 +99,7 @@ Resolution order, longest-match wins:
      (e.g. `marketplace.omani.homes`). Already canonical, kept as-is.
   2. else fall back to `marketplace.<sovereignFQDN>` when sovereignFQDN
      is set (canonical franchised-Sovereign convention).
-  3. else fall back to the legacy `sme.openova.io` so contabo's
+  3. else fall back to the legacy `openova.io` so contabo's
      Catalyst-Zero render (sovereignFQDN unset, host unset) keeps
      working.
 
@@ -120,7 +120,7 @@ keys). No other CORS rule lives off these prefixes today.
             franchised-Sovereign layout (admin.<sov> / console.<sov> /
             portal.<sov>).
          3. Neither set → preserve historical Catalyst-Zero layout
-            (sme.openova.io for marketplace, admin.sme.openova.io for
+            (openova.io for marketplace, admin.openova.io for
             admin, etc.). Pre-A68 default — kept byte-identical so
             contabo's existing CORS / public URLs don't drift. */ -}}
 {{- $marketplaceHost := default "" (((.Values.ingress).hosts).marketplace).host -}}
@@ -136,10 +136,10 @@ keys). No other CORS rule lives off these prefixes today.
   {{- $platformZone = .Values.global.sovereignFQDN -}}
 {{- else -}}
   {{- /* Legacy Catalyst-Zero default — siblings share the
-         `sme.openova.io` parent so admin.sme.openova.io etc. stay
+         `openova.io` parent so admin.openova.io etc. stay
          resolvable, matching pre-A68 emit. */ -}}
-  {{- $marketplaceHost = "sme.openova.io" -}}
-  {{- $platformZone = "sme.openova.io" -}}
+  {{- $marketplaceHost = "openova.io" -}}
+  {{- $platformZone = "openova.io" -}}
 {{- end -}}
 {{- $marketplaceOrigin := printf "https://%s" $marketplaceHost -}}
 {{- $adminOrigin := printf "https://admin.%s" $platformZone -}}

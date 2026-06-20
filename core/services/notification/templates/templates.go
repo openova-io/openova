@@ -76,7 +76,7 @@ func WelcomeEmail(name string) string {
 </ul>
 %s
 <p style="margin:0;color:#71717a;font-size:13px;">If you didn't create this account, you can safely ignore this email.</p>`,
-		name, button("Get Started", "https://sme.openova.io"))
+		name, button("Get Started", "https://openova.io"))
 	return layout("Welcome to OpenOva", body)
 }
 
@@ -171,7 +171,7 @@ func InviteMemberEmail(orgName, inviterName, role string) string {
 </p>
 %s
 <p style="margin:0;color:#71717a;font-size:13px;">If you weren't expecting this invitation, you can safely ignore this email.</p>`,
-		orgName, inviterName, orgName, role, button("Accept Invitation", "https://sme.openova.io/invite"))
+		orgName, inviterName, orgName, role, button("Accept Invitation", "https://openova.io/invite"))
 	return layout("You're Invited", body)
 }
 
@@ -244,7 +244,7 @@ func DomainRegisteredEmail(orgName, domain string) string {
 </p>
 %s
 <p style="margin:0;color:#71717a;font-size:13px;">We'll email you again once the domain is verified.</p>`,
-		domain, orgName, button("Open Domains", "https://sme.openova.io/settings/domains"))
+		domain, orgName, button("Open Domains", "https://openova.io/settings/domains"))
 	return layout("Domain Added", body)
 }
 
@@ -366,7 +366,7 @@ func PaymentReceivedEmail(orgName string, amount int) string {
 <p style="margin:0 0 8px;color:#3f3f46;font-size:15px;line-height:1.6;">
   Thank you for your continued trust in OpenOva. Your subscription is active and up to date.
 </p>
-<p style="margin:0;color:#71717a;font-size:13px;">You can view your billing history in <a href="https://sme.openova.io/billing" style="color:%s;">Account Settings</a>.</p>`,
+<p style="margin:0;color:#71717a;font-size:13px;">You can view your billing history in <a href="https://openova.io/billing" style="color:%s;">Account Settings</a>.</p>`,
 		orgName, formatted, orgName, brandColor)
 	return layout("Payment Confirmation", body)
 }
