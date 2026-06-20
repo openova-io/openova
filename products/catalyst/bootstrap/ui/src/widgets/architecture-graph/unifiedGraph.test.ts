@@ -22,7 +22,7 @@ import {
   type ArchStatus,
 } from './types'
 import { reconcilersToGraph } from './reconcilerAdapter'
-import { PRESETS, presetHiddenTypes } from './presets'
+import { LENSES, DEFAULT_LENS_ID, lensChips } from './presets'
 import { shapeForCategory } from './shapes'
 import { physicsFor } from './layout'
 import type { ReconciliationNode } from '@/lib/reconciliation.api'
@@ -114,30 +114,55 @@ describe('reconcilersToGraph', () => {
   })
 })
 
-describe('preset lenses', () => {
-  it('the All preset hides nothing', () => {
-    expect(presetHiddenTypes(PRESETS.all).size).toBe(0)
+describe('lens chip-sets (#3970 — a lens IS a named chip-set)', () => {
+  it('the default lens is Cloud — the cloud-provider scope/compute/network nodes', () => {
+    expect(DEFAULT_LENS_ID).toBe('cloud')
+    const chips = lensChips(LENSES.cloud)
+    // Cloud-family scope/compute/network nodes are members…
+    expect(chips.has('Cloud')).toBe(true)
+    expect(chips.has('Region')).toBe(true)
+    expect(chips.has('Cluster')).toBe(true)
+    expect(chips.has('NodePool')).toBe(true)
+    expect(chips.has('LoadBalancer')).toBe(true)
+    // …and non-cloud-family / non-domain types are NOT in the strip.
+    expect(chips.has('Pod')).toBe(false) // coreK8s family
+    expect(chips.has('HelmRelease')).toBe(false) // flux family
+    expect(chips.has('Database')).toBe(false) // cnpg family
   })
-  it('Reconciliation keeps only Control/Reconciler shapes', () => {
-    const hidden = presetHiddenTypes(PRESETS.reconciliation)
-    // HelmRelease (control) survives; Pod (compute) is hidden.
-    expect(hidden.has('HelmRelease')).toBe(false)
-    expect(hidden.has('Kustomization')).toBe(false)
-    expect(hidden.has('Pod')).toBe(true)
-    expect(hidden.has('Service')).toBe(true)
+  it('Reconciliation = exactly the Control/Reconciler chips', () => {
+    const chips = lensChips(LENSES.reconciliation)
+    // HelmRelease (control) is a member; Pod / Service are NOT in the strip.
+    expect(chips.has('HelmRelease')).toBe(true)
+    expect(chips.has('Kustomization')).toBe(true)
+    expect(chips.has('Application')).toBe(true)
+    expect(chips.has('Environment')).toBe(true)
+    expect(chips.has('Pod')).toBe(false)
+    expect(chips.has('Service')).toBe(false)
   })
-  it('the Flux family lens keeps only Flux-family types', () => {
-    const hidden = presetHiddenTypes(PRESETS.flux)
-    expect(hidden.has('HelmRelease')).toBe(false)
-    expect(hidden.has('Kustomization')).toBe(false)
-    expect(hidden.has('Certificate')).toBe(true) // cert-manager family
-    expect(hidden.has('Pod')).toBe(true)
+  it('the Flux family lens = exactly the Flux-family chips', () => {
+    const chips = lensChips(LENSES.flux)
+    expect(chips.has('HelmRelease')).toBe(true)
+    expect(chips.has('Kustomization')).toBe(true)
+    expect(chips.has('Certificate')).toBe(false) // cert-manager family
+    expect(chips.has('Pod')).toBe(false)
   })
-  it('Networking keeps the network category', () => {
-    const hidden = presetHiddenTypes(PRESETS.networking)
-    expect(hidden.has('Service')).toBe(false)
-    expect(hidden.has('Gateway')).toBe(false)
-    expect(hidden.has('Pod')).toBe(true)
+  it('Networking = exactly the network-category chips', () => {
+    const chips = lensChips(LENSES.networking)
+    expect(chips.has('Service')).toBe(true)
+    expect(chips.has('Gateway')).toBe(true)
+    expect(chips.has('Pod')).toBe(false)
+  })
+  it('every lens membership is non-empty except the runtime-only Crossplane family', () => {
+    for (const id of Object.keys(LENSES) as (keyof typeof LENSES)[]) {
+      const size = lensChips(LENSES[id]).size
+      if (id === 'crossplane') {
+        // Crossplane is a runtime-only family — statically empty in
+        // NODE_FAMILY; populated from live apiVersion at runtime.
+        expect(size).toBe(0)
+      } else {
+        expect(size).toBeGreaterThan(0)
+      }
+    }
   })
 })
 
@@ -152,25 +177,30 @@ describe('shapeForCategory', () => {
   })
 })
 
-describe('physicsFor — constant-density centered field', () => {
+describe('physicsFor — even / homogeneous density (#3970)', () => {
   const W = 1000
   const H = 600
 
-  it('field radius grows with sqrt(N) (constant density)', () => {
+  it('the uniform gap SHRINKS as N grows (constant density: more nodes ⇒ tighter packing)', () => {
     const p4 = physicsFor(4, W, H)
     const p40 = physicsFor(40, W, H)
     const p160 = physicsFor(160, W, H)
-    // monotonic increase
-    expect(p40.fieldRadius).toBeGreaterThan(p4.fieldRadius)
-    expect(p160.fieldRadius).toBeGreaterThan(p40.fieldRadius)
-    // never exceeds the viewport half-extent (no edge overflow)
-    expect(p160.fieldRadius).toBeLessThanOrEqual(Math.min(W, H) / 2)
+    // gap = sqrt(area / N): monotonically smaller as N grows (clamped).
+    expect(p40.uniformGap).toBeLessThanOrEqual(p4.uniformGap)
+    expect(p160.uniformGap).toBeLessThanOrEqual(p40.uniformGap)
+    // collide radius is half the gap — the dominant spacing force.
+    expect(p40.collide).toBeCloseTo(p40.uniformGap / 2, 6)
   })
 
-  it('a tiny graph stays a centred cluster, not flung to edges', () => {
-    const p = physicsFor(4, W, H)
-    // 4-node field is a small fraction of the viewport.
-    expect(p.fieldRadius).toBeLessThan(Math.min(W, H) / 2 * 0.5)
+  it('collision (not charge) is the dominant force — charge is mild/near-zero', () => {
+    for (const n of [4, 64, 400]) {
+      const p = physicsFor(n, W, H)
+      // mild charge — never the strong negative that flings to a ring.
+      expect(p.charge).toBeGreaterThan(-30)
+      expect(p.charge).toBeLessThanOrEqual(0)
+      // collide floor keeps nodes apart (no overlap).
+      expect(p.collide).toBeGreaterThanOrEqual(20)
+    }
   })
 
   it('link distance is clamped to [minLink, maxLink] with no overlap', () => {
@@ -179,17 +209,15 @@ describe('physicsFor — constant-density centered field', () => {
       expect(p.minLink).toBeGreaterThanOrEqual(2 * 20 + 10) // sum-of-radii + pad
       expect(p.linkDistance).toBeGreaterThanOrEqual(p.minLink)
       expect(p.linkDistance).toBeLessThanOrEqual(p.maxLink)
-      expect(p.maxLink).toBeLessThanOrEqual(160)
-      // hard collision floor present
-      expect(p.collide).toBeGreaterThanOrEqual(20)
+      expect(p.maxLink).toBeLessThanOrEqual(200)
     }
   })
 
-  it('keeps a gentle inward gravity at every scale', () => {
+  it('keeps a gentle inward gravity at every scale (anti-drift, never center-crush)', () => {
     for (const n of [4, 40, 1000, 8000]) {
       const p = physicsFor(n, W, H)
       expect(p.centerGravity).toBeGreaterThan(0)
-      expect(p.centerGravity).toBeLessThan(0.3)
+      expect(p.centerGravity).toBeLessThanOrEqual(0.07)
     }
   })
 })

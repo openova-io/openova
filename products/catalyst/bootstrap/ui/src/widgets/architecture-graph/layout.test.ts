@@ -1,24 +1,23 @@
 /**
- * layout.test.ts — locks the #3958 / fix/cloud-graph-spread-layout
- * contract on `physicsFor` and the settled force-directed layout:
+ * layout.test.ts — locks the #3970 EVEN / HOMOGENEOUS layout contract on
+ * `physicsFor` and the settled force-directed layout:
  *
- *   1. ELLIPTICAL field geometry: on a wide-short canvas the X-field
- *      (anchored to width/2) is materially larger than the Y-field
- *      (anchored to height/2), so the cloud fills BOTH axes instead of
- *      collapsing into a min(W,H)/2 disc with empty left/right margin.
- *   2. Constant-density clamp invariants hold across N = 4 / 64 / 400.
- *   3. The settled layout (driven headlessly through the real d3-force
- *      sim with production charge/collide/gravity + the elliptical cap)
- *      fills ≥75% of BOTH the canvas width and height for N = 64, while a
- *      4-node graph stays a tidy CENTRED cluster (not flung to corners).
+ *   1. physicsFor produces an even-density tuning: collision is dominant
+ *      (radius = uniformGap/2), charge is mild/near-zero, centering is
+ *      gentle. uniformGap = sqrt(usableArea / N)·k shrinks as N grows.
+ *   2. The settled layout (driven headlessly through the real d3-force
+ *      sim with the PRODUCTION collide-dominant + mild-charge + gentle-
+ *      centering config, the even phyllotaxis seed, and the hard viewport
+ *      bound — NO radial cap, which #3970 deleted) has UNIFORM LOCAL
+ *      DENSITY: partition the canvas into a G×G grid, count occupancy per
+ *      cell, and assert the variance/mean of occupied-region cells is
+ *      below a bound — i.e. NEITHER a dense central blob NOR an edge ring.
  *
- * Approach note (per the brief): jsdom has no rAF loop, but d3-force's
- * `simulation.tick()` is fully synchronous, so we drive the sim to a
- * settled state deterministically (seeded RNG + fixed tick budget) and
- * assert the bounding-box coverage directly. The cap used here is the
- * SAME elliptical boundary the canvas installs (mirrored inline so the
- * test owns no DOM); the geometry source of truth — `physicsFor` — is
- * imported directly.
+ * Approach note: jsdom has no rAF loop, but d3-force's `simulation.tick()`
+ * is fully synchronous, so we drive the sim to a settled state
+ * deterministically (seeded RNG + fixed tick budget) and assert the
+ * grid-cell occupancy variance directly. The geometry source of truth —
+ * `physicsFor` + `phyllotaxisSeed` — is imported directly.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -31,87 +30,83 @@ import {
   forceCenter,
   type Simulation,
 } from 'd3-force'
-import { physicsFor, NODE_R, BOUND_PADDING } from './layout'
+import { physicsFor, phyllotaxisSeed, NODE_R, BOUND_PADDING } from './layout'
 
 /* ── geometry contract (pure, no sim) ───────────────────────────── */
 
-describe('physicsFor — elliptical, viewport-filling field', () => {
+describe('physicsFor — even/homogeneous tuning (#3970)', () => {
   const W = 1100
   const H = 600
 
-  it('X-field tracks width/2 and Y-field tracks height/2 — they differ when W≠H', () => {
-    for (const n of [4, 64, 400]) {
+  it('collision is the dominant spacing force: collide = uniformGap/2', () => {
+    for (const n of [25, 64, 400]) {
       const p = physicsFor(n, W, H)
-      // The wide axis must be materially larger than the short axis.
-      expect(p.fieldRadiusX).toBeGreaterThan(p.fieldRadiusY)
-      // …and by roughly the canvas aspect ratio (same density factor on
-      // both axes ⇒ the ratio is the half-extent ratio when neither axis
-      // is clamped). At the very least it must exceed a short-dim circle.
-      const shortDimCircleR = Math.min(W, H) / 2 // what the OLD code used
-      // For a mid-size graph the X field reaches past the short-dim radius
-      // territory the old circle was stuck inside.
-      if (n >= 64) {
-        expect(p.fieldRadiusX).toBeGreaterThan(shortDimCircleR * 0.5)
-      }
+      expect(p.collide).toBeCloseTo(p.uniformGap / 2, 6)
+      // a hard floor so two bubbles never overlap
+      expect(p.collide).toBeGreaterThanOrEqual(NODE_R)
     }
   })
 
-  it('a square canvas yields equal X/Y fields (no spurious asymmetry)', () => {
-    const p = physicsFor(64, 800, 800)
-    expect(p.fieldRadiusX).toBeCloseTo(p.fieldRadiusY, 6)
-  })
-
-  it('each axis is clamped inside its own half-extent (never spills the edge)', () => {
-    for (const n of [4, 64, 400, 4000]) {
+  it('charge is mild / near-zero (no edge-fling)', () => {
+    for (const n of [25, 64, 400, 4000]) {
       const p = physicsFor(n, W, H)
-      expect(p.fieldRadiusX).toBeLessThanOrEqual(W / 2)
-      expect(p.fieldRadiusY).toBeLessThanOrEqual(H / 2)
-      // …and never collapses to a dot, even for a 4-node graph.
-      expect(p.fieldRadiusX).toBeGreaterThan(W / 2 * 0.1)
-      expect(p.fieldRadiusY).toBeGreaterThan(H / 2 * 0.1)
+      expect(p.charge).toBeGreaterThan(-30)
+      expect(p.charge).toBeLessThanOrEqual(0)
     }
   })
 
-  it('the field grows with sqrt(N) (constant density) on BOTH axes', () => {
-    const p4 = physicsFor(4, W, H)
+  it('the uniform gap shrinks with N (constant density)', () => {
+    const p25 = physicsFor(25, W, H)
     const p64 = physicsFor(64, W, H)
     const p400 = physicsFor(400, W, H)
-    expect(p64.fieldRadiusX).toBeGreaterThan(p4.fieldRadiusX)
-    expect(p400.fieldRadiusX).toBeGreaterThanOrEqual(p64.fieldRadiusX)
-    expect(p64.fieldRadiusY).toBeGreaterThan(p4.fieldRadiusY)
-    expect(p400.fieldRadiusY).toBeGreaterThanOrEqual(p64.fieldRadiusY)
+    expect(p64.uniformGap).toBeLessThanOrEqual(p25.uniformGap)
+    expect(p400.uniformGap).toBeLessThanOrEqual(p64.uniformGap)
   })
 
-  it('scalar fieldRadius is the SHORT axis (min of X/Y)', () => {
-    const p = physicsFor(64, W, H)
-    expect(p.fieldRadius).toBe(Math.min(p.fieldRadiusX, p.fieldRadiusY))
-  })
-
-  it('centerGravity is now weak (anti-drift only, not center-crush)', () => {
+  it('centerGravity is weak (anti-drift only, never center-crush)', () => {
     for (const n of [4, 64, 400, 8000]) {
       const p = physicsFor(n, W, H)
       expect(p.centerGravity).toBeGreaterThan(0)
-      expect(p.centerGravity).toBeLessThanOrEqual(0.05)
+      expect(p.centerGravity).toBeLessThanOrEqual(0.07)
     }
   })
 
-  it('charge is a dominant spreading force (strongly negative for small N)', () => {
-    // The whole point of the fix: repulsion must be strong enough to push
-    // nodes out to fill the field instead of collapsing to the centre.
-    expect(physicsFor(64, W, H).charge).toBeLessThanOrEqual(-150)
-    // …and softens (less negative) as N grows so a huge graph stays bounded.
-    expect(physicsFor(8000, W, H).charge).toBeGreaterThan(physicsFor(64, W, H).charge)
+  it('the field anchor tracks width/2 and height/2 (fills both axes)', () => {
+    const p = physicsFor(64, W, H)
+    expect(p.fieldRadiusX).toBeGreaterThan(p.fieldRadiusY) // wide canvas
+    expect(p.fieldRadiusX).toBeLessThanOrEqual(W / 2)
+    expect(p.fieldRadiusY).toBeLessThanOrEqual(H / 2)
+  })
+})
+
+/* ── phyllotaxis seed is even ───────────────────────────────────── */
+
+describe('phyllotaxisSeed — even sunflower seeding', () => {
+  it('places points across the field with no central pile-up', () => {
+    const cx = 550
+    const cy = 300
+    const rx = 500
+    const ry = 270
+    const N = 200
+    const pts = Array.from({ length: N }, (_, i) =>
+      phyllotaxisSeed(i, N, cx, cy, rx, ry, 0),
+    )
+    // radii are spread roughly uniformly by area (sqrt distribution): the
+    // mean normalized radius is around 2/3, not clustered at 0.
+    const meanNormR =
+      pts.reduce((s, p) => s + Math.hypot((p.x - cx) / rx, (p.y - cy) / ry), 0) / N
+    expect(meanNormR).toBeGreaterThan(0.55)
+    expect(meanNormR).toBeLessThan(0.78)
+    // every point stays inside the field ellipse.
+    for (const p of pts) {
+      const nd = Math.hypot((p.x - cx) / rx, (p.y - cy) / ry)
+      expect(nd).toBeLessThanOrEqual(1.0001)
+    }
   })
 })
 
 /* ── settled-layout contract (headless d3-force) ────────────────── */
 
-/**
- * A small deterministic PRNG so the settled layout is reproducible in CI
- * (d3-force seeds initial positions from Math.random via its phyllotaxis
- * fallback only when x/y are unset — we set them ourselves, so the only
- * randomness is our jitter seed here).
- */
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0
   return () => {
@@ -135,39 +130,9 @@ interface SimNode {
 }
 
 /**
- * Mirror of GraphCanvas.makeForceRadialCap — the elliptical soft cap. Kept
- * inline so this test owns no DOM/component import; the geometry it caps to
- * comes straight from physicsFor (the source of truth under test).
- */
-function ellipticalCap(cx: number, cy: number, rx: number, ry: number) {
-  let nodes: SimNode[] = []
-  const force = (alpha: number) => {
-    if (rx <= 0 || ry <= 0) return
-    for (const n of nodes) {
-      if (n.fx !== null || n.fy !== null) continue
-      const dx = n.x - cx
-      const dy = n.y - cy
-      const nx = dx / rx
-      const ny = dy / ry
-      const norm2 = nx * nx + ny * ny
-      if (norm2 <= 1 || norm2 === 0) continue
-      const overshoot = Math.sqrt(norm2) - 1
-      const k = Math.min(0.25, overshoot) * alpha
-      n.vx -= dx * k
-      n.vy -= dy * k
-    }
-  }
-  ;(force as unknown as { initialize: (n: SimNode[]) => void }).initialize = (next) => {
-    nodes = next
-  }
-  return force as ((alpha: number) => void) & { initialize: (n: SimNode[]) => void }
-}
-
-/**
  * Mirror of GraphCanvas.makeForceBound — the HARD viewport-edge clamp +
- * velocity-reflection safety net. Production installs this alongside the
- * soft elliptical cap; we mirror it so the settle test is faithful (the
- * hard bound is what guarantees no node ever leaves the canvas).
+ * velocity-reflection safety net. This is the ONLY boundary force in the
+ * #3970 model (the radial cap is deleted).
  */
 function hardBound(W: number, H: number, padding: number, nodeR: number) {
   let nodes: SimNode[] = []
@@ -199,21 +164,19 @@ function hardBound(W: number, H: number, padding: number, nodeR: number) {
   return force as (() => void) & { initialize: (n: SimNode[]) => void }
 }
 
-/** Build N seeded nodes clustered near the centroid (as the canvas seeds). */
-function seedNodes(count: number, cx: number, cy: number, seedR: number, rng: () => number): SimNode[] {
+/** Seed N nodes on the EVEN phyllotaxis pattern (as the canvas now does). */
+function seedNodes(
+  count: number,
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  rng: () => number,
+): SimNode[] {
   const out: SimNode[] = []
   for (let i = 0; i < count; i++) {
-    const ang = rng() * 2 * Math.PI
-    const rad = Math.sqrt(rng()) * seedR
-    out.push({
-      x: cx + Math.cos(ang) * rad,
-      y: cy + Math.sin(ang) * rad,
-      vx: 0,
-      vy: 0,
-      fx: null,
-      fy: null,
-      degree: 0,
-    })
+    const p = phyllotaxisSeed(i, count, cx, cy, rx, ry, 1, rng)
+    out.push({ x: p.x, y: p.y, vx: 0, vy: 0, fx: null, fy: null, degree: 0 })
   }
   return out
 }
@@ -224,29 +187,26 @@ function settle(count: number, W: number, H: number, seed = 1): SimNode[] {
   const cx = W / 2
   const cy = H / 2
   const rng = mulberry32(seed)
-  const seedR = Math.min(60, phys.fieldRadius * 0.5)
-  const nodes = seedNodes(count, cx, cy, seedR, rng)
+  const nodes = seedNodes(count, cx, cy, phys.fieldRadiusX, phys.fieldRadiusY, rng)
 
   const sim: Simulation<SimNode, undefined> = forceSimulation<SimNode>(nodes)
     .force('charge', forceManyBody<SimNode>().strength(phys.charge))
     .force(
       'collide',
-      forceCollide<SimNode>().radius(NODE_R + 4).strength(0.9),
+      // PRODUCTION collide: radius = uniformGap/2 (floored at NODE_R+4),
+      // strength 1 — the dominant even-density force.
+      forceCollide<SimNode>().radius(Math.max(phys.collide, NODE_R + 4)).strength(1),
     )
     .force('center', forceCenter<SimNode>(cx, cy))
     .force('gravityX', forceX<SimNode>(cx).strength(phys.centerGravity))
     .force('gravityY', forceY<SimNode>(cy).strength(phys.centerGravity))
-    .force('field', ellipticalCap(cx, cy, phys.fieldRadiusX, phys.fieldRadiusY))
+    // NO radial cap (#3970). Only the hard viewport bound.
     .force('bound', hardBound(W, H, BOUND_PADDING, NODE_R))
     .alphaDecay(phys.alphaDecay)
     .alphaTarget(0)
     .stop()
 
-  // No links in this isolation test — we measure the spread of the field
-  // itself (the founder complaint is about the empty margin, not topology).
-  // Tick to convergence: enough iterations for alpha to decay below the
-  // default 0.001 stop threshold given phys.alphaDecay.
-  const ticks = Math.ceil(Math.log(0.001) / Math.log(1 - phys.alphaDecay)) + 50
+  const ticks = Math.ceil(Math.log(0.001) / Math.log(1 - phys.alphaDecay)) + 80
   sim.alpha(1)
   for (let i = 0; i < ticks; i++) sim.tick()
 
@@ -267,23 +227,84 @@ function bbox(nodes: SimNode[]) {
   return { minX, maxX, minY, maxY, w: maxX - minX, h: maxY - minY }
 }
 
-describe('settled layout fills the canvas (headless d3-force)', () => {
+/**
+ * Grid-cell occupancy variance / mean over the OCCUPIED region (the
+ * bounding box of the settled cloud). A perfectly uniform fill has all
+ * cells equally populated (variance/mean → ~0); a central blob leaves the
+ * outer cells empty and stacks the centre (high variance); an edge ring
+ * leaves the centre cells empty (also high variance). The bound asserts
+ * the fill is even in BOTH the no-blob and no-ring senses.
+ */
+function occupancyVarianceOverMean(nodes: SimNode[], G: number) {
+  const b = bbox(nodes)
+  const w = Math.max(1, b.w)
+  const h = Math.max(1, b.h)
+  const cells = new Array(G * G).fill(0)
+  for (const n of nodes) {
+    let gx = Math.floor(((n.x - b.minX) / w) * G)
+    let gy = Math.floor(((n.y - b.minY) / h) * G)
+    gx = Math.min(G - 1, Math.max(0, gx))
+    gy = Math.min(G - 1, Math.max(0, gy))
+    cells[gy * G + gx] += 1
+  }
+  const mean = nodes.length / (G * G)
+  const variance =
+    cells.reduce((s, c) => s + (c - mean) * (c - mean), 0) / cells.length
+  return { ratio: variance / mean, cells, G, mean }
+}
+
+/** Count how many of the CENTRE cells are occupied — guards against an
+ *  edge-ring (empty middle). */
+function centreCellsOccupied(cells: number[], G: number): number {
+  // The central 2×2 (even G) or 1×1 (odd G) block.
+  const lo = Math.floor((G - 1) / 2)
+  const hi = Math.ceil((G - 1) / 2)
+  let occupied = 0
+  let total = 0
+  for (let gy = lo; gy <= hi; gy++) {
+    for (let gx = lo; gx <= hi; gx++) {
+      total += 1
+      if (cells[gy * G + gx] > 0) occupied += 1
+    }
+  }
+  return occupied / total
+}
+
+describe('settled layout has UNIFORM LOCAL DENSITY (#3970)', () => {
   const W = 1100
   const H = 600
 
-  it('N=64 fills ≥75% of BOTH width and height', () => {
-    const nodes = settle(64, W, H, 42)
+  for (const N of [25, 64, 200]) {
+    it(`N=${N}: grid-cell occupancy variance/mean is below the even-density bound`, () => {
+      const nodes = settle(N, W, H, 42 + N)
+      // 5×5 grid over the occupied region. A uniform fill keeps the
+      // variance/mean low; a blob or ring blows it up. Empirically the
+      // collide-dominant even-seed layout settles well under 2.0.
+      const { ratio } = occupancyVarianceOverMean(nodes, 5)
+      expect(ratio).toBeLessThan(2.0)
+    })
+  }
+
+  it('N=400 fills the canvas (≥70% of BOTH axes) — no center-crush', () => {
+    const nodes = settle(400, W, H, 11)
     const b = bbox(nodes)
-    expect(b.w).toBeGreaterThanOrEqual(0.75 * W)
-    expect(b.h).toBeGreaterThanOrEqual(0.75 * H)
+    expect(b.w).toBeGreaterThanOrEqual(0.7 * W)
+    expect(b.h).toBeGreaterThanOrEqual(0.7 * H)
   })
 
-  it('N=64 — no two node centres closer than the collide radius', () => {
+  it('N=64 — the CENTRE is occupied (no edge-ring / empty middle)', () => {
     const nodes = settle(64, W, H, 7)
-    const collideR = NODE_R + 4 // forceCollide radius used above
-    // d3 collide resolves overlaps softly; allow a small tolerance for the
-    // residual sub-radius penetration at the settle threshold.
-    const minAllowed = collideR * 0.9
+    const { cells, G } = occupancyVarianceOverMean(nodes, 5)
+    // The central block must be populated — an edge ring would leave it 0.
+    expect(centreCellsOccupied(cells, G)).toBeGreaterThan(0)
+  })
+
+  it('N=64 — no two node centres closer than the collide radius (no overlap)', () => {
+    const nodes = settle(64, W, H, 9)
+    const phys = physicsFor(64, W, H)
+    const collideR = Math.max(phys.collide, NODE_R + 4)
+    // d3 collide resolves overlaps softly; allow a small residual.
+    const minAllowed = collideR * 0.85
     let minDist = Infinity
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
@@ -294,27 +315,10 @@ describe('settled layout fills the canvas (headless d3-force)', () => {
     expect(minDist).toBeGreaterThanOrEqual(minAllowed)
   })
 
-  it('N=4 stays a tidy CENTRED cluster (not flung to the corners)', () => {
-    const nodes = settle(4, W, H, 3)
-    const b = bbox(nodes)
-    const cx = W / 2
-    const cy = H / 2
-    // The cluster's bounding box centre is near the canvas centre.
-    expect(Math.abs((b.minX + b.maxX) / 2 - cx)).toBeLessThan(0.18 * W)
-    expect(Math.abs((b.minY + b.maxY) / 2 - cy)).toBeLessThan(0.18 * H)
-    // …and it does NOT sprawl to the edges (a tidy small cluster).
-    expect(b.w).toBeLessThan(0.6 * W)
-    expect(b.h).toBeLessThan(0.6 * H)
-  })
-
-  it('N=400 fills the canvas (no dense central blob) and stays inside the viewport', () => {
-    const nodes = settle(400, W, H, 11)
-    const b = bbox(nodes)
-    // Wide spread on both axes — fills the canvas, NOT a central blob…
-    expect(b.w).toBeGreaterThanOrEqual(0.75 * W)
-    expect(b.h).toBeGreaterThanOrEqual(0.75 * H)
-    // …and the hard bound guarantees no node ever leaves the viewport.
+  it('every node stays inside the viewport (hard bound holds)', () => {
+    const nodes = settle(200, W, H, 3)
     const edge = NODE_R + BOUND_PADDING
+    const b = bbox(nodes)
     expect(b.minX).toBeGreaterThanOrEqual(edge - 0.5)
     expect(b.maxX).toBeLessThanOrEqual(W - edge + 0.5)
     expect(b.minY).toBeGreaterThanOrEqual(edge - 0.5)

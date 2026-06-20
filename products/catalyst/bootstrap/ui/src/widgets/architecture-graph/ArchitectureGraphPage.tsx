@@ -64,15 +64,12 @@ import type {
   VolumeItem,
 } from '@/lib/infrastructure.types'
 import { GraphCanvas, type GraphCanvasHandle } from './GraphCanvas'
-import { hierarchyToGraph } from './adapter'
-import { k8sToGraph, mergeGraphs } from './k8sAdapter'
-import { reconcilersToGraph } from './reconcilerAdapter'
+import { buildCloudGraph } from './cloudGraphData'
 import { useK8sCacheStream, type K8sSnapshot } from './useK8sCacheStream'
 import type { ReconciliationNode } from '@/lib/reconciliation.api'
 import {
   ALL_EDGE_TYPES,
   ALL_NODE_TYPES,
-  DEFAULT_INACTIVE_TYPES,
   EDGE_DASHED,
   EDGE_MARKER_END,
   EDGE_MARKER_START,
@@ -85,12 +82,8 @@ import {
   type GraphEdge,
   type GraphNode,
 } from './types'
-import {
-  PRESETS,
-  PRESET_ORDER,
-  type PresetId,
-  presetHiddenTypes,
-} from './presets'
+import { LENSES, LENS_ORDER, type LensId } from './presets'
+import { useCloudLensOptional, useCloudLensState } from './useCloudLens'
 import { NODE_ICON } from './icons'
 import { markerId } from './markers'
 
@@ -113,9 +106,8 @@ const TUNABLE_TYPES: ArchNodeType[] = [
   'Service',
   'Ingress',
   // K8s-side types — high-cardinality kinds whose density slider
-  // matters most. ConfigMap and Pod are also default-inactive (see
-  // DEFAULT_INACTIVE_TYPES) so they don't crowd the canvas before
-  // the operator opts in.
+  // matters most. The density slider (default 100%, #3970) governs how
+  // many of each render once the lens has the chip ON.
   'Pod',
   'Deployment',
   'StatefulSet',
@@ -124,7 +116,14 @@ const TUNABLE_TYPES: ArchNodeType[] = [
 ]
 
 const DEBOUNCE_MS = 400
-const DEFAULT_GLOBAL_PCT = 50
+/**
+ * Default global density (#3970). Opens at 100% so EVERY active type
+ * renders fully on first paint — no high-cardinality node is silently
+ * hidden before the operator touches the slider. (#3958 opened at 50,
+ * which the operator rejected: "half my pods are missing and I never
+ * moved the slider".)
+ */
+const DEFAULT_GLOBAL_PCT = 100
 
 /* ── Public props ────────────────────────────────────────────────── */
 
@@ -250,22 +249,15 @@ export function ArchitectureGraphPage({
   const k8sSnapshot = k8sSnapshotProp ?? fallback.snapshot
   const k8sRevision = k8sRevisionProp ?? fallback.revision
 
-  /* ── 1. Adapter — tree → nodes/edges, merged with K8s side AND the
-   *     reconciler set (#3958). Reconciler ids are namespaced `recon:`
-   *     so they never collide with cloud/k8s ids — a plain concat after
-   *     mergeGraphs is safe, and edges only reference reconciler ids. */
-  const { nodes: allNodes, edges: allEdges } = useMemo(() => {
-    const cloud = hierarchyToGraph(data)
-    const k8s = k8sToGraph(k8sSnapshot)
-    const base = mergeGraphs(cloud, k8s)
-    const recon = reconcilersToGraph(reconcilers)
-    if (recon.nodes.length === 0) return base
-    return {
-      nodes: [...base.nodes, ...recon.nodes],
-      edges: [...base.edges, ...recon.edges],
-    }
+  /* ── 1. Adapter — the ONE dataset: tree → nodes/edges, merged with the
+   *     K8s side AND the reconciler set (#3958/#3970). Shared with the
+   *     list view via buildCloudGraph so graph + list are provably the
+   *     same dataset incl. reconcilers. */
+  const { nodes: allNodes, edges: allEdges } = useMemo(
+    () => buildCloudGraph(data, k8sSnapshot, reconcilers),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, k8sRevision, reconcilers])
+    [data, k8sRevision, reconcilers],
+  )
 
   /* ── 2. Type totals for slider sizing ──────────────────────── */
   const typeTotals = useMemo(() => {
@@ -274,79 +266,34 @@ export function ArchitectureGraphPage({
     return m
   }, [allNodes])
 
-  /* ── 3. Active chip set + density state ──────────────────────
-   * The data layer (adapter) holds every node type and every relation
-   * regardless of which chips are active (#348 item 2). Chip add /
-   * remove is a pure visibility filter applied via `hiddenTypes`
-   * below — derived from the inverse of `activeTypes`. */
-  const [activeTypes, setActiveTypes] = useState<Set<ArchNodeType>>(
-    () => {
-      const init = new Set<ArchNodeType>()
-      for (const t of ALL_NODE_TYPES) {
-        if (!DEFAULT_INACTIVE_TYPES.has(t)) init.add(t)
-      }
-      return init
-    },
-  )
+  /* ── 3. Lens = active chip-set + density state (#3970) ────────
+   * THE MODEL: a lens IS a named chip-set. Selecting a lens REPLACES the
+   * active chip-set with exactly that lens's chips; the strip renders
+   * ONLY the active chips; `+ Add` grows the active set (active = lens ∪
+   * additions); removing a chip shrinks it. There is NO separate hidden
+   * filter layer — `hiddenTypes` is just the complement of `activeTypes`.
+   * Default lens = Cloud (#3970).
+   *
+   * The lens state is SHARED with the list view via CloudLensProvider so
+   * the view=graph↔list toggle preserves the lens + chips. When rendered
+   * standalone (tests/storybook with no provider) we fall back to a
+   * private instance. */
+  const sharedLens = useCloudLensOptional()
+  const privateLens = useCloudLensState()
+  const { lensId, activeTypes, isCustom, selectLens, addChip, removeChip } =
+    sharedLens ?? privateLens
 
-  // Whenever the data refreshes, ensure types newly seen become active
-  // (don't auto-activate a type the operator removed previously, but
-  // do show types that didn't exist on the previous render).
-  // Default-inactive types are NEVER auto-activated — the operator
-  // opts in via the chip strip so the canvas isn't immediately
-  // overrun by 200+ Pods on first paint.
-  const seenTypesRef = useRef<Set<ArchNodeType>>(new Set())
-  useEffect(() => {
-    setActiveTypes((prev) => {
-      const next = new Set(prev)
-      let changed = false
-      for (const t of ALL_NODE_TYPES) {
-        const total = typeTotals.get(t) ?? 0
-        if (total > 0 && !seenTypesRef.current.has(t)) {
-          seenTypesRef.current.add(t)
-          if (!next.has(t) && !DEFAULT_INACTIVE_TYPES.has(t)) {
-            next.add(t)
-            changed = true
-          }
-        }
-      }
-      return changed ? next : prev
-    })
-  }, [typeTotals])
-
-  function removeChip(t: ArchNodeType) {
-    setActiveTypes((prev) => {
-      const n = new Set(prev)
-      n.delete(t)
-      return n
-    })
-  }
-  function addChip(t: ArchNodeType) {
-    setActiveTypes((prev) => {
-      const n = new Set(prev)
-      n.add(t)
-      return n
-    })
-  }
-
-  /* ── Preset lens (#3958) — a cross-cutting {categories, families,
-   *     edge-kinds} lens LAYERED on top of the per-type chip toggles.
-   *     The preset narrows by category + family; chips stay the
-   *     fine-grained control. Default 'all' hides nothing. */
-  const [presetId, setPresetId] = useState<PresetId>('all')
-
-  const presetHidden = useMemo(() => presetHiddenTypes(PRESETS[presetId]), [presetId])
-
-  // The set of types HIDDEN from the canvas — the UNION of (a) every type
-  // NOT in the active chip set (#348 item 2 — chip removal == visibility
-  // filter) and (b) every type the active preset lens excludes (#3958).
+  // The set of types HIDDEN from the canvas — purely the complement of
+  // the active chip-set. The strip IS the lens (made editable); nothing
+  // is hidden "underneath" a fuller strip (#3970 — the filter-layer is
+  // deleted).
   const hiddenTypes = useMemo(() => {
     const h = new Set<ArchNodeType>()
     for (const t of ALL_NODE_TYPES) {
-      if (!activeTypes.has(t) || presetHidden.has(t)) h.add(t)
+      if (!activeTypes.has(t)) h.add(t)
     }
     return h
-  }, [activeTypes, presetHidden])
+  }, [activeTypes])
 
   // Per-type explicit cap; null = "all" (no cap).
   const [typeCap, setTypeCap] = useState<Partial<Record<ArchNodeType, number | null>>>({})
@@ -534,32 +481,42 @@ export function ArchitectureGraphPage({
           </span>
         )}
 
-        {/* Preset lens dropdown (#3958) — cross-cutting domain + family
-            lenses, layered on the per-type chip toggles below. */}
-        <label className="flex items-center gap-1.5 text-xs text-[var(--color-text-dim)]" htmlFor="arch-preset">
+        {/* Lens dropdown (#3970) — a lens IS the chip-set below. Picking
+            a lens REPLACES the active chips with exactly that lens's
+            chips (the strip shows ONLY those). `Custom` shows once the
+            operator has +Added or removed a chip. */}
+        <label className="flex items-center gap-1.5 text-xs text-[var(--color-text-dim)]" htmlFor="arch-lens">
           Lens
           <select
-            id="arch-preset"
-            data-testid="cloud-architecture-preset"
-            value={presetId}
-            onChange={(e) => setPresetId(e.target.value as PresetId)}
+            id="arch-lens"
+            data-testid="cloud-architecture-lens"
+            value={lensId}
+            onChange={(e) => selectLens(e.target.value as LensId)}
             className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-xs text-[var(--color-text)]"
           >
             <optgroup label="Domain">
-              {PRESET_ORDER.filter((id) => PRESETS[id].group === 'domain').map((id) => (
+              {LENS_ORDER.filter((id) => LENSES[id].group === 'domain').map((id) => (
                 <option key={id} value={id}>
-                  {PRESETS[id].label}
+                  {LENSES[id].label}
                 </option>
               ))}
             </optgroup>
             <optgroup label="Family">
-              {PRESET_ORDER.filter((id) => PRESETS[id].group === 'family').map((id) => (
+              {LENS_ORDER.filter((id) => LENSES[id].group === 'family').map((id) => (
                 <option key={id} value={id}>
-                  {PRESETS[id].label}
+                  {LENSES[id].label}
                 </option>
               ))}
             </optgroup>
           </select>
+          {isCustom && (
+            <span
+              data-testid="cloud-architecture-lens-custom"
+              className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-text-dim)]"
+            >
+              Custom
+            </span>
+          )}
         </label>
 
         <div className="ml-auto flex items-center gap-2">
