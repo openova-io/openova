@@ -1,0 +1,49 @@
+{{/*
+Catalyst-managed StorageClasses for the Huawei EVS CSI.
+Renders one StorageClass per entry in .Values.catalystStorageClasses[].
+Default off (gated by .Values.enabled).
+
+provisioner is `evs.csi.huaweicloud.com` — the huaweicloud-csi-driver EVS
+plugin (must match the CSIDriver object). The EVS volume-type selector is the
+FLAT `type` parameter (verified in pkg/evs/nodeserver.go:512 — NOT everest's
+everest.io/disk-volume-type). HCS me-east-215 exposes only SSD / SAS, so SSD
+is pinned by default. WaitForFirstConsumer so the volume lands in the
+consuming Pod's AZ (the driver sets topology from the node metadata's
+availability_zone).
+
+When .Values.defaultStorageClass is true the FIRST entry is annotated as the
+cluster default. The default-class flip hook also promotes it + demotes any
+stale default so there is EXACTLY ONE default class (on a fresh prov local-path
+never exists — k3s --disable=local-storage — so the demote is a no-op).
+*/}}
+{{- if .Values.enabled -}}
+{{- range $i, $sc := .Values.catalystStorageClasses }}
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ $sc.name | quote }}
+  labels:
+    app.kubernetes.io/name: bp-huawei-evs-csi
+    app.kubernetes.io/component: storage-class
+    catalyst.openova.io/blueprint: bp-huawei-evs-csi
+    catalyst.openova.io/blueprint-version: {{ $.Chart.Version | quote }}
+  annotations:
+{{- if and $.Values.defaultStorageClass (eq $i 0) }}
+    storageclass.kubernetes.io/is-default-class: "true"
+{{- end }}
+provisioner: evs.csi.huaweicloud.com
+reclaimPolicy: {{ $sc.reclaimPolicy | default "Retain" | quote }}
+volumeBindingMode: {{ $sc.volumeBindingMode | default "WaitForFirstConsumer" | quote }}
+allowVolumeExpansion: {{ $sc.allowVolumeExpansion | default true }}
+parameters:
+  # EVS volume type — the driver's flat `type` parameter. HCS me-east-215
+  # exposes SSD / SAS only; SSD pinned for production IOPS.
+  type: {{ $sc.volumeType | default "SSD" | quote }}
+  # Filesystem the node plugin formats the raw EVS device with.
+  csi.storage.k8s.io/fstype: {{ $sc.fsType | default "ext4" | quote }}
+{{- with $sc.extraParameters }}
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- end -}}

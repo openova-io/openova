@@ -717,7 +717,11 @@ locals {
     stringData:
       huawei-ak: "${var.huawei_access_key}"
       huawei-sk: "${var.huawei_secret_key}"
-      huawei-project-id: "${var.huawei_region}"
+      # #3971 follow-up: was wrongly set to var.huawei_region (a latent bug
+      # harmless until the EVS CSI — slot 55b — needed the REAL project-id for
+      # the EVS API path https://evs.<region>.<cloud>/v3/<project-id>/...).
+      # The huaweicloud-csi-driver cloud-config reads this as `project-id`.
+      huawei-project-id: "${var.huawei_project_id}"
       huawei-region: "${var.huawei_region}"
   EOT
 

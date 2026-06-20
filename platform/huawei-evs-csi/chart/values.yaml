@@ -1,0 +1,138 @@
+# bp-huawei-evs-csi — Huawei EVS block-storage CSI for HCS/kom4dc.
+#
+# Driver: the OPEN-SOURCE huaweicloud-csi-driver EVS plugin
+# (provisioner `evs.csi.huaweicloud.com`) — NOT the closed-source CCE
+# `everest` add-on (disk.csi.everest.io). The everest add-on is bound to
+# CCE's agency / IAM pod-identity, ships no public manifests, and cannot run
+# on a bare k3s cluster. The open-source driver is purpose-built for
+# self-managed clusters: it authenticates with a portable AK/SK INI
+# cloud-config and self-discovers each node's ECS server-id from the
+# OpenStack metadata service — confirmed reachable on the live hw174 nodes
+# (169.254.169.254/openstack/latest/meta_data.json → uuid + availability_zone
+# me-east-215a). Verified directly from the driver source (pkg/config/cloud.go,
+# pkg/utils/metadatas/metadata.go, pkg/evs/driver.go,nodeserver.go).
+#
+# Master gate. Default off — a bare `helm install` renders ZERO resources
+# (mirrors bp-hcloud-csi). The bootstrap-kit slot 55b flips this true on
+# Huawei provs only (HUAWEI_HR_SUSPEND-gated). On Hetzner the slot is
+# default-suspended, so this chart never installs there.
+enabled: false
+
+# Flip `evs-ssd` to the cluster-default StorageClass (renders the
+# is-default-class annotation + runs the default-class flip hook). Tracks
+# `enabled` from the slot. Default false so a bare install is reversible.
+defaultStorageClass: false
+
+# ─── Huawei AK/SK cloud-config (the driver reads this to call the EVS API) ──
+# These values are populated at HelmRelease apply time via Flux `valuesFrom`
+# against the canonical flux-system/cloud-credentials Secret (keys
+# huawei-ak / huawei-sk / huawei-project-id / huawei-region — seeded by the
+# Huawei cloud-init Phase 0). Per docs/PRINCIPLES.md #10 (credentials NEVER
+# on the CR / in Git) these stay EMPTY in committed YAML; the live values land
+# at apply time and are never persisted. When huaweiAccessKey is empty the
+# cloud-config Secret template renders nothing, so a default-off / Hetzner
+# render is a clean no-op.
+huaweiAccessKey: ""
+huaweiSecretKey: ""
+huaweiProjectId: ""
+huaweiRegion: ""
+
+# `cloud` — the HCS API domain suffix. The driver derives every service
+# endpoint as `https://<service>.<region>.<cloud>/` (verified in
+# pkg/config/cloud.go newServiceClient). For kom4dc this resolves EVS to
+# `https://evs.me-east-215.kom4dc.nationalcloud.om/` — exactly the live
+# endpoint probed on hw174.
+cloud: "kom4dc.nationalcloud.om"
+
+# `auth-url` — the HCS IAM v3 token endpoint. Pin it EXPLICITLY: the driver's
+# auto-default drops the region (`https://iam.<cloud>:443/v3/`) which is wrong
+# for HCS. The slot substitutes the live region.
+authUrl: "https://iam.me-east-215.kom4dc.nationalcloud.om/v3"
+
+# everest must skip TLS verification against the on-prem HCS CA (not in the
+# standard trust store) — mirrors the tofu provider's `insecure = true`.
+insecureSkipTLSVerify: true
+
+# ─── StorageClass(es) ───────────────────────────────────────────────────
+# The FIRST entry is promoted to cluster-default when defaultStorageClass is
+# true. HCS me-east-215 exposes only `SSD` and `SAS` EVS volume types
+# (confirmed live via the EVS cinder list-volume-types probe, main.tf line
+# ~1066) — SSD is pinned for production IOPS. The volume-type parameter key is
+# the FLAT `type` key (verified in pkg/evs/nodeserver.go:512 — NOT everest's
+# `everest.io/disk-volume-type`). reclaimPolicy Retain gives the same
+# production-data durability posture as hcloud-volumes.
+catalystStorageClasses:
+  - name: evs-ssd
+    volumeType: SSD
+    reclaimPolicy: Retain
+    volumeBindingMode: WaitForFirstConsumer
+    allowVolumeExpansion: true
+    fsType: ext4
+
+# VolumeSnapshotClass for storage-level DR / backup (Velero etc.). The EVS
+# driver supports snapshots. ON by default (#3971 — same posture as
+# bp-hcloud-csi's VolumeSnapshotClass).
+volumeSnapshotClass:
+  enabled: true
+  name: evs-snapshots
+  deletionPolicy: Delete
+
+# ─── driver + sidecar images ────────────────────────────────────────────
+# The EVS driver image lives in Huawei SWR (cn-north-4); on kom4dc every
+# upstream registry is proxy-mirrored through harbor.openova.io (the bastion
+# NAT bypass — infra/providers/huawei/main.tf registry_mirror_yaml_huawei).
+# The driver image is mirrored through a harbor proxy project so the Kyverno
+# harbor-proxy-pull policy passes. Sidecar images are repointed from the
+# deprecated k8s.gcr.io to registry.k8s.io (identical paths/tags) via the
+# harbor proxy-k8s cache.
+#
+# Tags pinned to the versions the upstream deploy manifests ship
+# (evs-csi-plugin v0.1.11 + the six sig-storage sidecars). Overridable per
+# Sovereign if the local SWR mirror carries a different driver version.
+image:
+  driver:
+    repository: harbor.openova.io/proxy-swr-csi/k8s-csi/evs-csi-plugin
+    tag: "v0.1.11"
+    pullPolicy: IfNotPresent
+  sidecars:
+    provisioner:
+      repository: harbor.openova.io/proxy-k8s/sig-storage/csi-provisioner
+      tag: "v3.0.0"
+    attacher:
+      repository: harbor.openova.io/proxy-k8s/sig-storage/csi-attacher
+      tag: "v3.3.0"
+    resizer:
+      repository: harbor.openova.io/proxy-k8s/sig-storage/csi-resizer
+      tag: "v1.3.0"
+    snapshotter:
+      repository: harbor.openova.io/proxy-k8s/sig-storage/csi-snapshotter
+      tag: "v4.2.1"
+    nodeDriverRegistrar:
+      repository: harbor.openova.io/proxy-k8s/sig-storage/csi-node-driver-registrar
+      tag: "v2.4.0"
+    livenessProbe:
+      repository: harbor.openova.io/proxy-k8s/sig-storage/livenessprobe
+      tag: "v2.5.0"
+
+# kubelet root dir — k3s uses /var/lib/kubelet. CRITICAL override: the
+# upstream node DaemonSet hardcodes CCE's pods path
+# (/mnt/paas/kubernetes/kubelet); on k3s it MUST be <kubeletDir>/pods or the
+# node plugin can't bind-mount volumes into Pods.
+kubeletDir: /var/lib/kubelet
+
+# Cluster name passed to the driver --cluster flag (used for volume metadata
+# tagging). The slot substitutes the Sovereign FQDN slug.
+clusterName: catalyst
+
+# Controller resourcing (HA — 2 replicas across nodes for multi-node provs).
+controller:
+  replicas: 2
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+# Node plugin (DaemonSet — one per node, privileged for mount).
+node:
+  resources:
+    requests: { cpu: 25m, memory: 48Mi }
+    limits: { memory: 192Mi }

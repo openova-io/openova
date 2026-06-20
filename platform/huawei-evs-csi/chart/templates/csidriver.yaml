@@ -1,0 +1,31 @@
+{{/*
+CSIDriver object for the huaweicloud-csi-driver EVS block-storage plugin.
+
+metadata.name MUST equal the provisioner string in the StorageClass
+(evs.csi.huaweicloud.com — verified driverName in pkg/evs/driver.go).
+Kubernetes matches PVCs to this driver by that name.
+
+attachRequired: true — EVS volumes attach to the node's ECS (the controller's
+                       ControllerPublishVolume calls the EVS attach API using
+                       the node's ECS server-id from the metadata service)
+                       before the node plugin mounts.
+podInfoOnMount: true  — the driver uses pod/PVC metadata.
+fsGroupPolicy: File   — let the kubelet apply fsGroup ownership on mount.
+*/}}
+{{- if .Values.enabled }}
+---
+apiVersion: storage.k8s.io/v1
+kind: CSIDriver
+metadata:
+  name: evs.csi.huaweicloud.com
+  labels:
+    app.kubernetes.io/name: bp-huawei-evs-csi
+    app.kubernetes.io/component: csidriver
+    catalyst.openova.io/blueprint: bp-huawei-evs-csi
+spec:
+  attachRequired: true
+  podInfoOnMount: true
+  fsGroupPolicy: File
+  volumeLifecycleModes:
+    - Persistent
+{{- end }}

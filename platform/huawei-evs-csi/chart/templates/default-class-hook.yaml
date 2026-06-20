@@ -1,0 +1,127 @@
+{{- /*
+Default-StorageClass flip hook — bp-huawei-evs-csi (#3971, Huawei sibling).
+
+THE FIX
+=======
+Huawei (HCS) Sovereigns had NO StorageClass at all because no CSI was ever
+installed there (bp-hcloud-csi renders empty on Huawei). Every stateful PVC
+sat Pending → the vCluster data-* PVCs never bound → the vc-* kubeconfig
+secrets never materialised → the whole spine froze at ~40/50 HRs. This chart
+installs the everest EVS CSI + the `evs-ssd` durable StorageClass; this hook
+makes it the cluster default.
+
+This post-install/post-upgrade Job runs AFTER the evs-ssd StorageClass and the
+CSI controller have landed. It:
+  1. Waits (bounded) for the `evs-ssd` SC to exist.
+  2. Promotes it to cluster-default (idempotent).
+  3. DEMOTES every OTHER StorageClass still carrying the default annotation so
+     there is EXACTLY ONE default. On a FRESH prov this is a no-op (k3s runs
+     --disable=local-storage so local-path was never installed, and the K23
+     Kyverno ENFORCE policy DENIES recreating it). The demote only heals an
+     UPGRADE from a pre-#3992 cluster with a stale default.
+
+Gated on .Values.enabled + .Values.defaultStorageClass so a default-off render
+emits ZERO resources. Fails FAST (300s) so a broken CSI surfaces in Flux
+conditions, not a 15-minute spin.
+
+Reuses the provisioner-agnostic flip logic from bp-hcloud-csi verbatim — only
+the target SC name (evs-ssd) and the blueprint labels differ.
+*/}}
+{{- if and .Values.enabled .Values.defaultStorageClass }}
+{{- $defaultSC := "evs-ssd" -}}
+{{- if .Values.catalystStorageClasses }}
+{{-   $defaultSC = (index .Values.catalystStorageClasses 0).name -}}
+{{- end -}}
+{{- $timeout := 300 -}}
+{{- $interval := 3 -}}
+{{- $image := "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7" -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-default-class
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-huawei-evs-csi
+    app.kubernetes.io/component: default-class-hook
+    catalyst.openova.io/blueprint: bp-huawei-evs-csi
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-huawei-evs-csi
+        app.kubernetes.io/component: default-class-hook
+    spec:
+      serviceAccountName: {{ .Release.Name }}-default-class
+      restartPolicy: Never
+      containers:
+        - name: flip
+          image: {{ $image | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { memory: 96Mi }
+          env:
+            - name: DEFAULT_SC
+              value: {{ $defaultSC | quote }}
+            - name: TIMEOUT_SECONDS
+              value: {{ $timeout | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $interval | quote }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              DEFAULT_ANN='storageclass.kubernetes.io/is-default-class'
+              echo "bp-huawei-evs-csi default-class flip: target default = ${DEFAULT_SC} (budget=${TIMEOUT_SECONDS}s)"
+
+              # 1. Wait (bounded) for the CSI StorageClass to exist.
+              deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+              until kubectl get storageclass "${DEFAULT_SC}" >/dev/null 2>&1; do
+                if [ "$(date +%s)" -ge "${deadline}" ]; then
+                  echo "FATAL: StorageClass ${DEFAULT_SC} never appeared within ${TIMEOUT_SECONDS}s." >&2
+                  echo "The everest CSI controller / StorageClass did not install — inspect the bp-huawei-evs-csi HelmRelease." >&2
+                  exit 1
+                fi
+                echo "waiting for StorageClass ${DEFAULT_SC} ..."
+                sleep "${INTERVAL_SECONDS}"
+              done
+
+              # 2. Promote the CSI class to cluster-default (idempotent).
+              kubectl annotate storageclass "${DEFAULT_SC}" \
+                "${DEFAULT_ANN}=true" --overwrite
+              echo "promoted ${DEFAULT_SC} to cluster-default."
+
+              # 3. Demote every OTHER class still flagged default so there is
+              #    EXACTLY ONE default. Non-fatal if none exist (fresh prov:
+              #    local-path was never installed — k3s --disable=local-storage).
+              others="$(kubectl get storageclass \
+                -o jsonpath="{range .items[?(@.metadata.annotations.${DEFAULT_ANN}=='true')]}{.metadata.name}{'\n'}{end}" \
+                2>/dev/null || true)"
+              for sc in ${others}; do
+                [ "${sc}" = "${DEFAULT_SC}" ] && continue
+                echo "demoting stale default StorageClass: ${sc}"
+                kubectl annotate storageclass "${sc}" \
+                  "${DEFAULT_ANN}=false" --overwrite || true
+              done
+
+              echo "default-class flip complete. Final defaults:"
+              kubectl get storageclass \
+                -o custom-columns='NAME:.metadata.name,DEFAULT:.metadata.annotations.storageclass\.kubernetes\.io/is-default-class' \
+                2>/dev/null || true
+{{- end }}

@@ -1,0 +1,231 @@
+{{/*
+huaweicloud-csi-driver EVS controller — Deployment running the EVS plugin
+alongside the sig-storage external sidecars (provisioner / attacher /
+resizer / snapshotter / livenessprobe).
+
+The evs-csi-plugin container talks to the EVS / ECS / IAM APIs using the
+AK/SK cloud-config Secret (mounted at /etc/evs/, flag
+--cloud-config=/etc/evs/cloud-config). The sidecars translate Kubernetes
+PV/PVC/VolumeAttachment events into CSI gRPC calls over the shared
+/csi/csi.sock UNIX socket (emptyDir). Mirrors the upstream
+deploy/evs-csi-plugin/kubernetes/csi-evs-controller.yaml.
+
+Default off (gated on .Values.enabled).
+*/}}
+{{- if .Values.enabled }}
+{{- $img := .Values.image -}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: csi-evs-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-huawei-evs-csi
+    app.kubernetes.io/component: controller
+    catalyst.openova.io/blueprint: bp-huawei-evs-csi
+spec:
+  replicas: {{ .Values.controller.replicas | default 2 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bp-huawei-evs-csi
+      app.kubernetes.io/component: controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-huawei-evs-csi
+        app.kubernetes.io/component: controller
+    spec:
+      serviceAccountName: csi-evs-controller-sa
+      priorityClassName: system-cluster-critical
+      # Run on the control-plane so the EVS API calls originate from a stable
+      # node; tolerate the CP taint.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - operator: Exists
+          effect: NoExecute
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: bp-huawei-evs-csi
+                    app.kubernetes.io/component: controller
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: csi-provisioner
+          image: "{{ $img.sidecars.provisioner.repository }}:{{ $img.sidecars.provisioner.tag }}"
+          imagePullPolicy: {{ $img.driver.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "--csi-address=$(ADDRESS)"
+            - "--timeout=3m"
+            - "--default-fstype=ext4"
+            - "--feature-gates=Topology=true"
+            - "--extra-create-metadata"
+            - "--leader-election=true"
+            - "--v=2"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+        - name: csi-attacher
+          image: "{{ $img.sidecars.attacher.repository }}:{{ $img.sidecars.attacher.tag }}"
+          imagePullPolicy: {{ $img.driver.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "--csi-address=$(ADDRESS)"
+            - "--timeout=3m"
+            - "--leader-election=true"
+            - "--v=2"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+        - name: csi-resizer
+          image: "{{ $img.sidecars.resizer.repository }}:{{ $img.sidecars.resizer.tag }}"
+          imagePullPolicy: {{ $img.driver.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "--csi-address=$(ADDRESS)"
+            - "--timeout=3m"
+            - "--leader-election=true"
+            - "--handle-volume-inuse-error=false"
+            - "--v=2"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+{{- if .Values.volumeSnapshotClass.enabled }}
+        - name: csi-snapshotter
+          image: "{{ $img.sidecars.snapshotter.repository }}:{{ $img.sidecars.snapshotter.tag }}"
+          imagePullPolicy: {{ $img.driver.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "--csi-address=$(ADDRESS)"
+            - "--timeout=3m"
+            - "--extra-create-metadata"
+            - "--leader-election=true"
+            - "--v=2"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+{{- end }}
+        - name: liveness-probe
+          image: "{{ $img.sidecars.livenessProbe.repository }}:{{ $img.sidecars.livenessProbe.tag }}"
+          imagePullPolicy: {{ $img.driver.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "--csi-address=$(ADDRESS)"
+            - "--health-port=9809"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+        - name: evs-csi-plugin
+          image: "{{ $img.driver.repository }}:{{ $img.driver.tag }}"
+          imagePullPolicy: {{ $img.driver.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "/bin/evs-csi-plugin"
+            - "--v=2"
+            - "--endpoint=$(CSI_ENDPOINT)"
+            - "--cloud-config=/etc/evs/cloud-config"
+            - "--cluster=$(CLUSTER_NAME)"
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:///csi/csi.sock
+            - name: CLUSTER_NAME
+              value: {{ .Values.clusterName | default "catalyst" | quote }}
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9809
+            initialDelaySeconds: 15
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 5
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: evs-config
+              mountPath: /etc/evs/
+              readOnly: true
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+      volumes:
+        - name: socket-dir
+          emptyDir: {}
+        - name: evs-config
+          secret:
+            secretName: cloud-config
+{{- end }}

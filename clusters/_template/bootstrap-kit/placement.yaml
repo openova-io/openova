@@ -145,6 +145,8 @@ spec:
        namespace: kube-system, justification: "HOST-MINIMUM §4 — cloud controller manager"}
     - {file: 55a-bp-hcloud-csi.yaml, hr: bp-hcloud-csi, vcluster: host, target: host,
        namespace: hcloud-csi, justification: "HOST-MINIMUM §4 — cloud block-storage CSI; the durable default StorageClass (#3971)"}
+    - {file: 55b-bp-huawei-evs-csi.yaml, hr: bp-huawei-evs-csi, vcluster: host, target: host,
+       namespace: huawei-evs-csi, justification: "HOST-MINIMUM §4 — Huawei EVS block-storage CSI; the durable default StorageClass on HCS (#3971 follow-up)"}
     - {file: 58-bp-mgmt-vcluster.yaml, hr: bp-mgmt-vcluster, vcluster: host, target: host,
        namespace: mgmt, justification: "HOST-MINIMUM §4 — the MGMT vCluster runtime itself"}
     - {file: 59-bp-rtz-vcluster.yaml, hr: bp-rtz-vcluster, vcluster: host, target: host,
