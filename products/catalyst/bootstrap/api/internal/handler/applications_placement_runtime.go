@@ -273,6 +273,38 @@ func (h *Handler) derivePlacementTargets(name, ns, primaryID string, clusterRegi
 	return targets
 }
 
+// componentNameCandidates returns the identity strings a Pod may carry for
+// the component the FE asked about. The Topology tab passes the AppDetail
+// ROUTE id, which for bootstrap-kit components is the Blueprint name
+// `bp-<chart>` (e.g. `bp-grafana`) — the route + Dashboard lookup both key
+// on the `bp-`-prefixed id (see Dashboard.test.tsx "route param is
+// `bp-harbor`, NOT bare `harbor`"). But the live Pods — including the
+// loft-synced ones in mgmt/dmz/rtz host namespaces — carry the BARE upstream
+// chart identity (`app.kubernetes.io/instance=grafana`,
+// `app.kubernetes.io/name=grafana`, in-vCluster object name `grafana-…`).
+//
+// #3986: the pre-#3986 matcher compared the raw `bp-grafana` against the
+// bare `grafana` label/key and matched NOTHING → empty targets → false
+// singleton (proven live on hw173: `…/applications/bp-grafana/placement`
+// returned `{"targets":[]}` while `…/applications/grafana/placement`
+// returned a target). We normalise the same way every other handler does
+// (`strings.TrimPrefix(name, "bp-")`, mirroring LogsTab's
+// `blueprint.replace(/^bp-/, '')` and the resource-list path) and accept
+// EITHER form, so a wizard-installed app named without the prefix AND a
+// bootstrap-kit `bp-`-routed app both resolve to the same pods the Resources
+// tab shows. Deduped, non-empty entries only.
+func componentNameCandidates(name string) []string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	out := []string{name}
+	if bare := strings.TrimPrefix(name, "bp-"); bare != "" && bare != name {
+		out = append(out, bare)
+	}
+	return out
+}
+
 // podBelongsToComponent reports whether Pod p is part of the component
 // `name`. It mirrors the Resources tab's identity join: the
 // app.kubernetes.io/instance|name label (preserved verbatim by the loft
@@ -280,6 +312,14 @@ func (h *Handler) derivePlacementTargets(name, ns, primaryID string, clusterRegi
 // in-vCluster object name, or the top-level ownerRef name. When `ns` is
 // non-empty the Pod must also belong to that app namespace (host ns OR the
 // loft-synced in-vCluster ns), reusing objectInAppNamespace.
+//
+// #3986: the FE passes the AppDetail route id, which for bootstrap-kit
+// components is `bp-<chart>` while the live (incl. loft-synced) Pods carry
+// the BARE chart identity. We therefore match against BOTH the raw and the
+// `bp-`-stripped form (componentNameCandidates) so grafana et al. — synced
+// as `grafana-…-x-grafana-x-mgmt-vcluster` in host ns `mgmt` but still
+// labelled `app.kubernetes.io/{instance,name}=grafana` — resolve instead of
+// yielding a false singleton.
 func podBelongsToComponent(p *unstructured.Unstructured, name, ns string) bool {
 	if p == nil || name == "" {
 		return false
@@ -287,19 +327,24 @@ func podBelongsToComponent(p *unstructured.Unstructured, name, ns string) bool {
 	if ns != "" && !objectInAppNamespace(p, ns) {
 		return false
 	}
-	if applicationKey(p) == name {
-		return true
-	}
-	if v := p.GetLabels()["app.kubernetes.io/name"]; v == name {
-		return true
-	}
-	// De-mangled in-vCluster object name (loft annotation), e.g. a host Pod
-	// `grafana-…-x-grafana-x-mgmt-vcluster` carries object-name
-	// `grafana-…`; its instance label already matched above in the common
-	// case, but charts that omit the instance label still resolve here via
-	// the synced Deployment/StatefulSet owner name prefix.
-	if dn := vClusterSyncedDisplayName(p); dn != "" && strings.HasPrefix(dn, name) {
-		return true
+	appKey := applicationKey(p)
+	chartName := p.GetLabels()["app.kubernetes.io/name"]
+	// The de-mangled in-vCluster object name (loft annotation), e.g. a host
+	// Pod `grafana-…-x-grafana-x-mgmt-vcluster` carries object-name
+	// `grafana-…`. The instance/name labels match in the common case; this
+	// resolves charts that omit the instance label via the synced
+	// Deployment/StatefulSet owner name prefix.
+	displayName := vClusterSyncedDisplayName(p)
+	for _, cand := range componentNameCandidates(name) {
+		if appKey == cand {
+			return true
+		}
+		if chartName == cand {
+			return true
+		}
+		if displayName != "" && strings.HasPrefix(displayName, cand) {
+			return true
+		}
 	}
 	return false
 }
