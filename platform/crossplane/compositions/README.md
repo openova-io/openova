@@ -30,6 +30,14 @@ The provider itself (`provider-hcloud`) and its `ProviderConfig` are installed b
 
 ## Adoption pattern
 
+> **Implemented in ADR-0011 / #4002.** The seam below was documented long before
+> it was wired; it is now real. The cross-cloud adoption mechanism is
+> `provider-opentofu` + the generic `XCloudAdoption` composite (see
+> `platform/crossplane-claims/chart/templates/{xrds,compositions}/cloudadoption.yaml`),
+> **not** the native `XHetzner*` composites in this directory. The native composites
+> here remain the day-2 **CRUD** path for Hetzner; **adoption** (binding Crossplane to
+> what OpenTofu already built, on EITHER Hetzner or Huawei) goes through `XCloudAdoption`.
+
 When OpenTofu creates a resource in Phase 0, the resource gets a label like:
 
 ```
@@ -37,7 +45,21 @@ catalyst.openova.io/sovereign: omantel.omani.works
 catalyst.openova.io/role: control-plane
 ```
 
-Phase 1 ingests these into Crossplane by creating an XR with `metadata.annotations[crossplane.io/external-name]` set to the Hetzner numeric ID. Crossplane then takes over the lifecycle — `kubectl delete xhetznerserver/cp1` after Phase 1 will deprovision the underlying Hetzner server, just like `tofu destroy` would have done in Phase 0. (See `clusters/<sovereign-fqdn>/infrastructure/adoption-claims.yaml` for the bootstrap claim manifests.)
+At Phase-1 hand-off the provisioner's adoption generator
+(`products/catalyst/bootstrap/api/internal/provisioner/adoption.go`) reads the
+post-`tofu apply` state and writes
+`clusters/<sovereign-fqdn>/infrastructure/adoption-claims.yaml` — one
+`CloudAdoption` per real cloud resource, each annotated
+`metadata.annotations[crossplane.io/external-name]` with the cloud resource ID and
+**Observe-first** (`managementPolicies:[Observe]`). Crossplane's `provider-opentofu`
+then OBSERVES the live resource by ID — binding Crossplane to the real infra WITHOUT
+re-provisioning it. Promotion to full-manage (so `kubectl delete cloudadoption/...`
+deprovisions the underlying resource, like `tofu destroy` would) is a deliberate
+per-resource act (flip `spec.parameters.manage` + widen the Workspace's
+`managementPolicies`), never the default — adoption must never silently re-provision
+the running platform. See `docs/adr/0011-opentofu-crossplane-adoption-seam.md` for the
+full rationale (why `provider-opentofu` over native upjet providers on the on-prem
+Huawei HCS substrate).
 
 ## Authoring conventions
 
