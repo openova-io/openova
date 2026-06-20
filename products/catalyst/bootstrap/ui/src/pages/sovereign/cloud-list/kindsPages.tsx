@@ -14,6 +14,9 @@ import {
   COL_AGE,
   colSpec,
   colStatus,
+  colReconcileStatus,
+  colCnpgStatus,
+  colCatalystCrStatus,
 } from './K8sListPage'
 
 export function PodsListPage() {
@@ -359,6 +362,386 @@ export function ClusterPolicyReportsListPage() {
             return v == null ? '—' : String(v)
           },
         },
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+/* ── Reconciler kinds (#3978 / Refs #3970) ────────────────────────────
+ *
+ * #3970 should have ADDED the reconciler resource types to the rich
+ * per-kind list — instead it replaced the whole list with a flat
+ * NAME·KIND·FAMILY·STATUS table. #3978 restores the per-kind catalogue
+ * AND adds these reconciler kinds, each with its OWN attribute columns,
+ * driven by the live k8scache SSE snapshot (the GVRs are registered in
+ * api/internal/k8scache/kinds.go). Every status column renders the
+ * Reconciliation vocabulary — Reconciled / Reconciling / Degraded —
+ * NEVER Success/Failed (continuous reconcilers have no finite end).
+ * ────────────────────────────────────────────────────────────────── */
+
+export function HelmReleasesListPage() {
+  return (
+    <K8sListPage
+      kind="helmrelease"
+      title="HelmReleases"
+      tagline="Flux HelmReleases — one per installed Blueprint. Chart / revision / reconcile state."
+      columns={[
+        COL_NAMESPACE,
+        COL_NAME,
+        {
+          header: 'Chart',
+          extract: (o) => {
+            const chart = (
+              (o.spec as Record<string, unknown> | undefined)?.['chart'] as
+                | Record<string, unknown>
+                | undefined
+            )?.['spec'] as Record<string, unknown> | undefined
+            const name = chart?.['chart'] as string | undefined
+            return name ?? '—'
+          },
+        },
+        {
+          header: 'Revision',
+          extract: (o) => {
+            const st = o.status as Record<string, unknown> | undefined
+            // helm-controller exposes lastAppliedRevision / history[0].chartVersion.
+            const rev =
+              (st?.['lastAppliedRevision'] as string | undefined) ??
+              (st?.['lastAttemptedRevision'] as string | undefined)
+            if (rev) return rev
+            const hist = st?.['history'] as
+              | Array<Record<string, unknown>>
+              | undefined
+            const v = Array.isArray(hist) && hist.length > 0
+              ? (hist[0]?.['chartVersion'] as string | undefined)
+              : undefined
+            return v ?? '—'
+          },
+        },
+        colReconcileStatus('Status'),
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+export function KustomizationsListPage() {
+  return (
+    <K8sListPage
+      kind="kustomization"
+      title="Kustomizations"
+      tagline="Flux Kustomizations — the bootstrap-kit tiers. Path / reconcile state / last applied."
+      columns={[
+        COL_NAMESPACE,
+        COL_NAME,
+        colSpec('path', 'Path'),
+        colReconcileStatus('Status'),
+        {
+          header: 'Last Applied',
+          extract: (o) => {
+            const rev = (o.status as Record<string, unknown> | undefined)?.[
+              'lastAppliedRevision'
+            ] as string | undefined
+            return rev ?? '—'
+          },
+        },
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+export function GitRepositoriesListPage() {
+  return (
+    <K8sListPage
+      kind="gitrepository"
+      title="GitRepositories"
+      tagline="Flux GitRepository sources — the catalog mirror Flux reconciles from. URL / branch / state."
+      columns={[
+        COL_NAMESPACE,
+        COL_NAME,
+        colSpec('url', 'URL'),
+        {
+          header: 'Branch',
+          extract: (o) => {
+            const ref = (o.spec as Record<string, unknown> | undefined)?.[
+              'ref'
+            ] as Record<string, unknown> | undefined
+            return (
+              (ref?.['branch'] as string | undefined) ??
+              (ref?.['tag'] as string | undefined) ??
+              (ref?.['commit'] as string | undefined) ??
+              '—'
+            )
+          },
+        },
+        colReconcileStatus('Status'),
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+export function CertificatesListPage() {
+  return (
+    <K8sListPage
+      kind="certificate"
+      title="Certificates"
+      tagline="cert-manager Certificates. Issuer / expiry (NotAfter) / Ready state."
+      columns={[
+        COL_NAMESPACE,
+        COL_NAME,
+        {
+          header: 'Issuer',
+          extract: (o) => {
+            const ref = (o.spec as Record<string, unknown> | undefined)?.[
+              'issuerRef'
+            ] as Record<string, unknown> | undefined
+            return (ref?.['name'] as string | undefined) ?? '—'
+          },
+        },
+        {
+          header: 'Not After',
+          extract: (o) => {
+            const na = (o.status as Record<string, unknown> | undefined)?.[
+              'notAfter'
+            ] as string | undefined
+            return na ?? '—'
+          },
+        },
+        colReconcileStatus('Ready'),
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+export function ExternalSecretsListPage() {
+  return (
+    <K8sListPage
+      kind="externalsecret"
+      title="ExternalSecrets"
+      tagline="External-Secrets ExternalSecrets — sync openbao→K8s Secret. Store / refresh / Ready state."
+      columns={[
+        COL_NAMESPACE,
+        COL_NAME,
+        {
+          header: 'Store',
+          extract: (o) => {
+            const ref = (o.spec as Record<string, unknown> | undefined)?.[
+              'secretStoreRef'
+            ] as Record<string, unknown> | undefined
+            return (ref?.['name'] as string | undefined) ?? '—'
+          },
+        },
+        colSpec('refreshInterval', 'Refresh'),
+        colReconcileStatus('Ready'),
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+export function CnpgClustersListPage() {
+  return (
+    <K8sListPage
+      kind="cnpgcluster"
+      title="CNPG Clusters"
+      tagline="CloudNativePG Postgres Clusters. Instances / primary / reconcile state."
+      columns={[
+        COL_NAMESPACE,
+        COL_NAME,
+        colSpec('instances', 'Instances'),
+        {
+          header: 'Primary',
+          extract: (o) => {
+            const st = o.status as Record<string, unknown> | undefined
+            return (
+              (st?.['currentPrimary'] as string | undefined) ??
+              (st?.['targetPrimary'] as string | undefined) ??
+              '—'
+            )
+          },
+        },
+        colCnpgStatus('Status'),
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+export function CnpgDatabasesListPage() {
+  return (
+    <K8sListPage
+      kind="cnpgdatabase"
+      title="CNPG Databases"
+      tagline="CloudNativePG Database CRs — declarative database lifecycle on a CNPG Cluster."
+      columns={[
+        COL_NAMESPACE,
+        COL_NAME,
+        {
+          header: 'Cluster',
+          extract: (o) => {
+            const ref = (o.spec as Record<string, unknown> | undefined)?.[
+              'cluster'
+            ] as Record<string, unknown> | undefined
+            return (ref?.['name'] as string | undefined) ?? '—'
+          },
+        },
+        colSpec('name', 'DB Name'),
+        colReconcileStatus('Ready'),
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+export function ApplicationsListPage() {
+  return (
+    <K8sListPage
+      kind="application"
+      title="Applications"
+      tagline="Catalyst Application CRs — installed Blueprints per Environment. Blueprint / reconcile state."
+      columns={[
+        COL_NAMESPACE,
+        COL_NAME,
+        {
+          header: 'Blueprint',
+          extract: (o) => {
+            const spec = o.spec as Record<string, unknown> | undefined
+            return (
+              (spec?.['blueprint'] as string | undefined) ??
+              (spec?.['blueprintRef'] as Record<string, unknown> | undefined)?.[
+                'name'
+              ] as string | undefined ??
+              '—'
+            )
+          },
+        },
+        colCatalystCrStatus('Status'),
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+export function EnvironmentsListPage() {
+  return (
+    <K8sListPage
+      kind="environment"
+      title="Environments"
+      tagline="Catalyst Environment CRs — logical env per Organization. Org / type / reconcile state."
+      columns={[
+        COL_NAMESPACE,
+        COL_NAME,
+        {
+          header: 'Organization',
+          extract: (o) => {
+            const spec = o.spec as Record<string, unknown> | undefined
+            return (
+              (spec?.['organization'] as string | undefined) ??
+              (spec?.['organizationRef'] as
+                | Record<string, unknown>
+                | undefined)?.['name'] as string | undefined ??
+              '—'
+            )
+          },
+        },
+        colSpec('type', 'Type'),
+        colCatalystCrStatus('Status'),
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+export function OrganizationsListPage() {
+  return (
+    <K8sListPage
+      kind="organization"
+      title="Organizations"
+      tagline="Catalyst Organization CRs — top-level tenancy. Display name / reconcile state."
+      columns={[
+        COL_NAME,
+        {
+          header: 'Display Name',
+          extract: (o) => {
+            const spec = o.spec as Record<string, unknown> | undefined
+            return (
+              (spec?.['displayName'] as string | undefined) ??
+              (spec?.['name'] as string | undefined) ??
+              '—'
+            )
+          },
+        },
+        colCatalystCrStatus('Status'),
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+export function ContinuumsListPage() {
+  return (
+    <K8sListPage
+      kind="continuum"
+      title="Continuums"
+      tagline="Catalyst Continuum DR CRs — multi-region failover orchestration. Mode / reconcile state."
+      columns={[
+        COL_NAMESPACE,
+        COL_NAME,
+        {
+          header: 'Mode',
+          extract: (o) => {
+            const spec = o.spec as Record<string, unknown> | undefined
+            return (
+              (spec?.['mode'] as string | undefined) ??
+              (spec?.['topology'] as string | undefined) ??
+              '—'
+            )
+          },
+        },
+        colCatalystCrStatus('Status'),
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+export function UserAccessesListPage() {
+  return (
+    <K8sListPage
+      kind="useraccess"
+      title="User Access"
+      tagline="Catalyst UserAccess CRs — RBAC bindings per User. Subject / role / reconcile state."
+      columns={[
+        COL_NAMESPACE,
+        COL_NAME,
+        {
+          header: 'Subject',
+          extract: (o) => {
+            const spec = o.spec as Record<string, unknown> | undefined
+            return (
+              (spec?.['email'] as string | undefined) ??
+              (spec?.['subject'] as string | undefined) ??
+              (spec?.['user'] as string | undefined) ??
+              '—'
+            )
+          },
+        },
+        {
+          header: 'Role',
+          extract: (o) => {
+            const spec = o.spec as Record<string, unknown> | undefined
+            return (
+              (spec?.['role'] as string | undefined) ??
+              (spec?.['accessLevel'] as string | undefined) ??
+              '—'
+            )
+          },
+        },
+        colCatalystCrStatus('Status'),
         COL_AGE,
       ]}
     />

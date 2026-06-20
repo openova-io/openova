@@ -42,6 +42,19 @@ import {
   DnsZonesListPage,
   PolicyReportsListPage,
   ClusterPolicyReportsListPage,
+  // Reconciler kinds (#3978 / Refs #3970) — each its own per-kind page.
+  HelmReleasesListPage,
+  KustomizationsListPage,
+  GitRepositoriesListPage,
+  CertificatesListPage,
+  ExternalSecretsListPage,
+  CnpgClustersListPage,
+  CnpgDatabasesListPage,
+  ApplicationsListPage,
+  EnvironmentsListPage,
+  OrganizationsListPage,
+  ContinuumsListPage,
+  UserAccessesListPage,
 } from './kindsPages'
 
 export type CloudListKind =
@@ -72,6 +85,24 @@ export type CloudListKind =
   // Wave-2 Family-E (#1583, C11-005/C11-006) — Kyverno PolicyReport surfaces.
   | 'policyreports'
   | 'clusterpolicyreports'
+  // Reconciler kinds (#3978 / Refs #3970) — the continuous desired-state
+  // controllers. HelmRelease + Kustomization + GitRepository are Flux;
+  // Certificate (cert-manager), ExternalSecret (ESO), CNPG Cluster +
+  // Database, and the Catalyst control-plane CRs are the non-Flux
+  // declarative reconcilers. Each renders its OWN attribute columns in
+  // the Reconciliation vocabulary (Reconciled/Reconciling/Degraded).
+  | 'helmreleases'
+  | 'kustomizations'
+  | 'gitrepositories'
+  | 'certificates'
+  | 'externalsecrets'
+  | 'cnpg-clusters'
+  | 'cnpg-databases'
+  | 'applications'
+  | 'environments'
+  | 'organizations'
+  | 'continuums'
+  | 'useraccesses'
 
 /**
  * Mapping from CloudListKind id → registry kind name on the
@@ -98,6 +129,22 @@ export const KIND_TO_REGISTRY: Partial<Record<CloudListKind, string>> = {
   // Wave-2 Family-E (#1583, C11-005/C11-006): Kyverno PolicyReport CRDs.
   policyreports: 'policyreport',
   clusterpolicyreports: 'clusterpolicyreport',
+  // Reconciler kinds (#3978 / Refs #3970) — chip-id → the k8scache SSE
+  // registry Name (api/internal/k8scache/kinds.go) so chip counts read
+  // live from the snapshot. The registry Names are verbatim the strings
+  // the K8sListPage `kind` prop filters by (`${name}:` key prefix).
+  helmreleases: 'helmrelease',
+  kustomizations: 'kustomization',
+  gitrepositories: 'gitrepository',
+  certificates: 'certificate',
+  externalsecrets: 'externalsecret',
+  'cnpg-clusters': 'cnpgcluster',
+  'cnpg-databases': 'cnpgdatabase',
+  applications: 'application',
+  environments: 'environment',
+  organizations: 'organization',
+  continuums: 'continuum',
+  useraccesses: 'useraccess',
 }
 
 export interface CloudKindEntry {
@@ -112,7 +159,7 @@ export interface CloudKindEntry {
   /** SVG path data on the canonical 24x24 viewBox — Tabler-style. */
   icon: string
   /** Conceptual category (drives the chip-tint colour). */
-  category: 'compute' | 'network' | 'storage' | 'workload' | 'config'
+  category: 'compute' | 'network' | 'storage' | 'workload' | 'config' | 'reconciler'
   Component: () => JSX.Element
   /** True when this kind is in the default chip strip; false → it lives
    *  in the `+ More` overflow popover. */
@@ -164,6 +211,24 @@ const ICON_EPS =
 // dashboard so the operator sees the cross-page family-of-surfaces tie.
 const ICON_POLICY_REPORT =
   'M12 3l8 4v5c0 5 -3.5 8 -8 9 -4.5 -1 -8 -4 -8 -9V7zM9 12l2 2 4 -4'
+// Reconciler icons (#3978). Helm = ship-wheel; Kustomize / GitRepository
+// = source + layers; Certificate = rosette; ExternalSecret = key-link;
+// CNPG = database barrel; the Catalyst CRs = a generic reconcile-loop
+// glyph (circular arrows) so the family reads as one across the strip.
+const ICON_HELMRELEASE =
+  'M12 3a9 9 0 1 0 9 9M12 3v9l6.5 6.5M12 3a9 9 0 0 1 9 9h-9'
+const ICON_KUSTOMIZATION =
+  'M12 3l8 4 -8 4 -8 -4zM4 11l8 4 8 -4M4 15l8 4 8 -4'
+const ICON_GITREPO =
+  'M6 3v12a3 3 0 0 0 3 3h6M6 6a2 2 0 1 0 0 -4a2 2 0 0 0 0 4zM18 18a2 2 0 1 0 0 4a2 2 0 0 0 0 -4zM18 8a2 2 0 1 0 0 -4a2 2 0 0 0 0 4zM18 8v6'
+const ICON_CERTIFICATE =
+  'M12 3a4 4 0 1 0 0 8a4 4 0 0 0 0 -8zM9 11l-1 8 4 -2 4 2 -1 -8'
+const ICON_EXTERNALSECRET =
+  'M9 12a3 3 0 1 0 0 -6a3 3 0 0 0 0 6zM12 9h9M18 9v3M21 9v3'
+const ICON_CNPG =
+  'M5 6a7 3 0 0 0 14 0A7 3 0 0 0 5 6zM5 6v12a7 3 0 0 0 14 0V6M5 12a7 3 0 0 0 14 0'
+const ICON_RECONCILE_LOOP =
+  'M4 12a8 8 0 0 1 13.7 -5.6L20 8M20 4v4h-4M20 12a8 8 0 0 1 -13.7 5.6L4 16M4 20v-4h4'
 
 /**
  * Canonical kind catalogue. Order matters — `primary: true` entries
@@ -211,6 +276,25 @@ export const KINDS: readonly CloudKindEntry[] = [
   // primary read-path; these lists are the kubectl-equivalent fallback).
   { id: 'policyreports', label: 'Policy Reports', tagline: 'Per-namespace Kyverno PolicyReport evaluations.', hasData: true, Component: PolicyReportsListPage, icon: ICON_POLICY_REPORT, category: 'config', primary: false },
   { id: 'clusterpolicyreports', label: 'Cluster Policy Reports', tagline: 'Cluster-scoped Kyverno ClusterPolicyReport evaluations.', hasData: true, Component: ClusterPolicyReportsListPage, icon: ICON_POLICY_REPORT, category: 'config', primary: false },
+
+  // Reconciler kinds (#3978 / Refs #3970). #3970 should have ADDED these
+  // to the rich per-kind list; instead it flattened the whole list. We
+  // restore the per-kind catalogue AND register these reconcilers, each
+  // with its OWN attribute columns (see kindsPages.tsx). All live in the
+  // `+ More` overflow popover. Status columns use the Reconciliation
+  // vocabulary — Reconciled / Reconciling / Degraded.
+  { id: 'helmreleases', label: 'HelmReleases', tagline: 'Flux HelmReleases — one per installed Blueprint.', hasData: true, Component: HelmReleasesListPage, icon: ICON_HELMRELEASE, category: 'reconciler', primary: false },
+  { id: 'kustomizations', label: 'Kustomizations', tagline: 'Flux Kustomizations — the bootstrap-kit tiers.', hasData: true, Component: KustomizationsListPage, icon: ICON_KUSTOMIZATION, category: 'reconciler', primary: false },
+  { id: 'gitrepositories', label: 'GitRepositories', tagline: 'Flux GitRepository sources — the catalog mirror.', hasData: true, Component: GitRepositoriesListPage, icon: ICON_GITREPO, category: 'reconciler', primary: false },
+  { id: 'certificates', label: 'Certificates', tagline: 'cert-manager Certificates — issuer + expiry.', hasData: true, Component: CertificatesListPage, icon: ICON_CERTIFICATE, category: 'reconciler', primary: false },
+  { id: 'externalsecrets', label: 'ExternalSecrets', tagline: 'External-Secrets — openbao→K8s Secret sync.', hasData: true, Component: ExternalSecretsListPage, icon: ICON_EXTERNALSECRET, category: 'reconciler', primary: false },
+  { id: 'cnpg-clusters', label: 'CNPG Clusters', tagline: 'CloudNativePG Postgres Clusters — instances + primary.', hasData: true, Component: CnpgClustersListPage, icon: ICON_CNPG, category: 'reconciler', primary: false },
+  { id: 'cnpg-databases', label: 'CNPG Databases', tagline: 'CloudNativePG declarative Database CRs.', hasData: true, Component: CnpgDatabasesListPage, icon: ICON_CNPG, category: 'reconciler', primary: false },
+  { id: 'applications', label: 'Applications', tagline: 'Catalyst Application CRs — installed Blueprints per Environment.', hasData: true, Component: ApplicationsListPage, icon: ICON_RECONCILE_LOOP, category: 'reconciler', primary: false },
+  { id: 'environments', label: 'Environments', tagline: 'Catalyst Environment CRs — logical env per Organization.', hasData: true, Component: EnvironmentsListPage, icon: ICON_RECONCILE_LOOP, category: 'reconciler', primary: false },
+  { id: 'organizations', label: 'Organizations', tagline: 'Catalyst Organization CRs — top-level tenancy.', hasData: true, Component: OrganizationsListPage, icon: ICON_RECONCILE_LOOP, category: 'reconciler', primary: false },
+  { id: 'continuums', label: 'Continuums', tagline: 'Catalyst Continuum DR CRs — multi-region failover.', hasData: true, Component: ContinuumsListPage, icon: ICON_RECONCILE_LOOP, category: 'reconciler', primary: false },
+  { id: 'useraccesses', label: 'User Access', tagline: 'Catalyst UserAccess CRs — RBAC bindings per User.', hasData: true, Component: UserAccessesListPage, icon: ICON_RECONCILE_LOOP, category: 'reconciler', primary: false },
 ] as const
 
 export const KIND_IDS: readonly CloudListKind[] = KINDS.map((k) => k.id)

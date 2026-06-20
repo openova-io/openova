@@ -515,3 +515,33 @@ rules:
   - apiGroups: ["dr.openova.io"]
     resources: ["cnpgpairs", "continuums"]
     verbs: ["get", "list", "watch"]
+
+  # ───────────────────────────────────────────────────────────────
+  # Issue #3978 (Refs #3970) — rich per-kind cloud-list (`/cloud?view=list`)
+  # reconciler kinds. Each kind below was registered in
+  # internal/k8scache/kinds.go so the K8sListPage can stream live objects
+  # from the catalyst-api k8scache SSE feed; per
+  # feedback_chroot_in_cluster_fallback.md every new k8scache GVR MUST get
+  # a matching get/list/watch rule HERE — the chroot SovereignClient drives
+  # the informer pool via this SA in-cluster fallback. Without these rules
+  # the apiserver 403s the dynamic-client list and the per-kind page renders
+  # empty.
+  #
+  # Already granted elsewhere in this file (do NOT re-add):
+  #   - kustomize.toolkit.fluxcd.io/kustomizations — §5a generic-reconciler block
+  #   - postgresql.cnpg.io/clusters + databases     — #3188 many-to-many block
+  #
+  # Newly required by #3978 (cert-manager Certificate, External-Secrets
+  # ExternalSecret, Flux source GitRepository). Read-only verbs only — these
+  # desired-state CRs are authored by their own controllers / Flux / the
+  # Application reconciler, never by catalyst-api at runtime.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["source.toolkit.fluxcd.io"]
+    resources: ["gitrepositories"]
+    verbs: ["get", "list", "watch"]

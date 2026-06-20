@@ -316,6 +316,59 @@ var DefaultKinds = []Kind{
 	// those are gated by the existing `secret` Sensitive=true entry),
 	// so Sensitive=false is correct.
 	{Name: "sandbox", GVR: schema.GroupVersionResource{Group: "sandbox.openova.io", Version: "v1", Resource: "sandboxes"}, Namespaced: true},
+
+	// Issue #3978 (Refs #3970) — restore the rich per-kind cloud-list
+	// (`/cloud?view=list`) page. Each reconciler resource kind must render
+	// as a live K8sListPage driven by the catalyst-api k8scache SSE stream,
+	// and that stream only emits kinds registered HERE. The five reconciler
+	// families below (Flux source/kustomize, cert-manager, External-Secrets,
+	// CloudNativePG) are the desired-state controllers the Reconciliation
+	// view surfaces; without these registry entries the K8sListPage's
+	// SSE-snapshot filter (`${name}:` prefix) returns zero objects and the
+	// per-kind page falls back to "unknown kind".
+	//
+	// GVRs verified against the authoritative existing references:
+	//   - helmwatch/reconcilers.go            KustomizationGVR
+	//   - controllers/application/...          FluxGitRepositoryGVR
+	//   - helmwatch/declarative_reconcilers.go CertificateGVR /
+	//                                          ExternalSecretGVR / CNPGClusterGVR
+	//
+	// Per feedback_chroot_in_cluster_fallback.md: every GVR added here gets
+	// a matching get/list/watch rule on the catalyst-api-cutover-driver
+	// ClusterRole (clusterrole-cutover-driver.yaml) — the chroot
+	// SovereignClient uses that SA via in-cluster fallback. None of these
+	// kinds carry secret material in the cached object (cert-manager writes
+	// the issued cert into a Secret gated by the `secret` Sensitive=true
+	// entry; an ExternalSecret only references a remote key, never inlines
+	// it), so Sensitive=false is correct.
+
+	// Flux source-controller GitRepository — the Git source CRs the
+	// Application controller upserts (FluxGitRepositoryGVR). v1 is the only
+	// served + storage version per the Application controller comment.
+	{Name: "gitrepository", GVR: schema.GroupVersionResource{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "gitrepositories"}, Namespaced: true},
+	// Flux kustomize-controller Kustomization — the reconcile leaves the
+	// Jobs canvas + Reconciliation DAG render (KustomizationGVR).
+	{Name: "kustomization", GVR: schema.GroupVersionResource{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}, Namespaced: true},
+	// cert-manager Certificate — desired-state reconciler whose Ready
+	// condition drives the node status (CertificateGVR).
+	{Name: "certificate", GVR: schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}, Namespaced: true},
+	// External-Secrets ExternalSecret — references a remote secret store
+	// key; the CR itself inlines no secret value (ExternalSecretGVR). v1 is
+	// the current served version (helmwatch falls back to v1beta1 on older
+	// ESO releases, but the cache informer pins the served v1).
+	{Name: "externalsecret", GVR: schema.GroupVersionResource{Group: "external-secrets.io", Version: "v1", Resource: "externalsecrets"}, Namespaced: true},
+	// CloudNativePG Cluster (CNPGClusterGVR). The registry Name is
+	// `cnpgcluster` (NOT `cluster`) deliberately: the cloud-side join
+	// already owns a "Cluster" concept, and the GVR's plural `clusters`
+	// would otherwise become an ambiguous alias. Short aliases `cnpg` and
+	// `cnpgclusters` resolve here (see kindShortAliases). CNPG has no
+	// standard Ready condition; the FE reads status.phase.
+	{Name: "cnpgcluster", GVR: schema.GroupVersionResource{Group: "postgresql.cnpg.io", Version: "v1", Resource: "clusters"}, Namespaced: true},
+	// CloudNativePG Database — a distinct reconciler kind (the founder
+	// listed it alongside the CNPG Cluster). Same group/version, resource
+	// `databases`; Name `cnpgdatabase` to keep the cloud-list rows
+	// unambiguous against the Cluster kind.
+	{Name: "cnpgdatabase", GVR: schema.GroupVersionResource{Group: "postgresql.cnpg.io", Version: "v1", Resource: "databases"}, Namespaced: true},
 }
 
 // Registry is a runtime-mutable lookup keyed by the short Name. It
@@ -377,6 +430,15 @@ var kindShortAliases = map[string]string{
 	// they live here.
 	"crd":    "customresourcedefinition",
 	"crds":   "customresourcedefinition",
+	// Issue #3978 (Refs #3970) — CNPG Cluster is registered under Name
+	// `cnpgcluster` (not `cluster`) to avoid colliding with the cloud-side
+	// Cluster concept. The GVR plural is `clusters`, so the natural
+	// trim-trailing-s plural-alias index would map `clusters` → `cnpgcluster`
+	// — but operators reach for `cnpg` and the doubled-plural `cnpgclusters`,
+	// neither of which the plural index derives. Pin both here so the
+	// rich cloud-list per-kind page resolves them.
+	"cnpg":         "cnpgcluster",
+	"cnpgclusters": "cnpgcluster",
 }
 
 // NewRegistry — start empty; callers pass DefaultKinds (or the loaded
