@@ -660,14 +660,19 @@ write_files:
             # public *.myhuaweicloud.com endpoints (unreachable from kom4dc).
             HUAWEI_CLOUD_DOMAIN: "kom4dc.nationalcloud.om"
             HUAWEI_AUTH_URL: "https://iam.${region}.kom4dc.nationalcloud.om/v3"
-            # EVS_CSI_ENABLED stays "false" until the driver-auth blocker is
-            # fixed (live-proven on hw174: the chart deploys + the SC/CSIDriver
-            # register + the default flip propagates, but the driver controller
-            # CrashLoops because HCS me-east-215's IAM APIGW publishes none of
-            # the Keystone /v3/auth/catalog|tokens endpoints the driver's
-            # golangsdk requires). With "false" the HR installs empty + Ready
-            # (no regression); flip to "true" the moment the auth fix lands. #3971
-            EVS_CSI_ENABLED: "false"
+            # EVS_CSI_ENABLED="true" — the HCS IAM auth blocker is FIXED and
+            # live-proven on hw174 (2026-06-21). The driver image is the
+            # OpenOva-patched fork (platform/huawei-evs-csi/driver-src) with the
+            # `idc` no-Keystone bypass: idc=true (the chart default) skips the
+            # Keystone /v3/auth/catalog|tokens fetch HCS me-east-215 doesn't
+            # publish (APIGW.0101) and signs every EVS/ECS call directly with
+            # SDK-HMAC-SHA256 AK/SK signing. Proof: the patched controller ran
+            # 6/6 / 0-restart, provisioned real EVS disks (`Got device path:
+            # /dev/vdb`), and the 12 Pending stateful PVCs bound → vClusters
+            # scheduled → spine resumed. local-path is FORBIDDEN, so a Huawei
+            # prov MUST install the EVS CSI; only flip to "false" for a
+            # deliberate no-storage smoke prov. #3971
+            EVS_CSI_ENABLED: "true"
             # #3971 (Refs #3992 #4012) — explicit durable StorageClass name for
             # the host-shared CNPG clusters (gitea-pg / harbor-pg / guacamole-pg,
             # slots 10/19/52). evs-ssd is the default class the slot-55b EVS CSI

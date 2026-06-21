@@ -31,7 +31,7 @@ name: bp-huawei-evs-csi
 # Driver facts verified directly from the driver source (pkg/config/cloud.go,
 # pkg/utils/metadatas/metadata.go, pkg/evs/driver.go,nodeserver.go) and the
 # upstream deploy/evs-csi-plugin/kubernetes manifests.
-version: 1.0.0
+version: 1.0.1
 description: |
   Catalyst-curated Blueprint for the open-source huaweicloud-csi-driver EVS
   block-storage plugin (evs.csi.huaweicloud.com). Provides the durable
