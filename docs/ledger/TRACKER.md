@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-21T18:00:03Z` |
+| Last refreshed | `2026-06-21T18:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 77 |
 | Open DoD gates | 0 / 41 |
@@ -287,6 +287,7 @@ flowchart LR
 | 2026-06-21T17:54 | [#4066](https://github.com/openova-io/openova/pull/4066) | #1 | feat(provisioning): storage class is a choosable user input  |
 | 2026-06-21T17:35 | [#4065](https://github.com/openova-io/openova/pull/4065) | #3642 | fix(bp-harbor): render DB-secret rename Job in #3642 host-br |
 | 2026-06-21T17:38 | [#4064](https://github.com/openova-io/openova/pull/4064) | #4060 | fix(provisioning): provider-aware CNPG-pair storageClass — P |
+| 2026-06-21T18:11 | [#4062](https://github.com/openova-io/openova/pull/4062) | #4058 | refactor(catalog): rebrand bp-chepherd → bp-agenity (product |
 | 2026-06-21T15:54 | [#4056](https://github.com/openova-io/openova/pull/4056) | #4055 | fix(catalyst-api): enforce Huawei resource floor — CP≥4vCPU, |
 | 2026-06-21T13:43 | [#4052](https://github.com/openova-io/openova/pull/4052) | #4037 | fix(bootstrap-kit): gate stateful root slots on BOTH per-pro |
 | 2026-06-21T12:03 | [#4051](https://github.com/openova-io/openova/pull/4051) | #4049 | fix(bp-catalyst-platform): bp-chepherd missing required topo |
@@ -313,7 +314,6 @@ flowchart LR
 | 2026-06-21T00:43 | [#4017](https://github.com/openova-io/openova/pull/4017) | #3985 | fix(console): flip 18 user-visible 'tenant'→'Organization' s |
 | 2026-06-21T00:36 | [#4016](https://github.com/openova-io/openova/pull/4016) | #3964 | fix(funnel): unblock coupon→Org→ACTIVE — provisioning image  |
 | 2026-06-21T00:19 | [#4015](https://github.com/openova-io/openova/pull/4015) | #4001 | fix(catalyst-api): deliver region-b kubeconfig to in-cluster |
-| 2026-06-21T00:04 | [#4014](https://github.com/openova-io/openova/pull/4014) | #3996 | fix(catalyst-rbac): cutover-driver SA can patch Flux reconci |
 
 ---
 
