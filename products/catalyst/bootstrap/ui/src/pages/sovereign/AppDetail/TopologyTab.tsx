@@ -118,9 +118,22 @@ export function TopologyTab({
   // bootstrap HelmReleases (no Application CR) AND wizard installs, because
   // the backend keys on live Pods. Falls back silently (null) to the legacy
   // spec/status projection below when the data plane is unavailable.
+  // #4000: a bootstrap-kit HelmRelease lives in flux-system, but its WORKLOAD
+  // Pods run in their own targetNamespace (e.g. bp-alloy → ns `alloy`, see
+  // 21-alloy.yaml `targetNamespace: alloy`). AppDetail passes the HR namespace
+  // (flux-system) as `namespace`, and the placement endpoint filters Pods by a
+  // NON-EMPTY namespace — so the HR namespace excludes EVERY workload Pod → 0
+  // targets → a false "No placement targets reported yet" even on a converged
+  // multi-region prov (caught live on hw174, where bp-alloy showed singleton/
+  // no-targets while the data plane held its region-a+region-b DaemonSet pods).
+  // The endpoint documents EMPTY namespace as the safe default for bootstrap
+  // components (match across all namespaces); honour that so bp-alloy et al.
+  // resolve their real active-active targets. Wizard installs (non-bootstrap)
+  // keep their namespace — no regression.
+  const placementNamespace = isBootstrap ? undefined : namespace
   const placementQ = useQuery({
-    queryKey: ['application-placement', sovereignId, applicationName, namespace, refreshTick],
-    queryFn: () => getApplicationPlacement(sovereignId, applicationName, namespace),
+    queryKey: ['application-placement', sovereignId, applicationName, placementNamespace, refreshTick],
+    queryFn: () => getApplicationPlacement(sovereignId, applicationName, placementNamespace),
     enabled: !disableNetwork && !!sovereignId && !!applicationName,
     refetchInterval: 30_000,
     retry: false,

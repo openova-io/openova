@@ -149,6 +149,35 @@ describe('TopologyTab — bootstrap HelmRelease status poll (#3656)', () => {
     expect(getApplicationStatus).not.toHaveBeenCalled()
   })
 
+  it('#4000: queries placement with EMPTY namespace for a bootstrap component (workload Pods run in their own ns, not the flux-system HR ns)', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+
+    render(
+      withProviders(
+        <TopologyTab sovereignId="test-sov" applicationName="bp-alloy" namespace="flux-system" isBootstrap />,
+      ),
+    )
+
+    await waitFor(() => {
+      expect(getApplicationPlacement).toHaveBeenCalled()
+    })
+    // bp-alloy's HelmRelease is in flux-system but its DaemonSet Pods run in ns
+    // `alloy` (21-alloy.yaml targetNamespace). Passing flux-system would filter
+    // them ALL out → false singleton; empty namespace matches across all ns.
+    expect(getApplicationPlacement).toHaveBeenCalledWith('test-sov', 'bp-alloy', undefined)
+  })
+
+  it('#4000: queries placement WITH the app namespace for a non-bootstrap app (no regression)', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationStatus.mockResolvedValue({ name: 'wordpress', namespace: 'qa-omantel', spec: {}, status: {} })
+
+    render(withProviders(<TopologyTab sovereignId="test-sov" applicationName="wordpress" namespace="qa-omantel" />))
+
+    await waitFor(() => {
+      expect(getApplicationPlacement).toHaveBeenCalledWith('test-sov', 'wordpress', 'qa-omantel')
+    })
+  })
+
   it('DOES poll the status endpoint for a non-bootstrap app (Application CR exists)', async () => {
     getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
     getApplicationStatus.mockResolvedValue({
