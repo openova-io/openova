@@ -34,6 +34,21 @@ ships:
    - `list_environments` — derived from the caller's Applications (Catalyst
      has no standalone list-environments REST endpoint; the console derives
      env partitions the same way, so the facade does too).
+5. **The first WRITE tool** — `create_application` (UAT rows 221-223):
+   - `create_application` — installs (creates) an Application in the caller's
+     Org from a Blueprint by forwarding the canonical install-request body to
+     `POST /api/v1/sovereigns/{id}/applications`
+     (`HandleApplicationInstall`) — the **same** create seam the console
+     Install button posts to, so the Org namespace is ensured and the
+     Application CR is written by the catalyst-api **exactly once** (no
+     duplicated namespace/CR logic).
+   - **RBAC parity with the read side**: an Org-scoped caller may create
+     **only** in their own Org (a cross-Org `organization` is denied with
+     `ErrForbidden` → MCP 403, never reaching the backend); a sovereign-admin
+     may create in any Org but **must** name the target Org explicitly. The
+     tool is **admin-tier-gated** in `tools/list` (a viewer never sees it),
+     mirroring the console Install gate, and a hand-crafted viewer call is
+     re-denied at layer-2.
 
 ## How the thin-facade + RBAC parity holds
 
@@ -83,8 +98,9 @@ follow-ups:
 - **Per-realm JWKS validation** — this slice verifies against a single
   RS256/HS256 key; the full per-realm JWKS cache (Org realm vs Sovereign
   realm) is the production identity path.
-- **Write / mutating tools** — `org.apps.install`, `deployments.*`,
-  `vouchers.*`, `cutover.*`, `placement.*`, `k8s.write.*`, etc.
+- **Remaining write / mutating tools** — `deployments.*`, `vouchers.*`,
+  `cutover.*`, `placement.*`, `k8s.write.*`, etc. (the first write tool,
+  `create_application`, is now LIVE — see above.)
 - **Sovereign-scoped admin tools** + the full ~26 (Org) / ~70 (Sovereign)
   tool catalog.
 - **The registry-coverage parity test** — generate the registry from the
