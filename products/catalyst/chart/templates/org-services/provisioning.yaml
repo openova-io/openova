@@ -406,6 +406,12 @@ spec:
             # flips a per-Sovereign overlay to harbor.<sovereign-fqdn>.
             - name: VCLUSTER_IMAGE_REGISTRY
               value: {{ .Values.orgServices.provisioning.vclusterImageRegistry | default "harbor.openova.io" | quote }}
+            # #4060 PILLAR-3: cloud provider ("hetzner" | "huawei") selects
+            # the block-storage StorageClass the per-tenant active-hot-standby
+            # CNPG pair PVCs bind to (hcloud-volumes vs evs-ssd). Empty →
+            # provisioning defaults to "hetzner" (NO-REGRESS for contabo).
+            - name: CLOUD_PROVIDER
+              value: {{ .Values.global.cloudProvider | default "" | quote }}
             - name: CATALOG_URL
               valueFrom:
                 configMapKeyRef:

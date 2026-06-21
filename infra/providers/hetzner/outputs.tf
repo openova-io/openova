@@ -7,8 +7,21 @@ output "control_plane_ip" {
 }
 
 output "load_balancer_ip" {
-  description = "Public IPv4 of the Hetzner load balancer (the address DNS A records point at)"
+  description = "Public IPv4 of the Hetzner load balancer (the address the wildcard + app DNS A records point at)"
   value       = hcloud_load_balancer.main.ipv4
+}
+
+# #4053 — public IPv4 of the dedicated CONSOLE load balancer. The
+# console./api.<fqdn> A-records point HERE (forwards 443→node:31443 to the
+# isolated cilium-gateway-console), while the wildcard *.<fqdn> keeps pointing
+# at load_balancer_ip above (the shared cilium-gateway). catalyst-api reads this
+# and threads it to pool-domain-manager /commit as consoleLoadBalancerIP so a
+# poisoned shared-gateway CEC can never 404 the console. Empty-safe: a consumer
+# that pre-dates #4053 ignores this output and PDM falls back to
+# load_balancer_ip for every record (byte-identical to pre-#4053 behaviour).
+output "console_load_balancer_ip" {
+  description = "Public IPv4 of the dedicated console load balancer (console./api.<fqdn> point here; #4053 gateway isolation)"
+  value       = hcloud_load_balancer.console.ipv4
 }
 
 output "sovereign_fqdn" {

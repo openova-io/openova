@@ -289,6 +289,14 @@ type CommitInput struct {
 	ReservationToken string
 	SovereignFQDN    string
 	LoadBalancerIP   string
+	// ConsoleLoadBalancerIP — #4053. When non-empty, the `console` and `api`
+	// A-records point HERE (the dedicated console LB → cilium-gateway-console)
+	// instead of at LoadBalancerIP. This isolates the Sovereign console onto
+	// its own Cilium Gateway / CiliumEnvoyConfig so a poisoned shared-gateway
+	// CEC (one unresolvable app backend, cilium#35728) can never 404 the
+	// console. Empty = pre-#4053 behaviour: every record points at
+	// LoadBalancerIP (byte-identical to the legacy single-LB record set).
+	ConsoleLoadBalancerIP string
 }
 
 // Commit flips a reservation to ACTIVE and writes the canonical 6-record set
@@ -319,7 +327,7 @@ func (a *Allocator) Commit(ctx context.Context, poolDomain, subdomain string, in
 	}
 
 	childZone := childZoneName(poolDomain, subdomain)
-	rrsets := canonicalRecordSet(childZone, in.LoadBalancerIP)
+	rrsets := canonicalRecordSet(childZone, in.LoadBalancerIP, in.ConsoleLoadBalancerIP)
 
 	if err := a.dns.PatchRRSets(ctx, childZone, rrsets); err != nil {
 		a.log.Error("PowerDNS write canonical record set failed",
@@ -515,34 +523,59 @@ func childZoneName(poolDomain, subdomain string) string {
 	return strings.ToLower(strings.TrimSpace(subdomain)) + "." + strings.ToLower(strings.TrimSpace(poolDomain))
 }
 
-// canonicalRecordSet returns the 6-RRset payload PowerDNS PATCH expects to
+// canonicalRecordSet returns the 7-RRset payload PowerDNS PATCH expects to
 // publish a fresh Sovereign:
 //
-//	@        A   <lb>   (apex of the child zone)
-//	*        A   <lb>   (wildcard for ad-hoc subdomains)
-//	console  A   <lb>
-//	api      A   <lb>
-//	gitea    A   <lb>
-//	harbor   A   <lb>
+//	@            A   <lb>          (apex of the child zone)
+//	*            A   <lb>          (wildcard for ad-hoc subdomains)
+//	console      A   <consoleLB>   (#4053 — isolated console gateway)
+//	api          A   <consoleLB>   (#4053 — isolated console gateway)
+//	gitea        A   <lb>
+//	harbor       A   <lb>
+//	marketplace  A   <lb>
+//
+// #4053 — the `console` and `api` names point at consoleLBIP (the dedicated
+// console LB → cilium-gateway-console) so a poisoned SHARED-gateway CEC can
+// never 404 the console. When consoleLBIP is empty (a provisioner or a
+// deployment record that pre-dates #4053), it falls back to lbIP for those two
+// names too — making the record set byte-identical to the legacy single-LB
+// payload. Every other name (apex, wildcard, gitea, harbor, marketplace) always
+// points at lbIP (the shared gateway) regardless.
 //
 // Per docs/PLATFORM-POWERDNS.md these names mirror the canonical-record
 // contract and use TTL 300 for fast failover.
-func canonicalRecordSet(childZone, lbIP string) []pdns.RRSet {
-	prefixes := []string{"", "*", "console", "api", "gitea", "harbor", "marketplace"}
+func canonicalRecordSet(childZone, lbIP, consoleLBIP string) []pdns.RRSet {
+	if consoleLBIP == "" {
+		consoleLBIP = lbIP
+	}
+	// Per-prefix target: the two console-control-plane names ride the console
+	// LB; everything else rides the shared LB.
+	prefixes := []struct {
+		name string
+		ip   string
+	}{
+		{"", lbIP},
+		{"*", lbIP},
+		{"console", consoleLBIP},
+		{"api", consoleLBIP},
+		{"gitea", lbIP},
+		{"harbor", lbIP},
+		{"marketplace", lbIP},
+	}
 	rrsets := make([]pdns.RRSet, 0, len(prefixes))
 	for _, p := range prefixes {
 		var name string
-		if p == "" {
+		if p.name == "" {
 			name = childZone
 		} else {
-			name = p + "." + childZone
+			name = p.name + "." + childZone
 		}
 		rrsets = append(rrsets, pdns.RRSet{
 			Name:       name,
 			Type:       "A",
 			TTL:        pdns.DefaultChildRecordTTL,
 			ChangeType: "REPLACE",
-			Records:    []pdns.Record{{Content: lbIP}},
+			Records:    []pdns.Record{{Content: p.ip}},
 		})
 	}
 	return rrsets

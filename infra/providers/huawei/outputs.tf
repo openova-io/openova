@@ -9,8 +9,19 @@ output "control_plane_ip" {
 }
 
 output "load_balancer_ip" {
-  description = "Public EIP of the Wave 5.98 (#2447) Huawei ELB. Sovereign FQDN A-record points HERE. ELB does 443→30443 + 80→30080 TCP passthrough to cilium-envoy on the primary-region nodes (cilium-agent BPF socket-LB blocks privileged-port bind on envoy DS — verified otech45-47)."
+  description = "Public EIP of the Wave 5.98 (#2447) Huawei ELB. The wildcard + app DNS A-records point HERE. ELB does 443→30443 + 80→30080 TCP passthrough to cilium-envoy on the primary-region nodes (cilium-agent BPF socket-LB blocks privileged-port bind on envoy DS — verified otech45-47)."
   value       = huaweicloud_vpc_eip.elb_primary.publicip.0.ip_address
+}
+
+# #4053 — public EIP of the dedicated CONSOLE ELB. console./api.<fqdn> point
+# HERE (443→31443 to the isolated cilium-gateway-console); the wildcard *.<fqdn>
+# keeps pointing at load_balancer_ip above (the shared cilium-gateway).
+# catalyst-api threads this to pool-domain-manager /commit as
+# consoleLoadBalancerIP. Empty-safe: a pre-#4053 consumer ignores it and PDM
+# falls back to load_balancer_ip for every record.
+output "console_load_balancer_ip" {
+  description = "Public EIP of the dedicated console ELB (console./api.<fqdn> point here; #4053 gateway isolation)."
+  value       = huaweicloud_vpc_eip.elb_console.publicip.0.ip_address
 }
 
 output "sovereign_fqdn" {

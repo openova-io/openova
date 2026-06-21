@@ -150,6 +150,62 @@ parses it as the materialised listener list.
         "allowedRoutes" (dict "namespaces" (dict "from" "All"))
       ) }}
 {{- end }}
+{{- /* ─────────────────────────────────────────────────────────────────────
+       #4053 — POISON-PROOF CONSOLE GATEWAY ISOLATION
+       ─────────────────────────────────────────────────────────────────────
+       Cilium Gateway API compiles ALL of a Gateway's HTTPRoutes + backends
+       into ONE CiliumEnvoyConfig (CEC), committed ATOMICALLY by cilium-agent.
+       If ANY single backend Service is unresolvable (a half-converged app, a
+       vanished vcluster-bridge Service, an empty EndpointSlice), getK8sService
+       returns "retrieved nil details" → the WHOLE CEC upsert fails → cilium-
+       envoy gets 0 listeners → the entire gateway 404s, console included.
+       This is the unfixed upstream bug cilium#35728 / cilium#34982 — no config
+       flag, no version fix on the pinned Cilium 1.16.5 (Chart.lock truth).
+       Confirmed live on hw182 (newapi install #3831 bridge Service poisoned
+       the whole console).
+
+       Because the CEC is ONE-PER-GATEWAY, isolating the console onto its OWN
+       Gateway means a broken volatile app backend can only zero ITS gateway —
+       the console gateway (stable ClusterIP backends only: catalyst-ui +
+       catalyst-api) survives. This second key renders the console gateway's
+       listener set: the SAME per-prov wildcard cert (`*.<fqdn>` matches the
+       2-label-deep console.<fqdn> / api.<fqdn> operator endpoints), but on the
+       console gateway's OWN host ports (consoleGateway.httpsPort /
+       .httpPort, default 31443 / 31080 — distinct from the shared gateway's
+       30443 / 30080 so both bind in hostNetwork mode without collision).
+
+       Why a single `*.<fqdn>` listener pair (not the full per-zone fan-out):
+       the console + api hostnames always live under the Sovereign FQDN apex,
+       never under an org-pool zone (those are tenant/app surfaces and stay on
+       the SHARED gateway). One wildcard pair on the primary cert is therefore
+       sufficient and keeps the console CEC minimal.
+
+       Consumed by clusters/_template/sovereign-tls/cilium-gateway-console.yaml
+       at `listeners: ${CONSOLE_LISTENERS_YAML}` via the same Flux postBuild
+       substituteFrom the shared gateway uses for PARENT_DOMAINS_LISTENERS_YAML.
+*/ -}}
+{{- $consoleCfg := default dict .Values.consoleGateway }}
+{{- $consoleHttpsPort := default 31443 $consoleCfg.httpsPort }}
+{{- $consoleHttpPort := default 31080 $consoleCfg.httpPort }}
+{{- $consoleListeners := list }}
+{{- $consoleListeners = append $consoleListeners (dict
+      "name" "console-https"
+      "port" $consoleHttpsPort
+      "protocol" "HTTPS"
+      "hostname" (printf "*.%s" $fqdn)
+      "tls" (dict
+        "mode" "Terminate"
+        "certificateRefs" (list (dict "kind" "Secret" "name" $secretName))
+      )
+      "allowedRoutes" (dict "namespaces" (dict "from" "All"))
+    ) }}
+{{- $consoleListeners = append $consoleListeners (dict
+      "name" "console-http"
+      "port" $consoleHttpPort
+      "protocol" "HTTP"
+      "hostname" (printf "*.%s" $fqdn)
+      "allowedRoutes" (dict "namespaces" (dict "from" "All"))
+    ) }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -161,10 +217,22 @@ metadata:
     app.kubernetes.io/component: sovereign-tls-vars
     catalyst.openova.io/sovereign: {{ $fqdn | quote }}
 data:
-  # PARENT_DOMAINS_LISTENERS_YAML — JSON-flow array literal of the
-  # Cilium Gateway listener block. Consumed by Flux postBuild.
-  # substituteFrom on the sovereign-tls Kustomization (cloud-init
-  # writes that Kustomization). See cilium-gateway.yaml `listeners:
-  # ${PARENT_DOMAINS_LISTENERS_YAML}` for the consumer.
+  # PARENT_DOMAINS_LISTENERS_YAML — JSON-flow array literal of the SHARED
+  # Cilium Gateway listener block (all parent zones + the per-prov wildcard
+  # pair). Consumed by Flux postBuild.substituteFrom on the sovereign-tls
+  # Kustomization (cloud-init writes that Kustomization). See
+  # cilium-gateway.yaml `listeners: ${PARENT_DOMAINS_LISTENERS_YAML}` for the
+  # consumer. The SHARED gateway carries every VOLATILE route (keycloak,
+  # grafana, gitea, harbor, openbao, powerdns, newapi, marketplace, tenant +
+  # mgmt-vcluster app routes) — its CEC may be poisoned by a half-converged
+  # app, which is acceptable because the console no longer rides this gateway.
   PARENT_DOMAINS_LISTENERS_YAML: {{ toJson $listeners | quote }}
+  # CONSOLE_LISTENERS_YAML — #4053 — JSON-flow array literal of the dedicated
+  # CONSOLE Cilium Gateway listener block. Consumed by Flux postBuild.
+  # substituteFrom on the sovereign-tls Kustomization. See
+  # cilium-gateway-console.yaml `listeners: ${CONSOLE_LISTENERS_YAML}`. The
+  # console gateway carries ONLY the catalyst-ui + catalyst-api HTTPRoutes
+  # (stable ClusterIP backends that always resolve), so its CEC is structurally
+  # immune to the app-backend poisoning that can zero the shared gateway.
+  CONSOLE_LISTENERS_YAML: {{ toJson $consoleListeners | quote }}
 {{- end }}

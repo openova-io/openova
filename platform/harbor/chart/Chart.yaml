@@ -123,7 +123,26 @@ type: application
 # sso.enabled stays true so the configurator runs IN the vCluster against
 # harbor-core. Non-host-bridged render byte-identical. Refs #3374 #3642.
 # 1.2.35 (#3971): CNPG storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
-version: 1.2.35
+# 1.2.36 (#4059 / Refs #3642 #3953, 2026-06-22): DB-secret rename bridge
+# regression in the host-bridge path. harbor-core reads its DB password from a
+# Secret NAMED `harbor-database-secret`, but CNPG mints `harbor-pg-app` — the
+# templates/database-secret.yaml placeholder + database-secret-sync-job.yaml
+# renamer bridge that. Both were gated on `postgres.cluster.enabled != false`,
+# which the #3642 host-bridge placement ALSO flips false (the harbor-pg Cluster
+# CR is host-rendered, not in-vc) → the renamer was wrongly SKIPPED → harbor
+# never got `harbor-database-secret` → harbor-core CreateContainerConfigError
+# ("harbor-database-secret-x-harbor-x-mgmt-vcluster" not found), harbor-jobservice
+# CrashLoop, registry.<fqdn> 502 / harbor.<fqdn> 404 on a fresh prov (caught live
+# hw172/hw173, BOTH regions). New value postgres.databaseSecretSync.enabled
+# (default true) gates the renamer independently of cluster.enabled: it runs
+# whenever harbor OWNS a harbor-pg Cluster (embedded OR host-bridge — both produce
+# harbor-pg-app), and is set false only in TRUE shared-pg mode (bp-postgres mints
+# the secret). Rendering the Job is ALSO what references harbor-pg-app inside
+# vc-mgmt, so it makes the bp-mgmt-vcluster sync.fromHost.secrets import (#3953)
+# materialise. The cnpg-cluster.yaml Cluster-CR gate is UNCHANGED (still
+# cluster.enabled — the host-bridge must not double-create it). Non-host-bridged
+# render byte-identical.
+version: 1.2.36
 appVersion: "2.14.3"
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
 # `oidc_extra_redirect_parms` config field. The configure-oauth Job now

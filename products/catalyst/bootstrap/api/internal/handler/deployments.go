@@ -840,6 +840,13 @@ func (d *Deployment) State() map[string]any {
 	if v := d.Request.ControlPlaneSize; v != "" {
 		out["controlPlaneSize"] = v
 	}
+	// #4057 — surface the EFFECTIVE default StorageClass so the chroot
+	// Settings page renders the operator's choice (or the per-provider CSI
+	// default when they accepted it) instead of an em-dash. deriveStorageClass
+	// fills the per-provider durable class (hcloud-volumes / evs-ssd) when the
+	// stored value is empty, so the page always shows a real durable class
+	// (never empty, never local-path).
+	out["storageClass"] = provisioner.DeriveStorageClass(d.Request)
 	if v := d.Request.SovereignPoolDomain; v != "" {
 		out["sovereignPoolDomain"] = v
 	}
@@ -1430,30 +1437,30 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 //
 // Why a list endpoint:
 //
-//   The wizard's index route (/sovereign/wizard, /sovereign/) needs to
-//   know whether the signed-in operator already has an in-flight
-//   deployment so it can auto-redirect to /sovereign/provision/<id>
-//   instead of presenting Step 1 of an empty wizard. Without this
-//   redirect, an operator who refreshes the tab during a 15-minute
-//   provisioning run loses the progress page and lands on the org
-//   form — which is the exact bug the founder hit live with otech90
-//   on 2026-05-04.
+//	The wizard's index route (/sovereign/wizard, /sovereign/) needs to
+//	know whether the signed-in operator already has an in-flight
+//	deployment so it can auto-redirect to /sovereign/provision/<id>
+//	instead of presenting Step 1 of an empty wizard. Without this
+//	redirect, an operator who refreshes the tab during a 15-minute
+//	provisioning run loses the progress page and lands on the org
+//	form — which is the exact bug the founder hit live with otech90
+//	on 2026-05-04.
 //
 // Filtering rules:
 //
-//   1. ?owner=<email> — restrict to deployments whose OwnerEmail
-//      matches (case-insensitive).
-//   2. When auth.RequireSession is wired, X-User-Email is always set
-//      and we ALSO restrict to that session's email regardless of
-//      the ?owner= value, so an operator can't list someone else's
-//      deployments by passing a different ?owner=. The server-side
-//      check is the security boundary; ?owner= is effectively a
-//      hint that mirrors the session.
-//   3. When the middleware is bypassed (CI / tests / catalyst-api
-//      running without CATALYST_KC_ADDR), the ?owner= filter is the
-//      only filter and an empty ?owner= returns every deployment —
-//      same passthrough policy as checkOwnership() to keep existing
-//      tests working unchanged.
+//  1. ?owner=<email> — restrict to deployments whose OwnerEmail
+//     matches (case-insensitive).
+//  2. When auth.RequireSession is wired, X-User-Email is always set
+//     and we ALSO restrict to that session's email regardless of
+//     the ?owner= value, so an operator can't list someone else's
+//     deployments by passing a different ?owner=. The server-side
+//     check is the security boundary; ?owner= is effectively a
+//     hint that mirrors the session.
+//  3. When the middleware is bypassed (CI / tests / catalyst-api
+//     running without CATALYST_KC_ADDR), the ?owner= filter is the
+//     only filter and an empty ?owner= returns every deployment —
+//     same passthrough policy as checkOwnership() to keep existing
+//     tests working unchanged.
 //
 // Adopted deployments (AdoptedAt != nil) are EXCLUDED from the list —
 // post-handover the customer's Sovereign is operationally self-
@@ -2151,10 +2158,11 @@ func (h *Handler) commitPDMWithRetry(dep *Deployment, result *provisioner.Result
 		pdmCtx,
 		dep.pdmPoolDomain,
 		pdm.CommitInput{
-			Subdomain:        dep.pdmSubdomain,
-			ReservationToken: dep.pdmReservationToken,
-			SovereignFQDN:    result.SovereignFQDN,
-			LoadBalancerIP:   result.LoadBalancerIP,
+			Subdomain:             dep.pdmSubdomain,
+			ReservationToken:      dep.pdmReservationToken,
+			SovereignFQDN:         result.SovereignFQDN,
+			LoadBalancerIP:        result.LoadBalancerIP,
+			ConsoleLoadBalancerIP: result.ConsoleLoadBalancerIP, // #4053 — isolated console LB (empty-safe)
 		},
 		func(ctx context.Context) (*pdm.Reservation, error) {
 			emitInfo(fmt.Sprintf("PDM reservation expired during Phase 0 — re-Reserving %s.%s",
