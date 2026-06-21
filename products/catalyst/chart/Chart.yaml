@@ -2939,7 +2939,7 @@ name: bp-catalyst-platform
 #   hardcoded hcloud-volumes → every PVC stayed Pending forever on a Huawei Sovereign → Pillar-3
 #   (two independent CNPG clusters + region-kill failover) silently dead for tenant Orgs. Empty
 #   default → "hetzner" inside the provisioning binary (NO-REGRESS for contabo/Hetzner).
-version: 1.4.762
+version: 1.4.763
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +
