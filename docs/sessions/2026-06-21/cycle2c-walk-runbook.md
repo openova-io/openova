@@ -1,52 +1,49 @@
-# Cycle-2c walk runbook — hw177 (`068f217746ca7779`, hw177.omani.works)
+# Cycle-2d zero-touch walk runbook — hw178
 
-**Purpose:** the moment hw177 converges past storage (watcher `b53aqb35j` reports `evs-ssd`),
-run THIS to flip the 35 walk-gated ❌ rows + validate the cycle-1 wave **zero-touch on the
-durable console** — the only acceptance that counts (a faked ✅ off an agent report or a temp
-roll is the founder's explicit rebuke). Built from the complete 48-❌ enumeration (2026-06-21).
+> Cycle-2c (hw177) WEDGED on a worker-node/kubelet infra flake (forensic:
+> [`hw177-worker-wedge.md`](hw177-worker-wedge.md)) → wiped (verifiedZeroOrphans)
+> → re-fired as **cycle-2d / hw178** on the same storage-fixed `main@116b616b0`
+> (chart `bp-huawei-evs-csi 1.0.2`, the #4030 fix).
 
-## Pre-walk health-gate (abort the walk if any fail — a transitional env yields only noise)
-1. `evs-ssd` StorageClass present both regions + EVS-CSI driver pods Running (the #4031 proof).
-2. `kubectl get pvc -A` → the 6 stateful PVCs (gitea/harbor/guacamole-pg-1, data-{dmz,mgmt,rtz}-vcluster-0) **Bound**.
-3. region-a + region-b HRs climbing **past** 40/50 toward green; `bp-catalyst-platform` Ready.
-4. `curl -sI https://console.hw177.omani.works/` → 200 (not 000).
-Only when ALL pass: proceed. If transitional, wait — do not walk.
+## Env
+- **Deployment ID**: `02bc518fcb1b4cb3`
+- **FQDN**: `hw178.omani.works` (console: `https://console.hw178.omani.works`)
+- **Provider**: Huawei kom4dc me-east-215, 2 regions (me-east-215-a / -b), shared-pg ON
+- **main**: `116b616b0` (chart 1.0.2 #4031 storage fix + cycle-1 fixes #4014/#4015/#4016/#4017/#4019 + #4022 idc driver)
+- **Created from**: hw177 (`068f217746ca7779`) request body verbatim, subdomain hw177→hw178
 
-## Access (kom4dc SSH-blocked → via the mothership catalyst-api pod, ns catalyst)
-- kubeconfigs: `/var/lib/catalyst/kubeconfigs/068f217746ca7779.yaml` (region-a) + `…-me-east-215-b-1.yaml` (region-b).
-- Handover walk: mint RS256 JWT with `/var/lib/catalyst/handover-jwt-private.pem`, claims
-  `{iss:https://console.openova.io, sub+email:emrah.baysal@openova.io, email_verified:true,
-  aud:https://console.hw177.omani.works, sovereign_fqdn:hw177.omani.works,
-  deployment_id:068f217746ca7779, role:sovereign-admin, jti:<uuid>, iat:<now>, exp:<now+300>}`
-  → Playwright `…/auth/handover?token=<jwt>` (NO curl-precheck — one-time JTI; session ~5min, re-mint per burst).
+## Convergence gate (STEP 3) — must pass BEFORE walking
+1. All region-a + region-b nodes **Ready** — and STAY Ready (watch the workers; the
+   hw177 wedge was kubelets posting ~30 min then going silent → re-confirm at 2 polls).
+2. CoreDNS `Running` (1/1), endpoints present.
+3. GitRepository `openova` `READY=True` on `main@116b616b0`.
+4. **STORAGE (the #4030 proof)**: `evs-ssd` StorageClass present BOTH regions +
+   EVS-CSI driver pods Running + the 6 stateful PVCs Bound
+   (`gitea-pg-1`/`harbor-pg-1`/`guacamole-pg-1` + `data-{dmz,mgmt,rtz}-vcluster-0`),
+   NO `local-path`.
+5. HRs PAST the old 40/50 ceiling (hw176 reached 67/region) → console HTTP 200.
 
-## STEP A — batch-merge the held queue FIRST (now safe: roll-after-ready, not mid-prov)
-Sequence to ride the deploy-bot treadmill (let each settle): #4028 (gateway) → #4021 (UI) →
-#4029 (UI) → #4011 (bp-chepherd chart, last). All MERGEABLE+CLEAN as of pre-walk. After the
-mothership rolls + settles, these flip: R92 (redeem-limit), the placement per-app tab, the
-Continuum DR page, and put bp-chepherd in the catalog for the e2e journey.
-
-## STEP B — walk the 35 rows (per-row pass criterion = the live screenshot, saved to evidence/)
-| Rows | Surface | PASS = |
+## Per-fix walk (STEP 4) — handover-mint + Playwright, LIVE evidence each
+| Fix | Ticket | What to prove on the live surface |
 |---|---|---|
-| SSO (cycle-1) | `/dashboard` via handover | signed-in, no login UI |
-| storage R209,210 | live cluster | evs-ssd present, local-path absent, PVCs Bound |
-| cloud R203,204 | `/cloud` | Region 2/2, WorkerNode N/N healthy, **LoadBalancer shows the real ELB** (#4019), not 0 |
-| topology R50-71 | `/cloud` + `/app/<x>/topology` + the ContinuumPage (#4029) | 2-target active-active for multi-region apps; DR StatusPanel shows lease/lag/phase from the live 2-region pair |
-| funnel R86-95 | marketplace → redeem coupon → Org provisions → per-Org console | Org ACTIVE, zero-click owner landing, WordPress serves; R92 = >5 rapid redeems → 429 |
-| model R5-23 | `/organizations` + `/organizations/<slug>` | the funnel-driven Org renders KIND=customer, TIER (not sme), ISOLATION=vcluster, ACTIVE |
-| orgs R120 | `/organizations/<slug>` | labels Slug/Kind/Tier/Billing/Isolation, no tenant/SME |
-| sso R32 · placement R111 · meta R181 | `/harbor` | signed-in `/harbor/projects`, no login (Harbor up once its PVC Bound) |
-| tenant-strings (cycle-1) | console sweep | no user-visible "tenant" |
-| jobs-finite | `/jobs` | finite typed rows, no continuous reconcilers |
-| recon | `/cloud?view=graph&lens=reconciliation` | the recon lens (note: R190-192 land via `fix/3916`/`fix/3996`) |
+| SSO | #3374 | bare console URL → signed-in as owner, NO login/PIN form; avatar "Signed in as…"; Grafana/Gitea/Harbor/OpenBao/Keycloak bare URLs land authed |
+| STORAGE | #3971/#4022/#4031 | `evs-ssd` default SC + 6 PVCs Bound + NO local-path (kubectl-confirmed) |
+| TOPOLOGY | #4015/#3375 | cloud view shows Region 2/2 active-active; per-app 2-target placement (region-a active + region-b standby as ONE placement) |
+| FUNNEL | #4016 | provisioning controller healthy (no CrashLoop); if feasible drive coupon→Org→ACTIVE |
+| RECON-ACTIONS | #4014 | reconcile/suspend app actions return no 502/403 |
+| CLOUD-VIEW LB | #4019 | cloud view shows the real ELB front-door (not 0/0) |
+| TENANT-STRINGS | #4017 | NO "tenant"/"SME" banned-term leak in the console bundle/UI |
+| JOBS-FINITE | — | Jobs page lists finite Job runs; no infra Job pod masquerading as an app/endpoint |
 
-## STEP C — record (commit-per-file IMMEDIATELY as hatiyildiz; a linter reverts uncommitted ledger edits)
-Re-stamp `docs/ledger/UAT.md` rows to hw177 with PASS/FAIL + the evidence path
-`docs/sessions/2026-06-21/walk-hw177/evidence/`. A row flips ✅ ONLY with a pasted live screenshot.
+## Walk mechanics
+- Mint handover JWT: `python3 /tmp/hw-keys/mint_handover.py hw178.omani.works 02bc518fcb1b4cb3`
+  (iss=console.openova.io, sub+email=emrah.baysal@openova.io, email_verified, aud=console.<fqdn>,
+  sovereign_fqdn, deployment_id, role=sovereign-admin, jti=uuid, exp=now+300).
+- Playwright `https://console.hw178.omani.works/auth/handover?token=<jwt>` — NO curl precheck.
+  Session ~5 min; re-mint per burst.
+- Screenshot each fix; record verdict + filename in [`walk-hw178/`](walk-hw178/) + UAT.md.
 
-## Remaining after the walk (NOT walk-flippable)
-- adoption R206 — Crossplane-XRC Path B (#4006) — founder A-vs-B steer.
-- e2e R216-223 — bp-chepherd (#4011, merging in STEP A) + openova-mcp (on main) + agent↔MCP wiring;
-  walkable once a customer Org exists (post-funnel) and chepherd installs into it.
-- R186 (meta) — auto-satisfied as the evidence cells above are populated.
+## Escalation guard
+If hw178 ALSO loses its workers the same way (kubelets post ~30 min then go silent,
+no MemoryPressure/DiskPressure transition) → that is **SYSTEMATIC kom4dc worker-VM
+instability** — STOP, do NOT re-fire a 3rd time, escalate with the evidence.

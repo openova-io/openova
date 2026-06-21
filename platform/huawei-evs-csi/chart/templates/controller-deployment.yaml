@@ -36,6 +36,12 @@ spec:
         app.kubernetes.io/name: bp-huawei-evs-csi
         app.kubernetes.io/component: controller
     spec:
+      {{- with .Values.imagePullSecrets }}
+      # Private driver image (ghcr.io/openova-io/openova/evs-csi-plugin) needs the
+      # ghcr-pull dockerconfigjson secret — #4037.
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       serviceAccountName: csi-evs-controller-sa
       priorityClassName: system-cluster-critical
       # Run on the control-plane so the EVS API calls originate from a stable

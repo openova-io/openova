@@ -38,7 +38,16 @@ name: bp-huawei-evs-csi
 # EVS-CSI release never installed → no evs-ssd → Huawei storage re-wedged
 # zero-touch on hw176 even WITH the 1.0.1 idc driver fix. The core storage path
 # (StorageClass + CSIDriver + driver pods) does not need the snapshot class.
-version: 1.0.2
+#
+# 1.0.3 (#4037): the PRIVATE driver image (ghcr.io/openova-io/openova/
+# evs-csi-plugin) had NO imagePullSecret on the CSI controller/node pods, and the
+# huawei-evs-csi namespace was missing from the cloud-init ghcr-pull reflection
+# allow-list → kubelet fell back to an anonymous ghcr token → 401 Unauthorized →
+# ImagePullBackOff → driver never ran → every evs-ssd PVC stayed Pending → the
+# storage tier wedged behind a GREEN evs-ssd StorageClass (verified live on
+# hw178). Fix: default imagePullSecrets:[ghcr-pull] on both pod specs + add
+# huawei-evs-csi to the reflection-namespaces in cloudinit-control-plane.tftpl.
+version: 1.0.3
 description: |
   Catalyst-curated Blueprint for the open-source huaweicloud-csi-driver EVS
   block-storage plugin (evs.csi.huaweicloud.com). Provides the durable
