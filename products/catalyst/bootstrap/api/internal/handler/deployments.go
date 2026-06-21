@@ -840,6 +840,13 @@ func (d *Deployment) State() map[string]any {
 	if v := d.Request.ControlPlaneSize; v != "" {
 		out["controlPlaneSize"] = v
 	}
+	// #4057 — surface the EFFECTIVE default StorageClass so the chroot
+	// Settings page renders the operator's choice (or the per-provider CSI
+	// default when they accepted it) instead of an em-dash. deriveStorageClass
+	// fills the per-provider durable class (hcloud-volumes / evs-ssd) when the
+	// stored value is empty, so the page always shows a real durable class
+	// (never empty, never local-path).
+	out["storageClass"] = provisioner.DeriveStorageClass(d.Request)
 	if v := d.Request.SovereignPoolDomain; v != "" {
 		out["sovereignPoolDomain"] = v
 	}

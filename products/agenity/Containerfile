@@ -1,19 +1,19 @@
-# bp-chepherd image — chepherd runtime + the bundled openova-mcp binary.
+# bp-agenity image — Agenity runtime + the bundled openova-mcp binary.
 #
-# The bp-chepherd Application image is the upstream chepherd daemon image
+# The bp-agenity Application image is the upstream chepherd daemon image
 # with OpenOva's `openova-mcp` server binary baked in at
-# /usr/local/bin/openova-mcp. chepherd injects this MCP server into every
+# /usr/local/bin/openova-mcp. The daemon injects this MCP server into every
 # spawned agent's .mcp.json (via CHEPHERD_EXTRA_MCP_JSON, set by the
-# bp-chepherd Helm chart), so the User's solo agent (Claude Opus 4.7) can
+# bp-agenity Helm chart), so the User's solo agent (Claude Opus 4.7) can
 # create Applications in the User's own Organization through the
 # RBAC-scoped OpenOva MCP.
 #
 # Build context = the repo root (the build needs products/openova-mcp and
 # its go workspace). CHEPHERD_BASE pins the upstream chepherd daemon image.
 #
-#   docker build -f products/chepherd/Containerfile \
+#   docker build -f products/agenity/Containerfile \
 #     --build-arg CHEPHERD_BASE=ghcr.io/chepherd/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82 \
-#     -t ghcr.io/openova-io/bp-chepherd:dev .
+#     -t ghcr.io/openova-io/bp-agenity:dev .
 
 # CHEPHERD_BASE pins the upstream chepherd daemon image overlaid in stage 2.
 # It is declared HERE — before the first FROM — so it lives in the global
@@ -22,7 +22,7 @@
 # this global value (default or --build-arg override) into that stage. An ARG
 # declared only inside stage 2 is NOT visible to its own FROM, which is what
 # caused "base name (${CHEPHERD_BASE}) should not be blank" (UndefinedArgInFrom).
-# Digest-pinned to the v0.9.4 build carrying the bp-chepherd MCP seam
+# Digest-pinned to the v0.9.4 build carrying the bp-agenity MCP seam
 # (chepherd #747 / #4010: CHEPHERD_EXTRA_MCP_JSON + CHEPHERD_DEFAULT_MODEL).
 ARG CHEPHERD_BASE=ghcr.io/chepherd/chepherd:v0.9.4@sha256:b6f0c43b63b8933bfaad8cf09366642e63656d9664887eab20eac26e96d28b82
 
@@ -49,4 +49,4 @@ FROM ${CHEPHERD_BASE}
 COPY --from=mcp-builder /usr/local/bin/openova-mcp /usr/local/bin/openova-mcp
 
 # The chepherd image already defines its ENTRYPOINT (chepherd-entrypoint)
-# and EXPOSEs 8080/9090; bp-chepherd inherits them unchanged.
+# and EXPOSEs 8080/9090; bp-agenity inherits them unchanged.

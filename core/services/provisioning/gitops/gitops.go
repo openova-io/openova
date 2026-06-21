@@ -141,10 +141,62 @@ type ManifestGenerator struct {
 	// gitops.Render. Cutover Step-04 (ADR-0002) flips it to
 	// harbor.<sovereign-fqdn> post-handover.
 	RegistryMirror string
+
+	// CloudProvider is the IaC cloud provider this Sovereign runs on —
+	// "hetzner" or "huawei". It selects the block-storage StorageClass
+	// the per-tenant CNPG pair PVCs bind to, because the StorageClass
+	// name is provider-specific and a cross-provider hardcode renders
+	// every customer-Org Postgres PVC permanently Pending.
+	//
+	// PILLAR-3 LANDMINE (#4060): generateCNPGPair previously hardcoded
+	// `storageClass: hcloud-volumes`, which only exists on Hetzner
+	// (hcloud-csi). On a Huawei (kom4dc) Sovereign only `evs-ssd` (the
+	// open-source huaweicloud-csi-driver EVS class from
+	// platform/huawei-evs-csi) exists, so every active-hot-standby
+	// customer-Org CNPG PVC stayed Pending forever and the two-region
+	// CNPG pair never materialized — Pillar-3 (two independent CNPG
+	// clusters + region-kill failover) was SILENTLY dead for tenant
+	// Orgs on the omantel.biz Sovereign.
+	//
+	// Populated from the CLOUD_PROVIDER env in main.go (wired by the
+	// catalyst chart's provisioning Deployment from global.cloudProvider).
+	// Empty / unknown defaults to "hetzner" so the legacy contabo/Hetzner
+	// path renders hcloud-volumes unchanged (NO-REGRESS).
+	CloudProvider string
 }
 
 // defaultVClusterRegistryMirror is the bootstrap Harbor proxy host.
 const defaultVClusterRegistryMirror = "harbor.openova.io"
+
+// Block-storage StorageClass names per cloud provider. These are the
+// canonical Catalyst CSI classes installed by the per-provider CSI
+// Blueprints (platform/hcloud-csi → hcloud-volumes,
+// platform/huawei-evs-csi → evs-ssd).
+const (
+	hetznerBlockStorageClass = "hcloud-volumes"
+	huaweiBlockStorageClass  = "evs-ssd"
+)
+
+// cnpgStorageClass resolves the provider-correct block-storage
+// StorageClass for the customer-Org CNPG pair PVCs (#4060). Unknown /
+// empty provider falls back to the Hetzner class so the legacy path is
+// unchanged. Hetzner stays hcloud-volumes (NO-REGRESS); only Huawei
+// flips to its EVS CSI class.
+func (g *ManifestGenerator) cnpgStorageClass() string {
+	switch strings.ToLower(strings.TrimSpace(g.CloudProvider)) {
+	case "huawei":
+		return huaweiBlockStorageClass
+	case "hetzner", "":
+		return hetznerBlockStorageClass
+	default:
+		// An unexpected provider string must not silently render a
+		// nonexistent StorageClass; log loud and fall back to the
+		// historical Hetzner default rather than wedge PVCs.
+		slog.Warn("provisioning/gitops: unknown CLOUD_PROVIDER — defaulting CNPG storageClass to hcloud-volumes",
+			"cloud_provider", g.CloudProvider, "storageClass", hetznerBlockStorageClass)
+		return hetznerBlockStorageClass
+	}
+}
 
 func NewManifestGenerator(basePath string) *ManifestGenerator {
 	return &ManifestGenerator{BasePath: basePath}
@@ -268,7 +320,7 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 		primaryRegion := strings.TrimSpace(readStringCfg(pgCfg, "primary_region", "", "postgres"))
 		replicaRegion := strings.TrimSpace(readStringCfg(pgCfg, "replica_region", "", "postgres"))
 		if enableHA && primaryRegion != "" && replicaRegion != "" && primaryRegion != replicaRegion {
-			vcFiles["db-cnpg-pair.yaml"] = generateCNPGPair(appNS, dbPassword, postgresApps, pgCfg, primaryRegion, replicaRegion)
+			vcFiles["db-cnpg-pair.yaml"] = generateCNPGPair(appNS, dbPassword, postgresApps, pgCfg, primaryRegion, replicaRegion, g.cnpgStorageClass())
 		} else {
 			if enableHA {
 				// Operator opted in but didn't supply distinct region
@@ -723,7 +775,7 @@ spec:
 // per-Sovereign overlay MUST pin a SHA digest. Leaving it empty in the
 // orchestrator output keeps the contract that overlay layer is the
 // single owner of image pins.
-func generateCNPGPair(ns, password string, apps []string, cfg map[string]any, primaryRegion, replicaRegion string) string {
+func generateCNPGPair(ns, password string, apps []string, cfg map[string]any, primaryRegion, replicaRegion, storageClass string) string {
 	sortedApps := sortStrings(append([]string{}, apps...))
 	primaryDB := "appdb"
 	if len(sortedApps) > 0 {
@@ -829,7 +881,10 @@ spec:
         instances: %d
         storage:
           size: %dGi
-          storageClass: hcloud-volumes
+          # Provider-aware block-storage class (#4060): hcloud-volumes on
+          # Hetzner, evs-ssd on Huawei. A cross-provider hardcode pins
+          # every customer-Org CNPG PVC Pending on the wrong cloud.
+          storageClass: %s
         bootstrap:
           database: %s
           owner: app
@@ -838,13 +893,13 @@ spec:
         instances: %d
         storage:
           size: %dGi
-          storageClass: hcloud-volumes
+          storageClass: %s
       # replication.mode + clusterMesh + audit defaults come from the
       # chart's own values.yaml (sync remote_apply + numSync=1 +
       # clusterMesh.enabled + audit subjects). Per-Sovereign overlays
       # may patch values via Flux postBuild substitute; we intentionally
       # do NOT override here.
-`, ns, password, primaryDB, ns, ns, ns, ns, primaryRegion, instances, diskGB, primaryDB, replicaRegion, instances, diskGB)
+`, ns, password, primaryDB, ns, ns, ns, ns, primaryRegion, instances, diskGB, storageClass, primaryDB, replicaRegion, instances, diskGB, storageClass)
 }
 
 func generateMySQL(ns, password string, apps []string, cfg map[string]any, registryMirror string) string {

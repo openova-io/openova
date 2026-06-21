@@ -237,6 +237,16 @@ export interface WizardState {
   regions: Region[]
   controlPlaneSize: NodeSize; workerSize: NodeSize; workerCount: number; haEnabled: boolean
   /**
+   * Default storage class for the Sovereign (issue #4057). OPTIONAL —
+   * an empty string means "let the backend fill the per-provider default"
+   * (Hetzner → `hcloud-volumes`, Huawei → `evs-ssd`). The catalyst-api
+   * Request struct (`provisioner.Request.StorageClass`) already accepts
+   * this field and defaults it per-provider when empty; this is the UI
+   * seam so an operator can override the durable cloud-volume class.
+   * `local-path` is intentionally NOT a permitted value (durability).
+   */
+  storageClass: string
+  /**
    * Marketplace mode toggle (issue #710 wave 3a). When true, the
    * provisioner sets `marketplace_enabled=true` on the OpenTofu var that
    * cloud-init substitutes into the bp-catalyst-platform HelmRelease,
@@ -488,6 +498,12 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   // scale agreement (issue #733). Operators can dial it back to 0
   // explicitly for solo dev/POC topologies.
   regions: [], controlPlaneSize: '', workerSize: '', workerCount: 2,
+  // Default storage class (issue #4057) — empty means "accept the
+  // per-provider backend default" (hetzner→hcloud-volumes, huawei→evs-ssd).
+  // Never seed a provider literal here: provider is null at init, so a
+  // hardcoded class would be wrong for whichever provider the operator
+  // ends up picking. The StepProvider override input fills it on demand.
+  storageClass: '',
   haEnabled: false, selectedComponents: [...computeDefaultSelection()].sort(),
   // Marketplace mode (issue #710 wave 3a) — DEFAULT ON for D27 zero-touch.
   // Founder ruling 2026-05-16: a Sovereign is provisioned ready to host

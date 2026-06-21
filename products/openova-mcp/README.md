@@ -91,7 +91,7 @@ See the walk evidence on issue #3988.
 Per #3988 §5, the following are explicitly out of this slice and tracked as
 follow-ups:
 
-- **chepherd integration** — the `bp-openova-mcp dependsOn bp-chepherd`
+- **Agenity integration** — the `bp-openova-mcp dependsOn bp-agenity`
   Blueprint chart, the `openovaMCP.*` repoint, the `.mcp.json` injection.
 - **HTTP/SSE transport** — this slice uses stdio; the long-lived
   per-Org/per-Sovereign Service needs streamable-HTTP/SSE + stable DNS.

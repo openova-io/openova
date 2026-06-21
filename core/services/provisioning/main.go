@@ -170,6 +170,16 @@ func main() {
 	// flips it to harbor.<sovereign-fqdn>.
 	generator.RegistryMirror = getEnv("VCLUSTER_IMAGE_REGISTRY", "harbor.openova.io")
 
+	// #4060 PILLAR-3: the IaC cloud provider this Sovereign runs on
+	// ("hetzner" | "huawei"). Selects the block-storage StorageClass the
+	// per-tenant active-hot-standby CNPG pair PVCs bind to — hcloud-volumes
+	// on Hetzner (hcloud-csi), evs-ssd on Huawei (huaweicloud-csi-driver
+	// EVS). Without this, generateCNPGPair hardcoded hcloud-volumes and
+	// every customer-Org CNPG PVC on a Huawei Sovereign stayed Pending
+	// forever → Pillar-3 silently dead for tenant Orgs. Empty / unknown
+	// defaults to the Hetzner class inside gitops.cnpgStorageClass().
+	generator.CloudProvider = getEnv("CLOUD_PROVIDER", "hetzner")
+
 	// ── Git host coordinates (issue #940) ────────────────────────────
 	// On Sovereigns the canonical Git target is the local Gitea (the
 	// cutover step flipped the Sovereign's GitRepository CR to point

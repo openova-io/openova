@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-21T15:45:02Z` |
+| Last refreshed | `2026-06-21T18:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 72 |
+| Open issues | 77 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 72 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 77 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 72 open items (clickable table)
+### All 77 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -272,6 +272,11 @@ flowchart LR
 | [#4049](https://github.com/openova-io/openova/issues/4049) | fix(provisioning): bastion Harbor warmup — every image Huawei→Huawei, kill / | Other |
 | [#4053](https://github.com/openova-io/openova/issues/4053) | fix(bp-cilium): one broken backend Service poisons the whole gateway CEC → ent | Other |
 | [#4055](https://github.com/openova-io/openova/issues/4055) | Huawei provs ship UNDER-PROVISIONED: 2vCPU m7n.large.8 workers wedge bp-catalyst | Other |
+| [#4057](https://github.com/openova-io/openova/issues/4057) | Storage class as a user-choosable provisioning input (per-provider CSI default) | Other |
+| [#4058](https://github.com/openova-io/openova/issues/4058) | refactor(catalog): rebrand bp-chepherd → bp-agenity (product identity only; ru | Other |
+| [#4059](https://github.com/openova-io/openova/issues/4059) | fix(bp-harbor): host-bridge path skips DB-secret rename Job → registry/harbor  | Other |
+| [#4060](https://github.com/openova-io/openova/issues/4060) | fix(provisioning): customer-Org CNPG pair hardcodes hcloud-volumes → Pillar-3  | Other |
+| [#4061](https://github.com/openova-io/openova/issues/4061) | Permanent Sovereign auto-fires sovereignty-cutover on handover — make it a del | Other |
 
 ---
 
@@ -279,6 +284,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-21T17:54 | [#4066](https://github.com/openova-io/openova/pull/4066) | #1 | feat(provisioning): storage class is a choosable user input  |
+| 2026-06-21T17:35 | [#4065](https://github.com/openova-io/openova/pull/4065) | #3642 | fix(bp-harbor): render DB-secret rename Job in #3642 host-br |
+| 2026-06-21T17:38 | [#4064](https://github.com/openova-io/openova/pull/4064) | #4060 | fix(provisioning): provider-aware CNPG-pair storageClass — P |
+| 2026-06-21T18:11 | [#4062](https://github.com/openova-io/openova/pull/4062) | #4058 | refactor(catalog): rebrand bp-chepherd → bp-agenity (product |
+| 2026-06-21T15:54 | [#4056](https://github.com/openova-io/openova/pull/4056) | #4055 | fix(catalyst-api): enforce Huawei resource floor — CP≥4vCPU, |
 | 2026-06-21T13:43 | [#4052](https://github.com/openova-io/openova/pull/4052) | #4037 | fix(bootstrap-kit): gate stateful root slots on BOTH per-pro |
 | 2026-06-21T12:03 | [#4051](https://github.com/openova-io/openova/pull/4051) | #4049 | fix(bp-catalyst-platform): bp-chepherd missing required topo |
 | 2026-06-21T09:51 | [#4048](https://github.com/openova-io/openova/pull/4048) | #3913 | fix(huawei): route ghcr/quay/gcr/k8s through bastion NAT-byp |
@@ -304,11 +314,6 @@ flowchart LR
 | 2026-06-21T00:43 | [#4017](https://github.com/openova-io/openova/pull/4017) | #3985 | fix(console): flip 18 user-visible 'tenant'→'Organization' s |
 | 2026-06-21T00:36 | [#4016](https://github.com/openova-io/openova/pull/4016) | #3964 | fix(funnel): unblock coupon→Org→ACTIVE — provisioning image  |
 | 2026-06-21T00:19 | [#4015](https://github.com/openova-io/openova/pull/4015) | #4001 | fix(catalyst-api): deliver region-b kubeconfig to in-cluster |
-| 2026-06-21T00:04 | [#4014](https://github.com/openova-io/openova/pull/4014) | #3996 | fix(catalyst-rbac): cutover-driver SA can patch Flux reconci |
-| 2026-06-21T00:06 | [#4013](https://github.com/openova-io/openova/pull/4013) | #3971 | fix(bp-huawei-evs-csi): idc no-Keystone AK/SK bypass — EVS p |
-| 2026-06-21T00:05 | [#4012](https://github.com/openova-io/openova/pull/4012) | #3971 | fix(bootstrap): Huawei EVS CSI blueprint + slot 55b — Huawei |
-| 2026-06-21T07:18 | [#4011](https://github.com/openova-io/openova/pull/4011) | #4010 | feat(bp-chepherd): chepherd as an installable Application +  |
-| 2026-06-20T19:45 | [#4008](https://github.com/openova-io/openova/pull/4008) | #3988 | docs(uat): extend the canonical 186-case table → 215 with th |
 
 ---
 

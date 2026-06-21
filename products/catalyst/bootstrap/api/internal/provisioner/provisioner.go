@@ -235,6 +235,56 @@ func bcpTopologyEnableHotStandby(topology string) string {
 	}
 }
 
+// Per-provider default StorageClass names — the durable cloud-block-storage
+// CSI class each provider's bootstrap-kit installs and flips to
+// cluster-default (#3971/#892). These are the FALLBACKS the operator gets
+// when Request.StorageClass is empty (the common case). They mirror the
+// hardcoded `SOVEREIGN_CNPG_STORAGE_CLASS` literals the cloud-init template
+// carried before #4057 made the class a choosable input — Hetzner installs
+// `hcloud-volumes` (bp-hcloud-csi slot 55a / csi.hetzner.cloud); Huawei
+// installs `evs-ssd` (bp-huawei-evs-csi slot 55b / evs.csi.huaweicloud.com).
+// local-path is FORBIDDEN on both (k3s `--disable=local-storage` + the K23
+// Kyverno ENFORCE deny), so a per-provider cloud CSI class is ALWAYS the
+// default — never an ephemeral fallback.
+const (
+	StorageClassDefaultHetzner = "hcloud-volumes"
+	StorageClassDefaultHuawei  = "evs-ssd"
+)
+
+// defaultStorageClassForProvider returns the per-provider default cloud CSI
+// StorageClass name. Provider names are the normalized lower-cased values
+// Validate() guarantees (`hetzner` / `huawei`); any unrecognized provider
+// falls back to the Hetzner default so a future provider added to the wire
+// without a storage default still lands on a non-local-path class. A wrong
+// literal here cannot silently land ephemeral storage: the Phase-1
+// storage-durability gate independently fails any prov whose resolved
+// default class is local-path or absent.
+func defaultStorageClassForProvider(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "huawei":
+		return StorageClassDefaultHuawei
+	default:
+		return StorageClassDefaultHetzner
+	}
+}
+
+// DeriveStorageClass applies the #4057 defaulting rule for Request.StorageClass:
+//
+//   - Explicit non-empty value (operator chose a class in the wizard or via
+//     the API) → preserved verbatim, trimmed of surrounding whitespace.
+//   - Empty (the common case — operator accepted the wizard's pre-selected
+//     default, or a legacy/automation payload omits the field) → the
+//     per-provider cloud CSI default (hcloud-volumes / evs-ssd).
+//
+// One source of truth shared by Validate(), writeTfvars(), and the unit
+// tests — exactly one place decides the effective StorageClass for a Request.
+func DeriveStorageClass(req Request) string {
+	if sc := strings.TrimSpace(req.StorageClass); sc != "" {
+		return sc
+	}
+	return defaultStorageClassForProvider(req.Provider)
+}
+
 // RegionSpec is one entry in Request.Regions — the per-region sizing
 // payload the wizard's StepProvider produces. Each topology slot has its
 // own provider, its own cloud-region, and its own SKU vocabulary, so the
@@ -253,6 +303,21 @@ type RegionSpec struct {
 	ControlPlaneSize string `json:"controlPlaneSize"`
 	WorkerSize       string `json:"workerSize"`
 	WorkerCount      int    `json:"workerCount"`
+
+	// StorageClass — optional per-region StorageClass carried on the wire
+	// for forward-compatibility (#4057). Today the effective class is a
+	// single per-Sovereign value: Validate() folds Regions[0].StorageClass
+	// into the umbrella Request.StorageClass when the umbrella value is
+	// empty (mirroring the ControlPlaneSize/WorkerSize per-region→singular
+	// derivation), and writeTfvars threads that one umbrella value into the
+	// `default_storage_class` tofu var → the cloud-init
+	// `SOVEREIGN_CNPG_STORAGE_CLASS` substitute. Per-region cloud-init
+	// rendering of distinct classes (the mixed-provider multi-region case)
+	// would also require extending the tofu `regions` object type and the
+	// template substitute, which is out of scope here — so a value set on a
+	// non-primary region is currently accepted but not independently
+	// rendered. Kept on the struct so that extension is additive.
+	StorageClass string `json:"storageClass,omitempty"`
 
 	// ClusterMeshName — Cilium ClusterMesh peer name override for this
 	// secondary region. Empty = auto-derive as
@@ -371,6 +436,38 @@ type Request struct {
 	ControlPlaneSize string `json:"controlPlaneSize"`
 	WorkerSize       string `json:"workerSize"`
 	WorkerCount      int    `json:"workerCount"`
+
+	// StorageClass — the operator-chosen default StorageClass for this
+	// Sovereign's stateful workloads (founder point #1: "storage class is
+	// an INPUT that needs to be chosen by the user and like all the other
+	// choosable options it needs to have its defaults as well"). Issue
+	// #4057.
+	//
+	// This is an OPTIONAL input with a per-provider default. When empty
+	// (the common case — the wizard pre-selects the per-provider CSI class
+	// and most operators accept it, and every legacy/automation payload
+	// omits the field) DeriveStorageClass() fills in the durable
+	// cloud-block-storage CSI class for the chosen provider: Hetzner →
+	// `hcloud-volumes` (bp-hcloud-csi slot 55a), Huawei → `evs-ssd`
+	// (bp-huawei-evs-csi slot 55b). The k3s ephemeral local-path
+	// provisioner is FORBIDDEN (`--disable=local-storage` + the K23 Kyverno
+	// ENFORCE deny, #3971/#892) so the default is ALWAYS a durable cloud
+	// class — there is no ephemeral fallback. An operator MAY override with
+	// any class their CSI installs (e.g. a second hcloud `hcloud-volumes-
+	// xfs` profile) but the value is passed verbatim to the cloud — a class
+	// the cluster does not install leaves PVCs Pending, the same as any
+	// other unknown class name.
+	//
+	// Threading mirrors the BcpTopology / EnableSharedPostgres seam
+	// exactly: this Request field → writeTfvars `default_storage_class`
+	// tofu var (the per-provider literal when empty) → the cloud-init Flux
+	// Kustomization postBuild.substitute `SOVEREIGN_CNPG_STORAGE_CLASS`
+	// (which previously HARDCODED the per-provider literal) → the
+	// host-shared CNPG Cluster CRs in slots 10/19/52 + the bp-cnpg /
+	// bp-mgmt-vcluster default class. The matching string variable
+	// `default_storage_class` is declared in
+	// infra/providers/{hetzner,huawei}/variables.tf.
+	StorageClass string `json:"storageClass,omitempty"`
 
 	HAEnabled bool `json:"haEnabled"`
 
@@ -737,6 +834,15 @@ func (r *Request) Validate() error {
 		r.ControlPlaneSize = r.Regions[0].ControlPlaneSize
 		r.WorkerSize = r.Regions[0].WorkerSize
 		r.WorkerCount = r.Regions[0].WorkerCount
+		// #4057 — mirror the primary region's StorageClass into the
+		// umbrella singular field ONLY when the umbrella value is empty, so
+		// an operator who set the class at the top level (the common wizard
+		// shape) keeps it, while a per-region-only payload still surfaces a
+		// class to writeTfvars. Empty here flows through DeriveStorageClass
+		// to the per-provider CSI default.
+		if strings.TrimSpace(r.StorageClass) == "" {
+			r.StorageClass = r.Regions[0].StorageClass
+		}
 	}
 
 	// Provider switch (Wave 4 — Refs #2140). Empty value defaults to
@@ -2515,6 +2621,22 @@ func writeTfvars(deployDir string, req Request) error {
 		// infra/providers/{hetzner,huawei}/variables.tf carry the matching
 		// `["true","false"]` validation so a typo fails at `tofu plan`.
 		"enable_shared_pg": map[bool]string{true: "true", false: "false"}[req.EnableSharedPostgres],
+
+		// Operator-chosen default StorageClass (#4057 — founder point #1:
+		// "storage class is an INPUT chosen by the user, with defaults").
+		// DeriveStorageClass returns the operator's explicit class verbatim,
+		// or the per-provider durable cloud CSI default when empty (Hetzner
+		// → hcloud-volumes, Huawei → evs-ssd). NEVER empty, NEVER local-path
+		// (which is FORBIDDEN by --disable=local-storage + the K23 Kyverno
+		// ENFORCE deny). The Hetzner + Huawei cloud-init templates interpolate
+		// this var into the bootstrap-kit Kustomization postBuild.substitute
+		// `SOVEREIGN_CNPG_STORAGE_CLASS` — which previously HARDCODED the
+		// per-provider literal — so the host-shared CNPG Cluster CRs (slots
+		// 10/19/52) + the bp-cnpg / bp-mgmt-vcluster default class all name the
+		// chosen class. infra/providers/{hetzner,huawei}/variables.tf declare
+		// the matching string variable; a fresh prov that omits the wizard
+		// field lands byte-identical to today (the per-provider default).
+		"default_storage_class": DeriveStorageClass(req),
 
 		// QA namespace + Organization names — derived from the Sovereign
 		// FQDN's first label at provision time per principle #4 (never

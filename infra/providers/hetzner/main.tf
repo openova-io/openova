@@ -876,6 +876,7 @@ locals {
     bcp_topology             = var.bcp_topology
     enable_hot_standby       = var.enable_hot_standby
     enable_shared_pg         = var.enable_shared_pg
+    default_storage_class    = var.default_storage_class
     sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
     continuum_enabled        = length(var.regions) > 1 ? "true" : "false"
     parent_domains_yaml = coalesce(
@@ -1404,6 +1405,7 @@ locals {
       bcp_topology             = var.bcp_topology
       enable_hot_standby       = var.enable_hot_standby
       enable_shared_pg         = var.enable_shared_pg
+      default_storage_class    = var.default_storage_class
       sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
       continuum_enabled        = length(var.regions) > 1 ? "true" : "false"
       parent_domains_yaml = coalesce(

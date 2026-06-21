@@ -52,10 +52,15 @@ grep -q 'POSTGRESQL_HOST: "harbor-pg-rw.harbor.svc.cluster.local"' "$tmp/own.yam
   || fail "own-cluster: DB host must be harbor-pg-rw.harbor"
 echo "  PASS"
 
-# ── Case 2: SHARED mode ─────────────────────────────────────────────────
-echo "[shared-pg] Case 2: SHARED → no bundled Cluster, no sync Job, reads reflected harbor-database-secret"
+# ── Case 2: TRUE shared-pg mode ─────────────────────────────────────────
+# bp-postgres mints harbor-database-secret directly; there is NO harbor-pg-app
+# to rename, so BOTH the bundled Cluster AND the rename bridge must be OFF.
+# #4059: the true-shared-pg overlay flips databaseSecretSync.enabled=false
+# alongside postgres.cluster.enabled=false (SOVEREIGN_HARBOR_PG_OWN_CLUSTER=false).
+echo "[shared-pg] Case 2: TRUE shared-pg → no bundled Cluster, no sync Job, reads reflected harbor-database-secret"
 "$helm" template smoke "$chart_dir" \
   --set postgres.cluster.enabled=false \
+  --set postgres.databaseSecretSync.enabled=false \
   --set 'harbor.database.external.host=shared-pg-rw.shared-data.svc.cluster.local' \
   --api-versions postgresql.cnpg.io/v1 \
   > "$tmp/shared.yaml" 2> "$tmp/shared.err" || { cat "$tmp/shared.err" >&2; fail "shared render errored"; }
@@ -74,6 +79,35 @@ grep -A4 'name: POSTGRESQL_PASSWORD' "$tmp/shared.yaml" | grep -q 'key: password
   || fail "SHARED: POSTGRESQL_PASSWORD key must be 'password'"
 grep -q 'POSTGRESQL_HOST: "shared-pg-rw.shared-data.svc.cluster.local"' "$tmp/shared.yaml" \
   || fail "SHARED: DB host must point at the shared engine -rw Service"
+echo "  PASS"
+
+# ── Case 3: #3642 host-bridge mode (#4059 regression guard) ─────────────
+# Harbor runs INSIDE the mgmt vCluster; the harbor-pg Cluster CR is
+# HOST-rendered (placement.yaml hostBridge) so the in-vc chart sets
+# postgres.cluster.enabled=false — BUT harbor STILL owns harbor-pg, so the
+# CNPG-minted harbor-pg-app MUST be renamed → harbor-database-secret by the
+# in-vc sync Job. databaseSecretSync.enabled stays true (own cluster). The
+# renamer being skipped here was the hw172/hw173 harbor-core
+# CreateContainerConfigError → registry 502 / harbor 404. This case locks it:
+# Cluster CR OFF (host renders it) but BOTH the renamer Job AND its placeholder
+# Secret MUST render.
+echo "[shared-pg] Case 3: host-bridge → no in-vc Cluster CR, but renamer Job + placeholder Secret PRESENT (#4059)"
+"$helm" template smoke "$chart_dir" \
+  --set postgres.cluster.enabled=false \
+  --set postgres.databaseSecretSync.enabled=true \
+  --api-versions postgresql.cnpg.io/v1 \
+  > "$tmp/hostbridge.yaml" 2> "$tmp/hostbridge.err" || { cat "$tmp/hostbridge.err" >&2; fail "host-bridge render errored"; }
+
+[ "$(grep -cE '^kind: Cluster$' "$tmp/hostbridge.yaml")" -eq 0 ] \
+  || fail "host-bridge: in-vc Cluster CR must NOT render (host placement renders it)"
+grep -q 'name: harbor-database-secret-sync$' "$tmp/hostbridge.yaml" \
+  || fail "host-bridge: renamer sync Job MUST render (#4059 — harbor-pg-app→harbor-database-secret)"
+grep -q 'value: "harbor-pg-app"' "$tmp/hostbridge.yaml" \
+  || fail "host-bridge: sync Job SOURCE_SECRET must be harbor-pg-app"
+# placeholder harbor-database-secret Secret MUST render so harbor-core can mount it.
+if ! awk '/^kind: Secret$/{k=1;next} k&&/^  name: harbor-database-secret$/{print "x"} /^---$/{k=0}' "$tmp/hostbridge.yaml" | grep -q x; then
+  fail "host-bridge: placeholder harbor-database-secret Secret MUST render (#4059)"
+fi
 echo "  PASS"
 
 echo

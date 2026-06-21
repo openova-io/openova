@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ include "chepherd.fullname" . }}
+  name: {{ include "agenity.fullname" . }}
   labels:
-    {{- include "chepherd.labels" . | nindent 4 }}
+    {{- include "agenity.labels" . | nindent 4 }}
 spec:
-  serviceName: {{ include "chepherd.fullname" . }}
+  serviceName: {{ include "agenity.fullname" . }}
   replicas: 1
   selector:
     matchLabels:
-      {{- include "chepherd.selectorLabels" . | nindent 6 }}
+      {{- include "agenity.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "chepherd.selectorLabels" . | nindent 8 }}
+        {{- include "agenity.selectorLabels" . | nindent 8 }}
       {{- with .Values.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
@@ -37,7 +37,7 @@ spec:
       {{- end }}
       containers:
         - name: chepherd
-          image: {{ include "chepherd.image" . }}
+          image: {{ include "agenity.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - run
