@@ -403,7 +403,11 @@ jobs:
   # infra/providers/huawei/main.tf) — but the hosted project only serves what
   # has been PUSHED into it. This job NATIVE-PUSHES the current catalyst image
   # set into that bastion project on EVERY catalyst build (catalyst changes
-  # every build, so its tags must be re-warmed each time), MIRRORING the
+  # every build, so its tags must be re-warmed each time) PLUS the bootstrap-kit
+  # COMPONENT charts' private images (k8s-ws-proxy, openova-flow-*, evs-csi-plugin,
+  # …) — ROOT-CAUSE #2: those live in platform/*/chart, NOT in
+  # products/catalyst/chart, so the catalyst render never warmed them and they
+  # ImagePullBackOff'd on fresh provs. MIRRORING the
   # sovereignty-cutover 03-harbor-prewarm Job's skopeo flags + retry discipline
   # (--insecure-policy, --retry-times 5, --command-timeout, parallel fan-out,
   # OUTER per-image retry). After this lands, every kom4dc node pulls catalyst
@@ -532,9 +536,26 @@ jobs:
             "ghcr.io/openova-io/openova/catalyst-api:latest" \
             "ghcr.io/openova-io/openova/catalyst-ui:latest")"
 
+          # #4049 ROOT-CAUSE #2 — the bootstrap-kit COMPONENT charts' PRIVATE
+          # images (k8s-ws-proxy, openova-flow-server, openova-flow-adapter-flux,
+          # evs-csi-plugin, …) are NOT in products/catalyst/chart, so the render
+          # above never warmed them → they ImagePullBackOff on fresh kom4dc provs
+          # (anon proxy-ghcr 404s private packages → node cold-pulls DIRECT from
+          # ghcr → 15-min FirstSeenTimeout). Warm them too, DATA-DRIVEN from each
+          # component chart's pinned `repository:`/`tag:` (NOT a hardcoded list
+          # that rots — the deploy-bot bumps these tags, this tracks them). For
+          # every `repository: ghcr.io/openova-io/openova/X` we take the FIRST
+          # `tag:` that follows it in the same image block; empty / "latest" /
+          # *placeholder* tags are skipped (unwarmable / non-pinned).
+          compfile="$(mktemp)"
+          for f in $(grep -rlE "repository:[[:space:]]*ghcr\.io/openova-io/openova/" openova-src/platform openova-src/products --include=values.yaml 2>/dev/null | sort -u); do
+            awk 'match($0, /repository:[[:space:]]*ghcr\.io\/openova-io\/openova\/[A-Za-z0-9._\/-]+/) { line=substr($0, RSTART, RLENGTH); sub(/^.*repository:[[:space:]]*/, "", line); repo=line; have=1; next } have && match($0, /^[[:space:]]*tag:[[:space:]]*/) { t=$0; sub(/^[[:space:]]*tag:[[:space:]]*/, "", t); gsub(/["'"'"']/, "", t); sub(/[[:space:]]*#.*$/, "", t); gsub(/[[:space:]]/, "", t); if (t != "" && t != "latest" && t !~ /placeholder/) { print repo ":" t } have=0 }' "$f" >>"${compfile}"
+          done
+          components="$(cat "${compfile}"; rm -f "${compfile}")"
+
           # Union + dedup; strip any leading/trailing whitespace and blank lines
           # so every line is a clean `docker://`-able ref.
-          images="$(printf '%s\n%s\n' "${images}" "${extra}" \
+          images="$(printf '%s\n%s\n%s\n' "${images}" "${extra}" "${components}" \
             | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' \
             | sort -u)"
 
