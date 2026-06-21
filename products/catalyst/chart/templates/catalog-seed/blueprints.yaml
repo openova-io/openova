@@ -58,14 +58,14 @@ spec:
   version: "0.4.1"
   visibility: listed
   card:
-    title: "WordPress (Tenant)"
+    title: "WordPress (per-Organization)"
     category: tenant-app
     family: cms
-    summary: "Turnkey, SSO-pre-wired WordPress per Organization tenant. Postgres + cert-manager TLS pre-wired."
-    description: "Runs in the Organization's vcluster, namespace = Organization tenant namespace. SSO via the Organization-vcluster Keycloak realm. Default theme + admin user pre-seeded at install time."
+    summary: "Turnkey, SSO-pre-wired WordPress per Organization. Postgres + cert-manager TLS pre-wired."
+    description: "Runs in the Organization's vcluster, namespace = Organization namespace. SSO via the Organization-vcluster Keycloak realm. Default theme + admin user pre-seeded at install time."
     icon: wordpress.svg
     license: "GPL-2.0-or-later"
-    tags: [wordpress, cms, org, tenant, sso, keycloak, postgres]
+    tags: [wordpress, cms, org, organization, sso, keycloak, postgres]
     docs: "https://wordpress.org/documentation/"
   placementSchema:
     modes: [single-region]
@@ -132,7 +132,7 @@ spec:
     properties:
       orgDomain:
         type: string
-        description: "Organization tenant domain (e.g. acme.<sov-fqdn>)."
+        description: "Organization domain (e.g. acme.<sov-fqdn>)."
       replicas:
         type: integer
         default: 1
@@ -258,7 +258,7 @@ spec:
     properties:
       orgDomain:
         type: string
-        description: "Org tenant domain (e.g. acme.<sov-fqdn>)."
+        description: "Org domain (e.g. acme.<sov-fqdn>)."
       replicas:
         type: integer
         default: 1
@@ -573,8 +573,8 @@ spec:
     title: "Keycloak"
     category: identity
     family: iam
-    summary: "Open-source Identity and Access Management. OIDC + SAML + social login + realm-per-tenant."
-    description: "Per-tenant Keycloak realm with pre-seeded OIDC client. Pairs with bp-wordpress-tenant for SSO."
+    summary: "Open-source Identity and Access Management. OIDC + SAML + social login + realm-per-Organization."
+    description: "Per-Organization Keycloak realm with pre-seeded OIDC client. Pairs with bp-wordpress-tenant for SSO."
     icon: keycloak.svg
     license: "Apache-2.0"
     tags: [identity, sso, oidc, saml, iam, keycloak]
@@ -648,7 +648,7 @@ spec:
     properties:
       realmName:
         type: string
-        description: "Keycloak realm name (e.g. org-<tenant>)."
+        description: "Keycloak realm name (e.g. org-<orgslug>)."
       adminUser:
         type: string
         default: admin
@@ -2574,16 +2574,16 @@ spec:
   card:
     title: "OpenClaw"
     category: "ai-runtime"
-    summary: "Per-user agentic workspace for Organization tenants. A multi-tenant
-controller deployment in the Organization tenant namespace authenticates
+    summary: "Per-user agentic workspace for an Organization. A multi-tenant
+controller deployment in the Organization namespace authenticates
 end users via the Organization-vcluster Keycloak realm and spawns one
 runtime pod per active session. Each runtime pod reads ONLY two
 env vars (NEWAPI_BASE_URL + NEWAPI_KEY) mounted from the per-user
 `newapi-key-{uuid}` Secret rendered by the unified-rbac user-create
 hook (ADR-0003). Identity-blind by construction.
 "
-    description: "Per-user agentic workspace for Organization tenants. A multi-tenant
-controller deployment in the Organization tenant namespace authenticates
+    description: "Per-user agentic workspace for an Organization. A multi-tenant
+controller deployment in the Organization namespace authenticates
 end users via the Organization-vcluster Keycloak realm and spawns one
 runtime pod per active session. Each runtime pod reads ONLY two
 env vars (NEWAPI_BASE_URL + NEWAPI_KEY) mounted from the per-user
@@ -2897,11 +2897,11 @@ spec:
   version: "0.1.3"
   visibility: listed
   card:
-    title: "Stalwart (per-tenant)"
+    title: "Stalwart (per-Organization)"
     category: "communication"
     summary: "Dedicated per-Org (per-vcluster) Stalwart mail server. Implements
 locked decision [Q3] of EPIC #795 — every Organization on a Sovereign gets
-its OWN Stalwart instance in its tenant namespace, with its OWN
+its OWN Stalwart instance in its Organization namespace, with its OWN
 domain, OWN MTA reputation, and OWN queue. NOT a shared otech-
 level multi-domain Stalwart.
 
@@ -2912,7 +2912,7 @@ is event-driven (ADR-0003 §3).
 "
     description: "Dedicated per-Org (per-vcluster) Stalwart mail server. Implements
 locked decision [Q3] of EPIC #795 — every Organization on a Sovereign gets
-its OWN Stalwart instance in its tenant namespace, with its OWN
+its OWN Stalwart instance in its Organization namespace, with its OWN
 domain, OWN MTA reputation, and OWN queue. NOT a shared otech-
 level multi-domain Stalwart.
 
@@ -2923,7 +2923,7 @@ is event-driven (ADR-0003 §3).
 "
     icon: "stalwart.svg"
     license: "AGPL-3.0"
-    tags: ["mail", "smtp", "imap", "jmap", "org", "multi-tenant", "vcluster", "sso", "oidc"]
+    tags: ["mail", "smtp", "imap", "jmap", "org", "per-organization", "vcluster", "sso", "oidc"]
     docs: "https://stalw.art/"
   placementSchema:
     modes: [single-region]
@@ -6145,7 +6145,7 @@ spec:
   card:
     title: "RTZ vCluster"
     category: platform
-    summary: "The rtz-tier vCluster — virtual control-plane isolation for the Sovereign's runtime-zone workloads (per-Org tenant Applications, Sandbox sessions)."
+    summary: "The rtz-tier vCluster — virtual control-plane isolation for the Sovereign's runtime-zone workloads (per-Org Applications, Sandbox sessions)."
     icon: vcluster.svg
   placementSchema:
     modes: [single-region]

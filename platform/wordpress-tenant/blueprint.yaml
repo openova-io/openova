@@ -8,19 +8,19 @@ metadata:
 spec:
   version: 0.4.2
   card:
-    title: WordPress Tenant
+    title: WordPress (per-Organization)
     summary: |
-      Turnkey, SSO-pre-wired WordPress per Organization tenant. Runs in the Organization's
-      vcluster, namespace = Organization tenant namespace. SSO via the Organization-vcluster
+      Turnkey, SSO-pre-wired WordPress per Organization. Runs in the Organization's
+      vcluster, namespace = Organization namespace. SSO via the Organization-vcluster
       Keycloak realm (openid-connect-generic plugin), Postgres via bp-cnpg
-      (Cluster CR in tenant ns), persistent /var/www/html/wp-content via
+      (Cluster CR in Organization ns), persistent /var/www/html/wp-content via
       PVC (default 10Gi), ingress at https://wordpress.<org-domain> with
       cert-manager TLS. Default theme + admin user pre-seeded at install
       time so the Organization admin's first browser hit lands on /wp-admin
       authenticated. No install wizard, no manual config.
     icon: wordpress.svg
     category: tenant-app
-    tags: [wordpress, cms, organization, tenant, sso, keycloak, oidc, postgres]
+    tags: [wordpress, cms, organization, sso, keycloak, oidc, postgres]
     documentation: https://wordpress.org/documentation/
     license: GPL-2.0-or-later
   visibility: listed

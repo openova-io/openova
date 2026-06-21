@@ -223,7 +223,7 @@ export const CUTOVER_STEPS: readonly CutoverStepDef[] = [
     id: 'vcluster-registry-pivot',
     label: 'Pivot vCluster registries',
     description:
-      'Repoint every tenant vCluster’s containerd + pull secrets at the ' +
+      'Repoint every Organization vCluster’s containerd + pull secrets at the ' +
       'local Harbor so Organization workloads stop pulling from ghcr.io.',
   },
   {

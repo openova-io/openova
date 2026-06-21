@@ -1051,7 +1051,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.5",
+    "version": "1.2.0",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
       "bp-crossplane"
@@ -1171,7 +1171,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.2.8",
+    "version": "0.2.9",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium",
@@ -1671,7 +1671,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.39",
+    "version": "1.2.40",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-postgres"
@@ -1801,7 +1801,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.25",
+    "version": "0.2.27",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-keycloak",
@@ -1871,7 +1871,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.34",
+    "version": "1.2.35",
     "section": "pts-3-5-storage-and-data",
     "depends": [
       "bp-cnpg",
@@ -1989,7 +1989,57 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.0",
+    "version": "1.2.1",
+    "section": "pts-3-5-storage-and-data",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
+    "id": "bp-huawei-evs-csi",
+    "slug": "huawei-evs-csi",
+    "title": "huawei-evs-csi",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.3",
     "section": "pts-3-5-storage-and-data",
     "depends": [],
     "shareable": false,
@@ -2424,7 +2474,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.37",
+    "version": "1.0.39",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -2921,7 +2971,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.2.28",
+    "version": "0.2.29",
     "section": "pts-3-2-control-plane-isolation",
     "depends": [
       "bp-cilium",
@@ -3416,7 +3466,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.4.120",
+    "version": "1.4.121",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",
@@ -3921,7 +3971,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.4",
+    "version": "0.2.5",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-cnpg",
@@ -3998,7 +4048,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.16",
+    "version": "1.2.17",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
       "bp-cert-manager"
@@ -4050,7 +4100,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.17",
+    "version": "0.1.18",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-powerdns",
@@ -4254,7 +4304,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.2.13",
+    "version": "0.2.14",
     "section": "pts-3-2-control-plane-isolation",
     "depends": [
       "bp-cilium",
@@ -4422,7 +4472,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.2",
+    "version": "1.2.3",
     "section": "pts-3-5-storage-and-data",
     "depends": [
       "bp-cert-manager"
@@ -4740,7 +4790,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
   {
     "id": "bp-stalwart-tenant",
     "slug": "stalwart-tenant",
-    "title": "Stalwart (per-tenant)",
+    "title": "Stalwart (per-Organization)",
     "summary": "|",
     "icon": "stalwart.svg",
     "category": "communication",
@@ -5547,14 +5597,14 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
   {
     "id": "bp-wordpress-tenant",
     "slug": "wordpress-tenant",
-    "title": "WordPress Tenant",
+    "title": "WordPress (per-Organization)",
     "summary": "|",
     "icon": "wordpress.svg",
     "category": "tenant-app",
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.4.1",
+    "version": "0.4.2",
     "section": "pts-7-org-tenant",
     "depends": [
       "bp-postgres",
@@ -5677,6 +5727,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/harbor/blueprint.yaml",
   "platform/hcloud-ccm/blueprint.yaml",
   "platform/hcloud-csi/blueprint.yaml",
+  "platform/huawei-evs-csi/blueprint.yaml",
   "platform/iceberg/blueprint.yaml",
   "platform/k8s-ws-proxy/blueprint.yaml",
   "platform/keycloak/blueprint.yaml",
