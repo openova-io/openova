@@ -1069,8 +1069,13 @@ type Result struct {
 	SovereignFQDN  string `json:"sovereignFQDN"`
 	ControlPlaneIP string `json:"controlPlaneIP"`
 	LoadBalancerIP string `json:"loadBalancerIP"`
-	ConsoleURL     string `json:"consoleURL"`
-	GitOpsRepoURL  string `json:"gitopsRepoURL"`
+	// ConsoleLoadBalancerIP — #4053. tofu output console_load_balancer_ip:
+	// the dedicated console LB that fronts the isolated cilium-gateway-console.
+	// console./api.<fqdn> DNS point here; the wildcard keeps pointing at
+	// LoadBalancerIP. Empty when the tofu module pre-dates #4053.
+	ConsoleLoadBalancerIP string `json:"consoleLoadBalancerIP,omitempty"`
+	ConsoleURL            string `json:"consoleURL"`
+	GitOpsRepoURL         string `json:"gitopsRepoURL"`
 
 	// KubeconfigPath — absolute path to the kubeconfig YAML on the
 	// catalyst-api PVC. Empty until cloud-init PUTs the bytes back
@@ -1982,12 +1987,13 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	}
 
 	result := &Result{
-		SovereignFQDN:       req.SovereignFQDN,
-		ControlPlaneIP:      out.ControlPlaneIP,
-		LoadBalancerIP:      out.LoadBalancerIP,
-		ConsoleURL:          fmt.Sprintf("https://console.%s", req.SovereignFQDN),
-		GitOpsRepoURL:       fmt.Sprintf("https://gitea.%s", req.SovereignFQDN),
-		MaterializedRegions: materialised,
+		SovereignFQDN:         req.SovereignFQDN,
+		ControlPlaneIP:        out.ControlPlaneIP,
+		LoadBalancerIP:        out.LoadBalancerIP,
+		ConsoleLoadBalancerIP: out.ConsoleLoadBalancerIP, // #4053 — "" when module pre-dates #4053
+		ConsoleURL:            fmt.Sprintf("https://console.%s", req.SovereignFQDN),
+		GitOpsRepoURL:         fmt.Sprintf("https://gitea.%s", req.SovereignFQDN),
+		MaterializedRegions:   materialised,
 	}
 
 	// Only enforce when the operator declared >=2 regions AND the
@@ -2335,6 +2341,12 @@ func streamLines(r io.Reader, phase, level string, emit func(string, string, str
 type tofuOutputs struct {
 	ControlPlaneIP string `json:"control_plane_ip"`
 	LoadBalancerIP string `json:"load_balancer_ip"`
+	// ConsoleLoadBalancerIP — #4053. Both providers emit
+	// `console_load_balancer_ip` (the dedicated console LB for the isolated
+	// cilium-gateway-console). asString() returns "" when the key is absent
+	// (a tofu module that pre-dates #4053), and the DNS layer falls back to
+	// LoadBalancerIP for the console records — byte-identical legacy behaviour.
+	ConsoleLoadBalancerIP string `json:"console_load_balancer_ip"`
 	// ControlPlaneIPsPerRegion — map<region-code, primary-CP-EIP>.
 	// Populated by BOTH the Huawei module's `control_plane_ips_per_region`
 	// output AND (as of 2026-06-03 / #2840 follow-up) the Hetzner module's
@@ -2404,6 +2416,7 @@ func (p *Provisioner) readOutputs(ctx context.Context, deployDir string) (*tofuO
 	return &tofuOutputs{
 		ControlPlaneIP:           asString("control_plane_ip"),
 		LoadBalancerIP:           asString("load_balancer_ip"),
+		ConsoleLoadBalancerIP:    asString("console_load_balancer_ip"), // #4053 — "" when module pre-dates #4053
 		ControlPlaneIPsPerRegion: asStringMap("control_plane_ips_per_region"),
 	}, nil
 }

@@ -155,7 +155,9 @@ func TestChildZoneName(t *testing.T) {
 }
 
 func TestCanonicalRecordSet(t *testing.T) {
-	rrsets := canonicalRecordSet("acme.openova.io", "1.2.3.4")
+	// #4053 — empty consoleLBIP = legacy single-LB behaviour: EVERY record
+	// (incl. console/api) points at lbIP, byte-identical to pre-#4053.
+	rrsets := canonicalRecordSet("acme.openova.io", "1.2.3.4", "")
 	if len(rrsets) != 7 {
 		t.Fatalf("expected 7 RRsets, got %d", len(rrsets))
 	}
@@ -190,6 +192,39 @@ func TestCanonicalRecordSet(t *testing.T) {
 	for name, seen := range wantNames {
 		if !seen {
 			t.Errorf("missing RRset for %q", name)
+		}
+	}
+}
+
+// TestCanonicalRecordSetConsoleSplit — #4053. When a console LB IP is supplied,
+// ONLY console + api ride it; every other name keeps the shared LB IP. This is
+// the DNS half of the poison-proof gateway isolation: console./api.<fqdn> reach
+// the dedicated cilium-gateway-console while *.<fqdn> (every volatile app) keeps
+// reaching the shared cilium-gateway.
+func TestCanonicalRecordSetConsoleSplit(t *testing.T) {
+	const sharedIP = "1.2.3.4"
+	const consoleIP = "9.9.9.9"
+	rrsets := canonicalRecordSet("acme.openova.io", sharedIP, consoleIP)
+	if len(rrsets) != 7 {
+		t.Fatalf("expected 7 RRsets, got %d", len(rrsets))
+	}
+	wantIP := map[string]string{
+		"acme.openova.io":             sharedIP,
+		"*.acme.openova.io":           sharedIP,
+		"console.acme.openova.io":     consoleIP,
+		"api.acme.openova.io":         consoleIP,
+		"gitea.acme.openova.io":       sharedIP,
+		"harbor.acme.openova.io":      sharedIP,
+		"marketplace.acme.openova.io": sharedIP,
+	}
+	for _, r := range rrsets {
+		want, ok := wantIP[r.Name]
+		if !ok {
+			t.Errorf("unexpected RRset name %q", r.Name)
+			continue
+		}
+		if len(r.Records) != 1 || r.Records[0].Content != want {
+			t.Errorf("%s → %v, want %s", r.Name, r.Records, want)
 		}
 	}
 }
@@ -246,7 +281,7 @@ func TestCommitDNSShape(t *testing.T) {
 	dns := newFakeDNS()
 	dns.zones["omantel.omani.works"] = []string{"ns1.openova.io.", "ns2.openova.io."}
 
-	rrsets := canonicalRecordSet("omantel.omani.works", "10.20.30.40")
+	rrsets := canonicalRecordSet("omantel.omani.works", "10.20.30.40", "")
 	if err := dns.PatchRRSets(context.Background(), "omantel.omani.works", rrsets); err != nil {
 		t.Fatal(err)
 	}

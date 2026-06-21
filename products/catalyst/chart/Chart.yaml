@@ -2933,7 +2933,21 @@ name: bp-catalyst-platform
 #   (renumbered 1.4.747→1.4.749, one above main's deploy-bot 1.4.748, to clear the pin collision.)
 # 1.4.757 — bp-chepherd Blueprint missing required topology.defaults.multi-region → whole
 #   catalyst-platform install aborted (console 404 on every fresh prov). Add multi-region: singleton.
-version: 1.4.759
+# 1.4.760 (#4053) — POISON-PROOF console gateway isolation. Cilium compiles ALL of a
+#   Gateway's HTTPRoutes+backends into ONE CiliumEnvoyConfig committed atomically; one
+#   unresolvable app backend (a half-converged app, a vanished vcluster-bridge Service)
+#   fails the whole CEC → cilium-envoy serves 0 listeners → the entire gateway 404s,
+#   console included (cilium#35728, unfixed on pinned 1.16.5; hit live hw182). Fix:
+#   (1) sovereign-tls-vars-cm.yaml emits a NEW ConfigMap key CONSOLE_LISTENERS_YAML for a
+#   dedicated console gateway (host ports 31443/31080, `*.<fqdn>` listener, same per-prov
+#   wildcard cert); (2) the catalyst-ui + catalyst-api HTTPRoutes re-parent onto
+#   `cilium-gateway-console` (ingress.gateway.parentRef.name default flip) so their CEC
+#   carries ONLY stable ClusterIP backends and can never be poisoned by an app on the
+#   SHARED cilium-gateway. New consoleGateway.{httpsPort,httpPort} values. Pairs with
+#   clusters/_template/sovereign-tls/cilium-gateway-console.yaml (the Gateway resource),
+#   infra/providers/{hetzner,huawei} (dedicated console LB → 31443) + core/pool-domain-
+#   manager + catalyst-api (console./api.<fqdn> DNS split to the console LB).
+version: 1.4.760
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +

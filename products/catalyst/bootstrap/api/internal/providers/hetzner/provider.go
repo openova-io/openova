@@ -102,12 +102,13 @@ func (p *Provider) Provision(ctx context.Context, spec providers.ProvisionSpec, 
 		return nil, err
 	}
 	return &providers.ProvisionResult{
-		SovereignFQDN:  res.SovereignFQDN,
-		ControlPlaneIP: res.ControlPlaneIP,
-		LoadBalancerIP: res.LoadBalancerIP,
-		ConsoleURL:     res.ConsoleURL,
-		GitOpsRepoURL:  res.GitOpsRepoURL,
-		KubeconfigPath: res.KubeconfigPath,
+		SovereignFQDN:         res.SovereignFQDN,
+		ControlPlaneIP:        res.ControlPlaneIP,
+		LoadBalancerIP:        res.LoadBalancerIP,
+		ConsoleLoadBalancerIP: res.ConsoleLoadBalancerIP, // #4053 — dedicated console LB
+		ConsoleURL:            res.ConsoleURL,
+		GitOpsRepoURL:         res.GitOpsRepoURL,
+		KubeconfigPath:        res.KubeconfigPath,
 	}, nil
 }
 

@@ -1112,6 +1112,33 @@ catalystApi:
   # broker by default).
   natsURL: ""
 
+# ─── #4053 — Dedicated console Gateway (poison-proof blast-radius isolation) ──
+# Cilium Gateway API compiles every HTTPRoute + backend of a Gateway into ONE
+# CiliumEnvoyConfig, committed atomically. A single unresolvable backend
+# Service (a half-converged app, a vanished vcluster-bridge Service) fails the
+# whole CEC upsert → cilium-envoy serves 0 listeners → the whole gateway 404s,
+# console included (cilium#35728 / cilium#34982, no fix on pinned 1.16.5;
+# confirmed live hw182). Because the CEC is one-per-Gateway, the console is
+# isolated onto its OWN Gateway (`cilium-gateway-console`) carrying ONLY the
+# catalyst-ui + catalyst-api HTTPRoutes — stable ClusterIP backends that always
+# resolve — so its CEC can never be poisoned by an app on the SHARED gateway.
+#
+# The console gateway binds its own host ports in Cilium hostNetwork mode
+# (distinct from the shared gateway's 30443/30080 so both coexist on every
+# node). A dedicated cloud LoadBalancer forwards public 443/80 → these host
+# ports; the console A-records (console./api.<fqdn>) point at THAT LB, while the
+# wildcard `*.<fqdn>` (every volatile app/tenant host) keeps pointing at the
+# shared gateway's LB. See clusters/_template/sovereign-tls/cilium-gateway-
+# console.yaml, infra/providers/{hetzner,huawei}/main.tf (console LB), and
+# core/pool-domain-manager (console-LB-IP DNS split).
+consoleGateway:
+  # Host ports the console gateway's cilium-envoy listeners bind (hostNetwork).
+  # MUST differ from the shared gateway's 30443/30080 so both gateways bind on
+  # the same node set without a port collision. The console LB forwards public
+  # 443→httpsPort and 80→httpPort. Operator-overridable for unusual topologies.
+  httpsPort: 31443
+  httpPort: 31080
+
 # ─── Sovereign HTTPRoute (Cilium Gateway API, issue #387) ─────────────────
 # Renders templates/httproute.yaml when `ingress.gateway.enabled=true`
 # (default) AND per-Sovereign overlay supplies `ingress.hosts.console.host`
@@ -1123,7 +1150,12 @@ ingress:
   gateway:
     enabled: true
     parentRef:
-      name: cilium-gateway
+      # #4053 — the console HTTPRoutes (catalyst-ui + catalyst-api) re-parent
+      # onto the DEDICATED console gateway so an app-backend poison on the
+      # shared `cilium-gateway` can never 404 the console. Every OTHER platform
+      # HTTPRoute (keycloak/grafana/gitea/harbor/openbao/powerdns/newapi/…)
+      # keeps its `cilium-gateway` default and stays on the shared gateway.
+      name: cilium-gateway-console
       namespace: kube-system
       # sectionName intentionally EMPTY (issue #1884, TBD-A30).
       #
