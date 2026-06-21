@@ -66,11 +66,23 @@
 #     (INI [Global] AK/SK + endpoints) the driver binds for EVS-API auth. The
 #     plaintext never lands in this committed manifest.
 #
-# dependsOn: (none) — a foundational cloud seam that must be Ready BEFORE the
-# stateful apps create PVCs. The cloud-credentials Secret is seeded by
-# cloud-init pre-Flux and the chart pulls from ghcr, so no Flux dependency. The
-# stateful slots install LATE (their dependsOn chains), by which time the
-# default-class flip has run.
+# dependsOn: bp-reflector — the driver image
+# (ghcr.io/openova-io/openova/evs-csi-plugin) is a PRIVATE ghcr package whose
+# pod spec carries `imagePullSecrets: [ghcr-pull]` (#4037/#4038). That secret is
+# NOT created in `huawei-evs-csi` by this slot; it is MIRRORED there by the
+# emberstack reflector (slot 05a) from `flux-system/ghcr-pull`. Without a
+# dependsOn on bp-reflector this slot raced ahead: the CSI HR installed and
+# created its controller/node pods BEFORE the reflector had mirrored the secret,
+# so the kubelet pulled `evs-csi-plugin` anonymously → 401 Unauthorized →
+# ImagePullBackOff that does NOT self-heal once the secret later lands (a pod in
+# pull-backoff is never re-resolved against newly-arrived imagePullSecrets; it
+# needs a recreate). Live evidence hw179 (f06e6dd2e8e6dc52, region B,
+# 2026-06-21): ghcr-pull reflected into huawei-evs-csi at T+~9m but all three
+# CSI pods stayed ImagePullBackOff 11m+ with the last pull attempt 10m stale.
+# Gating on bp-reflector guarantees the secret exists before the pods are
+# created. (cloud-credentials for AK/SK is still seeded by cloud-init pre-Flux,
+# so no Flux dependency there; only the private-image pull secret needs the
+# reflector ordering.)
 
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
@@ -96,6 +108,15 @@ spec:
   # Default-suspended (Hetzner). The Huawei cloud-init sets
   # HUAWEI_HR_SUSPEND=false so a Huawei Sovereign installs the EVS CSI for real.
   suspend: ${HUAWEI_HR_SUSPEND:=true}
+  # #4038-followup — gate on bp-reflector so the `ghcr-pull` imagePullSecret has
+  # been mirrored into `huawei-evs-csi` BEFORE the private-image CSI pods are
+  # created (otherwise they ImagePullBackOff 401 and never self-heal; see the
+  # dependsOn note in the header). bp-reflector (slot 05a) is Ready early — it
+  # only dependsOn bp-cert-manager — so this gate adds no meaningful latency to a
+  # slot that already installs after the early foundational tier.
+  dependsOn:
+    - name: bp-reflector
+      namespace: flux-system
   interval: 15m
   releaseName: huawei-evs-csi
   targetNamespace: huawei-evs-csi
