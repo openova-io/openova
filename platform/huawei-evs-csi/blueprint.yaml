@@ -1,0 +1,92 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-huawei-evs-csi
+  labels:
+    catalyst.openova.io/section: pts-3-5-storage-and-data
+  annotations:
+    catalyst.openova.io/provider: huawei
+spec:
+  version: 1.0.0
+  card:
+    title: Huawei EVS CSI
+    summary: |
+      Huawei EVS block-storage CSI driver (open-source huaweicloud-csi-driver,
+      provisioner evs.csi.huaweicloud.com) providing the evs-ssd StorageClass.
+      The Huawei (HCS / kom4dc) sibling of bp-hcloud-csi — bootstrap-kit slot
+      55b (#3971) installs it on every fresh Huawei Sovereign as the
+      cluster-default SC so production PVCs land on durable EVS block volumes,
+      never ephemeral k3s local-path (which #3992 FORBIDS via
+      --disable=local-storage + Kyverno K23 deny).
+    family: storage
+    documentation: ./README.md
+  visibility: unlisted
+  owner:
+    team: platform
+    contact: platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+        description: Master gate. Default off — installing this Blueprint is a no-op until flipped (the bootstrap-kit slot 55b flips it true on Huawei provs only).
+      defaultStorageClass:
+        type: boolean
+        default: false
+        description: |
+          Flip the cluster's default StorageClass to evs-ssd. Tracks
+          `enabled` from the slot. Default false so a bare install is
+          reversible.
+      huaweiAccessKey:
+        type: string
+        default: ""
+        description: Huawei IAM AK. Plaintext NEVER on the CR — populated via Flux valuesFrom from flux-system/cloud-credentials at apply time.
+      huaweiSecretKey:
+        type: string
+        default: ""
+        description: Huawei IAM SK. Plaintext NEVER on the CR — Flux valuesFrom.
+      huaweiProjectId:
+        type: string
+        default: ""
+        description: Huawei project-id (EVS API path component). Flux valuesFrom cloud-credentials.
+      huaweiRegion:
+        type: string
+        default: ""
+        description: Huawei region (e.g. me-east-215). Flux valuesFrom cloud-credentials.
+  placementSchema:
+    modes: [single-region, active-active, active-hotstandby]
+    default: single-region
+    minRegions: 1
+    maxRegions: 5
+  manifests:
+    chart: ./chart
+  depends: []
+  upgrades:
+    from: ["0.x"]
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  multiInstance:
+    enabled: false

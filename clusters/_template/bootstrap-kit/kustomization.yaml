@@ -265,8 +265,19 @@ resources:
   # 2026-05-17 for a harbor-pull chicken-and-egg — see the slot-17a
   # comment above); re-added here AFTER bp-harbor (19) so the pre-cutover
   # ghcr pull never races harbor. Suspended on Huawei via HCLOUD_HR_SUSPEND
-  # (same gate as slot 55); Huawei EVS/everest CSI is a #3971 follow-up.
+  # (same gate as slot 55); Huawei EVS CSI is slot 55b (below).
   - 55a-bp-hcloud-csi.yaml
+  # bp-huawei-evs-csi (slot 55b, #3971 follow-up) — the Huawei (HCS / kom4dc)
+  # storage sibling of 55a. Installs the open-source huaweicloud-csi-driver EVS
+  # plugin (evs.csi.huaweicloud.com) + the durable `evs-ssd` default
+  # StorageClass so Huawei PVCs land on real EVS block volumes, never the
+  # FORBIDDEN k3s local-path. Default-SUSPENDED (HUAWEI_HR_SUSPEND defaults
+  # true) so Hetzner never installs the Hetzner-irrelevant EVS driver; the
+  # Huawei cloud-init flips HUAWEI_HR_SUSPEND=false. Closes the Huawei half of
+  # the #3971 P0 blocker (Huawei provs wedged at ~40/50 HRs with no
+  # StorageClass + every stateful PVC Pending). MUST be registered here or Flux
+  # never creates the HR (the #3191 forgotten-slot wedge class).
+  - 55b-bp-huawei-evs-csi.yaml
   # OpenovaFlow observability cohort — slots 56/57. Three-agent split
   # (Agent #1: TS @openova/flow-core + @openova/flow-canvas, Agent #2:
   # Go server + flux adapter, Agent #3: bootstrap-kit + catalyst-api

@@ -1,0 +1,143 @@
+{{/*
+RBAC for the huaweicloud-csi-driver EVS controller + node plugins.
+
+Two ServiceAccounts:
+  - csi-evs-controller-sa — the CSI external-* sidecar permissions
+    (PV/PVC/VolumeAttachment/VolumeSnapshot/StorageClass/CSINode/Node R/W).
+  - csi-evs-node-sa       — minimal (read Node + events) for the node plugin.
+
+Scoped to exactly what the sig-storage external sidecars require. Default off.
+*/}}
+{{- if .Values.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: csi-evs-controller-sa
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-huawei-evs-csi
+    catalyst.openova.io/blueprint: bp-huawei-evs-csi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: csi-evs-node-sa
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-huawei-evs-csi
+    catalyst.openova.io/blueprint: bp-huawei-evs-csi
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: csi-evs-controller
+  labels:
+    app.kubernetes.io/name: bp-huawei-evs-csi
+    catalyst.openova.io/blueprint: bp-huawei-evs-csi
+rules:
+  # external-provisioner
+  - apiGroups: [""]
+    resources: [persistentvolumes]
+    verbs: [get, list, watch, create, delete, patch]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [get, list, watch, update]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims/status]
+    verbs: [update, patch]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [list, watch, create, update, patch]
+  - apiGroups: [snapshot.storage.k8s.io]
+    resources: [volumesnapshots]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [snapshot.storage.k8s.io]
+    resources: [volumesnapshotcontents]
+    verbs: [get, list, watch, update, patch, create, delete]
+  - apiGroups: [snapshot.storage.k8s.io]
+    resources: [volumesnapshotclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [snapshot.storage.k8s.io]
+    resources: [volumesnapshotcontents/status]
+    verbs: [update, patch]
+  - apiGroups: [snapshot.storage.k8s.io]
+    resources: [volumesnapshots/status]
+    verbs: [update, patch]
+  # external-attacher
+  - apiGroups: [storage.k8s.io]
+    resources: [volumeattachments]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [storage.k8s.io]
+    resources: [volumeattachments/status]
+    verbs: [patch]
+  # external-resizer + provisioner CSINode/Node reads
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, watch]
+  - apiGroups: [storage.k8s.io]
+    resources: [csinodes]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: csi-evs-controller
+  labels:
+    app.kubernetes.io/name: bp-huawei-evs-csi
+    catalyst.openova.io/blueprint: bp-huawei-evs-csi
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: csi-evs-controller
+subjects:
+  - kind: ServiceAccount
+    name: csi-evs-controller-sa
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: csi-evs-node
+  labels:
+    app.kubernetes.io/name: bp-huawei-evs-csi
+    catalyst.openova.io/blueprint: bp-huawei-evs-csi
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [list, watch, create, update, patch]
+  - apiGroups: [storage.k8s.io]
+    resources: [csinodes]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [storage.k8s.io]
+    resources: [volumeattachments]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: csi-evs-node
+  labels:
+    app.kubernetes.io/name: bp-huawei-evs-csi
+    catalyst.openova.io/blueprint: bp-huawei-evs-csi
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: csi-evs-node
+subjects:
+  - kind: ServiceAccount
+    name: csi-evs-node-sa
+    namespace: {{ .Release.Namespace }}
+{{- end }}

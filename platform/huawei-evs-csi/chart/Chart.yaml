@@ -1,0 +1,59 @@
+apiVersion: v2
+name: bp-huawei-evs-csi
+# 1.0.0 (2026-06-21 #3971 follow-up): the Huawei sibling of bp-hcloud-csi.
+# Vendors the OPEN-SOURCE huaweicloud-csi-driver EVS block-storage plugin
+# (provisioner evs.csi.huaweicloud.com) as RAW manifests. Provides the
+# `evs-ssd` StorageClass as the cluster-default on every fresh Huawei
+# (HCS / kom4dc) Sovereign so production PVCs land on durable EVS block
+# volumes instead of ephemeral k3s local-path (which #3992 now FORBIDS via
+# --disable=local-storage + the K23 Kyverno deny). Closes the Huawei half of
+# the #3971 P0 blocker: before this chart a Huawei prov had NO default
+# StorageClass at all and wedged at ~40/50 HRs with every stateful PVC
+# Pending (the vCluster data-* PVCs → vc-* kubeconfig secrets never created →
+# spine frozen).
+#
+# WHY the open-source huaweicloud-csi-driver, NOT the everest add-on:
+#   - The everest CSI (disk.csi.everest.io) is a CLOSED-SOURCE CCE add-on
+#     bound to CCE's agency / IAM pod-identity — no public manifests, no
+#     portable AK/SK cloud-config, and it cannot run on a bare k3s cluster.
+#   - The open-source github.com/huaweicloud/huaweicloud-csi-driver EVS plugin
+#     is purpose-built for self-managed clusters: it authenticates with a
+#     portable AK/SK INI cloud-config (which we have — cloud-credentials
+#     carries huawei-ak/sk/project-id/region) and self-discovers each node's
+#     ECS server-id from the OpenStack metadata service. Confirmed live on
+#     hw174: 169.254.169.254/openstack/latest/meta_data.json returns the uuid +
+#     availability_zone me-east-215a, and the EVS API answers at
+#     evs.me-east-215.kom4dc.nationalcloud.om (IAM-token gated, APIGW.0301).
+#     The --nodeid flag is deprecated/ignored, so bare k3s providerID=k3s://…
+#     is irrelevant — no cloud-controller-manager needed.
+#   - cinder-csi-plugin was rejected: it needs Keystone username/password/
+#     domain; HCS exposes only AK/SK to us.
+# Driver facts verified directly from the driver source (pkg/config/cloud.go,
+# pkg/utils/metadatas/metadata.go, pkg/evs/driver.go,nodeserver.go) and the
+# upstream deploy/evs-csi-plugin/kubernetes manifests.
+version: 1.0.0
+description: |
+  Catalyst-curated Blueprint for the open-source huaweicloud-csi-driver EVS
+  block-storage plugin (evs.csi.huaweicloud.com). Provides the durable
+  `evs-ssd` default StorageClass for stateful workloads on Huawei Cloud Stack
+  (HCS / kom4dc) Sovereigns. Default off — the bootstrap-kit slot 55b flips it
+  on for Huawei provs only (suspended on Hetzner via the HUAWEI_HR_SUSPEND
+  gate).
+
+  Vendors the EVS controller Deployment + node DaemonSet + CSIDriver + RBAC as
+  raw manifests in templates/ (no upstream Helm chart exists). The driver
+  cloud-config Secret is rendered from the canonical flux-system/
+  cloud-credentials AK/SK via Flux valuesFrom so plaintext never lands in
+  committed YAML.
+type: application
+keywords: [catalyst, blueprint, csi, storage, huawei, evs, hcs]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+annotations:
+  # #2935: Blueprint-Release hollow-chart guard exemption. The chart
+  # legitimately renders ZERO resources with default values (enabled=false
+  # feature toggle — same default-off pattern as bp-hcloud-csi). Without
+  # this annotation Blueprint-Release rejects the publish.
+  catalyst.openova.io/smoke-render-mode: "default-off"

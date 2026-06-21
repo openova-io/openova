@@ -1,0 +1,163 @@
+{{/*
+huaweicloud-csi-driver EVS node plugin — DaemonSet on every node.
+
+Runs the EVS plugin in node mode (format + mount the attached EVS device into
+the Pod's volume path) + the node-driver-registrar sidecar (registers the CSI
+socket with the kubelet) + a liveness probe. Mirrors the upstream
+deploy/evs-csi-plugin/kubernetes/csi-evs-node.yaml, with the CCE-specific
+pods-mount path (/mnt/paas/kubernetes/kubelet) replaced by the k3s default
+(<kubeletDir>/pods) — CRITICAL for k3s, else volumes can't mount into Pods.
+
+The node plugin self-discovers THIS node's ECS server-id from the OpenStack
+metadata service (http://169.254.169.254/openstack/latest/meta_data.json →
+uuid), verified reachable on the live kom4dc nodes — so NO cloud-controller-
+manager / providerID is required (the --nodeid flag is deprecated and ignored;
+verified in cmd/evs-csi-plugin/main.go). It mounts the cloud-config for the
+EVS attach-status queries.
+
+Privileged (bidirectional mount propagation, host /dev + kubelet dir). Gated
+on .Values.enabled.
+*/}}
+{{- if .Values.enabled }}
+{{- $img := .Values.image -}}
+{{- $kubelet := .Values.kubeletDir | default "/var/lib/kubelet" -}}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: csi-evs-node
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-huawei-evs-csi
+    app.kubernetes.io/component: node
+    catalyst.openova.io/blueprint: bp-huawei-evs-csi
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bp-huawei-evs-csi
+      app.kubernetes.io/component: node
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-huawei-evs-csi
+        app.kubernetes.io/component: node
+    spec:
+      serviceAccountName: csi-evs-node-sa
+      priorityClassName: system-node-critical
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: evs-driver-registrar
+          image: "{{ $img.sidecars.nodeDriverRegistrar.repository }}:{{ $img.sidecars.nodeDriverRegistrar.tag }}"
+          imagePullPolicy: {{ $img.driver.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "--v=2"
+            - "--csi-address=$(ADDRESS)"
+            - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+            - name: DRIVER_REG_SOCK_PATH
+              value: {{ $kubelet }}/plugins/evs.csi.huaweicloud.com/csi.sock
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+            - name: registration-dir
+              mountPath: /registration
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+        - name: liveness-probe
+          image: "{{ $img.sidecars.livenessProbe.repository }}:{{ $img.sidecars.livenessProbe.tag }}"
+          imagePullPolicy: {{ $img.driver.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "--csi-address=/csi/csi.sock"
+            - "--health-port=9810"
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+        - name: evs-csi-plugin
+          image: "{{ $img.driver.repository }}:{{ $img.driver.tag }}"
+          imagePullPolicy: {{ $img.driver.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "/bin/evs-csi-plugin"
+            - "--v=2"
+            - "--endpoint=$(CSI_ENDPOINT)"
+            - "--cloud-config=/etc/evs/cloud-config"
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:///csi/csi.sock
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9810
+            initialDelaySeconds: 15
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 5
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+            - name: pods-mount-dir
+              mountPath: {{ $kubelet }}/pods
+              mountPropagation: Bidirectional
+            - name: device-dir
+              mountPath: /dev
+            - name: sys-dir
+              mountPath: /sys
+            - name: evs-config
+              mountPath: /etc/evs/
+              readOnly: true
+          resources:
+            {{- toYaml .Values.node.resources | nindent 12 }}
+          securityContext:
+            privileged: true
+            capabilities:
+              add: [SYS_ADMIN]
+            allowPrivilegeEscalation: true
+      volumes:
+        - name: registration-dir
+          hostPath:
+            path: {{ $kubelet }}/plugins_registry/
+            type: DirectoryOrCreate
+        - name: plugin-dir
+          hostPath:
+            path: {{ $kubelet }}/plugins/evs.csi.huaweicloud.com/
+            type: DirectoryOrCreate
+        - name: pods-mount-dir
+          hostPath:
+            path: {{ $kubelet }}/pods
+            type: Directory
+        - name: device-dir
+          hostPath:
+            path: /dev
+            type: Directory
+        - name: sys-dir
+          hostPath:
+            path: /sys
+            type: Directory
+        - name: evs-config
+          secret:
+            secretName: cloud-config
+{{- end }}

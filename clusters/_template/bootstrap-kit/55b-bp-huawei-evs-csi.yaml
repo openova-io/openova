@@ -1,0 +1,172 @@
+# bp-huawei-evs-csi — Catalyst bootstrap-kit Blueprint #55b (#3971 follow-up).
+# (Tier 5 — Cloud Integration). The Huawei (HCS / kom4dc) storage sibling of
+# slot 55a (bp-hcloud-csi). Installs the open-source huaweicloud-csi-driver
+# EVS block-storage plugin (evs.csi.huaweicloud.com) + the durable `evs-ssd`
+# default StorageClass so every fresh Huawei Sovereign's PVCs land on real EVS
+# block volumes — never ephemeral k3s local-path (which #3992 FORBIDS via
+# `--disable=local-storage` + the K23 Kyverno ENFORCE deny).
+#
+# WHY THIS SLOT EXISTS (the Huawei half of the #3971 P0 blocker)
+# =============================================================
+# #3992 forbade k3s local-path on ALL providers and wired the stateful root
+# slots (bp-cnpg 16 + bp-mgmt-vcluster 58) to `dependsOn: bp-hcloud-csi`. But
+# bp-hcloud-csi renders EMPTY on Huawei (enabled=false) — it installs the
+# Hetzner Cloud CSI, which obviously cannot run on HCS. So a Huawei prov came
+# up with NO StorageClass at all: every stateful PVC (the 3 vCluster
+# data-*-vcluster-0, 3 shared-pg, gitea/harbor/guacamole/flow/powerdns PGs)
+# sat Pending forever → the vCluster StatefulSets never scheduled → the
+# vc-mgmt/rtz/dmz kubeconfig secrets were never created → every in-vCluster
+# app failed `could not get KubeConfig secret 'mgmt/vc-mgmt'` → the whole
+# bp-catalyst-platform spine froze at ~40/50 HRs. Confirmed live on hw174
+# (ea30d1d816f2eee2): `kubectl get sc` + `get csidrivers` → "No resources
+# found", 12 PVCs Pending. This slot installs the missing CSI so those PVCs
+# bind and the spine resumes.
+#
+# WHY the open-source huaweicloud-csi-driver, NOT the everest add-on
+# =================================================================
+# The everest CSI (disk.csi.everest.io) is a CLOSED-SOURCE CCE add-on bound
+# to CCE's agency / IAM pod-identity — no public manifests, no portable AK/SK
+# cloud-config, infeasible on bare k3s. The open-source
+# github.com/huaweicloud/huaweicloud-csi-driver EVS plugin is purpose-built
+# for self-managed clusters: portable AK/SK INI cloud-config (which we have)
+# + OpenStack-metadata node-identity (no CCM needed). Live-probed on hw174:
+# 169.254.169.254/openstack/latest/meta_data.json → uuid + AZ me-east-215a,
+# and evs.me-east-215.kom4dc.nationalcloud.om answers (IAM-token gated).
+#
+# PROVIDER GATING — the inverse of slot 55a
+# =========================================
+# Suspended by DEFAULT (`suspend: ${HUAWEI_HR_SUSPEND:=true}`): a Hetzner
+# Sovereign (HUAWEI_HR_SUSPEND=true) NEVER installs it — the Hetzner Cloud CSI
+# (slot 55a) is its durable default class. The Huawei cloud-init sets
+# HUAWEI_HR_SUSPEND=false, so a Huawei Sovereign installs it for real. This is
+# the SAME gate that drives bp-velero-hcs (slot 34a) + every other HCS-only HR.
+# (Slot 55a uses the OPPOSITE convention — active-but-empty on Huawei — because
+# bp-cnpg/bp-mgmt-vcluster `dependsOn` it; nothing dependsOn THIS slot, so a
+# plain provider-suspend is correct and avoids installing the Hetzner-irrelevant
+# EVS driver on Hetzner.)
+#
+# WHAT IT INSTALLS (Huawei only)
+# ==============================
+#   - The EVS CSI controller Deployment (provisioner/attacher/resizer/
+#     snapshotter sidecars + the evs-csi-plugin) + node DaemonSet + CSIDriver
+#     `evs.csi.huaweicloud.com`.
+#   - The `evs-ssd` StorageClass — reclaimPolicy Retain (the backing EVS
+#     volume survives PVC/PV deletion), volumeBindingMode WaitForFirstConsumer
+#     (the volume lands in the consuming Pod's AZ), allowVolumeExpansion true,
+#     type SSD (HCS me-east-215 exposes SSD / SAS only).
+#   - VolumeSnapshotClass `evs-snapshots` (storage-level DR).
+#   - A post-install hook Job that promotes evs-ssd to cluster-default (the
+#     provisioner-agnostic flip hook reused from bp-hcloud-csi).
+#
+# AK/SK wiring:
+#   - cloud-init writes `flux-system/cloud-credentials` with huawei-ak /
+#     huawei-sk / huawei-project-id / huawei-region.
+#   - This HelmRelease lifts those four keys via Flux `valuesFrom` into the
+#     chart values; the chart renders the namespace-local `cloud-config` Secret
+#     (INI [Global] AK/SK + endpoints) the driver binds for EVS-API auth. The
+#     plaintext never lands in this committed manifest.
+#
+# dependsOn: (none) — a foundational cloud seam that must be Ready BEFORE the
+# stateful apps create PVCs. The cloud-credentials Secret is seeded by
+# cloud-init pre-Flux and the chart pulls from ghcr, so no Flux dependency. The
+# stateful slots install LATE (their dependsOn chains), by which time the
+# default-class flip has run.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-huawei-evs-csi
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-huawei-evs-csi
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "55b"
+spec:
+  # Default-suspended (Hetzner). The Huawei cloud-init sets
+  # HUAWEI_HR_SUSPEND=false so a Huawei Sovereign installs the EVS CSI for real.
+  suspend: ${HUAWEI_HR_SUSPEND:=true}
+  interval: 15m
+  releaseName: huawei-evs-csi
+  targetNamespace: huawei-evs-csi
+  install:
+    createNamespace: true
+    timeout: 15m
+    remediation:
+      retries: -1
+  upgrade:
+    timeout: 15m
+    remediation:
+      retries: 3
+  chart:
+    spec:
+      chart: bp-huawei-evs-csi
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-huawei-evs-csi
+        namespace: flux-system
+  # ── Activation ───────────────────────────────────────────────────────
+  # enabled installs the driver + renders the evs-ssd SC + runs the
+  # default-class flip hook so evs-ssd is the cluster's ONE default class
+  # (local-path is FORBIDDEN by --disable=local-storage).
+  #
+  # ⚠️ DEFAULT-OFF (EVS_CSI_ENABLED defaults "false") PENDING A LIVE AUTH FIX.
+  # Live-proven on hw174 (2026-06-21): the chart deploys cleanly — the
+  # evs-ssd StorageClass + the evs.csi.huaweicloud.com CSIDriver register and
+  # the default-class flip propagates to all 12 stateful PVCs — BUT the
+  # off-the-shelf huaweicloud-csi-driver controller CrashLoops at startup
+  # because its golangsdk does an upfront Keystone auth
+  # (`GET /v3/auth/catalog` + `POST /v3/auth/tokens`) and HCS me-east-215's
+  # IAM APIGW publishes NEITHER endpoint (every Keystone v3 path → APIGW.0101
+  # "API does not exist", probed exhaustively). The `idc` cloud-config field
+  # that would bypass this is declared-but-unused in the driver source. So a
+  # static enabled:true would install a CrashLooping controller → the HR never
+  # goes Ready → Huawei convergence gets WORSE, not better. Until the auth
+  # path is fixed (driver patch to sign EVS requests with AK/SK directly +
+  # skip the catalog fetch, OR the real HCS IAM token endpoint is found),
+  # EVS_CSI_ENABLED stays "false": the HR installs an empty release that
+  # reports Ready immediately (no regression), and a Huawei prov honestly has
+  # no default StorageClass → the Phase-1 storage-durability gate FAILS it
+  # (never silent local-path). Flip EVS_CSI_ENABLED="true" in the Huawei
+  # cloud-init substitute map the moment the auth fix lands. See #3971.
+  values:
+    enabled: ${EVS_CSI_ENABLED:=false}
+    defaultStorageClass: ${EVS_CSI_ENABLED:=false}
+    # HCS API domain + IAM endpoint — substituted from the Huawei cloud-init
+    # (HUAWEI_CLOUD_DOMAIN / HUAWEI_AUTH_URL) so the driver derives every EVS
+    # service endpoint as https://<svc>.<region>.<cloud>/.
+    cloud: ${HUAWEI_CLOUD_DOMAIN:=kom4dc.nationalcloud.om}
+    authUrl: ${HUAWEI_AUTH_URL:=https://iam.me-east-215.kom4dc.nationalcloud.om/v3}
+    clusterName: ${SOVEREIGN_FQDN_SLUG:=catalyst}
+  # ── AK/SK wiring ─────────────────────────────────────────────────────
+  # Pull the four Huawei creds from the canonical flux-system/cloud-credentials
+  # Secret (cloud-init Phase 0) into the chart values. Flux dereferences
+  # valuesFrom at apply time so the plaintext never lands in this manifest.
+  valuesFrom:
+    - kind: Secret
+      name: cloud-credentials
+      valuesKey: huawei-ak
+      targetPath: huaweiAccessKey
+    - kind: Secret
+      name: cloud-credentials
+      valuesKey: huawei-sk
+      targetPath: huaweiSecretKey
+    - kind: Secret
+      name: cloud-credentials
+      valuesKey: huawei-project-id
+      targetPath: huaweiProjectId
+    - kind: Secret
+      name: cloud-credentials
+      valuesKey: huawei-region
+      targetPath: huaweiRegion

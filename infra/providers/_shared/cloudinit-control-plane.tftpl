@@ -634,10 +634,26 @@ write_files:
             # reports Ready immediately (the dependsOn from the stateful root
             # slots is satisfied without the suspended-HR deadlock). The Hetzner
             # Cloud CSI obviously does NOT run on HCS; Huawei's durable default
-            # StorageClass (everest/EVS, slot 55b) is the #3971 follow-up. Until
-            # it lands, a Huawei prov has NO default class → the Phase-1
-            # storage-durability gate honestly FAILS it (never silent local-path).
+            # StorageClass is the EVS CSI at slot 55b (below), which DOES install
+            # on Huawei (HUAWEI_HR_SUSPEND=false).
             HCLOUD_CSI_ENABLED: "false"
+            # #3971 follow-up — bp-huawei-evs-csi (slot 55b) installs the
+            # open-source huaweicloud-csi-driver EVS plugin + the evs-ssd default
+            # StorageClass so Huawei PVCs land on durable EVS block volumes (not
+            # the FORBIDDEN local-path). The driver derives every EVS service
+            # endpoint as https://<svc>.<region>.<cloud>/; pass the HCS cloud
+            # domain + the regional IAM auth-url so it never falls back to the
+            # public *.myhuaweicloud.com endpoints (unreachable from kom4dc).
+            HUAWEI_CLOUD_DOMAIN: "kom4dc.nationalcloud.om"
+            HUAWEI_AUTH_URL: "https://iam.${region}.kom4dc.nationalcloud.om/v3"
+            # EVS_CSI_ENABLED stays "false" until the driver-auth blocker is
+            # fixed (live-proven on hw174: the chart deploys + the SC/CSIDriver
+            # register + the default flip propagates, but the driver controller
+            # CrashLoops because HCS me-east-215's IAM APIGW publishes none of
+            # the Keystone /v3/auth/catalog|tokens endpoints the driver's
+            # golangsdk requires). With "false" the HR installs empty + Ready
+            # (no regression); flip to "true" the moment the auth fix lands. #3971
+            EVS_CSI_ENABLED: "false"
             SECONDARY_HR_SUSPEND: "${sovereign_region_role == "primary" ? "false" : "true"}"
             CILIUM_LB_IPAM_ENABLED: "true"
             CILIUM_LB_IPAM_CIDRS: "${node_external_ip_value}/32"

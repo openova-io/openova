@@ -689,6 +689,20 @@ slots:
     depends_on: []
     wave: present
 
+  # ---- Slot 55b — bp-huawei-evs-csi (Huawei EVS CSI driver, #3971 follow-up).
+  # The Huawei (HCS / kom4dc) STORAGE sibling of slot 55a. Installs the
+  # open-source huaweicloud-csi-driver EVS plugin (evs.csi.huaweicloud.com) +
+  # the durable evs-ssd default StorageClass so Huawei PVCs land on real EVS
+  # block volumes (local-path FORBIDDEN by --disable=local-storage). No
+  # dependsOn: foundational cloud seam, Ready before the stateful apps create
+  # PVCs (cloud-credentials seeded by cloud-init pre-Flux, chart pulls from
+  # ghcr). Default-suspended on Hetzner (HUAWEI_HR_SUSPEND); the Huawei
+  # cloud-init flips it active. Closes the Huawei half of the #3971 P0 blocker.
+  - slot: 55b
+    name: bp-huawei-evs-csi
+    depends_on: []
+    wave: present
+
   # ---- Slots 56/57 — OpenovaFlow observability cohort.
   # Stateless HTTP+SSE event router (slot 56, primary cluster only) +
   # region-aware Flux adapter DaemonSet (slot 57, every cluster).
