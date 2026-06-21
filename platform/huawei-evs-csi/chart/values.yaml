@@ -53,6 +53,19 @@ authUrl: "https://iam.me-east-215.kom4dc.nationalcloud.om/v3"
 # standard trust store) — mirrors the tofu provider's `insecure = true`.
 insecureSkipTLSVerify: true
 
+# `idc` — the OpenOva no-Keystone AK/SK bypass switch (#3971). HCS deployments
+# like kom4dc / me-east-215 do NOT publish the Keystone v3 catalog/token
+# endpoints (every `/v3/auth/*` path → APIGW.0101 "API does not exist"), so the
+# off-the-shelf driver CrashLoops at startup before it ever issues an EVS call.
+# When idc=true the PATCHED driver (ghcr.io/openova-io/openova/evs-csi-plugin)
+# skips `openstack.Authenticate` (the catalog fetch) entirely and signs every
+# EVS request directly with SDK-HMAC-SHA256 AK/SK request signing — the EVS data
+# API works fine with AK/SK (tofu provisions EVS disks the same way). Requires a
+# non-empty project-id (no Keystone to resolve project-name → project-id). HCS is
+# the only target for this chart, so default true; set false only if a Sovereign
+# ever runs against PUBLIC Huawei Cloud (which publishes Keystone normally).
+idc: true
+
 # ─── StorageClass(es) ───────────────────────────────────────────────────
 # The FIRST entry is promoted to cluster-default when defaultStorageClass is
 # true. HCS me-east-215 exposes only `SSD` and `SAS` EVS volume types
@@ -78,21 +91,25 @@ volumeSnapshotClass:
   deletionPolicy: Delete
 
 # ─── driver + sidecar images ────────────────────────────────────────────
-# The EVS driver image lives in Huawei SWR (cn-north-4); on kom4dc every
-# upstream registry is proxy-mirrored through harbor.openova.io (the bastion
-# NAT bypass — infra/providers/huawei/main.tf registry_mirror_yaml_huawei).
-# The driver image is mirrored through a harbor proxy project so the Kyverno
-# harbor-proxy-pull policy passes. Sidecar images are repointed from the
-# deprecated k8s.gcr.io to registry.k8s.io (identical paths/tags) via the
-# harbor proxy-k8s cache.
+# The EVS driver is the OpenOva-PATCHED huaweicloud-csi-driver (#3971): the
+# upstream v0.1.x driver does an upfront Keystone catalog/token fetch
+# (openstack.Authenticate) that HCS me-east-215's IAM APIGW does NOT publish
+# (every /v3/auth/* → APIGW.0101), so it CrashLoops at startup. Our fork (built
+# from platform/huawei-evs-csi/driver-src by build-bp-huawei-evs-csi.yaml) adds
+# the `idc` no-Keystone bypass: when cloud-config idc=true it skips the catalog
+# fetch and signs every EVS request directly with SDK-HMAC-SHA256 AK/SK signing.
+# Published to ghcr.io/openova-io/openova/evs-csi-plugin; on kom4dc the
+# containerd registry mirror (registry_mirror_yaml_huawei) rewrites ghcr.io →
+# harbor.openova.io/proxy-ghcr transparently, so the Kyverno harbor-proxy-pull
+# policy passes. Sidecar images are repointed to registry.k8s.io (identical
+# paths/tags) via the harbor proxy-k8s cache.
 #
-# Tags pinned to the versions the upstream deploy manifests ship
-# (evs-csi-plugin v0.1.11 + the six sig-storage sidecars). Overridable per
-# Sovereign if the local SWR mirror carries a different driver version.
+# Sidecar tags pinned to the versions the upstream deploy manifests ship (the
+# six sig-storage sidecars). Driver tag = the patched fork's release tag.
 image:
   driver:
-    repository: harbor.openova.io/proxy-swr-csi/k8s-csi/evs-csi-plugin
-    tag: "v0.1.11"
+    repository: ghcr.io/openova-io/openova/evs-csi-plugin
+    tag: "v0.1.11-idc.1"
     pullPolicy: IfNotPresent
   sidecars:
     provisioner:

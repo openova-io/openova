@@ -1,0 +1,6 @@
+# binaries
+.idea
+.vscode/
+.DS_Store
+.go/
+_tmp
