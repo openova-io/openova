@@ -2931,7 +2931,7 @@ name: bp-catalyst-platform
 #   clusters name an explicit per-provider storageClass so their PVCs never freeze
 #   "" before the default StorageClass lands (hw174: 3 PVCs stuck Pending<empty>).
 #   (renumbered 1.4.747→1.4.749, one above main's deploy-bot 1.4.748, to clear the pin collision.)
-version: 1.4.753
+version: 1.4.754
 # 1.4.702 — #3819 #3854 #3859 (Refs #3383 #3376): sme→org-services rename TAIL — the
 #   funnel/BSS control-plane templates + values default the namespace to `org-services`
 #   instead of the dead `sme` ns: provisioning-github-token / valkey-cross-ns-secret +
@@ -3036,7 +3036,7 @@ version: 1.4.753
 #   unsatisfiable on kom4dc (me-east-215-*), which kept the production
 #   Continuum seed unfireable. Backwards-compatible (all-letter labels
 #   still match). Flux CreateReplace flows it to live Sovereigns.
-appVersion: 1.4.706
+appVersion: 1.4.754
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
