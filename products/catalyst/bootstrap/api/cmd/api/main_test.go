@@ -21,9 +21,29 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	clientgofeatures "k8s.io/client-go/features"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler"
 )
+
+// TestDisableWatchListClient_TurnsGateOff is the #4071 regression guard.
+// client-go v0.36 ships WatchListClient default-ON (Beta from v1.35); on the
+// Sovereign chroot's k3s apiserver the streaming watch-list path that gate
+// selects 404s freshly-served CRDs (apps.openova.io/applications et al) and
+// the reflector never falls back to the working LIST+WATCH. disableWatchListClient
+// must flip the effective gate OFF so reflectors use classic LIST+WATCH.
+func TestDisableWatchListClient_TurnsGateOff(t *testing.T) {
+	// Sanity: default is ON for the client-go version we build against — if a
+	// future bump flips the default OFF, this test's premise is moot (and the
+	// production call becomes a harmless no-op), so just skip rather than fail.
+	if !clientgofeatures.FeatureGates().Enabled(clientgofeatures.WatchListClient) {
+		t.Skip("WatchListClient already disabled by default in this client-go version; #4071 call is a no-op")
+	}
+	disableWatchListClient(silentLogger())
+	if clientgofeatures.FeatureGates().Enabled(clientgofeatures.WatchListClient) {
+		t.Fatalf("WatchListClient still enabled after disableWatchListClient — reflectors will take the broken streaming watch-list path (#4071)")
+	}
+}
 
 // newBakeTimeSeedFakeClient — mirrors the fake-dynamic-client pattern
 // in handler/user_access_owner_seed_test.go::newOwnerSeedFakeClient

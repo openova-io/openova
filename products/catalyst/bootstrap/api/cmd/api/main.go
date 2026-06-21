@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"k8s.io/client-go/dynamic"
+	clientgofeatures "k8s.io/client-go/features"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -44,6 +45,37 @@ func main() {
 	corsOrigin := env("CORS_ORIGIN", "*")
 
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	// #4071 — disable client-go's WatchListClient feature gate BEFORE any
+	// client / informer is constructed.
+	//
+	// Root cause: client-go v0.36 ships WatchListClient as a Beta gate that
+	// is DEFAULT-ON from v1.35 (see k8s.io/client-go/features). With it on,
+	// the reflector's primary path is the streaming watch-list
+	// (`?sendInitialEvents=true&resourceVersionMatch=NotOlderThan&watch=true`)
+	// instead of the classic LIST+WATCH. On the Sovereign chroot's k3s
+	// apiserver this streaming-list path intermittently returns
+	// `the server could not find the requested resource` for freshly-served
+	// CRDs (apps.openova.io/applications, orgs.openova.io/organizations,
+	// catalyst.openova.io/{blueprints,environments}, dr.openova.io/{continuums,
+	// cnpgpairs}, sandbox.openova.io/sandboxes). The reflector logs
+	// `reflector.go "Failed to watch"` and retries the SAME failing streaming
+	// path forever — it never falls through to the plain LIST+WATCH that the
+	// apiserver serves perfectly (verified live on omantel.biz: a direct
+	// `GET /apis/apps.openova.io/v1/applications` returns 200 with items, yet
+	// the in-process informer 404s on every retry). A pod restart does NOT fix
+	// it because every fresh reflector re-takes the same broken streaming path.
+	// Net effect: the Application/Org/Blueprint/Environment informers never
+	// sync → the console Apps view shows every platform app PENDING, and
+	// user-installed apps (agenity/WordPress) never reach Ready through the
+	// k8scache SSE stream either.
+	//
+	// Disabling the gate forces the reflector back to LIST+WATCH (the path
+	// proven working against this apiserver), recovering WITHOUT a restart on
+	// the next reflector relist. Set programmatically so the fix travels with
+	// the binary and protects every fresh prov regardless of chart env wiring;
+	// an operator can still re-enable via KUBE_FEATURE_WatchListClient=true.
+	disableWatchListClient(log)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -1962,6 +1994,44 @@ func env(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// disableWatchListClient turns OFF the client-go WatchListClient feature gate
+// so every reflector built by this process uses the classic LIST+WATCH path
+// instead of the streaming watch-list (#4071 — see the call site in main for
+// the full root-cause analysis).
+//
+// The default client-go feature-gate implementation (k8s.io/client-go/features
+// FeatureGates()) is an *envVarFeatureGates, whose concrete type carries a
+// `Set(Feature, bool) error` method that takes precedence over both the
+// built-in default and the KUBE_FEATURE_* env var. We type-assert to that
+// method set (the exported Gates interface only declares Enabled) and Set the
+// gate to false. The Set MUST happen before the first Enabled() read — i.e.
+// before any client/informer is constructed — because the env-var snapshot is
+// loaded exactly once on the first Enabled() call. main calls this as its first
+// real action, so the ordering holds.
+//
+// If the assertion ever fails (a future client-go swaps the default gate
+// implementation), fall back to the supported env-var mechanism so the gate is
+// still disabled; both are honoured by client-go's own resolution order.
+func disableWatchListClient(log *slog.Logger) {
+	type settableGates interface {
+		Set(clientgofeatures.Feature, bool) error
+	}
+	if g, ok := clientgofeatures.FeatureGates().(settableGates); ok {
+		if err := g.Set(clientgofeatures.WatchListClient, false); err != nil {
+			log.Warn("client-go: failed to disable WatchListClient via Set; falling back to env var",
+				"err", err)
+			_ = os.Setenv("KUBE_FEATURE_WatchListClient", "false")
+			return
+		}
+		log.Info("client-go: WatchListClient feature gate disabled (reflectors use classic LIST+WATCH) — #4071")
+		return
+	}
+	// Default gate implementation not settable — use the env-var mechanism,
+	// which client-go reads on the first Enabled() call.
+	_ = os.Setenv("KUBE_FEATURE_WatchListClient", "false")
+	log.Info("client-go: WatchListClient disabled via KUBE_FEATURE_WatchListClient env var — #4071")
 }
 
 // envInt returns the parsed integer value of an env var, or fallback
