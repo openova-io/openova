@@ -35,10 +35,10 @@ Every consuming Blueprint MUST emit these env vars on the runtime container:
 | `SANDBOX_DEFAULT_AGENT` | overlay (chepherd renders per Sandbox.spec.agentCatalogue[0]) | no | Lazy-spawn target |
 | `SANDBOX_RING_BUFFER_BYTES` | overlay (default 1 MiB, clamped 16 MiB) | no | PTY replay buffer size |
 
-**Reflector mirror**: openova-side bp-newapi chart at Wave 1.4.31 set `sandboxTokenSigningKey.reflectorNamespaces: "catalyst-system,sandbox,sandbox-.*"` so emberstack/reflector mirrors the source Secret into every per-Sandbox namespace via regex. For bp-chepherd, extend the regex to also include `chepherd-.*` OR add `chepherd-system` explicitly. Spec:
+**Reflector mirror**: openova-side bp-newapi chart at Wave 1.4.31 set `sandboxTokenSigningKey.reflectorNamespaces: "catalyst-system,sandbox,sandbox-.*"` so emberstack/reflector mirrors the source Secret into every per-Sandbox namespace via regex. For bp-agenity, extend the regex to also include `chepherd-.*` OR add `chepherd-system` explicitly. Spec:
 
 ```yaml
-# In bp-chepherd's chart, request reflector annotation on source Secret
+# In bp-agenity's chart, request reflector annotation on source Secret
 metadata:
   annotations:
     reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
@@ -94,7 +94,7 @@ Wave 0.3.3 (PR #2049) shipped this in openova; chepherd lifts the ConfigMap temp
 
 ## §5 — Auth chain handshake
 
-When bp-chepherd runs in a Sovereign, the operator's existing catalyst-api session cookie flows through to chepherd's WebSocket:
+When bp-agenity runs in a Sovereign, the operator's existing catalyst-api session cookie flows through to chepherd's WebSocket:
 
 ```
 User browser
@@ -116,7 +116,7 @@ chepherd pty-server WebSocket upgrade handler
 
 ## §6 — PVC contract
 
-bp-chepherd Blueprint MUST render the per-Sandbox StatefulSet with 3 PVCs (preserves the "close laptop, open phone" Scene 6 semantics):
+bp-agenity Blueprint MUST render the per-Sandbox StatefulSet with 3 PVCs (preserves the "close laptop, open phone" Scene 6 semantics):
 
 | Mount | PVC | Size default | Purpose |
 |---|---|---|---|
@@ -136,18 +136,18 @@ networkPolicy:
   ingress:
     allowedFromNamespaces:
       - catalyst-system
-      - chepherd-system      # added by bp-chepherd Blueprint install
+      - chepherd-system      # added by bp-agenity Blueprint install
 ```
 
 ## §8 — Open questions for the chepherd team
 
 1. Will chepherd v0.5 ship its own JWT-mint (deprecates openova sandbox-bridge)? **Founder pending.**
-2. Will chepherd add `chepherd-system` namespace to bp-newapi's NetPol via a per-Sovereign overlay PR OR via the bp-chepherd Helm hook? **Need confirmation.**
+2. Will chepherd add `chepherd-system` namespace to bp-newapi's NetPol via a per-Sovereign overlay PR OR via the bp-agenity Helm hook? **Need confirmation.**
 3. Catalog submission tree — `thirdparty/chepherd/` in openova-io/openova monorepo OR separate openova-io/chepherd repo? **Founder pending.**
 
 ## §9 — Versioning
 
-This spec versions in lockstep with openova-MCP. Breaking changes to env vars, mcp.json shape, or tool namespaces bump the major version + chepherd-side must update bp-chepherd pin. Additive changes bump minor.
+This spec versions in lockstep with openova-MCP. Breaking changes to env vars, mcp.json shape, or tool namespaces bump the major version + chepherd-side must update bp-agenity pin. Additive changes bump minor.
 
 | Version | Changes |
 |---|---|

@@ -4,7 +4,7 @@
 **What this proves:** the founder's north-star end-to-end — *a stranger with a coupon stands up
 their own Org, logs in passwordless, installs chepherd as an Application, and chepherd's solo
 agent creates more Applications for them via the RBAC-scoped openova MCP.*
-**Gated on:** a fresh prov converged past storage (cycle-2c hw177) + `bp-chepherd` in the catalog
+**Gated on:** a fresh prov converged past storage (cycle-2c hw177) + `bp-agenity` in the catalog
 (#4011) + `openova-mcp` deployed (on main) + the agent↔MCP wiring. Run AFTER the cycle-2c
 foundation walk (see `../../sessions/2026-06-21/cycle2c-walk-runbook.md`).
 
@@ -30,10 +30,10 @@ their email in the avatar, their Org in the header.
 
 ## B. chepherd as an Application (rows 218-220)
 
-**☐ B.1 (R218) — installable from the catalog.** Per-Org console → Catalog → `bp-chepherd` card is
+**☐ B.1 (R218) — installable from the catalog.** Per-Org console → Catalog → `bp-agenity` card is
 present and installable into the Org's Environment. PASS = the card renders + the install wizard opens.
 
-**☐ B.2 (R219) — provision → converges.** Install bp-chepherd → its HelmRelease deploys, pods
+**☐ B.2 (R219) — provision → converges.** Install bp-agenity → its HelmRelease deploys, pods
 Ready, the chepherd console is reachable at its per-Org FQDN. PASS = chepherd app card Running/Healthy
 + `Open` resolves to the live chepherd console (not 404/502/cert error).
 
