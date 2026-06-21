@@ -57,3 +57,10 @@ annotations:
   # feature toggle — same default-off pattern as bp-hcloud-csi). Without
   # this annotation Blueprint-Release rejects the publish.
   catalyst.openova.io/smoke-render-mode: "default-off"
+  # #181/#2935: upstream-subchart presence gate opt-out. This chart vendors the
+  # huaweicloud-csi-driver EVS plugin as RAW manifests in templates/ (no upstream
+  # Helm chart exists — see the header comment), so it legitimately declares NO
+  # `dependencies:`. Without this the "Verify upstream subcharts" gate hard-fails
+  # the publish (the exact failure that left bp-huawei-evs-csi:1.0.0 unpublished
+  # and re-wedged Huawei storage). Same opt-out bp-crossplane-claims uses.
+  catalyst.openova.io/no-upstream: "true"
