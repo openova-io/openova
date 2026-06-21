@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-21T17:30:02Z` |
+| Last refreshed | `2026-06-21T17:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 77 |
 | Open DoD gates | 0 / 41 |
@@ -284,6 +284,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-06-21T17:35 | [#4065](https://github.com/openova-io/openova/pull/4065) | #3642 | fix(bp-harbor): render DB-secret rename Job in #3642 host-br |
+| 2026-06-21T17:38 | [#4064](https://github.com/openova-io/openova/pull/4064) | #4060 | fix(provisioning): provider-aware CNPG-pair storageClass — P |
 | 2026-06-21T15:54 | [#4056](https://github.com/openova-io/openova/pull/4056) | #4055 | fix(catalyst-api): enforce Huawei resource floor — CP≥4vCPU, |
 | 2026-06-21T13:43 | [#4052](https://github.com/openova-io/openova/pull/4052) | #4037 | fix(bootstrap-kit): gate stateful root slots on BOTH per-pro |
 | 2026-06-21T12:03 | [#4051](https://github.com/openova-io/openova/pull/4051) | #4049 | fix(bp-catalyst-platform): bp-chepherd missing required topo |
@@ -312,8 +314,6 @@ flowchart LR
 | 2026-06-21T00:19 | [#4015](https://github.com/openova-io/openova/pull/4015) | #4001 | fix(catalyst-api): deliver region-b kubeconfig to in-cluster |
 | 2026-06-21T00:04 | [#4014](https://github.com/openova-io/openova/pull/4014) | #3996 | fix(catalyst-rbac): cutover-driver SA can patch Flux reconci |
 | 2026-06-21T00:06 | [#4013](https://github.com/openova-io/openova/pull/4013) | #3971 | fix(bp-huawei-evs-csi): idc no-Keystone AK/SK bypass — EVS p |
-| 2026-06-21T00:05 | [#4012](https://github.com/openova-io/openova/pull/4012) | #3971 | fix(bootstrap): Huawei EVS CSI blueprint + slot 55b — Huawei |
-| 2026-06-21T07:18 | [#4011](https://github.com/openova-io/openova/pull/4011) | #4010 | feat(bp-chepherd): chepherd as an installable Application +  |
 
 ---
 
