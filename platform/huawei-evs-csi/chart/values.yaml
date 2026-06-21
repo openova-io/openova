@@ -116,6 +116,20 @@ volumeSnapshotClass:
 #
 # Sidecar tags pinned to the versions the upstream deploy manifests ship (the
 # six sig-storage sidecars). Driver tag = the patched fork's release tag.
+# imagePullSecrets for the PRIVATE driver image. The patched driver
+# (ghcr.io/openova-io/openova/evs-csi-plugin) is a PRIVATE ghcr package, so the
+# CSI controller + node pods need the `ghcr-pull` dockerconfigjson secret to
+# authenticate to ghcr (#4037 — without it the kubelet falls back to an
+# anonymous ghcr token → 401 Unauthorized → ImagePullBackOff → the driver never
+# runs → every evs-ssd PVC stays Pending → storage tier wedges behind a green
+# evs-ssd StorageClass). The `ghcr-pull` Secret is minted in flux-system by
+# cloud-init and reflected (emberstack reflector) into the chart's
+# targetNamespace — the cloud-init reflection-allowed/auto-namespaces list MUST
+# include `huawei-evs-csi` (fixed in the same #4037). The six sidecar images are
+# public harbor proxy-k8s mirrors and need no secret.
+imagePullSecrets:
+  - name: ghcr-pull
+
 image:
   driver:
     repository: ghcr.io/openova-io/openova/evs-csi-plugin

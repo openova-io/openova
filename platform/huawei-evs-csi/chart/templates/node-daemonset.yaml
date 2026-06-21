@@ -44,6 +44,12 @@ spec:
         app.kubernetes.io/name: bp-huawei-evs-csi
         app.kubernetes.io/component: node
     spec:
+      {{- with .Values.imagePullSecrets }}
+      # Private driver image (ghcr.io/openova-io/openova/evs-csi-plugin) needs the
+      # ghcr-pull dockerconfigjson secret — #4037.
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       serviceAccountName: csi-evs-node-sa
       priorityClassName: system-node-critical
       hostNetwork: true
