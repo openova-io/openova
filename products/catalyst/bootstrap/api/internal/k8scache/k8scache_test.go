@@ -1246,3 +1246,99 @@ users: [{name: u, user: {token: t}}]
 	}
 }
 
+// TestFactory_RescanPrunesVanishedKubeconfig is the #3987 eviction half:
+// a file-backed cluster whose kubeconfig disappears from KubeconfigsDir
+// must be pruned by the next rescan, while (a) a sibling whose file
+// still exists and (b) a pre-built-client cluster with NO backing file
+// (the chroot's own in-cluster cluster) both survive. This is the
+// k8scache-tier guard against a wiped deployment's cluster id leaking
+// its Nodes into a sibling deployment's Cloud page through the process
+// cache.
+func TestFactory_RescanPrunesVanishedKubeconfig(t *testing.T) {
+	tmp := t.TempDir()
+	kubeconfig := func() string {
+		return `apiVersion: v1
+kind: Config
+clusters:
+- name: c
+  cluster:
+    server: https://127.0.0.1:6443
+    insecure-skip-tls-verify: true
+contexts:
+- name: c
+  context:
+    cluster: c
+    user: u
+current-context: c
+users:
+- name: u
+  user:
+    token: t
+`
+	}
+	// depA = the deployment whose page we view (file survives).
+	// depB = the wiped deployment (file gets deleted).
+	pathA := tmp + "/depA.yaml"
+	pathB := tmp + "/depB.yaml"
+	if err := os.WriteFile(pathA, []byte(kubeconfig()), 0o600); err != nil {
+		t.Fatalf("write depA: %v", err)
+	}
+	if err := os.WriteFile(pathB, []byte(kubeconfig()), 0o600); err != nil {
+		t.Fatalf("write depB: %v", err)
+	}
+
+	refs, err := LoadClustersFromDir(quietLogger(), tmp)
+	if err != nil {
+		t.Fatalf("LoadClustersFromDir: %v", err)
+	}
+
+	// Also inject a pre-built-client cluster (no kubeconfig file) — the
+	// chroot's own in-cluster cluster. It must NEVER be pruned.
+	pod := newPod("default", "x")
+	dyn, core := fakeClients(pod)
+
+	cfg := Config{
+		Logger:         quietLogger(),
+		Registry:       minimalRegistry(),
+		KubeconfigsDir: tmp,
+		Clusters:       append(refs, ClusterRef{ID: "chroot-self", DynamicClient: dyn, CoreClient: core}),
+	}
+	f, err := NewFactory(cfg)
+	if err != nil {
+		t.Fatalf("NewFactory: %v", err)
+	}
+	defer f.Stop()
+	if got := len(f.Clusters()); got != 3 {
+		t.Fatalf("expected 3 clusters (depA, depB, chroot-self), got %d (%v)", got, f.Clusters())
+	}
+
+	// Wipe depB: delete its kubeconfig file (what the wipe handler's
+	// snapshot cleanup + a stale-file purge would leave behind).
+	if err := os.Remove(pathB); err != nil {
+		t.Fatalf("remove depB kubeconfig: %v", err)
+	}
+
+	// One rescan pass must prune depB and keep depA + chroot-self.
+	f.rescanOnce(context.Background())
+
+	got := map[string]bool{}
+	for _, id := range f.Clusters() {
+		got[id] = true
+	}
+	if got["depB"] {
+		t.Fatalf("depB still registered after its kubeconfig disappeared: %v", f.Clusters())
+	}
+	if !got["depA"] {
+		t.Fatalf("depA wrongly pruned — its kubeconfig still exists: %v", f.Clusters())
+	}
+	if !got["chroot-self"] {
+		t.Fatalf("chroot-self (no backing file) wrongly pruned: %v", f.Clusters())
+	}
+
+	// depB's List must now error (cluster gone), proving the Nodes no
+	// longer surface from the process cache.
+	if _, _, err := f.List("depB", "pod", labels.Everything()); err == nil {
+		t.Fatalf("List(depB) expected error after prune, got nil")
+	}
+}
+
